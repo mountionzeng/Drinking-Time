@@ -1,0 +1,696 @@
+import { z } from "zod";
+import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { invokeLLM } from "./_core/llm";
+import { ENV } from "./_core/env";
+import { storagePut } from "./storage";
+import {
+  createProject, getUserProjects, getProjectById,
+  createReference, getProjectReferences, updateReference,
+  createShots, getProjectShots, updateShot, batchUpdateShots,
+  createAnalysisResult, getProjectAnalysis,
+  listUserStories, getStoryById, createStory, updateStory, deleteStory,
+} from "./db";
+import {
+  saveSnapshot,
+  getRecentAnnotations,
+} from "./services/editContext";
+import type { ProjectState } from "./_core/editDiff";
+import { nanoid } from "nanoid";
+import {
+  replyFromStoryAgent,
+  synthesizeShotList,
+  summarizeHistory,
+  type SimilarStoryCardPayload,
+  type ShotDraft,
+} from "./archive/storyAgent";
+
+// ─── Nayin Five Element calculation (server-side) ─────────────────────────
+
+const STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'] as const;
+const BRANCHES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'] as const;
+type NayinElement = 'metal' | 'wood' | 'water' | 'fire' | 'earth';
+// Traditional 纳音 order for 60 Jiazi (one value per pair, total 30 pairs).
+const NAYIN_PAIR_ELEMENTS: NayinElement[] = [
+  'metal', 'fire', 'wood', 'earth', 'metal', 'fire', 'water', 'earth', 'metal', 'wood',
+  'water', 'earth', 'fire', 'wood', 'water', 'metal', 'fire', 'wood', 'earth', 'metal',
+  'fire', 'water', 'earth', 'metal', 'wood', 'water', 'earth', 'fire', 'wood', 'water',
+];
+
+function getDayStemBranch(date: Date) {
+  // Use UTC-based calculation to avoid timezone issues
+  // Reference: 2000-01-07 is 甲子日 (index 0 in the 60-day cycle)
+  const refUtc = Date.UTC(2000, 0, 7);
+  const dateUtc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.floor((dateUtc - refUtc) / 86400000);
+  let idx = diffDays % 60;
+  if (idx < 0) idx += 60;
+  return { stem: STEMS[idx % 10], branch: BRANCHES[idx % 12], ganzhiIndex: idx };
+}
+
+function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
+  return NAYIN_PAIR_ELEMENTS[Math.floor(ganzhiIndex / 2)];
+}
+
+// ─── Router ──────────────────────────────────────────────────────────────
+
+export const appRouter = router({
+  system: systemRouter,
+
+  auth: router({
+    me: publicProcedure.query(opts => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  // ─── Nayin Five Element ─────────────────────────────────────────────
+  nayin: router({
+    today: publicProcedure
+      .input(z.object({ date: z.string().optional() }).optional())
+      .query(({ input }) => {
+        const d = input?.date ? new Date(input.date) : new Date();
+        const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const { stem, branch, ganzhiIndex } = getDayStemBranch(localDate);
+        const element = calcNayinByGanzhiIndex(ganzhiIndex);
+        return { element, ganzhi: `${stem}${branch}`, stem, branch };
+      }),
+  }),
+
+  // ─── Project ────────────────────────────────────────────────────────
+  project: router({
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1).max(255),
+        deadline: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return createProject({ userId: ctx.user.id, name: input.name, deadline: input.deadline });
+      }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getUserProjects(ctx.user.id);
+    }),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return getProjectById(input.id, ctx.user.id);
+      }),
+  }),
+
+  // ─── Reference (file upload) ────────────────────────────────────────
+  reference: router({
+    upload: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        fileName: z.string(),
+        mimeType: z.string(),
+        fileBase64: z.string(),
+        sourceType: z.enum(["image", "video", "script", "storyboard", "brief", "note", "pdf"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const buffer = Buffer.from(input.fileBase64, "base64");
+        const storageKey = `refs/${ctx.user.id}/${input.projectId}/${nanoid()}-${input.fileName}`;
+        let fileKey = storageKey;
+        let fileUrl: string | null = null;
+
+        try {
+          const { url } = await storagePut(storageKey, buffer, input.mimeType);
+          fileUrl = url;
+        } catch (error) {
+          // Local fallback: if external storage is unavailable, keep file inline as data URL.
+          fileKey = `inline/${ctx.user.id}/${input.projectId}/${nanoid()}-${input.fileName}`;
+          fileUrl = `data:${input.mimeType};base64,${input.fileBase64}`;
+        }
+
+        const ref = await createReference({
+          projectId: input.projectId,
+          userId: ctx.user.id,
+          title: input.fileName,
+          sourceType: input.sourceType,
+          fileUrl,
+          fileKey,
+          mimeType: input.mimeType,
+          fileSize: buffer.length,
+        });
+
+        return { id: ref.id, fileUrl, fileKey };
+      }),
+
+    list: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        return getProjectReferences(input.projectId);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        dateBucket: z.string().optional(),
+        importance: z.number().min(1).max(5).optional(),
+        pinned: z.boolean().optional(),
+        excluded: z.boolean().optional(),
+        sortOrder: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        await updateReference(id, ctx.user.id, data);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Analysis（分析 Agent：把素材拆解成镜头） ──────────────────────────────
+  // 用户上传素材后，调用大模型进行 NLP 分析
+  // 输入：项目的所有参考素材（图片、脚本、brief 等）
+  // 输出：拆解出的镜头列表 + 整体环境/氛围分析
+  // 结果会存入数据库（shots 表 + analysis 表）
+  analysis: router({
+    /** Run NLP analysis on project references to decompose into shots */
+    run: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        // Gather all references for the project
+        const refs = await getProjectReferences(input.projectId);
+        if (refs.length === 0) {
+          return { error: "No references found. Please upload materials first." };
+        }
+
+        // Build multimodal context from references
+        const userContent: Array<
+          | { type: "text"; text: string }
+          | { type: "image_url"; image_url: { url: string; detail: "auto" } }
+        > = [
+          {
+            type: "text",
+            text:
+              "Here are the project reference materials. Please decompose these into individual shots and provide an overall analysis.",
+          },
+        ];
+
+        refs.forEach((r, i) => {
+          let desc = `[${i + 1}] ${r.title} (${r.sourceType})`;
+          if (r.extractedText) desc += `\nContent: ${r.extractedText}`;
+          userContent.push({ type: "text", text: desc });
+
+          if (
+            ENV.llmSupportsImage &&
+            r.fileUrl &&
+            (r.sourceType === "image" || r.sourceType === "storyboard")
+          ) {
+            userContent.push({
+              type: "image_url",
+              image_url: { url: r.fileUrl, detail: "auto" },
+            });
+          } else if (r.sourceType === "image" || r.sourceType === "storyboard") {
+            const fileHint =
+              r.fileUrl && !r.fileUrl.startsWith("data:")
+                ? `\nImage URL: ${r.fileUrl}`
+                : "";
+            userContent.push({
+              type: "text",
+              text:
+                `[Image Note] ${r.title} is an image reference.${fileHint}\n` +
+                "Current model is in text-only mode, so infer visual intent from filename and context.",
+            });
+          }
+        });
+
+        const systemPrompt = `You are a professional film production analyst. Given reference materials (images, scripts, briefs, storyboards, notes), decompose them into individual scene/shot production rows.
+
+For each shot, extract:
+- sceneNo: Scene number (e.g. "S01")
+- shotNo: Shot number (e.g. "A001")
+- sourceSummary: Brief description of what this shot depicts
+- intentType: "idea" | "client_requirement" | "director_note"
+- status: "idea_pool" | "requirement_pool" | "structured" | "production_ready"
+- readinessScore: 0-1 float indicating production readiness
+- priority: "low" | "medium" | "high" | "urgent"
+- blockingIssues: array of strings describing what's missing
+- nextAction: suggested next step
+- sceneType: e.g. "interior", "exterior", "aerial"
+- timeOfDay: e.g. "night", "golden_hour", "overcast_day"
+- weather: e.g. "foggy", "rainy", "clear"
+- lighting: description of lighting setup
+- cameraFocalLength: e.g. "35mm", "85mm"
+- cameraMovement: e.g. "slow push-in", "static", "handheld"
+- mood: emotional tone keywords
+- colorPalette: color description
+- promptDraft: a production-ready prompt for image/video generation
+- negativePrompt: what to avoid
+
+Also generate an overall analysis summary with:
+- mood: overall mood analysis
+- lighting: overall lighting analysis
+- spatialStructure: spatial composition analysis
+- cameraLanguage: camera language analysis
+- colorPalette: color palette analysis
+- atmosphereKeywords: array of atmosphere keywords
+- promptDraft: overall environment prompt
+- negativePrompt: overall negative prompt
+- summary: one-paragraph summary
+
+Return pure JSON only with { shots: [...], analysis: {...} }`;
+
+        const invokeParams: Parameters<typeof invokeLLM>[0] = {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent },
+          ],
+        };
+
+        if (ENV.llmSupportsResponseFormat) {
+          invokeParams.response_format = {
+            type: "json_schema",
+            json_schema: {
+              name: "shot_decomposition",
+              strict: true,
+              schema: {
+                type: "object",
+                properties: {
+                  shots: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        sceneNo: { type: "string" },
+                        shotNo: { type: "string" },
+                        sourceSummary: { type: "string" },
+                        intentType: { type: "string", enum: ["idea", "client_requirement", "director_note"] },
+                        status: { type: "string", enum: ["idea_pool", "requirement_pool", "structured", "production_ready"] },
+                        readinessScore: { type: "number" },
+                        priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
+                        blockingIssues: { type: "array", items: { type: "string" } },
+                        nextAction: { type: "string" },
+                        sceneType: { type: "string" },
+                        timeOfDay: { type: "string" },
+                        weather: { type: "string" },
+                        lighting: { type: "string" },
+                        cameraFocalLength: { type: "string" },
+                        cameraMovement: { type: "string" },
+                        mood: { type: "string" },
+                        colorPalette: { type: "string" },
+                        promptDraft: { type: "string" },
+                        negativePrompt: { type: "string" },
+                      },
+                      required: ["sceneNo", "shotNo", "sourceSummary", "intentType", "status", "readinessScore", "priority", "blockingIssues", "nextAction", "sceneType", "timeOfDay", "weather", "lighting", "cameraFocalLength", "cameraMovement", "mood", "colorPalette", "promptDraft", "negativePrompt"],
+                      additionalProperties: false,
+                    },
+                  },
+                  analysis: {
+                    type: "object",
+                    properties: {
+                      mood: { type: "string" },
+                      lighting: { type: "string" },
+                      spatialStructure: { type: "string" },
+                      cameraLanguage: { type: "string" },
+                      colorPalette: { type: "string" },
+                      atmosphereKeywords: { type: "array", items: { type: "string" } },
+                      promptDraft: { type: "string" },
+                      negativePrompt: { type: "string" },
+                      summary: { type: "string" },
+                    },
+                    required: ["mood", "lighting", "spatialStructure", "cameraLanguage", "colorPalette", "atmosphereKeywords", "promptDraft", "negativePrompt", "summary"],
+                    additionalProperties: false,
+                  },
+                },
+                required: ["shots", "analysis"],
+                additionalProperties: false,
+              },
+            },
+          };
+        }
+
+        // Call LLM for structured shot decomposition
+        const llmResult = await invokeLLM(invokeParams);
+
+        const content = llmResult.choices[0]?.message?.content;
+        let contentText = "";
+        if (typeof content === "string") {
+          contentText = content;
+        } else if (Array.isArray(content)) {
+          contentText = content
+            .map(item => (item.type === "text" ? item.text : ""))
+            .filter(Boolean)
+            .join("\n");
+        }
+
+        if (!contentText) {
+          return { error: "LLM returned empty response" };
+        }
+
+        const normalizedText = contentText
+          .trim()
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```$/, "")
+          .trim();
+
+        const parseJsonFromLLM = <T,>(raw: string): T => {
+          try {
+            return JSON.parse(raw) as T;
+          } catch {
+            const firstBrace = raw.indexOf("{");
+            const lastBrace = raw.lastIndexOf("}");
+            if (firstBrace === -1 || lastBrace <= firstBrace) {
+              throw new Error("LLM returned non-JSON response");
+            }
+            return JSON.parse(raw.slice(firstBrace, lastBrace + 1)) as T;
+          }
+        };
+
+        const parsed = parseJsonFromLLM<{
+          shots: Array<{
+            sceneNo: string; shotNo: string; sourceSummary: string;
+            intentType: "idea" | "client_requirement" | "director_note";
+            status: "idea_pool" | "requirement_pool" | "structured" | "production_ready";
+            readinessScore: number; priority: "low" | "medium" | "high" | "urgent";
+            blockingIssues: string[]; nextAction: string;
+            sceneType: string; timeOfDay: string; weather: string; lighting: string;
+            cameraFocalLength: string; cameraMovement: string;
+            mood: string; colorPalette: string; promptDraft: string; negativePrompt: string;
+          }>;
+          analysis: {
+            mood: string; lighting: string; spatialStructure: string;
+            cameraLanguage: string; colorPalette: string;
+            atmosphereKeywords: string[]; promptDraft: string;
+            negativePrompt: string; summary: string;
+          };
+        }>(normalizedText);
+
+        // Save shots to database
+        const shotRows = parsed.shots.map(s => ({
+          projectId: input.projectId,
+          userId: ctx.user.id,
+          sceneNo: s.sceneNo,
+          shotNo: s.shotNo,
+          sourceSummary: s.sourceSummary,
+          intentType: s.intentType,
+          status: s.status,
+          readinessScore: s.readinessScore,
+          priority: s.priority,
+          autoRender: false,
+          blockingIssues: s.blockingIssues,
+          nextAction: s.nextAction,
+          sceneType: s.sceneType,
+          timeOfDay: s.timeOfDay,
+          weather: s.weather,
+          lighting: s.lighting,
+          cameraFocalLength: s.cameraFocalLength,
+          cameraMovement: s.cameraMovement,
+          mood: s.mood,
+          colorPalette: s.colorPalette,
+          promptDraft: s.promptDraft,
+          negativePrompt: s.negativePrompt,
+        }));
+
+        await createShots(shotRows);
+
+        // Save analysis result
+        const a = parsed.analysis;
+        await createAnalysisResult({
+          projectId: input.projectId,
+          userId: ctx.user.id,
+          mood: a.mood,
+          lighting: a.lighting,
+          spatialStructure: a.spatialStructure,
+          cameraLanguage: a.cameraLanguage,
+          colorPalette: a.colorPalette,
+          atmosphereKeywords: a.atmosphereKeywords,
+          promptDraft: a.promptDraft,
+          negativePrompt: a.negativePrompt,
+          summary: a.summary,
+        });
+
+        return {
+          shotsCount: parsed.shots.length,
+          analysis: parsed.analysis,
+        };
+      }),
+
+    /** Get the latest analysis result for a project */
+    get: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        return getProjectAnalysis(input.projectId);
+      }),
+  }),
+
+  // ─── Story Guide Agent ──────────────────────────────────────────────
+  // Wraps archive/storyAgent functions as tRPC procedures.
+  // Chat, classify (shot list synthesis), summarize, and story CRUD.
+  storyAgent: router({
+    /** Conversational chat with the story agent */
+    chat: protectedProcedure
+      .input(z.object({
+        message: z.string().min(1),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+        existingCardCount: z.number().optional(),
+        summary: z.string().optional(),
+        currentShots: z.array(z.object({
+          shotNo: z.number(),
+          subject: z.string(),
+          action: z.string(),
+          dialogue: z.string(),
+          shotType: z.string(),
+          cameraAngle: z.string(),
+          cameraMove: z.string(),
+          location: z.string(),
+          timeLight: z.string(),
+          mood: z.string(),
+          sound: z.string(),
+          styleRef: z.string(),
+        })).optional(),
+        similarCards: z.array(z.object({
+          content: z.string(),
+          rawText: z.string().optional(),
+          emotion: z.string().optional(),
+          emotionBlend: z.array(z.string()).optional(),
+          retrievalQuery: z.string().optional(),
+          themeHints: z.array(z.string()).optional(),
+          personalTrace: z.string().optional(),
+          score: z.number().optional(),
+        })).optional(),
+        projectId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return replyFromStoryAgent({
+          message: input.message,
+          history: input.history,
+          existingCardCount: input.existingCardCount,
+          summary: input.summary,
+          currentShots: input.currentShots as ShotDraft[] | undefined,
+          similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
+          projectId: input.projectId,
+        });
+      }),
+
+    /** Synthesize story cards into a shot list */
+    classify: protectedProcedure
+      .input(z.object({
+        cards: z.array(z.object({
+          content: z.string(),
+          rawText: z.string().optional(),
+          sourceQuote: z.string().optional(),
+          emotion: z.string().optional(),
+          emotionOptions: z.array(z.string()).optional(),
+          emotionBlend: z.array(z.string()).optional(),
+          intensity: z.number().optional(),
+          direction: z.string().optional(),
+          complexity: z.string().optional(),
+          trigger: z.string().optional(),
+          dramaticFunction: z.string().optional(),
+          personalTrace: z.string().optional(),
+          retrievalQuery: z.string().optional(),
+          themeHints: z.array(z.string()).optional(),
+          outlierSignal: z.string().optional(),
+          softMembership: z.array(z.string()).optional(),
+        })),
+        characterHint: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return synthesizeShotList({
+          cards: input.cards,
+          characterHint: input.characterHint,
+        });
+      }),
+
+    /** Compress old chat turns into a summary note */
+    summarize: protectedProcedure
+      .input(z.object({
+        priorSummary: z.string().optional(),
+        turnsToAbsorb: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        return summarizeHistory({
+          priorSummary: input.priorSummary,
+          turnsToAbsorb: input.turnsToAbsorb,
+        });
+      }),
+
+    /** List all stories for the current user */
+    storyList: protectedProcedure.query(async ({ ctx }) => {
+      const items = await listUserStories(ctx.user.id);
+      return { stories: items };
+    }),
+
+    /** Get a single story by ID */
+    storyGet: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const story = await getStoryById(input.id, ctx.user.id);
+        if (!story) return null;
+        return story;
+      }),
+
+    /** Create or update a story */
+    storyUpsert: protectedProcedure
+      .input(z.object({
+        id: z.number().optional(),
+        title: z.string().optional(),
+        logline: z.string().nullable().optional(),
+        theme: z.string().nullable().optional(),
+        arc: z.string().nullable().optional(),
+        summary: z.string().nullable().optional(),
+        projectId: z.number().nullable().optional(),
+        body: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const title = input.title?.trim().slice(0, 255) || "未命名";
+
+        if (input.id) {
+          const existing = await getStoryById(input.id, ctx.user.id);
+          if (!existing) throw new Error("story not found");
+          await updateStory(input.id, ctx.user.id, {
+            title,
+            logline: input.logline,
+            theme: input.theme,
+            arc: input.arc,
+            summary: input.summary,
+            projectId: input.projectId,
+            body: input.body as object | undefined,
+          });
+          return await getStoryById(input.id, ctx.user.id);
+        }
+
+        const { id: newId } = await createStory({
+          userId: ctx.user.id,
+          projectId: input.projectId ?? null,
+          title,
+          logline: input.logline ?? null,
+          theme: input.theme ?? null,
+          arc: input.arc ?? null,
+          summary: input.summary ?? null,
+          body: (input.body ?? { cards: [], characters: [], shots: [] }) as object,
+        });
+        return await getStoryById(newId, ctx.user.id);
+      }),
+
+    /** Delete a story */
+    storyDelete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await deleteStory(input.id, ctx.user.id);
+        return { ok: true };
+      }),
+  }),
+
+  // ─── Shot management ────────────────────────────────────────────────
+  shot: router({
+    list: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        return getProjectShots(input.projectId);
+      }),
+
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["idea_pool", "requirement_pool", "structured", "production_ready", "queued", "rendered", "blocked"]).optional(),
+        readinessScore: z.number().min(0).max(1).optional(),
+        deadline: z.string().optional(),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+        autoRender: z.boolean().optional(),
+        blockingIssues: z.array(z.string()).optional(),
+        nextAction: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        await updateShot(id, ctx.user.id, data);
+        return { success: true };
+      }),
+
+    batchUpdate: protectedProcedure
+      .input(z.object({
+        ids: z.array(z.number()),
+        status: z.enum(["idea_pool", "requirement_pool", "structured", "production_ready", "queued", "rendered", "blocked"]).optional(),
+        deadline: z.string().optional(),
+        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+        autoRender: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { ids, ...data } = input;
+        await batchUpdateShots(ids, ctx.user.id, data);
+        return { success: true, count: ids.length };
+      }),
+  }),
+
+  // ─── Edit Context (Snapshot & Annotations) ──────────────────────────
+  editContext: router({
+    saveSnapshot: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        sessionId: z.string(),
+        state: z.object({
+          cards: z.array(z.record(z.string(), z.unknown())).optional(),
+          script: z.array(z.record(z.string(), z.unknown())).optional(),
+          shots: z.array(z.record(z.string(), z.unknown())).optional(),
+        }),
+        autoSave: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await saveSnapshot({
+            projectId: input.projectId,
+            sessionId: input.sessionId,
+            state: input.state as ProjectState,
+            autoSave: input.autoSave,
+          });
+          return result;
+        } catch (error) {
+          console.error('[editContext.saveSnapshot] Error:', error);
+          throw new Error('Failed to save snapshot');
+        }
+      }),
+
+    getRecentAnnotations: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        limit: z.number().min(1).max(20).optional().default(5),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const annotations = await getRecentAnnotations(
+            input.projectId,
+            input.limit,
+          );
+          return annotations;
+        } catch (error) {
+          console.error('[editContext.getRecentAnnotations] Error:', error);
+          return [];
+        }
+      }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;

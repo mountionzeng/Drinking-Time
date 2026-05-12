@@ -1,0 +1,82 @@
+CREATE TABLE `analysis_results` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`projectId` int NOT NULL,
+	`userId` int NOT NULL,
+	`mood` text,
+	`lighting` text,
+	`spatialStructure` text,
+	`cameraLanguage` text,
+	`colorPalette` text,
+	`atmosphereKeywords` json,
+	`promptDraft` text,
+	`negativePrompt` text,
+	`parameterSuggestions` json,
+	`summary` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `analysis_results_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `projects` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`name` varchar(255) NOT NULL,
+	`deadline` varchar(32),
+	`autoRender` boolean NOT NULL DEFAULT false,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `projects_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `references` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`projectId` int NOT NULL,
+	`userId` int NOT NULL,
+	`title` varchar(512) NOT NULL,
+	`sourceType` enum('image','video','script','storyboard','brief','note','pdf') NOT NULL,
+	`fileUrl` text,
+	`fileKey` varchar(512),
+	`mimeType` varchar(128),
+	`fileSize` int,
+	`dateBucket` varchar(32),
+	`importance` int NOT NULL DEFAULT 3,
+	`pinned` boolean NOT NULL DEFAULT false,
+	`excluded` boolean NOT NULL DEFAULT false,
+	`extractedText` text,
+	`extractedTags` json,
+	`sortOrder` int NOT NULL DEFAULT 0,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `references_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `shots` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`projectId` int NOT NULL,
+	`userId` int NOT NULL,
+	`sceneNo` varchar(32) NOT NULL,
+	`shotNo` varchar(32) NOT NULL,
+	`sourceSummary` text,
+	`intentType` enum('idea','client_requirement','director_note') NOT NULL DEFAULT 'idea',
+	`status` enum('idea_pool','requirement_pool','structured','production_ready','queued','rendered','blocked') NOT NULL DEFAULT 'idea_pool',
+	`readinessScore` float NOT NULL DEFAULT 0,
+	`deadline` varchar(32),
+	`priority` enum('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
+	`autoRender` boolean NOT NULL DEFAULT false,
+	`blockingIssues` json,
+	`nextAction` text,
+	`sceneType` varchar(128),
+	`timeOfDay` varchar(64),
+	`weather` varchar(64),
+	`lighting` text,
+	`cameraFocalLength` varchar(64),
+	`cameraMovement` varchar(128),
+	`spatialLayers` text,
+	`mood` text,
+	`colorPalette` text,
+	`promptDraft` text,
+	`negativePrompt` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `shots_id` PRIMARY KEY(`id`)
+);

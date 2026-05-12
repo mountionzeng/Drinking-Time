@@ -1,0 +1,124 @@
+/**
+ * StoryListView -- Shows all stories for the user.
+ * Displayed in the story tab before a story is selected.
+ */
+import { Plus, Trash2, Loader2, BookOpen } from 'lucide-react';
+import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+
+function formatDate(value: string | Date | null | undefined): string {
+  if (!value) return '';
+  const d = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)} 天前`;
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
+
+export default function StoryListView() {
+  const {
+    storyList,
+    isLoadingStories,
+    loadStory,
+    createNewStory,
+    deleteStory,
+  } = useStoryAgent();
+
+  return (
+    <div className="monitor-panel h-full flex flex-col">
+      <div className="monitor-panel-header">
+        <div className="status-dot" />
+        <span>故事列表</span>
+        <button
+          type="button"
+          onClick={createNewStory}
+          className="ml-auto flex items-center gap-1 text-[10px] opacity-70 hover:opacity-100 transition-opacity"
+          title="新建故事"
+        >
+          <Plus className="w-3 h-3" />
+          新建
+        </button>
+      </div>
+
+      <div className="monitor-panel-body flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+        {isLoadingStories && storyList.length === 0 && (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            <span className="text-xs">加载中...</span>
+          </div>
+        )}
+
+        {!isLoadingStories && storyList.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+            <BookOpen className="w-8 h-8 opacity-30" />
+            <p className="text-xs">还没有故事</p>
+            <button
+              type="button"
+              onClick={createNewStory}
+              className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+              style={{
+                background: 'var(--nayin-accent)',
+                color: 'var(--background)',
+              }}
+            >
+              开始第一个故事
+            </button>
+          </div>
+        )}
+
+        {storyList.map((story) => (
+          <button
+            key={story.id}
+            type="button"
+            onClick={() => loadStory(story.id)}
+            className="w-full text-left rounded-lg border p-3 transition-colors hover:border-[var(--nayin-accent)] group"
+            style={{
+              background: 'var(--card)',
+              borderColor: 'var(--panel-border)',
+            }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xs font-medium truncate">
+                  {story.title || '未命名故事'}
+                </h3>
+                {story.logline && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                    {story.logline}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground font-mono">
+                  {(story.cardCount ?? 0) > 0 && (
+                    <span>{story.cardCount} 卡片</span>
+                  )}
+                  {(story.shotCount ?? 0) > 0 && (
+                    <span>{story.shotCount} 镜头</span>
+                  )}
+                  {story.updatedAt && (
+                    <span>{formatDate(story.updatedAt)}</span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm('确定删除这个故事吗？')) {
+                    deleteStory(story.id);
+                  }
+                }}
+                className="opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity p-1"
+                title="删除"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,5 @@
+screenshot-1.png <- uploads/截屏2026-04-18 23.11.44.png
+screenshot-2.png <- uploads/截屏2026-04-18 23.12.31.png
+screenshot-3.png <- uploads/截屏2026-04-18 23.13.15.png
+screenshot-4.png <- uploads/截屏2026-04-18 23.13.43.png
+screenshot-5.png <- uploads/截屏2026-04-18 23.14.13.png

@@ -1,0 +1,12 @@
+
+- [x] 饮品切换全屏过渡动画组件 (BeverageTransition)
+- [x] NayinContext 过渡状态管理
+- [x] 全局挂载 BeverageTransitionOverlay
+- [x] 升级为全栈项目 (web-db-user)
+- [ ] 后端纳音五行计算 API
+- [ ] 后端 NLP 镜头拆解 API (LLM)
+- [ ] 后端文件上传 API (S3)
+- [ ] 前端 Drop Zone 真实文件上传对接
+- [ ] 前端 API 对接（纳音计算、分析流程）
+- [ ] 数据库 schema（项目表、素材表、镜头表）
+- [ ] 单元测试
