@@ -3,7 +3,7 @@
  * Composes: BeverageAmbience + TopBar + (GuidedLanding | WorkspaceLayout)
  * Mounts StoryAgentProvider with projectId from hook.
  */
-import TopBar from '@/components/TopBar';
+import TopBar from '@/app/shell/TopBar';
 import BeverageAmbience from '@/features/nayin/views/BeverageAmbience';
 import WuxingParticles from '@/features/nayin/views/WuxingParticles';
 import AnalysisTimelineDrawer from '@/features/analysis/containers/AnalysisTimelineDrawer';

@@ -1,3 +1,14 @@
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+// PM2/SSH 部署时 process.cwd() 可能不是项目根目录，所以这里补读源码态与 dist 态的 .env。
+dotenv.config();
+dotenv.config({ path: path.resolve(moduleDir, "../../.env") });
+dotenv.config({ path: path.resolve(moduleDir, "../.env") });
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
@@ -20,4 +31,12 @@ export const ENV = {
   // ── 视觉分析 Agent 专用配置 ──
   visionApiUrl: process.env.VISION_API_URL ?? "",               // 视觉模型 API 地址（可选，不填则复用 DROP_ZONE/forge）
   visionModel: process.env.VISION_MODEL ?? "",                  // 视觉模型名称（可选，不填则复用 DROP_ZONE/LLM）
+
+  // ── 老黄历 API 配置 ──
+  huangliProvider: process.env.HUANGLI_PROVIDER ?? "",          // tianapi / jisu，默认由 key 推断
+  huangliApiKey: process.env.HUANGLI_API_KEY ?? "",             // 通用老黄历 API Key
+  tianapiKey: process.env.TIANAPI_KEY ?? "",                    // 天行数据 Key（可选，优先于通用 key）
+  jisuapiAppKey: process.env.JISUAPI_APPKEY ?? "",              // 极速数据 AppKey（可选，优先于通用 key）
+  huangliApiBaseUrl: process.env.HUANGLI_API_BASE_URL ?? "",    // 测试或私有代理覆盖
+  huangliTimeoutMs: process.env.HUANGLI_TIMEOUT_MS ?? "5000",
 };

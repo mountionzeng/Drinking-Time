@@ -5,6 +5,9 @@
 import { motion } from 'framer-motion';
 import { Upload, MessageCircle } from 'lucide-react';
 import { useNayin } from '@/features/nayin/NayinContext';
+import { useDailyAlmanac } from '@/features/nayin/hooks/useDailyAlmanac';
+import DailyDrinkHero from '@/features/nayin/views/DailyDrinkHero';
+import DailyAtmospherePanel from '@/features/nayin/views/DailyAtmospherePanel';
 import type { NayinElement } from '@/features/nayin/nayin';
 
 const MATERIAL_COPY: Record<NayinElement, string> = {
@@ -34,12 +37,16 @@ export default function GuidedLanding({
   onSelectMaterial,
   onSelectStory,
 }: GuidedLandingProps) {
-  const { element } = useNayin();
+  const { element, today } = useNayin();
+  const almanacQuery = useDailyAlmanac(today.cstDateStr);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-5">
+        <DailyDrinkHero today={today} />
+
       <motion.div
-        className="flex flex-col sm:flex-row gap-5 max-w-2xl w-full"
+        className="flex w-full max-w-2xl flex-col gap-4 sm:flex-row"
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: easing }}
@@ -55,7 +62,7 @@ export default function GuidedLanding({
           whileHover={{ scale: 1.02, y: -2 }}
           whileTap={{ scale: 0.98 }}
         >
-          <div className="p-8 flex flex-col items-center gap-4 text-center">
+          <div className="flex min-h-44 flex-col items-center justify-center gap-4 p-7 text-center">
             <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{
@@ -87,7 +94,7 @@ export default function GuidedLanding({
           whileHover={{ scale: 1.02, y: -2 }}
           whileTap={{ scale: 0.98 }}
         >
-          <div className="p-8 flex flex-col items-center gap-4 text-center">
+          <div className="flex min-h-44 flex-col items-center justify-center gap-4 p-7 text-center">
             <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{
@@ -99,7 +106,7 @@ export default function GuidedLanding({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-1.5">
-                聊一段故事开始
+                聊一个故事开始
               </h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {STORY_COPY[element]}
@@ -109,6 +116,19 @@ export default function GuidedLanding({
         </motion.button>
       </motion.div>
 
+        <motion.div
+          className="w-full flex justify-center"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.5, ease: easing }}
+        >
+          <DailyAtmospherePanel
+            today={today}
+            almanac={almanacQuery.data ?? null}
+            loading={almanacQuery.isLoading}
+          />
+        </motion.div>
+
       <motion.p
         className="text-xs text-muted-foreground/70 mt-6 text-center max-w-md"
         initial={{ opacity: 0 }}
@@ -117,6 +137,7 @@ export default function GuidedLanding({
       >
         两条路径最终都会汇聚到镜头表，你也可以两个都用
       </motion.p>
+      </div>
     </div>
   );
 }

@@ -571,22 +571,134 @@ function buildAgentSystemPrompt(
 function stripJson(raw: string): string {
   return raw
     .trim()
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/```$/, "")
     .trim();
 }
 
-function parseJsonLoose<T>(raw: string): T {
-  const cleaned = stripJson(raw);
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    const first = cleaned.indexOf("{");
-    const last = cleaned.lastIndexOf("}");
-    if (first === -1 || last <= first) throw new Error("Non-JSON response");
-    return JSON.parse(cleaned.slice(first, last + 1)) as T;
+function stripJsonComments(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i];
+    const next = raw[i + 1];
+
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      out += char;
+      escaped = inString;
+      continue;
+    }
+
+    if (char === '"') {
+      out += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString && char === "/" && next === "/") {
+      while (i < raw.length && raw[i] !== "\n") i++;
+      out += "\n";
+      continue;
+    }
+
+    if (!inString && char === "/" && next === "*") {
+      i += 2;
+      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
+      i++;
+      continue;
+    }
+
+    out += char;
   }
+
+  return out;
+}
+
+function sanitizeJsonCandidate(raw: string): string {
+  return stripJsonComments(stripJson(raw))
+    .replace(/,\s*([}\]])/g, "$1")
+    .trim();
+}
+
+function extractFencedJsonBlocks(raw: string): string[] {
+  const blocks: string[] = [];
+  const regex = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(raw))) {
+    if (match[1]?.trim()) blocks.push(match[1]);
+  }
+  return blocks;
+}
+
+function extractBalancedJsonObjects(raw: string): string[] {
+  const candidates: string[] = [];
+
+  for (let start = 0; start < raw.length; start++) {
+    if (raw[start] !== "{") continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < raw.length; i++) {
+      const char = raw[i];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = inString;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === "{") depth++;
+      if (char === "}") depth--;
+
+      if (depth === 0) {
+        candidates.push(raw.slice(start, i + 1));
+        break;
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function parseJsonLoose<T>(raw: string): T {
+  const candidates = [
+    ...extractFencedJsonBlocks(raw),
+    stripJson(raw),
+    ...extractBalancedJsonObjects(raw),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(sanitizeJsonCandidate(candidate)) as T;
+    } catch {
+      // Try the next possible JSON span.
+    }
+  }
+
+  throw new Error("Non-JSON response");
 }
 
 function asCleanString(value: unknown): string {
@@ -764,25 +876,142 @@ export async function replyFromStoryAgent(params: {
 // 3. 按最有张力的叙事顺序排一遍
 // 4. 把每份素材转成一条镜头（1:1 映射，sourceCardContent 原样回填用于回溯）
 // 返回 { characters, arc, shots }
+type ShotListCardInput = {
+  content: string;
+  rawText?: string;
+  sourceQuote?: string;
+  emotion?: string;
+  emotionOptions?: string[];
+  emotionBlend?: string[];
+  intensity?: number;
+  direction?: string;
+  complexity?: string;
+  trigger?: string;
+  dramaticFunction?: string;
+  personalTrace?: string;
+  retrievalQuery?: string;
+  themeHints?: string[];
+  outlierSignal?: string;
+  softMembership?: string[];
+};
+
+function buildFallbackShotList(
+  cards: ShotListCardInput[],
+  characterHint: string,
+  modelLabel: string,
+): ShotListPayload {
+  const sorted = cards
+    .map((card, index) => ({ card, index }))
+    .sort((a, b) => (b.card.intensity ?? 0) - (a.card.intensity ?? 0));
+  const turnIndex = cards.length > 2 ? sorted[0]?.index ?? Math.floor(cards.length / 2) : -1;
+  const first = cards[0];
+  const last = cards[cards.length - 1] ?? first;
+  const firstEmotion = first?.emotion || first?.emotionBlend?.[0] || "开始";
+  const lastEmotion = last?.emotion || last?.emotionBlend?.[0] || "余味";
+  const theme =
+    first?.themeHints?.[0] ||
+    first?.softMembership?.[0] ||
+    last?.themeHints?.[0] ||
+    "一段还在成形的私人经验";
+  const conflictCount = cards.filter(card =>
+    ["冲突", "转折", "关系裂缝", "阻碍", "逃避"].some(token =>
+      [card.dramaticFunction, card.complexity, card.direction].join(" ").includes(token),
+    ),
+  ).length;
+
+  const characters: ShotCharacter[] = characterHint
+    ? [{ name: characterHint, role: "主视点", oneLiner: "故事最在意的人" }]
+    : [];
+
+  const shots: ShotEntry[] = cards.map((card, index) => {
+    const isFirst = index === 0;
+    const isLast = index === cards.length - 1;
+    const beat: ShotBeat = isFirst
+      ? "开场"
+      : isLast
+        ? "收束"
+        : index === turnIndex
+          ? "转折"
+          : "起势";
+    const shotType = isFirst ? "远" : isLast ? "近" : index === turnIndex ? "特" : "中";
+    const subject =
+      card.personalTrace ||
+      card.trigger ||
+      card.direction ||
+      characterHint ||
+      "这个人";
+    const mood = [
+      card.emotion,
+      ...(card.emotionBlend ?? []),
+      typeof card.intensity === "number" ? `浓度${card.intensity}` : "",
+    ]
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(" / ");
+
+    return {
+      shotNo: index + 1,
+      subject: subject.slice(0, 16),
+      action: card.content.slice(0, 60) || "停在一个还没说完的时刻",
+      dialogue: card.sourceQuote || "",
+      shotType,
+      beat,
+      cameraAngle: "",
+      cameraMove: "",
+      location: "",
+      timeLight: "",
+      mood: mood.slice(0, 24),
+      sound: "",
+      styleRef: "",
+      note: "模型未返回有效 JSON，系统按卡片自动整理的兜底镜头。",
+      emotion: card.emotion || card.emotionBlend?.[0] || "未标",
+      sourceCardContent: card.content,
+    };
+  });
+
+  return {
+    configured: true,
+    modelLabel,
+    characters,
+    logline: cards.length > 1 ? `一个人从${firstEmotion}走向${lastEmotion}` : first?.content?.slice(0, 30) || "一段故事开始出现",
+    theme: theme.slice(0, 30),
+    arc: `${firstEmotion} → ${conflictCount ? "摩擦" : "停顿"} → ${lastEmotion}`,
+    variants: [
+      {
+        mode: "克制版",
+        logline: "让素材按日常顺序慢慢显影",
+        arc: `${firstEmotion}到${lastEmotion}`,
+        treatment: "少解释，多保留用户原话和动作，让情绪自己浮出来。",
+      },
+      {
+        mode: "戏剧版",
+        logline: "把最强情绪样本推到转折点",
+        arc: `${firstEmotion}被推向一次明显转向`,
+        treatment: "用最高浓度的卡片承担转折，但不补用户没说过的大事实。",
+      },
+      {
+        mode: "诗意版",
+        logline: "用重复的物和身体感受串起故事",
+        arc: `从轻微感受落到${lastEmotion}`,
+        treatment: "用空镜、停顿和原话碎片做连接，保留留白。",
+      },
+    ],
+    boringCheck: {
+      hasConflict: conflictCount > 0,
+      hasTurn: turnIndex >= 0,
+      hasWish: cards.some(card => Boolean(card.trigger || card.direction)),
+      hasCost: cards.some(card => (card.intensity ?? 0) >= 0.65),
+      hasChange: firstEmotion !== lastEmotion,
+      note: conflictCount
+        ? "已有可用的摩擦点，后续可以继续追问代价和变化。"
+        : "当前素材偏平，建议继续追问愿望、阻碍、代价或一次具体转向。",
+    },
+    shots,
+  };
+}
+
 export async function synthesizeShotList(params: {
-  cards: Array<{
-    content: string;
-    rawText?: string;
-    sourceQuote?: string;
-    emotion?: string;
-    emotionOptions?: string[];
-    emotionBlend?: string[];
-    intensity?: number;
-    direction?: string;
-    complexity?: string;
-    trigger?: string;
-    dramaticFunction?: string;
-    personalTrace?: string;
-    retrievalQuery?: string;
-    themeHints?: string[];
-    outlierSignal?: string;
-    softMembership?: string[];
-  }>;
+  cards: ShotListCardInput[];
   characterHint?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
   if (!ENV.forgeApiKey) {
@@ -1109,12 +1338,9 @@ export async function synthesizeShotList(params: {
       variants,
       boringCheck,
     };
-  } catch {
-    return {
-      error: "整理失败：模型未返回有效 JSON。",
-      configured: true,
-      modelLabel,
-    };
+  } catch (error) {
+    console.warn("[storyAgent] shot list JSON parse failed; using local fallback.", error);
+    return buildFallbackShotList(params.cards, characterHint, modelLabel);
   }
 }
 

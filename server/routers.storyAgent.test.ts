@@ -1,0 +1,198 @@
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import type { TrpcContext } from "./_core/context";
+
+const storyAgentMocks = vi.hoisted(() => ({
+  replyFromStoryAgent: vi.fn(async () => ({
+    reply: "我在，继续说。",
+    card: {
+      content: "一个关于夜晚和等待的故事种子",
+      emotion: "quiet",
+      title: "夜晚等待",
+    },
+    read: null,
+    configured: true,
+    modelLabel: "mock-model",
+  })),
+  synthesizeShotList: vi.fn(async () => ({
+    characters: [{ name: "林", role: "主角", oneLiner: "在夜里等待的人" }],
+    arc: "等待 -> 犹疑 -> 出发",
+    logline: "一个人在夜里等到终于出发。",
+    theme: "迟疑后的行动",
+    variants: [],
+    boringCheck: null,
+    shots: [
+      {
+        shotNo: 1,
+        beat: "开端",
+        subject: "林",
+        action: "站在路灯下",
+        dialogue: "",
+        shotType: "wide",
+        cameraAngle: "eye-level",
+        cameraMove: "static",
+        location: "街角",
+        timeLight: "night",
+        mood: "quiet",
+        sound: "wind",
+        styleRef: "soft grain",
+      },
+    ],
+  })),
+  summarizeHistory: vi.fn(async () => "旧对话摘要"),
+}));
+
+vi.mock("./archive/storyAgent", () => storyAgentMocks);
+
+type AppRouter = typeof import("./routers").appRouter;
+
+let appRouter: AppRouter;
+
+function createAuthContext(userId = 42): TrpcContext {
+  return {
+    user: {
+      id: userId,
+      openId: `user-${userId}`,
+      email: `user-${userId}@example.com`,
+      name: `User ${userId}`,
+      loginMethod: "manus",
+      role: "user",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
+    req: {
+      protocol: "https",
+      headers: {},
+    } as TrpcContext["req"],
+    res: {
+      clearCookie: () => {},
+    } as TrpcContext["res"],
+  };
+}
+
+describe("storyAgent tRPC router", () => {
+  beforeAll(async () => {
+    process.env.DATABASE_URL = "";
+    process.env.LOCAL_PERSIST_PATH = path.join(
+      os.tmpdir(),
+      `drinking-time-story-router-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.json`,
+    );
+    ({ appRouter } = await import("./routers"));
+  });
+
+  it("wraps chat with the archive Story Agent response shape", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const result = await caller.storyAgent.chat({
+      message: "今天晚上有点安静",
+      history: [{ role: "user", content: "我想讲一个夜晚" }],
+      existingCardCount: 1,
+      projectId: 7,
+    });
+
+    expect(result).toMatchObject({
+      reply: "我在，继续说。",
+      configured: true,
+      modelLabel: "mock-model",
+      card: {
+        content: "一个关于夜晚和等待的故事种子",
+      },
+    });
+    expect(storyAgentMocks.replyFromStoryAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "今天晚上有点安静",
+        existingCardCount: 1,
+        projectId: 7,
+      }),
+    );
+  });
+
+  it("wraps classification and summary procedures", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const classified = await caller.storyAgent.classify({
+      cards: [{ content: "路灯下等待", emotion: "quiet" }],
+      characterHint: "林",
+    });
+    const summary = await caller.storyAgent.summarize({
+      priorSummary: "此前在夜里",
+      turnsToAbsorb: [{ role: "assistant", content: "你提到路灯。" }],
+    });
+
+    expect(classified).toMatchObject({
+      logline: "一个人在夜里等到终于出发。",
+      shots: [expect.objectContaining({ shotNo: 1, subject: "林" })],
+    });
+    expect(summary).toBe("旧对话摘要");
+    expect(storyAgentMocks.synthesizeShotList).toHaveBeenCalledWith(
+      expect.objectContaining({ characterHint: "林" }),
+    );
+    expect(storyAgentMocks.summarizeHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ priorSummary: "此前在夜里" }),
+    );
+  });
+
+  it("creates, lists, loads, updates, and deletes stories for the current user", async () => {
+    const caller = appRouter.createCaller(createAuthContext(99));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "夜行",
+      logline: "一个人终于出门。",
+      theme: "行动",
+      arc: "等待 -> 出发",
+      projectId: 12,
+      body: {
+        cards: [{ id: "card-1", content: "路灯" }],
+        shots: [{ shotNo: 1, subject: "林" }],
+      },
+    });
+
+    expect(created).toMatchObject({
+      id: expect.any(Number),
+      userId: 99,
+      projectId: 12,
+      title: "夜行",
+      logline: "一个人终于出门。",
+    });
+
+    const listed = await caller.storyAgent.storyList();
+    expect(listed.stories).toEqual([
+      expect.objectContaining({
+        id: created?.id,
+        title: "夜行",
+        cardCount: 1,
+        shotCount: 1,
+      }),
+    ]);
+
+    const loaded = await caller.storyAgent.storyGet({ id: created!.id });
+    expect(loaded).toMatchObject({
+      id: created?.id,
+      title: "夜行",
+    });
+
+    const updated = await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      title: "夜行修订",
+      summary: "修订后的摘要",
+      body: {
+        cards: [],
+        shots: [],
+      },
+    });
+    expect(updated).toMatchObject({
+      id: created?.id,
+      title: "夜行修订",
+      summary: "修订后的摘要",
+    });
+
+    await expect(caller.storyAgent.storyDelete({ id: created!.id })).resolves.toEqual({
+      ok: true,
+    });
+    await expect(caller.storyAgent.storyGet({ id: created!.id })).resolves.toBeNull();
+  });
+});

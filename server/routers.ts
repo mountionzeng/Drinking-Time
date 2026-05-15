@@ -17,6 +17,7 @@ import {
   saveSnapshot,
   getRecentAnnotations,
 } from "./services/editContext";
+import { getAlmanacDay } from "./services/almanac";
 import type { ProjectState } from "./_core/editDiff";
 import { nanoid } from "nanoid";
 import {
@@ -66,6 +67,17 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  // ─── Daily Almanac / 老黄历 ─────────────────────────────────────────
+  almanac: router({
+    today: publicProcedure
+      .input(z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }))
+      .query(async ({ input }) => {
+        return getAlmanacDay(input.date);
+      }),
   }),
 
   // ─── Nayin Five Element ─────────────────────────────────────────────
