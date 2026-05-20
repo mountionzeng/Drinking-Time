@@ -21,6 +21,7 @@ import ScriptViewer from '@/features/storyAgent/views/ScriptViewer';
 import type { AnalysisData } from '@/features/analysis/types';
 import type { BackendShot } from '@/features/analysis/types';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
 
 export type InputTab = 'material' | 'story';
 
@@ -64,7 +65,8 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [centerCollapsed, setCenterCollapsed] = useState(false);
-  const { storyShots, activeStoryId } = useStoryAgent();
+  const { storyShots, activeStoryId, updateStoryShotField, setActiveSelection } = useStoryAgent();
+  useSelectionCapture(setActiveSelection);
 
   const storyMatrixShots = useMemo<BackendShot[]>(() => {
     const now = new Date();
@@ -90,6 +92,7 @@ export default function WorkspaceLayout({
       ].filter((value) => value.trim().length > 0).length;
       return {
         id: -1 * (index + 1),
+        sourceIndex: index,
         projectId: projectId ?? 0,
         userId: 1,
         sceneNo: `SC${String(Math.ceil((index + 1) / 6)).padStart(2, '0')}`,
@@ -253,6 +256,8 @@ export default function WorkspaceLayout({
               isActive={tableActive}
               shots={tableShots}
               projectId={projectId}
+              storyShots={storyShots}
+              onEditShotField={updateStoryShotField}
             />
             {activeInputTab === 'material' ? (
               <PromptDistill

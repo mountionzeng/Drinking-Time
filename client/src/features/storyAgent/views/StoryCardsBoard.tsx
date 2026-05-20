@@ -32,10 +32,12 @@ function CardItem({
   card,
   index,
   onRemove,
+  onCommitContent,
 }: {
   card: StoryCard;
   index: number;
   onRemove: () => void;
+  onCommitContent: (content: string) => void;
 }) {
   const controls = useDragControls();
   const tint = emotionAccent(card.emotion);
@@ -100,7 +102,28 @@ function CardItem({
                 {card.emotion}
               </span>
             </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <p
+              data-selection-source={`card:${card.id}`}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-label="编辑卡片内容"
+              tabIndex={0}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                // Enter commits & blurs; Shift+Enter keeps newline
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLElement).blur();
+                }
+              }}
+              onBlur={(e) => {
+                const next = (e.currentTarget.innerText || '').trim();
+                if (next && next !== card.content) onCommitContent(next);
+                else e.currentTarget.innerText = card.content;
+              }}
+              className="text-[11px] text-muted-foreground leading-relaxed select-text cursor-text rounded-sm outline-none -mx-1 px-1 focus:bg-foreground/[0.04] focus:ring-1 focus:ring-[var(--nayin-accent)]/40 hover:bg-foreground/[0.02] transition-colors"
+            >
               {card.content}
             </p>
             {card.sensoryDetails.length > 0 && (
@@ -140,6 +163,7 @@ export default function StoryCardsBoard() {
     cards,
     reorderCards,
     removeCard,
+    updateCardContent,
     generateScript,
     isGeneratingScript,
     latestScript,
@@ -205,6 +229,7 @@ export default function StoryCardsBoard() {
                     card={card}
                     index={idx}
                     onRemove={() => removeCard(card.id)}
+                    onCommitContent={(text) => updateCardContent(card.id, text)}
                   />
                 ))}
               </AnimatePresence>

@@ -72,7 +72,7 @@ function buildDiffSummary(diff: EditDiff): string[] {
   return changes.length > 0 ? changes : ['无明显内容变更'];
 }
 
-function buildUserPrompt(diff: EditDiff, previousAnnotations: SemanticAnnotation[]): string {
+function buildUserPrompt(diff: EditDiff, previousAnnotations: SemanticAnnotation[], inlineCorrection?: InlineCorrection): string {
   // Trim diff to key fields to avoid bloating the prompt
   const diffSummary = {
     cards: {
@@ -105,6 +105,15 @@ function buildUserPrompt(diff: EditDiff, previousAnnotations: SemanticAnnotation
   };
 
   let prompt = `以下是用户对项目内容的最新编辑变更：\n${JSON.stringify(diffSummary, null, 2)}\n`;
+
+  if (inlineCorrection) {
+    prompt += `\n【精准修正】用户主动选中并修改了一段文字：\n`;
+    prompt += `- 来源类型：${inlineCorrection.sourceType}\n`;
+    prompt += `- 原文：「${inlineCorrection.originalText}」\n`;
+    prompt += `- 修改为：「${inlineCorrection.modifiedText}」\n`;
+    prompt += `- 用户指令：${inlineCorrection.instruction}\n`;
+    prompt += `这是最高质量的风格信号，请重点从这次修正推断偏好。\n`;
+  }
 
   if (previousAnnotations.length > 0) {
     const recent = previousAnnotations.slice(0, 3);
@@ -142,17 +151,25 @@ function parseJsonField(field: unknown): unknown {
   return field;
 }
 
+export interface InlineCorrection {
+  originalText: string;
+  modifiedText: string;
+  instruction: string;
+  sourceType: string;
+}
+
 export interface GenerateAnnotationParams {
   diff: EditDiff;
   snapshotId: number;
   previousSnapshotId: number | null;
   previousAnnotations: SemanticAnnotation[];
+  inlineCorrection?: InlineCorrection;
 }
 
 export async function generateAnnotation(
   params: GenerateAnnotationParams,
 ): Promise<SemanticAnnotation> {
-  const { diff, snapshotId, previousSnapshotId, previousAnnotations } = params;
+  const { diff, snapshotId, previousSnapshotId, previousAnnotations, inlineCorrection } = params;
 
   if (isCircuitOpen()) {
     console.warn('[semanticAnnotation] Circuit breaker open, using fallback');
@@ -169,7 +186,7 @@ export async function generateAnnotation(
         },
         {
           role: 'user',
-          content: buildUserPrompt(diff, previousAnnotations),
+          content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
         },
       ],
       response_format: { type: 'json_object' },

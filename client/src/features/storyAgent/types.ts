@@ -9,6 +9,8 @@ export interface ChatMessage {
   timestamp: number;
   /** If set, this assistant turn produced a card (for inline UI hints). */
   spawnedCardId?: string;
+  /** If set, this user message was a selection edit instruction. */
+  selectionQuote?: SelectionQuote;
 }
 
 export interface StoryCard {
@@ -84,6 +86,19 @@ export interface StoryShot {
   note: string;
   emotion: string;
   sourceCardContent: string;
+}
+
+export interface SelectionState {
+  sourceType: 'card' | 'script-scene' | 'script-meta' | 'shot' | 'chat';
+  sourceId: string;
+  selectedText: string;
+  fullText: string;
+}
+
+export interface SelectionQuote {
+  sourceType: SelectionState['sourceType'];
+  sourceId: string;
+  selectedText: string;
 }
 
 export const FIRST_QUESTION =

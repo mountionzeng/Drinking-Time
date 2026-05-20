@@ -18,8 +18,50 @@ const EMPTY_HINT: Record<NayinElement, string> = {
   earth: '剧本会在这里萃取 — 像意式浓缩，浓而不烈',
 };
 
+function EditableText({
+  value,
+  onCommit,
+  multiline = false,
+  className = '',
+  ariaLabel,
+  selectionSource,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  multiline?: boolean;
+  className?: string;
+  ariaLabel: string;
+  selectionSource?: string;
+}) {
+  return (
+    <span
+      data-selection-source={selectionSource}
+      contentEditable
+      suppressContentEditableWarning
+      role="textbox"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (!multiline || !e.shiftKey)) {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).blur();
+        }
+      }}
+      onBlur={(e) => {
+        const next = (e.currentTarget.innerText || '').trim();
+        if (next && next !== value) onCommit(next);
+        else e.currentTarget.innerText = value;
+      }}
+      className={`select-text cursor-text outline-none rounded-sm -mx-1 px-1 focus:bg-foreground/[0.05] focus:ring-1 focus:ring-[var(--nayin-accent)]/40 hover:bg-foreground/[0.02] transition-colors ${className}`}
+    >
+      {value}
+    </span>
+  );
+}
+
 export default function ScriptViewer() {
-  const { latestScript, scripts } = useStoryAgent();
+  const { latestScript, scripts, updateScriptMeta, updateScriptScene } =
+    useStoryAgent();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -86,8 +128,13 @@ export default function ScriptViewer() {
               {/* Title + logline */}
               <div>
                 <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <h3 className="text-sm font-semibold text-foreground leading-tight">
-                    {latestScript.title}
+                  <h3 className="text-sm font-semibold text-foreground leading-tight min-w-0">
+                    <EditableText
+                      value={latestScript.title}
+                      onCommit={(v) => updateScriptMeta('title', v)}
+                      ariaLabel="编辑剧本标题"
+                      selectionSource="script-meta:title"
+                    />
                   </h3>
                   <button
                     type="button"
@@ -103,7 +150,13 @@ export default function ScriptViewer() {
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground italic leading-relaxed">
-                  {latestScript.logline}
+                  <EditableText
+                    value={latestScript.logline}
+                    onCommit={(v) => updateScriptMeta('logline', v)}
+                    multiline
+                    ariaLabel="编辑 logline"
+                    selectionSource="script-meta:logline"
+                  />
                 </p>
               </div>
 
@@ -132,11 +185,22 @@ export default function ScriptViewer() {
                         {s.sceneNo}
                       </span>
                       <span className="text-[10px] font-mono uppercase tracking-wider text-nayin-bright">
-                        {s.emotion}
+                        <EditableText
+                          value={s.emotion}
+                          onCommit={(v) => updateScriptScene(i, 'emotion', v)}
+                          ariaLabel={`编辑场景 ${s.sceneNo} 情绪`}
+                          selectionSource={`script-scene:${i}`}
+                        />
                       </span>
                     </div>
                     <p className="text-[11.5px] text-foreground leading-relaxed">
-                      {s.visual}
+                      <EditableText
+                        value={s.visual}
+                        onCommit={(v) => updateScriptScene(i, 'visual', v)}
+                        multiline
+                        ariaLabel={`编辑场景 ${s.sceneNo} 画面`}
+                        selectionSource={`script-scene:${i}`}
+                      />
                     </p>
                   </motion.div>
                 ))}
@@ -156,7 +220,13 @@ export default function ScriptViewer() {
                     Emotional Arc
                   </div>
                   <p className="text-[11px] text-foreground leading-relaxed">
-                    {latestScript.arcSummary}
+                    <EditableText
+                      value={latestScript.arcSummary}
+                      onCommit={(v) => updateScriptMeta('arcSummary', v)}
+                      multiline
+                      ariaLabel="编辑情感弧线"
+                      selectionSource="script-meta:arcSummary"
+                    />
                   </p>
                 </div>
               </div>

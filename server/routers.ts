@@ -24,6 +24,7 @@ import {
   replyFromStoryAgent,
   synthesizeShotList,
   summarizeHistory,
+  handleSelectionEdit,
   type SimilarStoryCardPayload,
   type ShotDraft,
 } from "./archive/storyAgent";
@@ -504,6 +505,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         });
       }),
 
+    /** Inline selection edit — modify only the selected portion */
+    selectionEdit: protectedProcedure
+      .input(z.object({
+        fullText: z.string().min(1),
+        selectedText: z.string().min(1),
+        instruction: z.string().min(1),
+        projectId: z.number().optional(),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return handleSelectionEdit({
+          fullText: input.fullText,
+          selectedText: input.selectedText,
+          instruction: input.instruction,
+          projectId: input.projectId,
+          history: input.history,
+        });
+      }),
+
     /** Synthesize story cards into a shot list */
     classify: protectedProcedure
       .input(z.object({
@@ -582,17 +605,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
         if (input.id) {
           const existing = await getStoryById(input.id, ctx.user.id);
-          if (!existing) throw new Error("story not found");
-          await updateStory(input.id, ctx.user.id, {
-            title,
-            logline: input.logline,
-            theme: input.theme,
-            arc: input.arc,
-            summary: input.summary,
-            projectId: input.projectId,
-            body: input.body as object | undefined,
-          });
-          return await getStoryById(input.id, ctx.user.id);
+          if (existing) {
+            await updateStory(input.id, ctx.user.id, {
+              title,
+              logline: input.logline,
+              theme: input.theme,
+              arc: input.arc,
+              summary: input.summary,
+              projectId: input.projectId,
+              body: input.body as object | undefined,
+            });
+            return await getStoryById(input.id, ctx.user.id);
+          }
+          // Story not found (e.g. after server restart cleared in-memory state).
+          // Fall through to create a new story rather than failing silently.
         }
 
         const { id: newId } = await createStory({
@@ -669,6 +695,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: z.array(z.record(z.string(), z.unknown())).optional(),
         }),
         autoSave: z.boolean().optional(),
+        inlineCorrection: z.object({
+          originalText: z.string(),
+          modifiedText: z.string(),
+          instruction: z.string(),
+          sourceType: z.string(),
+        }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         try {
@@ -677,6 +709,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             sessionId: input.sessionId,
             state: input.state as ProjectState,
             autoSave: input.autoSave,
+            inlineCorrection: input.inlineCorrection,
           });
           return result;
         } catch (error) {
