@@ -299,7 +299,7 @@ function formatSimilarMemoryCards(cards: SimilarStoryCardPayload[]): string {
     "这些不是事实判决，只是当前输入和旧情绪样本在 themeHints / emotionBlend / retrievalQuery / personalTrace 上最接近的 3 张邻居。",
     "使用方法：",
     "- 如果邻居和当前输入像同一条人生线索的回声，就顺着共同的情绪或主题轻轻追问。",
-    "- 如果当前输入和邻居相似但有反方向情绪，优先问这个差异，因为差异更容易长出剧情起伏。",
+    "- 如果邻居和当前输入有情绪差异，顺着对方此刻真实的情绪接话——他是什么情绪你就接什么情绪，不必把差异变成追问或往反方向带。",
     "- 不要机械地说「这和你之前某张卡很像」；把它变成自然朋友式的回应。",
   ];
 
@@ -719,11 +719,13 @@ function asIntensity(value: unknown): number | undefined {
 }
 
 function asEmotionOptions(value: unknown): string[] {
-  const defaults = ["委屈", "愤怒", "遗憾", "释然", "麻木"];
+  // No hardcoded negative defaults — emotion options must mirror the user's actual
+  // emotional direction. The model prompt instructs the model to return 4-5
+  // direction-appropriate candidates; if it returns nothing, an empty list is fine.
   const options = Array.isArray(value)
     ? value.map(item => asCleanString(item)).filter(Boolean)
     : [];
-  return Array.from(new Set([...defaults, ...options])).slice(0, 7);
+  return options.slice(0, 7);
 }
 
 export async function replyFromStoryAgent(params: {
