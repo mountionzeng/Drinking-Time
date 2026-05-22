@@ -183,7 +183,7 @@ export default function WorkspaceLayout({
                 analysis={analysis}
               />
             ) : (
-              <ScriptViewer />
+              <ScriptViewer projectId={projectId} />
             )}
           </div>
         </ResizablePanel>

@@ -7,18 +7,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Loader2, ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCreationAgent } from '../CreationAgentContext';
+import ImageSegmentOverlay from './ImageSegmentOverlay';
 import type { ShotContext } from '../types';
 
 interface CreationAgentChatProps {
   shots?: ShotContext[];
   cards?: Array<{ content: string; emotion?: string }>;
   currentScript?: string;
+  projectId?: number | null;
 }
 
 export default function CreationAgentChat({
   shots,
   cards,
   currentScript,
+  projectId,
 }: CreationAgentChatProps) {
   const {
     messages,
@@ -28,6 +31,11 @@ export default function CreationAgentChat({
   } = useCreationAgent();
 
   const [input, setInput] = useState('');
+  const [editingImage, setEditingImage] = useState<{
+    imageUrl: string;
+    imageId: number;
+    shotNo: string;
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -84,14 +92,27 @@ export default function CreationAgentChat({
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
                 {msg.generatedImage && (
-                  <div className="mt-2 rounded-lg overflow-hidden border">
+                  <div
+                    className="mt-2 rounded-lg overflow-hidden border cursor-pointer hover:ring-1 hover:ring-primary/50 transition-shadow"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (msg.generatedImage && projectId) {
+                        setEditingImage({
+                          imageUrl: msg.generatedImage.imageUrl,
+                          imageId: msg.generatedImage.imageId,
+                          shotNo: msg.generatedImage.shotNo,
+                        });
+                      }
+                    }}
+                  >
                     <img
                       src={msg.generatedImage.imageUrl}
                       alt={`Generated for ${msg.generatedImage.shotNo}`}
                       className="w-full max-h-64 object-cover"
                     />
-                    <div className="px-2 py-1 text-xs text-muted-foreground bg-background">
-                      {msg.generatedImage.shotNo} 生成图
+                    <div className="px-2 py-1 text-xs text-muted-foreground bg-background flex justify-between">
+                      <span>{msg.generatedImage.shotNo} 生成图</span>
+                      {projectId && <span className="text-primary/70">点击编辑</span>}
                     </div>
                   </div>
                 )}
@@ -138,6 +159,17 @@ export default function CreationAgentChat({
           </Button>
         </div>
       </div>
+
+      {/* Point-and-click edit overlay */}
+      {editingImage && projectId && (
+        <ImageSegmentOverlay
+          imageUrl={editingImage.imageUrl}
+          imageId={editingImage.imageId}
+          shotNo={editingImage.shotNo}
+          projectId={projectId}
+          onClose={() => setEditingImage(null)}
+        />
+      )}
     </div>
   );
 }

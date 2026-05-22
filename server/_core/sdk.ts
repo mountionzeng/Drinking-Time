@@ -270,8 +270,13 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // If user not in DB, sync from OAuth server automatically.
+    // Google-authed users (openId starts with "google:") cannot be synced via
+    // Manus platform — they must re-authenticate with Google instead.
     if (!user) {
+      if (session.openId.startsWith("google:") || session.openId.startsWith("email:")) {
+        throw ForbiddenError("Session expired, please log in again");
+      }
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
         await db.upsertUser({

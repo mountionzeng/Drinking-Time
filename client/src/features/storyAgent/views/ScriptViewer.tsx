@@ -4,10 +4,12 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Check, ScrollText, Sparkles, ChevronDown } from 'lucide-react';
+import { Copy, Check, ScrollText, Sparkles, ChevronDown, Camera } from 'lucide-react';
 import { toast } from 'sonner';
+import { useLocation } from 'wouter';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
+import { trpc } from '@/lib/trpc';
 import type { NayinElement } from '@/features/nayin/nayin';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
@@ -59,12 +61,45 @@ function EditableText({
   );
 }
 
-export default function ScriptViewer() {
+interface ScriptViewerProps {
+  projectId?: number | null;
+}
+
+export default function ScriptViewer({ projectId }: ScriptViewerProps) {
   const { latestScript, scripts, updateScriptMeta, updateScriptScene } =
     useStoryAgent();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [, setLocation] = useLocation();
+
+  // Fetch project images for thumbnails
+  const imagesQuery = trpc.creationAgent.getProjectImages.useQuery(
+    { projectId: projectId! },
+    { enabled: projectId != null },
+  );
+  const projectImages = imagesQuery.data ?? [];
+
+  // Map sceneNo (S01) → shotNo (SH01) → image URL
+  const sceneImageMap = new Map<string, { imageUrl: string; shotNo: string }>();
+  if (latestScript) {
+    for (const scene of latestScript.scenes) {
+      // Derive shotNo from sceneNo: S01 → SH01
+      const num = scene.sceneNo.replace(/\D/g, '');
+      const shotNo = `SH${num.padStart(2, '0')}`;
+      const img = (projectImages as Array<{ shotNo: string; imageUrl: string }>)
+        .find(i => i.shotNo === shotNo);
+      if (img) {
+        sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo });
+      }
+    }
+  }
+
+  const navigateToCreation = (shotNo: string) => {
+    // Store focus shot in sessionStorage for cross-page handoff
+    sessionStorage.setItem('dt:creation:focusShotNo', shotNo);
+    setLocation('/creation');
+  };
 
   const copyAll = async () => {
     if (!latestScript) return;
@@ -192,7 +227,36 @@ export default function ScriptViewer() {
                           selectionSource={`script-scene:${i}`}
                         />
                       </span>
+                      {/* Navigate to Creation */}
+                      {projectId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const imgData = sceneImageMap.get(s.sceneNo);
+                            const num = s.sceneNo.replace(/\D/g, '');
+                            navigateToCreation(imgData?.shotNo ?? `SH${num.padStart(2, '0')}`);
+                          }}
+                          className="ml-auto shrink-0 w-5 h-5 rounded flex items-center justify-center hover:bg-foreground/5 transition-colors"
+                          aria-label={`跳转到 ${s.sceneNo} 制作`}
+                          title="跳转到创作页面"
+                        >
+                          <Camera className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      )}
                     </div>
+                    {/* Thumbnail */}
+                    {sceneImageMap.get(s.sceneNo) && (
+                      <div
+                        className="mb-1.5 cursor-pointer"
+                        onClick={() => navigateToCreation(sceneImageMap.get(s.sceneNo)!.shotNo)}
+                      >
+                        <img
+                          src={sceneImageMap.get(s.sceneNo)!.imageUrl}
+                          alt={`${s.sceneNo} 主图`}
+                          className="w-full h-20 rounded object-cover border border-border/30 hover:ring-1 hover:ring-primary/40 transition-shadow"
+                        />
+                      </div>
+                    )}
                     <p className="text-[11.5px] text-foreground leading-relaxed">
                       <EditableText
                         value={s.visual}

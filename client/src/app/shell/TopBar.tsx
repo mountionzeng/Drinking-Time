@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useAuth } from '@/_core/hooks/useAuth';
 
 interface TopBarProps {
   projects: Array<{ id: number; name: string }>;
@@ -23,7 +24,9 @@ export default function TopBar({
   onSelectProject,
 }: TopBarProps) {
   const { theme, allThemes, setPreviewElement, previewElement, element, today } = useNayin();
+  const { user, logout } = useAuth();
   const [themeOpen, setThemeOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
@@ -149,23 +152,53 @@ export default function TopBar({
               </PopoverContent>
             </Popover>
 
-            {/* User avatar — hand-drawn double-ring style */}
-            <button
-              className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
-              style={{
-                border: '1.4px solid var(--foreground)',
-                background: 'var(--background)',
-                boxShadow: '0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)',
-              }}
-              aria-label="用户"
-            >
-              <span
-                className="text-sm font-medium"
-                style={{ fontFamily: "'Noto Serif SC', serif", color: 'var(--foreground)' }}
+            {/* User avatar + logout popover */}
+            <Popover open={userOpen} onOpenChange={setUserOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
+                  style={{
+                    border: '1.4px solid var(--foreground)',
+                    background: 'var(--background)',
+                    boxShadow: '0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)',
+                  }}
+                  aria-label="用户"
+                >
+                  <span
+                    className="text-sm font-medium"
+                    style={{ fontFamily: "'Noto Serif SC', serif", color: 'var(--foreground)' }}
+                  >
+                    {user?.name ? user.name[0].toUpperCase() : 'G'}
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-52 p-0"
+                align="end"
+                style={{ background: 'var(--panel-bg)', border: '1px solid var(--nayin-border)' }}
               >
-                Y
-              </span>
-            </button>
+                <div className="p-3 border-b" style={{ borderColor: 'var(--nayin-border)' }}>
+                  <div className="text-xs font-medium text-foreground truncate">
+                    {user?.name || '访客'}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground truncate mt-0.5">
+                    {user?.email || ''}
+                  </div>
+                </div>
+                <div className="p-1.5">
+                  <button
+                    className="w-full text-left text-xs px-2.5 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-[var(--muted)] transition-colors"
+                    onClick={async () => {
+                      setUserOpen(false);
+                      await logout();
+                      window.location.href = '/login';
+                    }}
+                  >
+                    退出登录
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>

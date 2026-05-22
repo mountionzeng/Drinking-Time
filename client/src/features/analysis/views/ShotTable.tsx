@@ -283,6 +283,7 @@ export default function ShotTable({
                 >
                   <th className="px-2.5 py-2 w-[80px]">Scene</th>
                   <th className="px-2.5 py-2 w-[90px]">Shot</th>
+                  {onShotClick && <th className="px-2.5 py-2 w-[64px]">主图</th>}
                   <th className="px-2.5 py-2 w-[110px]">Status</th>
                   <th className="px-2.5 py-2 w-[90px]">Ready</th>
                   {canEditScript ? (
@@ -333,6 +334,42 @@ export default function ShotTable({
                         {shot.sceneNo}
                       </td>
                       <td className="px-2.5 py-2.5 font-mono text-nayin">{shot.shotNo}</td>
+                      {onShotClick && (
+                        <td
+                          className="px-1 py-1"
+                          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const data = e.dataTransfer.getData('text/plain');
+                            try {
+                              const parsed = JSON.parse(data) as { imageId: number; fromShotNo: string };
+                              if (parsed.fromShotNo !== shot.shotNo && parsed.imageId) {
+                                onShotClick(shot.shotNo);
+                                window.dispatchEvent(new CustomEvent('dt:reassign-image', {
+                                  detail: { imageId: parsed.imageId, newShotNo: shot.shotNo },
+                                }));
+                              }
+                            } catch { /* invalid drag data */ }
+                          }}
+                        >
+                          {shot.thumbnailUrl ? (
+                            <img
+                              src={shot.thumbnailUrl}
+                              alt={`${shot.shotNo} 主图`}
+                              className="w-12 h-8 rounded object-cover border border-border/50"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', JSON.stringify({
+                                  imageId: shot.thumbnailImageId ?? 0,
+                                  fromShotNo: shot.shotNo,
+                                }));
+                              }}
+                            />
+                          ) : (
+                            <div className="w-12 h-8 rounded bg-muted/30 border border-dashed border-border/30" />
+                          )}
+                        </td>
+                      )}
                       <td className="px-2.5 py-2.5">
                         <div className="flex items-center gap-2.5 min-w-[112px]">
                           <div className="workshop-mini-stage">

@@ -13,11 +13,30 @@ import CreationAgentChat from '@/features/creationAgent/views/CreationAgentChat'
 import ShotTable from '@/features/analysis/views/ShotTable';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import type { BackendShot } from '@/features/analysis/types';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
   const { storyShots, updateStoryShotField } = useStoryAgent();
-  const { focusShotNo, setFocusShotNo, projectImages } = useCreationAgent();
+  const { focusShotNo, setFocusShotNo, projectImages, reassignImage } = useCreationAgent();
+
+  // Cross-page handoff: pick up focusShotNo from sessionStorage (set by ScriptViewer)
+  useEffect(() => {
+    const stored = sessionStorage.getItem('dt:creation:focusShotNo');
+    if (stored) {
+      setFocusShotNo(stored);
+      sessionStorage.removeItem('dt:creation:focusShotNo');
+    }
+  }, [setFocusShotNo]);
+
+  // Listen for drag-reassign events from ShotTable
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { imageId, newShotNo } = (e as CustomEvent).detail as { imageId: number; newShotNo: string };
+      if (imageId && newShotNo) reassignImage(imageId, newShotNo);
+    };
+    window.addEventListener('dt:reassign-image', handler);
+    return () => window.removeEventListener('dt:reassign-image', handler);
+  }, [reassignImage]);
 
   // Convert storyShots to BackendShot format for ShotTable
   const tableShots = useMemo<BackendShot[]>(() => {
@@ -65,9 +84,10 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
         negativePrompt: '',
         createdAt: now,
         updatedAt: now,
-        // Attach current image URL for thumbnail display
+        // Attach current image for thumbnail display + drag
         thumbnailUrl: currentImage?.imageUrl,
-      } as BackendShot;
+        thumbnailImageId: currentImage?.id,
+      } satisfies BackendShot;
     });
   }, [projectId, storyShots, projectImages]);
 
@@ -91,7 +111,7 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
         {/* Left: Creation Agent Chat */}
         <ResizablePanel defaultSize={40} minSize={25}>
           <div className="h-full border-r">
-            <CreationAgentChat shots={shotContexts} />
+            <CreationAgentChat shots={shotContexts} projectId={projectId} />
           </div>
         </ResizablePanel>
 

@@ -34,6 +34,9 @@ import {
   replyFromCreationAgent,
   type ShotContext,
 } from "./services/creationAgent";
+import { segmentAtPoint } from "./services/segmentation";
+import { inpaintImage } from "./services/imageGen";
+import { createGeneratedImage } from "./db";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -819,6 +822,49 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .mutation(async ({ input }) => {
         await reassignImage(input.imageId, input.newShotNo);
         return { success: true };
+      }),
+
+    /** SAM 2 segmentation — click a point on an image to get a mask */
+    segment: protectedProcedure
+      .input(z.object({
+        imageUrl: z.string().url(),
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+      }))
+      .mutation(async ({ input }) => {
+        return segmentAtPoint(input.imageUrl, input.x, input.y);
+      }),
+
+    /** Inpaint — replace a masked region with a new generation */
+    inpaint: protectedProcedure
+      .input(z.object({
+        imageUrl: z.string().url(),
+        maskUrl: z.string().url(),
+        prompt: z.string().min(1),
+        shotNo: z.string(),
+        projectId: z.number(),
+        parentImageId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await inpaintImage(input.imageUrl, input.maskUrl, input.prompt);
+        if (result.status === "error" || !result.imageUrl) {
+          return { status: "error" as const, message: result.message ?? "No image returned" };
+        }
+        // Save the inpainted image to DB
+        const saved = await createGeneratedImage({
+          projectId: input.projectId,
+          shotNo: input.shotNo,
+          imageKey: `inpaint-${Date.now()}`,
+          imageUrl: result.imageUrl,
+          prompt: input.prompt,
+          parentImageId: input.parentImageId ?? null,
+          generationType: "inpaint",
+          maskKey: input.maskUrl,
+        });
+        return {
+          status: "ok" as const,
+          image: saved,
+        };
       }),
   }),
 });
