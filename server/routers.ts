@@ -12,6 +12,8 @@ import {
   createShots, getProjectShots, updateShot, batchUpdateShots,
   createAnalysisResult, getProjectAnalysis,
   listUserStories, getStoryById, createStory, updateStory, deleteStory,
+  getImagesByShotNo, getCurrentImageForShot, getProjectCurrentImages,
+  reassignImage,
 } from "./db";
 import {
   saveSnapshot,
@@ -28,6 +30,10 @@ import {
   type SimilarStoryCardPayload,
   type ShotDraft,
 } from "./archive/storyAgent";
+import {
+  replyFromCreationAgent,
+  type ShotContext,
+} from "./services/creationAgent";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -734,6 +740,85 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           console.error('[editContext.getRecentAnnotations] Error:', error);
           return [];
         }
+      }),
+  }),
+
+  // ─── Creation Agent ─────────────────────────────────────────────────
+  // Creation Engine: chat with image generation + focus tracking.
+  creationAgent: router({
+    /** Conversational chat with the creation agent */
+    chat: protectedProcedure
+      .input(z.object({
+        message: z.string().min(1),
+        projectId: z.number(),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+        cards: z.array(z.object({
+          content: z.string(),
+          emotion: z.string().optional(),
+        })).optional(),
+        currentScript: z.string().optional(),
+        shots: z.array(z.object({
+          shotNo: z.string(),
+          subject: z.string(),
+          action: z.string(),
+          dialogue: z.string(),
+          shotType: z.string(),
+          mood: z.string(),
+          promptDraft: z.string().optional(),
+        })).optional(),
+        currentFocusShotNo: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return replyFromCreationAgent({
+          message: input.message,
+          projectId: input.projectId,
+          history: input.history,
+          cards: input.cards,
+          currentScript: input.currentScript,
+          shots: input.shots as ShotContext[] | undefined,
+          currentFocusShotNo: input.currentFocusShotNo,
+        });
+      }),
+
+    /** Get all images for a shot */
+    getShotImages: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        shotNo: z.string(),
+      }))
+      .query(async ({ input }) => {
+        return getImagesByShotNo(input.projectId, input.shotNo);
+      }),
+
+    /** Get the current (main) image for a shot */
+    getCurrentImage: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        shotNo: z.string(),
+      }))
+      .query(async ({ input }) => {
+        return getCurrentImageForShot(input.projectId, input.shotNo);
+      }),
+
+    /** Get all current images for a project */
+    getProjectImages: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        return getProjectCurrentImages(input.projectId);
+      }),
+
+    /** Reassign an image to a different shot */
+    reassignImage: protectedProcedure
+      .input(z.object({
+        imageId: z.number(),
+        newShotNo: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        await reassignImage(input.imageId, input.newShotNo);
+        return { success: true };
       }),
   }),
 });
