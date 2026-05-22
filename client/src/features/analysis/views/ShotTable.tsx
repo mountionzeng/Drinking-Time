@@ -92,6 +92,10 @@ interface ShotTableProps {
     field: EditableShotField,
     value: string,
   ) => void;
+  /** Currently focused shot (highlighted row) */
+  focusShotNo?: string | null;
+  /** Called when user clicks a shot row */
+  onShotClick?: (shotNo: string) => void;
 }
 
 function compactJoin(parts: Array<string | null | undefined>, sep = ', ') {
@@ -159,6 +163,8 @@ export default function ShotTable({
   projectId,
   storyShots,
   onEditShotField,
+  focusShotNo,
+  onShotClick,
 }: ShotTableProps) {
   const canEditScript = Boolean(storyShots && onEditShotField);
   const [sortBy, setSortBy] = useState<'scene' | 'priority' | 'deadline' | 'readiness'>('scene');
@@ -314,11 +320,14 @@ export default function ShotTable({
                   const raw =
                     canEditScript && srcIdx != null ? storyShots?.[srcIdx] : undefined;
 
+                  const isFocused = focusShotNo === shot.shotNo;
+
                   return (
                     <tr
                       key={shot.id}
-                      className="align-top border-b"
+                      className={`align-top border-b ${onShotClick ? 'cursor-pointer hover:bg-foreground/[0.03]' : ''} ${isFocused ? 'bg-[var(--nayin-accent)]/10 ring-1 ring-inset ring-[var(--nayin-accent)]/30' : ''}`}
                       style={{ borderColor: 'var(--panel-border)' }}
+                      onClick={() => onShotClick?.(shot.shotNo)}
                     >
                       <td className="px-2.5 py-2.5 font-mono font-semibold text-foreground">
                         {shot.sceneNo}
