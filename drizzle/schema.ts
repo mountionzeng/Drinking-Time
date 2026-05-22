@@ -254,3 +254,23 @@ export const semanticAnnotations = mysqlTable("semantic_annotations", {
 export type SemanticAnnotation = typeof semanticAnnotations.$inferSelect;
 export type InsertSemanticAnnotation = typeof semanticAnnotations.$inferInsert;
 
+/**
+ * Generated images — AI-generated images bound to shots
+ */
+export const generatedImages = mysqlTable("generated_images", {
+  id: int("id").autoincrement().primaryKey(),
+  projectId: int("projectId").notNull(),
+  shotNo: varchar("shotNo", { length: 32 }).notNull(),  // e.g. "SH02"
+  imageKey: varchar("imageKey", { length: 512 }).notNull(),
+  imageUrl: text("imageUrl").notNull(),
+  prompt: text("prompt").notNull(),
+  parentImageId: int("parentImageId"),  // nullable — links to previous version for inpaint chain
+  isCurrent: mysqlBoolean("isCurrent").default(true).notNull(),
+  generationType: mysqlEnum("generationType", ["generate", "inpaint"]).default("generate").notNull(),
+  maskKey: varchar("maskKey", { length: 512 }),  // nullable — only for inpaint type
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GeneratedImage = typeof generatedImages.$inferSelect;
+export type InsertGeneratedImage = typeof generatedImages.$inferInsert;
+

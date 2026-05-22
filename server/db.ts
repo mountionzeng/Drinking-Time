@@ -11,8 +11,9 @@ import {
   InsertStory, stories, Story, StoryBody,
   InsertEditSnapshot, editSnapshots, EditSnapshot,
   InsertSemanticAnnotation, semanticAnnotations, SemanticAnnotation,
+  InsertGeneratedImage, generatedImages, GeneratedImage,
 } from "../drizzle/schema";
-export type { EditSnapshot, SemanticAnnotation };
+export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -26,6 +27,7 @@ type MemoryState = {
   stories: Story[];
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
+  generatedImages: GeneratedImage[];
   nextIds: {
     user: number;
     project: number;
@@ -35,6 +37,7 @@ type MemoryState = {
     story: number;
     editSnapshot: number;
     semanticAnnotation: number;
+    generatedImage: number;
   };
 };
 
@@ -47,6 +50,7 @@ const memoryState: MemoryState = {
   stories: [],
   editSnapshots: [],
   semanticAnnotations: [],
+  generatedImages: [],
   nextIds: {
     user: 1,
     project: 1,
@@ -56,6 +60,7 @@ const memoryState: MemoryState = {
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
+    generatedImage: 1,
   },
 };
 
@@ -146,6 +151,11 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     timestamp: toDate(item.timestamp),
   })) as SemanticAnnotation[];
 
+  memoryState.generatedImages = (raw.generatedImages ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+  })) as GeneratedImage[];
+
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
     project: Math.max(raw.nextIds?.project ?? 0, nextIdFromRows(memoryState.projects)),
@@ -163,6 +173,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     semanticAnnotation: Math.max(
       raw.nextIds?.semanticAnnotation ?? 0,
       nextIdFromRows(memoryState.semanticAnnotations),
+    ),
+    generatedImage: Math.max(
+      raw.nextIds?.generatedImage ?? 0,
+      nextIdFromRows(memoryState.generatedImages),
     ),
   };
 }
@@ -847,6 +861,191 @@ export async function getRecentSemanticAnnotations(
     .limit(limit);
 }
 
+// ─── Generated Images ────────────────────────────────────────────────────
+
+export async function createGeneratedImage(
+  data: Omit<InsertGeneratedImage, 'id' | 'createdAt'>,
+): Promise<GeneratedImage> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    // Mark all existing images for this shot as non-current
+    for (const img of memoryState.generatedImages) {
+      if (img.projectId === data.projectId && img.shotNo === data.shotNo) {
+        img.isCurrent = false;
+      }
+    }
+    const id = nextMemoryId('generatedImage');
+    const image: GeneratedImage = {
+      id,
+      projectId: data.projectId,
+      shotNo: data.shotNo,
+      imageKey: data.imageKey,
+      imageUrl: data.imageUrl,
+      prompt: data.prompt,
+      parentImageId: data.parentImageId ?? null,
+      isCurrent: data.isCurrent ?? true,
+      generationType: data.generationType ?? 'generate',
+      maskKey: data.maskKey ?? null,
+      createdAt: now(),
+    };
+    memoryState.generatedImages.push(image);
+    await persistMemoryState();
+    return image;
+  }
+  // Mark existing current images for this shot as non-current
+  await db.update(generatedImages)
+    .set({ isCurrent: false })
+    .where(and(
+      eq(generatedImages.projectId, data.projectId),
+      eq(generatedImages.shotNo, data.shotNo),
+      eq(generatedImages.isCurrent, true),
+    ));
+  const [result] = await db.insert(generatedImages).values(data);
+  const [image] = await db.select().from(generatedImages).where(eq(generatedImages.id, result.insertId));
+  return image;
+}
+
+export async function getImagesByShotNo(
+  projectId: number,
+  shotNo: string,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages
+      .filter(img => img.projectId === projectId && img.shotNo === shotNo)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  return db.select().from(generatedImages)
+    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.shotNo, shotNo)))
+    .orderBy(desc(generatedImages.createdAt));
+}
+
+export async function getCurrentImageForShot(
+  projectId: number,
+  shotNo: string,
+): Promise<GeneratedImage | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages.find(
+      img => img.projectId === projectId && img.shotNo === shotNo && img.isCurrent,
+    ) ?? null;
+  }
+  const [image] = await db.select().from(generatedImages)
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, shotNo),
+      eq(generatedImages.isCurrent, true),
+    ))
+    .limit(1);
+  return image ?? null;
+}
+
+export async function getProjectCurrentImages(
+  projectId: number,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages
+      .filter(img => img.projectId === projectId && img.isCurrent)
+      .sort((a, b) => a.shotNo.localeCompare(b.shotNo));
+  }
+  return db.select().from(generatedImages)
+    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.isCurrent, true)))
+    .orderBy(generatedImages.shotNo);
+}
+
+export async function updateImageCurrent(
+  imageId: number,
+  isCurrent: boolean,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const img = memoryState.generatedImages.find(i => i.id === imageId);
+    if (img) {
+      img.isCurrent = isCurrent;
+      await persistMemoryState();
+    }
+    return;
+  }
+  await db.update(generatedImages).set({ isCurrent }).where(eq(generatedImages.id, imageId));
+}
+
+export async function reassignImage(
+  imageId: number,
+  newShotNo: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const img = memoryState.generatedImages.find(i => i.id === imageId);
+    if (!img) return;
+
+    const oldShotNo = img.shotNo;
+    const projectId = img.projectId;
+
+    // Mark existing current images on the target shot as non-current
+    for (const other of memoryState.generatedImages) {
+      if (other.projectId === projectId && other.shotNo === newShotNo && other.isCurrent) {
+        other.isCurrent = false;
+      }
+    }
+
+    // Move the image and make it current on the new shot
+    img.shotNo = newShotNo;
+    img.isCurrent = true;
+
+    // Promote the most recent remaining image on the old shot
+    const oldShotImages = memoryState.generatedImages
+      .filter(i => i.projectId === projectId && i.shotNo === oldShotNo && i.id !== imageId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    if (oldShotImages.length > 0) {
+      oldShotImages[0].isCurrent = true;
+    }
+
+    await persistMemoryState();
+    return;
+  }
+
+  const [img] = await db.select().from(generatedImages).where(eq(generatedImages.id, imageId)).limit(1);
+  if (!img) return;
+
+  const oldShotNo = img.shotNo;
+  const projectId = img.projectId;
+
+  // Mark existing current images on the target shot as non-current
+  await db.update(generatedImages)
+    .set({ isCurrent: false })
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, newShotNo),
+      eq(generatedImages.isCurrent, true),
+    ));
+
+  // Move and set current
+  await db.update(generatedImages)
+    .set({ shotNo: newShotNo, isCurrent: true })
+    .where(eq(generatedImages.id, imageId));
+
+  // Promote most recent on old shot
+  const remaining = await db.select().from(generatedImages)
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, oldShotNo),
+    ))
+    .orderBy(desc(generatedImages.createdAt))
+    .limit(1);
+  if (remaining.length > 0) {
+    await db.update(generatedImages)
+      .set({ isCurrent: true })
+      .where(eq(generatedImages.id, remaining[0].id));
+  }
+}
+
 /**
  * Reset in-memory state and loaded flag — for use in tests only.
  * Prevents accumulated state from prior test runs from leaking between tests.
@@ -860,6 +1059,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.stories = [];
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
+  memoryState.generatedImages = [];
   memoryState.nextIds = {
     user: 1,
     project: 1,
@@ -869,6 +1069,7 @@ export function resetMemoryStateForTesting(): void {
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
+    generatedImage: 1,
   };
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;

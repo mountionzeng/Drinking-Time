@@ -39,4 +39,7 @@ export const ENV = {
   jisuapiAppKey: process.env.JISUAPI_APPKEY ?? "",              // 极速数据 AppKey（可选，优先于通用 key）
   huangliApiBaseUrl: process.env.HUANGLI_API_BASE_URL ?? "",    // 测试或私有代理覆盖
   huangliTimeoutMs: process.env.HUANGLI_TIMEOUT_MS ?? "5000",
+
+  // ── fal.ai 图片生成 ──
+  falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
 };
