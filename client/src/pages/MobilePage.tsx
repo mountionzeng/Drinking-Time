@@ -6,6 +6,7 @@
 import { useRoute } from "wouter";
 import { MobileChatProvider } from "@/features/mobileChat/MobileChatContext";
 import MobileTabBar from "@/features/mobileChat/views/MobileTabBar";
+import MobileChatPage from "@/features/mobileChat/views/MobileChatPage";
 
 export default function MobilePage() {
   const [isStoryboard] = useRoute("/m/storyboard");
@@ -21,10 +22,7 @@ export default function MobilePage() {
               故事版（开发中）
             </div>
           ) : (
-            // 聊天页占位（U5 实现）
-            <div className="flex h-full items-center justify-center text-gray-400">
-              聊天页（开发中）
-            </div>
+            <MobileChatPage />
           )}
         </main>
 
