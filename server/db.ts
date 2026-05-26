@@ -11,6 +11,8 @@ import {
   InsertStory, stories, Story, StoryBody,
   InsertEditSnapshot, editSnapshots, EditSnapshot,
   InsertSemanticAnnotation, semanticAnnotations, SemanticAnnotation,
+  InsertGeneratedImage, generatedImages, GeneratedImage,
+  InsertImageSignal, imageSignals, ImageSignal,
 } from "../drizzle/schema";
 export type { EditSnapshot, SemanticAnnotation };
 import { ENV } from './_core/env';
@@ -26,6 +28,8 @@ type MemoryState = {
   stories: Story[];
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
+  generatedImages: GeneratedImage[];
+  imageSignals: ImageSignal[];
   nextIds: {
     user: number;
     project: number;
@@ -35,6 +39,8 @@ type MemoryState = {
     story: number;
     editSnapshot: number;
     semanticAnnotation: number;
+    generatedImage: number;
+    imageSignal: number;
   };
 };
 
@@ -47,6 +53,8 @@ const memoryState: MemoryState = {
   stories: [],
   editSnapshots: [],
   semanticAnnotations: [],
+  generatedImages: [],
+  imageSignals: [],
   nextIds: {
     user: 1,
     project: 1,
@@ -56,6 +64,8 @@ const memoryState: MemoryState = {
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
+    generatedImage: 1,
+    imageSignal: 1,
   },
 };
 
@@ -146,6 +156,16 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     timestamp: toDate(item.timestamp),
   })) as SemanticAnnotation[];
 
+  memoryState.generatedImages = (raw.generatedImages ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+  })) as GeneratedImage[];
+
+  memoryState.imageSignals = (raw.imageSignals ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+  })) as ImageSignal[];
+
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
     project: Math.max(raw.nextIds?.project ?? 0, nextIdFromRows(memoryState.projects)),
@@ -163,6 +183,14 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     semanticAnnotation: Math.max(
       raw.nextIds?.semanticAnnotation ?? 0,
       nextIdFromRows(memoryState.semanticAnnotations),
+    ),
+    generatedImage: Math.max(
+      raw.nextIds?.generatedImage ?? 0,
+      nextIdFromRows(memoryState.generatedImages),
+    ),
+    imageSignal: Math.max(
+      raw.nextIds?.imageSignal ?? 0,
+      nextIdFromRows(memoryState.imageSignals),
     ),
   };
 }
@@ -700,6 +728,98 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
   await db.delete(stories).where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
+// ─── Generated Images ────────────────────────────────────────────────────
+// 手机端聊天出图的图片记录。支持版本链（parentImageId + isCurrent）。
+
+export async function createGeneratedImage(data: InsertGeneratedImage): Promise<GeneratedImage> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const row: GeneratedImage = {
+      id: nextMemoryId("generatedImage"),
+      storyId: data.storyId,
+      userId: data.userId,
+      shotNo: data.shotNo ?? null,
+      imageUrl: data.imageUrl,
+      prompt: data.prompt ?? null,
+      generationType: data.generationType ?? "initial",
+      parentImageId: data.parentImageId ?? null,
+      isCurrent: data.isCurrent ?? true,
+      createdAt: current,
+    };
+    // 如果有 shotNo，把同 storyId+shotNo 的旧图标记为非当前
+    if (row.shotNo != null) {
+      for (const img of memoryState.generatedImages) {
+        if (img.storyId === row.storyId && img.shotNo === row.shotNo && img.isCurrent) {
+          img.isCurrent = false;
+        }
+      }
+    }
+    memoryState.generatedImages.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  // 先把同 storyId+shotNo 的旧图标记为非当前
+  if (data.shotNo != null) {
+    await db.update(generatedImages)
+      .set({ isCurrent: false })
+      .where(and(
+        eq(generatedImages.storyId, data.storyId),
+        eq(generatedImages.shotNo, data.shotNo!),
+        eq(generatedImages.isCurrent, true),
+      ));
+  }
+  const [result] = await db.insert(generatedImages).values(data);
+  const [row] = await db.select().from(generatedImages).where(eq(generatedImages.id, result.insertId));
+  return row;
+}
+
+export async function getGeneratedImageById(id: number): Promise<GeneratedImage | null> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.generatedImages.find(img => img.id === id) ?? null;
+  }
+  const [row] = await db.select().from(generatedImages).where(eq(generatedImages.id, id));
+  return row ?? null;
+}
+
+export async function getStoryImages(storyId: number): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.generatedImages
+      .filter(img => img.storyId === storyId && img.isCurrent)
+      .sort((a, b) => (a.shotNo ?? 0) - (b.shotNo ?? 0));
+  }
+  return db.select().from(generatedImages)
+    .where(and(eq(generatedImages.storyId, storyId), eq(generatedImages.isCurrent, true)))
+    .orderBy(generatedImages.shotNo);
+}
+
+// ─── Image Signals ──────────────────────────────────────────────────────
+// 用户交互信号（左划/右划/编辑等），时序事件流。
+
+export async function createImageSignal(data: InsertImageSignal): Promise<ImageSignal> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const row: ImageSignal = {
+      id: nextMemoryId("imageSignal"),
+      userId: data.userId,
+      storyId: data.storyId,
+      imageId: data.imageId ?? null,
+      action: data.action,
+      metadata: data.metadata ?? null,
+      createdAt: current,
+    };
+    memoryState.imageSignals.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(imageSignals).values(data);
+  const [row] = await db.select().from(imageSignals).where(eq(imageSignals.id, result.insertId));
+  return row;
+}
+
 // ─── Edit Snapshots ──────────────────────────────────────────────────────
 
 export async function createEditSnapshot(
@@ -860,6 +980,8 @@ export function resetMemoryStateForTesting(): void {
   memoryState.stories = [];
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
+  memoryState.generatedImages = [];
+  memoryState.imageSignals = [];
   memoryState.nextIds = {
     user: 1,
     project: 1,
@@ -869,6 +991,8 @@ export function resetMemoryStateForTesting(): void {
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
+    generatedImage: 1,
+    imageSignal: 1,
   };
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;

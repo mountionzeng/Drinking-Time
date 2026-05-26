@@ -12,7 +12,10 @@ import {
   createShots, getProjectShots, updateShot, batchUpdateShots,
   createAnalysisResult, getProjectAnalysis,
   listUserStories, getStoryById, createStory, updateStory, deleteStory,
+  createGeneratedImage, getGeneratedImageById, getStoryImages,
+  createImageSignal,
 } from "./db";
+import { generateImage } from "./_core/imageGeneration";
 import {
   saveSnapshot,
   getRecentAnnotations,
@@ -614,6 +617,153 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .mutation(async ({ ctx, input }) => {
         await deleteStory(input.id, ctx.user.id);
         return { ok: true };
+      }),
+
+    // ─── 手机端聊天出图端点 ──────────────────────────────────────────
+    // mobileChat: 带出图能力的聊天（enableImageGen=true）
+    mobileChat: protectedProcedure
+      .input(z.object({
+        message: z.string().min(1),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+        existingCardCount: z.number().optional(),
+        summary: z.string().optional(),
+        currentShots: z.array(z.object({
+          shotNo: z.number(),
+          subject: z.string(),
+          action: z.string(),
+          dialogue: z.string(),
+          shotType: z.string(),
+          cameraAngle: z.string(),
+          cameraMove: z.string(),
+          location: z.string(),
+          timeLight: z.string(),
+          mood: z.string(),
+          sound: z.string(),
+          styleRef: z.string(),
+        })).optional(),
+        similarCards: z.array(z.object({
+          content: z.string(),
+          rawText: z.string().optional(),
+          emotion: z.string().optional(),
+          emotionBlend: z.array(z.string()).optional(),
+          retrievalQuery: z.string().optional(),
+          themeHints: z.array(z.string()).optional(),
+          personalTrace: z.string().optional(),
+          score: z.number().optional(),
+        })).optional(),
+        projectId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return replyFromStoryAgent({
+          message: input.message,
+          history: input.history,
+          existingCardCount: input.existingCardCount,
+          summary: input.summary,
+          currentShots: input.currentShots as ShotDraft[] | undefined,
+          similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
+          projectId: input.projectId,
+          enableImageGen: true, // 手机端开启出图能力
+        });
+      }),
+
+    // generateForMobile: 用户确认后触发图片生成
+    generateForMobile: protectedProcedure
+      .input(z.object({
+        prompt: z.string().min(1),
+        storyId: z.number(),
+        shotNo: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { url } = await generateImage({ prompt: input.prompt });
+          if (!url) {
+            return { status: "error" as const, error: "图片生成返回空结果" };
+          }
+          // 写入 generatedImages 表
+          const image = await createGeneratedImage({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            shotNo: input.shotNo ?? null,
+            imageUrl: url,
+            prompt: input.prompt,
+            generationType: "initial",
+            isCurrent: true,
+          });
+          return { status: "ok" as const, imageUrl: url, imageId: image.id };
+        } catch (err) {
+          console.error("[generateForMobile] 图片生成失败:", err);
+          return {
+            status: "error" as const,
+            error: err instanceof Error ? err.message : "图片生成失败",
+          };
+        }
+      }),
+
+    // mobileInpaint: 局部修复（用 Forge API 的 originalImages 参数）
+    mobileInpaint: protectedProcedure
+      .input(z.object({
+        prompt: z.string().min(1),
+        originalImageUrl: z.string(),
+        storyId: z.number(),
+        shotNo: z.number().optional(),
+        parentImageId: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { url } = await generateImage({
+            prompt: input.prompt,
+            originalImages: [{ url: input.originalImageUrl }],
+          });
+          if (!url) {
+            return { status: "error" as const, error: "局部修复返回空结果" };
+          }
+          const image = await createGeneratedImage({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            shotNo: input.shotNo ?? null,
+            imageUrl: url,
+            prompt: input.prompt,
+            generationType: "inpaint",
+            parentImageId: input.parentImageId ?? null,
+            isCurrent: true,
+          });
+          return { status: "ok" as const, imageUrl: url, imageId: image.id };
+        } catch (err) {
+          console.error("[mobileInpaint] 局部修复失败:", err);
+          return {
+            status: "error" as const,
+            error: err instanceof Error ? err.message : "局部修复失败",
+          };
+        }
+      }),
+
+    // recordSignal: 记录用户交互信号（左划/右划/编辑等）
+    recordSignal: protectedProcedure
+      .input(z.object({
+        storyId: z.number(),
+        imageId: z.number().optional(),
+        action: z.enum(["swipe_left", "swipe_right", "edit_start", "edit_complete"]),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const signal = await createImageSignal({
+          userId: ctx.user.id,
+          storyId: input.storyId,
+          imageId: input.imageId ?? null,
+          action: input.action,
+          metadata: input.metadata ?? null,
+        });
+        return { id: signal.id };
+      }),
+
+    // storyImages: 获取某个 story 的所有当前图片
+    storyImages: protectedProcedure
+      .input(z.object({ storyId: z.number() }))
+      .query(async ({ input }) => {
+        return getStoryImages(input.storyId);
       }),
   }),
 

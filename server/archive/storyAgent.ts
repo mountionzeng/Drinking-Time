@@ -169,12 +169,23 @@ const HUMANITY_TRAITS: HumanityTrait[] = [
   "conflicted",
 ];
 
+// ── 工具调用类型（手机端出图用） ──
+export type GenerateImageToolCall = {
+  name: "generateImage";
+  prompt: string;       // 图片生成 prompt
+  shotNo?: number;      // 绑定到第几镜
+};
+
+export type ToolCall = GenerateImageToolCall;
+
 export type StoryAgentChatResult = {
   reply: string;
   card: StoryCardPayload | null;
   read: HumanityRead | null;
   configured: boolean;
   modelLabel: string;
+  toolCalls: ToolCall[];           // 手机端出图工具调用
+  suggestImage: boolean;           // 是否建议生成图片
 };
 
 export type ShotCharacter = {
@@ -399,6 +410,7 @@ function buildAgentSystemPrompt(
   shotDraft?: ShotDraft[],
   similarCards?: SimilarStoryCardPayload[],
   editContextBlock?: string,
+  enableImageGen?: boolean,
 ): string {
   // 节奏指令：情绪采样优先召回。先收下，再慢慢补齐；不要等成完整故事才留卡。
   const pacing = (() => {
@@ -532,11 +544,27 @@ function buildAgentSystemPrompt(
     "",
     pacing,
     "",
+    // ── 出图能力（仅手机端注入） ──
+    ...(enableImageGen ? [
+      "",
+      "【出图能力 — 你可以提议帮对方画一个画面】",
+      "当对方描述了一个具体的场景——有地点、有时间、有氛围、有光线——并且情绪信号足够清晰时，你可以主动提议：",
+      "「我帮你画一个画面？」「要不我试着画一下那个场景？」",
+      "不要每轮都提议，只在场景足够具体且情绪到位时才说。大概 3-5 轮出现一次。",
+      "如果你决定提议出图，在 toolCalls 里加一条 generateImage：",
+      '  { "name": "generateImage", "prompt": "生成画面的英文描述，包含场景/光线/氛围/人物动作", "shotNo": 对应镜头编号（数字） }',
+      "prompt 要把对方聊到的场景翻译成适合图片生成的英文描述。shotNo 按故事时间线顺序给编号。",
+      "如果不提议出图，toolCalls 为空数组 []。",
+    ] : []),
+    "",
     "【返回格式：严格 JSON，不要附加任何额外文字、不要包 markdown 代码块】",
     "{",
     '  "read": { "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" },',
     '  "reply": "你要对对方说的话（呼应 read.trait 的切入方式，但语气始终是普通朋友之间的)",',
     '  "card": null  // 或一份情绪样本卡，字段见下方',
+    ...(enableImageGen ? [
+      ',  "toolCalls": []  // 或 [{ "name": "generateImage", "prompt": "...", "shotNo": 1 }]',
+    ] : []),
     "}",
     "",
     "card 不为 null 的标准：只要这一轮有情绪信号，就采样。不要等完整故事、不要等感动、不要等时间地点齐全。",
@@ -735,6 +763,7 @@ export async function replyFromStoryAgent(params: {
   currentShots?: ShotDraft[];
   similarCards?: SimilarStoryCardPayload[];
   projectId?: number;
+  enableImageGen?: boolean;  // 手机端出图开关
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
@@ -751,6 +780,8 @@ export async function replyFromStoryAgent(params: {
         "我已经准备好了，但本地还没配 API Key。请在项目根目录配置 .env，至少补上 BUILT_IN_FORGE_API_KEY、BUILT_IN_FORGE_API_URL 和 LLM_MODEL，然后重启 4321 服务。",
       card: null,
       read: null,
+      toolCalls: [],
+      suggestImage: false,
     };
   }
 
@@ -785,6 +816,7 @@ export async function replyFromStoryAgent(params: {
         currentShots,
         similarCards,
         editContextBlock,
+        params.enableImageGen,
       ),
     },
     ...turns,
@@ -797,18 +829,21 @@ export async function replyFromStoryAgent(params: {
     reply: string;
     card: StoryCardPayload | null;
     read?: { trait?: unknown; note?: unknown } | null;
+    toolCalls?: Array<{ name?: string; prompt?: string; shotNo?: number }> | null;
   };
   try {
     parsed = parseJsonLoose<{
       reply: string;
       card: StoryCardPayload | null;
       read?: { trait?: unknown; note?: unknown } | null;
+      toolCalls?: Array<{ name?: string; prompt?: string; shotNo?: number }> | null;
     }>(text);
   } catch {
     parsed = {
       reply: text.trim() || "再多说一点那个时刻，是在什么地方？",
       card: null,
       read: null,
+      toolCalls: null,
     };
   }
 
@@ -860,12 +895,31 @@ export async function replyFromStoryAgent(params: {
     }
   }
 
+  // 解析 toolCalls（仅在手机端出图模式下有意义）
+  const toolCalls: ToolCall[] = [];
+  if (params.enableImageGen && Array.isArray(parsed.toolCalls)) {
+    for (const tc of parsed.toolCalls) {
+      if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
+        toolCalls.push({
+          name: "generateImage",
+          prompt: tc.prompt.trim(),
+          shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+        });
+      }
+    }
+  }
+
+  // 如果有 generateImage toolCall，说明小酌建议出图
+  const suggestImage = toolCalls.some(tc => tc.name === "generateImage");
+
   return {
     configured: true,
     modelLabel,
     reply: parsed.reply || "嗯。",
     card,
     read,
+    toolCalls,
+    suggestImage,
   };
 }
 

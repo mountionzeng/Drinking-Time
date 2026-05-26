@@ -223,6 +223,45 @@ export type StoryBody = {
 };
 
 /**
+ * GeneratedImages — 手机端聊天出图记录。
+ *
+ * 每张图归属一个 story（通过 storyId）和一个镜头号（shotNo），
+ * 支持版本链（parentImageId → isCurrent 标记最新版本）。
+ * generationType 区分首次生成和局部修复。
+ */
+export const generatedImages = mysqlTable("generated_images", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  shotNo: int("shotNo"),
+  imageUrl: text("imageUrl").notNull(),
+  prompt: text("prompt"),
+  generationType: mysqlEnum("generationType", ["initial", "inpaint"]).default("initial").notNull(),
+  parentImageId: int("parentImageId"),
+  isCurrent: mysqlBoolean("isCurrent").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GeneratedImage = typeof generatedImages.$inferSelect;
+export type InsertGeneratedImage = typeof generatedImages.$inferInsert;
+
+/**
+ * ImageSignals — 用户对图片的交互信号（左划/右划/编辑等），时序事件流。
+ */
+export const imageSignals = mysqlTable("image_signals", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  storyId: int("storyId").notNull(),
+  imageId: int("imageId"),
+  action: mysqlEnum("action", ["swipe_left", "swipe_right", "edit_start", "edit_complete"]).notNull(),
+  metadata: json("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ImageSignal = typeof imageSignals.$inferSelect;
+export type InsertImageSignal = typeof imageSignals.$inferInsert;
+
+/**
  * Edit snapshots — captures project state at generation boundaries
  */
 export const editSnapshots = mysqlTable("edit_snapshots", {
