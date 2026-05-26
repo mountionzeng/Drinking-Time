@@ -67,6 +67,16 @@ export default function MobileChatMessages({
                     : "bg-white text-gray-800 shadow-sm rounded-bl-md"
                 }`}
               >
+                {/* 用户附带的照片 */}
+                {isUser && msg.photoUrl && (
+                  <img
+                    src={msg.photoUrl}
+                    alt="用户照片"
+                    className="mb-2 w-full rounded-xl object-cover"
+                    style={{ maxHeight: "200px" }}
+                  />
+                )}
+
                 {/* 消息文字 */}
                 <p className="whitespace-pre-wrap">{msg.content}</p>
 

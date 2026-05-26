@@ -7,6 +7,7 @@ import { useRoute } from "wouter";
 import { MobileChatProvider } from "@/features/mobileChat/MobileChatContext";
 import MobileTabBar from "@/features/mobileChat/views/MobileTabBar";
 import MobileChatPage from "@/features/mobileChat/views/MobileChatPage";
+import MobileStoryboard from "@/features/mobileChat/views/MobileStoryboard";
 
 export default function MobilePage() {
   const [isStoryboard] = useRoute("/m/storyboard");
@@ -17,10 +18,7 @@ export default function MobilePage() {
         {/* 主内容区域（底部 tab 栏占位） */}
         <main className="flex-1 overflow-hidden pb-14">
           {isStoryboard ? (
-            // 故事版页占位（U8 实现）
-            <div className="flex h-full items-center justify-center text-gray-400">
-              故事版（开发中）
-            </div>
+            <MobileStoryboard />
           ) : (
             <MobileChatPage />
           )}

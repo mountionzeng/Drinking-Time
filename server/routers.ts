@@ -669,16 +669,45 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         });
       }),
 
-    // generateForMobile: 用户确认后触发图片生成
+    // uploadPhoto: 用户上传手机照片（base64 → storage）
+    uploadPhoto: protectedProcedure
+      .input(z.object({
+        base64: z.string().min(1),
+        mimeType: z.string().default("image/jpeg"),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const buffer = Buffer.from(input.base64, "base64");
+          const ext = input.mimeType === "image/png" ? "png" : "jpg";
+          const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+          const { url } = await storagePut(key, buffer, input.mimeType);
+          return { status: "ok" as const, url };
+        } catch (err) {
+          console.error("[uploadPhoto] 上传失败:", err);
+          return {
+            status: "error" as const,
+            error: err instanceof Error ? err.message : "上传失败",
+          };
+        }
+      }),
+
+    // generateForMobile: 用户确认后触发图片生成（可选传入用户照片作为基底）
     generateForMobile: protectedProcedure
       .input(z.object({
         prompt: z.string().min(1),
         storyId: z.number(),
         shotNo: z.number().optional(),
+        originalImageUrl: z.string().optional(), // 用户照片 URL，用于 image-to-image
       }))
       .mutation(async ({ ctx, input }) => {
         try {
-          const { url } = await generateImage({ prompt: input.prompt });
+          const { url } = await generateImage({
+            prompt: input.prompt,
+            // 如果用户提供了照片，作为 originalImages 基底
+            ...(input.originalImageUrl
+              ? { originalImages: [{ url: input.originalImageUrl }] }
+              : {}),
+          });
           if (!url) {
             return { status: "error" as const, error: "图片生成返回空结果" };
           }

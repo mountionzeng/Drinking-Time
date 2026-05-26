@@ -75,8 +75,8 @@ interface MobileChatContextValue {
   isReplying: boolean;
   isGenerating: boolean;
   remoteStoryId: number | null;
-  // 发送消息（调用 mobileChat 端点）
-  sendMessage: (text: string) => Promise<void>;
+  // 发送消息（调用 mobileChat 端点，可附带照片 base64）
+  sendMessage: (text: string, photoBase64?: string) => Promise<void>;
   // 用户确认出图
   confirmGenerate: (messageId: string) => Promise<void>;
   // 滑动操作
@@ -111,6 +111,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
   const upsertStoryMut = trpc.storyAgent.storyUpsert.useMutation();
+  const uploadPhotoMut = trpc.storyAgent.uploadPhoto.useMutation();
 
   // 持久化到 localStorage
   const persist = useCallback(
@@ -148,16 +149,32 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     return id;
   }, [remoteStoryId, upsertStoryMut]);
 
-  // 发送消息
+  // 发送消息（可附带照片 base64）
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, photoBase64?: string) => {
       if (!text.trim() || isReplying) return;
+
+      // 如果有照片，先上传到 storage
+      let photoUrl: string | undefined;
+      if (photoBase64) {
+        try {
+          const uploadResult = await uploadPhotoMut.mutateAsync({
+            base64: photoBase64,
+          });
+          if (uploadResult.status === "ok") {
+            photoUrl = uploadResult.url;
+          }
+        } catch (err) {
+          console.error("[sendMessage] 照片上传失败:", err);
+        }
+      }
 
       const userMsg: MobileChatMessage = {
         id: newId("u"),
         role: "user",
         content: text.trim(),
         timestamp: Date.now(),
+        photoUrl,
       };
 
       const newMsgs = [...messages, userMsg];
@@ -239,7 +256,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         setIsReplying(false);
       }
     },
-    [messages, cards, images, isReplying, mobileChatMut, persist, remoteStoryId]
+    [messages, cards, images, isReplying, mobileChatMut, uploadPhotoMut, persist, remoteStoryId]
   );
 
   // 用户确认出图
@@ -266,11 +283,25 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const newImages = [...images, placeholder];
         setImages(newImages);
 
-        // 调用生成
+        // 查找消息上下文中最近的用户照片（作为生成基底）
+        const msgIndex = messages.findIndex((m) => m.id === messageId);
+        let photoUrl: string | undefined;
+        if (msgIndex > 0) {
+          // 往回找最近一条带照片的用户消息
+          for (let i = msgIndex - 1; i >= 0; i--) {
+            if (messages[i].role === "user" && messages[i].photoUrl) {
+              photoUrl = messages[i].photoUrl;
+              break;
+            }
+          }
+        }
+
+        // 调用生成（如果有用户照片，传入作为 image-to-image 基底）
         const result = await generateMut.mutateAsync({
           prompt: msg.imagePrompt,
           storyId,
           shotNo: msg.imageShotNo,
+          originalImageUrl: photoUrl,
         });
 
         if (result.status === "ok" && result.imageUrl) {
