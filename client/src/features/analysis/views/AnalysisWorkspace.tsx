@@ -33,7 +33,6 @@ export default function AnalysisWorkspace() {
         <StoryAgentProvider projectId={projectData.currentProjectId}>
           <WorkspaceStageRouter
             references={projectData.references}
-            shots={projectData.shots}
             currentProjectId={projectData.currentProjectId}
             activeInputTab={panel.activeInputTab}
             setActiveInputTab={panel.setActiveInputTab}

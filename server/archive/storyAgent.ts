@@ -6,7 +6,9 @@
  * emotional curve.
  */
 import { ENV } from "../_core/env";
-import { invokeLLM, type Message } from "../_core/llm";
+import { type Message } from "../_core/llm";
+import { parseJsonLoose } from "../_core/llmJson";
+import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import type { SemanticAnnotation } from "../db";
 
@@ -14,102 +16,6 @@ export const FIRST_QUESTION =
   "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
-
-// ── 智能选择上行通道 ──
-// 与 DROP ZONE Agent 保持一致：如果配置了 cc 模型 / cc 端点，优先走
-// Claude Messages 格式；否则回退到 OpenAI 兼容的 invokeLLM。
-type ClaudeMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  model?: string;
-};
-
-function shouldUseClaudeChannel(): boolean {
-  return Boolean(
-    ENV.dropZoneModel?.startsWith("cc-") ||
-      ENV.dropZoneApiUrl?.includes("/cc"),
-  );
-}
-
-function resolveClaudeUrl(): string {
-  const raw = (ENV.dropZoneApiUrl || ENV.forgeApiUrl || "").trim();
-  if (!raw) return "";
-  const normalized = raw.replace(/\/+$/, "");
-  if (normalized.endsWith("/v1/messages")) return normalized;
-  if (normalized.endsWith("/cc")) return `${normalized}/v1/messages`;
-  return normalized;
-}
-
-async function invokeClaudeMessages(
-  messages: Message[],
-  maxTokens: number,
-): Promise<{ text: string; modelLabel: string }> {
-  const apiUrl = resolveClaudeUrl();
-  if (!apiUrl) throw new Error("Claude messages endpoint is not configured");
-
-  const system = messages
-    .filter(m => m.role === "system")
-    .map(m => String(m.content))
-    .join("\n\n");
-
-  const anthropicMessages = messages
-    .filter(m => m.role !== "system")
-    .map(m => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content),
-    }));
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ENV.forgeApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: ENV.dropZoneModel || ENV.llmModel,
-      max_tokens: maxTokens,
-      system,
-      messages: anthropicMessages,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Claude messages invoke failed: ${response.status} ${body}`);
-  }
-
-  const data = (await response.json()) as ClaudeMessageResponse;
-  const text =
-    data.content
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
-      .join("\n")
-      .trim() || "";
-
-  return { text, modelLabel: data.model || ENV.dropZoneModel || ENV.llmModel };
-}
-
-async function invokeAgent(
-  messages: Message[],
-  maxTokens: number,
-): Promise<{ text: string; modelLabel: string }> {
-  if (shouldUseClaudeChannel()) {
-    return invokeClaudeMessages(messages, maxTokens);
-  }
-
-  const result = await invokeLLM({ messages, maxTokens });
-  const content = result.choices[0]?.message?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content
-            .map(c => (c.type === "text" ? c.text : ""))
-            .filter(Boolean)
-            .join("\n")
-        : "";
-  return { text, modelLabel: ENV.llmModel };
-}
 
 export type StoryCardPayload = {
   content: string;
@@ -483,7 +389,7 @@ function buildAgentSystemPrompt(
     "【固定机制 · 每轮都要遵守】",
     "1. 情绪确认：只要你判断出情绪，并且 card 不为 null，reply 里必须自然地问一句「我先把它记成 X，你觉得准吗？」不要审问，可以像朋友确认口味一样轻。",
     "2. 原话引用：重要情绪必须能追溯到用户自己的表达。card.sourceQuote 必须从用户原话里截取一个短句或词组（≤24 字）；如果没有原话锚点，就不要把情绪说死，先追问。",
-    "3. 情绪词替换：card.emotionOptions 至少包含这 5 个候选：委屈、愤怒、遗憾、释然、麻木；也可以额外加 1-2 个更贴近本轮的词。reply 可以邀请用户改词。",
+    "3. 情绪词替换：card.emotionOptions 至少包含 5 个候选，必须正负面平衡——如 感动、好奇、释然、遗憾、麻木；也可以额外加 1-2 个更贴近本轮的词。注意：不要全给消极词，正面内容要给正面情绪词。reply 可以邀请用户改词。",
     "4. 真实性保护：绝不替用户补重大事实、重大创伤、重大疾病、死亡、暴力、背叛、家庭破裂等事件。用户没有说，就不能写成事实；最多只能问「有没有一点像……」。",
     "5. 个人痕迹优先：比起总结大道理，更要保留用户自己的词、物件、地点、动作、回避方式和身体反应。",
     "",
@@ -575,8 +481,8 @@ function buildAgentSystemPrompt(
     '  "content": "用 1-2 句话定形这个情绪样本；保留日常感，不解释、不升华",',
     '  "rawText": "对方原话，尽量原样保留",',
     '  "sourceQuote": "用户原话里能支撑这个情绪判断的短句，≤24 字；必须原话可追溯",',
-    '  "emotion": "主情绪，1-4 字，如 烦躁/羞耻/空掉/期待/防御/羡慕/松动",',
-    '  "emotionOptions": ["委屈", "愤怒", "遗憾", "释然", "麻木"],',
+    '  "emotion": "主情绪，1-4 字，如 温暖/满足/好奇/期待/安心/烦躁/羞耻/空掉/防御/羡慕/松动——正面内容给正面词，不要全往消极方向走",',
+    '  "emotionOptions": ["感动", "好奇", "释然", "遗憾", "麻木"],',
     '  "emotionBlend": ["混合情绪1", "混合情绪2"],',
     '  "intensity": 0.1,',
     '  "direction": "指向自己/他人/关系/环境/过去/未来/未知",',
@@ -596,138 +502,6 @@ function buildAgentSystemPrompt(
   ].join("\n");
 }
 
-function stripJson(raw: string): string {
-  return raw
-    .trim()
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/, "")
-    .trim();
-}
-
-function stripJsonComments(raw: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-
-  for (let i = 0; i < raw.length; i++) {
-    const char = raw[i];
-    const next = raw[i + 1];
-
-    if (escaped) {
-      out += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      out += char;
-      escaped = inString;
-      continue;
-    }
-
-    if (char === '"') {
-      out += char;
-      inString = !inString;
-      continue;
-    }
-
-    if (!inString && char === "/" && next === "/") {
-      while (i < raw.length && raw[i] !== "\n") i++;
-      out += "\n";
-      continue;
-    }
-
-    if (!inString && char === "/" && next === "*") {
-      i += 2;
-      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
-      i++;
-      continue;
-    }
-
-    out += char;
-  }
-
-  return out;
-}
-
-function sanitizeJsonCandidate(raw: string): string {
-  return stripJsonComments(stripJson(raw))
-    .replace(/,\s*([}\]])/g, "$1")
-    .trim();
-}
-
-function extractFencedJsonBlocks(raw: string): string[] {
-  const blocks: string[] = [];
-  const regex = /```(?:json)?\s*([\s\S]*?)```/gi;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(raw))) {
-    if (match[1]?.trim()) blocks.push(match[1]);
-  }
-  return blocks;
-}
-
-function extractBalancedJsonObjects(raw: string): string[] {
-  const candidates: string[] = [];
-
-  for (let start = 0; start < raw.length; start++) {
-    if (raw[start] !== "{") continue;
-
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-
-    for (let i = start; i < raw.length; i++) {
-      const char = raw[i];
-
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaped = inString;
-        continue;
-      }
-
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) continue;
-
-      if (char === "{") depth++;
-      if (char === "}") depth--;
-
-      if (depth === 0) {
-        candidates.push(raw.slice(start, i + 1));
-        break;
-      }
-    }
-  }
-
-  return candidates;
-}
-
-function parseJsonLoose<T>(raw: string): T {
-  const candidates = [
-    ...extractFencedJsonBlocks(raw),
-    stripJson(raw),
-    ...extractBalancedJsonObjects(raw),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(sanitizeJsonCandidate(candidate)) as T;
-    } catch {
-      // Try the next possible JSON span.
-    }
-  }
-
-  throw new Error("Non-JSON response");
-}
 
 function asCleanString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -1481,4 +1255,53 @@ export async function summarizeHistory(params: {
     modelLabel,
     summary: cleaned,
   };
+}
+
+// ── 选中编辑（inline selection edit）──────────────────────────────────
+
+/** 对文本中选中片段执行 AI 编辑指令，返回替换后的完整文本 */
+export async function handleSelectionEdit(params: {
+  fullText: string;
+  selectedText: string;
+  instruction: string;
+  projectId?: number;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}): Promise<{ isApprovalOnly: boolean; modifiedFullText: string; reply: string }> {
+  const systemPrompt = `你是一位文字编辑助手。用户会给你一段完整文本和其中被选中的片段，以及一条编辑指令。
+请只修改选中的部分，保持其余文字不变，返回修改后的完整文本。
+
+要求：
+1. 仅修改选中片段，上下文保持一致
+2. 遵循用户的编辑指令
+3. 如果指令是确认/赞同性质的（如"好的"、"不错"），不做修改，isApprovalOnly 设为 true
+4. 返回 JSON 格式：{"isApprovalOnly":false,"modifiedFullText":"修改后的完整文本","reply":"简短说明做了什么改动"}`;
+
+  const userMessage = `完整文本：
+---
+${params.fullText}
+---
+
+选中片段：
+---
+${params.selectedText}
+---
+
+编辑指令：${params.instruction}`;
+
+  const messages: Message[] = [
+    { role: "system", content: systemPrompt },
+    ...(params.history ?? []).map((h) => ({
+      role: h.role as "user" | "assistant",
+      content: h.content,
+    })),
+    { role: "user", content: userMessage },
+  ];
+
+  const result = await invokeAgent(messages, 2048);
+  const parsed = parseJsonLoose<{ isApprovalOnly: boolean; modifiedFullText: string; reply: string }>(result.text);
+  if (parsed && typeof parsed.modifiedFullText === "string") {
+    return parsed;
+  }
+  // 解析失败时回退：直接返回原文
+  return { isApprovalOnly: false, modifiedFullText: params.fullText, reply: "未能解析 AI 返回结果，保留原文" };
 }

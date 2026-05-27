@@ -11,6 +11,54 @@ import { STATUS_CONFIG } from '@/features/analysis/config/statusConfig';
 import type { Priority, ShotStatus } from '@/features/analysis/types';
 import ShotStageIllustration from './ShotStageIllustration';
 import type { BackendShot } from '@/features/analysis/types';
+import type { StoryShot } from '@/features/storyAgent/types';
+
+type EditableShotField = 'subject' | 'action' | 'dialogue';
+
+function EditableLine({
+  label,
+  value,
+  placeholder,
+  onCommit,
+  selectionSource,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onCommit: (next: string) => void;
+  selectionSource?: string;
+}) {
+  return (
+    <div className="flex gap-1.5 items-baseline">
+      <span className="shrink-0 w-7 text-[9px] font-mono uppercase tracking-wider text-muted-foreground/70 pt-0.5">
+        {label}
+      </span>
+      <span
+        data-selection-source={selectionSource}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-label={`编辑${label}`}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).blur();
+          }
+        }}
+        onBlur={(e) => {
+          const next = (e.currentTarget.innerText || '').trim();
+          if (next !== value) onCommit(next);
+          else e.currentTarget.innerText = value;
+        }}
+        className="flex-1 min-w-0 text-[11px] leading-relaxed text-foreground/90 select-text cursor-text outline-none rounded-sm px-1 -mx-1 empty:before:content-[attr(data-ph)] empty:before:text-muted-foreground/40 focus:bg-foreground/[0.05] focus:ring-1 focus:ring-[var(--nayin-accent)]/40 hover:bg-foreground/[0.03] transition-colors"
+        data-ph={placeholder}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 const EMPTY_TABLE_MSG: Record<NayinElement, string> = {
   metal: '导入素材并运行分析，让啤酒帮你拆解镜头提示词矩阵',
@@ -37,6 +85,17 @@ interface ShotTableProps {
   isActive: boolean;
   shots: BackendShot[];
   projectId: number | null;
+  /** Raw story shots, for lossless inline editing of script fields. */
+  storyShots?: StoryShot[];
+  onEditShotField?: (
+    index: number,
+    field: EditableShotField,
+    value: string,
+  ) => void;
+  /** Currently focused shot (highlighted row) */
+  focusShotNo?: string | null;
+  /** Called when user clicks a shot row */
+  onShotClick?: (shotNo: string) => void;
 }
 
 function compactJoin(parts: Array<string | null | undefined>, sep = ', ') {
@@ -98,7 +157,16 @@ function PromptCell({
   );
 }
 
-export default function ShotTable({ isActive, shots, projectId }: ShotTableProps) {
+export default function ShotTable({
+  isActive,
+  shots,
+  projectId,
+  storyShots,
+  onEditShotField,
+  focusShotNo,
+  onShotClick,
+}: ShotTableProps) {
+  const canEditScript = Boolean(storyShots && onEditShotField);
   const [sortBy, setSortBy] = useState<'scene' | 'priority' | 'deadline' | 'readiness'>('scene');
   const [filterStatus, setFilterStatus] = useState<ShotStatus | 'all'>('all');
 
@@ -215,8 +283,12 @@ export default function ShotTable({ isActive, shots, projectId }: ShotTableProps
                 >
                   <th className="px-2.5 py-2 w-[80px]">Scene</th>
                   <th className="px-2.5 py-2 w-[90px]">Shot</th>
+                  {onShotClick && <th className="px-2.5 py-2 w-[64px]">主图</th>}
                   <th className="px-2.5 py-2 w-[110px]">Status</th>
                   <th className="px-2.5 py-2 w-[90px]">Ready</th>
+                  {canEditScript ? (
+                    <th className="px-2.5 py-2 min-w-[240px]">剧本 Script · 可改</th>
+                  ) : null}
                   <th className="px-2.5 py-2 min-w-[210px]">场景语义 Prompt</th>
                   <th className="px-2.5 py-2 min-w-[210px]">镜头语言 Prompt</th>
                   <th className="px-2.5 py-2 min-w-[210px]">光影色彩 Prompt</th>
@@ -245,17 +317,59 @@ export default function ShotTable({ isActive, shots, projectId }: ShotTableProps
                   ]);
                   const mainPrompt = shot.promptDraft?.trim() || '—';
                   const negative = shot.negativePrompt?.trim() || '—';
+                  const srcIdx = shot.sourceIndex;
+                  const raw =
+                    canEditScript && srcIdx != null ? storyShots?.[srcIdx] : undefined;
+
+                  const isFocused = focusShotNo === shot.shotNo;
 
                   return (
                     <tr
                       key={shot.id}
-                      className="align-top border-b"
+                      className={`align-top border-b ${onShotClick ? 'cursor-pointer hover:bg-foreground/[0.03]' : ''} ${isFocused ? 'bg-[var(--nayin-accent)]/10 ring-1 ring-inset ring-[var(--nayin-accent)]/30' : ''}`}
                       style={{ borderColor: 'var(--panel-border)' }}
+                      onClick={() => onShotClick?.(shot.shotNo)}
                     >
                       <td className="px-2.5 py-2.5 font-mono font-semibold text-foreground">
                         {shot.sceneNo}
                       </td>
                       <td className="px-2.5 py-2.5 font-mono text-nayin">{shot.shotNo}</td>
+                      {onShotClick && (
+                        <td
+                          className="px-1 py-1"
+                          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const data = e.dataTransfer.getData('text/plain');
+                            try {
+                              const parsed = JSON.parse(data) as { imageId: number; fromShotNo: string };
+                              if (parsed.fromShotNo !== shot.shotNo && parsed.imageId) {
+                                onShotClick(shot.shotNo);
+                                window.dispatchEvent(new CustomEvent('dt:reassign-image', {
+                                  detail: { imageId: parsed.imageId, newShotNo: shot.shotNo },
+                                }));
+                              }
+                            } catch { /* invalid drag data */ }
+                          }}
+                        >
+                          {shot.thumbnailUrl ? (
+                            <img
+                              src={shot.thumbnailUrl}
+                              alt={`${shot.shotNo} 主图`}
+                              className="w-12 h-8 rounded object-cover border border-border/50"
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', JSON.stringify({
+                                  imageId: shot.thumbnailImageId ?? 0,
+                                  fromShotNo: shot.shotNo,
+                                }));
+                              }}
+                            />
+                          ) : (
+                            <div className="w-12 h-8 rounded bg-muted/30 border border-dashed border-border/30" />
+                          )}
+                        </td>
+                      )}
                       <td className="px-2.5 py-2.5">
                         <div className="flex items-center gap-2.5 min-w-[112px]">
                           <div className="workshop-mini-stage">
@@ -281,6 +395,43 @@ export default function ShotTable({ isActive, shots, projectId }: ShotTableProps
                           {Math.round(shot.readinessScore * 100)}%
                         </span>
                       </td>
+                      {canEditScript ? (
+                        <td className="px-2.5 py-2.5">
+                          {raw && srcIdx != null ? (
+                            <div
+                              className="rounded-md border px-2.5 py-2 space-y-1.5"
+                              style={{
+                                borderColor: 'var(--panel-border)',
+                                background: 'var(--background)',
+                              }}
+                            >
+                              <EditableLine
+                                label="主体"
+                                value={raw.subject}
+                                placeholder="（谁/什么在画面里）"
+                                onCommit={(v) => onEditShotField?.(srcIdx, 'subject', v)}
+                                selectionSource={`shot:${srcIdx}:subject`}
+                              />
+                              <EditableLine
+                                label="动作"
+                                value={raw.action}
+                                placeholder="（发生了什么）"
+                                onCommit={(v) => onEditShotField?.(srcIdx, 'action', v)}
+                                selectionSource={`shot:${srcIdx}:action`}
+                              />
+                              <EditableLine
+                                label="台词"
+                                value={raw.dialogue}
+                                placeholder="（无台词）"
+                                onCommit={(v) => onEditShotField?.(srcIdx, 'dialogue', v)}
+                                selectionSource={`shot:${srcIdx}:dialogue`}
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground/50">—</span>
+                          )}
+                        </td>
+                      ) : null}
                       <td className="px-2.5 py-2.5">
                         <PromptCell value={scenePrompt || '—'} label="场景语义 Prompt" shotNo={shot.shotNo} />
                       </td>

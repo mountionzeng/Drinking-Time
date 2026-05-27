@@ -4,7 +4,7 @@
  * Center: TemplateDraft / StoryCardsBoard (follows active tab)
  * Right: ShotTable + PromptDistill / ScriptViewer
  */
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -15,12 +15,11 @@ import StoryAgentChat from '@/features/storyAgent/views/StoryAgentChat';
 import StoryListView from '@/features/storyAgent/views/StoryListView';
 import TemplateDraft from './TemplateDraft';
 import StoryCardsBoard from '@/features/storyAgent/views/StoryCardsBoard';
-import ShotTable from './ShotTable';
 import PromptDistill from './PromptDistill';
 import ScriptViewer from '@/features/storyAgent/views/ScriptViewer';
 import type { AnalysisData } from '@/features/analysis/types';
-import type { BackendShot } from '@/features/analysis/types';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
 
 export type InputTab = 'material' | 'story';
 
@@ -44,8 +43,6 @@ interface WorkspaceLayoutProps {
   analysisActive: boolean;
   analysis: AnalysisData | null;
   refsCount: number;
-  /** ShotTable props */
-  shots: BackendShot[];
 }
 
 export default function WorkspaceLayout({
@@ -60,80 +57,11 @@ export default function WorkspaceLayout({
   analysisActive,
   analysis,
   refsCount,
-  shots,
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [centerCollapsed, setCenterCollapsed] = useState(false);
-  const { storyShots, activeStoryId } = useStoryAgent();
-
-  const storyMatrixShots = useMemo<BackendShot[]>(() => {
-    const now = new Date();
-    return storyShots.map((shot, index) => {
-      const status: BackendShot['status'] =
-        shot.beat === '收束'
-          ? 'production_ready'
-          : shot.beat === '转折'
-            ? 'structured'
-            : 'idea_pool';
-      const filledFields = [
-        shot.subject,
-        shot.action,
-        shot.dialogue,
-        shot.shotType,
-        shot.cameraAngle,
-        shot.cameraMove,
-        shot.location,
-        shot.timeLight,
-        shot.mood,
-        shot.sound,
-        shot.styleRef,
-      ].filter((value) => value.trim().length > 0).length;
-      return {
-        id: -1 * (index + 1),
-        projectId: projectId ?? 0,
-        userId: 1,
-        sceneNo: `SC${String(Math.ceil((index + 1) / 6)).padStart(2, '0')}`,
-        shotNo: `SH${String(shot.shotNo).padStart(2, '0')}`,
-        sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject]
-          .filter(Boolean)
-          .join(' · '),
-        intentType: 'director_note',
-        status,
-        readinessScore: Math.min(0.95, 0.35 + filledFields * 0.055),
-        deadline: null,
-        priority: shot.beat === '转折' ? 'high' : 'medium',
-        autoRender: false,
-        blockingIssues: null,
-        nextAction: shot.note || null,
-        sceneType: shot.location || shot.beat || null,
-        timeOfDay: shot.timeLight || null,
-        weather: null,
-        lighting: shot.timeLight || null,
-        cameraFocalLength: shot.shotType || null,
-        cameraMovement: shot.cameraMove || null,
-        spatialLayers: shot.cameraAngle || null,
-        mood: [shot.mood, shot.emotion].filter(Boolean).join(' / ') || null,
-        colorPalette: shot.styleRef || null,
-        promptDraft: [
-          shot.subject,
-          shot.action,
-          shot.dialogue ? `台词：${shot.dialogue}` : '',
-          shot.location ? `场景：${shot.location}` : '',
-          shot.shotType ? `景别：${shot.shotType}` : '',
-          shot.beat ? `叙事位置：${shot.beat}` : '',
-        ]
-          .filter(Boolean)
-          .join('，'),
-        negativePrompt: '',
-        createdAt: now,
-        updatedAt: now,
-      };
-    });
-  }, [projectId, storyShots]);
-
-  const tableShots = activeInputTab === 'story' ? storyMatrixShots : shots;
-  const tableActive =
-    activeInputTab === 'story' ? storyMatrixShots.length > 0 : analysisActive;
+  const { activeStoryId, setActiveSelection } = useStoryAgent();
+  useSelectionCapture(setActiveSelection);
 
   return (
     <div className="flex-1 min-h-0">
@@ -249,18 +177,13 @@ export default function WorkspaceLayout({
         {/* Right Panel: Output */}
         <ResizablePanel defaultSize={40} minSize={22}>
           <div className="h-full overflow-auto space-y-3 p-2">
-            <ShotTable
-              isActive={tableActive}
-              shots={tableShots}
-              projectId={projectId}
-            />
             {activeInputTab === 'material' ? (
               <PromptDistill
                 isActive={analysisActive}
                 analysis={analysis}
               />
             ) : (
-              <ScriptViewer />
+              <ScriptViewer projectId={projectId} />
             )}
           </div>
         </ResizablePanel>

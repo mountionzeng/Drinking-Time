@@ -4,10 +4,12 @@
  */
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Check, ScrollText, Sparkles, ChevronDown } from 'lucide-react';
+import { Copy, Check, ScrollText, Sparkles, ChevronDown, Camera } from 'lucide-react';
 import { toast } from 'sonner';
+import { useLocation } from 'wouter';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
+import { trpc } from '@/lib/trpc';
 import type { NayinElement } from '@/features/nayin/nayin';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
@@ -18,11 +20,86 @@ const EMPTY_HINT: Record<NayinElement, string> = {
   earth: '剧本会在这里萃取 — 像意式浓缩，浓而不烈',
 };
 
-export default function ScriptViewer() {
-  const { latestScript, scripts } = useStoryAgent();
+function EditableText({
+  value,
+  onCommit,
+  multiline = false,
+  className = '',
+  ariaLabel,
+  selectionSource,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  multiline?: boolean;
+  className?: string;
+  ariaLabel: string;
+  selectionSource?: string;
+}) {
+  return (
+    <span
+      data-selection-source={selectionSource}
+      contentEditable
+      suppressContentEditableWarning
+      role="textbox"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (!multiline || !e.shiftKey)) {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).blur();
+        }
+      }}
+      onBlur={(e) => {
+        const next = (e.currentTarget.innerText || '').trim();
+        if (next && next !== value) onCommit(next);
+        else e.currentTarget.innerText = value;
+      }}
+      className={`select-text cursor-text outline-none rounded-sm -mx-1 px-1 focus:bg-foreground/[0.05] focus:ring-1 focus:ring-[var(--nayin-accent)]/40 hover:bg-foreground/[0.02] transition-colors ${className}`}
+    >
+      {value}
+    </span>
+  );
+}
+
+interface ScriptViewerProps {
+  projectId?: number | null;
+}
+
+export default function ScriptViewer({ projectId }: ScriptViewerProps) {
+  const { latestScript, scripts, updateScriptMeta, updateScriptScene } =
+    useStoryAgent();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [, setLocation] = useLocation();
+
+  // Fetch project images for thumbnails
+  const imagesQuery = trpc.creationAgent.getProjectImages.useQuery(
+    { projectId: projectId! },
+    { enabled: projectId != null },
+  );
+  const projectImages = imagesQuery.data ?? [];
+
+  // Map sceneNo (S01) → shotNo (SH01) → image URL
+  const sceneImageMap = new Map<string, { imageUrl: string; shotNo: string }>();
+  if (latestScript) {
+    for (const scene of latestScript.scenes) {
+      // Derive shotNo from sceneNo: S01 → SH01
+      const num = scene.sceneNo.replace(/\D/g, '');
+      const shotNo = `SH${num.padStart(2, '0')}`;
+      const img = (projectImages as Array<{ shotNo: string; imageUrl: string }>)
+        .find(i => i.shotNo === shotNo);
+      if (img) {
+        sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo });
+      }
+    }
+  }
+
+  const navigateToCreation = (shotNo: string) => {
+    // Store focus shot in sessionStorage for cross-page handoff
+    sessionStorage.setItem('dt:creation:focusShotNo', shotNo);
+    setLocation('/creation');
+  };
 
   const copyAll = async () => {
     if (!latestScript) return;
@@ -86,8 +163,13 @@ export default function ScriptViewer() {
               {/* Title + logline */}
               <div>
                 <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <h3 className="text-sm font-semibold text-foreground leading-tight">
-                    {latestScript.title}
+                  <h3 className="text-sm font-semibold text-foreground leading-tight min-w-0">
+                    <EditableText
+                      value={latestScript.title}
+                      onCommit={(v) => updateScriptMeta('title', v)}
+                      ariaLabel="编辑剧本标题"
+                      selectionSource="script-meta:title"
+                    />
                   </h3>
                   <button
                     type="button"
@@ -103,7 +185,13 @@ export default function ScriptViewer() {
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground italic leading-relaxed">
-                  {latestScript.logline}
+                  <EditableText
+                    value={latestScript.logline}
+                    onCommit={(v) => updateScriptMeta('logline', v)}
+                    multiline
+                    ariaLabel="编辑 logline"
+                    selectionSource="script-meta:logline"
+                  />
                 </p>
               </div>
 
@@ -132,11 +220,51 @@ export default function ScriptViewer() {
                         {s.sceneNo}
                       </span>
                       <span className="text-[10px] font-mono uppercase tracking-wider text-nayin-bright">
-                        {s.emotion}
+                        <EditableText
+                          value={s.emotion}
+                          onCommit={(v) => updateScriptScene(i, 'emotion', v)}
+                          ariaLabel={`编辑场景 ${s.sceneNo} 情绪`}
+                          selectionSource={`script-scene:${i}`}
+                        />
                       </span>
+                      {/* Navigate to Creation */}
+                      {projectId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const imgData = sceneImageMap.get(s.sceneNo);
+                            const num = s.sceneNo.replace(/\D/g, '');
+                            navigateToCreation(imgData?.shotNo ?? `SH${num.padStart(2, '0')}`);
+                          }}
+                          className="ml-auto shrink-0 w-5 h-5 rounded flex items-center justify-center hover:bg-foreground/5 transition-colors"
+                          aria-label={`跳转到 ${s.sceneNo} 制作`}
+                          title="跳转到创作页面"
+                        >
+                          <Camera className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      )}
                     </div>
+                    {/* Thumbnail */}
+                    {sceneImageMap.get(s.sceneNo) && (
+                      <div
+                        className="mb-1.5 cursor-pointer"
+                        onClick={() => navigateToCreation(sceneImageMap.get(s.sceneNo)!.shotNo)}
+                      >
+                        <img
+                          src={sceneImageMap.get(s.sceneNo)!.imageUrl}
+                          alt={`${s.sceneNo} 主图`}
+                          className="w-full h-20 rounded object-cover border border-border/30 hover:ring-1 hover:ring-primary/40 transition-shadow"
+                        />
+                      </div>
+                    )}
                     <p className="text-[11.5px] text-foreground leading-relaxed">
-                      {s.visual}
+                      <EditableText
+                        value={s.visual}
+                        onCommit={(v) => updateScriptScene(i, 'visual', v)}
+                        multiline
+                        ariaLabel={`编辑场景 ${s.sceneNo} 画面`}
+                        selectionSource={`script-scene:${i}`}
+                      />
                     </p>
                   </motion.div>
                 ))}
@@ -156,7 +284,13 @@ export default function ScriptViewer() {
                     Emotional Arc
                   </div>
                   <p className="text-[11px] text-foreground leading-relaxed">
-                    {latestScript.arcSummary}
+                    <EditableText
+                      value={latestScript.arcSummary}
+                      onCommit={(v) => updateScriptMeta('arcSummary', v)}
+                      multiline
+                      ariaLabel="编辑情感弧线"
+                      selectionSource="script-meta:arcSummary"
+                    />
                   </p>
                 </div>
               </div>

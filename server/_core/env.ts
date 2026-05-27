@@ -39,4 +39,16 @@ export const ENV = {
   jisuapiAppKey: process.env.JISUAPI_APPKEY ?? "",              // 极速数据 AppKey（可选，优先于通用 key）
   huangliApiBaseUrl: process.env.HUANGLI_API_BASE_URL ?? "",    // 测试或私有代理覆盖
   huangliTimeoutMs: process.env.HUANGLI_TIMEOUT_MS ?? "5000",
+
+  // ── fal.ai 图片生成 ──
+  falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
+
+  // ── Google OAuth ──
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",            // Google OAuth Client ID
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",    // Google OAuth Client Secret
+  appOrigin: process.env.APP_ORIGIN ?? "",                       // 应用 origin（如 https://example.com）
+
+  // ── Email OTP（Resend）──
+  resendApiKey: process.env.RESEND_API_KEY ?? "",                // Resend API Key（用于发送 OTP 邮件）
+  resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "noreply@drinking-time.com", // 发件人地址
 };

@@ -22,6 +22,7 @@ import {
   type StoryCard,
   type GeneratedScript,
   type StoryShot,
+  type SelectionState,
 } from './types';
 
 interface PersistedState {
@@ -60,6 +61,18 @@ interface StoryAgentContextValue {
   sendMessage: (text: string) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
+  /** Inline-edit a single card's content; persists locally + to the server. */
+  updateCardContent: (id: string, content: string) => void;
+  /** Inline-edit the latest script's title / logline / arc; persists. */
+  updateScriptMeta: (field: 'title' | 'logline' | 'arcSummary', value: string) => void;
+  /** Inline-edit one scene of the latest script; persists. */
+  updateScriptScene: (sceneIndex: number, field: 'visual' | 'emotion', value: string) => void;
+  /** Inline-edit a single shot's script field (subject/action/dialogue); persists. */
+  updateStoryShotField: (
+    index: number,
+    field: 'subject' | 'action' | 'dialogue',
+    value: string,
+  ) => void;
   generateScript: () => Promise<void>;
   resetConversation: () => void;
   /** Story list management */
@@ -71,6 +84,11 @@ interface StoryAgentContextValue {
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
   refreshStoryList: () => void;
+  /** Inline selection edit */
+  activeSelection: SelectionState | null;
+  setActiveSelection: (state: SelectionState | null) => void;
+  clearSelection: () => void;
+  sendSelectionEdit: (instruction: string) => Promise<void>;
 }
 
 const StoryAgentContext = createContext<StoryAgentContextValue | null>(null);
@@ -410,6 +428,7 @@ export function StoryAgentProvider({
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [isLoadingStories, setIsLoadingStories] = useState(false);
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
+  const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
   const hydratedFor = useRef<number | null>(null);
 
   // ── Auto-save refs ──────────────────────────────────────────────────
@@ -594,6 +613,10 @@ export function StoryAgentProvider({
         }
       } catch (error) {
         console.warn('save archive story failed', error);
+        // Clear stale remoteStoryId so the next save attempt creates a fresh story
+        // instead of repeatedly failing to update a story that no longer exists.
+        setRemoteStoryId(undefined);
+        toast.error('故事保存失败，将在下次自动重新创建');
       }
     },
     [projectId, remoteStoryId, storyTitle, storyLogline, storyTheme, storyArc],
@@ -800,6 +823,139 @@ export function StoryAgentProvider({
     ],
   );
 
+  // Inline edit of a single card's content. Mirrors removeCard's persistence:
+  // setCards triggers the persist-on-change effect (localStorage), and
+  // saveArchiveStory pushes the durable server copy.
+  const updateCardContent = useCallback(
+    (id: string, content: string) => {
+      const nextCards = cards.map((card) =>
+        card.id === id ? { ...card, content } : card,
+      );
+      setCards(nextCards);
+      void saveArchiveStory({
+        messages,
+        cards: nextCards,
+        scripts,
+        storyShots,
+        characters,
+        remoteStoryId,
+        title: storyTitle,
+        logline: storyLogline,
+        theme: storyTheme,
+        arc: storyArc,
+      });
+    },
+    [
+      cards,
+      messages,
+      scripts,
+      storyShots,
+      characters,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      saveArchiveStory,
+    ],
+  );
+
+  // Replace the latest script with an edited copy. Same persistence path as
+  // updateCardContent: setScripts → persist-on-change effect + saveArchiveStory.
+  const commitScripts = useCallback(
+    (nextScripts: GeneratedScript[]) => {
+      setScripts(nextScripts);
+      void saveArchiveStory({
+        messages,
+        cards,
+        scripts: nextScripts,
+        storyShots,
+        characters,
+        remoteStoryId,
+        title: storyTitle,
+        logline: storyLogline,
+        theme: storyTheme,
+        arc: storyArc,
+      });
+    },
+    [
+      messages,
+      cards,
+      storyShots,
+      characters,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      saveArchiveStory,
+    ],
+  );
+
+  const updateScriptMeta = useCallback(
+    (field: 'title' | 'logline' | 'arcSummary', value: string) => {
+      const idx = scripts.length - 1;
+      if (idx < 0) return;
+      const nextScripts = scripts.map((s, i) =>
+        i === idx ? { ...s, [field]: value } : s,
+      );
+      commitScripts(nextScripts);
+    },
+    [scripts, commitScripts],
+  );
+
+  const updateScriptScene = useCallback(
+    (sceneIndex: number, field: 'visual' | 'emotion', value: string) => {
+      const idx = scripts.length - 1;
+      if (idx < 0) return;
+      const last = scripts[idx];
+      if (!last || sceneIndex < 0 || sceneIndex >= last.scenes.length) return;
+      const nextScenes = last.scenes.map((sc, i) =>
+        i === sceneIndex ? { ...sc, [field]: value } : sc,
+      );
+      const nextScripts = scripts.map((s, i) =>
+        i === idx ? { ...s, scenes: nextScenes } : s,
+      );
+      commitScripts(nextScripts);
+    },
+    [scripts, commitScripts],
+  );
+
+  const updateStoryShotField = useCallback(
+    (index: number, field: 'subject' | 'action' | 'dialogue', value: string) => {
+      if (index < 0 || index >= storyShots.length) return;
+      const nextStoryShots = storyShots.map((shot, i) =>
+        i === index ? { ...shot, [field]: value } : shot,
+      );
+      setStoryShots(nextStoryShots);
+      void saveArchiveStory({
+        messages,
+        cards,
+        scripts,
+        storyShots: nextStoryShots,
+        characters,
+        remoteStoryId,
+        title: storyTitle,
+        logline: storyLogline,
+        theme: storyTheme,
+        arc: storyArc,
+      });
+    },
+    [
+      storyShots,
+      messages,
+      cards,
+      scripts,
+      characters,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      saveArchiveStory,
+    ],
+  );
+
   const generateScript = useCallback(async () => {
     if (cards.length === 0) {
       toast.error('先生成卡片再合成剧本');
@@ -940,6 +1096,15 @@ export function StoryAgentProvider({
         shotCount: s.shotCount,
       }));
       setStoryList(items);
+      // Clear stale remoteStoryId if it no longer exists on the server
+      // (e.g. after server restart wiped in-memory state). This ensures the
+      // next save attempt creates a new story rather than failing silently.
+      setRemoteStoryId((prev) => {
+        if (prev !== undefined && !items.some((s) => s.id === prev)) {
+          return undefined;
+        }
+        return prev;
+      });
     } catch (error) {
       console.warn('refreshStoryList failed', error);
     } finally {
@@ -1055,6 +1220,143 @@ export function StoryAgentProvider({
     }
   }, [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList]);
 
+  const clearSelection = useCallback(() => setActiveSelection(null), []);
+
+  const selectionEditMut = trpc.storyAgent.selectionEdit.useMutation();
+
+  /** Apply modifiedFullText back to the source entity */
+  const applySelectionEdit = useCallback(
+    (sourceType: string, sourceId: string, modifiedFullText: string) => {
+      switch (sourceType) {
+        case 'card':
+          updateCardContent(sourceId, modifiedFullText);
+          break;
+        case 'script-scene': {
+          const sceneIdx = Number(sourceId);
+          if (!Number.isNaN(sceneIdx)) updateScriptScene(sceneIdx, 'visual', modifiedFullText);
+          break;
+        }
+        case 'script-meta': {
+          const field = sourceId as 'title' | 'logline' | 'arcSummary';
+          updateScriptMeta(field, modifiedFullText);
+          break;
+        }
+        case 'shot': {
+          const parts = sourceId.split(':');
+          const shotIdx = Number(parts[0]);
+          const shotField = parts[1] as 'subject' | 'action' | 'dialogue';
+          if (!Number.isNaN(shotIdx) && shotField) updateStoryShotField(shotIdx, shotField, modifiedFullText);
+          break;
+        }
+        case 'chat': {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === sourceId ? { ...m, content: modifiedFullText } : m)),
+          );
+          break;
+        }
+      }
+    },
+    [updateCardContent, updateScriptScene, updateScriptMeta, updateStoryShotField],
+  );
+
+  const sendSelectionEdit = useCallback(
+    async (instruction: string) => {
+      if (!activeSelection || isReplying) return;
+
+      const { sourceType, sourceId, selectedText, fullText } = activeSelection;
+      const selectionQuote = { sourceType, sourceId, selectedText };
+
+      const userMsg: ChatMessage = {
+        id: newId('msg'),
+        role: 'user',
+        content: instruction,
+        timestamp: Date.now(),
+        selectionQuote,
+      };
+      const nextMessages = [...messages, userMsg];
+      setMessages(nextMessages);
+      setIsReplying(true);
+
+      try {
+        const result = await selectionEditMut.mutateAsync({
+          fullText,
+          selectedText,
+          instruction,
+          projectId: projectId ?? undefined,
+          history: nextMessages.slice(-8).map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
+        });
+
+        // Apply modification to source entity
+        if (!result.isApprovalOnly && result.modifiedFullText !== fullText) {
+          applySelectionEdit(sourceType, sourceId, result.modifiedFullText);
+        }
+
+        const replyMsg: ChatMessage = {
+          id: newId('msg'),
+          role: 'assistant',
+          content: result.reply || '已处理。',
+          timestamp: Date.now(),
+        };
+        const finalMessages = [...nextMessages, replyMsg];
+        setMessages(finalMessages);
+        setActiveSelection(null);
+
+        // Trigger snapshot for style learning annotation
+        if (projectId !== null) {
+          try {
+            const updatedCards = sourceType === 'card'
+              ? cards.map((c) => (c.id === sourceId ? { ...c, content: result.modifiedFullText } : c))
+              : cards;
+            await saveSnapshotMut.mutateAsync({
+              projectId,
+              sessionId: sessionIdRef.current,
+              state: {
+                cards: updatedCards as unknown as Record<string, unknown>[],
+                script: scripts as unknown as Record<string, unknown>[],
+                shots: storyShots as unknown as Record<string, unknown>[],
+              },
+              inlineCorrection: {
+                originalText: selectedText,
+                modifiedText: result.isApprovalOnly ? selectedText : result.modifiedFullText,
+                instruction,
+                sourceType,
+              },
+            });
+          } catch (err) {
+            console.warn('[snapshot] inline correction snapshot failed:', err);
+          }
+        }
+
+        await saveArchiveStory({
+          messages: finalMessages,
+          cards,
+          scripts,
+          storyShots,
+          characters,
+          remoteStoryId,
+          title: storyTitle,
+          logline: storyLogline,
+          theme: storyTheme,
+          arc: storyArc,
+        });
+      } catch (err) {
+        console.error('selectionEdit failed', err);
+        toast.error('修改失败，再试一次？');
+        // Don't clear selection on failure so user can retry
+      } finally {
+        setIsReplying(false);
+      }
+    },
+    [
+      activeSelection, isReplying, messages, projectId, cards, scripts,
+      storyShots, characters, remoteStoryId, storyTitle, storyLogline,
+      storyTheme, storyArc, saveArchiveStory, selectionEditMut, applySelectionEdit,
+    ],
+  );
+
   const value = useMemo<StoryAgentContextValue>(
     () => ({
       messages,
@@ -1068,6 +1370,10 @@ export function StoryAgentProvider({
       sendMessage,
       reorderCards,
       removeCard,
+      updateCardContent,
+      updateScriptMeta,
+      updateScriptScene,
+      updateStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -1078,6 +1384,10 @@ export function StoryAgentProvider({
       backToList,
       deleteStory: handleDeleteStory,
       refreshStoryList,
+      activeSelection,
+      setActiveSelection,
+      clearSelection,
+      sendSelectionEdit,
     }),
     [
       messages,
@@ -1090,6 +1400,10 @@ export function StoryAgentProvider({
       sendMessage,
       reorderCards,
       removeCard,
+      updateCardContent,
+      updateScriptMeta,
+      updateScriptScene,
+      updateStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -1100,6 +1414,10 @@ export function StoryAgentProvider({
       backToList,
       handleDeleteStory,
       refreshStoryList,
+      activeSelection,
+      setActiveSelection,
+      clearSelection,
+      sendSelectionEdit,
     ],
   );
 

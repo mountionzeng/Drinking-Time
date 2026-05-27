@@ -15,7 +15,6 @@ type ProjectReturn = ReturnType<typeof useProjectData>;
 
 interface Props {
   references: ProjectReturn['references'];
-  shots: ProjectReturn['shots'];
   currentProjectId: ProjectReturn['currentProjectId'];
   activeInputTab: InputTab;
   setActiveInputTab: (tab: InputTab) => void;
@@ -75,7 +74,6 @@ export default function WorkspaceStageRouter(props: Props) {
       analysisActive={props.analysisActive}
       analysis={props.analysisQuery.data ?? null}
       refsCount={props.references.length}
-      shots={props.shots}
     />
   );
 }

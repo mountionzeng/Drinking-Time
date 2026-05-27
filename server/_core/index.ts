@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express from "express";
+import express, { type Request } from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -22,10 +22,22 @@ import {
   updateStory,
   deleteStory,
 } from "../db";
+import { sdk } from "./sdk";
 
-// Phase 1：所有 archive REST 接口都假设 userId=1（跟 /api/archive/analysis-shell 一致）。
-// Phase 2 接 OAuth 后，把这里换成 ctx.user.id（中间件从 cookie 解析，再注入 req.user）。
-const ARCHIVE_USER_ID = 1;
+const authDisabled =
+  process.env.DISABLE_AUTH === "true" ||
+  process.env.NODE_ENV !== "production";
+
+// 从 request 中解析当前用户 ID，dev 模式返回 1（guest）
+async function getRequestUserId(req: Request): Promise<number> {
+  if (authDisabled) return 1;
+  try {
+    const user = await sdk.authenticateRequest(req);
+    return user.id;
+  } catch {
+    return 1;
+  }
+}
 
 // 把 stories 表里允许 iframe 写的字段串成一个白名单，防 mass-assignment
 type StoryWritePatch = {
@@ -77,10 +89,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", true);
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.get("/healthz", (_req, res) => {
+    res.status(200).send("ok");
+  });
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   app.get("/api/archive/analysis-shell", async (req, res) => {
@@ -120,8 +136,9 @@ async function startServer() {
             }))
         : [];
 
+      const userId = await getRequestUserId(req);
       const result = await replyFromDropZoneAgent({
-        userId: 1,
+        userId,
         message,
         history,
         projectId: typeof body.projectId === "string" ? body.projectId : undefined,
@@ -392,8 +409,8 @@ async function startServer() {
   // iframe 原本 localStorage 存的对象保持兼容，前端切换时只需替换 IO 层
   app.get("/api/archive/stories", async (req, res) => {
     try {
-      void req;
-      const items = await listUserStories(ARCHIVE_USER_ID);
+      const userId = await getRequestUserId(req);
+      const items = await listUserStories(userId);
       res.setHeader("Cache-Control", "no-store");
       res.json({ stories: items });
     } catch (error) {
@@ -404,12 +421,13 @@ async function startServer() {
 
   app.get("/api/archive/stories/:id", async (req, res) => {
     try {
+      const userId = await getRequestUserId(req);
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: "invalid id" });
         return;
       }
-      const story = await getStoryById(id, ARCHIVE_USER_ID);
+      const story = await getStoryById(id, userId);
       if (!story) {
         res.status(404).json({ error: "story not found" });
         return;
@@ -426,29 +444,28 @@ async function startServer() {
   // 单字段 PATCH 暂时不做：iframe 那边本来就是「整故事 blob 写盘」的语义
   app.post("/api/archive/stories", async (req, res) => {
     try {
+      const userId = await getRequestUserId(req);
       const body = req.body ?? {};
       const patch = pickStoryPatch(body);
       const id = typeof body.id === "number" ? body.id : null;
 
-      // 写故事必须有标题——空也兜底成「未命名」
       const title = patch.title || "未命名";
 
       if (id) {
-        const existing = await getStoryById(id, ARCHIVE_USER_ID);
+        const existing = await getStoryById(id, userId);
         if (!existing) {
           res.status(404).json({ error: "story not found" });
           return;
         }
-        await updateStory(id, ARCHIVE_USER_ID, { ...patch, title });
-        const fresh = await getStoryById(id, ARCHIVE_USER_ID);
+        await updateStory(id, userId, { ...patch, title });
+        const fresh = await getStoryById(id, userId);
         res.setHeader("Cache-Control", "no-store");
         res.json(fresh);
         return;
       }
 
-      // create：body 没给就给空骨架，免得 NOT NULL 列爆掉
       const { id: newId } = await createStory({
-        userId: ARCHIVE_USER_ID,
+        userId,
         projectId: patch.projectId ?? null,
         title,
         logline: patch.logline ?? null,
@@ -457,7 +474,7 @@ async function startServer() {
         summary: patch.summary ?? null,
         body: (patch.body ?? { cards: [], characters: [], shots: [] }) as object,
       });
-      const fresh = await getStoryById(newId, ARCHIVE_USER_ID);
+      const fresh = await getStoryById(newId, userId);
       res.setHeader("Cache-Control", "no-store");
       res.status(201).json(fresh);
     } catch (error) {
@@ -468,12 +485,13 @@ async function startServer() {
 
   app.delete("/api/archive/stories/:id", async (req, res) => {
     try {
+      const userId = await getRequestUserId(req);
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: "invalid id" });
         return;
       }
-      await deleteStory(id, ARCHIVE_USER_ID);
+      await deleteStory(id, userId);
       res.setHeader("Cache-Control", "no-store");
       res.json({ ok: true });
     } catch (error) {

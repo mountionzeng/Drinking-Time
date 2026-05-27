@@ -14,6 +14,8 @@ import {
   listUserStories, getStoryById, createStory, updateStory, deleteStory,
   createGeneratedImage, getGeneratedImageById, getStoryImages,
   createImageSignal,
+  getImagesByShotNo, getCurrentImageForShot, getProjectCurrentImages,
+  reassignImage,
 } from "./db";
 import { generateImage } from "./_core/imageGeneration";
 import {
@@ -27,9 +29,16 @@ import {
   replyFromStoryAgent,
   synthesizeShotList,
   summarizeHistory,
+  handleSelectionEdit,
   type SimilarStoryCardPayload,
   type ShotDraft,
 } from "./archive/storyAgent";
+import {
+  replyFromCreationAgent,
+  type ShotContext,
+} from "./services/creationAgent";
+import { segmentAtPoint } from "./services/segmentation";
+import { inpaintImage } from "./services/imageGen";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -507,6 +516,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         });
       }),
 
+    /** Inline selection edit — modify only the selected portion */
+    selectionEdit: protectedProcedure
+      .input(z.object({
+        fullText: z.string().min(1),
+        selectedText: z.string().min(1),
+        instruction: z.string().min(1),
+        projectId: z.number().optional(),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return handleSelectionEdit({
+          fullText: input.fullText,
+          selectedText: input.selectedText,
+          instruction: input.instruction,
+          projectId: input.projectId,
+          history: input.history,
+        });
+      }),
+
     /** Synthesize story cards into a shot list */
     classify: protectedProcedure
       .input(z.object({
@@ -585,17 +616,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
         if (input.id) {
           const existing = await getStoryById(input.id, ctx.user.id);
-          if (!existing) throw new Error("story not found");
-          await updateStory(input.id, ctx.user.id, {
-            title,
-            logline: input.logline,
-            theme: input.theme,
-            arc: input.arc,
-            summary: input.summary,
-            projectId: input.projectId,
-            body: input.body as object | undefined,
-          });
-          return await getStoryById(input.id, ctx.user.id);
+          if (existing) {
+            await updateStory(input.id, ctx.user.id, {
+              title,
+              logline: input.logline,
+              theme: input.theme,
+              arc: input.arc,
+              summary: input.summary,
+              projectId: input.projectId,
+              body: input.body as object | undefined,
+            });
+            return await getStoryById(input.id, ctx.user.id);
+          }
+          // Story not found (e.g. after server restart cleared in-memory state).
+          // Fall through to create a new story rather than failing silently.
         }
 
         const { id: newId } = await createStory({
@@ -711,11 +745,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           if (!url) {
             return { status: "error" as const, error: "图片生成返回空结果" };
           }
-          // 写入 generatedImages 表
+          // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）
           const image = await createGeneratedImage({
             storyId: input.storyId,
             userId: ctx.user.id,
-            shotNo: input.shotNo ?? null,
+            shotNo: input.shotNo != null ? String(input.shotNo) : null,
             imageUrl: url,
             prompt: input.prompt,
             generationType: "initial",
@@ -749,10 +783,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           if (!url) {
             return { status: "error" as const, error: "局部修复返回空结果" };
           }
+          // shotNo 转为字符串
           const image = await createGeneratedImage({
             storyId: input.storyId,
             userId: ctx.user.id,
-            shotNo: input.shotNo ?? null,
+            shotNo: input.shotNo != null ? String(input.shotNo) : null,
             imageUrl: url,
             prompt: input.prompt,
             generationType: "inpaint",
@@ -848,6 +883,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: z.array(z.record(z.string(), z.unknown())).optional(),
         }),
         autoSave: z.boolean().optional(),
+        inlineCorrection: z.object({
+          originalText: z.string(),
+          modifiedText: z.string(),
+          instruction: z.string(),
+          sourceType: z.string(),
+        }).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         try {
@@ -856,6 +897,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             sessionId: input.sessionId,
             state: input.state as ProjectState,
             autoSave: input.autoSave,
+            inlineCorrection: input.inlineCorrection,
           });
           return result;
         } catch (error) {
@@ -880,6 +922,128 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           console.error('[editContext.getRecentAnnotations] Error:', error);
           return [];
         }
+      }),
+  }),
+
+  // ─── Creation Agent ─────────────────────────────────────────────────
+  // Creation Engine: chat with image generation + focus tracking.
+  creationAgent: router({
+    /** Conversational chat with the creation agent */
+    chat: protectedProcedure
+      .input(z.object({
+        message: z.string().min(1),
+        projectId: z.number(),
+        history: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+        })).optional(),
+        cards: z.array(z.object({
+          content: z.string(),
+          emotion: z.string().optional(),
+        })).optional(),
+        currentScript: z.string().optional(),
+        shots: z.array(z.object({
+          shotNo: z.string(),
+          subject: z.string(),
+          action: z.string(),
+          dialogue: z.string(),
+          shotType: z.string(),
+          mood: z.string(),
+          promptDraft: z.string().optional(),
+        })).optional(),
+        currentFocusShotNo: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return replyFromCreationAgent({
+          message: input.message,
+          projectId: input.projectId,
+          history: input.history,
+          cards: input.cards,
+          currentScript: input.currentScript,
+          shots: input.shots as ShotContext[] | undefined,
+          currentFocusShotNo: input.currentFocusShotNo,
+        });
+      }),
+
+    /** Get all images for a shot */
+    getShotImages: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        shotNo: z.string(),
+      }))
+      .query(async ({ input }) => {
+        return getImagesByShotNo(input.projectId, input.shotNo);
+      }),
+
+    /** Get the current (main) image for a shot */
+    getCurrentImage: protectedProcedure
+      .input(z.object({
+        projectId: z.number(),
+        shotNo: z.string(),
+      }))
+      .query(async ({ input }) => {
+        return getCurrentImageForShot(input.projectId, input.shotNo);
+      }),
+
+    /** Get all current images for a project */
+    getProjectImages: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ input }) => {
+        return getProjectCurrentImages(input.projectId);
+      }),
+
+    /** Reassign an image to a different shot */
+    reassignImage: protectedProcedure
+      .input(z.object({
+        imageId: z.number(),
+        newShotNo: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        await reassignImage(input.imageId, input.newShotNo);
+        return { success: true };
+      }),
+
+    /** SAM 2 segmentation — click a point on an image to get a mask */
+    segment: protectedProcedure
+      .input(z.object({
+        imageUrl: z.string().url(),
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+      }))
+      .mutation(async ({ input }) => {
+        return segmentAtPoint(input.imageUrl, input.x, input.y);
+      }),
+
+    /** Inpaint — replace a masked region with a new generation */
+    inpaint: protectedProcedure
+      .input(z.object({
+        imageUrl: z.string().url(),
+        maskUrl: z.string().url(),
+        prompt: z.string().min(1),
+        shotNo: z.string(),
+        projectId: z.number(),
+        parentImageId: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await inpaintImage(input.imageUrl, input.maskUrl, input.prompt);
+        if (result.status === "error" || !result.imageUrl) {
+          return { status: "error" as const, message: result.message ?? "No image returned" };
+        }
+        // Save the inpainted image to DB
+        const saved = await createGeneratedImage({
+          projectId: input.projectId,
+          shotNo: input.shotNo,
+          imageKey: `inpaint-${Date.now()}`,
+          imageUrl: result.imageUrl,
+          prompt: input.prompt,
+          parentImageId: input.parentImageId ?? null,
+          generationType: "inpaint",
+          maskKey: input.maskUrl,
+        });
+        return {
+          status: "ok" as const,
+          image: saved,
+        };
       }),
   }),
 });

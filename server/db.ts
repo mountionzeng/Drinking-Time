@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,8 +13,9 @@ import {
   InsertSemanticAnnotation, semanticAnnotations, SemanticAnnotation,
   InsertGeneratedImage, generatedImages, GeneratedImage,
   InsertImageSignal, imageSignals, ImageSignal,
+  emailOtps, EmailOtp,
 } from "../drizzle/schema";
-export type { EditSnapshot, SemanticAnnotation };
+export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -728,51 +729,8 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
   await db.delete(stories).where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
-// ─── Generated Images ────────────────────────────────────────────────────
-// 手机端聊天出图的图片记录。支持版本链（parentImageId + isCurrent）。
-
-export async function createGeneratedImage(data: InsertGeneratedImage): Promise<GeneratedImage> {
-  const db = await getDb();
-  if (!db) {
-    const current = now();
-    const row: GeneratedImage = {
-      id: nextMemoryId("generatedImage"),
-      storyId: data.storyId,
-      userId: data.userId,
-      shotNo: data.shotNo ?? null,
-      imageUrl: data.imageUrl,
-      prompt: data.prompt ?? null,
-      generationType: data.generationType ?? "initial",
-      parentImageId: data.parentImageId ?? null,
-      isCurrent: data.isCurrent ?? true,
-      createdAt: current,
-    };
-    // 如果有 shotNo，把同 storyId+shotNo 的旧图标记为非当前
-    if (row.shotNo != null) {
-      for (const img of memoryState.generatedImages) {
-        if (img.storyId === row.storyId && img.shotNo === row.shotNo && img.isCurrent) {
-          img.isCurrent = false;
-        }
-      }
-    }
-    memoryState.generatedImages.push(row);
-    await persistMemoryState();
-    return row;
-  }
-  // 先把同 storyId+shotNo 的旧图标记为非当前
-  if (data.shotNo != null) {
-    await db.update(generatedImages)
-      .set({ isCurrent: false })
-      .where(and(
-        eq(generatedImages.storyId, data.storyId),
-        eq(generatedImages.shotNo, data.shotNo!),
-        eq(generatedImages.isCurrent, true),
-      ));
-  }
-  const [result] = await db.insert(generatedImages).values(data);
-  const [row] = await db.select().from(generatedImages).where(eq(generatedImages.id, result.insertId));
-  return row;
-}
+// ─── Generated Images（手机端） ─────────────────────────────────────────
+// 手机端聊天出图的图片记录查询。createGeneratedImage 统一定义在下方桌面端部分。
 
 export async function getGeneratedImageById(id: number): Promise<GeneratedImage | null> {
   const db = await getDb();
@@ -788,7 +746,7 @@ export async function getStoryImages(storyId: number): Promise<GeneratedImage[]>
   if (!db) {
     return memoryState.generatedImages
       .filter(img => img.storyId === storyId && img.isCurrent)
-      .sort((a, b) => (a.shotNo ?? 0) - (b.shotNo ?? 0));
+      .sort((a, b) => (a.shotNo ?? "").localeCompare(b.shotNo ?? ""));
   }
   return db.select().from(generatedImages)
     .where(and(eq(generatedImages.storyId, storyId), eq(generatedImages.isCurrent, true)))
@@ -967,6 +925,210 @@ export async function getRecentSemanticAnnotations(
     .limit(limit);
 }
 
+// ─── Generated Images（统一） ────────────────────────────────────────────
+// 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
+
+export async function createGeneratedImage(
+  data: Omit<InsertGeneratedImage, 'id' | 'createdAt'>,
+): Promise<GeneratedImage> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    // 把同一镜头的旧图标记为非当前（桌面端按 projectId+shotNo，手机端按 storyId+shotNo）
+    if (data.shotNo != null) {
+      for (const img of memoryState.generatedImages) {
+        if (img.shotNo !== data.shotNo || !img.isCurrent) continue;
+        const sameDesktop = data.projectId && img.projectId === data.projectId;
+        const sameMobile = data.storyId && img.storyId === data.storyId;
+        if (sameDesktop || sameMobile) img.isCurrent = false;
+      }
+    }
+    const id = nextMemoryId('generatedImage');
+    const image: GeneratedImage = {
+      id,
+      projectId: data.projectId ?? null,
+      storyId: data.storyId ?? null,
+      userId: data.userId ?? null,
+      shotNo: data.shotNo ?? null,
+      imageKey: data.imageKey ?? null,
+      imageUrl: data.imageUrl,
+      prompt: data.prompt ?? null,
+      parentImageId: data.parentImageId ?? null,
+      isCurrent: data.isCurrent ?? true,
+      generationType: data.generationType ?? 'generate',
+      maskKey: data.maskKey ?? null,
+      createdAt: now(),
+    };
+    memoryState.generatedImages.push(image);
+    await persistMemoryState();
+    return image;
+  }
+  // 把同一镜头的旧图标记为非当前
+  if (data.shotNo != null) {
+    if (data.projectId) {
+      await db.update(generatedImages)
+        .set({ isCurrent: false })
+        .where(and(
+          eq(generatedImages.projectId, data.projectId),
+          eq(generatedImages.shotNo, data.shotNo),
+          eq(generatedImages.isCurrent, true),
+        ));
+    } else if (data.storyId) {
+      await db.update(generatedImages)
+        .set({ isCurrent: false })
+        .where(and(
+          eq(generatedImages.storyId, data.storyId),
+          eq(generatedImages.shotNo, data.shotNo),
+          eq(generatedImages.isCurrent, true),
+        ));
+    }
+  }
+  const [result] = await db.insert(generatedImages).values(data);
+  const [image] = await db.select().from(generatedImages).where(eq(generatedImages.id, result.insertId));
+  return image;
+}
+
+export async function getImagesByShotNo(
+  projectId: number,
+  shotNo: string,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages
+      .filter(img => img.projectId === projectId && img.shotNo === shotNo)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+  return db.select().from(generatedImages)
+    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.shotNo, shotNo)))
+    .orderBy(desc(generatedImages.createdAt));
+}
+
+export async function getCurrentImageForShot(
+  projectId: number,
+  shotNo: string,
+): Promise<GeneratedImage | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages.find(
+      img => img.projectId === projectId && img.shotNo === shotNo && img.isCurrent,
+    ) ?? null;
+  }
+  const [image] = await db.select().from(generatedImages)
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, shotNo),
+      eq(generatedImages.isCurrent, true),
+    ))
+    .limit(1);
+  return image ?? null;
+}
+
+export async function getProjectCurrentImages(
+  projectId: number,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages
+      .filter(img => img.projectId === projectId && img.isCurrent)
+      .sort((a, b) => (a.shotNo ?? "").localeCompare(b.shotNo ?? "")); // 按镜号排序，null 视为空字符串
+  }
+  return db.select().from(generatedImages)
+    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.isCurrent, true)))
+    .orderBy(generatedImages.shotNo);
+}
+
+export async function updateImageCurrent(
+  imageId: number,
+  isCurrent: boolean,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const img = memoryState.generatedImages.find(i => i.id === imageId);
+    if (img) {
+      img.isCurrent = isCurrent;
+      await persistMemoryState();
+    }
+    return;
+  }
+  await db.update(generatedImages).set({ isCurrent }).where(eq(generatedImages.id, imageId));
+}
+
+export async function reassignImage(
+  imageId: number,
+  newShotNo: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const img = memoryState.generatedImages.find(i => i.id === imageId);
+    if (!img) return;
+
+    const oldShotNo = img.shotNo;
+    const projectId = img.projectId;
+
+    // Mark existing current images on the target shot as non-current
+    for (const other of memoryState.generatedImages) {
+      if (other.projectId === projectId && other.shotNo === newShotNo && other.isCurrent) {
+        other.isCurrent = false;
+      }
+    }
+
+    // Move the image and make it current on the new shot
+    img.shotNo = newShotNo;
+    img.isCurrent = true;
+
+    // Promote the most recent remaining image on the old shot
+    const oldShotImages = memoryState.generatedImages
+      .filter(i => i.projectId === projectId && i.shotNo === oldShotNo && i.id !== imageId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    if (oldShotImages.length > 0) {
+      oldShotImages[0].isCurrent = true;
+    }
+
+    await persistMemoryState();
+    return;
+  }
+
+  const [img] = await db.select().from(generatedImages).where(eq(generatedImages.id, imageId)).limit(1);
+  if (!img) return;
+
+  const oldShotNo = img.shotNo;
+  const projectId = img.projectId;
+  if (projectId == null || oldShotNo == null) return; // 没有 projectId/shotNo 的图片不支持重分配
+
+  // 将目标镜号上的当前图片标记为非当前
+  await db.update(generatedImages)
+    .set({ isCurrent: false })
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, newShotNo),
+      eq(generatedImages.isCurrent, true),
+    ));
+
+  // 移动图片到新镜号并设为当前
+  await db.update(generatedImages)
+    .set({ shotNo: newShotNo, isCurrent: true })
+    .where(eq(generatedImages.id, imageId));
+
+  // 在旧镜号上提升最新的图片为当前
+  const remaining = await db.select().from(generatedImages)
+    .where(and(
+      eq(generatedImages.projectId, projectId),
+      eq(generatedImages.shotNo, oldShotNo),
+    ))
+    .orderBy(desc(generatedImages.createdAt))
+    .limit(1);
+  if (remaining.length > 0) {
+    await db.update(generatedImages)
+      .set({ isCurrent: true })
+      .where(eq(generatedImages.id, remaining[0].id));
+  }
+}
+
 /**
  * Reset in-memory state and loaded flag — for use in tests only.
  * Prevents accumulated state from prior test runs from leaking between tests.
@@ -997,5 +1159,51 @@ export function resetMemoryStateForTesting(): void {
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;
+}
+
+// ── Email OTP 相关函数 ──────────────────────────────────────────────
+
+/** 创建邮箱验证码记录 */
+export async function createEmailOtp(
+  email: string,
+  code: string,
+  expiresAt: Date,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    // 内存模式：仅打印日志，不持久化 OTP
+    console.log(`[EmailOTP-memory] ${email}: ${code}`);
+    return;
+  }
+  await db.insert(emailOtps).values({ email, code, expiresAt });
+}
+
+/** 查找有效（未过期、未使用）的 OTP */
+export async function findValidEmailOtp(
+  email: string,
+  code: string,
+): Promise<EmailOtp | null> {
+  const db = await getDb();
+  if (!db) return null; // 内存模式不支持 OTP 验证
+  const [otp] = await db
+    .select()
+    .from(emailOtps)
+    .where(
+      and(
+        eq(emailOtps.email, email),
+        eq(emailOtps.code, code),
+        gte(emailOtps.expiresAt, new Date()),
+        isNull(emailOtps.usedAt),
+      ),
+    )
+    .limit(1);
+  return otp ?? null;
+}
+
+/** 标记 OTP 已使用 */
+export async function markEmailOtpUsed(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(emailOtps).set({ usedAt: new Date() }).where(eq(emailOtps.id, id));
 }
 

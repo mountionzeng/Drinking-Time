@@ -52,6 +52,8 @@ export interface BackendReference {
 
 export interface BackendShot {
   id: number;
+  /** When derived from StoryAgent storyShots: the source index for edit write-back. */
+  sourceIndex?: number;
   projectId: number;
   userId: number;
   sceneNo: string;
@@ -78,4 +80,8 @@ export interface BackendShot {
   negativePrompt: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Current image thumbnail URL (set on Creation page) */
+  thumbnailUrl?: string;
+  /** Current image ID for drag-reassign (set on Creation page) */
+  thumbnailImageId?: number;
 }

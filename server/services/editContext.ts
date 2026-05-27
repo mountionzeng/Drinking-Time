@@ -13,12 +13,21 @@ import {
 import { computeDiff, isDiffEmpty, type ProjectState } from '../_core/editDiff';
 import { generateAnnotation } from './semanticAnnotation';
 
+export interface InlineCorrection {
+  originalText: string;
+  modifiedText: string;
+  instruction: string;
+  sourceType: string;
+}
+
 export interface SaveSnapshotInput {
   projectId: number;
   sessionId: string;
   state: ProjectState;
   /** When true (auto-save timer), skips semantic annotation generation. */
   autoSave?: boolean;
+  /** When set, this snapshot was triggered by an inline selection edit. */
+  inlineCorrection?: InlineCorrection;
 }
 
 export interface SaveSnapshotResult {
@@ -38,7 +47,7 @@ export interface SaveSnapshotResult {
 export async function saveSnapshot(
   input: SaveSnapshotInput,
 ): Promise<SaveSnapshotResult> {
-  const { projectId, sessionId, state, autoSave = false } = input;
+  const { projectId, sessionId, state, autoSave = false, inlineCorrection } = input;
 
   // Query previous snapshot for this project
   const previousSnapshot = await getLatestEditSnapshot(projectId);
@@ -98,6 +107,7 @@ export async function saveSnapshot(
       snapshotId: snapshot.id,
       previousSnapshotId,
       previousAnnotations: recentAnnotations,
+      inlineCorrection,
     });
   }
 

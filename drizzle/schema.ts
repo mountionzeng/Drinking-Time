@@ -223,22 +223,28 @@ export type StoryBody = {
 };
 
 /**
- * GeneratedImages — 手机端聊天出图记录。
+ * GeneratedImages — AI 生成的图片记录（统一表，桌面端+手机端共用）。
  *
- * 每张图归属一个 story（通过 storyId）和一个镜头号（shotNo），
- * 支持版本链（parentImageId → isCurrent 标记最新版本）。
- * generationType 区分首次生成和局部修复。
+ * 桌面端（Creation Engine）通过 projectId + shotNo(varchar) 关联镜头；
+ * 手机端（Mobile Chat）通过 storyId + userId 关联故事。
+ * 两端共享版本链能力（parentImageId → isCurrent）。
  */
 export const generatedImages = mysqlTable("generated_images", {
   id: int("id").autoincrement().primaryKey(),
-  storyId: int("storyId").notNull(),
-  userId: int("userId").notNull(),
-  shotNo: int("shotNo"),
+  // 桌面端 Creation Engine 用
+  projectId: int("projectId"),
+  // 手机端 Mobile Chat 用
+  storyId: int("storyId"),
+  userId: int("userId"),
+  // shotNo: 桌面端传 "SH02" 格式字符串，手机端传数字的字符串形式
+  shotNo: varchar("shotNo", { length: 32 }),
+  imageKey: varchar("imageKey", { length: 512 }),  // 桌面端存储 key
   imageUrl: text("imageUrl").notNull(),
   prompt: text("prompt"),
-  generationType: mysqlEnum("generationType", ["initial", "inpaint"]).default("initial").notNull(),
+  generationType: mysqlEnum("generationType", ["generate", "initial", "inpaint"]).default("generate").notNull(),
   parentImageId: int("parentImageId"),
   isCurrent: mysqlBoolean("isCurrent").default(true).notNull(),
+  maskKey: varchar("maskKey", { length: 512 }),  // 桌面端 inpaint 蒙版
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -293,3 +299,17 @@ export const semanticAnnotations = mysqlTable("semantic_annotations", {
 export type SemanticAnnotation = typeof semanticAnnotations.$inferSelect;
 export type InsertSemanticAnnotation = typeof semanticAnnotations.$inferInsert;
 
+/**
+ * EmailOtps — 邮箱 OTP 验证码记录
+ */
+export const emailOtps = mysqlTable("email_otps", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  code: varchar("code", { length: 16 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EmailOtp = typeof emailOtps.$inferSelect;
+export type InsertEmailOtp = typeof emailOtps.$inferInsert;
