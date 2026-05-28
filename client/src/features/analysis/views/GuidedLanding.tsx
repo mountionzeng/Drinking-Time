@@ -29,6 +29,8 @@ const STORY_COPY: Record<NayinElement, string> = {
 interface GuidedLandingProps {
   onSelectMaterial: () => void;
   onSelectStory: () => void;
+  /** 手机端：只显示「聊一个故事」入口，隐藏素材上传卡 */
+  storyOnly?: boolean;
 }
 
 const easing = [0.22, 1, 0.36, 1] as const;
@@ -36,6 +38,7 @@ const easing = [0.22, 1, 0.36, 1] as const;
 export default function GuidedLanding({
   onSelectMaterial,
   onSelectStory,
+  storyOnly = false,
 }: GuidedLandingProps) {
   const { element, today } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
@@ -46,12 +49,13 @@ export default function GuidedLanding({
         <DailyDrinkHero today={today} />
 
       <motion.div
-        className="flex w-full max-w-2xl flex-col gap-4 sm:flex-row"
+        className={`flex w-full flex-col gap-4 ${storyOnly ? 'max-w-md' : 'max-w-2xl sm:flex-row'}`}
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: easing }}
       >
         {/* Upload materials card */}
+        {!storyOnly && (
         <motion.button
           type="button"
           onClick={onSelectMaterial}
@@ -82,6 +86,7 @@ export default function GuidedLanding({
             </div>
           </div>
         </motion.button>
+        )}
 
         {/* Story chat card */}
         <motion.button
@@ -135,7 +140,7 @@ export default function GuidedLanding({
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4, duration: 0.5 }}
       >
-        两条路径最终都会汇聚到镜头表，你也可以两个都用
+        {storyOnly ? '跟小酌聊一段，画面会慢慢长出来' : '两条路径最终都会汇聚到镜头表，你也可以两个都用'}
       </motion.p>
       </div>
     </div>

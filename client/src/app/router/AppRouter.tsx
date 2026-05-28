@@ -4,6 +4,7 @@ import CreationPage from '@/pages/CreationPage';
 import LoginPage from '@/pages/LoginPage';
 import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
 import MobilePage from '@/pages/MobilePage';
+import MobileWelcomePage from '@/pages/MobileWelcomePage';
 import NotFound from '@/pages/NotFound';
 import { useAuth } from '@/_core/hooks/useAuth';
 import type { ReactNode } from 'react';
@@ -31,6 +32,7 @@ export default function AppRouter() {
         <AuthGuard><CreationPage /></AuthGuard>
       </Route>
       {/* 手机端路由 */}
+      <Route path="/m/welcome" component={MobileWelcomePage} />
       <Route path="/m" component={MobilePage} />
       <Route path="/m/storyboard" component={MobilePage} />
       <Route path="/404" component={NotFound} />

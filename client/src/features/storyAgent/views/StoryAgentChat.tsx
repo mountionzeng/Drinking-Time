@@ -6,13 +6,14 @@
  */
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus } from 'lucide-react';
+import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
+import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
 
 // 读取文件为 base64（去掉 data:...;base64, 前缀）
-function fileToBase64(file: File): Promise<string> {
+function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -20,7 +21,7 @@ function fileToBase64(file: File): Promise<string> {
       resolve(result.split(",")[1]);
     };
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
 }
 
@@ -37,13 +38,38 @@ export default function StoryAgentChat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const resizeAndFocusInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      const ta = inputRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
+    });
+  }, []);
+
+  const handleVoiceTranscribed = useCallback((text: string) => {
+    setInput(prev => prev ? `${prev} ${text}` : text);
+    resizeAndFocusInput();
+  }, [resizeAndFocusInput]);
+
+  const handleVoiceError = useCallback((message: string) => {
+    alert(message);
+  }, []);
+
+  const voice = useVoiceInput({
+    language: 'zh',
+    onTranscribed: handleVoiceTranscribed,
+    onError: handleVoiceError,
+  });
+
   // 选择照片
   const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { alert("照片太大了，请选择 10MB 以内的图片"); return; }
     try {
-      const b64 = await fileToBase64(file);
+      const b64 = await blobToBase64(file);
       setPhotoBase64(b64);
       setPhotoPreview(URL.createObjectURL(file));
     } catch { console.error("[StoryAgentChat] 读取照片失败"); }
@@ -65,7 +91,7 @@ export default function StoryAgentChat() {
 
   const handleSubmit = async () => {
     const text = input.trim();
-    if ((!text && !photoBase64) || isReplying) return;
+    if ((!text && !photoBase64) || isReplying || voice.isBusy) return;
     setInput('');
     const b64 = photoBase64;
     clearPhoto();
@@ -74,7 +100,7 @@ export default function StoryAgentChat() {
     } else {
       await sendMessage(text, b64 ?? undefined);
     }
-    inputRef.current?.focus();
+    resizeAndFocusInput();
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -267,18 +293,57 @@ export default function StoryAgentChat() {
           </div>
         )}
 
+        {voice.isBusy && (
+          <div
+            className={`flex items-center gap-1.5 text-[10px] ${!activeSelection && !photoPreview ? 'mt-2.5' : 'mt-1.5'}`}
+            style={{ color: 'var(--nayin-accent-bright)' }}
+          >
+            {voice.isRecording ? (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-nayin animate-pulse" />
+                录音中，再点方块停止
+              </>
+            ) : (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                正在把声音转成文字…
+              </>
+            )}
+          </div>
+        )}
+
         <div className={`flex items-end gap-2 ${!activeSelection && !photoPreview ? 'pt-2.5' : 'pt-1.5'}`}>
         {/* 图片上传按钮 */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isReplying}
+          disabled={isReplying || voice.isBusy}
           className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
           aria-label="添加照片"
         >
           <ImagePlus className="w-4 h-4" />
         </button>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
+        <button
+          type="button"
+          onClick={voice.toggleRecording}
+          disabled={isReplying || voice.isTranscribing}
+          className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+          style={voice.isRecording ? {
+            background: 'var(--nayin-glow)',
+            color: 'var(--nayin-accent-bright)',
+          } : undefined}
+          aria-label={voice.isRecording ? '停止录音' : '开始录音'}
+          title={voice.isRecording ? '停止录音' : '语音输入'}
+        >
+          {voice.isTranscribing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : voice.isRecording ? (
+            <Square className="w-4 h-4 fill-current" />
+          ) : (
+            <Mic className="w-4 h-4" />
+          )}
+        </button>
         <textarea
           ref={inputRef}
           rows={1}
@@ -303,7 +368,7 @@ export default function StoryAgentChat() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={(!input.trim() && !photoBase64) || isReplying}
+          disabled={(!input.trim() && !photoBase64) || isReplying || voice.isBusy}
           className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
           style={{
             background: 'var(--nayin-accent)',

@@ -1,8 +1,8 @@
 /**
- * 情绪分类参考表 — Plutchik 8 基本情绪骨架 + 中文生活化皮肤
+ * 情绪分类参考表 — Plutchik 8 基本情绪 + 第 9 维「定」(Groundedness) + 中文生活化皮肤
  *
  * 三层结构：
- *   第一层：大类（8 基本情绪）— 用户界面展示
+ *   第一层：大类（9 种情绪，含力量型正面）— 用户界面展示
  *   第二层：子类（每大类 5-8 个）— 用户界面展示
  *   第三层：细粒度变体（口语化表达）— Agent 内部匹配用
  *
@@ -779,6 +779,119 @@ export const EMOTION_CATEGORIES: EmotionCategory[] = [
           { label: '注意到了', intensity: 1 },
           { label: '不太对劲', intensity: 2 },
           { label: '每根神经都绷着', intensity: 3 },
+        ],
+      },
+    ],
+  },
+
+  // ━━━ 9. 定 (Groundedness) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 超出 Plutchik 8 基本情绪的扩展维度。
+  // Plutchik 模型缺少"力量型正面"——当一个人清醒、有边界、
+  // 不迁就时，Plutchik 没有格子放它，它就被误归为"防御"或"麻木"。
+  // 这个大类补上那个缺口。
+  {
+    key: 'groundedness',
+    label: '定',
+    opposite: 'fear', // 内在稳定感与恐惧/不安是天然对立
+    subcategories: [
+      {
+        key: 'clarity',
+        label: '清醒',
+        description: '看清事情本来面目的透彻感，不被情绪遮蔽',
+        causalThread: '前额叶皮层主导——情绪系统退到后台，认知系统清晰运转，像雾散了看到路',
+        triggerScenes: ['突然想通一件事', '吵完架冷静下来', '听完对方的话知道该怎么办了', '酒醒了'],
+        cinematicHint: '画面从模糊到锐利 + 冷色但不冷漠 + 人物目光稳定 + 环境音消退只剩呼吸',
+        narrativeArc: '转折',
+        variants: [
+          { label: '我看得很清楚', intensity: 2 },
+          { label: '突然就明白了', intensity: 2 },
+          { label: '脑子从来没这么清醒过', intensity: 3 },
+        ],
+      },
+      {
+        key: 'conviction',
+        label: '笃定',
+        description: '不需要别人确认也知道自己是对的',
+        causalThread: '内在价值锚定——自我评价不再依赖外部反馈，行为由内在标准驱动',
+        triggerScenes: ['别人都反对但你知道自己没错', '做了个不被理解的决定', '安静地坚持', '不解释了'],
+        cinematicHint: '正面中景 + 人物不动 + 周围人在动/在说 + 沉稳低频 + 不回应的特写',
+        narrativeArc: '转折',
+        variants: [
+          { label: '我知道我在做什么', intensity: 2 },
+          { label: '不用你同意', intensity: 3 },
+          { label: '这件事我不会改', intensity: 3 },
+        ],
+      },
+      {
+        key: 'boundary',
+        label: '边界感',
+        description: '清楚知道什么是自己的事、什么不是，舒服地说不',
+        causalThread: '自我分化完成——能区分"我的情绪"与"你的情绪"，不因他人期望而模糊自己',
+        triggerScenes: ['拒绝不合理要求', '不接别人的情绪', '说"这不是我的问题"', '不为别人的选择内疚'],
+        cinematicHint: '两人画面 + 中间有清晰的空间/线条 + 人物松但不冷 + 自然光',
+        narrativeArc: '收束',
+        variants: [
+          { label: '这事不归我管', intensity: 1 },
+          { label: '我帮不了你这个', intensity: 2 },
+          { label: '你的情绪是你的', intensity: 3 },
+        ],
+      },
+      {
+        key: 'selfCoherence',
+        label: '自洽',
+        description: '内在逻辑自己说得通，不需要向外解释',
+        causalThread: '认知一致性达成——信念、行为、感受三者对齐，内耗消失，能量不再被矛盾消耗',
+        triggerScenes: ['做了一个符合自己价值观的选择', '不再纠结了', '接受了自己的矛盾', '不装了'],
+        cinematicHint: '人物独处但不孤独 + 动作从容 + 光线均匀 + 没有阴影 + 环境安静',
+        narrativeArc: '余韵',
+        variants: [
+          { label: '挺好的，我想清楚了', intensity: 1 },
+          { label: '我就是这样的人', intensity: 2 },
+          { label: '不需要你理解', intensity: 3 },
+        ],
+      },
+      {
+        key: 'ease',
+        label: '松弛',
+        description: '不紧绷、不用力也能稳住的放松感',
+        causalThread: '副交感神经主导——战或逃系统关闭，身体和心理都在安全模式，能量不浪费在警觉上',
+        triggerScenes: ['周末没有安排也不焦虑', '不care别人怎么看', '随便吧都行', '躺着什么都不想也不内疚'],
+        cinematicHint: '自然光 + 人物姿势松散 + 手里可能有饮品 + 微风 + 画面留白多',
+        narrativeArc: '余韵',
+        variants: [
+          { label: '无所谓', intensity: 1 },
+          { label: '都行', intensity: 1 },
+          { label: '急什么呢', intensity: 2 },
+          { label: '活着就挺好', intensity: 3 },
+        ],
+      },
+      {
+        key: 'nonAccommodation',
+        label: '不迁就',
+        description: '选择真实而不是讨好，不为了别人的舒适委屈自己',
+        causalThread: '讨好模式脱离——从"别人满意=我安全"的条件反射中解绑，行为由自我需求驱动',
+        triggerScenes: ['第一次拒绝了一直在迁就的人', '不再假笑了', '说出不舒服', '选自己而不是选对方'],
+        cinematicHint: '过肩镜头 + 人物直视对方但不攻击 + 声音平稳 + 对方反应虚化',
+        narrativeArc: '转折',
+        variants: [
+          { label: '我不想了', intensity: 1 },
+          { label: '这次听我的', intensity: 2 },
+          { label: '我不欠你的', intensity: 3 },
+        ],
+      },
+      {
+        key: 'agency',
+        label: '敢要',
+        description: '允许自己想要、并且行动去拿的勇气',
+        causalThread: '自我许可——突破"我不配/不该要"的内化规训，欲望从被压抑变为被承认',
+        triggerScenes: ['开口要加薪', '承认自己想要那段关系', '不再说"随便"', '把自己排在第一位'],
+        cinematicHint: '人物向前走/伸手/开口 + 画面构图从被动（等）变为主动（拿） + 色调变暖',
+        narrativeArc: '起势',
+        variants: [
+          { label: '我想要', intensity: 1 },
+          { label: '我值得', intensity: 2 },
+          { label: '这次不让了', intensity: 3 },
+          { label: '就算没人支持我也要', intensity: 4 },
         ],
       },
     ],

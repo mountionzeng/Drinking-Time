@@ -39,6 +39,7 @@ import {
 } from "./services/creationAgent";
 import { segmentAtPoint } from "./services/segmentation";
 import { inpaintImage } from "./services/imageGen";
+import { transcribeAudioBytes } from "./_core/voiceTranscription";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -79,6 +80,28 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  voice: router({
+    transcribe: protectedProcedure
+      .input(z.object({
+        audioBase64: z.string(),
+        mimeType: z.string(),
+        language: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await transcribeAudioBytes({
+          audioBase64: input.audioBase64,
+          mimeType: input.mimeType,
+          language: input.language ?? "zh",
+        });
+
+        if ("error" in result) {
+          throw new Error(result.details || result.error);
+        }
+
+        return { text: result.text };
+      }),
   }),
 
   // ─── Daily Almanac / 老黄历 ─────────────────────────────────────────

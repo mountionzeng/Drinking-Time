@@ -23,6 +23,7 @@ export const ENV = {
   llmModel: process.env.LLM_MODEL ?? "gemini-2.5-flash",      // 默认使用的模型名称
   llmSupportsImage: process.env.LLM_SUPPORTS_IMAGE === "true", // 模型是否支持图片输入
   llmSupportsResponseFormat: process.env.LLM_SUPPORTS_RESPONSE_FORMAT !== "false", // 模型是否支持 structured output
+  voiceTranscriptionModel: process.env.VOICE_TRANSCRIPTION_MODEL ?? "whisper-1", // 语音转文字模型
 
   // ── DROP ZONE 聊天 Agent 专用配置 ──
   dropZoneApiUrl: process.env.DROP_ZONE_API_URL ?? "",         // 聊天 Agent 单独的 API 地址（可选，不填则用 forgeApiUrl）

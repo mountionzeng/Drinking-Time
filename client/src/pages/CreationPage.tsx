@@ -11,7 +11,7 @@ import {
 import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
 import CreationAgentChat from '@/features/creationAgent/views/CreationAgentChat';
 import ShotTable from '@/features/analysis/views/ShotTable';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import type { BackendShot } from '@/features/analysis/types';
 import { useEffect, useMemo } from 'react';
 
@@ -142,8 +142,10 @@ export default function CreationPage() {
   const projectId = null;
 
   return (
-    <CreationAgentProvider projectId={projectId}>
-      <CreationWorkspaceInner projectId={projectId} />
-    </CreationAgentProvider>
+    <StoryAgentProvider projectId={projectId}>
+      <CreationAgentProvider projectId={projectId}>
+        <CreationWorkspaceInner projectId={projectId} />
+      </CreationAgentProvider>
+    </StoryAgentProvider>
   );
 }
