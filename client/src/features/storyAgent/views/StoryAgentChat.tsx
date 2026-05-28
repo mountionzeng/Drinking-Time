@@ -4,12 +4,25 @@
  *
  * Sits in the DROP ZONE slot of the analysis page.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote } from 'lucide-react';
+import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
+
+// 读取文件为 base64（去掉 data:...;base64, 前缀）
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function StoryAgentChat() {
   const {
@@ -18,8 +31,30 @@ export default function StoryAgentChat() {
   } = useStoryAgent();
   const { element } = useNayin();
   const [input, setInput] = useState('');
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 选择照片
+  const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert("照片太大了，请选择 10MB 以内的图片"); return; }
+    try {
+      const b64 = await fileToBase64(file);
+      setPhotoBase64(b64);
+      setPhotoPreview(URL.createObjectURL(file));
+    } catch { console.error("[StoryAgentChat] 读取照片失败"); }
+    e.target.value = "";
+  }, []);
+
+  const clearPhoto = useCallback(() => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoPreview(null);
+    setPhotoBase64(null);
+  }, [photoPreview]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -30,12 +65,14 @@ export default function StoryAgentChat() {
 
   const handleSubmit = async () => {
     const text = input.trim();
-    if (!text || isReplying) return;
+    if ((!text && !photoBase64) || isReplying) return;
     setInput('');
+    const b64 = photoBase64;
+    clearPhoto();
     if (activeSelection) {
       await sendSelectionEdit(text);
     } else {
-      await sendMessage(text);
+      await sendMessage(text, b64 ?? undefined);
     }
     inputRef.current?.focus();
   };
@@ -216,7 +253,32 @@ export default function StoryAgentChat() {
           </div>
         )}
 
-        <div className={`flex items-end gap-2 ${!activeSelection ? 'pt-2.5' : ''}`}>
+        {/* 照片预览 */}
+        {photoPreview && (
+          <div className={`flex items-center gap-2 ${!activeSelection ? 'mt-2.5' : 'mt-1.5'}`}>
+            <div className="relative">
+              <img src={photoPreview} alt="已选照片" className="h-12 w-12 rounded-lg object-cover" />
+              <button type="button" onClick={clearPhoto}
+                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-600 text-white shadow">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+            <span className="text-[10px] text-muted-foreground">照片已添加</span>
+          </div>
+        )}
+
+        <div className={`flex items-end gap-2 ${!activeSelection && !photoPreview ? 'pt-2.5' : 'pt-1.5'}`}>
+        {/* 图片上传按钮 */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isReplying}
+          className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+          aria-label="添加照片"
+        >
+          <ImagePlus className="w-4 h-4" />
+        </button>
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
         <textarea
           ref={inputRef}
           rows={1}
@@ -241,7 +303,7 @@ export default function StoryAgentChat() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!input.trim() || isReplying}
+          disabled={(!input.trim() && !photoBase64) || isReplying}
           className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
           style={{
             background: 'var(--nayin-accent)',

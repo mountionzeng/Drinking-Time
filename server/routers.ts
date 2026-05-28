@@ -503,6 +503,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           score: z.number().optional(),
         })).optional(),
         projectId: z.number().optional(),
+        photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
       }))
       .mutation(async ({ input }) => {
         return replyFromStoryAgent({
@@ -513,6 +514,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           currentShots: input.currentShots as ShotDraft[] | undefined,
           similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
           projectId: input.projectId,
+          photoUrl: input.photoUrl,
         });
       }),
 
@@ -689,6 +691,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           score: z.number().optional(),
         })).optional(),
         projectId: z.number().optional(),
+        photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
       }))
       .mutation(async ({ input }) => {
         return replyFromStoryAgent({
@@ -700,6 +703,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
           projectId: input.projectId,
           enableImageGen: true, // 手机端开启出图能力
+          photoUrl: input.photoUrl,
         });
       }),
 

@@ -192,6 +192,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           message: text.trim(),
           history: history.slice(0, -1), // 最后一条是当前消息，不放 history
           existingCardCount: cards.length,
+          photoUrl, // 上传后的照片 URL，传给 LLM 做多模态理解
         });
 
         // 处理 card

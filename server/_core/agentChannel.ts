@@ -41,10 +41,30 @@ async function invokeClaudeMessages(
 
   const anthropicMessages = messages
     .filter(m => m.role !== "system")
-    .map(m => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content),
-    }));
+    .map(m => {
+      const role = m.role === "assistant" ? "assistant" : "user";
+      // 多模态内容（含图片）：转换为 Anthropic Messages API 格式
+      if (Array.isArray(m.content)) {
+        const parts = m.content.map(part => {
+          if (typeof part === "string") return { type: "text" as const, text: part };
+          if (part.type === "text") return part;
+          if (part.type === "image_url") {
+            const url = part.image_url.url;
+            // data URL → base64 source；远程 URL → url source
+            if (url.startsWith("data:")) {
+              const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+              if (match) {
+                return { type: "image" as const, source: { type: "base64" as const, media_type: match[1], data: match[2] } };
+              }
+            }
+            return { type: "image" as const, source: { type: "url" as const, url } };
+          }
+          return { type: "text" as const, text: JSON.stringify(part) };
+        });
+        return { role, content: parts };
+      }
+      return { role, content: String(m.content) };
+    });
 
   const response = await fetch(apiUrl, {
     method: "POST",

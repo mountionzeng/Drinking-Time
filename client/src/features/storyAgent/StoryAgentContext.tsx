@@ -58,7 +58,7 @@ interface StoryAgentContextValue {
   latestScript: GeneratedScript | null;
   isReplying: boolean;
   isGeneratingScript: boolean;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, photoBase64?: string) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
   /** Inline-edit a single card's content; persists locally + to the server. */
@@ -408,6 +408,7 @@ export function StoryAgentProvider({
 }) {
   const utils = trpc.useUtils();
   const chatMut = trpc.storyAgent.chat.useMutation();
+  const uploadPhotoMut = trpc.storyAgent.uploadPhoto.useMutation(); // 上传图片用
   const classifyMut = trpc.storyAgent.classify.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
@@ -623,9 +624,9 @@ export function StoryAgentProvider({
   );
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, photoBase64?: string) => {
       const trimmed = text.trim();
-      if (!trimmed || isReplying) return;
+      if ((!trimmed && !photoBase64) || isReplying) return;
 
       const userMsg: ChatMessage = {
         id: newId('msg'),
@@ -664,8 +665,19 @@ export function StoryAgentProvider({
       }
 
       try {
+        // 如果有照片，先上传拿 URL
+        let photoUrl: string | undefined;
+        if (photoBase64) {
+          try {
+            const uploadResult = await uploadPhotoMut.mutateAsync({ base64: photoBase64 });
+            if (uploadResult.status === "ok") photoUrl = uploadResult.url;
+          } catch (err) {
+            console.error("[sendMessage] 照片上传失败:", err);
+          }
+        }
+
         const result = await chatMut.mutateAsync({
-          message: trimmed,
+          message: trimmed || "帮我看看这张照片",
           history: nextMessages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -687,6 +699,7 @@ export function StoryAgentProvider({
           })),
           similarCards: getSimilarCards(trimmed, cards),
           projectId: projectId ?? undefined,
+          photoUrl, // 传给 LLM 做多模态理解
         }) as StoryAgentChatResult;
         let nextCards = cards;
         let spawnedCardId: string | undefined;
@@ -753,6 +766,7 @@ export function StoryAgentProvider({
       storyTheme,
       storyArc,
       saveArchiveStory,
+      uploadPhotoMut,
     ],
   );
 

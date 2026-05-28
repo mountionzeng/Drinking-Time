@@ -522,7 +522,7 @@ function asIntensity(value: unknown): number | undefined {
 }
 
 function asEmotionOptions(value: unknown): string[] {
-  const defaults = ["委屈", "愤怒", "遗憾", "释然", "麻木"];
+  const defaults = ["感动", "好奇", "释然", "遗憾", "麻木"]; // 正负面平衡
   const options = Array.isArray(value)
     ? value.map(item => asCleanString(item)).filter(Boolean)
     : [];
@@ -538,6 +538,7 @@ export async function replyFromStoryAgent(params: {
   similarCards?: SimilarStoryCardPayload[];
   projectId?: number;
   enableImageGen?: boolean;  // 手机端出图开关
+  photoUrl?: string;         // 用户上传的照片 URL，传给 LLM 做多模态理解
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
@@ -580,6 +581,15 @@ export async function replyFromStoryAgent(params: {
     }
   }
 
+  // 构建用户消息：如果有照片就用多模态格式（image_url + text）
+  const userContent: import("../_core/llm").MessageContent | import("../_core/llm").MessageContent[] =
+    params.photoUrl
+      ? [
+          { type: "image_url" as const, image_url: { url: params.photoUrl, detail: "low" as const } },
+          { type: "text" as const, text: params.message.trim() || "帮我看看这张照片" },
+        ]
+      : params.message.trim();
+
   const messages: Message[] = [
     {
       role: "system",
@@ -594,7 +604,7 @@ export async function replyFromStoryAgent(params: {
       ),
     },
     ...turns,
-    { role: "user", content: params.message.trim() },
+    { role: "user", content: userContent },
   ];
 
   const { text, modelLabel } = await invokeAgent(messages, 700);
