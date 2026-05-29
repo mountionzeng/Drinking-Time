@@ -76,7 +76,7 @@ interface MobileChatContextValue {
   isGenerating: boolean;
   remoteStoryId: number | null;
   // 发送消息（调用 mobileChat 端点，可附带照片 base64）
-  sendMessage: (text: string, photoBase64?: string) => Promise<void>;
+  sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   // 用户确认出图
   confirmGenerate: (messageId: string) => Promise<void>;
   // 滑动操作
@@ -151,7 +151,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
 
   // 发送消息（可附带照片 base64）
   const sendMessage = useCallback(
-    async (text: string, photoBase64?: string) => {
+    async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
       if (!text.trim() || isReplying) return;
 
       // 如果有照片，先上传到 storage
@@ -160,6 +160,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         try {
           const uploadResult = await uploadPhotoMut.mutateAsync({
             base64: photoBase64,
+            mimeType: photoMimeType,
           });
           if (uploadResult.status === "ok") {
             photoUrl = uploadResult.url;

@@ -12,6 +12,7 @@ import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { StoryCard } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
+import VisualAnchorCanvas from './VisualAnchorCanvas';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: '先开瓶啤酒，跟小酌聊聊一句让你记住的话',
@@ -199,12 +200,12 @@ export default function StoryCardsBoard() {
         </span>
       </div>
 
-      <div className="monitor-panel-body flex-1 flex flex-col overflow-hidden">
+      <div className="monitor-panel-body flex-1 flex flex-col overflow-y-auto custom-scrollbar">
         {cards.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-4"
+            className="flex min-h-[180px] flex-col items-center justify-center text-center gap-3 px-4"
           >
             <FlaskConical className="w-7 h-7 text-muted-foreground opacity-40" />
             <p className="text-xs text-muted-foreground max-w-[16rem] leading-relaxed">
@@ -272,6 +273,8 @@ export default function StoryCardsBoard() {
             </div>
           </>
         )}
+
+        <VisualAnchorCanvas />
       </div>
     </div>
   );

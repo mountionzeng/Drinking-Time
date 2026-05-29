@@ -23,6 +23,7 @@ import {
   type GeneratedScript,
   type StoryShot,
   type SelectionState,
+  type VisualCanvasItem,
 } from './types';
 
 interface PersistedState {
@@ -37,6 +38,8 @@ interface PersistedState {
   theme?: string;
   arc?: string;
   summary?: string;
+  visualCanvasItems?: VisualCanvasItem[];
+  visualPreference?: string;
 }
 
 export type StoryListItem = {
@@ -58,7 +61,7 @@ interface StoryAgentContextValue {
   latestScript: GeneratedScript | null;
   isReplying: boolean;
   isGeneratingScript: boolean;
-  sendMessage: (text: string, photoBase64?: string) => Promise<void>;
+  sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
   /** Inline-edit a single card's content; persists locally + to the server. */
@@ -84,6 +87,14 @@ interface StoryAgentContextValue {
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
   refreshStoryList: () => void;
+  /** Visual anchor canvas / Art Agent */
+  visualCanvasItems: VisualCanvasItem[];
+  visualPreference: string;
+  isArtWorking: boolean;
+  addVisualReference: (file: File, instruction?: string) => Promise<void>;
+  refineVisualItem: (id: string, instruction: string) => Promise<void>;
+  updateVisualCanvasItem: (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => void;
+  removeVisualCanvasItem: (id: string) => void;
   /** Inline selection edit */
   activeSelection: SelectionState | null;
   setActiveSelection: (state: SelectionState | null) => void;
@@ -141,6 +152,10 @@ function loadState(projectId: number | null): PersistedState {
       theme: typeof parsed.theme === 'string' ? parsed.theme : undefined,
       arc: typeof parsed.arc === 'string' ? parsed.arc : undefined,
       summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+      visualCanvasItems: Array.isArray(parsed.visualCanvasItems)
+        ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
+        : [],
+      visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
     };
   } catch {
     return emptyState();
@@ -161,6 +176,8 @@ function emptyState(): PersistedState {
     scripts: [],
     storyShots: [],
     characters: [],
+    visualCanvasItems: [],
+    visualPreference: '',
   };
 }
 
@@ -172,6 +189,63 @@ function cardTitle(card: Partial<StoryCard>): string {
   const source = card.sourceQuote || card.content || card.rawText || '故事素材';
   const compact = source.replace(/\s+/g, ' ').trim();
   return compact.length > 14 ? `${compact.slice(0, 14)}…` : compact || '故事素材';
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function normalizeVisualCanvasItem(raw: unknown): VisualCanvasItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const analysis = obj.analysis && typeof obj.analysis === 'object'
+    ? (obj.analysis as Record<string, unknown>)
+    : {};
+  const imageUrl = typeof obj.imageUrl === 'string' ? obj.imageUrl : '';
+  if (!imageUrl) return null;
+
+  return {
+    id: typeof obj.id === 'string' ? obj.id : newId('visual'),
+    title: typeof obj.title === 'string' ? obj.title : '视觉锚',
+    imageUrl,
+    originalImageUrl: typeof obj.originalImageUrl === 'string' ? obj.originalImageUrl : undefined,
+    source: obj.source === 'reference' ? 'reference' : 'riff',
+    parentId: typeof obj.parentId === 'string' ? obj.parentId : undefined,
+    x: typeof obj.x === 'number' ? obj.x : 24,
+    y: typeof obj.y === 'number' ? obj.y : 24,
+    width: typeof obj.width === 'number' ? obj.width : 168,
+    height: typeof obj.height === 'number' ? obj.height : 210,
+    prompt: typeof obj.prompt === 'string' ? obj.prompt : '',
+    userInstruction: typeof obj.userInstruction === 'string' ? obj.userInstruction : undefined,
+    analysis: {
+      objective: typeof analysis.objective === 'string' ? analysis.objective : '',
+      aesthetic: typeof analysis.aesthetic === 'string' ? analysis.aesthetic : '',
+      visualStyle: stringList(analysis.visualStyle),
+      mood: stringList(analysis.mood),
+      colorPalette: stringList(analysis.colorPalette),
+      composition: typeof analysis.composition === 'string' ? analysis.composition : '',
+      lighting: typeof analysis.lighting === 'string' ? analysis.lighting : '',
+      promptDraft: typeof analysis.promptDraft === 'string' ? analysis.promptDraft : '',
+      negativePrompt: typeof analysis.negativePrompt === 'string' ? analysis.negativePrompt : '',
+      confidence: typeof analysis.confidence === 'number' ? analysis.confidence : 0,
+    },
+    createdAt: typeof obj.createdAt === 'number' ? obj.createdAt : Date.now(),
+  };
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function normalizeCard(raw: unknown): StoryCard | null {
@@ -243,6 +317,11 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     note: str(obj.note),
     emotion: str(obj.emotion) || '未标',
     sourceCardContent: str(obj.sourceCardContent),
+    emotionCharge: str(obj.emotionCharge),
+    emotionDelta: str(obj.emotionDelta),
+    visualAnchorText: str(obj.visualAnchorText),
+    promptDraft: str(obj.promptDraft),
+    negativePrompt: str(obj.negativePrompt),
   };
 }
 
@@ -409,6 +488,7 @@ export function StoryAgentProvider({
   const utils = trpc.useUtils();
   const chatMut = trpc.storyAgent.chat.useMutation();
   const uploadPhotoMut = trpc.storyAgent.uploadPhoto.useMutation(); // 上传图片用
+  const artRiffMut = trpc.artAgent.riff.useMutation();
   const classifyMut = trpc.storyAgent.classify.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
@@ -424,6 +504,9 @@ export function StoryAgentProvider({
   const [storyLogline, setStoryLogline] = useState<string | undefined>(undefined);
   const [storyTheme, setStoryTheme] = useState<string | undefined>(undefined);
   const [storyArc, setStoryArc] = useState<string | undefined>(undefined);
+  const [visualCanvasItems, setVisualCanvasItems] = useState<VisualCanvasItem[]>([]);
+  const [visualPreference, setVisualPreference] = useState('');
+  const [isArtWorking, setIsArtWorking] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
@@ -460,6 +543,8 @@ export function StoryAgentProvider({
     setStoryLogline(persisted.logline);
     setStoryTheme(persisted.theme);
     setStoryArc(persisted.arc);
+    setVisualCanvasItems(persisted.visualCanvasItems ?? []);
+    setVisualPreference(persisted.visualPreference ?? '');
     hydratedFor.current = projectId;
   }, [projectId]);
 
@@ -480,6 +565,8 @@ export function StoryAgentProvider({
       logline: storyLogline,
       theme: storyTheme,
       arc: storyArc,
+      visualCanvasItems,
+      visualPreference,
     };
     try {
       localStorage.setItem(key, JSON.stringify(data));
@@ -498,6 +585,8 @@ export function StoryAgentProvider({
     storyLogline,
     storyTheme,
     storyArc,
+    visualCanvasItems,
+    visualPreference,
   ]);
 
   // ── Auto-save: keep refs in sync ───────────────────────────────────
@@ -507,7 +596,7 @@ export function StoryAgentProvider({
   // Track the last time the editable state changed (for the 2-second inactivity guard)
   useEffect(() => {
     lastStateChangeTimeRef.current = Date.now();
-  }, [cards, scripts, storyShots]);
+  }, [cards, scripts, storyShots, visualCanvasItems, visualPreference]);
 
   // ── Auto-save: 5-minute timer ───────────────────────────────────────
   useEffect(() => {
@@ -526,6 +615,8 @@ export function StoryAgentProvider({
         scriptIds: scripts.map((s) => s.id),
         shotNos: storyShots.map((s) => s.shotNo),
         cardContents: cards.map((c) => c.content),
+        visualIds: visualCanvasItems.map((item) => item.id),
+        visualPreference,
       });
 
       // Skip if nothing changed since last snapshot
@@ -544,6 +635,8 @@ export function StoryAgentProvider({
             cards: cards as unknown as Record<string, unknown>[],
             script: scripts as unknown as Record<string, unknown>[],
             shots: storyShots as unknown as Record<string, unknown>[],
+            visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
+            visualPreference,
           },
           autoSave: true,
         },
@@ -575,6 +668,8 @@ export function StoryAgentProvider({
       theme?: string;
       arc?: string;
       summary?: string;
+      visualCanvasItems?: VisualCanvasItem[];
+      visualPreference?: string;
     }) => {
       if (projectId === null) return;
       const latest =
@@ -590,6 +685,8 @@ export function StoryAgentProvider({
       const logline = snapshot.logline ?? storyLogline ?? latest?.logline ?? '';
       const theme = snapshot.theme ?? storyTheme ?? latest?.theme ?? '';
       const arc = snapshot.arc ?? storyArc ?? latest?.arcSummary ?? '';
+      const canvasItems = snapshot.visualCanvasItems ?? visualCanvasItems;
+      const preference = snapshot.visualPreference ?? visualPreference;
 
       try {
         const saved = await storyUpsertMut.mutateAsync({
@@ -604,6 +701,8 @@ export function StoryAgentProvider({
             cards: snapshot.cards,
             characters: snapshot.characters,
             shots: snapshot.storyShots,
+            visualCanvasItems: canvasItems,
+            visualPreference: preference,
             variants: latest?.variants ?? [],
             boringCheck: latest?.boringCheck ?? null,
             messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
@@ -620,11 +719,20 @@ export function StoryAgentProvider({
         toast.error('故事保存失败，将在下次自动重新创建');
       }
     },
-    [projectId, remoteStoryId, storyTitle, storyLogline, storyTheme, storyArc],
+    [
+      projectId,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      visualCanvasItems,
+      visualPreference,
+    ],
   );
 
   const sendMessage = useCallback(
-    async (text: string, photoBase64?: string) => {
+    async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
 
@@ -649,6 +757,8 @@ export function StoryAgentProvider({
               cards: cards as unknown as Record<string, unknown>[],
               script: scripts as unknown as Record<string, unknown>[],
               shots: storyShots as unknown as Record<string, unknown>[],
+              visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
+              visualPreference,
             },
           });
           lastSnapshotIdRef.current = snapshotResult.snapshotId;
@@ -658,6 +768,8 @@ export function StoryAgentProvider({
             scriptIds: scripts.map((s) => s.id),
             shotNos: storyShots.map((s) => s.shotNo),
             cardContents: cards.map((c) => c.content),
+            visualIds: visualCanvasItems.map((item) => item.id),
+            visualPreference,
           });
         } catch (err) {
           console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
@@ -669,7 +781,10 @@ export function StoryAgentProvider({
         let photoUrl: string | undefined;
         if (photoBase64) {
           try {
-            const uploadResult = await uploadPhotoMut.mutateAsync({ base64: photoBase64 });
+            const uploadResult = await uploadPhotoMut.mutateAsync({
+              base64: photoBase64,
+              mimeType: photoMimeType,
+            });
             if (uploadResult.status === "ok") photoUrl = uploadResult.url;
           } catch (err) {
             console.error("[sendMessage] 照片上传失败:", err);
@@ -765,6 +880,8 @@ export function StoryAgentProvider({
       storyLogline,
       storyTheme,
       storyArc,
+      visualCanvasItems,
+      visualPreference,
       saveArchiveStory,
       uploadPhotoMut,
     ],
@@ -999,6 +1116,17 @@ export function StoryAgentProvider({
           softMembership: card.softMembership,
         })),
         characterHint: characters[0]?.name ?? '',
+        visualAnchors: visualCanvasItems.map((item) => ({
+          title: item.title,
+          imageUrl: item.imageUrl,
+          objective: item.analysis.objective,
+          aesthetic: item.analysis.aesthetic,
+          prompt: item.prompt,
+          visualStyle: item.analysis.visualStyle,
+          mood: item.analysis.mood,
+          colorPalette: item.analysis.colorPalette,
+        })),
+        projectId: projectId ?? undefined,
       }) as StoryAgentClassifyResult;
       if ('error' in result) {
         toast.error(result.error);
@@ -1059,6 +1187,9 @@ export function StoryAgentProvider({
         theme: result.theme,
         arc: result.arc,
       });
+      if (projectId !== null) {
+        await utils.shot.list.invalidate({ projectId });
+      }
       toast.success(`剧本已生成：${script.title}`);
     } catch (err) {
       console.error('storyAgent.generateScript failed', err);
@@ -1069,11 +1200,15 @@ export function StoryAgentProvider({
   }, [
     cards,
     characters,
+    classifyMut,
     isGeneratingScript,
     messages,
+    projectId,
     scripts,
     remoteStoryId,
     storyTitle,
+    utils.shot.list,
+    visualCanvasItems,
     saveArchiveStory,
   ]);
 
@@ -1090,6 +1225,8 @@ export function StoryAgentProvider({
     setStoryLogline(undefined);
     setStoryTheme(undefined);
     setStoryArc(undefined);
+    setVisualCanvasItems([]);
+    setVisualPreference('');
     if (storyIdToDelete) {
       void storyDeleteMut.mutateAsync({ id: storyIdToDelete }).catch(
         (error) => console.warn('delete archive story failed', error),
@@ -1145,6 +1282,8 @@ export function StoryAgentProvider({
     setStoryLogline(undefined);
     setStoryTheme(undefined);
     setStoryArc(undefined);
+    setVisualCanvasItems([]);
+    setVisualPreference('');
   }, []);
 
   const loadStory = useCallback(async (id: number) => {
@@ -1175,6 +1314,13 @@ export function StoryAgentProvider({
               oneLiner: typeof c.oneLiner === 'string' ? c.oneLiner : '',
             }))
         : [];
+      const restoredVisualCanvasItems = Array.isArray(body.visualCanvasItems)
+        ? body.visualCanvasItems
+            .map(normalizeVisualCanvasItem)
+            .filter((item): item is VisualCanvasItem => Boolean(item))
+        : [];
+      const restoredVisualPreference =
+        typeof body.visualPreference === 'string' ? body.visualPreference : '';
 
       setRemoteStoryId(id);
       setStoryTitle(row.title || undefined);
@@ -1185,6 +1331,8 @@ export function StoryAgentProvider({
       setStoryShots(restoredShots);
       setCharacters(restoredCharacters);
       setMessages(restoredMessages);
+      setVisualCanvasItems(restoredVisualCanvasItems);
+      setVisualPreference(restoredVisualPreference);
 
       const remoteScript = scriptFromStory({
         title: row.title || undefined,
@@ -1233,6 +1381,160 @@ export function StoryAgentProvider({
       toast.error('删除失败');
     }
   }, [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList]);
+
+  const persistVisualCanvas = useCallback(
+    (nextItems: VisualCanvasItem[], nextPreference = visualPreference) => {
+      setVisualCanvasItems(nextItems);
+      setVisualPreference(nextPreference);
+      void saveArchiveStory({
+        messages,
+        cards,
+        scripts,
+        storyShots,
+        characters,
+        remoteStoryId,
+        title: storyTitle,
+        logline: storyLogline,
+        theme: storyTheme,
+        arc: storyArc,
+        visualCanvasItems: nextItems,
+        visualPreference: nextPreference,
+      });
+    },
+    [
+      visualPreference,
+      messages,
+      cards,
+      scripts,
+      storyShots,
+      characters,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      saveArchiveStory,
+    ],
+  );
+
+  const addVisualReference = useCallback(
+    async (file: File, instruction?: string) => {
+      if (isArtWorking) return;
+      if (!file.type.startsWith('image/')) {
+        toast.error('美术 Agent 现在只接图片。');
+        return;
+      }
+      setIsArtWorking(true);
+      try {
+        const imageBase64 = await fileToBase64(file);
+        const result = await artRiffMut.mutateAsync({
+          imageBase64,
+          mimeType: file.type || 'image/jpeg',
+          fileName: file.name,
+          instruction,
+          projectPreference: visualPreference,
+        });
+        const offset = visualCanvasItems.length * 18;
+        const item: VisualCanvasItem = {
+          id: newId('visual'),
+          title: file.name.replace(/\.[^.]+$/, '') || `视觉锚 ${visualCanvasItems.length + 1}`,
+          imageUrl: result.imageUrl,
+          originalImageUrl: result.originalImageUrl,
+          source: 'riff',
+          x: 18 + offset,
+          y: 18 + offset,
+          width: 170,
+          height: 218,
+          prompt: result.prompt,
+          userInstruction: instruction,
+          analysis: result.analysis,
+          createdAt: Date.now(),
+        };
+        persistVisualCanvas([...visualCanvasItems, item], result.preferenceUpdate || visualPreference);
+        toast.success('美术 Agent 已经把图落到画布上');
+      } catch (error) {
+        console.error('artAgent.riff failed', error);
+        toast.error(error instanceof Error ? error.message : '美术 Agent 暂时没接上');
+      } finally {
+        setIsArtWorking(false);
+      }
+    },
+    [
+      isArtWorking,
+      artRiffMut,
+      visualPreference,
+      visualCanvasItems,
+      persistVisualCanvas,
+    ],
+  );
+
+  const refineVisualItem = useCallback(
+    async (id: string, instruction: string) => {
+      const trimmed = instruction.trim();
+      if (!trimmed) {
+        toast.error('先说一句你想怎么改');
+        return;
+      }
+      const item = visualCanvasItems.find((entry) => entry.id === id);
+      if (!item || isArtWorking) return;
+      setIsArtWorking(true);
+      try {
+        const result = await artRiffMut.mutateAsync({
+          imageUrl: item.imageUrl,
+          instruction: trimmed,
+          projectPreference: visualPreference,
+          previousPrompt: item.prompt,
+          previousAnalysis: item.analysis as unknown as Record<string, unknown>,
+        });
+        const nextItem: VisualCanvasItem = {
+          ...item,
+          id: newId('visual'),
+          title: `${item.title} · riff`,
+          imageUrl: result.imageUrl,
+          originalImageUrl: item.originalImageUrl ?? item.imageUrl,
+          source: 'riff',
+          parentId: item.id,
+          x: item.x + 24,
+          y: item.y + 24,
+          prompt: result.prompt,
+          userInstruction: trimmed,
+          analysis: result.analysis,
+          createdAt: Date.now(),
+        };
+        persistVisualCanvas([...visualCanvasItems, nextItem], result.preferenceUpdate || visualPreference);
+        toast.success('已按你的口味再 riff 一版');
+      } catch (error) {
+        console.error('artAgent.refine failed', error);
+        toast.error(error instanceof Error ? error.message : '改图失败，再试一次');
+      } finally {
+        setIsArtWorking(false);
+      }
+    },
+    [
+      visualCanvasItems,
+      isArtWorking,
+      artRiffMut,
+      visualPreference,
+      persistVisualCanvas,
+    ],
+  );
+
+  const updateVisualCanvasItem = useCallback(
+    (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => {
+      const nextItems = visualCanvasItems.map((item) =>
+        item.id === id ? { ...item, ...patch } : item,
+      );
+      persistVisualCanvas(nextItems);
+    },
+    [visualCanvasItems, persistVisualCanvas],
+  );
+
+  const removeVisualCanvasItem = useCallback(
+    (id: string) => {
+      persistVisualCanvas(visualCanvasItems.filter((item) => item.id !== id));
+    },
+    [visualCanvasItems, persistVisualCanvas],
+  );
 
   const clearSelection = useCallback(() => setActiveSelection(null), []);
 
@@ -1398,6 +1700,13 @@ export function StoryAgentProvider({
       backToList,
       deleteStory: handleDeleteStory,
       refreshStoryList,
+      visualCanvasItems,
+      visualPreference,
+      isArtWorking,
+      addVisualReference,
+      refineVisualItem,
+      updateVisualCanvasItem,
+      removeVisualCanvasItem,
       activeSelection,
       setActiveSelection,
       clearSelection,
@@ -1428,6 +1737,13 @@ export function StoryAgentProvider({
       backToList,
       handleDeleteStory,
       refreshStoryList,
+      visualCanvasItems,
+      visualPreference,
+      isArtWorking,
+      addVisualReference,
+      refineVisualItem,
+      updateVisualCanvasItem,
+      removeVisualCanvasItem,
       activeSelection,
       setActiveSelection,
       clearSelection,

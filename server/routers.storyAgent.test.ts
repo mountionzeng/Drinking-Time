@@ -45,6 +45,12 @@ const storyAgentMocks = vi.hoisted(() => ({
 
 vi.mock("./archive/storyAgent", () => storyAgentMocks);
 
+const storageMocks = vi.hoisted(() => ({
+  storagePut: vi.fn(async () => ({ key: "uploads/test.jpg", url: "https://storage.example/test.jpg" })),
+}));
+
+vi.mock("./storage", () => storageMocks);
+
 type AppRouter = typeof import("./routers").appRouter;
 
 let appRouter: AppRouter;
@@ -134,6 +140,41 @@ describe("storyAgent tRPC router", () => {
     expect(storyAgentMocks.summarizeHistory).toHaveBeenCalledWith(
       expect.objectContaining({ priorSummary: "此前在夜里" }),
     );
+  });
+
+  it("falls back to inline data URL when photo storage upload fails", async () => {
+    storageMocks.storagePut.mockRejectedValueOnce(new Error("storage down"));
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const result = await caller.storyAgent.uploadPhoto({
+      base64: "aGVsbG8=",
+      mimeType: "image/jpeg",
+    });
+
+    expect(result).toEqual({
+      status: "ok",
+      url: "data:image/jpeg;base64,aGVsbG8=",
+      fallback: "inline",
+    });
+  });
+
+  it("uses inline data URL for chat image input even when storage upload succeeds", async () => {
+    storageMocks.storagePut.mockResolvedValueOnce({
+      key: "uploads/test.jpg",
+      url: "https://storage.example/test.jpg",
+    });
+    const caller = appRouter.createCaller(createAuthContext());
+
+    const result = await caller.storyAgent.uploadPhoto({
+      base64: "aGVsbG8=",
+      mimeType: "image/jpeg",
+    });
+
+    expect(result).toEqual({
+      status: "ok",
+      url: "data:image/jpeg;base64,aGVsbG8=",
+      storedUrl: "https://storage.example/test.jpg",
+    });
   });
 
   it("creates, lists, loads, updates, and deletes stories for the current user", async () => {

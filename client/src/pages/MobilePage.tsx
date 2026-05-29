@@ -8,6 +8,7 @@ import { MobileChatProvider } from "@/features/mobileChat/MobileChatContext";
 import MobileTabBar from "@/features/mobileChat/views/MobileTabBar";
 import MobileChatPage from "@/features/mobileChat/views/MobileChatPage";
 import MobileStoryboard from "@/features/mobileChat/views/MobileStoryboard";
+import "@/features/mobileChat/mobile-redesign.css";
 
 export default function MobilePage() {
   const [isStoryboard] = useRoute("/m/storyboard");
@@ -22,9 +23,9 @@ export default function MobilePage() {
 
   return (
     <MobileChatProvider>
-      <div className="flex h-dvh flex-col bg-stone-50">
+      <div className="dtm-app">
         {/* 主内容区域（底部 tab 栏占位） */}
-        <main className="flex-1 overflow-hidden pb-14">
+        <main className="dtm-main">
           {isStoryboard ? (
             <MobileStoryboard />
           ) : (

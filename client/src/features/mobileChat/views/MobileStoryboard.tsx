@@ -5,8 +5,10 @@
  */
 import { useMemo, useState, useCallback } from "react";
 import { Reorder, AnimatePresence } from "framer-motion";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Plus } from "lucide-react";
 import { useLocation } from "wouter";
+import { useNayin } from "@/features/nayin/NayinContext";
+import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import { useMobileChat } from "../MobileChatContext";
 import type { StoryboardScene as SceneType } from "../types";
 import StoryboardSceneCard from "./StoryboardScene";
@@ -14,6 +16,7 @@ import MobileImageEdit from "./MobileImageEdit";
 
 export default function MobileStoryboard() {
   const { cards, images, remoteStoryId } = useMobileChat();
+  const { element, theme } = useNayin();
   const [, setLocation] = useLocation();
   const [editingImageId, setEditingImageId] = useState<number | null>(null);
 
@@ -81,41 +84,64 @@ export default function MobileStoryboard() {
   // 空状态
   if (displayScenes.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-        <div className="rounded-full bg-amber-50 p-4">
-          <MessageCircle className="h-8 w-8 text-amber-300" />
+      <div className="dtm-screen">
+        <header className="dtm-story-header">
+          <div className="dtm-header-icon dtm-header-icon--small">
+            <WuxingDrinkIcon element={element} size={26} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-[17px]">故事版</div>
+            <div className="dtm-kicker mt-0.5">STORYBOARD · 0 BEATS · {theme.beverageCn}</div>
+          </div>
+          <span className="dtm-pill-badge">编辑中</span>
+        </header>
+        <div className="dtm-story-empty">
+          <div className="dtm-header-icon">
+            <MessageCircle className="h-8 w-8 text-[var(--nayin-accent)]" />
+          </div>
+          <div>
+            <p className="text-[15px] font-semibold">还没有故事</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-[var(--muted-foreground)]">
+              先和小酌聊聊你的回忆，故事会慢慢浮现。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLocation("/m")}
+            className="dtm-add-scene"
+          >
+            <Plus size={18} />
+            去聊天
+          </button>
         </div>
-        <div>
-          <p className="text-sm font-medium text-gray-600">还没有故事</p>
-          <p className="mt-1 text-xs text-gray-400">
-            先和小酌聊聊你的回忆，故事会慢慢浮现
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setLocation("/m")}
-          className="rounded-full bg-amber-700 px-5 py-2 text-sm text-white transition-opacity hover:opacity-90"
-        >
-          去聊天
-        </button>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* 顶部标题 */}
-      <header className="flex items-center justify-center border-b bg-white/80 px-4 py-3 backdrop-blur-sm">
-        <h1 className="text-sm font-medium text-gray-700">故事版</h1>
+    <div className="dtm-screen">
+      <header className="dtm-story-header">
+        <div className="dtm-header-icon dtm-header-icon--small">
+          <WuxingDrinkIcon element={element} size={26} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-[17px]">
+            {cards[0]?.title || "故事版"}
+          </div>
+          <div className="dtm-kicker mt-0.5">
+            STORYBOARD · {displayScenes.length} BEATS · {theme.beverageCn}
+          </div>
+        </div>
+        <span className="dtm-pill-badge">编辑中</span>
       </header>
 
       {/* 场景列表（可排序） */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="dtm-story-list">
         <Reorder.Group
           axis="y"
           values={displayScenes}
           onReorder={handleReorder}
-          className="space-y-3"
+          className="flex flex-col gap-[22px]"
         >
           <AnimatePresence>
             {displayScenes.map((scene, idx) => (
@@ -130,6 +156,10 @@ export default function MobileStoryboard() {
             ))}
           </AnimatePresence>
         </Reorder.Group>
+        <button type="button" className="dtm-add-scene">
+          <Plus size={18} />
+          加一个场景
+        </button>
       </div>
 
       {/* 图片编辑弹层 */}

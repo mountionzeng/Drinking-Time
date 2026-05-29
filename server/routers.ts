@@ -9,7 +9,7 @@ import { storagePut } from "./storage";
 import {
   createProject, getUserProjects, getProjectById,
   createReference, getProjectReferences, updateReference,
-  createShots, getProjectShots, updateShot, batchUpdateShots,
+  createShots, getProjectShots, replaceDirectorShotsForProject, updateShot, batchUpdateShots,
   createAnalysisResult, getProjectAnalysis,
   listUserStories, getStoryById, createStory, updateStory, deleteStory,
   createGeneratedImage, getGeneratedImageById, getStoryImages,
@@ -32,6 +32,8 @@ import {
   handleSelectionEdit,
   type SimilarStoryCardPayload,
   type ShotDraft,
+  type ShotEntry,
+  type VisualAnchorPayload,
 } from "./archive/storyAgent";
 import {
   replyFromCreationAgent,
@@ -40,6 +42,70 @@ import {
 import { segmentAtPoint } from "./services/segmentation";
 import { inpaintImage } from "./services/imageGen";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
+import { createArtRiff } from "./services/artAgent";
+
+function shotStatusFromBeat(beat: string) {
+  if (beat === "收束") return "production_ready" as const;
+  if (beat === "转折") return "structured" as const;
+  return "idea_pool" as const;
+}
+
+function shotPriorityFromBeat(beat: string) {
+  return beat === "转折" ? "high" as const : "medium" as const;
+}
+
+function storyShotToDbRow(params: {
+  projectId: number;
+  userId: number;
+  shot: ShotEntry;
+  index: number;
+}) {
+  const { projectId, userId, shot, index } = params;
+  const shotNo = `SH${String(shot.shotNo || index + 1).padStart(2, "0")}`;
+  const sceneNo = `SC${String(Math.ceil((index + 1) / 6)).padStart(2, "0")}`;
+  const filledFields = [
+    shot.subject,
+    shot.action,
+    shot.dialogue,
+    shot.shotType,
+    shot.location,
+    shot.timeLight,
+    shot.mood,
+    shot.styleRef,
+    shot.promptDraft,
+  ].filter(value => typeof value === "string" && value.trim().length > 0).length;
+
+  return {
+    projectId,
+    userId,
+    sceneNo,
+    shotNo,
+    sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject].filter(Boolean).join(" · "),
+    intentType: "director_note" as const,
+    status: shotStatusFromBeat(shot.beat),
+    readinessScore: Math.min(0.95, 0.35 + filledFields * 0.055),
+    priority: shotPriorityFromBeat(shot.beat),
+    autoRender: false,
+    blockingIssues: null,
+    nextAction: shot.note || null,
+    sceneType: shot.location || shot.beat || null,
+    timeOfDay: shot.timeLight || null,
+    weather: null,
+    lighting: shot.timeLight || null,
+    cameraFocalLength: shot.shotType || null,
+    cameraMovement: shot.cameraMove || null,
+    spatialLayers: shot.cameraAngle || null,
+    mood: [shot.mood, shot.emotion, shot.emotionDelta].filter(Boolean).join(" / ") || null,
+    colorPalette: [shot.styleRef, shot.visualAnchorText].filter(Boolean).join(" / ") || null,
+    promptDraft: shot.promptDraft || [
+      shot.subject,
+      shot.action,
+      shot.location ? `场景：${shot.location}` : "",
+      shot.mood ? `情绪：${shot.mood}` : "",
+    ].filter(Boolean).join("，"),
+    negativePrompt: shot.negativePrompt || "",
+  };
+}
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -101,6 +167,35 @@ export const appRouter = router({
         }
 
         return { text: result.text };
+      }),
+  }),
+
+  // ─── Art Agent / 视觉锚画布 ───────────────────────────────────────
+  artAgent: router({
+    riff: protectedProcedure
+      .input(z.object({
+        imageBase64: z.string().optional(),
+        imageUrl: z.string().optional(),
+        mimeType: z.string().optional(),
+        fileName: z.string().optional(),
+        instruction: z.string().optional(),
+        projectPreference: z.string().optional(),
+        previousPrompt: z.string().optional(),
+        previousAnalysis: z.record(z.string(), z.unknown()).optional(),
+      }).refine((value) => Boolean(value.imageBase64 || value.imageUrl), {
+        message: "imageBase64 or imageUrl is required",
+      }))
+      .mutation(async ({ input }) => {
+        return createArtRiff({
+          imageBase64: input.imageBase64,
+          imageUrl: input.imageUrl,
+          mimeType: input.mimeType,
+          fileName: input.fileName,
+          instruction: input.instruction,
+          projectPreference: input.projectPreference,
+          previousPrompt: input.previousPrompt,
+          previousAnalysis: input.previousAnalysis,
+        });
       }),
   }),
 
@@ -566,6 +661,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     /** Synthesize story cards into a shot list */
     classify: protectedProcedure
       .input(z.object({
+        projectId: z.number().optional(),
         cards: z.array(z.object({
           content: z.string(),
           rawText: z.string().optional(),
@@ -585,12 +681,36 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           softMembership: z.array(z.string()).optional(),
         })),
         characterHint: z.string().optional(),
+        visualAnchors: z.array(z.object({
+          title: z.string(),
+          imageUrl: z.string().optional(),
+          objective: z.string().optional(),
+          aesthetic: z.string().optional(),
+          prompt: z.string().optional(),
+          visualStyle: z.array(z.string()).optional(),
+          mood: z.array(z.string()).optional(),
+          colorPalette: z.array(z.string()).optional(),
+        })).optional(),
       }))
-      .mutation(async ({ input }) => {
-        return synthesizeShotList({
+      .mutation(async ({ ctx, input }) => {
+        const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,
+          visualAnchors: input.visualAnchors as VisualAnchorPayload[] | undefined,
         });
+        if (!("error" in result) && input.projectId) {
+          await replaceDirectorShotsForProject(
+            input.projectId,
+            ctx.user.id,
+            result.shots.map((shot, index) => storyShotToDbRow({
+              projectId: input.projectId!,
+              userId: ctx.user.id,
+              shot,
+              index,
+            })),
+          );
+        }
+        return result;
       }),
 
     /** Compress old chat turns into a summary note */
@@ -737,17 +857,26 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         mimeType: z.string().default("image/jpeg"),
       }))
       .mutation(async ({ input }) => {
+        const buffer = Buffer.from(input.base64, "base64");
+        const inlineUrl = `data:${input.mimeType};base64,${input.base64}`;
+        const ext =
+          input.mimeType === "image/png" ? "png" :
+          input.mimeType === "image/webp" ? "webp" :
+          input.mimeType === "image/gif" ? "gif" :
+          "jpg";
+
         try {
-          const buffer = Buffer.from(input.base64, "base64");
-          const ext = input.mimeType === "image/png" ? "png" : "jpg";
           const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
           const { url } = await storagePut(key, buffer, input.mimeType);
-          return { status: "ok" as const, url };
+          return { status: "ok" as const, url: inlineUrl, storedUrl: url };
         } catch (err) {
-          console.error("[uploadPhoto] 上传失败:", err);
+          // Storage can fail locally or during 302 proxy hiccups. Keep the
+          // multimodal path alive by passing the already-optimized image inline.
+          console.warn("[uploadPhoto] storage upload failed, using inline image fallback:", err);
           return {
-            status: "error" as const,
-            error: err instanceof Error ? err.message : "上传失败",
+            status: "ok" as const,
+            url: inlineUrl,
+            fallback: "inline" as const,
           };
         }
       }),
@@ -876,6 +1005,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         autoRender: z.boolean().optional(),
         blockingIssues: z.array(z.string()).optional(),
         nextAction: z.string().optional(),
+        sourceSummary: z.string().optional(),
+        sceneType: z.string().optional(),
+        timeOfDay: z.string().optional(),
+        weather: z.string().optional(),
+        lighting: z.string().optional(),
+        cameraFocalLength: z.string().optional(),
+        cameraMovement: z.string().optional(),
+        spatialLayers: z.string().optional(),
+        mood: z.string().optional(),
+        colorPalette: z.string().optional(),
+        promptDraft: z.string().optional(),
+        negativePrompt: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
@@ -908,6 +1049,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           cards: z.array(z.record(z.string(), z.unknown())).optional(),
           script: z.array(z.record(z.string(), z.unknown())).optional(),
           shots: z.array(z.record(z.string(), z.unknown())).optional(),
+          visualCanvasItems: z.array(z.record(z.string(), z.unknown())).optional(),
+          visualPreference: z.string().optional(),
         }),
         autoSave: z.boolean().optional(),
         inlineCorrection: z.object({

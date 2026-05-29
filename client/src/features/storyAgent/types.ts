@@ -86,6 +86,47 @@ export interface StoryShot {
   note: string;
   emotion: string;
   sourceCardContent: string;
+  /** 情绪电荷：本镜情绪 + beat 位置 + 与上一镜的流动 delta。 */
+  emotionCharge?: string;
+  /** 与上一镜的情绪转变描述。转折镜重点表达这个变化。 */
+  emotionDelta?: string;
+  /** 画布视觉锚摘要，供下游出图继承风格。 */
+  visualAnchorText?: string;
+  /** 最终出图 prompt：视觉内容 + 情绪电荷 + 视觉锚。 */
+  promptDraft?: string;
+  negativePrompt?: string;
+}
+
+export interface VisualCanvasAnalysis {
+  /** 客观内容：图里实际有什么，尽量不脑补。 */
+  objective: string;
+  /** 美术/情绪解读：这张图给人的审美和情绪感觉。 */
+  aesthetic: string;
+  visualStyle: string[];
+  mood: string[];
+  colorPalette: string[];
+  composition: string;
+  lighting: string;
+  promptDraft: string;
+  negativePrompt: string;
+  confidence: number;
+}
+
+export interface VisualCanvasItem {
+  id: string;
+  title: string;
+  imageUrl: string;
+  originalImageUrl?: string;
+  source: 'reference' | 'riff';
+  parentId?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  prompt: string;
+  userInstruction?: string;
+  analysis: VisualCanvasAnalysis;
+  createdAt: number;
 }
 
 export interface SelectionState {

@@ -96,6 +96,8 @@ interface ShotTableProps {
   focusShotNo?: string | null;
   /** Called when user clicks a shot row */
   onShotClick?: (shotNo: string) => void;
+  /** Creation 侧编辑真 shots 表里的最终出图 prompt。 */
+  onEditShotPrompt?: (shotId: number, promptDraft: string) => void | Promise<void>;
 }
 
 function compactJoin(parts: Array<string | null | undefined>, sep = ', ') {
@@ -119,11 +121,14 @@ function PromptCell({
   value,
   label,
   shotNo,
+  onCommit,
 }: {
   value: string;
   label: string;
   shotNo: string;
+  onCommit?: (next: string) => void | Promise<void>;
 }) {
+  const isEditable = Boolean(onCommit);
   const onCopy = async () => {
     if (!value || value === '—') {
       toast.info('该镜头此字段暂无提示词');
@@ -150,9 +155,38 @@ function PromptCell({
       >
         <Copy className="w-3.5 h-3.5 text-muted-foreground" />
       </button>
-      <p className="text-[11px] leading-relaxed whitespace-pre-wrap break-words text-foreground/90">
-        {value || '—'}
-      </p>
+      {isEditable ? (
+        <div
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-label={`编辑 ${shotNo} · ${label}`}
+          tabIndex={0}
+          data-ph="点击编辑 prompt"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              (e.currentTarget as HTMLElement).blur();
+            }
+          }}
+          onBlur={(e) => {
+            const next = (e.currentTarget.innerText || '').trim();
+            if (next && next !== value) {
+              void onCommit?.(next);
+            } else {
+              e.currentTarget.innerText = value === '—' ? '' : value;
+            }
+          }}
+          className="min-h-[64px] text-[11px] leading-relaxed whitespace-pre-wrap break-words text-foreground/90 select-text cursor-text outline-none rounded-sm px-1 -mx-1 empty:before:content-[attr(data-ph)] empty:before:text-muted-foreground/40 focus:bg-foreground/[0.05] focus:ring-1 focus:ring-[var(--nayin-accent)]/40 hover:bg-foreground/[0.03] transition-colors"
+        >
+          {value === '—' ? '' : value}
+        </div>
+      ) : (
+        <p className="text-[11px] leading-relaxed whitespace-pre-wrap break-words text-foreground/90">
+          {value || '—'}
+        </p>
+      )}
     </div>
   );
 }
@@ -165,6 +199,7 @@ export default function ShotTable({
   onEditShotField,
   focusShotNo,
   onShotClick,
+  onEditShotPrompt,
 }: ShotTableProps) {
   const canEditScript = Boolean(storyShots && onEditShotField);
   const [sortBy, setSortBy] = useState<'scene' | 'priority' | 'deadline' | 'readiness'>('scene');
@@ -442,7 +477,16 @@ export default function ShotTable({
                         <PromptCell value={lookPrompt || '—'} label="光影色彩 Prompt" shotNo={shot.shotNo} />
                       </td>
                       <td className="px-2.5 py-2.5">
-                        <PromptCell value={mainPrompt} label="生成主 Prompt" shotNo={shot.shotNo} />
+                        <PromptCell
+                          value={mainPrompt}
+                          label="生成主 Prompt"
+                          shotNo={shot.shotNo}
+                          onCommit={
+                            onEditShotPrompt
+                              ? (next) => onEditShotPrompt(shot.id, next)
+                              : undefined
+                          }
+                        />
                       </td>
                       <td className="px-2.5 py-2.5">
                         <PromptCell value={negative} label="Negative Prompt" shotNo={shot.shotNo} />

@@ -2,12 +2,25 @@
  * MobileTabBar — 底部 tab 栏（聊天 / 故事版）
  * props-in, UI-out，不直接调用 tRPC。
  */
+import { BookOpen, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
 import type { MobileTab } from "../types";
 
-const TABS: Array<{ key: MobileTab; label: string; path: string }> = [
-  { key: "chat", label: "聊天", path: "/m" },
-  { key: "storyboard", label: "故事版", path: "/m/storyboard" },
+const TABS: Array<{
+  key: MobileTab;
+  label: string;
+  subLabel: string;
+  path: string;
+  icon: typeof MessageCircle;
+}> = [
+  { key: "chat", label: "小酌", subLabel: "CHAT", path: "/m", icon: MessageCircle },
+  {
+    key: "storyboard",
+    label: "故事版",
+    subLabel: "BOARD",
+    path: "/m/storyboard",
+    icon: BookOpen,
+  },
 ];
 
 export default function MobileTabBar() {
@@ -19,22 +32,29 @@ export default function MobileTabBar() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 flex border-t bg-white/95 backdrop-blur-sm"
+      className="dtm-tabbar"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      aria-label="移动端导航"
     >
       {TABS.map((tab) => {
         const isActive = activeTab === tab.key;
+        const Icon = tab.icon;
+
         return (
           <button
             key={tab.key}
+            type="button"
             onClick={() => setLocation(tab.path)}
-            className={`flex-1 py-3 text-center text-sm font-medium transition-colors ${
-              isActive
-                ? "text-amber-700 border-t-2 border-amber-700"
-                : "text-gray-400"
-            }`}
+            className={`dtm-tab-item ${isActive ? "dtm-tab-item--active" : ""}`}
+            aria-current={isActive ? "page" : undefined}
           >
-            {tab.label}
+            <span className="dtm-tab-icon">
+              <Icon size={18} />
+            </span>
+            <span className="dtm-tab-label">
+              <span className="dtm-tab-label-main">{tab.label}</span>
+              <span className="dtm-tab-label-sub">{tab.subLabel}</span>
+            </span>
           </button>
         );
       })}

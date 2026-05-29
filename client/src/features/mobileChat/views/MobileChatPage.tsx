@@ -3,24 +3,14 @@
  * 消息列表 + 输入框（支持照片附件） + 局部编辑弹层。从 MobileChatContext 读取状态。
  */
 import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from "react";
-import { Send, ImagePlus, X } from "lucide-react";
+import { ImagePlus, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
+import { useNayin } from "@/features/nayin/NayinContext";
+import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
+import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
 import { useMobileChat } from "../MobileChatContext";
 import MobileChatMessages from "./MobileChatMessages";
 import MobileImageEdit from "./MobileImageEdit";
-
-// 读取文件为 base64（去掉 data:...;base64, 前缀）
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1]; // 去掉 data URL 前缀
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
 
 export default function MobileChatPage() {
   const {
@@ -34,14 +24,23 @@ export default function MobileChatPage() {
     swipeRight,
     swipeLeft,
   } = useMobileChat();
+  const { element, theme } = useNayin();
   const [input, setInput] = useState("");
   // 正在编辑的图片 id（null = 不在编辑模式）
   const [editingImageId, setEditingImageId] = useState<number | null>(null);
   // 用户选择的照片预览
   const [photoPreview, setPhotoPreview] = useState<string | null>(null); // data URL 用于预览
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);   // 纯 base64 用于上传
+  const [photoMimeType, setPhotoMimeType] = useState<string>("image/jpeg");
+  const [photoInfo, setPhotoInfo] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const voice = useVoiceInput({
+    onTranscribed: (text) => {
+      setInput((prev) => (prev.trim() ? `${prev} ${text}` : text));
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+  });
 
   // 长按图片进入编辑模式
   const handleLongPress = useCallback((imageId: number) => {
@@ -57,16 +56,21 @@ export default function MobileChatPage() {
   const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // 限制文件大小（10MB）
-    if (file.size > 10 * 1024 * 1024) {
-      alert("照片太大了，请选择 10MB 以内的图片");
+    // 先允许稍大的原图，本地压缩后再上传。
+    if (file.size > 30 * 1024 * 1024) {
+      alert("照片太大了，请选择 30MB 以内的图片");
       return;
     }
     try {
-      const b64 = await fileToBase64(file);
-      setPhotoBase64(b64);
-      // 生成预览 URL
-      setPhotoPreview(URL.createObjectURL(file));
+      const upload = await optimizeImageForUpload(file, { profile: "chat" });
+      setPhotoBase64(upload.base64);
+      setPhotoMimeType(upload.mimeType);
+      setPhotoPreview(upload.dataUrl);
+      setPhotoInfo(
+        upload.wasOptimized
+          ? `已压缩 ${formatBytes(upload.originalBytes)} → ${formatBytes(upload.optimizedBytes)}`
+          : `已准备 ${formatBytes(upload.optimizedBytes)}`
+      );
     } catch {
       console.error("[MobileChatPage] 读取照片失败");
     }
@@ -76,19 +80,22 @@ export default function MobileChatPage() {
 
   // 移除已选照片
   const clearPhoto = useCallback(() => {
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     setPhotoPreview(null);
     setPhotoBase64(null);
+    setPhotoMimeType("image/jpeg");
+    setPhotoInfo(null);
   }, [photoPreview]);
 
   const handleSubmit = async () => {
     const text = input.trim();
-    if ((!text && !photoBase64) || isReplying) return;
+    if ((!text && !photoBase64) || isReplying || voice.isBusy) return;
     const msg = text || "帮我把这张照片变成电影画面";
     setInput("");
     const b64 = photoBase64;
+    const mimeType = photoMimeType;
     clearPhoto();
-    await sendMessage(msg, b64 ?? undefined);
+    await sendMessage(msg, b64 ?? undefined, mimeType);
     inputRef.current?.focus();
   };
 
@@ -99,11 +106,28 @@ export default function MobileChatPage() {
     }
   };
 
+  const inputDisabled = isReplying || voice.isBusy;
+
   return (
-    <div className="flex h-full flex-col">
-      {/* 顶部标题 */}
-      <header className="flex items-center justify-center border-b bg-white/80 px-4 py-3 backdrop-blur-sm">
-        <h1 className="text-sm font-medium text-gray-700">小酌</h1>
+    <div className="dtm-screen">
+      {/* identity header */}
+      <header className="dtm-header">
+        <div className="dtm-header-icon">
+          <WuxingDrinkIcon element={element} size={34} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="dtm-title-row">
+            小酌
+            <span className="dtm-kicker">· DRINKING&nbsp;TIME</span>
+          </div>
+          <div className="dtm-subline">
+            <span className="dtm-dot" />
+            今夜 · {theme.beverageCn} · {theme.elementCn}
+          </div>
+        </div>
+        <button type="button" className="dtm-ghost-button" aria-label="灵感">
+          <Sparkles size={18} />
+        </button>
       </header>
 
       {/* 消息列表 */}
@@ -118,41 +142,62 @@ export default function MobileChatPage() {
         onLongPress={handleLongPress}
       />
 
-      {/* 输入区域 */}
-      <div
-        className="border-t bg-white px-3 py-2"
-        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
-      >
+      {/* composer */}
+      <div className="dtm-composer">
+        {voice.isRecording && (
+          <div className="dtm-rec-status dtm-rec-status--recording">
+            <span className="dtm-rec-dot" />
+            <span>RECORDING · 我在听</span>
+            <div className="dtm-wave-bars" aria-hidden="true">
+              {[3, 7, 5, 9, 6, 4, 8, 5, 3].map((height, index) => (
+                <span
+                  key={index}
+                  style={{ height: height * 2, animationDelay: `${index * 0.08}s` }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        {voice.isTranscribing && (
+          <div className="dtm-rec-status dtm-rec-status--transcribing">
+            <span className="dtm-spinner" />
+            <span>转写中…</span>
+          </div>
+        )}
+
         {/* 照片预览条 */}
         {photoPreview && (
-          <div className="mb-2 flex items-center gap-2">
-            <div className="relative">
+          <div className="dtm-photo-strip">
+            <div className="dtm-photo-thumb">
               <img
                 src={photoPreview}
                 alt="已选照片"
-                className="h-16 w-16 rounded-xl object-cover"
               />
               <button
                 type="button"
                 onClick={clearPhoto}
-                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-600 text-white shadow"
+                className="dtm-photo-remove"
+                aria-label="移除照片"
               >
-                <X className="h-3 w-3" />
+                <X size={13} />
               </button>
             </div>
-            <span className="text-xs text-gray-400">照片已添加，发送后小酌会基于它生成画面</span>
+            <span className="text-[12px] leading-relaxed text-[var(--muted-foreground)]">
+              {photoInfo ?? "照片已添加"}，发送后小酌会基于它生成画面
+            </span>
           </div>
         )}
 
-        <div className="flex items-end gap-2">
+        <div className="dtm-composer-row">
           {/* 照片选择按钮 */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isReplying}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-amber-700 disabled:opacity-30"
+            disabled={inputDisabled}
+            className="dtm-ghost-button"
+            aria-label="添加照片"
           >
-            <ImagePlus className="h-5 w-5" />
+            <ImagePlus size={20} />
           </button>
           {/* 隐藏的文件选择器 */}
           <input
@@ -168,17 +213,43 @@ export default function MobileChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKey}
-            placeholder={photoBase64 ? "描述你想要的画面效果…" : "说点什么…"}
+            disabled={voice.isTranscribing}
+            placeholder={
+              voice.isRecording
+                ? "……"
+                : photoBase64
+                  ? "描述你想要的画面效果…"
+                  : "说一段，或者写两行…"
+            }
             rows={1}
-            className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm leading-relaxed outline-none transition-colors focus:border-amber-300 focus:bg-white"
-            style={{ maxHeight: "120px" }}
+            className="dtm-textbox"
           />
+
+          <button
+            type="button"
+            onClick={voice.toggleRecording}
+            disabled={voice.isTranscribing || isReplying}
+            className={`${
+              voice.isRecording ? "dtm-accent-button dtm-rec-pulse" : "dtm-ghost-button"
+            }`}
+            aria-label={voice.isRecording ? "停止录音" : "语音输入"}
+          >
+            {voice.isTranscribing ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : voice.isRecording ? (
+              <Square size={18} className="fill-current" />
+            ) : (
+              <Mic size={22} />
+            )}
+          </button>
+
           <button
             onClick={handleSubmit}
-            disabled={(!input.trim() && !photoBase64) || isReplying}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-700 text-white transition-opacity disabled:opacity-30"
+            disabled={(!input.trim() && !photoBase64) || isReplying || voice.isBusy}
+            className="dtm-accent-button"
+            aria-label="发送"
           >
-            <Send className="h-4 w-4" />
+            <Send size={20} />
           </button>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { useNayin } from '@/features/nayin/NayinContext';
 import { toast } from 'sonner';
 import type { NayinElement } from '@/features/nayin/nayin';
 import ShotStageIllustration, { type ShotStage } from './ShotStageIllustration';
+import { blobToBase64, formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 
 type DropZoneState = 'empty' | 'hovering' | 'uploading' | 'analyzing' | 'done';
 
@@ -159,19 +160,32 @@ export default function DropZone({ projectId, onAnalysisComplete, onRunAnalysis,
 
     for (const file of files) {
       try {
-        const base64 = await fileToBase64(file);
         const sourceType = detectSourceType(file.type, file.name);
+        const upload =
+          sourceType === 'image'
+            ? await optimizeImageForUpload(file, { profile: 'analysis' })
+            : {
+                base64: await blobToBase64(file),
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                wasOptimized: false,
+                originalBytes: file.size,
+                optimizedBytes: file.size,
+              };
 
         await onUploadFile({
           projectId,
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          fileBase64: base64,
+          fileName: upload.fileName,
+          mimeType: upload.mimeType,
+          fileBase64: upload.base64,
           sourceType,
         });
 
         uploaded++;
         typeCounts[sourceType] = (typeCounts[sourceType] || 0) + 1;
+        if (upload.wasOptimized) {
+          toast.success(`图片已压缩：${formatBytes(upload.originalBytes)} → ${formatBytes(upload.optimizedBytes)}`);
+        }
       } catch (err) {
         console.error('Upload failed:', file.name, err);
         toast.error(`上传失败: ${file.name}`);
@@ -253,20 +267,6 @@ export default function DropZone({ projectId, onAnalysisComplete, onRunAnalysis,
       processTextAsFile(text, 'paste');
     }
   }, [processFiles, processTextAsFile]);
-
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Remove data:...;base64, prefix
-        const base64 = result.split(',')[1] || result;
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
 
   // Hidden file input
   const hiddenInput = (

@@ -201,6 +201,11 @@ export type StoryBody = {
     note: string;
     emotion: string;
     sourceCardContent: string;
+    emotionCharge?: string;
+    emotionDelta?: string;
+    visualAnchorText?: string;
+    promptDraft?: string;
+    negativePrompt?: string;
   }>;
   // 历史压缩状态（前端 storyAgent 自己用，原样回传即可）
   summaryThroughTurn?: number;
@@ -218,6 +223,34 @@ export type StoryBody = {
     hasChange: boolean;
     note: string;
   };
+  visualCanvasItems?: Array<{
+    id: string;
+    title: string;
+    imageUrl: string;
+    originalImageUrl?: string;
+    source: "reference" | "riff";
+    parentId?: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    prompt: string;
+    userInstruction?: string;
+    analysis: {
+      objective: string;
+      aesthetic: string;
+      visualStyle: string[];
+      mood: string[];
+      colorPalette: string[];
+      composition: string;
+      lighting: string;
+      promptDraft: string;
+      negativePrompt: string;
+      confidence: number;
+    };
+    createdAt: number;
+  }>;
+  visualPreference?: string;
   // 未来扩展点：连接镜的 connectorPolicy、风格全局参数等都可以塞进来
   [key: string]: unknown;
 };

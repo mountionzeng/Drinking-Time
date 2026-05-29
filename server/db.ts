@@ -497,6 +497,68 @@ export async function createShots(data: InsertShot[]) {
   return result;
 }
 
+export async function replaceDirectorShotsForProject(
+  projectId: number,
+  userId: number,
+  data: InsertShot[],
+) {
+  const db = await getDb();
+  if (!db) {
+    memoryState.shots = memoryState.shots.filter(
+      shot => !(
+        shot.projectId === projectId &&
+        shot.userId === userId &&
+        shot.intentType === "director_note"
+      ),
+    );
+    if (data.length > 0) {
+      const current = now();
+      const rows: Shot[] = data.map(item => ({
+        id: nextMemoryId("shot"),
+        projectId: item.projectId,
+        userId: item.userId,
+        sceneNo: item.sceneNo,
+        shotNo: item.shotNo,
+        sourceSummary: item.sourceSummary ?? null,
+        intentType: item.intentType ?? "director_note",
+        status: item.status ?? "idea_pool",
+        readinessScore: item.readinessScore ?? 0,
+        deadline: item.deadline ?? null,
+        priority: item.priority ?? "medium",
+        autoRender: item.autoRender ?? false,
+        blockingIssues: item.blockingIssues ?? null,
+        nextAction: item.nextAction ?? null,
+        sceneType: item.sceneType ?? null,
+        timeOfDay: item.timeOfDay ?? null,
+        weather: item.weather ?? null,
+        lighting: item.lighting ?? null,
+        cameraFocalLength: item.cameraFocalLength ?? null,
+        cameraMovement: item.cameraMovement ?? null,
+        spatialLayers: item.spatialLayers ?? null,
+        mood: item.mood ?? null,
+        colorPalette: item.colorPalette ?? null,
+        promptDraft: item.promptDraft ?? null,
+        negativePrompt: item.negativePrompt ?? null,
+        createdAt: current,
+        updatedAt: current,
+      }));
+      memoryState.shots.push(...rows);
+    }
+    await persistMemoryState();
+    return;
+  }
+
+  await db.delete(shots).where(and(
+    eq(shots.projectId, projectId),
+    eq(shots.userId, userId),
+    eq(shots.intentType, "director_note"),
+  ));
+
+  if (data.length > 0) {
+    await db.insert(shots).values(data);
+  }
+}
+
 export async function getProjectShots(projectId: number) {
   const db = await getDb();
   if (!db) {
@@ -1206,4 +1268,3 @@ export async function markEmailOtpUsed(id: number): Promise<void> {
   if (!db) return;
   await db.update(emailOtps).set({ usedAt: new Date() }).where(eq(emailOtps.id, id));
 }
-

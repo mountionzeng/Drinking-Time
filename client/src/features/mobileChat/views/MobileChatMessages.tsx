@@ -39,7 +39,7 @@ export default function MobileChatMessages({
   }, [messages, isReplying, images]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+    <div ref={scrollRef} className="dtm-message-stream">
       <AnimatePresence initial={false}>
         {messages.map((msg) => {
           const isUser = msg.role === "user";
@@ -58,13 +58,15 @@ export default function MobileChatMessages({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+              className={`dtm-bubble-wrap ${
+                isUser ? "dtm-bubble-wrap--user" : "dtm-bubble-wrap--assistant"
+              }`}
             >
               <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                className={`dtm-bubble ${
                   isUser
-                    ? "bg-amber-700 text-white rounded-br-md"
-                    : "bg-white text-gray-800 shadow-sm rounded-bl-md"
+                    ? "dtm-bubble--user"
+                    : "dtm-bubble--assistant"
                 }`}
               >
                 {/* 用户附带的照片 */}
@@ -72,8 +74,7 @@ export default function MobileChatMessages({
                   <img
                     src={msg.photoUrl}
                     alt="用户照片"
-                    className="mb-2 w-full rounded-xl object-cover"
-                    style={{ maxHeight: "200px" }}
+                    className="dtm-user-photo"
                   />
                 )}
 
@@ -85,7 +86,7 @@ export default function MobileChatMessages({
                   <button
                     onClick={() => onConfirmGenerate(msg.id)}
                     disabled={isGenerating}
-                    className="mt-2 flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                    className="dtm-suggest-button disabled:opacity-50"
                   >
                     {isGenerating ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -98,9 +99,9 @@ export default function MobileChatMessages({
 
                 {/* 图片生成中 */}
                 {isImageGenerating && (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                  <div className="dtm-generating-note">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    画面正在生成…
+                    工坊里的火正烧着…
                   </div>
                 )}
 
@@ -126,13 +127,13 @@ export default function MobileChatMessages({
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex justify-start"
+          className="dtm-bubble-wrap dtm-bubble-wrap--assistant"
         >
-          <div className="rounded-2xl rounded-bl-md bg-white px-4 py-2.5 shadow-sm">
-            <div className="flex gap-1">
-              <span className="h-2 w-2 animate-bounce rounded-full bg-gray-300" style={{ animationDelay: "0ms" }} />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-gray-300" style={{ animationDelay: "150ms" }} />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-gray-300" style={{ animationDelay: "300ms" }} />
+          <div className="dtm-bubble dtm-bubble--assistant">
+            <div className="dtm-typing">
+              <span />
+              <span />
+              <span />
             </div>
           </div>
         </motion.div>

@@ -11,14 +11,26 @@ import {
 import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
 import CreationAgentChat from '@/features/creationAgent/views/CreationAgentChat';
 import ShotTable from '@/features/analysis/views/ShotTable';
-import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { StoryAgentProvider } from '@/features/storyAgent/StoryAgentContext';
 import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
-import { useEffect, useMemo } from 'react';
+import type { ShotContext } from '@/features/creationAgent/types';
+import { trpc } from '@/lib/trpc';
+import { useCallback, useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 
-function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
-  const { storyShots, updateStoryShotField } = useStoryAgent();
+function CreationWorkspaceInner({
+  projectId,
+  backendShots,
+  isShotsLoading,
+}: {
+  projectId: number | null;
+  backendShots: BackendShot[];
+  isShotsLoading: boolean;
+}) {
   const { focusShotNo, setFocusShotNo, projectImages, reassignImage } = useCreationAgent();
+  const utils = trpc.useUtils();
+  const updateShotMut = trpc.shot.update.useMutation();
 
   // Cross-page handoff: pick up focusShotNo from sessionStorage (set by ScriptViewer)
   useEffect(() => {
@@ -39,71 +51,46 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
     return () => window.removeEventListener('dt:reassign-image', handler);
   }, [reassignImage]);
 
-  // Convert storyShots to BackendShot format for ShotTable
+  // Creation 必须读取真实 shots 表；Story Agent 生成镜头后会同步写入这张表。
   const tableShots = useMemo<BackendShot[]>(() => {
-    const now = new Date();
-    return storyShots.map((shot, index) => {
-      const filledFields = [
-        shot.subject, shot.action, shot.dialogue, shot.shotType,
-        shot.cameraAngle, shot.cameraMove, shot.location, shot.timeLight,
-        shot.mood, shot.sound, shot.styleRef,
-      ].filter((value) => value.trim().length > 0).length;
-
-      const shotNo = `SH${String(shot.shotNo).padStart(2, '0')}`;
-      const currentImage = projectImages.find(img => img.shotNo === shotNo && img.isCurrent);
-
+    return backendShots.map((shot) => {
+      const currentImage = projectImages.find(img => img.shotNo === shot.shotNo && img.isCurrent);
       return {
-        id: -1 * (index + 1),
-        sourceIndex: index,
-        projectId: projectId ?? 0,
-        userId: 1,
-        sceneNo: `SC${String(Math.ceil((index + 1) / 6)).padStart(2, '0')}`,
-        shotNo,
-        sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject].filter(Boolean).join(' · '),
-        intentType: 'director_note',
-        status: shot.beat === '收束' ? 'production_ready' : shot.beat === '转折' ? 'structured' : 'idea_pool',
-        readinessScore: Math.min(0.95, 0.35 + filledFields * 0.055),
-        deadline: null,
-        priority: shot.beat === '转折' ? 'high' : 'medium',
-        autoRender: false,
-        blockingIssues: null,
-        nextAction: shot.note || null,
-        sceneType: shot.location || shot.beat || null,
-        timeOfDay: shot.timeLight || null,
-        weather: null,
-        lighting: shot.timeLight || null,
-        cameraFocalLength: shot.shotType || null,
-        cameraMovement: shot.cameraMove || null,
-        spatialLayers: shot.cameraAngle || null,
-        mood: [shot.mood, shot.emotion].filter(Boolean).join(' / ') || null,
-        colorPalette: shot.styleRef || null,
-        promptDraft: [
-          shot.subject, shot.action,
-          shot.dialogue ? `台词：${shot.dialogue}` : '',
-          shot.location ? `场景：${shot.location}` : '',
-        ].filter(Boolean).join('，'),
-        negativePrompt: '',
-        createdAt: now,
-        updatedAt: now,
-        // Attach current image for thumbnail display + drag
+        ...shot,
         thumbnailUrl: currentImage?.imageUrl,
         thumbnailImageId: currentImage?.id,
       } satisfies BackendShot;
     });
-  }, [projectId, storyShots, projectImages]);
+  }, [backendShots, projectImages]);
 
   // Build context for chat
-  const shotContexts = useMemo(() =>
-    storyShots.map(s => ({
-      shotNo: `SH${String(s.shotNo).padStart(2, '0')}`,
-      subject: s.subject,
-      action: s.action,
-      dialogue: s.dialogue,
-      shotType: s.shotType,
-      mood: s.mood,
-      promptDraft: [s.subject, s.action, s.location, s.mood].filter(Boolean).join('，'),
-    })),
-    [storyShots],
+  const shotContexts = useMemo<ShotContext[]>(
+    () =>
+      tableShots.map((shot) => ({
+        shotNo: shot.shotNo,
+        subject: shot.sceneType || shot.sourceSummary || '',
+        action: shot.sourceSummary || shot.nextAction || '',
+        dialogue: '',
+        shotType: shot.cameraFocalLength || shot.cameraMovement || '',
+        mood: shot.mood || '',
+        promptDraft: shot.promptDraft || '',
+      })),
+    [tableShots],
+  );
+
+  const handleEditShotPrompt = useCallback(
+    async (shotId: number, promptDraft: string) => {
+      if (projectId === null) return;
+      try {
+        await updateShotMut.mutateAsync({ id: shotId, promptDraft });
+        await utils.shot.list.invalidate({ projectId });
+        toast.success('镜头 prompt 已保存');
+      } catch (error) {
+        console.error('creation.updateShotPrompt failed', error);
+        toast.error('保存镜头 prompt 失败');
+      }
+    },
+    [projectId, updateShotMut, utils.shot.list],
   );
 
   return (
@@ -122,11 +109,10 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
         <ResizablePanel defaultSize={60} minSize={30}>
           <div className="h-full overflow-auto p-2">
             <ShotTable
-              isActive={storyShots.length > 0}
+              isActive={!isShotsLoading && tableShots.length > 0}
               shots={tableShots}
               projectId={projectId}
-              storyShots={storyShots}
-              onEditShotField={updateStoryShotField}
+              onEditShotPrompt={handleEditShotPrompt}
               focusShotNo={focusShotNo}
               onShotClick={(shotNo) => setFocusShotNo(shotNo)}
             />
@@ -139,12 +125,16 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
 
 export default function CreationPage() {
   // 与 Analysis 共用同一套项目数据：取当前项目 id，让 /creation 显示同一项目的镜头。
-  const { currentProjectId } = useProjectData();
+  const { currentProjectId, shots, shotsQuery } = useProjectData();
 
   return (
     <StoryAgentProvider projectId={currentProjectId}>
       <CreationAgentProvider projectId={currentProjectId}>
-        <CreationWorkspaceInner projectId={currentProjectId} />
+        <CreationWorkspaceInner
+          projectId={currentProjectId}
+          backendShots={shots}
+          isShotsLoading={shotsQuery.isLoading}
+        />
       </CreationAgentProvider>
     </StoryAgentProvider>
   );

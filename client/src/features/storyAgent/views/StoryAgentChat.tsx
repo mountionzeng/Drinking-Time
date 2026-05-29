@@ -11,19 +11,7 @@ import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
 import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
-
-// 读取文件为 base64（去掉 data:...;base64, 前缀）
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
+import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 
 export default function StoryAgentChat() {
   const {
@@ -34,6 +22,8 @@ export default function StoryAgentChat() {
   const [input, setInput] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+  const [photoMimeType, setPhotoMimeType] = useState<string>('image/jpeg');
+  const [photoInfo, setPhotoInfo] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,19 +57,27 @@ export default function StoryAgentChat() {
   const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert("照片太大了，请选择 10MB 以内的图片"); return; }
+    if (file.size > 30 * 1024 * 1024) { alert("照片太大了，请选择 30MB 以内的图片"); return; }
     try {
-      const b64 = await blobToBase64(file);
-      setPhotoBase64(b64);
-      setPhotoPreview(URL.createObjectURL(file));
+      const upload = await optimizeImageForUpload(file, { profile: 'chat' });
+      setPhotoBase64(upload.base64);
+      setPhotoMimeType(upload.mimeType);
+      setPhotoPreview(upload.dataUrl);
+      setPhotoInfo(
+        upload.wasOptimized
+          ? `已压缩 ${formatBytes(upload.originalBytes)} → ${formatBytes(upload.optimizedBytes)}`
+          : `已准备 ${formatBytes(upload.optimizedBytes)}`
+      );
     } catch { console.error("[StoryAgentChat] 读取照片失败"); }
     e.target.value = "";
   }, []);
 
   const clearPhoto = useCallback(() => {
-    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    if (photoPreview?.startsWith('blob:')) URL.revokeObjectURL(photoPreview);
     setPhotoPreview(null);
     setPhotoBase64(null);
+    setPhotoMimeType('image/jpeg');
+    setPhotoInfo(null);
   }, [photoPreview]);
 
   // Auto-scroll on new messages
@@ -94,11 +92,12 @@ export default function StoryAgentChat() {
     if ((!text && !photoBase64) || isReplying || voice.isBusy) return;
     setInput('');
     const b64 = photoBase64;
+    const mimeType = photoMimeType;
     clearPhoto();
     if (activeSelection) {
       await sendSelectionEdit(text);
     } else {
-      await sendMessage(text, b64 ?? undefined);
+      await sendMessage(text, b64 ?? undefined, mimeType);
     }
     resizeAndFocusInput();
   };
@@ -289,7 +288,7 @@ export default function StoryAgentChat() {
                 <X className="h-2.5 w-2.5" />
               </button>
             </div>
-            <span className="text-[10px] text-muted-foreground">照片已添加</span>
+            <span className="text-[10px] text-muted-foreground">{photoInfo ?? '照片已添加'}</span>
           </div>
         )}
 

@@ -10,6 +10,7 @@ import {
   useTransform,
   type PanInfo,
 } from "framer-motion";
+import { Heart, Trash2 } from "lucide-react";
 import type { GeneratedImageItem } from "../types";
 
 // 滑动阈值（像素）
@@ -83,7 +84,7 @@ export default function ImageCard({
 
   return (
     <motion.div
-      className="relative mx-auto w-full max-w-sm cursor-grab active:cursor-grabbing"
+      className="dtm-image-card-shell cursor-grab active:cursor-grabbing"
       style={{ x, rotate }}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
@@ -100,36 +101,50 @@ export default function ImageCard({
     >
       {/* 方向提示背景 */}
       <motion.div
-        className="absolute inset-0 rounded-2xl"
+        className="absolute inset-0 rounded-[20px]"
         style={{ backgroundColor: bgColor, opacity: bgOpacity }}
       />
 
-      {/* 方向提示标签 */}
+      {/* 方向提示：左划丢弃 / 右划收下 */}
       <motion.div
-        className="pointer-events-none absolute left-4 top-4 rounded-full bg-red-500/80 px-3 py-1 text-xs font-medium text-white"
+        className="dtm-image-card-hint dtm-image-card-hint--left"
         style={{
           opacity: useTransform(x, [-150, -50, 0], [1, 0.5, 0]),
         }}
       >
-        丢掉
+        <span className="dtm-swipe-pill">
+          <Trash2 size={16} />
+          丢弃
+        </span>
       </motion.div>
       <motion.div
-        className="pointer-events-none absolute right-4 top-4 rounded-full bg-green-500/80 px-3 py-1 text-xs font-medium text-white"
+        className="dtm-image-card-hint dtm-image-card-hint--right"
         style={{
           opacity: useTransform(x, [0, 50, 150], [0, 0.5, 1]),
         }}
       >
-        收下
+        <span className="dtm-swipe-pill dtm-swipe-pill--save">
+          <Heart size={16} />
+          收下
+        </span>
       </motion.div>
 
       {/* 图片 */}
-      <div className="overflow-hidden rounded-2xl shadow-lg">
+      <div className="dtm-image-card">
         <img
           src={image.imageUrl}
           alt={image.prompt || "生成的画面"}
-          className="w-full"
           draggable={false}
         />
+        <div className="dtm-inline-meta">
+          <span className="dtm-mono-label">
+            SCENE · {String(image.shotNo ?? 1).padStart(2, "0")}
+          </span>
+          <span className="flex-1 truncate text-[13px] text-[var(--foreground)]">
+            {image.prompt || "生成画面"}
+          </span>
+          <span className="h-2 w-2 rounded-full bg-[var(--nayin-accent)]" />
+        </div>
       </div>
     </motion.div>
   );

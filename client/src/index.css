@@ -66,7 +66,7 @@
   /* Nayin accent — dynamically overridden by [data-nayin] */
   --nayin-accent: oklch(0.62 0.14 45);
   --nayin-accent-dim: oklch(0.48 0.10 45);
-  --nayin-accent-bright: oklch(0.70 0.16 45);
+  --nayin-accent-bright: oklch(0.70 0.18 45);
   --nayin-glow: oklch(0.62 0.14 45 / 14%);
 
   /* Claude-style warm cream light theme */
@@ -129,66 +129,66 @@
 
 /* 金 Metal — Beer: amber gold (H85) */
 [data-nayin="metal"] {
-  --nayin-accent: oklch(0.64 0.15 85);
-  --nayin-accent-dim: oklch(0.48 0.11 85);
-  --nayin-accent-bright: oklch(0.74 0.17 85);
-  --nayin-glow: oklch(0.64 0.15 85 / 14%);
+  --nayin-accent: oklch(0.72 0.13 85);
+  --nayin-accent-dim: oklch(0.54 0.10 85);
+  --nayin-accent-bright: oklch(0.80 0.16 85);
+  --nayin-glow: oklch(0.72 0.13 85 / 14%);
   --nayin-surface: oklch(0.988 0.008 85);
   --nayin-surface-dim: oklch(0.97 0.012 85);
   --nayin-text-subtle: oklch(0.50 0.04 85);
-  --nayin-border: oklch(0.64 0.15 85 / 12%);
+  --nayin-border: oklch(0.72 0.13 85 / 12%);
   --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.018 85 / 65%), oklch(0.97 0.012 70 / 40%));
 }
 
-/* 木 Wood — Longjing: jade green (H155) */
+/* 木 Wood — Longjing: jade green (H150) */
 [data-nayin="wood"] {
-  --nayin-accent: oklch(0.52 0.12 155);
-  --nayin-accent-dim: oklch(0.40 0.09 155);
-  --nayin-accent-bright: oklch(0.62 0.14 155);
-  --nayin-glow: oklch(0.52 0.12 155 / 12%);
-  --nayin-surface: oklch(0.988 0.007 155);
-  --nayin-surface-dim: oklch(0.97 0.010 155);
-  --nayin-text-subtle: oklch(0.46 0.04 155);
-  --nayin-border: oklch(0.52 0.12 155 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.014 155 / 60%), oklch(0.97 0.010 140 / 40%));
+  --nayin-accent: oklch(0.58 0.10 150);
+  --nayin-accent-dim: oklch(0.44 0.075 150);
+  --nayin-accent-bright: oklch(0.68 0.13 150);
+  --nayin-glow: oklch(0.58 0.10 150 / 14%);
+  --nayin-surface: oklch(0.988 0.007 150);
+  --nayin-surface-dim: oklch(0.97 0.010 150);
+  --nayin-text-subtle: oklch(0.46 0.04 150);
+  --nayin-border: oklch(0.58 0.10 150 / 12%);
+  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.014 150 / 60%), oklch(0.97 0.010 140 / 40%));
 }
 
 /* 水 Water — Coconut: soft teal (H220, low chroma) */
 [data-nayin="water"] {
-  --nayin-accent: oklch(0.60 0.07 220);
-  --nayin-accent-dim: oklch(0.46 0.05 220);
-  --nayin-accent-bright: oklch(0.70 0.09 220);
-  --nayin-glow: oklch(0.60 0.07 220 / 13%);
+  --nayin-accent: oklch(0.58 0.08 220);
+  --nayin-accent-dim: oklch(0.44 0.06 220);
+  --nayin-accent-bright: oklch(0.66 0.11 220);
+  --nayin-glow: oklch(0.58 0.08 220 / 14%);
   --nayin-surface: oklch(0.990 0.004 220);
   --nayin-surface-dim: oklch(0.975 0.006 220);
   --nayin-text-subtle: oklch(0.48 0.03 220);
-  --nayin-border: oklch(0.60 0.07 220 / 12%);
+  --nayin-border: oklch(0.58 0.08 220 / 12%);
   --nayin-bg-gradient: linear-gradient(145deg, oklch(0.985 0.008 220 / 60%), oklch(0.975 0.006 210 / 40%));
 }
 
-/* 火 Fire — Dahongpao: cinnabar red (H25) */
+/* 火 Fire — Dahongpao: cinnabar red (H30) */
 [data-nayin="fire"] {
-  --nayin-accent: oklch(0.55 0.19 25);
-  --nayin-accent-dim: oklch(0.42 0.14 25);
-  --nayin-accent-bright: oklch(0.64 0.21 25);
-  --nayin-glow: oklch(0.55 0.19 25 / 14%);
-  --nayin-surface: oklch(0.988 0.006 25);
-  --nayin-surface-dim: oklch(0.97 0.010 25);
-  --nayin-text-subtle: oklch(0.48 0.05 25);
-  --nayin-border: oklch(0.55 0.19 25 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.016 25 / 60%), oklch(0.97 0.012 18 / 40%));
+  --nayin-accent: oklch(0.55 0.15 30);
+  --nayin-accent-dim: oklch(0.42 0.11 30);
+  --nayin-accent-bright: oklch(0.62 0.18 30);
+  --nayin-glow: oklch(0.55 0.15 30 / 14%);
+  --nayin-surface: oklch(0.988 0.006 30);
+  --nayin-surface-dim: oklch(0.97 0.010 30);
+  --nayin-text-subtle: oklch(0.48 0.05 30);
+  --nayin-border: oklch(0.55 0.15 30 / 12%);
+  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.016 30 / 60%), oklch(0.97 0.012 22 / 40%));
 }
 
 /* 土 Earth — Coffee: warm brown (H55) */
 [data-nayin="earth"] {
-  --nayin-accent: oklch(0.50 0.13 55);
-  --nayin-accent-dim: oklch(0.38 0.10 55);
-  --nayin-accent-bright: oklch(0.60 0.15 55);
-  --nayin-glow: oklch(0.50 0.13 55 / 15%);
+  --nayin-accent: oklch(0.48 0.08 55);
+  --nayin-accent-dim: oklch(0.36 0.06 55);
+  --nayin-accent-bright: oklch(0.56 0.11 55);
+  --nayin-glow: oklch(0.48 0.08 55 / 14%);
   --nayin-surface: oklch(0.986 0.008 55);
   --nayin-surface-dim: oklch(0.968 0.012 55);
   --nayin-text-subtle: oklch(0.46 0.05 55);
-  --nayin-border: oklch(0.50 0.13 55 / 13%);
+  --nayin-border: oklch(0.48 0.08 55 / 13%);
   --nayin-bg-gradient: linear-gradient(145deg, oklch(0.975 0.018 55 / 65%), oklch(0.965 0.014 50 / 45%));
 }
 

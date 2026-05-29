@@ -4,7 +4,7 @@
  */
 import { useState, useRef } from "react";
 import { Reorder, useDragControls } from "framer-motion";
-import { GripVertical, Trash2, ImageIcon } from "lucide-react";
+import { GripVertical, ImageIcon, Pencil, Trash2 } from "lucide-react";
 import type { StoryboardScene as SceneType } from "../types";
 
 interface Props {
@@ -43,11 +43,60 @@ export default function StoryboardSceneCard({
       value={scene}
       dragListener={false}
       dragControls={controls}
-      className="select-none"
+      className="dtm-scene"
       whileDrag={{ scale: 1.02, boxShadow: "0 8px 32px -8px rgba(0,0,0,0.15)", zIndex: 10 }}
     >
-      <div className="rounded-2xl bg-white shadow-sm overflow-hidden">
-        {/* 图片区域 */}
+      <div className="dtm-scene-topline">
+        <span
+          className="dtm-mono-label"
+          style={{ color: index === 1 ? "var(--nayin-accent)" : "var(--muted-foreground)" }}
+        >
+          BEAT · {String(index + 1).padStart(2, "0")}
+        </span>
+        <span className="dtm-scene-divider" />
+        <span className="dtm-mono-label">{scene.mood || "SCENE"}</span>
+        <button
+          type="button"
+          onPointerDown={(e) => controls.start(e)}
+          className="text-[var(--muted-foreground)]"
+          aria-label="拖拽排序"
+        >
+          <GripVertical size={16} />
+        </button>
+      </div>
+
+      <div className={`dtm-scene-line ${index === 1 ? "dtm-scene-line--accent" : ""}`}>
+        {isEditing ? (
+          <textarea
+            ref={inputRef}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSave();
+              }
+            }}
+            className="w-full resize-none bg-transparent text-[15.5px] leading-relaxed outline-none"
+            rows={2}
+            autoFocus
+          />
+        ) : (
+          <button
+            type="button"
+            className="w-full text-left"
+            onClick={() => {
+              setIsEditing(true);
+              setEditText(scene.dialogue);
+            }}
+          >
+            {scene.dialogue || "（点击编辑台词）"}
+          </button>
+        )}
+      </div>
+
+      <div className="dtm-scene-shot">
         {scene.imageUrl ? (
           <button
             type="button"
@@ -57,81 +106,41 @@ export default function StoryboardSceneCard({
             <img
               src={scene.imageUrl}
               alt={`场景 ${index + 1}`}
-              className="w-full aspect-video object-cover"
+              className="aspect-video"
               draggable={false}
             />
           </button>
         ) : (
-          // 空白占位
-          <div className="w-full aspect-video bg-gray-100 flex flex-col items-center justify-center gap-2">
-            <ImageIcon className="h-8 w-8 text-gray-300" />
-            <span className="text-xs text-gray-400">和小酌聊聊这个场景</span>
+          <div className="dtm-placeholder-art dtm-placeholder-art--muted flex flex-col items-center justify-center gap-2">
+            <ImageIcon className="h-8 w-8 text-[var(--muted-foreground)] opacity-50" />
+            <span className="text-xs text-[var(--muted-foreground)]">和小酌聊聊这个场景</span>
           </div>
         )}
 
-        {/* 底部信息区 */}
-        <div className="px-3 py-2.5">
-          <div className="flex items-start gap-2">
-            {/* 拖拽手柄 */}
+        <div className="dtm-scene-shot-footer">
+          <span className="text-[12.5px] text-[var(--muted-foreground)]">
+            {scene.subject || `场景 ${index + 1}`}
+          </span>
+          <span className="flex-1" />
+          <div className="dtm-scene-actions">
             <button
               type="button"
-              onPointerDown={(e) => controls.start(e)}
-              className="shrink-0 mt-1 cursor-grab active:cursor-grabbing opacity-30 hover:opacity-70 transition-opacity touch-none"
-              aria-label="拖拽排序"
+              className="dtm-icon-ghost-small"
+              onClick={() => {
+                setIsEditing(true);
+                setEditText(scene.dialogue);
+              }}
+              aria-label="编辑台词"
             >
-              <GripVertical className="h-4 w-4 text-gray-400" />
+              <Pencil size={14} />
             </button>
-
-            {/* 序号 */}
-            <span className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[10px] font-semibold">
-              {index + 1}
-            </span>
-
-            {/* 台词区域 */}
-            <div className="flex-1 min-w-0">
-              {isEditing ? (
-                <textarea
-                  ref={inputRef}
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  onBlur={handleSave}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSave();
-                    }
-                  }}
-                  className="w-full resize-none rounded-lg border border-amber-200 bg-amber-50/50 px-2 py-1 text-sm leading-relaxed text-gray-700 outline-none focus:border-amber-300"
-                  rows={2}
-                  autoFocus
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() => {
-                    setIsEditing(true);
-                    setEditText(scene.dialogue);
-                  }}
-                >
-                  <p className="text-sm leading-relaxed text-gray-700">
-                    {scene.dialogue || "（点击编辑台词）"}
-                  </p>
-                  {scene.subject && (
-                    <p className="mt-0.5 text-[11px] text-gray-400">{scene.subject}</p>
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* 删除按钮 */}
             <button
               type="button"
               onClick={() => onDelete(scene.shotNo)}
-              className="shrink-0 mt-1 rounded p-1 opacity-30 hover:opacity-70 hover:bg-red-50 transition-all"
+              className="dtm-icon-ghost-small"
               aria-label="删除场景"
             >
-              <Trash2 className="h-3.5 w-3.5 text-red-400" />
+              <Trash2 size={14} />
             </button>
           </div>
         </div>

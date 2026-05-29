@@ -33,6 +33,10 @@ export interface ProjectState {
   cards?: StoryCard[];
   script?: ScriptScene[];
   shots?: ShotRow[];
+  /** Visual anchor canvas state is stored with snapshots, but not diffed yet. */
+  visualCanvasItems?: Record<string, unknown>[];
+  /** Project-local aesthetic memory used by the Art Agent. */
+  visualPreference?: string;
 }
 
 export interface EditDiff {

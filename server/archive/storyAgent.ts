@@ -11,6 +11,11 @@ import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import type { SemanticAnnotation } from "../db";
+import {
+  applyShotPromptComposition,
+  type ShotPromptComposition,
+  type VisualAnchorForPrompt,
+} from "../services/shotPromptComposer";
 
 export const FIRST_QUESTION =
   "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
@@ -50,6 +55,17 @@ export type SimilarStoryCardPayload = {
   personalTrace?: string;
   score?: number;
 };
+
+export type VisualAnchorPayload = {
+  title: string;
+  imageUrl?: string;
+  objective?: string;
+  aesthetic?: string;
+  prompt?: string;
+  visualStyle?: string[];
+  mood?: string[];
+  colorPalette?: string[];
+} & VisualAnchorForPrompt;
 
 export type HumanityTrait =
   | "defensive"
@@ -132,7 +148,7 @@ export type ShotEntry = {
   emotion: string;          // 情感词（1-3 字）
   // 回溯到原素材；模型自己加的连接镜（establishing / 反应镜 / coda）此字段为空字符串。
   sourceCardContent: string;
-};
+} & Partial<ShotPromptComposition>;
 
 export type ShotListPayload = {
   characters: ShotCharacter[];
@@ -807,6 +823,8 @@ function buildFallbackShotList(
       sourceCardContent: card.content,
     };
   });
+  const arc = `${firstEmotion} → ${conflictCount ? "摩擦" : "停顿"} → ${lastEmotion}`;
+  const composedShots = applyShotPromptComposition(shots, { arc });
 
   return {
     configured: true,
@@ -814,7 +832,7 @@ function buildFallbackShotList(
     characters,
     logline: cards.length > 1 ? `一个人从${firstEmotion}走向${lastEmotion}` : first?.content?.slice(0, 30) || "一段故事开始出现",
     theme: theme.slice(0, 30),
-    arc: `${firstEmotion} → ${conflictCount ? "摩擦" : "停顿"} → ${lastEmotion}`,
+    arc,
     variants: [
       {
         mode: "克制版",
@@ -845,13 +863,14 @@ function buildFallbackShotList(
         ? "已有可用的摩擦点，后续可以继续追问代价和变化。"
         : "当前素材偏平，建议继续追问愿望、阻碍、代价或一次具体转向。",
     },
-    shots,
+    shots: composedShots,
   };
 }
 
 export async function synthesizeShotList(params: {
   cards: ShotListCardInput[];
   characterHint?: string;
+  visualAnchors?: VisualAnchorPayload[];
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
   if (!ENV.forgeApiKey) {
     return {
@@ -901,6 +920,31 @@ export async function synthesizeShotList(params: {
     .join("\n\n");
 
   const characterHint = params.characterHint?.trim() || "";
+  const visualAnchors = Array.isArray(params.visualAnchors)
+    ? params.visualAnchors.slice(0, 6)
+    : [];
+  const visualAnchorText = visualAnchors.length
+    ? visualAnchors
+        .map((anchor, i) => {
+          const meta = [
+            anchor.objective ? `客观：${anchor.objective}` : "",
+            anchor.aesthetic ? `美术/情绪：${anchor.aesthetic}` : "",
+            Array.isArray(anchor.visualStyle) && anchor.visualStyle.length
+              ? `风格：${anchor.visualStyle.join(" / ")}`
+              : "",
+            Array.isArray(anchor.mood) && anchor.mood.length
+              ? `情绪：${anchor.mood.join(" / ")}`
+              : "",
+            Array.isArray(anchor.colorPalette) && anchor.colorPalette.length
+              ? `色彩：${anchor.colorPalette.join(" / ")}`
+              : "",
+            anchor.prompt ? `提示词锚：${anchor.prompt.slice(0, 240)}` : "",
+          ].filter(Boolean);
+          return [`[V${i + 1}] ${anchor.title}`, ...meta.map(line => `    ${line}`)]
+            .join("\n");
+        })
+        .join("\n\n")
+    : "";
 
   const systemPrompt = [
     "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
@@ -926,6 +970,18 @@ export async function synthesizeShotList(params: {
     "   - 这两镜之外的所有镜，必须 1:1 来自原素材，不合并、不拆分、不替对方写他没说过的事。",
     "   - 全表镜头总数 = 原素材数 + 你补的连接镜数（≤2）。",
     "   - 连接镜的 sourceCardContent 必须是空字符串「\"\"」（这样系统知道是你加的）。",
+    visualAnchorText
+      ? [
+          "",
+          "【视觉锚 · 画布已经定下的感觉】",
+          "下面这些视觉锚来自用户上传/AI riff 的图片画布。它们不是孤立灵感角，而是下游镜头出图的风格来源。",
+          "使用方式：",
+          "- 在每一镜的 mood、location、lighting 语感里吸收这些锚的色彩、光线、质感和情绪。",
+          "- styleRef 不再留空：请写一个很短的视觉锚引用，例如「V1 冷绿窗光 / 胶片颗粒」或「V2 暖黄厨房 / 低饱和」。",
+          "- 不要把视觉锚里的物件强行塞进所有镜头；只继承风格、光线、情绪、材质。",
+          visualAnchorText,
+        ].join("\n")
+      : "",
     "",
     "【情绪曲线要求】",
     "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
@@ -961,7 +1017,9 @@ export async function synthesizeShotList(params: {
     "   - cameraMove:  运镜（静止/推/拉/摇/移/跟…）—— 留空",
     "   - timeLight:   时间·光 —— 留空",
     "   - sound:       音 —— 留空",
-    "   - styleRef:    风格参考 —— 留空",
+    visualAnchorText
+      ? "   - styleRef:    风格参考 —— 必须引用视觉锚的风格/色彩/光线，简短写入"
+      : "   - styleRef:    风格参考 —— 留空",
     "   - note:        技术备注 —— 留空",
     "",
     "【还要回填的辅助列】",
@@ -1166,12 +1224,18 @@ export async function synthesizeShotList(params: {
       shots[shots.length - 1].beat = "收束";
     }
 
+    const arc = typeof parsed.arc === "string" ? parsed.arc.trim() : "";
+    const composedShots = applyShotPromptComposition(shots, {
+      arc,
+      visualAnchors,
+    });
+
     return {
       configured: true,
       modelLabel,
       characters,
-      shots,
-      arc: typeof parsed.arc === "string" ? parsed.arc.trim() : "",
+      shots: composedShots,
+      arc,
       logline: typeof parsed.logline === "string" ? parsed.logline.trim() : "",
       theme: typeof parsed.theme === "string" ? parsed.theme.trim() : "",
       variants,
