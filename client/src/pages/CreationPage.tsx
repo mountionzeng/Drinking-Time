@@ -12,6 +12,7 @@ import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgen
 import CreationAgentChat from '@/features/creationAgent/views/CreationAgentChat';
 import ShotTable from '@/features/analysis/views/ShotTable';
 import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
 import { useEffect, useMemo } from 'react';
 
@@ -137,14 +138,13 @@ function CreationWorkspaceInner({ projectId }: { projectId: number | null }) {
 }
 
 export default function CreationPage() {
-  // TODO: get projectId from route params or shared project context
-  // For now, use null and let the context handle it
-  const projectId = null;
+  // 与 Analysis 共用同一套项目数据：取当前项目 id，让 /creation 显示同一项目的镜头。
+  const { currentProjectId } = useProjectData();
 
   return (
-    <StoryAgentProvider projectId={projectId}>
-      <CreationAgentProvider projectId={projectId}>
-        <CreationWorkspaceInner projectId={projectId} />
+    <StoryAgentProvider projectId={currentProjectId}>
+      <CreationAgentProvider projectId={currentProjectId}>
+        <CreationWorkspaceInner projectId={currentProjectId} />
       </CreationAgentProvider>
     </StoryAgentProvider>
   );
