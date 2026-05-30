@@ -5,14 +5,24 @@
  *
  * Sits in the TEMPLATE DRAFT slot of the analysis page.
  */
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
-import { GripVertical, X, Sparkles, FlaskConical, Loader2, ScrollText } from 'lucide-react';
+import {
+  GripVertical,
+  X,
+  Sparkles,
+  FlaskConical,
+  Loader2,
+  ScrollText,
+  ImagePlus,
+  Palette,
+  Trash2,
+  Wand2,
+} from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
-import type { StoryCard } from '@/features/storyAgent/types';
+import type { StoryCard, VisualCanvasItem } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
-import VisualAnchorCanvas from './VisualAnchorCanvas';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: '先开瓶啤酒，跟小酌聊聊一句让你记住的话',
@@ -29,14 +39,267 @@ function emotionAccent(emotion: string): string {
   return `oklch(0.92 0.04 ${h})`;
 }
 
+function isRealEmotion(emotion?: string): emotion is string {
+  const value = emotion?.trim();
+  return Boolean(value && value !== '未标' && value !== '未标记');
+}
+
+function analysisChips(item: VisualCanvasItem) {
+  return [...item.analysis.visualStyle, ...item.analysis.mood].filter(Boolean).slice(0, 4);
+}
+
+function EmotionBridge({
+  previousEmotion,
+  currentEmotion,
+}: {
+  previousEmotion?: string;
+  currentEmotion: string;
+}) {
+  if (!isRealEmotion(previousEmotion) || !isRealEmotion(currentEmotion) || previousEmotion === currentEmotion) {
+    return null;
+  }
+
+  return (
+    <div className="flex justify-center py-1.5" aria-label={`情绪流动：${previousEmotion} 到 ${currentEmotion}`}>
+      <div className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground">
+        <span className="h-3 w-px bg-[var(--panel-border)]" aria-hidden="true" />
+        <span
+          className="rounded-full border px-2 py-0.5 font-mono"
+          style={{
+            borderColor: 'var(--panel-border)',
+            background: 'var(--panel-header)',
+            color: 'var(--nayin-accent-bright)',
+          }}
+        >
+          {previousEmotion} → {currentEmotion}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CardVisualDock({
+  cardId,
+  visualItems,
+}: {
+  cardId: string;
+  visualItems: VisualCanvasItem[];
+}) {
+  const {
+    visualPreference,
+    isArtWorking,
+    addVisualReference,
+    refineVisualItem,
+    removeVisualCanvasItem,
+  } = useStoryAgent();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [instruction, setInstruction] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+
+  const selectedItem = useMemo(
+    () => visualItems.find((item) => item.id === selectedId) ?? visualItems.at(-1) ?? null,
+    [selectedId, visualItems],
+  );
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const file = Array.from(files).find((entry) => entry.type.startsWith('image/'));
+    if (!file) return;
+    await addVisualReference(file, instruction.trim() || undefined, cardId);
+    setInstruction('');
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragActive(false);
+    void handleFiles(event.dataTransfer.files);
+  };
+
+  return (
+    <div
+      className="mt-3 rounded-lg border p-2.5"
+      onPointerDown={(event) => event.stopPropagation()}
+      style={{
+        borderColor: dragActive ? 'var(--nayin-accent)' : 'var(--panel-border)',
+        background: 'linear-gradient(135deg, var(--background), var(--panel-header))',
+      }}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={handleDrop}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold text-foreground">
+          <Palette className="h-3.5 w-3.5 text-nayin-bright" />
+          <span>卡内视觉</span>
+          {visualItems.length > 0 ? (
+            <span className="font-mono text-muted-foreground/70">{visualItems.length} 张</span>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={isArtWorking}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[10px] font-semibold transition disabled:opacity-50"
+          style={{
+            background: 'var(--nayin-accent)',
+            color: 'var(--background)',
+          }}
+        >
+          {isArtWorking ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />}
+          喂图
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(event) => {
+            if (event.currentTarget.files) void handleFiles(event.currentTarget.files);
+            event.currentTarget.value = '';
+          }}
+        />
+      </div>
+
+      {visualItems.length === 0 ? (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={isArtWorking}
+          className="mt-2 flex min-h-[74px] w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-3 text-center transition disabled:opacity-50"
+          style={{
+            borderColor: dragActive ? 'var(--nayin-accent)' : 'var(--panel-border)',
+            background: dragActive ? 'var(--nayin-glow)' : 'transparent',
+          }}
+        >
+          <Wand2 className="h-4 w-4 text-nayin-bright" />
+          <span className="text-[11px] font-medium text-foreground">把参考图拖进这张卡</span>
+          <span className="text-[9px] leading-relaxed text-muted-foreground">
+            小酌会先客观读图，再给出美术/情绪分析。
+          </span>
+        </button>
+      ) : (
+        <div className="mt-2 grid gap-2">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+            {visualItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setSelectedId(item.id)}
+                className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border transition"
+                style={{
+                  borderColor: selectedItem?.id === item.id ? 'var(--nayin-accent)' : 'var(--panel-border)',
+                  boxShadow: selectedItem?.id === item.id ? '0 0 0 1px var(--nayin-accent)' : 'none',
+                }}
+                aria-label={`选择视觉图：${item.title}`}
+              >
+                <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" draggable={false} />
+              </button>
+            ))}
+          </div>
+
+          {selectedItem ? (
+            <div className="grid gap-2 sm:grid-cols-[96px_1fr]">
+              <div className="overflow-hidden rounded-lg border" style={{ borderColor: 'var(--panel-border)' }}>
+                <img
+                  src={selectedItem.imageUrl}
+                  alt={selectedItem.title}
+                  className="aspect-[4/5] w-full object-cover"
+                  draggable={false}
+                />
+              </div>
+              <div className="min-w-0 text-[10px] leading-relaxed">
+                <div className="mb-1 flex flex-wrap gap-1">
+                  {analysisChips(selectedItem).map((chip) => (
+                    <span
+                      key={chip}
+                      className="rounded-full px-2 py-0.5 font-mono"
+                      style={{ background: 'var(--nayin-glow)', color: 'var(--nayin-accent-bright)' }}
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-foreground/80">
+                  <span className="font-semibold">客观：</span>
+                  {selectedItem.analysis.objective || '还没有客观分析'}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  <span className="font-semibold text-foreground/70">美术/情绪：</span>
+                  {selectedItem.analysis.aesthetic || '还没有情绪解读'}
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <div className="mt-2 grid gap-1.5">
+        <input
+          value={instruction}
+          onChange={(event) => setInstruction(event.target.value)}
+          placeholder="比如：再暖一点、少一点甜、像雨后的旧电影……"
+          className="h-8 rounded-md border bg-background/70 px-2.5 text-[10px] outline-none transition placeholder:text-muted-foreground/60 focus:ring-2"
+          style={{
+            borderColor: 'var(--panel-border)',
+            ['--tw-ring-color' as string]: 'var(--nayin-glow)',
+          }}
+        />
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={!selectedItem || isArtWorking || !instruction.trim()}
+            onClick={() => selectedItem && void refineVisualItem(selectedItem.id, instruction)}
+            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-[10px] font-semibold transition disabled:opacity-50"
+            style={{
+              background: 'var(--nayin-accent)',
+              color: 'var(--background)',
+            }}
+          >
+            {isArtWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+            再 riff
+          </button>
+          <button
+            type="button"
+            disabled={!selectedItem}
+            onClick={() => {
+              if (!selectedItem) return;
+              removeVisualCanvasItem(selectedItem.id);
+              setSelectedId(null);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground transition hover:text-foreground disabled:opacity-40"
+            style={{ borderColor: 'var(--panel-border)' }}
+            aria-label="删除这张卡的视觉图"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {visualPreference ? (
+        <p className="mt-2 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground/75">
+          项目内审美记忆：{visualPreference}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function CardItem({
   card,
   index,
+  previousEmotion,
+  visualItems,
   onRemove,
   onCommitContent,
 }: {
   card: StoryCard;
   index: number;
+  previousEmotion?: string;
+  visualItems: VisualCanvasItem[];
   onRemove: () => void;
   onCommitContent: (content: string) => void;
 }) {
@@ -55,6 +318,7 @@ function CardItem({
         zIndex: 10,
       }}
     >
+      <EmotionBridge previousEmotion={previousEmotion} currentEmotion={card.emotion} />
       <motion.div
         layout
         initial={{ opacity: 0, y: 8 }}
@@ -143,6 +407,7 @@ function CardItem({
                 ))}
               </div>
             )}
+            <CardVisualDock cardId={card.id} visualItems={visualItems} />
           </div>
 
           <button
@@ -168,6 +433,7 @@ export default function StoryCardsBoard() {
     generateScript,
     isGeneratingScript,
     latestScript,
+    visualCanvasItems,
   } = useStoryAgent();
   const { element } = useNayin();
   const lastOrderRef = useRef<string>('');
@@ -229,6 +495,8 @@ export default function StoryCardsBoard() {
                     key={card.id}
                     card={card}
                     index={idx}
+                    previousEmotion={cards[idx - 1]?.emotion}
+                    visualItems={visualCanvasItems.filter((item) => item.cardId === card.id)}
                     onRemove={() => removeCard(card.id)}
                     onCommitContent={(text) => updateCardContent(card.id, text)}
                   />
@@ -273,8 +541,6 @@ export default function StoryCardsBoard() {
             </div>
           </>
         )}
-
-        <VisualAnchorCanvas />
       </div>
     </div>
   );

@@ -119,6 +119,7 @@ export interface VisualCanvasItem {
   originalImageUrl?: string;
   source: 'reference' | 'riff';
   parentId?: string;
+  cardId?: string;
   x: number;
   y: number;
   width: number;

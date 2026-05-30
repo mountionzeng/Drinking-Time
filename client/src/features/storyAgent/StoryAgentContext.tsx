@@ -91,7 +91,7 @@ interface StoryAgentContextValue {
   visualCanvasItems: VisualCanvasItem[];
   visualPreference: string;
   isArtWorking: boolean;
-  addVisualReference: (file: File, instruction?: string) => Promise<void>;
+  addVisualReference: (file: File, instruction?: string, cardId?: string) => Promise<void>;
   refineVisualItem: (id: string, instruction: string) => Promise<void>;
   updateVisualCanvasItem: (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => void;
   removeVisualCanvasItem: (id: string) => void;
@@ -213,6 +213,7 @@ function normalizeVisualCanvasItem(raw: unknown): VisualCanvasItem | null {
     originalImageUrl: typeof obj.originalImageUrl === 'string' ? obj.originalImageUrl : undefined,
     source: obj.source === 'reference' ? 'reference' : 'riff',
     parentId: typeof obj.parentId === 'string' ? obj.parentId : undefined,
+    cardId: typeof obj.cardId === 'string' ? obj.cardId : undefined,
     x: typeof obj.x === 'number' ? obj.x : 24,
     y: typeof obj.y === 'number' ? obj.y : 24,
     width: typeof obj.width === 'number' ? obj.width : 168,
@@ -1418,7 +1419,7 @@ export function StoryAgentProvider({
   );
 
   const addVisualReference = useCallback(
-    async (file: File, instruction?: string) => {
+    async (file: File, instruction?: string, cardId?: string) => {
       if (isArtWorking) return;
       if (!file.type.startsWith('image/')) {
         toast.error('美术 Agent 现在只接图片。');
@@ -1441,6 +1442,7 @@ export function StoryAgentProvider({
           imageUrl: result.imageUrl,
           originalImageUrl: result.originalImageUrl,
           source: 'riff',
+          cardId,
           x: 18 + offset,
           y: 18 + offset,
           width: 170,
@@ -1451,7 +1453,7 @@ export function StoryAgentProvider({
           createdAt: Date.now(),
         };
         persistVisualCanvas([...visualCanvasItems, item], result.preferenceUpdate || visualPreference);
-        toast.success('美术 Agent 已经把图落到画布上');
+        toast.success(cardId ? '美术 Agent 已经把图放进这张卡' : '美术 Agent 已经把图落到画布上');
       } catch (error) {
         console.error('artAgent.riff failed', error);
         toast.error(error instanceof Error ? error.message : '美术 Agent 暂时没接上');
