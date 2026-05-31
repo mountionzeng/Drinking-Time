@@ -2,7 +2,7 @@
  * StoryListView -- Shows all stories for the user.
  * Displayed in the story tab before a story is selected.
  */
-import { Plus, Trash2, Loader2, BookOpen } from 'lucide-react';
+import { Plus, Trash2, Loader2, BookOpen, Cloud } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 
 function formatDate(value: string | Date | null | undefined): string {
@@ -32,6 +32,16 @@ export default function StoryListView() {
       <div className="monitor-panel-header">
         <div className="status-dot" />
         <span>故事列表</span>
+        <span
+          className="ml-2 hidden items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground sm:inline-flex"
+          style={{
+            background: 'var(--nayin-glow)',
+            color: 'var(--nayin-accent-dim)',
+          }}
+        >
+          <Cloud className="h-2.5 w-2.5" />
+          当前账号 · 云端故事库
+        </span>
         <button
           type="button"
           onClick={createNewStory}
@@ -91,6 +101,7 @@ export default function StoryListView() {
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground font-mono">
+                  <span>云端 #{story.id}</span>
                   {(story.cardCount ?? 0) > 0 && (
                     <span>{story.cardCount} 卡片</span>
                   )}

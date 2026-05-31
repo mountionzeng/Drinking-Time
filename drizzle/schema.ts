@@ -1,4 +1,14 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, float, boolean as mysqlBoolean, json } from "drizzle-orm/mysql-core";
+import {
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+  float,
+  boolean as mysqlBoolean,
+  json,
+} from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -42,7 +52,15 @@ export const references = mysqlTable("references", {
   projectId: int("projectId").notNull(),
   userId: int("userId").notNull(),
   title: varchar("title", { length: 512 }).notNull(),
-  sourceType: mysqlEnum("sourceType", ["image", "video", "script", "storyboard", "brief", "note", "pdf"]).notNull(),
+  sourceType: mysqlEnum("sourceType", [
+    "image",
+    "video",
+    "script",
+    "storyboard",
+    "brief",
+    "note",
+    "pdf",
+  ]).notNull(),
   fileUrl: text("fileUrl"),
   fileKey: varchar("fileKey", { length: 512 }),
   mimeType: varchar("mimeType", { length: 128 }),
@@ -71,7 +89,13 @@ export const shots = mysqlTable("shots", {
   sceneNo: varchar("sceneNo", { length: 32 }).notNull(),
   shotNo: varchar("shotNo", { length: 32 }).notNull(),
   sourceSummary: text("sourceSummary"),
-  intentType: mysqlEnum("intentType", ["idea", "client_requirement", "director_note"]).default("idea").notNull(),
+  intentType: mysqlEnum("intentType", [
+    "idea",
+    "client_requirement",
+    "director_note",
+  ])
+    .default("idea")
+    .notNull(),
   status: mysqlEnum("status", [
     "idea_pool",
     "requirement_pool",
@@ -80,10 +104,14 @@ export const shots = mysqlTable("shots", {
     "queued",
     "rendered",
     "blocked",
-  ]).default("idea_pool").notNull(),
+  ])
+    .default("idea_pool")
+    .notNull(),
   readinessScore: float("readinessScore").default(0).notNull(),
   deadline: varchar("deadline", { length: 32 }),
-  priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium").notNull(),
+  priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"])
+    .default("medium")
+    .notNull(),
   autoRender: mysqlBoolean("autoRender").default(false).notNull(),
   blockingIssues: json("blockingIssues"),
   nextAction: text("nextAction"),
@@ -129,6 +157,30 @@ export const analysisResults = mysqlTable("analysis_results", {
 
 export type AnalysisResult = typeof analysisResults.$inferSelect;
 export type InsertAnalysisResult = typeof analysisResults.$inferInsert;
+
+/**
+ * EmotionAnalysisProfiles — 用户自愿提供的长期情绪分析底盘。
+ *
+ * 出生日期等敏感线索只在用户明确同意后写入；dailyReference / analysisSeed
+ * 保留当日首页生成的社会学、人类学与历史参照，供后续对话 Agent 读取。
+ */
+export const emotionAnalysisProfiles = mysqlTable("emotion_analysis_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  projectId: int("projectId"),
+  birthDate: varchar("birthDate", { length: 10 }).notNull(),
+  consentVersion: varchar("consentVersion", { length: 64 }).notNull(),
+  consentText: text("consentText"),
+  dailyReference: json("dailyReference"),
+  analysisSeed: json("analysisSeed"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EmotionAnalysisProfile =
+  typeof emotionAnalysisProfiles.$inferSelect;
+export type InsertEmotionAnalysisProfile =
+  typeof emotionAnalysisProfiles.$inferInsert;
 
 /**
  * Stories — drinking-time 工坊的剧本/镜头表。
@@ -272,13 +324,19 @@ export const generatedImages = mysqlTable("generated_images", {
   userId: int("userId"),
   // shotNo: 桌面端传 "SH02" 格式字符串，手机端传数字的字符串形式
   shotNo: varchar("shotNo", { length: 32 }),
-  imageKey: varchar("imageKey", { length: 512 }),  // 桌面端存储 key
+  imageKey: varchar("imageKey", { length: 512 }), // 桌面端存储 key
   imageUrl: text("imageUrl").notNull(),
   prompt: text("prompt"),
-  generationType: mysqlEnum("generationType", ["generate", "initial", "inpaint"]).default("generate").notNull(),
+  generationType: mysqlEnum("generationType", [
+    "generate",
+    "initial",
+    "inpaint",
+  ])
+    .default("generate")
+    .notNull(),
   parentImageId: int("parentImageId"),
   isCurrent: mysqlBoolean("isCurrent").default(true).notNull(),
-  maskKey: varchar("maskKey", { length: 512 }),  // 桌面端 inpaint 蒙版
+  maskKey: varchar("maskKey", { length: 512 }), // 桌面端 inpaint 蒙版
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -293,7 +351,12 @@ export const imageSignals = mysqlTable("image_signals", {
   userId: int("userId").notNull(),
   storyId: int("storyId").notNull(),
   imageId: int("imageId"),
-  action: mysqlEnum("action", ["swipe_left", "swipe_right", "edit_start", "edit_complete"]).notNull(),
+  action: mysqlEnum("action", [
+    "swipe_left",
+    "swipe_right",
+    "edit_start",
+    "edit_complete",
+  ]).notNull(),
   metadata: json("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -327,7 +390,9 @@ export const semanticAnnotations = mysqlTable("semantic_annotations", {
   factualChanges: text("factualChanges").notNull(),
   inferredPreferences: text("inferredPreferences").notNull(),
   timestamp: timestamp("timestamp").defaultNow().notNull(),
-  status: mysqlEnum("status", ["pending", "active", "archived"]).default("active").notNull(),
+  status: mysqlEnum("status", ["pending", "active", "archived"])
+    .default("active")
+    .notNull(),
 });
 
 export type SemanticAnnotation = typeof semanticAnnotations.$inferSelect;

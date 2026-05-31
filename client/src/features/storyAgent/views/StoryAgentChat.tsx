@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square } from 'lucide-react';
+import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
@@ -16,6 +16,7 @@ import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 export default function StoryAgentChat() {
   const {
     messages, cards, isReplying, sendMessage, resetConversation, backToList,
+    activeStoryId, remoteStoryId,
     activeSelection, clearSelection, sendSelectionEdit,
   } = useStoryAgent();
   const { element } = useNayin();
@@ -134,6 +135,19 @@ export default function StoryAgentChat() {
               {cards.length} 张卡片
             </span>
           )}
+          <span
+            className="hidden items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full sm:inline-flex"
+            style={{
+              background: 'var(--nayin-glow)',
+              color: 'var(--nayin-accent-bright)',
+            }}
+            title="保存到当前账号的云端故事库"
+          >
+            <Cloud className="h-2.5 w-2.5" />
+            {remoteStoryId || (activeStoryId && activeStoryId > 0)
+              ? `云端 #${remoteStoryId ?? activeStoryId}`
+              : '待保存'}
+          </span>
           <button
             type="button"
             onClick={resetConversation}

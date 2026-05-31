@@ -74,6 +74,8 @@ describe("GuidedLanding", () => {
     expect(html).toContain("穿短袖或薄衬衫");
     expect(html).toContain("宜祭祀、求财");
     expect(html).toContain("屋上土");
+    expect(html).toContain("情绪分析");
+    expect(html).toContain("长期底盘");
     expect(html).toContain("小酌 · Drinking Time");
     expect(html).toContain("倒一杯，随便聊聊。");
     expect(html).not.toContain("啤酒 · 金");

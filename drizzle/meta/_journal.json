@@ -15,6 +15,13 @@
       "when": 1774522879958,
       "tag": "0001_spooky_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1780230987410,
+      "tag": "0002_grey_kitty_pryde",
+      "breakpoints": true
     }
   ]
 }

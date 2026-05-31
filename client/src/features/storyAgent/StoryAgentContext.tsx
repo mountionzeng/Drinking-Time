@@ -82,6 +82,7 @@ interface StoryAgentContextValue {
   resetConversation: () => void;
   /** Story list management */
   activeStoryId: number | null;
+  remoteStoryId?: number;
   storyList: StoryListItem[];
   isLoadingStories: boolean;
   loadStory: (id: number) => Promise<void>;
@@ -1803,6 +1804,7 @@ export function StoryAgentProvider({
       generateScript,
       resetConversation,
       activeStoryId,
+      remoteStoryId,
       storyList,
       isLoadingStories,
       loadStory,
@@ -1840,6 +1842,7 @@ export function StoryAgentProvider({
       generateScript,
       resetConversation,
       activeStoryId,
+      remoteStoryId,
       storyList,
       isLoadingStories,
       loadStory,

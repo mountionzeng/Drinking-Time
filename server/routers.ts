@@ -7,21 +7,37 @@ import { invokeLLM } from "./_core/llm";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import {
-  createProject, getUserProjects, getProjectById,
-  createReference, getProjectReferences, updateReference,
-  createShots, getProjectShots, replaceDirectorShotsForProject, updateShot, batchUpdateShots,
-  createAnalysisResult, getProjectAnalysis,
-  listUserStories, getStoryById, createStory, updateStory, deleteStory,
-  createGeneratedImage, getGeneratedImageById, getStoryImages,
+  createProject,
+  getUserProjects,
+  getProjectById,
+  createReference,
+  getProjectReferences,
+  updateReference,
+  createShots,
+  getProjectShots,
+  replaceDirectorShotsForProject,
+  updateShot,
+  batchUpdateShots,
+  createAnalysisResult,
+  getProjectAnalysis,
+  getEmotionAnalysisProfile,
+  upsertEmotionAnalysisProfile,
+  listUserStories,
+  getStoryById,
+  createStory,
+  updateStory,
+  deleteStory,
+  createGeneratedImage,
+  getGeneratedImageById,
+  getStoryImages,
   createImageSignal,
-  getImagesByShotNo, getCurrentImageForShot, getProjectCurrentImages,
+  getImagesByShotNo,
+  getCurrentImageForShot,
+  getProjectCurrentImages,
   reassignImage,
 } from "./db";
 import { generateImage } from "./_core/imageGeneration";
-import {
-  saveSnapshot,
-  getRecentAnnotations,
-} from "./services/editContext";
+import { saveSnapshot, getRecentAnnotations } from "./services/editContext";
 import { getAlmanacDay } from "./services/almanac";
 import type { ProjectState } from "./_core/editDiff";
 import { nanoid } from "nanoid";
@@ -51,7 +67,7 @@ function shotStatusFromBeat(beat: string) {
 }
 
 function shotPriorityFromBeat(beat: string) {
-  return beat === "转折" ? "high" as const : "medium" as const;
+  return beat === "转折" ? ("high" as const) : ("medium" as const);
 }
 
 function storyShotToDbRow(params: {
@@ -73,14 +89,18 @@ function storyShotToDbRow(params: {
     shot.mood,
     shot.styleRef,
     shot.promptDraft,
-  ].filter(value => typeof value === "string" && value.trim().length > 0).length;
+  ].filter(
+    value => typeof value === "string" && value.trim().length > 0
+  ).length;
 
   return {
     projectId,
     userId,
     sceneNo,
     shotNo,
-    sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject].filter(Boolean).join(" · "),
+    sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject]
+      .filter(Boolean)
+      .join(" · "),
     intentType: "director_note" as const,
     status: shotStatusFromBeat(shot.beat),
     readinessScore: Math.min(0.95, 0.35 + filledFields * 0.055),
@@ -95,28 +115,88 @@ function storyShotToDbRow(params: {
     cameraFocalLength: shot.shotType || null,
     cameraMovement: shot.cameraMove || null,
     spatialLayers: shot.cameraAngle || null,
-    mood: [shot.mood, shot.emotion, shot.emotionDelta].filter(Boolean).join(" / ") || null,
-    colorPalette: [shot.styleRef, shot.visualAnchorText].filter(Boolean).join(" / ") || null,
-    promptDraft: shot.promptDraft || [
-      shot.subject,
-      shot.action,
-      shot.location ? `场景：${shot.location}` : "",
-      shot.mood ? `情绪：${shot.mood}` : "",
-    ].filter(Boolean).join("，"),
+    mood:
+      [shot.mood, shot.emotion, shot.emotionDelta]
+        .filter(Boolean)
+        .join(" / ") || null,
+    colorPalette:
+      [shot.styleRef, shot.visualAnchorText].filter(Boolean).join(" / ") ||
+      null,
+    promptDraft:
+      shot.promptDraft ||
+      [
+        shot.subject,
+        shot.action,
+        shot.location ? `场景：${shot.location}` : "",
+        shot.mood ? `情绪：${shot.mood}` : "",
+      ]
+        .filter(Boolean)
+        .join("，"),
     negativePrompt: shot.negativePrompt || "",
   };
 }
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
-const STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'] as const;
-const BRANCHES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'] as const;
-type NayinElement = 'metal' | 'wood' | 'water' | 'fire' | 'earth';
+const STEMS = [
+  "甲",
+  "乙",
+  "丙",
+  "丁",
+  "戊",
+  "己",
+  "庚",
+  "辛",
+  "壬",
+  "癸",
+] as const;
+const BRANCHES = [
+  "子",
+  "丑",
+  "寅",
+  "卯",
+  "辰",
+  "巳",
+  "午",
+  "未",
+  "申",
+  "酉",
+  "戌",
+  "亥",
+] as const;
+type NayinElement = "metal" | "wood" | "water" | "fire" | "earth";
 // Traditional 纳音 order for 60 Jiazi (one value per pair, total 30 pairs).
 const NAYIN_PAIR_ELEMENTS: NayinElement[] = [
-  'metal', 'fire', 'wood', 'earth', 'metal', 'fire', 'water', 'earth', 'metal', 'wood',
-  'water', 'earth', 'fire', 'wood', 'water', 'metal', 'fire', 'wood', 'earth', 'metal',
-  'fire', 'water', 'earth', 'metal', 'wood', 'water', 'earth', 'fire', 'wood', 'water',
+  "metal",
+  "fire",
+  "wood",
+  "earth",
+  "metal",
+  "fire",
+  "water",
+  "earth",
+  "metal",
+  "wood",
+  "water",
+  "earth",
+  "fire",
+  "wood",
+  "water",
+  "metal",
+  "fire",
+  "wood",
+  "earth",
+  "metal",
+  "fire",
+  "water",
+  "earth",
+  "metal",
+  "wood",
+  "water",
+  "earth",
+  "fire",
+  "wood",
+  "water",
 ];
 
 function getDayStemBranch(date: Date) {
@@ -127,12 +207,19 @@ function getDayStemBranch(date: Date) {
   const diffDays = Math.floor((dateUtc - refUtc) / 86400000);
   let idx = diffDays % 60;
   if (idx < 0) idx += 60;
-  return { stem: STEMS[idx % 10], branch: BRANCHES[idx % 12], ganzhiIndex: idx };
+  return {
+    stem: STEMS[idx % 10],
+    branch: BRANCHES[idx % 12],
+    ganzhiIndex: idx,
+  };
 }
 
 function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
   return NAYIN_PAIR_ELEMENTS[Math.floor(ganzhiIndex / 2)];
 }
+
+const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const emotionAnalysisPayloadSchema = z.record(z.string(), z.unknown());
 
 // ─── Router ──────────────────────────────────────────────────────────────
 
@@ -150,11 +237,13 @@ export const appRouter = router({
 
   voice: router({
     transcribe: protectedProcedure
-      .input(z.object({
-        audioBase64: z.string(),
-        mimeType: z.string(),
-        language: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          audioBase64: z.string(),
+          mimeType: z.string(),
+          language: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const result = await transcribeAudioBytes({
           audioBase64: input.audioBase64,
@@ -173,18 +262,22 @@ export const appRouter = router({
   // ─── Art Agent / 视觉锚画布 ───────────────────────────────────────
   artAgent: router({
     riff: protectedProcedure
-      .input(z.object({
-        imageBase64: z.string().optional(),
-        imageUrl: z.string().optional(),
-        mimeType: z.string().optional(),
-        fileName: z.string().optional(),
-        instruction: z.string().optional(),
-        projectPreference: z.string().optional(),
-        previousPrompt: z.string().optional(),
-        previousAnalysis: z.record(z.string(), z.unknown()).optional(),
-      }).refine((value) => Boolean(value.imageBase64 || value.imageUrl), {
-        message: "imageBase64 or imageUrl is required",
-      }))
+      .input(
+        z
+          .object({
+            imageBase64: z.string().optional(),
+            imageUrl: z.string().optional(),
+            mimeType: z.string().optional(),
+            fileName: z.string().optional(),
+            instruction: z.string().optional(),
+            projectPreference: z.string().optional(),
+            previousPrompt: z.string().optional(),
+            previousAnalysis: z.record(z.string(), z.unknown()).optional(),
+          })
+          .refine(value => Boolean(value.imageBase64 || value.imageUrl), {
+            message: "imageBase64 or imageUrl is required",
+          })
+      )
       .mutation(async ({ input }) => {
         return createArtRiff({
           imageBase64: input.imageBase64,
@@ -202,9 +295,11 @@ export const appRouter = router({
   // ─── Daily Almanac / 老黄历 ─────────────────────────────────────────
   almanac: router({
     today: publicProcedure
-      .input(z.object({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      }))
+      .input(
+        z.object({
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        })
+      )
       .query(async ({ input }) => {
         return getAlmanacDay(input.date);
       }),
@@ -226,12 +321,18 @@ export const appRouter = router({
   // ─── Project ────────────────────────────────────────────────────────
   project: router({
     create: protectedProcedure
-      .input(z.object({
-        name: z.string().min(1).max(255),
-        deadline: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(1).max(255),
+          deadline: z.string().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
-        return createProject({ userId: ctx.user.id, name: input.name, deadline: input.deadline });
+        return createProject({
+          userId: ctx.user.id,
+          name: input.name,
+          deadline: input.deadline,
+        });
       }),
 
     list: protectedProcedure.query(async ({ ctx }) => {
@@ -248,13 +349,23 @@ export const appRouter = router({
   // ─── Reference (file upload) ────────────────────────────────────────
   reference: router({
     upload: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        fileName: z.string(),
-        mimeType: z.string(),
-        fileBase64: z.string(),
-        sourceType: z.enum(["image", "video", "script", "storyboard", "brief", "note", "pdf"]),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          fileName: z.string(),
+          mimeType: z.string(),
+          fileBase64: z.string(),
+          sourceType: z.enum([
+            "image",
+            "video",
+            "script",
+            "storyboard",
+            "brief",
+            "note",
+            "pdf",
+          ]),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const buffer = Buffer.from(input.fileBase64, "base64");
         const storageKey = `refs/${ctx.user.id}/${input.projectId}/${nanoid()}-${input.fileName}`;
@@ -291,14 +402,16 @@ export const appRouter = router({
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        dateBucket: z.string().optional(),
-        importance: z.number().min(1).max(5).optional(),
-        pinned: z.boolean().optional(),
-        excluded: z.boolean().optional(),
-        sortOrder: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          dateBucket: z.string().optional(),
+          importance: z.number().min(1).max(5).optional(),
+          pinned: z.boolean().optional(),
+          excluded: z.boolean().optional(),
+          sortOrder: z.number().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         await updateReference(id, ctx.user.id, data);
@@ -319,7 +432,9 @@ export const appRouter = router({
         // Gather all references for the project
         const refs = await getProjectReferences(input.projectId);
         if (refs.length === 0) {
-          return { error: "No references found. Please upload materials first." };
+          return {
+            error: "No references found. Please upload materials first.",
+          };
         }
 
         // Build multimodal context from references
@@ -329,8 +444,7 @@ export const appRouter = router({
         > = [
           {
             type: "text",
-            text:
-              "Here are the project reference materials. Please decompose these into individual shots and provide an overall analysis.",
+            text: "Here are the project reference materials. Please decompose these into individual shots and provide an overall analysis.",
           },
         ];
 
@@ -348,7 +462,10 @@ export const appRouter = router({
               type: "image_url",
               image_url: { url: r.fileUrl, detail: "auto" },
             });
-          } else if (r.sourceType === "image" || r.sourceType === "storyboard") {
+          } else if (
+            r.sourceType === "image" ||
+            r.sourceType === "storyboard"
+          ) {
             const fileHint =
               r.fileUrl && !r.fileUrl.startsWith("data:")
                 ? `\nImage URL: ${r.fileUrl}`
@@ -422,11 +539,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                         sceneNo: { type: "string" },
                         shotNo: { type: "string" },
                         sourceSummary: { type: "string" },
-                        intentType: { type: "string", enum: ["idea", "client_requirement", "director_note"] },
-                        status: { type: "string", enum: ["idea_pool", "requirement_pool", "structured", "production_ready"] },
+                        intentType: {
+                          type: "string",
+                          enum: ["idea", "client_requirement", "director_note"],
+                        },
+                        status: {
+                          type: "string",
+                          enum: [
+                            "idea_pool",
+                            "requirement_pool",
+                            "structured",
+                            "production_ready",
+                          ],
+                        },
                         readinessScore: { type: "number" },
-                        priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-                        blockingIssues: { type: "array", items: { type: "string" } },
+                        priority: {
+                          type: "string",
+                          enum: ["low", "medium", "high", "urgent"],
+                        },
+                        blockingIssues: {
+                          type: "array",
+                          items: { type: "string" },
+                        },
                         nextAction: { type: "string" },
                         sceneType: { type: "string" },
                         timeOfDay: { type: "string" },
@@ -439,7 +573,27 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                         promptDraft: { type: "string" },
                         negativePrompt: { type: "string" },
                       },
-                      required: ["sceneNo", "shotNo", "sourceSummary", "intentType", "status", "readinessScore", "priority", "blockingIssues", "nextAction", "sceneType", "timeOfDay", "weather", "lighting", "cameraFocalLength", "cameraMovement", "mood", "colorPalette", "promptDraft", "negativePrompt"],
+                      required: [
+                        "sceneNo",
+                        "shotNo",
+                        "sourceSummary",
+                        "intentType",
+                        "status",
+                        "readinessScore",
+                        "priority",
+                        "blockingIssues",
+                        "nextAction",
+                        "sceneType",
+                        "timeOfDay",
+                        "weather",
+                        "lighting",
+                        "cameraFocalLength",
+                        "cameraMovement",
+                        "mood",
+                        "colorPalette",
+                        "promptDraft",
+                        "negativePrompt",
+                      ],
                       additionalProperties: false,
                     },
                   },
@@ -451,12 +605,25 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                       spatialStructure: { type: "string" },
                       cameraLanguage: { type: "string" },
                       colorPalette: { type: "string" },
-                      atmosphereKeywords: { type: "array", items: { type: "string" } },
+                      atmosphereKeywords: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
                       promptDraft: { type: "string" },
                       negativePrompt: { type: "string" },
                       summary: { type: "string" },
                     },
-                    required: ["mood", "lighting", "spatialStructure", "cameraLanguage", "colorPalette", "atmosphereKeywords", "promptDraft", "negativePrompt", "summary"],
+                    required: [
+                      "mood",
+                      "lighting",
+                      "spatialStructure",
+                      "cameraLanguage",
+                      "colorPalette",
+                      "atmosphereKeywords",
+                      "promptDraft",
+                      "negativePrompt",
+                      "summary",
+                    ],
                     additionalProperties: false,
                   },
                 },
@@ -492,7 +659,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           .replace(/```$/, "")
           .trim();
 
-        const parseJsonFromLLM = <T,>(raw: string): T => {
+        const parseJsonFromLLM = <T>(raw: string): T => {
           try {
             return JSON.parse(raw) as T;
           } catch {
@@ -507,20 +674,40 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
         const parsed = parseJsonFromLLM<{
           shots: Array<{
-            sceneNo: string; shotNo: string; sourceSummary: string;
+            sceneNo: string;
+            shotNo: string;
+            sourceSummary: string;
             intentType: "idea" | "client_requirement" | "director_note";
-            status: "idea_pool" | "requirement_pool" | "structured" | "production_ready";
-            readinessScore: number; priority: "low" | "medium" | "high" | "urgent";
-            blockingIssues: string[]; nextAction: string;
-            sceneType: string; timeOfDay: string; weather: string; lighting: string;
-            cameraFocalLength: string; cameraMovement: string;
-            mood: string; colorPalette: string; promptDraft: string; negativePrompt: string;
+            status:
+              | "idea_pool"
+              | "requirement_pool"
+              | "structured"
+              | "production_ready";
+            readinessScore: number;
+            priority: "low" | "medium" | "high" | "urgent";
+            blockingIssues: string[];
+            nextAction: string;
+            sceneType: string;
+            timeOfDay: string;
+            weather: string;
+            lighting: string;
+            cameraFocalLength: string;
+            cameraMovement: string;
+            mood: string;
+            colorPalette: string;
+            promptDraft: string;
+            negativePrompt: string;
           }>;
           analysis: {
-            mood: string; lighting: string; spatialStructure: string;
-            cameraLanguage: string; colorPalette: string;
-            atmosphereKeywords: string[]; promptDraft: string;
-            negativePrompt: string; summary: string;
+            mood: string;
+            lighting: string;
+            spatialStructure: string;
+            cameraLanguage: string;
+            colorPalette: string;
+            atmosphereKeywords: string[];
+            promptDraft: string;
+            negativePrompt: string;
+            summary: string;
           };
         }>(normalizedText);
 
@@ -582,47 +769,91 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       }),
   }),
 
+  // ─── Emotion Analysis（长期情绪画像底盘）───────────────────────────────
+  emotionAnalysis: router({
+    getProfile: protectedProcedure.query(async ({ ctx }) => {
+      return getEmotionAnalysisProfile(ctx.user.id);
+    }),
+
+    saveBirthProfile: protectedProcedure
+      .input(
+        z.object({
+          projectId: z.number().optional(),
+          birthDate: birthDateSchema,
+          dailyReference: emotionAnalysisPayloadSchema,
+          analysisSeed: emotionAnalysisPayloadSchema,
+          consentAccepted: z.literal(true),
+          consentText: z.string().max(1000),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        return upsertEmotionAnalysisProfile({
+          userId: ctx.user.id,
+          projectId: input.projectId ?? null,
+          birthDate: input.birthDate,
+          consentVersion: "emotion-analysis-v1",
+          consentText: input.consentText,
+          dailyReference: input.dailyReference,
+          analysisSeed: input.analysisSeed,
+        });
+      }),
+  }),
+
   // ─── Story Guide Agent ──────────────────────────────────────────────
   // Wraps archive/storyAgent functions as tRPC procedures.
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: router({
     /** Conversational chat with the story agent */
     chat: protectedProcedure
-      .input(z.object({
-        message: z.string().min(1),
-        history: z.array(z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-        })).optional(),
-        existingCardCount: z.number().optional(),
-        summary: z.string().optional(),
-        currentShots: z.array(z.object({
-          shotNo: z.number(),
-          subject: z.string(),
-          action: z.string(),
-          dialogue: z.string(),
-          shotType: z.string(),
-          cameraAngle: z.string(),
-          cameraMove: z.string(),
-          location: z.string(),
-          timeLight: z.string(),
-          mood: z.string(),
-          sound: z.string(),
-          styleRef: z.string(),
-        })).optional(),
-        similarCards: z.array(z.object({
-          content: z.string(),
-          rawText: z.string().optional(),
-          emotion: z.string().optional(),
-          emotionBlend: z.array(z.string()).optional(),
-          retrievalQuery: z.string().optional(),
-          themeHints: z.array(z.string()).optional(),
-          personalTrace: z.string().optional(),
-          score: z.number().optional(),
-        })).optional(),
-        projectId: z.number().optional(),
-        photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
-      }))
+      .input(
+        z.object({
+          message: z.string().min(1),
+          history: z
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                content: z.string(),
+              })
+            )
+            .optional(),
+          existingCardCount: z.number().optional(),
+          summary: z.string().optional(),
+          currentShots: z
+            .array(
+              z.object({
+                shotNo: z.number(),
+                subject: z.string(),
+                action: z.string(),
+                dialogue: z.string(),
+                shotType: z.string(),
+                cameraAngle: z.string(),
+                cameraMove: z.string(),
+                location: z.string(),
+                timeLight: z.string(),
+                mood: z.string(),
+                sound: z.string(),
+                styleRef: z.string(),
+              })
+            )
+            .optional(),
+          similarCards: z
+            .array(
+              z.object({
+                content: z.string(),
+                rawText: z.string().optional(),
+                emotion: z.string().optional(),
+                emotionBlend: z.array(z.string()).optional(),
+                retrievalQuery: z.string().optional(),
+                themeHints: z.array(z.string()).optional(),
+                personalTrace: z.string().optional(),
+                score: z.number().optional(),
+              })
+            )
+            .optional(),
+          projectId: z.number().optional(),
+          photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
+        })
+      )
       .mutation(async ({ input }) => {
         return replyFromStoryAgent({
           message: input.message,
@@ -630,7 +861,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           existingCardCount: input.existingCardCount,
           summary: input.summary,
           currentShots: input.currentShots as ShotDraft[] | undefined,
-          similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
+          similarCards: input.similarCards as
+            | SimilarStoryCardPayload[]
+            | undefined,
           projectId: input.projectId,
           photoUrl: input.photoUrl,
         });
@@ -638,16 +871,22 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Inline selection edit — modify only the selected portion */
     selectionEdit: protectedProcedure
-      .input(z.object({
-        fullText: z.string().min(1),
-        selectedText: z.string().min(1),
-        instruction: z.string().min(1),
-        projectId: z.number().optional(),
-        history: z.array(z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-        })).optional(),
-      }))
+      .input(
+        z.object({
+          fullText: z.string().min(1),
+          selectedText: z.string().min(1),
+          instruction: z.string().min(1),
+          projectId: z.number().optional(),
+          history: z
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                content: z.string(),
+              })
+            )
+            .optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return handleSelectionEdit({
           fullText: input.fullText,
@@ -660,54 +899,66 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Synthesize story cards into a shot list */
     classify: protectedProcedure
-      .input(z.object({
-        projectId: z.number().optional(),
-        cards: z.array(z.object({
-          content: z.string(),
-          rawText: z.string().optional(),
-          sourceQuote: z.string().optional(),
-          emotion: z.string().optional(),
-          emotionOptions: z.array(z.string()).optional(),
-          emotionBlend: z.array(z.string()).optional(),
-          intensity: z.number().optional(),
-          direction: z.string().optional(),
-          complexity: z.string().optional(),
-          trigger: z.string().optional(),
-          dramaticFunction: z.string().optional(),
-          personalTrace: z.string().optional(),
-          retrievalQuery: z.string().optional(),
-          themeHints: z.array(z.string()).optional(),
-          outlierSignal: z.string().optional(),
-          softMembership: z.array(z.string()).optional(),
-        })),
-        characterHint: z.string().optional(),
-        visualAnchors: z.array(z.object({
-          title: z.string(),
-          imageUrl: z.string().optional(),
-          objective: z.string().optional(),
-          aesthetic: z.string().optional(),
-          prompt: z.string().optional(),
-          visualStyle: z.array(z.string()).optional(),
-          mood: z.array(z.string()).optional(),
-          colorPalette: z.array(z.string()).optional(),
-        })).optional(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number().optional(),
+          cards: z.array(
+            z.object({
+              content: z.string(),
+              rawText: z.string().optional(),
+              sourceQuote: z.string().optional(),
+              emotion: z.string().optional(),
+              emotionOptions: z.array(z.string()).optional(),
+              emotionBlend: z.array(z.string()).optional(),
+              intensity: z.number().optional(),
+              direction: z.string().optional(),
+              complexity: z.string().optional(),
+              trigger: z.string().optional(),
+              dramaticFunction: z.string().optional(),
+              personalTrace: z.string().optional(),
+              retrievalQuery: z.string().optional(),
+              themeHints: z.array(z.string()).optional(),
+              outlierSignal: z.string().optional(),
+              softMembership: z.array(z.string()).optional(),
+            })
+          ),
+          characterHint: z.string().optional(),
+          visualAnchors: z
+            .array(
+              z.object({
+                title: z.string(),
+                imageUrl: z.string().optional(),
+                objective: z.string().optional(),
+                aesthetic: z.string().optional(),
+                prompt: z.string().optional(),
+                visualStyle: z.array(z.string()).optional(),
+                mood: z.array(z.string()).optional(),
+                colorPalette: z.array(z.string()).optional(),
+              })
+            )
+            .optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,
-          visualAnchors: input.visualAnchors as VisualAnchorPayload[] | undefined,
+          visualAnchors: input.visualAnchors as
+            | VisualAnchorPayload[]
+            | undefined,
         });
         if (!("error" in result) && input.projectId) {
           await replaceDirectorShotsForProject(
             input.projectId,
             ctx.user.id,
-            result.shots.map((shot, index) => storyShotToDbRow({
-              projectId: input.projectId!,
-              userId: ctx.user.id,
-              shot,
-              index,
-            })),
+            result.shots.map((shot, index) =>
+              storyShotToDbRow({
+                projectId: input.projectId!,
+                userId: ctx.user.id,
+                shot,
+                index,
+              })
+            )
           );
         }
         return result;
@@ -715,13 +966,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Compress old chat turns into a summary note */
     summarize: protectedProcedure
-      .input(z.object({
-        priorSummary: z.string().optional(),
-        turnsToAbsorb: z.array(z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-        })),
-      }))
+      .input(
+        z.object({
+          priorSummary: z.string().optional(),
+          turnsToAbsorb: z.array(
+            z.object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string(),
+            })
+          ),
+        })
+      )
       .mutation(async ({ input }) => {
         return summarizeHistory({
           priorSummary: input.priorSummary,
@@ -746,16 +1001,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Create or update a story */
     storyUpsert: protectedProcedure
-      .input(z.object({
-        id: z.number().optional(),
-        title: z.string().optional(),
-        logline: z.string().nullable().optional(),
-        theme: z.string().nullable().optional(),
-        arc: z.string().nullable().optional(),
-        summary: z.string().nullable().optional(),
-        projectId: z.number().nullable().optional(),
-        body: z.record(z.string(), z.unknown()).optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number().optional(),
+          title: z.string().optional(),
+          logline: z.string().nullable().optional(),
+          theme: z.string().nullable().optional(),
+          arc: z.string().nullable().optional(),
+          summary: z.string().nullable().optional(),
+          projectId: z.number().nullable().optional(),
+          body: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const title = input.title?.trim().slice(0, 255) || "未命名";
 
@@ -785,7 +1042,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           theme: input.theme ?? null,
           arc: input.arc ?? null,
           summary: input.summary ?? null,
-          body: (input.body ?? { cards: [], characters: [], shots: [] }) as object,
+          body: (input.body ?? {
+            cards: [],
+            characters: [],
+            shots: [],
+          }) as object,
         });
         return await getStoryById(newId, ctx.user.id);
       }),
@@ -801,41 +1062,55 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     // ─── 手机端聊天出图端点 ──────────────────────────────────────────
     // mobileChat: 带出图能力的聊天（enableImageGen=true）
     mobileChat: protectedProcedure
-      .input(z.object({
-        message: z.string().min(1),
-        history: z.array(z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-        })).optional(),
-        existingCardCount: z.number().optional(),
-        summary: z.string().optional(),
-        currentShots: z.array(z.object({
-          shotNo: z.number(),
-          subject: z.string(),
-          action: z.string(),
-          dialogue: z.string(),
-          shotType: z.string(),
-          cameraAngle: z.string(),
-          cameraMove: z.string(),
-          location: z.string(),
-          timeLight: z.string(),
-          mood: z.string(),
-          sound: z.string(),
-          styleRef: z.string(),
-        })).optional(),
-        similarCards: z.array(z.object({
-          content: z.string(),
-          rawText: z.string().optional(),
-          emotion: z.string().optional(),
-          emotionBlend: z.array(z.string()).optional(),
-          retrievalQuery: z.string().optional(),
-          themeHints: z.array(z.string()).optional(),
-          personalTrace: z.string().optional(),
-          score: z.number().optional(),
-        })).optional(),
-        projectId: z.number().optional(),
-        photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
-      }))
+      .input(
+        z.object({
+          message: z.string().min(1),
+          history: z
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                content: z.string(),
+              })
+            )
+            .optional(),
+          existingCardCount: z.number().optional(),
+          summary: z.string().optional(),
+          currentShots: z
+            .array(
+              z.object({
+                shotNo: z.number(),
+                subject: z.string(),
+                action: z.string(),
+                dialogue: z.string(),
+                shotType: z.string(),
+                cameraAngle: z.string(),
+                cameraMove: z.string(),
+                location: z.string(),
+                timeLight: z.string(),
+                mood: z.string(),
+                sound: z.string(),
+                styleRef: z.string(),
+              })
+            )
+            .optional(),
+          similarCards: z
+            .array(
+              z.object({
+                content: z.string(),
+                rawText: z.string().optional(),
+                emotion: z.string().optional(),
+                emotionBlend: z.array(z.string()).optional(),
+                retrievalQuery: z.string().optional(),
+                themeHints: z.array(z.string()).optional(),
+                personalTrace: z.string().optional(),
+                score: z.number().optional(),
+              })
+            )
+            .optional(),
+          projectId: z.number().optional(),
+          photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
+        })
+      )
       .mutation(async ({ input }) => {
         return replyFromStoryAgent({
           message: input.message,
@@ -843,7 +1118,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           existingCardCount: input.existingCardCount,
           summary: input.summary,
           currentShots: input.currentShots as ShotDraft[] | undefined,
-          similarCards: input.similarCards as SimilarStoryCardPayload[] | undefined,
+          similarCards: input.similarCards as
+            | SimilarStoryCardPayload[]
+            | undefined,
           projectId: input.projectId,
           enableImageGen: true, // 手机端开启出图能力
           photoUrl: input.photoUrl,
@@ -852,18 +1129,23 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     // uploadPhoto: 用户上传手机照片（base64 → storage）
     uploadPhoto: protectedProcedure
-      .input(z.object({
-        base64: z.string().min(1),
-        mimeType: z.string().default("image/jpeg"),
-      }))
+      .input(
+        z.object({
+          base64: z.string().min(1),
+          mimeType: z.string().default("image/jpeg"),
+        })
+      )
       .mutation(async ({ input }) => {
         const buffer = Buffer.from(input.base64, "base64");
         const inlineUrl = `data:${input.mimeType};base64,${input.base64}`;
         const ext =
-          input.mimeType === "image/png" ? "png" :
-          input.mimeType === "image/webp" ? "webp" :
-          input.mimeType === "image/gif" ? "gif" :
-          "jpg";
+          input.mimeType === "image/png"
+            ? "png"
+            : input.mimeType === "image/webp"
+              ? "webp"
+              : input.mimeType === "image/gif"
+                ? "gif"
+                : "jpg";
 
         try {
           const key = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
@@ -872,7 +1154,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         } catch (err) {
           // Storage can fail locally or during 302 proxy hiccups. Keep the
           // multimodal path alive by passing the already-optimized image inline.
-          console.warn("[uploadPhoto] storage upload failed, using inline image fallback:", err);
+          console.warn(
+            "[uploadPhoto] storage upload failed, using inline image fallback:",
+            err
+          );
           return {
             status: "ok" as const,
             url: inlineUrl,
@@ -883,12 +1168,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     // generateForMobile: 用户确认后触发图片生成（可选传入用户照片作为基底）
     generateForMobile: protectedProcedure
-      .input(z.object({
-        prompt: z.string().min(1),
-        storyId: z.number(),
-        shotNo: z.number().optional(),
-        originalImageUrl: z.string().optional(), // 用户照片 URL，用于 image-to-image
-      }))
+      .input(
+        z.object({
+          prompt: z.string().min(1),
+          storyId: z.number(),
+          shotNo: z.number().optional(),
+          originalImageUrl: z.string().optional(), // 用户照片 URL，用于 image-to-image
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           const { url } = await generateImage({
@@ -923,13 +1210,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     // mobileInpaint: 局部修复（用 Forge API 的 originalImages 参数）
     mobileInpaint: protectedProcedure
-      .input(z.object({
-        prompt: z.string().min(1),
-        originalImageUrl: z.string(),
-        storyId: z.number(),
-        shotNo: z.number().optional(),
-        parentImageId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          prompt: z.string().min(1),
+          originalImageUrl: z.string(),
+          storyId: z.number(),
+          shotNo: z.number().optional(),
+          parentImageId: z.number().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           const { url } = await generateImage({
@@ -962,12 +1251,19 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     // recordSignal: 记录用户交互信号（左划/右划/编辑等）
     recordSignal: protectedProcedure
-      .input(z.object({
-        storyId: z.number(),
-        imageId: z.number().optional(),
-        action: z.enum(["swipe_left", "swipe_right", "edit_start", "edit_complete"]),
-        metadata: z.record(z.string(), z.unknown()).optional(),
-      }))
+      .input(
+        z.object({
+          storyId: z.number(),
+          imageId: z.number().optional(),
+          action: z.enum([
+            "swipe_left",
+            "swipe_right",
+            "edit_start",
+            "edit_complete",
+          ]),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const signal = await createImageSignal({
           userId: ctx.user.id,
@@ -996,28 +1292,40 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.number(),
-        status: z.enum(["idea_pool", "requirement_pool", "structured", "production_ready", "queued", "rendered", "blocked"]).optional(),
-        readinessScore: z.number().min(0).max(1).optional(),
-        deadline: z.string().optional(),
-        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-        autoRender: z.boolean().optional(),
-        blockingIssues: z.array(z.string()).optional(),
-        nextAction: z.string().optional(),
-        sourceSummary: z.string().optional(),
-        sceneType: z.string().optional(),
-        timeOfDay: z.string().optional(),
-        weather: z.string().optional(),
-        lighting: z.string().optional(),
-        cameraFocalLength: z.string().optional(),
-        cameraMovement: z.string().optional(),
-        spatialLayers: z.string().optional(),
-        mood: z.string().optional(),
-        colorPalette: z.string().optional(),
-        promptDraft: z.string().optional(),
-        negativePrompt: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.number(),
+          status: z
+            .enum([
+              "idea_pool",
+              "requirement_pool",
+              "structured",
+              "production_ready",
+              "queued",
+              "rendered",
+              "blocked",
+            ])
+            .optional(),
+          readinessScore: z.number().min(0).max(1).optional(),
+          deadline: z.string().optional(),
+          priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+          autoRender: z.boolean().optional(),
+          blockingIssues: z.array(z.string()).optional(),
+          nextAction: z.string().optional(),
+          sourceSummary: z.string().optional(),
+          sceneType: z.string().optional(),
+          timeOfDay: z.string().optional(),
+          weather: z.string().optional(),
+          lighting: z.string().optional(),
+          cameraFocalLength: z.string().optional(),
+          cameraMovement: z.string().optional(),
+          spatialLayers: z.string().optional(),
+          mood: z.string().optional(),
+          colorPalette: z.string().optional(),
+          promptDraft: z.string().optional(),
+          negativePrompt: z.string().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { id, ...data } = input;
         await updateShot(id, ctx.user.id, data);
@@ -1025,13 +1333,25 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       }),
 
     batchUpdate: protectedProcedure
-      .input(z.object({
-        ids: z.array(z.number()),
-        status: z.enum(["idea_pool", "requirement_pool", "structured", "production_ready", "queued", "rendered", "blocked"]).optional(),
-        deadline: z.string().optional(),
-        priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-        autoRender: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          ids: z.array(z.number()),
+          status: z
+            .enum([
+              "idea_pool",
+              "requirement_pool",
+              "structured",
+              "production_ready",
+              "queued",
+              "rendered",
+              "blocked",
+            ])
+            .optional(),
+          deadline: z.string().optional(),
+          priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+          autoRender: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const { ids, ...data } = input;
         await batchUpdateShots(ids, ctx.user.id, data);
@@ -1042,24 +1362,30 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // ─── Edit Context (Snapshot & Annotations) ──────────────────────────
   editContext: router({
     saveSnapshot: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        sessionId: z.string(),
-        state: z.object({
-          cards: z.array(z.record(z.string(), z.unknown())).optional(),
-          script: z.array(z.record(z.string(), z.unknown())).optional(),
-          shots: z.array(z.record(z.string(), z.unknown())).optional(),
-          visualCanvasItems: z.array(z.record(z.string(), z.unknown())).optional(),
-          visualPreference: z.string().optional(),
-        }),
-        autoSave: z.boolean().optional(),
-        inlineCorrection: z.object({
-          originalText: z.string(),
-          modifiedText: z.string(),
-          instruction: z.string(),
-          sourceType: z.string(),
-        }).optional(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          sessionId: z.string(),
+          state: z.object({
+            cards: z.array(z.record(z.string(), z.unknown())).optional(),
+            script: z.array(z.record(z.string(), z.unknown())).optional(),
+            shots: z.array(z.record(z.string(), z.unknown())).optional(),
+            visualCanvasItems: z
+              .array(z.record(z.string(), z.unknown()))
+              .optional(),
+            visualPreference: z.string().optional(),
+          }),
+          autoSave: z.boolean().optional(),
+          inlineCorrection: z
+            .object({
+              originalText: z.string(),
+              modifiedText: z.string(),
+              instruction: z.string(),
+              sourceType: z.string(),
+            })
+            .optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           const result = await saveSnapshot({
@@ -1071,25 +1397,27 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           });
           return result;
         } catch (error) {
-          console.error('[editContext.saveSnapshot] Error:', error);
-          throw new Error('Failed to save snapshot');
+          console.error("[editContext.saveSnapshot] Error:", error);
+          throw new Error("Failed to save snapshot");
         }
       }),
 
     getRecentAnnotations: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        limit: z.number().min(1).max(20).optional().default(5),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          limit: z.number().min(1).max(20).optional().default(5),
+        })
+      )
       .query(async ({ input }) => {
         try {
           const annotations = await getRecentAnnotations(
             input.projectId,
-            input.limit,
+            input.limit
           );
           return annotations;
         } catch (error) {
-          console.error('[editContext.getRecentAnnotations] Error:', error);
+          console.error("[editContext.getRecentAnnotations] Error:", error);
           return [];
         }
       }),
@@ -1100,29 +1428,43 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   creationAgent: router({
     /** Conversational chat with the creation agent */
     chat: protectedProcedure
-      .input(z.object({
-        message: z.string().min(1),
-        projectId: z.number(),
-        history: z.array(z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-        })).optional(),
-        cards: z.array(z.object({
-          content: z.string(),
-          emotion: z.string().optional(),
-        })).optional(),
-        currentScript: z.string().optional(),
-        shots: z.array(z.object({
-          shotNo: z.string(),
-          subject: z.string(),
-          action: z.string(),
-          dialogue: z.string(),
-          shotType: z.string(),
-          mood: z.string(),
-          promptDraft: z.string().optional(),
-        })).optional(),
-        currentFocusShotNo: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          message: z.string().min(1),
+          projectId: z.number(),
+          history: z
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                content: z.string(),
+              })
+            )
+            .optional(),
+          cards: z
+            .array(
+              z.object({
+                content: z.string(),
+                emotion: z.string().optional(),
+              })
+            )
+            .optional(),
+          currentScript: z.string().optional(),
+          shots: z
+            .array(
+              z.object({
+                shotNo: z.string(),
+                subject: z.string(),
+                action: z.string(),
+                dialogue: z.string(),
+                shotType: z.string(),
+                mood: z.string(),
+                promptDraft: z.string().optional(),
+              })
+            )
+            .optional(),
+          currentFocusShotNo: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         return replyFromCreationAgent({
           message: input.message,
@@ -1137,20 +1479,24 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Get all images for a shot */
     getShotImages: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        shotNo: z.string(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          shotNo: z.string(),
+        })
+      )
       .query(async ({ input }) => {
         return getImagesByShotNo(input.projectId, input.shotNo);
       }),
 
     /** Get the current (main) image for a shot */
     getCurrentImage: protectedProcedure
-      .input(z.object({
-        projectId: z.number(),
-        shotNo: z.string(),
-      }))
+      .input(
+        z.object({
+          projectId: z.number(),
+          shotNo: z.string(),
+        })
+      )
       .query(async ({ input }) => {
         return getCurrentImageForShot(input.projectId, input.shotNo);
       }),
@@ -1164,10 +1510,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Reassign an image to a different shot */
     reassignImage: protectedProcedure
-      .input(z.object({
-        imageId: z.number(),
-        newShotNo: z.string(),
-      }))
+      .input(
+        z.object({
+          imageId: z.number(),
+          newShotNo: z.string(),
+        })
+      )
       .mutation(async ({ input }) => {
         await reassignImage(input.imageId, input.newShotNo);
         return { success: true };
@@ -1175,29 +1523,40 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** SAM 2 segmentation — click a point on an image to get a mask */
     segment: protectedProcedure
-      .input(z.object({
-        imageUrl: z.string().url(),
-        x: z.number().min(0).max(1),
-        y: z.number().min(0).max(1),
-      }))
+      .input(
+        z.object({
+          imageUrl: z.string().url(),
+          x: z.number().min(0).max(1),
+          y: z.number().min(0).max(1),
+        })
+      )
       .mutation(async ({ input }) => {
         return segmentAtPoint(input.imageUrl, input.x, input.y);
       }),
 
     /** Inpaint — replace a masked region with a new generation */
     inpaint: protectedProcedure
-      .input(z.object({
-        imageUrl: z.string().url(),
-        maskUrl: z.string().url(),
-        prompt: z.string().min(1),
-        shotNo: z.string(),
-        projectId: z.number(),
-        parentImageId: z.number().optional(),
-      }))
+      .input(
+        z.object({
+          imageUrl: z.string().url(),
+          maskUrl: z.string().url(),
+          prompt: z.string().min(1),
+          shotNo: z.string(),
+          projectId: z.number(),
+          parentImageId: z.number().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
-        const result = await inpaintImage(input.imageUrl, input.maskUrl, input.prompt);
+        const result = await inpaintImage(
+          input.imageUrl,
+          input.maskUrl,
+          input.prompt
+        );
         if (result.status === "error" || !result.imageUrl) {
-          return { status: "error" as const, message: result.message ?? "No image returned" };
+          return {
+            status: "error" as const,
+            message: result.message ?? "No image returned",
+          };
         }
         // Save the inpainted image to DB
         const saved = await createGeneratedImage({

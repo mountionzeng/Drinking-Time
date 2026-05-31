@@ -3,20 +3,45 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  InsertUser, users, User,
-  InsertProject, projects, Project,
-  InsertReference, references, Reference,
-  InsertShot, shots, Shot,
-  InsertAnalysisResult, analysisResults, AnalysisResult,
-  InsertStory, stories, Story, StoryBody,
-  InsertEditSnapshot, editSnapshots, EditSnapshot,
-  InsertSemanticAnnotation, semanticAnnotations, SemanticAnnotation,
-  InsertGeneratedImage, generatedImages, GeneratedImage,
-  InsertImageSignal, imageSignals, ImageSignal,
-  emailOtps, EmailOtp,
+  InsertUser,
+  users,
+  User,
+  InsertProject,
+  projects,
+  Project,
+  InsertReference,
+  references,
+  Reference,
+  InsertShot,
+  shots,
+  Shot,
+  InsertAnalysisResult,
+  analysisResults,
+  AnalysisResult,
+  InsertEmotionAnalysisProfile,
+  emotionAnalysisProfiles,
+  EmotionAnalysisProfile,
+  InsertStory,
+  stories,
+  Story,
+  StoryBody,
+  InsertEditSnapshot,
+  editSnapshots,
+  EditSnapshot,
+  InsertSemanticAnnotation,
+  semanticAnnotations,
+  SemanticAnnotation,
+  InsertGeneratedImage,
+  generatedImages,
+  GeneratedImage,
+  InsertImageSignal,
+  imageSignals,
+  ImageSignal,
+  emailOtps,
+  EmailOtp,
 } from "../drizzle/schema";
 export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
-import { ENV } from './_core/env';
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -26,6 +51,7 @@ type MemoryState = {
   references: Reference[];
   shots: Shot[];
   analysisResults: AnalysisResult[];
+  emotionAnalysisProfiles: EmotionAnalysisProfile[];
   stories: Story[];
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
@@ -37,6 +63,7 @@ type MemoryState = {
     reference: number;
     shot: number;
     analysisResult: number;
+    emotionAnalysisProfile: number;
     story: number;
     editSnapshot: number;
     semanticAnnotation: number;
@@ -51,6 +78,7 @@ const memoryState: MemoryState = {
   references: [],
   shots: [],
   analysisResults: [],
+  emotionAnalysisProfiles: [],
   stories: [],
   editSnapshots: [],
   semanticAnnotations: [],
@@ -62,6 +90,7 @@ const memoryState: MemoryState = {
     reference: 1,
     shot: 1,
     analysisResult: 1,
+    emotionAnalysisProfile: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -80,7 +109,10 @@ function now(): Date {
   return new Date();
 }
 
-function applyDefinedValues(target: Record<string, unknown>, patch: Record<string, unknown>) {
+function applyDefinedValues(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>
+) {
   for (const [key, value] of Object.entries(patch)) {
     if (value !== undefined) {
       target[key] = value;
@@ -141,6 +173,14 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     updatedAt: toDate(item.updatedAt),
   })) as AnalysisResult[];
 
+  memoryState.emotionAnalysisProfiles = (raw.emotionAnalysisProfiles ?? []).map(
+    item => ({
+      ...item,
+      createdAt: toDate(item.createdAt),
+      updatedAt: toDate(item.updatedAt),
+    })
+  ) as EmotionAnalysisProfile[];
+
   memoryState.stories = (raw.stories ?? []).map(item => ({
     ...item,
     createdAt: toDate(item.createdAt),
@@ -152,10 +192,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     timestamp: toDate(item.timestamp),
   })) as EditSnapshot[];
 
-  memoryState.semanticAnnotations = (raw.semanticAnnotations ?? []).map(item => ({
-    ...item,
-    timestamp: toDate(item.timestamp),
-  })) as SemanticAnnotation[];
+  memoryState.semanticAnnotations = (raw.semanticAnnotations ?? []).map(
+    item => ({
+      ...item,
+      timestamp: toDate(item.timestamp),
+    })
+  ) as SemanticAnnotation[];
 
   memoryState.generatedImages = (raw.generatedImages ?? []).map(item => ({
     ...item,
@@ -169,29 +211,42 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
 
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
-    project: Math.max(raw.nextIds?.project ?? 0, nextIdFromRows(memoryState.projects)),
-    reference: Math.max(raw.nextIds?.reference ?? 0, nextIdFromRows(memoryState.references)),
+    project: Math.max(
+      raw.nextIds?.project ?? 0,
+      nextIdFromRows(memoryState.projects)
+    ),
+    reference: Math.max(
+      raw.nextIds?.reference ?? 0,
+      nextIdFromRows(memoryState.references)
+    ),
     shot: Math.max(raw.nextIds?.shot ?? 0, nextIdFromRows(memoryState.shots)),
     analysisResult: Math.max(
       raw.nextIds?.analysisResult ?? 0,
-      nextIdFromRows(memoryState.analysisResults),
+      nextIdFromRows(memoryState.analysisResults)
     ),
-    story: Math.max(raw.nextIds?.story ?? 0, nextIdFromRows(memoryState.stories)),
+    emotionAnalysisProfile: Math.max(
+      raw.nextIds?.emotionAnalysisProfile ?? 0,
+      nextIdFromRows(memoryState.emotionAnalysisProfiles)
+    ),
+    story: Math.max(
+      raw.nextIds?.story ?? 0,
+      nextIdFromRows(memoryState.stories)
+    ),
     editSnapshot: Math.max(
       raw.nextIds?.editSnapshot ?? 0,
-      nextIdFromRows(memoryState.editSnapshots),
+      nextIdFromRows(memoryState.editSnapshots)
     ),
     semanticAnnotation: Math.max(
       raw.nextIds?.semanticAnnotation ?? 0,
-      nextIdFromRows(memoryState.semanticAnnotations),
+      nextIdFromRows(memoryState.semanticAnnotations)
     ),
     generatedImage: Math.max(
       raw.nextIds?.generatedImage ?? 0,
-      nextIdFromRows(memoryState.generatedImages),
+      nextIdFromRows(memoryState.generatedImages)
     ),
     imageSignal: Math.max(
       raw.nextIds?.imageSignal ?? 0,
-      nextIdFromRows(memoryState.imageSignals),
+      nextIdFromRows(memoryState.imageSignals)
     ),
   };
 }
@@ -209,7 +264,10 @@ async function ensureMemoryLoaded() {
     } catch (error) {
       const e = error as NodeJS.ErrnoException;
       if (e.code !== "ENOENT") {
-        console.warn(`[LocalPersist] Failed to load ${LOCAL_PERSIST_PATH}:`, error);
+        console.warn(
+          `[LocalPersist] Failed to load ${LOCAL_PERSIST_PATH}:`,
+          error
+        );
       }
     } finally {
       memoryLoaded = true;
@@ -231,7 +289,7 @@ async function persistMemoryStateToDisk() {
 async function persistMemoryState() {
   memoryPersistQueue = memoryPersistQueue
     .then(() => persistMemoryStateToDisk())
-    .catch((error) => {
+    .catch(error => {
       console.warn("[LocalPersist] Failed to persist local data:", error);
     });
   return memoryPersistQueue;
@@ -262,7 +320,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (!db) {
     const existing = memoryState.users.find(u => u.openId === user.openId);
     if (existing) {
-      applyDefinedValues(existing as unknown as Record<string, unknown>, user as unknown as Record<string, unknown>);
+      applyDefinedValues(
+        existing as unknown as Record<string, unknown>,
+        user as unknown as Record<string, unknown>
+      );
       existing.updatedAt = now();
       if (user.lastSignedIn !== undefined) {
         existing.lastSignedIn = user.lastSignedIn as Date;
@@ -278,7 +339,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       name: user.name ?? null,
       email: user.email ?? null,
       loginMethod: user.loginMethod ?? null,
-      role: (user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user")) as User["role"],
+      role: (user.role ??
+        (user.openId === ENV.ownerOpenId ? "admin" : "user")) as User["role"],
       createdAt: current,
       updatedAt: current,
       lastSignedIn: (user.lastSignedIn as Date | undefined) ?? current,
@@ -314,8 +376,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.role = user.role;
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = "admin";
+      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -341,7 +403,11 @@ export async function getUserByOpenId(openId: string) {
     return memoryState.users.find(user => user.openId === openId);
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
@@ -376,18 +442,24 @@ export async function getUserProjects(userId: number) {
       .filter(project => project.userId === userId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }
-  return db.select().from(projects).where(eq(projects.userId, userId)).orderBy(desc(projects.updatedAt));
+  return db
+    .select()
+    .from(projects)
+    .where(eq(projects.userId, userId))
+    .orderBy(desc(projects.updatedAt));
 }
 
 export async function getProjectById(projectId: number, userId: number) {
   const db = await getDb();
   if (!db) {
     const project = memoryState.projects.find(
-      p => p.id === projectId && p.userId === userId,
+      p => p.id === projectId && p.userId === userId
     );
     return project ?? null;
   }
-  const result = await db.select().from(projects)
+  const result = await db
+    .select()
+    .from(projects)
     .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
     .limit(1);
   return result[0] ?? null;
@@ -431,25 +503,43 @@ export async function getProjectReferences(projectId: number) {
   const db = await getDb();
   if (!db) {
     return memoryState.references
-      .filter(reference => reference.projectId === projectId && !reference.excluded)
+      .filter(
+        reference => reference.projectId === projectId && !reference.excluded
+      )
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
-  return db.select().from(references)
-    .where(and(eq(references.projectId, projectId), eq(references.excluded, false)))
+  return db
+    .select()
+    .from(references)
+    .where(
+      and(eq(references.projectId, projectId), eq(references.excluded, false))
+    )
     .orderBy(references.sortOrder);
 }
 
-export async function updateReference(id: number, userId: number, data: Partial<InsertReference>) {
+export async function updateReference(
+  id: number,
+  userId: number,
+  data: Partial<InsertReference>
+) {
   const db = await getDb();
   if (!db) {
-    const row = memoryState.references.find(reference => reference.id === id && reference.userId === userId);
+    const row = memoryState.references.find(
+      reference => reference.id === id && reference.userId === userId
+    );
     if (!row) return;
-    applyDefinedValues(row as unknown as Record<string, unknown>, data as unknown as Record<string, unknown>);
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
+    );
     row.updatedAt = now();
     await persistMemoryState();
     return;
   }
-  await db.update(references).set(data).where(and(eq(references.id, id), eq(references.userId, userId)));
+  await db
+    .update(references)
+    .set(data)
+    .where(and(eq(references.id, id), eq(references.userId, userId)));
 }
 
 // ─── Shot ────────────────────────────────────────────────────────────────
@@ -500,16 +590,17 @@ export async function createShots(data: InsertShot[]) {
 export async function replaceDirectorShotsForProject(
   projectId: number,
   userId: number,
-  data: InsertShot[],
+  data: InsertShot[]
 ) {
   const db = await getDb();
   if (!db) {
     memoryState.shots = memoryState.shots.filter(
-      shot => !(
-        shot.projectId === projectId &&
-        shot.userId === userId &&
-        shot.intentType === "director_note"
-      ),
+      shot =>
+        !(
+          shot.projectId === projectId &&
+          shot.userId === userId &&
+          shot.intentType === "director_note"
+        )
     );
     if (data.length > 0) {
       const current = now();
@@ -548,11 +639,15 @@ export async function replaceDirectorShotsForProject(
     return;
   }
 
-  await db.delete(shots).where(and(
-    eq(shots.projectId, projectId),
-    eq(shots.userId, userId),
-    eq(shots.intentType, "director_note"),
-  ));
+  await db
+    .delete(shots)
+    .where(
+      and(
+        eq(shots.projectId, projectId),
+        eq(shots.userId, userId),
+        eq(shots.intentType, "director_note")
+      )
+    );
 
   if (data.length > 0) {
     await db.insert(shots).values(data);
@@ -571,32 +666,55 @@ export async function getProjectShots(projectId: number) {
         return a.sceneNo.localeCompare(b.sceneNo);
       });
   }
-  return db.select().from(shots)
+  return db
+    .select()
+    .from(shots)
     .where(eq(shots.projectId, projectId))
     .orderBy(shots.sceneNo, shots.shotNo);
 }
 
-export async function updateShot(id: number, userId: number, data: Partial<InsertShot>) {
+export async function updateShot(
+  id: number,
+  userId: number,
+  data: Partial<InsertShot>
+) {
   const db = await getDb();
   if (!db) {
-    const row = memoryState.shots.find(shot => shot.id === id && shot.userId === userId);
+    const row = memoryState.shots.find(
+      shot => shot.id === id && shot.userId === userId
+    );
     if (!row) return;
-    applyDefinedValues(row as unknown as Record<string, unknown>, data as unknown as Record<string, unknown>);
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
+    );
     row.updatedAt = now();
     await persistMemoryState();
     return;
   }
-  await db.update(shots).set(data).where(and(eq(shots.id, id), eq(shots.userId, userId)));
+  await db
+    .update(shots)
+    .set(data)
+    .where(and(eq(shots.id, id), eq(shots.userId, userId)));
 }
 
-export async function batchUpdateShots(ids: number[], userId: number, data: Partial<InsertShot>) {
+export async function batchUpdateShots(
+  ids: number[],
+  userId: number,
+  data: Partial<InsertShot>
+) {
   const db = await getDb();
   if (!db) {
     let changed = false;
     for (const id of ids) {
-      const row = memoryState.shots.find(shot => shot.id === id && shot.userId === userId);
+      const row = memoryState.shots.find(
+        shot => shot.id === id && shot.userId === userId
+      );
       if (!row) continue;
-      applyDefinedValues(row as unknown as Record<string, unknown>, data as unknown as Record<string, unknown>);
+      applyDefinedValues(
+        row as unknown as Record<string, unknown>,
+        data as unknown as Record<string, unknown>
+      );
       row.updatedAt = now();
       changed = true;
     }
@@ -606,7 +724,10 @@ export async function batchUpdateShots(ids: number[], userId: number, data: Part
     return;
   }
   for (const id of ids) {
-    await db.update(shots).set(data).where(and(eq(shots.id, id), eq(shots.userId, userId)));
+    await db
+      .update(shots)
+      .set(data)
+      .where(and(eq(shots.id, id), eq(shots.userId, userId)));
   }
 }
 
@@ -649,11 +770,94 @@ export async function getProjectAnalysis(projectId: number) {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return rows[0] ?? null;
   }
-  const result = await db.select().from(analysisResults)
+  const result = await db
+    .select()
+    .from(analysisResults)
     .where(eq(analysisResults.projectId, projectId))
     .orderBy(desc(analysisResults.createdAt))
     .limit(1);
   return result[0] ?? null;
+}
+
+// ─── Emotion Analysis Profile ────────────────────────────────────────────
+
+export async function getEmotionAnalysisProfile(
+  userId: number
+): Promise<EmotionAnalysisProfile | null> {
+  const db = await getDb();
+  if (!db) {
+    const rows = memoryState.emotionAnalysisProfiles
+      .filter(item => item.userId === userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    return rows[0] ?? null;
+  }
+  const result = await db
+    .select()
+    .from(emotionAnalysisProfiles)
+    .where(eq(emotionAnalysisProfiles.userId, userId))
+    .orderBy(desc(emotionAnalysisProfiles.updatedAt))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function upsertEmotionAnalysisProfile(
+  data: InsertEmotionAnalysisProfile
+): Promise<EmotionAnalysisProfile> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const existing = memoryState.emotionAnalysisProfiles
+      .filter(item => item.userId === data.userId)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+
+    if (existing) {
+      applyDefinedValues(
+        existing as unknown as Record<string, unknown>,
+        data as unknown as Record<string, unknown>
+      );
+      existing.updatedAt = current;
+      await persistMemoryState();
+      return existing;
+    }
+
+    const row: EmotionAnalysisProfile = {
+      id: nextMemoryId("emotionAnalysisProfile"),
+      userId: data.userId,
+      projectId: data.projectId ?? null,
+      birthDate: data.birthDate,
+      consentVersion: data.consentVersion,
+      consentText: data.consentText ?? null,
+      dailyReference: data.dailyReference ?? null,
+      analysisSeed: data.analysisSeed ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.emotionAnalysisProfiles.push(row);
+    await persistMemoryState();
+    return row;
+  }
+
+  const existing = await getEmotionAnalysisProfile(data.userId);
+  if (existing) {
+    await db
+      .update(emotionAnalysisProfiles)
+      .set(data)
+      .where(
+        and(
+          eq(emotionAnalysisProfiles.id, existing.id),
+          eq(emotionAnalysisProfiles.userId, data.userId)
+        )
+      );
+    return (await getEmotionAnalysisProfile(data.userId))!;
+  }
+
+  const result = await db.insert(emotionAnalysisProfiles).values(data);
+  const inserted = await db
+    .select()
+    .from(emotionAnalysisProfiles)
+    .where(eq(emotionAnalysisProfiles.id, result[0].insertId))
+    .limit(1);
+  return inserted[0];
 }
 
 // ─── Story ──────────────────────────────────────────────────────────────
@@ -665,8 +869,16 @@ export async function getProjectAnalysis(projectId: number) {
 
 export type StoryListItem = Pick<
   Story,
-  "id" | "userId" | "projectId" | "title" | "logline" | "theme" | "arc" |
-  "summary" | "createdAt" | "updatedAt"
+  | "id"
+  | "userId"
+  | "projectId"
+  | "title"
+  | "logline"
+  | "theme"
+  | "arc"
+  | "summary"
+  | "createdAt"
+  | "updatedAt"
 > & { cardCount: number; shotCount: number };
 
 function emptyBody(): StoryBody {
@@ -702,7 +914,9 @@ function toListItem(row: Story): StoryListItem {
   };
 }
 
-export async function listUserStories(userId: number): Promise<StoryListItem[]> {
+export async function listUserStories(
+  userId: number
+): Promise<StoryListItem[]> {
   const db = await getDb();
   if (!db) {
     return memoryState.stories
@@ -710,19 +924,28 @@ export async function listUserStories(userId: number): Promise<StoryListItem[]> 
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .map(toListItem);
   }
-  const rows = await db.select().from(stories)
+  const rows = await db
+    .select()
+    .from(stories)
     .where(eq(stories.userId, userId))
     .orderBy(desc(stories.updatedAt));
   return rows.map(toListItem);
 }
 
-export async function getStoryById(id: number, userId: number): Promise<Story | null> {
+export async function getStoryById(
+  id: number,
+  userId: number
+): Promise<Story | null> {
   const db = await getDb();
   if (!db) {
-    const row = memoryState.stories.find(s => s.id === id && s.userId === userId);
+    const row = memoryState.stories.find(
+      s => s.id === id && s.userId === userId
+    );
     return row ?? null;
   }
-  const result = await db.select().from(stories)
+  const result = await db
+    .select()
+    .from(stories)
     .where(and(eq(stories.id, id), eq(stories.userId, userId)))
     .limit(1);
   return result[0] ?? null;
@@ -761,64 +984,89 @@ export async function createStory(data: InsertStory): Promise<{ id: number }> {
 export async function updateStory(
   id: number,
   userId: number,
-  data: Partial<InsertStory>,
+  data: Partial<InsertStory>
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
-    const row = memoryState.stories.find(s => s.id === id && s.userId === userId);
+    const row = memoryState.stories.find(
+      s => s.id === id && s.userId === userId
+    );
     if (!row) return;
     applyDefinedValues(
       row as unknown as Record<string, unknown>,
-      data as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
     );
     row.updatedAt = now();
     await persistMemoryState();
     return;
   }
-  await db.update(stories).set(data).where(and(eq(stories.id, id), eq(stories.userId, userId)));
+  await db
+    .update(stories)
+    .set(data)
+    .where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
 export async function deleteStory(id: number, userId: number): Promise<void> {
   const db = await getDb();
   if (!db) {
-    const idx = memoryState.stories.findIndex(s => s.id === id && s.userId === userId);
+    const idx = memoryState.stories.findIndex(
+      s => s.id === id && s.userId === userId
+    );
     if (idx >= 0) {
       memoryState.stories.splice(idx, 1);
       await persistMemoryState();
     }
     return;
   }
-  await db.delete(stories).where(and(eq(stories.id, id), eq(stories.userId, userId)));
+  await db
+    .delete(stories)
+    .where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
 // ─── Generated Images（手机端） ─────────────────────────────────────────
 // 手机端聊天出图的图片记录查询。createGeneratedImage 统一定义在下方桌面端部分。
 
-export async function getGeneratedImageById(id: number): Promise<GeneratedImage | null> {
+export async function getGeneratedImageById(
+  id: number
+): Promise<GeneratedImage | null> {
   const db = await getDb();
   if (!db) {
     return memoryState.generatedImages.find(img => img.id === id) ?? null;
   }
-  const [row] = await db.select().from(generatedImages).where(eq(generatedImages.id, id));
+  const [row] = await db
+    .select()
+    .from(generatedImages)
+    .where(eq(generatedImages.id, id));
   return row ?? null;
 }
 
-export async function getStoryImages(storyId: number): Promise<GeneratedImage[]> {
+export async function getStoryImages(
+  storyId: number
+): Promise<GeneratedImage[]> {
   const db = await getDb();
   if (!db) {
     return memoryState.generatedImages
       .filter(img => img.storyId === storyId && img.isCurrent)
       .sort((a, b) => (a.shotNo ?? "").localeCompare(b.shotNo ?? ""));
   }
-  return db.select().from(generatedImages)
-    .where(and(eq(generatedImages.storyId, storyId), eq(generatedImages.isCurrent, true)))
+  return db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.storyId, storyId),
+        eq(generatedImages.isCurrent, true)
+      )
+    )
     .orderBy(generatedImages.shotNo);
 }
 
 // ─── Image Signals ──────────────────────────────────────────────────────
 // 用户交互信号（左划/右划/编辑等），时序事件流。
 
-export async function createImageSignal(data: InsertImageSignal): Promise<ImageSignal> {
+export async function createImageSignal(
+  data: InsertImageSignal
+): Promise<ImageSignal> {
   const db = await getDb();
   if (!db) {
     const current = now();
@@ -836,19 +1084,22 @@ export async function createImageSignal(data: InsertImageSignal): Promise<ImageS
     return row;
   }
   const [result] = await db.insert(imageSignals).values(data);
-  const [row] = await db.select().from(imageSignals).where(eq(imageSignals.id, result.insertId));
+  const [row] = await db
+    .select()
+    .from(imageSignals)
+    .where(eq(imageSignals.id, result.insertId));
   return row;
 }
 
 // ─── Edit Snapshots ──────────────────────────────────────────────────────
 
 export async function createEditSnapshot(
-  data: Omit<InsertEditSnapshot, 'id' | 'timestamp'>,
+  data: Omit<InsertEditSnapshot, "id" | "timestamp">
 ): Promise<EditSnapshot> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const id = nextMemoryId('editSnapshot');
+    const id = nextMemoryId("editSnapshot");
     const snapshot: EditSnapshot = {
       id,
       projectId: data.projectId,
@@ -871,7 +1122,7 @@ export async function createEditSnapshot(
 }
 
 export async function getLatestEditSnapshot(
-  projectId: number,
+  projectId: number
 ): Promise<EditSnapshot | null> {
   const db = await getDb();
   if (!db) {
@@ -893,7 +1144,9 @@ export async function getLatestEditSnapshot(
   return snapshot ?? null;
 }
 
-export async function getEditSnapshotById(id: number): Promise<EditSnapshot | null> {
+export async function getEditSnapshotById(
+  id: number
+): Promise<EditSnapshot | null> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -909,12 +1162,12 @@ export async function getEditSnapshotById(id: number): Promise<EditSnapshot | nu
 // ─── Semantic Annotations ────────────────────────────────────────────────
 
 export async function createSemanticAnnotation(
-  data: Omit<InsertSemanticAnnotation, 'id' | 'timestamp'>,
+  data: Omit<InsertSemanticAnnotation, "id" | "timestamp">
 ): Promise<SemanticAnnotation> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const id = nextMemoryId('semanticAnnotation');
+    const id = nextMemoryId("semanticAnnotation");
     const annotation: SemanticAnnotation = {
       id,
       snapshotId: data.snapshotId,
@@ -922,7 +1175,7 @@ export async function createSemanticAnnotation(
       factualChanges: data.factualChanges,
       inferredPreferences: data.inferredPreferences,
       timestamp: now(),
-      status: data.status ?? 'active',
+      status: data.status ?? "active",
     };
     memoryState.semanticAnnotations.push(annotation);
     await persistMemoryState();
@@ -937,7 +1190,7 @@ export async function createSemanticAnnotation(
 }
 
 export async function getAnnotationsBySnapshotId(
-  snapshotId: number,
+  snapshotId: number
 ): Promise<SemanticAnnotation[]> {
   const db = await getDb();
   if (!db) {
@@ -955,14 +1208,16 @@ export async function getAnnotationsBySnapshotId(
 
 export async function getRecentSemanticAnnotations(
   projectId: number,
-  limit = 10,
+  limit = 10
 ): Promise<SemanticAnnotation[]> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
     // Join with editSnapshots to filter by projectId
     const projectSnapshotIds = new Set(
-      memoryState.editSnapshots.filter(s => s.projectId === projectId).map(s => s.id),
+      memoryState.editSnapshots
+        .filter(s => s.projectId === projectId)
+        .map(s => s.id)
     );
     return memoryState.semanticAnnotations
       .filter(a => projectSnapshotIds.has(a.snapshotId))
@@ -981,7 +1236,10 @@ export async function getRecentSemanticAnnotations(
       status: semanticAnnotations.status,
     })
     .from(semanticAnnotations)
-    .innerJoin(editSnapshots, eq(semanticAnnotations.snapshotId, editSnapshots.id))
+    .innerJoin(
+      editSnapshots,
+      eq(semanticAnnotations.snapshotId, editSnapshots.id)
+    )
     .where(eq(editSnapshots.projectId, projectId))
     .orderBy(desc(semanticAnnotations.timestamp))
     .limit(limit);
@@ -991,7 +1249,7 @@ export async function getRecentSemanticAnnotations(
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
 export async function createGeneratedImage(
-  data: Omit<InsertGeneratedImage, 'id' | 'createdAt'>,
+  data: Omit<InsertGeneratedImage, "id" | "createdAt">
 ): Promise<GeneratedImage> {
   const db = await getDb();
   if (!db) {
@@ -1005,7 +1263,7 @@ export async function createGeneratedImage(
         if (sameDesktop || sameMobile) img.isCurrent = false;
       }
     }
-    const id = nextMemoryId('generatedImage');
+    const id = nextMemoryId("generatedImage");
     const image: GeneratedImage = {
       id,
       projectId: data.projectId ?? null,
@@ -1017,7 +1275,7 @@ export async function createGeneratedImage(
       prompt: data.prompt ?? null,
       parentImageId: data.parentImageId ?? null,
       isCurrent: data.isCurrent ?? true,
-      generationType: data.generationType ?? 'generate',
+      generationType: data.generationType ?? "generate",
       maskKey: data.maskKey ?? null,
       createdAt: now(),
     };
@@ -1028,31 +1286,40 @@ export async function createGeneratedImage(
   // 把同一镜头的旧图标记为非当前
   if (data.shotNo != null) {
     if (data.projectId) {
-      await db.update(generatedImages)
+      await db
+        .update(generatedImages)
         .set({ isCurrent: false })
-        .where(and(
-          eq(generatedImages.projectId, data.projectId),
-          eq(generatedImages.shotNo, data.shotNo),
-          eq(generatedImages.isCurrent, true),
-        ));
+        .where(
+          and(
+            eq(generatedImages.projectId, data.projectId),
+            eq(generatedImages.shotNo, data.shotNo),
+            eq(generatedImages.isCurrent, true)
+          )
+        );
     } else if (data.storyId) {
-      await db.update(generatedImages)
+      await db
+        .update(generatedImages)
         .set({ isCurrent: false })
-        .where(and(
-          eq(generatedImages.storyId, data.storyId),
-          eq(generatedImages.shotNo, data.shotNo),
-          eq(generatedImages.isCurrent, true),
-        ));
+        .where(
+          and(
+            eq(generatedImages.storyId, data.storyId),
+            eq(generatedImages.shotNo, data.shotNo),
+            eq(generatedImages.isCurrent, true)
+          )
+        );
     }
   }
   const [result] = await db.insert(generatedImages).values(data);
-  const [image] = await db.select().from(generatedImages).where(eq(generatedImages.id, result.insertId));
+  const [image] = await db
+    .select()
+    .from(generatedImages)
+    .where(eq(generatedImages.id, result.insertId));
   return image;
 }
 
 export async function getImagesByShotNo(
   projectId: number,
-  shotNo: string,
+  shotNo: string
 ): Promise<GeneratedImage[]> {
   const db = await getDb();
   if (!db) {
@@ -1061,34 +1328,48 @@ export async function getImagesByShotNo(
       .filter(img => img.projectId === projectId && img.shotNo === shotNo)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
-  return db.select().from(generatedImages)
-    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.shotNo, shotNo)))
+  return db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.projectId, projectId),
+        eq(generatedImages.shotNo, shotNo)
+      )
+    )
     .orderBy(desc(generatedImages.createdAt));
 }
 
 export async function getCurrentImageForShot(
   projectId: number,
-  shotNo: string,
+  shotNo: string
 ): Promise<GeneratedImage | null> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    return memoryState.generatedImages.find(
-      img => img.projectId === projectId && img.shotNo === shotNo && img.isCurrent,
-    ) ?? null;
+    return (
+      memoryState.generatedImages.find(
+        img =>
+          img.projectId === projectId && img.shotNo === shotNo && img.isCurrent
+      ) ?? null
+    );
   }
-  const [image] = await db.select().from(generatedImages)
-    .where(and(
-      eq(generatedImages.projectId, projectId),
-      eq(generatedImages.shotNo, shotNo),
-      eq(generatedImages.isCurrent, true),
-    ))
+  const [image] = await db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.projectId, projectId),
+        eq(generatedImages.shotNo, shotNo),
+        eq(generatedImages.isCurrent, true)
+      )
+    )
     .limit(1);
   return image ?? null;
 }
 
 export async function getProjectCurrentImages(
-  projectId: number,
+  projectId: number
 ): Promise<GeneratedImage[]> {
   const db = await getDb();
   if (!db) {
@@ -1097,14 +1378,21 @@ export async function getProjectCurrentImages(
       .filter(img => img.projectId === projectId && img.isCurrent)
       .sort((a, b) => (a.shotNo ?? "").localeCompare(b.shotNo ?? "")); // 按镜号排序，null 视为空字符串
   }
-  return db.select().from(generatedImages)
-    .where(and(eq(generatedImages.projectId, projectId), eq(generatedImages.isCurrent, true)))
+  return db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.projectId, projectId),
+        eq(generatedImages.isCurrent, true)
+      )
+    )
     .orderBy(generatedImages.shotNo);
 }
 
 export async function updateImageCurrent(
   imageId: number,
-  isCurrent: boolean,
+  isCurrent: boolean
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
@@ -1116,12 +1404,15 @@ export async function updateImageCurrent(
     }
     return;
   }
-  await db.update(generatedImages).set({ isCurrent }).where(eq(generatedImages.id, imageId));
+  await db
+    .update(generatedImages)
+    .set({ isCurrent })
+    .where(eq(generatedImages.id, imageId));
 }
 
 export async function reassignImage(
   imageId: number,
-  newShotNo: string,
+  newShotNo: string
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
@@ -1134,7 +1425,11 @@ export async function reassignImage(
 
     // Mark existing current images on the target shot as non-current
     for (const other of memoryState.generatedImages) {
-      if (other.projectId === projectId && other.shotNo === newShotNo && other.isCurrent) {
+      if (
+        other.projectId === projectId &&
+        other.shotNo === newShotNo &&
+        other.isCurrent
+      ) {
         other.isCurrent = false;
       }
     }
@@ -1145,7 +1440,12 @@ export async function reassignImage(
 
     // Promote the most recent remaining image on the old shot
     const oldShotImages = memoryState.generatedImages
-      .filter(i => i.projectId === projectId && i.shotNo === oldShotNo && i.id !== imageId)
+      .filter(
+        i =>
+          i.projectId === projectId &&
+          i.shotNo === oldShotNo &&
+          i.id !== imageId
+      )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     if (oldShotImages.length > 0) {
       oldShotImages[0].isCurrent = true;
@@ -1155,7 +1455,11 @@ export async function reassignImage(
     return;
   }
 
-  const [img] = await db.select().from(generatedImages).where(eq(generatedImages.id, imageId)).limit(1);
+  const [img] = await db
+    .select()
+    .from(generatedImages)
+    .where(eq(generatedImages.id, imageId))
+    .limit(1);
   if (!img) return;
 
   const oldShotNo = img.shotNo;
@@ -1163,29 +1467,38 @@ export async function reassignImage(
   if (projectId == null || oldShotNo == null) return; // 没有 projectId/shotNo 的图片不支持重分配
 
   // 将目标镜号上的当前图片标记为非当前
-  await db.update(generatedImages)
+  await db
+    .update(generatedImages)
     .set({ isCurrent: false })
-    .where(and(
-      eq(generatedImages.projectId, projectId),
-      eq(generatedImages.shotNo, newShotNo),
-      eq(generatedImages.isCurrent, true),
-    ));
+    .where(
+      and(
+        eq(generatedImages.projectId, projectId),
+        eq(generatedImages.shotNo, newShotNo),
+        eq(generatedImages.isCurrent, true)
+      )
+    );
 
   // 移动图片到新镜号并设为当前
-  await db.update(generatedImages)
+  await db
+    .update(generatedImages)
     .set({ shotNo: newShotNo, isCurrent: true })
     .where(eq(generatedImages.id, imageId));
 
   // 在旧镜号上提升最新的图片为当前
-  const remaining = await db.select().from(generatedImages)
-    .where(and(
-      eq(generatedImages.projectId, projectId),
-      eq(generatedImages.shotNo, oldShotNo),
-    ))
+  const remaining = await db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.projectId, projectId),
+        eq(generatedImages.shotNo, oldShotNo)
+      )
+    )
     .orderBy(desc(generatedImages.createdAt))
     .limit(1);
   if (remaining.length > 0) {
-    await db.update(generatedImages)
+    await db
+      .update(generatedImages)
       .set({ isCurrent: true })
       .where(eq(generatedImages.id, remaining[0].id));
   }
@@ -1201,6 +1514,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.references = [];
   memoryState.shots = [];
   memoryState.analysisResults = [];
+  memoryState.emotionAnalysisProfiles = [];
   memoryState.stories = [];
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
@@ -1212,6 +1526,7 @@ export function resetMemoryStateForTesting(): void {
     reference: 1,
     shot: 1,
     analysisResult: 1,
+    emotionAnalysisProfile: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -1229,7 +1544,7 @@ export function resetMemoryStateForTesting(): void {
 export async function createEmailOtp(
   email: string,
   code: string,
-  expiresAt: Date,
+  expiresAt: Date
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
@@ -1243,7 +1558,7 @@ export async function createEmailOtp(
 /** 查找有效（未过期、未使用）的 OTP */
 export async function findValidEmailOtp(
   email: string,
-  code: string,
+  code: string
 ): Promise<EmailOtp | null> {
   const db = await getDb();
   if (!db) return null; // 内存模式不支持 OTP 验证
@@ -1255,8 +1570,8 @@ export async function findValidEmailOtp(
         eq(emailOtps.email, email),
         eq(emailOtps.code, code),
         gte(emailOtps.expiresAt, new Date()),
-        isNull(emailOtps.usedAt),
-      ),
+        isNull(emailOtps.usedAt)
+      )
     )
     .limit(1);
   return otp ?? null;
@@ -1266,5 +1581,8 @@ export async function findValidEmailOtp(
 export async function markEmailOtpUsed(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.update(emailOtps).set({ usedAt: new Date() }).where(eq(emailOtps.id, id));
+  await db
+    .update(emailOtps)
+    .set({ usedAt: new Date() })
+    .where(eq(emailOtps.id, id));
 }
