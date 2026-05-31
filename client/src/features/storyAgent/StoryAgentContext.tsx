@@ -40,6 +40,8 @@ interface PersistedState {
   summary?: string;
   visualCanvasItems?: VisualCanvasItem[];
   visualPreference?: string;
+  savedAt?: number;
+  activeStoryId?: number;
 }
 
 export type StoryListItem = {
@@ -133,33 +135,85 @@ type StoryAgentClassifyResult =
 const storageKey = (projectId: number | null) =>
   projectId ? `dt:storyAgent:${projectId}` : null;
 
+function normalizePersisted(parsed: PersistedState): PersistedState {
+  return {
+    messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+    cards: Array.isArray(parsed.cards) ? parsed.cards : [],
+    scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
+    storyShots: Array.isArray(parsed.storyShots) ? parsed.storyShots : [],
+    characters: Array.isArray(parsed.characters) ? parsed.characters : [],
+    remoteStoryId: typeof parsed.remoteStoryId === 'number' ? parsed.remoteStoryId : undefined,
+    title: typeof parsed.title === 'string' ? parsed.title : undefined,
+    logline: typeof parsed.logline === 'string' ? parsed.logline : undefined,
+    theme: typeof parsed.theme === 'string' ? parsed.theme : undefined,
+    arc: typeof parsed.arc === 'string' ? parsed.arc : undefined,
+    summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+    visualCanvasItems: Array.isArray(parsed.visualCanvasItems)
+      ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
+      : [],
+    visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
+    savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
+    activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
+  };
+}
+
+function storyWorkScore(state: PersistedState): number {
+  return (
+    state.cards.length * 100 +
+    state.storyShots.length * 80 +
+    state.scripts.length * 60 +
+    Math.max(0, state.messages.length - 1) * 20 +
+    (state.visualCanvasItems?.length ?? 0) * 40
+  );
+}
+
+function hasStoryWork(state: PersistedState): boolean {
+  return storyWorkScore(state) > 0;
+}
+
+function activeStoryIdFrom(state: PersistedState): number | null {
+  if (typeof state.activeStoryId === 'number') return state.activeStoryId;
+  if (typeof state.remoteStoryId === 'number') return state.remoteStoryId;
+  return hasStoryWork(state) ? -1 : null;
+}
+
 function loadState(projectId: number | null): PersistedState {
   const key = storageKey(projectId);
   if (!key) return emptyState();
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return emptyState();
-    const parsed = JSON.parse(raw) as PersistedState;
-    return {
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-      cards: Array.isArray(parsed.cards) ? parsed.cards : [],
-      scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
-      storyShots: Array.isArray(parsed.storyShots) ? parsed.storyShots : [],
-      characters: Array.isArray(parsed.characters) ? parsed.characters : [],
-      remoteStoryId: typeof parsed.remoteStoryId === 'number' ? parsed.remoteStoryId : undefined,
-      title: typeof parsed.title === 'string' ? parsed.title : undefined,
-      logline: typeof parsed.logline === 'string' ? parsed.logline : undefined,
-      theme: typeof parsed.theme === 'string' ? parsed.theme : undefined,
-      arc: typeof parsed.arc === 'string' ? parsed.arc : undefined,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
-      visualCanvasItems: Array.isArray(parsed.visualCanvasItems)
-        ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
-        : [],
-      visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
-    };
+    return normalizePersisted(JSON.parse(raw) as PersistedState);
   } catch {
     return emptyState();
   }
+}
+
+// Story data is keyed by the server-assigned projectId, but that id can drift
+// across local/dev deploys. When the active project's slot is empty, recover the
+// richest story stranded under a previous projectId so the user's work doesn't
+// appear to vanish. Non-destructive: the source key is left intact.
+function findOrphanStory(currentProjectId: number): PersistedState | null {
+  const currentKey = storageKey(currentProjectId);
+  let best: { state: PersistedState; score: number; savedAt: number } | null = null;
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('dt:storyAgent:') || key === currentKey) continue;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = normalizePersisted(JSON.parse(raw) as PersistedState);
+      const score = storyWorkScore(parsed);
+      if (score === 0) continue;
+      const savedAt = parsed.savedAt ?? 0;
+      const better =
+        !best || savedAt > best.savedAt || (savedAt === best.savedAt && score > best.score);
+      if (better) best = { state: parsed, score, savedAt };
+    } catch {
+      // skip unparseable entries
+    }
+  }
+  return best?.state ?? null;
 }
 
 function emptyState(): PersistedState {
@@ -515,6 +569,7 @@ export function StoryAgentProvider({
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
   const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
   const hydratedFor = useRef<number | null>(null);
+  const autoLoadedStoryFor = useRef<number | null>(null);
 
   // ── Auto-save refs ──────────────────────────────────────────────────
   // Stable session ID for this browser session
@@ -533,7 +588,18 @@ export function StoryAgentProvider({
   useEffect(() => {
     if (projectId === null) return;
     if (hydratedFor.current === projectId) return;
-    const persisted = loadState(projectId);
+    let persisted = loadState(projectId);
+    // This project's slot is empty — likely the projectId drifted after a server
+    // reset. Pull back the story stranded under the old projectId instead of
+    // showing a blank workspace.
+    const slotEmpty = !hasStoryWork(persisted);
+    if (slotEmpty) {
+      const orphan = findOrphanStory(projectId);
+      if (orphan) {
+        persisted = orphan;
+        toast.success('已从本地备份恢复上次的故事');
+      }
+    }
     setMessages(persisted.messages);
     setCards(persisted.cards);
     setScripts(persisted.scripts);
@@ -546,7 +612,12 @@ export function StoryAgentProvider({
     setStoryArc(persisted.arc);
     setVisualCanvasItems(persisted.visualCanvasItems ?? []);
     setVisualPreference(persisted.visualPreference ?? '');
+    setActiveStoryId(activeStoryIdFrom(persisted));
     hydratedFor.current = projectId;
+  }, [projectId]);
+
+  useEffect(() => {
+    autoLoadedStoryFor.current = null;
   }, [projectId]);
 
   // Story loading is now handled explicitly via loadStory() from the story list.
@@ -568,6 +639,8 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      savedAt: Date.now(),
+      activeStoryId: activeStoryId ?? undefined,
     };
     try {
       localStorage.setItem(key, JSON.stringify(data));
@@ -588,6 +661,7 @@ export function StoryAgentProvider({
     storyArc,
     visualCanvasItems,
     visualPreference,
+    activeStoryId,
   ]);
 
   // ── Auto-save: keep refs in sync ───────────────────────────────────
@@ -711,6 +785,7 @@ export function StoryAgentProvider({
         });
         if (saved && typeof saved.id === 'number') {
           setRemoteStoryId(saved.id);
+          setActiveStoryId(saved.id);
         }
       } catch (error) {
         console.warn('save archive story failed', error);
@@ -1253,6 +1328,7 @@ export function StoryAgentProvider({
       // next save attempt creates a new story rather than failing silently.
       setRemoteStoryId((prev) => {
         if (prev !== undefined && !items.some((s) => s.id === prev)) {
+          setActiveStoryId((current) => (current === prev ? -1 : current));
           return undefined;
         }
         return prev;
@@ -1357,6 +1433,38 @@ export function StoryAgentProvider({
       toast.error('加载故事失败');
     }
   }, [utils.storyAgent.storyGet]);
+
+  useEffect(() => {
+    if (projectId === null) return;
+    if (isLoadingStories) return;
+    if (activeStoryId !== null) return;
+    if (storyList.length === 0) return;
+    if (
+      cards.length > 0 ||
+      messages.length > 1 ||
+      scripts.length > 0 ||
+      storyShots.length > 0 ||
+      visualCanvasItems.length > 0
+    ) {
+      return;
+    }
+
+    const latest = storyList[0];
+    if (!latest || autoLoadedStoryFor.current === latest.id) return;
+    autoLoadedStoryFor.current = latest.id;
+    void loadStory(latest.id);
+  }, [
+    activeStoryId,
+    cards.length,
+    isLoadingStories,
+    loadStory,
+    messages.length,
+    projectId,
+    scripts.length,
+    storyList,
+    storyShots.length,
+    visualCanvasItems.length,
+  ]);
 
   const createNewStory = useCallback(() => {
     clearCurrentStory();

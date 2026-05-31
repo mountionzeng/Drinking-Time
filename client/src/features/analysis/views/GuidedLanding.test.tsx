@@ -63,13 +63,16 @@ describe("GuidedLanding", () => {
   it("renders the two required entry buttons and the daily atmosphere layer", async () => {
     const { default: GuidedLanding } = await import("./GuidedLanding");
     const html = renderToStaticMarkup(
-      <GuidedLanding onSelectMaterial={() => {}} onSelectStory={() => {}} />,
+      <GuidedLanding onSelectMaterial={() => {}} onSelectStory={() => {}} />
     );
 
     expect(html).toContain("上传素材开始");
     expect(html).toContain("聊一个故事开始");
     expect(html).toContain("今日气息");
     expect(html).toContain("2026-05-13");
+    expect(html).toContain("农历丙午年三月廿七");
+    expect(html).toContain("穿短袖或薄衬衫");
+    expect(html).toContain("宜祭祀、求财");
     expect(html).toContain("屋上土");
     expect(html).toContain("小酌 · Drinking Time");
     expect(html).toContain("倒一杯，随便聊聊。");

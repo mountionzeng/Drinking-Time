@@ -30,9 +30,11 @@ interface Props {
 }
 
 export default function WorkspaceStageRouter(props: Props) {
-  const { cards } = useStoryAgent();
+  const { activeStoryId, cards, storyList } = useStoryAgent();
 
-  const hasData = props.references.length > 0 || cards.length > 0;
+  const hasStoryData =
+    activeStoryId !== null || cards.length > 0 || storyList.length > 0;
+  const hasData = props.references.length > 0 || hasStoryData;
 
   const workspaceStage = useMemo(() => {
     if (props.workspaceStageSticky) return 'workspace' as const;
@@ -45,6 +47,21 @@ export default function WorkspaceStageRouter(props: Props) {
       props.setWorkspaceStageSticky(true);
     }
   }, [workspaceStage, props.workspaceStageSticky, props.setWorkspaceStageSticky]);
+
+  useEffect(() => {
+    if (
+      hasStoryData &&
+      props.references.length === 0 &&
+      props.activeInputTab !== 'story'
+    ) {
+      props.setActiveInputTab('story');
+    }
+  }, [
+    hasStoryData,
+    props.activeInputTab,
+    props.references.length,
+    props.setActiveInputTab,
+  ]);
 
   if (workspaceStage === 'guided') {
     return (

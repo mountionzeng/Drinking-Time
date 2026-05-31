@@ -3,8 +3,22 @@ import { trpc } from '@/lib/trpc';
 import { toast } from 'sonner';
 import type { BackendReference } from '@/features/analysis/types';
 
+const PROJECT_ID_STORAGE_KEY = 'dt:currentProjectId';
+
 export function useProjectData() {
-  const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
+  // Seed from localStorage so a reload reuses the same project instead of drifting
+  // to whatever project.list happens to return first (which orphans story data
+  // keyed by the old projectId). Falls back to auto-select if the id is gone.
+  const [currentProjectId, setCurrentProjectId] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(PROJECT_ID_STORAGE_KEY);
+      const id = raw ? Number(raw) : NaN;
+      return Number.isFinite(id) && id > 0 ? id : null;
+    } catch {
+      return null;
+    }
+  });
 
   const utils = trpc.useUtils();
   const uploadRefMut = trpc.reference.upload.useMutation();
@@ -52,6 +66,16 @@ export function useProjectData() {
     projectListQuery.isLoading,
     utils.project.list,
   ]);
+
+  // Persist the active project id so reloads reuse the same workspace.
+  useEffect(() => {
+    if (currentProjectId === null) return;
+    try {
+      window.localStorage.setItem(PROJECT_ID_STORAGE_KEY, String(currentProjectId));
+    } catch {
+      // ignore storage errors
+    }
+  }, [currentProjectId]);
 
   const shots = shotsQuery.data ?? [];
   const references = refsQuery.data ?? [];
