@@ -22,6 +22,13 @@
       "when": 1780230987410,
       "tag": "0002_grey_kitty_pryde",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1780314669177,
+      "tag": "0003_story_landing_tables",
+      "breakpoints": true
     }
   ]
 }

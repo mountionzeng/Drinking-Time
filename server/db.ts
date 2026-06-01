@@ -390,11 +390,19 @@ async function persistMemoryState() {
   return memoryPersistQueue;
 }
 
+// 防呆：强制连接用 utf8mb4。mysql2 默认连接字符集是 3 字节的 utf8，
+// 中文存得下、但 emoji（4 字节）会乱码。已写了 charset 的连接串则原样保留。
+function ensureUtf8mb4(databaseUrl: string): string {
+  if (/[?&]charset=/i.test(databaseUrl)) return databaseUrl;
+  return `${databaseUrl}${databaseUrl.includes("?") ? "&" : "?"}charset=utf8mb4`;
+}
+
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!_db && databaseUrl) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _db = drizzle(ensureUtf8mb4(databaseUrl));
       if (!mysqlModeLogged) {
         console.log("[Database] 已连接 MySQL，故事走云端库");
         mysqlModeLogged = true;
@@ -405,7 +413,7 @@ export async function getDb() {
     }
   }
   if (!_db) {
-    if (!localPersistModeLogged && !process.env.DATABASE_URL) {
+    if (!localPersistModeLogged && !databaseUrl) {
       console.log("[Database] 未配置 DATABASE_URL，降级到本地持久化");
       localPersistModeLogged = true;
     }
