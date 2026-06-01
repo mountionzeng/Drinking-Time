@@ -145,3 +145,14 @@ export interface SelectionQuote {
 
 export const FIRST_QUESTION =
   '今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。';
+
+// 桌面端开场「报到 + 人格 + 定位」preamble（U4 / D4：前缀策略，不改 FIRST_QUESTION 文本）。
+// 一句话点到「朋友 + 助手」身份，落点交给 FIRST_QUESTION 的邀请。
+// 精简自原三句版：删掉与 FIRST_QUESTION 重复的「随口说 / 不用大事」，收到约 1/3，避免开场啰嗦（AE1 实测反馈）。
+// 硬约束：保留「你好，我是小酌 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
+// 不含「收集 / 采样」字样；不含「永久 / 永远记得 / 都会记住」式永久记忆承诺（R6/R13）。
+export const OPENING_PREAMBLE =
+  '你好，我是小酌——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。';
+
+// emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
+export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;

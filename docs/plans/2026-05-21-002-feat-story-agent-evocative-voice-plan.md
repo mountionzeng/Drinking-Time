@@ -2,10 +2,15 @@
 date: 2026-05-21
 feature: story-agent-evocative-voice
 requirements: docs/brainstorms/2026-05-19-story-agent-evocative-voice-requirements.md
-status: implemented
+status: superseded
+superseded_by: docs/plans/2026-06-01-001-feat-xiaozhuo-conversation-stickiness-plan.md
 ---
 
 # Plan: 小酌从「情绪取样器」改为「激发倾诉的陪伴者」
+
+> **⚠️ 状态订正（2026-06-01）**：本计划此前被标记为 `implemented`，但这是**误标**——在 2026-06-01 比对线上代码时发现，`server/archive/storyAgent.ts` 仍是旧的「取样器」提示词，本计划描述的重写**从未真正落地**。
+>
+> 这套声音地基的重写（取样器 → 陪伴者、删除问身体 / 贴标确认 / 负面偏置、`asEmotionOptions` 去方向性默认词）已于 2026-06-01 由后续计划的 **U1（声音地基）** 真正实现并补了契约测试，并在其基础上扩展了「照见真实的好」「收尾留线头」等。本文档保留作为那次重写的设计依据，状态改为 `superseded`，后续以 `superseded_by` 指向的新计划为准。
 
 ## Goal
 

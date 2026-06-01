@@ -79,6 +79,35 @@ export default function StoryListView() {
           </div>
         )}
 
+        {/* Option A：老用户进门先看「继续 vs 开新」的整屏问句，而非被默默带进最近一篇。
+            醒目问句 + 整宽「开始新故事」按钮 + 下方提示「点任意一篇接着聊」。 */}
+        {!isLoadingStories && storyList.length > 0 && (
+          <div
+            className="pb-3 mb-1 border-b"
+            style={{ borderColor: 'var(--panel-border)' }}
+          >
+            <p className="text-sm font-medium leading-snug mb-2">
+              继续上次没聊完的，还是开个新的？
+            </p>
+            <button
+              type="button"
+              onClick={createNewStory}
+              className="w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg transition-colors"
+              style={{
+                background: 'var(--nayin-accent)',
+                color: 'var(--background)',
+              }}
+              title="从头说一件新的小事"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              开始新故事
+            </button>
+            <p className="text-[10px] text-muted-foreground leading-snug mt-2">
+              或点下面任意一篇，接着上次聊。
+            </p>
+          </div>
+        )}
+
         {storyList.map((story) => (
           <button
             key={story.id}

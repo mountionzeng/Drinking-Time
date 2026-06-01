@@ -17,7 +17,7 @@ import {
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import {
-  FIRST_QUESTION,
+  OPENING_MESSAGE,
   type ChatMessage,
   type StoryCard,
   type GeneratedScript,
@@ -243,7 +243,7 @@ function emptyState(): PersistedState {
       {
         id: 'first-question',
         role: 'assistant',
-        content: FIRST_QUESTION,
+        content: OPENING_MESSAGE,
         timestamp: Date.now(),
       },
     ],
@@ -592,7 +592,6 @@ export function StoryAgentProvider({
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
   const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
   const hydratedFor = useRef<number | null>(null);
-  const autoLoadedStoryFor = useRef<number | null>(null);
 
   // ── Auto-save refs ──────────────────────────────────────────────────
   // Stable session ID for this browser session
@@ -636,14 +635,17 @@ export function StoryAgentProvider({
     setStoryArc(persisted.arc);
     setVisualCanvasItems(persisted.visualCanvasItems ?? []);
     setVisualPreference(persisted.visualPreference ?? '');
-    setActiveStoryId(activeStoryIdFrom(persisted));
+    // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
+    // 已保存过的故事（有 remoteStoryId）一律回到选择屏——它仍在云端列表里，随时可点回；
+    // 只有「未存过的新草稿」(有内容但还没 remoteStoryId) 才直接恢复，否则它不在列表里、
+    // 进了选择屏就再也找不回来、会丢草稿。
+    const restored = activeStoryIdFrom(persisted);
+    const isUnsavedNewDraft =
+      persisted.remoteStoryId == null && hasStoryWork(persisted);
+    setActiveStoryId(isUnsavedNewDraft ? restored : null);
     setSaveStatus(persisted.remoteStoryId ? 'saved' : 'idle');
     setLastSavedAt(persisted.savedAt);
     hydratedFor.current = projectId;
-  }, [projectId]);
-
-  useEffect(() => {
-    autoLoadedStoryFor.current = null;
   }, [projectId]);
 
   // Story loading is now handled explicitly via loadStory() from the story list.
@@ -812,7 +814,11 @@ export function StoryAgentProvider({
         });
         if (saved && typeof saved.id === 'number') {
           setRemoteStoryId(saved.id);
-          setActiveStoryId(saved.id);
+          // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
+          // 若用户正停在选择屏 (activeStoryId === null)，后台自动保存绝不能把人弹进故事——
+          // 否则进门时 hydrate 灌入内容触发的一次后台保存，会让选择屏「闪一下」就跳进上次那篇
+          // （Option A 实测 bug：#1 闪一下就结束）。
+          setActiveStoryId((current) => (current === null ? null : saved.id));
           setSaveStatus('saved');
           setLastSavedAt(Date.now());
         }
@@ -1530,37 +1536,10 @@ export function StoryAgentProvider({
     }
   }, [utils.storyAgent.storyGet]);
 
-  useEffect(() => {
-    if (projectId === null) return;
-    if (isLoadingStories) return;
-    if (activeStoryId !== null) return;
-    if (storyList.length === 0) return;
-    if (
-      cards.length > 0 ||
-      messages.length > 1 ||
-      scripts.length > 0 ||
-      storyShots.length > 0 ||
-      visualCanvasItems.length > 0
-    ) {
-      return;
-    }
-
-    const latest = storyList[0];
-    if (!latest || autoLoadedStoryFor.current === latest.id) return;
-    autoLoadedStoryFor.current = latest.id;
-    void loadStory(latest.id);
-  }, [
-    activeStoryId,
-    cards.length,
-    isLoadingStories,
-    loadStory,
-    messages.length,
-    projectId,
-    scripts.length,
-    storyList,
-    storyShots.length,
-    visualCanvasItems.length,
-  ]);
+  // 不再自动加载最近一篇：老用户进门先看「继续 vs 开新」选择屏（StoryListView），
+  // 由 loadStory() / createNewStory() 显式进入对话。（Option A：开头直接问）
+  // 注意：刷新时仍会通过上面的 hydrate 恢复「显式打开过的」activeStoryId，
+  // 这里只移除「自动替用户挑最近一篇」的行为。
 
   const createNewStory = useCallback(() => {
     clearCurrentStory();
