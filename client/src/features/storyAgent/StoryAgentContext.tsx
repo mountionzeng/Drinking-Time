@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import {
   OPENING_MESSAGE,
+  buildReturningGreeting,
   type ChatMessage,
   type StoryCard,
   type GeneratedScript,
@@ -94,6 +95,12 @@ interface StoryAgentContextValue {
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
   refreshStoryList: () => void;
+  /**
+   * 老用户点回旧故事时，小酌的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
+   * 仅活在内存里：永不进 messages、永不落库，所以反复点回不会堆叠、也不会污染历史。
+   * 用户一旦再开口 / 返回列表 / 开新故事就清空。
+   */
+  returningGreeting: string | null;
   /** Visual anchor canvas / Art Agent */
   visualCanvasItems: VisualCanvasItem[];
   visualPreference: string;
@@ -590,6 +597,8 @@ export function StoryAgentProvider({
   const [lastSavedAt, setLastSavedAt] = useState<number | undefined>(undefined);
   const [isLoadingStories, setIsLoadingStories] = useState(false);
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
+  // 第二步：老用户点回旧故事时的「我还记得上次……」再问候。纯内存、不落库（见 interface 注释）。
+  const [returningGreeting, setReturningGreeting] = useState<string | null>(null);
   const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
   const hydratedFor = useRef<number | null>(null);
 
@@ -921,6 +930,8 @@ export function StoryAgentProvider({
       const nextMessages = [...messages, userMsg];
       setMessages(nextMessages);
       setIsReplying(true);
+      // 用户重新开口，「我还记得上次」再问候已完成使命——收起，免得卡在新对话中间。
+      setReturningGreeting(null);
 
       // Capture snapshot of current state before Agent generation.
       // Errors are silent — snapshot failure must never block message send.
@@ -1405,6 +1416,7 @@ export function StoryAgentProvider({
     setActiveStoryId(-1);
     setSaveStatus('idle');
     setLastSavedAt(undefined);
+    setReturningGreeting(null);
     toast.success('已开始新故事，旧故事仍保留在云端故事库');
   }, []);
 
@@ -1461,6 +1473,7 @@ export function StoryAgentProvider({
     setVisualPreference('');
     setSaveStatus('idle');
     setLastSavedAt(undefined);
+    setReturningGreeting(null);
   }, []);
 
   const loadStory = useCallback(async (id: number) => {
@@ -1530,6 +1543,20 @@ export function StoryAgentProvider({
       setActiveStoryId(id);
       setSaveStatus('saved');
       setLastSavedAt(row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now());
+
+      // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
+      // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
+      const lastCard = restoredCards[restoredCards.length - 1];
+      setReturningGreeting(
+        buildReturningGreeting({
+          hasPriorUserMessages: restoredMessages.some(
+            (m) => m.role === 'user' && m.content.trim().length > 0,
+          ),
+          logline: row.logline,
+          lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
+          title: row.title,
+        }),
+      );
     } catch (error) {
       console.error('loadStory failed', error);
       toast.error('加载故事失败');
@@ -1548,6 +1575,7 @@ export function StoryAgentProvider({
 
   const backToList = useCallback(() => {
     setActiveStoryId(null);
+    setReturningGreeting(null);
     refreshStoryList();
   }, [refreshStoryList]);
 
@@ -1777,6 +1805,7 @@ export function StoryAgentProvider({
       const nextMessages = [...messages, userMsg];
       setMessages(nextMessages);
       setIsReplying(true);
+      setReturningGreeting(null);
 
       try {
         const result = await selectionEditMut.mutateAsync({
@@ -1888,6 +1917,7 @@ export function StoryAgentProvider({
       backToList,
       deleteStory: handleDeleteStory,
       refreshStoryList,
+      returningGreeting,
       visualCanvasItems,
       visualPreference,
       isArtWorking,
@@ -1928,6 +1958,7 @@ export function StoryAgentProvider({
       backToList,
       handleDeleteStory,
       refreshStoryList,
+      returningGreeting,
       visualCanvasItems,
       visualPreference,
       isArtWorking,

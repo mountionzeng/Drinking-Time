@@ -156,3 +156,47 @@ export const OPENING_PREAMBLE =
 
 // emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
 export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;
+
+// ── 第二步：召回 + 记忆承诺 ──
+// 老用户从「入口选择屏」点回一篇旧故事时，小酌说的「我还记得上次……」再问候。
+// 这是「记忆承诺」体验的核心一句：用真实留存的内容（logline / 最近一张卡片 / 标题）
+// 证明「我记着」，把人温柔地接回这篇，邀请往下说。
+//
+// honesty 约束（R6 / R13）：
+//   · 语气克制——只说「还记着 / 还留着 / 还在」，绝不承诺「永久 / 永远记住 / 都会记住」；
+//     承诺强度被本地留存能力兜着（同账号服务端留存，不是永久），不能说死。
+//   · 不再问「继续还是开新」——那是入口选择屏的事；这里只接回这一篇。
+//   · 没有任何用户发言可召回时返回 null（不硬造记忆、不对空故事假装记得）。
+// 守着这些约束的回归测试在 returningGreeting.test.ts。
+export interface ReturningGreetingInput {
+  /** 这篇故事里是否有过用户真实发言（只有开场白不算）。false → 不召回。 */
+  hasPriorUserMessages: boolean;
+  /** 故事 logline（最有画面感，优先用）。 */
+  logline?: string | null;
+  /** 最近一张卡片的原话锚点（card.sourceQuote，≤24 字），次选。 */
+  lastCardQuote?: string | null;
+  /** 故事标题，再次选。 */
+  title?: string | null;
+}
+
+function clampGreetingText(value: string, max: number): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact.length > max ? `${compact.slice(0, max)}…` : compact;
+}
+
+export function buildReturningGreeting(input: ReturningGreetingInput): string | null {
+  if (!input.hasPriorUserMessages) return null;
+  const logline = input.logline?.trim();
+  const quote = input.lastCardQuote?.trim();
+  const title = input.title?.trim();
+  if (logline) {
+    return `我还记得我们上次聊到的——「${clampGreetingText(logline, 40)}」。今天想从这儿接着说吗？`;
+  }
+  if (quote) {
+    return `上次你说到「${clampGreetingText(quote, 24)}」，我还记着。今天想接着往下聊吗？`;
+  }
+  if (title) {
+    return `「${clampGreetingText(title, 24)}」我还留着呢。今天想从哪儿接着说？`;
+  }
+  return '我还在呢，上次聊的都留着。今天想从哪儿接着说？';
+}

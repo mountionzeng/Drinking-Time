@@ -16,7 +16,7 @@ import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 export default function StoryAgentChat() {
   const {
     messages, cards, isReplying, sendMessage, resetConversation, backToList,
-    activeStoryId, remoteStoryId, saveStatus, lastSavedAt,
+    activeStoryId, remoteStoryId, saveStatus, lastSavedAt, returningGreeting,
     activeSelection, clearSelection, sendSelectionEdit,
   } = useStoryAgent();
   const { element } = useNayin();
@@ -99,7 +99,7 @@ export default function StoryAgentChat() {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [messages, isReplying]);
+  }, [messages, isReplying, returningGreeting]);
 
   const handleSubmit = async () => {
     const text = input.trim();
@@ -240,6 +240,49 @@ export default function StoryAgentChat() {
             </motion.div>
           ))}
         </AnimatePresence>
+
+        {/* 第二步：老用户点回旧故事时，小酌「我还记得上次……」的再问候。
+            轻染色背景 + 「接着上次聊」分隔线，读起来是「小酌此刻刚说的」，区别于上面恢复的历史。
+            这条只活在内存里，不进 messages、不落库（见 StoryAgentContext）。 */}
+        {returningGreeting && !isReplying && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col gap-2"
+          >
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span
+                className="flex-1 border-t"
+                style={{ borderColor: 'var(--panel-border)' }}
+              />
+              <span className="font-mono uppercase tracking-[0.16em]">
+                接着上次聊
+              </span>
+              <span
+                className="flex-1 border-t"
+                style={{ borderColor: 'var(--panel-border)' }}
+              />
+            </div>
+            <div className="flex justify-start">
+              <div
+                className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2 text-[12.5px] leading-relaxed"
+                style={{
+                  background: 'var(--nayin-glow)',
+                  borderColor: 'var(--nayin-accent-dim)',
+                  color: 'var(--foreground)',
+                }}
+              >
+                <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                  <WuxingDrinkIcon element={element} size={18} />
+                  <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+                    小酌
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap">{returningGreeting}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {isReplying && (
           <motion.div
