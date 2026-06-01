@@ -16,7 +16,7 @@ import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 export default function StoryAgentChat() {
   const {
     messages, cards, isReplying, sendMessage, resetConversation, backToList,
-    activeStoryId, remoteStoryId,
+    activeStoryId, remoteStoryId, saveStatus, lastSavedAt,
     activeSelection, clearSelection, sendSelectionEdit,
   } = useStoryAgent();
   const { element } = useNayin();
@@ -28,6 +28,19 @@ export default function StoryAgentChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const saveLabel =
+    saveStatus === 'saving'
+      ? '云端保存中'
+      : saveStatus === 'error'
+        ? '云端保存失败，本地备份还在'
+        : remoteStoryId || (activeStoryId && activeStoryId > 0)
+          ? `已云端保存 #${remoteStoryId ?? activeStoryId}`
+          : '待云端保存';
+  const saveTitle =
+    saveStatus === 'saved' && lastSavedAt
+      ? `保存到当前账号的云端故事库：${new Date(lastSavedAt).toLocaleString('zh-CN')}`
+      : '保存到当前账号的云端故事库';
 
   const resizeAndFocusInput = useCallback(() => {
     requestAnimationFrame(() => {
@@ -141,21 +154,23 @@ export default function StoryAgentChat() {
               background: 'var(--nayin-glow)',
               color: 'var(--nayin-accent-bright)',
             }}
-            title="保存到当前账号的云端故事库"
+            title={saveTitle}
           >
-            <Cloud className="h-2.5 w-2.5" />
-            {remoteStoryId || (activeStoryId && activeStoryId > 0)
-              ? `云端 #${remoteStoryId ?? activeStoryId}`
-              : '待保存'}
+            {saveStatus === 'saving' ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <Cloud className="h-2.5 w-2.5" />
+            )}
+            {saveLabel}
           </span>
           <button
             type="button"
             onClick={resetConversation}
             className="text-[10px] opacity-50 hover:opacity-100 transition-opacity flex items-center gap-1"
-            title="重新开始"
+            title="开始一个新故事，不删除云端故事库里的旧故事"
           >
             <RefreshCcw className="w-3 h-3" />
-            重来
+            新故事
           </button>
         </span>
       </div>

@@ -44,6 +44,8 @@ interface PersistedState {
   activeStoryId?: number;
 }
 
+type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 export type StoryListItem = {
   id: number;
   title: string;
@@ -83,6 +85,8 @@ interface StoryAgentContextValue {
   /** Story list management */
   activeStoryId: number | null;
   remoteStoryId?: number;
+  saveStatus: StorySaveStatus;
+  lastSavedAt?: number;
   storyList: StoryListItem[];
   isLoadingStories: boolean;
   loadStory: (id: number) => Promise<void>;
@@ -176,6 +180,22 @@ function activeStoryIdFrom(state: PersistedState): number | null {
   if (typeof state.activeStoryId === 'number') return state.activeStoryId;
   if (typeof state.remoteStoryId === 'number') return state.remoteStoryId;
   return hasStoryWork(state) ? -1 : null;
+}
+
+function hasLiveStoryWork(state: {
+  messages: ChatMessage[];
+  cards: StoryCard[];
+  scripts: GeneratedScript[];
+  storyShots: StoryShot[];
+  visualCanvasItems?: VisualCanvasItem[];
+}): boolean {
+  return (
+    state.cards.length > 0 ||
+    state.scripts.length > 0 ||
+    state.storyShots.length > 0 ||
+    (state.visualCanvasItems?.length ?? 0) > 0 ||
+    state.messages.some((message) => message.role === 'user' && message.content.trim().length > 0)
+  );
 }
 
 function loadState(projectId: number | null): PersistedState {
@@ -566,6 +586,8 @@ export function StoryAgentProvider({
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+  const [saveStatus, setSaveStatus] = useState<StorySaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<number | undefined>(undefined);
   const [isLoadingStories, setIsLoadingStories] = useState(false);
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
   const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
@@ -577,6 +599,7 @@ export function StoryAgentProvider({
   const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   // Hash of cards/scripts/shots at the time of last snapshot (explicit or auto)
   const lastSnapshotHashRef = useRef('');
+  const lastArchiveSaveHashRef = useRef('');
   // Timestamp of the most recent cards/scripts/shots state change
   const lastStateChangeTimeRef = useRef(Date.now());
   // Mirror of isReplying / isGeneratingScript as refs so the timer closure can read them
@@ -614,6 +637,8 @@ export function StoryAgentProvider({
     setVisualCanvasItems(persisted.visualCanvasItems ?? []);
     setVisualPreference(persisted.visualPreference ?? '');
     setActiveStoryId(activeStoryIdFrom(persisted));
+    setSaveStatus(persisted.remoteStoryId ? 'saved' : 'idle');
+    setLastSavedAt(persisted.savedAt);
     hydratedFor.current = projectId;
   }, [projectId]);
 
@@ -747,7 +772,7 @@ export function StoryAgentProvider({
       visualCanvasItems?: VisualCanvasItem[];
       visualPreference?: string;
     }) => {
-      if (projectId === null) return;
+      if (!hasLiveStoryWork(snapshot)) return;
       const latest =
         snapshot.scripts.length > 0
           ? snapshot.scripts[snapshot.scripts.length - 1]
@@ -765,6 +790,7 @@ export function StoryAgentProvider({
       const preference = snapshot.visualPreference ?? visualPreference;
 
       try {
+        setSaveStatus('saving');
         const saved = await storyUpsertMut.mutateAsync({
           id: snapshot.remoteStoryId ?? remoteStoryId,
           projectId: projectId ?? undefined,
@@ -787,13 +813,16 @@ export function StoryAgentProvider({
         if (saved && typeof saved.id === 'number') {
           setRemoteStoryId(saved.id);
           setActiveStoryId(saved.id);
+          setSaveStatus('saved');
+          setLastSavedAt(Date.now());
         }
       } catch (error) {
         console.warn('save archive story failed', error);
         // Clear stale remoteStoryId so the next save attempt creates a fresh story
         // instead of repeatedly failing to update a story that no longer exists.
         setRemoteStoryId(undefined);
-        toast.error('故事保存失败，将在下次自动重新创建');
+        setSaveStatus('error');
+        toast.error('云端保存失败，本机仍有临时备份，会继续重试');
       }
     },
     [
@@ -807,6 +836,70 @@ export function StoryAgentProvider({
       visualPreference,
     ],
   );
+
+  useEffect(() => {
+    if (projectId !== null && hydratedFor.current !== projectId) return;
+    if (isReplying || isGeneratingScript) return;
+    const snapshot = {
+      messages,
+      cards,
+      scripts,
+      storyShots,
+      characters,
+      remoteStoryId,
+      title: storyTitle,
+      logline: storyLogline,
+      theme: storyTheme,
+      arc: storyArc,
+      visualCanvasItems,
+      visualPreference,
+    };
+    if (!hasLiveStoryWork(snapshot)) return;
+
+    const currentHash = JSON.stringify({
+      messages: messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        spawnedCardId: message.spawnedCardId,
+      })),
+      cards,
+      scripts,
+      storyShots,
+      characters,
+      title: storyTitle,
+      logline: storyLogline,
+      theme: storyTheme,
+      arc: storyArc,
+      visualCanvasItems,
+      visualPreference,
+    });
+    if (currentHash === lastArchiveSaveHashRef.current) return;
+
+    const timerId = window.setTimeout(() => {
+      lastArchiveSaveHashRef.current = currentHash;
+      void saveArchiveStory(snapshot);
+    }, 1_500);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    messages,
+    cards,
+    scripts,
+    storyShots,
+    characters,
+    remoteStoryId,
+    storyTitle,
+    storyLogline,
+    storyTheme,
+    storyArc,
+    visualCanvasItems,
+    visualPreference,
+    isReplying,
+    isGeneratingScript,
+    projectId,
+    saveArchiveStory,
+  ]);
 
   const sendMessage = useCallback(
     async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
@@ -1291,7 +1384,6 @@ export function StoryAgentProvider({
 
   const resetConversation = useCallback(() => {
     const fresh = emptyState();
-    const storyIdToDelete = remoteStoryId;
     setMessages(fresh.messages);
     setCards([]);
     setScripts([]);
@@ -1304,12 +1396,11 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
-    if (storyIdToDelete) {
-      void storyDeleteMut.mutateAsync({ id: storyIdToDelete }).catch(
-        (error) => console.warn('delete archive story failed', error),
-      );
-    }
-  }, [remoteStoryId]);
+    setActiveStoryId(-1);
+    setSaveStatus('idle');
+    setLastSavedAt(undefined);
+    toast.success('已开始新故事，旧故事仍保留在云端故事库');
+  }, []);
 
   const refreshStoryList = useCallback(async () => {
     setIsLoadingStories(true);
@@ -1362,6 +1453,8 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
+    setSaveStatus('idle');
+    setLastSavedAt(undefined);
   }, []);
 
   const loadStory = useCallback(async (id: number) => {
@@ -1429,6 +1522,8 @@ export function StoryAgentProvider({
       });
       setScripts(remoteScript ? [remoteScript] : []);
       setActiveStoryId(id);
+      setSaveStatus('saved');
+      setLastSavedAt(row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now());
     } catch (error) {
       console.error('loadStory failed', error);
       toast.error('加载故事失败');
@@ -1805,6 +1900,8 @@ export function StoryAgentProvider({
       resetConversation,
       activeStoryId,
       remoteStoryId,
+      saveStatus,
+      lastSavedAt,
       storyList,
       isLoadingStories,
       loadStory,
@@ -1843,6 +1940,8 @@ export function StoryAgentProvider({
       resetConversation,
       activeStoryId,
       remoteStoryId,
+      saveStatus,
+      lastSavedAt,
       storyList,
       isLoadingStories,
       loadStory,
