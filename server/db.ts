@@ -1,6 +1,14 @@
 import { eq, and, desc, gte, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import {
   InsertUser,
@@ -44,6 +52,8 @@ export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let mysqlModeLogged = false;
+let localPersistModeLogged = false;
 
 type MemoryState = {
   users: User[];
@@ -120,9 +130,36 @@ function applyDefinedValues(
   }
 }
 
+// 默认真文件路径。测试 / 脚本只要没显式改 LOCAL_PERSIST_PATH，就会落在这里——
+// 也正是 2026-06-01 被测试空状态原子覆盖掉的那一份。下面 persistMemoryStateToDisk
+// 里的「测试防误写」会拒绝在测试环境往这个默认真文件写，哪怕有人忘了隔离。
+const DEFAULT_LOCAL_PERSIST_PATH = path.join(
+  process.cwd(),
+  ".webdev",
+  "local-persist.json"
+);
 const LOCAL_PERSIST_PATH =
-  process.env.LOCAL_PERSIST_PATH?.trim() ||
-  path.join(process.cwd(), ".webdev", "local-persist.json");
+  process.env.LOCAL_PERSIST_PATH?.trim() || DEFAULT_LOCAL_PERSIST_PATH;
+
+// ── 本地持久化安全网（2026-06-01 数据事故后加）──
+// 文件模式是「每次改动整体重写 + 原子替换」。原子只防「写一半崩了」，不防
+// 「完整地写空 / 写错」——今天就是后者：一份合法但空的 state 把 308KB 真数据
+// 干净地替换掉了。这里加两层网：① 写前滚动备份（一次坏写最多丢上次备份之后那点）；
+// ② 体积骤减时强制备份 + 大声告警，方便人发现。
+const LOCAL_PERSIST_BACKUP_DIR = path.join(
+  path.dirname(LOCAL_PERSIST_PATH),
+  "backups"
+);
+const BACKUP_THROTTLE_MS = 60_000; // 例行备份最密一分钟一次，避免高频写时刷屏
+const BACKUP_KEEP = 50; // 备份目录只留最近 50 份
+const SHRINK_MIN_BYTES = 4096; // 盘上原文件够大才判骤减，避免小→小误报
+const SHRINK_RATIO = 0.4; // 新内容 < 原文件 40% 视为骤减
+let lastBackupAt = 0;
+let testWriteBlockedWarned = false;
+
+// vitest 会自动设 VITEST=true；NODE_ENV=test 兜底。运行时读，避免模块加载快照过期。
+const isTestEnv = () =>
+  Boolean(process.env.VITEST) || process.env.NODE_ENV === "test";
 
 let memoryLoaded = false;
 let memoryLoadPromise: Promise<void> | null = null;
@@ -278,11 +315,69 @@ async function ensureMemoryLoaded() {
   return memoryLoadPromise;
 }
 
+// 写前备份：盘上已有文件时，按节流（≤1/分钟）或「体积骤减」拷一份到 backups/，
+// 再修剪到最近 BACKUP_KEEP 份。任何失败都不影响主写入。
+async function backupBeforeWrite(nextBytes: number): Promise<void> {
+  if (isTestEnv()) return; // 测试不留备份，保持临时目录干净
+  let existingBytes: number;
+  try {
+    existingBytes = (await stat(LOCAL_PERSIST_PATH)).size;
+  } catch {
+    // ENOENT = 还没有文件，无需备份；其它错误也别挡住主写入
+    return;
+  }
+  const shrink =
+    existingBytes > SHRINK_MIN_BYTES && nextBytes < existingBytes * SHRINK_RATIO;
+  const dueByTime = Date.now() - lastBackupAt > BACKUP_THROTTLE_MS;
+  if (!shrink && !dueByTime) return;
+  try {
+    await mkdir(LOCAL_PERSIST_BACKUP_DIR, { recursive: true });
+    const content = await readFile(LOCAL_PERSIST_PATH, "utf-8");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const name = `local-persist-${ts}${shrink ? "-SHRINK" : ""}.json`;
+    await writeFile(
+      path.join(LOCAL_PERSIST_BACKUP_DIR, name),
+      content,
+      "utf-8"
+    );
+    lastBackupAt = Date.now();
+    if (shrink) {
+      console.warn(
+        `[LocalPersist] ⚠️ 数据疑似骤减（${existingBytes}B → ${nextBytes}B），已先备份到 ${LOCAL_PERSIST_BACKUP_DIR}。若非你主动清空，去 backups/ 里找回。`
+      );
+    }
+    // 修剪：文件名含 ISO 时间戳，字典序≈时间序，删掉最旧的、只留最近 BACKUP_KEEP 份。
+    const files = (await readdir(LOCAL_PERSIST_BACKUP_DIR))
+      .filter(f => f.startsWith("local-persist-") && f.endsWith(".json"))
+      .sort();
+    for (const stale of files.slice(0, Math.max(0, files.length - BACKUP_KEEP))) {
+      await unlink(path.join(LOCAL_PERSIST_BACKUP_DIR, stale)).catch(() => {});
+    }
+  } catch (error) {
+    console.warn("[LocalPersist] 备份失败（不影响主写入）：", error);
+  }
+}
+
 async function persistMemoryStateToDisk() {
+  // ① 测试防误写：测试环境下，绝不往默认真文件写——哪怕 vitest.setup.ts 被删/没生效。
+  //    要在测试里持久化，必须在导入前显式设 LOCAL_PERSIST_PATH（指向临时文件）。
+  if (isTestEnv() && LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH) {
+    if (!testWriteBlockedWarned) {
+      console.warn(
+        "[LocalPersist] 测试环境拒绝写入真文件（未设 LOCAL_PERSIST_PATH）。如需在测试里持久化，请在导入前设置该环境变量指向临时文件。"
+      );
+      testWriteBlockedWarned = true;
+    }
+    return;
+  }
   const dir = path.dirname(LOCAL_PERSIST_PATH);
   await mkdir(dir, { recursive: true });
+  const payload = JSON.stringify(memoryState, null, 2);
+  const nextBytes = Buffer.byteLength(payload, "utf-8");
+  // ② 写前滚动备份 + 骤减告警
+  await backupBeforeWrite(nextBytes);
   const tmpPath = `${LOCAL_PERSIST_PATH}.tmp`;
-  await writeFile(tmpPath, JSON.stringify(memoryState, null, 2), "utf-8");
+  await writeFile(tmpPath, payload, "utf-8");
   await rename(tmpPath, LOCAL_PERSIST_PATH);
 }
 
@@ -300,12 +395,20 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
+      if (!mysqlModeLogged) {
+        console.log("[Database] 已连接 MySQL，故事走云端库");
+        mysqlModeLogged = true;
+      }
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   if (!_db) {
+    if (!localPersistModeLogged && !process.env.DATABASE_URL) {
+      console.log("[Database] 未配置 DATABASE_URL，降级到本地持久化");
+      localPersistModeLogged = true;
+    }
     await ensureMemoryLoaded();
   }
   return _db;
