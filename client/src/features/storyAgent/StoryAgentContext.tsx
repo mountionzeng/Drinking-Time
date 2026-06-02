@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
+import { normalizeImageProvider, type ImageProvider } from '@shared/imageProvider';
 import { trpc } from '@/lib/trpc';
 import {
   OPENING_MESSAGE,
@@ -41,11 +42,13 @@ interface PersistedState {
   summary?: string;
   visualCanvasItems?: VisualCanvasItem[];
   visualPreference?: string;
+  imageProvider?: ImageProviderSelection;
   savedAt?: number;
   activeStoryId?: number;
 }
 
 type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type ImageProviderSelection = 'default' | ImageProvider;
 
 export type StoryListItem = {
   id: number;
@@ -104,6 +107,8 @@ interface StoryAgentContextValue {
   /** Visual anchor canvas / Art Agent */
   visualCanvasItems: VisualCanvasItem[];
   visualPreference: string;
+  imageProvider: ImageProviderSelection;
+  setImageProvider: (provider: ImageProviderSelection) => void;
   isArtWorking: boolean;
   addVisualReference: (file: File, instruction?: string, cardId?: string) => Promise<void>;
   refineVisualItem: (id: string, instruction: string) => Promise<void>;
@@ -164,6 +169,7 @@ function normalizePersisted(parsed: PersistedState): PersistedState {
       ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
       : [],
     visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
+    imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
     activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
   };
@@ -260,7 +266,18 @@ function emptyState(): PersistedState {
     characters: [],
     visualCanvasItems: [],
     visualPreference: '',
+    imageProvider: 'default',
   };
+}
+
+function normalizeImageProviderSelection(value: unknown): ImageProviderSelection {
+  if (value === 'default') return 'default';
+  if (typeof value !== 'string') return 'default';
+  return normalizeImageProvider(value);
+}
+
+function imageProviderForRequest(value: ImageProviderSelection): ImageProvider | undefined {
+  return value === 'default' ? undefined : value;
 }
 
 function newId(prefix: string): string {
@@ -589,6 +606,7 @@ export function StoryAgentProvider({
   const [storyArc, setStoryArc] = useState<string | undefined>(undefined);
   const [visualCanvasItems, setVisualCanvasItems] = useState<VisualCanvasItem[]>([]);
   const [visualPreference, setVisualPreference] = useState('');
+  const [imageProvider, setImageProvider] = useState<ImageProviderSelection>('default');
   const [isArtWorking, setIsArtWorking] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -644,6 +662,7 @@ export function StoryAgentProvider({
     setStoryArc(persisted.arc);
     setVisualCanvasItems(persisted.visualCanvasItems ?? []);
     setVisualPreference(persisted.visualPreference ?? '');
+    setImageProvider(persisted.imageProvider ?? 'default');
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
     // 已保存过的故事（有 remoteStoryId）一律回到选择屏——它仍在云端列表里，随时可点回；
     // 只有「未存过的新草稿」(有内容但还没 remoteStoryId) 才直接恢复，否则它不在列表里、
@@ -676,6 +695,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
       savedAt: Date.now(),
       activeStoryId: activeStoryId ?? undefined,
     };
@@ -698,6 +718,7 @@ export function StoryAgentProvider({
     storyArc,
     visualCanvasItems,
     visualPreference,
+    imageProvider,
     activeStoryId,
   ]);
 
@@ -782,6 +803,7 @@ export function StoryAgentProvider({
       summary?: string;
       visualCanvasItems?: VisualCanvasItem[];
       visualPreference?: string;
+      imageProvider?: ImageProviderSelection;
     }) => {
       if (!hasLiveStoryWork(snapshot)) return;
       const latest =
@@ -799,6 +821,7 @@ export function StoryAgentProvider({
       const arc = snapshot.arc ?? storyArc ?? latest?.arcSummary ?? '';
       const canvasItems = snapshot.visualCanvasItems ?? visualCanvasItems;
       const preference = snapshot.visualPreference ?? visualPreference;
+      const selectedProvider = snapshot.imageProvider ?? imageProvider;
 
       try {
         setSaveStatus('saving');
@@ -816,6 +839,7 @@ export function StoryAgentProvider({
             shots: snapshot.storyShots,
             visualCanvasItems: canvasItems,
             visualPreference: preference,
+            imageProvider: selectedProvider,
             variants: latest?.variants ?? [],
             boringCheck: latest?.boringCheck ?? null,
             messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
@@ -849,6 +873,7 @@ export function StoryAgentProvider({
       storyArc,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
     ],
   );
 
@@ -868,6 +893,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
     };
     if (!hasLiveStoryWork(snapshot)) return;
 
@@ -888,6 +914,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
     });
     if (currentHash === lastArchiveSaveHashRef.current) return;
 
@@ -910,6 +937,7 @@ export function StoryAgentProvider({
     storyArc,
     visualCanvasItems,
     visualPreference,
+    imageProvider,
     isReplying,
     isGeneratingScript,
     projectId,
@@ -1471,6 +1499,7 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
+    setImageProvider('default');
     setSaveStatus('idle');
     setLastSavedAt(undefined);
     setReturningGreeting(null);
@@ -1511,6 +1540,7 @@ export function StoryAgentProvider({
         : [];
       const restoredVisualPreference =
         typeof body.visualPreference === 'string' ? body.visualPreference : '';
+      const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
 
       setRemoteStoryId(id);
       setStoryTitle(row.title || undefined);
@@ -1523,6 +1553,7 @@ export function StoryAgentProvider({
       setMessages(restoredMessages);
       setVisualCanvasItems(restoredVisualCanvasItems);
       setVisualPreference(restoredVisualPreference);
+      setImageProvider(restoredImageProvider);
 
       const remoteScript = scriptFromStory({
         title: row.title || undefined,
@@ -1611,6 +1642,7 @@ export function StoryAgentProvider({
         arc: storyArc,
         visualCanvasItems: nextItems,
         visualPreference: nextPreference,
+        imageProvider,
       });
     },
     [
@@ -1625,6 +1657,7 @@ export function StoryAgentProvider({
       storyLogline,
       storyTheme,
       storyArc,
+      imageProvider,
       saveArchiveStory,
     ],
   );
@@ -1645,6 +1678,7 @@ export function StoryAgentProvider({
           fileName: file.name,
           instruction,
           projectPreference: visualPreference,
+          imageProvider: imageProviderForRequest(imageProvider),
         });
         const offset = visualCanvasItems.length * 18;
         const item: VisualCanvasItem = {
@@ -1676,6 +1710,7 @@ export function StoryAgentProvider({
       isArtWorking,
       artRiffMut,
       visualPreference,
+      imageProvider,
       visualCanvasItems,
       persistVisualCanvas,
     ],
@@ -1698,6 +1733,7 @@ export function StoryAgentProvider({
           projectPreference: visualPreference,
           previousPrompt: item.prompt,
           previousAnalysis: item.analysis as unknown as Record<string, unknown>,
+          imageProvider: imageProviderForRequest(imageProvider),
         });
         const nextItem: VisualCanvasItem = {
           ...item,
@@ -1728,6 +1764,7 @@ export function StoryAgentProvider({
       isArtWorking,
       artRiffMut,
       visualPreference,
+      imageProvider,
       persistVisualCanvas,
     ],
   );
@@ -1920,6 +1957,8 @@ export function StoryAgentProvider({
       returningGreeting,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
+      setImageProvider,
       isArtWorking,
       addVisualReference,
       refineVisualItem,
@@ -1961,6 +2000,7 @@ export function StoryAgentProvider({
       returningGreeting,
       visualCanvasItems,
       visualPreference,
+      imageProvider,
       isArtWorking,
       addVisualReference,
       refineVisualItem,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
+import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -273,6 +274,7 @@ export const appRouter = router({
             projectPreference: z.string().optional(),
             previousPrompt: z.string().optional(),
             previousAnalysis: z.record(z.string(), z.unknown()).optional(),
+            imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
           })
           .refine(value => Boolean(value.imageBase64 || value.imageUrl), {
             message: "imageBase64 or imageUrl is required",
@@ -288,6 +290,7 @@ export const appRouter = router({
           projectPreference: input.projectPreference,
           previousPrompt: input.previousPrompt,
           previousAnalysis: input.previousAnalysis,
+          imageProvider: input.imageProvider,
         });
       }),
   }),
@@ -1463,6 +1466,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             )
             .optional(),
           currentFocusShotNo: z.string().optional(),
+          imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
         })
       )
       .mutation(async ({ input }) => {
@@ -1474,6 +1478,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           currentScript: input.currentScript,
           shots: input.shots as ShotContext[] | undefined,
           currentFocusShotNo: input.currentFocusShotNo,
+          imageProvider: input.imageProvider,
         });
       }),
 

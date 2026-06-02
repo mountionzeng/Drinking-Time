@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import { normalizeImageProvider } from "@shared/imageProvider";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,22 @@ export const ENV = {
 
   // ── fal.ai 图片生成 ──
   falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
+
+  // ── 302.ai 图片生成（不填 API Key 时自动回退 fal）──
+  imageProviderDefault: normalizeImageProvider(process.env.IMAGE_PROVIDER_DEFAULT), // 默认出图 provider：fal / gpt-image / midjourney
+  api302Key: process.env.API302_KEY ?? process.env.IMAGE_302_API_KEY ?? "", // 302.ai API Key，图片生成专用；不写进代码
+  api302BaseUrl: process.env.API302_BASE_URL ?? process.env.IMAGE_302_BASE_URL ?? "https://api.302.ai", // 302.ai 网关地址
+  image302GptModel: process.env.IMAGE_302_GPT_MODEL ?? "gpt-image-1.5", // GPT-image 模型，按 302 控制台可用模型填写
+  image302GptSize: process.env.IMAGE_302_GPT_SIZE ?? "1024x1024", // GPT-image 默认尺寸
+  image302GptQuality: process.env.IMAGE_302_GPT_QUALITY ?? "high", // GPT-image 默认质量
+  image302MjAuthHeader: process.env.IMAGE_302_MJ_AUTH_HEADER ?? "bearer", // Midjourney 鉴权：bearer 或 mj-api-secret
+  image302MjPollMs: process.env.IMAGE_302_MJ_POLL_MS ?? "4000", // Midjourney 轮询间隔
+  image302MjTimeoutMs: process.env.IMAGE_302_MJ_TIMEOUT_MS ?? "180000", // Midjourney 总等待上限
+
+  // ── 302.ai 视觉分析（不填模型或 Key 时回退原视觉通道）──
+  vision302ApiKey: process.env.VISION_302_API_KEY ?? process.env.API302_KEY ?? "", // 302.ai 视觉模型 API Key
+  vision302BaseUrl: process.env.VISION_302_BASE_URL ?? process.env.API302_BASE_URL ?? "https://api.302.ai", // 302.ai 视觉网关地址
+  vision302Model: process.env.VISION_302_MODEL ?? "", // 302.ai 视觉模型，如 gemini-3-pro-preview
 
   // ── Google OAuth ──
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",            // Google OAuth Client ID

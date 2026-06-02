@@ -13,6 +13,15 @@ type ClaudeMessageResponse = {
   model?: string;
 };
 
+type OpenAICompatibleVisionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+  model?: string;
+};
+
 export type VisionAnalysisResult = {
   configured: boolean;
   modelLabel: string;
@@ -74,6 +83,19 @@ function resolveClaudeUrl(): string {
   if (normalized.endsWith("/v1/messages")) return normalized;
   if (normalized.endsWith("/cc")) return `${normalized}/v1/messages`;
   return normalized;
+}
+
+function has302VisionConfig(): boolean {
+  return Boolean(ENV.vision302ApiKey && ENV.vision302Model);
+}
+
+function resolve302VisionUrl(): string {
+  const raw = (ENV.vision302BaseUrl || ENV.api302BaseUrl || "").trim();
+  if (!raw) return "";
+  const normalized = raw.replace(/\/+$/, "");
+  if (normalized.endsWith("/v1/chat/completions")) return normalized;
+  if (normalized.endsWith("/v1")) return `${normalized}/chat/completions`;
+  return `${normalized}/v1/chat/completions`;
 }
 
 function parseImageDataUrl(dataUrl: string) {
@@ -289,19 +311,82 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
   return { text, modelLabel: ENV.llmModel };
 }
 
+async function invoke302Vision(params: VisionAnalyzeParams) {
+  const apiUrl = resolve302VisionUrl();
+  if (!apiUrl) throw new Error("VISION_302_BASE_URL is not configured");
+  if (!ENV.vision302ApiKey || !ENV.vision302Model) {
+    throw new Error("VISION_302_API_KEY and VISION_302_MODEL are required");
+  }
+
+  if (params.imageDataUrl) {
+    parseImageDataUrl(params.imageDataUrl);
+  }
+  const imageUrl = params.imageDataUrl || params.imageUrl;
+  if (!imageUrl) throw new Error("imageDataUrl or imageUrl is required");
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${ENV.vision302ApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: ENV.vision302Model,
+      stream: false,
+      max_tokens: 1800,
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: buildUserText(params) },
+            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`302 vision invoke failed: ${response.status} ${body}`);
+  }
+
+  const data = (await response.json()) as OpenAICompatibleVisionResponse;
+  const content = data.choices?.[0]?.message?.content;
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map(part => (part.type === "text" ? part.text : ""))
+            .filter(Boolean)
+            .join("\n")
+        : "";
+
+  return {
+    text,
+    modelLabel: data.model || ENV.vision302Model,
+  };
+}
+
 export async function analyzeVisionReference(
   params: VisionAnalyzeParams,
 ): Promise<VisionAnalysisResult> {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+  const use302Vision = has302VisionConfig();
+  if (!use302Vision && !ENV.forgeApiKey) {
+    throw new Error("BUILT_IN_FORGE_API_KEY or VISION_302_API_KEY/VISION_302_MODEL is not configured");
   }
   if (!params.imageDataUrl && !params.imageUrl) {
     throw new Error("imageDataUrl or imageUrl is required");
   }
 
-  const { text, modelLabel } = shouldUseClaudeChannel()
-    ? await invokeClaudeVision(params)
-    : await invokeOpenAICompatibleVision(params);
+  const { text, modelLabel } = use302Vision
+    ? await invoke302Vision(params)
+    : shouldUseClaudeChannel()
+      ? await invokeClaudeVision(params)
+      : await invokeOpenAICompatibleVision(params);
 
   const parsed = parseJsonLoose<{
     reply?: unknown;

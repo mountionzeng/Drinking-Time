@@ -9,7 +9,7 @@ import { type Message } from "../_core/llm";
 import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { ENV } from "../_core/env";
-import { generateImage } from "./imageGen";
+import { generateImage, type ImageProvider } from "./imageGen";
 import { createGeneratedImage, getImagesByShotNo, type GeneratedImage } from "../db";
 
 // ── Types ──
@@ -34,6 +34,7 @@ export type CreationAgentInput = {
   shots?: ShotContext[];
   currentFocusShotNo?: string;
   projectId: number;
+  imageProvider?: ImageProvider;
 };
 
 export type GenerateImageToolCall = {
@@ -225,7 +226,9 @@ export async function replyFromCreationAgent(
   );
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
-    const genResult = await generateImage(generateCall.prompt);
+    const genResult = await generateImage(generateCall.prompt, {
+      provider: input.imageProvider,
+    });
     if (genResult.status === "ok" && genResult.imageUrl && genResult.imageKey) {
       const dbImage = await createGeneratedImage({
         projectId: input.projectId,
