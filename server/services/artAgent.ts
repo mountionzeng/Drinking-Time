@@ -1,5 +1,5 @@
 import { analyzeVisionReference, type VisionAnalysisResult } from "../archive/visionAgent";
-import { generateImage } from "./imageGen";
+import { generateImage, type ImageProvider } from "./imageGen";
 import { storagePut } from "../storage";
 
 export type ArtRiffParams = {
@@ -11,6 +11,7 @@ export type ArtRiffParams = {
   projectPreference?: string;
   previousPrompt?: string;
   previousAnalysis?: Partial<VisionAnalysisResult["analysis"]>;
+  imageProvider?: ImageProvider;
 };
 
 export type ArtRiffResult = {
@@ -191,7 +192,7 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     previousPrompt: params.previousPrompt,
   });
 
-  const generated = await generateImage(prompt);
+  const generated = await generateImage(prompt, { provider: params.imageProvider });
 
   if (generated.status !== "ok" || !generated.imageUrl) {
     throw new Error(generated.message || "美术 Agent 没有拿到生成图。");

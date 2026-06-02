@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
+import { normalizeImageProvider, type ImageProvider } from '@shared/imageProvider';
 import { trpc } from '@/lib/trpc';
 import {
   CREATION_GREETING,
@@ -28,7 +29,10 @@ import {
 interface PersistedState {
   messages: ChatMessage[];
   focusShotNo: string | null;
+  imageProvider?: ImageProviderSelection;
 }
+
+export type ImageProviderSelection = 'default' | ImageProvider;
 
 const storageKey = (projectId: number | null) =>
   projectId ? `dt:creationAgent:${projectId}` : null;
@@ -43,6 +47,7 @@ function loadState(projectId: number | null): PersistedState {
     return {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       focusShotNo: typeof parsed.focusShotNo === 'string' ? parsed.focusShotNo : null,
+      imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     };
   } catch {
     return emptyState();
@@ -60,7 +65,18 @@ function emptyState(): PersistedState {
       },
     ],
     focusShotNo: null,
+    imageProvider: 'default',
   };
+}
+
+function normalizeImageProviderSelection(value: unknown): ImageProviderSelection {
+  if (value === 'default') return 'default';
+  if (typeof value !== 'string') return 'default';
+  return normalizeImageProvider(value);
+}
+
+function imageProviderForRequest(value: ImageProviderSelection): ImageProvider | undefined {
+  return value === 'default' ? undefined : value;
 }
 
 function newId(prefix: string): string {
@@ -75,6 +91,8 @@ interface CreationAgentContextValue {
   setFocusShotNo: (shotNo: string | null) => void;
   isReplying: boolean;
   isGenerating: boolean;
+  imageProvider: ImageProviderSelection;
+  setImageProvider: (provider: ImageProviderSelection) => void;
   projectImages: ShotImage[];
   sendMessage: (text: string, shots?: ShotContext[], cards?: Array<{ content: string; emotion?: string }>, currentScript?: string) => Promise<void>;
   reassignImage: (imageId: number, newShotNo: string) => Promise<void>;
@@ -95,6 +113,7 @@ export function CreationAgentProvider({
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadState(projectId).messages);
   const [focusShotNo, setFocusShotNo] = useState<string | null>(() => loadState(projectId).focusShotNo);
+  const [imageProvider, setImageProvider] = useState<ImageProviderSelection>(() => loadState(projectId).imageProvider ?? 'default');
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [projectImages, setProjectImages] = useState<ShotImage[]>([]);
@@ -124,17 +143,18 @@ export function CreationAgentProvider({
   useEffect(() => {
     const key = storageKey(projectId);
     if (!key) return;
-    const state: PersistedState = { messages, focusShotNo };
+    const state: PersistedState = { messages, focusShotNo, imageProvider };
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch { /* quota exceeded — non-critical */ }
-  }, [messages, focusShotNo, projectId]);
+  }, [messages, focusShotNo, imageProvider, projectId]);
 
   // Reload state when projectId changes
   useEffect(() => {
     const state = loadState(projectId);
     setMessages(state.messages);
     setFocusShotNo(state.focusShotNo);
+    setImageProvider(state.imageProvider ?? 'default');
   }, [projectId]);
 
   // Send message
@@ -170,6 +190,7 @@ export function CreationAgentProvider({
         currentScript,
         shots,
         currentFocusShotNo: focusShotNo ?? undefined,
+        imageProvider: imageProviderForRequest(imageProvider),
       });
 
       if (!result.configured) {
@@ -209,7 +230,7 @@ export function CreationAgentProvider({
       setIsReplying(false);
       setIsGenerating(false);
     }
-  }, [projectId, messages, focusShotNo, chatMut, refreshProjectImages]);
+  }, [projectId, messages, focusShotNo, imageProvider, chatMut, refreshProjectImages]);
 
   // Reassign image
   const reassignImageFn = useCallback(async (imageId: number, newShotNo: string) => {
@@ -228,6 +249,7 @@ export function CreationAgentProvider({
     const state = emptyState();
     setMessages(state.messages);
     setFocusShotNo(null);
+    setImageProvider('default');
     setIsReplying(false);
     setIsGenerating(false);
   }, []);
@@ -245,13 +267,15 @@ export function CreationAgentProvider({
     setFocusShotNo,
     isReplying,
     isGenerating,
+    imageProvider,
+    setImageProvider,
     projectImages,
     sendMessage,
     reassignImage: reassignImageFn,
     refreshProjectImages,
     resetConversation,
   }), [
-    messages, focusShotNo, isReplying, isGenerating, projectImages,
+    messages, focusShotNo, isReplying, isGenerating, imageProvider, projectImages,
     sendMessage, reassignImageFn, refreshProjectImages, resetConversation,
   ]);
 

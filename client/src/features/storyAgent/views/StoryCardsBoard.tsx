@@ -19,7 +19,8 @@ import {
   Trash2,
   Wand2,
 } from 'lucide-react';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { IMAGE_PROVIDER_LABELS, IMAGE_PROVIDER_VALUES } from '@shared/imageProvider';
+import { useStoryAgent, type ImageProviderSelection } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { StoryCard, VisualCanvasItem } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
@@ -31,6 +32,14 @@ const EMPTY_HINT: Record<NayinElement, string> = {
   fire: '冲一泡大红袍，让小酌带你回到那一刻',
   earth: '研一杯咖啡，跟小酌聊一段你忘不掉的事',
 };
+
+const IMAGE_PROVIDER_OPTIONS: Array<{ value: ImageProviderSelection; label: string }> = [
+  { value: 'default', label: '默认' },
+  ...IMAGE_PROVIDER_VALUES.map((value) => ({
+    value,
+    label: IMAGE_PROVIDER_LABELS[value],
+  })),
+];
 
 function emotionAccent(emotion: string): string {
   // Hash-derived hue from the emotion string so similar emotions cluster.
@@ -87,6 +96,8 @@ function CardVisualDock({
 }) {
   const {
     visualPreference,
+    imageProvider,
+    setImageProvider,
     isArtWorking,
     addVisualReference,
     refineVisualItem,
@@ -139,19 +150,35 @@ function CardVisualDock({
             <span className="font-mono text-muted-foreground/70">{visualItems.length} 张</span>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={isArtWorking}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[10px] font-semibold transition disabled:opacity-50"
-          style={{
-            background: 'var(--nayin-accent)',
-            color: 'var(--background)',
-          }}
-        >
-          {isArtWorking ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />}
-          喂图
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <select
+            value={imageProvider}
+            onChange={(event) => setImageProvider(event.target.value as ImageProviderSelection)}
+            disabled={isArtWorking}
+            aria-label="选择出图模型"
+            className="h-7 rounded-md border bg-background px-1.5 text-[10px] font-medium text-foreground outline-none transition disabled:opacity-50"
+            style={{ borderColor: 'var(--panel-border)' }}
+          >
+            {IMAGE_PROVIDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={isArtWorking}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[10px] font-semibold transition disabled:opacity-50"
+            style={{
+              background: 'var(--nayin-accent)',
+              color: 'var(--background)',
+            }}
+          >
+            {isArtWorking ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />}
+            喂图
+          </button>
+        </div>
         <input
           ref={inputRef}
           type="file"

@@ -5,8 +5,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Loader2, ImageIcon } from 'lucide-react';
+import { IMAGE_PROVIDER_LABELS, IMAGE_PROVIDER_VALUES } from '@shared/imageProvider';
 import { Button } from '@/components/ui/button';
-import { useCreationAgent } from '../CreationAgentContext';
+import { useCreationAgent, type ImageProviderSelection } from '../CreationAgentContext';
 import ImageSegmentOverlay from './ImageSegmentOverlay';
 import type { ShotContext } from '../types';
 
@@ -16,6 +17,14 @@ interface CreationAgentChatProps {
   currentScript?: string;
   projectId?: number | null;
 }
+
+const IMAGE_PROVIDER_OPTIONS: Array<{ value: ImageProviderSelection; label: string }> = [
+  { value: 'default', label: '默认' },
+  ...IMAGE_PROVIDER_VALUES.map((value) => ({
+    value,
+    label: IMAGE_PROVIDER_LABELS[value],
+  })),
+];
 
 export default function CreationAgentChat({
   shots,
@@ -27,6 +36,8 @@ export default function CreationAgentChat({
     messages,
     focusShotNo,
     isReplying,
+    imageProvider,
+    setImageProvider,
     sendMessage,
   } = useCreationAgent();
 
@@ -137,6 +148,22 @@ export default function CreationAgentChat({
 
       {/* Input */}
       <div className="border-t p-3">
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>出图模型</span>
+          <select
+            value={imageProvider}
+            onChange={(event) => setImageProvider(event.target.value as ImageProviderSelection)}
+            disabled={isReplying}
+            aria-label="选择出图模型"
+            className="h-7 rounded-md border bg-background px-2 text-[11px] text-foreground outline-none transition disabled:opacity-50"
+          >
+            {IMAGE_PROVIDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="flex gap-2 items-end">
           <textarea
             ref={inputRef}
