@@ -8,6 +8,8 @@ import { MobileChatProvider } from "@/features/mobileChat/MobileChatContext";
 import MobileTabBar from "@/features/mobileChat/views/MobileTabBar";
 import MobileChatPage from "@/features/mobileChat/views/MobileChatPage";
 import MobileStoryboard from "@/features/mobileChat/views/MobileStoryboard";
+import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
+import WuxingParticles from "@/features/nayin/views/WuxingParticles";
 import "@/features/mobileChat/mobile-redesign.css";
 
 export default function MobilePage() {
@@ -23,17 +25,22 @@ export default function MobilePage() {
 
   return (
     <MobileChatProvider>
-      <div className="dtm-app">
-        {/* 主内容区域（底部 tab 栏占位） */}
-        <main className="dtm-main">
-          {isStoryboard ? (
-            <MobileStoryboard />
-          ) : (
-            <MobileChatPage />
-          )}
-        </main>
+      {/* 居中壳：手机下铺满；iPad/大屏下 .dtm-app 锁成居中列，两侧露出饮品氛围 */}
+      <div className="dtm-shell">
+        <BeverageAmbience />
+        <WuxingParticles />
+        <div className="dtm-app">
+          {/* 主内容区域（底部 tab 栏占位） */}
+          <main className="dtm-main">
+            {isStoryboard ? (
+              <MobileStoryboard />
+            ) : (
+              <MobileChatPage />
+            )}
+          </main>
 
-        <MobileTabBar />
+          <MobileTabBar />
+        </div>
       </div>
     </MobileChatProvider>
   );

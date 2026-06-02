@@ -1,11 +1,33 @@
 /* Mobile Redesign — transcribed from Mobile Redesign _standalone_.html */
 
-.dtm-app {
+/* 居中列宽：手机下铺满，iPad/大屏下锁成一条居中列、两侧露出饮品氛围背景 */
+.dtm-shell {
+  --dtm-col: 520px;
+  position: relative;
   height: 100dvh;
+  overflow: hidden;
+  background: var(--background);
+}
+
+.dtm-app {
+  position: relative;
+  z-index: 10;
+  height: 100dvh;
+  width: 100%;
+  max-width: var(--dtm-col, 520px);
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
   background: var(--background);
   color: var(--foreground);
+}
+
+/* 大屏（iPad/桌面）下给居中列描边 + 投影，和两侧氛围区隔开 */
+@media (min-width: 560px) {
+  .dtm-app {
+    border-inline: 1px solid var(--border);
+    box-shadow: 0 18px 60px rgba(36, 28, 20, 0.16);
+  }
 }
 
 .dtm-main {
@@ -469,7 +491,12 @@
 
 .dtm-edit-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--dtm-col, 520px);
   z-index: 80;
   background: var(--background);
   color: var(--foreground);
@@ -687,9 +714,11 @@
 
 .dtm-tabbar {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
   bottom: 0;
+  width: 100%;
+  max-width: var(--dtm-col, 520px);
   z-index: 50;
   padding: 10px 24px 28px;
   padding-bottom: max(28px, calc(12px + env(safe-area-inset-bottom)));
