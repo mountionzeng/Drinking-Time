@@ -95,6 +95,8 @@ export interface StoryShot {
   /** 最终出图 prompt：视觉内容 + 情绪电荷 + 视觉锚。 */
   promptDraft?: string;
   negativePrompt?: string;
+  /** 该镜引用的片段 ID 列表（来自提示词片段池）。 */
+  fragmentRefs?: string[];
 }
 
 export interface VisualCanvasAnalysis {

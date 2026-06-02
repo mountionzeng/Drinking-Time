@@ -104,11 +104,40 @@ function visualAnchorSummary(anchors?: VisualAnchorForPrompt[]): string {
     .join("；");
 }
 
+/** 镜头引用的图像片段（来自提示词片段池） */
+export type FragmentForPrompt = {
+  tag: string;
+  text: string;
+};
+
+/** 把引用的图像片段组装成离散、带标签的 prompt 段落 */
+function fragmentSection(fragments?: FragmentForPrompt[]): string {
+  if (!fragments || fragments.length === 0) return "";
+  // 按标签分组，每组一行
+  const grouped = new Map<string, string[]>();
+  for (const f of fragments) {
+    const tag = f.tag.trim();
+    const text = f.text.trim();
+    if (!tag || !text) continue;
+    const arr = grouped.get(tag) ?? [];
+    arr.push(text);
+    grouped.set(tag, arr);
+  }
+  if (grouped.size === 0) return "";
+  const lines: string[] = [];
+  grouped.forEach((texts, tag) => {
+    lines.push(`${tag}：${texts.join(" / ")}`);
+  });
+  return `图像片段：\n${lines.join("\n")}`;
+}
+
 export function composeShotPrompt(params: {
   shot: ShotForPrompt;
   previousShot?: ShotForPrompt | null;
   arc?: string;
   visualAnchors?: VisualAnchorForPrompt[];
+  /** 该镜引用的图像片段（优先于 visualAnchors 的压扁摘要） */
+  fragments?: FragmentForPrompt[];
 }): ShotPromptComposition {
   const { shot } = params;
   const emotionDelta = describeDelta(params.previousShot ?? null, shot);
@@ -136,6 +165,14 @@ export function composeShotPrompt(params: {
     shot.styleRef ? `风格参考：${shot.styleRef}` : "",
   ], "；");
 
+  // 有引用片段时用离散片段代替压扁的视觉锚；没有引用片段时回退到旧的视觉锚摘要
+  const fragmentText = fragmentSection(params.fragments);
+  const visualAnchorLine = fragmentText
+    ? fragmentText
+    : visualAnchorText
+      ? `视觉锚：${visualAnchorText}`
+      : "";
+
   const promptDraft = [
     visualContent || "主体与动作来自用户故事素材",
     cameraAndLook,
@@ -143,7 +180,7 @@ export function composeShotPrompt(params: {
     shot.beat === "转折"
       ? "转折镜重点：不要只画静态悲伤或静态快乐，要用光线、色温、距离、姿态或构图表现情绪正在变化。"
       : "情绪处理：如实镜像用户材料，保持克制，不额外制造冲突或重大事实。",
-    visualAnchorText ? `视觉锚：${visualAnchorText}` : "",
+    visualAnchorLine,
     "画面要求：电影感静帧，具体、可拍、保留日常质感，不要文字，不要水印。",
   ]
     .filter(Boolean)
