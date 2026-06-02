@@ -48,7 +48,13 @@ export type UpdateFocusToolCall = {
   shotNo: string;
 };
 
-type ToolCall = GenerateImageToolCall | UpdateFocusToolCall;
+export type UpdateShotPromptToolCall = {
+  tool: "updateShotPrompt";
+  shotNo: string;
+  promptDraft: string;
+};
+
+type ToolCall = GenerateImageToolCall | UpdateFocusToolCall | UpdateShotPromptToolCall;
 
 export type CreationAgentResult = {
   reply: string;
@@ -59,6 +65,11 @@ export type CreationAgentResult = {
     imageKey: string;
     shotNo: string;
     imageId: number;
+  } | null;
+  /** 小酌建议的提示词修改（用户说「改暖一点」等触发） */
+  promptUpdate: {
+    shotNo: string;
+    promptDraft: string;
   } | null;
   configured: boolean;
   modelLabel: string;
@@ -88,12 +99,13 @@ function buildSystemPrompt(
     ? `当前焦点镜头: ${currentFocusShotNo}`
     : "当前没有焦点镜头";
 
-  return `你是 Creation Agent，drinking-time 工坊的创作引擎助手。你帮用户把故事变成画面。
+  return `你是小酌——会听你说话的朋友，也是帮你把故事做成画面的助手。在创作页，你帮用户把故事变成画面、调整提示词、讨论镜头视觉呈现。
 
 ## 你的能力
 - 解读故事卡片和剧本，讨论镜头的视觉呈现
 - 当画面描述足够具体时，自动触发出图
 - 推断用户当前在讨论哪个镜头（焦点镜头）
+- 当用户说「改暖一点」「加个近景」等，理解为修改该镜的提示词，在 toolCalls 里用 updateShotPrompt 返回修改建议
 
 ## 当前项目状态
 
@@ -122,7 +134,9 @@ ${focusLine}
     // 可选，出图时:
     { "tool": "generateImage", "prompt": "英文出图提示词", "shotNo": "SH01" },
     // 可选，焦点变更时:
-    { "tool": "updateFocus", "shotNo": "SH02" }
+    { "tool": "updateFocus", "shotNo": "SH02" },
+    // 可选，修改某镜提示词时（用户说「改暖一点」「加近景」等）:
+    { "tool": "updateShotPrompt", "shotNo": "SH01", "promptDraft": "修改后的中文出图描述" }
   ],
   "focusShotNo": "SH01"  // 当前推断的焦点镜头，null 如果无法确定
 }
@@ -172,6 +186,7 @@ export async function replyFromCreationAgent(
       toolCalls: [],
       focusShotNo: null,
       generatedImage: null,
+      promptUpdate: null,
     };
   }
 
@@ -250,11 +265,24 @@ export async function replyFromCreationAgent(
     }
   }
 
+  // 处理 updateShotPrompt 工具调用
+  let promptUpdate: CreationAgentResult["promptUpdate"] = null;
+  const promptCall = toolCalls.find(
+    (tc): tc is UpdateShotPromptToolCall => tc.tool === "updateShotPrompt",
+  );
+  if (promptCall && promptCall.shotNo && promptCall.promptDraft) {
+    promptUpdate = {
+      shotNo: promptCall.shotNo,
+      promptDraft: promptCall.promptDraft,
+    };
+  }
+
   return {
     reply,
     toolCalls,
     focusShotNo,
     generatedImage,
+    promptUpdate,
     configured: true,
     modelLabel,
   };

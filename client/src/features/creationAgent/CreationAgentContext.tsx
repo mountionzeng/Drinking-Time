@@ -94,6 +94,9 @@ interface CreationAgentContextValue {
   imageProvider: ImageProviderSelection;
   setImageProvider: (provider: ImageProviderSelection) => void;
   projectImages: ShotImage[];
+  /** 最近一次小酌建议的提示词修改（用户需确认/可撤销） */
+  pendingPromptUpdate: { shotNo: string; promptDraft: string } | null;
+  clearPendingPromptUpdate: () => void;
   sendMessage: (text: string, shots?: ShotContext[], cards?: Array<{ content: string; emotion?: string }>, currentScript?: string) => Promise<void>;
   reassignImage: (imageId: number, newShotNo: string) => Promise<void>;
   refreshProjectImages: () => void;
@@ -117,6 +120,7 @@ export function CreationAgentProvider({
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [projectImages, setProjectImages] = useState<ShotImage[]>([]);
+  const [pendingPromptUpdate, setPendingPromptUpdate] = useState<{ shotNo: string; promptDraft: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // tRPC hooks
@@ -208,12 +212,18 @@ export function CreationAgentProvider({
         refreshProjectImages();
       }
 
+      // Handle prompt update suggestion
+      if (result.promptUpdate) {
+        setPendingPromptUpdate(result.promptUpdate);
+      }
+
       const assistantMsg: ChatMessage = {
         id: newId('msg'),
         role: 'assistant',
         content: result.reply,
         timestamp: Date.now(),
         generatedImage: result.generatedImage ?? undefined,
+        promptUpdate: result.promptUpdate ?? undefined,
       };
       setMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
@@ -243,6 +253,10 @@ export function CreationAgentProvider({
     }
   }, [reassignMut, refreshProjectImages]);
 
+  const clearPendingPromptUpdate = useCallback(() => {
+    setPendingPromptUpdate(null);
+  }, []);
+
   // Reset conversation
   const resetConversation = useCallback(() => {
     abortRef.current?.abort();
@@ -270,12 +284,15 @@ export function CreationAgentProvider({
     imageProvider,
     setImageProvider,
     projectImages,
+    pendingPromptUpdate,
+    clearPendingPromptUpdate,
     sendMessage,
     reassignImage: reassignImageFn,
     refreshProjectImages,
     resetConversation,
   }), [
     messages, focusShotNo, isReplying, isGenerating, imageProvider, projectImages,
+    pendingPromptUpdate, clearPendingPromptUpdate,
     sendMessage, reassignImageFn, refreshProjectImages, resetConversation,
   ]);
 

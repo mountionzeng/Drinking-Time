@@ -7,6 +7,7 @@
  */
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
+import { PreferenceReminder } from './PromptReminders';
 import {
   GripVertical,
   X,
@@ -307,9 +308,14 @@ function CardVisualDock({
       </div>
 
       {visualPreference ? (
-        <p className="mt-2 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground/75">
-          项目内审美记忆：{visualPreference}
-        </p>
+        <>
+          <p className="mt-2 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground/75">
+            项目内审美记忆：{visualPreference}
+          </p>
+          <div className="mt-1.5">
+            <PreferenceReminder visualPreference={visualPreference} />
+          </div>
+        </>
       ) : null}
     </div>
   );

@@ -1,17 +1,12 @@
 /**
  * CreationPage — Creation Engine workspace.
- * Two-panel layout: CreationAgentChat (left) + ShotTable (right).
- * Shares project data with Analysis via the same project context.
+ * ShotTable 占满主区 + 悬浮小酌对话框（头像折叠/展开）。
+ * 小酌与故事页同人格、各自对话线；创作页不含粘性开场。
  */
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from '@/components/ui/resizable';
 import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
-import CreationAgentChat from '@/features/creationAgent/views/CreationAgentChat';
+import FloatingAgentChat from '@/features/creationAgent/views/FloatingAgentChat';
 import ShotTable from '@/features/analysis/views/ShotTable';
-import { StoryAgentProvider } from '@/features/storyAgent/StoryAgentContext';
+import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
 import type { ShotContext } from '@/features/creationAgent/types';
@@ -29,6 +24,7 @@ function CreationWorkspaceInner({
   isShotsLoading: boolean;
 }) {
   const { focusShotNo, setFocusShotNo, projectImages, reassignImage } = useCreationAgent();
+  const { promptPool, storyShots, updateShotFragmentRefs } = useStoryAgent();
   const utils = trpc.useUtils();
   const updateShotMut = trpc.shot.update.useMutation();
 
@@ -93,32 +89,49 @@ function CreationWorkspaceInner({
     [projectId, updateShotMut, utils.shot.list],
   );
 
+  // 小酌建议修改提示词 → 通过 shot.update 写入
+  const handleApplyPromptUpdate = useCallback(
+    async (shotNo: string, promptDraft: string) => {
+      if (projectId === null) return;
+      const targetShot = tableShots.find((s) => s.shotNo === shotNo);
+      if (!targetShot) {
+        toast.error(`找不到镜头 ${shotNo}`);
+        return;
+      }
+      try {
+        await updateShotMut.mutateAsync({ id: targetShot.id, promptDraft });
+        await utils.shot.list.invalidate({ projectId });
+        toast.success(`${shotNo} 提示词已更新`);
+      } catch {
+        toast.error('更新提示词失败');
+      }
+    },
+    [projectId, tableShots, updateShotMut, utils.shot.list],
+  );
+
   return (
-    <div className="h-full flex flex-col">
-      <ResizablePanelGroup direction="horizontal" className="flex-1 min-h-0">
-        {/* Left: Creation Agent Chat */}
-        <ResizablePanel defaultSize={40} minSize={25}>
-          <div className="h-full border-r">
-            <CreationAgentChat shots={shotContexts} projectId={projectId} />
-          </div>
-        </ResizablePanel>
+    <div className="h-full flex flex-col relative">
+      {/* ShotTable 占满主区 */}
+      <div className="flex-1 overflow-auto p-2">
+        <ShotTable
+          isActive={!isShotsLoading && tableShots.length > 0}
+          shots={tableShots}
+          projectId={projectId}
+          storyShots={storyShots}
+          onEditShotPrompt={handleEditShotPrompt}
+          focusShotNo={focusShotNo}
+          onShotClick={(shotNo) => setFocusShotNo(shotNo)}
+          promptPool={promptPool}
+          onUpdateFragmentRefs={updateShotFragmentRefs}
+        />
+      </div>
 
-        <ResizableHandle withHandle />
-
-        {/* Right: Shot Table */}
-        <ResizablePanel defaultSize={60} minSize={30}>
-          <div className="h-full overflow-auto p-2">
-            <ShotTable
-              isActive={!isShotsLoading && tableShots.length > 0}
-              shots={tableShots}
-              projectId={projectId}
-              onEditShotPrompt={handleEditShotPrompt}
-              focusShotNo={focusShotNo}
-              onShotClick={(shotNo) => setFocusShotNo(shotNo)}
-            />
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      {/* 悬浮小酌对话框 */}
+      <FloatingAgentChat
+        shots={shotContexts}
+        projectId={projectId}
+        onApplyPromptUpdate={handleApplyPromptUpdate}
+      />
     </div>
   );
 }

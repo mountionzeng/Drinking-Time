@@ -68,4 +68,51 @@ describe("shotPromptComposer", () => {
     expect(composition.promptDraft).toContain("视觉锚");
     expect(composition.promptDraft).toContain("颗粒感");
   });
+
+  it("引用片段作为离散部分进入 prompt，替代压扁的视觉锚", () => {
+    const composition = composeShotPrompt({
+      shot: makeShot({ beat: "开场", emotion: "期待" }),
+      fragments: [
+        { tag: "风格", text: "胶片" },
+        { tag: "风格", text: "手持" },
+        { tag: "色彩", text: "暖橙" },
+        { tag: "情绪", text: "怀旧" },
+      ],
+    });
+
+    // 片段以离散标签出现
+    expect(composition.promptDraft).toContain("图像片段");
+    expect(composition.promptDraft).toContain("风格：胶片 / 手持");
+    expect(composition.promptDraft).toContain("色彩：暖橙");
+    expect(composition.promptDraft).toContain("情绪：怀旧");
+    // 不是压扁的一行「视觉锚：V1…」
+    expect(composition.promptDraft).not.toContain("视觉锚：V");
+  });
+
+  it("有片段时文字层、情绪层、守则不变", () => {
+    const composition = composeShotPrompt({
+      shot: makeShot({ beat: "起势", emotion: "平静", subject: "用户", action: "坐着" }),
+      fragments: [{ tag: "色彩", text: "冷蓝" }],
+      arc: "平静 → 平静",
+    });
+
+    // 文字层
+    expect(composition.promptDraft).toContain("主体：用户");
+    expect(composition.promptDraft).toContain("动作：坐着");
+    // 情绪层
+    expect(composition.promptDraft).toContain("情绪电荷");
+    expect(composition.promptDraft).toContain("保持克制");
+    // 守则
+    expect(composition.negativePrompt).toContain("不要夸张戏剧化");
+    // 片段
+    expect(composition.promptDraft).toContain("色彩：冷蓝");
+  });
+
+  it("没有片段也没有视觉锚时，prompt 不含视觉锚行", () => {
+    const composition = composeShotPrompt({
+      shot: makeShot({ beat: "开场", emotion: "平静" }),
+    });
+    expect(composition.promptDraft).not.toContain("视觉锚");
+    expect(composition.promptDraft).not.toContain("图像片段");
+  });
 });

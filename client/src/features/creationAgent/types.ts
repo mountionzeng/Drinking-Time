@@ -2,8 +2,10 @@
  * Creation Agent types — shared between Context, Chat UI, and Shot Table.
  */
 
+// 创作页开场：小酌同人格，但不含粘性开场（报到/回归问候只属于故事页）。
+// 简洁邀请，不冒出「你好，我是小酌」「我还记得上次……」。
 export const CREATION_GREETING =
-  "欢迎来到创作引擎！选择一个镜头，我们来讨论它的画面。或者直接告诉我你想从哪里开始。";
+  "选个镜头聊聊画面，或者直接告诉我你想从哪里开始。";
 
 export type ChatMessage = {
   id: string;
@@ -16,6 +18,11 @@ export type ChatMessage = {
     imageKey: string;
     shotNo: string;
     imageId: number;
+  } | null;
+  /** 小酌建议的提示词修改 */
+  promptUpdate?: {
+    shotNo: string;
+    promptDraft: string;
   } | null;
 };
 

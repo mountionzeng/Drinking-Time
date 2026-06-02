@@ -3,7 +3,7 @@
  * Matrix view: one row per shot, one column per prompt dimension.
  */
 import { useMemo, useState } from 'react';
-import { Copy } from 'lucide-react';
+import { Copy, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { NayinElement } from '@/features/nayin/nayin';
@@ -12,6 +12,9 @@ import type { Priority, ShotStatus } from '@/features/analysis/types';
 import ShotStageIllustration from './ShotStageIllustration';
 import type { BackendShot } from '@/features/analysis/types';
 import type { StoryShot } from '@/features/storyAgent/types';
+import type { PromptFragment, FragmentTag } from '@/features/storyAgent/promptPool';
+import { groupByTag } from '@/features/storyAgent/promptPool';
+import { GapReminder } from '@/features/storyAgent/views/PromptReminders';
 
 type EditableShotField = 'subject' | 'action' | 'dialogue';
 
@@ -98,6 +101,10 @@ interface ShotTableProps {
   onShotClick?: (shotNo: string) => void;
   /** Creation 侧编辑真 shots 表里的最终出图 prompt。 */
   onEditShotPrompt?: (shotId: number, promptDraft: string) => void | Promise<void>;
+  /** 提示词片段池（用于显示 / 挑选图像片段） */
+  promptPool?: PromptFragment[];
+  /** 更新某镜引用的片段 ID 列表 */
+  onUpdateFragmentRefs?: (shotIndex: number, fragmentIds: string[]) => void;
 }
 
 function compactJoin(parts: Array<string | null | undefined>, sep = ', ') {
@@ -191,6 +198,158 @@ function PromptCell({
   );
 }
 
+const TAG_COLORS: Record<FragmentTag, string> = {
+  '风格': 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+  '色彩': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  '构图': 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+  '情绪': 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+  '主体': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  '光线': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+};
+
+/** 单个片段标签 */
+function FragmentBadge({
+  fragment,
+  onRemove,
+}: {
+  fragment: PromptFragment;
+  onRemove?: () => void;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] leading-tight ${TAG_COLORS[fragment.tag]}`}
+    >
+      <span className="opacity-60">{fragment.tag}</span>
+      <span className="font-medium">{fragment.text.length > 12 ? fragment.text.slice(0, 12) + '…' : fragment.text}</span>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="ml-0.5 opacity-50 hover:opacity-100"
+          aria-label={`移除片段「${fragment.text}」`}
+        >
+          <X className="w-2.5 h-2.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** 从池里挑片段的内联下拉 */
+function FragmentPicker({
+  pool,
+  currentRefs,
+  onAdd,
+}: {
+  pool: PromptFragment[];
+  currentRefs: string[];
+  onAdd: (fragmentId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const refSet = new Set(currentRefs);
+  const available = pool.filter((f) => !refSet.has(f.id));
+  const grouped = groupByTag(
+    search
+      ? available.filter((f) => f.text.includes(search) || f.tag.includes(search))
+      : available,
+  );
+
+  if (available.length === 0) return null;
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+        aria-label="从池里挑片段"
+      >
+        <Plus className="w-3 h-3" />
+        <span>挑片段</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 top-full left-0 mt-1 w-56 max-h-64 overflow-auto rounded-lg border bg-popover shadow-lg p-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索片段..."
+            className="w-full text-[11px] px-2 py-1 rounded border bg-background mb-1 focus:outline-none focus:ring-1 focus:ring-ring"
+            autoFocus
+          />
+          {(Object.entries(grouped) as [FragmentTag, PromptFragment[]][]).map(([tag, frags]) =>
+            frags.length > 0 ? (
+              <div key={tag} className="mb-1">
+                <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/70 px-1 py-0.5">
+                  {tag}
+                </div>
+                {frags.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => { onAdd(f.id); setOpen(false); setSearch(''); }}
+                    className="w-full text-left px-2 py-1 text-[11px] rounded hover:bg-muted/50 transition-colors truncate"
+                  >
+                    {f.text}
+                  </button>
+                ))}
+              </div>
+            ) : null,
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 该镜引用的图像片段列表 + 池挑选器 */
+function ShotFragmentsCell({
+  shotIndex,
+  fragmentRefs,
+  pool,
+  onUpdateRefs,
+}: {
+  shotIndex: number;
+  fragmentRefs: string[];
+  pool: PromptFragment[];
+  onUpdateRefs: (shotIndex: number, refs: string[]) => void;
+}) {
+  const poolMap = useMemo(() => {
+    const m = new Map<string, PromptFragment>();
+    for (const f of pool) m.set(f.id, f);
+    return m;
+  }, [pool]);
+
+  const referenced = fragmentRefs.map((id) => poolMap.get(id)).filter(Boolean) as PromptFragment[];
+  const hasNoRefs = referenced.length === 0 && pool.length > 0;
+
+  return (
+    <div className="space-y-1 min-h-[28px]">
+      <div className="flex flex-wrap gap-1 items-start">
+        {referenced.map((f) => (
+          <FragmentBadge
+            key={f.id}
+            fragment={f}
+            onRemove={() => {
+              onUpdateRefs(shotIndex, fragmentRefs.filter((id) => id !== f.id));
+            }}
+          />
+        ))}
+        <FragmentPicker
+          pool={pool}
+          currentRefs={fragmentRefs}
+          onAdd={(id) => onUpdateRefs(shotIndex, [...fragmentRefs, id])}
+        />
+      </div>
+      {hasNoRefs && <GapReminder pool={pool} />}
+    </div>
+  );
+}
+
 export default function ShotTable({
   isActive,
   shots,
@@ -200,6 +359,8 @@ export default function ShotTable({
   focusShotNo,
   onShotClick,
   onEditShotPrompt,
+  promptPool,
+  onUpdateFragmentRefs,
 }: ShotTableProps) {
   const canEditScript = Boolean(storyShots && onEditShotField);
   const [sortBy, setSortBy] = useState<'scene' | 'priority' | 'deadline' | 'readiness'>('scene');
@@ -310,7 +471,7 @@ export default function ShotTable({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[1520px]">
+            <table className="w-full text-xs min-w-[1720px]">
               <thead>
                 <tr
                   className="text-left text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
@@ -324,6 +485,9 @@ export default function ShotTable({
                   {canEditScript ? (
                     <th className="px-2.5 py-2 min-w-[240px]">剧本 Script · 可改</th>
                   ) : null}
+                  {promptPool && promptPool.length > 0 && onUpdateFragmentRefs && (
+                    <th className="px-2.5 py-2 min-w-[200px]">视觉片段</th>
+                  )}
                   <th className="px-2.5 py-2 min-w-[210px]">场景语义 Prompt</th>
                   <th className="px-2.5 py-2 min-w-[210px]">镜头语言 Prompt</th>
                   <th className="px-2.5 py-2 min-w-[210px]">光影色彩 Prompt</th>
@@ -467,6 +631,16 @@ export default function ShotTable({
                           )}
                         </td>
                       ) : null}
+                      {promptPool && promptPool.length > 0 && onUpdateFragmentRefs && (
+                        <td className="px-2.5 py-2.5">
+                          <ShotFragmentsCell
+                            shotIndex={srcIdx ?? -1}
+                            fragmentRefs={raw?.fragmentRefs ?? []}
+                            pool={promptPool}
+                            onUpdateRefs={onUpdateFragmentRefs}
+                          />
+                        </td>
+                      )}
                       <td className="px-2.5 py-2.5">
                         <PromptCell value={scenePrompt || '—'} label="场景语义 Prompt" shotNo={shot.shotNo} />
                       </td>

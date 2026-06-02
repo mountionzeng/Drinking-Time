@@ -27,6 +27,7 @@ import {
   type SelectionState,
   type VisualCanvasItem,
 } from './types';
+import { buildPromptPool } from './promptPool';
 
 interface PersistedState {
   messages: ChatMessage[];
@@ -119,6 +120,10 @@ interface StoryAgentContextValue {
   setActiveSelection: (state: SelectionState | null) => void;
   clearSelection: () => void;
   sendSelectionEdit: (instruction: string) => Promise<void>;
+  /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
+  promptPool: import('./promptPool').PromptFragment[];
+  /** 更新某镜引用的片段 ID 列表 */
+  updateShotFragmentRefs: (shotIndex: number, fragmentIds: string[]) => void;
 }
 
 const StoryAgentContext = createContext<StoryAgentContextValue | null>(null);
@@ -422,6 +427,9 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     visualAnchorText: str(obj.visualAnchorText),
     promptDraft: str(obj.promptDraft),
     negativePrompt: str(obj.negativePrompt),
+    fragmentRefs: Array.isArray(obj.fragmentRefs)
+      ? obj.fragmentRefs.filter((v): v is string => typeof v === 'string')
+      : undefined,
   };
 }
 
@@ -1924,6 +1932,24 @@ export function StoryAgentProvider({
     ],
   );
 
+  // ── 提示词片段池（从 visualCanvasItems 派生） ──
+  const promptPool = useMemo(
+    () => buildPromptPool(visualCanvasItems),
+    [visualCanvasItems],
+  );
+
+  const updateShotFragmentRefs = useCallback(
+    (shotIndex: number, fragmentIds: string[]) => {
+      setStoryShots((prev) => {
+        if (shotIndex < 0 || shotIndex >= prev.length) return prev;
+        const next = [...prev];
+        next[shotIndex] = { ...next[shotIndex], fragmentRefs: fragmentIds };
+        return next;
+      });
+    },
+    [],
+  );
+
   const value = useMemo<StoryAgentContextValue>(
     () => ({
       messages,
@@ -1968,6 +1994,8 @@ export function StoryAgentProvider({
       setActiveSelection,
       clearSelection,
       sendSelectionEdit,
+      promptPool,
+      updateShotFragmentRefs,
     }),
     [
       messages,
@@ -2010,6 +2038,8 @@ export function StoryAgentProvider({
       setActiveSelection,
       clearSelection,
       sendSelectionEdit,
+      promptPool,
+      updateShotFragmentRefs,
     ],
   );
 
