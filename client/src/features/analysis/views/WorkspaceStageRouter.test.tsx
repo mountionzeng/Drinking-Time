@@ -22,6 +22,24 @@ vi.mock("./WorkspaceLayout", () => ({
   default: () => <div data-view="workspace">workspace</div>,
 }));
 
+// 这个组件只在测路由决策（guided / workspace），把 tRPC 依赖 mock 掉，
+// 避免引真 QueryClient/tRPC provider —— 与上面 mock useStoryAgent 同一思路。
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    useUtils: () => ({
+      emotionAnalysis: { getProfile: { invalidate: vi.fn() } },
+    }),
+    emotionAnalysis: {
+      getProfile: {
+        useQuery: () => ({ data: undefined, isLoading: false }),
+      },
+      saveBirthProfile: {
+        useMutation: () => ({ mutateAsync: vi.fn() }),
+      },
+    },
+  },
+}));
+
 function baseProps(): any {
   return {
     references: [],
