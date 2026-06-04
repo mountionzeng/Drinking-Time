@@ -492,6 +492,50 @@ describe('storyAgent 照见与不灌鸡汤护栏 (U2：R7-R9)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 照见分层 · 独有的强项高阶档（R7 扩展）
+// 在「照见真实的好」之上分两层：品格随时可镜（默认）；独有的强项门槛更高，
+// 只在「够料 + 自我呈现场景」两个条件都满足时才点，且镜的是「事实的组合」而非形容词。
+// 与不灌鸡汤护栏同源，且对这一层更紧（硬安一个强项 = 替用户造人设）。
+// 这里只做结构化契约；行为实测移交人工 rubric。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('storyAgent 照见分层 · 独有的强项高阶档 (R7 扩展)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function getSystemPrompt(): Promise<string> {
+    mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
+    await replyFromStoryAgent({ message: '今天帮邻居把走丢的猫找回来了，挺开心' });
+    return mockInvokeLLM.mock.calls[0][0].messages.find((m) => m.role === 'system')
+      ?.content as string;
+  }
+
+  it('注入照见的两层：品格默认 + 独有的强项高阶档', async () => {
+    const prompt = await getSystemPrompt();
+    expect(prompt).toContain('照见分两层');
+    expect(prompt).toContain('独有的强项');
+  });
+
+  it('独有的强项有双门槛：够料 + 自我呈现场景', async () => {
+    const prompt = await getSystemPrompt();
+    expect(prompt).toContain('够料');
+    expect(prompt).toContain('想看清「我是谁」');
+  });
+
+  it('照见独有的强项镜「事实的组合」而非形容词式评价', async () => {
+    const prompt = await getSystemPrompt();
+    expect(prompt).toContain('事实的组合');
+    expect(prompt).toContain('不是形容词');
+  });
+
+  it('对这一层的护栏更紧：硬安强项 = 替用户造人设，拿不准退回第一层', async () => {
+    const prompt = await getSystemPrompt();
+    expect(prompt).toContain('人设');
+    expect(prompt).toContain('退回第一层');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // U3：收尾留真实线头（R10-R11）
 // 让一段对话的收尾温暖地留一个「基于这次真实聊到内容」的开放、可不接的邀请，
 // 使人「聊完还想再来」；杜绝人造悬念 / 套路化钩子。收尾口径与 R6/R13 协同：
