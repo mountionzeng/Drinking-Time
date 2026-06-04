@@ -236,4 +236,88 @@ describe("storyAgent tRPC router", () => {
     });
     await expect(caller.storyAgent.storyGet({ id: created!.id })).resolves.toBeNull();
   });
+
+  it("手机端保存会把 messages 与 cards 写进 story body，且更新时不抹掉原标题", async () => {
+    const caller = appRouter.createCaller(createAuthContext(188));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "手机故事",
+      body: {
+        cards: [
+          {
+            id: "card-mobile-1",
+            title: "晚风",
+            content: "晚风里的一句停顿",
+            emotion: "quiet",
+            sensoryDetails: [],
+            createdAt: 100,
+          },
+        ],
+        characters: [],
+        shots: [],
+        messages: [
+          {
+            id: "u-1",
+            role: "user",
+            content: "我今天在路边站了一会儿",
+            timestamp: 123,
+          },
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "我听见这个停顿了。",
+            timestamp: 124,
+            suggestImage: true,
+            imagePrompt: "夜色路边，微风，安静停顿",
+          },
+        ],
+      },
+    });
+
+    const loaded = await caller.storyAgent.storyGet({ id: created!.id });
+    const body = loaded?.body as Record<string, unknown>;
+
+    expect(loaded?.title).toBe("手机故事");
+    expect(body.cards).toEqual([
+      expect.objectContaining({ id: "card-mobile-1", content: "晚风里的一句停顿" }),
+    ]);
+    expect(body.messages).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "我今天在路边站了一会儿",
+        timestamp: 123,
+      }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "我听见这个停顿了。",
+        timestamp: 124,
+      }),
+    ]);
+
+    const updated = await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [],
+        messages: [
+          {
+            role: "user",
+            content: "新手机清缓存后也能接上",
+            timestamp: 125,
+          },
+        ],
+      },
+    });
+
+    expect(updated?.title).toBe("手机故事");
+    const updatedBody = updated?.body as Record<string, unknown>;
+    expect(updatedBody.messages).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "新手机清缓存后也能接上",
+        timestamp: 125,
+      }),
+    ]);
+  });
 });

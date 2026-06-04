@@ -546,6 +546,38 @@ export async function createProject(data: InsertProject) {
   return { id: result[0].insertId };
 }
 
+const defaultProjectLocks = new Map<number, Promise<Project>>();
+
+async function findOrCreateUserDefaultProject(userId: number): Promise<Project> {
+  const existing = await getUserProjects(userId);
+  if (existing[0]) return existing[0];
+
+  const created = await createProject({
+    userId,
+    name: "默认分析项目",
+  });
+  const project = await getProjectById(created.id, userId);
+  if (!project) {
+    throw new Error("默认项目创建失败");
+  }
+  return project;
+}
+
+export async function getOrCreateUserDefaultProject(
+  userId: number
+): Promise<Project> {
+  const currentLock = defaultProjectLocks.get(userId);
+  if (currentLock) return currentLock;
+
+  const nextLock = findOrCreateUserDefaultProject(userId).finally(() => {
+    if (defaultProjectLocks.get(userId) === nextLock) {
+      defaultProjectLocks.delete(userId);
+    }
+  });
+  defaultProjectLocks.set(userId, nextLock);
+  return nextLock;
+}
+
 export async function getUserProjects(userId: number) {
   const db = await getDb();
   if (!db) {
@@ -1644,6 +1676,7 @@ export function resetMemoryStateForTesting(): void {
     generatedImage: 1,
     imageSignal: 1,
   };
+  defaultProjectLocks.clear();
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;
