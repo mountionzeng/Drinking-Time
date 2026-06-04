@@ -9,6 +9,7 @@ import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import {
   createProject,
+  getOrCreateUserDefaultProject,
   getUserProjects,
   getProjectById,
   createReference,
@@ -340,6 +341,10 @@ export const appRouter = router({
 
     list: protectedProcedure.query(async ({ ctx }) => {
       return getUserProjects(ctx.user.id);
+    }),
+
+    getOrCreateDefault: protectedProcedure.query(async ({ ctx }) => {
+      return getOrCreateUserDefaultProject(ctx.user.id);
     }),
 
     get: protectedProcedure
@@ -1017,11 +1022,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const title = input.title?.trim().slice(0, 255) || "未命名";
-
         if (input.id) {
           const existing = await getStoryById(input.id, ctx.user.id);
           if (existing) {
+            const title =
+              input.title !== undefined
+                ? input.title.trim().slice(0, 255) || existing.title
+                : existing.title;
             await updateStory(input.id, ctx.user.id, {
               title,
               logline: input.logline,
@@ -1037,6 +1044,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // Fall through to create a new story rather than failing silently.
         }
 
+        const title = input.title?.trim().slice(0, 255) || "未命名";
         const { id: newId } = await createStory({
           userId: ctx.user.id,
           projectId: input.projectId ?? null,

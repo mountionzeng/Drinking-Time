@@ -14,11 +14,19 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   useRef,
   type ReactNode,
 } from "react";
 import { trpc } from "@/lib/trpc";
-import type { MobileChatMessage, GeneratedImageItem } from "./types";
+import {
+  buildMobileStoryBody,
+  normalizeMobileCards,
+  normalizeMobileImages,
+  normalizeMobileMessages,
+  type MobileChatMessage,
+  type GeneratedImageItem,
+} from "./types";
 import type { StoryCard } from "@/features/storyAgent/types";
 import { FIRST_QUESTION } from "@/features/storyAgent/types";
 
@@ -105,8 +113,12 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   );
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const hydratedStoryVersion = useRef<string | null>(null);
 
-  // tRPC mutations
+  const utils = trpc.useUtils();
+  const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+  });
   const mobileChatMut = trpc.storyAgent.mobileChat.useMutation();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
@@ -136,18 +148,137 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // 确保有 remoteStoryId（自动创建 story）
-  const ensureStoryId = useCallback(async (): Promise<number> => {
-    if (remoteStoryId) return remoteStoryId;
-    const result = await upsertStoryMut.mutateAsync({
-      title: "手机端回忆",
-      body: { cards: [], characters: [], shots: [] },
-    });
-    const id = result?.id;
-    if (!id) throw new Error("创建 story 失败");
-    setRemoteStoryId(id);
-    return id;
-  }, [remoteStoryId, upsertStoryMut]);
+  useEffect(() => {
+    const latestStory = storyListQuery.data?.stories[0];
+    if (!latestStory || isReplying || isGenerating) return;
+
+    const version = `${latestStory.id}:${String(latestStory.updatedAt)}`;
+    if (hydratedStoryVersion.current === version) return;
+
+    let cancelled = false;
+    void utils.storyAgent.storyGet
+      .fetch({ id: latestStory.id })
+      .then((story) => {
+        if (cancelled || !story) return;
+        const body =
+          story.body && typeof story.body === "object"
+            ? (story.body as Record<string, unknown>)
+            : {};
+        const nextMessages = normalizeMobileMessages(body.messages);
+        const nextCards = normalizeMobileCards(body.cards);
+        const nextImages = normalizeMobileImages(
+          body.mobileImages ?? body.images
+        );
+        const hydratedMessages =
+          nextMessages.length > 0 ? nextMessages : emptyState().messages;
+
+        hydratedStoryVersion.current = version;
+        setRemoteStoryId(story.id);
+        setMessages(hydratedMessages);
+        setCards(nextCards);
+        setImages(nextImages);
+        persist(hydratedMessages, nextCards, nextImages, story.id);
+      })
+      .catch((err) => {
+        console.error("[mobileChat] 服务器对话恢复失败:", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isGenerating,
+    isReplying,
+    persist,
+    storyListQuery.data?.stories,
+    utils.storyAgent.storyGet,
+  ]);
+
+  const ensureStoryId = useCallback(
+    async (seed?: PersistedMobileState, createNew = false): Promise<number> => {
+      if (!createNew) {
+        const listed =
+          storyListQuery.data ??
+          (await utils.storyAgent.storyList.fetch());
+        const latestStory = listed.stories[0];
+        if (latestStory) {
+          setRemoteStoryId(latestStory.id);
+          return latestStory.id;
+        }
+        if (remoteStoryId) {
+          const existing = await utils.storyAgent.storyGet
+            .fetch({ id: remoteStoryId })
+            .catch(() => null);
+          if (existing) return remoteStoryId;
+          setRemoteStoryId(null);
+        }
+      }
+
+      const seedMessages = seed?.messages ?? messages;
+      const seedCards = seed?.cards ?? cards;
+      const seedImages = seed?.images ?? images;
+      const result = await upsertStoryMut.mutateAsync({
+        title: "手机端回忆",
+        body: buildMobileStoryBody(seedMessages, seedCards, seedImages),
+      });
+      const id = result?.id;
+      if (!id) throw new Error("创建 story 失败");
+      setRemoteStoryId(id);
+      return id;
+    },
+    [
+      cards,
+      images,
+      messages,
+      remoteStoryId,
+      storyListQuery.data,
+      upsertStoryMut,
+      utils.storyAgent.storyGet,
+      utils.storyAgent.storyList,
+    ]
+  );
+
+  const saveStoryState = useCallback(
+    async (
+      msgs: MobileChatMessage[],
+      crds: StoryCard[],
+      imgs: GeneratedImageItem[],
+      storyId?: number | null
+    ) => {
+      const seed: PersistedMobileState = {
+        messages: msgs,
+        cards: crds,
+        images: imgs,
+        remoteStoryId: storyId ?? undefined,
+      };
+      try {
+        const id = storyId ?? (await ensureStoryId(seed));
+        const saved = await upsertStoryMut.mutateAsync({
+          id,
+          body: buildMobileStoryBody(msgs, crds, imgs),
+        });
+        const savedId = saved?.id ?? id;
+        setRemoteStoryId(savedId);
+        if (saved?.updatedAt) {
+          hydratedStoryVersion.current = `${savedId}:${String(saved.updatedAt)}`;
+        }
+        persist(msgs, crds, imgs, savedId);
+        await utils.storyAgent.storyList.invalidate();
+        return savedId;
+      } catch (err) {
+        persist(msgs, crds, imgs, storyId ?? remoteStoryId);
+        console.error("[mobileChat] 服务器保存失败，已保留本地缓存:", err);
+        return storyId ?? remoteStoryId;
+      }
+    },
+    [
+      ensureStoryId,
+      persist,
+      remoteStoryId,
+      upsertStoryMut,
+      utils.storyAgent.storyList,
+    ]
+  );
 
   // 发送消息（可附带照片 base64）
   const sendMessage = useCallback(
@@ -242,6 +373,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const finalMsgs = [...newMsgs, assistantMsg];
         setMessages(finalMsgs);
         persist(finalMsgs, newCards, images, remoteStoryId);
+        void saveStoryState(finalMsgs, newCards, images, remoteStoryId);
       } catch (err) {
         // 错误时也加一条提示
         const errorMsg: MobileChatMessage = {
@@ -253,12 +385,23 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const finalMsgs = [...newMsgs, errorMsg];
         setMessages(finalMsgs);
         persist(finalMsgs, cards, images, remoteStoryId);
+        void saveStoryState(finalMsgs, cards, images, remoteStoryId);
         console.error("[mobileChat] 发送失败:", err);
       } finally {
         setIsReplying(false);
       }
     },
-    [messages, cards, images, isReplying, mobileChatMut, uploadPhotoMut, persist, remoteStoryId]
+    [
+      messages,
+      cards,
+      images,
+      isReplying,
+      mobileChatMut,
+      uploadPhotoMut,
+      persist,
+      remoteStoryId,
+      saveStoryState,
+    ]
   );
 
   // 用户确认出图
@@ -321,6 +464,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
             .concat(readyImage);
           setImages(finalImages);
           persist(messages, cards, finalImages, storyId);
+          void saveStoryState(messages, cards, finalImages, storyId);
         } else {
           // 出错：更新占位为 error 状态
           const errorImages = newImages.map((img) =>
@@ -328,6 +472,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           );
           setImages(errorImages);
           persist(messages, cards, errorImages, storyId);
+          void saveStoryState(messages, cards, errorImages, storyId);
         }
       } catch (err) {
         console.error("[confirmGenerate] 图片生成失败:", err);
@@ -335,7 +480,16 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         setIsGenerating(false);
       }
     },
-    [messages, images, cards, isGenerating, generateMut, ensureStoryId, persist, remoteStoryId]
+    [
+      messages,
+      images,
+      cards,
+      isGenerating,
+      generateMut,
+      ensureStoryId,
+      persist,
+      saveStoryState,
+    ]
   );
 
   // 右划收下
@@ -384,8 +538,26 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     setCards([]);
     setImages([]);
     setRemoteStoryId(null);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    persist(fresh.messages, [], [], null);
+    void (async () => {
+      try {
+        const created = await upsertStoryMut.mutateAsync({
+          title: "手机端回忆",
+          body: buildMobileStoryBody(fresh.messages, [], []),
+        });
+        if (created?.id) {
+          setRemoteStoryId(created.id);
+          hydratedStoryVersion.current = created.updatedAt
+            ? `${created.id}:${String(created.updatedAt)}`
+            : null;
+          persist(fresh.messages, [], [], created.id);
+          await utils.storyAgent.storyList.invalidate();
+        }
+      } catch (err) {
+        console.error("[mobileChat] 新故事创建失败，已保留本地缓存:", err);
+      }
+    })();
+  }, [persist, upsertStoryMut, utils.storyAgent.storyList]);
 
   const value: MobileChatContextValue = {
     messages,
