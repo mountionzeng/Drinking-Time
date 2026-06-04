@@ -652,7 +652,25 @@ export async function replyFromStoryAgent(params: {
     { role: "user", content: userContent },
   ];
 
-  const { text, modelLabel } = await invokeAgent(messages, 700);
+  let text: string;
+  let modelLabel: string;
+  try {
+    ({ text, modelLabel } = await invokeAgent(messages, 700));
+  } catch (err) {
+    // 通道层已对临时性错误自动重试；走到这里说明仍然没接上。
+    // 不向上抛错——否则前端只会弹一句吞掉真实原因的「Agent 暂时没接上」并断掉对话。
+    // 改为优雅兜底：用小酌的口吻说一句「刚刚没接住」，对话不中断；真实原因记进服务端日志供排查。
+    console.error("[storyAgent] invokeAgent failed after retries:", err);
+    return {
+      configured: true,
+      modelLabel: "请求失败",
+      reply: "嗯……我这边刚刚卡了一下，没接住你说的。能再说一遍吗？",
+      card: null,
+      read: null,
+      toolCalls: [],
+      suggestImage: false,
+    };
+  }
 
   let parsed: {
     reply: string;

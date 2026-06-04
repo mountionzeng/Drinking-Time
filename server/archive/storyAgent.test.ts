@@ -581,3 +581,53 @@ describe('storyAgent 收尾留线头 (U3：R10-R11)', () => {
     expect(prompt).toContain('永久的承诺');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 网关抖动韧性 · 临时失败自动重试 + 优雅兜底
+// 真实环境里 302 网关偶发 5xx/超时。旧实现把任何失败都抛成前端一句吞掉真实原因的
+// 「Agent 暂时没接上，再试一次？」并断掉对话。现在：通道层对临时错误自动重试一次；
+// 仍失败则 replyFromStoryAgent 优雅兜底（configured:true + 一句小酌口吻的「没接住」回复，
+// 不抛错、不断对话）。确定性错误（鉴权 401 等）不重试，免得白白拖慢真实报错。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // 本块用到持久 mockRejectedValue，clearAllMocks 不会重置实现，显式重置避免泄漏到后续用例
+    mockInvokeLLM.mockReset();
+  });
+
+  it('临时失败（502）自动重试一次后成功，返回真实回复', async () => {
+    mockInvokeLLM
+      .mockRejectedValueOnce(new Error('LLM invoke failed: 502 Bad Gateway – upstream'))
+      .mockResolvedValueOnce(makeAgentResponse('我在，你接着说'));
+
+    const result = await replyFromStoryAgent({ message: '今天有点累' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次失败 + 1 次重试
+    expect(result.configured).toBe(true);
+    expect(result.reply).toBe('我在，你接着说');
+  });
+
+  it('重试后仍失败 → 优雅兜底，不抛错、不断对话', async () => {
+    mockInvokeLLM.mockRejectedValue(new Error('LLM invoke failed: 503 Service Unavailable'));
+
+    const result = await replyFromStoryAgent({ message: '今天有点累' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次 + 1 次重试
+    // configured 必须是 true：若返回 false 前端会误弹「接口还没配置模型 API」
+    expect(result.configured).toBe(true);
+    expect(result.modelLabel).toBe('请求失败');
+    expect(result.reply).toContain('没接住'); // 小酌口吻的兜底回复
+    expect(result.card).toBeNull();
+  });
+
+  it('确定性错误（鉴权 401）不重试，直接优雅兜底', async () => {
+    mockInvokeLLM.mockRejectedValue(new Error('LLM invoke failed: 401 Unauthorized – bad key'));
+
+    const result = await replyFromStoryAgent({ message: '今天有点累' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(1); // 401 不重试
+    expect(result.configured).toBe(true);
+    expect(result.reply).toContain('没接住');
+  });
+});

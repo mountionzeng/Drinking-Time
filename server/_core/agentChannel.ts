@@ -97,7 +97,7 @@ async function invokeClaudeMessages(
   return { text, modelLabel: data.model || ENV.dropZoneModel || ENV.llmModel };
 }
 
-export async function invokeAgent(
+async function invokeAgentOnce(
   messages: Message[],
   maxTokens: number,
 ): Promise<{ text: string; modelLabel: string }> {
@@ -117,4 +117,50 @@ export async function invokeAgent(
             .join("\n")
         : "";
   return { text, modelLabel: ENV.llmModel };
+}
+
+// 网关偶发抖动（502/503、超时、网络层）会让一次本可成功的请求平白失败。
+// 只对「临时性」错误自动重试，确定性错误（鉴权 / 参数 / 模型不存在）不重试——重试也没用，只会拖慢真实报错。
+const AGENT_RETRY_DELAYS_MS = [700];
+
+function isTransientError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  // 端点没配置 → 确定性
+  if (/not configured/i.test(msg)) return false;
+  // 两条通道的 HTTP 错误都形如 "...failed: <status> ..."，取状态码判断
+  const m = msg.match(/failed:\s*(\d{3})\b/);
+  if (m) {
+    const status = Number(m[1]);
+    // 429 限流 / 408 超时 / 5xx 服务端错误 → 临时；其余 4xx（鉴权 / 参数 / 模型）→ 确定性
+    return status === 429 || status === 408 || status >= 500;
+  }
+  // 没有状态码 → 多为网络层错误（cannot reach / fetch failed / timeout），按临时处理
+  return true;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function invokeAgent(
+  messages: Message[],
+  maxTokens: number,
+): Promise<{ text: string; modelLabel: string }> {
+  let lastErr: unknown;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await invokeAgentOnce(messages, maxTokens);
+    } catch (err) {
+      lastErr = err;
+      const canRetry =
+        attempt < AGENT_RETRY_DELAYS_MS.length && isTransientError(err);
+      if (!canRetry) break;
+      console.warn(
+        `[invokeAgent] 临时失败，第 ${attempt + 1} 次重试中…`,
+        err instanceof Error ? err.message : err,
+      );
+      await delay(AGENT_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastErr;
 }
