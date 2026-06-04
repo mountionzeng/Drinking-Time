@@ -1,0 +1,23 @@
+id: shinkai-light
+name: 新海诚式光
+one_liner: 透亮的天空和镜头光晕里，青春的怅惘被晒得很亮
+status: active
+
+style: [anime background art, in the manner of Makoto Shinkai, photoreal anime, detailed skyscape]
+palette: [高饱和青蓝, 暖橙夕照, 樱粉, 通透白云, 镜头光斑]
+light: 强逆光与丁达尔光，镜头光晕（lens flare），云隙透光
+composition: 大片天空占据画面，地平线压低，人物渺小，仰角
+material: 干净的数字赛璐珞，细腻渐变，光斑与微颗粒叠加
+era_culture: 当代日本，城市与郊野
+signature: 那束穿过云的光 + 占了大半张的天
+negative: [灰暗, 低饱和, 厚重油画感, 写实皱纹质感, 脏污, 文字, 水印]
+
+emotion_fit: [青春, 怅惘, 思念, 微甜的遗憾, 希望]
+theme_fit: [暗恋, 远距离, 毕业, 错过, 夏天]
+affinity:
+  age: {少年: 2, 青年: 2, 中年: 1, 偏年长: 0}
+  profession: {学生: 2, 创意: 1}
+  wuxing: {木: 2, 火: 1, 水: 1, 金: 0, 土: 0}
+
+references: [./refs/shinkai-light-1.jpg]
+notes: 别只堆光斑变成廉价滤镜——天空的层次和那束光的方向才是魂。

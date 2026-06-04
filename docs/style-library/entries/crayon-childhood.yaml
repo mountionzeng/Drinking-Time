@@ -1,0 +1,23 @@
+id: crayon-childhood
+name: 蜡笔·童年涂鸦
+one_liner: 蜡笔的笨拙和暖，像小时候自己画的那张画
+status: draft
+
+style: [wax crayon, oil pastel, childlike naive art, children's book illustration, hand-drawn]
+palette: [明快原色, 暖黄, 草绿, 天蓝, 蜡质饱和]
+light: 不讲究写实光，整体明亮温暖
+composition: 天真稚拙的构图，主体大而正，简化形状
+material: 蜡笔笔触，可见蜡质堆叠与纸纹，涂色不均的笨拙感
+era_culture: 无特定年代，童年记忆
+signature: 蜡笔那种笨笨的、涂不匀的暖
+negative: [写实, 精细, 3D, 摄影, 冷峻, 高级灰, 文字, 水印]
+
+emotion_fit: [童真, 天真, 纯真的快乐, 暖, 简单]
+theme_fit: [童年, 小时候, 家, 天真的愿望, 小孩视角]
+affinity:
+  age: {少年: 2, 青年: 1, 中年: 1, 偏年长: 1}
+  profession: {}
+  wuxing: {火: 1, 木: 1, 土: 1, 金: 0, 水: 0}
+
+references: [./refs/crayon-childhood-1.jpg]
+notes: '"笨拙"是故意的——太工整就没有童年味了；让它涂出格、涂不匀。'

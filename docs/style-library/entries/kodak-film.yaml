@@ -1,0 +1,23 @@
+id: kodak-film
+name: 柯达暖调胶片·旧日照片
+one_liner: 像一张褪了色的旧照片，时间把它晒得很温柔
+status: draft
+
+style: [35mm film photography, Kodak Portra, analog grain, faded vintage photo, halation]
+palette: [暖黄褪色, 奶油调, 微偏青的阴影, 低对比, 旧纸黄]
+light: 柔和自然光，轻微过曝，高光泛起 halation 光晕
+composition: 随手一拍的生活感，轻微失焦，构图不刻意
+material: 胶片颗粒，轻微漏光，褪色与划痕，模拟质感
+era_culture: 上世纪八九十年代，家庭与街头
+signature: 褪色的暖黄 + 高光那圈柔光晕
+negative: [高清数码感, 高饱和, 锐利清晰, HDR, 现代滤镜, 文字, 水印]
+
+emotion_fit: [怀旧, 温柔, 逝去, 思念, 平淡的珍贵]
+theme_fit: [旧时光, 家人, 老朋友, 童年照片, 回不去的那天]
+affinity:
+  age: {青年: 1, 中年: 2, 偏年长: 2}
+  profession: {}
+  wuxing: {土: 1, 金: 1, 水: 1, 木: 0, 火: 0}
+
+references: [./refs/kodak-film-1.jpg]
+notes: 别太干净——颗粒、褪色、轻微漏光才是"旧照片"的命；干净=数码=出戏。

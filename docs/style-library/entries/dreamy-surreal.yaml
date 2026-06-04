@@ -1,0 +1,23 @@
+id: dreamy-surreal
+name: 梦境超现实·柔焦幻彩
+one_liner: 像一个记不太清的梦，柔焦里，比例和重力都不太对
+status: draft
+
+style: [dreamlike surrealism, soft focus, ethereal, pastel haze, dreamy fine-art photography]
+palette: [粉紫, 雾蓝, 蜜桃橙, 柔和高调, 朦胧渐变]
+light: 弥漫柔光，过曝边缘，没有明确光源，发光感
+composition: 漂浮失重，超现实比例，云雾环绕，主体悬浮
+material: 柔焦朦胧，轻微颗粒，光晕弥散
+era_culture: 无年代，梦境与潜意识
+signature: 柔焦光晕 + 不太对劲的比例和重力
+negative: [锐利清晰, 写实, 强对比, 暗调, 硬边缘, 纪实, 文字, 水印]
+
+emotion_fit: [梦境, 恍惚, 思念, 不真实, 朦胧的温柔]
+theme_fit: [梦, 回忆模糊, 想念一个人, 似真似幻, 潜意识]
+affinity:
+  age: {少年: 1, 青年: 2, 中年: 1, 偏年长: 0}
+  profession: {创意: 1}
+  wuxing: {水: 2, 木: 1, 火: 0, 金: 0, 土: 0}
+
+references: [./refs/dreamy-surreal-1.jpg]
+notes: '"记不清"是关键——别让它太具体太清晰；柔焦和失重感缺一不可。'

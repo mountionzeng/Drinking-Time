@@ -1,0 +1,22 @@
+id: bauhaus-geometric
+name: 包豪斯·极简几何
+one_liner: 红黄蓝和圆方三角，理性到极致反而很安静
+
+style: [Bauhaus, geometric abstraction, modernist design, constructivism, flat geometric shapes]
+palette: [三原色 红黄蓝, 纯黑, 纯白, 有限平涂色块]
+light: 无写实光影，平面均匀，靠色块分面
+composition: 几何分割，圆/方/三角，网格秩序，非对称的平衡，大量留白
+material: 平涂硬边色块，干净印刷质感，无颗粒无渐变
+era_culture: 1920年代德国包豪斯，现代主义
+signature: 红黄蓝硬边几何色块 + 秩序感的留白
+negative: [写实, 渐变, 柔焦, 厚涂, 繁复装饰, 自然光影, 复古颗粒, 文字, 水印]
+
+emotion_fit: [理性, 秩序, 克制, 清醒, 现代的冷静]
+theme_fit: [秩序, 结构, 理性的美, 现代生活, 把混乱整理好]
+affinity:
+  age: {少年: 0, 青年: 2, 中年: 1, 偏年长: 0}
+  profession: {创意: 2, 人文/手艺/学术: 1}
+  wuxing: {金: 2, 土: 1, 木: 0, 火: 0, 水: 0}
+
+references: [./refs/bauhaus-geometric-1.jpg]
+notes: 硬边和平涂是命——出现渐变或柔光就不是包豪斯了。色只用原色，少即是多。

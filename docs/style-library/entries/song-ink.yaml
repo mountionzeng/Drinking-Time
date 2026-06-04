@@ -1,0 +1,23 @@
+id: song-ink
+name: 宋人山水·水墨留白
+one_liner: 大片空里一点远山孤舟，清冷、辽远、把人放得很小
+status: active
+
+style: [Song dynasty landscape, Chinese ink wash painting, 水墨, literati painting, minimal ink]
+palette: [墨黑, 焦墨, 淡墨灰, 宣纸米白, 极少冷青]
+light: 没有强光源，靠墨色浓淡分远近，雾气弥漫
+composition: 大量负空间（留白占七成），主体小而偏，高远 / 平远构图
+material: 宣纸纹理，毛笔皴擦，墨色晕染的边缘
+era_culture: 宋代中国，山水文人画
+signature: 七成留白 + 角落一点墨
+negative: [满构图, 高饱和色, 写实光影, 厚涂, 油画感, 文字, 水印]
+
+emotion_fit: [孤远, 清冷, 释然, 出世, 苍茫]
+theme_fit: [独行, 放下, 远方, 时间, 渺小]
+affinity:
+  age: {青年: 1, 中年: 2, 偏年长: 2}
+  profession: {人文/手艺/学术: 2, 创意: 1}
+  wuxing: {水: 2, 木: 1, 金: 1, 土: 0, 火: 0}
+
+references: [./refs/song-ink-1.jpg]
+notes: 留白就是主角——草稿千万别把空填满，宁可空到"敢空"。

@@ -1,0 +1,23 @@
+id: rembrandt-oil
+name: 伦勃朗光·荷兰黄金时代油画
+one_liner: 暗调里被一束暖光雕出来的人，庄重、私密、有重量
+status: active
+
+style: [oil painting, Dutch Golden Age, chiaroscuro, old master, in the manner of Rembrandt]
+palette: [暖土, 赭石, 深褐, 暗金, 烛光黄, 大面积低明度暗部]
+light: 单一侧逆光 / 伦勃朗三角光，强明暗对比，烛光或窗光质感
+composition: 近景半身，主体居中偏侧，大片暗部留白，视线被光牵引
+material: 厚涂油画笔触，画布纹理，皮肤的油润高光
+era_culture: 17 世纪荷兰
+signature: 暗部里那束温暖的侧光，把脸 / 手雕出来
+negative: [平光, 霓虹, 高饱和, 塑料感, 网红滤镜, 卡通, HDR, 文字, 水印]
+
+emotion_fit: [内省, 哀而不伤, 庄重, 怀念]
+theme_fit: [独处, 告别, 回望, 深夜的一个人, 与长辈]
+affinity:
+  age: {偏年长: 2, 中年: 2, 青年: 0}
+  profession: {人文/手艺/学术: 2, 创意: 1}
+  wuxing: {土: 2, 金: 2, 水: 1, 木: 0, 火: 0}
+
+references: [./refs/rembrandt-oil-1.jpg]
+notes: 草稿别让暗部糊成一团——保住那束光的边缘，和它打中的那一小块亮。

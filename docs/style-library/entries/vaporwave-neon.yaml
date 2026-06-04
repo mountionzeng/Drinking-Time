@@ -1,0 +1,22 @@
+id: vaporwave-neon
+name: 蒸汽波·赛博霓虹
+one_liner: 80年代对未来的幻想，霓虹网格里有种甜甜的孤独
+
+style: [vaporwave, synthwave, retro-futurism, neon glow, 80s aesthetic, digital gradient art]
+palette: [霓虹粉, 电子紫, 青蓝 cyan, 品红 magenta, 深夜蓝]
+light: 霓虹自发光，地平线渐变辉光，赛博夜景，无自然光源
+composition: 发光网格地平线，几何落日，对称构图，剪影前景（棕榈/雕像）
+material: 数字平滑渐变，扫描线，轻微故障 glitch，塑料光泽
+era_culture: 80年代对未来的复古想象，赛博怀旧
+signature: 发光网格地平线 + 渐变几何落日
+negative: [写实, 自然光, 低饱和, 古典油画, 厚涂笔触, 暖阳, 文字, 水印]
+
+emotion_fit: [赛博乡愁, 甜的孤独, 疏离, 梦幻, 抽离的浪漫]
+theme_fit: [城市夜, 怀旧的未来, 一个人的霓虹, 数字幻境, 回不去的当年]
+affinity:
+  age: {少年: 1, 青年: 2, 中年: 0, 偏年长: 0}
+  profession: {创意: 1}
+  wuxing: {水: 1, 火: 1, 金: 1, 木: 0, 土: 0}
+
+references: [./refs/vaporwave-neon-1.jpg]
+notes: 霓虹和网格地平线缺一不可；一旦掺进自然光或低饱和就泄气了。色要敢艳。

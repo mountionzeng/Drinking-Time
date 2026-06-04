@@ -1,0 +1,23 @@
+id: ghibli-watercolor
+name: 宫崎骏式手绘·温暖水彩动画
+one_liner: 手绘的风和草，阳光是暖的，世界值得被温柔对待
+status: draft
+
+style: [hand-drawn anime, in the manner of Studio Ghibli / Miyazaki, watercolor background, painterly cel]
+palette: [草木绿, 暖阳黄, 天空蓝, 奶油白, 柔和自然色]
+light: 柔和自然光，午后阳光，无强对比，光斑透过树叶
+composition: 开阔自然景，人物融入环境，中景，呼吸感
+material: 手绘水彩晕染，可见笔触，柔软边缘，颗粒纸感
+era_culture: 当代日本，田园与小镇
+signature: 被风吹动的草 + 那种手绘的暖阳
+negative: [3D 渲染感, 写实摄影, 高对比, 霓虹, 塑料光泽, 文字, 水印]
+
+emotion_fit: [温暖, 治愈, 怀念, 童年, 平和的幸福]
+theme_fit: [童年, 家乡, 夏日, 成长, 自然里的一天]
+affinity:
+  age: {少年: 2, 青年: 2, 中年: 1, 偏年长: 1}
+  profession: {创意: 1}
+  wuxing: {木: 2, 火: 1, 土: 1, 水: 0, 金: 0}
+
+references: [./refs/ghibli-watercolor-1.jpg]
+notes: 别画成 3D——手绘笔触和纸感是魂；阳光要"暖"不要"晃"。

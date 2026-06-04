@@ -1,0 +1,23 @@
+id: vangogh-expressive
+name: 梵高式表现主义·漩涡笔触
+one_liner: 笔触在燃烧，颜色在喊，情绪压不住地往外涌
+status: draft
+
+style: [post-impressionism, in the manner of Van Gogh, impasto, swirling brushstrokes, expressive]
+palette: [钴蓝, 铬黄, 翠绿, 橙, 高饱和互补色]
+light: 主观情绪光，星夜或烈日，光本身在旋转流动
+composition: 充满画面的笔触动势，天空与地面都在涌动，主体被卷入
+material: 厚涂 impasto，可见油彩堆叠，漩涡状笔触
+era_culture: 十九世纪后印象派
+signature: 旋转燃烧的笔触 + 互补色的撞击
+negative: [平涂, 写实摄影, 低饱和, 安静克制, 干净边缘, 文字, 水印]
+
+emotion_fit: [炽烈, 激荡, 燃, 孤独的热, 不被理解]
+theme_fit: [挣扎, 热爱, 崩溃边缘, 孤勇, 燃烧自己]
+affinity:
+  age: {少年: 1, 青年: 2, 中年: 1, 偏年长: 0}
+  profession: {创意: 2}
+  wuxing: {火: 2, 木: 1, 土: 0, 金: 0, 水: 0}
+
+references: [./refs/vangogh-expressive-1.jpg]
+notes: 笔触必须"动"——静止的梵高就死了；颜色要敢撞，别调和。

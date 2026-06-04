@@ -42,6 +42,9 @@ export const ENV = {
   huangliApiBaseUrl: process.env.HUANGLI_API_BASE_URL ?? "",    // 测试或私有代理覆盖
   huangliTimeoutMs: process.env.HUANGLI_TIMEOUT_MS ?? "5000",
 
+  // ── 流派库 ──
+  styleLibraryDir: process.env.STYLE_LIBRARY_DIR ?? "",          // 流派库 entries 目录覆盖（默认 docs/style-library/entries，相对 cwd）
+
   // ── fal.ai 图片生成 ──
   falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
 

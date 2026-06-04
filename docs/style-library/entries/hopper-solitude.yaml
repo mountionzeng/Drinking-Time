@@ -1,0 +1,23 @@
+id: hopper-solitude
+name: 霍普式孤独·美式写实
+one_liner: 大白天的强光里，一个人待在空房间，安静得发慌
+status: draft
+
+style: [American realism, in the manner of Edward Hopper, flat strong daylight, urban solitude]
+palette: [明黄日光, 墨绿, 砖红, 阴影冷蓝, 干净大色块]
+light: 强烈直射日光（清晨或午后），硬阴影，大片明暗对比但不戏剧
+composition: 空旷室内或街角，单一人物渺小偏置，大块几何墙面
+material: 平整的写实笔触，干净表面，简化细节
+era_culture: 二十世纪中叶美国都市
+signature: 斜射进空房间的那束硬日光 + 一个孤单的人
+negative: [柔光朦胧, 拥挤热闹, 暖调温馨, 颗粒, 手绘感, 文字, 水印]
+
+emotion_fit: [孤独, 疏离, 静默, 怅然, 都市的空]
+theme_fit: [独处, 等待, 空房间, 一个人的城市, 发呆]
+affinity:
+  age: {青年: 1, 中年: 2, 偏年长: 1}
+  profession: {创意: 1, 人文/手艺/学术: 1}
+  wuxing: {金: 2, 火: 1, 土: 1, 水: 0, 木: 0}
+
+references: [./refs/hopper-solitude-1.jpg]
+notes: 孤独靠"光"和"空"，不靠表情——人物要小要偏；光要硬要斜。

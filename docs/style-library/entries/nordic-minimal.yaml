@@ -1,0 +1,23 @@
+id: nordic-minimal
+name: 北欧极简·冷淡柔光
+one_liner: 留白很多，光很淡，安静得很高级
+status: draft
+
+style: [Scandinavian minimalism, contemporary photography, desaturated, soft diffused light, negative space]
+palette: [冷白, 浅灰, 原木色, 雾蓝, 极低饱和]
+light: 北欧阴天的柔散光，无硬阴影，清透
+composition: 大量负空间，极简陈设，单一主体，平衡留白
+material: 干净哑光表面，细腻质感，无颗粒
+era_culture: 当代北欧，极简室内或雪景
+signature: 大片冷白留白 + 一束很淡的光
+negative: [高饱和, 暖调, 拥挤, 强对比, 复古颗粒, 油画感, 文字, 水印]
+
+emotion_fit: [清冷, 安宁, 疏朗, 孤独的体面, 留白的呼吸]
+theme_fit: [独处, 极简生活, 冬天, 一个人的清晨, 放空]
+affinity:
+  age: {青年: 2, 中年: 1, 偏年长: 0}
+  profession: {创意: 1, 人文/手艺/学术: 1}
+  wuxing: {金: 2, 水: 2, 木: 0, 火: 0, 土: 0}
+
+references: [./refs/nordic-minimal-1.jpg]
+notes: 留白和"淡"是高级感来源；任何一块暖色或杂物都会拉低它。

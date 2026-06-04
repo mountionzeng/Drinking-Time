@@ -1,0 +1,23 @@
+id: ukiyoe-woodblock
+name: 浮世绘木版画
+one_liner: 平涂的色块和硬线条，把一个瞬间装进装饰的浪里
+status: draft
+
+style: [ukiyo-e, Japanese woodblock print, in the manner of Hokusai / Hiroshige, flat color, bold outline]
+palette: [普鲁士蓝, 朱红, 赭石, 米白, 有限套色]
+light: 无写实光影，靠色块分面，平面化
+composition: 装饰性构图，强前景框（浪/枝/帘），大胆裁切，留白
+material: 木版套印质感，硬轮廓线，平涂色块，纸纹
+era_culture: 江户时代日本
+signature: 硬线条勾出的平涂色块 + 装饰化的浪与云
+negative: [写实光影, 渐变, 厚涂, 3D, 柔焦, 摄影感, 文字, 水印]
+
+emotion_fit: [叙事, 古典, 装饰美, 平静的力量, 仪式感]
+theme_fit: [旅途, 自然之力, 传统, 一个被定格的动作]
+affinity:
+  age: {青年: 1, 中年: 1, 偏年长: 1}
+  profession: {创意: 1, 人文/手艺/学术: 1}
+  wuxing: {水: 1, 木: 1, 金: 1, 火: 0, 土: 0}
+
+references: [./refs/ukiyoe-woodblock-1.jpg]
+notes: 线和平涂是命——一旦出现渐变和写实光影就不是版画了。

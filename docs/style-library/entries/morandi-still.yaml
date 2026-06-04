@@ -1,0 +1,23 @@
+id: morandi-still
+name: 莫兰迪静物·低饱和灰阶
+one_liner: 落了灰的颜色，柔光里，平静得几乎听得见安静
+status: draft
+
+style: [still life, in the manner of Giorgio Morandi, muted tones, tonal painting, quiet realism]
+palette: [莫兰迪灰, 灰粉, 灰蓝, 灰绿, 米白, 整体低饱和]
+light: 均匀柔和的散射光，无强阴影，安静的室内光
+composition: 简单静物或单一主体居中，留白克制，平视
+material: 哑光颜料，细腻笔触，柔和边缘，无高光
+era_culture: 二十世纪现代，室内静物
+signature: 那层"落了灰"的低饱和 + 柔到没有影子的光
+negative: [高饱和, 强对比, 戏剧光, 鲜艳, 油腻高光, 文字, 水印]
+
+emotion_fit: [平静, 温吞, 克制, 安宁, 淡淡的孤独]
+theme_fit: [独居, 一个人的房间, 日常物件, 安静的下午]
+affinity:
+  age: {青年: 1, 中年: 2, 偏年长: 2}
+  profession: {人文/手艺/学术: 2, 创意: 1}
+  wuxing: {土: 2, 金: 1, 水: 1, 木: 0, 火: 0}
+
+references: [./refs/morandi-still-1.jpg]
+notes: 关键是"灰"——任何一块跳出来的饱和色都会破坏整体；宁可闷一点。

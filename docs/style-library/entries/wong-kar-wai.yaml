@@ -1,0 +1,23 @@
+id: wong-kar-wai
+name: 王家卫式霓虹夜
+one_liner: 潮湿的霓虹街头，烟雾里的人在错过彼此
+status: draft
+
+style: [cinematic still, in the manner of Wong Kar-wai / Christopher Doyle, neon noir, film still]
+palette: [霓虹红绿, 暗调, 暖钨丝灯, 潮湿反光, 局部高饱和]
+light: 霓虹与钨丝灯混光，暗部浓重，湿地面反光，烟雾散射
+composition: 手持感，框中框（门/窗/镜），人物偏置，浅景深
+material: 35mm 颗粒，动态模糊，玻璃与雨水反光
+era_culture: 上世纪六七十年代香港，都市夜
+signature: 暗里那抹霓虹红绿 + 烟雾散光
+negative: [明亮白天, 干净高清, 低饱和, 平光, 田园, 文字, 水印]
+
+emotion_fit: [暧昧, 孤独, 欲望, 错过, 都市的疏离]
+theme_fit: [暗恋, 深夜, 都市, 擦肩而过, 暧昧不明]
+affinity:
+  age: {青年: 2, 中年: 2, 偏年长: 0}
+  profession: {创意: 1}
+  wuxing: {火: 2, 水: 1, 金: 0, 木: 0, 土: 0}
+
+references: [./refs/wong-kar-wai-1.jpg]
+notes: 霓虹要"潮"——反光、烟雾、湿地面缺一不可；干燥的霓虹就廉价了。
