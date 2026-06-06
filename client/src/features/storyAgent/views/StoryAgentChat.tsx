@@ -228,7 +228,20 @@ export default function StoryAgentChat() {
                       : m.selectionQuote.selectedText}
                   </div>
                 )}
-                <p className="whitespace-pre-wrap" data-selection-source={`chat:${m.id}`}>{m.content}</p>
+                {m.role === 'user' && m.photoUrl && (
+                  <img
+                    src={m.photoUrl}
+                    alt="用户上传照片"
+                    className={`h-28 max-w-full rounded-xl border border-white/20 object-cover ${
+                      m.content.trim() ? 'mb-1.5' : ''
+                    }`}
+                  />
+                )}
+                {m.content.trim() && (
+                  <p className="whitespace-pre-wrap" data-selection-source={`chat:${m.id}`}>
+                    {m.content}
+                  </p>
+                )}
                 {m.spawnedCardId && (
                   <div className="mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider"
                        style={{ borderColor: 'var(--panel-border)' }}>

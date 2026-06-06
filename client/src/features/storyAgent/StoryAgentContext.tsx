@@ -20,6 +20,7 @@ import { trpc } from '@/lib/trpc';
 import {
   OPENING_MESSAGE,
   buildReturningGreeting,
+  normalizeChatMessages,
   type ChatMessage,
   type StoryCard,
   type GeneratedScript,
@@ -212,7 +213,11 @@ function hasLiveStoryWork(state: {
     state.scripts.length > 0 ||
     state.storyShots.length > 0 ||
     (state.visualCanvasItems?.length ?? 0) > 0 ||
-    state.messages.some((message) => message.role === 'user' && message.content.trim().length > 0)
+    state.messages.some(
+      (message) =>
+        message.role === 'user' &&
+        (message.content.trim().length > 0 || Boolean(message.photoUrl)),
+    )
   );
 }
 
@@ -434,38 +439,7 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
 }
 
 function normalizeMessages(rawMessages: unknown): ChatMessage[] {
-  if (!Array.isArray(rawMessages) || rawMessages.length === 0) return emptyState().messages;
-  const converted = rawMessages
-    .map((m, i) => {
-      if (!m || typeof m !== 'object') return null;
-      const obj = m as Record<string, unknown>;
-      const role =
-        obj.role === 'user' || obj.who === 'u'
-          ? 'user'
-          : obj.role === 'assistant' || obj.who === 's'
-            ? 'assistant'
-            : null;
-      const content =
-        typeof obj.content === 'string'
-          ? obj.content
-          : typeof obj.text === 'string'
-            ? obj.text
-            : '';
-      if (!role || !content.trim()) return null;
-      const pending = obj.pendingCard as Record<string, unknown> | undefined;
-      const message: ChatMessage = {
-        id: typeof obj.id === 'string' ? obj.id : `msg-${i}-${Date.now()}`,
-        role,
-        content,
-        timestamp: typeof obj.timestamp === 'number' ? obj.timestamp : Date.now() + i,
-      };
-      if (pending && typeof pending.cardId === 'string' && pending.status === 'kept') {
-        message.spawnedCardId = pending.cardId;
-      }
-      return message;
-    })
-    .filter((m): m is ChatMessage => Boolean(m));
-  return converted.length > 0 ? converted : emptyState().messages;
+  return normalizeChatMessages(rawMessages, emptyState().messages);
 }
 
 function scriptFromStory(params: {
@@ -573,6 +547,7 @@ function archiveMessagesFrom(
       who: message.role === 'user' ? 'u' : 's',
       name: message.role === 'user' ? '你' : '小酌',
       text: message.content,
+      photoUrl: message.photoUrl,
       pendingCard: spawnedCard
         ? {
             status: 'kept',
@@ -910,6 +885,7 @@ export function StoryAgentProvider({
         id: message.id,
         role: message.role,
         content: message.content,
+        photoUrl: message.photoUrl,
         spawnedCardId: message.spawnedCardId,
       })),
       cards,
@@ -957,47 +933,9 @@ export function StoryAgentProvider({
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
 
-      const userMsg: ChatMessage = {
-        id: newId('msg'),
-        role: 'user',
-        content: trimmed,
-        timestamp: Date.now(),
-      };
-      const nextMessages = [...messages, userMsg];
-      setMessages(nextMessages);
       setIsReplying(true);
       // 用户重新开口，「我还记得上次」再问候已完成使命——收起，免得卡在新对话中间。
       setReturningGreeting(null);
-
-      // Capture snapshot of current state before Agent generation.
-      // Errors are silent — snapshot failure must never block message send.
-      if (projectId !== null) {
-        try {
-          const snapshotResult = await saveSnapshotMut.mutateAsync({
-            projectId,
-            sessionId: sessionIdRef.current,
-            state: {
-              cards: cards as unknown as Record<string, unknown>[],
-              script: scripts as unknown as Record<string, unknown>[],
-              shots: storyShots as unknown as Record<string, unknown>[],
-              visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
-              visualPreference,
-            },
-          });
-          lastSnapshotIdRef.current = snapshotResult.snapshotId;
-          // Sync hash so the auto-save timer doesn't duplicate this snapshot
-          lastSnapshotHashRef.current = JSON.stringify({
-            cardIds: cards.map((c) => c.id),
-            scriptIds: scripts.map((s) => s.id),
-            shotNos: storyShots.map((s) => s.shotNo),
-            cardContents: cards.map((c) => c.content),
-            visualIds: visualCanvasItems.map((item) => item.id),
-            visualPreference,
-          });
-        } catch (err) {
-          console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
-        }
-      }
 
       try {
         // 如果有照片，先上传拿 URL
@@ -1014,8 +952,49 @@ export function StoryAgentProvider({
           }
         }
 
+        const userContent = trimmed || "帮我看看这张照片";
+        const userMsg: ChatMessage = {
+          id: newId('msg'),
+          role: 'user',
+          content: userContent,
+          timestamp: Date.now(),
+          photoUrl,
+        };
+        const nextMessages = [...messages, userMsg];
+        setMessages(nextMessages);
+
+        // Capture snapshot of current state before Agent generation.
+        // Errors are silent — snapshot failure must never block message send.
+        if (projectId !== null) {
+          try {
+            const snapshotResult = await saveSnapshotMut.mutateAsync({
+              projectId,
+              sessionId: sessionIdRef.current,
+              state: {
+                cards: cards as unknown as Record<string, unknown>[],
+                script: scripts as unknown as Record<string, unknown>[],
+                shots: storyShots as unknown as Record<string, unknown>[],
+                visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
+                visualPreference,
+              },
+            });
+            lastSnapshotIdRef.current = snapshotResult.snapshotId;
+            // Sync hash so the auto-save timer doesn't duplicate this snapshot
+            lastSnapshotHashRef.current = JSON.stringify({
+              cardIds: cards.map((c) => c.id),
+              scriptIds: scripts.map((s) => s.id),
+              shotNos: storyShots.map((s) => s.shotNo),
+              cardContents: cards.map((c) => c.content),
+              visualIds: visualCanvasItems.map((item) => item.id),
+              visualPreference,
+            });
+          } catch (err) {
+            console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
+          }
+        }
+
         const result = await chatMut.mutateAsync({
-          message: trimmed || "帮我看看这张照片",
+          message: userContent,
           history: nextMessages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -1035,7 +1014,7 @@ export function StoryAgentProvider({
             sound: shot.sound,
             styleRef: shot.styleRef,
           })),
-          similarCards: getSimilarCards(trimmed, cards),
+          similarCards: getSimilarCards(userContent, cards),
           projectId: projectId ?? undefined,
           photoUrl, // 传给 LLM 做多模态理解
         }) as StoryAgentChatResult;
@@ -1589,7 +1568,9 @@ export function StoryAgentProvider({
       setReturningGreeting(
         buildReturningGreeting({
           hasPriorUserMessages: restoredMessages.some(
-            (m) => m.role === 'user' && m.content.trim().length > 0,
+            (m) =>
+              m.role === 'user' &&
+              (m.content.trim().length > 0 || Boolean(m.photoUrl)),
           ),
           logline: row.logline,
           lastCardQuote: lastCard?.sourceQuote || lastCard?.content,

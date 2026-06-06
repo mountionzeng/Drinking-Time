@@ -7,6 +7,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  /** If set, this user message included an uploaded photo. */
+  photoUrl?: string;
   /** If set, this assistant turn produced a card (for inline UI hints). */
   spawnedCardId?: string;
   /** If set, this user message was a selection edit instruction. */
@@ -143,6 +145,47 @@ export interface SelectionQuote {
   sourceType: SelectionState['sourceType'];
   sourceId: string;
   selectedText: string;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+export function normalizeChatMessages(
+  rawMessages: unknown,
+  fallbackMessages: ChatMessage[],
+): ChatMessage[] {
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0) return fallbackMessages;
+  const converted = rawMessages
+    .map((m, i) => {
+      if (!m || typeof m !== 'object') return null;
+      const obj = m as Record<string, unknown>;
+      const role =
+        obj.role === 'user' || obj.who === 'u'
+          ? 'user'
+          : obj.role === 'assistant' || obj.who === 's'
+            ? 'assistant'
+            : null;
+      const content = stringValue(obj.content) ?? stringValue(obj.text) ?? '';
+      const photoUrl = stringValue(obj.photoUrl);
+      if (!role || (!content.trim() && !photoUrl)) return null;
+      const pending = obj.pendingCard as Record<string, unknown> | undefined;
+      const message: ChatMessage = {
+        id: stringValue(obj.id) ?? `msg-${i}-${Date.now()}`,
+        role,
+        content,
+        timestamp: typeof obj.timestamp === 'number' ? obj.timestamp : Date.now() + i,
+      };
+      if (photoUrl) {
+        message.photoUrl = photoUrl;
+      }
+      if (pending && typeof pending.cardId === 'string' && pending.status === 'kept') {
+        message.spawnedCardId = pending.cardId;
+      }
+      return message;
+    })
+    .filter((m): m is ChatMessage => Boolean(m));
+  return converted.length > 0 ? converted : fallbackMessages;
 }
 
 export const FIRST_QUESTION =

@@ -36,12 +36,34 @@ describe("mobileChat story body helpers", () => {
         role: "user",
         content: "今天晚风很轻",
         timestamp: 101,
+        photoUrl: "data:image/jpeg;base64,abc",
       }),
       expect.objectContaining({
         role: "assistant",
         content: "这可以是一场很安静的开场。",
         timestamp: 102,
         imagePrompt: "安静晚风，街边灯光",
+      }),
+    ]);
+  });
+
+  it("hydrate 时保留纯照片用户消息", () => {
+    expect(
+      normalizeMobileMessages([
+        {
+          id: "u-photo",
+          role: "user",
+          content: "",
+          photoUrl: "https://example.com/photo.jpg",
+          timestamp: 101,
+        },
+      ])
+    ).toEqual([
+      expect.objectContaining({
+        id: "u-photo",
+        role: "user",
+        content: "",
+        photoUrl: "https://example.com/photo.jpg",
       }),
     ]);
   });
