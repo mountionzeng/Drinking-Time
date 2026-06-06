@@ -8,6 +8,7 @@ import {
 // ── 类型 ──
 
 export type ImageGenStatus = "ok" | "error";
+export type ImageFidelity = "draft" | "final";
 export type { ImageProvider };
 
 export interface ImageGenResult {
@@ -31,6 +32,8 @@ export interface ImageGenOptions {
   aspectRatio?: string;
   seed?: number;
   provider?: ImageProvider;
+  /** 保真档：draft 低保真省钱（六图草稿），final 成图保真（精修）。默认按 final 处理 */
+  fidelity?: ImageFidelity;
   mjPollIntervalMs?: number;
   mjTimeoutMs?: number;
 }
@@ -132,9 +135,30 @@ function gptImageSizeFor(aspectRatio?: string): string {
   return ENV.image302GptSize || "1024x1024";
 }
 
-function midjourneyPromptFor(prompt: string, aspectRatio?: string): string {
-  if (!aspectRatio || /(?:^|\s)--ar\s+\S+/i.test(prompt)) return prompt;
-  return `${prompt} --ar ${aspectRatio}`;
+/** draft → 低质量档省钱；其余沿用配置档（默认 high）。这是 302 gpt-image 上的真实降本旋钮 */
+function gptQualityFor(fidelity?: ImageFidelity): string {
+  if (fidelity === "draft") return "low";
+  return ENV.image302GptQuality || "high";
+}
+
+function midjourneyPromptFor(
+  prompt: string,
+  aspectRatio?: string,
+  fidelity?: ImageFidelity,
+): string {
+  let out = prompt;
+  if (aspectRatio && !/(?:^|\s)--ar\s+\S+/i.test(out)) {
+    out = `${out} --ar ${aspectRatio}`;
+  }
+  // draft → Midjourney --quality 0.25（最省的 GPU 档），不覆盖调用方已写的 --quality/--q
+  if (
+    fidelity === "draft" &&
+    !/(?:^|\s)--quality\s+\S+/i.test(out) &&
+    !/(?:^|\s)--q\s+\S+/i.test(out)
+  ) {
+    out = `${out} --quality 0.25`;
+  }
+  return out;
 }
 
 async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "image/png"): Promise<ImageGenResult> {
@@ -207,6 +231,9 @@ async function generateFalImage(
     if (options.seed !== undefined) {
       body.seed = options.seed;
     }
+    // 注：fal flux-pro-ultra 没有原生保真/质量旋钮，options.fidelity 在此路无法降本；
+    // 草稿的真实省钱发生在 302 路（gpt-image quality / midjourney --quality）。
+    // 这里仍接受 fidelity 以保持各 provider 接口一致，body 不因 draft 改变。
 
     const response = await withTimeout(
       fetcher(GENERATE_URL, {
@@ -267,7 +294,7 @@ async function generate302GptImage(
           prompt,
           size: gptImageSizeFor(options.aspectRatio),
           n: 1,
-          quality: ENV.image302GptQuality || "high",
+          quality: gptQualityFor(options.fidelity),
           output_format: "png",
           moderation: "auto",
         }),
@@ -330,7 +357,7 @@ async function generate302MidjourneyImage(
           base64Array: [],
           botType: "MID_JOURNEY",
           notifyHook: "",
-          prompt: midjourneyPromptFor(prompt, options.aspectRatio),
+          prompt: midjourneyPromptFor(prompt, options.aspectRatio, options.fidelity),
           state: "",
         }),
       }),

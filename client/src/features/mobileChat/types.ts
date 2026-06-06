@@ -106,14 +106,15 @@ export function normalizeMobileMessages(rawMessages: unknown): MobileChatMessage
             ? "assistant"
             : null;
       const content = stringValue(raw.content) ?? stringValue(raw.text) ?? "";
-      if (!role || !content.trim()) return null;
+      const photoUrl = stringValue(raw.photoUrl);
+      if (!role || (!content.trim() && !photoUrl)) return null;
 
       return {
         id: stringValue(raw.id) ?? `m-${index}-${Date.now()}`,
         role,
         content,
         timestamp: numberValue(raw.timestamp) ?? Date.now() + index,
-        ...(stringValue(raw.photoUrl) ? { photoUrl: stringValue(raw.photoUrl) } : {}),
+        ...(photoUrl ? { photoUrl } : {}),
         ...(typeof raw.suggestImage === "boolean"
           ? { suggestImage: raw.suggestImage }
           : {}),

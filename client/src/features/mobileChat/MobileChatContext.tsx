@@ -283,7 +283,9 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   // 发送消息（可附带照片 base64）
   const sendMessage = useCallback(
     async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
-      if (!text.trim() || isReplying) return;
+      const trimmed = text.trim();
+      if ((!trimmed && !photoBase64) || isReplying) return;
+      const messageText = trimmed || "帮我看看这张照片";
 
       // 如果有照片，先上传到 storage
       let photoUrl: string | undefined;
@@ -304,7 +306,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
       const userMsg: MobileChatMessage = {
         id: newId("u"),
         role: "user",
-        content: text.trim(),
+        content: messageText,
         timestamp: Date.now(),
         photoUrl,
       };
@@ -321,7 +323,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           .map((m) => ({ role: m.role, content: m.content }));
 
         const result = await mobileChatMut.mutateAsync({
-          message: text.trim(),
+          message: messageText,
           history: history.slice(0, -1), // 最后一条是当前消息，不放 history
           existingCardCount: cards.length,
           photoUrl, // 上传后的照片 URL，传给 LLM 做多模态理解
