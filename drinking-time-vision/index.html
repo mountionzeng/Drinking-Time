@@ -1,0 +1,2496 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Drinking Time · 愿景与定位</title>
+<meta name="description" content="把和自己相关的故事，变成属于自己的影像。Drinking Time 愿景与定位。" />
+<meta property="og:title" content="Drinking Time · 愿景与定位" />
+<meta property="og:description" content="那些转瞬即逝、还没等谁认出就流走的情绪，恰恰是我们之所以为人的根。" />
+<meta property="og:type" content="article" />
+<meta property="og:locale" content="zh_CN" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Drinking Time · 愿景与定位" />
+<meta name="twitter:description" content="那些转瞬即逝、还没等谁认出就流走的情绪，恰恰是我们之所以为人的根。" />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=Cormorant+Garamond:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* =========================================================
+     PALETTE (locked, same as v2)
+     ========================================================= */
+  :root{
+    --paper:      #F0E2D2;
+    --paper-warm: #E8D6C0;
+    --ink:        #3D2E26;
+    --ink-soft:   #6B5547;
+    --ink-ghost:  #9C8674;
+    --brick:      #C58671;
+    --rose:       #D9A89A;
+    --muted-red:  #A85B4D;
+    /* RESERVED accent — fire / lamp / hot steam / brush / chair */
+    --hot:        #D6604A;
+    --hot-deep:   #C0473A;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ scroll-behavior:smooth; overflow-x: hidden; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Noto Sans SC', 'PingFang SC', 'Helvetica Neue', sans-serif;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.9;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:1;
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.24  0 0 0 0 0.18  0 0 0 0 0.15  0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity:1; mix-blend-mode:multiply;
+  }
+
+  /* =========================================================
+     LAYOUT SHELL
+     ========================================================= */
+  main.scroll{
+    position: relative; z-index: 10;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px 220px;
+  }
+
+  /* every chapter: min 120px top + 120px bottom space */
+  section.chapter{
+    padding: 120px 0;
+    position: relative;
+  }
+
+  /* split layout — grid only, no absolute for main content */
+  .split{
+    display: grid;
+    gap: 80px 64px;
+    align-items: center;
+    margin-top: 56px;
+  }
+  .split.img-right{ grid-template-columns: 1fr 1fr; }
+  .split.img-left { grid-template-columns: 1fr 1fr; }
+  .split.img-left  .scene-wrap{ order: -1; }
+  .split.stack    { grid-template-columns: 1fr; gap: 64px; }
+
+  @media (max-width: 1024px){
+    .split.img-right, .split.img-left{
+      grid-template-columns: 1fr;
+      gap: 48px;
+    }
+    .split.img-left .scene-wrap{ order: 0; }
+  }
+
+  .copy{ max-width: 720px; }
+  .copy.center{ margin: 0 auto; text-align: left; }
+
+  /* =========================================================
+     CHAPTER HEADER  (no overlap — pure stacking order)
+     ========================================================= */
+  .ch-head{
+    position: relative; z-index: 10;
+    margin-bottom: 8px;
+  }
+  .ch-mark{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: .24em;
+    color: var(--ink);
+    opacity: .55;
+    margin-bottom: 24px;
+  }
+  .ch-display{
+    font-family:'Cormorant Garamond','Noto Serif SC', serif;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 84px;
+    letter-spacing: .6em;
+    line-height: 1.05;
+    color: var(--ink);
+    opacity: .55;
+    padding-left: .6em;
+    margin-bottom: 12px;
+    word-break: keep-all;
+  }
+  .ch-cn{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 600;
+    font-size: 34px;
+    line-height: 1.4;
+    color: var(--ink);
+    letter-spacing: .04em;
+    margin-bottom: 0;
+  }
+
+  /* =========================================================
+     BODY COPY (min 20px)
+     ========================================================= */
+  .copy p, .copy li{
+    font-size: 22px;
+    line-height: 1.9;
+    color: var(--ink);
+    margin-bottom: 1.4em;
+  }
+  .copy p.lead{
+    font-size: 26px;
+    line-height: 1.65;
+  }
+  .copy em{
+    font-style: italic;
+    color: var(--muted-red);
+  }
+  .copy strong{
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .copy ul{
+    list-style: none;
+    padding-left: 0;
+    margin: 0 0 1.6em 0;
+  }
+  .copy ul li{
+    position: relative;
+    padding: 4px 0 4px 32px;
+    margin-bottom: .8em;
+  }
+  .copy ul li::before{
+    content: "—";
+    position: absolute;
+    left: 0; top: 4px;
+    color: var(--muted-red);
+    font-family:'Cormorant Garamond', serif;
+  }
+  .copy ul li strong:first-child{
+    color: var(--ink);
+  }
+
+  /* =========================================================
+     ILLUSTRATION SCENE
+     ========================================================= */
+  .scene-wrap{ position: relative; z-index: 5; }
+  .scene{
+    width: 100%;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .scene svg{
+    width: 100%; height: auto;
+    display: block;
+    overflow: visible;
+  }
+  .scene.tight { max-width: 480px; margin: 0 auto; }
+  .scene.mid   { max-width: 640px; margin: 0 auto; }
+  .scene.wide  { max-width: 820px; margin: 0 auto; }
+  .scene.huge  { max-width: 960px; margin: 0 auto; }
+
+  .ink{
+    stroke: var(--ink);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+  .ink-thin{ stroke-width: 2.4; }
+  .ink-fat { stroke-width: 5.2; }
+  .brick { fill: var(--brick); opacity: .65; }
+  .rose  { fill: var(--rose);  opacity: .7; }
+  .mred  { fill: var(--muted-red); opacity: .82; }
+
+  .jitter{ filter: url(#wobble); }
+
+  /* =========================================================
+     HERO  (full viewport)
+     ========================================================= */
+  .hero{
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: 100px 0 80px;
+    gap: 28px;
+  }
+  .hero .scene{ max-width: 580px; margin-bottom: 8px; }
+
+  .wordmark{
+    font-family:'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: clamp(76px, 9vw, 124px);
+    letter-spacing: .6em;
+    line-height: 1.05;
+    color: var(--ink);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .12em;
+  }
+  .wordmark > span{
+    display: block;
+    padding-left: .6em; /* optical compensation for letter-spacing */
+  }
+  .wordmark-sub{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 500;
+    font-size: 30px;
+    letter-spacing: .3em;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .hero-epigraph{
+    max-width: 860px;
+    margin: 32px auto 0;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 400;
+    font-size: 38px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  .hero-epigraph::before{ content:"「"; color: var(--muted-red); opacity:.7; }
+  .hero-epigraph::after { content:"」"; color: var(--muted-red); opacity:.7; }
+
+  /* hero steam scatter */
+  .hero-steam{
+    transform-origin: 250px 244px;
+    transition: transform .7s ease, opacity .9s ease;
+  }
+  .hero-scattered .hero-steam{
+    transform: translateX(-30px) scale(1.35);
+    opacity: 0;
+  }
+
+  /* quiet rule between sections */
+  .quiet-rule{
+    display:block; width:80px; height:14px;
+    margin: 100px auto;
+    color: var(--muted-red);
+  }
+  .quiet-rule svg{ width:100%; height:100%; display:block; }
+
+  /* =========================================================
+     §2 — PULL-QUOTE PAGE
+     ========================================================= */
+  .pull-page{
+    min-height: 90vh;
+    display: flex; flex-direction: column;
+    justify-content: center;
+    padding: 120px 0;
+    position: relative;
+  }
+  .pull-quote{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 500;
+    font-style: italic;
+    font-size: 44px;
+    line-height: 1.5;
+    color: var(--ink);
+    max-width: 880px;
+    margin: 0 auto;
+    text-align: center;
+    letter-spacing: .03em;
+  }
+  .pull-quote::before, .pull-quote::after{
+    color: var(--muted-red);
+    opacity: .7;
+    font-style: normal;
+  }
+  .pull-quote::before{ content:"「"; }
+  .pull-quote::after { content:"」"; }
+  .pull-after{
+    margin: 80px auto 0;
+    max-width: 620px;
+    text-align: center;
+  }
+  .pull-after p{
+    font-size: 22px;
+    line-height: 1.9;
+    color: var(--ink-soft);
+    margin-bottom: 1.2em;
+  }
+  .pull-after p em{ color: var(--muted-red); font-style: italic; }
+
+  /* tiny vanishing wisp — stays 80px+ from cursor */
+  .wisp-stage{
+    position: absolute; inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+  }
+  .wisp{
+    position: absolute;
+    width: 56px; height: 56px;
+    opacity: .3;
+    transform: translate(-50%,-50%);
+    transition: transform .9s cubic-bezier(.2,.7,.2,1), opacity .4s ease;
+    will-change: transform;
+    mix-blend-mode: multiply;
+  }
+
+  /* =========================================================
+     §10 — CLOSING (full viewport)
+     ========================================================= */
+  .closing{
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 0;
+    gap: 36px;
+  }
+  .closing .ch-head{ text-align: center; }
+  .closing .ch-display{ padding-left: .6em; }
+  .closing .scene{ max-width: 820px; }
+  .closing .copy{ max-width: 620px; text-align: center; margin: 0 auto; }
+  .closing .copy p{ text-align: center; }
+
+  .chair-hint{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: .32em;
+    color: var(--ink-ghost);
+    margin-top: 8px;
+    transition: opacity .8s ease;
+  }
+  .seated .chair-hint{ opacity: 0; }
+
+  .seated-line{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1.6;
+    letter-spacing: .04em;
+    color: var(--muted-red);
+    opacity: 1;          /* 始终可见 —— 这是全篇的收束句,不能被任何交互遮 */
+    margin-top: 18px;
+    transition: color 1.2s ease;
+  }
+  .seated .seated-line{ color: var(--hot-deep); }
+
+  /* chair + you-silhouette states */
+  .chair-outline{ stroke: var(--ink-ghost); transition: stroke 1s ease; }
+  .closing.seated .chair-outline{ stroke: var(--hot); }
+  .you-sit{
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 1.4s ease, transform 1.4s cubic-bezier(.2,.7,.2,1);
+  }
+  .closing.seated .you-sit{ opacity: 1; transform: translateY(0); }
+
+  /* =========================================================
+     INTERACTION STATES (shared)
+     ========================================================= */
+  .clickable{ cursor: pointer; }
+  .nopick   { user-select: none; }
+
+  /* §1 fire — 加大对比:灭灯时更冷更弱,点起来更鲜 */
+  .flame{ fill: #B6A595; opacity: .3; transition: fill .5s ease, opacity 1s ease; }
+  .flame.lit-1{ fill: var(--muted-red); opacity: 1; }
+  .flame.lit-2{ fill: var(--hot);       opacity: 1; }
+  .flame.lit-3{ fill: var(--hot-deep);  opacity: 1; filter: drop-shadow(0 0 14px rgba(214,96,74,.55)); }
+
+  /* §3 lamp + write lines — 加大对比 */
+  .lamp-glow{ fill: var(--ink-ghost); opacity: .06; transition: fill .8s ease, opacity 1s ease; }
+  .lamp-on .lamp-glow{ fill: var(--hot); opacity: .55; }
+  .lamp-bulb{ fill: #B6A595; transition: fill .5s ease; }
+  .lamp-on .lamp-bulb{ fill: var(--hot); }
+  .write-line{
+    stroke: var(--ink); stroke-width: 2.4; fill: none; stroke-linecap: round;
+    stroke-dasharray: 220; stroke-dashoffset: 220;
+    transition: stroke-dashoffset .9s ease;
+  }
+  .write-line.on{ stroke-dashoffset: 0; }
+
+  /* §4 paper fold (note: kept simple, no 3D, just an opacity reveal) */
+  .fold-flap{
+    transition: transform .7s cubic-bezier(.2,.7,.2,1), opacity .6s ease;
+    transform-origin: 100% 50%;
+  }
+  .fold-open .fold-flap{ transform: translateX(-40%) rotate(-12deg); opacity: 0; }
+  .fold-inside{ opacity: 0; transition: opacity .6s ease .2s; }
+  .fold-open .fold-inside{ opacity: 1; }
+
+  /* §5 frames — 加大对比 */
+  .frame-slot{ opacity: .08; transition: opacity .9s ease; }
+  .frame-slot.solid{ opacity: 1; }
+  .frame-slot .sketch{ opacity: 0; transition: opacity .6s ease .1s; }
+  .frame-slot.solid .sketch{ opacity: 1; }
+
+  /* §6 set jitter */
+  @keyframes setJitter {
+    0%, 100% { transform: translate(0, 0) rotate(0); }
+    20% { transform: translate(-4px, 1px) rotate(-.4deg); }
+    50% { transform: translate(3px, -1px) rotate(.5deg); }
+    80% { transform: translate(-1px, 2px) rotate(-.2deg); }
+  }
+  .jittering{ animation: setJitter .4s ease both; }
+
+  /* §7 brush */
+  .brush-stroke{
+    opacity: 0;
+    transform-origin: 30% 50%;
+    transform: scaleX(.2);
+    transition: opacity .5s ease, transform .7s ease;
+  }
+  .brushed .brush-stroke{ opacity: 1; transform: scaleX(1); }
+
+  /* §8 door */
+  .door-group{ cursor: pointer; }
+  .door-leaf{
+    transform-origin: 130px 245px;
+    transition: transform .8s cubic-bezier(.2,.7,.2,1);
+  }
+  .door-open .door-leaf{ transform: rotate(-18deg) translateX(-8px); }
+  .light-pool{ fill: var(--ink-ghost); opacity: .06; transition: fill 1s ease, opacity 1s ease; }
+  .door-open .light-pool{ fill: var(--hot); opacity: .58; }
+  .lamp-halo{ stroke: var(--ink-ghost); opacity: .35; transition: stroke 1s ease, opacity 1s ease; }
+  .door-open .lamp-halo{ stroke: var(--hot); opacity: 1; }
+
+  /* §9 shared marks */
+  .shared-mark{
+    stroke: var(--ink); stroke-width: 2.6; fill: none; stroke-linecap: round;
+    stroke-dasharray: 260; stroke-dashoffset: 260;
+    transition: stroke-dashoffset 1s ease;
+  }
+  .shared-mark.on{ stroke-dashoffset: 0; }
+
+  /* =========================================================
+     SCROLL FADE-IN
+     ========================================================= */
+  [data-anim]{
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity .8s ease, transform .8s ease;
+    will-change: opacity, transform;
+  }
+  [data-anim].in{ opacity: 1; transform: translateY(0); }
+  .delay-1{ transition-delay: .14s; }
+  .delay-2{ transition-delay: .28s; }
+
+  /* =========================================================
+     COLOPHON
+     ========================================================= */
+  .colophon{
+    margin: 180px auto 0;
+    text-align: center;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .3em;
+    color: var(--ink-ghost);
+    line-height: 1.7;
+  }
+  .colophon .sig{
+    display: block;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-size: 16px;
+    letter-spacing: .2em;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+
+  /* =========================================================
+     RESPONSIVE
+     ========================================================= */
+  @media (max-width: 900px){
+    body{ font-size: 20px; }
+    main.scroll{ padding: 0 22px 160px; }
+    section.chapter{ padding: 100px 0; }
+    .ch-display{ font-size: 58px; letter-spacing: .5em; padding-left: .5em; }
+    .ch-cn{ font-size: 30px; }
+    .copy p, .copy li{ font-size: 20px; }
+    .copy p.lead{ font-size: 24px; }
+    .wordmark-sub{ font-size: 26px; }
+    .hero-epigraph{ font-size: 30px; }
+    .pull-quote{ font-size: 34px; }
+    .seated-line{ font-size: 28px; }
+  }
+  @media (max-width: 640px){
+    body{ font-size: 19px; line-height: 1.85; }
+    .ch-display{ font-size: 42px; letter-spacing: .42em; padding-left: .42em; }
+    .ch-cn{ font-size: 26px; }
+    .copy p, .copy li{ font-size: 19px; }
+    .copy p.lead{ font-size: 22px; }
+    .pull-quote{ font-size: 26px; line-height: 1.5; }
+    .hero-epigraph{ font-size: 24px; }
+  }
+
+  /* =========================================================
+     PRINT  (clean PDF export, no chase-cursor wisp, no jitter)
+     ========================================================= */
+  @media print{
+    html, body{
+      background: #FFFFFF !important;
+      color: #2A1F19 !important;
+      font-size: 12pt;
+      line-height: 1.7;
+    }
+    body::before{ display: none !important; } /* drop noise overlay */
+    .wisp-stage, .wisp,
+    .chair-hint{
+      display: none !important;
+    }
+    /* freeze all interactive states to a quiet print-friendly look */
+    .flame{ fill: #A85B4D !important; opacity: 1 !important; }
+    .lamp-glow{ fill: #A85B4D !important; opacity: .22 !important; }
+    .lamp-bulb{ fill: #A85B4D !important; }
+    .write-line{ stroke-dashoffset: 0 !important; }
+    .fold-flap{ opacity: 1 !important; transform: none !important; }
+    .fold-inside{ opacity: 1 !important; }
+    .frame-slot{ opacity: 1 !important; }
+    .frame-slot .sketch{ opacity: 1 !important; }
+    .brush-stroke{ opacity: 1 !important; transform: scaleX(1) !important; }
+    .door-leaf{ transform: rotate(-14deg) translateX(-6px) !important; }
+    .light-pool{ fill: #A85B4D !important; opacity: .26 !important; }
+    .lamp-halo{ stroke: #A85B4D !important; opacity: .85 !important; }
+    .shared-mark{ stroke-dashoffset: 0 !important; }
+    .chair-outline{ stroke: #A85B4D !important; }
+    .you-sit{ opacity: 1 !important; transform: none !important; }
+    .seated-line{ opacity: 1 !important; }
+    /* fade-ins on by default in print */
+    [data-anim]{ opacity: 1 !important; transform: none !important; }
+
+    /* page break discipline */
+    .hero, .closing,
+    section.chapter{
+      page-break-inside: avoid;
+      break-inside: avoid;
+      padding: 32px 0 !important;
+    }
+    .ch-head{ page-break-after: avoid; break-after: avoid; }
+    .scene{ page-break-inside: avoid; break-inside: avoid; }
+    .pull-quote{ page-break-inside: avoid; break-inside: avoid; }
+
+    /* lighter, print-readable big display */
+    .ch-display{ opacity: .8 !important; font-size: 32pt !important; }
+    .wordmark{ font-size: 48pt !important; }
+    .ch-cn{ font-size: 18pt !important; }
+    .hero-epigraph{ font-size: 16pt !important; }
+    .pull-quote{ font-size: 22pt !important; }
+    .copy p, .copy li{ font-size: 12pt !important; }
+    .copy p.lead{ font-size: 13pt !important; }
+
+    main.scroll{ padding: 0 !important; max-width: 100% !important; }
+    .colophon{ margin-top: 24px !important; }
+  }
+
+  /* =========================================================
+     TOP NAV + ROUTES  (two routes: 愿景与定位 / 操作功能)
+     ========================================================= */
+  .route{ display: none; }
+  .route.active{ display: block; }
+
+  .topnav{
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center; gap: 40px;
+    padding: 15px 24px;
+    background: rgba(240,226,210,.82);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(61,46,38,.10);
+  }
+  .topnav .brand{
+    position: absolute; left: 26px; top: 50%; transform: translateY(-50%);
+    font-family:'Cormorant Garamond','Noto Serif SC', serif;
+    font-weight: 600; font-size: 18px; letter-spacing: .26em;
+    color: var(--ink); opacity: .78; text-decoration: none;
+  }
+  .topnav a.tab{
+    position: relative;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 600; font-size: 16px; letter-spacing: .14em;
+    color: var(--ink); opacity: .42; text-decoration: none;
+    padding: 4px 2px;
+    transition: opacity .3s ease, color .3s ease;
+  }
+  .topnav a.tab:hover{ opacity: .75; }
+  .topnav a.tab.active{ opacity: 1; color: var(--muted-red); }
+  .topnav a.tab.active::after{
+    content:""; position: absolute; left: -2px; right: -2px; bottom: -7px; height: 8px;
+    background: center/contain no-repeat
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='8' viewBox='0 0 64 8'%3E%3Cpath d='M2 5 C 16 1, 28 7, 42 4 C 52 2, 60 5, 62 4' fill='none' stroke='%23A85B4D' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+  @media (max-width: 640px){
+    .topnav{ gap: 22px; padding: 12px 16px; }
+    .topnav .brand{ display: none; }
+    .topnav a.tab{ font-size: 15px; letter-spacing: .1em; }
+  }
+
+  /* hero · 两台手机之间互相切换的小球 */
+  .hero-flow .dot-r{ animation: heroFlowR 2.4s ease-in-out infinite; }
+  .hero-flow .dot-l{ animation: heroFlowL 2.4s ease-in-out infinite .3s; }
+  @keyframes heroFlowR{
+    0%{ transform: translateX(-47px); opacity: 0; }
+    20%, 80%{ opacity: 1; }
+    100%{ transform: translateX(47px); opacity: 0; }
+  }
+  @keyframes heroFlowL{
+    0%{ transform: translateX(47px); opacity: 0; }
+    20%, 80%{ opacity: 1; }
+    100%{ transform: translateX(-47px); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .hero-flow .dot{ animation: none !important; }
+  }
+
+  /* operations — four steps */
+  .op-steps{
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 44px 64px; margin-top: 60px;
+  }
+  .op-step{ display: flex; gap: 22px; align-items: flex-start; }
+  .op-mark{
+    flex: 0 0 auto; width: 58px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .op-step .num{
+    width: 100%; text-align: center;
+    font-family:'Cormorant Garamond', serif; font-weight: 600;
+    font-size: 46px; line-height: .9; color: var(--muted-red); opacity: .82;
+  }
+  /* drawn-on icons: lines paint themselves in */
+  .op-icon{ width: 44px; height: 44px; display: block; overflow: visible; }
+  .op-icon path, .op-icon line, .op-icon circle, .op-icon polyline, .op-icon rect{
+    stroke-dasharray: var(--len, 220);
+    stroke-dashoffset: var(--len, 220);
+    transition: stroke-dashoffset 1s ease;
+  }
+  .op-step.in .op-icon path, .op-step.in .op-icon line, .op-step.in .op-icon circle,
+  .op-step.in .op-icon polyline, .op-step.in .op-icon rect{ stroke-dashoffset: 0; }
+  /* stagger: one step lights up after another */
+  .op-step:nth-child(1){ transition-delay: 0s; }
+  .op-step:nth-child(2){ transition-delay: .12s; }
+  .op-step:nth-child(3){ transition-delay: .24s; }
+  .op-step:nth-child(4){ transition-delay: .36s; }
+  .op-step:nth-child(1) .op-icon *{ transition-delay: .25s; }
+  .op-step:nth-child(2) .op-icon *{ transition-delay: .37s; }
+  .op-step:nth-child(3) .op-icon *{ transition-delay: .49s; }
+  .op-step:nth-child(4) .op-icon *{ transition-delay: .61s; }
+  /* gentle float once drawn */
+  @keyframes opFloat{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-3px); } }
+  .op-step.in .op-icon{ animation: opFloat 4.8s ease-in-out infinite; animation-delay: 1.2s; }
+  .op-step:nth-child(2).in .op-icon{ animation-delay: 1.6s; }
+  .op-step:nth-child(3).in .op-icon{ animation-delay: 2s; }
+  .op-step:nth-child(4).in .op-icon{ animation-delay: 2.4s; }
+  .op-step h3{
+    font-family:'Noto Serif SC','PingFang SC', serif; font-weight: 700;
+    font-size: 25px; letter-spacing: .03em; color: var(--ink); margin-bottom: 6px;
+  }
+  .op-step p{ font-size: 20px; line-height: 1.8; color: var(--ink-soft); margin: 0; }
+  @media (max-width: 760px){
+    .op-steps{ grid-template-columns: 1fr; gap: 32px; margin-top: 44px; }
+    .op-mark{ width: 46px; }
+    .op-step .num{ font-size: 38px; }
+    .op-icon{ width: 36px; height: 36px; }
+    .op-step h3{ font-size: 22px; }
+    .op-step p{ font-size: 19px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .op-icon *{ stroke-dashoffset: 0 !important; transition: none !important; }
+    .op-step.in .op-icon{ animation: none !important; }
+  }
+
+  /* mvp — validation board */
+  .mvp-signal-grid{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 24px;
+    margin-top: 56px;
+    padding: 30px 0;
+    border-top: 1px solid rgba(61,46,38,.16);
+    border-bottom: 1px solid rgba(61,46,38,.16);
+  }
+  .mvp-signal{
+    min-height: 120px;
+    padding: 4px 18px 4px 0;
+    border-right: 1px solid rgba(61,46,38,.12);
+  }
+  .mvp-signal:last-child{ border-right: 0; }
+  .mvp-signal .k{
+    display: block;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .18em;
+    color: var(--muted-red);
+    margin-bottom: 12px;
+  }
+  .mvp-signal strong{
+    display: block;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-size: 25px;
+    line-height: 1.35;
+    letter-spacing: .02em;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .mvp-signal p{
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .mvp-board{
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 50px 64px;
+    margin-top: 58px;
+  }
+  .mvp-panel{
+    border-top: 1px solid rgba(168,91,77,.34);
+    padding-top: 22px;
+  }
+  .mvp-panel h3{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 700;
+    font-size: 25px;
+    line-height: 1.45;
+    color: var(--ink);
+    margin-bottom: 14px;
+    letter-spacing: .03em;
+  }
+  .mvp-panel p,
+  .mvp-panel li{
+    font-size: 20px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .mvp-panel p{ margin-bottom: 1em; }
+  .mvp-panel ul{
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+  }
+  .mvp-panel li{
+    position: relative;
+    padding-left: 26px;
+    margin-bottom: .7em;
+  }
+  .mvp-panel li::before{
+    content:"";
+    position:absolute;
+    left:0;
+    top:.83em;
+    width:12px;
+    height:1.5px;
+    background: var(--muted-red);
+    opacity:.72;
+  }
+  .mvp-panel strong{ color: var(--ink); font-weight: 700; }
+  .mvp-script{
+    margin-top: 16px;
+    padding: 18px 20px;
+    border-left: 2px solid rgba(168,91,77,.58);
+    background: rgba(232,214,192,.34);
+    font-size: 18px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  .mvp-script b{
+    display: block;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .16em;
+    color: var(--muted-red);
+    margin-bottom: 8px;
+  }
+  .mvp-days{
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 46px;
+  }
+  .mvp-day{
+    border-top: 1px solid rgba(61,46,38,.16);
+    padding-top: 16px;
+  }
+  .mvp-day .d{
+    display: block;
+    font-family:'Cormorant Garamond', serif;
+    font-size: 38px;
+    line-height: .9;
+    color: var(--muted-red);
+    margin-bottom: 12px;
+  }
+  .mvp-day p{
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  @media (max-width: 960px){
+    .mvp-signal-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mvp-signal:nth-child(2){ border-right: 0; }
+    .mvp-board{ grid-template-columns: 1fr; gap: 42px; }
+    .mvp-days{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 22px; }
+  }
+  @media (max-width: 640px){
+    .mvp-signal-grid{ grid-template-columns: 1fr; gap: 22px; padding: 24px 0; }
+    .mvp-signal{ min-height: auto; border-right: 0; border-bottom: 1px solid rgba(61,46,38,.12); padding-bottom: 20px; }
+    .mvp-signal:last-child{ border-bottom: 0; padding-bottom: 0; }
+    .mvp-signal strong{ font-size: 23px; }
+    .mvp-panel h3{ font-size: 23px; }
+    .mvp-panel p,
+    .mvp-panel li{ font-size: 19px; }
+    .mvp-days{ grid-template-columns: 1fr; }
+  }
+
+  /* operations — backlink */
+  .op-backlink{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 14px; letter-spacing: .14em;
+    color: var(--ink-soft); text-decoration: none;
+    border-bottom: 1px solid rgba(168,91,77,.4);
+    padding-bottom: 2px; transition: color .3s ease, border-color .3s ease;
+  }
+  .op-backlink:hover{ color: var(--muted-red); border-color: var(--muted-red); }
+</style>
+</head>
+<body>
+
+<!-- shared SVG defs (jitter filter) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="wobble" x="-2%" y="-2%" width="104%" height="104%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="3"/>
+      <feDisplacementMap in="SourceGraphic" scale="1.4"/>
+    </filter>
+  </defs>
+</svg>
+
+<nav class="topnav" aria-label="主导航">
+  <a class="brand" href="#vision">小 · 酌</a>
+  <a class="tab" data-route="vision" href="#vision">愿景与定位</a>
+  <a class="tab" data-route="operations" href="#operations">操作功能</a>
+  <a class="tab" data-route="mvp" href="#mvp">MVP</a>
+</nav>
+
+<div class="route route-vision active" data-route="vision">
+<main class="scroll">
+
+<!-- ======================================================================
+       HERO · 题词
+       ====================================================================== -->
+  <section class="hero" id="hero">
+
+    <div class="scene jitter" data-anim>
+      <svg viewBox="0 0 600 380" aria-hidden="true" id="heroSvg" class="clickable">
+        <path class="ink ink-thin" d="M30 332 C 220 328, 420 334, 580 330"/>
+        <g>
+          <rect class="ink" x="380" y="60" width="180" height="220"/>
+          <line class="ink ink-thin" x1="470" y1="60" x2="470" y2="280"/>
+          <line class="ink ink-thin" x1="380" y1="170" x2="560" y2="170"/>
+          <rect x="384" y="64" width="172" height="212" class="rose" stroke="none"/>
+        </g>
+        <path d="M180 250 L 320 250 L 312 290 L 188 290 Z" class="brick" stroke="none"/>
+        <path class="ink" d="M180 250 L 320 250 L 312 290 L 188 290 Z"/>
+        <line class="ink ink-thin" x1="195" y1="288" x2="195" y2="328"/>
+        <line class="ink ink-thin" x1="305" y1="288" x2="305" y2="328"/>
+        <g>
+          <ellipse cx="250" cy="244" rx="22" ry="4" fill="var(--paper)"/>
+          <path d="M228 244 C 230 264, 270 264, 272 244" fill="var(--paper)"/>
+          <path class="ink ink-thin" d="M228 244 C 230 264, 270 264, 272 244"/>
+          <ellipse class="ink ink-thin" cx="250" cy="244" rx="22" ry="4" fill="none"/>
+          <ellipse cx="250" cy="244" rx="15" ry="2.4" class="mred" stroke="none"/>
+        </g>
+        <g class="hero-steam">
+          <!-- the ONE saturated wisp at the cup mouth -->
+          <path d="M252 232 C 244 214, 258 200, 250 184"
+                stroke="var(--hot)" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+          <path d="M260 230 C 268 212, 252 198, 264 178 C 256 168, 270 158, 260 142"
+                class="ink ink-thin" opacity=".55"/>
+          <path d="M240 160 C 230 150, 246 142, 230 130"
+                class="ink ink-thin" opacity=".4" stroke-dasharray="2 6"/>
+          <path d="M220 138 C 208 128, 222 116, 208 104"
+                class="ink ink-thin" opacity=".25" stroke-dasharray="2 6"/>
+        </g>
+        <path d="M88 332 L 132 332 L 126 360 L 94 360 Z" class="brick" stroke="none"/>
+        <path class="ink ink-thin" d="M88 332 L 132 332 L 126 360 L 94 360 Z"/>
+        <g>
+          <circle cx="118" cy="160" r="22" fill="var(--paper)"/>
+          <circle class="ink" cx="118" cy="160" r="22"/>
+          <path class="ink ink-thin" d="M99 152 C 102 142, 116 138, 132 146"/>
+          <path d="M118 182 C 100 188, 92 220, 96 260 C 96 290, 102 322, 112 332"
+                class="brick" stroke="none"/>
+          <path class="ink" d="M118 182 C 100 188, 92 220, 96 260 C 96 290, 102 322, 112 332"/>
+          <path class="ink" d="M118 182 C 138 188, 152 220, 156 250"/>
+          <path class="ink" d="M150 218 C 178 226, 208 236, 226 248"/>
+          <path class="ink" d="M114 332 C 132 318, 168 304, 198 300 C 220 298, 232 304, 232 314"/>
+          <path class="ink" d="M232 314 L 232 332"/>
+        </g>
+      </svg>
+    </div>
+
+    <h1 class="wordmark" data-anim><span>DRINKING</span><span>TIME</span></h1>
+    <p class="wordmark-sub" data-anim>愿景与定位</p>
+
+    <p class="hero-epigraph" data-anim>很多感觉一闪就过去了——而我们,就是被这些攒出来的。</p>
+
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- ======================================================================
+       § 1 · 最古老的那件事
+       ====================================================================== -->
+  <section class="chapter" id="ch1">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">I. &nbsp;—&nbsp; CHAPTER ONE</div>
+      <h2 class="ch-display">THE OLDEST THING</h2>
+      <p class="ch-cn">一、最古老的那件事</p>
+    </header>
+
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">最古老的故事，人们围坐在一起。</p>
+        <p>一个人开口讲，其他人听，火光把脸照得忽明忽暗。讲的不是事实，是当下流动的情绪。听的人也不是为了记住——是为了让那个感受，在自己身上再活一遍。</p>
+        <p>这件事比文字早，比账本早，比所有制度都早。它就是我们之所以是<em>人</em>，而不只是会做事的动物的那一根线。</p>
+        <p>Drinking Time 这个名字，说的就是这件事：<strong>倒一杯，慢慢说，让故事重新成为人和人之间的链接。</strong></p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene wide">
+          <svg viewBox="0 0 720 420" class="jitter" id="fireSvg">
+            <ellipse cx="360" cy="300" rx="280" ry="60"
+                     class="ink ink-thin" stroke-dasharray="3 8" opacity=".45" fill="none"/>
+            <g class="clickable" id="fireGroup">
+              <path class="ink ink-fat" d="M310 320 L 410 320"/>
+              <path class="ink ink-fat" d="M300 332 L 420 332"/>
+              <path id="flameA" class="flame"
+                    d="M340 318 C 332 296, 360 282, 354 254 C 372 268, 376 290, 372 314 Z"/>
+              <path id="flameB" class="flame"
+                    d="M360 318 C 354 302, 376 290, 370 270 C 384 286, 388 304, 384 316 Z"/>
+              <circle id="spark1" cx="386" cy="246" r="3" fill="var(--ink-ghost)"/>
+              <circle id="spark2" cx="346" cy="236" r="2" fill="var(--ink-ghost)"/>
+            </g>
+
+            <g transform="translate(160 0)">
+              <circle class="ink" cx="0" cy="210" r="18" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-14 198 C -10 188, 8 188, 16 198"/>
+              <path d="M0 228 C -18 232, -26 268, -22 296 L -10 332 L 26 332 L 34 290 C 36 268, 22 234, 0 228 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 228 C -18 232, -26 268, -22 296 L -10 332 L 26 332 L 34 290 C 36 268, 22 234, 0 228 Z"/>
+              <path class="ink" d="M-10 332 C 10 348, 36 344, 60 336"/>
+              <path class="ink" d="M60 336 L 84 336"/>
+            </g>
+            <g transform="translate(540 0)">
+              <circle class="ink" cx="0" cy="210" r="18" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-16 196 C -8 184, 12 186, 18 196"/>
+              <path d="M0 228 C 18 232, 28 268, 22 296 L 10 332 L -28 332 L -36 290 C -36 266, -20 232, 0 228 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 228 C 18 232, 28 268, 22 296 L 10 332 L -28 332 L -36 290 C -36 266, -20 232, 0 228 Z"/>
+              <path class="ink" d="M-18 246 C -56 248, -90 268, -110 282 C -116 286, -120 284, -120 280"/>
+              <path class="ink" d="M-28 332 C -48 348, -74 344, -94 336"/>
+              <path class="ink" d="M-94 336 L -118 336"/>
+            </g>
+            <g transform="translate(260 -20)">
+              <circle class="ink" cx="0" cy="222" r="14" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-10 212 C -6 204, 8 204, 12 212"/>
+              <path d="M0 236 C -16 240, -22 268, -20 290 L -12 320 L 16 320 L 22 290 C 22 268, 16 240, 0 236 Z" class="rose" stroke="none"/>
+              <path class="ink" d="M0 236 C -16 240, -22 268, -20 290 L -12 320 L 16 320 L 22 290 C 22 268, 16 240, 0 236 Z"/>
+            </g>
+            <g transform="translate(460 -20)">
+              <circle class="ink" cx="0" cy="222" r="14" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-10 212 C -6 204, 8 204, 12 212"/>
+              <path d="M0 236 C 16 240, 22 268, 20 290 L 12 320 L -16 320 L -22 290 C -22 268, -16 240, 0 236 Z" class="rose" stroke="none"/>
+              <path class="ink" d="M0 236 C 16 240, 22 268, 20 290 L 12 320 L -16 320 L -22 290 C -22 268, -16 240, 0 236 Z"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 2 · 被稀释的东西 — pull-quote page
+       ====================================================================== -->
+  <section class="chapter pull-page" id="pullPage">
+    <div class="wisp-stage" id="wispStage" aria-hidden="true">
+      <svg class="wisp" id="wisp" viewBox="0 0 80 80" style="left:50%; top:36%">
+        <path d="M10 60 C 22 46, 36 42, 38 30 C 40 18, 56 16, 66 22"
+              class="ink ink-thin" opacity=".7" stroke-dasharray="2 5"/>
+        <path d="M18 70 C 28 58, 44 54, 50 40"
+              class="ink ink-thin" opacity=".4" stroke-dasharray="2 7"/>
+      </svg>
+    </div>
+
+    <header class="ch-head" data-anim style="text-align:center;">
+      <div class="ch-mark" style="text-align:center;">II. &nbsp;—&nbsp; CHAPTER TWO</div>
+      <h2 class="ch-display" style="text-align:center;">WHAT GETS THINNED OUT</h2>
+      <p class="ch-cn" style="text-align:center;">二、被稀释的东西</p>
+    </header>
+
+    <blockquote class="pull-quote" data-anim>那些细的、慢的、还没等谁认出就流走的——被稀释了。</blockquote>
+
+    <div class="pull-after" data-anim>
+      <p>后来我们有了更快的方式。一秒发出去，一万个人看到；再下一秒被下一条压住。</p>
+      <p>阅后即焚。 </p>
+      <p>但我们把这件事记下来，是因为我们觉得，那才是<em>最不应该被丢掉</em>的东西。</p>
+    </div>
+  </section>
+
+<!-- ======================================================================
+       § 3 · 我们的立场 — img-left, drop cap, writer at desk
+       ====================================================================== -->
+  <section class="chapter" id="ch3">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">III. &nbsp;—&nbsp; CHAPTER THREE</div>
+      <h2 class="ch-display">OUR STANCE</h2>
+      <p class="ch-cn">三、我们的立场</p>
+    </header>
+
+    <div class="split img-left">
+      <div class="copy" data-anim>
+        <p class="lead">所以 Drinking Time 不是&ldquo;帮普通人做视频&rdquo;。</p>
+        <p>它要解决的是一个更硬的问题：<strong>解释权与表达权。</strong> 谁有权解释自己的人生，谁有权把它表达出来、留下来、递给另一个人。</p>
+        <p>我们把这个权利，还给普通人。</p>
+        <p>替他们，把那些小到没有任何一部电影会为之立项、却构成了&ldquo;她之所以是她&rdquo;的瞬间，留下来——并且让它能被另一个人接住，比文字和语言更细腻。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 580 460" class="jitter" id="writeSvg">
+            <path d="M40 360 L 540 360 L 530 410 L 50 410 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M40 360 L 540 360 L 530 410 L 50 410 Z"/>
+
+            <g class="lamp-on" id="lampGroup">
+              <path class="ink" d="M460 360 L 460 240 L 392 200"/>
+              <path class="ink" d="M380 196 L 396 168 L 414 180 L 398 208 Z" fill="var(--paper)"/>
+              <ellipse cx="380" cy="232" rx="120" ry="80" class="lamp-glow"/>
+              <circle cx="395" cy="200" r="4" class="lamp-bulb"/>
+            </g>
+
+            <g>
+              <path d="M170 348 L 410 332 L 414 372 L 174 388 Z" fill="var(--paper)" stroke="none"/>
+              <path class="ink" d="M170 348 L 410 332 L 414 372 L 174 388 Z"/>
+              <path class="write-line" id="wl1" d="M196 352 C 240 348, 300 350, 380 344"/>
+              <path class="write-line" id="wl2" d="M198 360 C 250 356, 320 358, 380 352"/>
+              <path class="write-line" id="wl3" d="M200 368 C 240 366, 300 368, 360 362"/>
+              <path class="write-line" id="wl4" d="M202 376 C 250 372, 320 372, 370 368"/>
+              <path class="ink" d="M364 308 L 392 340"/>
+              <path class="ink ink-thin" d="M390 338 L 396 344"/>
+            </g>
+
+            <g>
+              <circle class="ink" cx="180" cy="178" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M158 168 C 168 154, 192 154, 200 168"/>
+              <path d="M180 200 C 160 214, 154 256, 168 296 L 192 332 L 248 320 L 256 268 C 252 230, 208 200, 180 200 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M180 200 C 160 214, 154 256, 168 296 L 192 332 L 248 320 L 256 268 C 252 230, 208 200, 180 200 Z"/>
+              <path class="ink" d="M232 250 C 280 268, 330 300, 360 318"/>
+              <path class="ink" d="M164 244 C 152 274, 152 308, 164 332"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 4 · 这是给谁的 — img-right, person on sill + cat
+       ====================================================================== -->
+  <section class="chapter" id="ch4">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">IV. &nbsp;—&nbsp; CHAPTER FOUR</div>
+      <h2 class="ch-display">WHO IT IS FOR</h2>
+      <p class="ch-cn">四、这是给谁的</p>
+    </header>
+
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">给没有影视背景，但有创造欲、也有倾述欲望的普通人。</p>
+        <p>这是给一个父亲的——他想把孩子学走路那个上午，做成一段两分钟的画面，留给十年后的孩子。</p>
+        <p>这是给一个二十八岁的人的——她想把外婆讲过的那个故事，<em>在外婆还在的时候</em>，拍成她能看的样子。</p>
+        <p>这是给所有有表达欲、想和身边人更近一点的人。</p>
+        <p>讲完之后，它可以——</p>
+        <ul>
+          <li>发给某一个人；</li>
+          <li>两个人一起，把一个故事讲完；</li>
+          <li>或者只是，留住一段私人的经历，一个差点就那样流走的瞬间。</li>
+        </ul>
+        <p>不为传播，不为点赞。为的是：这件事，曾经真的对我重要过，我想让它留下来，或者，我想让你也看见。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 580 540" class="jitter" id="sillSvg">
+            <line class="ink ink-thin" x1="20" y1="490" x2="560" y2="490"/>
+            <rect class="ink" x="80" y="60" width="420" height="380" fill="var(--paper)"/>
+            <line class="ink ink-thin" x1="290" y1="60" x2="290" y2="440"/>
+            <line class="ink ink-thin" x1="80" y1="240" x2="500" y2="240"/>
+            <path d="M84 64 L 286 64 L 286 240 L 84 240 Z" class="rose" stroke="none" opacity=".4"/>
+            <path d="M294 64 L 496 64 L 496 240 L 294 240 Z" class="rose" stroke="none" opacity=".5"/>
+            <path d="M80 440 L 500 440 L 360 490 L 220 490 Z" class="rose" stroke="none" opacity=".25"/>
+
+            <path d="M80 440 L 500 440 L 500 460 L 80 460 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M80 440 L 500 440 L 500 460 L 80 460 Z"/>
+
+            <g transform="translate(230 0)">
+              <circle class="ink" cx="0" cy="200" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-22 188 C -10 174, 14 174, 22 188"/>
+              <path d="M0 222 C -18 230, -28 270, -18 304 L -4 338 L 60 332 L 70 280 C 60 248, 28 222, 0 222 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 222 C -18 230, -28 270, -18 304 L -4 338 L 60 332 L 70 280 C 60 248, 28 222, 0 222 Z"/>
+              <path class="ink" d="M-4 338 C 30 350, 80 354, 116 348 L 132 392 L 84 414 L 36 410 L 20 380"/>
+              <path d="M-4 338 C 30 350, 80 354, 116 348 L 132 392 L 84 414 L 36 410 L 20 380 Z" class="rose" stroke="none"/>
+              <path class="ink" d="M84 414 L 86 440"/>
+              <path class="ink" d="M36 410 L 32 440"/>
+              <path class="ink" d="M-18 276 C 16 284, 50 280, 78 274"/>
+              <path class="ink" d="M58 274 C 80 286, 100 296, 118 296"/>
+            </g>
+
+            <g transform="translate(290 268)" id="paperGroup">
+              <rect x="0" y="0" width="78" height="60" fill="var(--paper)" stroke="var(--ink)" stroke-width="3"/>
+              <g class="fold-inside">
+                <line class="ink ink-thin" x1="6" y1="18" x2="70" y2="14"/>
+                <line class="ink ink-thin" x1="6" y1="28" x2="64" y2="24"/>
+                <line class="ink ink-thin" x1="6" y1="38" x2="60" y2="34"/>
+                <line class="ink ink-thin" x1="6" y1="48" x2="50" y2="44"/>
+              </g>
+              <g class="fold-flap">
+                <rect x="0" y="0" width="78" height="60" fill="var(--paper-warm)" stroke="var(--ink)" stroke-width="3"/>
+                <line class="ink ink-thin" x1="0" y1="0" x2="20" y2="20" opacity=".55"/>
+              </g>
+            </g>
+
+            <g transform="translate(380 410)">
+              <path d="M0 30 C 6 6, 50 0, 76 8 C 100 12, 110 28, 100 40 L 92 56 L 14 56 L 0 40 Z" class="rose" stroke="none"/>
+              <path class="ink" d="M0 30 C 6 6, 50 0, 76 8 C 100 12, 110 28, 100 40 L 92 56 L 14 56 L 0 40 Z"/>
+              <path class="ink" d="M14 12 L 22 0 L 28 14"/>
+              <path class="ink" d="M58 8 L 66 -2 L 74 10"/>
+              <path class="ink" d="M100 30 C 124 28, 130 8, 116 -8"/>
+              <line class="ink ink-thin" x1="20" y1="56" x2="20" y2="68"/>
+              <line class="ink ink-thin" x1="80" y1="56" x2="80" y2="68"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 5 · 产品是什么 — stacked, big illus above, text below
+       ====================================================================== -->
+  <section class="chapter" id="ch5">
+    <header class="ch-head" data-anim style="text-align:center;">
+      <div class="ch-mark" style="text-align:center;">V. &nbsp;—&nbsp; CHAPTER FIVE</div>
+      <h2 class="ch-display" style="text-align:center;">WHAT IT IS</h2>
+      <p class="ch-cn" style="text-align:center;">五、产品是什么</p>
+    </header>
+
+    <div class="split stack">
+      <div class="scene-wrap" data-anim>
+        <div class="scene huge">
+          <svg viewBox="0 0 880 480" class="jitter" id="teaSvg">
+            <path d="M40 408 L 840 408 L 832 460 L 48 460 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M40 408 L 840 408 L 832 460 L 48 460 Z"/>
+
+            <g id="frameRow">
+              <g class="frame-slot" data-i="0" transform="translate(160 60)">
+                <rect x="0" y="0" width="110" height="64" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="6 6"/>
+                <g class="sketch">
+                  <path class="ink ink-thin" d="M10 44 C 40 28, 70 38, 100 24"/>
+                  <circle cx="76" cy="20" r="4" class="mred" stroke="none"/>
+                </g>
+              </g>
+              <g class="frame-slot" data-i="1" transform="translate(294 26)">
+                <rect x="0" y="0" width="110" height="64" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="6 6"/>
+                <g class="sketch">
+                  <circle class="ink" cx="52" cy="34" r="6" fill="var(--paper)"/>
+                  <path class="ink ink-thin" d="M52 40 L 52 56"/>
+                  <path class="ink ink-thin" d="M44 48 L 60 48"/>
+                </g>
+              </g>
+              <g class="frame-slot" data-i="2" transform="translate(428 16)">
+                <rect x="0" y="0" width="110" height="64" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="6 6"/>
+                <g class="sketch">
+                  <rect class="ink ink-thin" x="20" y="20" width="70" height="32" fill="none"/>
+                  <path class="ink ink-thin" d="M30 36 L 80 36"/>
+                </g>
+              </g>
+              <g class="frame-slot" data-i="3" transform="translate(562 26)">
+                <rect x="0" y="0" width="110" height="64" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="6 6"/>
+                <g class="sketch">
+                  <path class="ink ink-thin" d="M12 50 C 50 30, 80 40, 100 30"/>
+                  <circle class="ink" cx="34" cy="28" r="3" fill="var(--paper)"/>
+                  <path class="ink ink-thin" d="M34 31 L 34 42"/>
+                </g>
+              </g>
+              <g class="frame-slot" data-i="4" transform="translate(696 60)">
+                <rect x="0" y="0" width="110" height="64" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4" stroke-dasharray="6 6"/>
+                <g class="sketch">
+                  <ellipse class="ink ink-thin" cx="55" cy="32" rx="32" ry="14" fill="none"/>
+                  <path class="ink ink-thin" d="M55 18 L 55 46"/>
+                </g>
+              </g>
+            </g>
+
+            <g class="ink ink-thin" opacity=".5">
+              <path d="M420 380 C 380 320, 250 240, 220 160" stroke-dasharray="3 7"/>
+              <path d="M428 380 C 420 300, 360 220, 354 110" stroke-dasharray="3 7"/>
+              <path d="M440 380 C 460 300, 480 220, 484 100" stroke-dasharray="3 7"/>
+              <path d="M450 380 C 480 300, 580 220, 618 110" stroke-dasharray="3 7"/>
+              <path d="M460 380 C 510 320, 660 240, 750 156" stroke-dasharray="3 7"/>
+            </g>
+
+            <g class="clickable" id="teaCup">
+              <ellipse cx="436" cy="368" rx="46" ry="9" fill="var(--paper)"/>
+              <path d="M390 368 C 394 408, 478 408, 482 368" fill="var(--paper)"/>
+              <path class="ink" d="M390 368 C 394 408, 478 408, 482 368"/>
+              <ellipse class="ink" cx="436" cy="368" rx="46" ry="9" fill="none"/>
+              <ellipse cx="436" cy="368" rx="32" ry="5" class="mred" stroke="none"/>
+              <path class="ink" d="M482 374 C 510 376, 510 396, 482 398"/>
+            </g>
+
+            <g transform="translate(122 0)">
+              <circle class="ink" cx="0" cy="244" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-22 232 C -16 218, 4 216, 22 226"/>
+              <path d="M0 266 C -18 272, -26 312, -22 348 L -14 408 L 30 408 L 36 348 C 38 312, 22 272, 0 266 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 266 C -18 272, -26 312, -22 348 L -14 408 L 30 408 L 36 348 C 38 312, 22 272, 0 266 Z"/>
+              <path class="ink" d="M28 306 C 80 330, 180 360, 268 372"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <div class="copy center" data-anim style="margin: 0 auto;">
+        <p>产品长这样：</p>
+        <p>你坐下来，对它说话。讲一段你想拍的事——可以是一句话，也可以是一杯酒之后的一小时。</p>
+        <p>Drinking time 把这段话，慢慢长成分镜、提示词、影视级别的镜头。</p>
+        <p>你不需要懂技术，你只需要讲。剩下的，是我们和工坊里的火，一起替你守住。</p>
+        <p>它有两条规矩，是这个产品的脾气：</p>
+        <ul>
+          <li><strong>一切都能改。</strong> 卡片、剧本、镜头里的每一个字，你都能直接改。第一次生成出来的，是一个很标准的东西；你改着改着，它才变成只属于你的那一版。</li>
+          <li><strong>改过的，就是你的。</strong> 你碰过的地方，它不会在下一次生成时默默替你改回去。你还可以选中任意一段，只让它改这一段，给你原文和新版的对比，你点头才算数。它的本分是：放大你，而不是替换你。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+<!-- ======================================================================
+       § 6 · 为什么是我 — img-left, set worker + clapboard
+       ====================================================================== -->
+  <section class="chapter" id="ch6">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">VI. &nbsp;—&nbsp; CHAPTER SIX</div>
+      <h2 class="ch-display">WHY ME</h2>
+      <p class="ch-cn">六、为什么是我</p>
+    </header>
+
+    <div class="split img-left">
+      <div class="copy" data-anim>
+        <p class="lead">我是院线电影的一线制作人员。我知道一个镜头从脑里到画面里，中间要走多少道工序，要被多少人误读。</p>
+        <p>我也长时间一个人坐在桌前。把别人写下的剧本，一格一格拆成分镜——<em>我知道这件事可以怎么拆，拆到一个普通人也能下手的程度。</em></p>
+        <p>这两件事我都做过。所以我知道，工具应该长在哪一道缝里。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 580 480" class="jitter" id="setSvg">
+            <g opacity=".6">
+              <line class="ink ink-thin" x1="40" y1="60" x2="40" y2="380"/>
+              <line class="ink ink-thin" x1="40" y1="60" x2="200" y2="60"/>
+              <line class="ink ink-thin" x1="200" y1="60" x2="200" y2="180"/>
+              <line class="ink ink-thin" x1="80" y1="180" x2="200" y2="180"/>
+            </g>
+            <g>
+              <line class="ink" x1="450" y1="80" x2="450" y2="280"/>
+              <path d="M428 80 L 472 80 L 462 100 L 438 100 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M428 80 L 472 80 L 462 100 L 438 100 Z"/>
+              <path class="ink" d="M436 280 L 464 280 L 456 320 L 444 320 Z"/>
+              <path class="ink ink-thin" stroke-dasharray="2 7" opacity=".4"
+                    d="M472 88 C 510 116, 530 144, 522 184"/>
+            </g>
+            <g class="clickable" id="setGroup">
+              <g transform="translate(260 0)">
+                <circle class="ink" cx="0" cy="170" r="22" fill="var(--paper)"/>
+                <path class="ink ink-thin" d="M-22 158 C -16 144, 4 140, 22 150"/>
+                <path d="M0 192 C -22 198, -30 250, -24 298 L -18 360 L 28 360 L 32 298 C 34 250, 22 198, 0 192 Z" class="brick" stroke="none"/>
+                <path class="ink" d="M0 192 C -22 198, -30 250, -24 298 L -18 360 L 28 360 L 32 298 C 34 250, 22 198, 0 192 Z"/>
+                <line class="ink ink-thin" x1="-12" y1="200" x2="-8" y2="262"/>
+                <line class="ink ink-thin" x1="12" y1="200" x2="8" y2="262"/>
+                <path class="ink" d="M-22 230 C -52 226, -78 214, -90 198"/>
+                <g transform="translate(-118 182) rotate(-12)">
+                  <rect class="ink" x="0" y="0" width="60" height="38" fill="var(--paper)"/>
+                  <path class="ink" d="M0 10 L 60 10"/>
+                  <path class="ink ink-fat" d="M0 18 L 60 14"/>
+                  <path class="ink" d="M0 22 L 60 22"/>
+                </g>
+                <path class="ink" d="M22 230 C 38 250, 46 278, 50 302"/>
+              </g>
+              <line class="ink ink-thin" x1="40" y1="380" x2="540" y2="380"/>
+            </g>
+            <g transform="translate(390 320)">
+              <path d="M0 60 L 160 30 L 160 56 L 0 86 Z" class="rose" stroke="none"/>
+              <path class="ink ink-thin" d="M0 60 L 160 30 L 160 56 L 0 86 Z"/>
+              <rect class="ink ink-thin" x="22" y="44" width="36" height="22" fill="var(--paper)"/>
+              <rect class="ink ink-thin" x="68" y="38" width="36" height="22" fill="var(--paper)"/>
+              <rect class="ink ink-thin" x="114" y="32" width="36" height="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M30 56 L 50 54"/>
+              <path class="ink ink-thin" d="M76 50 L 96 48"/>
+              <path class="ink ink-thin" d="M122 44 L 142 42"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 7 · 为什么别人接个模型做不出 — img-right, drop cap, palette
+       ====================================================================== -->
+  <section class="chapter" id="ch7">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">VII. &nbsp;—&nbsp; CHAPTER SEVEN</div>
+      <h2 class="ch-display">WHY NOT A MODEL</h2>
+      <p class="ch-cn">七、为什么别人接个模型做不出</p>
+    </header>
+
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">模型是远处的齿轮，转得很快。</p>
+        <p>在模型<strong>之前</strong>，我做一层预处理。这一层有两半。</p>
+        <p>一半是<strong>美术和电影的判断</strong>：普通人讲出来的、粗糙的、转瞬即逝的东西，经过它，才变成模型能出好画面的输入。</p>
+        <p>另一半，是<strong>对情绪的理解</strong>。我听的不是&ldquo;你讲了什么事&rdquo;，是&ldquo;你当时是什么感觉&rdquo;——哪里在克制，哪句话底下压着没说出口的东西（<em>情绪识别</em>）；再把这点张力，放大成一段有起伏的戏（<em>情绪冲突戏剧化</em>）；最后，把那种说不清的感受，落成具体的光、色、运镜和节奏（<em>情绪视觉化</em>）。情绪本来没有形状——是这一层，让它第一次能被另一个人看见。</p>
+        <p>所以我不需要和模型公司去卷模型。恰恰相反：<strong>他们的画面做得越好，对我越有利。</strong> 模型的进步是我的顺风，不是我的威胁。</p>
+        <p>技术平权和算力降本，注定会把今天还只属于专业人的 AI 影像，推到更多普通人面前。那一刻市场会来；而当它来时，让普通人愿意只来这里的，是这层<strong>审美与情绪</strong>，不是参数。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 580 460" class="jitter" id="paletteSvg">
+            <g opacity=".12">
+              <rect class="ink ink-thin" x="20" y="60" width="160" height="100" fill="none"/>
+              <rect class="ink ink-thin" x="190" y="80" width="120" height="80" fill="none"/>
+              <path class="ink ink-thin" d="M20 60 L 100 32 L 180 60 Z" fill="none"/>
+              <path class="ink ink-thin" d="M190 80 L 250 56 L 310 80 Z" fill="none"/>
+              <line class="ink ink-thin" x1="40" y1="160" x2="40" y2="200"/>
+              <line class="ink ink-thin" x1="220" y1="160" x2="220" y2="200"/>
+            </g>
+            <line class="ink ink-thin" stroke-dasharray="2 8" opacity=".4" x1="20" y1="220" x2="560" y2="220"/>
+            <path d="M30 340 L 550 290 L 550 330 L 30 380 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M30 340 L 550 290 L 550 330 L 30 380 Z"/>
+            <line class="ink ink-thin" x1="70" y1="376" x2="80" y2="420"/>
+            <line class="ink ink-thin" x1="520" y1="298" x2="528" y2="340"/>
+
+            <g>
+              <rect x="200" y="232" width="200" height="124" fill="var(--paper)" stroke="var(--ink)" stroke-width="3"/>
+              <path class="ink ink-thin" d="M214 320 C 260 296, 320 308, 386 290"/>
+              <path class="ink ink-thin" d="M226 332 C 274 320, 332 326, 380 318"/>
+              <circle cx="346" cy="262" r="9" class="rose" stroke="var(--ink)" stroke-width="2"/>
+              <path class="brush-stroke"
+                    d="M236 268 C 264 256, 296 262, 336 254"
+                    stroke="var(--hot)" stroke-width="6"
+                    stroke-linecap="round" fill="none"
+                    id="brushStroke"/>
+            </g>
+
+            <g class="clickable" id="paletteGroup">
+              <ellipse cx="100" cy="320" rx="22" ry="7" class="rose" stroke="var(--ink)" stroke-width="2.4"/>
+              <ellipse cx="150" cy="316" rx="22" ry="7" class="brick" stroke="var(--ink)" stroke-width="2.4"/>
+              <ellipse cx="200" cy="312" rx="22" ry="7" class="mred" stroke="var(--ink)" stroke-width="2.4"/>
+              <path class="ink" d="M178 304 L 230 268"/>
+              <path class="ink ink-fat" d="M228 270 L 240 258"/>
+            </g>
+
+            <g transform="translate(450 0)">
+              <circle class="ink" cx="0" cy="160" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-22 148 C -10 134, 12 134, 22 148"/>
+              <path d="M0 182 C -18 196, -10 240, 18 270 L 36 296 L 92 280 L 96 230 C 86 200, 28 182, 0 182 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 182 C -18 196, -10 240, 18 270 L 36 296 L 92 280 L 96 230 C 86 200, 28 182, 0 182 Z"/>
+              <path class="ink" d="M-8 236 C -44 252, -90 264, -130 260"/>
+              <path class="ink" d="M40 244 C 54 268, 56 296, 50 318"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 8 · 商业 — small centered illus, text below
+       ====================================================================== -->
+  <section class="chapter" id="ch8">
+    <header class="ch-head" data-anim style="text-align:center;">
+      <div class="ch-mark" style="text-align:center;">VIII. &nbsp;—&nbsp; CHAPTER EIGHT</div>
+      <h2 class="ch-display" style="text-align:center;">BUSINESS</h2>
+      <p class="ch-cn" style="text-align:center;">八、商业（我目前是这么想的）</p>
+    </header>
+
+    <div class="scene-wrap" data-anim style="margin: 56px 0 56px;">
+      <div class="scene tight">
+        <svg viewBox="0 0 420 460" class="jitter" id="doorSvg">
+          <line class="ink ink-thin" x1="20" y1="430" x2="400" y2="430"/>
+          <rect class="ink" x="130" y="60" width="200" height="370" fill="var(--paper)"/>
+          <path class="light-pool" id="lightPool" d="M230 100 L 330 60 L 330 430 L 230 430 Z"/>
+
+          <g class="door-group" id="doorGroup">
+            <g class="door-leaf" id="door">
+              <path d="M130 60 L 250 90 L 250 430 L 130 430 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M130 60 L 250 90 L 250 430 L 130 430 Z"/>
+              <path class="ink ink-thin" d="M158 110 L 222 122 L 222 220 L 158 220 Z"/>
+              <path class="ink ink-thin" d="M158 240 L 222 250 L 222 360 L 158 360 Z"/>
+              <circle cx="238" cy="240" r="4" fill="var(--ink)"/>
+            </g>
+          </g>
+
+          <g>
+            <line class="ink ink-thin" x1="230" y1="60" x2="230" y2="22"/>
+            <path d="M210 56 L 250 56 L 244 84 L 216 84 Z" class="brick" stroke="none"/>
+            <path class="ink ink-thin" d="M210 56 L 250 56 L 244 84 L 216 84 Z"/>
+            <ellipse cx="230" cy="76" rx="36" ry="12" class="lamp-halo ink-thin" fill="none"
+                     stroke-dasharray="2 8" opacity=".55"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="copy center" data-anim style="margin:0 auto;">
+      <p class="lead">先聚人，再谈钱。</p>
+      <p><strong>前期，我们先做一个社群。</strong>把想讲故事的人聚到一起——在这里，把心里那点东西讲成提示词、长成剧本，<strong>始终是免费的</strong>。我们要先把这盏灯点亮，让这一圈人愿意围过来。</p>
+      <p><strong>后期，才是分级订阅。</strong>真正烧钱的从来不是&ldquo;讲&rdquo;，而是把剧本喂给那些更贵、更好的模型去出画面。所以当你想用更高一档的模型，我们替这段算力收一道 token 的&ldquo;过路费&rdquo;——你为真正落到画面上的那一下付费，而不是为我们交月租。</p>
+      <p>而我们最值钱的本事，是替你判断&ldquo;<em>真正适合</em>&rdquo;：这一个故事，到底该用哪个模型、走怎样的抽卡流程，才能既不浪费你的钱，又恰好出你心里那一帧。<em>我们不追风口，我们只把这盏灯照亮。</em></p>
+    </div>
+  </section>
+
+<!-- ======================================================================
+       § 9 · 十年之后 — img-right, two figures + shared canvas
+       ====================================================================== -->
+  <section class="chapter" id="ch9">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">IX. &nbsp;—&nbsp; CHAPTER NINE</div>
+      <h2 class="ch-display">TEN YEARS ON</h2>
+      <p class="ch-cn">九、十年之后</p>
+    </header>
+
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">如果这件事真的成了，我希望它改变的不是市场。</p>
+        <p>是人和人之间，多了一种比文字和语言更细腻、更丰富的交流方式。</p>
+        <p>所以再往后，我们会拉起一个<strong>&ldquo;对话群&rdquo;</strong>：几个人在里面聊同一件事，小酌在一旁，把他们的话、也把他们没说出口的思绪，一并接住——到最后你会发现，<em>这支小短片，是几个人一起完成的</em>。</p>
+        <p>你也可以只把故事的一段，递给另一个人，让小酌去提取<strong>他</strong>的感受。同一件事，落在不同人心里，会长出完全不同的反应——而那点不一样，本身就极有戏剧性。一个故事，于是有了好几个版本的心跳。</p>
+        <p>我们终于可以把那些一直说不清的、本来会那样流走的、却最是我们自己的东西，<em>准确地交给另一个人</em>。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 580 400" class="jitter" id="sharedSvg">
+            <line class="ink ink-thin" x1="40" y1="350" x2="540" y2="350"/>
+
+            <g transform="translate(120 0)">
+              <circle class="ink" cx="0" cy="150" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-22 138 C -16 124, 4 122, 22 132"/>
+              <path d="M0 172 C -18 178, -26 218, -22 260 L -18 296 L 22 296 L 26 260 C 28 218, 18 178, 0 172 Z" class="brick" stroke="none"/>
+              <path class="ink" d="M0 172 C -18 178, -26 218, -22 260 L -18 296 L 22 296 L 26 260 C 28 218, 18 178, 0 172 Z"/>
+              <path class="ink" d="M20 208 C 60 224, 96 244, 124 256"/>
+              <path class="ink" d="M-18 296 L -14 350"/>
+              <path class="ink" d="M22 296 L 26 350"/>
+            </g>
+
+            <g transform="translate(460 0)">
+              <circle class="ink" cx="0" cy="150" r="22" fill="var(--paper)"/>
+              <path class="ink ink-thin" d="M-22 132 C -10 122, 12 122, 22 138"/>
+              <path d="M0 172 C 18 178, 26 218, 22 260 L 18 296 L -22 296 L -26 260 C -28 218, -18 178, 0 172 Z" class="rose" stroke="none"/>
+              <path class="ink" d="M0 172 C 18 178, 26 218, 22 260 L 18 296 L -22 296 L -26 260 C -28 218, -18 178, 0 172 Z"/>
+              <path class="ink" d="M-20 208 C -60 224, -96 244, -124 256"/>
+              <path class="ink" d="M-22 296 L -26 350"/>
+              <path class="ink" d="M18 296 L 14 350"/>
+            </g>
+
+            <g class="clickable" id="sharedGroup" transform="translate(290 200)">
+              <rect x="-100" y="-50" width="200" height="100" fill="var(--paper)" stroke="var(--ink)" stroke-width="3"/>
+              <path class="shared-mark" id="sm1" d="M-86 18 C -40 0, 20 22, 88 -4"/>
+              <path class="shared-mark" id="sm2" d="M-86 32 C -50 22, -10 28, 60 18"/>
+              <path class="shared-mark" id="sm3" d="M-40 -16 L -40 8 M-50 -4 L -30 -4"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       § 10 · 回到那一圈人 — closing, full viewport, chair (irreversible)
+       ====================================================================== -->
+  <section class="chapter closing" id="closing">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">X. &nbsp;—&nbsp; CHAPTER TEN</div>
+      <h2 class="ch-display">BACK TO THE CIRCLE</h2>
+      <p class="ch-cn">十、回到那一圈人</p>
+    </header>
+
+    <div class="scene-wrap" data-anim>
+      <div class="scene huge">
+        <svg viewBox="0 0 820 460" class="jitter" id="circleSvg">
+          <ellipse cx="410" cy="376" rx="360" ry="58"
+                   class="ink ink-thin" stroke-dasharray="3 8" opacity=".4" fill="none"/>
+
+          <g>
+            <path class="ink ink-fat" d="M340 392 L 480 392"/>
+            <path class="ink ink-fat" d="M328 406 L 492 406"/>
+            <path d="M380 388 C 372 352, 412 330, 402 290 C 428 314, 432 354, 426 384 Z"
+                  class="flame lit-2"/>
+            <path d="M408 388 C 402 360, 432 342, 422 316 C 442 338, 446 366, 438 386 Z"
+                  class="flame lit-3"/>
+            <circle cx="436" cy="286" r="3" fill="var(--hot)"/>
+            <circle cx="392" cy="274" r="2" fill="var(--hot)"/>
+            <ellipse cx="410" cy="402" rx="160" ry="14" fill="var(--hot)" opacity=".15"/>
+          </g>
+
+          <g transform="translate(180 -10)">
+            <circle class="ink" cx="0" cy="200" r="20" fill="var(--paper)"/>
+            <path d="M0 220 C -18 226, -24 260, -22 282 L -16 326 L 18 326 L 22 282 C 24 260, 18 226, 0 220 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M0 220 C -18 226, -24 260, -22 282 L -16 326 L 18 326 L 22 282 C 24 260, 18 226, 0 220 Z"/>
+          </g>
+          <g transform="translate(310 -24)">
+            <circle class="ink" cx="0" cy="200" r="18" fill="var(--paper)"/>
+            <path d="M0 218 C -16 224, -22 256, -20 280 L -14 324 L 16 324 L 20 280 C 22 256, 14 224, 0 218 Z" class="rose" stroke="none"/>
+            <path class="ink" d="M0 218 C -16 224, -22 256, -20 280 L -14 324 L 16 324 L 20 280 C 22 256, 14 224, 0 218 Z"/>
+          </g>
+          <g transform="translate(510 -24)">
+            <circle class="ink" cx="0" cy="200" r="18" fill="var(--paper)"/>
+            <path d="M0 218 C -16 224, -22 256, -20 280 L -14 324 L 16 324 L 20 280 C 22 256, 14 224, 0 218 Z" class="brick" stroke="none"/>
+            <path class="ink" d="M0 218 C -16 224, -22 256, -20 280 L -14 324 L 16 324 L 20 280 C 22 256, 14 224, 0 218 Z"/>
+          </g>
+          <g transform="translate(640 -10)">
+            <circle class="ink" cx="0" cy="200" r="20" fill="var(--paper)"/>
+            <path d="M0 220 C -18 226, -24 260, -22 282 L -16 326 L 18 326 L 22 282 C 24 260, 18 226, 0 220 Z" class="rose" stroke="none"/>
+            <path class="ink" d="M0 220 C -18 226, -24 260, -22 282 L -16 326 L 18 326 L 22 282 C 24 260, 18 226, 0 220 Z"/>
+          </g>
+
+          <g class="clickable" id="chairGroup" transform="translate(700 360)">
+            <path class="ink chair-outline" d="M-44 0 L 44 0 L 38 22 L -38 22 Z" fill="var(--paper)"/>
+            <line class="ink chair-outline" x1="-30" y1="22" x2="-30" y2="60"/>
+            <line class="ink chair-outline" x1="30" y1="22" x2="30" y2="60"/>
+          </g>
+
+          <g class="you-sit" id="youSit" transform="translate(700 360)" aria-hidden="true">
+            <circle cx="0" cy="-78" r="22" fill="var(--ink)" stroke="none"/>
+            <path d="M-46 -38 C -38 -60, -16 -64, 0 -64 C 16 -64, 38 -60, 46 -38 L 58 60 L -58 60 Z"
+                  fill="var(--ink)" stroke="none"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="copy" data-anim>
+      <p class="lead">故事的开头，是一圈人围坐着，听别人讲。</p>
+      <p>Drinking Time 想做的，只是让这一圈人转过来——</p>
+      <p class="seated-line" id="seatedLine">这一次，轮到你，讲你自己的那件小事。</p>
+    </div>
+
+  </section>
+
+  <div class="colophon">
+    <span class="sig">小 · 酌 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
+    <span>欢迎和创始人小酌一下：<a href="https://mountion.cn/" target="_blank" rel="noopener" style="color:var(--brick);letter-spacing:.04em;text-decoration:none;border-bottom:1px solid var(--rose);padding-bottom:1px;">https://mountion.cn/</a></span>
+  </div>
+
+</main>
+</div><!-- /route vision -->
+
+<!-- ====================================================================
+     ROUTE ② · 操作功能  (same hand-drawn system, concrete copy)
+     ==================================================================== -->
+<div class="route route-operations" data-route="operations">
+<main class="scroll">
+
+<!-- HERO -->
+  <section class="hero" id="opHero">
+    <div class="scene jitter" data-anim style="max-width:460px; margin-bottom:8px;">
+      <svg viewBox="0 0 500 400" class="clickable" id="opHeroSvg" aria-hidden="true">
+        <!-- ① 左手机 · 小酌 CHAT（斜放） -->
+        <g transform="rotate(-8 106 190)">
+        <rect class="ink" x="30" y="16" width="152" height="348" rx="26" fill="var(--paper)"/>
+        <circle class="ink ink-thin" cx="54" cy="52" r="13" fill="none"/>
+        <path class="brick" stroke="none" opacity=".75" d="M48 50 h12 v4 a5 5 0 0 1 -5 5 h-2 a5 5 0 0 1 -5 -5 Z"/>
+        <path class="ink ink-thin" fill="none" d="M60 52 a4 4 0 0 1 0 7"/>
+        <path class="ink ink-thin" fill="none" d="M52 49 q2 -3 0 -6 M56 49 q2 -3 0 -6"/>
+        <line class="ink" x1="76" y1="50" x2="118" y2="50"/>
+        <line class="ink ink-thin" x1="76" y1="61" x2="104" y2="61"/>
+        <line class="ink ink-thin" x1="30" y1="84" x2="182" y2="84"/>
+        <!-- 小酌在问 -->
+        <path class="rose" stroke="none" opacity=".5" d="M56 112 h58 a10 10 0 0 1 10 10 v16 a10 10 0 0 1 -10 10 h-58 a10 10 0 0 1 -10 -10 v-16 a10 10 0 0 1 10 -10 Z"/>
+        <path class="ink ink-thin" fill="none" d="M56 112 h58 a10 10 0 0 1 10 10 v16 a10 10 0 0 1 -10 10 h-58 a10 10 0 0 1 -10 -10 v-16 a10 10 0 0 1 10 -10 Z"/>
+        <line class="ink ink-thin" x1="66" y1="124" x2="114" y2="124"/>
+        <line class="ink ink-thin" x1="66" y1="136" x2="100" y2="136"/>
+        <!-- 你在答（咖啡色） -->
+        <path class="brick" stroke="none" opacity=".85" d="M98 164 h50 a10 10 0 0 1 10 10 v12 a10 10 0 0 1 -10 10 h-50 a10 10 0 0 1 -10 -10 v-12 a10 10 0 0 1 10 -10 Z"/>
+        <line x1="108" y1="180" x2="150" y2="180" stroke="var(--paper)" stroke-width="2.4" stroke-linecap="round"/>
+        <!-- 聊出来的画面卡（夕阳 + 地平线 + 字条） -->
+        <rect class="brick" stroke="none" opacity=".8" x="52" y="214" width="108" height="86" rx="7"/>
+        <rect class="rose" stroke="none" opacity=".7" x="59" y="221" width="94" height="50"/>
+        <circle class="mred" stroke="none" cx="132" cy="238" r="8"/>
+        <line x1="64" y1="262" x2="148" y2="262" stroke="var(--ink)" stroke-width="2" stroke-linecap="round" opacity=".25"/>
+        <line x1="64" y1="286" x2="138" y2="286" stroke="var(--paper)" stroke-width="2.2" stroke-linecap="round"/>
+        <!-- 底部 tab：CHAT 高亮 -->
+        <line class="ink ink-thin" x1="30" y1="330" x2="182" y2="330"/>
+        <rect class="rose" stroke="none" opacity=".42" x="46" y="338" width="44" height="22" rx="8"/>
+        <path class="ink ink-thin" fill="none" d="M58 343 h16 a3 3 0 0 1 3 3 v5 a3 3 0 0 1 -3 3 h-8 l-5 4 v-4 h-3 a3 3 0 0 1 -3 -3 v-5 a3 3 0 0 1 3 -3 Z"/>
+        <rect class="ink ink-thin" x="134" y="343" width="18" height="14" rx="2" fill="none"/>
+        <line class="ink ink-thin" x1="143" y1="343" x2="143" y2="357"/>
+
+        </g>
+
+        <!-- 中间：聊 ⇄ 成片，小球来回切换 -->
+        <g class="hero-flow" aria-hidden="true">
+          <line x1="202" y1="181" x2="296" y2="181" stroke="var(--ink-soft)" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1.5 6"/>
+          <path class="mred" stroke="none" d="M300 181 L290 177 L290 185 Z"/>
+          <line x1="298" y1="201" x2="204" y2="201" stroke="var(--ink-soft)" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1.5 6"/>
+          <path class="mred" stroke="none" d="M200 201 L210 197 L210 205 Z"/>
+          <circle class="dot dot-r" cx="249" cy="181" r="3.4" fill="var(--brick)"/>
+          <circle class="dot dot-l" cx="249" cy="201" r="3.4" fill="var(--muted-red)"/>
+        </g>
+
+        <!-- ② 右手机 · 故事版 BOARD（斜放，含成片视频画面） -->
+        <g transform="rotate(8 394 190)">
+        <rect class="ink" x="318" y="16" width="152" height="348" rx="26" fill="var(--paper)"/>
+        <circle class="ink ink-thin" cx="342" cy="54" r="12" fill="none"/>
+        <path class="brick" stroke="none" opacity=".75" d="M337 52 h11 v4 a4 4 0 0 1 -4 4 h-3 a4 4 0 0 1 -4 -4 Z"/>
+        <path class="ink ink-thin" fill="none" d="M348 54 a3.5 3.5 0 0 1 0 6"/>
+        <path class="ink ink-thin" fill="none" d="M340 49 q2 -3 0 -5 M344 49 q2 -3 0 -5"/>
+        <line class="ink" x1="362" y1="50" x2="440" y2="50"/>
+        <line class="ink ink-thin" x1="362" y1="61" x2="412" y2="61"/>
+        <line class="ink ink-thin" x1="318" y1="84" x2="470" y2="84"/>
+        <!-- 故事成片 + 生成成片按钮 -->
+        <line class="ink" x1="334" y1="110" x2="378" y2="110"/>
+        <rect class="brick" stroke="none" opacity=".9" x="404" y="102" width="58" height="22" rx="11"/>
+        <path d="M414 107 l1.6 4 l4 1.6 l-4 1.6 l-1.6 4 l-1.6 -4 l-4 -1.6 l4 -1.6 Z" fill="var(--paper)" stroke="none"/>
+        <line x1="424" y1="113" x2="454" y2="113" stroke="var(--paper)" stroke-width="2.2" stroke-linecap="round"/>
+        <!-- 成片视频画面（电影帧 + ▶ + 进度条） -->
+        <rect x="328" y="134" width="134" height="74" rx="7" fill="var(--ink)" stroke="none" opacity=".92"/>
+        <rect class="rose" stroke="none" opacity=".7" x="333" y="139" width="124" height="50"/>
+        <rect class="brick" stroke="none" opacity=".35" x="333" y="139" width="124" height="20"/>
+        <circle class="mred" stroke="none" cx="432" cy="152" r="7"/>
+        <path d="M333 189 L356 170 L372 182 L396 165 L420 184 L457 169 L457 189 Z" fill="var(--ink)" opacity=".4" stroke="none"/>
+        <circle cx="395" cy="164" r="13" fill="var(--paper)" opacity=".92" stroke="none"/>
+        <path d="M391 158 l9 6 l-9 6 Z" fill="var(--ink)" stroke="none"/>
+        <line x1="336" y1="199" x2="454" y2="199" stroke="var(--paper)" stroke-width="2" stroke-linecap="round" opacity=".35"/>
+        <line x1="336" y1="199" x2="372" y2="199" stroke="var(--muted-red)" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="372" cy="199" r="2.6" fill="var(--paper)" stroke="none"/>
+        <!-- 镜头清单（SH01 高亮 + SH02） -->
+        <rect class="brick" stroke="none" opacity=".16" x="328" y="216" width="134" height="22" rx="7"/>
+        <rect class="ink ink-thin" x="328" y="216" width="134" height="22" rx="7" fill="none"/>
+        <circle class="ink ink-thin" cx="341" cy="227" r="4" fill="none"/>
+        <line class="ink ink-thin" x1="354" y1="227" x2="432" y2="227"/>
+        <rect class="ink ink-thin" x="328" y="246" width="134" height="22" rx="7" fill="none"/>
+        <circle class="ink ink-thin" cx="341" cy="257" r="4" fill="none"/>
+        <line class="ink ink-thin" x1="354" y1="257" x2="424" y2="257"/>
+        <!-- 底部 tab：BOARD 高亮 -->
+        <line class="ink ink-thin" x1="318" y1="330" x2="470" y2="330"/>
+        <path class="ink ink-thin" fill="none" d="M346 343 h16 a3 3 0 0 1 3 3 v5 a3 3 0 0 1 -3 3 h-8 l-5 4 v-4 h-3 a3 3 0 0 1 -3 -3 v-5 a3 3 0 0 1 3 -3 Z"/>
+        <rect class="brick" stroke="none" opacity=".4" x="414" y="338" width="44" height="22" rx="8"/>
+        <rect class="ink ink-thin" x="428" y="343" width="18" height="14" rx="2" fill="none"/>
+        <line class="ink ink-thin" x1="437" y1="343" x2="437" y2="357"/>
+        </g>
+      </svg>
+    </div>
+
+    <p class="wordmark-sub" data-anim>操作功能</p>
+    <p class="hero-epigraph" data-anim>聊一件小事，小酌把它拍成一条只属于你的短片。</p>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 怎么用 · 四步 -->
+  <section class="chapter" id="opHow">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">HOW &nbsp; IT &nbsp; WORKS</div>
+      <h2 class="ch-display">FOUR STEPS</h2>
+      <p class="ch-cn">怎么用 · 四步</p>
+    </header>
+
+    <div class="op-steps">
+      <div class="op-step" data-anim>
+        <div class="op-mark">
+          <div class="num">01</div>
+          <svg class="op-icon" viewBox="0 0 44 44" fill="none" stroke="var(--muted-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path style="--len:120" d="M9 13 h21 a6 6 0 0 1 6 6 v9 a6 6 0 0 1 -6 6 h-13 l-6 6 v-6 h-2 a6 6 0 0 1 -6 -6 v-9 a6 6 0 0 1 6 -6 Z"/>
+            <path style="--len:26" stroke="var(--brick)" d="M15 22 q3 -3 6 0 t6 0"/>
+          </svg>
+        </div>
+        <div><h3>你说</h3><p>用语音，或者一句话，聊聊今天发生的一件小事。</p></div>
+      </div>
+      <div class="op-step" data-anim>
+        <div class="op-mark">
+          <div class="num">02</div>
+          <svg class="op-icon" viewBox="0 0 44 44" fill="none" stroke="var(--muted-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle style="--len:22" cx="14" cy="22" r="3"/>
+            <path style="--len:18" d="M21 16 a9 9 0 0 1 0 12"/>
+            <path style="--len:26" stroke="var(--brick)" d="M26 12 a15 15 0 0 1 0 20"/>
+          </svg>
+        </div>
+        <div><h3>它听懂</h3><p>小酌读出你话里的情绪——不用你解释，也不用你想词。</p></div>
+      </div>
+      <div class="op-step" data-anim>
+        <div class="op-mark">
+          <div class="num">03</div>
+          <svg class="op-icon" viewBox="0 0 44 44" fill="none" stroke="var(--muted-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect style="--len:108" x="8" y="12" width="28" height="21" rx="2"/>
+            <circle style="--len:20" stroke="var(--brick)" cx="28" cy="19" r="3"/>
+            <path style="--len:38" d="M9 30 l7 -8 4 4 6 -7 6 6"/>
+          </svg>
+        </div>
+        <div><h3>变成画面</h3><p>那点情绪，被翻成有光、有色调、有温度的一帧。</p></div>
+      </div>
+      <div class="op-step" data-anim>
+        <div class="op-mark">
+          <div class="num">04</div>
+          <svg class="op-icon" viewBox="0 0 44 44" fill="none" stroke="var(--muted-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path style="--len:96" d="M14 9 h16 v26 l-8 -6 -8 6 Z"/>
+            <path style="--len:14" stroke="var(--brick)" d="M19 17 h6"/>
+          </svg>
+        </div>
+        <div><h3>留下来</h3><p>滑两下，选出你认的那几张，成片，存进只给自己看的影像日记。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 亮点一 · 零门槛 -->
+  <section class="chapter" id="opFeat1">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">I. &nbsp;—&nbsp; NO SKILL NEEDED</div>
+      <h2 class="ch-display">JUST TALK</h2>
+      <p class="ch-cn">一、零门槛</p>
+    </header>
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">不用会画，也不用会写提示词——你只要聊。</p>
+        <p>别的 AI 出图工具，要你先在脑子里想好画面、再敲一长串描述。小酌反过来：你说人话，它替你把情绪读出来、变成画面。<strong>门槛是零。</strong></p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 480 360" class="jitter" aria-hidden="true">
+            <path d="M86 78 h232 a44 44 0 0 1 44 44 v92 a44 44 0 0 1 -44 44 h-150 l-58 44 v-44 h-24 a44 44 0 0 1 -44 -44 v-92 a44 44 0 0 1 44 -44 Z" class="rose" stroke="none" opacity=".5"/>
+            <path class="ink" d="M86 78 h232 a44 44 0 0 1 44 44 v92 a44 44 0 0 1 -44 44 h-150 l-58 44 v-44 h-24 a44 44 0 0 1 -44 -44 v-92 a44 44 0 0 1 44 -44 Z"/>
+            <circle cx="158" cy="170" r="10" class="mred" stroke="none"/>
+            <circle cx="202" cy="170" r="10" class="mred" stroke="none"/>
+            <circle cx="246" cy="170" r="10" class="mred" stroke="none"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!-- 亮点二 · 有情绪的画面 -->
+  <section class="chapter" id="opFeat2">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">II. &nbsp;—&nbsp; REAL EMOTION</div>
+      <h2 class="ch-display">NOT JUST PRETTY</h2>
+      <p class="ch-cn">二、有情绪的画面</p>
+    </header>
+    <div class="split img-left">
+      <div class="copy" data-anim>
+        <p class="lead">出来的不是“好看的图”，是“有情绪的画面”。</p>
+        <p>同样一句“我搬家了”，小酌给的不是一张漂亮风景，是<em>黄昏的空房间、地上拉长的影子</em>。懂和不懂，差别全在这儿——它靠的是七年电影级的光线、色调与构图。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 480 360" class="jitter" aria-hidden="true">
+            <path class="ink ink-thin" d="M48 300 L 432 300"/>
+            <path d="M150 224 L 300 224 L 430 300 L 70 300 Z" fill="var(--ink)" opacity=".10" stroke="none"/>
+            <rect x="156" y="78" width="148" height="146" class="rose" stroke="none" opacity=".5"/>
+            <rect class="ink" x="156" y="78" width="148" height="146"/>
+            <line class="ink ink-thin" x1="230" y1="78" x2="230" y2="224"/>
+            <line class="ink ink-thin" x1="156" y1="151" x2="304" y2="151"/>
+            <circle cx="266" cy="120" r="16" class="mred" stroke="none"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!-- 亮点三 · 留得住 -->
+  <section class="chapter" id="opFeat3">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">III. &nbsp;—&nbsp; A DIARY, NOT A POST</div>
+      <h2 class="ch-display">WORTH KEEPING</h2>
+      <p class="ch-cn">三、留得住</p>
+    </header>
+    <div class="split img-right">
+      <div class="copy" data-anim>
+        <p class="lead">帮你留住那些“说不出口、又舍不得忘”的瞬间。</p>
+        <p>不是发朋友圈的精修图，是只给自己看的<strong>影像日记</strong>。委屈、释然、有点累——都有地方放，回头还能再看一遍。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 480 360" class="jitter" aria-hidden="true">
+            <path d="M240 92 C 184 72, 112 80, 72 98 L 72 282 C 112 264, 184 256, 240 276 Z" class="ink" fill="var(--paper)"/>
+            <path d="M240 92 C 296 72, 368 80, 408 98 L 408 282 C 368 264, 296 256, 240 276 Z" class="ink" fill="var(--paper)"/>
+            <line class="ink ink-thin" x1="240" y1="92" x2="240" y2="276"/>
+            <path class="ink ink-thin" d="M104 132 C 150 124, 198 126, 222 130"/>
+            <path class="ink ink-thin" d="M104 154 C 150 148, 198 150, 222 154"/>
+            <path class="ink ink-thin" d="M104 176 C 146 172, 188 172, 218 176"/>
+            <rect x="288" y="128" width="86" height="64" class="brick" stroke="none" opacity=".5"/>
+            <rect class="ink ink-thin" x="288" y="128" width="86" height="64"/>
+            <circle cx="352" cy="148" r="8" class="mred" stroke="none"/>
+            <path class="ink ink-thin" d="M294 186 L 368 186"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!-- 亮点四 · 轻 · 重两端 -->
+  <section class="chapter" id="opFeat4">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">IV. &nbsp;—&nbsp; PHONE &amp; DESKTOP</div>
+      <h2 class="ch-display">LIGHT &amp; DEEP</h2>
+      <p class="ch-cn">四、轻 · 重两端</p>
+    </header>
+    <div class="split img-left">
+      <div class="copy" data-anim>
+        <p class="lead">手机滑两下就成片，电脑上能像导演一样精修。</p>
+        <p>手机端极简，左滑右滑就管好卡片和画面，几下出片；想认真做的时候，打开电脑创作工作台——<strong>情绪卡片 → 剧本 → 镜头 → 对话出图</strong>，一路深做。轻和重，两端都给你。</p>
+      </div>
+      <div class="scene-wrap" data-anim>
+        <div class="scene mid">
+          <svg viewBox="0 0 480 360" class="jitter" aria-hidden="true">
+            <rect class="ink" x="64" y="120" width="96" height="176" rx="16" fill="var(--paper)"/>
+            <line class="ink ink-thin" x1="64" y1="150" x2="160" y2="150"/>
+            <line class="ink ink-thin" x1="64" y1="268" x2="160" y2="268"/>
+            <circle class="ink ink-thin" cx="112" cy="282" r="5" fill="none"/>
+            <path class="ink ink-thin" d="M86 208 L 138 208 M126 198 L 140 208 L 126 218"/>
+            <rect x="236" y="92" width="184" height="128" class="rose" stroke="none" opacity=".4"/>
+            <rect class="ink" x="236" y="92" width="184" height="128" fill="none"/>
+            <path class="ink ink-thin" d="M262 122 C 300 114, 356 116, 394 124"/>
+            <path class="ink ink-thin" d="M262 140 C 300 134, 340 136, 380 140"/>
+            <rect class="ink ink-thin" x="262" y="170" width="30" height="24" fill="none"/>
+            <rect class="ink ink-thin" x="300" y="170" width="30" height="24" fill="none"/>
+            <rect class="ink ink-thin" x="338" y="170" width="30" height="24" fill="none"/>
+            <line class="ink ink-thin" x1="328" y1="220" x2="328" y2="246"/>
+            <path class="ink" d="M286 248 L 392 248"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 收束 · 回到愿景 -->
+  <section class="chapter" id="opClose" style="text-align:center;">
+    <div class="copy" data-anim style="max-width:640px; margin:0 auto; text-align:center;">
+      <p class="seated-line" style="text-align:center;">这一切，是为了让一件小事，被另一个人好好接住。</p>
+    </div>
+    <p data-anim style="text-align:center; margin-top:26px;">
+      <a class="op-backlink" href="#vision">读读我们为什么做这件事 · 愿景与定位 →</a>
+    </p>
+  </section>
+
+  <div class="colophon">
+    <span class="sig">小 · 酌 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
+    <span>HOW &nbsp; IT &nbsp; WORKS &nbsp; · &nbsp; 2026</span>
+  </div>
+
+</main>
+</div><!-- /route operations -->
+
+<!-- ====================================================================
+     ROUTE ③ · MVP  (LinkedIn validation wedge)
+     ==================================================================== -->
+<div class="route route-mvp" data-route="mvp">
+<main class="scroll">
+
+<!-- HERO -->
+  <section class="hero" id="mvpHero">
+    <div class="scene jitter" data-anim style="max-width:520px; margin-bottom:8px;">
+      <svg viewBox="0 0 540 390" aria-hidden="true">
+        <path class="ink ink-thin" d="M42 332 C 172 326, 338 338, 502 330"/>
+        <g transform="rotate(-3 160 176)">
+          <rect class="ink" x="62" y="44" width="210" height="270" rx="18" fill="var(--paper)"/>
+          <rect x="78" y="62" width="178" height="72" rx="10" class="rose" stroke="none" opacity=".56"/>
+          <circle cx="118" cy="98" r="22" class="brick" stroke="none" opacity=".75"/>
+          <path class="ink ink-thin" d="M102 119 C 112 108, 124 108, 136 119"/>
+          <line class="ink" x1="154" y1="84" x2="232" y2="84"/>
+          <line class="ink ink-thin" x1="154" y1="104" x2="214" y2="104"/>
+          <line class="ink ink-thin" x1="78" y1="160" x2="236" y2="160"/>
+          <line class="ink ink-thin" x1="78" y1="182" x2="220" y2="182"/>
+          <line class="ink ink-thin" x1="78" y1="204" x2="246" y2="204"/>
+          <line class="ink ink-thin" x1="78" y1="226" x2="194" y2="226"/>
+          <rect class="brick" x="78" y="252" width="74" height="28" rx="14" stroke="none" opacity=".82"/>
+          <line x1="94" y1="266" x2="136" y2="266" stroke="var(--paper)" stroke-width="2.4" stroke-linecap="round"/>
+        </g>
+        <g transform="rotate(5 380 190)">
+          <rect x="300" y="92" width="176" height="116" rx="12" fill="var(--ink)" stroke="none" opacity=".92"/>
+          <rect x="308" y="100" width="160" height="72" rx="6" class="rose" stroke="none" opacity=".68"/>
+          <circle cx="430" cy="120" r="11" class="mred" stroke="none"/>
+          <path d="M308 172 L334 148 L354 162 L380 138 L404 162 L428 146 L468 170 L468 172 Z" fill="var(--ink)" opacity=".36" stroke="none"/>
+          <circle cx="388" cy="138" r="17" fill="var(--paper)" opacity=".94" stroke="none"/>
+          <path d="M383 130 l13 8 l-13 8 Z" fill="var(--ink)" stroke="none"/>
+          <line x1="314" y1="190" x2="460" y2="190" stroke="var(--paper)" stroke-width="2" stroke-linecap="round" opacity=".38"/>
+          <line x1="314" y1="190" x2="366" y2="190" stroke="var(--muted-red)" stroke-width="2.6" stroke-linecap="round"/>
+          <path class="ink" d="M336 242 h104"/>
+          <line class="ink ink-thin" x1="388" y1="208" x2="388" y2="240"/>
+        </g>
+        <path class="ink ink-thin" d="M270 154 C 304 134, 320 134, 342 150"/>
+        <path class="mred" stroke="none" d="M348 151 l-12 -4 l4 12 Z"/>
+        <path class="ink ink-thin" d="M278 220 C 310 242, 334 244, 358 224" stroke-dasharray="3 8"/>
+      </svg>
+    </div>
+
+    <p class="wordmark-sub" data-anim>LinkedIn MVP</p>
+    <p class="hero-epigraph" data-anim>先验证一件事：陌生职场人，是否愿意为“被准确讲述的职业故事”付钱。</p>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 核心判断 -->
+  <section class="chapter" id="mvpJudgement">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">VALIDATION &nbsp; FIRST</div>
+      <h2 class="ch-display">MONEY TEST</h2>
+      <p class="ch-cn">核心判断</p>
+    </header>
+    <div class="copy" data-anim>
+      <p class="lead">值得做，但只值得先做成 7 天付费验证入口。</p>
+      <p>这个 MVP 验证的不是“LinkedIn 视频”本身，而是：一个人愿不愿意把自己混乱的职业经历交给小酌提炼，并为更清楚、更可信、更可展示的身份叙事付钱。</p>
+    </div>
+
+    <div class="mvp-signal-grid" data-anim>
+      <div class="mvp-signal">
+        <span class="k">POSITION</span>
+        <strong>入口，不是转向</strong>
+        <p>它是 Drinking Time 主线的商业楔子，不是把产品做成 LinkedIn agency。</p>
+      </div>
+      <div class="mvp-signal">
+        <span class="k">OFFER</span>
+        <strong>45 秒短片 + About</strong>
+        <p>访谈提炼、职业故事脚本、LinkedIn-ready video、英文 About rewrite。</p>
+      </div>
+      <div class="mvp-signal">
+        <span class="k">PRICE</span>
+        <strong>$49 / $99 试单</strong>
+        <p>低到能下单，高到能证明不是免费建议；创始人版本优先测 $99。</p>
+      </div>
+      <div class="mvp-signal">
+        <span class="k">GATE</span>
+        <strong>付费、发布、转介绍</strong>
+        <p>点赞和夸奖都不算数；今天付款、愿意发、愿意介绍朋友才算信号。</p>
+      </div>
+    </div>
+  </section>
+
+<!-- 目标客户 -->
+  <section class="chapter" id="mvpCustomers">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">WHO &nbsp; PAYS</div>
+      <h2 class="ch-display">CUSTOMERS</h2>
+      <p class="ch-cn">目标客户</p>
+    </header>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>1. 初创公司创始人</h3>
+        <p><strong>优先级最高。</strong>他们的 LinkedIn 影响融资、招聘、销售和可信度，个人叙事就是商业资产。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>2. 独立顾问 / Fractional 高管</h3>
+        <p>最容易把 profile 看成获客页面。卖点不是“好看”，而是让客户更快理解为什么该信任他。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>3. 30+ 中高级职场人</h3>
+        <p>适合职业转型、升职、找高阶机会，但要压住“自恋感”和“AI 味”。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>暂缓：20+ 普通职场人</h3>
+        <p>预算低、需求像简历优化、付费慢。除非他已经在主动经营个人品牌，否则先不主攻。</p>
+      </div>
+    </div>
+  </section>
+
+<!-- 7 天验证 -->
+  <section class="chapter" id="mvpSevenDays">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">ONE &nbsp; WEEK &nbsp; ONLY</div>
+      <h2 class="ch-display">7 DAYS</h2>
+      <p class="ch-cn">7 天验证计划</p>
+    </header>
+    <div class="copy" data-anim>
+      <p class="lead">目标不是把产品做完，是把“愿不愿意付钱”问清楚。</p>
+      <p>通过线：150 个精准外联，15 个回复，6 个愿意聊，2-3 个预付 $49-$99，至少 1 个愿意公开发布或转介绍。</p>
+    </div>
+    <div class="mvp-days" data-anim>
+      <div class="mvp-day"><span class="d">01</span><p>改 LinkedIn 主页：一句话说明服务，放样板片、before / after、价格。</p></div>
+      <div class="mvp-day"><span class="d">02</span><p>做 3 个样板片：Founder、Consultant、Senior operator。</p></div>
+      <div class="mvp-day"><span class="d">03</span><p>外联 50 个 founder，句子只指向一个具体 profile 问题。</p></div>
+      <div class="mvp-day"><span class="d">04</span><p>外联 50 个 consultant / fractional，主打获客可信度。</p></div>
+      <div class="mvp-day"><span class="d">05</span><p>外联 50 个 30+ senior，主打职业转型叙事。</p></div>
+      <div class="mvp-day"><span class="d">06</span><p>只做 2-3 个付费 pilot，手工交付，不开发自动化。</p></div>
+      <div class="mvp-day"><span class="d">07</span><p>复盘：回复率、付款率、发布率、拒绝理由、下一轮价格。</p></div>
+    </div>
+  </section>
+
+<!-- 话术与访谈 -->
+  <section class="chapter" id="mvpResearch">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">OUTREACH &nbsp; + &nbsp; RESEARCH</div>
+      <h2 class="ch-display">ASK</h2>
+      <p class="ch-cn">外联话术与访谈问题</p>
+    </header>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>连接请求</h3>
+        <div class="mvp-script">
+          <b>CONNECTION</b>
+          Hi {Name}, I’m testing a tiny service for founders/professionals: turning a long LinkedIn About into a 45-sec career story video + sharper About copy. Your profile has a strong story, but the About feels under-leveraged. Open to a quick teardown?
+        </div>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>通过后的付费邀请</h3>
+        <div class="mvp-script">
+          <b>PILOT</b>
+          I’m doing 5 paid pilots this week: 45-sec LinkedIn-ready story film + rewritten About, delivered in 48h. Pilot price is $49. Want me to send a 20-sec sample direction for your profile first?
+        </div>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>访谈必须问</h3>
+        <ul>
+          <li>你希望 LinkedIn 带来客户、投资人、招聘、offer，还是权威感？</li>
+          <li>你现在的 About 哪里最不像你？</li>
+          <li>最近一次为职业形象付费是什么时候，多少钱？</li>
+          <li>如果给你 45 秒短片，你敢发在哪里？为什么？</li>
+          <li>今天付 $49 / $99，什么交付会让你觉得值？</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>拒绝时也要问</h3>
+        <ul>
+          <li>是价格问题、信任问题，还是你根本不会发布？</li>
+          <li>你更想要 profile rewrite、视频、还是 20 分钟定位咨询？</li>
+          <li>什么样的样板片会让你觉得“不尴尬，可以发”？</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+<!-- 样板片方向 -->
+  <section class="chapter" id="mvpSamples">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">SAMPLE &nbsp; FILMS</div>
+      <h2 class="ch-display">PROOF</h2>
+      <p class="ch-cn">3-5 个样板片方向</p>
+    </header>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>Founder credibility film</h3>
+        <p>“我为什么做这家公司 → 我看见的问题 → 我已证明的能力 → 我现在寻找谁”。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>Senior operator film</h3>
+        <p>“我不是岗位列表，我解决的是哪类复杂问题”。适合 30+ 升级叙事。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>Consultant / fractional film</h3>
+        <p>“客户为什么找我 → 我的方法 → 结果证据 → 适合合作的人”。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>Anti-cringe version</h3>
+        <p>少真人拟像，多真实照片、产品截图、字幕、轻 B-roll。可信比电影感更重要。</p>
+      </div>
+    </div>
+  </section>
+
+<!-- 边界与奇绩 -->
+  <section class="chapter" id="mvpBoundaries">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">STRICT &nbsp; FILTER</div>
+      <h2 class="ch-display">NOISE</h2>
+      <p class="ch-cn">不应该做的事</p>
+    </header>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>先不要做</h3>
+        <ul>
+          <li>不要先开发自动化产品，先手工服务验证。</li>
+          <li>不要卖“AI cinematic video”，卖“professional story clarity”。</li>
+          <li>不要承诺涨粉、找工作成功或曝光提升。</li>
+          <li>不要主攻低预算求职人群。</li>
+          <li>不要做过度成功学、过度电影感、过度 AI 味的样板片。</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>奇绩申请可以写</h3>
+        <ul>
+          <li>从“人生故事生成影像”切出 LinkedIn 职业身份表达这个商业场景。</li>
+          <li>真实数据：外联数、回复率、访谈数、付费数、客单价、发布数。</li>
+          <li>用户买的不是视频，而是“被准确理解、提炼，并能控制修改的身份表达”。</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>奇绩申请不要写</h3>
+        <ul>
+          <li>不要只写 LinkedIn 用户多，所以市场大。</li>
+          <li>不要写“大家都说喜欢”，没有付费就是噪音。</li>
+          <li>不要说这是 Drinking Time 的最终方向；现在它只是商业化切口。</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>最严厉的反对意见</h3>
+        <p>如果用户不敢发、不愿付费、不愿把职业身份交给这个流程，样板片再漂亮也没有意义。这个 MVP 必须用现金和发布行为结束争论。</p>
+      </div>
+    </div>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 收束 -->
+  <section class="chapter" id="mvpClose" style="text-align:center;">
+    <div class="copy" data-anim style="max-width:680px; margin:0 auto; text-align:center;">
+      <p class="seated-line" style="text-align:center;">先用一周，问市场一个不能含糊的问题：你愿意今天付款吗？</p>
+    </div>
+    <p data-anim style="text-align:center; margin-top:26px;">
+      <a class="op-backlink" href="#operations">回到产品操作功能 →</a>
+    </p>
+  </section>
+
+  <div class="colophon">
+    <span class="sig">小 · 酌 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
+    <span>LINKEDIN &nbsp; MVP &nbsp; · &nbsp; 2026</span>
+  </div>
+
+</main>
+</div><!-- /route mvp -->
+
+<script>
+// Scroll fade-in
+const io = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      e.target.classList.add('in');
+      io.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -60px 0px' });
+document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
+
+// =================================================================
+// Hero — steam scatters on click / cursor near cup mouth
+// =================================================================
+{
+  const hero = document.getElementById('hero');
+  const svg  = document.getElementById('heroSvg');
+  let scattering = false;
+  function scatter(){
+    if (scattering) return;
+    scattering = true;
+    hero.classList.add('hero-scattered');
+    setTimeout(()=>{
+      hero.classList.remove('hero-scattered');
+      scattering = false;
+    }, 1700);
+  }
+  svg.addEventListener('click', scatter);
+  svg.addEventListener('mousemove', (ev)=>{
+    const r = svg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width  * 600;
+    const y = (ev.clientY - r.top ) / r.height * 380;
+    const d = Math.hypot(x - 250, y - 232);
+    if (d < 60) scatter();
+  });
+}
+
+// =================================================================
+// § 1 — fire lights step by step
+// =================================================================
+{
+  const fireGroup = document.getElementById('fireGroup');
+  const flameA = document.getElementById('flameA');
+  const flameB = document.getElementById('flameB');
+  let level = 0;
+  let decayT = null;
+  function setLevel(n){
+    level = Math.max(0, Math.min(3, n));
+    flameA.classList.remove('lit-1','lit-2','lit-3');
+    flameB.classList.remove('lit-1','lit-2','lit-3');
+    if (level > 0){
+      flameA.classList.add('lit-' + level);
+      flameB.classList.add('lit-' + level);
+    }
+  }
+  fireGroup.addEventListener('click', ()=>{
+    setLevel(level + 1);
+    clearTimeout(decayT);
+    decayT = setTimeout(()=> setLevel(Math.max(0, level - 1)), 3200);
+  });
+}
+
+// =================================================================
+// § 2 — the wisp stays ≥ 80px from the cursor inside the pull-page
+// =================================================================
+{
+  const stage = document.getElementById('pullPage');
+  const wisp  = document.getElementById('wisp');
+  let wx = 0, wy = 0;
+  function init(){
+    const r = stage.getBoundingClientRect();
+    wx = r.width * 0.5; wy = r.height * 0.36;
+    wisp.style.left = wx + 'px';
+    wisp.style.top  = wy + 'px';
+  }
+  init();
+  window.addEventListener('resize', init);
+  stage.addEventListener('mousemove', (ev)=>{
+    const r = stage.getBoundingClientRect();
+    const mx = ev.clientX - r.left;
+    const my = ev.clientY - r.top;
+    const dx = wx - mx, dy = wy - my;
+    const len = Math.hypot(dx, dy) || 1;
+    const tx = mx + (dx/len) * 100;
+    const ty = my + (dy/len) * 100 - 30;
+    wx = Math.max(40, Math.min(r.width  - 40, tx));
+    wy = Math.max(40, Math.min(r.height - 40, ty));
+    wisp.style.left = wx + 'px';
+    wisp.style.top  = wy + 'px';
+  });
+}
+
+// =================================================================
+// § 3 — click adds one wavy line at a time, reset after all 4
+// =================================================================
+{
+  const svg = document.getElementById('writeSvg');
+  const lines = ['wl1','wl2','wl3','wl4'].map(id=>document.getElementById(id));
+  let i = 0;
+  svg.addEventListener('click', ()=>{
+    if (i < lines.length){
+      lines[i].classList.add('on');
+      i++;
+    } else {
+      lines.forEach(l => l.classList.remove('on'));
+      i = 0;
+    }
+  });
+}
+
+// =================================================================
+// § 4 — hover the folded paper to unfold; leave to fold back
+// =================================================================
+{
+  const paper = document.getElementById('paperGroup');
+  paper.style.cursor = 'pointer';
+  paper.addEventListener('mouseenter', ()=> paper.classList.add('fold-open'));
+  paper.addEventListener('mouseleave', ()=> paper.classList.remove('fold-open'));
+}
+
+// =================================================================
+// § 5 — click cup to manifest frames; lock after 5
+// =================================================================
+{
+  const cup   = document.getElementById('teaCup');
+  const slots = Array.from(document.querySelectorAll('#teaSvg .frame-slot'));
+  let i = 0;
+  cup.addEventListener('click', ()=>{
+    if (i < slots.length){
+      slots[i].classList.add('solid');
+      i++;
+    }
+  });
+}
+
+// =================================================================
+// § 6 — clapboard click = visual "snap"
+// =================================================================
+{
+  const setG = document.getElementById('setGroup');
+  setG.addEventListener('click', ()=>{
+    setG.classList.add('jittering');
+    setTimeout(()=> setG.classList.remove('jittering'), 420);
+  });
+}
+
+// =================================================================
+// § 7 — click palette → the single accent brushstroke lands
+// =================================================================
+{
+  const pal = document.getElementById('paletteGroup');
+  const svg = document.getElementById('paletteSvg');
+  pal.addEventListener('click', ()=> svg.classList.add('brushed'));
+}
+
+// =================================================================
+// § 8 — hover door to open a crack; lamp light spills (accent)
+// =================================================================
+{
+  const door = document.getElementById('doorGroup');
+  const svg  = document.getElementById('doorSvg');
+  door.addEventListener('mouseenter', ()=> svg.classList.add('door-open'));
+  door.addEventListener('mouseleave', ()=> svg.classList.remove('door-open'));
+}
+
+// =================================================================
+// § 9 — click the shared paper, three marks appear in sequence
+// =================================================================
+{
+  const g = document.getElementById('sharedGroup');
+  const marks = ['sm1','sm2','sm3'].map(id=>document.getElementById(id));
+  let i = 0;
+  g.addEventListener('click', ()=>{
+    if (i < marks.length){
+      marks[i].classList.add('on');
+      i++;
+    } else {
+      marks.forEach(m => m.classList.remove('on'));
+      i = 0;
+    }
+  });
+}
+
+// =================================================================
+// § 10 — THE only irreversible click. Sticky for the session.
+// =================================================================
+{
+  const closing = document.getElementById('closing');
+  const chair   = document.getElementById('chairGroup');
+  function sit(){
+    closing.classList.add('seated');
+    chair.style.pointerEvents = 'none';
+    try { sessionStorage.setItem('dt-seated', '1'); } catch(e){}
+  }
+  chair.addEventListener('click', sit);
+  try {
+    if (sessionStorage.getItem('dt-seated') === '1') sit();
+  } catch(e){}
+}
+
+// =================================================================
+// SCROLL AUTO-PLAY — 每节滚到视图里自动播一次,加强"动起来"的存在感
+// §10 closing 仍保留点击仪式感(只有椅子那一下是手动的),其余 8 节自播
+// =================================================================
+{
+  function fireScene(id){
+    switch(id){
+      case 'ch1': {
+        // 火堆从最弱依次烧到最亮
+        const fa = document.getElementById('flameA');
+        const fb = document.getElementById('flameB');
+        [1,2,3].forEach((n, i)=>{
+          setTimeout(()=>{
+            [fa, fb].forEach(el => {
+              el.classList.remove('lit-1','lit-2','lit-3');
+              el.classList.add('lit-' + n);
+            });
+          }, 250 + i * 420);
+        });
+        break;
+      }
+      case 'ch3': {
+        // 灯先亮,字一行一行往下写
+        const svg = document.getElementById('writeSvg');
+        if (svg) svg.classList.add('lamp-on');
+        ['wl1','wl2','wl3','wl4'].forEach((wid, i)=>{
+          const el = document.getElementById(wid);
+          if (el) setTimeout(()=> el.classList.add('on'), 350 + i * 420);
+        });
+        break;
+      }
+      case 'ch4': {
+        const paper = document.getElementById('paperGroup');
+        if (paper) setTimeout(()=> paper.classList.add('fold-open'), 200);
+        break;
+      }
+      case 'ch5': {
+        // 热气里一格一格冒出来
+        const slots = Array.from(document.querySelectorAll('#teaSvg .frame-slot'));
+        slots.forEach((s, i) => setTimeout(()=> s.classList.add('solid'), 200 + i * 320));
+        break;
+      }
+      case 'ch6': {
+        const setG = document.getElementById('setGroup');
+        if (setG){
+          setTimeout(()=>{
+            setG.classList.add('jittering');
+            setTimeout(()=> setG.classList.remove('jittering'), 420);
+          }, 200);
+        }
+        break;
+      }
+      case 'ch7': {
+        // 那一笔由人落下 —— 整站第一次出现满饱和的红
+        const svg = document.getElementById('paletteSvg');
+        if (svg) setTimeout(()=> svg.classList.add('brushed'), 350);
+        break;
+      }
+      case 'ch8': {
+        const svg = document.getElementById('doorSvg');
+        if (svg) setTimeout(()=> svg.classList.add('door-open'), 200);
+        break;
+      }
+      case 'ch9': {
+        ['sm1','sm2','sm3'].forEach((mid, i)=>{
+          const el = document.getElementById(mid);
+          if (el) setTimeout(()=> el.classList.add('on'), 250 + i * 480);
+        });
+        break;
+      }
+      // closing: 不自动 —— "坐进去"那一下是用户主动给的,保留仪式感
+    }
+  }
+
+  const sceneIO = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      if (!e.isIntersecting) return;
+      fireScene(e.target.id);
+      sceneIO.unobserve(e.target);
+    });
+  }, { threshold: 0.28, rootMargin: '0px 0px -8% 0px' });
+
+  ['ch1','ch3','ch4','ch5','ch6','ch7','ch8','ch9']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) sceneIO.observe(el);
+    });
+}
+
+// =================================================================
+// ROUTER — 三个路由：愿景与定位 (#vision) · 操作功能 (#operations) · MVP (#mvp)
+// 纯前端 hash 切换；不碰上面任何一节的动画与交互
+// =================================================================
+{
+  const routes = Array.from(document.querySelectorAll('.route'));
+  const tabs   = Array.from(document.querySelectorAll('.topnav a[data-route]'));
+
+  function current(){
+    const h = (location.hash || '').replace(/^#\/?/, '').toLowerCase();
+    if (h === 'operations') return 'operations';
+    if (h === 'mvp') return 'mvp';
+    return 'vision';
+  }
+
+  function show(name){
+    routes.forEach(r => r.classList.toggle('active', r.dataset.route === name));
+    tabs.forEach(a => a.classList.toggle('active', a.dataset.route === name));
+    try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }
+    catch(e){ window.scrollTo(0, 0); }
+    // 让刚切进来、已经在视口里的内容直接淡入；视口下方的交给原有 IntersectionObserver
+    const active = document.querySelector('.route.active');
+    if (!active) return;
+    requestAnimationFrame(()=>{
+      active.querySelectorAll('[data-anim]:not(.in)').forEach(node=>{
+        const rect = node.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.96 && rect.bottom > 0) node.classList.add('in');
+      });
+    });
+  }
+
+  window.addEventListener('hashchange', ()=> show(current()));
+  show(current());
+}
+</script>
+
+</body>
+</html>
