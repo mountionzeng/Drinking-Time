@@ -15,10 +15,10 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
-import { normalizeImageProvider, type ImageProvider } from '@shared/imageProvider';
+// normalizeImageProvider / ImageProvider 的使用已随出图渠道助手搬到 ./storyAgentImageProvider。
 import { trpc } from '@/lib/trpc';
 import {
-  OPENING_MESSAGE,
+  // OPENING_MESSAGE 现仅被 ./storyAgentPersistence 的 emptyState 使用，本文件不再直接引用。
   buildReturningGreeting,
   normalizeChatMessages,
   type ChatMessage,
@@ -29,31 +29,30 @@ import {
   type VisualCanvasItem,
 } from './types';
 import { buildPromptPool } from './promptPool';
-// 拆「大脑」：以下纯函数已搬到独立文件，这里改为引入（逻辑完全不变）。
+// 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from './storyCardSimilarity';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
+import {
+  type ImageProviderSelection,
+  normalizeImageProviderSelection,
+  imageProviderForRequest,
+} from './storyAgentImageProvider';
+import {
+  type PersistedState,
+  storageKey,
+  emptyState,
+  loadState,
+  findOrphanStory,
+  hasStoryWork,
+  activeStoryIdFrom,
+  hasLiveStoryWork,
+} from './storyAgentPersistence';
 
-interface PersistedState {
-  messages: ChatMessage[];
-  cards: StoryCard[];
-  scripts: GeneratedScript[];
-  storyShots: StoryShot[];
-  characters: Array<{ name: string; role: string; oneLiner: string }>;
-  remoteStoryId?: number;
-  title?: string;
-  logline?: string;
-  theme?: string;
-  arc?: string;
-  summary?: string;
-  visualCanvasItems?: VisualCanvasItem[];
-  visualPreference?: string;
-  imageProvider?: ImageProviderSelection;
-  savedAt?: number;
-  activeStoryId?: number;
-}
+// PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
+// 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
+export type { ImageProviderSelection };
 
 type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-export type ImageProviderSelection = 'default' | ImageProvider;
 
 export type StoryListItem = {
   id: number;
@@ -158,143 +157,12 @@ type StoryAgentClassifyResult =
       modelLabel?: string;
     };
 
-const storageKey = (projectId: number | null) =>
-  projectId ? `dt:storyAgent:${projectId}` : null;
-
-function normalizePersisted(parsed: PersistedState): PersistedState {
-  return {
-    messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-    cards: Array.isArray(parsed.cards) ? parsed.cards : [],
-    scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
-    storyShots: Array.isArray(parsed.storyShots) ? parsed.storyShots : [],
-    characters: Array.isArray(parsed.characters) ? parsed.characters : [],
-    remoteStoryId: typeof parsed.remoteStoryId === 'number' ? parsed.remoteStoryId : undefined,
-    title: typeof parsed.title === 'string' ? parsed.title : undefined,
-    logline: typeof parsed.logline === 'string' ? parsed.logline : undefined,
-    theme: typeof parsed.theme === 'string' ? parsed.theme : undefined,
-    arc: typeof parsed.arc === 'string' ? parsed.arc : undefined,
-    summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
-    visualCanvasItems: Array.isArray(parsed.visualCanvasItems)
-      ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
-      : [],
-    visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
-    imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
-    savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
-    activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
-  };
-}
-
-function storyWorkScore(state: PersistedState): number {
-  return (
-    state.cards.length * 100 +
-    state.storyShots.length * 80 +
-    state.scripts.length * 60 +
-    Math.max(0, state.messages.length - 1) * 20 +
-    (state.visualCanvasItems?.length ?? 0) * 40
-  );
-}
-
-function hasStoryWork(state: PersistedState): boolean {
-  return storyWorkScore(state) > 0;
-}
-
-function activeStoryIdFrom(state: PersistedState): number | null {
-  if (typeof state.activeStoryId === 'number') return state.activeStoryId;
-  if (typeof state.remoteStoryId === 'number') return state.remoteStoryId;
-  return hasStoryWork(state) ? -1 : null;
-}
-
-function hasLiveStoryWork(state: {
-  messages: ChatMessage[];
-  cards: StoryCard[];
-  scripts: GeneratedScript[];
-  storyShots: StoryShot[];
-  visualCanvasItems?: VisualCanvasItem[];
-}): boolean {
-  return (
-    state.cards.length > 0 ||
-    state.scripts.length > 0 ||
-    state.storyShots.length > 0 ||
-    (state.visualCanvasItems?.length ?? 0) > 0 ||
-    state.messages.some(
-      (message) =>
-        message.role === 'user' &&
-        (message.content.trim().length > 0 || Boolean(message.photoUrl)),
-    )
-  );
-}
-
-function loadState(projectId: number | null): PersistedState {
-  const key = storageKey(projectId);
-  if (!key) return emptyState();
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return emptyState();
-    return normalizePersisted(JSON.parse(raw) as PersistedState);
-  } catch {
-    return emptyState();
-  }
-}
-
-// Story data is keyed by the server-assigned projectId, but that id can drift
-// across local/dev deploys. When the active project's slot is empty, recover the
-// richest story stranded under a previous projectId so the user's work doesn't
-// appear to vanish. Non-destructive: the source key is left intact.
-function findOrphanStory(currentProjectId: number): PersistedState | null {
-  const currentKey = storageKey(currentProjectId);
-  let best: { state: PersistedState; score: number; savedAt: number } | null = null;
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i);
-    if (!key || !key.startsWith('dt:storyAgent:') || key === currentKey) continue;
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const parsed = normalizePersisted(JSON.parse(raw) as PersistedState);
-      const score = storyWorkScore(parsed);
-      if (score === 0) continue;
-      const savedAt = parsed.savedAt ?? 0;
-      const better =
-        !best || savedAt > best.savedAt || (savedAt === best.savedAt && score > best.score);
-      if (better) best = { state: parsed, score, savedAt };
-    } catch {
-      // skip unparseable entries
-    }
-  }
-  return best?.state ?? null;
-}
-
-function emptyState(): PersistedState {
-  return {
-    messages: [
-      {
-        id: 'first-question',
-        role: 'assistant',
-        content: OPENING_MESSAGE,
-        timestamp: Date.now(),
-      },
-    ],
-    cards: [],
-    scripts: [],
-    storyShots: [],
-    characters: [],
-    visualCanvasItems: [],
-    visualPreference: '',
-    imageProvider: 'default',
-  };
-}
-
-function normalizeImageProviderSelection(value: unknown): ImageProviderSelection {
-  if (value === 'default') return 'default';
-  if (typeof value !== 'string') return 'default';
-  return normalizeImageProvider(value);
-}
-
-function imageProviderForRequest(value: ImageProviderSelection): ImageProvider | undefined {
-  return value === 'default' ? undefined : value;
-}
-
-// newId / cardTitle / stringList / normalizeVisualCanvasItem / fileToBase64
-// 已搬到 ./storyAgentUtils（见顶部 import），此处不再重复定义。
+// 持久化层（PersistedState + storageKey / loadState / findOrphanStory / normalizePersisted /
+//   storyWorkScore / hasStoryWork / activeStoryIdFrom / hasLiveStoryWork / emptyState）
+//   已搬到 ./storyAgentPersistence。
+// 出图渠道助手（normalizeImageProviderSelection / imageProviderForRequest）已搬到 ./storyAgentImageProvider。
+// newId / cardTitle / stringList / normalizeVisualCanvasItem / fileToBase64 已搬到 ./storyAgentUtils。
+// 以上均见顶部 import，逻辑完全不变。
 
 function normalizeCard(raw: unknown): StoryCard | null {
   if (!raw || typeof raw !== 'object') return null;
