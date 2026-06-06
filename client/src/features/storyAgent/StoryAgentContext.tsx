@@ -28,6 +28,9 @@ import {
   type VisualCanvasItem,
 } from './types';
 import { buildPromptPool } from './promptPool';
+// 拆「大脑」：以下纯函数已搬到独立文件，这里改为引入（逻辑完全不变）。
+import { getSimilarCards } from './storyCardSimilarity';
+import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
 
 interface PersistedState {
   messages: ChatMessage[];
@@ -285,73 +288,8 @@ function imageProviderForRequest(value: ImageProviderSelection): ImageProvider |
   return value === 'default' ? undefined : value;
 }
 
-function newId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function cardTitle(card: Partial<StoryCard>): string {
-  const source = card.sourceQuote || card.content || card.rawText || '故事素材';
-  const compact = source.replace(/\s+/g, ' ').trim();
-  return compact.length > 14 ? `${compact.slice(0, 14)}…` : compact || '故事素材';
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
-}
-
-function normalizeVisualCanvasItem(raw: unknown): VisualCanvasItem | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as Record<string, unknown>;
-  const analysis = obj.analysis && typeof obj.analysis === 'object'
-    ? (obj.analysis as Record<string, unknown>)
-    : {};
-  const imageUrl = typeof obj.imageUrl === 'string' ? obj.imageUrl : '';
-  if (!imageUrl) return null;
-
-  return {
-    id: typeof obj.id === 'string' ? obj.id : newId('visual'),
-    title: typeof obj.title === 'string' ? obj.title : '视觉锚',
-    imageUrl,
-    originalImageUrl: typeof obj.originalImageUrl === 'string' ? obj.originalImageUrl : undefined,
-    source: obj.source === 'reference' ? 'reference' : 'riff',
-    parentId: typeof obj.parentId === 'string' ? obj.parentId : undefined,
-    cardId: typeof obj.cardId === 'string' ? obj.cardId : undefined,
-    x: typeof obj.x === 'number' ? obj.x : 24,
-    y: typeof obj.y === 'number' ? obj.y : 24,
-    width: typeof obj.width === 'number' ? obj.width : 168,
-    height: typeof obj.height === 'number' ? obj.height : 210,
-    prompt: typeof obj.prompt === 'string' ? obj.prompt : '',
-    userInstruction: typeof obj.userInstruction === 'string' ? obj.userInstruction : undefined,
-    analysis: {
-      objective: typeof analysis.objective === 'string' ? analysis.objective : '',
-      aesthetic: typeof analysis.aesthetic === 'string' ? analysis.aesthetic : '',
-      visualStyle: stringList(analysis.visualStyle),
-      mood: stringList(analysis.mood),
-      colorPalette: stringList(analysis.colorPalette),
-      composition: typeof analysis.composition === 'string' ? analysis.composition : '',
-      lighting: typeof analysis.lighting === 'string' ? analysis.lighting : '',
-      promptDraft: typeof analysis.promptDraft === 'string' ? analysis.promptDraft : '',
-      negativePrompt: typeof analysis.negativePrompt === 'string' ? analysis.negativePrompt : '',
-      confidence: typeof analysis.confidence === 'number' ? analysis.confidence : 0,
-    },
-    createdAt: typeof obj.createdAt === 'number' ? obj.createdAt : Date.now(),
-  };
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('图片读取失败'));
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      const base64 = result.includes(',') ? result.split(',')[1] : result;
-      resolve(base64);
-    };
-    reader.readAsDataURL(file);
-  });
-}
+// newId / cardTitle / stringList / normalizeVisualCanvasItem / fileToBase64
+// 已搬到 ./storyAgentUtils（见顶部 import），此处不再重复定义。
 
 function normalizeCard(raw: unknown): StoryCard | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -502,64 +440,8 @@ function scriptFromStory(params: {
   };
 }
 
-function tokenizeForSimilarity(input: string): Set<string> {
-  const lower = input.toLowerCase();
-  const tokens = lower.match(/[a-z0-9]+|[\u4e00-\u9fff]{2,}/g) ?? [];
-  const chineseChars = Array.from(lower.replace(/[^\u4e00-\u9fff]/g, ''));
-  const chineseBigrams: string[] = [];
-  for (let i = 0; i < chineseChars.length - 1; i += 1) {
-    chineseBigrams.push(`${chineseChars[i]}${chineseChars[i + 1]}`);
-  }
-  return new Set([...tokens, ...chineseBigrams]);
-}
-
-function storyCardSearchText(card: StoryCard): string {
-  return [
-    card.content,
-    card.rawText,
-    card.sourceQuote,
-    card.emotion,
-    ...(card.emotionBlend ?? []),
-    card.trigger,
-    card.dramaticFunction,
-    card.personalTrace,
-    card.retrievalQuery,
-    ...(card.themeHints ?? []),
-    card.outlierSignal,
-    ...(card.softMembership ?? []),
-  ]
-    .filter(Boolean)
-    .join(' ');
-}
-
-function getSimilarCards(query: string, sourceCards: StoryCard[]) {
-  const queryTokens = tokenizeForSimilarity(query);
-  if (queryTokens.size === 0) return [];
-
-  return sourceCards
-    .map((card) => {
-      const cardTokens = tokenizeForSimilarity(storyCardSearchText(card));
-      let overlap = 0;
-      queryTokens.forEach((token) => {
-        if (cardTokens.has(token)) overlap += 1;
-      });
-      const score =
-        cardTokens.size > 0 ? overlap / Math.sqrt(queryTokens.size * cardTokens.size) : 0;
-      return {
-        content: card.content,
-        rawText: card.rawText,
-        emotion: card.emotion,
-        emotionBlend: card.emotionBlend,
-        retrievalQuery: card.retrievalQuery,
-        themeHints: card.themeHints,
-        personalTrace: card.personalTrace,
-        score,
-      };
-    })
-    .filter((card) => card.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-}
+// tokenizeForSimilarity / storyCardSearchText / getSimilarCards
+// \u5df2\u642c\u5230 ./storyCardSimilarity\uff08\u89c1\u9876\u90e8 import\uff09\uff0c\u6b64\u5904\u4e0d\u518d\u91cd\u590d\u5b9a\u4e49\u3002
 
 function archiveMessagesFrom(
   sourceMessages: ChatMessage[],
