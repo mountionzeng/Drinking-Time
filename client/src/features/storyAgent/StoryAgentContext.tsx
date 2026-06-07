@@ -33,6 +33,11 @@ import { buildPromptPool } from './promptPool';
 import { getSimilarCards } from './storyCardSimilarity';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
 import {
+  buildCardPhotoMap,
+  buildInheritedPhotoReference,
+  reconcileInheritedPhotos,
+} from './inheritedPhoto';
+import {
   type ImageProviderSelection,
   normalizeImageProviderSelection,
   imageProviderForRequest,
@@ -311,6 +316,30 @@ function archiveMessagesFrom(
   });
 }
 
+/**
+ * 把「从外部恢复的故事状态」统一过一遍继承图补挂(收口点)。
+ *
+ * 故事状态有不止一条恢复路径:① 刷新时从 localStorage hydrate;② 从云端故事库点开某篇(loadStory)。
+ * 老卡(功能上线前生成 / 云端早存)名下没有「对话照片」reference 视觉锚,必须在每条恢复路径上都补一次,
+ * 否则就出现「这条路补了、那条路没补」的漂移——#18 那张云端老卡看不到继承图,正是 loadStory 漏调所致。
+ *
+ * 收口到这一个函数:今后新增任何「加载已有故事」的入口,只要调它,就不会再漏。
+ * 纯逻辑仍在 inheritedPhoto.ts(可单测);这里只把 newId/Date.now 这类非确定输入兜进来。
+ */
+function reconcileRestoredVisualItems(
+  visualCanvasItems: VisualCanvasItem[],
+  cards: ReadonlyArray<Pick<StoryCard, 'id'>>,
+  messages: ReadonlyArray<Pick<ChatMessage, 'role' | 'photoUrl' | 'spawnedCardId'>>,
+): VisualCanvasItem[] {
+  return reconcileInheritedPhotos({
+    visualCanvasItems,
+    cards,
+    cardPhotoMap: buildCardPhotoMap(messages),
+    makeId: () => newId('visual'),
+    now: Date.now(),
+  });
+}
+
 export function StoryAgentProvider({
   projectId,
   children,
@@ -393,7 +422,16 @@ export function StoryAgentProvider({
     setStoryLogline(persisted.logline);
     setStoryTheme(persisted.theme);
     setStoryArc(persisted.arc);
-    setVisualCanvasItems(persisted.visualCanvasItems ?? []);
+    // 老卡兜底(本地 hydrate 路):走统一收口的 reconcileRestoredVisualItems,
+    // 与 loadStory 共用同一条补挂逻辑,避免两条恢复路漂移。补挂后的数组会经由
+    // 下面 PersistedState 的 persist-on-change effect 落回 localStorage。
+    setVisualCanvasItems(
+      reconcileRestoredVisualItems(
+        persisted.visualCanvasItems ?? [],
+        persisted.cards,
+        persisted.messages,
+      ),
+    );
     setVisualPreference(persisted.visualPreference ?? '');
     setImageProvider(persisted.imageProvider ?? 'default');
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
@@ -688,15 +726,27 @@ export function StoryAgentProvider({
       setReturningGreeting(null);
 
       try {
-        // 如果有照片，先上传拿 URL
-        let photoUrl: string | undefined;
+        // 如果有照片，先上传——这里要拆成「两个 URL」，用途完全不同：
+        //  • photoUrlForLLM ：喂给大模型做多模态识别，必须是 data URL（内联 base64）最稳，
+        //    走 storage 托管 URL 反而会有 302 代理抖动导致模型读不到图。
+        //  • photoUrlForStore：落库 / 渲染用，优先用 storage 托管 URL，避免把几百 KB 的 base64
+        //    塞进 localStorage / 远端故事体里，越攒越大最终撑爆（这就是之前潜伏的隐患）。
+        let photoUrlForLLM: string | undefined;
+        let photoUrlForStore: string | undefined;
         if (photoBase64) {
           try {
             const uploadResult = await uploadPhotoMut.mutateAsync({
               base64: photoBase64,
               mimeType: photoMimeType,
             });
-            if (uploadResult.status === "ok") photoUrl = uploadResult.url;
+            if (uploadResult.status === "ok") {
+              photoUrlForLLM = uploadResult.url; // data URL，喂给 LLM
+              // storedUrl 只在「storage 上传成功」那条分支里才有；fallback 分支没有，
+              // 拿不到托管 URL 时就退回 data URL，保证至少能显示出来。
+              const stored =
+                "storedUrl" in uploadResult ? uploadResult.storedUrl : undefined;
+              photoUrlForStore = stored ?? uploadResult.url;
+            }
           } catch (err) {
             console.error("[sendMessage] 照片上传失败:", err);
           }
@@ -708,7 +758,7 @@ export function StoryAgentProvider({
           role: 'user',
           content: userContent,
           timestamp: Date.now(),
-          photoUrl,
+          photoUrl: photoUrlForStore, // 聊天气泡 / 落库都用托管 URL，不存 base64
         };
         const nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
@@ -766,7 +816,7 @@ export function StoryAgentProvider({
           })),
           similarCards: getSimilarCards(userContent, cards),
           projectId: projectId ?? undefined,
-          photoUrl, // 传给 LLM 做多模态理解
+          photoUrl: photoUrlForLLM, // 传给 LLM 做多模态理解（data URL 最稳）
         }) as StoryAgentChatResult;
         let nextCards = cards;
         let spawnedCardId: string | undefined;
@@ -790,6 +840,24 @@ export function StoryAgentProvider({
           toast.error('旧 Agent 接口还没配置模型 API');
         }
 
+        // ── 让卡片「继承」对话里发来的照片 ──
+        // 只有「这一轮带了照片」且「真的生成了卡片」时，才把原图作为视觉锚挂到该卡片上。
+        // 具体构造逻辑抽到了 ./inheritedPhoto（纯函数，便于单测）；返回 null 表示这一轮不挂图。
+        // 持久化避开 TDZ：用稳定的 setVisualCanvasItems + 把新数组显式传进 saveArchiveStory，
+        // 不碰后面才声明的 persistVisualCanvas（它在 sendMessage 之后定义，放进依赖数组会触发 TDZ）。
+        const inheritedRef = buildInheritedPhotoReference({
+          photoUrlForStore,
+          spawnedCardId,
+          existingCount: visualCanvasItems.length,
+          id: newId('visual'),
+          createdAt: Date.now(),
+        });
+        let nextVisualItems = visualCanvasItems;
+        if (inheritedRef) {
+          nextVisualItems = [...visualCanvasItems, inheritedRef];
+          setVisualCanvasItems(nextVisualItems);
+        }
+
         const replyMsg: ChatMessage = {
           id: newId('msg'),
           role: 'assistant',
@@ -803,6 +871,7 @@ export function StoryAgentProvider({
         await saveArchiveStory({
           messages: finalMessages,
           cards: nextCards,
+          visualCanvasItems: nextVisualItems, // 把刚挂上的对话照片一起落库，否则会回退到本轮已过期的闭包值
           scripts,
           storyShots,
           characters,
@@ -1288,7 +1357,15 @@ export function StoryAgentProvider({
       setStoryShots(restoredShots);
       setCharacters(restoredCharacters);
       setMessages(restoredMessages);
-      setVisualCanvasItems(restoredVisualCanvasItems);
+      // 老卡兜底(云端 loadStory 路):云端早存 / 功能上线前生成的卡名下没有继承图视觉锚,
+      // 这里和刷新时的 hydrate 走同一个 reconcileRestoredVisualItems 补挂,不再各写各的。
+      setVisualCanvasItems(
+        reconcileRestoredVisualItems(
+          restoredVisualCanvasItems,
+          restoredCards,
+          restoredMessages,
+        ),
+      );
       setVisualPreference(restoredVisualPreference);
       setImageProvider(restoredImageProvider);
 

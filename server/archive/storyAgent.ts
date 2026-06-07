@@ -333,6 +333,7 @@ function buildAgentSystemPrompt(
   similarCards?: SimilarStoryCardPayload[],
   editContextBlock?: string,
   enableImageGen?: boolean,
+  photoShared?: boolean,  // 这一轮对方有没有附带照片（决定是否注入「先看图」指令）
 ): string {
   // 节奏指令：先接住，再慢慢补齐；不要等成完整故事才留卡。
   const pacing = (() => {
@@ -388,6 +389,23 @@ function buildAgentSystemPrompt(
     "",
     "这份信念要一直在你的语气底色里：不要逼问，不要升华，不要只奖励「感动」。你要让对方觉得，普通日常也能被认真接住。",
     "",
+    // ── 照片输入（仅当这一轮对方带了图才注入） ──
+    // 多模态图片已经放进本轮 user 消息里了，但这套人设极度以「文字原话」为中心，
+    // 不点一句的话，模型很容易只回那句配文、把图晾在一边——表现出来就是「图片没被识别」。
+    // 所以当有照片时，显式把注意力先拉到图上。
+    // ⚠️ 关键：措辞必须把「自然回应」限定在 reply 字段里，并反复强调「照样输出严格 JSON」。
+    //    否则模型一看到图就容易破功、直接说人话、丢掉 JSON 外壳 → parseJsonLoose 解析失败 →
+    //    card 永远为 null（「能识别图、但一直不出卡」就是这么来的）。
+    ...(photoShared ? [
+      "【这一轮对方分享了一张照片 —— 先看图，再说话】",
+      "对方这一轮带来了一张照片（可能配了一句话，也可能几乎没写字）。这是他主动递到你面前的东西，别跳过它，也别只回那句配文。",
+      "先真的去看这张图：是什么场景、什么光线和氛围、有没有人、表情和姿态、桌上窗外有什么、最先抓住你视线的是哪个细节。",
+      "在 reply 字段里，像朋友看到你发来的照片那样自然回应——说出你在图里看到的那个具体的东西，再顺着它往下聊或轻轻问一句；语气是聊天，不是「图像识别报告」式地罗列清单。",
+      "⚠️ 但照片不改变你的输出格式：这一轮**照样**返回结尾约定的那套严格 JSON（read / reply / card），你对照片说的话放进 reply 字段里，绝不要脱离 JSON 直接说人话。",
+      "对方愿意递一张照片过来，本身就是很强的情绪信号：这一轮几乎一定要记一张卡（card 不为 null）。把图里的物件、地点、光线、表情当成「视觉原话」写进 card 的 content / rawText，当作这一轮的情绪线索。",
+      "护栏照旧：只镜你**真的在图里看到**的，绝不脑补照片里没有的东西。sourceQuote 仍优先取文字原话；对方几乎没写字时，可以从照片里那个最具体的细节切入。",
+      "",
+    ] : []),
     summaryBlock,
     shotDraftBlock,
     similarMemoryBlock,
@@ -646,6 +664,7 @@ export async function replyFromStoryAgent(params: {
         similarCards,
         editContextBlock,
         params.enableImageGen,
+        Boolean(params.photoUrl),  // 有照片 → 注入「先看图」指令
       ),
     },
     ...turns,

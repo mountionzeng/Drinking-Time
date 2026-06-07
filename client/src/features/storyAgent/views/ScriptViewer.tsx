@@ -8,6 +8,7 @@ import { Copy, Check, ScrollText, Sparkles, ChevronDown, Camera } from 'lucide-r
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { buildSceneInheritedImageMap } from '@/features/storyAgent/inheritedPhoto';
 import { useNayin } from '@/features/nayin/NayinContext';
 import { trpc } from '@/lib/trpc';
 import type { NayinElement } from '@/features/nayin/nayin';
@@ -66,7 +67,7 @@ interface ScriptViewerProps {
 }
 
 export default function ScriptViewer({ projectId }: ScriptViewerProps) {
-  const { latestScript, scripts, updateScriptMeta, updateScriptScene } =
+  const { latestScript, scripts, updateScriptMeta, updateScriptScene, visualCanvasItems } =
     useStoryAgent();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
@@ -94,6 +95,13 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
       }
     }
   }
+
+  // 剧本「派生式」取图：某个场景还没有生成图(world-3)时，回退到它来源卡片继承的对话原图。
+  // 不新增字段、不落库——纯渲染期推导，逻辑抽到了 inheritedPhoto.ts（便于单测）。
+  const sceneInheritedImageMap = buildSceneInheritedImageMap(
+    latestScript?.scenes ?? [],
+    visualCanvasItems,
+  );
 
   const navigateToCreation = (shotNo: string) => {
     // Store focus shot in sessionStorage for cross-page handoff
@@ -244,19 +252,35 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
                         </button>
                       )}
                     </div>
-                    {/* Thumbnail */}
-                    {sceneImageMap.get(s.sceneNo) && (
-                      <div
-                        className="mb-1.5 cursor-pointer"
-                        onClick={() => navigateToCreation(sceneImageMap.get(s.sceneNo)!.shotNo)}
-                      >
-                        <img
-                          src={sceneImageMap.get(s.sceneNo)!.imageUrl}
-                          alt={`${s.sceneNo} 主图`}
-                          className="w-full h-20 rounded object-cover border border-border/30 hover:ring-1 hover:ring-primary/40 transition-shadow"
-                        />
-                      </div>
-                    )}
+                    {/* Thumbnail —— 优先生成图(world-3)，没有就回退到来源卡片继承的对话原图（派生式） */}
+                    {(() => {
+                      const generated = sceneImageMap.get(s.sceneNo);
+                      const inheritedUrl = sceneInheritedImageMap.get(s.sceneNo);
+                      const thumbUrl = generated?.imageUrl ?? inheritedUrl;
+                      if (!thumbUrl) return null;
+                      return (
+                        <div
+                          className={generated ? 'mb-1.5 cursor-pointer' : 'mb-1.5'}
+                          onClick={
+                            generated
+                              ? () => navigateToCreation(generated.shotNo)
+                              : undefined
+                          }
+                        >
+                          <img
+                            src={thumbUrl}
+                            alt={`${s.sceneNo} 主图`}
+                            className="w-full h-20 rounded object-cover border border-border/30 hover:ring-1 hover:ring-primary/40 transition-shadow"
+                          />
+                          {/* 继承来的对话原图还不是正式生成图，标一下，免得用户以为已经出图了 */}
+                          {!generated && (
+                            <span className="mt-0.5 block text-[9px] text-muted-foreground">
+                              继承自对话照片 · 待生成
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <p className="text-[11.5px] text-foreground leading-relaxed">
                       <EditableText
                         value={s.visual}
