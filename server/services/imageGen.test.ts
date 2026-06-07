@@ -161,6 +161,25 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[0][0]).toContain("fal-ai/flux-pro");
   });
 
+  it("redirects fal→302 GPT-image when no fal key but a 302 key exists", async () => {
+    const savedFalKey = ENV.falApiKey;
+    ENV.falApiKey = ""; // 本机没有 fal key
+    ENV.api302Key = "test-302-key"; // 却配了 302 key
+    try {
+      const fetcher = makeFetcher([
+        { ok: true, status: 200, json: { data: [{ url: "https://file.302.ai/r.png" }] } },
+        { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
+      ]);
+      // 不传 provider → 默认 resolve 成 fal；但没 fal key、有 302 key → 应自动改走 302 gpt-image
+      const result = await generateImage("a cat", { fetcher });
+      expect(result.status).toBe("ok");
+      expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
+      expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+    } finally {
+      ENV.falApiKey = savedFalKey;
+    }
+  });
+
   it("uses 302 GPT-image and stores base64 image bytes", async () => {
     ENV.api302Key = "test-302-key";
     const b64 = Buffer.from("test-image").toString("base64");

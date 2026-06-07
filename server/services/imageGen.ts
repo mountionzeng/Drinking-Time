@@ -202,7 +202,15 @@ export async function generateImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
-  const provider = normalizeImageProvider(options.provider ?? ENV.imageProviderDefault);
+  const requested = normalizeImageProvider(options.provider ?? ENV.imageProviderDefault);
+  // 凭手上的凭据兜底：本机没配 fal key、却配了 302 key 时，把本会掉到 fal 的请求
+  // 自动改走 302 gpt-image。这样「只有 302」的机器开箱即用，不用特意去下拉里选模型
+  // （否则默认 provider 会 resolve 成 fal → 没 key → fal.ai 401）。
+  // 注意：只在「没 fal key」时才改道；同时配了两边的用户，显式选 fal 仍走 fal，不抢他的选择。
+  const provider =
+    requested === "fal" && !ENV.falApiKey && ENV.api302Key
+      ? "gpt-image"
+      : requested;
 
   if (provider === "gpt-image" && ENV.api302Key) {
     return generate302GptImage(prompt, options, fetcher);
