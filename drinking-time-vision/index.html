@@ -516,6 +516,12 @@
       letter-spacing: .28em;
     }
     .wordmark > span{ padding-left: .28em; }
+    .wordmark-sub{
+      font-size: clamp(18px, 5.2vw, 23px);
+      letter-spacing: .14em;
+      line-height: 1.55;
+      white-space: nowrap;
+    }
     .copy p, .copy li{ font-size: 19px; }
     .copy p.lead{ font-size: 22px; }
     .pull-quote{ font-size: 26px; line-height: 1.5; }
@@ -582,7 +588,7 @@
   }
 
   /* =========================================================
-     TOP NAV + ROUTES  (two routes: 愿景与定位 / 操作功能)
+     TOP NAV + ROUTES  (愿景与定位 / 操作功能 / MVP)
      ========================================================= */
   .route{ display: none; }
   .route.active{ display: block; }
@@ -697,6 +703,64 @@
   }
 
   /* mvp — validation board */
+  .belief-origin{
+    max-width: 1020px;
+  }
+  .belief-origin-quote{
+    margin: 46px auto 0;
+    max-width: 860px;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-size: 34px;
+    line-height: 1.65;
+    font-weight: 500;
+    color: var(--ink);
+    text-align: center;
+    letter-spacing: .02em;
+  }
+  .belief-origin-quote::before,
+  .belief-origin-quote::after{
+    color: var(--muted-red);
+    opacity: .72;
+  }
+  .belief-origin-quote::before{ content:"「"; }
+  .belief-origin-quote::after{ content:"」"; }
+  .belief-origin-chain{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 34px;
+    margin-top: 58px;
+    border-top: 1px solid rgba(61,46,38,.16);
+    border-bottom: 1px solid rgba(61,46,38,.16);
+    padding: 30px 0;
+  }
+  .belief-origin-step{
+    border-right: 1px solid rgba(61,46,38,.12);
+    padding-right: 28px;
+  }
+  .belief-origin-step:last-child{ border-right: 0; padding-right: 0; }
+  .belief-origin-step span{
+    display: block;
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .18em;
+    color: var(--muted-red);
+    margin-bottom: 12px;
+  }
+  .belief-origin-step strong{
+    display: block;
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-size: 25px;
+    line-height: 1.35;
+    color: var(--ink);
+    margin-bottom: 9px;
+    letter-spacing: .02em;
+  }
+  .belief-origin-step p{
+    font-size: 19px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+    margin: 0;
+  }
   .mvp-signal-grid{
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -782,6 +846,32 @@
     opacity:.72;
   }
   .mvp-panel strong{ color: var(--ink); font-weight: 700; }
+  .mvp-proof-list{
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mvp-proof-list li{
+    margin: 0;
+    padding: 0 0 0 24px;
+  }
+  .mvp-proof-list li::before{
+    top: .82em;
+    width: 10px;
+  }
+  .mvp-proof-note{
+    margin-top: 46px;
+    padding: 24px 0 0;
+    border-top: 1px solid rgba(61,46,38,.16);
+    font-size: 20px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .mvp-proof-note strong{
+    color: var(--ink);
+  }
   .mvp-script{
     margin-top: 16px;
     padding: 18px 20px;
@@ -823,13 +913,170 @@
     color: var(--ink-soft);
     margin: 0;
   }
+  .mvp-live-shell{
+    margin-top: 58px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(300px, .92fr);
+    gap: 52px;
+    align-items: start;
+  }
+  .mvp-live-title{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .mvp-live-dot{
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--hot);
+    box-shadow: 0 0 0 0 rgba(214,96,74,.45);
+    animation: mvpPulse 1.8s ease-out infinite;
+  }
+  @keyframes mvpPulse{
+    0%{ box-shadow: 0 0 0 0 rgba(214,96,74,.45); }
+    70%{ box-shadow: 0 0 0 16px rgba(214,96,74,0); }
+    100%{ box-shadow: 0 0 0 0 rgba(214,96,74,0); }
+  }
+  .mvp-live-title h3{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-size: 30px;
+    line-height: 1.3;
+    letter-spacing: .04em;
+    color: var(--ink);
+  }
+  .mvp-live-meta{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .14em;
+    color: var(--ink-ghost);
+    margin-bottom: 28px;
+  }
+  .mvp-live-stats{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+    border-top: 1px solid rgba(61,46,38,.16);
+    border-bottom: 1px solid rgba(61,46,38,.16);
+    padding: 28px 0;
+  }
+  .mvp-live-stat{
+    border-right: 1px solid rgba(61,46,38,.12);
+    min-height: 118px;
+  }
+  .mvp-live-stat:last-child{ border-right: 0; }
+  .mvp-live-stat .num{
+    display: block;
+    font-family:'Cormorant Garamond', serif;
+    font-size: 64px;
+    line-height: .95;
+    color: var(--muted-red);
+    margin-bottom: 12px;
+  }
+  .mvp-live-stat .label{
+    display: block;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  .mvp-persona-bars{
+    margin-top: 34px;
+    display: grid;
+    gap: 20px;
+  }
+  .mvp-persona-row{
+    display: grid;
+    grid-template-columns: 120px 1fr 46px;
+    gap: 16px;
+    align-items: center;
+    font-size: 18px;
+    color: var(--ink-soft);
+  }
+  .mvp-persona-track{
+    height: 10px;
+    background: rgba(61,46,38,.10);
+    overflow: hidden;
+  }
+  .mvp-persona-fill{
+    display:block;
+    width: 0%;
+    height: 100%;
+    background: var(--muted-red);
+    transition: width .45s ease;
+  }
+  .mvp-invite-panel{
+    border-top: 1px solid rgba(168,91,77,.36);
+    border-bottom: 1px solid rgba(61,46,38,.14);
+    padding: 26px 0 30px;
+  }
+  .mvp-invite-panel h3,
+  .mvp-feed h3{
+    font-family:'Noto Serif SC','PingFang SC', serif;
+    font-weight: 700;
+    font-size: 25px;
+    letter-spacing: .03em;
+    color: var(--ink);
+    margin-bottom: 14px;
+  }
+  .mvp-invite-panel p{
+    font-size: 19px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+    margin-bottom: 18px;
+  }
+  .mvp-feed{
+    margin-top: 36px;
+  }
+  .mvp-feed-list{
+    display: grid;
+    gap: 12px;
+  }
+  .mvp-feed-item{
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 16px;
+    padding: 12px 0;
+    border-top: 1px solid rgba(61,46,38,.10);
+  }
+  .mvp-feed-time{
+    font-family:'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--ink-ghost);
+  }
+  .mvp-feed-body{
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  .mvp-feed-body strong{ color: var(--ink); }
+  .mvp-empty{
+    color: var(--ink-ghost);
+    font-size: 18px;
+    line-height: 1.65;
+    padding: 12px 0;
+  }
+  .mvp-local-note{
+    margin-top: 24px;
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--ink-ghost);
+  }
   @media (max-width: 960px){
+    .belief-origin-chain{ grid-template-columns: 1fr; gap: 26px; }
+    .belief-origin-step{ border-right: 0; border-bottom: 1px solid rgba(61,46,38,.12); padding-right: 0; padding-bottom: 24px; }
+    .belief-origin-step:last-child{ border-bottom: 0; padding-bottom: 0; }
     .mvp-signal-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .mvp-signal:nth-child(2){ border-right: 0; }
     .mvp-board{ grid-template-columns: 1fr; gap: 42px; }
     .mvp-days{ grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 22px; }
+    .mvp-live-shell{ grid-template-columns: 1fr; gap: 42px; }
   }
   @media (max-width: 640px){
+    .belief-origin-quote{ font-size: 25px; line-height: 1.72; text-align: left; }
+    .belief-origin-step strong{ font-size: 23px; }
+    .belief-origin-step p{ font-size: 18px; }
     .mvp-signal-grid{ grid-template-columns: 1fr; gap: 22px; padding: 24px 0; }
     .mvp-signal{ min-height: auto; border-right: 0; border-bottom: 1px solid rgba(61,46,38,.12); padding-bottom: 20px; }
     .mvp-signal:last-child{ border-bottom: 0; padding-bottom: 0; }
@@ -838,6 +1085,11 @@
     .mvp-panel p,
     .mvp-panel li{ font-size: 19px; }
     .mvp-days{ grid-template-columns: 1fr; }
+    .mvp-live-stats{ grid-template-columns: 1fr; gap: 20px; }
+    .mvp-live-stat{ min-height: auto; border-right: 0; border-bottom: 1px solid rgba(61,46,38,.10); padding-bottom: 20px; }
+    .mvp-live-stat:last-child{ border-bottom: 0; padding-bottom: 0; }
+    .mvp-persona-row{ grid-template-columns: 92px 1fr 36px; gap: 12px; font-size: 16px; }
+    .mvp-feed-item{ grid-template-columns: 1fr; gap: 4px; }
   }
 
   /* operations — backlink */
@@ -1003,6 +1255,39 @@
             </g>
           </svg>
         </div>
+      </div>
+    </div>
+  </section>
+
+<!-- ======================================================================
+       发心 · 情绪如何长成故事与共识
+       ====================================================================== -->
+  <section class="chapter belief-origin" id="beliefOrigin">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">WHY &nbsp; THIS &nbsp; EXISTS</div>
+      <h2 class="ch-display">INTENT</h2>
+      <p class="ch-cn">发心</p>
+    </header>
+    <div class="copy" data-anim>
+      <p class="lead">我相信许多优秀女性拥有更细密、更丰富的情感系统，而这种能量不应该只停留在私人表达里。</p>
+      <p>小酌要做的，不是把情绪当成内容消费掉，也不是把女性包装成更容易被接受的样子。它要把那些尚未被主流语言接住的感受、经历、判断和关系能力，转译成一种可以交换其他价值的媒介：信任、机会、资本、合作、话语权和主流认可。</p>
+    </div>
+    <blockquote class="belief-origin-quote" data-anim>情感是人类最美丽的意境。</blockquote>
+    <div class="belief-origin-chain" data-anim>
+      <div class="belief-origin-step">
+        <span>01 · EMOTION</span>
+        <strong>规则最初也是情绪</strong>
+        <p>一个人先感到不公平、被误解、被照亮、被召唤，才会开始寻找语言。</p>
+      </div>
+      <div class="belief-origin-step">
+        <span>02 · STORY</span>
+        <strong>情绪慢慢长成故事</strong>
+        <p>当它被认真听见、被准确整理，就不再只是宣泄，而会变成可被别人理解的叙事。</p>
+      </div>
+      <div class="belief-origin-step">
+        <span>03 · CONSENSUS</span>
+        <strong>故事继续长成共识</strong>
+        <p>当足够多人认出同一种真实，它就会进入规则、身份、审美和价值交换。</p>
       </div>
     </div>
   </section>
@@ -1900,7 +2185,77 @@
 </div><!-- /route operations -->
 
 <!-- ====================================================================
-     ROUTE ③ · MVP  (LinkedIn validation wedge)
+     ROUTE · 邀请函  (recipient-facing letter — redirect target of /invite/:code)
+     收件人打开追踪链接后看到的，是这封信，而不是创始人后台。
+     ==================================================================== -->
+<div class="route route-invite" data-route="invite">
+<main class="scroll">
+
+<!-- HERO -->
+  <section class="hero" id="inviteHero">
+    <div class="scene jitter" data-anim style="max-width:340px; margin-bottom:8px;">
+      <svg viewBox="0 0 220 160" aria-hidden="true">
+        <path class="ink ink-thin" d="M20 138 C 70 132, 150 134, 200 138"/>
+        <rect class="ink" x="34" y="34" width="152" height="96" rx="10" fill="var(--paper)"/>
+        <path class="ink ink-thin" d="M40 44 L110 90 L180 44"/>
+        <path class="mred" stroke="none" d="M150 20 l5 11 l12 1 l-9 8 l3 12 l-11 -6 l-11 6 l3 -12 l-9 -8 l12 -1 Z"/>
+      </svg>
+    </div>
+    <p class="wordmark-sub" data-anim data-invite-kicker>致第一批共创者</p>
+    <p class="hero-epigraph" data-anim>把你真实走过的路，做成一条 60 秒、让人一眼就信任你的电影感短片。</p>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+<!-- 正文 -->
+  <section class="chapter" id="inviteLetter">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark" data-invite-serial>PILOT · 00</div>
+      <h2 class="ch-display">YOUR&nbsp;STORY</h2>
+      <p class="ch-cn" data-invite-title>一封邀请函</p>
+    </header>
+
+    <div class="copy" data-anim>
+      <p class="lead" data-invite-lead>把你真实走过的路，翻译成别人几秒就能读懂、并愿意信任的画面。</p>
+      <p data-invite-body>这不是包装。是把你本来就有、却一直没被一眼看见的那部分，重新讲清楚。</p>
+      <p>模型每天都在变便宜。真正贵的，是模型之前那一层——你的审美、你的判断、你为什么是你。这一层 AI 复制不了，也正是别人决定要不要信任你的地方。</p>
+    </div>
+
+    <div class="mvp-signal-grid" data-anim>
+      <div class="mvp-signal">
+        <span class="k">OFFER</span>
+        <strong>一条 60 秒可信度故事片</strong>
+        <p>一句话定位 + 一条电影感短片。可以直接发 feed、放在落地页，也能用在融资或 demo day。</p>
+      </div>
+      <div class="mvp-signal">
+        <span class="k">WHY&nbsp;ME</span>
+        <strong>美术 × 电影 × AI</strong>
+        <p>美术本科、7 年电影数字绘景、CS 硕士在读。我做了七年「让虚构看起来可信」，现在用它，让真实的你同样可信。</p>
+      </div>
+      <div class="mvp-signal">
+        <span class="k">HOW</span>
+        <strong>一次 30 分钟的对话</strong>
+        <p>你只需要聊一件真实的小事，剩下的脚本、画面、节奏，交给我。</p>
+      </div>
+    </div>
+
+    <div class="copy" data-anim>
+      <p>如果这封信找到了你，是因为我认真读过你的经历，并且相信它值得被更多人一眼看懂。</p>
+      <p style="margin-top:18px; color:var(--ink-soft); font-style:italic;">—— 岱岱 · 小酌 Drinking&nbsp;Time</p>
+    </div>
+
+    <a class="op-backlink" href="#vision">想先了解我们为什么做这件事 · 愿景与定位 →</a>
+  </section>
+
+</main>
+</div><!-- /route invite -->
+
+<!-- ====================================================================
+     ROUTE ③ · MVP  (14-day service validation)
      ==================================================================== -->
 <div class="route route-mvp" data-route="mvp">
 <main class="scroll">
@@ -1942,8 +2297,7 @@
       </svg>
     </div>
 
-    <p class="wordmark-sub" data-anim>LinkedIn MVP</p>
-    <p class="hero-epigraph" data-anim>先验证一件事：陌生职场人，是否愿意为“被准确讲述的职业故事”付钱。</p>
+    <p class="wordmark-sub" data-anim>14 天 · 5 位优秀女性</p>
   </section>
 
   <span class="quiet-rule" aria-hidden="true">
@@ -1955,209 +2309,138 @@
 <!-- 核心判断 -->
   <section class="chapter" id="mvpJudgement">
     <header class="ch-head" data-anim>
-      <div class="ch-mark">VALIDATION &nbsp; FIRST</div>
-      <h2 class="ch-display">MONEY TEST</h2>
-      <p class="ch-cn">核心判断</p>
+      <div class="ch-mark">14 &nbsp; DAYS &nbsp; · &nbsp; 5 &nbsp; WOMEN</div>
+      <h2 class="ch-display">SERVICE</h2>
     </header>
     <div class="copy" data-anim>
-      <p class="lead">值得做，但只值得先做成 7 天付费验证入口。</p>
-      <p>这个 MVP 验证的不是“LinkedIn 视频”本身，而是：一个人愿不愿意把自己混乱的职业经历交给小酌提炼，并为更清楚、更可信、更可展示的身份叙事付钱。</p>
+      <p class="lead">只服务 5 位“希望拿到主流认可的优秀女性”。</p>
+      <p>她们已经有能力、成绩、作品、判断或影响力，但在主流语境里还没有被准确看见。小酌要验证的是：当我们用访谈、故事提炼、英文表达和电影感方向，帮她们把“我是谁”讲清楚，并把情感能量变成可被交换的社会价值，她们是否愿意发布、转介绍、继续付费。</p>
+      <p>这 5 位用户来自<strong>弱关系推荐 + LinkedIn 冷启动</strong>，不只服务熟人。弱关系用来跑通深度交付，冷启动用来验证陌生人是否也会被这个价值命题打动。</p>
+      <p>前期交付采用<strong>手工服务 + 小酌引擎</strong>：人负责访谈、审美判断和最终取舍；小酌引擎负责把对话转成结构化故事、身份表达、镜头方向和可复用的修改记忆。用户明确授权后的故事信息、修改反馈、最终认可版本，会进入小酌训练。</p>
     </div>
 
     <div class="mvp-signal-grid" data-anim>
       <div class="mvp-signal">
-        <span class="k">POSITION</span>
-        <strong>入口，不是转向</strong>
-        <p>它是 Drinking Time 主线的商业楔子，不是把产品做成 LinkedIn agency。</p>
+        <span class="k">SCOPE</span>
+        <strong>14 天，手工服务 5 人</strong>
+        <p>不追求规模，也不假装全自动。先用高密度手工服务，把真正值得训练的判断样本喂给小酌。</p>
       </div>
       <div class="mvp-signal">
-        <span class="k">OFFER</span>
-        <strong>45 秒短片 + About</strong>
-        <p>访谈提炼、职业故事脚本、LinkedIn-ready video、英文 About rewrite。</p>
+        <span class="k">CUSTOMER</span>
+        <strong>优秀女性，不是泛女性</strong>
+        <p>她需要已经有真实积累，只是尚未被主流叙事准确承认；不是泛情绪陪伴，也不是普通简历优化。</p>
       </div>
       <div class="mvp-signal">
-        <span class="k">PRICE</span>
-        <strong>$49 / $99 试单</strong>
-        <p>低到能下单，高到能证明不是免费建议；创始人版本优先测 $99。</p>
+        <span class="k">OUTCOME</span>
+        <strong>让主流看懂她</strong>
+        <p>产出不是“漂亮视频”，而是一套可被投资人、客户、媒体、公司或行业前辈快速理解的身份表达。</p>
       </div>
       <div class="mvp-signal">
-        <span class="k">GATE</span>
-        <strong>付费、发布、转介绍</strong>
-        <p>点赞和夸奖都不算数；今天付款、愿意发、愿意介绍朋友才算信号。</p>
+        <span class="k">ENGINE</span>
+        <strong>用户信息进入小酌训练</strong>
+        <p>经授权后，每一次访谈、修改、拒绝和最终认可，都会变成小酌引擎学习“如何尊重一个人”的训练材料。</p>
       </div>
     </div>
+  </section>
+
+<!-- 验证结构 -->
+  <section class="chapter" id="mvpProof">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">WHAT &nbsp; GETS &nbsp; TESTED</div>
+      <h2 class="ch-display">DEAL</h2>
+      <p class="ch-cn">验证结构</p>
+    </header>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>1. 用户从哪里来</h3>
+        <p>5 人必须同时包含弱关系和 LinkedIn 冷启动；至少 2 位来自 LinkedIn 陌生触达。弱关系验证交付深度，冷启动验证市场吸引力。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>2. 她具体得到什么</h3>
+        <ul class="mvp-proof-list">
+          <li>60 分钟深访</li>
+          <li>一句话身份定位</li>
+          <li>一版更精炼的英文 About</li>
+          <li>一条 60 秒个人短片方向</li>
+          <li>一轮修改后的可发布版本</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>3. 她需要付出什么</h3>
+        <ul class="mvp-proof-list">
+          <li>一句真实反馈：哪里说准了，哪里不敢发</li>
+          <li>明确选择：公开使用、部分使用，或说明为什么不用</li>
+          <li>介绍 1 位也需要被主流准确理解的优秀女性</li>
+          <li>回答下一轮是否愿意付费，以及可接受价格</li>
+          <li>选择是否授权匿名样本进入小酌训练</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>4. 成功和失败标准</h3>
+        <p><strong>成功：</strong>至少 3 人认为表达更准确，2 人愿意公开使用一部分，1 人转介绍，1 人愿意为下一轮付费。</p>
+        <p><strong>失败：</strong>如果没人愿意公开使用、没人转介绍、没人愿意付费，这个切口就暂时不成立。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>5. 价格锚点</h3>
+        <p>前 5 人可以是共创价或免费交换，但每个人都必须被问到下一轮价格。下一轮测试 <strong>$99-$299 founder price</strong>，卖的不是 AI 视频，而是“被主流准确理解”的身份表达。</p>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>6. 信任边界</h3>
+        <p>未经授权，不进入训练。私人信息只用于本次交付；用户可以选择只授权匿名结构、修改路径和最终认可版本，不授权原文、身份和敏感细节。</p>
+      </div>
+    </div>
+    <p class="mvp-proof-note" data-anim><strong>这不是一次内容赠品。</strong>这是一次小规模交易验证：她愿不愿意把真实经历交给小酌、让小酌修改、公开使用、介绍别人，并承认下一轮它值得付费。</p>
   </section>
 
 <!-- 目标客户 -->
   <section class="chapter" id="mvpCustomers">
     <header class="ch-head" data-anim>
-      <div class="ch-mark">WHO &nbsp; PAYS</div>
-      <h2 class="ch-display">CUSTOMERS</h2>
-      <p class="ch-cn">目标客户</p>
+      <div class="ch-mark">WHO &nbsp; NEEDS &nbsp; THIS</div>
+      <h2 class="ch-display">WOMEN</h2>
+      <p class="ch-cn">服务对象</p>
     </header>
     <div class="mvp-board">
       <div class="mvp-panel" data-anim>
-        <h3>1. 初创公司创始人</h3>
-        <p><strong>优先级最高。</strong>他们的 LinkedIn 影响融资、招聘、销售和可信度，个人叙事就是商业资产。</p>
+        <h3>1. 已经很优秀，但没有被主流准确看见</h3>
+        <p>她不是从零开始找自信的人。她有成绩、有作品、有判断，只是主流语境还没有给她一个足够清楚的位置。</p>
       </div>
       <div class="mvp-panel" data-anim>
-        <h3>2. 独立顾问 / Fractional 高管</h3>
-        <p>最容易把 profile 看成获客页面。卖点不是“好看”，而是让客户更快理解为什么该信任他。</p>
+        <h3>2. 正在进入更大的舞台</h3>
+        <p>融资、申请、升职、转型、出海、公开表达、媒体曝光、独立执业，都可能是触发点。她需要让陌生权力结构更快理解她。</p>
       </div>
       <div class="mvp-panel" data-anim>
-        <h3>3. 30+ 中高级职场人</h3>
-        <p>适合职业转型、升职、找高阶机会，但要压住“自恋感”和“AI 味”。</p>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>暂缓：20+ 普通职场人</h3>
-        <p>预算低、需求像简历优化、付费慢。除非他已经在主动经营个人品牌，否则先不主攻。</p>
+        <h3>3. 想要主流认可，但不想变成标准模板</h3>
+        <p>她想被认真认可，不是被包装成“正确女性样板”。小酌要保住她真实的复杂性，同时把它翻译成主流可以接住的表达。</p>
       </div>
     </div>
   </section>
 
-<!-- 7 天验证 -->
+<!-- 14 天服务 -->
   <section class="chapter" id="mvpSevenDays">
     <header class="ch-head" data-anim>
-      <div class="ch-mark">ONE &nbsp; WEEK &nbsp; ONLY</div>
-      <h2 class="ch-display">7 DAYS</h2>
-      <p class="ch-cn">7 天验证计划</p>
+      <div class="ch-mark">TWO &nbsp; WEEKS &nbsp; ONLY</div>
+      <h2 class="ch-display">14 DAYS</h2>
+      <p class="ch-cn">14 天服务 5 人</p>
     </header>
     <div class="copy" data-anim>
-      <p class="lead">目标不是把产品做完，是把“愿不愿意付钱”问清楚。</p>
-      <p>通过线：150 个精准外联，15 个回复，6 个愿意聊，2-3 个预付 $49-$99，至少 1 个愿意公开发布或转介绍。</p>
+      <p class="lead">目标不是证明页面好看，而是证明 5 位优秀女性愿不愿意把自己的主流表达交给小酌共创。</p>
+      <p>通过线：14 天内完成 5 次深访，交付 5 份身份表达草案；至少 2 人来自 LinkedIn 冷启动，至少 3 人认为“这比我自己写得更准确”，至少 2 人愿意公开使用其中一部分，至少 1 人愿意介绍另一个优秀女性，至少 1 人愿意为下一轮 <strong>$99-$299</strong> 付费，并且愿意授权匿名样本进入小酌训练。</p>
     </div>
     <div class="mvp-days" data-anim>
-      <div class="mvp-day"><span class="d">01</span><p>改 LinkedIn 主页：一句话说明服务，放样板片、before / after、价格。</p></div>
-      <div class="mvp-day"><span class="d">02</span><p>做 3 个样板片：Founder、Consultant、Senior operator。</p></div>
-      <div class="mvp-day"><span class="d">03</span><p>外联 50 个 founder，句子只指向一个具体 profile 问题。</p></div>
-      <div class="mvp-day"><span class="d">04</span><p>外联 50 个 consultant / fractional，主打获客可信度。</p></div>
-      <div class="mvp-day"><span class="d">05</span><p>外联 50 个 30+ senior，主打职业转型叙事。</p></div>
-      <div class="mvp-day"><span class="d">06</span><p>只做 2-3 个付费 pilot，手工交付，不开发自动化。</p></div>
-      <div class="mvp-day"><span class="d">07</span><p>复盘：回复率、付款率、发布率、拒绝理由、下一轮价格。</p></div>
+      <div class="mvp-day"><span class="d">1-2</span><p>确定 5 人画像和来源配比：弱关系推荐 + LinkedIn 冷启动，至少 2 人来自陌生触达。</p></div>
+      <div class="mvp-day"><span class="d">3-4</span><p>发出邀请：不是“帮你包装”，而是“帮主流世界更准确地理解你”，并说明反馈、转介绍、授权边界。</p></div>
+      <div class="mvp-day"><span class="d">5-6</span><p>完成前 2 次深访，用小酌引擎把被误读、被低估、最想被承认的部分结构化。</p></div>
+      <div class="mvp-day"><span class="d">7-8</span><p>交付第一批草案：一句主流可理解的定位 + 一段英文 About + 60 秒短片方向。</p></div>
+      <div class="mvp-day"><span class="d">9-10</span><p>完成中间 2 人服务，记录哪些表达让她们觉得“终于说准了”，并把修改路径沉淀进小酌。</p></div>
+      <div class="mvp-day"><span class="d">11-12</span><p>完成最后 1 人服务，确认哪些信息可被授权用于训练，哪些只留在私人交付里。</p></div>
+      <div class="mvp-day"><span class="d">13-14</span><p>复盘 5 人证据：来源、准确感、公开使用、转介绍、愿付费、授权训练样本、失败信号。</p></div>
     </div>
   </section>
-
-<!-- 话术与访谈 -->
-  <section class="chapter" id="mvpResearch">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">OUTREACH &nbsp; + &nbsp; RESEARCH</div>
-      <h2 class="ch-display">ASK</h2>
-      <p class="ch-cn">外联话术与访谈问题</p>
-    </header>
-    <div class="mvp-board">
-      <div class="mvp-panel" data-anim>
-        <h3>连接请求</h3>
-        <div class="mvp-script">
-          <b>CONNECTION</b>
-          Hi {Name}, I’m testing a tiny service for founders/professionals: turning a long LinkedIn About into a 45-sec career story video + sharper About copy. Your profile has a strong story, but the About feels under-leveraged. Open to a quick teardown?
-        </div>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>通过后的付费邀请</h3>
-        <div class="mvp-script">
-          <b>PILOT</b>
-          I’m doing 5 paid pilots this week: 45-sec LinkedIn-ready story film + rewritten About, delivered in 48h. Pilot price is $49. Want me to send a 20-sec sample direction for your profile first?
-        </div>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>访谈必须问</h3>
-        <ul>
-          <li>你希望 LinkedIn 带来客户、投资人、招聘、offer，还是权威感？</li>
-          <li>你现在的 About 哪里最不像你？</li>
-          <li>最近一次为职业形象付费是什么时候，多少钱？</li>
-          <li>如果给你 45 秒短片，你敢发在哪里？为什么？</li>
-          <li>今天付 $49 / $99，什么交付会让你觉得值？</li>
-        </ul>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>拒绝时也要问</h3>
-        <ul>
-          <li>是价格问题、信任问题，还是你根本不会发布？</li>
-          <li>你更想要 profile rewrite、视频、还是 20 分钟定位咨询？</li>
-          <li>什么样的样板片会让你觉得“不尴尬，可以发”？</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-<!-- 样板片方向 -->
-  <section class="chapter" id="mvpSamples">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">SAMPLE &nbsp; FILMS</div>
-      <h2 class="ch-display">PROOF</h2>
-      <p class="ch-cn">3-5 个样板片方向</p>
-    </header>
-    <div class="mvp-board">
-      <div class="mvp-panel" data-anim>
-        <h3>Founder credibility film</h3>
-        <p>“我为什么做这家公司 → 我看见的问题 → 我已证明的能力 → 我现在寻找谁”。</p>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>Senior operator film</h3>
-        <p>“我不是岗位列表，我解决的是哪类复杂问题”。适合 30+ 升级叙事。</p>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>Consultant / fractional film</h3>
-        <p>“客户为什么找我 → 我的方法 → 结果证据 → 适合合作的人”。</p>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>Anti-cringe version</h3>
-        <p>少真人拟像，多真实照片、产品截图、字幕、轻 B-roll。可信比电影感更重要。</p>
-      </div>
-    </div>
-  </section>
-
-<!-- 边界与奇绩 -->
-  <section class="chapter" id="mvpBoundaries">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">STRICT &nbsp; FILTER</div>
-      <h2 class="ch-display">NOISE</h2>
-      <p class="ch-cn">不应该做的事</p>
-    </header>
-    <div class="mvp-board">
-      <div class="mvp-panel" data-anim>
-        <h3>先不要做</h3>
-        <ul>
-          <li>不要先开发自动化产品，先手工服务验证。</li>
-          <li>不要卖“AI cinematic video”，卖“professional story clarity”。</li>
-          <li>不要承诺涨粉、找工作成功或曝光提升。</li>
-          <li>不要主攻低预算求职人群。</li>
-          <li>不要做过度成功学、过度电影感、过度 AI 味的样板片。</li>
-        </ul>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>奇绩申请可以写</h3>
-        <ul>
-          <li>从“人生故事生成影像”切出 LinkedIn 职业身份表达这个商业场景。</li>
-          <li>真实数据：外联数、回复率、访谈数、付费数、客单价、发布数。</li>
-          <li>用户买的不是视频，而是“被准确理解、提炼，并能控制修改的身份表达”。</li>
-        </ul>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>奇绩申请不要写</h3>
-        <ul>
-          <li>不要只写 LinkedIn 用户多，所以市场大。</li>
-          <li>不要写“大家都说喜欢”，没有付费就是噪音。</li>
-          <li>不要说这是 Drinking Time 的最终方向；现在它只是商业化切口。</li>
-        </ul>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>最严厉的反对意见</h3>
-        <p>如果用户不敢发、不愿付费、不愿把职业身份交给这个流程，样板片再漂亮也没有意义。这个 MVP 必须用现金和发布行为结束争论。</p>
-      </div>
-    </div>
-  </section>
-
-  <span class="quiet-rule" aria-hidden="true">
-    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
-    </svg>
-  </span>
 
 <!-- 收束 -->
   <section class="chapter" id="mvpClose" style="text-align:center;">
     <div class="copy" data-anim style="max-width:680px; margin:0 auto; text-align:center;">
-      <p class="seated-line" style="text-align:center;">先用一周，问市场一个不能含糊的问题：你愿意今天付款吗？</p>
+      <p class="seated-line" style="text-align:center;">先用 14 天，问一个更清楚的问题：优秀女性愿不愿意为“被主流准确理解”付出时间、信任、授权和下一次介绍？</p>
     </div>
     <p data-anim style="text-align:center; margin-top:26px;">
       <a class="op-backlink" href="#operations">回到产品操作功能 →</a>
@@ -2166,7 +2449,7 @@
 
   <div class="colophon">
     <span class="sig">小 · 酌 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
-    <span>LINKEDIN &nbsp; MVP &nbsp; · &nbsp; 2026</span>
+    <span>14 &nbsp; DAYS &nbsp; · &nbsp; 5 &nbsp; WOMEN &nbsp; · &nbsp; 2026</span>
   </div>
 
 </main>
@@ -2463,7 +2746,55 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 }
 
 // =================================================================
-// ROUTER — 三个路由：愿景与定位 (#vision) · 操作功能 (#operations) · MVP (#mvp)
+// INVITE LETTER — 收件人版邀请函：按 ?invite= 参数个性化（founder / expert / operator）
+// 追踪写库与跳转在 server.mjs；这里只把收件人看到的文案换成对应人群。
+// 找不到对应人群时，保留 HTML 里的默认文案（不报错）。
+// =================================================================
+{
+  const route = document.querySelector('.route-invite');
+  if (route) {
+    const copy = {
+      founder: {
+        serial: 'FOUNDER · 01',
+        kicker: '致正在出海 / 融资的创始人',
+        title: '给出海创始人的一封信',
+        lead: '西方的资本和用户，常常在几秒内就决定要不要信任你。',
+        body: '你的产品、你的团队、你为什么是创造它的那个人——这些值得被一眼看懂，而不是淹没在一份英文 deck 里。',
+      },
+      expert: {
+        serial: 'EXPERT · 02',
+        kicker: '致自立门户的资深专家',
+        title: '给资深专家的一封信',
+        lead: '你多年的一线判断，不该只活在简历和职称里。',
+        body: '把它讲成一个故事，让潜在客户在认识你之前，就已经开始信任你的专业。',
+      },
+      operator: {
+        serial: 'OPERATOR · 03',
+        kicker: '致在旧时代拿到成绩的操盘手',
+        title: '给职业操盘手的一封信',
+        lead: '你在上一个时代拿到的成绩，在 AI 时代依然、甚至更值钱。',
+        body: '问题只是别人能不能一眼看懂你的判断力。把复杂的履历，讲成下一步别人立刻愿意托付的信任。',
+      },
+    };
+    function applyInvite(){
+      const param = new URLSearchParams(location.hash.split('?')[1] || '').get('invite') || '';
+      const data = copy[param.toLowerCase()];
+      if (!data) return; // 未知人群：保留默认文案
+      const set = (sel, val) => { const n = route.querySelector(sel); if (n) n.textContent = val; };
+      set('[data-invite-kicker]', data.kicker);
+      set('[data-invite-serial]', data.serial);
+      set('[data-invite-title]', data.title);
+      set('[data-invite-lead]', data.lead);
+      set('[data-invite-body]', data.body);
+    }
+    applyInvite();
+    window.addEventListener('hashchange', applyInvite);
+  }
+}
+
+// =================================================================
+// ROUTER — 主导航三个路由：#vision · #operations · #mvp
+//          另有 #invite（收件人邀请函，不在导航，由 /invite/:code 追踪链接跳入）
 // 纯前端 hash 切换；不碰上面任何一节的动画与交互
 // =================================================================
 {
@@ -2472,8 +2803,10 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 
   function current(){
     const h = (location.hash || '').replace(/^#\/?/, '').toLowerCase();
-    if (h === 'operations') return 'operations';
-    if (h === 'mvp') return 'mvp';
+    const route = h.split('?')[0];
+    if (route === 'operations') return 'operations';
+    if (route === 'mvp') return 'mvp';
+    if (route === 'invite') return 'invite';
     return 'vision';
   }
 
