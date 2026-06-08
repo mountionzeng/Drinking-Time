@@ -623,9 +623,9 @@
       url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='8' viewBox='0 0 64 8'%3E%3Cpath d='M2 5 C 16 1, 28 7, 42 4 C 52 2, 60 5, 62 4' fill='none' stroke='%23A85B4D' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
   }
   @media (max-width: 640px){
-    .topnav{ gap: 22px; padding: 12px 16px; }
+    .topnav{ gap: 18px; padding: 12px 14px; }
     .topnav .brand{ display: none; }
-    .topnav a.tab{ font-size: 15px; letter-spacing: .1em; }
+    .topnav a.tab{ font-size: 14px; letter-spacing: .08em; }
   }
 
   /* hero · 两台手机之间互相切换的小球 */
@@ -871,6 +871,52 @@
   }
   .mvp-proof-note strong{
     color: var(--ink);
+  }
+  .refer-template{
+    margin-top: 56px;
+    border-top: 1px solid rgba(61,46,38,.16);
+    border-bottom: 1px solid rgba(61,46,38,.16);
+    padding: 28px 0;
+  }
+  .refer-template pre{
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family:'Noto Sans SC','PingFang SC', sans-serif;
+    font-size: 19px;
+    line-height: 1.85;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .refer-actions{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 22px;
+    margin-top: 24px;
+  }
+  .copy-button{
+    appearance: none;
+    border: 1px solid rgba(168,91,77,.45);
+    background: transparent;
+    color: var(--ink);
+    font-family:'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: .14em;
+    padding: 11px 15px;
+    cursor: pointer;
+    transition: color .25s ease, border-color .25s ease, background .25s ease;
+  }
+  .copy-button:hover,
+  .copy-button:focus-visible{
+    color: var(--muted-red);
+    border-color: var(--muted-red);
+    background: rgba(232,214,192,.28);
+    outline: none;
+  }
+  .copy-status{
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--ink-ghost);
   }
   .mvp-script{
     margin-top: 16px;
@@ -1120,6 +1166,7 @@
   <a class="tab" data-route="vision" href="#vision">愿景与定位</a>
   <a class="tab" data-route="operations" href="#operations">操作功能</a>
   <a class="tab" data-route="mvp" href="#mvp">MVP</a>
+  <a class="tab" data-route="refer" href="#refer">推荐</a>
 </nav>
 
 <div class="route route-vision active" data-route="vision">
@@ -2443,6 +2490,9 @@
       <p class="seated-line" style="text-align:center;">先用 14 天，问一个更清楚的问题：优秀女性愿不愿意为“被主流准确理解”付出时间、信任、授权和下一次介绍？</p>
     </div>
     <p data-anim style="text-align:center; margin-top:26px;">
+      <a class="op-backlink" href="#refer">给朋友的推荐入口 →</a>
+    </p>
+    <p data-anim style="text-align:center; margin-top:18px;">
       <a class="op-backlink" href="#operations">回到产品操作功能 →</a>
     </p>
   </section>
@@ -2454,6 +2504,127 @@
 
 </main>
 </div><!-- /route mvp -->
+
+<!-- ====================================================================
+     ROUTE ④ · 推荐入口  (friend-facing referral page)
+     ==================================================================== -->
+<div class="route route-refer" data-route="refer">
+<main class="scroll">
+
+  <section class="hero" id="referHero">
+    <div class="scene jitter" data-anim style="max-width:500px; margin-bottom:8px;">
+      <svg viewBox="0 0 540 390" aria-hidden="true">
+        <path class="ink ink-thin" d="M48 328 C 172 318, 342 340, 500 326"/>
+        <g transform="translate(96 64) rotate(-5 116 116)">
+          <rect class="ink" x="0" y="0" width="220" height="260" rx="18" fill="var(--paper)"/>
+          <rect x="18" y="24" width="184" height="62" rx="10" class="rose" stroke="none" opacity=".56"/>
+          <circle cx="58" cy="56" r="18" class="brick" stroke="none" opacity=".74"/>
+          <line class="ink" x1="92" y1="44" x2="176" y2="44"/>
+          <line class="ink ink-thin" x1="92" y1="64" x2="154" y2="64"/>
+          <line class="ink ink-thin" x1="24" y1="122" x2="184" y2="122"/>
+          <line class="ink ink-thin" x1="24" y1="150" x2="198" y2="150"/>
+          <line class="ink ink-thin" x1="24" y1="178" x2="166" y2="178"/>
+          <path class="ink" d="M52 226 C 74 208, 104 210, 126 226 C 148 244, 178 244, 196 224"/>
+        </g>
+        <g transform="translate(300 98)">
+          <path d="M0 42 C 24 10, 86 4, 126 28 C 164 50, 164 104, 128 128 C 92 154, 34 142, 10 108 C -4 88, -8 62, 0 42 Z" class="rose" stroke="none" opacity=".56"/>
+          <path class="ink" d="M0 42 C 24 10, 86 4, 126 28 C 164 50, 164 104, 128 128 C 92 154, 34 142, 10 108 C -4 88, -8 62, 0 42 Z"/>
+          <path class="ink ink-thin" d="M34 70 C 50 54, 78 54, 94 70"/>
+          <circle class="mred" cx="58" cy="88" r="5" stroke="none"/>
+          <circle class="mred" cx="82" cy="88" r="5" stroke="none"/>
+          <path class="ink ink-thin" d="M44 112 C 66 124, 94 120, 112 102"/>
+          <path class="ink" d="M20 136 L 4 170 L 52 146"/>
+        </g>
+        <path class="ink ink-thin" d="M262 176 C 294 156, 318 152, 344 166" stroke-dasharray="3 8"/>
+        <path class="mred" stroke="none" d="M350 168 l-13 -5 l5 13 Z"/>
+      </svg>
+    </div>
+
+    <p class="wordmark-sub" data-anim>推荐一位合适的人</p>
+    <p class="hero-epigraph" data-anim>如果你认识一位正在被低估、但值得被主流准确看见的女性，请把她介绍给小酌。</p>
+  </section>
+
+  <span class="quiet-rule" aria-hidden="true">
+    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
+    </svg>
+  </span>
+
+  <section class="chapter" id="referFit">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">WHO &nbsp; SHOULD &nbsp; YOU &nbsp; SEND</div>
+      <h2 class="ch-display">REFER</h2>
+      <p class="ch-cn">请推荐这样的人</p>
+    </header>
+    <div class="copy" data-anim>
+      <p class="lead">我正在 14 天内服务 5 位“希望拿到主流认可的优秀女性”。</p>
+      <p>她不需要完美，也不需要已经很会表达。她只需要已经有真实积累，并且正在进入一个更大的舞台：申请、升职、创业、融资、出海、媒体曝光、独立执业，或任何需要陌生人快速理解她的场景。</p>
+    </div>
+    <div class="mvp-board">
+      <div class="mvp-panel" data-anim>
+        <h3>适合推荐</h3>
+        <ul class="mvp-proof-list">
+          <li>她有能力、作品、成绩、判断或影响力，但还没有被准确看见</li>
+          <li>她正在争取某种主流认可：资本、客户、职位、媒体、行业声誉</li>
+          <li>她的故事有复杂性，不适合被压成标准简历模板</li>
+          <li>她愿意接受一次认真访谈，并对表达提出真实修改</li>
+        </ul>
+      </div>
+      <div class="mvp-panel" data-anim>
+        <h3>暂时不适合</h3>
+        <ul class="mvp-proof-list">
+          <li>只是想做普通简历润色或求职包装</li>
+          <li>没有明确上升场景，也不打算公开使用任何表达</li>
+          <li>只想要“好看的 AI 视频”，但不想参与故事共创</li>
+          <li>不愿意说明哪些内容可授权、哪些内容必须保持私人</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="chapter" id="referHow">
+    <header class="ch-head" data-anim>
+      <div class="ch-mark">WHAT &nbsp; TO &nbsp; SEND &nbsp; BACK</div>
+      <h2 class="ch-display">NOTE</h2>
+      <p class="ch-cn">推荐时发这几句话</p>
+    </header>
+    <div class="copy" data-anim>
+      <p class="lead">你不用写长介绍。只要帮我判断：她为什么值得被看见，以及她现在最需要被谁理解。</p>
+      <p>复制下面这段，填几句你知道的信息，发回给我就可以。你也可以先把这个页面链接发给她，让她自己判断要不要参与。</p>
+    </div>
+    <div class="refer-template" data-anim>
+      <pre data-referral-template>我想推荐一位可能适合小酌 14 天共创的人：
+
+1. 她是谁 / LinkedIn：
+2. 我为什么觉得她优秀：
+3. 她正在争取的主流认可：
+4. 她最容易被低估或误解的地方：
+5. 我可以帮你们互相介绍吗：
+
+推荐链接：https://mountionzeng.github.io/Drinking-Time/drinking-time-vision/#refer</pre>
+      <div class="refer-actions">
+        <button class="copy-button" type="button" data-copy-referral>复制推荐模板</button>
+        <span class="copy-status" data-copy-status>复制后发给岱岱，或直接转发这个页面链接。</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="chapter" id="referClose" style="text-align:center;">
+    <div class="copy" data-anim style="max-width:720px; margin:0 auto; text-align:center;">
+      <p class="seated-line" style="text-align:center;">真正有价值的推荐，不是“她很厉害”，而是“她值得被谁更准确地理解”。</p>
+    </div>
+    <p data-anim style="text-align:center; margin-top:26px;">
+      <a class="op-backlink" href="#mvp">查看 14 天 MVP 验证 →</a>
+    </p>
+  </section>
+
+  <div class="colophon">
+    <span class="sig">小 · 酌 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
+    <span>REFERRAL &nbsp; · &nbsp; 5 &nbsp; WOMEN &nbsp; · &nbsp; 2026</span>
+  </div>
+
+</main>
+</div><!-- /route refer -->
 
 <script>
 // Scroll fade-in
@@ -2746,6 +2917,41 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 }
 
 // =================================================================
+// REFERRAL — copy friend-facing recommendation template
+// =================================================================
+{
+  const copyButton = document.querySelector('[data-copy-referral]');
+  const template = document.querySelector('[data-referral-template]');
+  const status = document.querySelector('[data-copy-status]');
+
+  async function copyReferralText(){
+    if (!copyButton || !template) return;
+    const text = template.textContent.trim();
+    try {
+      await navigator.clipboard.writeText(text);
+      if (status) status.textContent = '已复制。把它发给岱岱，或转发这个页面链接。';
+    } catch(e) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      try {
+        document.execCommand('copy');
+        if (status) status.textContent = '已复制。把它发给岱岱，或转发这个页面链接。';
+      } catch(err) {
+        if (status) status.textContent = '复制失败，请手动选中上面的模板。';
+      }
+      document.body.removeChild(area);
+    }
+  }
+
+  if (copyButton) copyButton.addEventListener('click', copyReferralText);
+}
+
+// =================================================================
 // INVITE LETTER — 收件人版邀请函：按 ?invite= 参数个性化（founder / expert / operator）
 // 追踪写库与跳转在 server.mjs；这里只把收件人看到的文案换成对应人群。
 // 找不到对应人群时，保留 HTML 里的默认文案（不报错）。
@@ -2793,7 +2999,7 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 }
 
 // =================================================================
-// ROUTER — 主导航三个路由：#vision · #operations · #mvp
+// ROUTER — 主导航路由：#vision · #operations · #mvp · #refer
 //          另有 #invite（收件人邀请函，不在导航，由 /invite/:code 追踪链接跳入）
 // 纯前端 hash 切换；不碰上面任何一节的动画与交互
 // =================================================================
@@ -2806,6 +3012,7 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
     const route = h.split('?')[0];
     if (route === 'operations') return 'operations';
     if (route === 'mvp') return 'mvp';
+    if (route === 'refer') return 'refer';
     if (route === 'invite') return 'invite';
     return 'vision';
   }
