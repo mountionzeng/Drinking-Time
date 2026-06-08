@@ -49,7 +49,7 @@ export const ENV = {
   falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
 
   // ── 302.ai 图片生成（不填 API Key 时自动回退 fal）──
-  imageProviderDefault: normalizeImageProvider(process.env.IMAGE_PROVIDER_DEFAULT), // 默认出图 provider：fal / gpt-image / midjourney
+  imageProviderDefault: normalizeImageProvider(process.env.IMAGE_PROVIDER_DEFAULT, "midjourney"), // 默认出图 provider：fal / gpt-image / midjourney（产品主力 = MJ Turbo，没配时默认走 MJ）
   api302Key: process.env.API302_KEY ?? process.env.IMAGE_302_API_KEY ?? "", // 302.ai API Key，图片生成专用；不写进代码
   api302BaseUrl: process.env.API302_BASE_URL ?? process.env.IMAGE_302_BASE_URL ?? "https://api.302.ai", // 302.ai 网关地址
   image302GptModel: process.env.IMAGE_302_GPT_MODEL ?? "gpt-image-1.5", // GPT-image 模型，按 302 控制台可用模型填写

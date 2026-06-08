@@ -138,4 +138,63 @@ describe("analyzeVisionReference 302 vision", () => {
     expect(result.analysis.promptDraft).toBe("雨夜街角，霓虹侧光，电影感");
     expect(invokeLLM).toHaveBeenCalledTimes(1);
   });
+
+  it("视觉模型返回大白话（完全没有 JSON）时降级兜底，不抛错并保留模型原话", async () => {
+    const prose =
+      "这张图是潮湿的雨夜街角，霓虹灯在湿柏油上反射出蓝紫色，整体很安静、有点怅然。";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          model: "gemini-3-pro-preview",
+          choices: [{ message: { content: prose } }],
+        }),
+      text: () => Promise.resolve(""),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await analyzeVisionReference({
+      imageDataUrl: "data:image/png;base64,AAAA",
+      fileName: "reference.png",
+      brief: "希望保留雨夜的感觉",
+    });
+
+    // 关键：不再抛 "Vision model returned non-JSON response"，而是 configured 降级返回。
+    expect(result.configured).toBe(true);
+    expect(result.modelLabel).toBe("gemini-3-pro-preview");
+    // 模型的自然语言描述被原样保留进 reply / card，用户仍看得到它「看到」了什么。
+    expect(result.reply).toBe(prose);
+    expect(result.card.content).toBe(prose);
+    expect(result.card.rawText).toBe("希望保留雨夜的感觉");
+    // 结构化分析降级为空——下游 createArtRiff 的 `|| 兜底` 默认值会兜住，不会再触发新报错。
+    expect(result.analysis.subject).toBe("");
+    expect(result.analysis.visualStyle).toEqual([]);
+    expect(result.analysis.confidence).toBe(0);
+  });
+
+  it("视觉模型返回坏 JSON（有花括号但语法错，正是 live 踩到的那种）时同样降级兜底，不抛错", async () => {
+    // 缺少逗号的非法 JSON：parseJsonLoose 的两条路径（直接 parse + 截花括号再 parse）都会抛。
+    const brokenJson = '{ "reply": "我看了图" "analysis": { "subject": "雨夜" }';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          model: "gemini-3-pro-preview",
+          choices: [{ message: { content: brokenJson } }],
+        }),
+      text: () => Promise.resolve(""),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await analyzeVisionReference({
+      imageDataUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(result.configured).toBe(true);
+    // 整段坏 JSON 原样保留进 card.content，方便排查模型到底吐了什么。
+    expect(result.card.content).toBe(brokenJson);
+    expect(result.analysis.confidence).toBe(0);
+  });
 });

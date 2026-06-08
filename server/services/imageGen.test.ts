@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  editImage,
   generateImage,
   inpaintImage,
   isCircuitOpen,
   resetCircuitBreaker,
 } from "./imageGen";
 import { ENV } from "../_core/env";
+import { storagePut } from "../storage";
 
 // ── Mocks ──
 
@@ -21,8 +23,10 @@ vi.mock("../storage", () => ({
 function makeFetcher(responses: Array<{
   ok: boolean;
   status: number;
+  statusText?: string;
   json?: unknown;
   arrayBuffer?: ArrayBuffer;
+  text?: string;
 }>) {
   let callIndex = 0;
   return vi.fn().mockImplementation(() => {
@@ -30,8 +34,10 @@ function makeFetcher(responses: Array<{
     return Promise.resolve({
       ok: resp.ok,
       status: resp.status,
+      statusText: resp.statusText,
       json: () => Promise.resolve(resp.json ?? {}),
       arrayBuffer: () => Promise.resolve(resp.arrayBuffer ?? new ArrayBuffer(8)),
+      text: () => Promise.resolve(resp.text ?? ""),
     });
   });
 }
@@ -47,11 +53,13 @@ describe("generateImage", () => {
     image302MjAuthHeader: ENV.image302MjAuthHeader,
     image302MjPollMs: ENV.image302MjPollMs,
     image302MjTimeoutMs: ENV.image302MjTimeoutMs,
+    falApiKey: ENV.falApiKey,
   };
 
   beforeEach(() => {
     resetCircuitBreaker();
     ENV.imageProviderDefault = "fal";
+    ENV.falApiKey = "test-fal-key";
     ENV.api302Key = "";
     ENV.api302BaseUrl = "https://api.302.ai";
     ENV.image302GptModel = "gpt-image-1.5";
@@ -72,6 +80,7 @@ describe("generateImage", () => {
     ENV.image302MjAuthHeader = originalEnv.image302MjAuthHeader;
     ENV.image302MjPollMs = originalEnv.image302MjPollMs;
     ENV.image302MjTimeoutMs = originalEnv.image302MjTimeoutMs;
+    ENV.falApiKey = originalEnv.falApiKey;
   });
 
   it("returns ok with imageUrl on success", async () => {
@@ -234,7 +243,7 @@ describe("generateImage", () => {
     const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
 
     expect(result.status).toBe("error");
-    expect(result.message).toContain("no images");
+    expect(result.message).toContain("没有返回图片");
   });
 
   it("returns error on 302 GPT-image timeout", async () => {
@@ -244,7 +253,8 @@ describe("generateImage", () => {
     const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
 
     expect(result.status).toBe("error");
-    expect(result.message).toBe("timeout");
+    expect(result.message).toContain("302 GPT-image 生成失败");
+    expect(result.message).toContain("timeout");
   });
 
   it("uses 302 Midjourney submit, polls, downloads, and stores image", async () => {
@@ -269,8 +279,55 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
     expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain("--ar 16:9");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain("--turbo");
     expect(fetcher.mock.calls[1][0]).toContain("/mj/task/task-1/fetch");
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
+  });
+
+  it("默认给 Midjourney 加 --turbo，但不覆盖调用方已写的模式", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-1" } },
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await generateImage("a cat --relax", {
+      fetcher,
+      provider: "midjourney",
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    const submittedPrompt = JSON.parse(fetcher.mock.calls[0][1].body).prompt;
+    expect(submittedPrompt).toContain("--relax");
+    expect(submittedPrompt).not.toContain("--turbo");
+  });
+
+  it("存储代理失败（302 没有 storage 接口返回 503）时回退使用模型原始图片 URL，打通展示链路", async () => {
+    ENV.api302Key = "test-302-key";
+    // 模拟「把 302 网关当存储用」会触发的 503：storagePut 抛错
+    vi.mocked(storagePut).mockRejectedValueOnce(
+      new Error("Storage upload failed (503 Service Unavailable): 当前无可用模型"),
+    );
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-1" } },
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "midjourney",
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    // 不再因为存储 503 整条失败：回退到模型原始 URL，出图能入库、能展示
+    expect(result.status).toBe("ok");
+    expect(result.imageUrl).toBe("https://file.302.ai/mj.png");
+    expect(result.imageKey).toBe("https://file.302.ai/mj.png");
   });
 
   it("supports 302 Midjourney mj-api-secret header mode", async () => {
@@ -330,9 +387,114 @@ describe("generateImage", () => {
   });
 });
 
-describe("inpaintImage", () => {
+describe("editImage", () => {
+  const originalEnv = {
+    api302Key: ENV.api302Key,
+    api302BaseUrl: ENV.api302BaseUrl,
+    image302GptModel: ENV.image302GptModel,
+    image302GptSize: ENV.image302GptSize,
+    image302GptQuality: ENV.image302GptQuality,
+    forgeApiUrl: ENV.forgeApiUrl,
+    forgeApiKey: ENV.forgeApiKey,
+  };
+
   beforeEach(() => {
     resetCircuitBreaker();
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302.ai";
+    ENV.image302GptModel = "gpt-image-1.5";
+    ENV.image302GptSize = "1024x1024";
+    ENV.image302GptQuality = "high";
+    ENV.forgeApiUrl = "";
+    ENV.forgeApiKey = "";
+  });
+
+  afterEach(() => {
+    ENV.api302Key = originalEnv.api302Key;
+    ENV.api302BaseUrl = originalEnv.api302BaseUrl;
+    ENV.image302GptModel = originalEnv.image302GptModel;
+    ENV.image302GptSize = originalEnv.image302GptSize;
+    ENV.image302GptQuality = originalEnv.image302GptQuality;
+    ENV.forgeApiUrl = originalEnv.forgeApiUrl;
+    ENV.forgeApiKey = originalEnv.forgeApiKey;
+  });
+
+  it("302-only 时走 images edits multipart 并存储返回图片", async () => {
+    const b64 = Buffer.from("edited-image").toString("base64");
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "把这张照片改成夜晚微光",
+      { fetcher },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.imageUrl).toBe("https://storage.example.com/generated/test.png");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+    expect(fetcher.mock.calls[0][1].headers["Content-Type"]).toBeUndefined();
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    expect(form.get("model")).toBe("gpt-image-1.5");
+    expect(form.get("prompt")).toBe("把这张照片改成夜晚微光");
+    expect(form.get("image")).toBeTruthy();
+  });
+
+  it("302 图生图端点失败且没有 Forge 回退时返回中文错误、不抛出", async () => {
+    const fetcher = makeFetcher([{ ok: false, status: 502 }]);
+
+    const result = await editImage(
+      "data:image/jpeg;base64,aW1hZ2U=",
+      "换成电影海报质感",
+      { fetcher },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("302 图生图暂时不可用");
+    expect(result.message).toContain("Forge 回退也不可用");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("302 图生图不可用时回退 Forge 原图编辑链路", async () => {
+    ENV.forgeApiUrl = "https://forge.example";
+    ENV.forgeApiKey = "test-forge-key";
+    const b64 = Buffer.from("forge-edited").toString("base64");
+    const fetcher = makeFetcher([
+      { ok: false, status: 503 },
+      { ok: true, status: 200, json: { image: { b64Json: b64, mimeType: "image/png" } } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "保留人物，换成雨夜",
+      { fetcher },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
+    expect(fetcher.mock.calls[1][0]).toContain("images.v1.ImageService/GenerateImage");
+    const forgeBody = JSON.parse(fetcher.mock.calls[1][1].body);
+    expect(forgeBody.original_images[0]).toMatchObject({
+      b64Json: "aW1hZ2U=",
+      mimeType: "image/png",
+    });
+  });
+});
+
+describe("inpaintImage", () => {
+  const savedFalKey = ENV.falApiKey;
+  beforeEach(() => {
+    resetCircuitBreaker();
+    // 函数已加「没 fal key 就快速失败」的守卫；现有用例靠注入 fetcher 验证网络分支，
+    // 所以这里给个测试 key，让它们能越过守卫走到 fetcher。
+    ENV.falApiKey = "test-fal-key";
+  });
+  afterEach(() => {
+    ENV.falApiKey = savedFalKey;
   });
 
   it("returns ok with imageUrl on success", async () => {
@@ -370,5 +532,21 @@ describe("inpaintImage", () => {
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("503");
+  });
+
+  it("没配 FAL_KEY 时立即报清晰错误、不打网络（这就是修掉「喂图 timeout」的那道守卫）", async () => {
+    ENV.falApiKey = ""; // 用户的真实情况：只有 302 key，没有 fal key
+    const fetcher = vi.fn();
+
+    const result = await inpaintImage(
+      "https://img.test/original.png",
+      "https://img.test/mask.png",
+      "old wooden chair",
+      { fetcher },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("fal.ai"); // 看得懂的中文提示，而不是裸 "timeout"
+    expect(fetcher).not.toHaveBeenCalled(); // 关键：根本没去打 fal.run，不会再挂 30s
   });
 });

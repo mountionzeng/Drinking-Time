@@ -371,6 +371,33 @@ async function invoke302Vision(params: VisionAnalyzeParams) {
   };
 }
 
+// 视觉模型没吐出合法 JSON 时的兜底（视觉模型经常直接说大白话，而不是严格 JSON）。
+// 这里【绝不】把错误抛成 500，而是把模型的自然语言描述原样保留下来当素材，
+// 让「喂图 → 入册 → riff」链路继续走得通 —— 和分镜那条线的 buildFallbackShotList 同一套兜底思路。
+// 代价：这版分析是空的结构化字段，下游 createArtRiff 已有 `|| 兜底` 默认值，
+// 所以 riff 仍能出图（只是偏通用），不会再触发新的报错。
+function buildFallbackVisionResult(
+  rawText: string,
+  modelLabel: string,
+  params: VisionAnalyzeParams,
+): VisionAnalysisResult {
+  const cleaned = (rawText ?? "").trim();
+  // 模型描述可能很长，截断到 600 字以内，避免塞爆卡片和后续 prompt。
+  const snippet = cleaned.length > 600 ? `${cleaned.slice(0, 600)}…` : cleaned;
+  return {
+    configured: true,
+    modelLabel,
+    reply:
+      snippet ||
+      "我看了这张图，但这次没能把它拆成结构化分析。它仍然可以作为视觉参考进入素材池，我们可以继续聊它的风格和情绪。",
+    card: {
+      content: snippet || "视觉参考素材（自动分析未完全成功）",
+      rawText: params.brief || params.fileName || "",
+    },
+    analysis: { ...DEFAULT_ANALYSIS },
+  };
+}
+
 export async function analyzeVisionReference(
   params: VisionAnalyzeParams,
 ): Promise<VisionAnalysisResult> {
@@ -388,11 +415,22 @@ export async function analyzeVisionReference(
       ? await invokeClaudeVision(params)
       : await invokeOpenAICompatibleVision(params);
 
-  const parsed = parseJsonLoose<{
+  let parsed: {
     reply?: unknown;
     card?: { content?: unknown; rawText?: unknown };
     analysis?: unknown;
-  }>(text);
+  };
+  try {
+    parsed = parseJsonLoose<{
+      reply?: unknown;
+      card?: { content?: unknown; rawText?: unknown };
+      analysis?: unknown;
+    }>(text);
+  } catch (error) {
+    // 视觉模型没给合法 JSON（line 131/133 都会抛到这里）→ 降级兜底，不再弹「Vision model returned non-JSON response」。
+    console.warn("[visionAgent] 视觉模型未返回合法 JSON，按原始描述降级，不抛错。", error);
+    return buildFallbackVisionResult(text, modelLabel, params);
+  }
 
   const analysis = normalizeAnalysis(parsed.analysis ?? DEFAULT_ANALYSIS);
   const fallbackCard = [

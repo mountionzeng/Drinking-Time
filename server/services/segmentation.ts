@@ -106,6 +106,17 @@ export async function segmentAtPoint(
   y: number,
   options: SegmentationOptions = {},
 ): Promise<SegmentationResult> {
+  // 没配 fal key 就快速失败：SAM2 点选抠图只有 fal.ai 提供，302 网关没有等价端点。
+  // 不加这道守卫的话，下面会裸 fetch 去打 queue.fal.run —— 国内网络多半连不上、
+  // 一直挂到 30s 后被 withTimeout 抛出一个看不懂的 "timeout"（这正是「喂图显示 timeout」的根因）。
+  // 这里提前给出清晰中文提示，瞬间返回、不打网络。
+  if (!ENV.falApiKey) {
+    return {
+      status: "error",
+      message: "点选抠图依赖 fal.ai（需配置 FAL_KEY），当前未配置，暂时用不了。",
+    };
+  }
+
   if (isCircuitOpen()) {
     return { status: "error", message: "circuit breaker open" };
   }
