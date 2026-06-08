@@ -51,6 +51,26 @@ const storageMocks = vi.hoisted(() => ({
 
 vi.mock("./storage", () => storageMocks);
 
+const imageGenMocks = vi.hoisted(() => ({
+  generateImage: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/default.png",
+    imageKey: "generated/default.png",
+  })),
+  editImage: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/default-edit.png",
+    imageKey: "generated/default-edit.png",
+  })),
+  inpaintImage: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/default-inpaint.png",
+    imageKey: "generated/default-inpaint.png",
+  })),
+}));
+
+vi.mock("./services/imageGen", () => imageGenMocks);
+
 type AppRouter = typeof import("./routers").appRouter;
 
 let appRouter: AppRouter;
@@ -319,5 +339,148 @@ describe("storyAgent tRPC router", () => {
         timestamp: 125,
       }),
     ]);
+  });
+
+  it("手机端文生图成功后带 projectId 落库", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-text.png",
+      imageKey: "generated/mobile-text.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(301));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "手机文生图故事",
+      projectId: 7301,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "雨夜路灯下的一个停顿",
+    });
+
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith("雨夜路灯下的一个停顿");
+    expect(result).toMatchObject({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-text.png",
+    });
+    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7301 });
+    expect(projectImages).toEqual([
+      expect.objectContaining({
+        projectId: 7301,
+        storyId: story!.id,
+        userId: 301,
+        shotNo: "1",
+        imageUrl: "https://storage.example/generated/mobile-text.png",
+        generationType: "initial",
+        isCurrent: true,
+      }),
+    ]);
+  });
+
+  it("手机端图生图成功后带 projectId 落库", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-edit.png",
+      imageKey: "generated/mobile-edit.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(302));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "手机图生图故事",
+      projectId: 7302,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保留人物，把背景换成微雨夜色",
+      originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
+    });
+
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "data:image/jpeg;base64,aW1hZ2U=",
+      "保留人物，把背景换成微雨夜色",
+    );
+    expect(result).toMatchObject({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-edit.png",
+    });
+    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7302 });
+    expect(projectImages[0]).toMatchObject({
+      projectId: 7302,
+      storyId: story!.id,
+      userId: 302,
+      shotNo: "1",
+      imageUrl: "https://storage.example/generated/mobile-edit.png",
+      generationType: "initial",
+      isCurrent: true,
+    });
+  });
+
+  it("手机端 mobileInpaint 成功后带 projectId 落库", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-inpaint.png",
+      imageKey: "generated/mobile-inpaint.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(303));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "手机修图故事",
+      projectId: 7303,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.mobileInpaint({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "把路牌文字去掉",
+      originalImageUrl: "data:image/png;base64,aW1hZ2U=",
+    });
+
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "data:image/png;base64,aW1hZ2U=",
+      "把路牌文字去掉",
+    );
+    expect(result.status).toBe("ok");
+    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7303 });
+    expect(projectImages[0]).toMatchObject({
+      projectId: 7303,
+      storyId: story!.id,
+      userId: 303,
+      shotNo: "1",
+      imageUrl: "https://storage.example/generated/mobile-inpaint.png",
+      generationType: "inpaint",
+      isCurrent: true,
+    });
+  });
+
+  it("手机端出图失败时返回中文错误且不抛出", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "error",
+      message: "302 GPT-image 暂时不可用（HTTP 502）。",
+    });
+    const caller = appRouter.createCaller(createAuthContext(304));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "失败也不断线",
+      projectId: 7304,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "这次上游失败",
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("302 GPT-image 暂时不可用");
+    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7304 });
+    expect(projectImages).toEqual([]);
   });
 });

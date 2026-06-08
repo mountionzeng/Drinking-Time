@@ -38,7 +38,6 @@ import {
   getProjectCurrentImages,
   reassignImage,
 } from "./db";
-import { generateImage } from "./_core/imageGeneration";
 import { saveSnapshot, getRecentAnnotations } from "./services/editContext";
 import { getAlmanacDay } from "./services/almanac";
 import type { ProjectState } from "./_core/editDiff";
@@ -58,7 +57,11 @@ import {
   type ShotContext,
 } from "./services/creationAgent";
 import { segmentAtPoint } from "./services/segmentation";
-import { inpaintImage } from "./services/imageGen";
+import {
+  editImage as editMobileImage,
+  generateImage as generateMobileImage,
+  inpaintImage,
+} from "./services/imageGen";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { createArtRiff } from "./services/artAgent";
 
@@ -1189,27 +1192,33 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const { url } = await generateImage({
-            prompt: input.prompt,
-            // 如果用户提供了照片，作为 originalImages 基底
-            ...(input.originalImageUrl
-              ? { originalImages: [{ url: input.originalImageUrl }] }
-              : {}),
-          });
-          if (!url) {
-            return { status: "error" as const, error: "图片生成返回空结果" };
+          const story = await getStoryById(input.storyId, ctx.user.id);
+          if (!story) {
+            return { status: "error" as const, error: "找不到故事，无法保存图片" };
+          }
+
+          const result = input.originalImageUrl
+            ? await editMobileImage(input.originalImageUrl, input.prompt)
+            : await generateMobileImage(input.prompt);
+          if (result.status === "error" || !result.imageUrl) {
+            return {
+              status: "error" as const,
+              error: result.message ?? "图片生成返回空结果",
+            };
           }
           // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）
           const image = await createGeneratedImage({
+            projectId: story.projectId ?? null,
             storyId: input.storyId,
             userId: ctx.user.id,
             shotNo: input.shotNo != null ? String(input.shotNo) : null,
-            imageUrl: url,
+            imageKey: result.imageKey ?? null,
+            imageUrl: result.imageUrl,
             prompt: input.prompt,
             generationType: "initial",
             isCurrent: true,
           });
-          return { status: "ok" as const, imageUrl: url, imageId: image.id };
+          return { status: "ok" as const, imageUrl: result.imageUrl, imageId: image.id };
         } catch (err) {
           console.error("[generateForMobile] 图片生成失败:", err);
           return {
@@ -1219,7 +1228,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         }
       }),
 
-    // mobileInpaint: 局部修复（用 Forge API 的 originalImages 参数）
+    // mobileInpaint: 局部修复（优先走 302 图像编辑，Forge 作为兜底）
     mobileInpaint: protectedProcedure
       .input(
         z.object({
@@ -1232,25 +1241,32 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const { url } = await generateImage({
-            prompt: input.prompt,
-            originalImages: [{ url: input.originalImageUrl }],
-          });
-          if (!url) {
-            return { status: "error" as const, error: "局部修复返回空结果" };
+          const story = await getStoryById(input.storyId, ctx.user.id);
+          if (!story) {
+            return { status: "error" as const, error: "找不到故事，无法保存图片" };
+          }
+
+          const result = await editMobileImage(input.originalImageUrl, input.prompt);
+          if (result.status === "error" || !result.imageUrl) {
+            return {
+              status: "error" as const,
+              error: result.message ?? "局部修复返回空结果",
+            };
           }
           // shotNo 转为字符串
           const image = await createGeneratedImage({
+            projectId: story.projectId ?? null,
             storyId: input.storyId,
             userId: ctx.user.id,
             shotNo: input.shotNo != null ? String(input.shotNo) : null,
-            imageUrl: url,
+            imageKey: result.imageKey ?? null,
+            imageUrl: result.imageUrl,
             prompt: input.prompt,
             generationType: "inpaint",
             parentImageId: input.parentImageId ?? null,
             isCurrent: true,
           });
-          return { status: "ok" as const, imageUrl: url, imageId: image.id };
+          return { status: "ok" as const, imageUrl: result.imageUrl, imageId: image.id };
         } catch (err) {
           console.error("[mobileInpaint] 局部修复失败:", err);
           return {

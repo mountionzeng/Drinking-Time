@@ -10,6 +10,7 @@ import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAg
 import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
 import type { ShotContext } from '@/features/creationAgent/types';
+import { isSameShotNo } from '@/lib/shotNo';
 import { trpc } from '@/lib/trpc';
 import { useCallback, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -50,7 +51,7 @@ function CreationWorkspaceInner({
   // Creation 必须读取真实 shots 表；Story Agent 生成镜头后会同步写入这张表。
   const tableShots = useMemo<BackendShot[]>(() => {
     return backendShots.map((shot) => {
-      const currentImage = projectImages.find(img => img.shotNo === shot.shotNo && img.isCurrent);
+      const currentImage = projectImages.find(img => isSameShotNo(img.shotNo, shot.shotNo) && img.isCurrent);
       return {
         ...shot,
         thumbnailUrl: currentImage?.imageUrl,
