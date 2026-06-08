@@ -34,7 +34,7 @@ vi.mock('../_core/env', () => ({
 
 import { getRecentAnnotations } from '../services/editContext';
 import { invokeLLM } from '../_core/llm';
-import { replyFromStoryAgent, asEmotionOptions } from './storyAgent';
+import { replyFromStoryAgent, asEmotionOptions, synthesizeShotList } from './storyAgent';
 import type { SemanticAnnotation } from '../db';
 
 const mockGetRecentAnnotations = vi.mocked(getRecentAnnotations);
@@ -629,5 +629,170 @@ describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', ()
     expect(mockInvokeLLM).toHaveBeenCalledTimes(1); // 401 不重试
     expect(result.configured).toBe(true);
     expect(result.reply).toContain('没接住');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON 输出韧性 · 模型「破功说人话」时把卡片救回来
+// 故事 Agent 靠模型自觉返回可解析 JSON 才能出卡。带图那一轮模型尤其容易脱壳直接说人话，
+// 旧实现会静默 card=null —— 表现就是用户反复踩的「能聊天但一直不出卡」。
+// 现在：第一次解析失败时，把模型那段话回灌、逼它「只用 JSON 再说一遍」，把卡救回来；
+// 两次都失败才退化成无卡回复（但不再静默，会写日志）。本块就是这条兜底链的回归守卫。
+// 注意：测试态 ENV 没有 llmSupportsResponseFormat → json_object 模式自动关闭，
+// 正好纯验证「重试救卡」这条与通道/模型无关的兜底逻辑。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('storyAgent JSON 输出韧性 (破功重试救卡)', () => {
+  // content 为纯人话（不含任何 {}）→ parseJsonLoose 必然抛错，模拟模型脱壳
+  function makeRawResponse(rawContent: string) {
+    return {
+      id: 'mock',
+      created: 0,
+      model: 'mock',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant' as const, content: rawContent },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+  }
+
+  // 一条带卡片的合法 JSON 回复
+  function makeCardResponse(reply: string, cardContent: string) {
+    return makeRawResponse(
+      JSON.stringify({ reply, card: { content: cardContent, rawText: cardContent }, read: null }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvokeLLM.mockReset(); // 本块用持久 mockResolvedValue，显式重置避免泄漏
+  });
+
+  it('首轮返回纯人话（非 JSON）→ 重试只要 JSON → 卡片被救回', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('这张照片好治愈啊，是在海边吗')) // 破功：直接说人话
+      .mockResolvedValueOnce(makeCardResponse('在海边松了口气', '海边的傍晚'));
+
+    const result = await replyFromStoryAgent({ message: '你看这张', photoUrl: 'https://x/p.jpg' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次破功 + 1 次纠正重试
+    expect(result.card).not.toBeNull();
+    expect(result.card?.content).toBe('海边的傍晚'); // 救回来的卡片 content（重试那条 JSON 里的）
+    expect(result.reply).toBe('在海边松了口气'); // 回复也来自重试那条
+  });
+
+  it('两次都破功 → 退化为无卡回复，但不抛错、对话不断', async () => {
+    mockInvokeLLM.mockResolvedValue(makeRawResponse('就是随手拍的啦')); // 两次都说人话
+
+    const result = await replyFromStoryAgent({ message: '你看这张', photoUrl: 'https://x/p.jpg' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 只重试一次，不会无限重试
+    expect(result.configured).toBe(true);
+    expect(result.card).toBeNull();
+    expect(result.reply).toBe('就是随手拍的啦'); // 至少保住模型说的那句话当回复
+  });
+
+  it('首轮就是合法 JSON → 不触发重试（不浪费一次调用）', async () => {
+    mockInvokeLLM.mockResolvedValueOnce(makeCardResponse('记下这件小事', '今天的小事'));
+
+    const result = await replyFromStoryAgent({ message: '今天有点开心' });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(1); // 一次就够，不重试
+    expect(result.card?.content).toBe('今天的小事');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// synthesizeShotList 兜底韧性 · shots 缺失 / 坏 JSON 时降级出兜底分镜，绝不弹「整理失败」
+// 文件里早有完整的 buildFallbackShotList，但旧实现只在 parse 抛错的 catch 里用了它；
+// 当模型「返回了合法 JSON、但 shots 为空 / 所有镜头都缺 action」时，旧实现直接 return error，
+// 前端就弹「整理失败：模型没有返回有效的 shots 列表」——这正是用户踩到的 live bug。
+// 本块把这条降级链钉死：四种输入都不许返回 error，都要拿到能用的 shots。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分镜)', () => {
+  function makeShotResponse(payload: unknown) {
+    return {
+      id: 'mock', created: 0, model: 'mock',
+      choices: [
+        { index: 0, message: { role: 'assistant' as const, content: JSON.stringify(payload) }, finish_reason: 'stop' },
+      ],
+    };
+  }
+  function makeRawResponse(rawContent: string) {
+    return {
+      id: 'mock', created: 0, model: 'mock',
+      choices: [
+        { index: 0, message: { role: 'assistant' as const, content: rawContent }, finish_reason: 'stop' },
+      ],
+    };
+  }
+  const cards = [
+    { content: '加班到很晚回家，路过便利店亮着的灯' },
+    { content: '站在灯光下，鼻子有点发酸' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvokeLLM.mockReset();
+  });
+
+  it('合法 JSON 但 shots 为空 → 降级出兜底分镜，绝不返回 error', async () => {
+    mockInvokeLLM.mockResolvedValue(
+      makeShotResponse({ characters: [], shots: [], arc: '', logline: '', theme: '', variants: [] }),
+    );
+
+    const result = await synthesizeShotList({ cards });
+
+    expect('error' in result).toBe(false); // 不再弹「整理失败」
+    const shots = (result as { shots: Array<{ note: string }> }).shots;
+    expect(Array.isArray(shots)).toBe(true);
+    expect(shots.length).toBeGreaterThan(0); // 按卡片兜出镜头
+    expect(shots[0].note).toContain('兜底'); // 确实是 buildFallbackShotList 兜出来的
+  });
+
+  it('合法 JSON 但所有镜头都缺 action → 同样降级兜底', async () => {
+    mockInvokeLLM.mockResolvedValue(
+      makeShotResponse({ shots: [{ shotNo: 1, subject: '人', action: '' }, { shotNo: 2, subject: '灯', action: '   ' }] }),
+    );
+
+    const result = await synthesizeShotList({ cards });
+
+    expect('error' in result).toBe(false);
+    expect((result as { shots: unknown[] }).shots.length).toBeGreaterThan(0);
+  });
+
+  it('模型直接说人话（坏 JSON）→ 走 catch 兜底，不抛错', async () => {
+    mockInvokeLLM.mockResolvedValue(makeRawResponse('这些素材我先帮你想想哈'));
+
+    const result = await synthesizeShotList({ cards });
+
+    expect('error' in result).toBe(false);
+    expect((result as { shots: unknown[] }).shots.length).toBeGreaterThan(0);
+  });
+
+  it('合法 JSON 且 shots 正常 → 原样返回模型镜头（正常路径回归守卫）', async () => {
+    mockInvokeLLM.mockResolvedValue(
+      makeShotResponse({
+        characters: [{ name: '我', role: '主视点', oneLiner: '深夜归人' }],
+        arc: '疲惫 → 被接住',
+        logline: '一个人深夜被便利店的灯接住',
+        theme: '微小的慰藉',
+        variants: [],
+        shots: [
+          { shotNo: 1, subject: '便利店', action: '远远看见亮着的灯', beat: '开场', shotType: '远' },
+          { shotNo: 2, subject: '我', action: '站在灯下鼻子发酸', beat: '收束', shotType: '近' },
+        ],
+      }),
+    );
+
+    const result = await synthesizeShotList({ cards });
+
+    expect('error' in result).toBe(false);
+    const r = result as { shots: Array<{ note: string }>; logline: string };
+    expect(r.shots.length).toBeGreaterThan(0);
+    expect(r.logline).toBe('一个人深夜被便利店的灯接住'); // 用模型的 logline，证明走的是正常路径
+    expect(r.shots[0].note).not.toContain('兜底'); // 不是兜底镜头
   });
 });

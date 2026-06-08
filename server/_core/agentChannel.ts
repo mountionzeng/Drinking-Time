@@ -4,7 +4,7 @@
  * Only `invokeAgent` is exported; the rest are module-private utilities.
  */
 import { ENV } from "./env";
-import { invokeLLM, type Message } from "./llm";
+import { invokeLLM, type Message, type ResponseFormat } from "./llm";
 
 type ClaudeMessageResponse = {
   content?: Array<{ type?: string; text?: string }>;
@@ -100,12 +100,15 @@ async function invokeClaudeMessages(
 async function invokeAgentOnce(
   messages: Message[],
   maxTokens: number,
+  responseFormat?: ResponseFormat, // 可选：OpenAI 兼容通道下要求结构化 JSON 输出（如 json_object）
 ): Promise<{ text: string; modelLabel: string }> {
   if (shouldUseClaudeChannel()) {
+    // Claude Messages API 没有 OpenAI 那套 response_format 参数，这里只能忽略它，
+    // 改由 prompt 约定 + 上层「解析失败再重试」来保证 JSON（见 storyAgent.replyFromStoryAgent）。
     return invokeClaudeMessages(messages, maxTokens);
   }
 
-  const result = await invokeLLM({ messages, maxTokens });
+  const result = await invokeLLM({ messages, maxTokens, responseFormat });
   const content = result.choices[0]?.message?.content;
   const text =
     typeof content === "string"
@@ -145,11 +148,12 @@ function delay(ms: number): Promise<void> {
 export async function invokeAgent(
   messages: Message[],
   maxTokens: number,
+  responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
 ): Promise<{ text: string; modelLabel: string }> {
   let lastErr: unknown;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await invokeAgentOnce(messages, maxTokens);
+      return await invokeAgentOnce(messages, maxTokens, responseFormat);
     } catch (err) {
       lastErr = err;
       const canRetry =
