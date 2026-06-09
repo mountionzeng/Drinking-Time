@@ -1,10 +1,10 @@
 import { ENV } from "../_core/env";
-import { type Message, type ResponseFormat } from "../_core/llm";
+import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
-import { buildAgentSystemPrompt, formatEditContextBlock } from "./storyAgent.prompts";
+import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt } from "./storyAgent.prompts";
 import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardPayload, ToolCall } from "./storyAgent.types";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
@@ -16,6 +16,29 @@ const HUMANITY_TRAITS: HumanityTrait[] = [
   "nostalgic",
   "conflicted",
 ];
+
+// 第一步「回话」拿到的是纯文本。但模型偶尔仍会习惯性地包一层 JSON 或 ``` 代码块 ```，
+// 这里做一次温柔的解包：是代码块就剥围栏；像 { "reply": "..." } 就取出 reply；否则原样用。
+// 目的：让用户看到的永远是干净的一段话，而不是一串 JSON。
+function extractReplyText(raw: string): string {
+  let text = (raw ?? "").trim();
+  if (!text) return "";
+  // 剥掉 markdown 代码块围栏（```json ... ``` 或 ``` ... ```）
+  const fence = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fence) text = fence[1].trim();
+  // 如果整段就是一个带 reply 字段的 JSON 对象，把 reply 取出来
+  if (text.startsWith("{") && text.includes('"reply"')) {
+    try {
+      const obj = JSON.parse(text) as { reply?: unknown };
+      if (typeof obj.reply === "string" && obj.reply.trim()) {
+        return obj.reply.trim();
+      }
+    } catch {
+      // 不是合法 JSON，按原文用就好
+    }
+  }
+  return text;
+}
 
 export async function replyFromStoryAgent(params: {
   message: string;
@@ -96,23 +119,21 @@ export async function replyFromStoryAgent(params: {
     { role: "user", content: userContent },
   ];
 
-  // 强壮性①（从源头堵）：在 OpenAI 兼容通道上显式要求结构化 JSON 输出（json_object 模式），
-  // 让模型「必须吐合法 JSON」而不是看心情。这正是 visionAgent 带图时已验证可用的写法，
-  // 用的也是同一个 ENV.llmSupportsResponseFormat 守卫。Claude 通道不支持该参数会被自动忽略，
-  // 由下面的「解析失败重试」兜底。
-  const agentResponseFormat: ResponseFormat | undefined = ENV.llmSupportsResponseFormat
-    ? { type: "json_object" }
-    : undefined;
-
-  // 强壮性③（给足预算，从源头防截断）：一次要吐 read+reply+card(16 字段)+toolCalls 一整坨 JSON，
-  // 700 token 会把卡片写一半就截断 → parseJsonLoose 找不到配平的 {} → 解析失败 → 聊天框露出半截 JSON。
-  // 给到 2048 让 JSON 能完整收尾（gemini-2.5-flash 输出上限 8192，余量充足）。以后要调，只改这一个常量。
+  // 给足 token 预算，从源头防截断。
+  // gemini-2.5-flash 默认开启 thinking，经 OpenAI 兼容代理（302.ai）时这些推理 token 会算进
+  // max_tokens；700 会被推理吃掉大半 → 回话写半句就断、抽取的 16 字段大卡 JSON 配不平括号 →
+  // 解析失败、出不了卡。回话这步短，2048 足够（gemini-2.5-flash 输出上限 8192，余量充足）。
   const AGENT_MAX_TOKENS = 2048;
+  // 抽取那一步要吐 16 字段大卡，且 gemini-2.5-flash 默认 thinking 会先吃掉一大块预算
+  // （实测 2048 时模型已经在认真写卡，但写到 content 就被截断 → JSON 配不平 → 解析失败、丢卡）。
+  // 给抽取单独更高的预算，让「推理 + 完整卡」都装得下；回话那步短，仍用 2048 即可。
+  const EXTRACTION_MAX_TOKENS = 4096;
 
+  // ── B 改造 · 第一步：回话（robust，纯人话，不背 JSON）──
   let text: string;
   let modelLabel: string;
   try {
-    ({ text, modelLabel } = await invokeAgent(messages, AGENT_MAX_TOKENS, agentResponseFormat));
+    ({ text, modelLabel } = await invokeAgent(messages, AGENT_MAX_TOKENS));
   } catch (err) {
     // 通道层已对临时性错误自动重试；走到这里说明仍然没接上。
     // 不向上抛错——否则前端只会弹一句吞掉真实原因的「Agent 暂时没接上」并断掉对话。
@@ -129,133 +150,110 @@ export async function replyFromStoryAgent(params: {
     };
   }
 
-  type ParsedAgentReply = {
-    reply: string;
-    card: StoryCardPayload | null;
-    read?: { trait?: unknown; note?: unknown } | null;
-    toolCalls?: Array<{ name?: string; prompt?: string; shotNo?: number }> | null;
-  };
-  // 退化兜底：拿不到完整 JSON 时，【绝不】把半截 JSON 原样吐给用户——这正是「聊天框出现整坨 JSON」的根因。
-  // 三种情况要分清：
-  //   ① 截断的 JSON：字段顺序 read→reply→card，截断多发生在最后那块大 card 里，reply 多半已写完，
-  //      用正则把 "reply" 字段单独抠出来、把这句话救回来。
-  //   ② 模型干脆没出 JSON、直接说了人话（不以 { 或 [ 开头）：整段就是回复，原样保住——绝不丢掉模型的真实发言。
-  //   ③ 是 JSON 形态但连 reply 都抠不出：返回空串，交给下面那句通用兜底——【绝不】把这坨 JSON 露给用户。
-  const salvageReply = (raw: string): string => {
-    const trimmed = raw.trim();
-    if (!trimmed) return "";
-    // ① 截断 JSON：抠 "reply" 字段
-    const m = trimmed.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    if (m && m[1].trim()) {
-      try {
-        return JSON.parse(`"${m[1]}"`); // 还原 \n、\" 等转义字符
-      } catch {
-        return m[1];
-      }
-    }
-    // ② 整段就是人话（不是 JSON）：原样当回复
-    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-      return trimmed;
-    }
-    // ③ JSON 形态但抠不出 reply：返回空串走通用兜底，绝不吐 JSON
-    return "";
-  };
-  const fallbackParsed = (raw: string): ParsedAgentReply => ({
-    reply: salvageReply(raw) || "嗯，我在听——再多说一点那个时刻，好吗？",
-    card: null,
-    read: null,
-    toolCalls: null,
-  });
+  // 用户看到的「回话」：第一步已经拿到，温柔解包成干净的一段话（剥代码块 / 取 reply 字段）。
+  const reply = extractReplyText(text);
 
-  let parsed: ParsedAgentReply;
-  try {
-    parsed = parseJsonLoose<ParsedAgentReply>(text);
-  } catch {
-    // 强壮性②（兜底救卡）：第一次没拿到 JSON（模型破功、直接说人话）时，不再静默 card=null，
-    // 而是把模型自己那段话回灌给它，逼它「只用 JSON 再说一遍」，把卡片救回来。
-    // 「能聊天但一直不出卡」就是老逻辑在这里静默吞掉造成的；现在改成可观测（写日志）+ 可恢复（重试）。
-    console.warn("[storyAgent] 首轮返回非 JSON，触发一次「只要 JSON」纠正重试");
-    try {
-      const retryMessages: Message[] = [
-        ...messages,
-        { role: "assistant", content: text },
-        {
-          role: "user",
-          content:
-            "你刚刚没有按约定返回 JSON。请把同样的意思，**只**用结尾约定的那套严格 JSON 重新输出一遍：" +
-            "一个 JSON 对象，含 read / reply / card 三个字段；这一轮该记卡就给出 card（不要设成 null）。" +
-            "除了这个 JSON，不要任何其它文字、也不要解释。",
-        },
-      ];
-      const retry = await invokeAgent(retryMessages, AGENT_MAX_TOKENS, agentResponseFormat);
-      parsed = parseJsonLoose<ParsedAgentReply>(retry.text);
-    } catch (retryErr) {
-      // 两次都失败：才退化成「纯回复、无卡」——但写日志，绝不再静默吞掉。
-      console.error("[storyAgent] JSON 重试仍失败，本轮退化为无卡回复:", retryErr);
-      parsed = fallbackParsed(text);
-    }
-  }
-
-  // 校验 card 形状：只强制 content + rawText
+  // ── B 改造 · 第二步：后台抽取（非致命）──
+  // 把同一段对话 + 小酌刚说的回话，交给无人设的「后台分析器」抽出 read / card / toolCalls。
+  // 任何失败（调用失败 / 不是合法 JSON）都【不致命】：card=null、read=null、toolCalls=[]，
+  // 绝不回头影响上面已经拿到的 reply —— 这正是把「出卡」从「回话」里解耦出来的全部意义。
   let card: StoryCardPayload | null = null;
-  if (
-    parsed.card &&
-    typeof parsed.card.content === "string" &&
-    parsed.card.content.trim().length > 0
-  ) {
-    const rawTextRaw =
-      typeof parsed.card.rawText === "string"
-        ? parsed.card.rawText
-        : params.message;
-    card = {
-      content: parsed.card.content.trim(),
-      rawText: rawTextRaw.trim(),
-      sourceQuote: asCleanString(parsed.card.sourceQuote),
-      emotion: asCleanString(parsed.card.emotion),
-      emotionOptions: asEmotionOptions(parsed.card.emotionOptions),
-      emotionBlend: asCleanStringArray(parsed.card.emotionBlend),
-      intensity: asIntensity(parsed.card.intensity),
-      direction: asCleanString(parsed.card.direction),
-      complexity: asCleanString(parsed.card.complexity),
-      trigger: asCleanString(parsed.card.trigger),
-      dramaticFunction: asCleanString(parsed.card.dramaticFunction),
-      personalTrace: asCleanString(parsed.card.personalTrace),
-      retrievalQuery: asCleanString(parsed.card.retrievalQuery),
-      themeHints: asCleanStringArray(parsed.card.themeHints),
-      outlierSignal: asCleanString(parsed.card.outlierSignal),
-      softMembership: asCleanStringArray(parsed.card.softMembership),
-    };
-  }
-
-  // 校验 read 形状：trait 必须是 7 个已知 key 之一
   let read: HumanityRead | null = null;
-  if (parsed.read && typeof parsed.read === "object") {
-    const traitRaw =
-      typeof parsed.read.trait === "string"
-        ? parsed.read.trait.trim().toLowerCase()
-        : "";
-    const noteRaw =
-      typeof parsed.read.note === "string" ? parsed.read.note.trim() : "";
-    if ((HUMANITY_TRAITS as string[]).includes(traitRaw)) {
-      read = {
-        trait: traitRaw as HumanityTrait,
-        note: noteRaw.slice(0, 80), // 硬截断，避免模型话太多溢出
+  const toolCalls: ToolCall[] = [];
+  try {
+    const extractionMessages: Message[] = [
+      {
+        role: "system",
+        content: buildCardExtractionPrompt(
+          existingCardCount,
+          userTurnNumber,
+          params.enableImageGen,
+          Boolean(params.photoUrl),
+        ),
+      },
+      ...turns,
+      { role: "user", content: userContent },   // 对方这一轮（带图时含图）
+      { role: "assistant", content: reply },     // 小酌这一轮的回话
+      {
+        role: "user",
+        content:
+          "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card" +
+          (params.enableImageGen ? ", toolCalls" : "") +
+          " }。）",
+      },
+    ];
+
+    const { text: extractionText } = await invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS);
+    const parsed = parseJsonLoose<{
+      card?: Record<string, unknown> | null;
+      read?: { trait?: unknown; note?: unknown } | null;
+      toolCalls?: Array<{ name?: string; prompt?: string; shotNo?: number }> | null;
+    }>(extractionText);
+
+    // 校验 card 形状：只强制 content
+    if (
+      parsed.card &&
+      typeof parsed.card.content === "string" &&
+      (parsed.card.content as string).trim().length > 0
+    ) {
+      const rawTextRaw =
+        typeof parsed.card.rawText === "string"
+          ? (parsed.card.rawText as string)
+          : params.message;
+      card = {
+        content: (parsed.card.content as string).trim(),
+        rawText: rawTextRaw.trim(),
+        sourceQuote: asCleanString(parsed.card.sourceQuote),
+        emotion: asCleanString(parsed.card.emotion),
+        emotionOptions: asEmotionOptions(parsed.card.emotionOptions),
+        emotionBlend: asCleanStringArray(parsed.card.emotionBlend),
+        intensity: asIntensity(parsed.card.intensity),
+        direction: asCleanString(parsed.card.direction),
+        complexity: asCleanString(parsed.card.complexity),
+        trigger: asCleanString(parsed.card.trigger),
+        dramaticFunction: asCleanString(parsed.card.dramaticFunction),
+        personalTrace: asCleanString(parsed.card.personalTrace),
+        retrievalQuery: asCleanString(parsed.card.retrievalQuery),
+        themeHints: asCleanStringArray(parsed.card.themeHints),
+        outlierSignal: asCleanString(parsed.card.outlierSignal),
+        softMembership: asCleanStringArray(parsed.card.softMembership),
       };
     }
-  }
 
-  // 解析 toolCalls（仅在手机端出图模式下有意义）
-  const toolCalls: ToolCall[] = [];
-  if (params.enableImageGen && Array.isArray(parsed.toolCalls)) {
-    for (const tc of parsed.toolCalls) {
-      if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
-        toolCalls.push({
-          name: "generateImage",
-          prompt: tc.prompt.trim(),
-          shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
-        });
+    // 校验 read 形状：trait 必须是 7 个已知 key 之一
+    if (parsed.read && typeof parsed.read === "object") {
+      const traitRaw =
+        typeof parsed.read.trait === "string"
+          ? parsed.read.trait.trim().toLowerCase()
+          : "";
+      const noteRaw =
+        typeof parsed.read.note === "string" ? parsed.read.note.trim() : "";
+      if ((HUMANITY_TRAITS as string[]).includes(traitRaw)) {
+        read = {
+          trait: traitRaw as HumanityTrait,
+          note: noteRaw.slice(0, 80), // 硬截断，避免模型话太多溢出
+        };
       }
     }
+
+    // 解析 toolCalls（仅在手机端出图模式下有意义）
+    if (params.enableImageGen && Array.isArray(parsed.toolCalls)) {
+      for (const tc of parsed.toolCalls) {
+        if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
+          toolCalls.push({
+            name: "generateImage",
+            prompt: tc.prompt.trim(),
+            shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    // 抽取这一步失败完全不影响对话：这一轮就当没出卡，reply 照常返回。
+    console.warn(
+      "[storyAgent] 后台抽取失败，本轮按无卡片降级（不影响回复）：",
+      err instanceof Error ? err.message : err,
+    );
   }
 
   // 如果有 generateImage toolCall，说明小酌建议出图
@@ -264,7 +262,7 @@ export async function replyFromStoryAgent(params: {
   return {
     configured: true,
     modelLabel,
-    reply: parsed.reply || "嗯。",
+    reply: reply || "嗯。",
     card,
     read,
     toolCalls,

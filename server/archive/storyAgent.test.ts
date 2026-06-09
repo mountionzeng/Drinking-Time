@@ -599,11 +599,13 @@ describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', ()
   it('临时失败（502）自动重试一次后成功，返回真实回复', async () => {
     mockInvokeLLM
       .mockRejectedValueOnce(new Error('LLM invoke failed: 502 Bad Gateway – upstream'))
-      .mockResolvedValueOnce(makeAgentResponse('我在，你接着说'));
+      .mockResolvedValueOnce(makeAgentResponse('我在，你接着说')) // 回话：重试后成功
+      .mockResolvedValueOnce(makeAgentResponse());               // 抽取调用（非致命，返回啥都行）
 
     const result = await replyFromStoryAgent({ message: '今天有点累' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次失败 + 1 次重试
+    // B 改造后一轮正常 = 两次调用；这里回话先 502 重试一次才成功，故共 3 次
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(1 失败 + 1 重试) + 抽取(1)
     expect(result.configured).toBe(true);
     expect(result.reply).toBe('我在，你接着说');
   });
@@ -633,16 +635,16 @@ describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JSON 输出韧性 · 模型「破功说人话」时把卡片救回来
-// 故事 Agent 靠模型自觉返回可解析 JSON 才能出卡。带图那一轮模型尤其容易脱壳直接说人话，
-// 旧实现会静默 card=null —— 表现就是用户反复踩的「能聊天但一直不出卡」。
-// 现在：第一次解析失败时，把模型那段话回灌、逼它「只用 JSON 再说一遍」，把卡救回来；
-// 两次都失败才退化成无卡回复（但不再静默，会写日志）。本块就是这条兜底链的回归守卫。
-// 注意：测试态 ENV 没有 llmSupportsResponseFormat → json_object 模式自动关闭，
-// 正好纯验证「重试救卡」这条与通道/模型无关的兜底逻辑。
+// B 改造 · 「回话」与「出卡」彻底解耦（两次调用）
+// 根因：旧实现要模型一边演小酌、一边在同一次调用里憋出 16 字段严格 JSON；尤其一喂图就破功，
+// 模型直接说人话、丢掉 JSON 外壳 → card 永远为 null（用户反复踩的「能聊天但一直不出卡」）。
+// B 把一轮拆成两次：第一次只「自然回话」（纯文本，robust）；第二次交给无人设的「后台分析器」
+// 单独吐严格 JSON（read / card / 可选 toolCalls）。第二次怎么崩都不致命，绝不回头影响 reply。
+// 这些用例锁住这层解耦契约：两次调用各司其职 + 抽取怎么崩都不伤 reply。
+// 注意：测试态 ENV 没有 llmSupportsResponseFormat，两次调用都不带 json_object，纯验证解耦逻辑。
 // ─────────────────────────────────────────────────────────────────────────────
-describe('storyAgent JSON 输出韧性 (破功重试救卡)', () => {
-  // content 为纯人话（不含任何 {}）→ parseJsonLoose 必然抛错，模拟模型脱壳
+describe('storyAgent B 改造 · 回话/出卡解耦 (两次调用)', () => {
+  // 回话响应：content 是纯人话（生产里第一步模型直接吐文本，用户直接看到）
   function makeRawResponse(rawContent: string) {
     return {
       id: 'mock',
@@ -658,49 +660,69 @@ describe('storyAgent JSON 输出韧性 (破功重试救卡)', () => {
     };
   }
 
-  // 一条带卡片的合法 JSON 回复
-  function makeCardResponse(reply: string, cardContent: string) {
-    return makeRawResponse(
-      JSON.stringify({ reply, card: { content: cardContent, rawText: cardContent }, read: null }),
-    );
+  // 抽取响应：content 是严格 JSON（read / card），由无人设后台分析器返回
+  function makeExtractionResponse(payload: { card?: unknown; read?: unknown } = {}) {
+    const body = { card: payload.card ?? null, read: payload.read ?? null };
+    return makeRawResponse(JSON.stringify(body));
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInvokeLLM.mockReset(); // 本块用持久 mockResolvedValue，显式重置避免泄漏
+    mockInvokeLLM.mockReset(); // 本块用持久 mock，显式重置避免泄漏
   });
 
-  it('首轮返回纯人话（非 JSON）→ 重试只要 JSON → 卡片被救回', async () => {
+  it('正常一轮 = 两次调用：回话纯文本 + 后台抽取出卡', async () => {
     mockInvokeLLM
-      .mockResolvedValueOnce(makeRawResponse('这张照片好治愈啊，是在海边吗')) // 破功：直接说人话
-      .mockResolvedValueOnce(makeCardResponse('在海边松了口气', '海边的傍晚'));
+      .mockResolvedValueOnce(makeRawResponse('这张照片好治愈啊，是在海边吗'))                                  // 回话：纯人话
+      .mockResolvedValueOnce(makeExtractionResponse({ card: { content: '海边的傍晚', rawText: '在海边松了口气' } })); // 抽取：出卡
 
     const result = await replyFromStoryAgent({ message: '你看这张', photoUrl: 'https://x/p.jpg' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次破功 + 1 次纠正重试
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);             // 回话 1 + 抽取 1
+    expect(result.reply).toBe('这张照片好治愈啊，是在海边吗'); // 回复来自第一步纯文本
     expect(result.card).not.toBeNull();
-    expect(result.card?.content).toBe('海边的傍晚'); // 救回来的卡片 content（重试那条 JSON 里的）
-    expect(result.reply).toBe('在海边松了口气'); // 回复也来自重试那条
+    expect(result.card?.content).toBe('海边的傍晚');           // 卡片来自第二步抽取
   });
 
-  it('两次都破功 → 退化为无卡回复，但不抛错、对话不断', async () => {
-    mockInvokeLLM.mockResolvedValue(makeRawResponse('就是随手拍的啦')); // 两次都说人话
+  it('抽取破功（吐人话 / 非 JSON）→ 非致命：card=null 但 reply 完好', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('我懂那种感觉。'))                       // 回话正常
+      .mockResolvedValueOnce(makeRawResponse('这是一段普通的人话，完全没有大括号。')); // 抽取破功
 
-    const result = await replyFromStoryAgent({ message: '你看这张', photoUrl: 'https://x/p.jpg' });
+    const result = await replyFromStoryAgent({ message: '今天有点累' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 只重试一次，不会无限重试
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
     expect(result.configured).toBe(true);
+    expect(result.reply).toBe('我懂那种感觉。'); // reply 不受抽取破功影响
     expect(result.card).toBeNull();
-    expect(result.reply).toBe('就是随手拍的啦'); // 至少保住模型说的那句话当回复
   });
 
-  it('首轮就是合法 JSON → 不触发重试（不浪费一次调用）', async () => {
-    mockInvokeLLM.mockResolvedValueOnce(makeCardResponse('记下这件小事', '今天的小事'));
+  it('回话被模型包进 ```json 代码块 → extractReplyText 解包成干净一段话', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('```json{"reply":"我在，你慢慢说"}```')) // 回话被包进代码块 + JSON 外壳
+      .mockResolvedValueOnce(makeExtractionResponse());
 
-    const result = await replyFromStoryAgent({ message: '今天有点开心' });
+    const result = await replyFromStoryAgent({ message: '我想说点事' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(1); // 一次就够，不重试
-    expect(result.card?.content).toBe('今天的小事');
+    expect(result.reply).toBe('我在，你慢慢说'); // 围栏 + JSON 外壳都被剥掉，只留干净一段话
+    expect(result.card).toBeNull();
+  });
+
+  it('两次调用各用对的系统提示：回话带人设 / 抽取无人设', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('我在听'))
+      .mockResolvedValueOnce(makeExtractionResponse());
+
+    await replyFromStoryAgent({ message: '今天有点开心' });
+
+    const replySystem = mockInvokeLLM.mock.calls[0][0].messages.find((m) => m.role === 'system')?.content as string;
+    const extractionSystem = mockInvokeLLM.mock.calls[1][0].messages.find((m) => m.role === 'system')?.content as string;
+    // 回话那步是「小酌」人设、只输出一段话
+    expect(replySystem).toContain('小酌');
+    expect(replySystem).toContain('这一轮只输出一段话');
+    // 抽取那步是无人设后台分析器
+    expect(extractionSystem).toContain('后台分析器');
+    expect(extractionSystem).toContain('不扮演任何人设');
   });
 });
 
