@@ -16,34 +16,22 @@ import { z } from "zod";
 import { ENV } from "../_core/env";
 import type { FragmentForPrompt } from "./shotPromptComposer";
 import { createLibraryLoader } from "./libraryLoader";
+import {
+  strField,
+  strArrField,
+  affinityField,
+  statusField,
+} from "./libraryFields";
 
-// ── zod schema：镜像 _TEMPLATE.yaml 字段。空标量（YAML null）/缺字段都收敛到安全默认 ──
-
-/** null/undefined → "" */
-const strField = z.preprocess((v) => (v == null ? "" : v), z.string());
-/** null/undefined → [] */
-const strArrField = z.preprocess((v) => (v == null ? [] : v), z.array(z.string()));
-/** null/undefined → {}；权重表 */
-const numRecField = z.preprocess(
-  (v) => (v == null ? {} : v),
-  z.record(z.string(), z.number()),
-);
-const affinityField = z.preprocess(
-  (v) => (v == null ? {} : v),
-  z.object({
-    age: numRecField,
-    profession: numRecField,
-    wuxing: numRecField,
-  }),
-);
+// ── zod schema：镜像 _TEMPLATE.yaml 字段。空标量/缺字段都收敛到安全默认（字段助手见 libraryFields）──
 
 const StyleEntrySchema = z.object({
   // 必填：缺 id/name 直接判为无效条目（跳过）
   id: z.string().min(1),
   name: z.string().min(1),
   one_liner: strField,
-  // 任何非 draft/active 的值或缺失都收敛为 draft（宁可不上线，别误上线）
-  status: z.enum(["draft", "active"]).catch("draft"),
+  // 任何非 draft/active 的值或缺失都收敛为 draft（见 libraryFields.statusField）
+  status: statusField,
 
   // 视觉 DNA：注入出图 prompt
   style: strArrField,
