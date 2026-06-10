@@ -10,6 +10,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { parseJsonLoose } from "../_core/llmJson";
 import { ENV } from "../_core/env";
 import { generateImage, type ImageProvider } from "./imageGen";
+import { renderViaGate } from "./renderGate";
 import { createGeneratedImage, getImagesByShotNo, type GeneratedImage } from "../db";
 
 // ── Types ──
@@ -241,9 +242,14 @@ export async function replyFromCreationAgent(
   );
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
-    const genResult = await generateImage(generateCall.prompt, {
-      provider: input.imageProvider,
-    });
+    const genResult = await renderViaGate(
+      {
+        prompt: generateCall.prompt,
+        shotNo: generateCall.shotNo,
+        projectId: input.projectId,
+      },
+      (prompt) => generateImage(prompt, { provider: input.imageProvider }),
+    );
     if (genResult.status === "ok" && genResult.imageUrl && genResult.imageKey) {
       const dbImage = await createGeneratedImage({
         projectId: input.projectId,

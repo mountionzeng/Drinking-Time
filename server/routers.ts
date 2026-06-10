@@ -59,6 +59,7 @@ import {
 } from "./services/creationAgent";
 import { segmentAtPoint } from "./services/segmentation";
 import { inpaintImage } from "./services/imageGen";
+import { renderViaGate } from "./services/renderGate";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { createArtRiff } from "./services/artAgent";
 
@@ -1189,13 +1190,24 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const { url } = await generateImage({
-            prompt: input.prompt,
-            // 如果用户提供了照片，作为 originalImages 基底
-            ...(input.originalImageUrl
-              ? { originalImages: [{ url: input.originalImageUrl }] }
-              : {}),
-          });
+          const { url } = await renderViaGate(
+            {
+              prompt: input.prompt,
+              // 用户照片既是 image-to-image 基底，也是未来美术判断的参照
+              referenceImages: input.originalImageUrl
+                ? [input.originalImageUrl]
+                : undefined,
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+            },
+            (prompt) =>
+              generateImage({
+                prompt,
+                // 如果用户提供了照片，作为 originalImages 基底
+                ...(input.originalImageUrl
+                  ? { originalImages: [{ url: input.originalImageUrl }] }
+                  : {}),
+              }),
+          );
           if (!url) {
             return { status: "error" as const, error: "图片生成返回空结果" };
           }
@@ -1232,10 +1244,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          const { url } = await generateImage({
-            prompt: input.prompt,
-            originalImages: [{ url: input.originalImageUrl }],
-          });
+          const { url } = await renderViaGate(
+            {
+              prompt: input.prompt,
+              referenceImages: [input.originalImageUrl],
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+            },
+            (prompt) =>
+              generateImage({
+                prompt,
+                originalImages: [{ url: input.originalImageUrl }],
+              }),
+          );
           if (!url) {
             return { status: "error" as const, error: "局部修复返回空结果" };
           }
@@ -1560,10 +1580,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ input }) => {
-        const result = await inpaintImage(
-          input.imageUrl,
-          input.maskUrl,
-          input.prompt
+        const result = await renderViaGate(
+          {
+            prompt: input.prompt,
+            referenceImages: [input.imageUrl],
+            shotNo: input.shotNo,
+            projectId: input.projectId,
+          },
+          (prompt) => inpaintImage(input.imageUrl, input.maskUrl, prompt),
         );
         if (result.status === "error" || !result.imageUrl) {
           return {

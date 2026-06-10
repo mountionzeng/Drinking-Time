@@ -1,5 +1,6 @@
 import { analyzeVisionReference, type VisionAnalysisResult } from "../archive/visionAgent";
 import { generateImage, type ImageProvider } from "./imageGen";
+import { renderViaGate } from "./renderGate";
 import { storagePut } from "../storage";
 
 export type ArtRiffParams = {
@@ -192,7 +193,14 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     previousPrompt: params.previousPrompt,
   });
 
-  const generated = await generateImage(prompt, { provider: params.imageProvider });
+  const generated = await renderViaGate(
+    {
+      prompt,
+      intent: params.instruction,
+      referenceImages: params.imageUrl ? [params.imageUrl] : undefined,
+    },
+    (p) => generateImage(p, { provider: params.imageProvider }),
+  );
 
   if (generated.status !== "ok" || !generated.imageUrl) {
     throw new Error(generated.message || "美术 Agent 没有拿到生成图。");
