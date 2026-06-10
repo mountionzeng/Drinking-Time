@@ -22,6 +22,7 @@ import {
   affinityField,
   statusField,
 } from "./libraryFields";
+import type { ResonanceSignal } from "./resonanceSignal";
 
 // ── zod schema：镜像 _TEMPLATE.yaml 字段（字段助手见 libraryFields）──
 
@@ -88,6 +89,39 @@ export function getActiveVoices(dir?: string): LiteratureEntry[] {
 /** 测试/热更用：清空目录缓存 */
 export function clearLiteratureLibraryCache(): void {
   loader.clearCache();
+}
+
+// ── 按共鸣信号排序（消费 resonanceSignal，文学库与意图/情绪共享信息的落点）──
+
+/**
+ * 按共鸣信号给 active 声音打分排序。
+ *
+ * v1 是确定性规则（非 LLM）：信号的情绪 / 题材与条目的 emotion_fit / theme_fit 取交集计分，
+ * 画像的当日五行命中 affinity.wuxing 的权重再加分。分高在前，并列保持原序。
+ * 「智能」版本（让模型读信号挑声音）后续替换本函数即可，调用方不变。
+ * 空信号 → 全部 0 分 → 原序返回 active 声音。
+ */
+export function rankVoicesBySignal(
+  signal: ResonanceSignal,
+  dir?: string,
+): LiteratureEntry[] {
+  const overlap = (a: string[] | undefined, b: string[]) =>
+    a ? a.filter((x) => b.includes(x)).length : 0;
+
+  const score = (e: LiteratureEntry): number => {
+    let s = 0;
+    s += 2 * overlap(signal.emotion, e.emotion_fit);
+    s += 2 * overlap(signal.themes, e.theme_fit);
+    const wx = signal.profile?.wuxing;
+    const wxWeight = wx ? e.affinity.wuxing[wx] : undefined;
+    if (typeof wxWeight === "number") s += wxWeight;
+    return s;
+  };
+
+  return getActiveVoices(dir)
+    .map((entry, index) => ({ entry, index, s: score(entry) }))
+    .sort((a, b) => b.s - a.s || a.index - b.index)
+    .map((x) => x.entry);
 }
 
 // ── 条目 → 剧本 prompt 片段 ──

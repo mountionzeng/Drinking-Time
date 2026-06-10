@@ -1,11 +1,16 @@
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
 import {
+  getEmotionAnalysisProfile,
   getProjectAnalysis,
   getProjectById,
   getProjectReferences,
   getProjectShots,
 } from "../db";
+import {
+  buildResonanceSignal,
+  describeResonanceSignal,
+} from "../services/resonanceSignal";
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -126,11 +131,13 @@ function buildMessages({
   history,
   projectContext,
   stageKey,
+  resonanceText,
 }: {
   message: string;
   history?: ChatTurn[];
   projectContext: string | null;
   stageKey?: string;
+  resonanceText?: string;
 }): Message[] {
   const turns = (history ?? [])
     .filter(turn => turn.content?.trim())
@@ -143,6 +150,9 @@ function buildMessages({
   const contextBlock = [
     projectContext ? `项目上下文：\n${projectContext}` : "项目上下文：暂无项目数据。",
     stageKey ? `当前界面阶段：${stageKey}` : "",
+    resonanceText
+      ? `用户意图与情绪画像（来自意图识别 + 长期情绪底盘）：\n${resonanceText}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -243,11 +253,25 @@ export async function replyFromDropZoneAgent(
     };
   }
 
+  // 长期情绪画像（来自 emotionAnalysis）折进上下文，让意图识别带着用户的情绪底盘去理解
+  let resonanceText = "";
+  try {
+    const profile = await getEmotionAnalysisProfile(params.userId);
+    if (profile) {
+      resonanceText = describeResonanceSignal(
+        buildResonanceSignal({ analysisSeed: profile.analysisSeed }),
+      );
+    }
+  } catch {
+    // 画像读取失败不影响对话
+  }
+
   const messages = buildMessages({
     message: params.message,
     history: params.history,
     projectContext,
     stageKey: params.stageKey,
+    resonanceText,
   });
 
   if (ENV.dropZoneModel?.startsWith("cc-") || ENV.dropZoneApiUrl?.includes("/cc")) {

@@ -7,6 +7,7 @@ import {
   getActiveVoices,
   literatureToFragments,
   literatureNegatives,
+  rankVoicesBySignal,
   clearLiteratureLibraryCache,
 } from "./literatureLibrary";
 
@@ -107,5 +108,22 @@ describe("literatureLibrary 对真实 docs/literature-library/entries", () => {
     expect(frags.find((f) => f.tag === "观点")).toBeDefined();
     expect(frags.find((f) => f.tag === "代表句")).toBeDefined();
     expect(literatureNegatives(luxun!).length).toBeGreaterThan(0);
+  });
+
+  it("rankVoicesBySignal：按情绪信号把共鸣的声音排前", () => {
+    clearLiteratureLibraryCache();
+    // 张爱玲 emotion_fit 含「苍凉」→ 情绪信号「苍凉」应把她排在鲁迅前
+    const byEmotion = rankVoicesBySignal({ emotion: ["苍凉"] }, realDir);
+    expect(byEmotion[0].id).toBe("zhang-ailing");
+
+    // 鲁迅 affinity.wuxing 金=2 → 当日五行「金」应把他排前
+    const byWuxing = rankVoicesBySignal({ profile: { wuxing: "金" } }, realDir);
+    expect(byWuxing[0].id).toBe("lu-xun");
+  });
+
+  it("rankVoicesBySignal：空信号 → 原序返回全部 active 声音", () => {
+    clearLiteratureLibraryCache();
+    const ranked = rankVoicesBySignal({}, realDir);
+    expect(ranked.map((e) => e.id).sort()).toEqual(["lu-xun", "zhang-ailing"]);
   });
 });
