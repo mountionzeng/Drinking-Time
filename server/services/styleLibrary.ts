@@ -11,12 +11,11 @@
  * 守则：库是审美透镜，不是情绪滤镜——只决定「怎么好看」，不改「发生了什么」。
  */
 
-import fs from "fs";
 import path from "path";
-import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ENV } from "../_core/env";
 import type { FragmentForPrompt } from "./shotPromptComposer";
+import { createLibraryLoader } from "./libraryLoader";
 
 // ── zod schema：镜像 _TEMPLATE.yaml 字段。空标量（YAML null）/缺字段都收敛到安全默认 ──
 
@@ -68,9 +67,7 @@ const StyleEntrySchema = z.object({
 
 export type StyleEntry = z.infer<typeof StyleEntrySchema>;
 
-// ── 加载（按解析后的目录缓存）──
-
-const cache = new Map<string, StyleEntry[]>();
+// ── 加载（委托通用库底座 libraryLoader，按解析后的目录缓存）──
 
 function resolveEntriesDir(dir?: string): string {
   if (dir) return path.resolve(dir);
@@ -78,81 +75,33 @@ function resolveEntriesDir(dir?: string): string {
   return path.resolve(process.cwd(), "docs/style-library/entries");
 }
 
-/**
- * 读取并解析一个 entries 目录。结果按目录缓存。
- * 单条解析/校验失败只告警跳过，保证「一个坏文件不毁整库」。
- */
+const loader = createLibraryLoader<StyleEntry>({
+  schema: StyleEntrySchema,
+  resolveDir: resolveEntriesDir,
+  label: "styleLibrary",
+});
+
+/** 读取并解析一个 entries 目录。结果按目录缓存；单条失败只告警跳过。 */
 export function loadStyleLibrary(
   dir?: string,
   opts: { force?: boolean } = {},
 ): StyleEntry[] {
-  const resolved = resolveEntriesDir(dir);
-  if (!opts.force) {
-    const cached = cache.get(resolved);
-    if (cached) return cached;
-  }
-
-  const entries: StyleEntry[] = [];
-  const seen = new Set<string>();
-
-  let files: string[] = [];
-  try {
-    files = fs
-      .readdirSync(resolved)
-      .filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"))
-      .sort();
-  } catch (err) {
-    console.warn(
-      `[styleLibrary] 无法读取流派库目录 ${resolved}：${(err as Error).message}`,
-    );
-    cache.set(resolved, entries);
-    return entries;
-  }
-
-  for (const file of files) {
-    const full = path.join(resolved, file);
-    try {
-      const raw = fs.readFileSync(full, "utf8");
-      const parsed = parseYaml(raw);
-      const result = StyleEntrySchema.safeParse(parsed);
-      if (!result.success) {
-        console.warn(
-          `[styleLibrary] 跳过无效条目 ${file}：${result.error.issues
-            .map((i) => `${i.path.join(".")} ${i.message}`)
-            .join("; ")}`,
-        );
-        continue;
-      }
-      if (seen.has(result.data.id)) {
-        console.warn(`[styleLibrary] 跳过重复 id「${result.data.id}」（${file}）`);
-        continue;
-      }
-      seen.add(result.data.id);
-      entries.push(result.data);
-    } catch (err) {
-      console.warn(
-        `[styleLibrary] 解析失败，跳过 ${file}：${(err as Error).message}`,
-      );
-    }
-  }
-
-  cache.set(resolved, entries);
-  return entries;
+  return loader.load(dir, opts);
 }
 
 /** 全部条目（active + draft） */
 export function getAllStyles(dir?: string): StyleEntry[] {
-  return loadStyleLibrary(dir);
+  return loader.getAll(dir);
 }
 
 /** 仅上线条目（进 6 候选轮换） */
 export function getActiveStyles(dir?: string): StyleEntry[] {
-  return loadStyleLibrary(dir).filter((e) => e.status === "active");
+  return loader.getActive(dir);
 }
 
 /** 测试/热更用：清空目录缓存 */
 export function clearStyleLibraryCache(): void {
-  cache.clear();
+  loader.clearCache();
 }
 
 // ── 条目 → 出图 prompt 片段 ──
