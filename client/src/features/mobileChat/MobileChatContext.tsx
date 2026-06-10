@@ -148,16 +148,29 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // 进入页面 / 切回标签时，从服务器恢复对话。
+  //
+  // 三条关键约束（修复「聊天消失 + 故事碎片化」）：
+  //   1. 绑定单一故事：本地已记住 remoteStoryId 时只认这个故事，不再无脑抓「最新的 stories[0]」，
+  //      避免切个标签 / 重开就被另一个故事顶替。本地还没绑定（首次进入、换浏览器）才采纳服务器最新故事。
+  //   2. 同版本不重复水合（hydratedStoryVersion 守卫）。
+  //   3. 非破坏性：本地消息比服务器版本更长（有 fire-and-forget 还没存上的尾部）时，保留本地、
+  //      不拿陈旧的服务器版本覆盖，等下一次发送 / 关页补存把尾部同步上去。
   useEffect(() => {
-    const latestStory = storyListQuery.data?.stories[0];
-    if (!latestStory || isReplying || isGenerating) return;
+    if (isReplying || isGenerating) return;
+    const stories = storyListQuery.data?.stories;
+    if (!stories || stories.length === 0) return;
 
-    const version = `${latestStory.id}:${String(latestStory.updatedAt)}`;
+    // 绑定目标：优先认本地记住的故事，没有才用服务器最新故事兜底
+    const boundId = remoteStoryId ?? stories[0].id;
+    const target = stories.find((s) => s.id === boundId) ?? stories[0];
+
+    const version = `${target.id}:${String(target.updatedAt)}`;
     if (hydratedStoryVersion.current === version) return;
 
     let cancelled = false;
     void utils.storyAgent.storyGet
-      .fetch({ id: latestStory.id })
+      .fetch({ id: target.id })
       .then((story) => {
         if (cancelled || !story) return;
         const body =
@@ -169,6 +182,19 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const nextImages = normalizeMobileImages(
           body.mobileImages ?? body.images
         );
+
+        // 非破坏性守卫：同一个故事、且本地比服务器「更长」时，保留本地未保存的尾部，不覆盖
+        const localRealCount = messages.filter((m) => m.id !== "first-q").length;
+        const serverRealCount = nextMessages.filter(
+          (m) => m.id !== "first-q"
+        ).length;
+        const isSameStory = remoteStoryId != null && story.id === remoteStoryId;
+        if (isSameStory && localRealCount > serverRealCount) {
+          hydratedStoryVersion.current = version; // 记下版本，避免反复触发
+          setRemoteStoryId(story.id);
+          return;
+        }
+
         const hydratedMessages =
           nextMessages.length > 0 ? nextMessages : emptyState().messages;
 
@@ -189,7 +215,9 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   }, [
     isGenerating,
     isReplying,
+    messages,
     persist,
+    remoteStoryId,
     storyListQuery.data?.stories,
     utils.storyAgent.storyGet,
   ]);
@@ -197,6 +225,15 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   const ensureStoryId = useCallback(
     async (seed?: PersistedMobileState, createNew = false): Promise<number> => {
       if (!createNew) {
+        // 优先复用当前已绑定的故事，保证同一段对话始终写进同一个 story（杜绝碎片化）
+        if (remoteStoryId) {
+          const existing = await utils.storyAgent.storyGet
+            .fetch({ id: remoteStoryId })
+            .catch(() => null);
+          if (existing) return remoteStoryId;
+          setRemoteStoryId(null); // 绑定的故事在服务器没了（如重启清空内存态），继续往下兜底
+        }
+        // 本地还没绑定故事时，才采纳服务器里最新的那个
         const listed =
           storyListQuery.data ??
           (await utils.storyAgent.storyList.fetch());
@@ -204,13 +241,6 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         if (latestStory) {
           setRemoteStoryId(latestStory.id);
           return latestStory.id;
-        }
-        if (remoteStoryId) {
-          const existing = await utils.storyAgent.storyGet
-            .fetch({ id: remoteStoryId })
-            .catch(() => null);
-          if (existing) return remoteStoryId;
-          setRemoteStoryId(null);
         }
       }
 
@@ -279,6 +309,23 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
       utils.storyAgent.storyList,
     ]
   );
+
+  // 关页 / 切到后台前补存一次，堵住 fire-and-forget 还没上传完就被关掉而丢失的尾部。
+  // 用 ref 持有最新状态，避免事件回调闭包拿到旧值。
+  const latestStateRef = useRef({ messages, cards, images, remoteStoryId });
+  latestStateRef.current = { messages, cards, images, remoteStoryId };
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState !== "hidden") return;
+      const s = latestStateRef.current;
+      const hasReal = s.messages.some((m) => m.id !== "first-q");
+      if (hasReal) {
+        void saveStoryState(s.messages, s.cards, s.images, s.remoteStoryId);
+      }
+    };
+    document.addEventListener("visibilitychange", flush);
+    return () => document.removeEventListener("visibilitychange", flush);
+  }, [saveStoryState]);
 
   // 发送消息（可附带照片 base64）
   const sendMessage = useCallback(
