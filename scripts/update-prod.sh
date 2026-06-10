@@ -51,7 +51,10 @@ log "更新前提交（回滚点）：${OLD_SHA:-未知}"
 # 1) 动库前先备份 MySQL（复用现有 backup-mysql.sh）
 log "① 备份 MySQL（动库前的安全网）"
 if [ -f "$SCRIPT_DIR/backup-mysql.sh" ]; then
-  run_bash "DRY_RUN='$DRY_RUN' bash '$SCRIPT_DIR/backup-mysql.sh'"
+  # 放进 if 条件里，set -e 不会在这里直接静默退出，备份失败时给出明确提示再中止
+  if ! run_bash "DRY_RUN='$DRY_RUN' bash '$SCRIPT_DIR/backup-mysql.sh'"; then
+    die "MySQL 备份失败，已中止更新（线上未改动，仍在跑旧版本）。请把上面的报错发我。"
+  fi
 else
   log "⚠️ 没找到 backup-mysql.sh —— 强烈建议你先手动 mysqldump 再继续，否则 db:push 出问题无从恢复。"
 fi

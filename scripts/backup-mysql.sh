@@ -114,13 +114,18 @@ main() {
   mkdir -p "$BACKUP_DIR"
   chmod 700 "$BACKUP_DIR"
 
-  local defaults_file
+  # 注意：defaults_file 不能用 local —— EXIT trap 在 main 返回后才触发，
+  # 那时 local 变量已超出作用域，set -u 下会报「未绑定变量」、trap 失败，
+  # 还会漏删这个含密码的临时文件。用全局变量 + ${var:-} 兜底，保证能引用并真正删掉。
   defaults_file="$(mktemp)"
-  trap 'rm -f "$defaults_file"' EXIT
+  trap 'rm -f "${defaults_file:-}"' EXIT
   write_defaults_file "$defaults_file"
 
+  # --no-tablespaces：跳过表空间 DDL，避免 dump 账号没有 PROCESS 权限时报错；
+  # 普通 InnoDB 表的数据恢复不需要表空间信息。
   mysqldump \
     --defaults-extra-file="$defaults_file" \
+    --no-tablespaces \
     --single-transaction \
     --default-character-set=utf8mb4 \
     "$DB_NAME" > "$output"
