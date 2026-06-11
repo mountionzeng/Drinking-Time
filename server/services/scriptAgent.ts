@@ -14,11 +14,10 @@ import {
   type LiteratureFragment,
 } from "./literatureLibrary";
 import {
-  buildResonanceSignal,
+  buildResonanceSignalForUser,
   describeResonanceSignal,
   type ResonanceSignal,
 } from "./resonanceSignal";
-import { getEmotionAnalysisProfile } from "../db";
 
 /** 一把被选中的共鸣声音（文学家名 + 注入用的片段） */
 export type ResonantVoice = {
@@ -85,18 +84,9 @@ export async function buildScriptResonanceContextForUser(
   userId: number,
   cardEmotions?: string[],
 ): Promise<string> {
-  let analysisSeed: unknown;
-  try {
-    const profile = await getEmotionAnalysisProfile(userId);
-    analysisSeed = profile?.analysisSeed;
-  } catch {
-    // 画像读取失败不影响剧本
-  }
-
   const emotion = Array.from(
     new Set((cardEmotions ?? []).map((e) => e.trim()).filter(Boolean)),
   );
-
-  const signal = buildResonanceSignal({ analysisSeed, emotion });
+  const signal = await buildResonanceSignalForUser(userId, { emotion });
   return buildScriptResonanceContext(signal);
 }

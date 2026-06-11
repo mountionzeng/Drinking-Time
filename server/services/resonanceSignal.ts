@@ -9,6 +9,7 @@
  * 本轮（打地基）：只搭共享结构 + 从已有来源真实组装 + 提供人类可读描述；
  * 「怎么用信号判断 / 共鸣」的 LLM 智能留空，先用确定性规则消费（见 literatureLibrary.rankVoicesBySignal）。
  */
+import { getEmotionAnalysisProfile } from "../db";
 
 /** 来自 emotionAnalysis 的长期情绪画像（结构化，可被任意 Agent 读） */
 export type ResonanceProfile = {
@@ -66,6 +67,29 @@ export function buildResonanceSignal(parts: {
   if (parts.themes?.length) signal.themes = parts.themes;
   if (parts.missingInfo?.length) signal.missingInfo = parts.missingInfo;
   return signal;
+}
+
+/**
+ * 为某个用户组装共鸣信号：容错地取其长期情绪画像(emotionAnalysis) + 可选的意图 / 情绪等。
+ * dropZone 与剧本侧都用它，避免各自重复「取画像 → 组装信号」这段。
+ */
+export async function buildResonanceSignalForUser(
+  userId: number,
+  extras?: {
+    intent?: string;
+    emotion?: string[];
+    themes?: string[];
+    missingInfo?: string[];
+  },
+): Promise<ResonanceSignal> {
+  let analysisSeed: unknown;
+  try {
+    const profile = await getEmotionAnalysisProfile(userId);
+    analysisSeed = profile?.analysisSeed;
+  } catch {
+    // 画像读取失败不影响调用方
+  }
+  return buildResonanceSignal({ analysisSeed, ...extras });
 }
 
 /**

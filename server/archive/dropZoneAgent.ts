@@ -10,16 +10,16 @@
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
 import {
-  getEmotionAnalysisProfile,
   getProjectAnalysis,
   getProjectById,
   getProjectReferences,
   getProjectShots,
 } from "../db";
 import {
-  buildResonanceSignal,
+  buildResonanceSignalForUser,
   describeResonanceSignal,
 } from "../services/resonanceSignal";
+import { normalizeTurns } from "../services/agentRuntime";
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -148,13 +148,7 @@ function buildMessages({
   stageKey?: string;
   resonanceText?: string;
 }): Message[] {
-  const turns = (history ?? [])
-    .filter(turn => turn.content?.trim())
-    .slice(-12)
-    .map<Message>(turn => ({
-      role: turn.role,
-      content: turn.content.trim(),
-    }));
+  const turns = normalizeTurns(history, 12);
 
   const contextBlock = [
     projectContext ? `项目上下文：\n${projectContext}` : "项目上下文：暂无项目数据。",
@@ -263,17 +257,9 @@ export async function replyFromDropZoneAgent(
   }
 
   // 长期情绪画像（来自 emotionAnalysis）折进上下文，让意图识别带着用户的情绪底盘去理解
-  let resonanceText = "";
-  try {
-    const profile = await getEmotionAnalysisProfile(params.userId);
-    if (profile) {
-      resonanceText = describeResonanceSignal(
-        buildResonanceSignal({ analysisSeed: profile.analysisSeed }),
-      );
-    }
-  } catch {
-    // 画像读取失败不影响对话
-  }
+  const resonanceText = describeResonanceSignal(
+    await buildResonanceSignalForUser(params.userId),
+  );
 
   const messages = buildMessages({
     message: params.message,

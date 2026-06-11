@@ -950,13 +950,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        // 取用户长期情绪画像 + 当前卡片情绪 → 共鸣上下文（意图 / 情绪 + 文学声音）接进剧本
-        const resonanceContext = await buildScriptResonanceContextForUser(
-          ctx.user.id,
-          input.cards
-            .map((c) => c.emotion)
-            .filter((e): e is string => Boolean(e)),
-        );
+        // 取用户长期情绪画像 + 当前卡片情绪 → 共鸣上下文（意图 / 情绪 + 文学声音）接进剧本。
+        // 仅在有卡片时构建——synthesizeShotList 对空卡片会早返回，避免白做 DB + 文学库查询。
+        const resonanceContext =
+          input.cards.length > 0
+            ? await buildScriptResonanceContextForUser(
+                ctx.user.id,
+                input.cards
+                  .map((c) => c.emotion)
+                  .filter((e): e is string => Boolean(e)),
+              )
+            : "";
         const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   profileFromAnalysisSeed,
   buildResonanceSignal,
+  buildResonanceSignalForUser,
   describeResonanceSignal,
 } from "./resonanceSignal";
 
@@ -57,5 +58,15 @@ describe("describeResonanceSignal", () => {
     expect(text).toContain("用户意图：想做关于故乡的短片");
     expect(text).toContain("情绪：怀旧、清醒的痛");
     expect(text).toContain("长期画像：30岁；九十年代成长");
+  });
+});
+
+describe("buildResonanceSignalForUser", () => {
+  it("无画像(内存模式)时只用 extras 组装，不抛", async () => {
+    const signal = await buildResonanceSignalForUser(999999, {
+      emotion: ["苍凉"],
+    });
+    expect(signal.emotion).toEqual(["苍凉"]);
+    expect(signal.profile).toBeUndefined();
   });
 });

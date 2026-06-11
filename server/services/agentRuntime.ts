@@ -18,6 +18,20 @@ export type RunJsonAgentResult<T> = {
 };
 
 /**
+ * 把历史对话规范成 Message[]：过滤空内容、只留最近 limit 轮、trim 内容。
+ * 多个对话 Agent（runJsonAgent、dropZoneAgent…）共用，避免各自再抄一遍。
+ */
+export function normalizeTurns(
+  history: AgentTurn[] | undefined,
+  limit = 12,
+): Message[] {
+  return (history ?? [])
+    .filter((t) => t.content?.trim())
+    .slice(-limit)
+    .map((t) => ({ role: t.role, content: t.content.trim() }));
+}
+
+/**
  * 跑一轮「对话进 → JSON 出」的 Agent。
  *
  * @param opts.systemPrompt  该 Agent 的系统提示
@@ -35,10 +49,7 @@ export async function runJsonAgent<T>(opts: {
   historyLimit?: number;
   fallback: (rawText: string) => T;
 }): Promise<RunJsonAgentResult<T>> {
-  const turns: Message[] = (opts.history ?? [])
-    .filter((t) => t.content?.trim())
-    .slice(-(opts.historyLimit ?? 12))
-    .map((t) => ({ role: t.role, content: t.content.trim() }));
+  const turns = normalizeTurns(opts.history, opts.historyLimit ?? 12);
 
   const messages: Message[] = [
     { role: "system", content: opts.systemPrompt },
