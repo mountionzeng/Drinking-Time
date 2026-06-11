@@ -4,16 +4,16 @@
  * 为什么要它：现在出图调用散落在 creationAgent / artAgent / routers 多处，各自拼 prompt、
  * 各自直连生成器。网关把这些出口收口到一处，给「美术 Agent 判断」留一个唯一插入点。
  *
- * 本轮（打地基）：artJudge 是 identity 桩，原样返回 prompt —— 出图结果与收口前逐字节一致。
- * 未来：artJudge 用 styleLibrary（美术仓库）+ 情绪 + 意图 + 用户参考图 → shotPromptComposer
- * 合成 / 改写 prompt，再交给生成器。
+ * 美术 Agent v1：artJudge 从美术仓库 styleLibrary 选一个流派，把视觉 DNA 注入 prompt
+ * （确定性规则，非 LLM）。更"聪明"的版本（用情绪 / 意图 / 参考图 + shotPromptComposer 合成）后续替换 artJudge 即可，调用方不变。
  *
  * 设计：网关不关心具体用哪个生成器（_core 的 generateImage、services 的 generateImage /
  * inpaintImage 各不相同）。调用方把自己现有的生成器调用包成 `(prompt) => Promise<R>` 传进来
  * （其余参数用闭包带上），网关只负责在调用前过一遍判断、把（可能改写过的）prompt 交回去。
  */
+import { getActiveStyles, styleToFragments } from "./styleLibrary";
 
-/** 渲染上下文：至少含 prompt；其余字段是「未来美术判断要用、本轮先收集不消费」的信号 */
+/** 渲染上下文：至少含 prompt；其余字段是美术判断（artJudge）要用的信号 */
 export type RenderContext = {
   prompt: string;
   /** 用户意图（如「改暖一点」） */
@@ -29,12 +29,32 @@ export type RenderContext = {
 };
 
 /**
- * 美术判断钩子。
- * 本轮：identity —— 原样返回，prompt 不变。
- * 未来：在此用美术仓库 + 情绪 + 意图 + 参考图，产出（可能改写过的）渲染上下文。
+ * 美术 Agent v1：从美术仓库 styleLibrary 选一个流派。
+ * 选法：ctx.emotion 命中某流派的 emotion_fit 优先；否则按当天轮换一个（每天不同、可解释）。
+ */
+function pickStyle(ctx: RenderContext) {
+  const styles = getActiveStyles();
+  if (styles.length === 0) return null;
+  if (ctx.emotion) {
+    const hit = styles.find((s) => s.emotion_fit.includes(ctx.emotion!));
+    if (hit) return hit;
+  }
+  const dayIndex = Math.floor(Date.now() / 86_400_000) % styles.length;
+  return styles[dayIndex];
+}
+
+/**
+ * 美术判断钩子：把选中流派的视觉 DNA 注入 prompt，让出图带上这个美术风格。
+ * 选不出流派（库空）时原样返回。
  */
 async function artJudge(ctx: RenderContext): Promise<RenderContext> {
-  return ctx;
+  const style = pickStyle(ctx);
+  if (!style) return ctx;
+  const dna = styleToFragments(style)
+    .map((f) => `${f.tag}：${f.text}`)
+    .join("；");
+  if (!dna) return ctx;
+  return { ...ctx, prompt: `${ctx.prompt}\n\n【美术流派·${style.name}】${dna}` };
 }
 
 /**

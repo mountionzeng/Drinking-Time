@@ -2,22 +2,17 @@ import { describe, it, expect } from "vitest";
 import { renderViaGate } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
-  it("本轮 identity：把 ctx.prompt 原样交给 render（即便带了参考图 / 镜号等信号）", async () => {
+  it("美术 v1：render 收到的 prompt = 原 prompt + 注入的美术流派", async () => {
     let seen = "";
-    const r = await renderViaGate(
-      {
-        prompt: "a cat on a wall",
-        shotNo: "SH01",
-        referenceImages: ["user.jpg"],
-        intent: "改暖一点",
-      },
+    await renderViaGate(
+      { prompt: "a cat on a wall" },
       async (prompt) => {
         seen = prompt;
-        return { ok: true, prompt };
+        return { ok: true };
       },
     );
-    expect(seen).toBe("a cat on a wall");
-    expect(r).toEqual({ ok: true, prompt: "a cat on a wall" });
+    expect(seen).toContain("a cat on a wall"); // 原 prompt 保留
+    expect(seen).toContain("【美术流派·"); // 注入了一个流派
   });
 
   it("render 的返回值原样透传（保留各生成器自己的返回形）", async () => {
