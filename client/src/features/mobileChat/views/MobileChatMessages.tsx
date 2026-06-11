@@ -12,8 +12,6 @@ interface Props {
   messages: MobileChatMessage[];
   images: GeneratedImageItem[];
   isReplying: boolean;
-  isGenerating: boolean;
-  onConfirmGenerate: (messageId: string) => void;
   onSwipeRight?: (imageId: number) => void;
   onSwipeLeft?: (imageId: number) => void;
   onLongPress?: (imageId: number) => void;
@@ -23,8 +21,6 @@ export default function MobileChatMessages({
   messages,
   images,
   isReplying,
-  isGenerating,
-  onConfirmGenerate,
   onSwipeRight,
   onSwipeLeft,
   onLongPress,
@@ -80,22 +76,6 @@ export default function MobileChatMessages({
 
                 {/* 消息文字 */}
                 <p className="whitespace-pre-wrap">{msg.content}</p>
-
-                {/* 出图建议按钮（仅 assistant、有 imagePrompt、还没生成） */}
-                {!isUser && msg.suggestImage && msg.imagePrompt && !linkedImage && !isImageGenerating && (
-                  <button
-                    onClick={() => onConfirmGenerate(msg.id)}
-                    disabled={isGenerating}
-                    className="dtm-suggest-button disabled:opacity-50"
-                  >
-                    {isGenerating ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      "🎨"
-                    )}
-                    好，帮我画
-                  </button>
-                )}
 
                 {/* 图片生成中 */}
                 {isImageGenerating && (

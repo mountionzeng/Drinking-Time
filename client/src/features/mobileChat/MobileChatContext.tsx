@@ -87,6 +87,8 @@ interface MobileChatContextValue {
   sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   // 用户确认出图
   confirmGenerate: (messageId: string) => Promise<void>;
+  // 手动「画出来」：不依赖小酌主动提议，把当前这段对话现编 prompt 生成一张图
+  generateNow: () => Promise<void>;
   // 滑动操作
   swipeRight: (imageId: number) => Promise<void>;
   swipeLeft: (imageId: number, reason?: string) => Promise<void>;
@@ -541,6 +543,108 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+  // 手动「画出来」：不依赖小酌主动提议，用户随时把当前这段对话变成一张图。
+  // 没有 agent 给的 imagePrompt，让服务端从最近对话现编（generateForMobile 不传 prompt）。
+  const generateNow = useCallback(async () => {
+    if (isGenerating || isReplying) return;
+    const realMsgs = messages.filter((m) => m.id !== "first-q");
+    if (realMsgs.length === 0) return; // 还没聊，没东西可画
+
+    setIsGenerating(true);
+    try {
+      const storyId = await ensureStoryId();
+
+      // 新增一条 assistant 消息承载这次出图的生命周期（生成中 → 画好 / 失败）
+      const genMsgId = newId("a");
+      const genMsg: MobileChatMessage = {
+        id: genMsgId,
+        role: "assistant",
+        content: "🎨 正在把这一刻画出来…",
+        timestamp: Date.now(),
+      };
+      const placeholderId = Date.now();
+      const placeholder: GeneratedImageItem = {
+        id: placeholderId,
+        imageUrl: "",
+        prompt: "",
+        shotNo: undefined,
+        storyId,
+        status: "generating",
+        messageId: genMsgId,
+      };
+      const baseMsgs = [...messages, genMsg];
+      setMessages(baseMsgs);
+      setImages([...images, placeholder]);
+
+      // 往回找最近一张用户照片，作为 image-to-image 基底
+      let photoUrl: string | undefined;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "user" && messages[i].photoUrl) {
+          photoUrl = messages[i].photoUrl;
+          break;
+        }
+      }
+      // 把最近对话传给服务端现编出图 prompt（不传 prompt）
+      const history = realMsgs
+        .slice(-16)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const result = await generateMut.mutateAsync({
+        storyId,
+        history,
+        originalImageUrl: photoUrl,
+      });
+
+      if (result.status === "ok" && result.imageUrl) {
+        const readyImage: GeneratedImageItem = {
+          id: result.imageId!,
+          imageUrl: result.imageUrl,
+          prompt: result.prompt ?? "",
+          shotNo: undefined,
+          storyId,
+          status: "ready",
+          messageId: genMsgId,
+        };
+        const finalMsgs = baseMsgs.map((m) =>
+          m.id === genMsgId
+            ? { ...m, content: "🎨 画好了 —— 喜欢就右划收下，不满意左划再来一张。" }
+            : m
+        );
+        const finalImages = images.concat(readyImage); // images 不含 placeholder
+        setMessages(finalMsgs);
+        setImages(finalImages);
+        persist(finalMsgs, cards, finalImages, storyId);
+        void saveStoryState(finalMsgs, cards, finalImages, storyId);
+      } else {
+        // 失败：把这条消息改成提示，并撤掉占位图
+        const finalMsgs = baseMsgs.map((m) =>
+          m.id === genMsgId
+            ? { ...m, content: `这张没画成：${result.error ?? "再试一次？"}` }
+            : m
+        );
+        setMessages(finalMsgs);
+        setImages(images); // 回到不含 placeholder 的状态
+        persist(finalMsgs, cards, images, storyId);
+        void saveStoryState(finalMsgs, cards, images, storyId);
+      }
+    } catch (err) {
+      console.error("[generateNow] 手动出图失败:", err);
+      setImages(images); // 撤掉占位图
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [
+    messages,
+    images,
+    cards,
+    isGenerating,
+    isReplying,
+    generateMut,
+    ensureStoryId,
+    persist,
+    saveStoryState,
+  ]);
+
   // 右划收下
   const swipeRight = useCallback(
     async (imageId: number) => {
@@ -617,6 +721,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     remoteStoryId,
     sendMessage,
     confirmGenerate,
+    generateNow,
     swipeRight,
     swipeLeft,
     resetConversation,

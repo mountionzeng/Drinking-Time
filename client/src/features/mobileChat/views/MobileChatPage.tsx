@@ -20,7 +20,7 @@ export default function MobileChatPage() {
     isGenerating,
     remoteStoryId,
     sendMessage,
-    confirmGenerate,
+    generateNow,
     swipeRight,
     swipeLeft,
   } = useMobileChat();
@@ -135,8 +135,6 @@ export default function MobileChatPage() {
         messages={messages}
         images={images}
         isReplying={isReplying}
-        isGenerating={isGenerating}
-        onConfirmGenerate={confirmGenerate}
         onSwipeRight={swipeRight}
         onSwipeLeft={swipeLeft}
         onLongPress={handleLongPress}
@@ -186,6 +184,23 @@ export default function MobileChatPage() {
               {photoInfo ?? "照片已添加"}，发送后小酌会基于它生成画面
             </span>
           </div>
+        )}
+
+        {/* 常驻「画出来」：不等小酌主动提议，随时把当前这段对话变成一张图 */}
+        {messages.some((m) => m.role === "user") && (
+          <button
+            type="button"
+            onClick={generateNow}
+            disabled={isGenerating || isReplying}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-full border border-[var(--nayin-accent)]/40 bg-[var(--nayin-accent)]/10 py-2 text-[13px] font-medium text-[var(--nayin-accent)] disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}
+            {isGenerating ? "正在画…" : "把这一刻画出来"}
+          </button>
         )}
 
         <div className="dtm-composer-row">
