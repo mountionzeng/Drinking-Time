@@ -41,6 +41,11 @@ export default function ImageCard({
     [-200, 0, 200],
     ["rgba(239,68,68,0.15)", "rgba(0,0,0,0)", "rgba(34,197,94,0.15)"]
   );
+  // 这两个 useTransform 必须在顶层声明，不能写进下面的 JSX：
+  // 否则 dismissed=true 时的 `return null` 会跳过它们 → Hooks 数量变化 →
+  // 「Rendered fewer hooks than expected」崩溃（右划/左划时触发）。
+  const leftHintOpacity = useTransform(x, [-150, -50, 0], [1, 0.5, 0]);
+  const rightHintOpacity = useTransform(x, [0, 50, 150], [0, 0.5, 1]);
 
   // 长按检测
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -109,7 +114,7 @@ export default function ImageCard({
       <motion.div
         className="dtm-image-card-hint dtm-image-card-hint--left"
         style={{
-          opacity: useTransform(x, [-150, -50, 0], [1, 0.5, 0]),
+          opacity: leftHintOpacity,
         }}
       >
         <span className="dtm-swipe-pill">
@@ -120,7 +125,7 @@ export default function ImageCard({
       <motion.div
         className="dtm-image-card-hint dtm-image-card-hint--right"
         style={{
-          opacity: useTransform(x, [0, 50, 150], [0, 0.5, 1]),
+          opacity: rightHintOpacity,
         }}
       >
         <span className="dtm-swipe-pill dtm-swipe-pill--save">
