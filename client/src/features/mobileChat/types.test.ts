@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { FIRST_QUESTION, type StoryCard } from "@/features/storyAgent/types";
 import {
+  buildMobileStoryboardScenes,
   buildMobileStoryBody,
   normalizeMobileCards,
   normalizeMobileImages,
   normalizeMobileMessages,
+  resolveCurrentMobileShotNo,
+  resolveMobileImageShotNo,
   serializeMobileMessages,
   type GeneratedImageItem,
   type MobileChatMessage,
@@ -137,5 +140,51 @@ describe("mobileChat story body helpers", () => {
     expect(normalizeMobileImages(body.mobileImages)).toEqual([
       expect.objectContaining({ id: 7, storyId: 9, status: "ready" }),
     ]);
+  });
+});
+
+describe("mobile storyboard placement", () => {
+  const cards: StoryCard[] = [
+    {
+      id: "card-1",
+      title: "第一段",
+      content: "第一段内容",
+      emotion: "积极",
+      sensoryDetails: [],
+      createdAt: 100,
+    },
+    {
+      id: "card-2",
+      title: "第二段",
+      content: "第二段内容",
+      emotion: "踏实",
+      sensoryDetails: [],
+      createdAt: 200,
+    },
+  ];
+
+  it("未归位图片只补画面，不会把两张卡扩成四个 beat", () => {
+    const images: GeneratedImageItem[] = [1, 2, 3, 4].map((id) => ({
+      id,
+      imageUrl: `https://example.com/${id}.jpg`,
+      prompt: `画面 ${id}`,
+      storyId: 9,
+      status: "ready",
+    }));
+
+    const scenes = buildMobileStoryboardScenes(cards, images);
+
+    expect(scenes).toHaveLength(2);
+    expect(scenes.map((scene) => scene.imageId)).toEqual([3, 4]);
+  });
+
+  it("手动出图默认落到当前最后一个 beat", () => {
+    expect(resolveCurrentMobileShotNo(cards)).toBe(2);
+    expect(resolveCurrentMobileShotNo([])).toBe(1);
+  });
+
+  it("模型给出的越界镜号会收敛到当前最后一个 beat", () => {
+    expect(resolveMobileImageShotNo(cards, 1)).toBe(1);
+    expect(resolveMobileImageShotNo(cards, 4)).toBe(2);
   });
 });

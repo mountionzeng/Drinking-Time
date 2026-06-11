@@ -24,6 +24,7 @@ import {
   normalizeMobileCards,
   normalizeMobileImages,
   normalizeMobileMessages,
+  resolveMobileImageShotNo,
   type MobileChatMessage,
   type GeneratedImageItem,
 } from "./types";
@@ -36,6 +37,7 @@ interface PersistedMobileState {
   cards: StoryCard[];
   images: GeneratedImageItem[];
   remoteStoryId?: number;
+  serverRevision?: number;
 }
 
 const STORAGE_KEY = "dt:mobileChat";
@@ -50,6 +52,8 @@ function loadState(): PersistedMobileState {
       cards: Array.isArray(parsed.cards) ? parsed.cards : [],
       images: Array.isArray(parsed.images) ? parsed.images : [],
       remoteStoryId: parsed.remoteStoryId,
+      serverRevision:
+        typeof parsed.serverRevision === "number" ? parsed.serverRevision : 0,
     };
   } catch {
     return emptyState();
@@ -116,6 +120,8 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const hydratedStoryVersion = useRef<string | null>(null);
+  const serverRevision = useRef(initial.serverRevision ?? 0);
+  const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const utils = trpc.useUtils();
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
@@ -140,6 +146,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         cards: crds,
         images: imgs,
         remoteStoryId: storyId ?? undefined,
+        serverRevision: serverRevision.current,
       };
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -200,6 +207,8 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const hydratedMessages =
           nextMessages.length > 0 ? nextMessages : emptyState().messages;
 
+        serverRevision.current =
+          typeof story.revision === "number" ? story.revision : 0;
         hydratedStoryVersion.current = version;
         setRemoteStoryId(story.id);
         setMessages(hydratedMessages);
@@ -232,7 +241,16 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           const existing = await utils.storyAgent.storyGet
             .fetch({ id: remoteStoryId })
             .catch(() => null);
-          if (existing) return remoteStoryId;
+          if (existing) {
+            if (hydratedStoryVersion.current === null) {
+              const remoteRevision =
+                typeof existing.revision === "number" ? existing.revision : 0;
+              // 尚未完成服务器水合时故意制造版本不一致，让首次保存走安全合并。
+              serverRevision.current = remoteRevision + 1;
+            }
+            return remoteStoryId;
+          }
+          serverRevision.current = 0;
           setRemoteStoryId(null); // 绑定的故事在服务器没了（如重启清空内存态），继续往下兜底
         }
         // 本地还没绑定故事时，才采纳服务器里最新的那个
@@ -241,6 +259,15 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           (await utils.storyAgent.storyList.fetch());
         const latestStory = listed.stories[0];
         if (latestStory) {
+          const existing = await utils.storyAgent.storyGet
+            .fetch({ id: latestStory.id })
+            .catch(() => null);
+          const remoteRevision =
+            existing && typeof existing.revision === "number"
+              ? existing.revision
+              : 0;
+          // 新设备还没水合正文，不能把“最新版本号”当成覆盖许可。
+          serverRevision.current = remoteRevision + 1;
           setRemoteStoryId(latestStory.id);
           return latestStory.id;
         }
@@ -255,6 +282,8 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
       });
       const id = result?.id;
       if (!id) throw new Error("创建 story 失败");
+      serverRevision.current =
+        typeof result.revision === "number" ? result.revision : 0;
       setRemoteStoryId(id);
       return id;
     },
@@ -271,37 +300,71 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
   );
 
   const saveStoryState = useCallback(
-    async (
+    (
       msgs: MobileChatMessage[],
       crds: StoryCard[],
       imgs: GeneratedImageItem[],
       storyId?: number | null
     ) => {
-      const seed: PersistedMobileState = {
-        messages: msgs,
-        cards: crds,
-        images: imgs,
-        remoteStoryId: storyId ?? undefined,
-      };
-      try {
-        const id = storyId ?? (await ensureStoryId(seed));
-        const saved = await upsertStoryMut.mutateAsync({
-          id,
-          body: buildMobileStoryBody(msgs, crds, imgs),
-        });
-        const savedId = saved?.id ?? id;
-        setRemoteStoryId(savedId);
-        if (saved?.updatedAt) {
-          hydratedStoryVersion.current = `${savedId}:${String(saved.updatedAt)}`;
+      const save = async () => {
+        const seed: PersistedMobileState = {
+          messages: msgs,
+          cards: crds,
+          images: imgs,
+          remoteStoryId: storyId ?? undefined,
+        };
+        try {
+          const id = storyId ?? (await ensureStoryId(seed));
+          const saved = await upsertStoryMut.mutateAsync({
+            id,
+            baseRevision: serverRevision.current,
+            body: buildMobileStoryBody(msgs, crds, imgs),
+          });
+          const savedId = saved?.id ?? id;
+          const savedRevision =
+            typeof saved?.revision === "number"
+              ? saved.revision
+              : serverRevision.current;
+          serverRevision.current = savedRevision;
+          setRemoteStoryId(savedId);
+          if (saved?.updatedAt) {
+            hydratedStoryVersion.current = `${savedId}:${String(saved.updatedAt)}`;
+          }
+          if (saved?.syncConflict && saved.body && typeof saved.body === "object") {
+            const body = saved.body as Record<string, unknown>;
+            const mergedMessages = normalizeMobileMessages(body.messages);
+            const mergedCards = normalizeMobileCards(body.cards);
+            const mergedImages = normalizeMobileImages(
+              body.mobileImages ?? body.images
+            );
+            const hydratedMessages =
+              mergedMessages.length > 0 ? mergedMessages : emptyState().messages;
+            setMessages(hydratedMessages);
+            setCards(mergedCards);
+            setImages(mergedImages);
+            persist(
+              hydratedMessages,
+              mergedCards,
+              mergedImages,
+              savedId
+            );
+          } else {
+            persist(msgs, crds, imgs, savedId);
+          }
+          await utils.storyAgent.storyList.invalidate();
+          return savedId;
+        } catch (err) {
+          persist(msgs, crds, imgs, storyId ?? remoteStoryId);
+          console.error("[mobileChat] 服务器保存失败，已保留本地缓存:", err);
+          return storyId ?? remoteStoryId;
         }
-        persist(msgs, crds, imgs, savedId);
-        await utils.storyAgent.storyList.invalidate();
-        return savedId;
-      } catch (err) {
-        persist(msgs, crds, imgs, storyId ?? remoteStoryId);
-        console.error("[mobileChat] 服务器保存失败，已保留本地缓存:", err);
-        return storyId ?? remoteStoryId;
-      }
+      };
+      const queued = storySaveQueue.current.then(save, save);
+      storySaveQueue.current = queued.then(
+        () => undefined,
+        () => undefined
+      );
+      return queued;
     },
     [
       ensureStoryId,
@@ -464,6 +527,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
       setIsGenerating(true);
       try {
         const storyId = await ensureStoryId();
+        const shotNo = resolveMobileImageShotNo(cards, msg.imageShotNo);
 
         // 先添加 generating 状态的图片占位
         const placeholderId = Date.now();
@@ -471,7 +535,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           id: placeholderId,
           imageUrl: "",
           prompt: msg.imagePrompt,
-          shotNo: msg.imageShotNo,
+          shotNo,
           storyId,
           status: "generating",
           messageId,
@@ -496,7 +560,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         const result = await generateMut.mutateAsync({
           prompt: msg.imagePrompt,
           storyId,
-          shotNo: msg.imageShotNo,
+          shotNo,
           originalImageUrl: photoUrl,
         });
 
@@ -505,15 +569,17 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
             id: result.imageId!,
             imageUrl: result.imageUrl,
             prompt: msg.imagePrompt,
-            shotNo: msg.imageShotNo,
+            shotNo,
             storyId,
             status: "ready",
             messageId,
           };
-          const finalImages = images
+          const finalImages = newImages
             .filter((img) => img.id !== placeholderId)
             .concat(readyImage);
-          setImages(finalImages);
+          setImages((prev) =>
+            prev.filter((img) => img.id !== placeholderId).concat(readyImage),
+          );
           persist(messages, cards, finalImages, storyId);
           void saveStoryState(messages, cards, finalImages, storyId);
         } else {
@@ -553,6 +619,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     setIsGenerating(true);
     try {
       const storyId = await ensureStoryId();
+      const shotNo = resolveMobileImageShotNo(cards);
 
       // 新增一条 assistant 消息承载这次出图的生命周期（生成中 → 画好 / 失败）
       const genMsgId = newId("a");
@@ -567,7 +634,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         id: placeholderId,
         imageUrl: "",
         prompt: "",
-        shotNo: undefined,
+        shotNo,
         storyId,
         status: "generating",
         messageId: genMsgId,
@@ -591,6 +658,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
 
       const result = await generateMut.mutateAsync({
         storyId,
+        shotNo,
         history,
         originalImageUrl: photoUrl,
       });
@@ -600,7 +668,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           id: result.imageId!,
           imageUrl: result.imageUrl,
           prompt: result.prompt ?? "",
-          shotNo: undefined,
+          shotNo,
           storyId,
           status: "ready",
           messageId: genMsgId,
@@ -610,9 +678,16 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
             ? { ...m, content: "🎨 画好了 —— 喜欢就右划收下，不满意左划再来一张。" }
             : m
         );
-        const finalImages = images.concat(readyImage); // images 不含 placeholder
         setMessages(finalMsgs);
-        setImages(finalImages);
+        // 函数式更新：基于最新 state 去掉占位、再加成图，避免陈旧闭包把图丢掉
+        const finalImages = [
+          ...images.filter((img) => img.id !== placeholderId),
+          readyImage,
+        ];
+        setImages((prev) => [
+          ...prev.filter((img) => img.id !== placeholderId),
+          readyImage,
+        ]);
         persist(finalMsgs, cards, finalImages, storyId);
         void saveStoryState(finalMsgs, cards, finalImages, storyId);
       } else {
@@ -691,6 +766,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     setCards([]);
     setImages([]);
     setRemoteStoryId(null);
+    serverRevision.current = 0;
     persist(fresh.messages, [], [], null);
     void (async () => {
       try {
@@ -699,6 +775,8 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           body: buildMobileStoryBody(fresh.messages, [], []),
         });
         if (created?.id) {
+          serverRevision.current =
+            typeof created.revision === "number" ? created.revision : 0;
           setRemoteStoryId(created.id);
           hydratedStoryVersion.current = created.updatedAt
             ? `${created.id}:${String(created.updatedAt)}`

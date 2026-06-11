@@ -10,7 +10,10 @@ import { useLocation } from "wouter";
 import { useNayin } from "@/features/nayin/NayinContext";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import { useMobileChat } from "../MobileChatContext";
-import type { StoryboardScene as SceneType } from "../types";
+import {
+  buildMobileStoryboardScenes,
+  type StoryboardScene as SceneType,
+} from "../types";
 import StoryboardSceneCard from "./StoryboardScene";
 import MobileImageEdit from "./MobileImageEdit";
 
@@ -23,73 +26,8 @@ export default function MobileStoryboard() {
   // 从 cards + images 组合出场景列表
   const [scenes, setScenes] = useState<SceneType[]>([]);
 
-  // 每次 cards/images 变化时重新计算场景（用 useMemo 做初始值）。
-  //
-  // 关键修复：图片和卡片是两套互不相干的编号 —— 卡片的 shotNo 是它在列表里的位置（idx+1），
-  // 而图片的 shotNo 是 LLM 在出图工具调用里「按故事时间线」随手给的数字（经常缺失或对不上）。
-  // 旧逻辑只靠 `img.shotNo === idx+1` 精确命中，命中不了图片就永远显示不出来
-  //（用户看到的「故事版没继承聊天里的图」就是这个原因）。
-  // 现在改成三步兜底，保证聊天里生成过的每一张 ready 图都会出现在故事版：
-  //   ① 精确命中 shotNo 的，钉到对应 beat（LLM 给对了就尊重它）；
-  //   ② 没配上的 ready 图按时间顺序填进还空着的 beat（卡片、图片都是按时间追加的，顺序兜底最稳）；
-  //   ③ 还剩的图（图比卡多，或一张卡都没有）追加成纯图片 beat，绝不让图凭空消失。
   const computedScenes = useMemo(() => {
-    const readyImages = images.filter((img) => img.status === "ready");
-    const usedImageIds = new Set<number>();
-
-    // 基础场景：每张卡一个 beat（台词/主题/情绪来自卡片）
-    const base: SceneType[] = cards.map((card, idx) => {
-      const shotNo = idx + 1;
-      const existing = scenes.find((s) => s.shotNo === shotNo); // 保留用户已编辑的台词
-      return {
-        shotNo,
-        dialogue: existing?.dialogue ?? card.content,
-        subject: card.title,
-        mood: card.emotion,
-        imageUrl: undefined,
-        imageId: undefined,
-      };
-    });
-
-    // ① 精确命中 shotNo：LLM 恰好给对编号时，钉到对应 beat
-    for (const scene of base) {
-      const hit = readyImages.find(
-        (img) => img.shotNo === scene.shotNo && !usedImageIds.has(img.id)
-      );
-      if (hit) {
-        scene.imageUrl = hit.imageUrl;
-        scene.imageId = hit.id;
-        usedImageIds.add(hit.id);
-      }
-    }
-
-    // ② 顺序兜底：剩下的 ready 图按时间顺序依次填进还没有图的 beat
-    for (const scene of base) {
-      if (scene.imageUrl) continue;
-      const next = readyImages.find((img) => !usedImageIds.has(img.id));
-      if (!next) break;
-      scene.imageUrl = next.imageUrl;
-      scene.imageId = next.id;
-      usedImageIds.add(next.id);
-    }
-
-    // ③ 还没被认领的图 → 追加成纯图片 beat（图比卡多、或还没出卡时，保证图一定进故事版）
-    const extra: SceneType[] = readyImages
-      .filter((img) => !usedImageIds.has(img.id))
-      .map((img, i) => {
-        const shotNo = cards.length + i + 1;
-        const existing = scenes.find((s) => s.shotNo === shotNo);
-        return {
-          shotNo,
-          dialogue: existing?.dialogue ?? "",
-          subject: img.prompt.slice(0, 14) || `画面 ${i + 1}`,
-          mood: "",
-          imageUrl: img.imageUrl,
-          imageId: img.id,
-        };
-      });
-
-    return [...base, ...extra];
+    return buildMobileStoryboardScenes(cards, images, scenes);
   }, [cards, images]); // scenes 故意不在依赖中，避免循环
 
   // 同步 computedScenes 到 state（用于支持拖拽排序）

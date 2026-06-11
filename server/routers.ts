@@ -65,6 +65,52 @@ import {
 } from "./services/imageGen";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { createArtRiff } from "./services/artAgent";
+import {
+  getStoryRevision,
+  mergeStaleStoryBody,
+  prepareStoryBody,
+} from "./services/storySync";
+
+type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
+
+function mobileShotNo(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const match = /^(?:SH)?0*(\d+)$/i.exec(value.trim());
+  return match ? Number(match[1]) : undefined;
+}
+
+async function composeStoryWorkspace(
+  story: StoryRow,
+  syncConflict = false
+) {
+  const revision = getStoryRevision(story.body);
+  try {
+    const tableImages = await getStoryImages(story.id);
+    const mobileImages = tableImages
+      .filter((image) => image.imageUrl)
+      .map((image) => ({
+        id: image.id,
+        imageUrl: image.imageUrl,
+        prompt: image.prompt || "画面",
+        shotNo: mobileShotNo(image.shotNo),
+        storyId: image.storyId,
+        status: "ready" as const,
+      }));
+    const body =
+      story.body && typeof story.body === "object"
+        ? (story.body as Record<string, unknown>)
+        : {};
+    return {
+      ...story,
+      revision,
+      syncConflict,
+      body: mobileImages.length > 0 ? { ...body, mobileImages } : body,
+    };
+  } catch (err) {
+    console.warn("[story workspace] 读取 generatedImages 失败，按正文返回：", err);
+    return { ...story, revision, syncConflict };
+  }
+}
 
 function shotStatusFromBeat(beat: string) {
   if (beat === "收束") return "production_ready" as const;
@@ -1008,7 +1054,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .query(async ({ ctx, input }) => {
         const story = await getStoryById(input.id, ctx.user.id);
         if (!story) return null;
-        return story;
+        return composeStoryWorkspace(story);
       }),
 
     /** Create or update a story */
@@ -1023,32 +1069,50 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           summary: z.string().nullable().optional(),
           projectId: z.number().nullable().optional(),
           body: z.record(z.string(), z.unknown()).optional(),
+          baseRevision: z.number().int().nonnegative().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
         if (input.id) {
           const existing = await getStoryById(input.id, ctx.user.id);
           if (existing) {
+            const currentRevision = getStoryRevision(existing.body);
+            const syncConflict =
+              input.baseRevision !== undefined &&
+              input.baseRevision !== currentRevision;
+            const nextRevision = currentRevision + 1;
             const title =
-              input.title !== undefined
+              !syncConflict && input.title !== undefined
                 ? input.title.trim().slice(0, 255) || existing.title
                 : existing.title;
+            const nextBody =
+              input.body === undefined
+                ? prepareStoryBody(existing.body, nextRevision)
+                : syncConflict
+                  ? mergeStaleStoryBody(
+                      existing.body,
+                      input.body,
+                      nextRevision
+                    )
+                  : prepareStoryBody(input.body, nextRevision);
             await updateStory(input.id, ctx.user.id, {
               title,
-              logline: input.logline,
-              theme: input.theme,
-              arc: input.arc,
-              summary: input.summary,
-              projectId: input.projectId,
-              body: input.body as object | undefined,
+              logline: syncConflict ? undefined : input.logline,
+              theme: syncConflict ? undefined : input.theme,
+              arc: syncConflict ? undefined : input.arc,
+              summary: syncConflict ? undefined : input.summary,
+              projectId: syncConflict ? undefined : input.projectId,
+              body: nextBody,
             });
-            return await getStoryById(input.id, ctx.user.id);
+            const saved = await getStoryById(input.id, ctx.user.id);
+            return saved ? composeStoryWorkspace(saved, syncConflict) : null;
           }
           // Story not found (e.g. after server restart cleared in-memory state).
           // Fall through to create a new story rather than failing silently.
         }
 
         const title = input.title?.trim().slice(0, 255) || "未命名";
+        const revision = 1;
         const { id: newId } = await createStory({
           userId: ctx.user.id,
           projectId: input.projectId ?? null,
@@ -1057,13 +1121,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           theme: input.theme ?? null,
           arc: input.arc ?? null,
           summary: input.summary ?? null,
-          body: (input.body ?? {
-            cards: [],
-            characters: [],
-            shots: [],
-          }) as object,
+          body: prepareStoryBody(
+            input.body ?? {
+              cards: [],
+              characters: [],
+              shots: [],
+            },
+            revision
+          ),
         });
-        return await getStoryById(newId, ctx.user.id);
+        const saved = await getStoryById(newId, ctx.user.id);
+        return saved ? composeStoryWorkspace(saved) : null;
       }),
 
     /** Delete a story */

@@ -215,3 +215,70 @@ export function buildMobileStoryBody(
     mobileImages: images,
   };
 }
+
+export function resolveCurrentMobileShotNo(cards: StoryCard[]): number {
+  return Math.max(1, cards.length);
+}
+
+export function resolveMobileImageShotNo(
+  cards: StoryCard[],
+  suggestedShotNo?: number
+): number {
+  const currentShotNo = resolveCurrentMobileShotNo(cards);
+  return suggestedShotNo &&
+    Number.isInteger(suggestedShotNo) &&
+    suggestedShotNo >= 1 &&
+    suggestedShotNo <= currentShotNo
+    ? suggestedShotNo
+    : currentShotNo;
+}
+
+export function buildMobileStoryboardScenes(
+  cards: StoryCard[],
+  images: GeneratedImageItem[],
+  previousScenes: StoryboardScene[] = []
+): StoryboardScene[] {
+  const readyImages = images
+    .filter((image) => image.status === "ready")
+    .sort((left, right) => left.id - right.id);
+  const usedImageIds = new Set<number>();
+  const scenes = cards.map((card, index): StoryboardScene => {
+    const shotNo = index + 1;
+    const previous = previousScenes.find((scene) => scene.shotNo === shotNo);
+    return {
+      shotNo,
+      dialogue: previous?.dialogue ?? card.content,
+      subject: card.title,
+      mood: card.emotion,
+    };
+  });
+
+  for (const scene of scenes) {
+    const matchedImages = readyImages.filter(
+      (image) =>
+        image.shotNo === scene.shotNo && !usedImageIds.has(image.id)
+    );
+    // 微信旧 WebView 不支持 Array.prototype.at，使用传统下标保持兼容。
+    const matched = matchedImages[matchedImages.length - 1];
+    if (matched) {
+      scene.imageUrl = matched.imageUrl;
+      scene.imageId = matched.id;
+      usedImageIds.add(matched.id);
+    }
+  }
+
+  const emptyScenes = scenes.filter((scene) => !scene.imageUrl);
+  const unplacedImages = readyImages.filter(
+    (image) => !usedImageIds.has(image.id)
+  );
+  const fallbackImages = unplacedImages.slice(-emptyScenes.length);
+
+  emptyScenes.forEach((scene, index) => {
+    const image = fallbackImages[index];
+    if (!image) return;
+    scene.imageUrl = image.imageUrl;
+    scene.imageId = image.id;
+  });
+
+  return scenes;
+}

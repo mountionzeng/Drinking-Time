@@ -341,6 +341,98 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
+  it("旧设备保存时合并新增进度，不覆盖另一端已经写入的消息和卡片", async () => {
+    const caller = appRouter.createCaller(createAuthContext(189));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "跨端故事",
+      body: {
+        cards: [{ id: "card-1", content: "共同的开场", createdAt: 100 }],
+        characters: [],
+        shots: [],
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "共同的开场",
+            timestamp: 100,
+          },
+        ],
+      },
+    });
+    const baseRevision = created!.revision;
+
+    const mobileSaved = await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      baseRevision,
+      body: {
+        cards: [
+          { id: "card-1", content: "共同的开场", createdAt: 100 },
+          { id: "card-mobile", content: "手机补充的片段", createdAt: 200 },
+        ],
+        characters: [],
+        shots: [],
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "共同的开场",
+            timestamp: 100,
+          },
+          {
+            id: "message-mobile",
+            role: "assistant",
+            content: "手机端继续说了一句",
+            timestamp: 200,
+          },
+        ],
+      },
+    });
+
+    const desktopSaved = await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      baseRevision,
+      body: {
+        cards: [
+          { id: "card-1", content: "共同的开场", createdAt: 100 },
+          { id: "card-desktop", content: "电脑补充的片段", createdAt: 300 },
+        ],
+        characters: [],
+        shots: [],
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "共同的开场",
+            timestamp: 100,
+          },
+          {
+            id: "message-desktop",
+            role: "assistant",
+            content: "电脑端继续说了一句",
+            timestamp: 300,
+          },
+        ],
+      },
+    });
+
+    expect(mobileSaved?.syncConflict).toBe(false);
+    expect(desktopSaved?.syncConflict).toBe(true);
+    expect(desktopSaved?.revision).toBeGreaterThan(mobileSaved!.revision);
+
+    const body = desktopSaved?.body as Record<string, unknown>;
+    expect(body.cards).toEqual([
+      expect.objectContaining({ id: "card-1" }),
+      expect.objectContaining({ id: "card-mobile" }),
+      expect.objectContaining({ id: "card-desktop" }),
+    ]);
+    expect(body.messages).toEqual([
+      expect.objectContaining({ id: "message-1" }),
+      expect.objectContaining({ id: "message-mobile" }),
+      expect.objectContaining({ id: "message-desktop" }),
+    ]);
+  });
+
   it("手机端文生图成功后带 projectId 落库", async () => {
     imageGenMocks.generateImage.mockResolvedValueOnce({
       status: "ok",

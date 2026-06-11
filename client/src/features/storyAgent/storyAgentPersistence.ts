@@ -37,6 +37,7 @@ export interface PersistedState {
   imageProvider?: ImageProviderSelection;
   savedAt?: number;
   activeStoryId?: number;
+  serverRevision?: number;
 }
 
 // localStorage 的键：每个 projectId 一个槽位；没有 projectId 就返回 null（不存）。
@@ -85,6 +86,8 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
     imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
     activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
+    serverRevision:
+      typeof parsed.serverRevision === 'number' ? parsed.serverRevision : 0,
   };
 }
 

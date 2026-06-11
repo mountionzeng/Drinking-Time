@@ -22,9 +22,14 @@ import {
 } from 'lucide-react';
 import { IMAGE_PROVIDER_LABELS, IMAGE_PROVIDER_VALUES } from '@shared/imageProvider';
 import { useStoryAgent, type ImageProviderSelection } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryGeneratedImages } from './StoryImagesStrip';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { StoryCard, VisualCanvasItem } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
+import {
+  buildMobileStoryboardScenes,
+  type GeneratedImageItem,
+} from '@/features/mobileChat/types';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: '先开瓶啤酒，跟小酌聊聊一句让你记住的话',
@@ -91,9 +96,11 @@ function EmotionBridge({
 function CardVisualDock({
   cardId,
   visualItems,
+  generatedImage,
 }: {
   cardId: string;
   visualItems: VisualCanvasItem[];
+  generatedImage?: GeneratedImageItem;
 }) {
   const {
     visualPreference,
@@ -110,7 +117,10 @@ function CardVisualDock({
   const [dragActive, setDragActive] = useState(false);
 
   const selectedItem = useMemo(
-    () => visualItems.find((item) => item.id === selectedId) ?? visualItems.at(-1) ?? null,
+    () =>
+      visualItems.find((item) => item.id === selectedId) ??
+      visualItems[visualItems.length - 1] ??
+      null,
     [selectedId, visualItems],
   );
 
@@ -191,6 +201,28 @@ function CardVisualDock({
           }}
         />
       </div>
+
+      {generatedImage ? (
+        <a
+          href={generatedImage.imageUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 grid grid-cols-[72px_1fr] gap-2 overflow-hidden rounded-md border p-1.5"
+          style={{ borderColor: 'var(--panel-border)' }}
+        >
+          <img
+            src={generatedImage.imageUrl}
+            alt={generatedImage.prompt || '当前生成画面'}
+            className="aspect-square w-full rounded object-cover"
+          />
+          <div className="min-w-0 self-center">
+            <div className="text-[10px] font-semibold text-foreground">当前生成画面</div>
+            <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
+              {generatedImage.prompt || '从手机端同步的故事画面'}
+            </p>
+          </div>
+        </a>
+      ) : null}
 
       {visualItems.length === 0 ? (
         <button
@@ -326,6 +358,7 @@ function CardItem({
   index,
   previousEmotion,
   visualItems,
+  generatedImage,
   onRemove,
   onCommitContent,
 }: {
@@ -333,6 +366,7 @@ function CardItem({
   index: number;
   previousEmotion?: string;
   visualItems: VisualCanvasItem[];
+  generatedImage?: GeneratedImageItem;
   onRemove: () => void;
   onCommitContent: (content: string) => void;
 }) {
@@ -440,7 +474,11 @@ function CardItem({
                 ))}
               </div>
             )}
-            <CardVisualDock cardId={card.id} visualItems={visualItems} />
+            <CardVisualDock
+              cardId={card.id}
+              visualItems={visualItems}
+              generatedImage={generatedImage}
+            />
           </div>
 
           <button
@@ -470,6 +508,11 @@ export default function StoryCardsBoard() {
   } = useStoryAgent();
   const { element } = useNayin();
   const lastOrderRef = useRef<string>('');
+  const generatedImages = useStoryGeneratedImages();
+  const generatedScenes = useMemo(
+    () => buildMobileStoryboardScenes(cards, generatedImages),
+    [cards, generatedImages],
+  );
 
   // Detect whether order changed since last script
   const orderChanged = useMemo(() => {
@@ -530,6 +573,9 @@ export default function StoryCardsBoard() {
                     index={idx}
                     previousEmotion={cards[idx - 1]?.emotion}
                     visualItems={visualCanvasItems.filter((item) => item.cardId === card.id)}
+                    generatedImage={generatedImages.find(
+                      (image) => image.id === generatedScenes[idx]?.imageId,
+                    )}
                     onRemove={() => removeCard(card.id)}
                     onCommitContent={(text) => updateCardContent(card.id, text)}
                   />

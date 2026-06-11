@@ -375,12 +375,15 @@ export function StoryAgentProvider({
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<StorySaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | undefined>(undefined);
+  const [serverRevision, setServerRevision] = useState(0);
   const [isLoadingStories, setIsLoadingStories] = useState(false);
   const [storyList, setStoryList] = useState<StoryListItem[]>([]);
   // 第二步：老用户点回旧故事时的「我还记得上次……」再问候。纯内存、不落库（见 interface 注释）。
   const [returningGreeting, setReturningGreeting] = useState<string | null>(null);
   const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
   const hydratedFor = useRef<number | null>(null);
+  const serverRevisionRef = useRef(0);
+  const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   // ── Auto-save refs ──────────────────────────────────────────────────
   // Stable session ID for this browser session
@@ -444,6 +447,9 @@ export function StoryAgentProvider({
     setActiveStoryId(isUnsavedNewDraft ? restored : null);
     setSaveStatus(persisted.remoteStoryId ? 'saved' : 'idle');
     setLastSavedAt(persisted.savedAt);
+    const restoredRevision = persisted.serverRevision ?? 0;
+    serverRevisionRef.current = restoredRevision;
+    setServerRevision(restoredRevision);
     hydratedFor.current = projectId;
   }, [projectId]);
 
@@ -469,6 +475,7 @@ export function StoryAgentProvider({
       imageProvider,
       savedAt: Date.now(),
       activeStoryId: activeStoryId ?? undefined,
+      serverRevision,
     };
     try {
       localStorage.setItem(key, JSON.stringify(data));
@@ -491,6 +498,7 @@ export function StoryAgentProvider({
     visualPreference,
     imageProvider,
     activeStoryId,
+    serverRevision,
   ]);
 
   // ── Auto-save: keep refs in sync ───────────────────────────────────
@@ -560,7 +568,7 @@ export function StoryAgentProvider({
   }, [projectId]);
 
   const saveArchiveStory = useCallback(
-    async (snapshot: {
+    (snapshot: {
       messages: ChatMessage[];
       cards: StoryCard[];
       scripts: GeneratedScript[];
@@ -594,46 +602,63 @@ export function StoryAgentProvider({
       const preference = snapshot.visualPreference ?? visualPreference;
       const selectedProvider = snapshot.imageProvider ?? imageProvider;
 
-      try {
-        setSaveStatus('saving');
-        const saved = await storyUpsertMut.mutateAsync({
-          id: snapshot.remoteStoryId ?? remoteStoryId,
-          projectId: projectId ?? undefined,
-          title,
-          logline,
-          theme,
-          arc,
-          summary: snapshot.summary ?? '',
-          body: {
-            cards: snapshot.cards,
-            characters: snapshot.characters,
-            shots: snapshot.storyShots,
-            visualCanvasItems: canvasItems,
-            visualPreference: preference,
-            imageProvider: selectedProvider,
-            variants: latest?.variants ?? [],
-            boringCheck: latest?.boringCheck ?? null,
-            messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
-          },
-        });
-        if (saved && typeof saved.id === 'number') {
-          setRemoteStoryId(saved.id);
-          // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
-          // 若用户正停在选择屏 (activeStoryId === null)，后台自动保存绝不能把人弹进故事——
-          // 否则进门时 hydrate 灌入内容触发的一次后台保存，会让选择屏「闪一下」就跳进上次那篇
-          // （Option A 实测 bug：#1 闪一下就结束）。
-          setActiveStoryId((current) => (current === null ? null : saved.id));
-          setSaveStatus('saved');
-          setLastSavedAt(Date.now());
+      const save = async () => {
+        try {
+          setSaveStatus('saving');
+          const saved = await storyUpsertMut.mutateAsync({
+            id: snapshot.remoteStoryId ?? remoteStoryId,
+            baseRevision:
+              (snapshot.remoteStoryId ?? remoteStoryId)
+                ? serverRevisionRef.current
+                : undefined,
+            projectId: projectId ?? undefined,
+            title,
+            logline,
+            theme,
+            arc,
+            summary: snapshot.summary ?? '',
+            body: {
+              cards: snapshot.cards,
+              characters: snapshot.characters,
+              shots: snapshot.storyShots,
+              visualCanvasItems: canvasItems,
+              visualPreference: preference,
+              imageProvider: selectedProvider,
+              variants: latest?.variants ?? [],
+              boringCheck: latest?.boringCheck ?? null,
+              messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
+            },
+          });
+          if (saved && typeof saved.id === 'number') {
+            setRemoteStoryId(saved.id);
+            // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
+            // 若用户正停在选择屏 (activeStoryId === null)，后台自动保存绝不能把人弹进故事——
+            // 否则进门时 hydrate 灌入内容触发的一次后台保存，会让选择屏「闪一下」就跳进上次那篇
+            // （Option A 实测 bug：#1 闪一下就结束）。
+            setActiveStoryId((current) => (current === null ? null : saved.id));
+            setSaveStatus('saved');
+            setLastSavedAt(Date.now());
+            if (!saved.syncConflict && typeof saved.revision === 'number') {
+              serverRevisionRef.current = saved.revision;
+              setServerRevision(saved.revision);
+            }
+          }
+        } catch (error) {
+          console.warn('save archive story failed', error);
+          // 保存失败后清掉失效的远端 ID，让下次保存可以重新创建故事。
+          setRemoteStoryId(undefined);
+          serverRevisionRef.current = 0;
+          setServerRevision(0);
+          setSaveStatus('error');
+          toast.error('云端保存失败，本机仍有临时备份，会继续重试');
         }
-      } catch (error) {
-        console.warn('save archive story failed', error);
-        // Clear stale remoteStoryId so the next save attempt creates a fresh story
-        // instead of repeatedly failing to update a story that no longer exists.
-        setRemoteStoryId(undefined);
-        setSaveStatus('error');
-        toast.error('云端保存失败，本机仍有临时备份，会继续重试');
-      }
+      };
+      const queued = storySaveQueue.current.then(save, save);
+      storySaveQueue.current = queued.then(
+        () => undefined,
+        () => undefined
+      );
+      return queued;
     },
     [
       projectId,
@@ -1250,6 +1275,8 @@ export function StoryAgentProvider({
     setActiveStoryId(-1);
     setSaveStatus('idle');
     setLastSavedAt(undefined);
+    serverRevisionRef.current = 0;
+    setServerRevision(0);
     setReturningGreeting(null);
     toast.success('已开始新故事，旧故事仍保留在云端故事库');
   }, []);
@@ -1273,6 +1300,8 @@ export function StoryAgentProvider({
       setRemoteStoryId((prev) => {
         if (prev !== undefined && !items.some((s) => s.id === prev)) {
           setActiveStoryId((current) => (current === prev ? -1 : current));
+          serverRevisionRef.current = 0;
+          setServerRevision(0);
           return undefined;
         }
         return prev;
@@ -1308,12 +1337,19 @@ export function StoryAgentProvider({
     setImageProvider('default');
     setSaveStatus('idle');
     setLastSavedAt(undefined);
+    serverRevisionRef.current = 0;
+    setServerRevision(0);
     setReturningGreeting(null);
   }, []);
 
-  const loadStory = useCallback(async (id: number) => {
+  const loadStory = useCallback(async (
+    id: number,
+    options?: { silent?: boolean },
+  ) => {
     try {
-      const row = await utils.storyAgent.storyGet.fetch({ id });
+      // staleTime:0 强制从服务器重拉最新 —— 否则命中缓存会显示旧快照，
+      // 看不到另一端（手机）刚加的消息/卡片/图（跨端同步的关键）。
+      const row = await utils.storyAgent.storyGet.fetch({ id }, { staleTime: 0 });
       if (!row) {
         toast.error('故事不存在');
         return;
@@ -1388,27 +1424,63 @@ export function StoryAgentProvider({
       setActiveStoryId(id);
       setSaveStatus('saved');
       setLastSavedAt(row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now());
+      const loadedRevision = typeof row.revision === 'number' ? row.revision : 0;
+      serverRevisionRef.current = loadedRevision;
+      setServerRevision(loadedRevision);
 
       // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
       // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
       const lastCard = restoredCards[restoredCards.length - 1];
-      setReturningGreeting(
-        buildReturningGreeting({
-          hasPriorUserMessages: restoredMessages.some(
-            (m) =>
-              m.role === 'user' &&
-              (m.content.trim().length > 0 || Boolean(m.photoUrl)),
-          ),
-          logline: row.logline,
-          lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
-          title: row.title,
-        }),
-      );
+      if (!options?.silent) {
+        setReturningGreeting(
+          buildReturningGreeting({
+            hasPriorUserMessages: restoredMessages.some(
+              (m) =>
+                m.role === 'user' &&
+                (m.content.trim().length > 0 || Boolean(m.photoUrl)),
+            ),
+            logline: row.logline,
+            lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
+            title: row.title,
+          }),
+        );
+      }
     } catch (error) {
       console.error('loadStory failed', error);
       toast.error('加载故事失败');
     }
   }, [utils.storyAgent.storyGet]);
+
+  useEffect(() => {
+    if (!activeStoryId || activeStoryId < 1) return;
+
+    const syncActiveStory = () => {
+      if (
+        document.visibilityState !== 'visible' ||
+        isReplying ||
+        isGeneratingScript ||
+        saveStatus === 'saving'
+      ) {
+        return;
+      }
+      void storySaveQueue.current.then(() =>
+        loadStory(activeStoryId, { silent: true }),
+      );
+    };
+
+    window.addEventListener('focus', syncActiveStory);
+    document.addEventListener('visibilitychange', syncActiveStory);
+    return () => {
+      window.removeEventListener('focus', syncActiveStory);
+      document.removeEventListener('visibilitychange', syncActiveStory);
+    };
+  }, [
+    activeStoryId,
+    isGeneratingScript,
+    isReplying,
+    loadStory,
+    saveStatus,
+  ]);
 
   // 不再自动加载最近一篇：老用户进门先看「继续 vs 开新」选择屏（StoryListView），
   // 由 loadStory() / createNewStory() 显式进入对话。（Option A：开头直接问）
