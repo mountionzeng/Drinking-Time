@@ -56,6 +56,12 @@ start() {
   # 只有改了 server 端代码，才需要 `restart`。
   nohup bash -c '
     export PATH="/opt/homebrew/bin:$PATH"
+    # 让 server 的 Node fetch 走本机代理（Clash/Surge 等）。否则像 api.302.ai 这类
+    # 解析到代理 FakeIP（198.18.x.x）的域名，Node 直连会「fetch failed」。
+    # 已设则沿用；未设默认 Clash 的 127.0.0.1:7890。本机地址不走代理。
+    export HTTP_PROXY="${HTTP_PROXY:-http://127.0.0.1:7890}"
+    export HTTPS_PROXY="${HTTPS_PROXY:-http://127.0.0.1:7890}"
+    export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
     while true; do
       echo "[supervisor $(date "+%F %T")] starting dev server ..."
       node_modules/.bin/tsx server/_core/index.ts
