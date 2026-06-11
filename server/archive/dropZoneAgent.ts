@@ -1,3 +1,12 @@
+/**
+ * Drop Zone Agent（「工坊」）—— Drop Zone 页的对话助手。
+ *
+ * 对话型 + 意图识别：理解用户意图、识别缺失信息(场景/时间/情绪/机位)、给下一步最小行动，
+ * 把模糊的影视想法逐步变成可分析、可拆镜头的材料。会读用户的长期情绪画像(emotionAnalysis)
+ * 折进上下文(见 resonanceSignal)，带着情绪底盘去理解。
+ *
+ * 主接口：replyFromDropZoneAgent({ userId, message, history, projectId?, stageKey? }) → { reply, configured, modelLabel }
+ */
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
 import {
