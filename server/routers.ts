@@ -44,6 +44,7 @@ import type { ProjectState } from "./_core/editDiff";
 import { nanoid } from "nanoid";
 import {
   replyFromStoryAgent,
+  deriveMobileImagePrompt,
   synthesizeShotList,
   summarizeHistory,
   handleSelectionEdit,
@@ -1184,10 +1185,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     generateForMobile: protectedProcedure
       .input(
         z.object({
-          prompt: z.string().min(1),
+          prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
           storyId: z.number(),
           shotNo: z.number().optional(),
           originalImageUrl: z.string().optional(), // 用户照片 URL，用于 image-to-image
+          history: z // 手动「画出来」时传最近对话，供现编英文出图 prompt
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                content: z.string(),
+              })
+            )
+            .optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1197,9 +1206,21 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             return { status: "error" as const, error: "找不到故事，无法保存图片" };
           }
 
+          // prompt 缺失（手动「画出来」按钮）→ 用最近对话现编一条英文出图 prompt
+          let prompt = input.prompt?.trim() ?? "";
+          if (!prompt) {
+            prompt = await deriveMobileImagePrompt({ history: input.history });
+          }
+          if (!prompt) {
+            return {
+              status: "error" as const,
+              error: "还没聊到能画的内容，多说两句再点「画出来」？",
+            };
+          }
+
           const result = input.originalImageUrl
-            ? await editMobileImage(input.originalImageUrl, input.prompt)
-            : await generateMobileImage(input.prompt);
+            ? await editMobileImage(input.originalImageUrl, prompt)
+            : await generateMobileImage(prompt);
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1214,11 +1235,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             shotNo: input.shotNo != null ? String(input.shotNo) : null,
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
-            prompt: input.prompt,
+            prompt,
             generationType: "initial",
             isCurrent: true,
           });
-          return { status: "ok" as const, imageUrl: result.imageUrl, imageId: image.id };
+          return {
+            status: "ok" as const,
+            imageUrl: result.imageUrl,
+            imageId: image.id,
+            prompt,
+          };
         } catch (err) {
           console.error("[generateForMobile] 图片生成失败:", err);
           return {

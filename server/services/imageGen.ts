@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
 import {
@@ -252,15 +254,55 @@ function midjourneyPromptFor(
   return out;
 }
 
+// 远程对象存储不可用时的本地兜底目录；由 server 在 /local-images 同源提供。
+const LOCAL_IMAGE_DIR = path.join(process.cwd(), ".webdev", "images");
+
+function saveImageLocally(data: Uint8Array, mimeType: string, storageKey: string): string | null {
+  const ext = mimeType.includes("jpeg") || mimeType.includes("jpg")
+    ? "jpg"
+    : mimeType.includes("webp")
+      ? "webp"
+      : "png";
+  const baseName = (storageKey.split("/").pop() ?? storageKey).replace(/\.[^.]+$/, "");
+  const fileName = `${baseName.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
+  // 测试环境不真的写盘（避免污染 .webdev/images），但仍返回同源 URL 供断言
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    return `/local-images/${fileName}`;
+  }
+  try {
+    fs.mkdirSync(LOCAL_IMAGE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(LOCAL_IMAGE_DIR, fileName), data);
+    // 返回同源相对路径：浏览器按页面源解析 → http://<本机>:3000/local-images/...
+    return `/local-images/${fileName}`;
+  } catch (err) {
+    console.warn("[imageGen] 本地存图失败：", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "image/png"): Promise<ImageGenResult> {
   const storageKey = makeStorageKey();
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const stored = await storagePut(storageKey, data, mimeType);
-  return {
-    status: "ok",
-    imageUrl: stored.url,
-    imageKey: stored.key,
-  };
+  try {
+    const stored = await storagePut(storageKey, data, mimeType);
+    return {
+      status: "ok",
+      imageUrl: stored.url,
+      imageKey: stored.key,
+    };
+  } catch (error) {
+    // 远程存储代理 503（如 302 网关「当前无可用模型」）→ 落本地、同源提供，
+    // 保证手机一定能加载到生成图（外部图床 / 手机外网不可达时尤其关键）。
+    const localUrl = saveImageLocally(data, mimeType, storageKey);
+    if (localUrl) {
+      console.warn(
+        "[imageGen] 远程存储失败，已存到本地并同源提供：",
+        error instanceof Error ? error.message : String(error),
+      );
+      return { status: "ok", imageUrl: localUrl, imageKey: localUrl };
+    }
+    throw error; // 本地也写不了 → 交给上层（storeImageFromUrl 会回退原始 URL）
+  }
 }
 
 async function storeImageFromUrl(
@@ -617,8 +659,30 @@ export async function editImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
-  let image302Error: string | undefined;
 
+  // 默认 provider = midjourney 时，图生图也走 MJ：把用户照片作为 image prompt 放进 base64Array。
+  // （账户里 gpt-image 不可用、MJ 可用时，这条让「带照片的画出来」也能出图。）
+  const provider = normalizeImageProvider(options.provider ?? ENV.imageProviderDefault);
+
+  // MJ 模式（产品主力、也是当前账户唯一可用的）：图生图 → 文生图 → 完。
+  // 不再瞎试账户里没有的 gpt-image / Forge —— 那只会每次失败白等 30 秒超时 + 500。
+  if (provider === "midjourney" && ENV.api302Key) {
+    // ① 先试图生图：把用户照片作为 image prompt 放进 base64Array
+    const mjEdit = await generate302MidjourneyImage(prompt, options, fetcher, [imageUrl]);
+    if (mjEdit.status === "ok") return mjEdit;
+    console.warn("[editImage] MJ 图生图失败，改试 MJ 纯文生图：", mjEdit.message);
+    // ② 图生图失败（常见：照片被 MJ 判为 malformed）→ 退一步用 prompt 纯文生图，
+    //    保证「画出来」能出一张（文生图链路已验证可用、约 10 秒出图）。
+    const mjText = await generate302MidjourneyImage(prompt, options, fetcher, []);
+    if (mjText.status === "ok") return mjText;
+    return {
+      status: "error",
+      message: `MJ 出图失败 —— 图生图：${mjEdit.message}；文生图：${mjText.message}`,
+    };
+  }
+
+  // 非 MJ provider（显式指定 gpt-image 等）才走 gpt-image edit + Forge 兜底
+  let image302Error: string | undefined;
   if (ENV.api302Key) {
     const result = await generate302GptImageEdit(imageUrl, prompt, options, fetcher);
     if (result.status === "ok") return result;
@@ -642,12 +706,33 @@ async function generate302MidjourneyImage(
   prompt: string,
   options: ImageGenOptions,
   fetcher: Fetcher,
+  inputImageUrls: string[] = [],
 ): Promise<ImageGenResult> {
   const pollIntervalMs = options.mjPollIntervalMs
     ?? parseNumber(ENV.image302MjPollMs, 4_000);
   const timeoutMs = options.mjTimeoutMs
     ?? parseNumber(ENV.image302MjTimeoutMs, 180_000);
   const startedAt = Date.now();
+
+  // 图生图：把输入图读成 data-URI base64，放进 MJ 的 base64Array（作为 image prompt）。
+  // 读图失败不阻断，退化成纯文生图。
+  let base64Array: string[] = [];
+  if (inputImageUrls.length > 0) {
+    try {
+      base64Array = await Promise.all(
+        inputImageUrls.map(async (u) => {
+          const src = await readImageInput(u, fetcher);
+          return `data:${src.mimeType};base64,${Buffer.from(src.bytes as Uint8Array).toString("base64")}`;
+        }),
+      );
+    } catch (err) {
+      console.warn(
+        "[302 MJ] 读取输入图失败，退化为纯文生图：",
+        err instanceof Error ? err.message : err,
+      );
+      base64Array = [];
+    }
+  }
 
   try {
     const submitUrl = new URL("/mj/submit/imagine", `${normalizeBaseUrl(ENV.api302BaseUrl)}/`);
@@ -656,7 +741,7 @@ async function generate302MidjourneyImage(
         method: "POST",
         headers: build302Headers("midjourney"),
         body: JSON.stringify({
-          base64Array: [],
+          base64Array,
           botType: "MID_JOURNEY",
           notifyHook: "",
           prompt: midjourneyPromptFor(prompt, options.aspectRatio, options.fidelity),
