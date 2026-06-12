@@ -453,7 +453,10 @@ describe("storyAgent tRPC router", () => {
       prompt: "雨夜路灯下的一个停顿",
     });
 
-    expect(imageGenMocks.generateImage).toHaveBeenCalledWith("雨夜路灯下的一个停顿");
+    // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.stringContaining("雨夜路灯下的一个停顿"),
+    );
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-text.png",
@@ -493,9 +496,10 @@ describe("storyAgent tRPC router", () => {
       originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
     });
 
+    // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
-      "保留人物，把背景换成微雨夜色",
+      expect.stringContaining("保留人物，把背景换成微雨夜色"),
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -534,9 +538,10 @@ describe("storyAgent tRPC router", () => {
       originalImageUrl: "data:image/png;base64,aW1hZ2U=",
     });
 
+    // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/png;base64,aW1hZ2U=",
-      "把路牌文字去掉",
+      expect.stringContaining("把路牌文字去掉"),
     );
     expect(result.status).toBe("ok");
     const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7303 });

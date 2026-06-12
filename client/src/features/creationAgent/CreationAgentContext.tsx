@@ -23,6 +23,10 @@ import {
   type ShotImage,
   type ShotContext,
 } from './types';
+import {
+  loadProjectState,
+  saveProjectState,
+} from '@/features/_agentKit/projectScopedStore';
 
 // ── Persisted state ──
 
@@ -34,24 +38,22 @@ interface PersistedState {
 
 export type ImageProviderSelection = 'default' | ImageProvider;
 
-const storageKey = (projectId: number | null) =>
-  projectId ? `dt:creationAgent:${projectId}` : null;
+const STORAGE_PREFIX = 'dt:creationAgent';
 
 function loadState(projectId: number | null): PersistedState {
-  const key = storageKey(projectId);
-  if (!key) return emptyState();
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return emptyState();
-    const parsed = JSON.parse(raw) as PersistedState;
-    return {
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-      focusShotNo: typeof parsed.focusShotNo === 'string' ? parsed.focusShotNo : null,
-      imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
-    };
-  } catch {
-    return emptyState();
-  }
+  return loadProjectState<PersistedState>(
+    STORAGE_PREFIX,
+    projectId,
+    raw => {
+      const parsed = raw as Partial<PersistedState>;
+      return {
+        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        focusShotNo: typeof parsed.focusShotNo === 'string' ? parsed.focusShotNo : null,
+        imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
+      };
+    },
+    emptyState,
+  );
 }
 
 function emptyState(): PersistedState {
@@ -143,14 +145,13 @@ export function CreationAgentProvider({
     imagesQuery.refetch();
   }, [imagesQuery]);
 
-  // Persist to localStorage
+  // Persist to localStorage（走共享的 projectScopedStore）
   useEffect(() => {
-    const key = storageKey(projectId);
-    if (!key) return;
-    const state: PersistedState = { messages, focusShotNo, imageProvider };
-    try {
-      localStorage.setItem(key, JSON.stringify(state));
-    } catch { /* quota exceeded — non-critical */ }
+    saveProjectState<PersistedState>(STORAGE_PREFIX, projectId, {
+      messages,
+      focusShotNo,
+      imageProvider,
+    });
   }, [messages, focusShotNo, imageProvider, projectId]);
 
   // Reload state when projectId changes

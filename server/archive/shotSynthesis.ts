@@ -155,6 +155,8 @@ export async function synthesizeShotList(params: {
   cards: ShotListCardInput[];
   characterHint?: string;
   visualAnchors?: VisualAnchorPayload[];
+  /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
+  resonanceContext?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
   if (!ENV.forgeApiKey) {
     return {
@@ -363,6 +365,14 @@ export async function synthesizeShotList(params: {
   const { text, modelLabel } = await invokeAgent(
     [
       { role: "system", content: systemPrompt },
+      ...(params.resonanceContext
+        ? [
+            {
+              role: "system" as const,
+              content: `共鸣参照（用户意图 / 情绪 + 文学声音，仅作呼应，不要照抄）：\n${params.resonanceContext}`,
+            },
+          ]
+        : []),
       { role: "user", content: cardsText },
     ],
     2200,

@@ -5,7 +5,7 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from "react";
 import { ImagePlus, Loader2, Mic, Send, Sparkles, Square, X } from "lucide-react";
 import { useNayin } from "@/features/nayin/NayinContext";
-import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
 import { useMobileChat } from "../MobileChatContext";
 import MobileChatMessages from "./MobileChatMessages";
@@ -15,6 +15,7 @@ import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
 export default function MobileChatPage() {
   const {
     messages,
+    cards,
     images,
     isReplying,
     isGenerating,
@@ -24,7 +25,7 @@ export default function MobileChatPage() {
     swipeRight,
     swipeLeft,
   } = useMobileChat();
-  const { element, theme } = useNayin();
+  const { element, today } = useNayin();
   const [input, setInput] = useState("");
   // 正在编辑的图片 id（null = 不在编辑模式）
   const [editingImageId, setEditingImageId] = useState<number | null>(null);
@@ -113,7 +114,13 @@ export default function MobileChatPage() {
       {/* identity header */}
       <header className="dtm-header">
         <div className="dtm-header-icon">
-          <WuxingDrinkIcon element={element} size={34} />
+          {/* 头像回应情绪：回复中托腮思考；平时跟着最近一张卡片识别到的情绪摆姿势 */}
+          <EmotiveWuxingIcon
+            element={element}
+            size={38}
+            mood={isReplying ? "thinking" : undefined}
+            emotion={cards.length ? cards[cards.length - 1].emotion : undefined}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <div className="dtm-title-row">
@@ -122,12 +129,9 @@ export default function MobileChatPage() {
           </div>
           <div className="dtm-subline">
             <span className="dtm-dot" />
-            今夜 · {theme.beverageCn} · {theme.elementCn}
+            日柱 {today.ganzhi}·纳音 {today.nayinName}
           </div>
         </div>
-        <button type="button" className="dtm-ghost-button" aria-label="灵感">
-          <Sparkles size={18} />
-        </button>
       </header>
 
       {/* 消息列表 */}

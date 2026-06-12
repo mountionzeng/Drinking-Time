@@ -1,3 +1,12 @@
+/**
+ * Drop Zone Agent（「工坊」）—— Drop Zone 页的对话助手。
+ *
+ * 对话型 + 意图识别：理解用户意图、识别缺失信息(场景/时间/情绪/机位)、给下一步最小行动，
+ * 把模糊的影视想法逐步变成可分析、可拆镜头的材料。会读用户的长期情绪画像(emotionAnalysis)
+ * 折进上下文(见 resonanceSignal)，带着情绪底盘去理解。
+ *
+ * 主接口：replyFromDropZoneAgent({ userId, message, history, projectId?, stageKey? }) → { reply, configured, modelLabel }
+ */
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
 import {
@@ -6,6 +15,11 @@ import {
   getProjectReferences,
   getProjectShots,
 } from "../db";
+import {
+  buildResonanceSignalForUser,
+  describeResonanceSignal,
+} from "../services/resonanceSignal";
+import { normalizeTurns } from "../services/agentRuntime";
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -126,23 +140,22 @@ function buildMessages({
   history,
   projectContext,
   stageKey,
+  resonanceText,
 }: {
   message: string;
   history?: ChatTurn[];
   projectContext: string | null;
   stageKey?: string;
+  resonanceText?: string;
 }): Message[] {
-  const turns = (history ?? [])
-    .filter(turn => turn.content?.trim())
-    .slice(-12)
-    .map<Message>(turn => ({
-      role: turn.role,
-      content: turn.content.trim(),
-    }));
+  const turns = normalizeTurns(history, 12);
 
   const contextBlock = [
     projectContext ? `项目上下文：\n${projectContext}` : "项目上下文：暂无项目数据。",
     stageKey ? `当前界面阶段：${stageKey}` : "",
+    resonanceText
+      ? `用户意图与情绪画像（来自意图识别 + 长期情绪底盘）：\n${resonanceText}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -243,11 +256,17 @@ export async function replyFromDropZoneAgent(
     };
   }
 
+  // 长期情绪画像（来自 emotionAnalysis）折进上下文，让意图识别带着用户的情绪底盘去理解
+  const resonanceText = describeResonanceSignal(
+    await buildResonanceSignalForUser(params.userId),
+  );
+
   const messages = buildMessages({
     message: params.message,
     history: params.history,
     projectContext,
     stageKey: params.stageKey,
+    resonanceText,
   });
 
   if (ENV.dropZoneModel?.startsWith("cc-") || ENV.dropZoneApiUrl?.includes("/cc")) {

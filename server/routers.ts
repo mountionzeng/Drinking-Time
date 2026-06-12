@@ -63,6 +63,8 @@ import {
   generateImage as generateMobileImage,
   inpaintImage,
 } from "./services/imageGen";
+import { renderViaGate } from "./services/renderGate";
+import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { createArtRiff } from "./services/artAgent";
 import {
@@ -998,12 +1000,24 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
+        // 取用户长期情绪画像 + 当前卡片情绪 → 共鸣上下文（意图 / 情绪 + 文学声音）接进剧本。
+        // 仅在有卡片时构建——synthesizeShotList 对空卡片会早返回，避免白做 DB + 文学库查询。
+        const resonanceContext =
+          input.cards.length > 0
+            ? await buildScriptResonanceContextForUser(
+                ctx.user.id,
+                input.cards
+                  .map((c) => c.emotion)
+                  .filter((e): e is string => Boolean(e)),
+              )
+            : "";
         const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,
           visualAnchors: input.visualAnchors as
             | VisualAnchorPayload[]
             | undefined,
+          ...(resonanceContext ? { resonanceContext } : {}),
         });
         if (!("error" in result) && input.projectId) {
           await replaceDirectorShotsForProject(
@@ -1286,9 +1300,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             };
           }
 
-          const result = input.originalImageUrl
-            ? await editMobileImage(input.originalImageUrl, prompt)
-            : await generateMobileImage(prompt);
+          // 出图统一经美术网关（artJudge 注入美术风格）；用户照片既是 image-to-image 基底，也是美术判断参照
+          const result = await renderViaGate(
+            {
+              prompt,
+              referenceImages: input.originalImageUrl
+                ? [input.originalImageUrl]
+                : undefined,
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+            },
+            (p) =>
+              input.originalImageUrl
+                ? editMobileImage(input.originalImageUrl, p)
+                : generateMobileImage(p),
+          );
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1340,7 +1365,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             return { status: "error" as const, error: "找不到故事，无法保存图片" };
           }
 
-          const result = await editMobileImage(input.originalImageUrl, input.prompt);
+          // 局部修复同样经美术网关
+          const result = await renderViaGate(
+            {
+              prompt: input.prompt,
+              referenceImages: [input.originalImageUrl],
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+            },
+            (p) => editMobileImage(input.originalImageUrl, p),
+          );
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1670,10 +1703,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ input }) => {
-        const result = await inpaintImage(
-          input.imageUrl,
-          input.maskUrl,
-          input.prompt
+        const result = await renderViaGate(
+          {
+            prompt: input.prompt,
+            referenceImages: [input.imageUrl],
+            shotNo: input.shotNo,
+            projectId: input.projectId,
+          },
+          (prompt) => inpaintImage(input.imageUrl, input.maskUrl, prompt),
         );
         if (result.status === "error" || !result.imageUrl) {
           return {
