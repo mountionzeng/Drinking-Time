@@ -92,7 +92,8 @@ describe("generateImage", () => {
     const result = await generateImage("a cat", { fetcher });
 
     expect(result.status).toBe("ok");
-    expect(result.imageUrl).toBe("https://storage.example.com/generated/test.png");
+    // 新契约：imageUrl 一律是同源稳定路由；远程备份成功时 imageKey 记远程 key
+    expect(result.imageUrl).toMatch(/^\/api\/images\/.+\.png$/);
     expect(result.imageKey).toBe("generated/test.png");
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
@@ -324,11 +325,11 @@ describe("generateImage", () => {
       mjTimeoutMs: 100,
     });
 
-    // 不再因为存储 503 整条失败，也不再依赖外部图床：落到本地、由 /local-images 同源提供，
+    // 本地优先架构：存储 503 完全不影响出图 —— imageUrl 永远是同源稳定路由，
     // 手机从本机一定能加载到（外部图床 / 手机外网不可达时尤其关键）。
     expect(result.status).toBe("ok");
-    expect(result.imageUrl).toMatch(/^\/local-images\//);
-    expect(result.imageKey).toMatch(/^\/local-images\//);
+    expect(result.imageUrl).toMatch(/^\/api\/images\//);
+    expect(result.imageKey).toMatch(/^generated\//);
   });
 
   it("supports 302 Midjourney mj-api-secret header mode", async () => {
@@ -438,7 +439,7 @@ describe("editImage", () => {
     );
 
     expect(result.status).toBe("ok");
-    expect(result.imageUrl).toBe("https://storage.example.com/generated/test.png");
+    expect(result.imageUrl).toMatch(/^\/api\/images\/.+\.png$/);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");

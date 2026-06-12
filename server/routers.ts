@@ -1011,6 +1011,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                   .filter((e): e is string => Boolean(e)),
               )
             : "";
+        // 可观测：把注入剧本的共鸣上下文打到日志，方便测试时确认「意图+情绪+文学声音」是否生效
+        if (resonanceContext) {
+          console.log(
+            `\n[共鸣·剧本] user=${ctx.user.id} ✅ 已注入（${input.cards.length} 张卡片）：\n${resonanceContext}\n`,
+          );
+        } else {
+          console.log(
+            `[共鸣·剧本] user=${ctx.user.id} ⚪ 未注入（卡片无情绪 + 无长期情绪画像 → 共鸣信号为空，剧本行为与接入前一致）`,
+          );
+        }
         const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,

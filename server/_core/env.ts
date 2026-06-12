@@ -45,6 +45,11 @@ export const ENV = {
   // ── 流派库 ──
   styleLibraryDir: process.env.STYLE_LIBRARY_DIR ?? "",          // 流派库 entries 目录覆盖（默认 docs/style-library/entries，相对 cwd）
 
+  // ── 生成图本地资产库 ──
+  // 所有端口/工作树共享的同一个绝对目录；空值回退 <cwd>/.webdev/images。
+  // 图片字节落在这里，对外只暴露同源稳定路由 /api/images/<file>。
+  localImageDir: process.env.LOCAL_IMAGE_DIR ?? "",
+
   // ── fal.ai 图片生成 ──
   falApiKey: process.env.FAL_KEY ?? "",                          // fal.ai API Key
 
