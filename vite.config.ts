@@ -178,6 +178,7 @@ export default defineConfig({
       ".manusvm.computer",
       "localhost",
       "127.0.0.1",
+      "192.168.100.144", // 本地手机自测：放行同一 Wi-Fi 下这台 Mac 的局域网 IP
     ],
     fs: {
       strict: true,
