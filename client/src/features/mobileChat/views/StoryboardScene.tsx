@@ -5,6 +5,7 @@
 import { useState, useRef } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import { GripVertical, ImageIcon, Pencil, Trash2 } from "lucide-react";
+import ResilientImg from "./ResilientImg";
 import type { StoryboardScene as SceneType } from "../types";
 
 interface Props {
@@ -103,11 +104,10 @@ export default function StoryboardSceneCard({
             className="w-full"
             onClick={() => scene.imageId && onImageClick?.(scene.imageId)}
           >
-            <img
+            <ResilientImg
               src={scene.imageUrl}
               alt={`场景 ${index + 1}`}
               className="aspect-video"
-              draggable={false}
             />
           </button>
         ) : (

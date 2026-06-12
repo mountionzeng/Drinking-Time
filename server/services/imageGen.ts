@@ -254,55 +254,81 @@ function midjourneyPromptFor(
   return out;
 }
 
-// 远程对象存储不可用时的本地兜底目录；由 server 在 /local-images 同源提供。
-const LOCAL_IMAGE_DIR = path.join(process.cwd(), ".webdev", "images");
+/**
+ * 生成图本地资产库目录。
+ * 用 ENV.LOCAL_IMAGE_DIR 指到一个所有端口/工作树共享的绝对目录，
+ * 让 :3000 / :3001 / … 都读写同一个图片池；不配置时回退本进程 cwd 下。
+ */
+export function localImageDir(): string {
+  return ENV.localImageDir.trim() || path.join(process.cwd(), ".webdev", "images");
+}
 
-function saveImageLocally(data: Uint8Array, mimeType: string, storageKey: string): string | null {
+function localFileNameFor(storageKey: string, mimeType: string): string {
   const ext = mimeType.includes("jpeg") || mimeType.includes("jpg")
     ? "jpg"
     : mimeType.includes("webp")
       ? "webp"
       : "png";
   const baseName = (storageKey.split("/").pop() ?? storageKey).replace(/\.[^.]+$/, "");
-  const fileName = `${baseName.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
-  // 测试环境不真的写盘（避免污染 .webdev/images），但仍返回同源 URL 供断言
+  return `${baseName.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
+}
+
+function saveImageLocally(data: Uint8Array, mimeType: string, storageKey: string): string | null {
+  const fileName = localFileNameFor(storageKey, mimeType);
+  // 测试环境不真的写盘（避免污染图片目录），但仍返回稳定 URL 供断言
   if (process.env.VITEST || process.env.NODE_ENV === "test") {
-    return `/local-images/${fileName}`;
+    return `/api/images/${fileName}`;
   }
   try {
-    fs.mkdirSync(LOCAL_IMAGE_DIR, { recursive: true });
-    fs.writeFileSync(path.join(LOCAL_IMAGE_DIR, fileName), data);
-    // 返回同源相对路径：浏览器按页面源解析 → http://<本机>:3000/local-images/...
-    return `/local-images/${fileName}`;
+    fs.mkdirSync(localImageDir(), { recursive: true });
+    fs.writeFileSync(path.join(localImageDir(), fileName), data);
+    // 返回同源稳定路由：浏览器按页面源解析 → http://<本机>:<端口>/api/images/...
+    return `/api/images/${fileName}`;
   } catch (err) {
     console.warn("[imageGen] 本地存图失败：", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
 
+/**
+ * 存储策略（2026-06-12 起，本地优先）：
+ * ① 字节先落本地资产库 —— 这是我们自己拥有的、不过期的副本，imageUrl 一律
+ *    指向同源稳定路由 /api/images/<file>，跟外部基础设施彻底解耦；
+ * ② 远程对象存储变成「尽力而为」的异地备份（成功记 imageKey，供 /api/images
+ *    在本地文件丢失时按 key 取回重建缓存）；它挂了不影响主链路。
+ * 旧方案是「远程优先、URL 直存」：远程代理 503 频发、成功时存的又是会过期的
+ * 外链 —— 这正是「图片链接很脆弱」的根源。
+ */
 async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "image/png"): Promise<ImageGenResult> {
   const storageKey = makeStorageKey();
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+
+  const localUrl = saveImageLocally(data, mimeType, storageKey);
+
+  // 异地备份尽力而为：限时 10s，失败只记日志，不阻断、不上抛
+  let remoteKey: string | null = null;
   try {
-    const stored = await storagePut(storageKey, data, mimeType);
+    const stored = await withTimeout(storagePut(storageKey, data, mimeType), 10_000);
+    remoteKey = stored.key;
+  } catch (error) {
+    console.warn(
+      "[imageGen] 远程备份失败（不影响出图，本地副本已落盘）：",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  if (localUrl) {
+    return { status: "ok", imageUrl: localUrl, imageKey: remoteKey ?? storageKey };
+  }
+  // 本地写不了（磁盘满/权限）：退而求其次用远程 key 走稳定路由（服务端会按 key 回源）
+  if (remoteKey) {
     return {
       status: "ok",
-      imageUrl: stored.url,
-      imageKey: stored.key,
+      imageUrl: `/api/images/${localFileNameFor(storageKey, mimeType)}`,
+      imageKey: remoteKey,
     };
-  } catch (error) {
-    // 远程存储代理 503（如 302 网关「当前无可用模型」）→ 落本地、同源提供，
-    // 保证手机一定能加载到生成图（外部图床 / 手机外网不可达时尤其关键）。
-    const localUrl = saveImageLocally(data, mimeType, storageKey);
-    if (localUrl) {
-      console.warn(
-        "[imageGen] 远程存储失败，已存到本地并同源提供：",
-        error instanceof Error ? error.message : String(error),
-      );
-      return { status: "ok", imageUrl: localUrl, imageKey: localUrl };
-    }
-    throw error; // 本地也写不了 → 交给上层（storeImageFromUrl 会回退原始 URL）
   }
+  throw new Error("本地与远程存储均不可用"); // 交给上层（storeImageFromUrl 会回退原始 URL）
 }
 
 async function storeImageFromUrl(

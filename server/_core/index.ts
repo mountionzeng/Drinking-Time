@@ -2,12 +2,15 @@ import "dotenv/config";
 import express, { type Request } from "express";
 import { createServer } from "http";
 import net from "net";
+import fs from "node:fs";
 import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { localImageDir } from "../services/imageGen";
+import { storageGet } from "../storage";
 import { buildArchiveAnalysisShell } from "../archive/analysisShell";
 import { replyFromDropZoneAgent } from "../archive/dropZoneAgent";
 import {
@@ -98,11 +101,50 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).send("ok");
   });
-  // 本地图片兜底：远程对象存储不可用时，生成图落到 .webdev/images，由这里同源提供。
-  // 手机从本机取图（一定能到），不依赖外部图床、不受手机外网可达性影响。
+  // ── 生成图的同源稳定出口 ─────────────────────────────────────
+  // 架构（2026-06-12）：图片字节落在本机共享资产库（LOCAL_IMAGE_DIR），DB 只存
+  // /api/images/<file> 这个我们自己拥有的 URL。外部图床/CDN 链接会过期、会被墙、
+  // 会 503 —— 它们只做备份，不再出现在展示链路里。
+  app.get("/api/images/:file", async (req, res) => {
+    const file = String(req.params.file ?? "");
+    // 白名单文件名，杜绝路径穿越
+    if (!/^[a-zA-Z0-9_-]+\.(png|jpe?g|webp)$/.test(file)) {
+      res.status(400).end();
+      return;
+    }
+    const dir = localImageDir();
+    const full = path.join(dir, file);
+    if (fs.existsSync(full)) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.sendFile(full);
+      return;
+    }
+    // 本地副本丢失 → 用远程备份按 key 回源，重建本地缓存后流出（仍是同源响应）
+    try {
+      const base = file.replace(/\.[^.]+$/, "");
+      const { url } = await storageGet(`generated/${base}.png`);
+      const upstream = await fetch(url);
+      if (upstream.ok) {
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(full, buf);
+        res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/png");
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.end(buf);
+        return;
+      }
+    } catch (err) {
+      console.warn(
+        "[/api/images] 远程回源失败：",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    res.status(404).end();
+  });
+  // 旧路由兼容：历史数据里存过 /local-images/<file>，继续可用，同样指向共享资产库。
   app.use(
     "/local-images",
-    express.static(path.join(process.cwd(), ".webdev", "images"), {
+    express.static(localImageDir(), {
       maxAge: "7d",
       fallthrough: false,
     }),

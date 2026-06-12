@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import type { MobileChatMessage, GeneratedImageItem } from "../types";
 import ImageCard from "./ImageCard";
+import ResilientImg from "./ResilientImg";
 
 interface Props {
   messages: MobileChatMessage[];
@@ -67,7 +68,7 @@ export default function MobileChatMessages({
               >
                 {/* 用户附带的照片 */}
                 {isUser && msg.photoUrl && (
-                  <img
+                  <ResilientImg
                     src={msg.photoUrl}
                     alt="用户照片"
                     className="dtm-user-photo"

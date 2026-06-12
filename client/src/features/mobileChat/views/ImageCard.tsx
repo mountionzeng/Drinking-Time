@@ -11,6 +11,7 @@ import {
   type PanInfo,
 } from "framer-motion";
 import { Heart, Trash2 } from "lucide-react";
+import ResilientImg from "./ResilientImg";
 import type { GeneratedImageItem } from "../types";
 
 // 滑动阈值（像素）
@@ -131,10 +132,9 @@ export default function ImageCard({
 
       {/* 图片 */}
       <div className="dtm-image-card">
-        <img
+        <ResilientImg
           src={image.imageUrl}
           alt={image.prompt || "生成的画面"}
-          draggable={false}
         />
         <div className="dtm-inline-meta">
           <span className="dtm-mono-label">
