@@ -1,7 +1,9 @@
 # Drinking Time 架构地图
 
-> 最后更新：2026-05-23
+> 最后更新：2026-06-10
 > 本文档用中文详细解释整个项目的模块组成、数据流向、以及每个部分存在的原因。
+>
+> **Agent 层在 2026-06-10「打地基」后有重构——最新结构见文末「九、Agent 层地基」。新增 Agent 请看 `docs/how-to-add-an-agent.md`。**
 
 ---
 
@@ -382,3 +384,69 @@ protectedProcedure → db.ts → MySQL 或 内存
 | 顶部导航栏 | `client/src/app/shell/TopBar.tsx` |
 | 环境变量配置 | `server/_core/env.ts` |
 | 文件上传/存储 | `server/storage.ts` |
+| **库加载底座（美术/文学共用）** | `server/services/libraryLoader.ts` + `libraryFields.ts` |
+| **文学库（剧本共鸣用）** | `docs/literature-library/` + `server/services/literatureLibrary.ts` |
+| **出图网关（美术判断插入点）** | `server/services/renderGate.ts` |
+| **共鸣信号（意图+情绪画像共享）** | `server/services/resonanceSignal.ts` |
+| **剧本 Agent（接文学库/共鸣）** | `server/services/scriptAgent.ts` |
+| **对话 Agent 骨架** | `server/services/agentRuntime.ts` |
+| **前端 Agent 持久化脚手架** | `client/src/features/_agentKit/projectScopedStore.ts` |
+| **如何新增一个 Agent** | `docs/how-to-add-an-agent.md` |
+
+---
+
+## 九、Agent 层地基（2026-06-10 重构）
+
+这一节是 Agent 层的**最新**结构（覆盖第三节里 storyAgent / creationAgent 的旧描述）。核心思想：**新增 Agent 应当是填空，不是复制**。新增步骤见 `docs/how-to-add-an-agent.md`。
+
+### 9.1 三条共享底座
+
+| 底座 | 文件 | 解决的重复 |
+|------|------|-----------|
+| 库加载 | `server/services/libraryLoader.ts`（+ `libraryFields.ts`） | 每个「YAML 知识库」都要的解析 / 校验 / 缓存，只写一处 |
+| 对话骨架 | `server/services/agentRuntime.ts` | 每个对话 Agent 的「拼消息→invoke→解析兜底」，只写一处 |
+| 前端持久化 | `client/src/features/_agentKit/projectScopedStore.ts` | 每个前端 Agent 的 projectId 分区 localStorage，只写一处 |
+
+### 9.2 库支撑的判断 Agent（同一范式，两个实例）
+
+```
+美术 Agent ──查──▶ styleLibrary（docs/style-library/）─┐
+剧本 Agent ──查──▶ literatureLibrary（docs/literature-library/）─┘
+                        └── 两库共用 libraryLoader 底座
+```
+
+- **美术库** `styleLibrary`：美术流派条目，注入出图 prompt。
+- **文学库** `literatureLibrary`：文学家「声音」条目（鲁迅 / 张爱玲…），供剧本共鸣。
+- 两库都有 `emotion_fit / theme_fit / affinity` 落点字段，供按信号排序。
+
+### 9.3 出图网关（所有出图的唯一必经点）
+
+```
+creationAgent / artAgent / routers(generateForMobile, mobileInpaint, inpaint)
+        └──────────────▶ renderViaGate（renderGate.ts）──▶ 各自生成器
+                              ▲ artJudge：本轮 identity 桩
+                                未来：styleLibrary + 情绪 + 意图 + 参考图 → shotPromptComposer 改写 prompt
+```
+
+收口前这些出口各拼各的 prompt、各自直连生成器；现在统一过网关，美术判断只需填 `artJudge` 一处。
+（注：底层有两套生成器 `_core/imageGeneration` 与 `services/imageGen`，本轮只透传收口、未合并。）
+
+### 9.4 共鸣信号：意图 + 情绪画像的共享
+
+```
+dropZoneAgent（意图识别）──┐
+emotionAnalysis（情绪画像）─┴──▶ ResonanceSignal（resonanceSignal.ts）
+                                   ├──▶ literatureLibrary.rankVoicesBySignal（排共鸣声音）
+                                   ├──▶ scriptAgent → classify 路由（注入剧本合成）
+                                   └──▶ renderGate.RenderContext（美术侧对称，待填）
+```
+
+- `dropZoneAgent` 读用户情绪画像折进上下文（意图识别带着情绪底盘理解）。
+- 剧本路由 `classify` 取「用户画像 + 卡片情绪」→ 信号 → 文学库排序 → 注入剧本。
+
+### 9.5 本轮留空的「判断」
+
+打地基只搭缝、不填智能。以下 LLM 判断后续填入，不改地基：
+- `renderGate.artJudge`：美术怎么用库 + 情绪选流派、改写 prompt。
+- 文学共鸣的「智能版」排序（现在是确定性规则 `rankVoicesBySignal`）。
+- 剧本「怎么写专业」的合成判断。

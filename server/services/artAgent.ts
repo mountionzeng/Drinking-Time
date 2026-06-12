@@ -1,5 +1,14 @@
+/**
+ * 美术 Agent —— 从用户的参考图 riff 出一版电影感新图。
+ *
+ * 流水线型（非对话）：图进 → 视觉分析(visionAgent) → 拼 riff prompt → 经出图网关 renderViaGate 出图。
+ * 「每次渲图都过美术判断」的智能在 renderGate.artJudge 里填；本文件是「图→图」这条具体流水线。
+ *
+ * 主接口：createArtRiff(params) → { originalImageUrl, imageUrl, prompt, analysis, reply, ... }
+ */
 import { analyzeVisionReference, type VisionAnalysisResult } from "../archive/visionAgent";
 import { generateImage, type ImageProvider } from "./imageGen";
+import { renderViaGate } from "./renderGate";
 import { storagePut } from "../storage";
 
 export type ArtRiffParams = {
@@ -192,7 +201,14 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     previousPrompt: params.previousPrompt,
   });
 
-  const generated = await generateImage(prompt, { provider: params.imageProvider });
+  const generated = await renderViaGate(
+    {
+      prompt,
+      intent: params.instruction,
+      referenceImages: params.imageUrl ? [params.imageUrl] : undefined,
+    },
+    (p) => generateImage(p, { provider: params.imageProvider }),
+  );
 
   if (generated.status !== "ok" || !generated.imageUrl) {
     throw new Error(generated.message || "美术 Agent 没有拿到生成图。");

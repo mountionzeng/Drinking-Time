@@ -5,11 +5,10 @@
  * focus shot, determines when to generate images, and calls imageGen / segmentation.
  */
 
-import { type Message } from "../_core/llm";
-import { invokeAgent } from "../_core/agentChannel";
-import { parseJsonLoose } from "../_core/llmJson";
 import { ENV } from "../_core/env";
+import { runJsonAgent } from "./agentRuntime";
 import { generateImage, type ImageProvider } from "./imageGen";
+import { renderViaGate } from "./renderGate";
 import { createGeneratedImage, getImagesByShotNo, type GeneratedImage } from "../db";
 
 // ── Types ──
@@ -199,36 +198,21 @@ export async function replyFromCreationAgent(
   const inferredFocus = inferFocusFromMessage(input.message, shots);
   const effectiveFocus = inferredFocus || input.currentFocusShotNo || null;
 
-  const turns: Message[] = history
-    .slice(-12)
-    .map(t => ({ role: t.role, content: t.content.trim() }));
-
-  const messages: Message[] = [
-    {
-      role: "system",
-      content: buildSystemPrompt(shots, cards, currentScript, effectiveFocus),
-    },
-    ...turns,
-    { role: "user", content: input.message.trim() },
-  ];
-
-  const { text, modelLabel } = await invokeAgent(messages, 800);
-
-  // Parse LLM response
-  let parsed: {
+  const { parsed, modelLabel } = await runJsonAgent<{
     reply: string;
     toolCalls?: ToolCall[];
     focusShotNo?: string | null;
-  };
-  try {
-    parsed = parseJsonLoose<typeof parsed>(text);
-  } catch {
-    parsed = {
+  }>({
+    systemPrompt: buildSystemPrompt(shots, cards, currentScript, effectiveFocus),
+    history,
+    message: input.message,
+    maxTokens: 800,
+    fallback: text => ({
       reply: text.trim() || "我们来聊聊画面吧，你想从哪个镜头开始？",
       toolCalls: [],
       focusShotNo: effectiveFocus,
-    };
-  }
+    }),
+  });
 
   const reply = parsed.reply || "我们来聊聊画面吧。";
   const toolCalls = Array.isArray(parsed.toolCalls) ? parsed.toolCalls : [];
@@ -241,9 +225,14 @@ export async function replyFromCreationAgent(
   );
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
-    const genResult = await generateImage(generateCall.prompt, {
-      provider: input.imageProvider,
-    });
+    const genResult = await renderViaGate(
+      {
+        prompt: generateCall.prompt,
+        shotNo: generateCall.shotNo,
+        projectId: input.projectId,
+      },
+      (prompt) => generateImage(prompt, { provider: input.imageProvider }),
+    );
     if (genResult.status === "ok" && genResult.imageUrl && genResult.imageKey) {
       const dbImage = await createGeneratedImage({
         projectId: input.projectId,

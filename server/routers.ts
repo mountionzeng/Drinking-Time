@@ -62,6 +62,8 @@ import {
   generateImage as generateMobileImage,
   inpaintImage,
 } from "./services/imageGen";
+import { renderViaGate } from "./services/renderGate";
+import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { createArtRiff } from "./services/artAgent";
 
@@ -951,12 +953,22 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const resonanceContext =
+          input.cards.length > 0
+            ? await buildScriptResonanceContextForUser(
+                ctx.user.id,
+                input.cards
+                  .map(card => card.emotion)
+                  .filter((emotion): emotion is string => Boolean(emotion))
+              )
+            : "";
         const result = await synthesizeShotList({
           cards: input.cards,
           characterHint: input.characterHint,
           visualAnchors: input.visualAnchors as
             | VisualAnchorPayload[]
             | undefined,
+          ...(resonanceContext ? { resonanceContext } : {}),
         });
         if (!("error" in result) && input.projectId) {
           await replaceDirectorShotsForProject(
@@ -1197,9 +1209,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             return { status: "error" as const, error: "找不到故事，无法保存图片" };
           }
 
-          const result = input.originalImageUrl
-            ? await editMobileImage(input.originalImageUrl, input.prompt)
-            : await generateMobileImage(input.prompt);
+          const result = await renderViaGate(
+            {
+              prompt: input.prompt,
+              referenceImages: input.originalImageUrl
+                ? [input.originalImageUrl]
+                : undefined,
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+              projectId: story.projectId ?? undefined,
+            },
+            prompt =>
+              input.originalImageUrl
+                ? editMobileImage(input.originalImageUrl, prompt)
+                : generateMobileImage(prompt)
+          );
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1246,7 +1269,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             return { status: "error" as const, error: "找不到故事，无法保存图片" };
           }
 
-          const result = await editMobileImage(input.originalImageUrl, input.prompt);
+          const result = await renderViaGate(
+            {
+              prompt: input.prompt,
+              referenceImages: [input.originalImageUrl],
+              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+              projectId: story.projectId ?? undefined,
+            },
+            prompt => editMobileImage(input.originalImageUrl, prompt)
+          );
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1576,10 +1607,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ input }) => {
-        const result = await inpaintImage(
-          input.imageUrl,
-          input.maskUrl,
-          input.prompt
+        const result = await renderViaGate(
+          {
+            prompt: input.prompt,
+            referenceImages: [input.imageUrl],
+            shotNo: input.shotNo,
+            projectId: input.projectId,
+          },
+          prompt => inpaintImage(input.imageUrl, input.maskUrl, prompt)
         );
         if (result.status === "error" || !result.imageUrl) {
           return {
