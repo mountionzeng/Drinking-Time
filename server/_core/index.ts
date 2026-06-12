@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request } from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -97,6 +98,15 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).send("ok");
   });
+  // 本地图片兜底：远程对象存储不可用时，生成图落到 .webdev/images，由这里同源提供。
+  // 手机从本机取图（一定能到），不依赖外部图床、不受手机外网可达性影响。
+  app.use(
+    "/local-images",
+    express.static(path.join(process.cwd(), ".webdev", "images"), {
+      maxAge: "7d",
+      fallthrough: false,
+    }),
+  );
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   app.get("/api/archive/analysis-shell", async (req, res) => {
