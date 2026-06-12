@@ -53,16 +53,18 @@
   align-items: center;
   gap: 14px;
   padding: 14px 20px 12px;
-  border-bottom: 1px solid var(--border);
+  /* 简化聊天边框：头部下方的咖啡色分隔线改成白色 */
+  border-bottom: 1px solid #ffffff;
 }
 
 .dtm-header-icon {
   width: 52px;
   height: 52px;
   border-radius: 999px;
-  background: var(--card);
-  border: 1.5px solid var(--panel-border);
-  box-shadow: 0 0 0 6px var(--nayin-glow);
+  /* 白色圆底边框去掉：Logo 有了手脚表情之后直接站在纸面上，不再关在白圈里 */
+  background: transparent;
+  border: none;
+  box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -73,7 +75,7 @@
   width: 40px;
   height: 40px;
   flex-basis: 40px;
-  box-shadow: 0 0 0 4px var(--nayin-glow);
+  box-shadow: none;
 }
 
 .dtm-title-row {
@@ -183,7 +185,8 @@
 
 .dtm-bubble--assistant {
   background: var(--card);
-  border: 1px solid var(--border);
+  /* 简化聊天边框：咖啡色描边改成白色，气泡靠底色和阴影成形 */
+  border: 1px solid #ffffff;
   border-radius: 4px 18px 18px 18px;
   color: var(--foreground);
   box-shadow: 0 1px 0 rgba(36, 28, 20, 0.02);
@@ -256,7 +259,8 @@
 
 .dtm-inline-image-card {
   background: var(--card);
-  border: 1px solid var(--border);
+  /* 简化聊天边框：成图卡片的咖啡色描边改成白色，像贴在纸上的照片 */
+  border: 1px solid #ffffff;
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 2px 14px rgba(36, 28, 20, 0.06);
@@ -279,7 +283,8 @@
 .dtm-composer {
   padding: 12px 16px 26px;
   padding-bottom: max(26px, calc(12px + env(safe-area-inset-bottom)));
-  border-top: 1px solid var(--border);
+  /* 简化聊天边框：输入区与消息区之间的咖啡色分隔线改成白色 */
+  border-top: 1px solid #ffffff;
   background: var(--background);
   display: flex;
   flex-direction: column;
@@ -354,7 +359,8 @@
   resize: none;
   border-radius: 22px;
   background: var(--card);
-  border: 1px solid var(--border);
+  /* 简化聊天边框：输入框的咖啡色描边改成白色 */
+  border: 1px solid #ffffff;
   padding: 10px 16px;
   font-size: 15px;
   line-height: 1.55;
@@ -367,7 +373,7 @@
 }
 
 .dtm-textbox:focus {
-  border-color: var(--panel-border);
+  border-color: #ffffff;
   box-shadow: 0 0 0 4px var(--nayin-glow);
 }
 

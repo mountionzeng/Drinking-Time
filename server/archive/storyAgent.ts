@@ -1388,6 +1388,57 @@ export async function summarizeHistory(params: {
   };
 }
 
+// ── 手动出图：从对话现编英文出图 prompt ─────────────────────────────
+
+/**
+ * 用户点「把这一刻画出来」时没有现成 prompt，
+ * 从最近对话里挑最值得定格的瞬间，现编一行英文出图 prompt。
+ * 编不出来（没聊够 / LLM 失败）返回空串，由调用方给用户友好提示。
+ */
+export async function deriveMobileImagePrompt(params: {
+  history?: ChatTurn[];
+  cardHint?: string;
+}): Promise<string> {
+  if (!ENV.forgeApiKey) return "";
+  const recent = (params.history ?? []).filter((t) => t.content?.trim()).slice(-12);
+  if (recent.length === 0 && !params.cardHint?.trim()) return "";
+
+  const sys = [
+    "你是小酌的「出图描述师」。从给你的这段对话里，挑出最值得定格成一帧画面的那个瞬间，",
+    "把它写成 ONE 行英文出图 prompt，必须包含：场景、光线、氛围、人物动作或神态。",
+    "风格偏电影感、温暖、写实的情绪影像。",
+    "只输出这一行英文 prompt 本身 —— 不要解释、不要引号、不要 JSON、不要中文。",
+  ].join("\n");
+
+  const turns: Message[] = recent.map((t) => ({
+    role: t.role,
+    content: t.content.trim(),
+  }));
+  const tail = params.cardHint?.trim()
+    ? `（请把以上对话画成一帧画面，重点抓住这一刻：${params.cardHint.trim()}。只回一行英文 prompt。）`
+    : "（请把以上对话里最值得画的那个瞬间，写成一行英文出图 prompt。只回这一行英文。）";
+
+  try {
+    const { text } = await invokeAgent(
+      [{ role: "system", content: sys }, ...turns, { role: "user", content: tail }],
+      400,
+    );
+    let p = (text ?? "").trim();
+    // 剥代码块围栏与首尾引号，只取第一行，避免模型多嘴
+    const fence = p.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
+    if (fence) p = fence[1].trim();
+    p = p.replace(/^["'「『\s]+|["'」』\s]+$/g, "").trim();
+    p = p.split(/\r?\n/)[0].trim();
+    return p.slice(0, 600);
+  } catch (err) {
+    console.warn(
+      "[deriveMobileImagePrompt] 现编出图 prompt 失败：",
+      err instanceof Error ? err.message : err,
+    );
+    return "";
+  }
+}
+
 // ── 选中编辑（inline selection edit）──────────────────────────────────
 
 /** 对文本中选中片段执行 AI 编辑指令，返回替换后的完整文本 */

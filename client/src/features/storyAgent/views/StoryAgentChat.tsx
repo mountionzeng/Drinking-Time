@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
-import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
+import EmotiveWuxingIcon from '@/features/nayin/views/EmotiveWuxingIcon';
 import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
 import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 
@@ -123,6 +123,12 @@ export default function StoryAgentChat() {
     }
   };
 
+  // 小酌头像的情绪回应：消息凝出过卡片就用卡片上识别到的情绪摆姿势。
+  // 只让最新一条小酌消息动起来，历史消息保留姿势但不做动画。
+  const lastAssistantId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
+  const emotionForMessage = (spawnedCardId?: string) =>
+    spawnedCardId ? cards.find(c => c.id === spawnedCardId)?.emotion : undefined;
+
   return (
     <div className="monitor-panel h-full flex flex-col">
       <div className="monitor-panel-header">
@@ -209,9 +215,14 @@ export default function StoryAgentChat() {
                 }
               >
                 {m.role === 'assistant' && (
-                  <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                    <WuxingDrinkIcon element={element} size={18} />
-                    <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <EmotiveWuxingIcon
+                      element={element}
+                      size={26}
+                      emotion={emotionForMessage(m.spawnedCardId)}
+                      animated={m.id === lastAssistantId}
+                    />
+                    <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
                       小酌
                     </span>
                   </div>
@@ -285,9 +296,10 @@ export default function StoryAgentChat() {
                   color: 'var(--foreground)',
                 }}
               >
-                <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                  <WuxingDrinkIcon element={element} size={18} />
-                  <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+                <div className="flex items-center gap-1.5 mb-1">
+                  {/* 再见面的问候，用「开心」姿势打招呼 */}
+                  <EmotiveWuxingIcon element={element} size={26} mood="joy" />
+                  <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
                     小酌
                   </span>
                 </div>
@@ -310,7 +322,8 @@ export default function StoryAgentChat() {
                 borderColor: 'var(--panel-border)',
               }}
             >
-              <WuxingDrinkIcon element={element} size={18} />
+              {/* 回复中：托腮思考的姿势 */}
+              <EmotiveWuxingIcon element={element} size={26} mood="thinking" />
               <div className="flex gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
                 <span
