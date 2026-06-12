@@ -1094,6 +1094,28 @@ export async function getStoryById(
   return result[0] ?? null;
 }
 
+export async function getLatestStoryForProject(
+  projectId: number,
+  userId: number,
+): Promise<Story | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.stories
+        .filter(story => story.projectId === projectId && story.userId === userId)
+        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0] ??
+      null
+    );
+  }
+  const result = await db
+    .select()
+    .from(stories)
+    .where(and(eq(stories.projectId, projectId), eq(stories.userId, userId)))
+    .orderBy(desc(stories.updatedAt))
+    .limit(1);
+  return result[0] ?? null;
+}
+
 export async function createStory(data: InsertStory): Promise<{ id: number }> {
   const db = await getDb();
   if (!db) {

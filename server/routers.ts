@@ -26,6 +26,7 @@ import {
   upsertEmotionAnalysisProfile,
   listUserStories,
   getStoryById,
+  getLatestStoryForProject,
   createStory,
   updateStory,
   deleteStory,
@@ -66,7 +67,15 @@ import {
 import { renderViaGate } from "./services/renderGate";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
-import { createArtRiff } from "./services/artAgent";
+import {
+  analyzeArtReference,
+  createArtRiff,
+} from "./services/artAgent";
+import { generateArtDirectionCandidates } from "./services/artDirection";
+import {
+  normalizeStoryArtDirection,
+  type ArtRecipeDNA,
+} from "../shared/artDirection";
 import {
   getStoryRevision,
   mergeStaleStoryBody,
@@ -112,6 +121,70 @@ async function composeStoryWorkspace(
     console.warn("[story workspace] 读取 generatedImages 失败，按正文返回：", err);
     return { ...story, revision, syncConflict };
   }
+}
+
+const artRecipeDnaSchema = z.object({
+  style: z.array(z.string()),
+  palette: z.array(z.string()),
+  light: z.array(z.string()),
+  composition: z.array(z.string()),
+  material: z.array(z.string()),
+  negative: z.array(z.string()),
+});
+
+const artReferenceSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  source: z.enum(["message-photo", "visual-anchor", "story-card"]),
+  purpose: z.enum(["fact", "aesthetic", "both"]),
+  selected: z.boolean(),
+  imageUrl: z.string().optional(),
+  text: z.string().optional(),
+  visualStyle: z.array(z.string()).optional(),
+  colorPalette: z.array(z.string()).optional(),
+  lighting: z.string().optional(),
+  composition: z.string().optional(),
+  material: z.array(z.string()).optional(),
+  confidence: z.number().optional(),
+});
+
+function storyArtRecipe(story: { body: unknown }): ArtRecipeDNA | undefined {
+  const body =
+    story.body && typeof story.body === "object"
+      ? story.body as Record<string, unknown>
+      : {};
+  const direction = normalizeStoryArtDirection(body.artDirection);
+  return direction.phase === "locked" ? direction.recipe : undefined;
+}
+
+function storyArtReferenceImages(story: { body: unknown }): string[] {
+  const body =
+    story.body && typeof story.body === "object"
+      ? story.body as Record<string, unknown>
+      : {};
+  const direction = normalizeStoryArtDirection(body.artDirection);
+  const selected = direction.references
+    .filter(
+      reference =>
+        reference.selected &&
+        reference.imageUrl &&
+        (reference.purpose === "fact" || reference.purpose === "both"),
+    )
+    .map(reference => reference.imageUrl!);
+  const canvas = Array.isArray(body.visualCanvasItems)
+    ? body.visualCanvasItems.flatMap(item => {
+        if (!item || typeof item !== "object") return [];
+        const record = item as Record<string, unknown>;
+        const imageUrl =
+          typeof record.originalImageUrl === "string"
+            ? record.originalImageUrl
+            : typeof record.imageUrl === "string"
+              ? record.imageUrl
+              : "";
+        return imageUrl ? [imageUrl] : [];
+      })
+    : [];
+  return Array.from(new Set([...selected, ...canvas])).slice(0, 4);
 }
 
 function shotStatusFromBeat(beat: string) {
@@ -315,6 +388,17 @@ export const appRouter = router({
 
   // ─── Art Agent / 视觉锚画布 ───────────────────────────────────────
   artAgent: router({
+    analyzeReference: protectedProcedure
+      .input(
+        z.object({
+          imageBase64: z.string().min(1),
+          mimeType: z.string().optional(),
+          fileName: z.string().optional(),
+          instruction: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => analyzeArtReference(input)),
+
     riff: protectedProcedure
       .input(
         z
@@ -345,6 +429,46 @@ export const appRouter = router({
           previousAnalysis: input.previousAnalysis,
           imageProvider: input.imageProvider,
         });
+      }),
+
+    generateCandidates: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          targetContent: z.string().min(1),
+          references: z.array(artReferenceSchema),
+          round: z.number().int().min(1),
+          mode: z.enum(["explore", "converge"]).optional(),
+          likedRecipes: z.array(artRecipeDnaSchema).optional(),
+          imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) throw new Error("找不到故事，无法开始美术定调。");
+        const candidates = await generateArtDirectionCandidates({
+          targetContent: input.targetContent,
+          references: input.references,
+          round: input.round,
+          mode: input.mode,
+          likedRecipes: input.likedRecipes,
+          imageProvider: input.imageProvider,
+        });
+        return Promise.all(
+          candidates.map(async (candidate, index) => {
+            const image = await createGeneratedImage({
+              projectId: story.projectId ?? null,
+              storyId: story.id,
+              userId: ctx.user.id,
+              shotNo: `ART-R${input.round}-${index + 1}`,
+              imageUrl: candidate.imageUrl,
+              prompt: candidate.prompt,
+              generationType: "generate",
+              isCurrent: true,
+            });
+            return { ...candidate, imageId: image.id };
+          }),
+        );
       }),
   }),
 
@@ -1000,15 +1124,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        // 取用户长期情绪画像 + 当前卡片情绪 → 共鸣上下文（意图 / 情绪 + 文学声音）接进剧本。
-        // 仅在有卡片时构建——synthesizeShotList 对空卡片会早返回，避免白做 DB + 文学库查询。
         const resonanceContext =
           input.cards.length > 0
             ? await buildScriptResonanceContextForUser(
                 ctx.user.id,
                 input.cards
-                  .map((c) => c.emotion)
-                  .filter((e): e is string => Boolean(e)),
+                  .map(card => card.emotion)
+                  .filter((emotion): emotion is string => Boolean(emotion))
               )
             : "";
         // 可观测：把注入剧本的共鸣上下文打到日志，方便测试时确认「意图+情绪+文学声音」是否生效
@@ -1310,19 +1432,24 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             };
           }
 
-          // 出图统一经美术网关（artJudge 注入美术风格）；用户照片既是 image-to-image 基底，也是美术判断参照
+          // 出图统一经美术网关：故事锁定的美术 DNA（artDirection）+ 参考图一起喂给
+          // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
+          const storyReferences = storyArtReferenceImages(story);
+          const referenceImage = input.originalImageUrl || storyReferences[0];
           const result = await renderViaGate(
             {
               prompt,
-              referenceImages: input.originalImageUrl
-                ? [input.originalImageUrl]
+              referenceImages: referenceImage
+                ? Array.from(new Set([referenceImage, ...storyReferences]))
                 : undefined,
               shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+              projectId: story.projectId ?? undefined,
+              artDirection: storyArtRecipe(story),
             },
-            (p) =>
-              input.originalImageUrl
-                ? editMobileImage(input.originalImageUrl, p)
-                : generateMobileImage(p),
+            renderedPrompt =>
+              referenceImage
+                ? editMobileImage(referenceImage, renderedPrompt)
+                : generateMobileImage(renderedPrompt),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {
@@ -1357,7 +1484,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         }
       }),
 
-    // mobileInpaint: 局部修复（优先走 302 图像编辑，Forge 作为兜底）
+    // mobileInpaint: 局部修复（基于原图改画；MJ 模式内部自带「图生图失败→文生图」兜底）
     mobileInpaint: protectedProcedure
       .input(
         z.object({
@@ -1375,14 +1502,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             return { status: "error" as const, error: "找不到故事，无法保存图片" };
           }
 
-          // 局部修复同样经美术网关
+          // 局部修复同样经美术网关：带上故事的美术 DNA 和参考图
+          const storyReferences = storyArtReferenceImages(story);
           const result = await renderViaGate(
             {
               prompt: input.prompt,
-              referenceImages: [input.originalImageUrl],
+              referenceImages: Array.from(
+                new Set([input.originalImageUrl, ...storyReferences]),
+              ),
               shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+              projectId: story.projectId ?? undefined,
+              artDirection: storyArtRecipe(story),
             },
-            (p) => editMobileImage(input.originalImageUrl, p),
+            renderedPrompt =>
+              editMobileImage(input.originalImageUrl, renderedPrompt),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {
@@ -1538,6 +1671,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               .array(z.record(z.string(), z.unknown()))
               .optional(),
             visualPreference: z.string().optional(),
+            artDirection: z.record(z.string(), z.unknown()).optional(),
           }),
           autoSave: z.boolean().optional(),
           inlineCorrection: z
@@ -1630,7 +1764,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
         return replyFromCreationAgent({
           message: input.message,
           projectId: input.projectId,
@@ -1640,6 +1775,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: input.shots as ShotContext[] | undefined,
           currentFocusShotNo: input.currentFocusShotNo,
           imageProvider: input.imageProvider,
+          artDirection: story ? storyArtRecipe(story) : undefined,
+          referenceImages: story ? storyArtReferenceImages(story) : undefined,
         });
       }),
 
@@ -1712,15 +1849,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           parentImageId: z.number().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
+        const storyReferences = story ? storyArtReferenceImages(story) : [];
         const result = await renderViaGate(
           {
             prompt: input.prompt,
-            referenceImages: [input.imageUrl],
+            referenceImages: Array.from(
+              new Set([input.imageUrl, ...storyReferences]),
+            ),
             shotNo: input.shotNo,
             projectId: input.projectId,
+            artDirection: story ? storyArtRecipe(story) : undefined,
           },
-          (prompt) => inpaintImage(input.imageUrl, input.maskUrl, prompt),
+          prompt => inpaintImage(input.imageUrl, input.maskUrl, prompt)
         );
         if (result.status === "error" || !result.imageUrl) {
           return {

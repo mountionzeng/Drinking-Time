@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import type { TrpcContext } from "./_core/context";
@@ -108,6 +108,10 @@ describe("storyAgent tRPC router", () => {
         .slice(2)}.json`,
     );
     ({ appRouter } = await import("./routers"));
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it("wraps chat with the archive Story Agent response shape", async () => {

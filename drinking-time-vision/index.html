@@ -517,10 +517,15 @@
     }
     .wordmark > span{ padding-left: .28em; }
     .wordmark-sub{
-      font-size: clamp(18px, 5.2vw, 23px);
-      letter-spacing: .14em;
+      width: 100%;
+      max-width: 100%;
+      padding: 0 8px;
+      font-size: clamp(15px, 4.2vw, 18px);
+      letter-spacing: 0;
       line-height: 1.55;
-      white-space: nowrap;
+      text-align: center;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .copy p, .copy li{ font-size: 19px; }
     .copy p.lead{ font-size: 22px; }
@@ -2331,7 +2336,7 @@
       </svg>
     </div>
 
-    <p class="wordmark-sub" data-anim>5 个真实用户 · 一次可证伪的交易验证</p>
+    <p class="wordmark-sub" data-anim>5 位用户 · 一次真实验证</p>
   </section>
 
   <span class="quiet-rule" aria-hidden="true">

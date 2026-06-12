@@ -22,6 +22,31 @@ describe("renderViaGate（出图网关）", () => {
     expect(r).toEqual({ url: "http://img/1.png" });
   });
 
+  it("有故事视觉配方时优先注入原创 DNA，不再注入具名流派", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "窗边开花的小草",
+        artDirection: {
+          style: ["平涂风格化插图"],
+          palette: ["低饱和青绿"],
+          light: ["清晨柔侧光"],
+          composition: ["主体偏侧"],
+          material: ["纸张颗粒"],
+          negative: ["摄影写实"],
+        },
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      },
+    );
+
+    expect(seen).toContain("【故事视觉配方】");
+    expect(seen).toContain("低饱和青绿");
+    expect(seen).not.toContain("【美术流派·");
+  });
+
   it("render 抛错时原样冒泡，不吞错", async () => {
     await expect(
       renderViaGate({ prompt: "x" }, async () => {
