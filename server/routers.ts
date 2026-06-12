@@ -1447,9 +1447,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               artDirection: storyArtRecipe(story),
             },
             renderedPrompt =>
+              // draft 档（MJ --quality 0.25 + turbo）：手机影像日记够用，渲染时间省一半左右；
+              // 长按局部修复（mobileInpaint）仍走全质量档
               referenceImage
-                ? editMobileImage(referenceImage, renderedPrompt)
-                : generateMobileImage(renderedPrompt),
+                ? editMobileImage(referenceImage, renderedPrompt, { fidelity: "draft" })
+                : generateMobileImage(renderedPrompt, { fidelity: "draft" }),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {

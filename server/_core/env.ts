@@ -61,7 +61,7 @@ export const ENV = {
   image302GptSize: process.env.IMAGE_302_GPT_SIZE ?? "1024x1024", // GPT-image 默认尺寸
   image302GptQuality: process.env.IMAGE_302_GPT_QUALITY ?? "high", // GPT-image 默认质量
   image302MjAuthHeader: process.env.IMAGE_302_MJ_AUTH_HEADER ?? "bearer", // Midjourney 鉴权：bearer 或 mj-api-secret
-  image302MjPollMs: process.env.IMAGE_302_MJ_POLL_MS ?? "4000", // Midjourney 轮询间隔
+  image302MjPollMs: process.env.IMAGE_302_MJ_POLL_MS ?? "2000", // Midjourney 轮询间隔（出完尽快发现，省平均 ~2s）
   image302MjTimeoutMs: process.env.IMAGE_302_MJ_TIMEOUT_MS ?? "180000", // Midjourney 总等待上限
 
   // ── 302.ai 视觉分析（不填模型或 Key 时回退原视觉通道）──

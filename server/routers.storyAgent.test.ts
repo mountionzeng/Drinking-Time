@@ -457,9 +457,11 @@ describe("storyAgent tRPC router", () => {
       prompt: "雨夜路灯下的一个停顿",
     });
 
-    // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含
+    // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含；
+    // 手机端走 draft 档（--quality 0.25 + turbo，省一半渲染时间）
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
+      { fidelity: "draft" },
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -500,10 +502,11 @@ describe("storyAgent tRPC router", () => {
       originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
     });
 
-    // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）
+    // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）；手机端 draft 档
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
+      { fidelity: "draft" },
     );
     expect(result).toMatchObject({
       status: "ok",

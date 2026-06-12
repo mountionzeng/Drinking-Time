@@ -305,30 +305,30 @@ async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "imag
 
   const localUrl = saveImageLocally(data, mimeType, storageKey);
 
-  // 异地备份尽力而为：限时 10s，失败只记日志，不阻断、不上抛
-  let remoteKey: string | null = null;
-  try {
-    const stored = await withTimeout(storagePut(storageKey, data, mimeType), 10_000);
-    remoteKey = stored.key;
-  } catch (error) {
-    console.warn(
-      "[imageGen] 远程备份失败（不影响出图，本地副本已落盘）：",
-      error instanceof Error ? error.message : String(error),
-    );
+  if (localUrl) {
+    // 异地备份「发射后不管」：storagePut 返回的 key 就是传入的 storageKey（确定性），
+    // 等它只会白白拖慢出图（实测远程代理长期 503/超时 = 每张图 +10s）。
+    // 失败只记日志；/api/images 回源逻辑天然容忍备份缺失。
+    void withTimeout(storagePut(storageKey, data, mimeType), 10_000).catch(error => {
+      console.warn(
+        "[imageGen] 远程备份失败（不影响出图，本地副本已落盘）：",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+    return { status: "ok", imageUrl: localUrl, imageKey: storageKey };
   }
 
-  if (localUrl) {
-    return { status: "ok", imageUrl: localUrl, imageKey: remoteKey ?? storageKey };
-  }
-  // 本地写不了（磁盘满/权限）：退而求其次用远程 key 走稳定路由（服务端会按 key 回源）
-  if (remoteKey) {
+  // 本地写不了（磁盘满/权限）：退而求其次等远程备份成功，用稳定路由（服务端会按 key 回源）
+  try {
+    const stored = await withTimeout(storagePut(storageKey, data, mimeType), 10_000);
     return {
       status: "ok",
       imageUrl: `/api/images/${localFileNameFor(storageKey, mimeType)}`,
-      imageKey: remoteKey,
+      imageKey: stored.key,
     };
+  } catch {
+    throw new Error("本地与远程存储均不可用"); // 交给上层（storeImageFromUrl 会回退原始 URL）
   }
-  throw new Error("本地与远程存储均不可用"); // 交给上层（storeImageFromUrl 会回退原始 URL）
 }
 
 async function storeImageFromUrl(

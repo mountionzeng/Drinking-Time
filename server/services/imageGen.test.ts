@@ -94,7 +94,8 @@ describe("generateImage", () => {
     expect(result.status).toBe("ok");
     // 新契约：imageUrl 一律是同源稳定路由；远程备份成功时 imageKey 记远程 key
     expect(result.imageUrl).toMatch(/^\/api\/images\/.+\.png$/);
-    expect(result.imageKey).toBe("generated/test.png");
+    // 备份改为发射后不管：imageKey = 本地生成的确定性 storageKey，不再等远程返回
+    expect(result.imageKey).toMatch(/^generated\/.+\.png$/);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
