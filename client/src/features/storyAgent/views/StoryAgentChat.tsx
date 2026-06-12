@@ -12,6 +12,7 @@ import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
 import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
 import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
+import StoryArtDirectionLauncher from './StoryArtDirectionLauncher';
 
 export default function StoryAgentChat() {
   const {
@@ -332,6 +333,8 @@ export default function StoryAgentChat() {
         className="border-t px-3 pb-3 flex flex-col gap-2"
         style={{ borderColor: 'var(--panel-border)' }}
       >
+        <StoryArtDirectionLauncher />
+
         {/* Quote block */}
         {activeSelection && (
           <div

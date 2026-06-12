@@ -464,7 +464,7 @@ export default function StoryArtDirectionStudio() {
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            生成 6 张独立视觉方向
+            生成 6 张独立图片
           </button>
         </div>
       ) : null}
@@ -473,7 +473,7 @@ export default function StoryArtDirectionStudio() {
         <div className="mt-3 px-3">
           <div className="mb-2 flex items-center gap-2 text-[10px] text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-nayin-bright" />
-            正在保持人物与事件不变，只比较怎么画
+            正在生成 6 张独立图片，保持人物与事件不变，只比较怎么画
           </div>
           <LoadingCandidates />
         </div>
