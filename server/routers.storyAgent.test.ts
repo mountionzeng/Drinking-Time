@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import type { TrpcContext } from "./_core/context";
@@ -108,6 +108,10 @@ describe("storyAgent tRPC router", () => {
         .slice(2)}.json`,
     );
     ({ appRouter } = await import("./routers"));
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it("wraps chat with the archive Story Agent response shape", async () => {
@@ -361,7 +365,9 @@ describe("storyAgent tRPC router", () => {
       prompt: "雨夜路灯下的一个停顿",
     });
 
-    expect(imageGenMocks.generateImage).toHaveBeenCalledWith("雨夜路灯下的一个停顿");
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.stringContaining("雨夜路灯下的一个停顿"),
+    );
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-text.png",
@@ -403,7 +409,7 @@ describe("storyAgent tRPC router", () => {
 
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
-      "保留人物，把背景换成微雨夜色",
+      expect.stringContaining("保留人物，把背景换成微雨夜色"),
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -444,7 +450,7 @@ describe("storyAgent tRPC router", () => {
 
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/png;base64,aW1hZ2U=",
-      "把路牌文字去掉",
+      expect.stringContaining("把路牌文字去掉"),
     );
     expect(result.status).toBe("ok");
     const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7303 });

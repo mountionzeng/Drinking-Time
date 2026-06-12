@@ -44,6 +44,11 @@ export type ArtRiffResult = {
   modelLabel: string;
 };
 
+export type ArtReferenceAnalysisResult = Omit<
+  ArtRiffResult,
+  "imageUrl" | "prompt" | "preferenceUpdate"
+>;
+
 function toDataUrl(base64: string, mimeType: string) {
   return `data:${mimeType};base64,${base64}`;
 }
@@ -130,6 +135,47 @@ function analysisFromPrevious(
     promptDraft: previous?.promptDraft ?? "",
     negativePrompt: previous?.negativePrompt ?? "",
     confidence: previous?.confidence ?? 0,
+  };
+}
+
+function publicAnalysis(analysis: VisionAnalysisResult["analysis"]) {
+  return {
+    objective: buildObjective(analysis),
+    aesthetic: buildAesthetic(analysis),
+    visualStyle: analysis.visualStyle,
+    mood: analysis.mood,
+    colorPalette: analysis.colorPalette,
+    composition: analysis.composition,
+    lighting: analysis.lighting,
+    promptDraft: analysis.promptDraft,
+    negativePrompt: analysis.negativePrompt,
+    confidence: analysis.confidence,
+  };
+}
+
+export async function analyzeArtReference(params: {
+  imageBase64: string;
+  mimeType?: string;
+  fileName?: string;
+  instruction?: string;
+}): Promise<ArtReferenceAnalysisResult> {
+  const mimeType = params.mimeType || "image/jpeg";
+  const sourceDataUrl = toDataUrl(params.imageBase64, mimeType);
+  const vision = await analyzeVisionReference({
+    imageDataUrl: sourceDataUrl,
+    fileName: params.fileName,
+    brief: params.instruction,
+  });
+  const originalImageUrl = await storeOriginalImage({
+    base64: params.imageBase64,
+    mimeType,
+    fileName: params.fileName,
+  });
+  return {
+    originalImageUrl,
+    analysis: publicAnalysis(vision.analysis),
+    reply: vision.reply,
+    modelLabel: vision.modelLabel,
   };
 }
 
@@ -241,18 +287,7 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     originalImageUrl,
     imageUrl: generated.imageUrl,
     prompt,
-    analysis: {
-      objective,
-      aesthetic,
-      visualStyle: vision.analysis.visualStyle,
-      mood: vision.analysis.mood,
-      colorPalette: vision.analysis.colorPalette,
-      composition: vision.analysis.composition,
-      lighting: vision.analysis.lighting,
-      promptDraft: vision.analysis.promptDraft,
-      negativePrompt: vision.analysis.negativePrompt,
-      confidence: vision.analysis.confidence,
-    },
+    analysis: publicAnalysis(vision.analysis),
     reply: vision.reply,
     preferenceUpdate,
     modelLabel: vision.modelLabel,

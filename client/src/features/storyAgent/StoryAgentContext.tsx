@@ -52,6 +52,19 @@ import {
   activeStoryIdFrom,
   hasLiveStoryWork,
 } from './storyAgentPersistence';
+import {
+  artCandidatesNeedConvergence,
+  deriveStoryArtRecipe,
+  emptyStoryArtDirection,
+  normalizeStoryArtDirection,
+  type ArtCandidateVerdict,
+  type ArtRecipeDNA,
+  type StoryArtDirection,
+} from '@shared/artDirection';
+import {
+  buildStoryArtReferences,
+  nextReferencePurpose,
+} from './storyArtReferences';
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -117,12 +130,22 @@ interface StoryAgentContextValue {
   visualCanvasItems: VisualCanvasItem[];
   visualPreference: string;
   imageProvider: ImageProviderSelection;
+  artDirection: StoryArtDirection;
   setImageProvider: (provider: ImageProviderSelection) => void;
   isArtWorking: boolean;
   addVisualReference: (file: File, instruction?: string, cardId?: string) => Promise<void>;
   refineVisualItem: (id: string, instruction: string) => Promise<void>;
   updateVisualCanvasItem: (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => void;
   removeVisualCanvasItem: (id: string) => void;
+  prepareArtDirection: () => void;
+  toggleArtReference: (id: string) => void;
+  cycleArtReferencePurpose: (id: string) => void;
+  generateArtCandidates: (mode?: 'explore' | 'converge') => Promise<void>;
+  setArtCandidateVerdict: (id: string, verdict: ArtCandidateVerdict) => Promise<void>;
+  reviewArtRecipe: () => Promise<void>;
+  updateArtRecipeField: (field: keyof ArtRecipeDNA, values: string[]) => void;
+  lockArtRecipe: () => void;
+  resetArtDirection: () => void;
   /** Inline selection edit */
   activeSelection: SelectionState | null;
   setActiveSelection: (state: SelectionState | null) => void;
@@ -340,6 +363,39 @@ function reconcileRestoredVisualItems(
   });
 }
 
+function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
+  const richestCard = [...cards].sort((left, right) => {
+    const leftScore =
+      left.content.length +
+      (left.sourceQuote?.length ?? 0) +
+      left.sensoryDetails.join('').length;
+    const rightScore =
+      right.content.length +
+      (right.sourceQuote?.length ?? 0) +
+      right.sensoryDetails.join('').length;
+    return rightScore - leftScore;
+  })[0];
+  if (richestCard) {
+    return [
+      richestCard.content,
+      richestCard.sourceQuote ? `原话：${richestCard.sourceQuote}` : '',
+      richestCard.sensoryDetails.length
+        ? `感官细节：${richestCard.sensoryDetails.join('、')}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('；')
+      .slice(0, 360);
+  }
+  const firstShot = shots[0];
+  return firstShot
+    ? [firstShot.subject, firstShot.action, firstShot.location, firstShot.timeLight]
+        .filter(Boolean)
+        .join('；')
+        .slice(0, 360)
+    : '';
+}
+
 export function StoryAgentProvider({
   projectId,
   children,
@@ -351,6 +407,9 @@ export function StoryAgentProvider({
   const chatMut = trpc.storyAgent.chat.useMutation();
   const uploadPhotoMut = trpc.storyAgent.uploadPhoto.useMutation(); // 上传图片用
   const artRiffMut = trpc.artAgent.riff.useMutation();
+  const analyzeReferenceMut = trpc.artAgent.analyzeReference.useMutation();
+  const artCandidatesMut = trpc.artAgent.generateCandidates.useMutation();
+  const imageSignalMut = trpc.storyAgent.recordSignal.useMutation();
   const classifyMut = trpc.storyAgent.classify.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
@@ -369,6 +428,9 @@ export function StoryAgentProvider({
   const [visualCanvasItems, setVisualCanvasItems] = useState<VisualCanvasItem[]>([]);
   const [visualPreference, setVisualPreference] = useState('');
   const [imageProvider, setImageProvider] = useState<ImageProviderSelection>('default');
+  const [artDirection, setArtDirection] = useState<StoryArtDirection>(
+    emptyStoryArtDirection,
+  );
   const [isArtWorking, setIsArtWorking] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -434,6 +496,7 @@ export function StoryAgentProvider({
     );
     setVisualPreference(persisted.visualPreference ?? '');
     setImageProvider(persisted.imageProvider ?? 'default');
+    setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
     // 已保存过的故事（有 remoteStoryId）一律回到选择屏——它仍在云端列表里，随时可点回；
     // 只有「未存过的新草稿」(有内容但还没 remoteStoryId) 才直接恢复，否则它不在列表里、
@@ -467,6 +530,7 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
       savedAt: Date.now(),
       activeStoryId: activeStoryId ?? undefined,
     };
@@ -490,6 +554,7 @@ export function StoryAgentProvider({
     visualCanvasItems,
     visualPreference,
     imageProvider,
+    artDirection,
     activeStoryId,
   ]);
 
@@ -500,7 +565,7 @@ export function StoryAgentProvider({
   // Track the last time the editable state changed (for the 2-second inactivity guard)
   useEffect(() => {
     lastStateChangeTimeRef.current = Date.now();
-  }, [cards, scripts, storyShots, visualCanvasItems, visualPreference]);
+  }, [cards, scripts, storyShots, visualCanvasItems, visualPreference, artDirection]);
 
   // ── Auto-save: 5-minute timer ───────────────────────────────────────
   useEffect(() => {
@@ -521,6 +586,7 @@ export function StoryAgentProvider({
         cardContents: cards.map((c) => c.content),
         visualIds: visualCanvasItems.map((item) => item.id),
         visualPreference,
+        artDirection,
       });
 
       // Skip if nothing changed since last snapshot
@@ -541,6 +607,7 @@ export function StoryAgentProvider({
             shots: storyShots as unknown as Record<string, unknown>[],
             visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
             visualPreference,
+            artDirection: artDirection as unknown as Record<string, unknown>,
           },
           autoSave: true,
         },
@@ -575,8 +642,9 @@ export function StoryAgentProvider({
       visualCanvasItems?: VisualCanvasItem[];
       visualPreference?: string;
       imageProvider?: ImageProviderSelection;
-    }) => {
-      if (!hasLiveStoryWork(snapshot)) return;
+      artDirection?: StoryArtDirection;
+    }): Promise<number | undefined> => {
+      if (!hasLiveStoryWork(snapshot)) return undefined;
       const latest =
         snapshot.scripts.length > 0
           ? snapshot.scripts[snapshot.scripts.length - 1]
@@ -593,6 +661,7 @@ export function StoryAgentProvider({
       const canvasItems = snapshot.visualCanvasItems ?? visualCanvasItems;
       const preference = snapshot.visualPreference ?? visualPreference;
       const selectedProvider = snapshot.imageProvider ?? imageProvider;
+      const selectedArtDirection = snapshot.artDirection ?? artDirection;
 
       try {
         setSaveStatus('saving');
@@ -611,6 +680,7 @@ export function StoryAgentProvider({
             visualCanvasItems: canvasItems,
             visualPreference: preference,
             imageProvider: selectedProvider,
+            artDirection: selectedArtDirection,
             variants: latest?.variants ?? [],
             boringCheck: latest?.boringCheck ?? null,
             messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
@@ -625,6 +695,7 @@ export function StoryAgentProvider({
           setActiveStoryId((current) => (current === null ? null : saved.id));
           setSaveStatus('saved');
           setLastSavedAt(Date.now());
+          return saved.id;
         }
       } catch (error) {
         console.warn('save archive story failed', error);
@@ -634,6 +705,7 @@ export function StoryAgentProvider({
         setSaveStatus('error');
         toast.error('云端保存失败，本机仍有临时备份，会继续重试');
       }
+      return undefined;
     },
     [
       projectId,
@@ -645,6 +717,7 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
     ],
   );
 
@@ -665,6 +738,7 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
     };
     if (!hasLiveStoryWork(snapshot)) return;
 
@@ -687,6 +761,7 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
     });
     if (currentHash === lastArchiveSaveHashRef.current) return;
 
@@ -710,6 +785,7 @@ export function StoryAgentProvider({
     visualCanvasItems,
     visualPreference,
     imageProvider,
+    artDirection,
     isReplying,
     isGeneratingScript,
     projectId,
@@ -776,6 +852,7 @@ export function StoryAgentProvider({
                 shots: storyShots as unknown as Record<string, unknown>[],
                 visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
                 visualPreference,
+                artDirection: artDirection as unknown as Record<string, unknown>,
               },
             });
             lastSnapshotIdRef.current = snapshotResult.snapshotId;
@@ -787,6 +864,7 @@ export function StoryAgentProvider({
               cardContents: cards.map((c) => c.content),
               visualIds: visualCanvasItems.map((item) => item.id),
               visualPreference,
+              artDirection,
             });
           } catch (err) {
             console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
@@ -903,6 +981,7 @@ export function StoryAgentProvider({
       storyArc,
       visualCanvasItems,
       visualPreference,
+      artDirection,
       saveArchiveStory,
       uploadPhotoMut,
     ],
@@ -1247,6 +1326,7 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
+    setArtDirection(emptyStoryArtDirection());
     setActiveStoryId(-1);
     setSaveStatus('idle');
     setLastSavedAt(undefined);
@@ -1306,6 +1386,7 @@ export function StoryAgentProvider({
     setVisualCanvasItems([]);
     setVisualPreference('');
     setImageProvider('default');
+    setArtDirection(emptyStoryArtDirection());
     setSaveStatus('idle');
     setLastSavedAt(undefined);
     setReturningGreeting(null);
@@ -1347,6 +1428,7 @@ export function StoryAgentProvider({
       const restoredVisualPreference =
         typeof body.visualPreference === 'string' ? body.visualPreference : '';
       const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
+      const restoredArtDirection = normalizeStoryArtDirection(body.artDirection);
 
       setRemoteStoryId(id);
       setStoryTitle(row.title || undefined);
@@ -1368,6 +1450,7 @@ export function StoryAgentProvider({
       );
       setVisualPreference(restoredVisualPreference);
       setImageProvider(restoredImageProvider);
+      setArtDirection(restoredArtDirection);
 
       const remoteScript = scriptFromStory({
         title: row.title || undefined,
@@ -1488,35 +1571,63 @@ export function StoryAgentProvider({
       setIsArtWorking(true);
       try {
         const imageBase64 = await fileToBase64(file);
-        const result = await artRiffMut.mutateAsync({
+        const result = await analyzeReferenceMut.mutateAsync({
           imageBase64,
           mimeType: file.type || 'image/jpeg',
           fileName: file.name,
           instruction,
-          projectPreference: visualPreference,
-          imageProvider: imageProviderForRequest(imageProvider),
         });
         const offset = visualCanvasItems.length * 18;
         const item: VisualCanvasItem = {
           id: newId('visual'),
           title: file.name.replace(/\.[^.]+$/, '') || `视觉锚 ${visualCanvasItems.length + 1}`,
-          imageUrl: result.imageUrl,
+          imageUrl: result.originalImageUrl,
           originalImageUrl: result.originalImageUrl,
-          source: 'riff',
+          source: 'reference',
           cardId,
           x: 18 + offset,
           y: 18 + offset,
           width: 170,
           height: 218,
-          prompt: result.prompt,
+          prompt: result.analysis.promptDraft,
           userInstruction: instruction,
           analysis: result.analysis,
           createdAt: Date.now(),
         };
-        persistVisualCanvas([...visualCanvasItems, item], result.preferenceUpdate || visualPreference);
-        toast.success(cardId ? '美术 Agent 已经把图放进这张卡' : '美术 Agent 已经把图落到画布上');
+        const nextItems = [...visualCanvasItems, item];
+        persistVisualCanvas(nextItems);
+        if (artDirection.phase !== 'empty') {
+          const targetContent =
+            artDirection.targetContent || artTargetFrom(cards, storyShots);
+          const existing = new Map(
+            artDirection.references.map(reference => [reference.id, reference]),
+          );
+          const references = buildStoryArtReferences({
+            messages,
+            cards,
+            visualCanvasItems: nextItems,
+            targetContent,
+          }).map(reference => {
+            const prior = existing.get(reference.id);
+            return prior
+              ? {
+                  ...reference,
+                  selected: prior.selected,
+                  purpose: prior.purpose,
+                }
+              : reference;
+          });
+          setArtDirection(current => ({
+            ...current,
+            phase: current.phase === 'locked' ? 'locked' : 'references',
+            targetContent,
+            references,
+            updatedAt: Date.now(),
+          }));
+        }
+        toast.success(cardId ? '参考图已分析并加入这张卡' : '参考图已分析并加入材料');
       } catch (error) {
-        console.error('artAgent.riff failed', error);
+        console.error('artAgent.analyzeReference failed', error);
         toast.error(error instanceof Error ? error.message : '美术 Agent 暂时没接上');
       } finally {
         setIsArtWorking(false);
@@ -1524,11 +1635,13 @@ export function StoryAgentProvider({
     },
     [
       isArtWorking,
-      artRiffMut,
-      visualPreference,
-      imageProvider,
+      analyzeReferenceMut,
       visualCanvasItems,
       persistVisualCanvas,
+      artDirection,
+      cards,
+      storyShots,
+      messages,
     ],
   );
 
@@ -1601,6 +1714,320 @@ export function StoryAgentProvider({
     },
     [visualCanvasItems, persistVisualCanvas],
   );
+
+  const prepareArtDirection = useCallback(() => {
+    const targetContent = artTargetFrom(cards, storyShots);
+    if (!targetContent) {
+      toast.error('先留下一张故事卡，系统才知道六张图要画同一个什么瞬间');
+      return;
+    }
+    const existing = new Map(
+      artDirection.references.map(reference => [reference.id, reference]),
+    );
+    const references = buildStoryArtReferences({
+      messages,
+      cards,
+      visualCanvasItems,
+      targetContent,
+    }).map(reference => {
+      const prior = existing.get(reference.id);
+      return prior
+        ? {
+            ...reference,
+            selected: prior.selected,
+            purpose: prior.purpose,
+          }
+        : reference;
+    });
+    setArtDirection(current => ({
+      ...current,
+      phase: 'references',
+      targetContent,
+      references,
+      candidates: [],
+      updatedAt: Date.now(),
+    }));
+  }, [artDirection.references, cards, messages, storyShots, visualCanvasItems]);
+
+  const toggleArtReference = useCallback((id: string) => {
+    setArtDirection(current => ({
+      ...current,
+      references: current.references.map(reference =>
+        reference.id === id
+          ? { ...reference, selected: !reference.selected }
+          : reference,
+      ),
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
+  const cycleArtReferencePurpose = useCallback((id: string) => {
+    setArtDirection(current => ({
+      ...current,
+      references: current.references.map(reference =>
+        reference.id === id
+          ? { ...reference, purpose: nextReferencePurpose(reference.purpose) }
+          : reference,
+      ),
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
+  const generateArtCandidates = useCallback(
+    async (mode: 'explore' | 'converge' = 'explore') => {
+      if (isArtWorking) return;
+      const selectedReferences = artDirection.references.filter(
+        reference => reference.selected,
+      );
+      if (selectedReferences.length === 0) {
+        toast.error('至少保留一份故事材料作为出图依据');
+        return;
+      }
+      const targetContent =
+        artDirection.targetContent || artTargetFrom(cards, storyShots);
+      if (!targetContent) {
+        toast.error('还没有可以画的故事瞬间');
+        return;
+      }
+
+      setIsArtWorking(true);
+      const generatingState: StoryArtDirection = {
+        ...artDirection,
+        phase: 'generating',
+        targetContent,
+        updatedAt: Date.now(),
+      };
+      setArtDirection(generatingState);
+
+      try {
+        const storyId =
+          remoteStoryId ??
+          (await saveArchiveStory({
+            messages,
+            cards,
+            scripts,
+            storyShots,
+            characters,
+            title: storyTitle,
+            logline: storyLogline,
+            theme: storyTheme,
+            arc: storyArc,
+            visualCanvasItems,
+            visualPreference,
+            imageProvider,
+            artDirection: generatingState,
+          }));
+        if (!storyId) {
+          throw new Error('故事还没有保存成功，暂时不能记录候选图');
+        }
+
+        const nextRound = artDirection.round + 1;
+        const likedRecipes =
+          mode === 'converge'
+            ? artDirection.candidates
+                .filter(candidate => candidate.verdict === 'liked')
+                .map(candidate => candidate.recipe)
+            : undefined;
+        const candidates = await artCandidatesMut.mutateAsync({
+          storyId,
+          targetContent,
+          references: artDirection.references,
+          round: nextRound,
+          mode,
+          likedRecipes,
+          imageProvider: imageProviderForRequest(imageProvider),
+        });
+        const nextState: StoryArtDirection = {
+          ...generatingState,
+          phase: 'selecting',
+          round: nextRound,
+          candidates,
+          updatedAt: Date.now(),
+        };
+        setArtDirection(nextState);
+        void saveArchiveStory({
+          messages,
+          cards,
+          scripts,
+          storyShots,
+          characters,
+          remoteStoryId: storyId,
+          title: storyTitle,
+          logline: storyLogline,
+          theme: storyTheme,
+          arc: storyArc,
+          visualCanvasItems,
+          visualPreference,
+          imageProvider,
+          artDirection: nextState,
+        });
+        toast.success(
+          mode === 'converge'
+            ? '新的收敛候选已生成'
+            : '六张独立视觉方向已生成',
+        );
+      } catch (error) {
+        console.error('artAgent.generateCandidates failed', error);
+        setArtDirection(current => ({
+          ...current,
+          phase: current.candidates.length ? 'selecting' : 'references',
+          updatedAt: Date.now(),
+        }));
+        toast.error(error instanceof Error ? error.message : '视觉候选生成失败');
+      } finally {
+        setIsArtWorking(false);
+      }
+    },
+    [
+      isArtWorking,
+      artDirection,
+      cards,
+      storyShots,
+      remoteStoryId,
+      saveArchiveStory,
+      messages,
+      scripts,
+      characters,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      visualCanvasItems,
+      visualPreference,
+      imageProvider,
+      artCandidatesMut,
+    ],
+  );
+
+  const setArtCandidateVerdict = useCallback(
+    async (id: string, verdict: ArtCandidateVerdict) => {
+      const candidate = artDirection.candidates.find(item => item.id === id);
+      if (!candidate) return;
+      const nextCandidates = artDirection.candidates.map(item =>
+        item.id === id ? { ...item, verdict } : item,
+      );
+      setArtDirection(current => {
+        const next = { ...current, candidates: nextCandidates, updatedAt: Date.now() };
+        if (current.phase !== 'locked') return next;
+        const recipe = deriveStoryArtRecipe(
+          nextCandidates,
+          current.recipe?.version ?? 0,
+        );
+        return recipe
+          ? {
+              ...next,
+              recipe,
+              recipeVersions: current.recipe
+                ? [...current.recipeVersions, current.recipe]
+                : current.recipeVersions,
+            }
+          : next;
+      });
+
+      if (remoteStoryId && verdict !== 'pending') {
+        try {
+          await imageSignalMut.mutateAsync({
+            storyId: remoteStoryId,
+            imageId: candidate.imageId,
+            action: verdict === 'liked' ? 'swipe_right' : 'swipe_left',
+            metadata: {
+              candidateId: candidate.id,
+              candidateRole: candidate.role,
+              round: artDirection.round,
+              recipe: candidate.recipe,
+            },
+          });
+        } catch (error) {
+          console.warn('record art candidate signal failed', error);
+        }
+      }
+    },
+    [artDirection, imageSignalMut, remoteStoryId],
+  );
+
+  const reviewArtRecipe = useCallback(async () => {
+    const liked = artDirection.candidates.filter(
+      candidate => candidate.verdict === 'liked',
+    );
+    if (liked.length === 0) {
+      toast.error('先至少喜欢一张，系统才知道该往哪里收');
+      return;
+    }
+    if (artCandidatesNeedConvergence(artDirection.candidates)) {
+      await generateArtCandidates('converge');
+      return;
+    }
+    const recipe = deriveStoryArtRecipe(
+      artDirection.candidates,
+      artDirection.recipe?.version ?? 0,
+    );
+    if (!recipe) return;
+    setArtDirection(current => ({
+      ...current,
+      phase: 'recipe-review',
+      recipe,
+      updatedAt: Date.now(),
+    }));
+  }, [artDirection, generateArtCandidates]);
+
+  const lockArtRecipe = useCallback(() => {
+    setArtDirection(current => {
+      if (!current.recipe) return current;
+      const alreadyStored = current.recipeVersions.some(
+        recipe => recipe.version === current.recipe?.version,
+      );
+      return {
+        ...current,
+        phase: 'locked',
+        recipeVersions: alreadyStored
+          ? current.recipeVersions
+          : [...current.recipeVersions, current.recipe],
+        updatedAt: Date.now(),
+      };
+    });
+    toast.success('故事视觉配方已锁定，后续镜头会默认继承');
+  }, []);
+
+  const updateArtRecipeField = useCallback(
+    (field: keyof ArtRecipeDNA, values: string[]) => {
+      setArtDirection(current =>
+        current.recipe
+          ? {
+              ...current,
+              recipe: {
+                ...current.recipe,
+                [field]: Array.from(
+                  new Set(values.map(value => value.trim()).filter(Boolean)),
+                ),
+                updatedAt: Date.now(),
+              },
+              updatedAt: Date.now(),
+            }
+          : current,
+      );
+    },
+    [],
+  );
+
+  const resetArtDirection = useCallback(() => {
+    const targetContent = artTargetFrom(cards, storyShots);
+    const references = buildStoryArtReferences({
+      messages,
+      cards,
+      visualCanvasItems,
+      targetContent,
+    });
+    setArtDirection(current => ({
+      ...emptyStoryArtDirection(),
+      phase: 'references',
+      targetContent,
+      references,
+      recipeVersions: current.recipe
+        ? [...current.recipeVersions, current.recipe]
+        : current.recipeVersions,
+      updatedAt: Date.now(),
+    }));
+  }, [cards, messages, storyShots, visualCanvasItems]);
 
   const clearSelection = useCallback(() => setActiveSelection(null), []);
 
@@ -1792,12 +2219,22 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
       setImageProvider,
       isArtWorking,
       addVisualReference,
       refineVisualItem,
       updateVisualCanvasItem,
       removeVisualCanvasItem,
+      prepareArtDirection,
+      toggleArtReference,
+      cycleArtReferencePurpose,
+      generateArtCandidates,
+      setArtCandidateVerdict,
+      reviewArtRecipe,
+      updateArtRecipeField,
+      lockArtRecipe,
+      resetArtDirection,
       activeSelection,
       setActiveSelection,
       clearSelection,
@@ -1837,11 +2274,21 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       imageProvider,
+      artDirection,
       isArtWorking,
       addVisualReference,
       refineVisualItem,
       updateVisualCanvasItem,
       removeVisualCanvasItem,
+      prepareArtDirection,
+      toggleArtReference,
+      cycleArtReferencePurpose,
+      generateArtCandidates,
+      setArtCandidateVerdict,
+      reviewArtRecipe,
+      updateArtRecipeField,
+      lockArtRecipe,
+      resetArtDirection,
       activeSelection,
       setActiveSelection,
       clearSelection,

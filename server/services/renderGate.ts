@@ -12,6 +12,10 @@
  * （其余参数用闭包带上），网关只负责在调用前过一遍判断、把（可能改写过的）prompt 交回去。
  */
 import { getActiveStyles, styleToFragments } from "./styleLibrary";
+import {
+  artRecipePrompt,
+  type ArtRecipeDNA,
+} from "../../shared/artDirection";
 
 /** 渲染上下文：至少含 prompt；其余字段是美术判断（artJudge）要用的信号 */
 export type RenderContext = {
@@ -26,6 +30,8 @@ export type RenderContext = {
   shotNo?: string;
   /** 关联项目 */
   projectId?: number;
+  /** 当前故事已经确认的原创视觉配方。存在时优先于流派库。 */
+  artDirection?: ArtRecipeDNA;
 };
 
 /**
@@ -48,6 +54,19 @@ function pickStyle(ctx: RenderContext) {
  * 选不出流派（库空）时原样返回。
  */
 async function artJudge(ctx: RenderContext): Promise<RenderContext> {
+  if (ctx.artDirection) {
+    const recipe = artRecipePrompt(ctx.artDirection);
+    if (!recipe) return ctx;
+    return {
+      ...ctx,
+      prompt: [
+        ctx.prompt,
+        "【故事视觉配方】",
+        recipe,
+        "保持原创风格化插图，不模仿或复制任何具名艺术家、电影或现成 IP。",
+      ].join("\n"),
+    };
+  }
   const style = pickStyle(ctx);
   if (!style) return ctx;
   const dna = styleToFragments(style)

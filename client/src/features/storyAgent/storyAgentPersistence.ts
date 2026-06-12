@@ -18,6 +18,11 @@ import {
   normalizeImageProviderSelection,
   type ImageProviderSelection,
 } from './storyAgentImageProvider';
+import {
+  emptyStoryArtDirection,
+  normalizeStoryArtDirection,
+  type StoryArtDirection,
+} from '@shared/artDirection';
 
 // 一个故事在 localStorage 里持久化的完整形状。
 export interface PersistedState {
@@ -35,6 +40,7 @@ export interface PersistedState {
   visualCanvasItems?: VisualCanvasItem[];
   visualPreference?: string;
   imageProvider?: ImageProviderSelection;
+  artDirection?: StoryArtDirection;
   savedAt?: number;
   activeStoryId?: number;
 }
@@ -61,6 +67,7 @@ export function emptyState(): PersistedState {
     visualCanvasItems: [],
     visualPreference: '',
     imageProvider: 'default',
+    artDirection: emptyStoryArtDirection(),
   };
 }
 
@@ -83,6 +90,7 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
       : [],
     visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
     imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
+    artDirection: normalizeStoryArtDirection(parsed.artDirection),
     savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
     activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
   };
@@ -108,7 +116,9 @@ export function storyWorkScore(state: PersistedState): number {
     state.storyShots.length * 80 +
     state.scripts.length * 60 +
     Math.max(0, state.messages.length - 1) * 20 +
-    (state.visualCanvasItems?.length ?? 0) * 40
+    (state.visualCanvasItems?.length ?? 0) * 40 +
+    (state.artDirection?.candidates.length ?? 0) * 25 +
+    (state.artDirection?.recipe ? 80 : 0)
   );
 }
 

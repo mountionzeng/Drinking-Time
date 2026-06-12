@@ -7,9 +7,10 @@
 
 import { ENV } from "../_core/env";
 import { runJsonAgent } from "./agentRuntime";
-import { generateImage, type ImageProvider } from "./imageGen";
+import { editImage, generateImage, type ImageProvider } from "./imageGen";
 import { renderViaGate } from "./renderGate";
 import { createGeneratedImage, getImagesByShotNo, type GeneratedImage } from "../db";
+import type { ArtRecipeDNA } from "../../shared/artDirection";
 
 // ── Types ──
 
@@ -34,6 +35,8 @@ export type CreationAgentInput = {
   currentFocusShotNo?: string;
   projectId: number;
   imageProvider?: ImageProvider;
+  artDirection?: ArtRecipeDNA;
+  referenceImages?: string[];
 };
 
 export type GenerateImageToolCall = {
@@ -230,8 +233,25 @@ export async function replyFromCreationAgent(
         prompt: generateCall.prompt,
         shotNo: generateCall.shotNo,
         projectId: input.projectId,
+        artDirection: input.artDirection,
+        referenceImages: input.referenceImages,
       },
-      (prompt) => generateImage(prompt, { provider: input.imageProvider }),
+      prompt => {
+        const referenceImage = input.referenceImages?.[0];
+        if (referenceImage && input.imageProvider !== "midjourney") {
+          return editImage(referenceImage, prompt, {
+            provider: input.imageProvider,
+          });
+        }
+        const midjourneyReferencePrefix =
+          input.imageProvider === "midjourney"
+            ? input.referenceImages?.slice(0, 2).join(" ")
+            : "";
+        return generateImage(
+          [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
+          { provider: input.imageProvider },
+        );
+      },
     );
     if (genResult.status === "ok" && genResult.imageUrl && genResult.imageKey) {
       const dbImage = await createGeneratedImage({
