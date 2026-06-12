@@ -269,3 +269,57 @@ export async function replyFromStoryAgent(params: {
     suggestImage,
   };
 }
+
+/**
+ * 手动点「把这一刻画出来」时，从最近对话现编一条英文出图 prompt。
+ * 没有可画内容或模型暂时不可用时返回空串，由路由给出友好提示。
+ */
+export async function deriveMobileImagePrompt(params: {
+  history?: ChatTurn[];
+  cardHint?: string;
+}): Promise<string> {
+  if (!ENV.forgeApiKey) return "";
+  const recent = (params.history ?? [])
+    .filter(turn => turn.content?.trim())
+    .slice(-12);
+  if (recent.length === 0 && !params.cardHint?.trim()) return "";
+
+  const systemPrompt = [
+    "你是小酌的出图描述师。从对话里挑出最值得定格成一帧画面的瞬间。",
+    "写成一行英文出图 prompt，必须包含场景、光线、氛围、人物动作或神态。",
+    "风格偏电影感、温暖、写实的情绪影像。",
+    "只输出英文 prompt，不要解释、引号、JSON 或中文。",
+  ].join("\n");
+  const turns: Message[] = recent.map(turn => ({
+    role: turn.role,
+    content: turn.content.trim(),
+  }));
+  const request = params.cardHint?.trim()
+    ? `重点抓住这一刻：${params.cardHint.trim()}。只回一行英文 prompt。`
+    : "把以上对话里最值得画的瞬间写成一行英文 prompt。";
+
+  try {
+    const { text } = await invokeAgent(
+      [
+        { role: "system", content: systemPrompt },
+        ...turns,
+        { role: "user", content: request },
+      ],
+      400,
+    );
+    let prompt = (text ?? "").trim();
+    const fence = prompt.match(/^```(?:\w+)?\s*([\s\S]*?)\s*```$/);
+    if (fence) prompt = fence[1].trim();
+    prompt = prompt
+      .replace(/^["'「『\s]+|["'」』\s]+$/g, "")
+      .split(/\r?\n/)[0]
+      .trim();
+    return prompt.slice(0, 600);
+  } catch (error) {
+    console.warn(
+      "[deriveMobileImagePrompt] 现编出图 prompt 失败：",
+      error instanceof Error ? error.message : error,
+    );
+    return "";
+  }
+}

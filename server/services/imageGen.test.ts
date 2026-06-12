@@ -305,7 +305,7 @@ describe("generateImage", () => {
     expect(submittedPrompt).not.toContain("--turbo");
   });
 
-  it("存储代理失败（302 没有 storage 接口返回 503）时回退使用模型原始图片 URL，打通展示链路", async () => {
+  it("存储代理失败（302 没有 storage 接口返回 503）时落本地、由 /local-images 同源提供，打通展示链路", async () => {
     ENV.api302Key = "test-302-key";
     // 模拟「把 302 网关当存储用」会触发的 503：storagePut 抛错
     vi.mocked(storagePut).mockRejectedValueOnce(
@@ -324,10 +324,11 @@ describe("generateImage", () => {
       mjTimeoutMs: 100,
     });
 
-    // 不再因为存储 503 整条失败：回退到模型原始 URL，出图能入库、能展示
+    // 不再因为存储 503 整条失败，也不再依赖外部图床：落到本地、由 /local-images 同源提供，
+    // 手机从本机一定能加载到（外部图床 / 手机外网不可达时尤其关键）。
     expect(result.status).toBe("ok");
-    expect(result.imageUrl).toBe("https://file.302.ai/mj.png");
-    expect(result.imageKey).toBe("https://file.302.ai/mj.png");
+    expect(result.imageUrl).toMatch(/^\/local-images\//);
+    expect(result.imageKey).toMatch(/^\/local-images\//);
   });
 
   it("supports 302 Midjourney mj-api-secret header mode", async () => {
@@ -396,6 +397,7 @@ describe("editImage", () => {
     image302GptQuality: ENV.image302GptQuality,
     forgeApiUrl: ENV.forgeApiUrl,
     forgeApiKey: ENV.forgeApiKey,
+    imageProviderDefault: ENV.imageProviderDefault,
   };
 
   beforeEach(() => {
@@ -407,6 +409,9 @@ describe("editImage", () => {
     ENV.image302GptQuality = "high";
     ENV.forgeApiUrl = "";
     ENV.forgeApiKey = "";
+    // 这些用例专测 gpt-image 图生图 → Forge 的兜底链；显式钉成 gpt-image，
+    // 避开「默认 provider=midjourney 时图生图先走 MJ」的新分支。
+    ENV.imageProviderDefault = "gpt-image";
   });
 
   afterEach(() => {
@@ -417,6 +422,7 @@ describe("editImage", () => {
     ENV.image302GptQuality = originalEnv.image302GptQuality;
     ENV.forgeApiUrl = originalEnv.forgeApiUrl;
     ENV.forgeApiKey = originalEnv.forgeApiKey;
+    ENV.imageProviderDefault = originalEnv.imageProviderDefault;
   });
 
   it("302-only 时走 images edits multipart 并存储返回图片", async () => {
@@ -482,6 +488,26 @@ describe("editImage", () => {
       b64Json: "aW1hZ2U=",
       mimeType: "image/png",
     });
+  });
+
+  it("provider=midjourney 时图生图走 MJ，并把照片放进 base64Array", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-1" } },
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "把这一刻画成电影感画面",
+      { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: 100 },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.base64Array).toHaveLength(1); // 照片进了 base64Array（MJ image prompt）
+    expect(submitBody.base64Array[0]).toContain("base64,");
   });
 });
 

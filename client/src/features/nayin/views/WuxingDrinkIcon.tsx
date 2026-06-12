@@ -115,13 +115,25 @@ function CoffeeMug() {
   );
 }
 
-const ICON_MAP: Record<NayinElement, () => React.JSX.Element> = {
+/** 每个元素的饮品线稿，供 EmotiveWuxingIcon 等组件叠加表情时复用。 */
+export const WUXING_DRINK_ART: Record<NayinElement, () => React.JSX.Element> = {
   metal: BeerMug,
   wood: TeaBowl,
   water: Coconut,
   fire: Teapot,
   earth: CoffeeMug,
 };
+
+/** 每个元素线稿使用的墨色，叠加层（手脚/五官）沿用同色保持手绘一致感。 */
+export const WUXING_DRINK_INK: Record<NayinElement, string> = {
+  metal: '#7A5B1F',
+  wood: '#33532B',
+  water: '#4A7A8A',
+  fire: '#6B2A22',
+  earth: '#4A2E1B',
+};
+
+const ICON_MAP = WUXING_DRINK_ART;
 
 export default function WuxingDrinkIcon({ element, size = 36, className = '' }: Props) {
   const Icon = ICON_MAP[element];
