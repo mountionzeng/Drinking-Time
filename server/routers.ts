@@ -58,6 +58,7 @@ import {
   replyFromCreationAgent,
   type ShotContext,
 } from "./services/creationAgent";
+import { CREATION_GOALS } from "./services/creationGoal";
 import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
@@ -1802,6 +1803,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             .optional(),
           currentFocusShotNo: z.string().optional(),
           imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
+          goal: z.enum(CREATION_GOALS).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1815,6 +1817,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: input.shots as ShotContext[] | undefined,
           currentFocusShotNo: input.currentFocusShotNo,
           imageProvider: input.imageProvider,
+          goal: input.goal,
           artDirection: story ? storyArtRecipe(story) : undefined,
           referenceImages: story ? storyArtReferenceImages(story) : undefined,
         });

@@ -7,6 +7,7 @@
 
 import { ENV } from "../_core/env";
 import { runJsonAgent } from "./agentRuntime";
+import { goalGuidance, type CreationGoal } from "./creationGoal";
 import { editImage, generateImage, type ImageProvider } from "./imageGen";
 import { renderViaGate } from "./renderGate";
 import { createGeneratedImage, getImagesByShotNo, type GeneratedImage } from "../db";
@@ -37,6 +38,8 @@ export type CreationAgentInput = {
   imageProvider?: ImageProvider;
   artDirection?: ArtRecipeDNA;
   referenceImages?: string[];
+  /** 创作目标（求职/社媒/记录）。决定生成时往哪个方向用力，默认 unset=行为不变。 */
+  goal?: CreationGoal;
 };
 
 export type GenerateImageToolCall = {
@@ -84,7 +87,11 @@ function buildSystemPrompt(
   cards: Array<{ content: string; emotion?: string }>,
   currentScript: string,
   currentFocusShotNo: string | null,
+  goal: CreationGoal = "unset",
 ): string {
+  // 目标指引放在最前面，框住后面所有判断（unset 时为空串，不注入，行为与接入前一致）
+  const guidance = goalGuidance(goal);
+  const goalBlock = guidance ? `${guidance}\n\n` : "";
   const shotSummary = shots.length > 0
     ? shots.map(s => `  ${s.shotNo}: ${s.subject} — ${s.action} [${s.shotType}] ${s.mood}`).join("\n")
     : "（尚无镜头）";
@@ -101,7 +108,7 @@ function buildSystemPrompt(
     ? `当前焦点镜头: ${currentFocusShotNo}`
     : "当前没有焦点镜头";
 
-  return `你是小酌——会听你说话的朋友，也是帮你把故事做成画面的助手。在创作页，你帮用户把故事变成画面、调整提示词、讨论镜头视觉呈现。
+  return `${goalBlock}你是小酌——会听你说话的朋友，也是帮你把故事做成画面的助手。在创作页，你帮用户把故事变成画面、调整提示词、讨论镜头视觉呈现。
 
 ## 你的能力
 - 解读故事卡片和剧本，讨论镜头的视觉呈现
@@ -206,7 +213,7 @@ export async function replyFromCreationAgent(
     toolCalls?: ToolCall[];
     focusShotNo?: string | null;
   }>({
-    systemPrompt: buildSystemPrompt(shots, cards, currentScript, effectiveFocus),
+    systemPrompt: buildSystemPrompt(shots, cards, currentScript, effectiveFocus, input.goal ?? "unset"),
     history,
     message: input.message,
     maxTokens: 800,
