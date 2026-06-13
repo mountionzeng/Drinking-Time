@@ -200,6 +200,8 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
 
   memoryState.shots = (raw.shots ?? []).map(item => ({
     ...item,
+    // 存量镜头无 storyId → 显式置 null（而非 undefined），便于按 storyId 过滤（U1/U2）
+    storyId: (item as { storyId?: number | null }).storyId ?? null,
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as Shot[];
@@ -695,6 +697,7 @@ export async function createShots(data: InsertShot[]) {
     const rows: Shot[] = data.map(item => ({
       id: nextMemoryId("shot"),
       projectId: item.projectId,
+      storyId: item.storyId ?? null,
       userId: item.userId,
       sceneNo: item.sceneNo,
       shotNo: item.shotNo,
@@ -750,6 +753,7 @@ export async function replaceDirectorShotsForProject(
       const rows: Shot[] = data.map(item => ({
         id: nextMemoryId("shot"),
         projectId: item.projectId,
+        storyId: item.storyId ?? null,
         userId: item.userId,
         sceneNo: item.sceneNo,
         shotNo: item.shotNo,

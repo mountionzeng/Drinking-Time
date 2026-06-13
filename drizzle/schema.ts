@@ -85,6 +85,10 @@ export type InsertReference = typeof references.$inferInsert;
 export const shots = mysqlTable("shots", {
   id: int("id").autoincrement().primaryKey(),
   projectId: int("projectId").notNull(),
+  // 故事归属：镜头按 storyId 归到具体故事（故事是唯一单位，见
+  // docs/plans/2026-06-13-001-refactor-story-as-single-unit-plan.md）。
+  // 可空：存量镜头回填前为 null，回填后指向所属故事。
+  storyId: int("storyId"),
   userId: int("userId").notNull(),
   sceneNo: varchar("sceneNo", { length: 32 }).notNull(),
   shotNo: varchar("shotNo", { length: 32 }).notNull(),

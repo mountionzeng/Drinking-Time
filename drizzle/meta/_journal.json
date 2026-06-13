@@ -29,6 +29,13 @@
       "when": 1780314669177,
       "tag": "0003_story_landing_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1781340040837,
+      "tag": "0004_rare_xavin",
+      "breakpoints": true
     }
   ]
 }
