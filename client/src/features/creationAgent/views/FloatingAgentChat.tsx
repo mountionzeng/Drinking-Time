@@ -6,13 +6,15 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Loader2, X, Check, Undo2 } from 'lucide-react';
+import { Send, Loader2, X, Check, Undo2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCreationAgent } from '../CreationAgentContext';
 import type { ShotContext } from '../types';
 
 interface FloatingAgentChatProps {
   shots?: ShotContext[];
+  cards?: Array<{ content: string; emotion?: string }>;
+  currentScript?: string;
   projectId?: number | null;
   /** 用户确认应用小酌建议的 prompt 修改 */
   onApplyPromptUpdate?: (shotNo: string, promptDraft: string) => void;
@@ -20,6 +22,8 @@ interface FloatingAgentChatProps {
 
 export default function FloatingAgentChat({
   shots,
+  cards,
+  currentScript,
   projectId,
   onApplyPromptUpdate,
 }: FloatingAgentChatProps) {
@@ -51,11 +55,17 @@ export default function FloatingAgentChat({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const openChat = () => setIsOpen(true);
+    window.addEventListener('dt:open-creation-chat', openChat);
+    return () => window.removeEventListener('dt:open-creation-chat', openChat);
+  }, []);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isReplying) return;
     setInput('');
-    await sendMessage(text, shots);
+    await sendMessage(text, shots, cards, currentScript);
     inputRef.current?.focus();
   };
 
@@ -77,10 +87,11 @@ export default function FloatingAgentChat({
             exit={{ scale: 0.8, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 25 }}
             onClick={() => setIsOpen(true)}
-            className="fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center"
+            className="fixed bottom-6 left-6 z-50 h-10 rounded-md bg-primary px-3 text-primary-foreground shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2"
             aria-label="展开小酌对话"
           >
-            <span className="text-lg font-bold">酌</span>
+            <MessageCircle className="h-4 w-4" />
+            <span className="text-sm font-medium">小酌</span>
             {isReplying && (
               <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
             )}
@@ -215,7 +226,7 @@ export default function FloatingAgentChat({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="「这镜改暖一点」「加个近景」..."
+                  placeholder="分析画面，或直接说想怎么改..."
                   className="flex-1 resize-none rounded-lg border bg-background px-2.5 py-1.5 text-[13px] min-h-[36px] max-h-[80px] focus:outline-none focus:ring-1 focus:ring-ring"
                   rows={1}
                   disabled={isReplying}

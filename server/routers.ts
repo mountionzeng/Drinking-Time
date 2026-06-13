@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
+import { canonicalizeShotNo } from "@shared/imageAsset";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -66,6 +67,7 @@ import {
   inpaintImage,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
+import { getProjectImageAssets } from "./services/imageAssets";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import {
@@ -1462,7 +1464,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 projectId: story.projectId ?? null,
                 storyId: input.storyId,
                 userId: ctx.user.id,
-                shotNo: input.shotNo != null ? String(input.shotNo) : null,
+                shotNo: canonicalizeShotNo(input.shotNo),
                 imageKey: draft.imageKey ?? null,
                 imageUrl: draft.imageUrl,
                 prompt,
@@ -1500,7 +1502,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             projectId: story.projectId ?? null,
             storyId: input.storyId,
             userId: ctx.user.id,
-            shotNo: input.shotNo != null ? String(input.shotNo) : null,
+            shotNo: canonicalizeShotNo(input.shotNo),
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt,
@@ -1568,7 +1570,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             projectId: story.projectId ?? null,
             storyId: input.storyId,
             userId: ctx.user.id,
-            shotNo: input.shotNo != null ? String(input.shotNo) : null,
+            shotNo: canonicalizeShotNo(input.shotNo),
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt: input.prompt,
@@ -1805,7 +1807,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
+        const [story, assets] = await Promise.all([
+          getLatestStoryForProject(input.projectId, ctx.user.id),
+          getProjectImageAssets(input.projectId, ctx.user.id),
+        ]);
         return replyFromCreationAgent({
           message: input.message,
           projectId: input.projectId,
@@ -1815,6 +1820,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: input.shots as ShotContext[] | undefined,
           currentFocusShotNo: input.currentFocusShotNo,
           imageProvider: input.imageProvider,
+          storyId: story?.id ?? null,
+          userId: ctx.user.id,
+          assets,
           artDirection: story ? storyArtRecipe(story) : undefined,
           referenceImages: story ? storyArtReferenceImages(story) : undefined,
         });
@@ -1851,15 +1859,64 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         return getProjectCurrentImages(input.projectId);
       }),
 
+    /** Unified project image assets, including history and selection state. */
+    getProjectAssets: protectedProcedure
+      .input(z.object({ projectId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const project = await getProjectById(input.projectId, ctx.user.id);
+        if (!project) return [];
+        return getProjectImageAssets(input.projectId, ctx.user.id);
+      }),
+
+    /** Confirm or restore an image as the selected primary for its shot. */
+    selectImage: protectedProcedure
+      .input(
+        z.object({
+          projectId: z.number(),
+          imageId: z.number(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const project = await getProjectById(input.projectId, ctx.user.id);
+        if (!project) return { success: false as const, reason: "project_not_found" as const };
+        const assets = await getProjectImageAssets(input.projectId, ctx.user.id);
+        const asset = assets.find(candidate => candidate.id === input.imageId);
+        if (
+          !asset ||
+          asset.kind !== "story_frame" ||
+          asset.availability === "missing"
+        ) {
+          return { success: false as const, reason: "image_not_found" as const };
+        }
+        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
+        await createImageSignal({
+          userId: ctx.user.id,
+          storyId: asset.storyId ?? story?.id ?? 0,
+          imageId: asset.id,
+          action: "swipe_right",
+          metadata: {
+            source: "creation",
+            projectId: input.projectId,
+            shotNo: asset.canonicalShotNo,
+          },
+        });
+        return { success: true as const };
+      }),
+
     /** Reassign an image to a different shot */
     reassignImage: protectedProcedure
       .input(
         z.object({
+          projectId: z.number(),
           imageId: z.number(),
           newShotNo: z.string(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const assets = await getProjectImageAssets(input.projectId, ctx.user.id);
+        if (!assets.some(asset => asset.id === input.imageId)) {
+          return { success: false as const };
+        }
         await reassignImage(input.imageId, input.newShotNo);
         return { success: true };
       }),
@@ -1913,7 +1970,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         // Save the inpainted image to DB
         const saved = await createGeneratedImage({
           projectId: input.projectId,
-          shotNo: input.shotNo,
+          storyId: story?.id ?? null,
+          userId: ctx.user.id,
+          shotNo: canonicalizeShotNo(input.shotNo),
           imageKey: `inpaint-${Date.now()}`,
           imageUrl: result.imageUrl,
           prompt: input.prompt,

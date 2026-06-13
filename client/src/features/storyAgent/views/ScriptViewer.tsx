@@ -75,7 +75,7 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
   const [, setLocation] = useLocation();
 
   // Fetch project images for thumbnails
-  const imagesQuery = trpc.creationAgent.getProjectImages.useQuery(
+  const imagesQuery = trpc.creationAgent.getProjectAssets.useQuery(
     { projectId: projectId! },
     { enabled: projectId != null },
   );
@@ -88,8 +88,12 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
       // Derive shotNo from sceneNo: S01 → SH01
       const num = scene.sceneNo.replace(/\D/g, '');
       const shotNo = `SH${num.padStart(2, '0')}`;
-      const img = (projectImages as Array<{ shotNo: string; imageUrl: string }>)
-        .find(i => i.shotNo === shotNo);
+      const img = projectImages.find(
+        image =>
+          image.canonicalShotNo === shotNo &&
+          image.isPrimary &&
+          image.availability !== 'missing',
+      );
       if (img) {
         sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo });
       }

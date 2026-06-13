@@ -472,12 +472,66 @@ describe("storyAgent tRPC router", () => {
         projectId: 7301,
         storyId: story!.id,
         userId: 301,
-        shotNo: "1",
+        shotNo: "SH01",
         imageUrl: "https://storage.example/generated/mobile-text.png",
         generationType: "initial",
         isCurrent: true,
       }),
     ]);
+  });
+
+  it("手机生成并右划收下后，Creation 读取为标准镜号主图", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/selected-mobile.png",
+      imageKey: "generated/selected-mobile.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(311));
+    const project = await caller.project.create({ name: "跨端图片继承" });
+    await caller.storyAgent.classify({
+      projectId: project.id,
+      cards: [{ content: "雨夜里停在窗边的人" }],
+    });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "跨端故事",
+      projectId: project.id,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const generated = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "雨夜窗边的安静停顿",
+    });
+    expect(generated.status).toBe("ok");
+
+    const pendingAssets = await caller.creationAgent.getProjectAssets({
+      projectId: project.id,
+    });
+    expect(pendingAssets).toEqual([
+      expect.objectContaining({
+        id: generated.imageId,
+        rawShotNo: "SH01",
+        canonicalShotNo: "SH01",
+        assignment: "shot",
+        status: "pending",
+        isPrimary: false,
+      }),
+    ]);
+
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: generated.imageId,
+      action: "swipe_right",
+    });
+    const selectedAssets = await caller.creationAgent.getProjectAssets({
+      projectId: project.id,
+    });
+    expect(selectedAssets[0]).toMatchObject({
+      status: "selected",
+      isPrimary: true,
+      selectionSource: "explicit",
+    });
   });
 
   it("手机端图生图成功后带 projectId 落库", async () => {
@@ -515,7 +569,7 @@ describe("storyAgent tRPC router", () => {
       projectId: 7302,
       storyId: story!.id,
       userId: 302,
-      shotNo: "1",
+      shotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-edit.png",
       generationType: "initial",
       isCurrent: true,
@@ -554,7 +608,7 @@ describe("storyAgent tRPC router", () => {
       projectId: 7303,
       storyId: story!.id,
       userId: 303,
-      shotNo: "1",
+      shotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-inpaint.png",
       generationType: "inpaint",
       isCurrent: true,

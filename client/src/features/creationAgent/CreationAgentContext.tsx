@@ -20,7 +20,7 @@ import { trpc } from '@/lib/trpc';
 import {
   CREATION_GREETING,
   type ChatMessage,
-  type ShotImage,
+  type ImageAsset,
   type ShotContext,
 } from './types';
 import {
@@ -95,13 +95,14 @@ interface CreationAgentContextValue {
   isGenerating: boolean;
   imageProvider: ImageProviderSelection;
   setImageProvider: (provider: ImageProviderSelection) => void;
-  projectImages: ShotImage[];
+  projectAssets: ImageAsset[];
   /** 最近一次小酌建议的提示词修改（用户需确认/可撤销） */
   pendingPromptUpdate: { shotNo: string; promptDraft: string } | null;
   clearPendingPromptUpdate: () => void;
   sendMessage: (text: string, shots?: ShotContext[], cards?: Array<{ content: string; emotion?: string }>, currentScript?: string) => Promise<void>;
+  selectImage: (imageId: number) => Promise<void>;
   reassignImage: (imageId: number, newShotNo: string) => Promise<void>;
-  refreshProjectImages: () => void;
+  refreshProjectAssets: () => void;
   resetConversation: () => void;
 }
 
@@ -121,29 +122,30 @@ export function CreationAgentProvider({
   const [imageProvider, setImageProvider] = useState<ImageProviderSelection>(() => loadState(projectId).imageProvider ?? 'default');
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [projectImages, setProjectImages] = useState<ShotImage[]>([]);
+  const [projectAssets, setProjectAssets] = useState<ImageAsset[]>([]);
   const [pendingPromptUpdate, setPendingPromptUpdate] = useState<{ shotNo: string; promptDraft: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // tRPC hooks
   const chatMut = trpc.creationAgent.chat.useMutation();
+  const selectImageMut = trpc.creationAgent.selectImage.useMutation();
   const reassignMut = trpc.creationAgent.reassignImage.useMutation();
 
-  // Fetch project images
-  const imagesQuery = trpc.creationAgent.getProjectImages.useQuery(
+  // Fetch the full project asset history, not only isCurrent images.
+  const assetsQuery = trpc.creationAgent.getProjectAssets.useQuery(
     { projectId: projectId! },
     { enabled: projectId != null },
   );
 
   useEffect(() => {
-    if (imagesQuery.data) {
-      setProjectImages(imagesQuery.data as ShotImage[]);
+    if (assetsQuery.data) {
+      setProjectAssets(assetsQuery.data as ImageAsset[]);
     }
-  }, [imagesQuery.data]);
+  }, [assetsQuery.data]);
 
-  const refreshProjectImages = useCallback(() => {
-    imagesQuery.refetch();
-  }, [imagesQuery]);
+  const refreshProjectAssets = useCallback(() => {
+    assetsQuery.refetch();
+  }, [assetsQuery]);
 
   // Persist to localStorage（走共享的 projectScopedStore）
   useEffect(() => {
@@ -210,7 +212,9 @@ export function CreationAgentProvider({
       // Handle generated image
       if (result.generatedImage) {
         setIsGenerating(false);
-        refreshProjectImages();
+      }
+      if (result.assetsChanged || result.generatedImage) {
+        refreshProjectAssets();
       }
 
       // Handle prompt update suggestion
@@ -241,18 +245,34 @@ export function CreationAgentProvider({
       setIsReplying(false);
       setIsGenerating(false);
     }
-  }, [projectId, messages, focusShotNo, imageProvider, chatMut, refreshProjectImages]);
+  }, [projectId, messages, focusShotNo, imageProvider, chatMut, refreshProjectAssets]);
+
+  const selectImage = useCallback(async (imageId: number) => {
+    if (projectId == null) return;
+    try {
+      const result = await selectImageMut.mutateAsync({ projectId, imageId });
+      if (!result.success) {
+        toast.error('这张图片不属于当前项目');
+        return;
+      }
+      await assetsQuery.refetch();
+      toast.success('已设为镜头主图');
+    } catch {
+      toast.error('设置主图失败');
+    }
+  }, [assetsQuery, projectId, selectImageMut]);
 
   // Reassign image
   const reassignImageFn = useCallback(async (imageId: number, newShotNo: string) => {
+    if (projectId == null) return;
     try {
-      await reassignMut.mutateAsync({ imageId, newShotNo });
-      refreshProjectImages();
+      await reassignMut.mutateAsync({ projectId, imageId, newShotNo });
+      refreshProjectAssets();
       toast.success(`图片已移至 ${newShotNo}`);
     } catch {
       toast.error('图片重绑失败');
     }
-  }, [reassignMut, refreshProjectImages]);
+  }, [projectId, reassignMut, refreshProjectAssets]);
 
   const clearPendingPromptUpdate = useCallback(() => {
     setPendingPromptUpdate(null);
@@ -284,17 +304,18 @@ export function CreationAgentProvider({
     isGenerating,
     imageProvider,
     setImageProvider,
-    projectImages,
+    projectAssets,
     pendingPromptUpdate,
     clearPendingPromptUpdate,
     sendMessage,
+    selectImage,
     reassignImage: reassignImageFn,
-    refreshProjectImages,
+    refreshProjectAssets,
     resetConversation,
   }), [
-    messages, focusShotNo, isReplying, isGenerating, imageProvider, projectImages,
+    messages, focusShotNo, isReplying, isGenerating, imageProvider, projectAssets,
     pendingPromptUpdate, clearPendingPromptUpdate,
-    sendMessage, reassignImageFn, refreshProjectImages, resetConversation,
+    sendMessage, selectImage, reassignImageFn, refreshProjectAssets, resetConversation,
   ]);
 
   return (

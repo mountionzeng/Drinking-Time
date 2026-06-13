@@ -5,12 +5,12 @@
  */
 import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
 import FloatingAgentChat from '@/features/creationAgent/views/FloatingAgentChat';
+import ShotImageWorkspace from '@/features/creationAgent/views/ShotImageWorkspace';
 import ShotTable from '@/features/analysis/views/ShotTable';
 import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
 import type { ShotContext } from '@/features/creationAgent/types';
-import { isSameShotNo } from '@/lib/shotNo';
 import { trpc } from '@/lib/trpc';
 import { useCallback, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -24,8 +24,20 @@ function CreationWorkspaceInner({
   backendShots: BackendShot[];
   isShotsLoading: boolean;
 }) {
-  const { focusShotNo, setFocusShotNo, projectImages, reassignImage } = useCreationAgent();
-  const { promptPool, storyShots, updateShotFragmentRefs } = useStoryAgent();
+  const {
+    focusShotNo,
+    setFocusShotNo,
+    projectAssets,
+    selectImage,
+    reassignImage,
+  } = useCreationAgent();
+  const {
+    cards,
+    latestScript,
+    promptPool,
+    storyShots,
+    updateShotFragmentRefs,
+  } = useStoryAgent();
   const utils = trpc.useUtils();
   const updateShotMut = trpc.shot.update.useMutation();
 
@@ -37,6 +49,12 @@ function CreationWorkspaceInner({
       sessionStorage.removeItem('dt:creation:focusShotNo');
     }
   }, [setFocusShotNo]);
+
+  useEffect(() => {
+    if (!focusShotNo && backendShots[0]?.shotNo) {
+      setFocusShotNo(backendShots[0].shotNo);
+    }
+  }, [backendShots, focusShotNo, setFocusShotNo]);
 
   // Listen for drag-reassign events from ShotTable
   useEffect(() => {
@@ -51,14 +69,19 @@ function CreationWorkspaceInner({
   // Creation 必须读取真实 shots 表；Story Agent 生成镜头后会同步写入这张表。
   const tableShots = useMemo<BackendShot[]>(() => {
     return backendShots.map((shot) => {
-      const currentImage = projectImages.find(img => isSameShotNo(img.shotNo, shot.shotNo) && img.isCurrent);
+      const currentImage = projectAssets.find(
+        asset =>
+          asset.canonicalShotNo === shot.shotNo &&
+          asset.isPrimary &&
+          asset.availability !== 'missing',
+      );
       return {
         ...shot,
         thumbnailUrl: currentImage?.imageUrl,
         thumbnailImageId: currentImage?.id,
       } satisfies BackendShot;
     });
-  }, [backendShots, projectImages]);
+  }, [backendShots, projectAssets]);
 
   // Build context for chat
   const shotContexts = useMemo<ShotContext[]>(
@@ -74,6 +97,18 @@ function CreationWorkspaceInner({
       })),
     [tableShots],
   );
+  const storyCards = useMemo(
+    () => cards.map(card => ({ content: card.content, emotion: card.emotion })),
+    [cards],
+  );
+  const currentScript = useMemo(() => {
+    if (!latestScript) return undefined;
+    return [
+      latestScript.title,
+      latestScript.logline,
+      latestScript.scenes.map(scene => `${scene.sceneNo}: ${scene.visual}`).join('\n'),
+    ].filter(Boolean).join('\n');
+  }, [latestScript]);
 
   const handleEditShotPrompt = useCallback(
     async (shotId: number, promptDraft: string) => {
@@ -112,6 +147,15 @@ function CreationWorkspaceInner({
 
   return (
     <div className="h-full flex flex-col relative">
+      <ShotImageWorkspace
+        shots={tableShots}
+        assets={projectAssets}
+        focusShotNo={focusShotNo}
+        onFocusShot={setFocusShotNo}
+        onSelectImage={selectImage}
+        onReassignImage={reassignImage}
+      />
+
       {/* ShotTable 占满主区 */}
       <div className="flex-1 overflow-auto p-2">
         <ShotTable
@@ -130,6 +174,8 @@ function CreationWorkspaceInner({
       {/* 悬浮小酌对话框 */}
       <FloatingAgentChat
         shots={shotContexts}
+        cards={storyCards}
+        currentScript={currentScript}
         projectId={projectId}
         onApplyPromptUpdate={handleApplyPromptUpdate}
       />

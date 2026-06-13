@@ -1,6 +1,7 @@
 /**
  * Creation Agent types — shared between Context, Chat UI, and Shot Table.
  */
+export type { ImageAsset } from '@shared/imageAsset';
 
 // 创作页开场：小酌同人格，但不含粘性开场（报到/回归问候只属于故事页）。
 // 简洁邀请，不冒出「你好，我是小酌」「我还记得上次……」。
@@ -24,20 +25,6 @@ export type ChatMessage = {
     shotNo: string;
     promptDraft: string;
   } | null;
-};
-
-export type ShotImage = {
-  id: number;
-  projectId: number;
-  shotNo: string;
-  imageKey: string;
-  imageUrl: string;
-  prompt: string;
-  parentImageId: number | null;
-  isCurrent: boolean;
-  generationType: "generate" | "inpaint";
-  maskKey: string | null;
-  createdAt: string | Date;
 };
 
 export type ShotContext = {
