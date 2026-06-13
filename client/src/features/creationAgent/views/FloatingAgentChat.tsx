@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Loader2, X, Check, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCreationAgent } from '../CreationAgentContext';
+import { CREATION_GOALS, goalLabel, type CreationGoal } from '@shared/creationGoal';
 import type { ShotContext } from '../types';
 
 interface FloatingAgentChatProps {
@@ -30,6 +31,8 @@ export default function FloatingAgentChat({
     pendingPromptUpdate,
     clearPendingPromptUpdate,
     sendMessage,
+    goal,
+    setGoal,
   } = useCreationAgent();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -209,6 +212,22 @@ export default function FloatingAgentChat({
 
             {/* 输入区 */}
             <div className="border-t p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span>我在做</span>
+                <select
+                  value={goal}
+                  onChange={(e) => setGoal(e.target.value as CreationGoal)}
+                  disabled={isReplying}
+                  aria-label="选择创作目标"
+                  className="h-7 rounded-md border bg-background px-2 text-[11px] text-foreground outline-none transition disabled:opacity-50"
+                >
+                  {CREATION_GOALS.map((g) => (
+                    <option key={g} value={g}>
+                      {goalLabel(g)}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-1.5 items-end">
                 <textarea
                   ref={inputRef}
