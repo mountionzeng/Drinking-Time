@@ -38,6 +38,8 @@ export interface ImageGenOptions {
   provider?: ImageProvider;
   /** 保真档：draft 低保真省钱（六图草稿），final 成图保真（精修）。默认按 final 处理 */
   fidelity?: ImageFidelity;
+  /** MJ v7 Draft Mode：~10x 速度、半价，仍是 MJ 美术血统。双轨「快轨」用 */
+  mjDraft?: boolean;
   mjPollIntervalMs?: number;
   mjTimeoutMs?: number;
 }
@@ -234,12 +236,20 @@ function midjourneyPromptFor(
   prompt: string,
   aspectRatio?: string,
   fidelity?: ImageFidelity,
+  mjDraft?: boolean,
 ): string {
   let out = prompt;
   if (aspectRatio && !/(?:^|\s)--ar\s+\S+/i.test(out)) {
     out = `${out} --ar ${aspectRatio}`;
   }
-  // draft → Midjourney --quality 0.25（最省的 GPU 档），不覆盖调用方已写的 --quality/--q
+  // 双轨快轨：MJ v7 Draft Mode —— 官方 ~10x 速度、半价，且仍是 MJ 美术血统
+  // （草稿与正式版同源，不会「草稿变丑」）。draft 与 turbo 互斥，提前返回。
+  if (mjDraft) {
+    if (!/(?:^|\s)--draft\b/i.test(out)) out = `${out} --draft`;
+    if (!/(?:^|\s)--(?:v|version)\s+\S+/i.test(out)) out = `${out} --v 7`;
+    return out;
+  }
+  // fidelity=draft（非 v7 draft 模式时）→ Midjourney --quality 0.25（最省 GPU 档）
   if (
     fidelity === "draft" &&
     !/(?:^|\s)--quality\s+\S+/i.test(out) &&
@@ -832,7 +842,7 @@ async function generate302MidjourneyImage(
           base64Array,
           botType: "MID_JOURNEY",
           notifyHook: "",
-          prompt: midjourneyPromptFor(prompt, options.aspectRatio, options.fidelity),
+          prompt: midjourneyPromptFor(prompt, options.aspectRatio, options.fidelity, options.mjDraft),
           state: "",
         }),
       }),

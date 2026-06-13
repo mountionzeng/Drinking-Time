@@ -1483,12 +1483,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             );
           }
 
+          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）
           const result = await renderViaGate(gateContext, renderedPrompt =>
-            // draft 档（MJ --quality 0.25 + turbo）：手机影像日记够用，渲染时间省一半左右；
-            // 长按局部修复（mobileInpaint）仍走全质量档
             referenceImage
-              ? editMobileImage(referenceImage, renderedPrompt, { fidelity: "draft" })
-              : generateMobileImage(renderedPrompt, { fidelity: "draft" }),
+              ? editMobileImage(referenceImage, renderedPrompt)
+              : generateMobileImage(renderedPrompt),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {

@@ -461,7 +461,6 @@ describe("storyAgent tRPC router", () => {
     // 手机端走 draft 档（--quality 0.25 + turbo，省一半渲染时间）
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
-      { fidelity: "draft" },
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -506,7 +505,6 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
-      { fidelity: "draft" },
     );
     expect(result).toMatchObject({
       status: "ok",
