@@ -57,7 +57,7 @@ import {
   replyFromCreationAgent,
   type ShotContext,
 } from "./services/creationAgent";
-import { CREATION_GOALS } from "./services/creationGoal";
+import { CREATION_GOALS, goalGuidance } from "./services/creationGoal";
 import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
@@ -1823,7 +1823,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         const story = input.storyId
           ? await getStoryById(input.storyId, ctx.user.id)
           : null;
-        return replyFromCreationAgent({
+        const result = await replyFromCreationAgent({
           message: input.message,
           projectId: input.projectId,
           history: input.history,
@@ -1836,6 +1836,35 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           artDirection: story ? storyArtRecipe(story) : undefined,
           referenceImages: story ? storyArtReferenceImages(story) : undefined,
         });
+
+        // buildShotList：小酌请求铺整张镜头表 → 用现成 synthesizeShotList 合成、
+        // 按 goal 注入求职等目标、写到当前故事（按 storyId 归属，story 已验归属）。
+        let builtShotCount = 0;
+        if (result.shotBuild && story && input.storyId) {
+          const resonanceContext = goalGuidance(input.goal ?? "unset") || undefined;
+          const synth = await synthesizeShotList({
+            cards: [{ content: result.shotBuild.storyDigest }],
+            ...(resonanceContext ? { resonanceContext } : {}),
+          });
+          if (!("error" in synth)) {
+            await replaceDirectorShotsForStory(
+              input.storyId,
+              ctx.user.id,
+              synth.shots.map((shot, index) =>
+                storyShotToDbRow({
+                  projectId: input.projectId,
+                  storyId: input.storyId!,
+                  userId: ctx.user.id,
+                  shot,
+                  index,
+                })
+              )
+            );
+            builtShotCount = synth.shots.length;
+          }
+        }
+
+        return { ...result, builtShotCount };
       }),
 
     /** Get all images for a shot */

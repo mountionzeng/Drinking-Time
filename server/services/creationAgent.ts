@@ -59,7 +59,18 @@ export type UpdateShotPromptToolCall = {
   promptDraft: string;
 };
 
-type ToolCall = GenerateImageToolCall | UpdateFocusToolCall | UpdateShotPromptToolCall;
+/** 铺整张镜头表：当用户讲完素材/经历，小酌把它蒸馏成 storyDigest，
+ *  由路由层用现成的 synthesizeShotList 合成整张镜头表写到当前故事。 */
+export type BuildShotListToolCall = {
+  tool: "buildShotList";
+  storyDigest: string;
+};
+
+type ToolCall =
+  | GenerateImageToolCall
+  | UpdateFocusToolCall
+  | UpdateShotPromptToolCall
+  | BuildShotListToolCall;
 
 export type CreationAgentResult = {
   reply: string;
@@ -75,6 +86,10 @@ export type CreationAgentResult = {
   promptUpdate: {
     shotNo: string;
     promptDraft: string;
+  } | null;
+  /** 铺镜头表请求：路由层据此合成整张镜头表写到当前故事。null 表示本轮不铺。 */
+  shotBuild: {
+    storyDigest: string;
   } | null;
   configured: boolean;
   modelLabel: string;
@@ -115,6 +130,7 @@ function buildSystemPrompt(
 - 当画面描述足够具体时，自动触发出图
 - 推断用户当前在讨论哪个镜头（焦点镜头）
 - 当用户说「改暖一点」「加个近景」等，理解为修改该镜的提示词，在 toolCalls 里用 updateShotPrompt 返回修改建议
+- **当镜头表还空着、而用户已经把素材/经历讲得够多**（足以拉出一条故事线），主动用 buildShotList 把整张镜头表铺出来：把用户讲的原始素材**蒸馏整理成一段 storyDigest**（理清人物、事件、情绪、想要的效果；若目标是求职视频，突出可量化成果与能力证据），系统会据此合成整张镜头表。素材还不够时不要硬铺，继续追问关键信息。每次对话最多铺一次。
 
 ## 当前项目状态
 
@@ -145,7 +161,9 @@ ${focusLine}
     // 可选，焦点变更时:
     { "tool": "updateFocus", "shotNo": "SH02" },
     // 可选，修改某镜提示词时（用户说「改暖一点」「加近景」等）:
-    { "tool": "updateShotPrompt", "shotNo": "SH01", "promptDraft": "修改后的中文出图描述" }
+    { "tool": "updateShotPrompt", "shotNo": "SH01", "promptDraft": "修改后的中文出图描述" },
+    // 可选，镜头表空且素材已足够时，铺整张镜头表（storyDigest=蒸馏后的故事素材）:
+    { "tool": "buildShotList", "storyDigest": "理清后的人物/事件/情绪/想要的效果，一段连贯文字" }
   ],
   "focusShotNo": "SH01"  // 当前推断的焦点镜头，null 如果无法确定
 }
@@ -196,6 +214,7 @@ export async function replyFromCreationAgent(
       focusShotNo: null,
       generatedImage: null,
       promptUpdate: null,
+      shotBuild: null,
     };
   }
 
@@ -293,12 +312,22 @@ export async function replyFromCreationAgent(
     };
   }
 
+  // 处理 buildShotList 工具调用：仅透出 storyDigest，由路由层合成整张镜头表写当前故事
+  let shotBuild: CreationAgentResult["shotBuild"] = null;
+  const buildCall = toolCalls.find(
+    (tc): tc is BuildShotListToolCall => tc.tool === "buildShotList",
+  );
+  if (buildCall && buildCall.storyDigest?.trim()) {
+    shotBuild = { storyDigest: buildCall.storyDigest.trim() };
+  }
+
   return {
     reply,
     toolCalls,
     focusShotNo,
     generatedImage,
     promptUpdate,
+    shotBuild,
     configured: true,
     modelLabel,
   };

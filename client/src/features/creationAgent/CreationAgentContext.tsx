@@ -138,6 +138,7 @@ export function CreationAgentProvider({
   const abortRef = useRef<AbortController | null>(null);
 
   // tRPC hooks
+  const utils = trpc.useUtils();
   const chatMut = trpc.creationAgent.chat.useMutation();
   const reassignMut = trpc.creationAgent.reassignImage.useMutation();
 
@@ -232,6 +233,12 @@ export function CreationAgentProvider({
       // Handle prompt update suggestion
       if (result.promptUpdate) {
         setPendingPromptUpdate(result.promptUpdate);
+      }
+
+      // buildShotList：小酌铺了整张镜头表 → 刷新镜头表查询，让 Shot Table 立即显示
+      if (result.builtShotCount && result.builtShotCount > 0) {
+        utils.shot.list.invalidate();
+        toast.success(`已根据你说的铺了 ${result.builtShotCount} 个镜头到镜头表`);
       }
 
       const assistantMsg: ChatMessage = {
