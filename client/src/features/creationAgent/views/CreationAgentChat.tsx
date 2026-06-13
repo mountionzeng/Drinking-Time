@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Loader2, ImageIcon } from 'lucide-react';
 import { IMAGE_PROVIDER_LABELS, IMAGE_PROVIDER_VALUES } from '@shared/imageProvider';
+import { CREATION_GOALS, goalLabel, type CreationGoal } from '@shared/creationGoal';
 import { Button } from '@/components/ui/button';
 import { useCreationAgent, type ImageProviderSelection } from '../CreationAgentContext';
 import ImageSegmentOverlay from './ImageSegmentOverlay';
@@ -38,6 +39,8 @@ export default function CreationAgentChat({
     isReplying,
     imageProvider,
     setImageProvider,
+    goal,
+    setGoal,
     sendMessage,
   } = useCreationAgent();
 
@@ -148,6 +151,22 @@ export default function CreationAgentChat({
 
       {/* Input */}
       <div className="border-t p-3">
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <span>我在做</span>
+          <select
+            value={goal}
+            onChange={(event) => setGoal(event.target.value as CreationGoal)}
+            disabled={isReplying}
+            aria-label="选择创作目标"
+            className="h-7 rounded-md border bg-background px-2 text-[11px] text-foreground outline-none transition disabled:opacity-50"
+          >
+            {CREATION_GOALS.map((g) => (
+              <option key={g} value={g}>
+                {goalLabel(g)}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>出图模型</span>
           <select

@@ -16,6 +16,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { normalizeImageProvider, type ImageProvider } from '@shared/imageProvider';
+import { normalizeGoal, type CreationGoal } from '@shared/creationGoal';
 import { trpc } from '@/lib/trpc';
 import {
   CREATION_GREETING,
@@ -34,6 +35,7 @@ interface PersistedState {
   messages: ChatMessage[];
   focusShotNo: string | null;
   imageProvider?: ImageProviderSelection;
+  goal?: CreationGoal;
 }
 
 export type ImageProviderSelection = 'default' | ImageProvider;
@@ -50,6 +52,7 @@ function loadState(projectId: number | null): PersistedState {
         messages: Array.isArray(parsed.messages) ? parsed.messages : [],
         focusShotNo: typeof parsed.focusShotNo === 'string' ? parsed.focusShotNo : null,
         imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
+        goal: normalizeGoal(parsed.goal),
       };
     },
     emptyState,
@@ -68,6 +71,7 @@ function emptyState(): PersistedState {
     ],
     focusShotNo: null,
     imageProvider: 'default',
+    goal: 'unset',
   };
 }
 
@@ -95,6 +99,8 @@ interface CreationAgentContextValue {
   isGenerating: boolean;
   imageProvider: ImageProviderSelection;
   setImageProvider: (provider: ImageProviderSelection) => void;
+  goal: CreationGoal;
+  setGoal: (goal: CreationGoal) => void;
   projectImages: ShotImage[];
   /** 最近一次小酌建议的提示词修改（用户需确认/可撤销） */
   pendingPromptUpdate: { shotNo: string; promptDraft: string } | null;
@@ -119,6 +125,7 @@ export function CreationAgentProvider({
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadState(projectId).messages);
   const [focusShotNo, setFocusShotNo] = useState<string | null>(() => loadState(projectId).focusShotNo);
   const [imageProvider, setImageProvider] = useState<ImageProviderSelection>(() => loadState(projectId).imageProvider ?? 'default');
+  const [goal, setGoal] = useState<CreationGoal>(() => loadState(projectId).goal ?? 'unset');
   const [isReplying, setIsReplying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [projectImages, setProjectImages] = useState<ShotImage[]>([]);
@@ -151,8 +158,9 @@ export function CreationAgentProvider({
       messages,
       focusShotNo,
       imageProvider,
+      goal,
     });
-  }, [messages, focusShotNo, imageProvider, projectId]);
+  }, [messages, focusShotNo, imageProvider, goal, projectId]);
 
   // Reload state when projectId changes
   useEffect(() => {
@@ -160,6 +168,7 @@ export function CreationAgentProvider({
     setMessages(state.messages);
     setFocusShotNo(state.focusShotNo);
     setImageProvider(state.imageProvider ?? 'default');
+    setGoal(state.goal ?? 'unset');
   }, [projectId]);
 
   // Send message
@@ -196,6 +205,7 @@ export function CreationAgentProvider({
         shots,
         currentFocusShotNo: focusShotNo ?? undefined,
         imageProvider: imageProviderForRequest(imageProvider),
+        goal: goal === 'unset' ? undefined : goal,
       });
 
       if (!result.configured) {
@@ -241,7 +251,7 @@ export function CreationAgentProvider({
       setIsReplying(false);
       setIsGenerating(false);
     }
-  }, [projectId, messages, focusShotNo, imageProvider, chatMut, refreshProjectImages]);
+  }, [projectId, messages, focusShotNo, imageProvider, goal, chatMut, refreshProjectImages]);
 
   // Reassign image
   const reassignImageFn = useCallback(async (imageId: number, newShotNo: string) => {
@@ -284,6 +294,8 @@ export function CreationAgentProvider({
     isGenerating,
     imageProvider,
     setImageProvider,
+    goal,
+    setGoal,
     projectImages,
     pendingPromptUpdate,
     clearPendingPromptUpdate,
@@ -292,7 +304,7 @@ export function CreationAgentProvider({
     refreshProjectImages,
     resetConversation,
   }), [
-    messages, focusShotNo, isReplying, isGenerating, imageProvider, projectImages,
+    messages, focusShotNo, isReplying, isGenerating, imageProvider, goal, projectImages,
     pendingPromptUpdate, clearPendingPromptUpdate,
     sendMessage, reassignImageFn, refreshProjectImages, resetConversation,
   ]);

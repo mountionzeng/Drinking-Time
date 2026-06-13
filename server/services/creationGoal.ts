@@ -12,34 +12,15 @@
  * （audience=recruiters、platform=linkedin、清晰专业可信的 tone）。
  */
 
-export const CREATION_GOALS = [
-  "job_search",
-  "social_post",
-  "life_record",
-  "unset",
-] as const;
-
-export type CreationGoal = (typeof CREATION_GOALS)[number];
-
-export function normalizeGoal(raw: unknown): CreationGoal {
-  return (CREATION_GOALS as readonly string[]).includes(raw as string)
-    ? (raw as CreationGoal)
-    : "unset";
-}
-
-/** 给人看的目标名（日志 / UI 可用）。 */
-export function goalLabel(goal: CreationGoal): string {
-  switch (goal) {
-    case "job_search":
-      return "求职视频";
-    case "social_post":
-      return "社交媒体";
-    case "life_record":
-      return "记录生活";
-    case "unset":
-      return "未指定";
-  }
-}
+// 枚举 / 类型 / 标签 / 归一 是客户端共享的纯数据，住在 shared/，这里 re-export
+// 让既有 import（routers / creationAgent / 测试）不动。
+export {
+  CREATION_GOALS,
+  type CreationGoal,
+  normalizeGoal,
+  goalLabel,
+} from "../../shared/creationGoal";
+import type { CreationGoal } from "../../shared/creationGoal";
 
 /**
  * 把目标翻译成注入 prompt 的指引段。`unset` 返回空串（行为与接入前一致）。
