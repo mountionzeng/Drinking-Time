@@ -4,6 +4,8 @@ import {
   createShots,
   getStoryShots,
   replaceDirectorShotsForStory,
+  createStory,
+  deleteStory,
   type InsertShot,
 } from "./db";
 
@@ -77,6 +79,22 @@ describe("镜头按 storyId 归属（U3）", () => {
     expect(byIntent).toContain("SH01:idea");
     expect(byIntent).toContain("SH09:director_note");
     expect(byIntent).not.toContain("SH02:director_note");
+  });
+
+  it("删除故事级联删除其镜头（不留孤儿）", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: 1,
+      title: "待删故事",
+      body: {} as never,
+    });
+    await createShots([shot(story.id, 1, "SH01"), shot(story.id, 1, "SH02")]);
+    await createShots([shot(999, 1, "SH01")]); // 另一个故事的镜头，不应受影响
+    expect(await getStoryShots(story.id, 1)).toHaveLength(2);
+
+    await deleteStory(story.id, 1);
+    expect(await getStoryShots(story.id, 1)).toHaveLength(0); // 镜头随故事删除
+    expect(await getStoryShots(999, 1)).toHaveLength(1); // 别的故事不受影响
   });
 
   it("跨用户安全：他人无法用 storyId 取到本人镜头", async () => {

@@ -33,7 +33,7 @@ export default function ImageSegmentOverlay({
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const imgRef = useRef<HTMLImageElement>(null);
-  const { refreshProjectImages } = useCreationAgent();
+  const { refreshProjectImages, storyId } = useCreationAgent();
 
   const segmentMut = trpc.creationAgent.segment.useMutation();
   const inpaintMut = trpc.creationAgent.inpaint.useMutation();
@@ -81,6 +81,8 @@ export default function ImageSegmentOverlay({
         prompt: prompt.trim(),
         shotNo,
         projectId,
+        // 重绘的美术风格跟随当前故事（U5/评审 P1）：不传则丢失故事 artReferences
+        storyId: storyId ?? undefined,
         parentImageId: imageId,
       });
 

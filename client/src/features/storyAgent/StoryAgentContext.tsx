@@ -1252,8 +1252,10 @@ export function StoryAgentProvider({
           softMembership: card.softMembership,
         })),
         characterHint: characters[0]?.name ?? '',
-        // 合成出的镜头按 storyId 归属（U3）：写到当前打开的故事名下
-        storyId: activeStoryId ?? undefined,
+        // 合成出的镜头按 storyId 归属（U3）：写到当前打开的故事名下。
+        // 只传真实 id(>0)——新故事草稿是 -1，`-1 ?? undefined` 不归一会让服务端
+        // getStoryById(-1) 返 null 静默不写镜头（评审 P1）。草稿先不带 storyId。
+        storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : undefined,
         visualAnchors: visualCanvasItems.map((item) => ({
           title: item.title,
           imageUrl: item.imageUrl,

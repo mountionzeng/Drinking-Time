@@ -1190,10 +1190,18 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
     );
     if (idx >= 0) {
       memoryState.stories.splice(idx, 1);
+      // 级联删除该故事的镜头（评审 P1）：故事是唯一单位，删故事后其镜头按
+      // storyId 再也取不到、永不清理，会成孤儿。同删避免悬挂数据。
+      memoryState.shots = memoryState.shots.filter(
+        s => !(s.storyId === id && s.userId === userId)
+      );
       await persistMemoryState();
     }
     return;
   }
+  await db
+    .delete(shots)
+    .where(and(eq(shots.storyId, id), eq(shots.userId, userId)));
   await db
     .delete(stories)
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));

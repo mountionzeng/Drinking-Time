@@ -72,6 +72,31 @@ describe("planBackfill + applyPlan", () => {
     expect(d.shots.filter((s) => s.projectId === 2).every((s) => s.storyId === 20)).toBe(true);
   });
 
+  it("幂等：已归属（storyId 非 null）的镜头重跑时跳过、不改写", () => {
+    const d = {
+      shots: [{ id: 1, projectId: 1, userId: 1, shotNo: "SH01", storyId: 99 }], // 已归属 99
+      stories: [
+        { id: 10, projectId: 1, userId: 1, title: "P1", body: { shots: [1] }, updatedAt: "2026-06-12" },
+      ],
+    };
+    applyPlan(d, planBackfill(d));
+    expect(d.shots[0].storyId).toBe(99); // 不被改写
+  });
+
+  it("override 指向不存在的故事：不写入（storyUser undefined 视为不可确认）", () => {
+    const d = {
+      shots: [{ id: 1, projectId: 1, userId: 1, shotNo: "SH01" }],
+      stories: [
+        { id: 10, projectId: 1, userId: 1, title: "P1", body: { shots: [1] }, updatedAt: "2026-06-12" },
+      ],
+    };
+    // 计划归到不存在的故事 999
+    const plan = planBackfill(d).map((a) => ({ ...a, chosenStoryId: 999 }));
+    const warnings = applyPlan(d, plan);
+    expect(d.shots[0].storyId).toBeNull();
+    expect(warnings.length).toBe(1);
+  });
+
   it("跨用户不污染：镜头 userId 与故事 userId 不一致时置 null 并告警", () => {
     const d = {
       shots: [{ id: 1, projectId: 1, userId: 2, shotNo: "SH01" }], // user 2 的镜头

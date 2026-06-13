@@ -15,7 +15,7 @@
  *   npx tsx scripts/backfill-shot-storyid.ts                 # dry-run 报告
  *   npx tsx scripts/backfill-shot-storyid.ts --write         # 确认后落盘（含备份）
  */
-import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -169,16 +169,20 @@ export function applyPlan(data: PersistData, plan: Assignment[]): string[] {
     data.stories.map((st) => [st.id as number, st.userId as number])
   );
   for (const shot of data.shots) {
+    // 幂等：已归属（storyId 非 null）的镜头跳过，重跑不改写已正确归属者（评审 P2）
+    if (shot.storyId != null) continue;
     const pid = shot.projectId as number;
     const storyId = chosenByProject.get(pid) ?? null;
     shot.storyId = storyId;
     if (storyId !== null) {
       const storyUser = storyUserById.get(storyId);
-      if (storyUser !== undefined && storyUser !== (shot.userId as number)) {
+      // storyUser 为 undefined（override 指向不存在的故事）也视为不可确认 → 不写
+      // （评审 P3：override 到不存在 storyId 会绕过 userId 校验）
+      if (storyUser === undefined || storyUser !== (shot.userId as number)) {
         warnings.push(
-          `镜头 ${shot.id}(user ${shot.userId}) 拟归故事 ${storyId}(user ${storyUser})——userId 不一致，跳过该镜头`
+          `镜头 ${shot.id}(user ${shot.userId}) 拟归故事 ${storyId}(user ${storyUser ?? '不存在'})——userId 不一致或故事不存在，跳过`
         );
-        shot.storyId = null; // 不跨用户污染
+        shot.storyId = null; // 不跨用户污染、不归到不存在的故事
       }
     }
   }
@@ -233,9 +237,9 @@ function main(): void {
     return;
   }
 
-  const backup = path.resolve(
-    `.webdev/manual-backups-20260613/pre-backfill-${Date.now()}.json`
-  );
+  const backupDir = path.resolve(".webdev/manual-backups-20260613");
+  mkdirSync(backupDir, { recursive: true }); // 目录不存在时先建，否则 copyFileSync 抛错（评审 P2）
+  const backup = path.join(backupDir, `pre-backfill-${Date.now()}.json`);
   copyFileSync(file, backup);
   const warnings = applyPlan(data, plan);
   writeFileSync(file, JSON.stringify(data, null, 2));

@@ -92,6 +92,8 @@ function newId(prefix: string): string {
 // ── Context value ──
 
 interface CreationAgentContextValue {
+  /** 当前故事 id（U5）：inpaint 等按它取故事美术风格 */
+  storyId: number | null;
   messages: ChatMessage[];
   focusShotNo: string | null;
   setFocusShotNo: (shotNo: string | null) => void;
@@ -291,6 +293,7 @@ export function CreationAgentProvider({
   }, []);
 
   const value = useMemo<CreationAgentContextValue>(() => ({
+    storyId: storyId ?? null,
     messages,
     focusShotNo,
     setFocusShotNo,
@@ -308,6 +311,7 @@ export function CreationAgentProvider({
     refreshProjectImages,
     resetConversation,
   }), [
+    storyId,
     messages, focusShotNo, isReplying, isGenerating, imageProvider, goal, projectImages,
     pendingPromptUpdate, clearPendingPromptUpdate,
     sendMessage, reassignImageFn, refreshProjectImages, resetConversation,
