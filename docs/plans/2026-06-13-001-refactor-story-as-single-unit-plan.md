@@ -1,7 +1,7 @@
 ---
 title: "refactor: 故事为唯一单位，各界面跟随同一当前故事"
 type: refactor
-status: active
+status: completed
 date: 2026-06-13
 origin: docs/brainstorms/2026-06-13-story-as-single-unit-requirements.md
 ---
