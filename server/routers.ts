@@ -57,7 +57,7 @@ import {
   replyFromCreationAgent,
   type ShotContext,
 } from "./services/creationAgent";
-import { CREATION_GOALS, goalGuidance } from "./services/creationGoal";
+import { CREATION_GOALS, goalGuidance, detectGoalFromText } from "./services/creationGoal";
 import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
@@ -1823,6 +1823,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         const story = input.storyId
           ? await getStoryById(input.storyId, ctx.user.id)
           : null;
+        // 自动识别意图（U·自动意图）：用户没手动选目标时，从这句话+最近几条用户消息
+        // 自动认出求职/社媒/记录；手动选了就以手动为准。
+        const effectiveGoal =
+          input.goal && input.goal !== "unset"
+            ? input.goal
+            : detectGoalFromText(
+                [
+                  input.message,
+                  ...(input.history ?? [])
+                    .filter((t) => t.role === "user")
+                    .slice(-4)
+                    .map((t) => t.content ?? ""),
+                ].join("\n")
+              );
         const result = await replyFromCreationAgent({
           message: input.message,
           projectId: input.projectId,
@@ -1832,7 +1846,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shots: input.shots as ShotContext[] | undefined,
           currentFocusShotNo: input.currentFocusShotNo,
           imageProvider: input.imageProvider,
-          goal: input.goal,
+          goal: effectiveGoal,
           artDirection: story ? storyArtRecipe(story) : undefined,
           referenceImages: story ? storyArtReferenceImages(story) : undefined,
         });
@@ -1841,7 +1855,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         // 按 goal 注入求职等目标、写到当前故事（按 storyId 归属，story 已验归属）。
         let builtShotCount = 0;
         if (result.shotBuild && story && input.storyId) {
-          const resonanceContext = goalGuidance(input.goal ?? "unset") || undefined;
+          const resonanceContext = goalGuidance(effectiveGoal) || undefined;
           const synth = await synthesizeShotList({
             cards: [{ content: result.shotBuild.storyDigest }],
             ...(resonanceContext ? { resonanceContext } : {}),

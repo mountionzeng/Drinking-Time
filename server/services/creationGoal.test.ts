@@ -6,6 +6,28 @@ import {
   normalizeGoal,
   type CreationGoal,
 } from "./creationGoal";
+import { detectGoalFromText } from "../../shared/creationGoal";
+
+describe("detectGoalFromText（自动识别意图）", () => {
+  it("求职信号 → job_search", () => {
+    expect(detectGoalFromText("我想做个求职视频发 LinkedIn")).toBe("job_search");
+    expect(detectGoalFromText("帮我准备面试用的，展示职业能力")).toBe("job_search");
+  });
+  it("社媒信号 → social_post", () => {
+    expect(detectGoalFromText("发个小红书涨粉")).toBe("social_post");
+    expect(detectGoalFromText("想发抖音视频号")).toBe("social_post");
+  });
+  it("记录信号 → life_record", () => {
+    expect(detectGoalFromText("就想记录一下这一刻给自己留念")).toBe("life_record");
+  });
+  it("求职优先级最高（同时含求职+社媒）", () => {
+    expect(detectGoalFromText("把求职作品集也发到小红书")).toBe("job_search");
+  });
+  it("无信号 → unset", () => {
+    expect(detectGoalFromText("今天天气不错")).toBe("unset");
+    expect(detectGoalFromText("")).toBe("unset");
+  });
+});
 
 describe("normalizeGoal", () => {
   it("合法目标原样返回", () => {

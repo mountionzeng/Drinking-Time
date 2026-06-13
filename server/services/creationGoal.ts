@@ -19,6 +19,7 @@ export {
   type CreationGoal,
   normalizeGoal,
   goalLabel,
+  detectGoalFromText,
 } from "../../shared/creationGoal";
 import type { CreationGoal } from "../../shared/creationGoal";
 
