@@ -22,6 +22,7 @@ export default function MobileChatPage() {
     remoteStoryId,
     sendMessage,
     generateNow,
+    confirmFinal,
     swipeRight,
     swipeLeft,
   } = useMobileChat();
@@ -139,6 +140,7 @@ export default function MobileChatPage() {
         messages={messages}
         images={images}
         isReplying={isReplying}
+        onConfirmFinal={confirmFinal}
         onSwipeRight={swipeRight}
         onSwipeLeft={swipeLeft}
         onLongPress={handleLongPress}

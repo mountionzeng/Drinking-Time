@@ -25,7 +25,8 @@ export type GeneratedImageItem = {
   prompt: string;
   shotNo?: number;
   storyId: number;
-  status: "generating" | "ready" | "error";
+  // draft = 快轨小样（待确认）；finalizing = 已确认、MJ 正式版生成中
+  status: "generating" | "ready" | "error" | "draft" | "finalizing";
   // 关联的聊天消息 id
   messageId?: string;
 };
@@ -188,7 +189,9 @@ export function normalizeMobileImages(rawImages: unknown): GeneratedImageItem[] 
       const status =
         raw.status === "ready" || raw.status === "generating" || raw.status === "error"
           ? raw.status
-          : "ready";
+          : raw.status === "draft" || raw.status === "finalizing"
+            ? "draft" // finalizing 重载后回到 draft：让用户重新确认，而不是悬在生成中
+            : "ready";
       return {
         id,
         imageUrl,

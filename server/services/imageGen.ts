@@ -389,6 +389,68 @@ async function storeImageFromOpenAIJson(
   return { status: "error", message: emptyMessage };
 }
 
+/**
+ * 秒级草稿图（双轨出图的「快轨」）：302 的 flux-schnell 专用端点，5-10 秒出一张。
+ *
+ * 职责是「构图/内容确认小样」，不追求 MJ 的美术品质 —— 用户确认草稿后再由
+ * MJ 出正式版（慢轨）。失败（未充值/网络）由调用方回落到直接 MJ，不影响主链路。
+ * 产物同样走本地资产库 + /api/images 稳定路由。
+ */
+export async function generateDraftImage(
+  prompt: string,
+  options: ImageGenOptions = {},
+): Promise<ImageGenResult> {
+  if (!ENV.api302Key) {
+    return { status: "error", message: "302 API Key 未配置，无法出草稿图" };
+  }
+  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const model = ENV.image302DraftModel || "flux-schnell";
+  try {
+    const endpoint = new URL(
+      `/302/submit/${encodeURIComponent(model)}`,
+      `${normalizeBaseUrl(ENV.api302BaseUrl)}/`,
+    );
+    const response = await withTimeout(
+      fetcher(endpoint.toString(), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${ENV.api302Key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt,
+          image_size: { width: 1024, height: 1024 },
+          num_inference_steps: 4,
+        }),
+      }),
+      TIMEOUT_MS,
+    );
+    const json = (await response.json()) as {
+      images?: Array<{ url?: string }>;
+      image?: { url?: string };
+      output?: string;
+      error?: { message_cn?: string; message?: string };
+    };
+    if (!response.ok || json.error) {
+      return {
+        status: "error",
+        message:
+          json.error?.message_cn || json.error?.message || `草稿图生成失败 HTTP ${response.status}`,
+      };
+    }
+    const imageUrl = json.images?.[0]?.url || json.image?.url || json.output;
+    if (!imageUrl) {
+      return { status: "error", message: "草稿图返回里没有图片 URL" };
+    }
+    return await storeImageFromUrl(imageUrl, fetcher);
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "草稿图生成失败",
+    };
+  }
+}
+
 export async function generateImage(
   prompt: string,
   options: ImageGenOptions = {},

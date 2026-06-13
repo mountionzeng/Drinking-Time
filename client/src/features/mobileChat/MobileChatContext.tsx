@@ -93,6 +93,8 @@ interface MobileChatContextValue {
   confirmGenerate: (messageId: string) => Promise<void>;
   // 手动「画出来」：不依赖小酌主动提议，把当前这段对话现编 prompt 生成一张图
   generateNow: () => Promise<void>;
+  /** 确认草稿小样 → MJ 出正式版替换 */
+  confirmFinal: (imageId: number) => Promise<void>;
   // 滑动操作
   swipeRight: (imageId: number) => Promise<void>;
   swipeLeft: (imageId: number, reason?: string) => Promise<void>;
@@ -656,26 +658,34 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         .slice(-16)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // 双轨：先要秒级草稿小样（服务端草稿轨不可用时会自动回落 MJ 正式版）
       const result = await generateMut.mutateAsync({
         storyId,
         shotNo,
         history,
         originalImageUrl: photoUrl,
+        mode: "draft",
       });
 
       if (result.status === "ok" && result.imageUrl) {
+        const isDraft = result.mode === "draft";
         const readyImage: GeneratedImageItem = {
           id: result.imageId!,
           imageUrl: result.imageUrl,
           prompt: result.prompt ?? "",
           shotNo,
           storyId,
-          status: "ready",
+          status: isDraft ? "draft" : "ready",
           messageId: genMsgId,
         };
         const finalMsgs = baseMsgs.map((m) =>
           m.id === genMsgId
-            ? { ...m, content: "🎨 画好了 —— 喜欢就右划收下，不满意左划再来一张。" }
+            ? {
+                ...m,
+                content: isDraft
+                  ? "🎨 草稿小样好了 —— 是这个瞬间的话，点「出正式版」让 Midjourney 精画；不是就左划换一张。"
+                  : "🎨 画好了 —— 喜欢就右划收下，不满意左划再来一张。",
+              }
             : m
         );
         setMessages(finalMsgs);
@@ -719,6 +729,100 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     persist,
     saveStoryState,
   ]);
+
+  // 双轨确认：用户认可草稿小样后，用同一条 prompt 让 MJ 出正式版替换它
+  const confirmFinal = useCallback(
+    async (imageId: number) => {
+      const draft = images.find((img) => img.id === imageId);
+      if (!draft || draft.status !== "draft" || isGenerating) return;
+
+      setIsGenerating(true);
+      // 草稿卡片进入「正在出正式版」状态
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId ? { ...img, status: "finalizing" as const } : img
+        )
+      );
+      const noteMsgs = draft.messageId
+        ? messages.map((m) =>
+            m.id === draft.messageId
+              ? { ...m, content: "🎨 正在出 Midjourney 正式版…（约一分钟，画好自动替换）" }
+              : m
+          )
+        : messages;
+      setMessages(noteMsgs);
+
+      try {
+        // 与草稿同源的基底照片逻辑：往回找最近一张用户照片
+        let photoUrl: string | undefined;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "user" && messages[i].photoUrl) {
+            photoUrl = messages[i].photoUrl;
+            break;
+          }
+        }
+        const result = await generateMut.mutateAsync({
+          storyId: draft.storyId,
+          shotNo: draft.shotNo,
+          prompt: draft.prompt, // 直接用草稿的最终 prompt，不再现编
+          originalImageUrl: photoUrl,
+          draftImageId: draft.id,
+          mode: "final",
+        });
+
+        if (result.status === "ok" && result.imageUrl) {
+          const finalImage: GeneratedImageItem = {
+            id: result.imageId!,
+            imageUrl: result.imageUrl,
+            prompt: result.prompt ?? draft.prompt,
+            shotNo: draft.shotNo,
+            storyId: draft.storyId,
+            status: "ready",
+            messageId: draft.messageId,
+          };
+          const finalMsgs = noteMsgs.map((m) =>
+            m.id === draft.messageId
+              ? { ...m, content: "🎨 正式版画好了 —— 喜欢就右划收下，不满意左划再来一张。" }
+              : m
+          );
+          const nextImages = [
+            ...images.filter((img) => img.id !== imageId),
+            finalImage,
+          ];
+          setMessages(finalMsgs);
+          setImages((prev) => [
+            ...prev.filter((img) => img.id !== imageId),
+            finalImage,
+          ]);
+          persist(finalMsgs, cards, nextImages, draft.storyId);
+          void saveStoryState(finalMsgs, cards, nextImages, draft.storyId);
+        } else {
+          // 失败：退回草稿态，用户可重试
+          setImages((prev) =>
+            prev.map((img) =>
+              img.id === imageId ? { ...img, status: "draft" as const } : img
+            )
+          );
+          const failMsgs = noteMsgs.map((m) =>
+            m.id === draft.messageId
+              ? { ...m, content: `正式版没画成：${result.error ?? "再点一次试试？"}` }
+              : m
+          );
+          setMessages(failMsgs);
+        }
+      } catch (err) {
+        console.error("[confirmFinal] 出正式版失败:", err);
+        setImages((prev) =>
+          prev.map((img) =>
+            img.id === imageId ? { ...img, status: "draft" as const } : img
+          )
+        );
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [images, messages, cards, isGenerating, generateMut, persist, saveStoryState]
+  );
 
   // 右划收下
   const swipeRight = useCallback(
@@ -800,6 +904,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     sendMessage,
     confirmGenerate,
     generateNow,
+    confirmFinal,
     swipeRight,
     swipeLeft,
     resetConversation,

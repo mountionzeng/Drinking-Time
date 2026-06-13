@@ -22,6 +22,8 @@ interface Props {
   onSwipeRight: (imageId: number) => void;
   onSwipeLeft: (imageId: number) => void;
   onLongPress?: (imageId: number) => void;
+  /** 草稿小样确认 → MJ 出正式版 */
+  onConfirmFinal?: (imageId: number) => void;
 }
 
 export default function ImageCard({
@@ -29,6 +31,7 @@ export default function ImageCard({
   onSwipeRight,
   onSwipeLeft,
   onLongPress,
+  onConfirmFinal,
 }: Props) {
   const [dismissed, setDismissed] = useState(false);
   const x = useMotionValue(0);
@@ -136,7 +139,17 @@ export default function ImageCard({
       </motion.div>
 
       {/* 图片 */}
-      <div className="dtm-image-card">
+      <div className="dtm-image-card relative">
+        {image.status === "draft" && (
+          <span className="absolute left-2 top-2 z-10 rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white">
+            草稿小样
+          </span>
+        )}
+        {image.status === "finalizing" && (
+          <span className="absolute inset-x-0 top-0 z-10 flex items-center justify-center gap-1.5 bg-black/45 py-1.5 text-[12px] text-white">
+            <span className="dtm-spinner" /> Midjourney 正在精画…
+          </span>
+        )}
         <ResilientImg
           src={image.imageUrl}
           alt={image.prompt || "生成的画面"}
@@ -150,6 +163,19 @@ export default function ImageCard({
           </span>
           <span className="h-2 w-2 rounded-full bg-[var(--nayin-accent)]" />
         </div>
+        {image.status === "draft" && onConfirmFinal && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onConfirmFinal(image.id);
+            }}
+            className="mx-3 mb-3 flex items-center justify-center gap-1.5 rounded-full py-2 text-[13px] font-medium text-white"
+            style={{ background: "var(--nayin-accent)" }}
+          >
+            ✨ 就是这张，出 Midjourney 正式版
+          </button>
+        )}
       </div>
     </motion.div>
   );

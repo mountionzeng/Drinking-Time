@@ -62,6 +62,7 @@ import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
   generateImage as generateMobileImage,
+  generateDraftImage,
   inpaintImage,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
@@ -1411,6 +1412,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               })
             )
             .optional(),
+          // 双轨出图：draft = 秒级小样（flux-schnell，确认构图用）；
+          // final / 缺省 = MJ 正式版。草稿轨不可用时服务端自动回落 MJ。
+          mode: z.enum(["draft", "final"]).optional(),
+          draftImageId: z.number().optional(), // 确认出正式版时关联草稿图，落库 parentImageId
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1436,22 +1441,54 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
           const storyReferences = storyArtReferenceImages(story);
           const referenceImage = input.originalImageUrl || storyReferences[0];
-          const result = await renderViaGate(
-            {
-              prompt,
-              referenceImages: referenceImage
-                ? Array.from(new Set([referenceImage, ...storyReferences]))
-                : undefined,
-              shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
-              projectId: story.projectId ?? undefined,
-              artDirection: storyArtRecipe(story),
-            },
-            renderedPrompt =>
-              // draft 档（MJ --quality 0.25 + turbo）：手机影像日记够用，渲染时间省一半左右；
-              // 长按局部修复（mobileInpaint）仍走全质量档
-              referenceImage
-                ? editMobileImage(referenceImage, renderedPrompt, { fidelity: "draft" })
-                : generateMobileImage(renderedPrompt, { fidelity: "draft" }),
+          const gateContext = {
+            prompt,
+            referenceImages: referenceImage
+              ? Array.from(new Set([referenceImage, ...storyReferences]))
+              : undefined,
+            shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
+            projectId: story.projectId ?? undefined,
+            artDirection: storyArtRecipe(story),
+          };
+
+          // 快轨：秒级草稿小样（flux-schnell，确认构图用），美术 DNA 与慢轨完全同源。
+          // 失败（未充值/网络）自动回落到下面的 MJ 慢轨，用户无感知。
+          if (input.mode === "draft") {
+            const draft = await renderViaGate(gateContext, renderedPrompt =>
+              generateDraftImage(renderedPrompt),
+            );
+            if (draft.status === "ok" && draft.imageUrl) {
+              const image = await createGeneratedImage({
+                projectId: story.projectId ?? null,
+                storyId: input.storyId,
+                userId: ctx.user.id,
+                shotNo: input.shotNo != null ? String(input.shotNo) : null,
+                imageKey: draft.imageKey ?? null,
+                imageUrl: draft.imageUrl,
+                prompt,
+                generationType: "generate", // 草稿小样；确认后由 final 轨出 MJ 正式版
+                isCurrent: true,
+              });
+              return {
+                status: "ok" as const,
+                imageUrl: draft.imageUrl,
+                imageId: image.id,
+                prompt,
+                mode: "draft" as const,
+              };
+            }
+            console.warn(
+              "[generateForMobile] 草稿轨不可用，自动回落 MJ：",
+              draft.message,
+            );
+          }
+
+          const result = await renderViaGate(gateContext, renderedPrompt =>
+            // draft 档（MJ --quality 0.25 + turbo）：手机影像日记够用，渲染时间省一半左右；
+            // 长按局部修复（mobileInpaint）仍走全质量档
+            referenceImage
+              ? editMobileImage(referenceImage, renderedPrompt, { fidelity: "draft" })
+              : generateMobileImage(renderedPrompt, { fidelity: "draft" }),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {
@@ -1469,6 +1506,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageUrl: result.imageUrl,
             prompt,
             generationType: "initial",
+            parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
             isCurrent: true,
           });
           return {
@@ -1476,6 +1514,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageUrl: result.imageUrl,
             imageId: image.id,
             prompt,
+            mode: "final" as const,
           };
         } catch (err) {
           console.error("[generateForMobile] 图片生成失败:", err);

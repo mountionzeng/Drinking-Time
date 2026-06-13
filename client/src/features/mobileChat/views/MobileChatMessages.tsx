@@ -11,6 +11,7 @@ import ResilientImg from "./ResilientImg";
 
 interface Props {
   messages: MobileChatMessage[];
+  onConfirmFinal?: (imageId: number) => void;
   images: GeneratedImageItem[];
   isReplying: boolean;
   onSwipeRight?: (imageId: number) => void;
@@ -20,6 +21,7 @@ interface Props {
 
 export default function MobileChatMessages({
   messages,
+  onConfirmFinal,
   images,
   isReplying,
   onSwipeRight,
@@ -87,13 +89,14 @@ export default function MobileChatMessages({
                 )}
 
                 {/* 已生成的图片：可滑动卡片 */}
-                {linkedImage && linkedImage.status === "ready" && (
+                {linkedImage && ["ready", "draft", "finalizing"].includes(linkedImage.status) && (
                   <div className="mt-2">
                     <ImageCard
                       image={linkedImage}
                       onSwipeRight={(id) => onSwipeRight?.(id)}
                       onSwipeLeft={(id) => onSwipeLeft?.(id)}
                       onLongPress={(id) => onLongPress?.(id)}
+                      onConfirmFinal={onConfirmFinal}
                     />
                   </div>
                 )}
