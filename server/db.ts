@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, isNull } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, isNull, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   mkdir,
@@ -1245,6 +1245,54 @@ export async function getStoryImages(
     .orderBy(generatedImages.shotNo);
 }
 
+export async function getProjectGeneratedImages(
+  projectId: number,
+  userId: number,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const storyIds = new Set(
+      memoryState.stories
+        .filter(
+          story => story.projectId === projectId && story.userId === userId,
+        )
+        .map(story => story.id),
+    );
+    return memoryState.generatedImages
+      .filter(
+        image =>
+          (image.userId === userId || image.userId == null) &&
+          (image.projectId === projectId ||
+            (image.storyId != null && storyIds.has(image.storyId))),
+      )
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+  }
+
+  const projectStories = await db
+    .select({ id: stories.id })
+    .from(stories)
+    .where(and(eq(stories.projectId, projectId), eq(stories.userId, userId)));
+  const storyIds = projectStories.map(story => story.id);
+  const ownership = storyIds.length > 0
+    ? or(
+        eq(generatedImages.projectId, projectId),
+        inArray(generatedImages.storyId, storyIds),
+      )
+    : eq(generatedImages.projectId, projectId);
+
+  return db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId)),
+        ownership,
+      ),
+    )
+    .orderBy(desc(generatedImages.createdAt));
+}
+
 // ─── Image Signals ──────────────────────────────────────────────────────
 // 用户交互信号（左划/右划/编辑等），时序事件流。
 
@@ -1273,6 +1321,27 @@ export async function createImageSignal(
     .from(imageSignals)
     .where(eq(imageSignals.id, result.insertId));
   return row;
+}
+
+export async function getImageSignalsForImages(
+  imageIds: number[],
+): Promise<ImageSignal[]> {
+  if (imageIds.length === 0) return [];
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const targetIds = new Set(imageIds);
+    return memoryState.imageSignals
+      .filter(
+        signal => signal.imageId != null && targetIds.has(signal.imageId),
+      )
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+  }
+  return db
+    .select()
+    .from(imageSignals)
+    .where(inArray(imageSignals.imageId, imageIds))
+    .orderBy(imageSignals.createdAt);
 }
 
 // ─── Edit Snapshots ──────────────────────────────────────────────────────
@@ -1465,6 +1534,19 @@ export async function createGeneratedImage(
     };
     memoryState.generatedImages.push(image);
     await persistMemoryState();
+    if (image.userId != null) {
+      await createImageSignal({
+        userId: image.userId,
+        storyId: image.storyId ?? 0,
+        imageId: image.id,
+        action: "edit_complete",
+        metadata: {
+          source: "generation",
+          state: "pending",
+          projectId: image.projectId,
+        },
+      });
+    }
     return image;
   }
   // 把同一镜头的旧图标记为非当前
@@ -1498,6 +1580,19 @@ export async function createGeneratedImage(
     .select()
     .from(generatedImages)
     .where(eq(generatedImages.id, result.insertId));
+  if (image.userId != null) {
+    await createImageSignal({
+      userId: image.userId,
+      storyId: image.storyId ?? 0,
+      imageId: image.id,
+      action: "edit_complete",
+      metadata: {
+        source: "generation",
+        state: "pending",
+        projectId: image.projectId,
+      },
+    });
+  }
   return image;
 }
 

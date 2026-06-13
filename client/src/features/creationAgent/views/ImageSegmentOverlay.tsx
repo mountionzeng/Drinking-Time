@@ -33,7 +33,7 @@ export default function ImageSegmentOverlay({
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const imgRef = useRef<HTMLImageElement>(null);
-  const { refreshProjectImages, storyId } = useCreationAgent();
+  const { refreshProjectAssets, storyId } = useCreationAgent();
 
   const segmentMut = trpc.creationAgent.segment.useMutation();
   const inpaintMut = trpc.creationAgent.inpaint.useMutation();
@@ -93,13 +93,13 @@ export default function ImageSegmentOverlay({
       }
 
       toast.success('重绘完成');
-      refreshProjectImages();
+      refreshProjectAssets();
       onClose();
     } catch {
       toast.error('重绘服务异常');
       setPhase('masked');
     }
-  }, [maskUrl, prompt, imageUrl, shotNo, projectId, imageId, inpaintMut, refreshProjectImages, onClose]);
+  }, [maskUrl, prompt, imageUrl, shotNo, projectId, imageId, inpaintMut, refreshProjectAssets, onClose]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
