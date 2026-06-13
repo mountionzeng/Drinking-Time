@@ -508,7 +508,7 @@ describe("storyAgent tRPC router", () => {
     expect(generated.status).toBe("ok");
 
     const pendingAssets = await caller.creationAgent.getProjectAssets({
-      projectId: project.id,
+      storyId: story!.id,
     });
     expect(pendingAssets).toEqual([
       expect.objectContaining({
@@ -527,7 +527,7 @@ describe("storyAgent tRPC router", () => {
       action: "swipe_right",
     });
     const selectedAssets = await caller.creationAgent.getProjectAssets({
-      projectId: project.id,
+      storyId: story!.id,
     });
     expect(selectedAssets[0]).toMatchObject({
       status: "selected",

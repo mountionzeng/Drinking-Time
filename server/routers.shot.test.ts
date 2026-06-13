@@ -6,6 +6,8 @@ import {
   replaceDirectorShotsForStory,
   createStory,
   deleteStory,
+  createGeneratedImage,
+  getStoryGeneratedImages,
   type InsertShot,
 } from "./db";
 
@@ -95,6 +97,31 @@ describe("镜头按 storyId 归属（U3）", () => {
     await deleteStory(story.id, 1);
     expect(await getStoryShots(story.id, 1)).toHaveLength(0); // 镜头随故事删除
     expect(await getStoryShots(999, 1)).toHaveLength(1); // 别的故事不受影响
+  });
+
+  it("图片按故事独立：故事 A 的图不出现在故事 B（用户要的核心）", async () => {
+    await createGeneratedImage({
+      projectId: 1, storyId: 100, userId: 1, shotNo: "SH01",
+      imageUrl: "https://x/a.png", prompt: "A", isCurrent: true, generationType: "generate",
+    });
+    await createGeneratedImage({
+      projectId: 1, storyId: 200, userId: 1, shotNo: "SH01",
+      imageUrl: "https://x/b.png", prompt: "B", isCurrent: true, generationType: "generate",
+    });
+    const a = await getStoryGeneratedImages(100, 1);
+    const b = await getStoryGeneratedImages(200, 1);
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+    expect(a[0].imageUrl).toBe("https://x/a.png"); // 不串故事
+    expect(b[0].imageUrl).toBe("https://x/b.png");
+  });
+
+  it("图片跨用户安全：他人 storyId 取不到本人图片", async () => {
+    await createGeneratedImage({
+      projectId: 1, storyId: 100, userId: 1, shotNo: "SH01",
+      imageUrl: "https://x/a.png", prompt: "A", isCurrent: true, generationType: "generate",
+    });
+    expect(await getStoryGeneratedImages(100, 2)).toHaveLength(0);
   });
 
   it("跨用户安全：他人无法用 storyId 取到本人镜头", async () => {

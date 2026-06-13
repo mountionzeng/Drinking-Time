@@ -1293,6 +1293,35 @@ export async function getProjectGeneratedImages(
     .orderBy(desc(generatedImages.createdAt));
 }
 
+// 按 storyId 取生成图片（故事为唯一单位）：每个故事的图片独立，故事间不共享。
+// 带 userId 防越权。
+export async function getStoryGeneratedImages(
+  storyId: number,
+  userId: number,
+): Promise<GeneratedImage[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.generatedImages
+      .filter(
+        image =>
+          image.storyId === storyId &&
+          (image.userId === userId || image.userId == null),
+      )
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+  }
+  return db
+    .select()
+    .from(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.storyId, storyId),
+        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId)),
+      ),
+    )
+    .orderBy(desc(generatedImages.createdAt));
+}
+
 // ─── Image Signals ──────────────────────────────────────────────────────
 // 用户交互信号（左划/右划/编辑等），时序事件流。
 

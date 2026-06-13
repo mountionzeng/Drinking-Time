@@ -13,6 +13,9 @@ import {
   getProjectById,
   getProjectGeneratedImages,
   getProjectShots,
+  getStoryById,
+  getStoryGeneratedImages,
+  getStoryShots,
 } from "../db";
 
 type AssetProjectionInput = {
@@ -222,6 +225,30 @@ export async function getProjectImageAssets(
   const [images, shots] = await Promise.all([
     getProjectGeneratedImages(projectId, userId),
     getProjectShots(projectId),
+  ]);
+  const [signals, availabilityByImageId] = await Promise.all([
+    getImageSignalsForImages(images.map(image => image.id)),
+    resolveAssetAvailability(images),
+  ]);
+  return projectImageAssets({
+    images,
+    signals,
+    validShotNos: shots.map(shot => shot.shotNo),
+    availabilityByImageId,
+  });
+}
+
+// 按当前故事取图片资产（故事为唯一单位）：每个故事的图片独立，故事间不共享。
+// 显示层（Creation 镜头图片工作区 / 小酌看到的图片）用这个；带 userId 验归属。
+export async function getStoryImageAssets(
+  storyId: number,
+  userId: number,
+): Promise<ImageAsset[]> {
+  const story = await getStoryById(storyId, userId);
+  if (!story) return [];
+  const [images, shots] = await Promise.all([
+    getStoryGeneratedImages(storyId, userId),
+    getStoryShots(storyId, userId),
   ]);
   const [signals, availabilityByImageId] = await Promise.all([
     getImageSignalsForImages(images.map(image => image.id)),

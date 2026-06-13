@@ -67,17 +67,17 @@ interface ScriptViewerProps {
 }
 
 export default function ScriptViewer({ projectId }: ScriptViewerProps) {
-  const { latestScript, scripts, updateScriptMeta, updateScriptScene, visualCanvasItems } =
+  const { latestScript, scripts, updateScriptMeta, updateScriptScene, visualCanvasItems, activeStoryId } =
     useStoryAgent();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [, setLocation] = useLocation();
 
-  // Fetch project images for thumbnails
+  // 缩略图按当前故事取（故事为唯一单位）：故事间不共享图片
   const imagesQuery = trpc.creationAgent.getProjectAssets.useQuery(
-    { projectId: projectId! },
-    { enabled: projectId != null },
+    { storyId: activeStoryId! },
+    { enabled: activeStoryId != null },
   );
   const projectImages = imagesQuery.data ?? [];
 

@@ -67,7 +67,7 @@ import {
   inpaintImage,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
-import { getProjectImageAssets } from "./services/imageAssets";
+import { getProjectImageAssets, getStoryImageAssets } from "./services/imageAssets";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import {
@@ -1826,7 +1826,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           input.storyId
             ? getStoryById(input.storyId, ctx.user.id)
             : Promise.resolve(null),
-          getProjectImageAssets(input.projectId, ctx.user.id),
+          // 图片按当前故事独立：有 storyId 取该故事的图，无则空（故事间不共享）
+          input.storyId
+            ? getStoryImageAssets(input.storyId, ctx.user.id)
+            : Promise.resolve([]),
         ]);
         // 自动识别意图：用户没手动选目标时，从这句话+最近用户消息自动认出求职/社媒/记录。
         const effectiveGoal =
@@ -1921,11 +1924,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
     /** Unified project image assets, including history and selection state. */
     getProjectAssets: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
+      // 图片按当前故事独立（故事为唯一单位）：显示层用 storyId 取，故事间不共享图片。
+      .input(z.object({ storyId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const project = await getProjectById(input.projectId, ctx.user.id);
-        if (!project) return [];
-        return getProjectImageAssets(input.projectId, ctx.user.id);
+        return getStoryImageAssets(input.storyId, ctx.user.id);
       }),
 
     /** Confirm or restore an image as the selected primary for its shot. */

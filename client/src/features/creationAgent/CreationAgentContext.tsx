@@ -144,10 +144,10 @@ export function CreationAgentProvider({
   const selectImageMut = trpc.creationAgent.selectImage.useMutation();
   const reassignMut = trpc.creationAgent.reassignImage.useMutation();
 
-  // Fetch the full project asset history, not only isCurrent images.
+  // 图片按当前故事独立（故事为唯一单位）：按 storyId 取，故事间不共享图片。
   const assetsQuery = trpc.creationAgent.getProjectAssets.useQuery(
-    { projectId: projectId! },
-    { enabled: projectId != null },
+    { storyId: storyId! },
+    { enabled: storyId != null },
   );
 
   useEffect(() => {
