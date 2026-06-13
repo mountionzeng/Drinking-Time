@@ -185,13 +185,39 @@ export function applyPlan(data: PersistData, plan: Assignment[]): string[] {
   return warnings;
 }
 
+/** 解析 --override projectId:storyId（用户对歧义项目的裁决）。 */
+export function parseOverrides(args: string[]): Map<number, number> {
+  const overrides = new Map<number, number>();
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "--override") continue;
+    const [pid, sid] = (args[i + 1] ?? "").split(":").map(Number);
+    if (Number.isFinite(pid) && Number.isFinite(sid)) overrides.set(pid, sid);
+  }
+  return overrides;
+}
+
+/** 把用户裁决套到计划上：覆盖归属、清除歧义标记。 */
+export function applyOverrides(plan: Assignment[], overrides: Map<number, number>): Assignment[] {
+  return plan.map((a) => {
+    if (!overrides.has(a.projectId)) return a;
+    const storyId = overrides.get(a.projectId)!;
+    return {
+      ...a,
+      chosenStoryId: storyId,
+      reason: `用户裁决：归故事 ${storyId}`,
+      ambiguous: false,
+    };
+  });
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
+  const overrides = parseOverrides(args);
   const file = path.resolve(".webdev/local-persist.json");
   const data = JSON.parse(readFileSync(file, "utf-8")) as PersistData;
 
-  const plan = planBackfill(data);
+  const plan = applyOverrides(planBackfill(data), overrides);
   console.log(formatPlan(plan));
 
   if (!write) {
