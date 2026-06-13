@@ -398,9 +398,13 @@ function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
 
 export function StoryAgentProvider({
   projectId,
+  onActiveStoryChange,
   children,
 }: {
   projectId: number | null;
+  // 把"当前打开的故事"向上同步给共享真相源（U4）——故事是唯一单位，
+  // Creation 侧（Shot Table / creation 聊天）跟随这个值。
+  onActiveStoryChange?: (storyId: number | null) => void;
   children: ReactNode;
 }) {
   const utils = trpc.useUtils();
@@ -435,6 +439,12 @@ export function StoryAgentProvider({
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+  // 向上同步当前故事到共享真相源（U4）。仅同步"真实故事 id"（>0）；新故事草稿(-1)/无故事(null)
+  // 对 Creation 侧无意义，归一为 null，让 Shot Table 落空状态而非查无效 id。
+  useEffect(() => {
+    if (!onActiveStoryChange) return;
+    onActiveStoryChange(activeStoryId && activeStoryId > 0 ? activeStoryId : null);
+  }, [activeStoryId, onActiveStoryChange]);
   const [saveStatus, setSaveStatus] = useState<StorySaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<number | undefined>(undefined);
   const [serverRevision, setServerRevision] = useState(0);
@@ -1242,6 +1252,8 @@ export function StoryAgentProvider({
           softMembership: card.softMembership,
         })),
         characterHint: characters[0]?.name ?? '',
+        // 合成出的镜头按 storyId 归属（U3）：写到当前打开的故事名下
+        storyId: activeStoryId ?? undefined,
         visualAnchors: visualCanvasItems.map((item) => ({
           title: item.title,
           imageUrl: item.imageUrl,
@@ -1314,7 +1326,7 @@ export function StoryAgentProvider({
         arc: result.arc,
       });
       if (projectId !== null) {
-        await utils.shot.list.invalidate({ projectId });
+        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
       }
       toast.success(`剧本已生成：${script.title}`);
     } catch (err) {

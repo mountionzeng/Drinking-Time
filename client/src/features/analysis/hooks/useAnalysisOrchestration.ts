@@ -41,7 +41,7 @@ export function useAnalysisOrchestration(
   const handleAnalysisComplete = useCallback(() => {
     setAnalysisActive(true);
     if (!currentProjectId) return;
-    utils.shot.list.invalidate({ projectId: currentProjectId });
+    utils.shot.list.invalidate(); // 镜头按 storyId 后无差别失效活跃查询（U5）
     utils.analysis.get.invalidate({ projectId: currentProjectId });
   }, [currentProjectId, utils.analysis.get, utils.shot.list]);
 

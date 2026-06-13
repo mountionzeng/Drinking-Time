@@ -117,9 +117,12 @@ const CreationAgentContext = createContext<CreationAgentContextValue | null>(nul
 
 export function CreationAgentProvider({
   projectId,
+  storyId,
   children,
 }: {
   projectId: number | null;
+  // 当前故事（U5）：creation 聊天按它取故事上下文/写镜头
+  storyId?: number | null;
   children: ReactNode;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadState(projectId).messages);
@@ -206,6 +209,7 @@ export function CreationAgentProvider({
         currentFocusShotNo: focusShotNo ?? undefined,
         imageProvider: imageProviderForRequest(imageProvider),
         goal: goal === 'unset' ? undefined : goal,
+        storyId: storyId ?? undefined,
       });
 
       if (!result.configured) {
@@ -251,7 +255,7 @@ export function CreationAgentProvider({
       setIsReplying(false);
       setIsGenerating(false);
     }
-  }, [projectId, messages, focusShotNo, imageProvider, goal, chatMut, refreshProjectImages]);
+  }, [projectId, storyId, messages, focusShotNo, imageProvider, goal, chatMut, refreshProjectImages]);
 
   // Reassign image
   const reassignImageFn = useCallback(async (imageId: number, newShotNo: string) => {

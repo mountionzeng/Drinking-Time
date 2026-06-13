@@ -16,8 +16,8 @@ import {
   getProjectReferences,
   updateReference,
   createShots,
-  getProjectShots,
-  replaceDirectorShotsForProject,
+  getStoryShots,
+  replaceDirectorShotsForStory,
   updateShot,
   batchUpdateShots,
   createAnalysisResult,
@@ -26,7 +26,6 @@ import {
   upsertEmotionAnalysisProfile,
   listUserStories,
   getStoryById,
-  getLatestStoryForProject,
   createStory,
   updateStory,
   deleteStory,
@@ -201,11 +200,12 @@ function shotPriorityFromBeat(beat: string) {
 
 function storyShotToDbRow(params: {
   projectId: number;
+  storyId: number;
   userId: number;
   shot: ShotEntry;
   index: number;
 }) {
-  const { projectId, userId, shot, index } = params;
+  const { projectId, storyId, userId, shot, index } = params;
   const shotNo = `SH${String(shot.shotNo || index + 1).padStart(2, "0")}`;
   const sceneNo = `SC${String(Math.ceil((index + 1) / 6)).padStart(2, "0")}`;
   const filledFields = [
@@ -224,6 +224,7 @@ function storyShotToDbRow(params: {
 
   return {
     projectId,
+    storyId,
     userId,
     sceneNo,
     shotNo,
@@ -1088,6 +1089,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .input(
         z.object({
           projectId: z.number().optional(),
+          // 镜头按 storyId 归属（U3）：合成出的镜头写到这个故事名下
+          storyId: z.number().optional(),
           cards: z.array(
             z.object({
               content: z.string(),
@@ -1153,19 +1156,25 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             | undefined,
           ...(resonanceContext ? { resonanceContext } : {}),
         });
-        if (!("error" in result) && input.projectId) {
-          await replaceDirectorShotsForProject(
-            input.projectId,
-            ctx.user.id,
-            result.shots.map((shot, index) =>
-              storyShotToDbRow({
-                projectId: input.projectId!,
-                userId: ctx.user.id,
-                shot,
-                index,
-              })
-            )
-          );
+        // 镜头按 storyId 归属（U3）：必须有 storyId 且归属当前用户才写入；
+        // 验归属（getStoryById 带 userId）防向他人故事写镜头。
+        if (!("error" in result) && input.projectId && input.storyId) {
+          const ownedStory = await getStoryById(input.storyId, ctx.user.id);
+          if (ownedStory) {
+            await replaceDirectorShotsForStory(
+              input.storyId,
+              ctx.user.id,
+              result.shots.map((shot, index) =>
+                storyShotToDbRow({
+                  projectId: input.projectId!,
+                  storyId: input.storyId!,
+                  userId: ctx.user.id,
+                  shot,
+                  index,
+                })
+              )
+            );
+          }
         }
         return result;
       }),
@@ -1624,9 +1633,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // ─── Shot management ────────────────────────────────────────────────
   shot: router({
     list: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
-        return getProjectShots(input.projectId);
+      .input(z.object({ storyId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        // 按 storyId 取镜头，并强制 userId——防"猜 storyId 取他人镜头"（U3）
+        return getStoryShots(input.storyId, ctx.user.id);
       }),
 
     update: protectedProcedure
@@ -1804,10 +1814,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           currentFocusShotNo: z.string().optional(),
           imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
           goal: z.enum(CREATION_GOALS).optional(),
+          storyId: z.number().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
+        // 故事来源改为传入的当前故事（U3），getStoryById 带 userId 验归属，
+        // 防"猜 storyId 让 agent 以他人故事作上下文/写镜头"。无 storyId 则无故事上下文。
+        const story = input.storyId
+          ? await getStoryById(input.storyId, ctx.user.id)
+          : null;
         return replyFromCreationAgent({
           message: input.message,
           projectId: input.projectId,
@@ -1889,11 +1904,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           prompt: z.string().min(1),
           shotNo: z.string(),
           projectId: z.number(),
+          // 美术风格跟随当前故事（U3）：取该故事的 artReferences；getStoryById 带 userId 验归属
+          storyId: z.number().optional(),
           parentImageId: z.number().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const story = await getLatestStoryForProject(input.projectId, ctx.user.id);
+        const story = input.storyId
+          ? await getStoryById(input.storyId, ctx.user.id)
+          : null;
         const storyReferences = story ? storyArtReferenceImages(story) : [];
         const result = await renderViaGate(
           {

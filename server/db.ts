@@ -733,8 +733,11 @@ export async function createShots(data: InsertShot[]) {
   return result;
 }
 
-export async function replaceDirectorShotsForProject(
-  projectId: number,
+// 按 storyId 替换某故事的导演镜头（故事为唯一单位，U3）。
+// 保留 intentType === "director_note" 过滤——只替换导演镜头，不误删其他来源镜头；
+// 同时带 userId 条件，防跨用户写入。data 里每行的 storyId 应已是本 storyId。
+export async function replaceDirectorShotsForStory(
+  storyId: number,
   userId: number,
   data: InsertShot[]
 ) {
@@ -743,7 +746,7 @@ export async function replaceDirectorShotsForProject(
     memoryState.shots = memoryState.shots.filter(
       shot =>
         !(
-          shot.projectId === projectId &&
+          shot.storyId === storyId &&
           shot.userId === userId &&
           shot.intentType === "director_note"
         )
@@ -790,7 +793,7 @@ export async function replaceDirectorShotsForProject(
     .delete(shots)
     .where(
       and(
-        eq(shots.projectId, projectId),
+        eq(shots.storyId, storyId),
         eq(shots.userId, userId),
         eq(shots.intentType, "director_note")
       )
@@ -801,6 +804,8 @@ export async function replaceDirectorShotsForProject(
   }
 }
 
+// 旧的按 projectId 取镜头——仅 server/archive 死代码仍在用，活跃路径已改用 getStoryShots。
+// 保留以兼容 archive 编译；不要在活跃代码新增调用（无 userId 过滤）。
 export async function getProjectShots(projectId: number) {
   const db = await getDb();
   if (!db) {
@@ -817,6 +822,27 @@ export async function getProjectShots(projectId: number) {
     .select()
     .from(shots)
     .where(eq(shots.projectId, projectId))
+    .orderBy(shots.sceneNo, shots.shotNo);
+}
+
+// 按 storyId 取某故事的镜头（故事为唯一单位，U3）。
+// 必须带 userId 过滤——防"猜 storyId 取他人镜头"（旧的 getProjectShots 无 userId 过滤）。
+export async function getStoryShots(storyId: number, userId: number) {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.shots
+      .filter(shot => shot.storyId === storyId && shot.userId === userId)
+      .sort((a, b) => {
+        if (a.sceneNo === b.sceneNo) {
+          return a.shotNo.localeCompare(b.shotNo);
+        }
+        return a.sceneNo.localeCompare(b.sceneNo);
+      });
+  }
+  return db
+    .select()
+    .from(shots)
+    .where(and(eq(shots.storyId, storyId), eq(shots.userId, userId)))
     .orderBy(shots.sceneNo, shots.shotNo);
 }
 
@@ -1098,27 +1124,8 @@ export async function getStoryById(
   return result[0] ?? null;
 }
 
-export async function getLatestStoryForProject(
-  projectId: number,
-  userId: number,
-): Promise<Story | null> {
-  const db = await getDb();
-  if (!db) {
-    return (
-      memoryState.stories
-        .filter(story => story.projectId === projectId && story.userId === userId)
-        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0] ??
-      null
-    );
-  }
-  const result = await db
-    .select()
-    .from(stories)
-    .where(and(eq(stories.projectId, projectId), eq(stories.userId, userId)))
-    .orderBy(desc(stories.updatedAt))
-    .limit(1);
-  return result[0] ?? null;
-}
+// getLatestStoryForProject 已移除（U6）：故事是唯一单位后，Creation 侧改为
+// 跟随传入的当前故事 storyId，不再"取项目里最新的故事"。如需按项目列故事用 listUserStories。
 
 export async function createStory(data: InsertStory): Promise<{ id: number }> {
   const db = await getDb();

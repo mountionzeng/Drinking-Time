@@ -19,10 +19,12 @@ function CreationWorkspaceInner({
   projectId,
   backendShots,
   isShotsLoading,
+  hasActiveStory,
 }: {
   projectId: number | null;
   backendShots: BackendShot[];
   isShotsLoading: boolean;
+  hasActiveStory: boolean;
 }) {
   const { focusShotNo, setFocusShotNo, projectImages, reassignImage } = useCreationAgent();
   const { promptPool, storyShots, updateShotFragmentRefs } = useStoryAgent();
@@ -80,7 +82,7 @@ function CreationWorkspaceInner({
       if (projectId === null) return;
       try {
         await updateShotMut.mutateAsync({ id: shotId, promptDraft });
-        await utils.shot.list.invalidate({ projectId });
+        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
         toast.success('镜头 prompt 已保存');
       } catch (error) {
         console.error('creation.updateShotPrompt failed', error);
@@ -101,7 +103,7 @@ function CreationWorkspaceInner({
       }
       try {
         await updateShotMut.mutateAsync({ id: targetShot.id, promptDraft });
-        await utils.shot.list.invalidate({ projectId });
+        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
         toast.success(`${shotNo} 提示词已更新`);
       } catch {
         toast.error('更新提示词失败');
@@ -112,19 +114,25 @@ function CreationWorkspaceInner({
 
   return (
     <div className="h-full flex flex-col relative">
-      {/* ShotTable 占满主区 */}
+      {/* ShotTable 占满主区；无当前故事时给一致空状态（U5/R5/AE3）——不串故事 */}
       <div className="flex-1 overflow-auto p-2">
-        <ShotTable
-          isActive={!isShotsLoading && tableShots.length > 0}
-          shots={tableShots}
-          projectId={projectId}
-          storyShots={storyShots}
-          onEditShotPrompt={handleEditShotPrompt}
-          focusShotNo={focusShotNo}
-          onShotClick={(shotNo) => setFocusShotNo(shotNo)}
-          promptPool={promptPool}
-          onUpdateFragmentRefs={updateShotFragmentRefs}
-        />
+        {!hasActiveStory ? (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            请先在故事页选择或打开一个故事，这里会显示该故事的镜头表。
+          </div>
+        ) : (
+          <ShotTable
+            isActive={!isShotsLoading && tableShots.length > 0}
+            shots={tableShots}
+            projectId={projectId}
+            storyShots={storyShots}
+            onEditShotPrompt={handleEditShotPrompt}
+            focusShotNo={focusShotNo}
+            onShotClick={(shotNo) => setFocusShotNo(shotNo)}
+            promptPool={promptPool}
+            onUpdateFragmentRefs={updateShotFragmentRefs}
+          />
+        )}
       </div>
 
       {/* 悬浮小酌对话框 */}
@@ -139,15 +147,20 @@ function CreationWorkspaceInner({
 
 export default function CreationPage() {
   // 与 Analysis 共用同一套项目数据：取当前项目 id，让 /creation 显示同一项目的镜头。
-  const { currentProjectId, shots, shotsQuery } = useProjectData();
+  const { currentProjectId, activeStoryId, setActiveStoryId, shots, shotsQuery } =
+    useProjectData();
 
   return (
-    <StoryAgentProvider projectId={currentProjectId}>
-      <CreationAgentProvider projectId={currentProjectId}>
+    <StoryAgentProvider
+      projectId={currentProjectId}
+      onActiveStoryChange={setActiveStoryId}
+    >
+      <CreationAgentProvider projectId={currentProjectId} storyId={activeStoryId}>
         <CreationWorkspaceInner
           projectId={currentProjectId}
           backendShots={shots}
           isShotsLoading={shotsQuery.isLoading}
+          hasActiveStory={activeStoryId !== null}
         />
       </CreationAgentProvider>
     </StoryAgentProvider>
