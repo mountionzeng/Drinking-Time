@@ -178,6 +178,27 @@ describe("mobile storyboard placement", () => {
     expect(scenes.map((scene) => scene.imageId)).toEqual([3, 4]);
   });
 
+  it("带 SH 前缀的字符串镜号（SH02）能绑回对应卡片，不掉进兜底跑到别的卡", () => {
+    // 真实数据：director/swipe 出图路径把 shotNo 存成 "SH02" 这种字符串，
+    // 而场景按纯数字配对——修复前会因 "SH02" !== 2 配不上，掉到第 1 张空卡。
+    const images: GeneratedImageItem[] = [
+      {
+        id: 49,
+        imageUrl: "https://example.com/49.jpg",
+        prompt: "卡 2 的画面",
+        shotNo: "SH02" as unknown as number,
+        storyId: 19,
+        status: "ready",
+      },
+    ];
+
+    const scenes = buildMobileStoryboardScenes(cards, images);
+
+    expect(scenes).toHaveLength(2);
+    expect(scenes[0].imageId).toBeUndefined();
+    expect(scenes[1].imageId).toBe(49);
+  });
+
   it("手动出图默认落到当前最后一个 beat", () => {
     expect(resolveCurrentMobileShotNo(cards)).toBe(2);
     expect(resolveCurrentMobileShotNo([])).toBe(1);

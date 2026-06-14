@@ -76,6 +76,21 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * 解析镜号到纯数字，兼容三种格式：数字 2、字符串 "2"、带前缀的 "SH02"/"sh2"。
+ * 不同出图路径存的 shotNo 格式不一致（generateForMobile 存 "2"、director/swipe 存 "SH02"），
+ * 而场景按纯数字 shotNo 配对——不统一就会导致生成图绑不回对应卡片（掉进兜底跑到别的卡）。
+ * 非数字镜号（如 studio 的 "ART-R1-1"）返回 undefined，保持「未归位」语义。
+ */
+export function parseShotNo(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") {
+    const match = /^(?:SH)?0*(\d+)$/i.exec(value.trim());
+    return match ? Number(match[1]) : undefined;
+  }
+  return undefined;
+}
+
 export function serializeMobileMessages(
   messages: MobileChatMessage[]
 ): SerializedMobileMessage[] {
@@ -196,7 +211,7 @@ export function normalizeMobileImages(rawImages: unknown): GeneratedImageItem[] 
         id,
         imageUrl,
         prompt,
-        shotNo: numberValue(raw.shotNo),
+        shotNo: parseShotNo(raw.shotNo),
         storyId,
         status,
         messageId: stringValue(raw.messageId),
@@ -258,8 +273,9 @@ export function buildMobileStoryboardScenes(
 
   for (const scene of scenes) {
     const matchedImages = readyImages.filter(
+      // parseShotNo：兜住任何漏网的字符串镜号（如 "SH02"），统一成数字再和场景配对。
       (image) =>
-        image.shotNo === scene.shotNo && !usedImageIds.has(image.id)
+        parseShotNo(image.shotNo) === scene.shotNo && !usedImageIds.has(image.id)
     );
     // 微信旧 WebView 不支持 Array.prototype.at，使用传统下标保持兼容。
     const matched = matchedImages[matchedImages.length - 1];
