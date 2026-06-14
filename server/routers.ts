@@ -46,12 +46,14 @@ import { nanoid } from "nanoid";
 import {
   replyFromStoryAgent,
   deriveMobileImagePrompt,
+  recognizeStoryIntent,
   synthesizeShotList,
   summarizeHistory,
   handleSelectionEdit,
   type SimilarStoryCardPayload,
   type ShotDraft,
   type ShotEntry,
+  type StoryIntentPayload,
   type VisualAnchorPayload,
 } from "./archive/storyAgent";
 import {
@@ -1216,6 +1218,34 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         const story = await getStoryById(input.id, ctx.user.id);
         if (!story) return null;
         return composeStoryWorkspace(story);
+      }),
+
+    /**
+     * 意图确认关：对当前对话跑 recognizeStoryIntent，返回识别到的意图
+     * （purpose/audience/platform/tone + evidence/confidence/missingQuestion），
+     * 供"生成剧本"前的确认 UI 展示。意图大脑一直在，这里把它接到客户端。
+     */
+    recognizeIntent: protectedProcedure
+      .input(
+        z.object({
+          history: z.array(
+            z.object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string(),
+            })
+          ),
+          existingIntent: z.record(z.string(), z.unknown()).nullish(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const turns = input.history.filter((t) => t.content.trim());
+        const message = turns.length ? turns[turns.length - 1].content : "";
+        return recognizeStoryIntent({
+          message,
+          history: turns.slice(0, -1),
+          existingIntent:
+            (input.existingIntent as StoryIntentPayload | null | undefined) ?? null,
+        });
       }),
 
     /** Create or update a story */
