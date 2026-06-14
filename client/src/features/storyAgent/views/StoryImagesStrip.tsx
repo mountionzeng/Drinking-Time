@@ -1,5 +1,6 @@
 import { useStoryAgent } from '../StoryAgentContext';
 import { trpc } from '@/lib/trpc';
+import { parseShotNo } from '@/features/mobileChat/types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 
 export function useStoryGeneratedImages(): GeneratedImageItem[] {
@@ -35,7 +36,7 @@ export function useStoryGeneratedImages(): GeneratedImageItem[] {
         id,
         imageUrl,
         prompt: typeof im.prompt === 'string' ? im.prompt : '',
-        shotNo: typeof im.shotNo === 'number' ? im.shotNo : undefined,
+        shotNo: parseShotNo(im.shotNo),
         storyId: imageStoryId,
         status: 'ready',
       },
