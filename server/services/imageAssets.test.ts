@@ -145,4 +145,41 @@ describe("projectImageAssets", () => {
       assignment: "unassigned",
     });
   });
+
+  // U2/AE5：单图循环——出第1张划走→第2张划走→第3张收下。被划走的进历史不消失，
+  // 收下那张成为唯一主图。这是「划走再来、直到满意」依赖的数据层契约。
+  it("Covers AE5：连续划走两张、收下第三张 → 前两张 rejected 留历史，第三张唯一主图", () => {
+    const assets = projectImageAssets({
+      images: [
+        image(1, "SH02", { isCurrent: false }),
+        image(2, "SH02", { isCurrent: false }),
+        image(3, "SH02", { isCurrent: true }),
+      ],
+      signals: [
+        signal(1, 1, "swipe_left", 1), // 第1张划走
+        signal(2, 2, "swipe_left", 2), // 第2张划走
+        signal(3, 3, "swipe_right", 3), // 第3张收下
+      ],
+      validShotNos: ["SH02"],
+    });
+
+    // 被划走的两张：rejected，仍在投影里（进历史、不直接消失）
+    expect(assets.find(asset => asset.id === 1)).toMatchObject({
+      status: "rejected",
+      isPrimary: false,
+    });
+    expect(assets.find(asset => asset.id === 2)).toMatchObject({
+      status: "rejected",
+      isPrimary: false,
+    });
+    // 收下那张：唯一主图
+    expect(assets.find(asset => asset.id === 3)).toMatchObject({
+      status: "selected",
+      isPrimary: true,
+      selectionSource: "explicit",
+    });
+    expect(assets.filter(asset => asset.isPrimary)).toHaveLength(1);
+    // 历史完整：三张都还在
+    expect(assets.filter(asset => asset.canonicalShotNo === "SH02")).toHaveLength(3);
+  });
 });

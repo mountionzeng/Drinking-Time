@@ -32,6 +32,9 @@ function CreationWorkspaceInner({
     projectAssets,
     selectImage,
     reassignImage,
+    generateNextImage,
+    generatingShotNo,
+    generateError,
   } = useCreationAgent();
   const {
     cards,
@@ -156,6 +159,9 @@ function CreationWorkspaceInner({
         onFocusShot={setFocusShotNo}
         onSelectImage={selectImage}
         onReassignImage={reassignImage}
+        onGenerateNext={generateNextImage}
+        generatingShotNo={generatingShotNo}
+        generateError={generateError}
       />
 
       {/* ShotTable 占满主区；无当前故事时给一致空状态（U5/R5/AE3）——不串故事 */}

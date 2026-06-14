@@ -75,6 +75,31 @@ export const EMPTY_ART_RECIPE_DNA: ArtRecipeDNA = {
   negative: [],
 };
 
+/**
+ * 零点击轻量默认配方：未锁定故事视觉配方时也让单张图够漂亮、风格一致。
+ * 取中性的电影感写实基线，不抢内容、不绑定任何具名 IP；锁定配方存在时永远优先于它。
+ */
+export const DEFAULT_ART_RECIPE_DNA: ArtRecipeDNA = {
+  style: ["cinematic", "photographic realism", "soft film grain"],
+  palette: ["natural tones", "warm neutrals"],
+  light: ["soft natural light", "gentle directional key"],
+  composition: ["balanced framing", "clear subject focus"],
+  material: ["true-to-life texture"],
+  negative: ["oversaturated", "harsh on-camera flash", "cluttered background", "distorted anatomy"],
+};
+
+/** 返回一份默认配方副本（避免调用方误改共享常量）。 */
+export function defaultArtRecipe(): ArtRecipeDNA {
+  return {
+    style: [...DEFAULT_ART_RECIPE_DNA.style],
+    palette: [...DEFAULT_ART_RECIPE_DNA.palette],
+    light: [...DEFAULT_ART_RECIPE_DNA.light],
+    composition: [...DEFAULT_ART_RECIPE_DNA.composition],
+    material: [...DEFAULT_ART_RECIPE_DNA.material],
+    negative: [...DEFAULT_ART_RECIPE_DNA.negative],
+  };
+}
+
 export function emptyStoryArtDirection(): StoryArtDirection {
   return {
     phase: "empty",
