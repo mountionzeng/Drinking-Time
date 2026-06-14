@@ -5,10 +5,17 @@
  * （服务端按最近对话现编 prompt，draft → final）+ recordSignal（右划收下 / 左划再来）。
  * 出一张 → 满意「收下」/ 不满意「再来一张」→ 直到满意。故事已在故事页对齐，无需手动选。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Check, Link2, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { trpc } from '@/lib/trpc';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 
@@ -20,7 +27,7 @@ type DrawnImage = {
 };
 
 export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
-  const { activeStoryId, messages, addStoryImage } = useStoryAgent();
+  const { activeStoryId, messages, cards, addStoryImage } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
 
@@ -28,6 +35,18 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+
+  // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，默认绑当前(最后)一张卡。
+  // buildMobileStoryboardScenes 按 scene.shotNo === image.shotNo 精确归位，不再兜底填空卡。
+  const cardOptions = useMemo(
+    () => cards.map((card, index) => ({ shotNo: index + 1, title: card.title || `卡片 ${index + 1}` })),
+    [cards],
+  );
+  const [targetShotNo, setTargetShotNo] = useState<number>(() => Math.max(1, cards.length));
+  // 卡片数量变化时把目标夹在合法范围内
+  useEffect(() => {
+    setTargetShotNo((prev) => Math.min(Math.max(1, prev), Math.max(1, cards.length)));
+  }, [cards.length]);
 
   const recentHistory = useCallback(
     () =>
@@ -57,6 +76,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         }
         const result = await generateMut.mutateAsync({
           storyId: activeStoryId,
+          shotNo: targetShotNo,
           history: recentHistory(),
           mode: 'draft',
         });
@@ -76,7 +96,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, recentHistory, generateMut, signalMut],
+    [activeStoryId, targetShotNo, recentHistory, generateMut, signalMut],
   );
 
   // 进面板即自动出第一张
@@ -97,19 +117,21 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         metadata: { source: 'draw-this-moment' },
       });
       // 写进故事画面（body.mobileImages）→ 故事版 / Story Cards 即时可见、刷新不丢。
+      // 带上 shotNo=目标卡片序号，buildMobileStoryboardScenes 精确归位到那张卡。
       addStoryImage({
         id: image.imageId,
         imageUrl: image.imageUrl,
         prompt: image.prompt,
+        shotNo: targetShotNo,
         storyId: activeStoryId,
         status: 'ready',
       });
-      toast.success('已收下，成为这个故事的画面');
+      toast.success(`已收下，绑到镜头 ${targetShotNo}`);
       onDone?.();
     } catch {
       toast.error('收下失败，稍后再试');
     }
-  }, [image, activeStoryId, signalMut, onDone]);
+  }, [image, activeStoryId, targetShotNo, signalMut, addStoryImage, onDone]);
 
   // 出正式版：draft → final（Midjourney 精画），关联草稿 parentImageId。
   const promoteToFinal = useCallback(async () => {
@@ -119,6 +141,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     try {
       const result = await generateMut.mutateAsync({
         storyId: activeStoryId,
+        shotNo: targetShotNo,
         history: recentHistory(),
         mode: 'final',
         draftImageId: image.imageId,
@@ -138,7 +161,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     } finally {
       setIsGenerating(false);
     }
-  }, [image, activeStoryId, recentHistory, generateMut]);
+  }, [image, activeStoryId, targetShotNo, recentHistory, generateMut]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -181,7 +204,28 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* 绑到哪张卡片（镜头）：收下后图明确归位到这张卡 */}
+        <div className="flex items-center gap-1.5">
+          <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+          <Select
+            value={String(targetShotNo)}
+            onValueChange={(value) => setTargetShotNo(Number(value))}
+            disabled={cardOptions.length === 0}
+          >
+            <SelectTrigger size="sm" className="h-8 w-[180px] text-xs">
+              <SelectValue placeholder="绑到镜头" />
+            </SelectTrigger>
+            <SelectContent>
+              {cardOptions.map((opt) => (
+                <SelectItem key={opt.shotNo} value={String(opt.shotNo)}>
+                  镜头 {opt.shotNo} · {opt.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="ml-auto" />
         <Button
           variant="outline"
           className="gap-1.5"
