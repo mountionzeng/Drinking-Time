@@ -104,6 +104,12 @@ interface CreationAgentContextValue {
   goal: CreationGoal;
   setGoal: (goal: CreationGoal) => void;
   projectAssets: ImageAsset[];
+  /** 单图循环（U2）：正在为哪个镜头出图（显示生成中骨架）；null 表示没有进行中的出图 */
+  generatingShotNo: string | null;
+  /** 单图循环失败信息，按镜头记，供 inline 错误+重试展示 */
+  generateError: { shotNo: string; message: string } | null;
+  /** 画出来 / 再来一张：确定性单图出图。rejectImageId 存在=先淘汰当前再出下一张 */
+  generateNextImage: (args: { shotNo: string; prompt: string; rejectImageId?: number }) => Promise<void>;
   /** 最近一次小酌建议的提示词修改（用户需确认/可撤销） */
   pendingPromptUpdate: { shotNo: string; promptDraft: string } | null;
   clearPendingPromptUpdate: () => void;
@@ -136,6 +142,8 @@ export function CreationAgentProvider({
   const [isGenerating, setIsGenerating] = useState(false);
   const [projectAssets, setProjectAssets] = useState<ImageAsset[]>([]);
   const [pendingPromptUpdate, setPendingPromptUpdate] = useState<{ shotNo: string; promptDraft: string } | null>(null);
+  const [generatingShotNo, setGeneratingShotNo] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<{ shotNo: string; message: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // tRPC hooks
@@ -143,6 +151,7 @@ export function CreationAgentProvider({
   const chatMut = trpc.creationAgent.chat.useMutation();
   const selectImageMut = trpc.creationAgent.selectImage.useMutation();
   const reassignMut = trpc.creationAgent.reassignImage.useMutation();
+  const generateNextMut = trpc.creationAgent.generateNextImage.useMutation();
 
   // 图片按当前故事独立（故事为唯一单位）：按 storyId 取，故事间不共享图片。
   const assetsQuery = trpc.creationAgent.getProjectAssets.useQuery(
@@ -275,7 +284,12 @@ export function CreationAgentProvider({
     try {
       const result = await selectImageMut.mutateAsync({ projectId, imageId });
       if (!result.success) {
-        toast.error('这张图片不属于当前项目');
+        // 刚出的图文件可能还没落地（availability missing）→ 收下会失败，提示稍后重试而非误判归属
+        toast.error(
+          result.reason === 'image_not_found'
+            ? '这张图还在生成或暂不可用，稍后再收下'
+            : '这张图片不属于当前项目',
+        );
         return;
       }
       await assetsQuery.refetch();
@@ -284,6 +298,35 @@ export function CreationAgentProvider({
       toast.error('设置主图失败');
     }
   }, [assetsQuery, projectId, selectImageMut]);
+
+  // 单图循环（U2）：画出来 / 再来一张。rejectImageId 存在=先淘汰当前再出下一张。
+  // 失败不清空：projectAssets 不动，只记 inline 错误；被划走的图（若已 reject）刷新后进历史。
+  const generateNextImageFn = useCallback(async (args: { shotNo: string; prompt: string; rejectImageId?: number }) => {
+    if (projectId == null || storyId == null) return;
+    setGenerateError(null);
+    setGeneratingShotNo(args.shotNo);
+    try {
+      const result = await generateNextMut.mutateAsync({
+        projectId,
+        storyId,
+        shotNo: args.shotNo,
+        prompt: args.prompt,
+        rejectImageId: args.rejectImageId,
+        imageProvider: imageProviderForRequest(imageProvider),
+      });
+      if (result.status === 'error') {
+        setGenerateError({ shotNo: args.shotNo, message: result.message || '出图服务暂时不可用，稍后再试' });
+        // 「再来一张」失败时被拒图已记 swipe_left → 刷新让它进历史（不回显被拒图）
+        if (args.rejectImageId != null) await assetsQuery.refetch();
+        return;
+      }
+      await assetsQuery.refetch();
+    } catch {
+      setGenerateError({ shotNo: args.shotNo, message: '出图服务暂时不可用，稍后再试' });
+    } finally {
+      setGeneratingShotNo(null);
+    }
+  }, [projectId, storyId, imageProvider, generateNextMut, assetsQuery]);
 
   // Reassign image
   const reassignImageFn = useCallback(async (imageId: number, newShotNo: string) => {
@@ -331,6 +374,9 @@ export function CreationAgentProvider({
     goal,
     setGoal,
     projectAssets,
+    generatingShotNo,
+    generateError,
+    generateNextImage: generateNextImageFn,
     pendingPromptUpdate,
     clearPendingPromptUpdate,
     sendMessage,
@@ -341,6 +387,7 @@ export function CreationAgentProvider({
   }), [
     storyId,
     messages, focusShotNo, isReplying, isGenerating, imageProvider, goal, projectAssets,
+    generatingShotNo, generateError, generateNextImageFn,
     pendingPromptUpdate, clearPendingPromptUpdate,
     sendMessage, selectImage, reassignImageFn, refreshProjectAssets, resetConversation,
   ]);
