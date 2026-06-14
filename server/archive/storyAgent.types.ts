@@ -176,8 +176,8 @@ export type StoryIntentPurpose =
   | "portfolio"
   | "gift"
   | "relationship_record"
-  | "brand_promo"
-  | "pitch"
+  | "fiction"        // 讲别人的故事 / 虚构叙事（编故事，不是挖真实回忆——会改变小酌聊法）
+  | "product_intro"  // 介绍自己的产品（收拢原 brand_promo + pitch；投资人/客户由 audience 区分）
   | "creative_expression"
   | "exploration";
 
