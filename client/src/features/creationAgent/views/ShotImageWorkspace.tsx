@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  Wand2,
 } from 'lucide-react';
 import type { ImageAsset } from '@shared/imageAsset';
 import { cn } from '@/lib/utils';
@@ -214,33 +215,49 @@ export default function ShotImageWorkspace({
 
   return (
     <section className="shrink-0 border-b bg-background" aria-label="镜头图片工作区">
-      <div className="flex h-10 items-center gap-1 overflow-x-auto border-b px-3">
-        <ImageIcon className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+      {/* 连贯主视图（U3）：关键帧胶片条，按镜头顺序常驻，一眼看上下镜头判断连贯性；点格切焦点驱动循环 */}
+      <div className="flex items-center gap-2 overflow-x-auto border-b px-3 py-2" aria-label="镜头连贯序列">
+        <ImageIcon className="mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
         {shots.map(shot => {
           const shotGroup = model.shotGroups.get(shot.shotNo);
+          const keyframe = shotGroup?.primary ?? null;
+          const hasPending = shotGroup?.assets.some(a => a.status === 'pending' && !a.isPrimary) ?? false;
+          const active = resolvedFocus === shot.shotNo;
           return (
             <button
               key={shot.shotNo}
               type="button"
               onClick={() => onFocusShot(shot.shotNo)}
+              title={shot.promptDraft || shot.sourceSummary || shot.shotNo}
               className={cn(
-                'flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs font-mono transition-colors',
-                resolvedFocus === shot.shotNo
-                  ? 'border-foreground bg-foreground text-background'
-                  : 'border-border bg-background hover:bg-muted',
+                'group relative h-12 w-[72px] shrink-0 overflow-hidden rounded-md border-2 bg-muted/40 transition-colors',
+                active ? 'border-foreground' : 'border-border hover:border-foreground/50',
               )}
             >
-              {shot.shotNo}
-              {shotGroup?.primary ? (
-                <Check className="h-3 w-3" />
-              ) : shotGroup?.assets.length ? (
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {keyframe ? (
+                <AssetImage asset={keyframe} />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <ImageIcon className="h-4 w-4 text-muted-foreground/40" />
+                </div>
+              )}
+              {/* 镜号常驻底标 */}
+              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 text-center font-mono text-[9px] leading-4 text-white">
+                {shot.shotNo}
+              </span>
+              {/* 状态角标：已收下关键帧 / 待确认 */}
+              {keyframe ? (
+                <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-500 p-0.5">
+                  <Check className="h-2.5 w-2.5 text-white" />
+                </span>
+              ) : hasPending ? (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-amber-500" />
               ) : null}
             </button>
           );
         })}
         {model.unassigned.length > 0 ? (
-          <span className="ml-auto shrink-0 text-[10px] text-amber-700 dark:text-amber-300">
+          <span className="ml-auto shrink-0 self-start text-[10px] text-amber-700 dark:text-amber-300">
             {model.unassigned.length} 张待归属
           </span>
         ) : null}
@@ -333,6 +350,23 @@ export default function ShotImageWorkspace({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>设为镜头主图</TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      {/* 改这张（R6/F2）：在已收下的关键帧上整图微调，走小酌对话的 reviseImage 路径 */}
+                      {previewAsset.isPrimary && previewAsset.availability !== 'missing' ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 gap-1"
+                              onClick={() => window.dispatchEvent(new Event('dt:open-creation-chat'))}
+                            >
+                              <Wand2 className="h-4 w-4" />
+                              改这张
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>对这张整图微调（如「改暖一点」）</TooltipContent>
                         </Tooltip>
                       ) : null}
                       {loopEnabled ? (
