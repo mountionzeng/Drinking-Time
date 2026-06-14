@@ -37,7 +37,8 @@ vi.mock("./imageAssets", () => ({
   materializeImageInput: mocks.materializeImageInput,
 }));
 
-import { replyFromCreationAgent } from "./creationAgent";
+import { replyFromCreationAgent, generateNextImage } from "./creationAgent";
+import { renderViaGate } from "./renderGate";
 
 function asset(overrides: Partial<ImageAsset> = {}): ImageAsset {
   return {
@@ -212,5 +213,162 @@ describe("replyFromCreationAgent image actions", () => {
       }),
     );
     expect(result.assetsChanged).toBe(true);
+  });
+});
+
+describe("generateNextImage（确定性单图出图，U1）", () => {
+  const recipe = {
+    style: ["watercolor"],
+    palette: [],
+    light: [],
+    composition: [],
+    material: [],
+    negative: [],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.createGeneratedImage.mockResolvedValue({
+      id: 21,
+      imageUrl: "/api/images/21.png",
+    });
+  });
+
+  it("Happy path：无连续性资产 → 走 generateImage，落一张待确认图，返回 ok", async () => {
+    mocks.generateImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+
+    const result = await generateNextImage({
+      prompt: "a quiet morning kitchen",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      artDirection: recipe,
+      assets: [],
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.generatedImage.imageId).toBe(21);
+    expect(result.generatedImage.shotNo).toBe("SH01");
+    // 配方进入出图网关上下文（实际注入由 renderGate 负责，此处只验证传递）
+    expect(renderViaGate).toHaveBeenCalledWith(
+      expect.objectContaining({ artDirection: recipe, shotNo: "SH01" }),
+      expect.any(Function),
+    );
+    // 落库为待确认主图（isCurrent），归属正确
+    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 7,
+        storyId: 8,
+        userId: 9,
+        shotNo: "SH01",
+        isCurrent: true,
+        generationType: "generate",
+      }),
+    );
+    expect(mocks.editImage).not.toHaveBeenCalled();
+  });
+
+  it("Edge case：焦点镜已有主图 → 用 editImage 做连续性参考", async () => {
+    mocks.editImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+
+    const result = await generateNextImage({
+      prompt: "another take",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [asset()],
+    });
+
+    expect(result.status).toBe("ok");
+    expect(mocks.materializeImageInput).toHaveBeenCalledWith("/api/images/12.png");
+    expect(mocks.editImage).toHaveBeenCalled();
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it("Error path：出图返回 error → 返回 error，不落库", async () => {
+    mocks.generateImage.mockResolvedValue({
+      status: "error",
+      message: "no model available",
+    });
+
+    const result = await generateNextImage({
+      prompt: "x",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [],
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toContain("no model available");
+    }
+    expect(mocks.createGeneratedImage).not.toHaveBeenCalled();
+  });
+
+  it("Error path：出图层抛异常 → 捕获为 error，不抛、不落库", async () => {
+    mocks.generateImage.mockRejectedValue(new Error("network down"));
+
+    const result = await generateNextImage({
+      prompt: "x",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [],
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toContain("network down");
+    }
+    expect(mocks.createGeneratedImage).not.toHaveBeenCalled();
+  });
+
+  it("Integration：连调两次产出两张不同 pending（循环可反复触发，不依赖 LLM）", async () => {
+    mocks.generateImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/x.png",
+      imageKey: "generated/x.png",
+    });
+    mocks.createGeneratedImage
+      .mockResolvedValueOnce({ id: 31, imageUrl: "/api/images/31.png" })
+      .mockResolvedValueOnce({ id: 32, imageUrl: "/api/images/32.png" });
+
+    const first = await generateNextImage({
+      prompt: "take one",
+      shotNo: "SH02",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [],
+    });
+    const second = await generateNextImage({
+      prompt: "take two",
+      shotNo: "SH02",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [],
+    });
+
+    expect(first.status).toBe("ok");
+    expect(second.status).toBe("ok");
+    if (first.status !== "ok" || second.status !== "ok") return;
+    expect(first.generatedImage.imageId).toBe(31);
+    expect(second.generatedImage.imageId).toBe(32);
+    expect(mocks.generateImage).toHaveBeenCalledTimes(2);
   });
 });

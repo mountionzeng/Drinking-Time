@@ -56,6 +56,7 @@ import {
 } from "./archive/storyAgent";
 import {
   replyFromCreationAgent,
+  generateNextImage,
   type ShotContext,
 } from "./services/creationAgent";
 import { CREATION_GOALS, goalGuidance, detectGoalFromText } from "./services/creationGoal";
@@ -77,6 +78,7 @@ import {
 import { generateArtDirectionCandidates } from "./services/artDirection";
 import {
   normalizeStoryArtDirection,
+  defaultArtRecipe,
   type ArtRecipeDNA,
 } from "../shared/artDirection";
 import {
@@ -1963,6 +1965,66 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           },
         });
         return { success: true as const };
+      }),
+
+    /**
+     * 确定性单图出图：「画出来 / 再来一张」循环的发动机，不经 LLM。
+     * rejectImageId 存在时先对该图记 swipe_left（淘汰、进历史），再为焦点镜头出下一张。
+     * 配方 = 故事锁定配方，未锁定则零点击默认；失败只返回 error，不动已有资产。
+     */
+    generateNextImage: protectedProcedure
+      .input(
+        z.object({
+          projectId: z.number(),
+          storyId: z.number(),
+          shotNo: z.string(),
+          prompt: z.string().min(1),
+          rejectImageId: z.number().optional(),
+          imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [story, assets] = await Promise.all([
+          getStoryById(input.storyId, ctx.user.id),
+          getStoryImageAssets(input.storyId, ctx.user.id),
+        ]);
+        if (!story) {
+          return { status: "error" as const, message: "故事不存在或无权访问" };
+        }
+
+        // 「再来一张」：先淘汰当前这张（记 swipe_left），校验该图属于本人本故事。
+        if (input.rejectImageId != null) {
+          const rejected = assets.find(
+            candidate => candidate.id === input.rejectImageId,
+          );
+          if (rejected && rejected.kind === "story_frame") {
+            await createImageSignal({
+              userId: ctx.user.id,
+              storyId: rejected.storyId ?? input.storyId,
+              imageId: rejected.id,
+              action: "swipe_left",
+              metadata: {
+                source: "creation",
+                projectId: input.projectId,
+                shotNo: rejected.canonicalShotNo,
+              },
+            });
+          }
+        }
+
+        const result = await generateNextImage({
+          prompt: input.prompt,
+          shotNo: input.shotNo,
+          projectId: input.projectId,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageProvider: input.imageProvider,
+          // 锁定配方优先，未锁定用零点击默认，保证单张也够漂亮、风格一致。
+          artDirection: storyArtRecipe(story) ?? defaultArtRecipe(),
+          referenceImages: storyArtReferenceImages(story),
+          assets,
+        });
+        return result;
       }),
 
     /** Reassign an image to a different shot */

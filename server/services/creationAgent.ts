@@ -316,6 +316,122 @@ function visionSummary(
     .join("\n");
 }
 
+// ── Deterministic single-image generation (no LLM tool call) ──
+
+export type GenerateNextImageInput = {
+  /** 出图提示词（焦点镜头的 promptDraft 或由镜头内容拼成）。 */
+  prompt: string;
+  shotNo: string;
+  projectId: number;
+  storyId?: number | null;
+  userId: number;
+  /** 故事锁定配方或 defaultArtRecipe()，由路由层组合后传入。 */
+  artDirection?: ArtRecipeDNA;
+  imageProvider?: ImageProvider;
+  referenceImages?: string[];
+  /** 当前镜头已有资产，用于风格连续性参考。 */
+  assets?: ImageAsset[];
+};
+
+export type GenerateNextImageResult =
+  | {
+      status: "ok";
+      generatedImage: {
+        imageUrl: string;
+        imageKey: string;
+        shotNo: string;
+        imageId: number;
+      };
+    }
+  | { status: "error"; message: string };
+
+/**
+ * 确定性单图出图：供「画出来 / 再来一张」循环反复调用，**不经 LLM tool call**。
+ * 与 chat 内的 generateImage 工具调用共用同一套 renderViaGate + 落库逻辑（见下方 chat 块复用）。
+ * 出图失败时只返回 error，不抛、不动已有资产——失败不清空由调用方据此处理。
+ */
+export async function generateNextImage(
+  input: GenerateNextImageInput,
+): Promise<GenerateNextImageResult> {
+  const targetShotNo = canonicalizeShotNo(input.shotNo) ?? input.shotNo;
+  const assets = input.assets ?? [];
+  // 连续性：参考该镜现有（非淘汰）主图/待确认图，保持风格一致；没有则纯生成（循环里出新变体）。
+  const continuityAsset = findImageAsset(assets, targetShotNo);
+  const continuitySource =
+    continuityAsset && continuityAsset.availability !== "missing"
+      ? await materializeImageInput(continuityAsset.imageUrl)
+      : null;
+  const referenceImages = Array.from(
+    new Set(
+      [continuityAsset?.imageUrl, ...(input.referenceImages ?? [])].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+
+  let genResult: Awaited<ReturnType<typeof generateImage>>;
+  try {
+    genResult = await renderViaGate(
+      {
+        prompt: input.prompt,
+        shotNo: targetShotNo,
+        projectId: input.projectId,
+        artDirection: input.artDirection,
+        referenceImages,
+      },
+      prompt => {
+        if (continuitySource) {
+          return editImage(continuitySource, prompt, {
+            provider: input.imageProvider,
+          });
+        }
+        const midjourneyReferencePrefix =
+          input.imageProvider === "midjourney"
+            ? input.referenceImages?.slice(0, 2).join(" ")
+            : "";
+        return generateImage(
+          [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
+          { provider: input.imageProvider },
+        );
+      },
+    );
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "出图服务暂时不可用",
+    };
+  }
+
+  if (genResult.status === "ok" && genResult.imageUrl) {
+    const dbImage = await createGeneratedImage({
+      projectId: input.projectId,
+      storyId: input.storyId ?? null,
+      userId: input.userId,
+      shotNo: targetShotNo,
+      imageKey: genResult.imageKey ?? null,
+      imageUrl: genResult.imageUrl,
+      prompt: input.prompt,
+      parentImageId: continuityAsset?.id ?? null,
+      isCurrent: true,
+      generationType: "generate",
+      maskKey: null,
+    });
+    return {
+      status: "ok",
+      generatedImage: {
+        imageUrl: genResult.imageUrl,
+        imageKey: genResult.imageKey ?? "",
+        shotNo: targetShotNo,
+        imageId: dbImage.id,
+      },
+    };
+  }
+  return {
+    status: "error",
+    message: genResult.message ?? "出图服务没有返回图片",
+  };
+}
+
 // ── Main function ──
 
 export async function replyFromCreationAgent(
@@ -382,68 +498,25 @@ export async function replyFromCreationAgent(
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
     const targetShotNo =
-      canonicalizeShotNo(generateCall.shotNo) ?? focusShotNo;
-    const continuityAsset = findImageAsset(assets, targetShotNo);
-    const continuitySource =
-      continuityAsset && continuityAsset.availability !== "missing"
-        ? await materializeImageInput(continuityAsset.imageUrl)
-        : null;
-    const referenceImages = Array.from(
-      new Set(
-        [
-          continuityAsset?.imageUrl,
-          ...(input.referenceImages ?? []),
-        ].filter((value): value is string => Boolean(value)),
-      ),
-    );
-    const genResult = await renderViaGate(
-      {
-        prompt: generateCall.prompt,
-        shotNo: targetShotNo ?? generateCall.shotNo,
-        projectId: input.projectId,
-        artDirection: input.artDirection,
-        referenceImages,
-      },
-      prompt => {
-        if (continuitySource) {
-          return editImage(continuitySource, prompt, {
-            provider: input.imageProvider,
-          });
-        }
-        const midjourneyReferencePrefix =
-          input.imageProvider === "midjourney"
-            ? input.referenceImages?.slice(0, 2).join(" ")
-            : "";
-        return generateImage(
-          [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
-          { provider: input.imageProvider },
-        );
-      },
-    );
-    if (genResult.status === "ok" && genResult.imageUrl) {
-      const dbImage = await createGeneratedImage({
-        projectId: input.projectId,
-        storyId: input.storyId ?? null,
-        userId: input.userId,
-        shotNo: targetShotNo,
-        imageKey: genResult.imageKey ?? null,
-        imageUrl: genResult.imageUrl,
-        prompt: generateCall.prompt,
-        parentImageId: continuityAsset?.id ?? null,
-        isCurrent: true,
-        generationType: "generate",
-        maskKey: null,
-      });
-      generatedImage = {
-        imageUrl: genResult.imageUrl,
-        imageKey: genResult.imageKey ?? "",
-        shotNo: targetShotNo ?? generateCall.shotNo,
-        imageId: dbImage.id,
-      };
+      canonicalizeShotNo(generateCall.shotNo) ?? focusShotNo ?? generateCall.shotNo;
+    // 与确定性单图路径共用底层（renderViaGate + 落库），LLM 工具调用只多一句回复包装。
+    const genResult = await generateNextImage({
+      prompt: generateCall.prompt,
+      shotNo: targetShotNo,
+      projectId: input.projectId,
+      storyId: input.storyId,
+      userId: input.userId,
+      artDirection: input.artDirection,
+      imageProvider: input.imageProvider,
+      referenceImages: input.referenceImages,
+      assets,
+    });
+    if (genResult.status === "ok") {
+      generatedImage = genResult.generatedImage;
       assetsChanged = true;
       reply = appendReply(reply, "我先做了一版，放在待确认里。你收下之后，它才会成为这个镜头的主图。");
-    } else if (genResult.status === "error") {
-      reply = appendReply(reply, `这次没有生成成功：${genResult.message ?? "出图服务没有返回图片"}`);
+    } else {
+      reply = appendReply(reply, `这次没有生成成功：${genResult.message}`);
     }
   }
 
