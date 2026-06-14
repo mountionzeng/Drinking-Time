@@ -27,6 +27,7 @@ import {
   type GeneratedImageItem,
 } from '@/features/mobileChat/types';
 import StoryArtDirectionStudio from './StoryArtDirectionStudio';
+import StoryIntentGate, { type StoryIntent } from './StoryIntentGate';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: '先开瓶啤酒，跟小酌聊聊一句让你记住的话',
@@ -369,8 +370,19 @@ export default function StoryCardsBoard() {
     isGeneratingScript,
     latestScript,
     visualCanvasItems,
+    messages,
   } = useStoryAgent();
   const { element } = useNayin();
+  // 意图确认关：出剧本前识别 + 确认的意图（task 4 把它接进 generateScript）。
+  const [confirmedIntent, setConfirmedIntent] = useState<StoryIntent | null>(null);
+  const intentHistory = useMemo(
+    () =>
+      messages
+        .filter((m) => m.content?.trim())
+        .slice(-16)
+        .map((m) => ({ role: m.role, content: m.content })),
+    [messages],
+  );
   const lastOrderRef = useRef<string>('');
   const generatedImages = useStoryGeneratedImages();
   const generatedScenes = useMemo(
@@ -452,6 +464,13 @@ export default function StoryCardsBoard() {
               className="border-t pt-2.5 mt-2 flex flex-col gap-2"
               style={{ borderColor: 'var(--panel-border)' }}
             >
+              {/* 意图确认关：出剧本前先确认这片子给谁看、为什么拍 */}
+              <StoryIntentGate
+                history={intentHistory}
+                confirmedIntent={confirmedIntent}
+                onConfirm={setConfirmedIntent}
+                onClear={() => setConfirmedIntent(null)}
+              />
               <button
                 type="button"
                 onClick={generateScript}
