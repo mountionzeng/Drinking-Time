@@ -82,7 +82,7 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
   const projectImages = imagesQuery.data ?? [];
 
   // Map sceneNo (S01) → shotNo (SH01) → image URL
-  const sceneImageMap = new Map<string, { imageUrl: string; shotNo: string }>();
+  const sceneImageMap = new Map<string, { imageUrl: string; shotNo: string; prompt: string }>();
   if (latestScript) {
     for (const scene of latestScript.scenes) {
       // Derive shotNo from sceneNo: S01 → SH01
@@ -95,7 +95,7 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
           image.availability !== 'missing',
       );
       if (img) {
-        sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo });
+        sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo, prompt: img.prompt ?? '' });
       }
     }
   }
@@ -282,6 +282,30 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
                               继承自对话照片 · 待生成
                             </span>
                           )}
+                        </div>
+                      );
+                    })()}
+                    {/* 提示词 —— 该镜关键帧的出图提示词（视频就绪材料的一部分）。 */}
+                    {(() => {
+                      const promptText = sceneImageMap.get(s.sceneNo)?.prompt?.trim();
+                      if (!promptText) return null;
+                      return (
+                        <div
+                          className="mb-1.5 rounded border border-dashed px-2 py-1.5"
+                          style={{
+                            borderColor: 'var(--panel-border)',
+                            background: 'var(--nayin-glow)',
+                          }}
+                        >
+                          <div className="mb-0.5 text-[8.5px] font-mono uppercase tracking-wider text-muted-foreground">
+                            提示词
+                          </div>
+                          <p
+                            className="text-[10px] leading-relaxed text-foreground/80 break-words"
+                            data-selection-source={`script-scene:${i}`}
+                          >
+                            {promptText}
+                          </p>
                         </div>
                       );
                     })()}
