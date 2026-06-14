@@ -20,7 +20,7 @@ type DrawnImage = {
 };
 
 export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
-  const { activeStoryId, messages } = useStoryAgent();
+  const { activeStoryId, messages, addStoryImage } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
 
@@ -95,6 +95,14 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         imageId: image.imageId,
         action: 'swipe_right',
         metadata: { source: 'draw-this-moment' },
+      });
+      // 写进故事画面（body.mobileImages）→ 故事版 / Story Cards 即时可见、刷新不丢。
+      addStoryImage({
+        id: image.imageId,
+        imageUrl: image.imageUrl,
+        prompt: image.prompt,
+        storyId: activeStoryId,
+        status: 'ready',
       });
       toast.success('已收下，成为这个故事的画面');
       onDone?.();

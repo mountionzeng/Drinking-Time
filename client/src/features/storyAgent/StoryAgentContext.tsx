@@ -28,6 +28,7 @@ import {
   type SelectionState,
   type VisualCanvasItem,
 } from './types';
+import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { buildPromptPool } from './promptPool';
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from './storyCardSimilarity';
@@ -129,6 +130,10 @@ interface StoryAgentContextValue {
   /** Visual anchor canvas / Art Agent */
   visualCanvasItems: VisualCanvasItem[];
   visualPreference: string;
+  /** 「把这一刻画出来」收下的故事画面（故事版 / Story Cards 读这个）。 */
+  storyImages: GeneratedImageItem[];
+  /** 收下一张故事画面：去重追加并持久化到 body.mobileImages。 */
+  addStoryImage: (image: GeneratedImageItem) => void;
   imageProvider: ImageProviderSelection;
   artDirection: StoryArtDirection;
   setImageProvider: (provider: ImageProviderSelection) => void;
@@ -431,6 +436,13 @@ export function StoryAgentProvider({
   const [storyArc, setStoryArc] = useState<string | undefined>(undefined);
   const [visualCanvasItems, setVisualCanvasItems] = useState<VisualCanvasItem[]>([]);
   const [visualPreference, setVisualPreference] = useState('');
+  // 「把这一刻画出来」收下的故事画面（落 body.mobileImages，与手机端同一存储位）。
+  // 用 ref 让 saveArchiveStory 任何时候都带上当前值，避免改动脆弱的 autosave 快照形状。
+  const [storyImages, setStoryImages] = useState<GeneratedImageItem[]>([]);
+  const storyImagesRef = useRef<GeneratedImageItem[]>([]);
+  useEffect(() => {
+    storyImagesRef.current = storyImages;
+  }, [storyImages]);
   const [imageProvider, setImageProvider] = useState<ImageProviderSelection>('default');
   const [artDirection, setArtDirection] = useState<StoryArtDirection>(
     emptyStoryArtDirection,
@@ -508,6 +520,7 @@ export function StoryAgentProvider({
       ),
     );
     setVisualPreference(persisted.visualPreference ?? '');
+    setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? 'default');
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
@@ -545,6 +558,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      mobileImages: storyImages,
       imageProvider,
       artDirection,
       savedAt: Date.now(),
@@ -570,6 +584,7 @@ export function StoryAgentProvider({
     storyArc,
     visualCanvasItems,
     visualPreference,
+    storyImages,
     imageProvider,
     artDirection,
     activeStoryId,
@@ -702,6 +717,8 @@ export function StoryAgentProvider({
               shots: snapshot.storyShots,
               visualCanvasItems: canvasItems,
               visualPreference: preference,
+              // ref：任何一条保存路径（autosave / 直接调）都带上当前收下的故事画面，不被覆盖。
+              mobileImages: storyImagesRef.current,
               imageProvider: selectedProvider,
               artDirection: selectedArtDirection,
               variants: latest?.variants ?? [],
@@ -796,6 +813,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
+      mobileImageIds: storyImages.map((image) => image.id),
       imageProvider,
       artDirection,
     });
@@ -820,6 +838,7 @@ export function StoryAgentProvider({
     storyArc,
     visualCanvasItems,
     visualPreference,
+    storyImages,
     imageProvider,
     artDirection,
     isReplying,
@@ -1366,6 +1385,7 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
+    setStoryImages([]);
     setArtDirection(emptyStoryArtDirection());
     setActiveStoryId(-1);
     setSaveStatus('idle');
@@ -1429,6 +1449,7 @@ export function StoryAgentProvider({
     setStoryArc(undefined);
     setVisualCanvasItems([]);
     setVisualPreference('');
+    setStoryImages([]);
     setImageProvider('default');
     setArtDirection(emptyStoryArtDirection());
     setSaveStatus('idle');
@@ -1478,6 +1499,9 @@ export function StoryAgentProvider({
         : [];
       const restoredVisualPreference =
         typeof body.visualPreference === 'string' ? body.visualPreference : '';
+      const restoredMobileImages = Array.isArray(body.mobileImages)
+        ? (body.mobileImages as GeneratedImageItem[])
+        : [];
       const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
       const restoredArtDirection = normalizeStoryArtDirection(body.artDirection);
 
@@ -1500,6 +1524,7 @@ export function StoryAgentProvider({
         ),
       );
       setVisualPreference(restoredVisualPreference);
+      setStoryImages(restoredMobileImages);
       setImageProvider(restoredImageProvider);
       setArtDirection(restoredArtDirection);
 
@@ -2272,6 +2297,15 @@ export function StoryAgentProvider({
     [],
   );
 
+  // 收下一张故事画面：去重追加（同 id 覆盖）。state 变更经 autosave 落 body.mobileImages，
+  // 故事版 / Story Cards 直接读 context.storyImages，即时可见。
+  const addStoryImage = useCallback((image: GeneratedImageItem) => {
+    setStoryImages((prev) => {
+      const without = prev.filter((item) => item.id !== image.id);
+      return [...without, image];
+    });
+  }, []);
+
   const value = useMemo<StoryAgentContextValue>(
     () => ({
       messages,
@@ -2305,6 +2339,8 @@ export function StoryAgentProvider({
       returningGreeting,
       visualCanvasItems,
       visualPreference,
+      storyImages,
+      addStoryImage,
       imageProvider,
       artDirection,
       setImageProvider,
@@ -2360,6 +2396,8 @@ export function StoryAgentProvider({
       returningGreeting,
       visualCanvasItems,
       visualPreference,
+      storyImages,
+      addStoryImage,
       imageProvider,
       artDirection,
       isArtWorking,
