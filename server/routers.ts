@@ -1132,6 +1132,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               })
             )
             .optional(),
+          // 意图确认关：用户确认/改过的意图，置顶喂进剧本上下文（最高优先级）。
+          confirmedIntent: z
+            .object({
+              purpose: z.string(),
+              audience: z.string(),
+              platform: z.string(),
+              tone: z.string(),
+              desiredEffect: z.string(),
+            })
+            .nullish(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1144,10 +1154,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                   .filter((emotion): emotion is string => Boolean(emotion))
               )
             : "";
+        // 用户已确认的意图最高优先级，置顶进剧本上下文，让剧本严格贴合"给谁看/为什么拍/调性"。
+        const confirmedIntentLine = input.confirmedIntent
+          ? `【用户已确认意图】用途=${input.confirmedIntent.purpose}；给谁看=${input.confirmedIntent.audience}；平台=${input.confirmedIntent.platform}；调性=${input.confirmedIntent.tone}${input.confirmedIntent.desiredEffect ? `；想要的效果=${input.confirmedIntent.desiredEffect}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`
+          : "";
+        const scriptContext = [confirmedIntentLine, resonanceContext]
+          .filter(Boolean)
+          .join("\n\n");
         // 可观测：把注入剧本的共鸣上下文打到日志，方便测试时确认「意图+情绪+文学声音」是否生效
-        if (resonanceContext) {
+        if (scriptContext) {
           console.log(
-            `\n[共鸣·剧本] user=${ctx.user.id} ✅ 已注入（${input.cards.length} 张卡片）：\n${resonanceContext}\n`,
+            `\n[共鸣·剧本] user=${ctx.user.id} ✅ 已注入（${input.cards.length} 张卡片）：\n${scriptContext}\n`,
           );
         } else {
           console.log(
@@ -1160,7 +1177,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           visualAnchors: input.visualAnchors as
             | VisualAnchorPayload[]
             | undefined,
-          ...(resonanceContext ? { resonanceContext } : {}),
+          ...(scriptContext ? { resonanceContext: scriptContext } : {}),
         });
         // 镜头按 storyId 归属（U3）：必须有 storyId 且归属当前用户才写入；
         // 验归属（getStoryById 带 userId）防向他人故事写镜头。

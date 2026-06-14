@@ -82,6 +82,15 @@ export type StoryListItem = {
   shotCount?: number;
 };
 
+/** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
+export interface ScriptIntentArg {
+  purpose: string;
+  audience: string;
+  platform: string;
+  tone: string;
+  desiredEffect: string;
+}
+
 interface StoryAgentContextValue {
   messages: ChatMessage[];
   cards: StoryCard[];
@@ -107,7 +116,7 @@ interface StoryAgentContextValue {
     field: 'subject' | 'action' | 'dialogue',
     value: string,
   ) => void;
-  generateScript: () => Promise<void>;
+  generateScript: (intent?: ScriptIntentArg) => Promise<void>;
   resetConversation: () => void;
   /** Story list management */
   activeStoryId: number | null;
@@ -1242,7 +1251,7 @@ export function StoryAgentProvider({
     ],
   );
 
-  const generateScript = useCallback(async () => {
+  const generateScript = useCallback(async (intent?: ScriptIntentArg) => {
     if (cards.length === 0) {
       toast.error('先生成卡片再合成剧本');
       return;
@@ -1286,6 +1295,16 @@ export function StoryAgentProvider({
           colorPalette: item.analysis.colorPalette,
         })),
         projectId: projectId ?? undefined,
+        // 意图确认关确认过的意图（缺省时与接入前完全一致）。
+        confirmedIntent: intent
+          ? {
+              purpose: intent.purpose,
+              audience: intent.audience,
+              platform: intent.platform,
+              tone: intent.tone,
+              desiredEffect: intent.desiredEffect,
+            }
+          : undefined,
       }) as StoryAgentClassifyResult;
       if ('error' in result) {
         toast.error(result.error);

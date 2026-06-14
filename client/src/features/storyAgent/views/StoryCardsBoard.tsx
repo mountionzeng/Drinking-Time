@@ -473,7 +473,7 @@ export default function StoryCardsBoard() {
               />
               <button
                 type="button"
-                onClick={generateScript}
+                onClick={() => generateScript(confirmedIntent ?? undefined)}
                 disabled={isGeneratingScript || cards.length === 0}
                 className="w-full text-xs py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 style={{
