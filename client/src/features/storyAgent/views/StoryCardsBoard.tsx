@@ -342,7 +342,7 @@ function CardItem({
                 ))}
               </div>
             )}
-            <CardReferenceDock cardId={card.id} visualItems={visualItems} />
+            <CardReferenceDock cardId={card.id} visualItems={visualItems} generatedImage={generatedImage} />
           </div>
 
           <button
