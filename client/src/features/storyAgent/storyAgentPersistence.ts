@@ -23,6 +23,7 @@ import {
   normalizeStoryArtDirection,
   type StoryArtDirection,
 } from '@shared/artDirection';
+import type { GeneratedImageItem } from '@/features/mobileChat/types';
 
 // 一个故事在 localStorage 里持久化的完整形状。
 export interface PersistedState {
@@ -39,6 +40,8 @@ export interface PersistedState {
   summary?: string;
   visualCanvasItems?: VisualCanvasItem[];
   visualPreference?: string;
+  /** 「把这一刻画出来」收下的故事画面（与手机端同一存储位 body.mobileImages）。 */
+  mobileImages?: GeneratedImageItem[];
   imageProvider?: ImageProviderSelection;
   artDirection?: StoryArtDirection;
   savedAt?: number;
@@ -67,6 +70,7 @@ export function emptyState(): PersistedState {
     characters: [],
     visualCanvasItems: [],
     visualPreference: '',
+    mobileImages: [],
     imageProvider: 'default',
     artDirection: emptyStoryArtDirection(),
   };
@@ -90,6 +94,7 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
       ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
       : [],
     visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
+    mobileImages: Array.isArray(parsed.mobileImages) ? parsed.mobileImages : [],
     imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     artDirection: normalizeStoryArtDirection(parsed.artDirection),
     savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
