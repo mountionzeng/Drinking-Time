@@ -1,7 +1,7 @@
 ---
 title: "feat: 故事视觉基调（Story Visual Identity）—— 跨镜头一致 + 忠于真实素材"
 type: feat
-status: active
+status: completed
 date: 2026-06-15
 ---
 
