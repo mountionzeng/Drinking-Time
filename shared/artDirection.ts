@@ -1,5 +1,8 @@
 export type ArtReferencePurpose = "fact" | "aesthetic" | "both";
 export type ArtReferenceSource = "message-photo" | "visual-anchor" | "story-card";
+// 主角参照：被标记为 "character" 的参考图，作为整故事跨镜头锁长相的依据。
+// 加法式扩展（可选字段），旧数据无此字段 → 视为非主角，向后兼容。
+export type ArtReferenceRole = "character";
 
 export type ArtReferenceMaterial = {
   id: string;
@@ -7,6 +10,7 @@ export type ArtReferenceMaterial = {
   source: ArtReferenceSource;
   purpose: ArtReferencePurpose;
   selected: boolean;
+  role?: ArtReferenceRole;
   imageUrl?: string;
   text?: string;
   visualStyle?: string[];
@@ -158,6 +162,7 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     source,
     purpose,
     selected: obj.selected !== false,
+    ...(obj.role === "character" ? { role: "character" as const } : {}),
     ...(typeof obj.imageUrl === "string" ? { imageUrl: obj.imageUrl } : {}),
     ...(typeof obj.text === "string" ? { text: obj.text } : {}),
     visualStyle: stringList(obj.visualStyle),
@@ -248,6 +253,22 @@ export function normalizeStoryArtDirection(value: unknown): StoryArtDirection {
       : [],
     updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
   };
+}
+
+/**
+ * 取故事的主角参照图 URL —— 跨镜头锁长相的依据。
+ * 取第一个标记为 role:'character' 且有 imageUrl 的参考；无则返回 undefined。
+ */
+export function characterReferenceOf(
+  direction: StoryArtDirection,
+): string | undefined {
+  const hit = direction.references.find(
+    (reference) =>
+      reference.role === "character" &&
+      typeof reference.imageUrl === "string" &&
+      reference.imageUrl.length > 0,
+  );
+  return hit?.imageUrl;
 }
 
 const POSITIVE_FIELDS: Array<keyof Omit<ArtRecipeDNA, "negative">> = [
