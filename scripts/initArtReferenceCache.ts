@@ -1,6 +1,14 @@
 import * as fs from "fs";
 import * as path from "path";
 
+// 重用项目的 LLM 配置和调用机制
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config();
+dotenv.config({ path: path.resolve(moduleDir, "../.env") });
+
 interface ArtReferenceFeature {
   artStyle: string;
   artistReference?: string;
@@ -25,20 +33,31 @@ async function analyzeImageWithVision(
   imageBuffer: Buffer,
   filename: string,
 ): Promise<ArtReferenceFeature> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.BUILT_IN_FORGE_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+    throw new Error("No API key found (BUILT_IN_FORGE_API_KEY or ANTHROPIC_API_KEY)");
   }
 
   const base64Image = imageBuffer.toString("base64");
+  const apiUrl = process.env.BUILT_IN_FORGE_API_URL || "https://api.anthropic.com/v1/messages";
+  const isAnthropicDirect = apiUrl.includes("anthropic.com");
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  // 构建请求头
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+
+  if (isAnthropicDirect) {
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else {
+    // 302.ai 兼容的 OpenAI 格式
+    headers["authorization"] = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(apiUrl, {
     method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1024,
@@ -47,11 +66,9 @@ async function analyzeImageWithVision(
           role: "user",
           content: [
             {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: base64Image,
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
               },
             },
             {
@@ -85,12 +102,17 @@ async function analyzeImageWithVision(
   }
 
   try {
-    const data = (await response.json()) as { content: Array<{ type: string; text: string }> };
-    const content = data.content[0];
-    if (!content || content.type !== "text") {
+    const data = (await response.json()) as any;
+    const content = isAnthropicDirect
+      ? data.content[0]
+      : data.choices?.[0]?.message?.content;
+
+    if (!content) {
       throw new Error("Unexpected response format");
     }
-    const jsonStr = content.text.trim();
+
+    const textContent = typeof content === "string" ? content : content.text || content;
+    const jsonStr = (textContent as string).trim();
     return JSON.parse(jsonStr);
   } catch (error) {
     console.error(`Failed to parse response for ${filename}:`, error);
