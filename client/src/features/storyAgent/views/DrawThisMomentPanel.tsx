@@ -30,11 +30,13 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const { activeStoryId, messages, cards, addStoryImage } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
+  const getImageCountQuery = trpc.artReference.getImageCount.useQuery();
 
   const [image, setImage] = useState<DrawnImage | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const [artFeatures, setArtFeatures] = useState<string>('');
 
   // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，默认绑当前(最后)一张卡。
   // buildMobileStoryboardScenes 按 scene.shotNo === image.shotNo 精确归位，不再兜底填空卡。
@@ -74,6 +76,36 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             action: 'swipe_left',
           });
         }
+
+        // 美术参考库：从最近对话提取描述，匹配参考库获取最佳参考特征
+        try {
+          const history = recentHistory();
+          const userInput = history
+            .filter((m) => m.role === 'user')
+            .map((m) => m.content)
+            .join(' ');
+
+          if (userInput && (getImageCountQuery.data?.count ?? 0) > 0) {
+            const params = new URLSearchParams({
+              input: JSON.stringify({
+                userDescription: userInput,
+                topK: 3,
+              }),
+            });
+            const artRefResponse = await fetch(`/trpc/artReference.getFeatureDescription?${params}`);
+
+            if (artRefResponse.ok) {
+              const artRefResult = await artRefResponse.json();
+              if (artRefResult?.result?.data?.description) {
+                setArtFeatures(artRefResult.result.data.description);
+              }
+            }
+          }
+        } catch (err) {
+          // 美术参考库匹配失败不影响生成流程
+          console.error('美术参考库匹配失败:', err);
+        }
+
         const result = await generateMut.mutateAsync({
           storyId: activeStoryId,
           shotNo: targetShotNo,
@@ -96,7 +128,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, recentHistory, generateMut, signalMut],
+    [activeStoryId, targetShotNo, recentHistory, generateMut, signalMut, getImageCountQuery.data?.count],
   );
 
   // 进面板即自动出第一张
@@ -201,7 +233,14 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
       </div>
 
       {image && !isGenerating ? (
-        <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
+        <div className="space-y-2">
+          <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
+          {artFeatures && (
+            <p className="rounded bg-amber-50/50 px-2 py-1.5 text-[10px] text-amber-900/70 dark:bg-amber-950/20 dark:text-amber-200/70">
+              🎨 参考特征：{artFeatures}
+            </p>
+          )}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
