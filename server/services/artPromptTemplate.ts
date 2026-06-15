@@ -25,11 +25,16 @@ export interface ArtPromptDimensions {
   cameraAngle?: string;   // e.g., "平视" / "仰视" / "俯视"
   perspective?: string;   // e.g., "广角" / "近景" / "全身"
 
-  // 6. 材质与质感
+  // 6. 动作与姿态（新增关键维度）
+  poseAction?: string;    // e.g., "站立" / "坐着" / "运动动作"
+  movementType?: string;  // e.g., "静态" / "动感" / "流动"
+  gestureDetail?: string; // e.g., "双手举起" / "打拳" / "柔和姿态"
+
+  // 7. 材质与质感
   materials?: string[];   // e.g., ["纸质", "水彩笔触"]
   texture?: string;       // e.g., "柔和" / "粗糙" / "精细"
 
-  // 7. 场景背景
+  // 8. 场景背景
   setting?: string;       // e.g., "室内" / "山间" / "都市"
   environment?: string;   // 具体场景描述
 }
@@ -148,6 +153,15 @@ export function generateStructuredPrompt(dimensions: ArtPromptDimensions): strin
     if (dimensions.cameraAngle) {
       parts.push(`镜头角度：${dimensions.cameraAngle}`);
     }
+  }
+
+  // 新增：动作与姿态维度
+  if (dimensions.poseAction || dimensions.movementType || dimensions.gestureDetail) {
+    const actionParts = [];
+    if (dimensions.poseAction) actionParts.push(dimensions.poseAction);
+    if (dimensions.movementType) actionParts.push(`${dimensions.movementType}`);
+    if (dimensions.gestureDetail) actionParts.push(`${dimensions.gestureDetail}`);
+    parts.push(`【动作姿态】${actionParts.join("，")}`);
   }
 
   if (dimensions.materials?.length) {

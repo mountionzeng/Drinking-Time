@@ -37,6 +37,8 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const [artFeatures, setArtFeatures] = useState<string>('');
+  const [showFeedbackDimensions, setShowFeedbackDimensions] = useState(false);
+  const [selectedFeedbackDimensions, setSelectedFeedbackDimensions] = useState<string[]>([]);
 
   // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，默认绑当前(最后)一张卡。
   // buildMobileStoryboardScenes 按 scene.shotNo === image.shotNo 精确归位，不再兜底填空卡。
@@ -287,6 +289,103 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           </Select>
         </div>
         <div className="ml-auto" />
+
+        {/* 反馈维度选择：用户明确指定哪个维度不满意 */}
+        {image && !isGenerating && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setShowFeedbackDimensions(!showFeedbackDimensions)}
+            >
+              <span>不满意指定：</span>
+              {selectedFeedbackDimensions.length > 0 && (
+                <span className="text-rose-500 font-medium">{selectedFeedbackDimensions.length} 项</span>
+              )}
+            </Button>
+            {showFeedbackDimensions && (
+              <div className="absolute bottom-[70px] left-0 z-50 flex flex-col gap-1.5 rounded-lg bg-white p-2 shadow-lg border text-xs">
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('color')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'color']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'color'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🎨 色彩/色调</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('pose')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'pose']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'pose'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🧘 动作/姿态</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('composition')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'composition']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'composition'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>📐 构图/镜头角度</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('lighting')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'lighting']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'lighting'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>💡 光线/光源</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('style')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'style']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'style'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🎭 艺术风格</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         <Button
           variant="outline"
           className="gap-1.5"
