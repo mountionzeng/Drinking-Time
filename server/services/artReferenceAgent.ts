@@ -1,4 +1,5 @@
 import { ArtReferenceFeature, getArtRepository } from "./artRepository";
+import { generateStructuredPrompt, ArtPromptDimensions } from "./artPromptTemplate";
 
 export interface DimensionScores {
   artStyle: number;
@@ -225,6 +226,30 @@ class ArtReferenceAgent {
       return `${style}（${artist}风格）`;
     }
     return style;
+  }
+
+  // 生成工程化的结构化提示词（维度表格）
+  generateStructuredArtPrompt(references: ReferenceMatch[]): string {
+    if (references.length === 0) return "";
+
+    const topRef = references[0];
+    const features = topRef.features;
+
+    // 构建维度对象
+    const dimensions: ArtPromptDimensions = {
+      artStyle: features.artStyle,
+      artist: features.artistReference,
+      colorTone: features.colorTone,
+      dominantColors: features.dominantColors,
+      lighting: features.lightingCharacter,
+      moods: features.mood,
+      composition: features.composition,
+      cameraAngle: features.cameraAngle,
+      materials: features.materials,
+    };
+
+    // 生成结构化提示词
+    return generateStructuredPrompt(dimensions);
   }
 }
 

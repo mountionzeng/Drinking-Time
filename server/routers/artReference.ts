@@ -87,4 +87,26 @@ export const artReferenceRouter = router({
         style: mainStyle,
       };
     }),
+
+  getStructuredPrompt: publicProcedure
+    .input(
+      z.object({
+        userDescription: z.string(),
+        topK: z.number().optional().default(3),
+      }),
+    )
+    .query(({ input }: { input: { userDescription: string; topK: number } }) => {
+      const agent = getArtReferenceAgent();
+      const matches = agent.findBestMatches(input.userDescription, input.topK);
+      const structuredPrompt = agent.generateStructuredArtPrompt(matches);
+
+      return {
+        prompt: structuredPrompt,
+        topMatch: matches[0] ? {
+          filename: matches[0].filename,
+          artStyle: matches[0].features.artStyle,
+          score: matches[0].totalScore,
+        } : null,
+      };
+    }),
 });
