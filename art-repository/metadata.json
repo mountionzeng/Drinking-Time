@@ -1,0 +1,819 @@
+{
+  "version": "1.0",
+  "description": "美术参考库元数据索引",
+  "lastUpdated": "2026-06-15",
+  "references": {
+    "03594f4458acbae0dd26d5f300a29752.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "06569be4a45e54227196702cb6bc7d77.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "0781ba7c7ab7dd3f9207b55bfd6e29ec.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "0af818be4335b46e4469b441dd81c34b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "0c41a277134678fb58cdeb5aad372500.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "146143e43a78dc9929c164b70580abb8.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "156900199dd9b770b27c4139ed1bdea0.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "17320d144bd333ce49915b70c1676e3f.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "1be19bdc622271b9e9005978e8faec64.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "1d03dab4a17835d92115fc7dfd7c1ca5.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "216e86f32c4f626514166409c01bd899.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "26f4744ffb6f71c236685cf7a25a5d1e.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "296fe087f8d9d677eb8e964936b67171.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "2c23550c177b13810e1aa846a2e6314d.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3162303808fac712bcf00c60c7a8afa5.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3685382d7bcbfce321817eb262cff5a1.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3939b6d147017e60c3d16a5ab2ccfdee.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3ae3c085b442624a0ff45cf0b0a944e0.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3beac1dbb97b4477f7630ee4a88cbf72.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "3dced4d435f910947e32aecacbd7b76b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "431dafa5900a573375537236b166e765.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "447db8569fe4fd0d32ab2f5816044223.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "44cc4963d85d7a278283c11d2f82814a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "4626c808af84c874e6fe32b8a314c64f.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "4840de42868f1c351f97a4c4a8ebf94a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "49203439d467bce185ba0294414be5c8.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "492aca92bbbc80ed82525dc21ae1cd0c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "498da3c58a6e60e0b97cefbd63306e95.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "4a9bfb3b9d61a99a0f06eafb4b4f3772.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "4acbf36e4a052299eb2137a4b3e42895.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "4e650687ebfc51df7ba2784dca79d805.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "55ff99b5a0cc855197d31fdcd1cb4430.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "58d0b35ddf5d9fae3fbd4de95bdae18a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "5944e4019670a6b283ade50edf2f7bde.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "5dd5eee42dfecbd0b91e7fda324e0602.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "5ddb112d8f84d693c254fefbd8424951.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "632166909ff14ed5ffba9430962addd7.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "6578f5d55bab8f782e7d0546516c20ab.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "683628dac067dd4492ba0ab78bb5549a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "69e2cb3872eb02e4b68a94aa48aa953b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "6d53da88021216bf45f65d41cc10db54.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "6d6f399df7ca2a5ebaecb269ebd585b9.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "753226b417e9079b7ceb5d82b77a16f6.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "78526a13f741dc2b19ede2a44cf89426.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "79c9b65f736f7c3edaa37ccd4fb4df37.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "7caf4515caa9409f487fd424b81aeca3.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "7cea79d6138e54a6e8a24d748fc19fbc.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "826d454d99b57de641a385c0fe49b83a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "84b1ca5a87c6a9e54ed2fa62f016b68c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "84d644c0db2ae8829bf04b2c893f872c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "86ee03c40411823b48044521732abc12.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "8990ae003134eca68b14c779d95c96d7.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "8d5ca347102552a9e367db7877678799.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "8e49f7bd8783b8ec71bb051b2a0aaae1.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "8e66768d7f1cfa9e4447b09652826e7e.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "91e4b213999f7cd61fa5c2f5cdf83d9d.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9296374861ff21cecf3bd4bfc85f2066.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "93e7c37cdf63e81e3718b06a68b0f9aa.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "97fd0e7b74f87c6b034629560f59aaae.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9965b753e54010643f5dfdf81251459c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9c5c101ad1af64274ade5078864d007c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9c850251f697ff7c2ad8d9944ae0e518.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9ec11ba24599de0598b73dc0fee0e502.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "9f7e30884f745666de4b253fdbc76255.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "a2ceaa1ecdb38cf08b8c02da19f9c2ab.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "a3d42498ca161722d917c686b14c33e0.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "a431660ffd4a0db481b3899d225d8478.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "a687e3aff6ea6e718e993da23f6f12cc.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "b68e5717c7f08600d17813be408a566f.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "b998298e930e690f5774fdb1adb08866.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "bace81c2e69dd489eac0ddeaa32ca230.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "bcf373fce6103b63b0f8114c10fa53c5.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "c612577cd837637b2b79a9aca10fc9ff.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "c67a178ee0a84167e97b24ce63dbe657.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cb5792a903f2d92ca0d9206fdef66b3b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cc639d1a283b4de8e50da6fa4ee87ffd.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cc6fa7711b04627519f1091517aba490.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cc9502ddeac02452a4824bf603eb2499.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cca97edf9055bb7ea7904c9d343828d2.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "cece200eefcadc345cf9705f89d171d2.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "d8e30babd20015ac161fae5dc07dfe7b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "d9201b5e9295280c768f3767e5380e9a.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "daf66dc7269aba3922d673f89e1b5cb7.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "de55899fd1e99f80bd47798b70dc5384.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "dfd32011d47f53ef640d5bc7a96ded21.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e004efeeeb5373ce8e796496de3b715c.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e04ad09dc58255f08b231e42e769a256.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e06398d330cb871a8f6eb14ec93a8fc8.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e08100e340e8256864c041f38518fcef.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e2039f1dcbdbb57acf18e5bbb4f1d4ad.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e225ca3efaf17f9be8f86ac603d0fbf3.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e54b34dbbbb27cf9fd8daf4246b776c9.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "e86cc8e4f804a95ad2e78430be8faac3.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "ebd8b58a951b284e328c6883a59e332d.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "f16471b4039fa53cdb3b0c56ac6d23ae.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "fc016e75457f0e76bb0ad09d146be79b.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "ff2c0863a19f0bc037eb68b6dfdfbf22.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    },
+    "ffbf3a06a0753ba956d30c3f016dc93d.jpg": {
+      "visualFeatures": [],
+      "scenarioTags": [],
+      "mood": "",
+      "lightingStyle": "",
+      "colorTone": "",
+      "userNotes": ""
+    }
+  },
+  "template": {
+    "visualFeatures": [
+      "构图",
+      "光影",
+      "色彩",
+      "质感"
+    ],
+    "scenarioTags": [
+      "室内",
+      "户外",
+      "静谧",
+      "明亮",
+      "温暖",
+      "冷色"
+    ],
+    "mood": "情感基调",
+    "lightingStyle": "光线类型（自然光、侧光、逆光等）",
+    "colorTone": "色调（暖色、冷色、中性等）",
+    "userNotes": "用户备注"
+  }
+}

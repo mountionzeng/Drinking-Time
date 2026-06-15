@@ -1,0 +1,38 @@
+{
+  "example-watercolor.jpg": {
+    "artStyle": "水彩插画",
+    "artistReference": "宫崎骏风格",
+    "dominantColors": ["金色(暖亮)", "褐色(暖中)", "蓝色(冷中)"],
+    "colorTone": "warm-light",
+    "lightingCharacter": "侧光，主光源清晰",
+    "mood": ["温暖", "安静", "思考"],
+    "composition": "人物中景，背景虚化",
+    "materials": ["纸质", "布料", "皮肤"],
+    "cameraAngle": "略微俯视",
+    "visualDescription": "温暖的侧光照亮了房间的角落，一个人物坐在木质书桌前沉思，整体色调柔和温暖。"
+  },
+  "example-oil-painting.jpg": {
+    "artStyle": "油画",
+    "artistReference": "印象派风格",
+    "dominantColors": ["深蓝(冷暗)", "深紫(冷暗)", "白色(冷亮)"],
+    "colorTone": "cool-dark",
+    "lightingCharacter": "均匀散射光",
+    "mood": ["神秘", "深沉", "抒情"],
+    "composition": "全景构图，水平线突出",
+    "materials": ["布料", "金属", "木质"],
+    "cameraAngle": "平视",
+    "visualDescription": "夜晚的海边，月光洒落在波浪上，整个场景笼罩在冷色调的氛围中。"
+  },
+  "example-sketch.jpg": {
+    "artStyle": "素描",
+    "artistReference": "写实风格",
+    "dominantColors": ["黑色(暗)", "灰色(中)", "白色(亮)"],
+    "colorTone": "neutral-dark",
+    "lightingCharacter": "明暗对比强烈",
+    "mood": ["对比", "细致", "技巧性"],
+    "composition": "人物特写，背景暗淡",
+    "materials": ["纸质", "铅笔笔触"],
+    "cameraAngle": "正面",
+    "visualDescription": "高光和阴影交织的肖像素描，展现了精细的线条和层次感。"
+  }
+}
