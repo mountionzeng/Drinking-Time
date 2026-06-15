@@ -154,6 +154,7 @@ interface StoryAgentContextValue {
   prepareArtDirection: () => void;
   toggleArtReference: (id: string) => void;
   cycleArtReferencePurpose: (id: string) => void;
+  setCharacterReferenceByUrl: (imageUrl: string, label?: string) => void;
   generateArtCandidates: (mode?: 'explore' | 'converge') => Promise<void>;
   setArtCandidateVerdict: (id: string, verdict: ArtCandidateVerdict) => Promise<void>;
   reviewArtRecipe: () => Promise<void>;
@@ -1904,6 +1905,46 @@ export function StoryAgentProvider({
     }));
   }, []);
 
+  // 把某张参考图设为「主角参照」（单选）—— 跨镜头锁人物长相的依据。
+  // 桥接：镜头照片(visualCanvasItems)的 imageUrl 若已在 references 则升级它、否则新建一条，
+  // 并清掉其他主角标记。后端 characterReferenceOf 读取 role:'character' 注入 MJ --cref。
+  const setCharacterReferenceByUrl = useCallback((imageUrl: string, label?: string) => {
+    setArtDirection(current => {
+      const cleared = current.references.map(reference =>
+        reference.role === 'character' && reference.imageUrl !== imageUrl
+          ? { ...reference, role: undefined }
+          : reference,
+      );
+      const existingIdx = cleared.findIndex(reference => reference.imageUrl === imageUrl);
+      const references =
+        existingIdx >= 0
+          ? cleared.map((reference, i) =>
+              i === existingIdx
+                ? {
+                    ...reference,
+                    role: 'character' as const,
+                    selected: true,
+                    purpose:
+                      reference.purpose === 'aesthetic' ? ('both' as const) : reference.purpose,
+                  }
+                : reference,
+            )
+          : [
+              {
+                id: newId('charref'),
+                label: label || '主角参照',
+                source: 'visual-anchor' as const,
+                purpose: 'fact' as const,
+                selected: true,
+                role: 'character' as const,
+                imageUrl,
+              },
+              ...cleared,
+            ];
+      return { ...current, references, updatedAt: Date.now() };
+    });
+  }, []);
+
   const generateArtCandidates = useCallback(
     async (mode: 'explore' | 'converge' = 'explore') => {
       if (isArtWorking) return;
@@ -2371,6 +2412,7 @@ export function StoryAgentProvider({
       prepareArtDirection,
       toggleArtReference,
       cycleArtReferencePurpose,
+      setCharacterReferenceByUrl,
       generateArtCandidates,
       setArtCandidateVerdict,
       reviewArtRecipe,
@@ -2427,6 +2469,7 @@ export function StoryAgentProvider({
       prepareArtDirection,
       toggleArtReference,
       cycleArtReferencePurpose,
+      setCharacterReferenceByUrl,
       generateArtCandidates,
       setArtCandidateVerdict,
       reviewArtRecipe,

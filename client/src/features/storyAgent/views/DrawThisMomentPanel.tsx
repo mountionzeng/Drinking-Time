@@ -6,7 +6,7 @@
  * 出一张 → 满意「收下」/ 不满意「再来一张」→ 直到满意。故事已在故事页对齐，无需手动选。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Link2, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Link2, Loader2, Palette, RefreshCw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,8 +26,38 @@ type DrawnImage = {
   mode: 'draft' | 'final';
 };
 
+// 风格锁：用户手动选定后，每次生成稳定附加英文风格词，避免画风漂移。
+const STYLE_OPTIONS: { value: string; label: string; styleHint: string }[] = [
+  { value: 'oil', label: '油画', styleHint: 'oil painting, impressionist style, rich textured brushwork, warm cinematic tones' },
+  { value: 'watercolor', label: '水彩', styleHint: 'watercolor illustration, soft delicate washes, gentle atmosphere' },
+  { value: 'sketch', label: '素描', styleHint: 'pencil sketch, fine detailed linework, monochrome shading' },
+  { value: 'digital', label: '数字插画', styleHint: 'digital illustration, concept art, vibrant cinematic lighting' },
+  { value: 'flat', label: '扁平插画', styleHint: 'flat modern illustration, clean vector shapes, warm palette' },
+];
+
+// 反馈维度 → 再生成时给模型的明确调整指令（图生图时「只改这些，其他保持」）。
+const DIMENSION_INSTRUCTIONS: Record<string, string> = {
+  color: '调整色彩和色调',
+  pose: '调整人物的动作和姿态',
+  composition: '调整构图和镜头角度',
+  lighting: '调整光线和光源',
+  style: '调整艺术风格',
+};
+
+// 把选中镜头卡片的内容拼成「画面主体」提示，传给后端做 prompt 的核心来源。
+// 这是「画对镜头内容」的关键——不再让 LLM 从对话历史瞎猜。
+function buildCardHint(card: { title?: string; content?: string; sensoryDetails?: string[]; emotion?: string } | undefined): string {
+  if (!card) return '';
+  const parts: string[] = [];
+  if (card.content?.trim()) parts.push(card.content.trim());
+  if (card.title?.trim() && card.title.trim() !== card.content?.trim()) parts.push(card.title.trim());
+  if (card.sensoryDetails?.length) parts.push(`感官细节：${card.sensoryDetails.join('、')}`);
+  if (card.emotion?.trim()) parts.push(`情绪：${card.emotion.trim()}`);
+  return parts.join('；');
+}
+
 export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
-  const { activeStoryId, messages, cards, addStoryImage } = useStoryAgent();
+  const { activeStoryId, messages, cards, addStoryImage, visualCanvasItems } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
 
@@ -35,6 +65,11 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const [artFeatures, setArtFeatures] = useState<string>('');
+  // 用户手动锁定的画风（默认油画）。锁定后每次生成稳定附加，不漂移。
+  const [lockedStyle, setLockedStyle] = useState<string>('oil');
+  const [showFeedbackDimensions, setShowFeedbackDimensions] = useState(false);
+  const [selectedFeedbackDimensions, setSelectedFeedbackDimensions] = useState<string[]>([]);
 
   // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，默认绑当前(最后)一张卡。
   // buildMobileStoryboardScenes 按 scene.shotNo === image.shotNo 精确归位，不再兜底填空卡。
@@ -58,6 +93,11 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   );
 
   // 出一张：rejectImageId 存在=先记 swipe_left（淘汰上一张）再出下一张。失败不清空已有图。
+  //
+  // 分层架构（修复内容/风格/一致性）：
+  //   ① 镜头内容(cardHint) → 画面主体，从选中卡片取，不再让 LLM 从对话瞎猜
+  //   ② 锁定画风(styleHint) → 稳定附加，不漂移
+  //   ③ 再来一张 → 图生图(originalImageUrl=上一张)严格延续人物/构图/风格，只改勾选维度
   const draw = useCallback(
     async (rejectImageId?: number) => {
       if (activeStoryId == null) {
@@ -74,11 +114,57 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             action: 'swipe_left',
           });
         }
+
+        // ① 镜头内容：选中卡片的具体内容作为画面主体
+        const selectedCard = cards[targetShotNo - 1];
+        let cardHint = buildCardHint(selectedCard);
+
+        // 当前镜头关联的用户照片（故事材料）——这是「生成图要和我拍的照片相关」的关键。
+        // 用户在镜头卡片上传的 reference 照片，作为图生图基底锚定真实画面。
+        const cardPhoto = selectedCard
+          ? visualCanvasItems.find(
+              (it) => it.cardId === selectedCard.id && it.source === 'reference',
+            )?.imageUrl
+          : undefined;
+
+        // ③ 再来一张：图生图严格延续。把勾选的不满意维度转成「只改这些」的明确指令。
+        const isRegen = rejectImageId != null && image != null;
+        if (isRegen) {
+          const instructions = selectedFeedbackDimensions
+            .map((d) => DIMENSION_INSTRUCTIONS[d])
+            .filter(Boolean);
+          const adjustText = instructions.length > 0 ? instructions.join('、') : '换一个不同的呈现';
+          cardHint = `${cardHint}（在保持人物、场景、构图、画风一致的前提下，重点${adjustText}）`;
+        }
+
+        // ② 风格锁：用户手动锁定的画风，稳定附加
+        const styleOption = STYLE_OPTIONS.find((s) => s.value === lockedStyle);
+        const styleHint = styleOption?.styleHint;
+
+        // 图生图基底优先级：
+        //   有镜头照片 → 始终锚定用户照片（保证「和我拍的照片相关」）
+        //   无照片但再来一张 → 延续上一张生成图（保持人物一致）
+        const baseImage = cardPhoto ?? (isRegen ? image!.imageUrl : undefined);
+        const useImg2img = !!baseImage;
+
+        setArtFeatures(
+          [
+            styleOption ? `画风：${styleOption.label}` : '',
+            cardPhoto ? '已用你的照片做底图' : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        );
+
         const result = await generateMut.mutateAsync({
           storyId: activeStoryId,
           shotNo: targetShotNo,
           history: recentHistory(),
-          mode: 'draft',
+          cardHint: cardHint || undefined,
+          styleHint,
+          // 有底图（用户照片/上一张）→ 慢轨图生图，锚定真实画面；纯首张无底图 → 快草稿
+          mode: useImg2img ? 'final' : 'draft',
+          originalImageUrl: baseImage,
         });
         if (result.status === 'ok' && result.imageUrl) {
           setImage({
@@ -96,7 +182,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, recentHistory, generateMut, signalMut],
+    [activeStoryId, targetShotNo, cards, visualCanvasItems, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle],
   );
 
   // 进面板即自动出第一张
@@ -134,15 +220,21 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   }, [image, activeStoryId, targetShotNo, signalMut, addStoryImage, onDone]);
 
   // 出正式版：draft → final（Midjourney 精画），关联草稿 parentImageId。
+  // 同样带上镜头内容(cardHint)和锁定画风(styleHint)，确保正式版不丢内容/不掉风格。
   const promoteToFinal = useCallback(async () => {
     if (!image || activeStoryId == null || image.mode !== 'draft') return;
     setError(null);
     setIsGenerating(true);
     try {
+      const selectedCard = cards[targetShotNo - 1];
+      const cardHint = buildCardHint(selectedCard);
+      const styleHint = STYLE_OPTIONS.find((s) => s.value === lockedStyle)?.styleHint;
       const result = await generateMut.mutateAsync({
         storyId: activeStoryId,
         shotNo: targetShotNo,
         history: recentHistory(),
+        cardHint: cardHint || undefined,
+        styleHint,
         mode: 'final',
         draftImageId: image.imageId,
       });
@@ -161,7 +253,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     } finally {
       setIsGenerating(false);
     }
-  }, [image, activeStoryId, targetShotNo, recentHistory, generateMut]);
+  }, [image, activeStoryId, targetShotNo, cards, lockedStyle, recentHistory, generateMut]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -201,7 +293,14 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
       </div>
 
       {image && !isGenerating ? (
-        <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
+        <div className="space-y-2">
+          <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
+          {artFeatures && (
+            <p className="rounded bg-amber-50/50 px-2 py-1.5 text-[10px] text-amber-900/70 dark:bg-amber-950/20 dark:text-amber-200/70">
+              🎨 {artFeatures}
+            </p>
+          )}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -213,7 +312,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             onValueChange={(value) => setTargetShotNo(Number(value))}
             disabled={cardOptions.length === 0}
           >
-            <SelectTrigger size="sm" className="h-8 w-[180px] text-xs">
+            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
               <SelectValue placeholder="绑到镜头" />
             </SelectTrigger>
             <SelectContent>
@@ -225,7 +324,122 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             </SelectContent>
           </Select>
         </div>
+
+        {/* 锁定画风：选定后每次生成稳定用它，不漂移 */}
+        <div className="flex items-center gap-1.5">
+          <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+          <Select value={lockedStyle} onValueChange={setLockedStyle}>
+            <SelectTrigger size="sm" className="h-8 w-[120px] text-xs">
+              <SelectValue placeholder="锁定画风" />
+            </SelectTrigger>
+            <SelectContent>
+              {STYLE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="ml-auto" />
+
+        {/* 反馈维度选择：用户明确指定哪个维度不满意 */}
+        {image && !isGenerating && (
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setShowFeedbackDimensions(!showFeedbackDimensions)}
+            >
+              <span>不满意指定：</span>
+              {selectedFeedbackDimensions.length > 0 && (
+                <span className="text-rose-500 font-medium">{selectedFeedbackDimensions.length} 项</span>
+              )}
+            </Button>
+            {showFeedbackDimensions && (
+              <div className="absolute bottom-[70px] left-0 z-50 flex flex-col gap-1.5 rounded-lg bg-white p-2 shadow-lg border text-xs">
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('color')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'color']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'color'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🎨 色彩/色调</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('pose')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'pose']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'pose'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🧘 动作/姿态</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('composition')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'composition']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'composition'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>📐 构图/镜头角度</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('lighting')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'lighting']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'lighting'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>💡 光线/光源</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer hover:bg-muted p-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeedbackDimensions.includes('style')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedFeedbackDimensions([...selectedFeedbackDimensions, 'style']);
+                      } else {
+                        setSelectedFeedbackDimensions(selectedFeedbackDimensions.filter(d => d !== 'style'));
+                      }
+                    }}
+                    className="w-3.5 h-3.5"
+                  />
+                  <span>🎭 艺术风格</span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         <Button
           variant="outline"
           className="gap-1.5"

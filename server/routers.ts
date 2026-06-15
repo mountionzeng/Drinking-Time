@@ -80,6 +80,7 @@ import {
 import { generateArtDirectionCandidates } from "./services/artDirection";
 import {
   normalizeStoryArtDirection,
+  characterReferenceOf,
   defaultArtRecipe,
   type ArtRecipeDNA,
 } from "../shared/artDirection";
@@ -1477,6 +1478,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // final / 缺省 = MJ 正式版。草稿轨不可用时服务端自动回落 MJ。
           mode: z.enum(["draft", "final"]).optional(),
           draftImageId: z.number().optional(), // 确认出正式版时关联草稿图，落库 parentImageId
+          // 镜头内容提示：选中卡片的具体内容（content + 感官细节），作为画面主体来源。
+          // 缺失时退回从对话历史猜（旧行为）。这是「画对镜头内容」的关键入口。
+          cardHint: z.string().optional(),
+          // 美术风格锁：用户锁定的画风（如「油画，印象派」），每次生成稳定附加，不漂移。
+          styleHint: z.string().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1487,9 +1493,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           }
 
           // prompt 缺失（手动「画出来」按钮）→ 用最近对话现编一条英文出图 prompt
+          // cardHint（镜头内容）作为画面主体，比对话历史更精准；styleHint（锁定画风）稳定附加。
           let prompt = input.prompt?.trim() ?? "";
           if (!prompt) {
-            prompt = await deriveMobileImagePrompt({ history: input.history });
+            prompt = await deriveMobileImagePrompt({
+              history: input.history,
+              cardHint: input.cardHint,
+            });
           }
           if (!prompt) {
             return {
@@ -1497,11 +1507,23 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               error: "还没聊到能画的内容，多说两句再点「画出来」？",
             };
           }
+          // 风格锁：把用户锁定的画风稳定追加到 prompt 末尾，避免每次漂移
+          if (input.styleHint?.trim()) {
+            prompt = `${prompt}, art style: ${input.styleHint.trim()}`;
+          }
 
           // 出图统一经美术网关：故事锁定的美术 DNA（artDirection）+ 参考图一起喂给
           // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
           const storyReferences = storyArtReferenceImages(story);
           const referenceImage = input.originalImageUrl || storyReferences[0];
+          // 主角参照（跨镜头锁人物长相）：从故事级 artDirection 取被标记 role:'character' 的参考图。
+          // 仅公网 http(s) URL 会被 MJ --cref 采用（imageGen 内判断），data URI 自动降级走垫图。
+          const direction = normalizeStoryArtDirection(
+            story.body && typeof story.body === "object"
+              ? (story.body as Record<string, unknown>).artDirection
+              : undefined,
+          );
+          const characterRef = characterReferenceOf(direction);
           const gateContext = {
             prompt,
             referenceImages: referenceImage
@@ -1544,11 +1566,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             );
           }
 
-          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）
+          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）。
+          // 主角参照经 --cref 注入，跨镜头锁人物长相（characterRef 为空或非公网 URL 时自动跳过）。
           const result = await renderViaGate(gateContext, renderedPrompt =>
             referenceImage
-              ? editMobileImage(referenceImage, renderedPrompt)
-              : generateMobileImage(renderedPrompt),
+              ? editMobileImage(referenceImage, renderedPrompt, { characterRef })
+              : generateMobileImage(renderedPrompt, { characterRef }),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {
