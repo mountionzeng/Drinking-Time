@@ -16,6 +16,7 @@ import {
   ScrollText,
   ImagePlus,
   Trash2,
+  Star,
 } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useStoryGeneratedImages } from './StoryImagesStrip';
@@ -92,9 +93,15 @@ function CardReferenceDock({
     isArtWorking,
     addVisualReference,
     removeVisualCanvasItem,
+    setCharacterReferenceByUrl,
+    artDirection,
   } = useStoryAgent();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  // 当前主角参照 URL（跨镜头锁人物长相）——用于在照片上标星 + 切换
+  const characterUrl = artDirection.references.find(
+    reference => reference.role === 'character',
+  )?.imageUrl;
 
   const handleFiles = async (files: FileList | File[]) => {
     const file = Array.from(files).find((entry) => entry.type.startsWith('image/'));
@@ -194,18 +201,37 @@ function CardReferenceDock({
         </button>
       ) : (
         <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-          {visualItems.map(item => (
+          {visualItems.map(item => {
+            const itemUrl = item.originalImageUrl || item.imageUrl;
+            const isCharacter = !!characterUrl && itemUrl === characterUrl;
+            return (
             <div
               key={item.id}
               className="group/reference relative h-14 w-14 shrink-0 overflow-hidden rounded-md border"
-              style={{ borderColor: 'var(--panel-border)' }}
+              style={{ borderColor: isCharacter ? 'var(--nayin-accent)' : 'var(--panel-border)' }}
+              title={isCharacter ? '主角参照（跨镜头锁人物长相）' : item.title}
             >
               <img
-                src={item.originalImageUrl || item.imageUrl}
+                src={itemUrl}
                 alt={item.title}
                 className="h-full w-full object-cover"
                 draggable={false}
               />
+              {/* 当前主角参照：左上角星标常显 */}
+              {isCharacter && (
+                <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-white">
+                  <Star className="h-2.5 w-2.5 fill-current" />
+                </span>
+              )}
+              {/* 设为主角参照：左下角 hover 显示（单选） */}
+              <button
+                type="button"
+                onClick={() => setCharacterReferenceByUrl(itemUrl, item.title)}
+                className="absolute bottom-1 left-1 flex h-5 items-center gap-0.5 rounded-full bg-background/85 px-1.5 text-[9px] font-medium text-muted-foreground opacity-0 transition hover:text-foreground group-hover/reference:opacity-100"
+                aria-label={`设为主角参照 ${item.title}`}
+              >
+                <Star className="h-2.5 w-2.5" />主角
+              </button>
               <button
                 type="button"
                 onClick={() => removeVisualCanvasItem(item.id)}
@@ -215,7 +241,8 @@ function CardReferenceDock({
                 <Trash2 className="h-3 w-3" />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
