@@ -116,17 +116,39 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         // 强化艺术流派在提示词中的影响：把主流派放在开头
         const history = recentHistory();
         let enhancedHistory = history;
-        if (mainArtStyle) {
-          enhancedHistory = [
-            {
+
+        // 如果是再生成，添加人物和场景一致性约束
+        const consistencyConstraint = rejectImageId && image
+          ? `【人物场景一致性】保持与前一张图片相同的人物、场景构图和主要元素，只调整${selectedFeedbackDimensions.length > 0 ? selectedFeedbackDimensions.join('、') : '其他方面'}`
+          : null;
+
+        if (mainArtStyle || consistencyConstraint) {
+          const constraints = [];
+
+          if (mainArtStyle) {
+            constraints.push({
               role: 'assistant' as const,
               content: `【美术指导】使用${mainArtStyle}的风格和审美`,
-            },
-            ...history,
-            ...(artGuidance ? [{
+            });
+          }
+
+          if (consistencyConstraint) {
+            constraints.push({
+              role: 'assistant' as const,
+              content: consistencyConstraint,
+            });
+          }
+
+          if (artGuidance) {
+            constraints.push({
               role: 'assistant' as const,
               content: `参考库特征：${artGuidance}`,
-            }] : []),
+            });
+          }
+
+          enhancedHistory = [
+            ...constraints,
+            ...history,
           ];
         }
 

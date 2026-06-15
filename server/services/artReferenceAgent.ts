@@ -1,5 +1,6 @@
 import { ArtReferenceFeature, getArtRepository } from "./artRepository";
 import { generateStructuredPrompt, ArtPromptDimensions } from "./artPromptTemplate";
+import { enhancePromptWithArtistry } from "./artisticEnhancement";
 
 export interface DimensionScores {
   artStyle: number;
@@ -250,6 +251,21 @@ class ArtReferenceAgent {
 
     // 生成结构化提示词
     return generateStructuredPrompt(dimensions);
+  }
+
+  // 生成带艺术性增强的完整提示词
+  generateEnhancedArtPrompt(references: ReferenceMatch[]): string {
+    if (references.length === 0) return "";
+
+    const basePrompt = this.generateStructuredArtPrompt(references);
+    const artStyle = references[0]?.features.artStyle;
+
+    // 融合艺术性增强词汇
+    if (artStyle) {
+      return enhancePromptWithArtistry(basePrompt, artStyle);
+    }
+
+    return basePrompt;
   }
 }
 
