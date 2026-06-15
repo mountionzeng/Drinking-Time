@@ -211,6 +211,21 @@ class ArtReferenceAgent {
 
     return descriptions;
   }
+
+  // 获取推荐的主要艺术流派（用于强化生成提示）
+  getMainArtStyle(references: ReferenceMatch[]): string {
+    if (references.length === 0) return "";
+
+    // 返回得分最高的参考的艺术流派
+    const topRef = references[0];
+    const style = topRef.features.artStyle;
+    const artist = topRef.features.artistReference;
+
+    if (artist) {
+      return `${style}（${artist}风格）`;
+    }
+    return style;
+  }
 }
 
 let artReferenceAgentInstance: ArtReferenceAgent | null = null;

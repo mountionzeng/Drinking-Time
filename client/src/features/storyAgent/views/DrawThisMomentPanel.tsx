@@ -78,6 +78,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         }
 
         let artGuidance = '';
+        let mainArtStyle = '';
         // 美术参考库：从最近对话提取描述，匹配参考库获取最佳参考特征
         try {
           const history = recentHistory();
@@ -99,6 +100,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
               const artRefResult = await artRefResponse.json();
               if (artRefResult?.result?.data?.description) {
                 artGuidance = artRefResult.result.data.description;
+                mainArtStyle = artRefResult.result.data.mainStyle || '';
                 setArtFeatures(artGuidance);
               }
             }
@@ -109,16 +111,20 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         }
 
         // 融合美术参考库指导到生成请求
-        // 如果有参考库推荐，融合到 prompt 的开头来强化艺术风格影响
+        // 强化艺术流派在提示词中的影响：把主流派放在开头
         const history = recentHistory();
         let enhancedHistory = history;
-        if (artGuidance) {
+        if (mainArtStyle) {
           enhancedHistory = [
-            ...history,
             {
               role: 'assistant' as const,
-              content: `参考库推荐的美术风格：${artGuidance}`,
+              content: `【美术指导】使用${mainArtStyle}的风格和审美`,
             },
+            ...history,
+            ...(artGuidance ? [{
+              role: 'assistant' as const,
+              content: `参考库特征：${artGuidance}`,
+            }] : []),
           ];
         }
 

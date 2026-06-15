@@ -63,9 +63,28 @@ export const artReferenceRouter = router({
       const agent = getArtReferenceAgent();
       const matches = agent.findBestMatches(input.userDescription, input.topK);
       const description = agent.getFeatureDescription(matches);
+      const mainStyle = agent.getMainArtStyle(matches);
 
       return {
         description,
+        mainStyle,
+      };
+    }),
+
+  getMainArtStyle: publicProcedure
+    .input(
+      z.object({
+        userDescription: z.string(),
+        topK: z.number().optional().default(3),
+      }),
+    )
+    .query(({ input }: { input: { userDescription: string; topK: number } }) => {
+      const agent = getArtReferenceAgent();
+      const matches = agent.findBestMatches(input.userDescription, input.topK);
+      const mainStyle = agent.getMainArtStyle(matches);
+
+      return {
+        style: mainStyle,
       };
     }),
 });
