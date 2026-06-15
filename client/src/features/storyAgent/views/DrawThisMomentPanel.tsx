@@ -6,7 +6,7 @@
  * 出一张 → 满意「收下」/ 不满意「再来一张」→ 直到满意。故事已在故事页对齐，无需手动选。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Link2, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Link2, Loader2, Palette, RefreshCw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,17 +26,48 @@ type DrawnImage = {
   mode: 'draft' | 'final';
 };
 
+// 风格锁：用户手动选定后，每次生成稳定附加英文风格词，避免画风漂移。
+const STYLE_OPTIONS: { value: string; label: string; styleHint: string }[] = [
+  { value: 'oil', label: '油画', styleHint: 'oil painting, impressionist style, rich textured brushwork, warm cinematic tones' },
+  { value: 'watercolor', label: '水彩', styleHint: 'watercolor illustration, soft delicate washes, gentle atmosphere' },
+  { value: 'sketch', label: '素描', styleHint: 'pencil sketch, fine detailed linework, monochrome shading' },
+  { value: 'digital', label: '数字插画', styleHint: 'digital illustration, concept art, vibrant cinematic lighting' },
+  { value: 'flat', label: '扁平插画', styleHint: 'flat modern illustration, clean vector shapes, warm palette' },
+];
+
+// 反馈维度 → 再生成时给模型的明确调整指令（图生图时「只改这些，其他保持」）。
+const DIMENSION_INSTRUCTIONS: Record<string, string> = {
+  color: '调整色彩和色调',
+  pose: '调整人物的动作和姿态',
+  composition: '调整构图和镜头角度',
+  lighting: '调整光线和光源',
+  style: '调整艺术风格',
+};
+
+// 把选中镜头卡片的内容拼成「画面主体」提示，传给后端做 prompt 的核心来源。
+// 这是「画对镜头内容」的关键——不再让 LLM 从对话历史瞎猜。
+function buildCardHint(card: { title?: string; content?: string; sensoryDetails?: string[]; emotion?: string } | undefined): string {
+  if (!card) return '';
+  const parts: string[] = [];
+  if (card.content?.trim()) parts.push(card.content.trim());
+  if (card.title?.trim() && card.title.trim() !== card.content?.trim()) parts.push(card.title.trim());
+  if (card.sensoryDetails?.length) parts.push(`感官细节：${card.sensoryDetails.join('、')}`);
+  if (card.emotion?.trim()) parts.push(`情绪：${card.emotion.trim()}`);
+  return parts.join('；');
+}
+
 export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
   const { activeStoryId, messages, cards, addStoryImage } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
-  const getImageCountQuery = trpc.artReference.getImageCount.useQuery();
 
   const [image, setImage] = useState<DrawnImage | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const [artFeatures, setArtFeatures] = useState<string>('');
+  // 用户手动锁定的画风（默认油画）。锁定后每次生成稳定附加，不漂移。
+  const [lockedStyle, setLockedStyle] = useState<string>('oil');
   const [showFeedbackDimensions, setShowFeedbackDimensions] = useState(false);
   const [selectedFeedbackDimensions, setSelectedFeedbackDimensions] = useState<string[]>([]);
 
@@ -62,6 +93,11 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   );
 
   // 出一张：rejectImageId 存在=先记 swipe_left（淘汰上一张）再出下一张。失败不清空已有图。
+  //
+  // 分层架构（修复内容/风格/一致性）：
+  //   ① 镜头内容(cardHint) → 画面主体，从选中卡片取，不再让 LLM 从对话瞎猜
+  //   ② 锁定画风(styleHint) → 稳定附加，不漂移
+  //   ③ 再来一张 → 图生图(originalImageUrl=上一张)严格延续人物/构图/风格，只改勾选维度
   const draw = useCallback(
     async (rejectImageId?: number) => {
       if (activeStoryId == null) {
@@ -79,84 +115,34 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           });
         }
 
-        let artGuidance = '';
-        let mainArtStyle = '';
-        // 美术参考库：从最近对话提取描述，匹配参考库获取最佳参考特征
-        try {
-          const history = recentHistory();
-          const userInput = history
-            .filter((m) => m.role === 'user')
-            .map((m) => m.content)
-            .join(' ');
+        // ① 镜头内容：选中卡片的具体内容作为画面主体
+        const selectedCard = cards[targetShotNo - 1];
+        let cardHint = buildCardHint(selectedCard);
 
-          if (userInput && (getImageCountQuery.data?.count ?? 0) > 0) {
-            const params = new URLSearchParams({
-              input: JSON.stringify({
-                userDescription: userInput,
-                topK: 3,
-              }),
-            });
-            const artRefResponse = await fetch(`/trpc/artReference.getFeatureDescription?${params}`);
-
-            if (artRefResponse.ok) {
-              const artRefResult = await artRefResponse.json();
-              if (artRefResult?.result?.data?.description) {
-                artGuidance = artRefResult.result.data.description;
-                mainArtStyle = artRefResult.result.data.mainStyle || '';
-                setArtFeatures(artGuidance);
-              }
-            }
-          }
-        } catch (err) {
-          // 美术参考库匹配失败不影响生成流程
-          console.error('美术参考库匹配失败:', err);
+        // ③ 再来一张：图生图严格延续。把勾选的不满意维度转成「只改这些」的明确指令。
+        const isRegen = rejectImageId != null && image != null;
+        if (isRegen) {
+          const instructions = selectedFeedbackDimensions
+            .map((d) => DIMENSION_INSTRUCTIONS[d])
+            .filter(Boolean);
+          const adjustText = instructions.length > 0 ? instructions.join('、') : '换一个不同的呈现';
+          cardHint = `${cardHint}（在保持人物、场景、构图、画风一致的前提下，重点${adjustText}）`;
         }
 
-        // 融合美术参考库指导到生成请求
-        // 强化艺术流派在提示词中的影响：把主流派放在开头
-        const history = recentHistory();
-        let enhancedHistory = history;
-
-        // 如果是再生成，添加人物和场景一致性约束
-        const consistencyConstraint = rejectImageId && image
-          ? `【人物场景一致性】保持与前一张图片相同的人物、场景构图和主要元素，只调整${selectedFeedbackDimensions.length > 0 ? selectedFeedbackDimensions.join('、') : '其他方面'}`
-          : null;
-
-        if (mainArtStyle || consistencyConstraint) {
-          const constraints = [];
-
-          if (mainArtStyle) {
-            constraints.push({
-              role: 'assistant' as const,
-              content: `【美术指导】使用${mainArtStyle}的风格和审美`,
-            });
-          }
-
-          if (consistencyConstraint) {
-            constraints.push({
-              role: 'assistant' as const,
-              content: consistencyConstraint,
-            });
-          }
-
-          if (artGuidance) {
-            constraints.push({
-              role: 'assistant' as const,
-              content: `参考库特征：${artGuidance}`,
-            });
-          }
-
-          enhancedHistory = [
-            ...constraints,
-            ...history,
-          ];
-        }
+        // ② 风格锁：用户手动锁定的画风，稳定附加
+        const styleOption = STYLE_OPTIONS.find((s) => s.value === lockedStyle);
+        const styleHint = styleOption?.styleHint;
+        setArtFeatures(styleOption ? `已锁定画风：${styleOption.label}` : '');
 
         const result = await generateMut.mutateAsync({
           storyId: activeStoryId,
           shotNo: targetShotNo,
-          history: enhancedHistory,
-          mode: 'draft',
+          history: recentHistory(),
+          cardHint: cardHint || undefined,
+          styleHint,
+          // 再来一张走慢轨图生图（严格延续）；首张走快草稿定构图
+          mode: isRegen ? 'final' : 'draft',
+          originalImageUrl: isRegen ? image!.imageUrl : undefined,
         });
         if (result.status === 'ok' && result.imageUrl) {
           setImage({
@@ -174,7 +160,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, recentHistory, generateMut, signalMut, getImageCountQuery.data?.count],
+    [activeStoryId, targetShotNo, cards, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle],
   );
 
   // 进面板即自动出第一张
@@ -212,15 +198,21 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   }, [image, activeStoryId, targetShotNo, signalMut, addStoryImage, onDone]);
 
   // 出正式版：draft → final（Midjourney 精画），关联草稿 parentImageId。
+  // 同样带上镜头内容(cardHint)和锁定画风(styleHint)，确保正式版不丢内容/不掉风格。
   const promoteToFinal = useCallback(async () => {
     if (!image || activeStoryId == null || image.mode !== 'draft') return;
     setError(null);
     setIsGenerating(true);
     try {
+      const selectedCard = cards[targetShotNo - 1];
+      const cardHint = buildCardHint(selectedCard);
+      const styleHint = STYLE_OPTIONS.find((s) => s.value === lockedStyle)?.styleHint;
       const result = await generateMut.mutateAsync({
         storyId: activeStoryId,
         shotNo: targetShotNo,
         history: recentHistory(),
+        cardHint: cardHint || undefined,
+        styleHint,
         mode: 'final',
         draftImageId: image.imageId,
       });
@@ -239,7 +231,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     } finally {
       setIsGenerating(false);
     }
-  }, [image, activeStoryId, targetShotNo, recentHistory, generateMut]);
+  }, [image, activeStoryId, targetShotNo, cards, lockedStyle, recentHistory, generateMut]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -283,7 +275,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           <p className="line-clamp-2 text-[11px] text-muted-foreground">{image.prompt}</p>
           {artFeatures && (
             <p className="rounded bg-amber-50/50 px-2 py-1.5 text-[10px] text-amber-900/70 dark:bg-amber-950/20 dark:text-amber-200/70">
-              🎨 参考特征：{artFeatures}
+              🎨 {artFeatures}
             </p>
           )}
         </div>
@@ -298,7 +290,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             onValueChange={(value) => setTargetShotNo(Number(value))}
             disabled={cardOptions.length === 0}
           >
-            <SelectTrigger size="sm" className="h-8 w-[180px] text-xs">
+            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
               <SelectValue placeholder="绑到镜头" />
             </SelectTrigger>
             <SelectContent>
@@ -310,6 +302,24 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
             </SelectContent>
           </Select>
         </div>
+
+        {/* 锁定画风：选定后每次生成稳定用它，不漂移 */}
+        <div className="flex items-center gap-1.5">
+          <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+          <Select value={lockedStyle} onValueChange={setLockedStyle}>
+            <SelectTrigger size="sm" className="h-8 w-[120px] text-xs">
+              <SelectValue placeholder="锁定画风" />
+            </SelectTrigger>
+            <SelectContent>
+              {STYLE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="ml-auto" />
 
         {/* 反馈维度选择：用户明确指定哪个维度不满意 */}

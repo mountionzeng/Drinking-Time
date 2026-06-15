@@ -201,6 +201,26 @@ async function readImageInput(
   const inline = parseDataImageUrl(imageUrl);
   if (inline) return inline;
 
+  // 本机生成图资产：/api/images/<file> 直接从本地资产库读盘，不走网络。
+  // 必须这么做的原因：① Node 端 fetch 无法解析无 host 的相对路径 /api/images/xxx；
+  // ② 即便补成 http://localhost，外部图床（302.ai MJ）也拉不到本机 localhost。
+  // 没有这条分支，「用上一张生成图做图生图基底」会静默失败、退化成文生图 → 人物不一致。
+  const localMatch = imageUrl.match(/\/api\/images\/([^/?#]+)/);
+  if (localMatch) {
+    const fileName = localMatch[1];
+    const filePath = path.join(localImageDir(), fileName);
+    if (fs.existsSync(filePath)) {
+      const bytes = new Uint8Array(fs.readFileSync(filePath));
+      const lower = fileName.toLowerCase();
+      const mimeType = lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+        ? "image/jpeg"
+        : lower.endsWith(".webp")
+          ? "image/webp"
+          : "image/png";
+      return { bytes, filename: fileName, mimeType };
+    }
+  }
+
   const response = await withTimeout(
     fetcher(imageUrl, { method: "GET" }),
     TIMEOUT_MS,
