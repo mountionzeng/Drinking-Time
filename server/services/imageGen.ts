@@ -42,6 +42,10 @@ export interface ImageGenOptions {
   mjDraft?: boolean;
   mjPollIntervalMs?: number;
   mjTimeoutMs?: number;
+  /** 主角参照（MJ --cref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
+  characterRef?: string;
+  /** 风格参照（MJ --sref，跨镜头锁画风）。仅公网 http(s) URL 生效 */
+  styleRef?: string;
 }
 
 // ── 常量 ──
@@ -257,8 +261,20 @@ function midjourneyPromptFor(
   aspectRatio?: string,
   fidelity?: ImageFidelity,
   mjDraft?: boolean,
+  characterRef?: string,
+  styleRef?: string,
 ): string {
   let out = prompt;
+  // 角色/风格参考：跨镜头锁人物长相(--cref)/锁画风(--sref)。
+  // 仅公网 http(s) URL 生效——MJ 服务端要去拉这个 URL；data URI / 本地路径跳过（走垫图降级）。
+  // 放在最前：draft 模式会提前 return，先加保证 draft 也带上。
+  const isPublicUrl = (u?: string): u is string => !!u && /^https?:\/\//i.test(u);
+  if (isPublicUrl(characterRef) && !/(?:^|\s)--cref\s/i.test(out)) {
+    out = `${out} --cref ${characterRef}`;
+  }
+  if (isPublicUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
+    out = `${out} --sref ${styleRef}`;
+  }
   if (aspectRatio && !/(?:^|\s)--ar\s+\S+/i.test(out)) {
     out = `${out} --ar ${aspectRatio}`;
   }
@@ -862,7 +878,14 @@ async function generate302MidjourneyImage(
           base64Array,
           botType: "MID_JOURNEY",
           notifyHook: "",
-          prompt: midjourneyPromptFor(prompt, options.aspectRatio, options.fidelity, options.mjDraft),
+          prompt: midjourneyPromptFor(
+            prompt,
+            options.aspectRatio,
+            options.fidelity,
+            options.mjDraft,
+            options.characterRef,
+            options.styleRef,
+          ),
           state: "",
         }),
       }),

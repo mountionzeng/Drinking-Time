@@ -578,3 +578,75 @@ describe("inpaintImage", () => {
     expect(fetcher).not.toHaveBeenCalled(); // 关键：根本没去打 fal.run，不会再挂 30s
   });
 });
+
+describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () => {
+  const saved = {
+    imageProviderDefault: ENV.imageProviderDefault,
+    api302Key: ENV.api302Key,
+    image302MjPollMs: ENV.image302MjPollMs,
+    image302MjTimeoutMs: ENV.image302MjTimeoutMs,
+  };
+
+  beforeEach(() => {
+    resetCircuitBreaker();
+    ENV.imageProviderDefault = "midjourney";
+    ENV.api302Key = "test-302-key";
+    ENV.image302MjPollMs = "1";
+    ENV.image302MjTimeoutMs = "200";
+  });
+
+  afterEach(() => {
+    ENV.imageProviderDefault = saved.imageProviderDefault;
+    ENV.api302Key = saved.api302Key;
+    ENV.image302MjPollMs = saved.image302MjPollMs;
+    ENV.image302MjTimeoutMs = saved.image302MjTimeoutMs;
+  });
+
+  // MJ 文生图三步：submit → poll(SUCCESS) → 下载
+  function mjFetcher(imageUrl = "https://file.302.ai/out.png") {
+    return makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task123" } },
+      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl } },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
+    ]);
+  }
+
+  it("characterRef（公网 URL）→ 提交给 MJ 的 prompt 追加 --cref <url>", async () => {
+    const fetcher = mjFetcher();
+    const result = await generateImage("a person walking in the rain", {
+      fetcher,
+      characterRef: "https://file.302.ai/hero.png",
+    });
+    expect(result.status).toBe("ok");
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("--cref https://file.302.ai/hero.png");
+  });
+
+  it("styleRef（公网 URL）→ 提交给 MJ 的 prompt 追加 --sref <url>", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a quiet room", {
+      fetcher,
+      styleRef: "https://file.302.ai/style.png",
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("--sref https://file.302.ai/style.png");
+  });
+
+  it("无 characterRef/styleRef → prompt 不含 --cref/--sref", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a plain scene", { fetcher });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).not.toContain("--cref");
+    expect(submitBody.prompt).not.toContain("--sref");
+  });
+
+  it("data URI 的 characterRef → 不追加 --cref（cref 需公网 URL，降级垫图）", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a scene", {
+      fetcher,
+      characterRef: "data:image/png;base64,AAAA",
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).not.toContain("--cref");
+  });
+});

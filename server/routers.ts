@@ -81,6 +81,7 @@ import {
 import { generateArtDirectionCandidates } from "./services/artDirection";
 import {
   normalizeStoryArtDirection,
+  characterReferenceOf,
   defaultArtRecipe,
   type ArtRecipeDNA,
 } from "../shared/artDirection";
@@ -1519,6 +1520,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
           const storyReferences = storyArtReferenceImages(story);
           const referenceImage = input.originalImageUrl || storyReferences[0];
+          // 主角参照（跨镜头锁人物长相）：从故事级 artDirection 取被标记 role:'character' 的参考图。
+          // 仅公网 http(s) URL 会被 MJ --cref 采用（imageGen 内判断），data URI 自动降级走垫图。
+          const direction = normalizeStoryArtDirection(
+            story.body && typeof story.body === "object"
+              ? (story.body as Record<string, unknown>).artDirection
+              : undefined,
+          );
+          const characterRef = characterReferenceOf(direction);
           const gateContext = {
             prompt,
             referenceImages: referenceImage
@@ -1561,11 +1570,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             );
           }
 
-          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）
+          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）。
+          // 主角参照经 --cref 注入，跨镜头锁人物长相（characterRef 为空或非公网 URL 时自动跳过）。
           const result = await renderViaGate(gateContext, renderedPrompt =>
             referenceImage
-              ? editMobileImage(referenceImage, renderedPrompt)
-              : generateMobileImage(renderedPrompt),
+              ? editMobileImage(referenceImage, renderedPrompt, { characterRef })
+              : generateMobileImage(renderedPrompt, { characterRef }),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {

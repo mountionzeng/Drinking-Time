@@ -461,6 +461,8 @@ describe("storyAgent tRPC router", () => {
     // 手机端走 draft 档（--quality 0.25 + turbo，省一半渲染时间）
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
+      // U4: generateForMobile 给出图传 { characterRef } options；本故事无主角参照 → undefined
+      expect.objectContaining({ characterRef: undefined }),
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -561,6 +563,8 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
+      // U4: 图生图慢轨也带 { characterRef } options；本故事无主角参照 → undefined
+      expect.objectContaining({ characterRef: undefined }),
     );
     expect(result).toMatchObject({
       status: "ok",
@@ -576,6 +580,53 @@ describe("storyAgent tRPC router", () => {
       generationType: "initial",
       isCurrent: true,
     });
+  });
+
+  it("故事有主角参照(role:character, 公网URL) → 图生图带 characterRef 跨镜头锁人物", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/hero-shot.png",
+      imageKey: "generated/hero-shot.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(308));
+    const heroUrl = "https://file.302.ai/hero.png";
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "主角一致故事",
+      projectId: 7308,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [],
+        artDirection: {
+          phase: "locked",
+          references: [
+            {
+              id: "r1",
+              label: "主角",
+              source: "visual-anchor",
+              purpose: "fact",
+              selected: true,
+              role: "character",
+              imageUrl: heroUrl,
+            },
+          ],
+        },
+      },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角在公园散步",
+    });
+
+    // 主角参照既作图生图垫图基底（第1参数），又经 --cref 锁人物长相（characterRef）
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      heroUrl,
+      expect.stringContaining("主角在公园散步"),
+      expect.objectContaining({ characterRef: heroUrl }),
+    );
   });
 
   it("手机端 mobileInpaint 成功后带 projectId 落库", async () => {
