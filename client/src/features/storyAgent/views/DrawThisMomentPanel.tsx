@@ -57,7 +57,7 @@ function buildCardHint(card: { title?: string; content?: string; sensoryDetails?
 }
 
 export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
-  const { activeStoryId, messages, cards, addStoryImage } = useStoryAgent();
+  const { activeStoryId, messages, cards, addStoryImage, visualCanvasItems } = useStoryAgent();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
 
@@ -119,6 +119,14 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         const selectedCard = cards[targetShotNo - 1];
         let cardHint = buildCardHint(selectedCard);
 
+        // 当前镜头关联的用户照片（故事材料）——这是「生成图要和我拍的照片相关」的关键。
+        // 用户在镜头卡片上传的 reference 照片，作为图生图基底锚定真实画面。
+        const cardPhoto = selectedCard
+          ? visualCanvasItems.find(
+              (it) => it.cardId === selectedCard.id && it.source === 'reference',
+            )?.imageUrl
+          : undefined;
+
         // ③ 再来一张：图生图严格延续。把勾选的不满意维度转成「只改这些」的明确指令。
         const isRegen = rejectImageId != null && image != null;
         if (isRegen) {
@@ -132,7 +140,21 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         // ② 风格锁：用户手动锁定的画风，稳定附加
         const styleOption = STYLE_OPTIONS.find((s) => s.value === lockedStyle);
         const styleHint = styleOption?.styleHint;
-        setArtFeatures(styleOption ? `已锁定画风：${styleOption.label}` : '');
+
+        // 图生图基底优先级：
+        //   有镜头照片 → 始终锚定用户照片（保证「和我拍的照片相关」）
+        //   无照片但再来一张 → 延续上一张生成图（保持人物一致）
+        const baseImage = cardPhoto ?? (isRegen ? image!.imageUrl : undefined);
+        const useImg2img = !!baseImage;
+
+        setArtFeatures(
+          [
+            styleOption ? `画风：${styleOption.label}` : '',
+            cardPhoto ? '已用你的照片做底图' : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        );
 
         const result = await generateMut.mutateAsync({
           storyId: activeStoryId,
@@ -140,9 +162,9 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           history: recentHistory(),
           cardHint: cardHint || undefined,
           styleHint,
-          // 再来一张走慢轨图生图（严格延续）；首张走快草稿定构图
-          mode: isRegen ? 'final' : 'draft',
-          originalImageUrl: isRegen ? image!.imageUrl : undefined,
+          // 有底图（用户照片/上一张）→ 慢轨图生图，锚定真实画面；纯首张无底图 → 快草稿
+          mode: useImg2img ? 'final' : 'draft',
+          originalImageUrl: baseImage,
         });
         if (result.status === 'ok' && result.imageUrl) {
           setImage({
@@ -160,7 +182,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, cards, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle],
+    [activeStoryId, targetShotNo, cards, visualCanvasItems, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle],
   );
 
   // 进面板即自动出第一张
