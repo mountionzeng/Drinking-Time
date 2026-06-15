@@ -5,7 +5,6 @@ import { canonicalizeShotNo } from "@shared/imageAsset";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { artReferenceRouter } from "./routers/artReference";
 import { invokeLLM } from "./_core/llm";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
@@ -396,9 +395,6 @@ export const appRouter = router({
         return { text: result.text };
       }),
   }),
-
-  // ─── Art Reference / 美术参考库 ───────────────────────────────────────
-  artReference: artReferenceRouter,
 
   // ─── Art Agent / 视觉锚画布 ───────────────────────────────────────
   artAgent: router({

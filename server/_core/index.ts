@@ -11,7 +11,6 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
-import { getArtRepository } from "../services/artRepository";
 
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -34,10 +33,6 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  // Initialize art reference cache on startup
-  const artRepo = getArtRepository();
-  artRepo.loadFeaturesCache();
-
   const app = express();
   app.set("trust proxy", true);
   const server = createServer(app);
