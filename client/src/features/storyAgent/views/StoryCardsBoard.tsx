@@ -179,6 +179,27 @@ function CardReferenceDock({
             <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
               {generatedImage.prompt || '从手机端同步的故事画面'}
             </p>
+            {/* 把这张满意的镜头图设为主角参照——后续镜头跨场景锁这个人物 */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCharacterReferenceByUrl(generatedImage.imageUrl, '当前画面主角');
+              }}
+              className="mt-1 inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground transition hover:text-foreground"
+              style={{
+                borderColor:
+                  generatedImage.imageUrl === characterUrl
+                    ? 'var(--nayin-accent)'
+                    : 'var(--panel-border)',
+              }}
+            >
+              <Star
+                className={`h-2.5 w-2.5 ${generatedImage.imageUrl === characterUrl ? 'fill-amber-400 text-amber-400' : ''}`}
+              />
+              {generatedImage.imageUrl === characterUrl ? '已设为主角' : '设为主角'}
+            </button>
           </div>
         </a>
       ) : null}

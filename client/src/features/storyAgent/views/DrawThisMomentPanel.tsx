@@ -68,6 +68,8 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const [artFeatures, setArtFeatures] = useState<string>('');
   // 用户手动锁定的画风（默认油画）。锁定后每次生成稳定附加，不漂移。
   const [lockedStyle, setLockedStyle] = useState<string>('oil');
+  // 场景一致强度（MJ --iw 0-3）：越高越贴近主角图场景，越低越自由。默认 0.5 可变不卡死。
+  const [sceneWeight, setSceneWeight] = useState<number>(0.5);
   const [showFeedbackDimensions, setShowFeedbackDimensions] = useState(false);
   const [selectedFeedbackDimensions, setSelectedFeedbackDimensions] = useState<string[]>([]);
 
@@ -162,6 +164,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           history: recentHistory(),
           cardHint: cardHint || undefined,
           styleHint,
+          sceneWeight,
           // 有底图（用户照片/上一张）→ 慢轨图生图，锚定真实画面；纯首张无底图 → 快草稿
           mode: useImg2img ? 'final' : 'draft',
           originalImageUrl: baseImage,
@@ -182,7 +185,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, cards, visualCanvasItems, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle],
+    [activeStoryId, targetShotNo, cards, visualCanvasItems, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle, sceneWeight],
   );
 
   // 进面板即自动出第一张
@@ -340,6 +343,24 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* 场景一致强度（MJ --iw）：左=自由发挥，右=锁住主角图的场景。你的可控参数 */}
+        <div
+          className="flex items-center gap-1.5"
+          title="场景一致强度：越往右越贴近主角图的场景/构图，越往左越自由"
+        >
+          <span className="whitespace-nowrap text-[10px] text-muted-foreground">场景一致</span>
+          <input
+            type="range"
+            min={0}
+            max={2}
+            step={0.25}
+            value={sceneWeight}
+            onChange={(e) => setSceneWeight(Number(e.target.value))}
+            className="h-1 w-[72px] cursor-pointer"
+          />
+          <span className="w-6 text-[10px] tabular-nums text-muted-foreground">{sceneWeight}</span>
         </div>
 
         <div className="ml-auto" />
