@@ -67,6 +67,12 @@ const imageGenMocks = vi.hoisted(() => ({
     imageUrl: "https://storage.example/generated/default-inpaint.png",
     imageKey: "generated/default-inpaint.png",
   })),
+  generateDraftImage: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/default-draft.png",
+    imageKey: "generated/default-draft.png",
+  })),
+  toPublicImageUrl: vi.fn(async (url?: string) => url),
 }));
 
 vi.mock("./services/imageGen", () => imageGenMocks);

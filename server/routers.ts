@@ -68,6 +68,7 @@ import {
   generateImage as generateMobileImage,
   generateDraftImage,
   inpaintImage,
+  toPublicImageUrl,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
 import { getProjectImageAssets, getStoryImageAssets } from "./services/imageAssets";
@@ -1483,6 +1484,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           cardHint: z.string().optional(),
           // 美术风格锁：用户锁定的画风（如「油画，印象派」），每次生成稳定附加，不漂移。
           styleHint: z.string().optional(),
+          // 场景一致强度（MJ --iw 图像权重 0-3）：越高越贴近主角图的场景，越低越自由。
+          // 前端滑块传入；缺省走默认 0.5（场景可变不卡死）。
+          sceneWeight: z.number().min(0).max(3).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1515,15 +1519,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 出图统一经美术网关：故事锁定的美术 DNA（artDirection）+ 参考图一起喂给
           // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
           const storyReferences = storyArtReferenceImages(story);
-          const referenceImage = input.originalImageUrl || storyReferences[0];
-          // 主角参照（跨镜头锁人物长相）：从故事级 artDirection 取被标记 role:'character' 的参考图。
-          // 仅公网 http(s) URL 会被 MJ --cref 采用（imageGen 内判断），data URI 自动降级走垫图。
+          // 主角参照（跨镜头锁人物+场景）：取 role:'character' 的参考图（通常是已收下的镜头图）。
           const direction = normalizeStoryArtDirection(
             story.body && typeof story.body === "object"
               ? (story.body as Record<string, unknown>).artDirection
               : undefined,
           );
-          const characterRef = characterReferenceOf(direction);
+          const rawCharacterRef = characterReferenceOf(direction);
+          // cref 需公网 URL：本地 /api/images 图自动上传拿公网 URL（带缓存）；失败则 undefined（降级垫图）。
+          const characterRef = await toPublicImageUrl(rawCharacterRef);
+          // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
+          const referenceImage = input.originalImageUrl || rawCharacterRef || storyReferences[0];
           const gateContext = {
             prompt,
             referenceImages: referenceImage
@@ -1566,12 +1572,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             );
           }
 
-          // 慢轨正式版：全质量 MJ turbo（双轨已成立，确认后这一版要美术最佳，不降质）。
-          // 主角参照经 --cref 注入，跨镜头锁人物长相（characterRef 为空或非公网 URL 时自动跳过）。
+          // 慢轨正式版：全质量 MJ turbo。人物锁(--cref+--cw 100)跨镜头锁脸/发/衣；
+          // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
+          const characterWeight = characterRef ? 100 : undefined;
+          const imageWeight = input.sceneWeight ?? 0.5;
           const result = await renderViaGate(gateContext, renderedPrompt =>
             referenceImage
-              ? editMobileImage(referenceImage, renderedPrompt, { characterRef })
-              : generateMobileImage(renderedPrompt, { characterRef }),
+              ? editMobileImage(referenceImage, renderedPrompt, {
+                  characterRef,
+                  characterWeight,
+                  imageWeight,
+                })
+              : generateMobileImage(renderedPrompt, { characterRef, characterWeight }),
           );
           if (result.status === "error" || !result.imageUrl) {
             return {

@@ -46,6 +46,10 @@ export interface ImageGenOptions {
   characterRef?: string;
   /** 风格参照（MJ --sref，跨镜头锁画风）。仅公网 http(s) URL 生效 */
   styleRef?: string;
+  /** 人物锁定权重（MJ --cw 0-100）：0=只锁脸，100=锁脸+发+衣。仅在有 characterRef 时生效 */
+  characterWeight?: number;
+  /** 图像/场景权重（MJ --iw 0-3）：越高越贴近垫图（场景更一致），越低越自由。仅图生图（有垫图）时传 */
+  imageWeight?: number;
 }
 
 // ── 常量 ──
@@ -263,6 +267,8 @@ function midjourneyPromptFor(
   mjDraft?: boolean,
   characterRef?: string,
   styleRef?: string,
+  characterWeight?: number,
+  imageWeight?: number,
 ): string {
   let out = prompt;
   // 角色/风格参考：跨镜头锁人物长相(--cref)/锁画风(--sref)。
@@ -271,9 +277,17 @@ function midjourneyPromptFor(
   const isPublicUrl = (u?: string): u is string => !!u && /^https?:\/\//i.test(u);
   if (isPublicUrl(characterRef) && !/(?:^|\s)--cref\s/i.test(out)) {
     out = `${out} --cref ${characterRef}`;
+    // 人物锁定权重（仅跟随 cref）：100=锁脸+发+衣
+    if (typeof characterWeight === "number" && !/(?:^|\s)--cw\s/i.test(out)) {
+      out = `${out} --cw ${characterWeight}`;
+    }
   }
   if (isPublicUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
     out = `${out} --sref ${styleRef}`;
+  }
+  // 图像/场景权重（图生图垫图强度）：调用方仅在有垫图时传 imageWeight
+  if (typeof imageWeight === "number" && !/(?:^|\s)--iw\s/i.test(out)) {
+    out = `${out} --iw ${imageWeight}`;
   }
   // 默认解剖负面词：压制 MJ 常见的畸形手/多指/坏解剖。
   // 已有 --no 则不重复（尊重调用方显式负面词，如 artDirection recipe 的 negative）。
@@ -312,6 +326,40 @@ function midjourneyPromptFor(
  */
 export function localImageDir(): string {
   return ENV.localImageDir.trim() || path.join(process.cwd(), ".webdev", "images");
+}
+
+// 本地生成图(/api/images)转公网 URL，供 MJ --cref 使用（MJ 服务端需公网可达）。
+// 已是 http(s) 原样返回；data URI / 找不到文件返回 undefined（cref 跳过，走垫图降级）。
+// 带内存缓存避免同一图重复上传。
+const publicUrlCache = new Map<string, string>();
+export async function toPublicImageUrl(url?: string): Promise<string | undefined> {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  const match = url.match(/\/api\/images\/([^/?#]+)/);
+  if (!match) return undefined;
+  const cached = publicUrlCache.get(url);
+  if (cached) return cached;
+  const filePath = path.join(localImageDir(), match[1]);
+  if (!fs.existsSync(filePath)) return undefined;
+  try {
+    const buf = fs.readFileSync(filePath);
+    const lower = match[1].toLowerCase();
+    const mime =
+      lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+        ? "image/jpeg"
+        : lower.endsWith(".webp")
+          ? "image/webp"
+          : "image/png";
+    const { url: publicUrl } = await storagePut(`character-refs/${match[1]}`, buf, mime);
+    publicUrlCache.set(url, publicUrl);
+    return publicUrl;
+  } catch (err) {
+    console.warn(
+      "[toPublicImageUrl] 主角图上传失败，cref 将跳过:",
+      err instanceof Error ? err.message : err,
+    );
+    return undefined;
+  }
 }
 
 function localFileNameFor(storageKey: string, mimeType: string): string {
@@ -890,6 +938,8 @@ async function generate302MidjourneyImage(
             options.mjDraft,
             options.characterRef,
             options.styleRef,
+            options.characterWeight,
+            options.imageWeight,
           ),
           state: "",
         }),

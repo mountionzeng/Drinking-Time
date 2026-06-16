@@ -664,4 +664,35 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect((submitBody.prompt.match(/--no/g) || []).length).toBe(1);
   });
+
+  it("characterWeight 跟随 cref → prompt 追加 --cw（人物锁定强度）", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a person", {
+      fetcher,
+      characterRef: "https://file.302.ai/hero.png",
+      characterWeight: 100,
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("--cref https://file.302.ai/hero.png");
+    expect(submitBody.prompt).toContain("--cw 100");
+  });
+
+  it("imageWeight（图生图）→ prompt 追加 --iw（场景/垫图强度）", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) }, // readImageInput 下载垫图
+      { ok: true, status: 200, json: { code: 1, result: "task" } }, // submit
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/out.png" },
+      }, // poll
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) }, // download
+    ]);
+    await editImage("https://file.302.ai/base.png", "a scene", {
+      fetcher,
+      imageWeight: 0.5,
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[1][1].body); // submit 是第 2 个 call
+    expect(submitBody.prompt).toContain("--iw 0.5");
+  });
 });
