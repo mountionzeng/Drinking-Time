@@ -5,6 +5,9 @@ import {
   type CreationEditorError,
   type CreationEditorShot,
 } from '../CreationEditorContext';
+import { useState } from 'react';
+import AnimaticPlayer from './AnimaticPlayer';
+import Timeline from './Timeline';
 
 export type EditorShellViewProps = {
   title: string;
@@ -14,7 +17,11 @@ export type EditorShellViewProps = {
   selectedShot: CreationEditorShot | null;
   isLoading?: boolean;
   error?: CreationEditorError | null;
+  isPlaying?: boolean;
+  durationsByShotNo?: Record<number, number>;
   onSelectShot: (shotNo: number) => void;
+  onPlayingChange?: (isPlaying: boolean) => void;
+  onDurationChange?: (shotNo: number, durationMs: number) => void;
   onRefresh?: () => void;
 };
 
@@ -30,7 +37,11 @@ export function EditorShellView({
   selectedShot,
   isLoading = false,
   error = null,
+  isPlaying = false,
+  durationsByShotNo = {},
   onSelectShot,
+  onPlayingChange = () => undefined,
+  onDurationChange = () => undefined,
   onRefresh,
 }: EditorShellViewProps) {
   return (
@@ -84,56 +95,21 @@ export function EditorShellView({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-              <div className="relative flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
-                {selectedShot?.imageUrl ? (
-                  <img
-                    src={selectedShot.imageUrl}
-                    alt={shotLabel(selectedShot)}
-                    className="h-full w-full object-contain"
-                  />
-                ) : (
-                  <div className="max-w-md px-6 text-center">
-                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                      <Film className="h-5 w-5 text-primary" />
-                    </div>
-                    <p className="text-sm font-medium">等待当前镜画面</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      U2 会在这里接入顺序连播、字幕和时长控制。
-                    </p>
-                  </div>
-                )}
-                {selectedShot?.dialogue ? (
-                  <div className="absolute inset-x-6 bottom-5 rounded-md bg-background/88 px-4 py-3 text-center text-sm shadow-sm backdrop-blur">
-                    {selectedShot.dialogue}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="flex min-h-[72px] gap-2 overflow-x-auto rounded-md border border-border/70 bg-background/70 p-2">
-                {shots.length === 0 ? (
-                  <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    还没有可剪辑的镜头
-                  </div>
-                ) : (
-                  shots.map((shot) => (
-                    <button
-                      key={shot.shotKey}
-                      type="button"
-                      onClick={() => onSelectShot(shot.shotNo)}
-                      className={`flex min-w-[92px] flex-col justify-between rounded-md border px-3 py-2 text-left transition ${
-                        selectedShotNo === shot.shotNo
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border bg-card hover:border-primary/40'
-                      }`}
-                    >
-                      <span className="text-xs font-semibold">{shotLabel(shot)}</span>
-                      <span className="line-clamp-1 text-xs text-muted-foreground">
-                        {shot.beat || shot.subject || shot.mood || '镜头'}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
+              <AnimaticPlayer
+                shots={shots}
+                selectedShotNo={selectedShotNo}
+                durationsByShotNo={durationsByShotNo}
+                onShotEnter={onSelectShot}
+                isPlaying={isPlaying}
+                onPlayingChange={onPlayingChange}
+              />
+              <Timeline
+                shots={shots}
+                selectedShotNo={selectedShotNo}
+                durationsByShotNo={durationsByShotNo}
+                onSelectShot={onSelectShot}
+                onDurationChange={onDurationChange}
+              />
             </div>
           </section>
 
@@ -192,6 +168,8 @@ export default function EditorShell() {
     error,
     refetch,
   } = useCreationEditor();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [durationsByShotNo, setDurationsByShotNo] = useState<Record<number, number>>({});
 
   return (
     <EditorShellView
@@ -202,7 +180,13 @@ export default function EditorShell() {
       selectedShot={selectedShot}
       isLoading={isLoading}
       error={error}
+      isPlaying={isPlaying}
+      durationsByShotNo={durationsByShotNo}
       onSelectShot={setSelectedShotNo}
+      onPlayingChange={setIsPlaying}
+      onDurationChange={(shotNo, durationMs) => {
+        setDurationsByShotNo((current) => ({ ...current, [shotNo]: durationMs }));
+      }}
       onRefresh={refetch}
     />
   );

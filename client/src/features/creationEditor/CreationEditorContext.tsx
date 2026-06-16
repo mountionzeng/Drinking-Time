@@ -28,6 +28,7 @@ export type CreationEditorShot = StoryShot & {
   imageId?: number;
   imageUrl?: string;
   imagePrompt?: string | null;
+  durationMs?: number;
 };
 
 export type CreationEditorError = {
@@ -96,6 +97,10 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     visualAnchorText: stringValue(obj.visualAnchorText) || undefined,
     promptDraft: stringValue(obj.promptDraft) || undefined,
     negativePrompt: stringValue(obj.negativePrompt) || undefined,
+    durationMs:
+      typeof obj.durationMs === 'number' && Number.isFinite(obj.durationMs)
+        ? obj.durationMs
+        : undefined,
     fragmentRefs: Array.isArray(obj.fragmentRefs)
       ? obj.fragmentRefs.filter((item): item is string => typeof item === 'string')
       : undefined,
