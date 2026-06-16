@@ -7,6 +7,7 @@ import {
 } from '../CreationEditorContext';
 import { useState } from 'react';
 import AnimaticPlayer from './AnimaticPlayer';
+import PromptTable from './PromptTable';
 import Timeline from './Timeline';
 
 export type EditorShellViewProps = {
@@ -128,27 +129,8 @@ export function EditorShellView({
               </span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {selectedShot ? (
-                <div className="space-y-3">
-                  <div className="rounded-md border border-border/70 bg-background/70 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      当前镜
-                    </div>
-                    <div className="mt-2 text-base font-semibold">{shotLabel(selectedShot)}</div>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {selectedShot.beat || selectedShot.sourceCardContent || selectedShot.subject || '这个镜头还没有文字描述。'}
-                    </p>
-                  </div>
-                  <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                    U3–U5 会在这里展开内容维度、美术维度、出处、权重、继承与筛选。
-                  </div>
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  选择一个镜头后查看提示词表
-                </div>
-              )}
+            <div className="min-h-0 flex-1 overflow-hidden p-4">
+              <PromptTable shot={selectedShot} />
             </div>
           </aside>
         </div>
