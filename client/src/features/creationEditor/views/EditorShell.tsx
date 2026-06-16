@@ -5,6 +5,7 @@ import {
   type CreationEditorError,
   type CreationEditorShot,
 } from '../CreationEditorContext';
+import type { PromptOverride, PromptRow } from '../promptTable/types';
 import { useState } from 'react';
 import AnimaticPlayer from './AnimaticPlayer';
 import PromptTable from './PromptTable';
@@ -23,6 +24,15 @@ export type EditorShellViewProps = {
   onSelectShot: (shotNo: number) => void;
   onPlayingChange?: (isPlaying: boolean) => void;
   onDurationChange?: (shotNo: number, durationMs: number) => void;
+  onOverrideChange?: (
+    shotNo: number,
+    dimension: string,
+    override: PromptOverride,
+  ) => Promise<void> | void;
+  onRerenderShot?: (shotNo: number, rows: PromptRow[]) => Promise<void> | void;
+  promptTableDisabled?: boolean;
+  rerenderingShotNo?: number | null;
+  rerenderError?: string | null;
   onRefresh?: () => void;
 };
 
@@ -43,6 +53,11 @@ export function EditorShellView({
   onSelectShot,
   onPlayingChange = () => undefined,
   onDurationChange = () => undefined,
+  onOverrideChange,
+  onRerenderShot,
+  promptTableDisabled = false,
+  rerenderingShotNo = null,
+  rerenderError = null,
   onRefresh,
 }: EditorShellViewProps) {
   return (
@@ -130,7 +145,15 @@ export function EditorShellView({
             </div>
 
             <div className="min-h-0 flex-1 overflow-hidden p-4">
-              <PromptTable shot={selectedShot} shots={shots} />
+              <PromptTable
+                shot={selectedShot}
+                shots={shots}
+                disabled={promptTableDisabled}
+                rerendering={selectedShotNo != null && rerenderingShotNo === selectedShotNo}
+                error={rerenderError}
+                onOverrideChange={onOverrideChange}
+                onRerenderShot={onRerenderShot}
+              />
             </div>
           </aside>
         </div>
@@ -148,6 +171,12 @@ export default function EditorShell() {
     setSelectedShotNo,
     isLoading,
     error,
+    isSaving,
+    rerenderingShotNo,
+    rerenderError,
+    updateShotDuration,
+    updatePromptOverride,
+    rerenderShot,
     refetch,
   } = useCreationEditor();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -168,7 +197,13 @@ export default function EditorShell() {
       onPlayingChange={setIsPlaying}
       onDurationChange={(shotNo, durationMs) => {
         setDurationsByShotNo((current) => ({ ...current, [shotNo]: durationMs }));
+        void updateShotDuration(shotNo, durationMs);
       }}
+      onOverrideChange={updatePromptOverride}
+      onRerenderShot={rerenderShot}
+      promptTableDisabled={isSaving}
+      rerenderingShotNo={rerenderingShotNo}
+      rerenderError={rerenderError}
       onRefresh={refetch}
     />
   );

@@ -11,12 +11,25 @@ import {
   type PromptSourceFilter,
   type PromptTableColumn,
 } from '../promptTable/sort';
-import type { PromptRow, PromptSourceSystem } from '../promptTable/types';
+import type { PromptOverride, PromptRow, PromptSourceSystem } from '../promptTable/types';
+import PromptCellEditor from './PromptCellEditor';
 
 type PromptTableProps = {
   shot: CreationEditorShot | null;
   shots?: CreationEditorShot[];
   rows?: PromptRow[];
+  disabled?: boolean;
+  rerendering?: boolean;
+  error?: string | null;
+  onOverrideChange?: (
+    shotNo: number,
+    dimension: string,
+    override: PromptOverride,
+  ) => Promise<void> | void;
+  onRerenderShot?: (
+    shotNo: number,
+    rows: PromptRow[],
+  ) => Promise<void> | void;
 };
 
 const SORT_LABELS: Record<PromptSortMode, string> = {
@@ -102,7 +115,35 @@ function renderCell(row: PromptRow, column: PromptTableColumn) {
   }
 }
 
-export default function PromptTable({ shot, shots = [], rows }: PromptTableProps) {
+function rowWithOverride(row: PromptRow, override: PromptOverride): PromptRow {
+  const value = override.value?.trim() || row.value;
+  const weight = typeof override.weight === 'number' && Number.isFinite(override.weight)
+    ? override.weight
+    : row.weight;
+  return {
+    ...row,
+    value,
+    weight,
+    source: {
+      system: 'manual',
+      label: '手改',
+      sourceCardContent: row.source.sourceCardContent,
+    },
+    inheritance: 'overridden',
+    contentLength: Array.from(value).length,
+  };
+}
+
+export default function PromptTable({
+  shot,
+  shots = [],
+  rows,
+  disabled = false,
+  rerendering = false,
+  error = null,
+  onOverrideChange,
+  onRerenderShot,
+}: PromptTableProps) {
   const [sortMode, setSortMode] = useState<PromptSortMode>('weight');
   const [sourceFilter, setSourceFilter] = useState<PromptSourceFilter>('all');
   const previousShots = useMemo(
@@ -127,6 +168,18 @@ export default function PromptTable({ shot, shots = [], rows }: PromptTableProps
       </div>
     );
   }
+
+  const applyOverride = async (row: PromptRow, override: PromptOverride) => {
+    await onOverrideChange?.(shot.shotNo, row.dimension, override);
+  };
+
+  const rerenderWithOverride = async (row: PromptRow, override: PromptOverride) => {
+    await onOverrideChange?.(shot.shotNo, row.dimension, override);
+    const nextRows = baseRows.map((candidate) =>
+      candidate.id === row.id ? rowWithOverride(candidate, override) : candidate,
+    );
+    await onRerenderShot?.(shot.shotNo, nextRows);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="prompt-table">
@@ -169,6 +222,12 @@ export default function PromptTable({ shot, shots = [], rows }: PromptTableProps
         ))}
       </div>
 
+      {error ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">
           <thead className="sticky top-0 bg-muted/90 backdrop-blur">
@@ -198,7 +257,17 @@ export default function PromptTable({ shot, shots = [], rows }: PromptTableProps
               >
                 {columns.map((column) => (
                   <td key={column} className="align-top px-3 py-2">
-                    {renderCell(row, column)}
+                    {column === 'value' ? (
+                      <PromptCellEditor
+                        row={row}
+                        disabled={disabled}
+                        rerendering={rerendering}
+                        onApply={(override) => applyOverride(row, override)}
+                        onRerender={(override) => rerenderWithOverride(row, override)}
+                      />
+                    ) : (
+                      renderCell(row, column)
+                    )}
                   </td>
                 ))}
               </tr>

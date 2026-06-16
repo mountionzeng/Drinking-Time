@@ -9,7 +9,9 @@ import {
 import { trpc } from '@/lib/trpc';
 import type { StoryShot } from '@/features/storyAgent/types';
 import { canonicalizeShotNo } from '@shared/imageAsset';
-import type { PromptOverrides } from './promptTable/types';
+import { rerenderShotImage } from './rerender';
+import { writePromptOverride, writeShotDuration } from './promptTable/persist';
+import type { PromptOverride, PromptOverrides, PromptRow } from './promptTable/types';
 
 export type CreationEditorStory = {
   id: number;
@@ -48,6 +50,16 @@ type CreationEditorContextValue = {
   selectedShot: CreationEditorShot | null;
   isLoading: boolean;
   error: CreationEditorError | null;
+  isSaving: boolean;
+  rerenderingShotNo: number | null;
+  rerenderError: string | null;
+  updateShotDuration: (shotNo: number, durationMs: number) => Promise<void>;
+  updatePromptOverride: (
+    shotNo: number,
+    dimension: string,
+    override: PromptOverride,
+  ) => Promise<void>;
+  rerenderShot: (shotNo: number, rows: PromptRow[]) => Promise<void>;
   refetch: () => void;
 };
 
@@ -196,10 +208,15 @@ export function selectInitialShotNo(
 export function CreationEditorProvider({ children }: PropsWithChildren) {
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [selectedShotNo, setSelectedShotNo] = useState<number | null>(null);
+  const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(null);
+  const [rerenderError, setRerenderError] = useState<string | null>(null);
+  const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
+  const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const activeId = activeStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
   const storyQuery = trpc.storyAgent.storyGet.useQuery(
     { id: activeId ?? 0 },
@@ -258,6 +275,61 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
     [selectedShotNo, shots],
   );
 
+  const persistBody = async (body: Record<string, unknown>) => {
+    const row = storyQuery.data;
+    if (!row) throw new Error('故事尚未加载，无法保存');
+    await storyUpsertMut.mutateAsync({
+      id: row.id,
+      title: row.title,
+      logline: row.logline,
+      theme: row.theme,
+      arc: row.arc,
+      summary: row.summary,
+      projectId: row.projectId,
+      body,
+    });
+    await utils.storyAgent.storyGet.invalidate({ id: row.id });
+    await storyQuery.refetch();
+  };
+
+  const updateShotDuration = async (shotNo: number, durationMs: number) => {
+    const body = writeShotDuration(storyQuery.data?.body, shotNo, durationMs);
+    await persistBody(body);
+  };
+
+  const updatePromptOverride = async (
+    shotNo: number,
+    dimension: string,
+    override: PromptOverride,
+  ) => {
+    const body = writePromptOverride(storyQuery.data?.body, shotNo, dimension, override);
+    await persistBody(body);
+  };
+
+  const rerenderShot = async (shotNo: number, rows: PromptRow[]) => {
+    if (activeId == null) throw new Error('故事尚未加载，无法重渲');
+    const shot = shots.find((item) => item.shotNo === shotNo);
+    if (!shot) throw new Error(`找不到镜头 ${shotNo}`);
+    setRerenderError(null);
+    setRerenderingShotNo(shotNo);
+    try {
+      await rerenderShotImage({
+        storyId: activeId,
+        shot,
+        rows,
+        generate: input => generateForMobileMut.mutateAsync(input),
+      });
+      await storyImagesQuery.refetch();
+      await utils.storyAgent.storyImages.invalidate({ storyId: activeId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '图片生成失败';
+      setRerenderError(message);
+      throw error;
+    } finally {
+      setRerenderingShotNo(null);
+    }
+  };
+
   const rawError =
     storyListQuery.error ??
     storyQuery.error ??
@@ -280,6 +352,12 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
         storyQuery.isLoading ||
         storyImagesQuery.isLoading,
       error,
+      isSaving: storyUpsertMut.isPending,
+      rerenderingShotNo,
+      rerenderError,
+      updateShotDuration,
+      updatePromptOverride,
+      rerenderShot,
       refetch: () => {
         void storyListQuery.refetch();
         void storyQuery.refetch();
@@ -292,8 +370,11 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
       error,
       selectedShot,
       selectedShotNo,
+      rerenderError,
+      rerenderingShotNo,
       shots,
       stories,
+      storyUpsertMut.isPending,
       storyImagesQuery,
       storyListQuery,
       storyQuery,
