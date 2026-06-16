@@ -1,6 +1,7 @@
 import { Route, Switch, Redirect } from 'wouter';
 import AnalysisPage from '@/pages/AnalysisPage';
 import CreationPage from '@/pages/CreationPage';
+import CreationEditorPage from '@/pages/CreationEditorPage';
 import LoginPage from '@/pages/LoginPage';
 import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
 import MobilePage from '@/pages/MobilePage';
@@ -22,7 +23,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
  * - 逃生口：?desktop=1 强制走桌面并写入 localStorage 持久化；?desktop=0 清除。
  * - 进入时判定一次（不监听 resize），避免桌面窗口缩放误触发跳转。
  */
-function detectPrefersMobile(): boolean {
+export function detectPrefersMobile(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const desktopParam = new URLSearchParams(window.location.search).get('desktop');
@@ -57,6 +58,9 @@ export default function AppRouter() {
       </Route>
       <Route path="/creation">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationPage /></AuthGuard>}
+      </Route>
+      <Route path="/studio">
+        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationEditorPage /></AuthGuard>}
       </Route>
       {/* 手机端路由 */}
       <Route path="/m/welcome" component={MobileWelcomePage} />
