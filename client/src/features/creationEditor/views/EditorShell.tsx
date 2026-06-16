@@ -130,7 +130,7 @@ export function EditorShellView({
             </div>
 
             <div className="min-h-0 flex-1 overflow-hidden p-4">
-              <PromptTable shot={selectedShot} />
+              <PromptTable shot={selectedShot} shots={shots} />
             </div>
           </aside>
         </div>

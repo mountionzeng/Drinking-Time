@@ -34,3 +34,10 @@ export type ArtDimension = {
   value: string;
   weight: number;
 };
+
+export type PromptOverride = {
+  value?: string;
+  weight?: number;
+};
+
+export type PromptOverrides = Record<string, PromptOverride>;

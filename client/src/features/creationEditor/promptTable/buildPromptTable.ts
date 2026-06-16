@@ -3,6 +3,7 @@ import {
   getStructuredPromptStub,
   type StructuredPromptAdapter,
 } from './structuredPromptAdapter';
+import { applyPromptInheritance } from './inheritance';
 import type { PromptCategory, PromptRow, PromptSource } from './types';
 
 type ContentDimension = {
@@ -111,15 +112,40 @@ export function buildPromptTable(
   shot: CreationEditorShot,
   options: {
     structuredPromptAdapter?: StructuredPromptAdapter;
+    previousShots?: readonly CreationEditorShot[];
   } = {},
 ): PromptRow[] {
   const contentRows = buildContentPromptRows(shot);
+  let baseRows = contentRows;
   try {
-    return [
+    baseRows = [
       ...contentRows,
       ...buildArtPromptRows(shot, options.structuredPromptAdapter),
     ];
   } catch {
-    return contentRows;
+    baseRows = contentRows;
   }
+
+  const previousRowsByShot = (options.previousShots ?? []).map((previousShot) => {
+    const previousContentRows = buildContentPromptRows(previousShot);
+    let previousRows = previousContentRows;
+    try {
+      previousRows = [
+        ...previousContentRows,
+        ...buildArtPromptRows(previousShot, options.structuredPromptAdapter),
+      ];
+    } catch {
+      previousRows = previousContentRows;
+    }
+    return {
+      shotNo: previousShot.shotNo,
+      rows: previousRows,
+    };
+  });
+
+  return applyPromptInheritance({
+    rows: baseRows,
+    shot,
+    previousRowsByShot,
+  });
 }

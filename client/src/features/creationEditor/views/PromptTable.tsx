@@ -15,6 +15,7 @@ import type { PromptRow, PromptSourceSystem } from '../promptTable/types';
 
 type PromptTableProps = {
   shot: CreationEditorShot | null;
+  shots?: CreationEditorShot[];
   rows?: PromptRow[];
 };
 
@@ -101,10 +102,17 @@ function renderCell(row: PromptRow, column: PromptTableColumn) {
   }
 }
 
-export default function PromptTable({ shot, rows }: PromptTableProps) {
+export default function PromptTable({ shot, shots = [], rows }: PromptTableProps) {
   const [sortMode, setSortMode] = useState<PromptSortMode>('weight');
   const [sourceFilter, setSourceFilter] = useState<PromptSourceFilter>('all');
-  const baseRows = useMemo(() => rows ?? (shot ? buildPromptTable(shot) : []), [rows, shot]);
+  const previousShots = useMemo(
+    () => (shot ? shots.filter((item) => item.shotNo < shot.shotNo) : []),
+    [shot, shots],
+  );
+  const baseRows = useMemo(
+    () => rows ?? (shot ? buildPromptTable(shot, { previousShots }) : []),
+    [previousShots, rows, shot],
+  );
   const sourceOptions = useMemo(() => sourceFilterOptions(baseRows), [baseRows]);
   const displayedRows = useMemo(
     () => sortPromptRows(filterPromptRowsBySource(baseRows, sourceFilter), sortMode),

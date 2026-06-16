@@ -9,6 +9,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import type { StoryShot } from '@/features/storyAgent/types';
 import { canonicalizeShotNo } from '@shared/imageAsset';
+import type { PromptOverrides } from './promptTable/types';
 
 export type CreationEditorStory = {
   id: number;
@@ -29,6 +30,7 @@ export type CreationEditorShot = StoryShot & {
   imageUrl?: string;
   imagePrompt?: string | null;
   durationMs?: number;
+  promptOverrides?: PromptOverrides;
 };
 
 export type CreationEditorError = {
@@ -62,6 +64,25 @@ function numberValue(value: unknown): number | null {
     if (match) return Number(match[1]);
   }
   return null;
+}
+
+function normalizePromptOverrides(raw: unknown): PromptOverrides | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const overrides: PromptOverrides = {};
+  Object.entries(raw as Record<string, unknown>).forEach(([dimension, value]) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+    const obj = value as Record<string, unknown>;
+    const next = {
+      value: typeof obj.value === 'string' ? obj.value : undefined,
+      weight: typeof obj.weight === 'number' && Number.isFinite(obj.weight)
+        ? obj.weight
+        : undefined,
+    };
+    if (next.value !== undefined || next.weight !== undefined) {
+      overrides[dimension] = next;
+    }
+  });
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 function shotKey(shotNo: number) {
@@ -101,6 +122,7 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
       typeof obj.durationMs === 'number' && Number.isFinite(obj.durationMs)
         ? obj.durationMs
         : undefined,
+    promptOverrides: normalizePromptOverrides(obj.promptOverrides),
     fragmentRefs: Array.isArray(obj.fragmentRefs)
       ? obj.fragmentRefs.filter((item): item is string => typeof item === 'string')
       : undefined,
