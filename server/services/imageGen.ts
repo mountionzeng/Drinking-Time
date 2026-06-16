@@ -275,6 +275,11 @@ function midjourneyPromptFor(
   if (isPublicUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
     out = `${out} --sref ${styleRef}`;
   }
+  // 默认解剖负面词：压制 MJ 常见的畸形手/多指/坏解剖。
+  // 已有 --no 则不重复（尊重调用方显式负面词，如 artDirection recipe 的 negative）。
+  if (!/(?:^|\s)--no\s/i.test(out)) {
+    out = `${out} --no deformed hands, extra fingers, fused fingers, mutated hands, malformed limbs, extra limbs, bad anatomy`;
+  }
   if (aspectRatio && !/(?:^|\s)--ar\s+\S+/i.test(out)) {
     out = `${out} --ar ${aspectRatio}`;
   }

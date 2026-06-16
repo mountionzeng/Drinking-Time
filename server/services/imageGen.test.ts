@@ -649,4 +649,19 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.prompt).not.toContain("--cref");
   });
+
+  it("MJ 出图默认追加解剖负面词 --no（压制畸形手/多指）", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a person holding stones", { fetcher });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("--no");
+    expect(submitBody.prompt).toMatch(/deformed hands|extra fingers/);
+  });
+
+  it("已显式带 --no 时不重复追加默认负面词", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a cat --no dogs", { fetcher });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect((submitBody.prompt.match(/--no/g) || []).length).toBe(1);
+  });
 });
