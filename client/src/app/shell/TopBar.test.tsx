@@ -48,6 +48,8 @@ describe('TopBar story panel controls', () => {
       />,
     );
 
+    expect(html).toContain('aria-label="纳音五行"');
+    expect(html).toContain('Nayin Five Elements / 纳音五行');
     expect(html).toContain('Story Cards');
     expect(html).toContain('Script');
     expect(html).toContain('动态分镜');

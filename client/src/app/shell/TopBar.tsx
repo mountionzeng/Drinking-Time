@@ -1,6 +1,6 @@
 /**
  * TopBar — Simplified top navigation
- * Shows: story panel toggles, nayin theme button, user avatar
+ * Shows: nayin logo, story panel toggles, user avatar
  */
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
@@ -22,7 +22,7 @@ export default function TopBar({
   visibleStoryPanels,
   onToggleStoryPanel,
 }: TopBarProps) {
-  const { theme, allThemes, setPreviewElement, previewElement, element, today } = useNayin();
+  const { allThemes, setPreviewElement, previewElement, element, today } = useNayin();
   const { user, logout } = useAuth();
   const [themeOpen, setThemeOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -42,59 +42,24 @@ export default function TopBar({
         }}
       >
         <div className="flex items-center justify-between gap-4">
-          <nav
-            aria-label="故事面板切换"
-            className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
-          >
-            {STORY_PANELS.map((panel) => {
-              const active = visibleStoryPanels.includes(panel.id);
-              return (
-                <button
-                  key={panel.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onToggleStoryPanel(panel.id)}
-                  className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
-                    active
-                      ? 'text-foreground'
-                      : 'text-muted-foreground hover:text-foreground/80'
-                  }`}
-                  style={
-                    active
-                      ? {
-                          background: 'var(--nayin-surface)',
-                          boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
-                        }
-                      : undefined
-                  }
-                >
-                  {panel.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Right: nayin + avatar */}
-          <div className="flex items-center gap-2">
-            {/* Nayin theme button */}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <Popover open={themeOpen} onOpenChange={setThemeOpen}>
               <PopoverTrigger asChild>
                 <button
-                  className="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 transition-all duration-200 hover:bg-foreground/[0.04]"
+                  aria-label="纳音五行"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-all duration-200 hover:bg-foreground/[0.04]"
                   style={{
                     borderColor: 'var(--nayin-border)',
                     background: 'oklch(1 0 0 / 60%)',
                     boxShadow: '0 0 16px -6px var(--nayin-glow)',
                   }}
                 >
-                  <WuxingDrinkIcon element={element} size={20} />
-                  <span className="hidden sm:inline text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    {theme.elementCn}
-                  </span>
+                  <WuxingDrinkIcon element={element} size={30} />
                 </button>
               </PopoverTrigger>
               <PopoverContent
-                className="w-64 p-0"
+                align="start"
+                className="w-[500px] max-w-[calc(100vw-24px)] p-0"
                 style={{ background: 'var(--panel-bg)', border: '1px solid var(--nayin-border)' }}
               >
                 <div className="p-3 border-b" style={{ borderColor: 'var(--nayin-border)' }}>
@@ -159,6 +124,40 @@ export default function TopBar({
               </PopoverContent>
             </Popover>
 
+            <nav
+              aria-label="故事面板切换"
+              className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
+            >
+              {STORY_PANELS.map((panel) => {
+                const active = visibleStoryPanels.includes(panel.id);
+                return (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => onToggleStoryPanel(panel.id)}
+                    className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                      active
+                        ? 'text-foreground'
+                        : 'text-muted-foreground hover:text-foreground/80'
+                    }`}
+                    style={
+                      active
+                        ? {
+                            background: 'var(--nayin-surface)',
+                            boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
+                          }
+                        : undefined
+                    }
+                  >
+                    {panel.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-2">
             {/* User avatar + logout popover */}
             <Popover open={userOpen} onOpenChange={setUserOpen}>
               <PopoverTrigger asChild>
