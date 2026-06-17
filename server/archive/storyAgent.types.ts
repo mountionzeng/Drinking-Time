@@ -83,6 +83,16 @@ export type StoryAgentChatResult = {
   suggestImage: boolean;           // 是否建议生成图片
 };
 
+export type StoryChatIntentPayload = {
+  purpose: string;
+  audience?: string;
+  platform?: string;
+  desiredEffect?: string;
+  tone?: string;
+  targetRole?: string;
+  channel?: string;
+};
+
 export type ShotCharacter = {
   name: string;
   role: string;
@@ -212,6 +222,8 @@ export type StoryIntentPayload = {
   confidence: number;
   evidence: string[];
   missingQuestion: string;
+  targetRole?: string;
+  channel?: string;
 };
 
 export type StoryIntentResult = StoryIntentPayload & {

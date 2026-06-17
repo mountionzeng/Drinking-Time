@@ -24,6 +24,7 @@ import {
   type StoryArtDirection,
 } from '@shared/artDirection';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
 
 // 一个故事在 localStorage 里持久化的完整形状。
 export interface PersistedState {
@@ -44,6 +45,7 @@ export interface PersistedState {
   mobileImages?: GeneratedImageItem[];
   imageProvider?: ImageProviderSelection;
   artDirection?: StoryArtDirection;
+  confirmedIntent?: StoryIntent | null;
   savedAt?: number;
   activeStoryId?: number;
   serverRevision?: number;
@@ -73,6 +75,7 @@ export function emptyState(): PersistedState {
     mobileImages: [],
     imageProvider: 'default',
     artDirection: emptyStoryArtDirection(),
+    confirmedIntent: null,
   };
 }
 
@@ -97,6 +100,7 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
     mobileImages: Array.isArray(parsed.mobileImages) ? parsed.mobileImages : [],
     imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     artDirection: normalizeStoryArtDirection(parsed.artDirection),
+    confirmedIntent: normalizeStoryIntent(parsed.confirmedIntent),
     savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
     activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
     serverRevision:

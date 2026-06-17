@@ -5,7 +5,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
 import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt } from "./storyAgent.prompts";
-import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardPayload, ToolCall } from "./storyAgent.types";
+import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardPayload, StoryChatIntentPayload, ToolCall } from "./storyAgent.types";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
   "defensive",
@@ -50,6 +50,7 @@ export async function replyFromStoryAgent(params: {
   projectId?: number;
   enableImageGen?: boolean;  // 手机端出图开关
   photoUrl?: string;         // 用户上传的照片 URL，传给 LLM 做多模态理解
+  confirmedIntent?: StoryChatIntentPayload;
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
@@ -113,6 +114,7 @@ export async function replyFromStoryAgent(params: {
         editContextBlock,
         params.enableImageGen,
         Boolean(params.photoUrl),  // 有照片 → 注入「先看图」指令
+        params.confirmedIntent,
       ),
     },
     ...turns,
@@ -129,11 +131,39 @@ export async function replyFromStoryAgent(params: {
   // 给抽取单独更高的预算，让「推理 + 完整卡」都装得下；回话那步短，仍用 2048 即可。
   const EXTRACTION_MAX_TOKENS = 4096;
 
+  const extractionMessages: Message[] = [
+    {
+      role: "system",
+      content: buildCardExtractionPrompt(
+        existingCardCount,
+        userTurnNumber,
+        params.enableImageGen,
+        Boolean(params.photoUrl),
+        params.confirmedIntent,
+      ),
+    },
+    ...turns,
+    { role: "user", content: userContent },   // 对方这一轮（带图时含图）
+    {
+      role: "user",
+      content:
+        "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card" +
+        (params.enableImageGen ? ", toolCalls" : "") +
+        " }。）",
+    },
+  ];
+
+  // 回话和后台抽取没有数据依赖：并行发起，避免一轮对话串行等两次模型。
+  const replyPromise = invokeAgent(messages, AGENT_MAX_TOKENS);
+  const extractionPromise = invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS)
+    .then((result) => ({ ok: true as const, result }))
+    .catch((error: unknown) => ({ ok: false as const, error }));
+
   // ── B 改造 · 第一步：回话（robust，纯人话，不背 JSON）──
   let text: string;
   let modelLabel: string;
   try {
-    ({ text, modelLabel } = await invokeAgent(messages, AGENT_MAX_TOKENS));
+    ({ text, modelLabel } = await replyPromise);
   } catch (err) {
     // 通道层已对临时性错误自动重试；走到这里说明仍然没接上。
     // 不向上抛错——否则前端只会弹一句吞掉真实原因的「Agent 暂时没接上」并断掉对话。
@@ -161,29 +191,9 @@ export async function replyFromStoryAgent(params: {
   let read: HumanityRead | null = null;
   const toolCalls: ToolCall[] = [];
   try {
-    const extractionMessages: Message[] = [
-      {
-        role: "system",
-        content: buildCardExtractionPrompt(
-          existingCardCount,
-          userTurnNumber,
-          params.enableImageGen,
-          Boolean(params.photoUrl),
-        ),
-      },
-      ...turns,
-      { role: "user", content: userContent },   // 对方这一轮（带图时含图）
-      { role: "assistant", content: reply },     // 小酌这一轮的回话
-      {
-        role: "user",
-        content:
-          "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card" +
-          (params.enableImageGen ? ", toolCalls" : "") +
-          " }。）",
-      },
-    ];
-
-    const { text: extractionText } = await invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS);
+    const extractionResult = await extractionPromise;
+    if (!extractionResult.ok) throw extractionResult.error;
+    const { text: extractionText } = extractionResult.result;
     const parsed = parseJsonLoose<{
       card?: Record<string, unknown> | null;
       read?: { trait?: unknown; note?: unknown } | null;

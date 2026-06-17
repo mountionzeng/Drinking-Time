@@ -66,6 +66,7 @@ import {
   buildStoryArtReferences,
   nextReferencePurpose,
 } from './storyArtReferences';
+import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -83,12 +84,63 @@ export type StoryListItem = {
 };
 
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
-export interface ScriptIntentArg {
-  purpose: string;
-  audience: string;
-  platform: string;
-  tone: string;
-  desiredEffect: string;
+export type ScriptIntentArg = StoryIntent;
+
+export type StoryChatIntentArg = Pick<
+  StoryIntent,
+  'purpose' | 'audience' | 'platform' | 'tone' | 'desiredEffect' | 'targetRole' | 'channel'
+>;
+
+export function buildChatIntentPayload(
+  confirmedIntent: StoryIntent | null | undefined,
+): StoryChatIntentArg | undefined {
+  if (!confirmedIntent) return undefined;
+  return {
+    purpose: confirmedIntent.purpose,
+    audience: confirmedIntent.audience,
+    platform: confirmedIntent.platform,
+    tone: confirmedIntent.tone,
+    desiredEffect: confirmedIntent.desiredEffect,
+    targetRole: confirmedIntent.targetRole,
+    channel: confirmedIntent.channel,
+  };
+}
+
+export function resolveScriptIntent(
+  overrideIntent: ScriptIntentArg | null | undefined,
+  confirmedIntent: StoryIntent | null,
+): StoryIntent | undefined {
+  return overrideIntent ?? confirmedIntent ?? undefined;
+}
+
+export const JOB_INTENT_CONFIDENCE_THRESHOLD = 0.6;
+
+export function shouldTriggerIntentRecognition({
+  messages,
+  confirmedIntent,
+  pendingIntentDraft,
+}: {
+  messages: ChatMessage[];
+  confirmedIntent: StoryIntent | null;
+  pendingIntentDraft: StoryIntent | null;
+}): boolean {
+  if (confirmedIntent || pendingIntentDraft) return false;
+  return !messages.some(
+    (message) => message.role === 'user' && (message.content.trim() || message.photoUrl),
+  );
+}
+
+export function recognitionToPendingJobIntent(intent: StoryIntent): StoryIntent | null {
+  if (intent.purpose !== 'linkedin_job_search') return null;
+  if ((intent.confidence ?? 0) < JOB_INTENT_CONFIDENCE_THRESHOLD) return null;
+  return intent;
+}
+
+export function warnIntentRecognitionError(error: unknown) {
+  console.warn(
+    '[storyAgent.intent] recognizeIntent failed:',
+    error instanceof Error ? error.message : error,
+  );
 }
 
 interface StoryAgentContextValue {
@@ -101,6 +153,12 @@ interface StoryAgentContextValue {
   latestScript: GeneratedScript | null;
   isReplying: boolean;
   isGeneratingScript: boolean;
+  confirmedIntent: StoryIntent | null;
+  setConfirmedIntent: (intent: StoryIntent | null) => void;
+  clearIntent: () => void;
+  pendingIntentDraft: StoryIntent | null;
+  confirmPendingIntent: () => void;
+  dismissPendingIntent: () => void;
   sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
@@ -430,6 +488,7 @@ export function StoryAgentProvider({
   const artCandidatesMut = trpc.artAgent.generateCandidates.useMutation();
   const imageSignalMut = trpc.storyAgent.recordSignal.useMutation();
   const classifyMut = trpc.storyAgent.classify.useMutation();
+  const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
@@ -460,7 +519,17 @@ export function StoryAgentProvider({
   const [isArtWorking, setIsArtWorking] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [confirmedIntent, setConfirmedIntent] = useState<StoryIntent | null>(null);
+  const [pendingIntentDraft, setPendingIntentDraft] = useState<StoryIntent | null>(null);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+  const confirmedIntentRef = useRef<StoryIntent | null>(null);
+  const pendingIntentDraftRef = useRef<StoryIntent | null>(null);
+  useEffect(() => {
+    confirmedIntentRef.current = confirmedIntent;
+  }, [confirmedIntent]);
+  useEffect(() => {
+    pendingIntentDraftRef.current = pendingIntentDraft;
+  }, [pendingIntentDraft]);
   // 向上同步当前故事到共享真相源（U4）。仅同步"真实故事 id"（>0）；新故事草稿(-1)/无故事(null)
   // 对 Creation 侧无意义，归一为 null，让 Shot Table 落空状态而非查无效 id。
   useEffect(() => {
@@ -533,6 +602,8 @@ export function StoryAgentProvider({
     setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? 'default');
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
+    setConfirmedIntent(persisted.confirmedIntent ?? null);
+    setPendingIntentDraft(null);
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
     // 已保存过的故事（有 remoteStoryId）一律回到选择屏——它仍在云端列表里，随时可点回；
     // 只有「未存过的新草稿」(有内容但还没 remoteStoryId) 才直接恢复，否则它不在列表里、
@@ -571,6 +642,7 @@ export function StoryAgentProvider({
       mobileImages: storyImages,
       imageProvider,
       artDirection,
+      confirmedIntent,
       savedAt: Date.now(),
       activeStoryId: activeStoryId ?? undefined,
       serverRevision,
@@ -597,6 +669,7 @@ export function StoryAgentProvider({
     storyImages,
     imageProvider,
     artDirection,
+    confirmedIntent,
     activeStoryId,
     serverRevision,
   ]);
@@ -731,6 +804,7 @@ export function StoryAgentProvider({
               mobileImages: storyImagesRef.current,
               imageProvider: selectedProvider,
               artDirection: selectedArtDirection,
+              confirmedIntent: confirmedIntentRef.current,
               variants: latest?.variants ?? [],
               boringCheck: latest?.boringCheck ?? null,
               messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
@@ -857,10 +931,45 @@ export function StoryAgentProvider({
     saveArchiveStory,
   ]);
 
+  const recognizeJobIntentFromHistory = useCallback(
+    async (history: ChatMessage[]) => {
+      try {
+        const result = await recognizeIntentMut.mutateAsync({
+          history: history
+            .filter((message) => message.content.trim())
+            .map((message) => ({
+              role: message.role as 'user' | 'assistant',
+              content: message.content,
+            })),
+        });
+        const pending = recognitionToPendingJobIntent(result as StoryIntent);
+        if (!pending) return;
+        if (confirmedIntentRef.current || pendingIntentDraftRef.current) return;
+        setPendingIntentDraft(pending);
+      } catch (error) {
+        warnIntentRecognitionError(error);
+      }
+    },
+    [recognizeIntentMut],
+  );
+
   const sendMessage = useCallback(
     async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
+      const shouldRecognizeIntent = shouldTriggerIntentRecognition({
+        messages,
+        confirmedIntent,
+        pendingIntentDraft,
+      });
+      if (
+        confirmedIntent?.purpose === 'linkedin_job_search' &&
+        !confirmedIntent.jobMaterialsPrompted &&
+        confirmedIntent.targetRole !== undefined &&
+        confirmedIntent.channel !== undefined
+      ) {
+        setConfirmedIntent({ ...confirmedIntent, jobMaterialsPrompted: true });
+      }
 
       setIsReplying(true);
       // 用户重新开口，「我还记得上次」再问候已完成使命——收起，免得卡在新对话中间。
@@ -960,6 +1069,7 @@ export function StoryAgentProvider({
           similarCards: getSimilarCards(userContent, cards),
           projectId: projectId ?? undefined,
           photoUrl: photoUrlForLLM, // 传给 LLM 做多模态理解（data URL 最稳）
+          confirmedIntent: buildChatIntentPayload(confirmedIntent),
         }) as StoryAgentChatResult;
         let nextCards = cards;
         let spawnedCardId: string | undefined;
@@ -1010,6 +1120,9 @@ export function StoryAgentProvider({
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
+        if (shouldRecognizeIntent) {
+          void recognizeJobIntentFromHistory(nextMessages);
+        }
 
         await saveArchiveStory({
           messages: finalMessages,
@@ -1035,6 +1148,8 @@ export function StoryAgentProvider({
       projectId,
       isReplying,
       messages,
+      confirmedIntent,
+      pendingIntentDraft,
       cards,
       storyShots,
       scripts,
@@ -1049,6 +1164,7 @@ export function StoryAgentProvider({
       artDirection,
       saveArchiveStory,
       uploadPhotoMut,
+      recognizeJobIntentFromHistory,
     ],
   );
 
@@ -1261,6 +1377,7 @@ export function StoryAgentProvider({
     setIsGeneratingScript(true);
 
     try {
+      const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
       const result = await classifyMut.mutateAsync({
         cards: cards.map((card) => ({
           content: card.content,
@@ -1297,13 +1414,15 @@ export function StoryAgentProvider({
         })),
         projectId: projectId ?? undefined,
         // 意图确认关确认过的意图（缺省时与接入前完全一致）。
-        confirmedIntent: intent
+        confirmedIntent: effectiveIntent
           ? {
-              purpose: intent.purpose,
-              audience: intent.audience,
-              platform: intent.platform,
-              tone: intent.tone,
-              desiredEffect: intent.desiredEffect,
+              purpose: effectiveIntent.purpose,
+              audience: effectiveIntent.audience,
+              platform: effectiveIntent.platform,
+              tone: effectiveIntent.tone ?? '',
+              desiredEffect: effectiveIntent.desiredEffect ?? '',
+              targetRole: effectiveIntent.targetRole,
+              channel: effectiveIntent.channel,
             }
           : undefined,
       }) as StoryAgentClassifyResult;
@@ -1380,6 +1499,7 @@ export function StoryAgentProvider({
     cards,
     characters,
     classifyMut,
+    confirmedIntent,
     isGeneratingScript,
     messages,
     projectId,
@@ -1413,6 +1533,8 @@ export function StoryAgentProvider({
     serverRevisionRef.current = 0;
     setServerRevision(0);
     setReturningGreeting(null);
+    setConfirmedIntent(null);
+    setPendingIntentDraft(null);
     toast.success('已开始新故事，旧故事仍保留在云端故事库');
   }, []);
 
@@ -1477,6 +1599,8 @@ export function StoryAgentProvider({
     serverRevisionRef.current = 0;
     setServerRevision(0);
     setReturningGreeting(null);
+    setConfirmedIntent(null);
+    setPendingIntentDraft(null);
   }, []);
 
   const loadStory = useCallback(async (
@@ -1524,6 +1648,7 @@ export function StoryAgentProvider({
         : [];
       const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
       const restoredArtDirection = normalizeStoryArtDirection(body.artDirection);
+      const restoredConfirmedIntent = normalizeStoryIntent(body.confirmedIntent);
 
       setRemoteStoryId(id);
       setStoryTitle(row.title || undefined);
@@ -1547,6 +1672,8 @@ export function StoryAgentProvider({
       setStoryImages(restoredMobileImages);
       setImageProvider(restoredImageProvider);
       setArtDirection(restoredArtDirection);
+      setConfirmedIntent(restoredConfirmedIntent);
+      setPendingIntentDraft(null);
 
       const remoteScript = scriptFromStory({
         title: row.title || undefined,
@@ -1638,6 +1765,8 @@ export function StoryAgentProvider({
   const backToList = useCallback(() => {
     setActiveStoryId(null);
     setReturningGreeting(null);
+    setConfirmedIntent(null);
+    setPendingIntentDraft(null);
     refreshStoryList();
   }, [refreshStoryList]);
 
@@ -2366,6 +2495,19 @@ export function StoryAgentProvider({
     });
   }, []);
 
+  const clearIntent = useCallback(() => {
+    setConfirmedIntent(null);
+  }, []);
+
+  const confirmPendingIntent = useCallback(() => {
+    if (pendingIntentDraft) setConfirmedIntent(pendingIntentDraft);
+    setPendingIntentDraft(null);
+  }, [pendingIntentDraft]);
+
+  const dismissPendingIntent = useCallback(() => {
+    setPendingIntentDraft(null);
+  }, []);
+
   const value = useMemo<StoryAgentContextValue>(
     () => ({
       messages,
@@ -2376,6 +2518,12 @@ export function StoryAgentProvider({
       latestScript: scripts.length > 0 ? scripts[scripts.length - 1] : null,
       isReplying,
       isGeneratingScript,
+      confirmedIntent,
+      setConfirmedIntent,
+      clearIntent,
+      pendingIntentDraft,
+      confirmPendingIntent,
+      dismissPendingIntent,
       sendMessage,
       reorderCards,
       removeCard,
@@ -2434,6 +2582,11 @@ export function StoryAgentProvider({
       characters,
       isReplying,
       isGeneratingScript,
+      confirmedIntent,
+      clearIntent,
+      pendingIntentDraft,
+      confirmPendingIntent,
+      dismissPendingIntent,
       sendMessage,
       reorderCards,
       removeCard,

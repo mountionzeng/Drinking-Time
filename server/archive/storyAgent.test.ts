@@ -76,6 +76,12 @@ function makeAgentResponse(reply = '好的') {
   };
 }
 
+beforeEach(() => {
+  mockGetRecentAnnotations.mockReset();
+  mockInvokeLLM.mockReset();
+  mockInvokeLLM.mockResolvedValue(makeAgentResponse());
+});
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('storyAgent edit context injection (U6)', () => {
@@ -590,6 +596,11 @@ describe('storyAgent 收尾留线头 (U3：R10-R11)', () => {
 // 不抛错、不断对话）。确定性错误（鉴权 401 等）不重试，免得白白拖慢真实报错。
 // ─────────────────────────────────────────────────────────────────────────────
 describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', () => {
+  function isExtractionRequest(input: Parameters<typeof invokeLLM>[0]): boolean {
+    const systemContent = input.messages.find((m) => m.role === 'system')?.content;
+    return typeof systemContent === 'string' && systemContent.includes('后台分析器');
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     // 本块用到持久 mockRejectedValue，clearAllMocks 不会重置实现，显式重置避免泄漏到后续用例
@@ -597,25 +608,37 @@ describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', ()
   });
 
   it('临时失败（502）自动重试一次后成功，返回真实回复', async () => {
-    mockInvokeLLM
-      .mockRejectedValueOnce(new Error('LLM invoke failed: 502 Bad Gateway – upstream'))
-      .mockResolvedValueOnce(makeAgentResponse('我在，你接着说')) // 回话：重试后成功
-      .mockResolvedValueOnce(makeAgentResponse());               // 抽取调用（非致命，返回啥都行）
+    let replyAttempts = 0;
+    mockInvokeLLM.mockImplementation(async (input) => {
+      if (isExtractionRequest(input)) return makeAgentResponse();
+      replyAttempts += 1;
+      if (replyAttempts === 1) {
+        throw new Error('LLM invoke failed: 502 Bad Gateway – upstream');
+      }
+      return makeAgentResponse('我在，你接着说');
+    });
 
     const result = await replyFromStoryAgent({ message: '今天有点累' });
 
     // B 改造后一轮正常 = 两次调用；这里回话先 502 重试一次才成功，故共 3 次
     expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(1 失败 + 1 重试) + 抽取(1)
+    expect(replyAttempts).toBe(2);
     expect(result.configured).toBe(true);
     expect(result.reply).toBe('我在，你接着说');
   });
 
   it('重试后仍失败 → 优雅兜底，不抛错、不断对话', async () => {
-    mockInvokeLLM.mockRejectedValue(new Error('LLM invoke failed: 503 Service Unavailable'));
+    let replyAttempts = 0;
+    mockInvokeLLM.mockImplementation(async (input) => {
+      if (isExtractionRequest(input)) return makeAgentResponse();
+      replyAttempts += 1;
+      throw new Error('LLM invoke failed: 503 Service Unavailable');
+    });
 
     const result = await replyFromStoryAgent({ message: '今天有点累' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 1 次 + 1 次重试
+    expect(replyAttempts).toBe(2); // 1 次 + 1 次重试
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(2) + 并行抽取(1)
     // configured 必须是 true：若返回 false 前端会误弹「接口还没配置模型 API」
     expect(result.configured).toBe(true);
     expect(result.modelLabel).toBe('请求失败');
@@ -624,11 +647,17 @@ describe('storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)', ()
   });
 
   it('确定性错误（鉴权 401）不重试，直接优雅兜底', async () => {
-    mockInvokeLLM.mockRejectedValue(new Error('LLM invoke failed: 401 Unauthorized – bad key'));
+    let replyAttempts = 0;
+    mockInvokeLLM.mockImplementation(async (input) => {
+      if (isExtractionRequest(input)) return makeAgentResponse();
+      replyAttempts += 1;
+      throw new Error('LLM invoke failed: 401 Unauthorized – bad key');
+    });
 
     const result = await replyFromStoryAgent({ message: '今天有点累' });
 
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(1); // 401 不重试
+    expect(replyAttempts).toBe(1); // 401 不重试
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
     expect(result.configured).toBe(true);
     expect(result.reply).toContain('没接住');
   });
@@ -723,6 +752,76 @@ describe('storyAgent B 改造 · 回话/出卡解耦 (两次调用)', () => {
     // 抽取那步是无人设后台分析器
     expect(extractionSystem).toContain('后台分析器');
     expect(extractionSystem).toContain('不扮演任何人设');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 求职意图进入聊天链路：用户确认「求职」后，storyAgent.chat 必须换成求职专家任务，
+// 并把 JD / 简历 / 项目证据作为可持续出卡的素材，而不是继续按普通情绪小事陪聊。
+// 这组回归测试覆盖测试 #21 暴露的问题：小酌不接简历、聊很久仍没推进求职任务、
+// 5 张卡后求职信息不再沉淀。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('storyAgent 求职意图聊天触发', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvokeLLM.mockReset();
+  });
+
+  it('把 confirmed job intent 注入回话 prompt，并优先接住目标岗位/JD/简历', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse('可以，把简历贴给我看看。'))
+      .mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '或许我可以把我的简历给你看看',
+      existingCardCount: 5,
+      confirmedIntent: {
+        purpose: 'linkedin_job_search',
+        audience: 'recruiters',
+        platform: 'linkedin',
+        targetRole: '产品经理',
+        channel: 'linkedin',
+      },
+    });
+
+    const replySystem = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+
+    expect(replySystem).toContain('求职影片顾问');
+    expect(replySystem).toContain('目标职位或目标方向');
+    expect(replySystem).toContain('如果有 JD，建议他贴出来');
+    expect(replySystem).toContain('必须接住并请他贴简历');
+    expect(replySystem).toContain('招聘者为什么相信你');
+    expect(replySystem).toContain('已知目标岗位/方向：产品经理');
+    expect(replySystem).toContain('不要把 4-5 张卡当成上限');
+  });
+
+  it('求职模式的后台抽取把简历/JD/项目证据当作 card 素材', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse('可以，把简历贴给我看看。'))
+      .mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '或许我可以把我的简历给你看看',
+      confirmedIntent: {
+        purpose: 'linkedin_job_search',
+        audience: 'recruiters',
+        platform: 'linkedin',
+      },
+    });
+
+    const extractionSystem = mockInvokeLLM.mock.calls[1][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+    const extractionPayload = JSON.stringify(mockInvokeLLM.mock.calls[1][0].messages);
+
+    expect(extractionSystem).toContain('当前是求职片模式');
+    expect(extractionSystem).toContain('职位描述、JD 要求、简历内容');
+    expect(extractionSystem).toContain('项目事实、量化成果');
+    expect(extractionSystem).toContain('card 就不要为 null');
+    expect(extractionSystem).toContain('招聘者视角');
+    expect(extractionPayload).not.toContain('可以，把简历贴给我看看。');
   });
 });
 

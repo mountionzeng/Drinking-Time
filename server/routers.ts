@@ -93,6 +93,40 @@ import {
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
+export type ConfirmedScriptIntent = {
+  purpose: string;
+  audience: string;
+  platform: string;
+  tone?: string | null;
+  desiredEffect?: string | null;
+  targetRole?: string | null;
+  channel?: string | null;
+};
+
+function cleanIntentText(value: string | null | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function buildConfirmedIntentLine(
+  confirmedIntent: ConfirmedScriptIntent | null | undefined,
+): string {
+  if (!confirmedIntent) return "";
+
+  const desiredEffect = cleanIntentText(confirmedIntent.desiredEffect);
+  const targetRole = cleanIntentText(confirmedIntent.targetRole);
+  const channel = cleanIntentText(confirmedIntent.channel);
+  const jobDetails =
+    confirmedIntent.purpose === "linkedin_job_search" && (targetRole || channel)
+      ? [
+          targetRole ? `目标岗位=${targetRole}` : "",
+          channel ? `投放=${channel}` : "",
+          `剧本优先服务${targetRole ? "这个岗位的竞争力" : "求职竞争力"}与${channel ? "该平台的时长/正式度" : "招聘者的阅读效率"}`,
+        ].filter(Boolean)
+      : [];
+
+  return `【用户已确认意图】用途=${confirmedIntent.purpose}；给谁看=${confirmedIntent.audience}；平台=${confirmedIntent.platform}；调性=${cleanIntentText(confirmedIntent.tone)}${desiredEffect ? `；想要的效果=${desiredEffect}` : ""}${jobDetails.length ? `；${jobDetails.join("；")}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`;
+}
+
 function mobileShotNo(value: string | null): number | undefined {
   if (!value) return undefined;
   const match = /^(?:SH)?0*(\d+)$/i.exec(value.trim());
@@ -1047,6 +1081,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             .optional(),
           projectId: z.number().optional(),
           photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
+          confirmedIntent: z
+            .object({
+              purpose: z.string(),
+              audience: z.string().optional(),
+              platform: z.string().optional(),
+              tone: z.string().optional(),
+              desiredEffect: z.string().optional(),
+              targetRole: z.string().optional(),
+              channel: z.string().optional(),
+            })
+            .nullish(),
         })
       )
       .mutation(async ({ input }) => {
@@ -1061,6 +1106,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             | undefined,
           projectId: input.projectId,
           photoUrl: input.photoUrl,
+          confirmedIntent: input.confirmedIntent ?? undefined,
         });
       }),
 
@@ -1142,6 +1188,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               platform: z.string(),
               tone: z.string(),
               desiredEffect: z.string(),
+              targetRole: z.string().nullish(),
+              channel: z.string().nullish(),
             })
             .nullish(),
         })
@@ -1157,9 +1205,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               )
             : "";
         // 用户已确认的意图最高优先级，置顶进剧本上下文，让剧本严格贴合"给谁看/为什么拍/调性"。
-        const confirmedIntentLine = input.confirmedIntent
-          ? `【用户已确认意图】用途=${input.confirmedIntent.purpose}；给谁看=${input.confirmedIntent.audience}；平台=${input.confirmedIntent.platform}；调性=${input.confirmedIntent.tone}${input.confirmedIntent.desiredEffect ? `；想要的效果=${input.confirmedIntent.desiredEffect}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`
-          : "";
+        const confirmedIntentLine = buildConfirmedIntentLine(input.confirmedIntent);
         const scriptContext = [confirmedIntentLine, resonanceContext]
           .filter(Boolean)
           .join("\n\n");

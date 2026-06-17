@@ -6,18 +6,22 @@
  */
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud } from 'lucide-react';
+import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud, Check } from 'lucide-react';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useNayin } from '@/features/nayin/NayinContext';
 import EmotiveWuxingIcon from '@/features/nayin/views/EmotiveWuxingIcon';
 import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
 import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 import StoryArtDirectionLauncher from './StoryArtDirectionLauncher';
+import StoryCapabilityMenu, { shouldShowCapabilityMenu } from './StoryCapabilityMenu';
+import StoryJobIntakePrompt, { getJobIntakeStep } from './StoryJobIntakePrompt';
 
 export default function StoryAgentChat() {
   const {
     messages, cards, isReplying, sendMessage, resetConversation, backToList,
     activeStoryId, remoteStoryId, saveStatus, lastSavedAt, returningGreeting,
+    confirmedIntent,
+    pendingIntentDraft, confirmPendingIntent, dismissPendingIntent,
     activeSelection, clearSelection, sendSelectionEdit,
   } = useStoryAgent();
   const { element } = useNayin();
@@ -67,6 +71,14 @@ export default function StoryAgentChat() {
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
+  const showCapabilityMenu = shouldShowCapabilityMenu({
+    messages,
+    confirmedIntent,
+    returningGreeting,
+    isReplying,
+  });
+  const jobIntakeStep = getJobIntakeStep(confirmedIntent);
+  const showJobIntake = jobIntakeStep !== 'none' && jobIntakeStep !== 'done' && !isReplying;
 
   // 选择照片
   const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
@@ -100,7 +112,7 @@ export default function StoryAgentChat() {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [messages, isReplying, returningGreeting]);
+  }, [messages, isReplying, returningGreeting, showCapabilityMenu, showJobIntake, pendingIntentDraft]);
 
   const handleSubmit = async () => {
     const text = input.trim();
@@ -265,6 +277,59 @@ export default function StoryAgentChat() {
             </motion.div>
           ))}
         </AnimatePresence>
+
+        {showCapabilityMenu && <StoryCapabilityMenu />}
+        {showJobIntake && <StoryJobIntakePrompt />}
+
+        {pendingIntentDraft && !isReplying && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex justify-start"
+          >
+            <div
+              className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[12.5px] leading-relaxed"
+              style={{
+                background: 'var(--nayin-glow)',
+                borderColor: 'var(--nayin-accent-dim)',
+                color: 'var(--foreground)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <EmotiveWuxingIcon element={element} size={26} mood="thinking" />
+                <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
+                  小酌
+                </span>
+              </div>
+              <p className="whitespace-pre-wrap">
+                听起来你是想做求职片，给招聘者看，对吗？
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={confirmPendingIntent}
+                  className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-90"
+                  style={{
+                    background: 'var(--nayin-accent)',
+                    color: 'var(--background)',
+                  }}
+                >
+                  <Check className="h-3 w-3" />
+                  对，按求职片来
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissPendingIntent}
+                  className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  style={{ borderColor: 'var(--panel-border)' }}
+                >
+                  <X className="h-3 w-3" />
+                  先不，继续聊
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         {/* 第二步：老用户点回旧故事时，小酌「我还记得上次……」的再问候。
             轻染色背景 + 「接着上次聊」分隔线，读起来是「小酌此刻刚说的」，区别于上面恢复的历史。
