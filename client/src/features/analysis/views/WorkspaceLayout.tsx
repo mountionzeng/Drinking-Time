@@ -17,11 +17,23 @@ import TemplateDraft from './TemplateDraft';
 import StoryCardsBoard from '@/features/storyAgent/views/StoryCardsBoard';
 import PromptDistill from './PromptDistill';
 import ScriptViewer from '@/features/storyAgent/views/ScriptViewer';
+import { CreationEditorProvider } from '@/features/creationEditor/CreationEditorContext';
+import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
+import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
 import type { AnalysisData } from '@/features/analysis/types';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
 
 export type InputTab = 'material' | 'story';
+
+type StoryPanel = 'storyCards' | 'script' | 'animatic' | 'promptTable';
+
+const STORY_PANELS: Array<{ id: StoryPanel; label: string }> = [
+  { id: 'storyCards', label: 'Story Cards' },
+  { id: 'script', label: 'Script' },
+  { id: 'animatic', label: '动态分镜' },
+  { id: 'promptTable', label: '提示词表' },
+];
 
 interface WorkspaceLayoutProps {
   activeInputTab: InputTab;
@@ -60,11 +72,59 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [centerCollapsed, setCenterCollapsed] = useState(false);
+  const [visibleStoryPanels, setVisibleStoryPanels] = useState<StoryPanel[]>([]);
   const { activeStoryId, setActiveSelection } = useStoryAgent();
   useSelectionCapture(setActiveSelection);
+  const storyCardsVisible = visibleStoryPanels.includes('storyCards');
+  const scriptVisible = visibleStoryPanels.includes('script');
+  const animaticVisible = visibleStoryPanels.includes('animatic');
+  const promptTableVisible = visibleStoryPanels.includes('promptTable');
+  const hasCenterStoryPanel = storyCardsVisible || animaticVisible;
 
-  return (
-    <div className="flex-1 min-h-0">
+  const toggleStoryPanel = (panelId: StoryPanel) => {
+    setVisibleStoryPanels((current) =>
+      current.includes(panelId)
+        ? current.filter((id) => id !== panelId)
+        : [...current, panelId],
+    );
+  };
+
+  const storyPanelButtons = (
+    <div
+      className="grid grid-cols-4 gap-1 border-b p-1.5"
+      style={{ borderColor: 'var(--nayin-border)' }}
+      aria-label="故事面板切换"
+    >
+      {STORY_PANELS.map((panel) => {
+        const active = visibleStoryPanels.includes(panel.id);
+        return (
+          <button
+            key={panel.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => toggleStoryPanel(panel.id)}
+            className={`min-h-[32px] rounded-sm px-2 text-[11px] font-mono transition-colors ${
+              active
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground/80'
+            }`}
+            style={
+              active
+                ? {
+                    background: 'var(--nayin-surface)',
+                    boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
+                  }
+                : undefined
+            }
+          >
+            {panel.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const workspace = (
       <ResizablePanelGroup direction="horizontal" className="h-full">
         {/* Left Panel: Input */}
         <ResizablePanel
@@ -167,7 +227,25 @@ export default function WorkspaceLayout({
                 isAnalyzing={isAnalyzing}
               />
             ) : (
-              <StoryCardsBoard />
+              <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                {storyPanelButtons}
+                <div className="min-h-0 flex-1 overflow-auto p-2">
+                  {hasCenterStoryPanel ? (
+                    <div className="flex min-h-full flex-col gap-2">
+                      {storyCardsVisible ? (
+                        <div className="min-h-[280px] flex-1 overflow-hidden">
+                          <StoryCardsBoard />
+                        </div>
+                      ) : null}
+                      {animaticVisible ? (
+                        <div className="min-h-[280px] flex-1 overflow-hidden">
+                          <AnimaticPanel />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             )}
           </div>
         </ResizablePanel>
@@ -183,11 +261,33 @@ export default function WorkspaceLayout({
                 analysis={analysis}
               />
             ) : (
-              <ScriptViewer projectId={projectId} />
+              <div className="flex min-h-full flex-col gap-2">
+                {scriptVisible ? (
+                  <div className="min-h-[280px] flex-1 overflow-auto">
+                    <ScriptViewer projectId={projectId} />
+                  </div>
+                ) : null}
+                {promptTableVisible ? (
+                  <div className="min-h-[280px] flex-1 overflow-hidden">
+                    <PromptTablePanel />
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+  );
+
+  return (
+    <div className="flex-1 min-h-0">
+      {activeInputTab === 'story' ? (
+        <CreationEditorProvider activeStoryId={activeStoryId}>
+          {workspace}
+        </CreationEditorProvider>
+      ) : (
+        workspace
+      )}
     </div>
   );
 }

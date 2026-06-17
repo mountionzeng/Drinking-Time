@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -205,8 +206,16 @@ export function selectInitialShotNo(
   return shots[0]?.shotNo ?? null;
 }
 
-export function CreationEditorProvider({ children }: PropsWithChildren) {
-  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
+type CreationEditorProviderProps = PropsWithChildren<{
+  activeStoryId?: number | null;
+}>;
+
+export function CreationEditorProvider({
+  children,
+  activeStoryId: controlledActiveStoryId,
+}: CreationEditorProviderProps) {
+  const isControlled = controlledActiveStoryId !== undefined;
+  const [localActiveStoryId, setLocalActiveStoryId] = useState<number | null>(null);
   const [selectedShotNo, setSelectedShotNo] = useState<number | null>(null);
   const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(null);
   const [rerenderError, setRerenderError] = useState<string | null>(null);
@@ -217,7 +226,9 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
   });
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
-  const activeId = activeStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
+  const activeId = isControlled
+    ? controlledActiveStoryId
+    : localActiveStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
   const storyQuery = trpc.storyAgent.storyGet.useQuery(
     { id: activeId ?? 0 },
     {
@@ -234,10 +245,17 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
   );
 
   useEffect(() => {
-    if (activeStoryId != null) return;
+    if (isControlled || localActiveStoryId != null) return;
     const firstId = storyListQuery.data?.stories?.[0]?.id;
-    if (typeof firstId === 'number') setActiveStoryId(firstId);
-  }, [activeStoryId, storyListQuery.data?.stories]);
+    if (typeof firstId === 'number') setLocalActiveStoryId(firstId);
+  }, [isControlled, localActiveStoryId, storyListQuery.data?.stories]);
+
+  const setActiveStoryId = useCallback(
+    (storyId: number | null) => {
+      if (!isControlled) setLocalActiveStoryId(storyId);
+    },
+    [isControlled],
+  );
 
   const stories = useMemo<CreationEditorStory[]>(
     () =>
@@ -370,6 +388,7 @@ export function CreationEditorProvider({ children }: PropsWithChildren) {
       error,
       selectedShot,
       selectedShotNo,
+      setActiveStoryId,
       rerenderError,
       rerenderingShotNo,
       shots,
