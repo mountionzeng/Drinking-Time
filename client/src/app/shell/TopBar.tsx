@@ -59,7 +59,7 @@ export default function TopBar({
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-[500px] max-w-[calc(100vw-24px)] p-0"
+                className="w-[250px] max-w-[calc(100vw-24px)] p-0"
                 style={{ background: 'var(--panel-bg)', border: '1px solid var(--nayin-border)' }}
               >
                 <div className="p-3 border-b" style={{ borderColor: 'var(--nayin-border)' }}>

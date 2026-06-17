@@ -35,7 +35,13 @@ vi.mock('@/_core/hooks/useAuth', () => ({
 
 vi.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  PopoverContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PopoverContent: ({
+    children,
+    className,
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => <div className={className}>{children}</div>,
   PopoverTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -49,6 +55,7 @@ describe('TopBar story panel controls', () => {
     );
 
     expect(html).toContain('aria-label="纳音五行"');
+    expect(html).toContain('w-[250px]');
     expect(html).toContain('Nayin Five Elements / 纳音五行');
     expect(html).toContain('Story Cards');
     expect(html).toContain('Script');
