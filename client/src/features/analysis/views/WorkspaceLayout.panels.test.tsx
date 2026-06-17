@@ -52,6 +52,7 @@ function baseProps() {
   return {
     activeInputTab: 'story' as const,
     onTabChange: vi.fn(),
+    visibleStoryPanels: [],
     projectId: 1,
     onAnalysisComplete: vi.fn(),
     onRunAnalysis: vi.fn(),
@@ -65,16 +66,26 @@ function baseProps() {
 }
 
 describe('WorkspaceLayout story panel buttons', () => {
-  it('renders the four panel buttons while keeping panels hidden by default', () => {
+  it('keeps story panels hidden by default', () => {
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
-    expect(html).toContain('Story Cards');
-    expect(html).toContain('Script');
-    expect(html).toContain('动态分镜');
-    expect(html).toContain('提示词表');
     expect(html).not.toContain('data-panel="story-cards"');
     expect(html).not.toContain('data-panel="script"');
     expect(html).not.toContain('data-panel="animatic"');
     expect(html).not.toContain('data-panel="prompt-table"');
+  });
+
+  it('can render multiple story panels at the same time', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceLayout
+        {...baseProps()}
+        visibleStoryPanels={['storyCards', 'script', 'animatic', 'promptTable']}
+      />,
+    );
+
+    expect(html).toContain('data-panel="story-cards"');
+    expect(html).toContain('data-panel="script"');
+    expect(html).toContain('data-panel="animatic"');
+    expect(html).toContain('data-panel="prompt-table"');
   });
 });

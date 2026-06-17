@@ -14,6 +14,7 @@ import WorkspaceLayout from "./WorkspaceLayout";
 import type { InputTab } from "./WorkspaceLayout";
 import type { useAnalysisOrchestration } from "@/features/analysis/hooks/useAnalysisOrchestration";
 import type { useProjectData } from "@/features/analysis/hooks/useProjectData";
+import type { StoryPanel } from "@/features/analysis/storyPanels";
 
 type AnalysisReturn = ReturnType<typeof useAnalysisOrchestration>;
 type ProjectReturn = ReturnType<typeof useProjectData>;
@@ -23,6 +24,7 @@ interface Props {
   currentProjectId: ProjectReturn["currentProjectId"];
   activeInputTab: InputTab;
   setActiveInputTab: (tab: InputTab) => void;
+  visibleStoryPanels: StoryPanel[];
   workspaceStageSticky: boolean;
   setWorkspaceStageSticky: (sticky: boolean) => void;
   analysisActive: AnalysisReturn["analysisActive"];
@@ -124,6 +126,7 @@ export default function WorkspaceStageRouter(props: Props) {
     <WorkspaceLayout
       activeInputTab={props.activeInputTab}
       onTabChange={props.setActiveInputTab}
+      visibleStoryPanels={props.visibleStoryPanels}
       projectId={props.currentProjectId}
       onAnalysisComplete={props.handleAnalysisComplete}
       onRunAnalysis={props.handleRunAnalysis}

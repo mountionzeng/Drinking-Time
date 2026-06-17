@@ -1,9 +1,10 @@
 /**
  * TopBar — Simplified top navigation
- * Shows: project name/switcher, nayin theme button, user avatar
+ * Shows: story panel toggles, nayin theme button, user avatar
  */
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
+import { STORY_PANELS, type StoryPanel } from '@/features/analysis/storyPanels';
 import { useState } from 'react';
 import {
   Popover,
@@ -13,22 +14,18 @@ import {
 import { useAuth } from '@/_core/hooks/useAuth';
 
 interface TopBarProps {
-  projects: Array<{ id: number; name: string }>;
-  currentProjectId: number | null;
-  onSelectProject: (id: number) => void;
+  visibleStoryPanels: StoryPanel[];
+  onToggleStoryPanel: (panelId: StoryPanel) => void;
 }
 
 export default function TopBar({
-  projects,
-  currentProjectId,
-  onSelectProject,
+  visibleStoryPanels,
+  onToggleStoryPanel,
 }: TopBarProps) {
   const { theme, allThemes, setPreviewElement, previewElement, element, today } = useNayin();
   const { user, logout } = useAuth();
   const [themeOpen, setThemeOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-
-  const currentProject = projects.find((p) => p.id === currentProjectId);
 
   return (
     <div className="sticky top-0 z-50 backdrop-blur-md">
@@ -45,27 +42,37 @@ export default function TopBar({
         }}
       >
         <div className="flex items-center justify-between gap-4">
-          {/* Left: Project name/switcher */}
-          <div className="flex items-center gap-3 min-w-0">
-            <WuxingDrinkIcon element={element} size={36} />
-            <div className="text-sm font-semibold tracking-[0.12em] text-foreground truncate">
-              {currentProject?.name ?? 'DRINKING TIME'}
-            </div>
-            {projects.length > 1 && (
-              <select
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded border bg-transparent text-muted-foreground"
-                style={{ borderColor: 'var(--nayin-border)' }}
-                value={currentProjectId ?? ''}
-                onChange={(e) => onSelectProject(Number(e.target.value))}
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+          <nav
+            aria-label="故事面板切换"
+            className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
+          >
+            {STORY_PANELS.map((panel) => {
+              const active = visibleStoryPanels.includes(panel.id);
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onToggleStoryPanel(panel.id)}
+                  className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                    active
+                      ? 'text-foreground'
+                      : 'text-muted-foreground hover:text-foreground/80'
+                  }`}
+                  style={
+                    active
+                      ? {
+                          background: 'var(--nayin-surface)',
+                          boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
+                        }
+                      : undefined
+                  }
+                >
+                  {panel.label}
+                </button>
+              );
+            })}
+          </nav>
 
           {/* Right: nayin + avatar */}
           <div className="flex items-center gap-2">

@@ -23,21 +23,14 @@ import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
 import type { AnalysisData } from '@/features/analysis/types';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
 import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
+import type { StoryPanel } from '@/features/analysis/storyPanels';
 
 export type InputTab = 'material' | 'story';
-
-type StoryPanel = 'storyCards' | 'script' | 'animatic' | 'promptTable';
-
-const STORY_PANELS: Array<{ id: StoryPanel; label: string }> = [
-  { id: 'storyCards', label: 'Story Cards' },
-  { id: 'script', label: 'Script' },
-  { id: 'animatic', label: '动态分镜' },
-  { id: 'promptTable', label: '提示词表' },
-];
 
 interface WorkspaceLayoutProps {
   activeInputTab: InputTab;
   onTabChange: (tab: InputTab) => void;
+  visibleStoryPanels: StoryPanel[];
   /** DropZone props */
   projectId: number | null;
   onAnalysisComplete: () => void;
@@ -60,6 +53,7 @@ interface WorkspaceLayoutProps {
 export default function WorkspaceLayout({
   activeInputTab,
   onTabChange,
+  visibleStoryPanels,
   projectId,
   onAnalysisComplete,
   onRunAnalysis,
@@ -72,7 +66,6 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [centerCollapsed, setCenterCollapsed] = useState(false);
-  const [visibleStoryPanels, setVisibleStoryPanels] = useState<StoryPanel[]>([]);
   const { activeStoryId, setActiveSelection } = useStoryAgent();
   useSelectionCapture(setActiveSelection);
   const storyCardsVisible = visibleStoryPanels.includes('storyCards');
@@ -80,49 +73,6 @@ export default function WorkspaceLayout({
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
   const hasCenterStoryPanel = storyCardsVisible || animaticVisible;
-
-  const toggleStoryPanel = (panelId: StoryPanel) => {
-    setVisibleStoryPanels((current) =>
-      current.includes(panelId)
-        ? current.filter((id) => id !== panelId)
-        : [...current, panelId],
-    );
-  };
-
-  const storyPanelButtons = (
-    <div
-      className="grid grid-cols-4 gap-1 border-b p-1.5"
-      style={{ borderColor: 'var(--nayin-border)' }}
-      aria-label="故事面板切换"
-    >
-      {STORY_PANELS.map((panel) => {
-        const active = visibleStoryPanels.includes(panel.id);
-        return (
-          <button
-            key={panel.id}
-            type="button"
-            aria-pressed={active}
-            onClick={() => toggleStoryPanel(panel.id)}
-            className={`min-h-[32px] rounded-sm px-2 text-[11px] font-mono transition-colors ${
-              active
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
-            }`}
-            style={
-              active
-                ? {
-                    background: 'var(--nayin-surface)',
-                    boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
-                  }
-                : undefined
-            }
-          >
-            {panel.label}
-          </button>
-        );
-      })}
-    </div>
-  );
 
   const workspace = (
       <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -228,7 +178,6 @@ export default function WorkspaceLayout({
               />
             ) : (
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                {storyPanelButtons}
                 <div className="min-h-0 flex-1 overflow-auto p-2">
                   {hasCenterStoryPanel ? (
                     <div className="flex min-h-full flex-col gap-2">

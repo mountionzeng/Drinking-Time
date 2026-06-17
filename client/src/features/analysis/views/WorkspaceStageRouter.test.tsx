@@ -46,6 +46,7 @@ function baseProps(): any {
     currentProjectId: 1,
     activeInputTab: "story" as const,
     setActiveInputTab: vi.fn(),
+    visibleStoryPanels: [],
     workspaceStageSticky: false,
     setWorkspaceStageSticky: vi.fn(),
     analysisActive: false,
