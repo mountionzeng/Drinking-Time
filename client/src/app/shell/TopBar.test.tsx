@@ -33,6 +33,13 @@ vi.mock('@/_core/hooks/useAuth', () => ({
   }),
 }));
 
+vi.mock('@/features/storyAgent/spine/selectors', () => ({
+  useStoryPanelVisibility: () => ({
+    visibleStoryPanels: ['storyCards'],
+    toggleVisibleStoryPanel: vi.fn(),
+  }),
+}));
+
 vi.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   PopoverContent: ({
@@ -47,12 +54,7 @@ vi.mock('@/components/ui/popover', () => ({
 
 describe('TopBar story panel controls', () => {
   it('uses the left top area for the four story panel buttons', () => {
-    const html = renderToStaticMarkup(
-      <TopBar
-        visibleStoryPanels={['storyCards']}
-        onToggleStoryPanel={vi.fn()}
-      />,
-    );
+    const html = renderToStaticMarkup(<TopBar />);
 
     expect(html).toContain('aria-label="纳音五行"');
     expect(html).toContain('w-[250px]');

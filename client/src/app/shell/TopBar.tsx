@@ -4,7 +4,8 @@
  */
 import { useNayin } from '@/features/nayin/NayinContext';
 import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
-import { STORY_PANELS, type StoryPanel } from '@/features/analysis/storyPanels';
+import { STORY_PANELS } from '@/features/analysis/storyPanels';
+import { useStoryPanelVisibility } from '@/features/storyAgent/spine/selectors';
 import { useState } from 'react';
 import {
   Popover,
@@ -14,16 +15,13 @@ import {
 import { useAuth } from '@/_core/hooks/useAuth';
 
 interface TopBarProps {
-  visibleStoryPanels: StoryPanel[];
-  onToggleStoryPanel: (panelId: StoryPanel) => void;
+  onStoryPanelToggle?: () => void;
 }
 
-export default function TopBar({
-  visibleStoryPanels,
-  onToggleStoryPanel,
-}: TopBarProps) {
+export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
   const { allThemes, setPreviewElement, previewElement, element, today } = useNayin();
   const { user, logout } = useAuth();
+  const { visibleStoryPanels, toggleVisibleStoryPanel } = useStoryPanelVisibility();
   const [themeOpen, setThemeOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
 
@@ -135,7 +133,10 @@ export default function TopBar({
                     key={panel.id}
                     type="button"
                     aria-pressed={active}
-                    onClick={() => onToggleStoryPanel(panel.id)}
+                    onClick={() => {
+                      onStoryPanelToggle?.();
+                      toggleVisibleStoryPanel(panel.id);
+                    }}
                     className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
                       active
                         ? 'text-foreground'

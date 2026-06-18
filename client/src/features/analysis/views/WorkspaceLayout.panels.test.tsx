@@ -5,6 +5,11 @@ import WorkspaceLayout from './WorkspaceLayout';
 
 vi.stubGlobal('React', React);
 
+const storyPanelState = vi.hoisted(() => ({
+  activeStoryId: 21 as number | null,
+  visibleStoryPanels: [] as string[],
+}));
+
 vi.mock('@/components/ui/resizable', () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="panel-group">{children}</div>
@@ -22,7 +27,8 @@ vi.mock('@/features/storyAgent/StoryAgentContext', () => ({
 }));
 
 vi.mock('@/features/storyAgent/spine/selectors', () => ({
-  useActiveStoryId: () => 21,
+  useActiveStoryId: () => storyPanelState.activeStoryId,
+  useVisibleStoryPanels: () => storyPanelState.visibleStoryPanels,
 }));
 
 vi.mock('@/features/storyAgent/hooks/useSelectionCapture', () => ({
@@ -55,7 +61,6 @@ function baseProps() {
   return {
     activeInputTab: 'story' as const,
     onTabChange: vi.fn(),
-    visibleStoryPanels: [],
     projectId: 1,
     onAnalysisComplete: vi.fn(),
     onRunAnalysis: vi.fn(),
@@ -70,6 +75,7 @@ function baseProps() {
 
 describe('WorkspaceLayout story panel buttons', () => {
   it('keeps story panels hidden by default', () => {
+    storyPanelState.visibleStoryPanels = [];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).not.toContain('data-panel="story-cards"');
@@ -79,12 +85,8 @@ describe('WorkspaceLayout story panel buttons', () => {
   });
 
   it('can render multiple story panels at the same time', () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceLayout
-        {...baseProps()}
-        visibleStoryPanels={['storyCards', 'script', 'animatic', 'promptTable']}
-      />,
-    );
+    storyPanelState.visibleStoryPanels = ['storyCards', 'script', 'animatic', 'promptTable'];
+    const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).toContain('data-panel="story-cards"');
     expect(html).toContain('data-panel="script"');

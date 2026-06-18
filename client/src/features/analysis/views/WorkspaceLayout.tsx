@@ -4,7 +4,6 @@
  * Center: TemplateDraft / StoryCardsBoard (follows active tab)
  * Right: ShotTable + PromptDistill / ScriptViewer
  */
-import { useState } from 'react';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -22,16 +21,14 @@ import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
 import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
 import type { AnalysisData } from '@/features/analysis/types';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
-import { useActiveStoryId } from '@/features/storyAgent/spine/selectors';
+import { useActiveStoryId, useVisibleStoryPanels } from '@/features/storyAgent/spine/selectors';
 import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
-import type { StoryPanel } from '@/features/analysis/storyPanels';
 
 export type InputTab = 'material' | 'story';
 
 interface WorkspaceLayoutProps {
   activeInputTab: InputTab;
   onTabChange: (tab: InputTab) => void;
-  visibleStoryPanels: StoryPanel[];
   /** DropZone props */
   projectId: number | null;
   onAnalysisComplete: () => void;
@@ -54,7 +51,6 @@ interface WorkspaceLayoutProps {
 export default function WorkspaceLayout({
   activeInputTab,
   onTabChange,
-  visibleStoryPanels,
   projectId,
   onAnalysisComplete,
   onRunAnalysis,
@@ -65,9 +61,8 @@ export default function WorkspaceLayout({
   analysis,
   refsCount,
 }: WorkspaceLayoutProps) {
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [centerCollapsed, setCenterCollapsed] = useState(false);
   const activeStoryId = useActiveStoryId();
+  const visibleStoryPanels = useVisibleStoryPanels();
   const { setActiveSelection } = useStoryAgentActions();
   useSelectionCapture(setActiveSelection);
   const storyCardsVisible = visibleStoryPanels.includes('storyCards');
@@ -84,8 +79,6 @@ export default function WorkspaceLayout({
           minSize={15}
           collapsible
           collapsedSize={0}
-          onCollapse={() => setLeftCollapsed(true)}
-          onExpand={() => setLeftCollapsed(false)}
         >
           <div className="h-full flex flex-col overflow-hidden">
             {/* Tab header */}
@@ -166,8 +159,6 @@ export default function WorkspaceLayout({
           minSize={18}
           collapsible
           collapsedSize={0}
-          onCollapse={() => setCenterCollapsed(true)}
-          onExpand={() => setCenterCollapsed(false)}
         >
           <div className="h-full overflow-auto">
             {activeInputTab === 'material' ? (

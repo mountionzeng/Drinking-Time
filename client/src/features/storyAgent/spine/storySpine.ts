@@ -11,6 +11,7 @@ import type {
 import type { ImageProviderSelection } from '../storyAgentImageProvider';
 import type { StoryIntent } from '../intentTypes';
 import { emptyStoryArtDirection, type StoryArtDirection } from '@shared/artDirection';
+import type { StoryPanel } from '@/features/analysis/storyPanels';
 
 export type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -48,6 +49,7 @@ type StorySpineData = {
   confirmedIntent: StoryIntent | null;
   pendingIntentDraft: StoryIntent | null;
   activeStoryId: number | null;
+  visibleStoryPanels: StoryPanel[];
   saveStatus: StorySaveStatus;
   lastSavedAt?: number;
   serverRevision: number;
@@ -85,6 +87,8 @@ type StorySpineActions = {
   setConfirmedIntent: StorySpineSetter<StoryIntent | null>;
   setPendingIntentDraft: StorySpineSetter<StoryIntent | null>;
   setActiveStoryId: StorySpineSetter<number | null>;
+  setVisibleStoryPanels: StorySpineSetter<StoryPanel[]>;
+  toggleVisibleStoryPanel: (panelId: StoryPanel) => void;
   setSaveStatus: StorySpineSetter<StorySaveStatus>;
   setLastSavedAt: StorySpineSetter<number | undefined>;
   setServerRevision: StorySpineSetter<number>;
@@ -129,6 +133,7 @@ function initialData(): StorySpineData {
     confirmedIntent: null,
     pendingIntentDraft: null,
     activeStoryId: null,
+    visibleStoryPanels: [],
     saveStatus: 'idle',
     lastSavedAt: undefined,
     serverRevision: 0,
@@ -176,6 +181,13 @@ export const useStorySpine = create<StorySpineState>()((set) => {
     setConfirmedIntent: setField('confirmedIntent'),
     setPendingIntentDraft: setField('pendingIntentDraft'),
     setActiveStoryId: setField('activeStoryId'),
+    setVisibleStoryPanels: setField('visibleStoryPanels'),
+    toggleVisibleStoryPanel: (panelId) =>
+      set((state) => ({
+        visibleStoryPanels: state.visibleStoryPanels.includes(panelId)
+          ? state.visibleStoryPanels.filter((id) => id !== panelId)
+          : [...state.visibleStoryPanels, panelId],
+      })),
     setSaveStatus: setField('saveStatus'),
     setLastSavedAt: setField('lastSavedAt'),
     setServerRevision: setField('serverRevision'),

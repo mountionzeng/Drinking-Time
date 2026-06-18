@@ -8,6 +8,7 @@ import type {
   VisualCanvasItem,
 } from '../types';
 import { useStorySpine, type StorySpineState } from './storySpine';
+import type { StoryPanel } from '@/features/analysis/storyPanels';
 
 export type StoryChatCardRef = Pick<StoryCard, 'id' | 'emotion'>;
 
@@ -59,6 +60,38 @@ export function selectPromptPool(state: StorySpineState): PromptFragment[] {
 
 export function selectLatestScript(state: StorySpineState): GeneratedScript | null {
   return state.scripts.length > 0 ? state.scripts[state.scripts.length - 1] : null;
+}
+
+export function selectHasStoryWorkspaceData(state: StorySpineState): boolean {
+  return (
+    state.activeStoryId !== null ||
+    state.cards.length > 0 ||
+    state.storyList.length > 0
+  );
+}
+
+export type StoryPanelVisibilitySlice = {
+  visibleStoryPanels: StoryPanel[];
+  toggleVisibleStoryPanel: (panelId: StoryPanel) => void;
+};
+
+export function selectStoryPanelVisibility(state: StorySpineState): StoryPanelVisibilitySlice {
+  return {
+    visibleStoryPanels: state.visibleStoryPanels,
+    toggleVisibleStoryPanel: state.toggleVisibleStoryPanel,
+  };
+}
+
+export function useHasStoryWorkspaceData() {
+  return useStorySpine(selectHasStoryWorkspaceData);
+}
+
+export function useVisibleStoryPanels() {
+  return useStorySpine((state) => state.visibleStoryPanels);
+}
+
+export function useStoryPanelVisibility() {
+  return useStorySpine(useShallow(selectStoryPanelVisibility));
 }
 
 export type StoryAgentChatSlice = {

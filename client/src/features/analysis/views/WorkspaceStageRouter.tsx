@@ -3,7 +3,7 @@
  * Lives inside StoryAgentProvider so it can access story cards for stage derivation.
  */
 import { useCallback, useEffect, useMemo } from "react";
-import { useStoryAgent } from "@/features/storyAgent/StoryAgentContext";
+import { useHasStoryWorkspaceData } from "@/features/storyAgent/spine/selectors";
 import { trpc } from "@/lib/trpc";
 import {
   normalizeEmotionAnalysisProfile,
@@ -14,7 +14,6 @@ import WorkspaceLayout from "./WorkspaceLayout";
 import type { InputTab } from "./WorkspaceLayout";
 import type { useAnalysisOrchestration } from "@/features/analysis/hooks/useAnalysisOrchestration";
 import type { useProjectData } from "@/features/analysis/hooks/useProjectData";
-import type { StoryPanel } from "@/features/analysis/storyPanels";
 
 type AnalysisReturn = ReturnType<typeof useAnalysisOrchestration>;
 type ProjectReturn = ReturnType<typeof useProjectData>;
@@ -24,7 +23,6 @@ interface Props {
   currentProjectId: ProjectReturn["currentProjectId"];
   activeInputTab: InputTab;
   setActiveInputTab: (tab: InputTab) => void;
-  visibleStoryPanels: StoryPanel[];
   workspaceStageSticky: boolean;
   setWorkspaceStageSticky: (sticky: boolean) => void;
   analysisActive: AnalysisReturn["analysisActive"];
@@ -37,7 +35,7 @@ interface Props {
 }
 
 export default function WorkspaceStageRouter(props: Props) {
-  const { activeStoryId, cards, storyList } = useStoryAgent();
+  const hasStoryData = useHasStoryWorkspaceData();
   const utils = trpc.useUtils();
   const emotionProfileQuery = trpc.emotionAnalysis.getProfile.useQuery(
     undefined,
@@ -48,8 +46,6 @@ export default function WorkspaceStageRouter(props: Props) {
   const saveEmotionProfileMut =
     trpc.emotionAnalysis.saveBirthProfile.useMutation();
 
-  const hasStoryData =
-    activeStoryId !== null || cards.length > 0 || storyList.length > 0;
   const hasData = props.references.length > 0 || hasStoryData;
 
   const workspaceStage = useMemo(() => {
@@ -126,7 +122,6 @@ export default function WorkspaceStageRouter(props: Props) {
     <WorkspaceLayout
       activeInputTab={props.activeInputTab}
       onTabChange={props.setActiveInputTab}
-      visibleStoryPanels={props.visibleStoryPanels}
       projectId={props.currentProjectId}
       onAnalysisComplete={props.handleAnalysisComplete}
       onRunAnalysis={props.handleRunAnalysis}

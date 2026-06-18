@@ -12,17 +12,15 @@ import { useAnalysisOrchestration } from '@/features/analysis/hooks/useAnalysisO
 import { usePanelState } from '@/features/analysis/hooks/usePanelState';
 import { StoryAgentProvider } from '@/features/storyAgent/StoryAgentContext';
 import WorkspaceStageRouter from './WorkspaceStageRouter';
-import type { StoryPanel } from '@/features/analysis/storyPanels';
 
 export default function AnalysisWorkspace() {
   const projectData = useProjectData();
   const panel = usePanelState();
   const analysis = useAnalysisOrchestration(projectData);
 
-  const toggleStoryPanel = (panelId: StoryPanel) => {
+  const openStoryWorkspace = () => {
     panel.setActiveInputTab('story');
     panel.setWorkspaceStageSticky(true);
-    panel.toggleStoryPanel(panelId);
   };
 
   return (
@@ -31,10 +29,7 @@ export default function AnalysisWorkspace() {
       <WuxingParticles />
 
       <div className="relative z-10 flex flex-col h-full">
-        <TopBar
-          visibleStoryPanels={panel.visibleStoryPanels}
-          onToggleStoryPanel={toggleStoryPanel}
-        />
+        <TopBar onStoryPanelToggle={openStoryWorkspace} />
 
         <StoryAgentProvider projectId={projectData.currentProjectId}>
           <WorkspaceStageRouter
@@ -42,7 +37,6 @@ export default function AnalysisWorkspace() {
             currentProjectId={projectData.currentProjectId}
             activeInputTab={panel.activeInputTab}
             setActiveInputTab={panel.setActiveInputTab}
-            visibleStoryPanels={panel.visibleStoryPanels}
             workspaceStageSticky={panel.workspaceStageSticky}
             setWorkspaceStageSticky={panel.setWorkspaceStageSticky}
             analysisActive={analysis.analysisActive}

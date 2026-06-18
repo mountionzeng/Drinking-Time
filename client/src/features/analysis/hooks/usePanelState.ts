@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { ShotStage } from '../views/ShotStageIllustration';
 import type { InputTab } from '../views/WorkspaceLayout';
 import { ANALYSIS_STAGE_SEQUENCE } from '../config/stageCopy';
-import type { StoryPanel } from '../storyPanels';
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   try {
@@ -20,16 +19,7 @@ export function usePanelState() {
   const [activeInputTab, setActiveInputTab] = useState<InputTab>(
     () => readLocalStorage<InputTab>('dt:activeInputTab', 'material'),
   );
-  const [visibleStoryPanels, setVisibleStoryPanels] = useState<StoryPanel[]>([]);
   const [workspaceStageSticky, setWorkspaceStageSticky] = useState(false);
-
-  const toggleStoryPanel = (panelId: StoryPanel) => {
-    setVisibleStoryPanels((current) =>
-      current.includes(panelId)
-        ? current.filter((id) => id !== panelId)
-        : [...current, panelId],
-    );
-  };
 
   // Persist activeInputTab
   useEffect(() => {
@@ -53,8 +43,6 @@ export function usePanelState() {
     setSelectedStage,
     activeInputTab,
     setActiveInputTab,
-    visibleStoryPanels,
-    toggleStoryPanel,
     workspaceStageSticky,
     setWorkspaceStageSticky,
   };
