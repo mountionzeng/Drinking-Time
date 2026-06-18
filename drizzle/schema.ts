@@ -257,6 +257,8 @@ export type StoryBody = {
     note: string;
     emotion: string;
     sourceCardContent: string;
+    intent?: string | null;
+    rationale?: string | null;
     emotionCharge?: string;
     emotionDelta?: string;
     visualAnchorText?: string;

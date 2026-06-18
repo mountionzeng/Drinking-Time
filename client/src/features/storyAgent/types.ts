@@ -88,6 +88,10 @@ export interface StoryShot {
   note: string;
   emotion: string;
   sourceCardContent: string;
+  /** 当前镜头承担的用户/叙事意图，缺失时按 null 降级。 */
+  intent?: string | null;
+  /** 当前镜头为什么这样画，缺失时按 null 降级。 */
+  rationale?: string | null;
   /** 情绪电荷：本镜情绪 + beat 位置 + 与上一镜的流动 delta。 */
   emotionCharge?: string;
   /** 与上一镜的情绪转变描述。转折镜重点表达这个变化。 */

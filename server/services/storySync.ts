@@ -1,6 +1,7 @@
 type StoryBodyRecord = Record<string, unknown>;
 
 const REVISION_KEY = "_revision";
+const SHOT_FIELDS_TO_PRESERVE = ["intent", "rationale"] as const;
 
 function asRecord(value: unknown): StoryBodyRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -73,6 +74,54 @@ function mergeStableArray(
   return merged;
 }
 
+function hasOwn(record: StoryBodyRecord, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function mergeShotPreservedFields(
+  serverValue: unknown,
+  incomingValue: unknown
+): unknown {
+  const serverShot = asRecord(serverValue);
+  const incomingShot = asRecord(incomingValue);
+  const merged: StoryBodyRecord = { ...incomingShot };
+
+  for (const field of SHOT_FIELDS_TO_PRESERVE) {
+    if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
+      merged[field] = serverShot[field];
+    }
+  }
+
+  return merged;
+}
+
+function mergeStoryShotsPreservingFields(
+  serverValue: unknown,
+  incomingValue: unknown
+): unknown[] {
+  const serverItems = Array.isArray(serverValue) ? serverValue : [];
+  const incomingItems = Array.isArray(incomingValue) ? incomingValue : [];
+  if (incomingItems.length === 0) return [...serverItems];
+
+  const serverByKey = new Map(
+    serverItems.map((item, index) => [itemKey("shots", item, index), item])
+  );
+  const incomingKeys = new Set<string>();
+
+  const merged = incomingItems.map((item, index) => {
+    const key = itemKey("shots", item, index);
+    incomingKeys.add(key);
+    return mergeShotPreservedFields(serverByKey.get(key), item);
+  });
+
+  serverItems.forEach((item, index) => {
+    const key = itemKey("shots", item, index);
+    if (!incomingKeys.has(key)) merged.push(item);
+  });
+
+  return merged;
+}
+
 export function getStoryRevision(body: unknown): number {
   const revision = asRecord(body)[REVISION_KEY];
   return typeof revision === "number" && Number.isInteger(revision) && revision >= 0
@@ -80,8 +129,17 @@ export function getStoryRevision(body: unknown): number {
     : 0;
 }
 
-export function prepareStoryBody(body: unknown, revision: number): StoryBodyRecord {
+export function prepareStoryBody(
+  body: unknown,
+  revision: number,
+  existingBody?: unknown
+): StoryBodyRecord {
   const prepared = { ...asRecord(body) };
+  const existing = asRecord(existingBody);
+  prepared.shots = mergeStoryShotsPreservingFields(
+    existing.shots,
+    prepared.shots
+  );
   // 图片以 generatedImages 表为唯一权威来源，避免故事 blob 再保存一份陈旧副本。
   delete prepared.mobileImages;
   delete prepared.images;

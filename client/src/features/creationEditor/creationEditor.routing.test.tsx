@@ -102,13 +102,23 @@ describe('creation editor route and shell', () => {
   it('normalizes story body shots and selects the first shot by default', () => {
     const shots = normalizeStoryShots({
       shots: [
-        { shotNo: 2, subject: '第二镜', dialogue: '后一句' },
+        {
+          shotNo: 2,
+          subject: '第二镜',
+          dialogue: '后一句',
+          intent: '证明职业判断',
+          rationale: '这一镜要把材料转成可见的判断力。',
+        },
         { shotNo: 1, subject: '第一镜', dialogue: '前一句' },
       ],
     });
 
     expect(shots).toHaveLength(2);
     expect(shots.map((item) => item.shotKey)).toEqual(['SH01', 'SH02']);
+    expect(shots[0].intent).toBeNull();
+    expect(shots[0].rationale).toBeNull();
+    expect(shots[1].intent).toBe('证明职业判断');
+    expect(shots[1].rationale).toBe('这一镜要把材料转成可见的判断力。');
     expect(selectInitialShotNo(null, shots)).toBe(1);
   });
 

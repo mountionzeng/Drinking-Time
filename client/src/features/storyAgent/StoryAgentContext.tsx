@@ -397,6 +397,7 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const nullableStr = (v: unknown) => (typeof v === 'string' ? v : null);
   const action = str(obj.action);
   if (!action) return null;
   return {
@@ -416,6 +417,8 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     note: str(obj.note),
     emotion: str(obj.emotion) || '未标',
     sourceCardContent: str(obj.sourceCardContent),
+    intent: nullableStr(obj.intent),
+    rationale: nullableStr(obj.rationale),
     emotionCharge: str(obj.emotionCharge),
     emotionDelta: str(obj.emotionDelta),
     visualAnchorText: str(obj.visualAnchorText),

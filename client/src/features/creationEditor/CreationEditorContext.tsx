@@ -70,6 +70,10 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function nullableStringValue(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 function numberValue(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -126,6 +130,8 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     note: stringValue(obj.note),
     emotion: stringValue(obj.emotion),
     sourceCardContent: stringValue(obj.sourceCardContent),
+    intent: nullableStringValue(obj.intent),
+    rationale: nullableStringValue(obj.rationale),
     emotionCharge: stringValue(obj.emotionCharge) || undefined,
     emotionDelta: stringValue(obj.emotionDelta) || undefined,
     visualAnchorText: stringValue(obj.visualAnchorText) || undefined,

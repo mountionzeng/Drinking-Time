@@ -1350,7 +1350,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                       input.body,
                       nextRevision
                     )
-                  : prepareStoryBody(input.body, nextRevision);
+                  : prepareStoryBody(input.body, nextRevision, existing.body);
             await updateStory(input.id, ctx.user.id, {
               title,
               logline: syncConflict ? undefined : input.logline,

@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+
+import { getStoryRevision, prepareStoryBody } from './storySync';
+
+describe('storySync shot field preservation', () => {
+  it('keeps the existing body cleanup and revision behavior', () => {
+    const body = prepareStoryBody(
+      {
+        cards: [],
+        characters: [],
+        shots: [],
+        mobileImages: [{ id: 1 }],
+        images: [{ id: 2 }],
+      },
+      7,
+    );
+
+    expect(body).toMatchObject({
+      cards: [],
+      characters: [],
+      shots: [],
+      _revision: 7,
+    });
+    expect(body).not.toHaveProperty('mobileImages');
+    expect(body).not.toHaveProperty('images');
+    expect(getStoryRevision(body)).toBe(7);
+  });
+
+  it('preserves server shot intent and rationale when an older client omits them', () => {
+    const serverBody = {
+      shots: [
+        {
+          shotNo: 1,
+          subject: '桌面镜头',
+          action: '讲述项目',
+          intent: 'prove judgement',
+          rationale: 'This shot proves the candidate can turn ambiguity into decisions.',
+        },
+      ],
+    };
+
+    const incomingBody = {
+      shots: [
+        {
+          shotNo: 1,
+          subject: '手机镜头',
+          action: '讲述项目更新',
+        },
+      ],
+    };
+
+    const body = prepareStoryBody(incomingBody, 4, serverBody);
+
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      shotNo: 1,
+      subject: '手机镜头',
+      action: '讲述项目更新',
+      intent: 'prove judgement',
+      rationale: 'This shot proves the candidate can turn ambiguity into decisions.',
+    });
+  });
+
+  it('keeps existing shots when a mobile-shaped body sends an empty shots array', () => {
+    const serverBody = {
+      shots: [
+        {
+          shotNo: 2,
+          subject: '桌面镜头',
+          action: '展示成果',
+          intent: 'show impact',
+          rationale: 'The image should make the business outcome visible.',
+        },
+      ],
+    };
+
+    const mobileBody = {
+      cards: [],
+      characters: [],
+      shots: [],
+      messages: [{ id: 'm1', role: 'user', content: '继续聊', timestamp: 1 }],
+      mobileImages: [],
+    };
+
+    const body = prepareStoryBody(mobileBody, 5, serverBody);
+
+    expect(body.cards).toEqual([]);
+    expect(body.messages).toEqual(mobileBody.messages);
+    expect(body).not.toHaveProperty('mobileImages');
+    expect(body.shots).toEqual(serverBody.shots);
+  });
+});
