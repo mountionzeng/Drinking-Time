@@ -7,7 +7,6 @@
 import {
   createContext,
   useContext,
-  useState,
   useEffect,
   useCallback,
   useMemo,
@@ -67,21 +66,18 @@ import {
   nextReferencePurpose,
 } from './storyArtReferences';
 import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
+import {
+  storySpineStore,
+  useStorySpine,
+  type StoryListItem,
+  type StorySaveStatus,
+} from './spine/storySpine';
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
 export type { ImageProviderSelection };
 
-type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
-export type StoryListItem = {
-  id: number;
-  title: string;
-  logline?: string | null;
-  updatedAt?: string | Date | null;
-  cardCount?: number;
-  shotCount?: number;
-};
+export type { StoryListItem };
 
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
@@ -493,79 +489,82 @@ export function StoryAgentProvider({
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [cards, setCards] = useState<StoryCard[]>([]);
-  const [scripts, setScripts] = useState<GeneratedScript[]>([]);
-  const [storyShots, setStoryShots] = useState<StoryShot[]>([]);
-  const [characters, setCharacters] = useState<Array<{ name: string; role: string; oneLiner: string }>>([]);
-  const [remoteStoryId, setRemoteStoryId] = useState<number | undefined>(undefined);
-  const [storyTitle, setStoryTitle] = useState<string | undefined>(undefined);
-  const [storyLogline, setStoryLogline] = useState<string | undefined>(undefined);
-  const [storyTheme, setStoryTheme] = useState<string | undefined>(undefined);
-  const [storyArc, setStoryArc] = useState<string | undefined>(undefined);
-  const [visualCanvasItems, setVisualCanvasItems] = useState<VisualCanvasItem[]>([]);
-  const [visualPreference, setVisualPreference] = useState('');
-  // 「把这一刻画出来」收下的故事画面（落 body.mobileImages，与手机端同一存储位）。
-  // 用 ref 让 saveArchiveStory 任何时候都带上当前值，避免改动脆弱的 autosave 快照形状。
-  const [storyImages, setStoryImages] = useState<GeneratedImageItem[]>([]);
-  const storyImagesRef = useRef<GeneratedImageItem[]>([]);
-  useEffect(() => {
-    storyImagesRef.current = storyImages;
-  }, [storyImages]);
-  const [imageProvider, setImageProvider] = useState<ImageProviderSelection>('default');
-  const [artDirection, setArtDirection] = useState<StoryArtDirection>(
-    emptyStoryArtDirection,
-  );
-  const [isArtWorking, setIsArtWorking] = useState(false);
-  const [isReplying, setIsReplying] = useState(false);
-  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
-  const [confirmedIntent, setConfirmedIntent] = useState<StoryIntent | null>(null);
-  const [pendingIntentDraft, setPendingIntentDraft] = useState<StoryIntent | null>(null);
-  const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
-  const confirmedIntentRef = useRef<StoryIntent | null>(null);
-  const pendingIntentDraftRef = useRef<StoryIntent | null>(null);
-  useEffect(() => {
-    confirmedIntentRef.current = confirmedIntent;
-  }, [confirmedIntent]);
-  useEffect(() => {
-    pendingIntentDraftRef.current = pendingIntentDraft;
-  }, [pendingIntentDraft]);
+  const messages = useStorySpine((state) => state.messages);
+  const cards = useStorySpine((state) => state.cards);
+  const scripts = useStorySpine((state) => state.scripts);
+  const storyShots = useStorySpine((state) => state.storyShots);
+  const characters = useStorySpine((state) => state.characters);
+  const remoteStoryId = useStorySpine((state) => state.remoteStoryId);
+  const storyTitle = useStorySpine((state) => state.storyTitle);
+  const storyLogline = useStorySpine((state) => state.storyLogline);
+  const storyTheme = useStorySpine((state) => state.storyTheme);
+  const storyArc = useStorySpine((state) => state.storyArc);
+  const visualCanvasItems = useStorySpine((state) => state.visualCanvasItems);
+  const visualPreference = useStorySpine((state) => state.visualPreference);
+  const storyImages = useStorySpine((state) => state.storyImages);
+  const imageProvider = useStorySpine((state) => state.imageProvider);
+  const artDirection = useStorySpine((state) => state.artDirection);
+  const isArtWorking = useStorySpine((state) => state.isArtWorking);
+  const isReplying = useStorySpine((state) => state.isReplying);
+  const isGeneratingScript = useStorySpine((state) => state.isGeneratingScript);
+  const confirmedIntent = useStorySpine((state) => state.confirmedIntent);
+  const pendingIntentDraft = useStorySpine((state) => state.pendingIntentDraft);
+  const activeStoryId = useStorySpine((state) => state.activeStoryId);
+  const saveStatus = useStorySpine((state) => state.saveStatus);
+  const lastSavedAt = useStorySpine((state) => state.lastSavedAt);
+  const serverRevision = useStorySpine((state) => state.serverRevision);
+  const isLoadingStories = useStorySpine((state) => state.isLoadingStories);
+  const storyList = useStorySpine((state) => state.storyList);
+  const returningGreeting = useStorySpine((state) => state.returningGreeting);
+  const activeSelection = useStorySpine((state) => state.activeSelection);
+  const hydratedFor = useStorySpine((state) => state.hydratedFor);
+
+  const setMessages = useStorySpine((state) => state.setMessages);
+  const setCards = useStorySpine((state) => state.setCards);
+  const setScripts = useStorySpine((state) => state.setScripts);
+  const setStoryShots = useStorySpine((state) => state.setStoryShots);
+  const setCharacters = useStorySpine((state) => state.setCharacters);
+  const setRemoteStoryId = useStorySpine((state) => state.setRemoteStoryId);
+  const setStoryTitle = useStorySpine((state) => state.setStoryTitle);
+  const setStoryLogline = useStorySpine((state) => state.setStoryLogline);
+  const setStoryTheme = useStorySpine((state) => state.setStoryTheme);
+  const setStoryArc = useStorySpine((state) => state.setStoryArc);
+  const setVisualCanvasItems = useStorySpine((state) => state.setVisualCanvasItems);
+  const setVisualPreference = useStorySpine((state) => state.setVisualPreference);
+  const setStoryImages = useStorySpine((state) => state.setStoryImages);
+  const setImageProvider = useStorySpine((state) => state.setImageProvider);
+  const setArtDirection = useStorySpine((state) => state.setArtDirection);
+  const setIsArtWorking = useStorySpine((state) => state.setIsArtWorking);
+  const setIsReplying = useStorySpine((state) => state.setIsReplying);
+  const setIsGeneratingScript = useStorySpine((state) => state.setIsGeneratingScript);
+  const setConfirmedIntent = useStorySpine((state) => state.setConfirmedIntent);
+  const setPendingIntentDraft = useStorySpine((state) => state.setPendingIntentDraft);
+  const setActiveStoryId = useStorySpine((state) => state.setActiveStoryId);
+  const setSaveStatus = useStorySpine((state) => state.setSaveStatus);
+  const setLastSavedAt = useStorySpine((state) => state.setLastSavedAt);
+  const setServerRevision = useStorySpine((state) => state.setServerRevision);
+  const setIsLoadingStories = useStorySpine((state) => state.setIsLoadingStories);
+  const setStoryList = useStorySpine((state) => state.setStoryList);
+  const setReturningGreeting = useStorySpine((state) => state.setReturningGreeting);
+  const setActiveSelection = useStorySpine((state) => state.setActiveSelection);
+  const setHydratedFor = useStorySpine((state) => state.setHydratedFor);
+  const setLastSnapshotHash = useStorySpine((state) => state.setLastSnapshotHash);
+  const setLastArchiveSaveHash = useStorySpine((state) => state.setLastArchiveSaveHash);
+  const setLastStateChangeTime = useStorySpine((state) => state.setLastStateChangeTime);
+  const setLastSnapshotId = useStorySpine((state) => state.setLastSnapshotId);
+
   // 向上同步当前故事到共享真相源（U4）。仅同步"真实故事 id"（>0）；新故事草稿(-1)/无故事(null)
   // 对 Creation 侧无意义，归一为 null，让 Shot Table 落空状态而非查无效 id。
   useEffect(() => {
     if (!onActiveStoryChange) return;
     onActiveStoryChange(activeStoryId && activeStoryId > 0 ? activeStoryId : null);
   }, [activeStoryId, onActiveStoryChange]);
-  const [saveStatus, setSaveStatus] = useState<StorySaveStatus>('idle');
-  const [lastSavedAt, setLastSavedAt] = useState<number | undefined>(undefined);
-  const [serverRevision, setServerRevision] = useState(0);
-  const [isLoadingStories, setIsLoadingStories] = useState(false);
-  const [storyList, setStoryList] = useState<StoryListItem[]>([]);
-  // 第二步：老用户点回旧故事时的「我还记得上次……」再问候。纯内存、不落库（见 interface 注释）。
-  const [returningGreeting, setReturningGreeting] = useState<string | null>(null);
-  const [activeSelection, setActiveSelection] = useState<SelectionState | null>(null);
-  const hydratedFor = useRef<number | null>(null);
-  const serverRevisionRef = useRef(0);
   const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
-
-  // ── Auto-save refs ──────────────────────────────────────────────────
-  // Stable session ID for this browser session
-  const sessionIdRef = useRef(`session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  // Hash of cards/scripts/shots at the time of last snapshot (explicit or auto)
-  const lastSnapshotHashRef = useRef('');
-  const lastArchiveSaveHashRef = useRef('');
-  // Timestamp of the most recent cards/scripts/shots state change
-  const lastStateChangeTimeRef = useRef(Date.now());
-  // Mirror of isReplying / isGeneratingScript as refs so the timer closure can read them
-  const isReplyingRef = useRef(false);
-  const isGeneratingScriptRef = useRef(false);
-  // ID of the most recent explicitly-triggered snapshot (before sendMessage)
-  const lastSnapshotIdRef = useRef<number | null>(null);
 
   // Hydrate from localStorage when projectId becomes available / changes
   useEffect(() => {
     if (projectId === null) return;
-    if (hydratedFor.current === projectId) return;
+    if (hydratedFor === projectId) return;
     let persisted = loadState(projectId);
     // This project's slot is empty — likely the projectId drifted after a server
     // reset. Pull back the story stranded under the old projectId instead of
@@ -615,17 +614,41 @@ export function StoryAgentProvider({
     setSaveStatus(persisted.remoteStoryId ? 'saved' : 'idle');
     setLastSavedAt(persisted.savedAt);
     const restoredRevision = persisted.serverRevision ?? 0;
-    serverRevisionRef.current = restoredRevision;
     setServerRevision(restoredRevision);
-    hydratedFor.current = projectId;
-  }, [projectId]);
+    setHydratedFor(projectId);
+  }, [
+    hydratedFor,
+    projectId,
+    setActiveStoryId,
+    setArtDirection,
+    setCards,
+    setCharacters,
+    setConfirmedIntent,
+    setHydratedFor,
+    setImageProvider,
+    setLastSavedAt,
+    setMessages,
+    setPendingIntentDraft,
+    setRemoteStoryId,
+    setSaveStatus,
+    setScripts,
+    setServerRevision,
+    setStoryArc,
+    setStoryImages,
+    setStoryLogline,
+    setStoryShots,
+    setStoryTheme,
+    setStoryTitle,
+    setVisualCanvasItems,
+    setVisualPreference,
+  ]);
 
   // Story loading is now handled explicitly via loadStory() from the story list.
 
   // Persist on change
   useEffect(() => {
     const key = storageKey(projectId);
-    if (!key || hydratedFor.current !== projectId) return;
+    if (!key || hydratedFor !== projectId) return;
     const data: PersistedState = {
       messages,
       cards,
@@ -671,17 +694,22 @@ export function StoryAgentProvider({
     artDirection,
     confirmedIntent,
     activeStoryId,
+    hydratedFor,
     serverRevision,
   ]);
 
-  // ── Auto-save: keep refs in sync ───────────────────────────────────
-  useEffect(() => { isReplyingRef.current = isReplying; }, [isReplying]);
-  useEffect(() => { isGeneratingScriptRef.current = isGeneratingScript; }, [isGeneratingScript]);
-
   // Track the last time the editable state changed (for the 2-second inactivity guard)
   useEffect(() => {
-    lastStateChangeTimeRef.current = Date.now();
-  }, [cards, scripts, storyShots, visualCanvasItems, visualPreference, artDirection]);
+    setLastStateChangeTime(Date.now());
+  }, [
+    artDirection,
+    cards,
+    scripts,
+    setLastStateChangeTime,
+    storyShots,
+    visualCanvasItems,
+    visualPreference,
+  ]);
 
   // ── Auto-save: 5-minute timer ───────────────────────────────────────
   useEffect(() => {
@@ -691,39 +719,40 @@ export function StoryAgentProvider({
     const INACTIVITY_THRESHOLD_MS = 2_000;
 
     const timerId = setInterval(() => {
+      const current = storySpineStore.getState();
       // Skip while Agent is actively generating
-      if (isReplyingRef.current || isGeneratingScriptRef.current) return;
+      if (current.isReplying || current.isGeneratingScript) return;
 
       // Lightweight hash: card/script/shot IDs + card count
       const currentHash = JSON.stringify({
-        cardIds: cards.map((c) => c.id),
-        scriptIds: scripts.map((s) => s.id),
-        shotNos: storyShots.map((s) => s.shotNo),
-        cardContents: cards.map((c) => c.content),
-        visualIds: visualCanvasItems.map((item) => item.id),
-        visualPreference,
-        artDirection,
+        cardIds: current.cards.map((c) => c.id),
+        scriptIds: current.scripts.map((s) => s.id),
+        shotNos: current.storyShots.map((s) => s.shotNo),
+        cardContents: current.cards.map((c) => c.content),
+        visualIds: current.visualCanvasItems.map((item) => item.id),
+        visualPreference: current.visualPreference,
+        artDirection: current.artDirection,
       });
 
       // Skip if nothing changed since last snapshot
-      if (currentHash === lastSnapshotHashRef.current) return;
+      if (currentHash === current.lastSnapshotHash) return;
 
       // Skip if the user has been active within the last 2 seconds
-      if (Date.now() - lastStateChangeTimeRef.current < INACTIVITY_THRESHOLD_MS) return;
+      if (Date.now() - current.lastStateChangeTime < INACTIVITY_THRESHOLD_MS) return;
 
-      lastSnapshotHashRef.current = currentHash;
+      current.setLastSnapshotHash(currentHash);
 
       saveSnapshotMut.mutate(
         {
           projectId,
-          sessionId: sessionIdRef.current,
+          sessionId: current.sessionId,
           state: {
-            cards: cards as unknown as Record<string, unknown>[],
-            script: scripts as unknown as Record<string, unknown>[],
-            shots: storyShots as unknown as Record<string, unknown>[],
-            visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
-            visualPreference,
-            artDirection: artDirection as unknown as Record<string, unknown>,
+            cards: current.cards as unknown as Record<string, unknown>[],
+            script: current.scripts as unknown as Record<string, unknown>[],
+            shots: current.storyShots as unknown as Record<string, unknown>[],
+            visualCanvasItems: current.visualCanvasItems as unknown as Record<string, unknown>[],
+            visualPreference: current.visualPreference,
+            artDirection: current.artDirection as unknown as Record<string, unknown>,
           },
           autoSave: true,
         },
@@ -731,16 +760,14 @@ export function StoryAgentProvider({
           onError: (err) => {
             console.warn('[autoSave] snapshot failed, will retry next interval:', err);
             // Revert hash so the next timer tick retries
-            lastSnapshotHashRef.current = '';
+            storySpineStore.getState().setLastSnapshotHash('');
           },
         },
       );
     }, AUTO_SAVE_INTERVAL_MS);
 
     return () => clearInterval(timerId);
-    // cards/scripts/storyShots intentionally read via closure — timer only restarts on projectId change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, saveSnapshotMut]);
 
   const saveArchiveStory = useCallback(
     (snapshot: {
@@ -761,33 +788,33 @@ export function StoryAgentProvider({
       artDirection?: StoryArtDirection;
     }): Promise<number | undefined> => {
       if (!hasLiveStoryWork(snapshot)) return Promise.resolve(undefined);
+      const current = storySpineStore.getState();
       const latest =
         snapshot.scripts.length > 0
           ? snapshot.scripts[snapshot.scripts.length - 1]
           : null;
       const title =
         snapshot.title ||
-        storyTitle ||
+        current.storyTitle ||
         latest?.title ||
         snapshot.cards[0]?.title ||
         '未命名故事';
-      const logline = snapshot.logline ?? storyLogline ?? latest?.logline ?? '';
-      const theme = snapshot.theme ?? storyTheme ?? latest?.theme ?? '';
-      const arc = snapshot.arc ?? storyArc ?? latest?.arcSummary ?? '';
-      const canvasItems = snapshot.visualCanvasItems ?? visualCanvasItems;
-      const preference = snapshot.visualPreference ?? visualPreference;
-      const selectedProvider = snapshot.imageProvider ?? imageProvider;
-      const selectedArtDirection = snapshot.artDirection ?? artDirection;
+      const logline = snapshot.logline ?? current.storyLogline ?? latest?.logline ?? '';
+      const theme = snapshot.theme ?? current.storyTheme ?? latest?.theme ?? '';
+      const arc = snapshot.arc ?? current.storyArc ?? latest?.arcSummary ?? '';
+      const canvasItems = snapshot.visualCanvasItems ?? current.visualCanvasItems;
+      const preference = snapshot.visualPreference ?? current.visualPreference;
+      const selectedProvider = snapshot.imageProvider ?? current.imageProvider;
+      const selectedArtDirection = snapshot.artDirection ?? current.artDirection;
 
       const save = async () => {
         try {
+          const latestState = storySpineStore.getState();
+          const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
           setSaveStatus('saving');
           const saved = await storyUpsertMut.mutateAsync({
-            id: snapshot.remoteStoryId ?? remoteStoryId,
-            baseRevision:
-              (snapshot.remoteStoryId ?? remoteStoryId)
-                ? serverRevisionRef.current
-                : undefined,
+            id: storyId,
+            baseRevision: storyId ? latestState.serverRevision : undefined,
             projectId: projectId ?? undefined,
             title,
             logline,
@@ -800,11 +827,10 @@ export function StoryAgentProvider({
               shots: snapshot.storyShots,
               visualCanvasItems: canvasItems,
               visualPreference: preference,
-              // ref：任何一条保存路径（autosave / 直接调）都带上当前收下的故事画面，不被覆盖。
-              mobileImages: storyImagesRef.current,
+              mobileImages: latestState.storyImages,
               imageProvider: selectedProvider,
               artDirection: selectedArtDirection,
-              confirmedIntent: confirmedIntentRef.current,
+              confirmedIntent: latestState.confirmedIntent,
               variants: latest?.variants ?? [],
               boringCheck: latest?.boringCheck ?? null,
               messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
@@ -820,7 +846,6 @@ export function StoryAgentProvider({
             setSaveStatus('saved');
             setLastSavedAt(Date.now());
             if (!saved.syncConflict && typeof saved.revision === 'number') {
-              serverRevisionRef.current = saved.revision;
               setServerRevision(saved.revision);
             }
             // 美术工作台等调用方需要拿到保存后的故事 id（新故事 -1 → 真 id）
@@ -830,7 +855,6 @@ export function StoryAgentProvider({
           console.warn('save archive story failed', error);
           // 保存失败后清掉失效的远端 ID，让下次保存可以重新创建故事。
           setRemoteStoryId(undefined);
-          serverRevisionRef.current = 0;
           setServerRevision(0);
           setSaveStatus('error');
           toast.error('云端保存失败，本机仍有临时备份，会继续重试');
@@ -846,20 +870,17 @@ export function StoryAgentProvider({
     },
     [
       projectId,
-      remoteStoryId,
-      storyTitle,
-      storyLogline,
-      storyTheme,
-      storyArc,
-      visualCanvasItems,
-      visualPreference,
-      imageProvider,
-      artDirection,
+      setActiveStoryId,
+      setLastSavedAt,
+      setRemoteStoryId,
+      setSaveStatus,
+      setServerRevision,
+      storyUpsertMut,
     ],
   );
 
   useEffect(() => {
-    if (projectId !== null && hydratedFor.current !== projectId) return;
+    if (projectId !== null && hydratedFor !== projectId) return;
     if (isReplying || isGeneratingScript) return;
     const snapshot = {
       messages,
@@ -901,10 +922,10 @@ export function StoryAgentProvider({
       imageProvider,
       artDirection,
     });
-    if (currentHash === lastArchiveSaveHashRef.current) return;
+    if (currentHash === storySpineStore.getState().lastArchiveSaveHash) return;
 
     const timerId = window.setTimeout(() => {
-      lastArchiveSaveHashRef.current = currentHash;
+      setLastArchiveSaveHash(currentHash);
       void saveArchiveStory(snapshot);
     }, 1_500);
 
@@ -929,6 +950,8 @@ export function StoryAgentProvider({
     isGeneratingScript,
     projectId,
     saveArchiveStory,
+    hydratedFor,
+    setLastArchiveSaveHash,
   ]);
 
   const recognizeJobIntentFromHistory = useCallback(
@@ -944,13 +967,14 @@ export function StoryAgentProvider({
         });
         const pending = recognitionToPendingJobIntent(result as StoryIntent);
         if (!pending) return;
-        if (confirmedIntentRef.current || pendingIntentDraftRef.current) return;
+        const { confirmedIntent, pendingIntentDraft } = storySpineStore.getState();
+        if (confirmedIntent || pendingIntentDraft) return;
         setPendingIntentDraft(pending);
       } catch (error) {
         warnIntentRecognitionError(error);
       }
     },
-    [recognizeIntentMut],
+    [recognizeIntentMut, setPendingIntentDraft],
   );
 
   const sendMessage = useCallback(
@@ -1019,7 +1043,7 @@ export function StoryAgentProvider({
           try {
             const snapshotResult = await saveSnapshotMut.mutateAsync({
               projectId,
-              sessionId: sessionIdRef.current,
+              sessionId: storySpineStore.getState().sessionId,
               state: {
                 cards: cards as unknown as Record<string, unknown>[],
                 script: scripts as unknown as Record<string, unknown>[],
@@ -1029,9 +1053,9 @@ export function StoryAgentProvider({
                 artDirection: artDirection as unknown as Record<string, unknown>,
               },
             });
-            lastSnapshotIdRef.current = snapshotResult.snapshotId;
+            setLastSnapshotId(snapshotResult.snapshotId);
             // Sync hash so the auto-save timer doesn't duplicate this snapshot
-            lastSnapshotHashRef.current = JSON.stringify({
+            setLastSnapshotHash(JSON.stringify({
               cardIds: cards.map((c) => c.id),
               scriptIds: scripts.map((s) => s.id),
               shotNos: storyShots.map((s) => s.shotNo),
@@ -1039,7 +1063,7 @@ export function StoryAgentProvider({
               visualIds: visualCanvasItems.map((item) => item.id),
               visualPreference,
               artDirection,
-            });
+            }));
           } catch (err) {
             console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
           }
@@ -1530,7 +1554,6 @@ export function StoryAgentProvider({
     setActiveStoryId(-1);
     setSaveStatus('idle');
     setLastSavedAt(undefined);
-    serverRevisionRef.current = 0;
     setServerRevision(0);
     setReturningGreeting(null);
     setConfirmedIntent(null);
@@ -1557,7 +1580,6 @@ export function StoryAgentProvider({
       setRemoteStoryId((prev) => {
         if (prev !== undefined && !items.some((s) => s.id === prev)) {
           setActiveStoryId((current) => (current === prev ? -1 : current));
-          serverRevisionRef.current = 0;
           setServerRevision(0);
           return undefined;
         }
@@ -1596,7 +1618,6 @@ export function StoryAgentProvider({
     setArtDirection(emptyStoryArtDirection());
     setSaveStatus('idle');
     setLastSavedAt(undefined);
-    serverRevisionRef.current = 0;
     setServerRevision(0);
     setReturningGreeting(null);
     setConfirmedIntent(null);
@@ -1695,7 +1716,6 @@ export function StoryAgentProvider({
       setSaveStatus('saved');
       setLastSavedAt(row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now());
       const loadedRevision = typeof row.revision === 'number' ? row.revision : 0;
-      serverRevisionRef.current = loadedRevision;
       setServerRevision(loadedRevision);
 
       // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
@@ -2423,7 +2443,7 @@ export function StoryAgentProvider({
               : cards;
             await saveSnapshotMut.mutateAsync({
               projectId,
-              sessionId: sessionIdRef.current,
+              sessionId: storySpineStore.getState().sessionId,
               state: {
                 cards: updatedCards as unknown as Record<string, unknown>[],
                 script: scripts as unknown as Record<string, unknown>[],

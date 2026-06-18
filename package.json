@@ -79,7 +79,8 @@
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "yaml": "^2.9.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@builder.io/vite-plugin-jsx-loc": "^0.1.1",
