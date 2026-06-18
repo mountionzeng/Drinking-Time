@@ -73,6 +73,7 @@ import {
 import { renderViaGate } from "./services/renderGate";
 import { getProjectImageAssets, getStoryImageAssets } from "./services/imageAssets";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
+import { composeScenePrompt } from "./services/composeScenePrompt";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import {
   analyzeArtReference,
@@ -90,6 +91,7 @@ import {
   mergeStaleStoryBody,
   prepareStoryBody,
 } from "./services/storySync";
+import { sceneAnalysisSchema } from "../shared/sceneAnalysis";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
@@ -1533,6 +1535,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 场景一致强度（MJ --iw 图像权重 0-3）：越高越贴近主角图的场景，越低越自由。
           // 前端滑块传入；缺省走默认 0.5（场景可变不卡死）。
           sceneWeight: z.number().min(0).max(3).optional(),
+          sceneAnalysis: sceneAnalysisSchema.optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1545,6 +1548,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // prompt 缺失（手动「画出来」按钮）→ 用最近对话现编一条英文出图 prompt
           // cardHint（镜头内容）作为画面主体，比对话历史更精准；styleHint（锁定画风）稳定附加。
           let prompt = input.prompt?.trim() ?? "";
+          let styleHintApplied = false;
+          let sceneIntent: string | undefined;
+          let sceneRationale: string | undefined;
+          if (!prompt && input.sceneAnalysis) {
+            const scenePrompt = composeScenePrompt(input.sceneAnalysis, {
+              styleHint: input.styleHint,
+            });
+            prompt = scenePrompt.prompt;
+            sceneIntent = scenePrompt.intent;
+            sceneRationale = scenePrompt.rationale;
+            styleHintApplied = Boolean(input.styleHint?.trim());
+          }
           if (!prompt) {
             prompt = await deriveMobileImagePrompt({
               history: input.history,
@@ -1558,7 +1573,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             };
           }
           // 风格锁：把用户锁定的画风稳定追加到 prompt 末尾，避免每次漂移
-          if (input.styleHint?.trim()) {
+          if (input.styleHint?.trim() && !styleHintApplied) {
             prompt = `${prompt}, art style: ${input.styleHint.trim()}`;
           }
 
@@ -1609,6 +1624,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 imageUrl: draft.imageUrl,
                 imageId: image.id,
                 prompt,
+                intent: sceneIntent,
+                rationale: sceneRationale,
                 mode: "draft" as const,
               };
             }
@@ -1655,6 +1672,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageUrl: result.imageUrl,
             imageId: image.id,
             prompt,
+            intent: sceneIntent,
+            rationale: sceneRationale,
             mode: "final" as const,
           };
         } catch (err) {

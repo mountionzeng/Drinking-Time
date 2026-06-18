@@ -908,12 +908,20 @@ describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分�
       }),
     );
 
-    const result = await synthesizeShotList({ cards });
+    const result = await synthesizeShotList({
+      cards,
+      resonanceContext: '【用户已确认意图】用途=linkedin_job_search；给谁看=recruiters',
+    });
 
     expect('error' in result).toBe(false);
-    const r = result as { shots: Array<{ note: string }>; logline: string };
+    const r = result as {
+      shots: Array<{ note: string; intent?: string | null; rationale?: string | null }>;
+      logline: string;
+    };
     expect(r.shots.length).toBeGreaterThan(0);
     expect(r.logline).toBe('一个人深夜被便利店的灯接住'); // 用模型的 logline，证明走的是正常路径
     expect(r.shots[0].note).not.toContain('兜底'); // 不是兜底镜头
+    expect(r.shots[0].intent).toContain('linkedin_job_search');
+    expect(r.shots[0].rationale).toContain('叙事位置=开场');
   });
 });

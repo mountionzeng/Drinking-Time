@@ -144,6 +144,58 @@ describe("replyFromCreationAgent image actions", () => {
     expect(result.reply).toContain("待确认");
   });
 
+  it("generateImage sceneAnalysis 保留理由旁路且不注入 prompt", async () => {
+    mocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        reply: "我按这个空镜画。",
+        toolCalls: [
+          {
+            tool: "generateImage",
+            shotNo: "SH01",
+            prompt: "legacy prompt should be replaced",
+            sceneAnalysis: {
+              subjectDescription: "雨后的窄巷积水反光",
+              isPerson: false,
+              recurringCharacter: null,
+              action: "雨水沿屋檐落下",
+              emotion: "清冷",
+              keyElements: ["窄巷", "积水", "路灯倒影"],
+              needsCharacterAnchor: false,
+              confidence: 75,
+              intent: "解释候选人如何处理模糊问题",
+              rationale: "这一镜应该用空巷承接她的冷静判断",
+            },
+          },
+        ],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+    mocks.generateImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/13.png",
+      imageKey: "generated/13.png",
+    });
+
+    const result = await replyFromCreationAgent({ ...baseInput, assets: [] });
+
+    expect(result.generatedImage).toMatchObject({
+      imageId: 13,
+      intent: "解释候选人如何处理模糊问题",
+      rationale: "这一镜应该用空巷承接她的冷静判断",
+    });
+    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("雨后的窄巷积水反光"),
+      }),
+    );
+    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.not.stringContaining("这一镜应该"),
+      }),
+    );
+  });
+
   it("分析焦点图片并由小酌汇总可执行的视觉信息", async () => {
     mocks.runJsonAgent.mockResolvedValue({
       parsed: {

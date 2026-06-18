@@ -133,6 +133,7 @@ export function selectStoryCardsBoardSlice(state: StorySpineState) {
     cards: state.cards,
     isGeneratingScript: state.isGeneratingScript,
     latestScript: selectLatestScript(state),
+    storyShots: state.storyShots,
     visualCanvasItems: state.visualCanvasItems,
   };
 }

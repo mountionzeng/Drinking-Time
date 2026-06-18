@@ -129,6 +129,8 @@ export type ShotEntry = {
   // ── 内部 / 不展示给用户的列 ──
   note: string;             // 技术备注
   emotion: string;          // 情感词（1-3 字）
+  intent?: string | null;    // 当前镜头承担的用户/叙事意图
+  rationale?: string | null; // 当前镜头为什么这样画（只保留当前理由，不做历史账本）
   // 回溯到原素材；模型自己加的连接镜（establishing / 反应镜 / coda）此字段为空字符串。
   sourceCardContent: string;
 } & Partial<ShotPromptComposition>;

@@ -25,7 +25,7 @@ import {
 } from '@/features/storyAgent/spine/selectors';
 import { useStoryGeneratedImages } from './StoryImagesStrip';
 import { useNayin } from '@/features/nayin/NayinContext';
-import type { StoryCard, VisualCanvasItem } from '@/features/storyAgent/types';
+import type { StoryCard, StoryShot, VisualCanvasItem } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
 import {
   buildMobileStoryboardScenes,
@@ -51,6 +51,10 @@ function emotionAccent(emotion: string): string {
 function isRealEmotion(emotion?: string): emotion is string {
   const value = emotion?.trim();
   return Boolean(value && value !== '未标' && value !== '未标记');
+}
+
+function rationaleForShot(shots: StoryShot[], shotNo: number): string | null {
+  return shots.find((shot) => shot.shotNo === shotNo)?.rationale?.trim() || null;
 }
 
 function EmotionBridge({
@@ -87,10 +91,12 @@ function CardReferenceDock({
   cardId,
   visualItems,
   generatedImage,
+  imageRationale,
 }: {
   cardId: string;
   visualItems: VisualCanvasItem[];
   generatedImage?: GeneratedImageItem;
+  imageRationale?: string | null;
 }) {
   const { isArtWorking, artDirection } = useCardReferenceDockSlice();
   const {
@@ -100,6 +106,7 @@ function CardReferenceDock({
   } = useStoryAgentActions();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const displayReason = imageRationale?.trim();
   // 当前主角参照 URL（跨镜头锁人物长相）——用于在照片上标星 + 切换
   const characterUrl = artDirection.references.find(
     reference => reference.role === 'character',
@@ -179,7 +186,7 @@ function CardReferenceDock({
           <div className="min-w-0 self-center">
             <div className="text-[10px] font-semibold text-foreground">当前生成画面</div>
             <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
-              {generatedImage.prompt || '从手机端同步的故事画面'}
+              {displayReason || generatedImage.prompt || '从手机端同步的故事画面'}
             </p>
             {/* 把这张满意的镜头图设为主角参照——后续镜头跨场景锁这个人物 */}
             <button
@@ -278,6 +285,7 @@ function CardItem({
   previousEmotion,
   visualItems,
   generatedImage,
+  imageRationale,
   onRemove,
   onCommitContent,
 }: {
@@ -286,6 +294,7 @@ function CardItem({
   previousEmotion?: string;
   visualItems: VisualCanvasItem[];
   generatedImage?: GeneratedImageItem;
+  imageRationale?: string | null;
   onRemove: () => void;
   onCommitContent: (content: string) => void;
 }) {
@@ -393,7 +402,12 @@ function CardItem({
                 ))}
               </div>
             )}
-            <CardReferenceDock cardId={card.id} visualItems={visualItems} generatedImage={generatedImage} />
+            <CardReferenceDock
+              cardId={card.id}
+              visualItems={visualItems}
+              generatedImage={generatedImage}
+              imageRationale={imageRationale}
+            />
           </div>
 
           <button
@@ -415,6 +429,7 @@ export default function StoryCardsBoard() {
     cards,
     isGeneratingScript,
     latestScript,
+    storyShots,
     visualCanvasItems,
   } = useStoryCardsBoardSlice();
   const {
@@ -494,6 +509,7 @@ export default function StoryCardsBoard() {
                     generatedImage={generatedImages.find(
                       (image) => image.id === generatedScenes[idx]?.imageId,
                     )}
+                    imageRationale={rationaleForShot(storyShots, idx + 1)}
                     onRemove={() => removeCard(card.id)}
                     onCommitContent={(text) => updateCardContent(card.id, text)}
                   />

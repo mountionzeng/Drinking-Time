@@ -488,6 +488,50 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
+  it("generateForMobile sceneAnalysis 保留理由旁路且不注入 prompt", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/empty-alley.png",
+      imageKey: "generated/empty-alley.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(321));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "空镜故事",
+      projectId: 7321,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      styleHint: "delicate watercolor",
+      sceneAnalysis: {
+        subjectDescription: "雨后的窄巷积水反光",
+        isPerson: false,
+        recurringCharacter: null,
+        action: "雨水沿屋檐落下",
+        emotion: "清冷",
+        keyElements: ["窄巷", "积水", "路灯倒影"],
+        needsCharacterAnchor: false,
+        confidence: 75,
+        intent: "给招聘者看她能把复杂局面降噪",
+        rationale: "这一镜用空巷说明问题被她整理清楚了",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      intent: "给招聘者看她能把复杂局面降噪",
+      rationale: "这一镜用空巷说明问题被她整理清楚了",
+    });
+    const submittedPrompt = imageGenMocks.generateImage.mock.calls[0][0] as string;
+    expect(submittedPrompt).toContain("雨后的窄巷积水反光");
+    expect(submittedPrompt).toContain("no people");
+    expect(submittedPrompt).toContain("delicate watercolor");
+    expect(submittedPrompt).not.toContain("这一镜用空巷");
+  });
+
   it("手机生成并右划收下后，Creation 读取为标准镜号主图", async () => {
     imageGenMocks.generateImage.mockResolvedValueOnce({
       status: "ok",

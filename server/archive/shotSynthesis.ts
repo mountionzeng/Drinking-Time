@@ -3,6 +3,7 @@ import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { applyShotPromptComposition } from "../services/shotPromptComposer";
+import { annotateScriptShotReasons } from "../services/scriptAgent";
 import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, StoryCardPayload, VisualAnchorPayload } from "./storyAgent.types";
 
 const VALID_SHOT_TYPES = ["远", "全", "中", "近", "特", "大特"];
@@ -38,6 +39,7 @@ function buildFallbackShotList(
   cards: ShotListCardInput[],
   characterHint: string,
   modelLabel: string,
+  resonanceContext?: string,
 ): ShotListPayload {
   const sorted = cards
     .map((card, index) => ({ card, index }))
@@ -108,7 +110,10 @@ function buildFallbackShotList(
     };
   });
   const arc = `${firstEmotion} → ${conflictCount ? "摩擦" : "停顿"} → ${lastEmotion}`;
-  const composedShots = applyShotPromptComposition(shots, { arc });
+  const composedShots = annotateScriptShotReasons(
+    applyShotPromptComposition(shots, { arc }),
+    { resonanceContext },
+  );
 
   return {
     configured: true,
@@ -422,7 +427,7 @@ export async function synthesizeShotList(params: {
       // 模型返回了合法 JSON 但 shots 为空 → 跟下面 catch 一样走 buildFallbackShotList 降级，
       // 【绝不】把「整理失败」错误弹给用户（这正是用户踩到的 live bug：救命的兜底零件造好了却没装上）。
       console.warn("[storyAgent] 模型返回的 shots 为空，按卡片降级出兜底分镜");
-      return buildFallbackShotList(params.cards, characterHint, modelLabel);
+      return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
     }
 
     const characters: ShotCharacter[] = Array.isArray(parsed.characters)
@@ -501,7 +506,7 @@ export async function synthesizeShotList(params: {
     if (shots.length === 0) {
       // 模型给的镜头全缺 action、被过滤光了 → 同样降级兜底，不弹错。
       console.warn("[storyAgent] 模型镜头全缺 action，按卡片降级出兜底分镜");
-      return buildFallbackShotList(params.cards, characterHint, modelLabel);
+      return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
     }
 
     // ── beat 兜底 ──
@@ -516,10 +521,13 @@ export async function synthesizeShotList(params: {
     }
 
     const arc = typeof parsed.arc === "string" ? parsed.arc.trim() : "";
-    const composedShots = applyShotPromptComposition(shots, {
-      arc,
-      visualAnchors,
-    });
+    const composedShots = annotateScriptShotReasons(
+      applyShotPromptComposition(shots, {
+        arc,
+        visualAnchors,
+      }),
+      { resonanceContext: params.resonanceContext },
+    );
 
     return {
       configured: true,
@@ -534,6 +542,6 @@ export async function synthesizeShotList(params: {
     };
   } catch (error) {
     console.warn("[storyAgent] shot list JSON parse failed; using local fallback.", error);
-    return buildFallbackShotList(params.cards, characterHint, modelLabel);
+    return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
   }
 }

@@ -19,6 +19,14 @@ import {
   type ResonanceSignal,
 } from "./resonanceSignal";
 
+type ScriptShotReasonSource = {
+  beat?: string;
+  subject?: string;
+  action?: string;
+  emotion?: string;
+  sourceCardContent?: string;
+};
+
 /** 一把被选中的共鸣声音（文学家名 + 注入用的片段） */
 export type ResonantVoice = {
   id: string;
@@ -89,4 +97,36 @@ export async function buildScriptResonanceContextForUser(
   );
   const signal = await buildResonanceSignalForUser(userId, { emotion });
   return buildScriptResonanceContext(signal);
+}
+
+function firstContextLine(context?: string): string {
+  return (context ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "";
+}
+
+export function annotateScriptShotReasons<T extends ScriptShotReasonSource>(
+  shots: T[],
+  options: { resonanceContext?: string } = {},
+): Array<T & { intent: string | null; rationale: string | null }> {
+  const contextIntent = firstContextLine(options.resonanceContext).slice(0, 180);
+  return shots.map((shot) => {
+    const source = shot.sourceCardContent?.trim()
+      ? "来自用户素材"
+      : "连接镜补足叙事节奏";
+    const task = [shot.subject, shot.action].filter(Boolean).join("：");
+    const rationale = [
+      shot.beat ? `叙事位置=${shot.beat}` : "",
+      source,
+      shot.emotion ? `情绪=${shot.emotion}` : "",
+      task ? `画面任务=${task}` : "",
+    ].filter(Boolean).join("；");
+
+    return {
+      ...shot,
+      intent: contextIntent || "把用户素材转成当前镜头可理解的画面任务",
+      rationale: rationale || null,
+    };
+  });
 }

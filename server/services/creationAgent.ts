@@ -9,6 +9,7 @@ import { ENV } from "../_core/env";
 import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
 import { editImage, generateImage, type ImageProvider } from "./imageGen";
+import { composeScenePrompt } from "./composeScenePrompt";
 import { renderViaGate } from "./renderGate";
 import {
   createGeneratedImage,
@@ -21,6 +22,7 @@ import {
   type ImageAsset,
 } from "../../shared/imageAsset";
 import { analyzeVisionReference } from "../archive/visionAgent";
+import type { SceneAnalysis } from "../../shared/sceneAnalysis";
 import { materializeImageInput } from "./imageAssets";
 
 // ── Types ──
@@ -60,6 +62,7 @@ export type GenerateImageToolCall = {
   tool: "generateImage";
   prompt: string;
   shotNo: string;
+  sceneAnalysis?: SceneAnalysis;
 };
 
 export type UpdateFocusToolCall = {
@@ -122,6 +125,8 @@ export type CreationAgentResult = {
     imageKey: string;
     shotNo: string;
     imageId: number;
+    intent?: string;
+    rationale?: string;
   } | null;
   /** 小酌建议的提示词修改（用户说「改暖一点」等触发） */
   promptUpdate: {
@@ -499,9 +504,12 @@ export async function replyFromCreationAgent(
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
     const targetShotNo =
       canonicalizeShotNo(generateCall.shotNo) ?? focusShotNo ?? generateCall.shotNo;
+    const scenePrompt = generateCall.sceneAnalysis
+      ? composeScenePrompt(generateCall.sceneAnalysis)
+      : { prompt: generateCall.prompt };
     // 与确定性单图路径共用底层（renderViaGate + 落库），LLM 工具调用只多一句回复包装。
     const genResult = await generateNextImage({
-      prompt: generateCall.prompt,
+      prompt: scenePrompt.prompt,
       shotNo: targetShotNo,
       projectId: input.projectId,
       storyId: input.storyId,
@@ -512,7 +520,11 @@ export async function replyFromCreationAgent(
       assets,
     });
     if (genResult.status === "ok") {
-      generatedImage = genResult.generatedImage;
+      generatedImage = {
+        ...genResult.generatedImage,
+        ...(scenePrompt.intent ? { intent: scenePrompt.intent } : {}),
+        ...(scenePrompt.rationale ? { rationale: scenePrompt.rationale } : {}),
+      };
       assetsChanged = true;
       reply = appendReply(reply, "我先做了一版，放在待确认里。你收下之后，它才会成为这个镜头的主图。");
     } else {
