@@ -6,6 +6,7 @@ export type PromptTableColumn =
   | 'dimension'
   | 'category'
   | 'value'
+  | 'usage'
   | 'weight'
   | 'source'
   | 'inheritance';
@@ -52,6 +53,7 @@ export function sourceFilterOptions(rows: readonly PromptRow[]) {
 
 export function getPromptTableColumns(rows: readonly PromptRow[]): PromptTableColumn[] {
   const columns: PromptTableColumn[] = ['dimension', 'value', 'weight', 'source'];
+  columns.splice(2, 0, 'usage');
   const hasMultipleCategories = new Set(rows.map((row) => row.category)).size > 1;
   if (hasMultipleCategories) columns.splice(1, 0, 'category');
   const hasInheritanceState = rows.some((row) => row.inheritance !== 'own');
