@@ -56,7 +56,7 @@ describe('prompt table sort and filters', () => {
     expect(sourceFilterOptions(rows)).toContainEqual({ source: 'art-repo', count: 1 });
   });
 
-  it('adds dynamic columns only when rows need them', () => {
+  it('keeps usage visible and adds dynamic columns only when rows need them', () => {
     const ownContent = [row({ id: 'own' })];
     const mixed = [
       row({ id: 'own' }),
@@ -68,11 +68,12 @@ describe('prompt table sort and filters', () => {
       }),
     ];
 
-    expect(getPromptTableColumns(ownContent)).toEqual(['dimension', 'value', 'weight', 'source']);
+    expect(getPromptTableColumns(ownContent)).toEqual(['dimension', 'value', 'usage', 'weight', 'source']);
     expect(getPromptTableColumns(mixed)).toEqual([
       'dimension',
       'category',
       'value',
+      'usage',
       'weight',
       'source',
       'inheritance',
