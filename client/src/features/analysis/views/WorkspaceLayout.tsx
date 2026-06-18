@@ -21,7 +21,8 @@ import { CreationEditorProvider } from '@/features/creationEditor/CreationEditor
 import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
 import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
 import type { AnalysisData } from '@/features/analysis/types';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import { useActiveStoryId } from '@/features/storyAgent/spine/selectors';
 import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
 import type { StoryPanel } from '@/features/analysis/storyPanels';
 
@@ -66,7 +67,8 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [centerCollapsed, setCenterCollapsed] = useState(false);
-  const { activeStoryId, setActiveSelection } = useStoryAgent();
+  const activeStoryId = useActiveStoryId();
+  const { setActiveSelection } = useStoryAgentActions();
   useSelectionCapture(setActiveSelection);
   const storyCardsVisible = visibleStoryPanels.includes('storyCards');
   const scriptVisible = visibleStoryPanels.includes('script');

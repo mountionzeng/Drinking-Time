@@ -16,10 +16,13 @@ vi.mock('@/components/ui/resizable', () => ({
 }));
 
 vi.mock('@/features/storyAgent/StoryAgentContext', () => ({
-  useStoryAgent: () => ({
-    activeStoryId: 21,
+  useStoryAgentActions: () => ({
     setActiveSelection: vi.fn(),
   }),
+}));
+
+vi.mock('@/features/storyAgent/spine/selectors', () => ({
+  useActiveStoryId: () => 21,
 }));
 
 vi.mock('@/features/storyAgent/hooks/useSelectionCapture', () => ({

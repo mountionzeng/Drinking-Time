@@ -175,6 +175,10 @@ export function useConfirmedIntent() {
   return useStorySpine((state) => state.confirmedIntent);
 }
 
+export function useActiveStoryId() {
+  return useStorySpine((state) => state.activeStoryId);
+}
+
 export function useSetConfirmedIntent() {
   return useStorySpine(
     (state) => state.setConfirmedIntent,
