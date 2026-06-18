@@ -28,7 +28,6 @@ import {
   type VisualCanvasItem,
 } from './types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
-import { buildPromptPool } from './promptPool';
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from './storyCardSimilarity';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
@@ -72,6 +71,8 @@ import {
   type StoryListItem,
   type StorySaveStatus,
 } from './spine/storySpine';
+import { createActionFacade } from './spine/actionFacade';
+import { selectPromptPool } from './spine/selectors';
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -227,6 +228,91 @@ interface StoryAgentContextValue {
 }
 
 const StoryAgentContext = createContext<StoryAgentContextValue | null>(null);
+
+type StoryAgentActionKey =
+  | 'setConfirmedIntent'
+  | 'clearIntent'
+  | 'confirmPendingIntent'
+  | 'dismissPendingIntent'
+  | 'sendMessage'
+  | 'reorderCards'
+  | 'removeCard'
+  | 'updateCardContent'
+  | 'updateScriptMeta'
+  | 'updateScriptScene'
+  | 'updateStoryShotField'
+  | 'generateScript'
+  | 'resetConversation'
+  | 'loadStory'
+  | 'createNewStory'
+  | 'backToList'
+  | 'deleteStory'
+  | 'refreshStoryList'
+  | 'setImageProvider'
+  | 'addVisualReference'
+  | 'refineVisualItem'
+  | 'updateVisualCanvasItem'
+  | 'removeVisualCanvasItem'
+  | 'prepareArtDirection'
+  | 'toggleArtReference'
+  | 'cycleArtReferencePurpose'
+  | 'setCharacterReferenceByUrl'
+  | 'generateArtCandidates'
+  | 'setArtCandidateVerdict'
+  | 'reviewArtRecipe'
+  | 'updateArtRecipeField'
+  | 'lockArtRecipe'
+  | 'resetArtDirection'
+  | 'setActiveSelection'
+  | 'clearSelection'
+  | 'sendSelectionEdit'
+  | 'addStoryImage'
+  | 'updateShotFragmentRefs';
+
+export type StoryAgentActions = Pick<StoryAgentContextValue, StoryAgentActionKey>;
+
+const storyAgentActionKeys = [
+  'setConfirmedIntent',
+  'clearIntent',
+  'confirmPendingIntent',
+  'dismissPendingIntent',
+  'sendMessage',
+  'reorderCards',
+  'removeCard',
+  'updateCardContent',
+  'updateScriptMeta',
+  'updateScriptScene',
+  'updateStoryShotField',
+  'generateScript',
+  'resetConversation',
+  'loadStory',
+  'createNewStory',
+  'backToList',
+  'deleteStory',
+  'refreshStoryList',
+  'setImageProvider',
+  'addVisualReference',
+  'refineVisualItem',
+  'updateVisualCanvasItem',
+  'removeVisualCanvasItem',
+  'prepareArtDirection',
+  'toggleArtReference',
+  'cycleArtReferencePurpose',
+  'setCharacterReferenceByUrl',
+  'generateArtCandidates',
+  'setArtCandidateVerdict',
+  'reviewArtRecipe',
+  'updateArtRecipeField',
+  'lockArtRecipe',
+  'resetArtDirection',
+  'setActiveSelection',
+  'clearSelection',
+  'sendSelectionEdit',
+  'addStoryImage',
+  'updateShotFragmentRefs',
+] as const satisfies readonly StoryAgentActionKey[];
+
+const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
 
 type StoryAgentChatResult = {
   reply?: string;
@@ -2489,10 +2575,7 @@ export function StoryAgentProvider({
   );
 
   // ── 提示词片段池（从 visualCanvasItems 派生） ──
-  const promptPool = useMemo(
-    () => buildPromptPool(visualCanvasItems),
-    [visualCanvasItems],
-  );
+  const promptPool = selectPromptPool(storySpineStore.getState());
 
   const updateShotFragmentRefs = useCallback(
     (shotIndex: number, fragmentIds: string[]) => {
@@ -2658,15 +2741,70 @@ export function StoryAgentProvider({
     ],
   );
 
+  const currentActions: StoryAgentActions = {
+    setConfirmedIntent,
+    clearIntent,
+    confirmPendingIntent,
+    dismissPendingIntent,
+    sendMessage,
+    reorderCards,
+    removeCard,
+    updateCardContent,
+    updateScriptMeta,
+    updateScriptScene,
+    updateStoryShotField,
+    generateScript,
+    resetConversation,
+    loadStory,
+    createNewStory,
+    backToList,
+    deleteStory: handleDeleteStory,
+    refreshStoryList,
+    setImageProvider,
+    addVisualReference,
+    refineVisualItem,
+    updateVisualCanvasItem,
+    removeVisualCanvasItem,
+    prepareArtDirection,
+    toggleArtReference,
+    cycleArtReferencePurpose,
+    setCharacterReferenceByUrl,
+    generateArtCandidates,
+    setArtCandidateVerdict,
+    reviewArtRecipe,
+    updateArtRecipeField,
+    lockArtRecipe,
+    resetArtDirection,
+    setActiveSelection,
+    clearSelection,
+    sendSelectionEdit,
+    addStoryImage,
+    updateShotFragmentRefs,
+  };
+  const actionsRef = useRef<StoryAgentActions | null>(currentActions);
+  actionsRef.current = currentActions;
+  const stableActions = useMemo(
+    () => createActionFacade<StoryAgentActions>(actionsRef, storyAgentActionKeys),
+    [],
+  );
+
   return (
-    <StoryAgentContext.Provider value={value}>
-      {children}
-    </StoryAgentContext.Provider>
+    <StoryAgentActionsContext.Provider value={stableActions}>
+      <StoryAgentContext.Provider value={value}>
+        {children}
+      </StoryAgentContext.Provider>
+    </StoryAgentActionsContext.Provider>
   );
 }
 
 export function useStoryAgent() {
   const ctx = useContext(StoryAgentContext);
   if (!ctx) throw new Error('useStoryAgent must be used within StoryAgentProvider');
+  return ctx;
+}
+
+export function useStoryAgentActions() {
+  const ctx = useContext(StoryAgentActionsContext);
+  if (!ctx) throw new Error('useStoryAgentActions must be used within StoryAgentProvider');
   return ctx;
 }

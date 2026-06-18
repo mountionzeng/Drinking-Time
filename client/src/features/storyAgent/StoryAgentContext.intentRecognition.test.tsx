@@ -137,6 +137,27 @@ vi.mock('@/features/storyAgent/StoryAgentContext', async (importOriginal) => {
   return {
     ...actual,
     useStoryAgent: () => fixtures.chatContextState,
+    useStoryAgentActions: () => fixtures.chatContextState,
+  };
+});
+
+vi.mock('@/features/storyAgent/spine/selectors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./spine/selectors')>();
+  return {
+    ...actual,
+    useStoryAgentChatSlice: () => ({
+      messages: fixtures.chatContextState.messages,
+      cardRefs: fixtures.chatContextState.cards,
+      isReplying: fixtures.chatContextState.isReplying,
+      activeStoryId: fixtures.chatContextState.activeStoryId,
+      remoteStoryId: fixtures.chatContextState.remoteStoryId,
+      saveStatus: fixtures.chatContextState.saveStatus,
+      lastSavedAt: fixtures.chatContextState.lastSavedAt,
+      returningGreeting: fixtures.chatContextState.returningGreeting,
+      confirmedIntent: fixtures.chatContextState.confirmedIntent,
+      pendingIntentDraft: fixtures.chatContextState.pendingIntentDraft,
+      activeSelection: fixtures.chatContextState.activeSelection,
+    }),
   };
 });
 

@@ -18,7 +18,11 @@ import {
   Trash2,
   Star,
 } from 'lucide-react';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import {
+  useCardReferenceDockSlice,
+  useStoryCardsBoardSlice,
+} from '@/features/storyAgent/spine/selectors';
 import { useStoryGeneratedImages } from './StoryImagesStrip';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { StoryCard, VisualCanvasItem } from '@/features/storyAgent/types';
@@ -88,13 +92,12 @@ function CardReferenceDock({
   visualItems: VisualCanvasItem[];
   generatedImage?: GeneratedImageItem;
 }) {
+  const { isArtWorking, artDirection } = useCardReferenceDockSlice();
   const {
-    isArtWorking,
     addVisualReference,
     removeVisualCanvasItem,
     setCharacterReferenceByUrl,
-    artDirection,
-  } = useStoryAgent();
+  } = useStoryAgentActions();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
   // 当前主角参照 URL（跨镜头锁人物长相）——用于在照片上标星 + 切换
@@ -410,14 +413,16 @@ function CardItem({
 export default function StoryCardsBoard() {
   const {
     cards,
+    isGeneratingScript,
+    latestScript,
+    visualCanvasItems,
+  } = useStoryCardsBoardSlice();
+  const {
     reorderCards,
     removeCard,
     updateCardContent,
     generateScript,
-    isGeneratingScript,
-    latestScript,
-    visualCanvasItems,
-  } = useStoryAgent();
+  } = useStoryAgentActions();
   const { element } = useNayin();
   const lastOrderRef = useRef<string>('');
   const generatedImages = useStoryGeneratedImages();

@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Copy, Check, ScrollText, Sparkles, ChevronDown, Camera } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryScriptViewerSlice } from '@/features/storyAgent/spine/selectors';
 import { buildSceneInheritedImageMap } from '@/features/storyAgent/inheritedPhoto';
 import { useNayin } from '@/features/nayin/NayinContext';
 import { trpc } from '@/lib/trpc';
@@ -67,8 +68,8 @@ interface ScriptViewerProps {
 }
 
 export default function ScriptViewer({ projectId }: ScriptViewerProps) {
-  const { latestScript, scripts, updateScriptMeta, updateScriptScene, visualCanvasItems, activeStoryId } =
-    useStoryAgent();
+  const { latestScript, scripts, visualCanvasItems, activeStoryId } = useStoryScriptViewerSlice();
+  const { updateScriptMeta, updateScriptScene } = useStoryAgentActions();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);

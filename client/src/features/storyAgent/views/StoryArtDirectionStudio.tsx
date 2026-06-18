@@ -23,9 +23,10 @@ import type {
   ArtReferencePurpose,
 } from '@shared/artDirection';
 import {
-  useStoryAgent,
+  useStoryAgentActions,
   type ImageProviderSelection,
 } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryArtDirectionStudioSlice } from '@/features/storyAgent/spine/selectors';
 
 const PROVIDERS: Array<{ value: ImageProviderSelection; label: string }> = [
   { value: 'default', label: '默认模型' },
@@ -214,8 +215,10 @@ export default function StoryArtDirectionStudio() {
   const {
     artDirection,
     imageProvider,
-    setImageProvider,
     isArtWorking,
+  } = useStoryArtDirectionStudioSlice();
+  const {
+    setImageProvider,
     addVisualReference,
     prepareArtDirection,
     toggleArtReference,
@@ -226,7 +229,7 @@ export default function StoryArtDirectionStudio() {
     updateArtRecipeField,
     lockArtRecipe,
     resetArtDirection,
-  } = useStoryAgent();
+  } = useStoryAgentActions();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const candidateRailRef = useRef<HTMLDivElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);

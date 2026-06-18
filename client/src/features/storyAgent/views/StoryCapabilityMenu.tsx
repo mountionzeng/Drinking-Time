@@ -1,5 +1,5 @@
 import { Briefcase, Gift, Heart, Images, Share2 } from 'lucide-react';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import type { ChatMessage } from '@/features/storyAgent/types';
 import { PURPOSE_LABELS, type StoryIntent } from '../intentTypes';
 
@@ -136,7 +136,7 @@ export function shouldShowCapabilityMenu({
 }
 
 export default function StoryCapabilityMenu() {
-  const { setConfirmedIntent } = useStoryAgent();
+  const { setConfirmedIntent } = useStoryAgentActions();
 
   return (
     <div

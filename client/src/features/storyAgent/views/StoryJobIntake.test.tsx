@@ -12,7 +12,16 @@ const contextState = vi.hoisted(() => ({
 
 vi.mock('@/features/storyAgent/StoryAgentContext', () => ({
   useStoryAgent: () => contextState,
+  useStoryAgentActions: () => contextState,
 }));
+
+vi.mock('@/features/storyAgent/spine/selectors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../spine/selectors')>();
+  return {
+    ...actual,
+    useConfirmedIntent: () => contextState.confirmedIntent,
+  };
+});
 
 const baseJobIntent: StoryIntent = {
   purpose: 'linkedin_job_search',

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Briefcase, Check, CornerDownRight } from 'lucide-react';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import { useConfirmedIntent } from '@/features/storyAgent/spine/selectors';
 import { JOB_CHANNEL_OPTIONS, type StoryIntent } from '../intentTypes';
 
 export type JobIntakeStep = 'targetRole' | 'channel' | 'materials' | 'done' | 'none';
@@ -46,7 +47,8 @@ export function joinJobChannels(channels: string[], customChannel = ''): string 
 }
 
 export default function StoryJobIntakePrompt() {
-  const { confirmedIntent, setConfirmedIntent } = useStoryAgent();
+  const confirmedIntent = useConfirmedIntent();
+  const { setConfirmedIntent } = useStoryAgentActions();
   const [targetRoleInput, setTargetRoleInput] = useState('');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(() =>
     splitJobChannels(confirmedIntent?.channel),

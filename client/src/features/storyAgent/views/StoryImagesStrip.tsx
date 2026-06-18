@@ -1,11 +1,11 @@
-import { useStoryAgent } from '../StoryAgentContext';
 import { trpc } from '@/lib/trpc';
 import { parseShotNo } from '@/features/mobileChat/types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import { useStoryGeneratedImagesSlice } from '../spine/selectors';
 
 export function useStoryGeneratedImages(): GeneratedImageItem[] {
   // 本地即时来源：context.storyImages（「把这一刻画出来」收下后立刻可见）。
-  const { remoteStoryId, activeStoryId, storyImages } = useStoryAgent();
+  const { remoteStoryId, activeStoryId, storyImages } = useStoryGeneratedImagesSlice();
   const storyId = remoteStoryId ?? activeStoryId ?? undefined;
 
   // 服务端来源：跨端（手机另一端刚加的图）经 storyGet.body.mobileImages 拉回，与本地合并。

@@ -12,6 +12,7 @@ const contextState = vi.hoisted(() => ({
 
 vi.mock('@/features/storyAgent/StoryAgentContext', () => ({
   useStoryAgent: () => contextState,
+  useStoryAgentActions: () => contextState,
 }));
 
 const openingMessage: ChatMessage = {

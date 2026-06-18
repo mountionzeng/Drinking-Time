@@ -8,7 +8,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { StoryArtDirectionPhase } from "@shared/artDirection";
-import { useStoryAgent } from "@/features/storyAgent/StoryAgentContext";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { useStoryArtDirectionLauncherSlice } from "@/features/storyAgent/spine/selectors";
 import {
   Dialog,
   DialogContent,
@@ -109,11 +110,8 @@ function PhaseMark({
 }
 
 export default function StoryArtDirectionLauncher() {
-  const {
-    artDirection,
-    cards,
-    prepareArtDirection,
-  } = useStoryAgent();
+  const { artDirection, cardCount } = useStoryArtDirectionLauncherSlice();
+  const { prepareArtDirection } = useStoryAgentActions();
   const [open, setOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
 
@@ -129,13 +127,13 @@ export default function StoryArtDirectionLauncher() {
 
   // 主入口：把这一刻画出来（单图，故事页已对齐故事，无需手动选）。
   const openDraw = () => {
-    if (cards.length === 0) return;
+    if (cardCount === 0) return;
     setDrawOpen(true);
   };
 
   // 进阶入口：6 张候选探索 / 锁定整篇视觉风格（保留但不再是主路径）。
   const openStudio = () => {
-    if (cards.length === 0) return;
+    if (cardCount === 0) return;
     if (artDirection.phase === "empty") prepareArtDirection();
     setOpen(true);
   };
@@ -145,7 +143,7 @@ export default function StoryArtDirectionLauncher() {
       <button
         type="button"
         onClick={openDraw}
-        disabled={cards.length === 0}
+        disabled={cardCount === 0}
         className="mt-2.5 flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left transition hover:bg-[var(--nayin-glow)] disabled:cursor-not-allowed disabled:opacity-55"
         style={{
           borderColor: "var(--panel-border)",
@@ -164,17 +162,17 @@ export default function StoryArtDirectionLauncher() {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[11px] font-semibold text-foreground">
-            {cards.length === 0 ? "先聊出一个故事画面" : "把这一刻画出来"}
+            {cardCount === 0 ? "先聊出一个故事画面" : "把这一刻画出来"}
           </span>
           <span className="mt-0.5 block truncate text-[9px] text-muted-foreground">
-            {cards.length === 0 ? "有具体场景后即可出图" : "出一张，满意就收下，不满意再来一张"}
+            {cardCount === 0 ? "有具体场景后即可出图" : "出一张，满意就收下，不满意再来一张"}
           </span>
         </span>
         <Sparkles className="h-4 w-4 shrink-0 text-nayin-bright" />
       </button>
 
       {/* 进阶：6 张候选探索 / 锁定整篇视觉风格 */}
-      {cards.length > 0 ? (
+      {cardCount > 0 ? (
         <button
           type="button"
           onClick={openStudio}

@@ -7,7 +7,8 @@
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud, Check } from 'lucide-react';
-import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import { useStoryAgentChatSlice } from '@/features/storyAgent/spine/selectors';
 import { useNayin } from '@/features/nayin/NayinContext';
 import EmotiveWuxingIcon from '@/features/nayin/views/EmotiveWuxingIcon';
 import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
@@ -18,12 +19,21 @@ import StoryJobIntakePrompt, { getJobIntakeStep } from './StoryJobIntakePrompt';
 
 export default function StoryAgentChat() {
   const {
-    messages, cards, isReplying, sendMessage, resetConversation, backToList,
+    messages, cardRefs, isReplying,
     activeStoryId, remoteStoryId, saveStatus, lastSavedAt, returningGreeting,
     confirmedIntent,
-    pendingIntentDraft, confirmPendingIntent, dismissPendingIntent,
-    activeSelection, clearSelection, sendSelectionEdit,
-  } = useStoryAgent();
+    pendingIntentDraft,
+    activeSelection,
+  } = useStoryAgentChatSlice();
+  const {
+    sendMessage,
+    resetConversation,
+    backToList,
+    confirmPendingIntent,
+    dismissPendingIntent,
+    clearSelection,
+    sendSelectionEdit,
+  } = useStoryAgentActions();
   const { element } = useNayin();
   const [input, setInput] = useState('');
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -140,7 +150,7 @@ export default function StoryAgentChat() {
   // 只让最新一条小酌消息动起来，历史消息保留姿势但不做动画。
   const lastAssistantId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
   const emotionForMessage = (spawnedCardId?: string) =>
-    spawnedCardId ? cards.find(c => c.id === spawnedCardId)?.emotion : undefined;
+    spawnedCardId ? cardRefs.find(c => c.id === spawnedCardId)?.emotion : undefined;
 
   return (
     <div className="monitor-panel h-full flex flex-col">
@@ -156,7 +166,7 @@ export default function StoryAgentChat() {
         <div className="status-dot" />
         <span>Drop Zone Agent</span>
         <span className="ml-auto flex items-center gap-2">
-          {cards.length > 0 && (
+          {cardRefs.length > 0 && (
             <span
               className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
               style={{
@@ -164,7 +174,7 @@ export default function StoryAgentChat() {
                 color: 'var(--nayin-accent-bright)',
               }}
             >
-              {cards.length} 张卡片
+              {cardRefs.length} 张卡片
             </span>
           )}
           <span
@@ -245,7 +255,7 @@ export default function StoryAgentChat() {
                     className="mb-1.5 rounded px-2 py-1 border-l-2 text-[10px] text-foreground/60"
                     style={{ borderLeftColor: 'var(--background)', background: 'rgba(255,255,255,0.1)' }}
                   >
-                    <SelectionSourceLabel selection={m.selectionQuote} cards={cards} />
+                    <SelectionSourceLabel selection={m.selectionQuote} cards={cardRefs} />
                     {' · '}
                     {m.selectionQuote.selectedText.length > 30
                       ? m.selectionQuote.selectedText.slice(0, 30) + '…'
@@ -425,7 +435,7 @@ export default function StoryAgentChat() {
             <Quote className="w-3 h-3 shrink-0 mt-0.5 text-nayin-bright" />
             <div className="flex-1 min-w-0">
               <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">
-                <SelectionSourceLabel selection={activeSelection} cards={cards} />
+                <SelectionSourceLabel selection={activeSelection} cards={cardRefs} />
               </div>
               <p className="text-foreground/80 leading-relaxed truncate">
                 {activeSelection.selectedText.length > 50
