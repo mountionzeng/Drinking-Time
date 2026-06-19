@@ -41,8 +41,9 @@ export interface ImageGenOptions {
   /** MJ v7 Draft Mode：~10x 速度、半价，仍是 MJ 美术血统。双轨「快轨」用 */
   mjDraft?: boolean;
   mjPollIntervalMs?: number;
+  mjSubmitTimeoutMs?: number;
   mjTimeoutMs?: number;
-  /** 主角参照（MJ --cref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
+  /** 主角参照（MJ --oref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
   characterRef?: string;
   /** 风格参照（MJ --sref，跨镜头锁画风）。仅公网 http(s) URL 生效 */
   styleRef?: string;
@@ -50,6 +51,8 @@ export interface ImageGenOptions {
   characterWeight?: number;
   /** 图像/场景权重（MJ --iw 0-3）：越高越贴近垫图（场景更一致），越低越自由。仅图生图（有垫图）时传 */
   imageWeight?: number;
+  /** 严格图生图：输入图不可读或上游图生图失败时直接报错，不回落纯文生图。用于真人照片锚点重绘。 */
+  requireInputImage?: boolean;
 }
 
 // ── 常量 ──
@@ -271,15 +274,16 @@ function midjourneyPromptFor(
   imageWeight?: number,
 ): string {
   let out = prompt;
-  // 角色/风格参考：跨镜头锁人物长相(--cref)/锁画风(--sref)。
+  // 角色/风格参考：跨镜头锁人物长相(--oref)/锁画风(--sref)。
   // 仅公网 http(s) URL 生效——MJ 服务端要去拉这个 URL；data URI / 本地路径跳过（走垫图降级）。
   // 放在最前：draft 模式会提前 return，先加保证 draft 也带上。
   const isPublicUrl = (u?: string): u is string => !!u && /^https?:\/\//i.test(u);
-  if (isPublicUrl(characterRef) && !/(?:^|\s)--cref\s/i.test(out)) {
-    out = `${out} --cref ${characterRef}`;
-    // 人物锁定权重（仅跟随 cref）：100=锁脸+发+衣
-    if (typeof characterWeight === "number" && !/(?:^|\s)--cw\s/i.test(out)) {
-      out = `${out} --cw ${characterWeight}`;
+  const hasCharacterRef = isPublicUrl(characterRef);
+  if (hasCharacterRef && !/(?:^|\s)--oref\s/i.test(out)) {
+    out = `${out} --oref ${characterRef}`;
+    // 人物锁定权重（仅跟随 oref）：100=锁脸+发+衣
+    if (typeof characterWeight === "number" && !/(?:^|\s)--ow\s/i.test(out)) {
+      out = `${out} --ow ${characterWeight}`;
     }
   }
   if (isPublicUrl(styleRef) && !/(?:^|\s)--sref\s/i.test(out)) {
@@ -288,6 +292,10 @@ function midjourneyPromptFor(
   // 图像/场景权重（图生图垫图强度）：调用方仅在有垫图时传 imageWeight
   if (typeof imageWeight === "number" && !/(?:^|\s)--iw\s/i.test(out)) {
     out = `${out} --iw ${imageWeight}`;
+  }
+  // 302/MJ 当前默认 8.1 会拒绝 --oref；有角色参考时固定到 v7。
+  if (hasCharacterRef && !/(?:^|\s)--(?:v|version)\s+\S+/i.test(out)) {
+    out = `${out} --v 7`;
   }
   // 默认解剖负面词：压制 MJ 常见的畸形手/多指/坏解剖。
   // 已有 --no 则不重复（尊重调用方显式负面词，如 artDirection recipe 的 negative）。
@@ -857,6 +865,12 @@ export async function editImage(
     // ① 先试图生图：把用户照片作为 image prompt 放进 base64Array
     const mjEdit = await generate302MidjourneyImage(prompt, options, fetcher, [imageUrl]);
     if (mjEdit.status === "ok") return mjEdit;
+    if (options.requireInputImage) {
+      return {
+        status: "error",
+        message: `MJ 图生图未能基于输入照片完成：${mjEdit.message ?? "未知错误"}`,
+      };
+    }
     console.warn("[editImage] MJ 图生图失败，改试 MJ 纯文生图：", mjEdit.message);
     // ② 图生图失败（常见：照片被 MJ 判为 malformed）→ 退一步用 prompt 纯文生图，
     //    保证「画出来」能出一张（文生图链路已验证可用、约 10 秒出图）。
@@ -897,6 +911,8 @@ async function generate302MidjourneyImage(
 ): Promise<ImageGenResult> {
   const pollIntervalMs = options.mjPollIntervalMs
     ?? parseNumber(ENV.image302MjPollMs, 4_000);
+  const submitTimeoutMs = options.mjSubmitTimeoutMs
+    ?? parseNumber(ENV.image302MjSubmitTimeoutMs, 90_000);
   const timeoutMs = options.mjTimeoutMs
     ?? parseNumber(ENV.image302MjTimeoutMs, 180_000);
   const startedAt = Date.now();
@@ -918,6 +934,13 @@ async function generate302MidjourneyImage(
         err instanceof Error ? err.message : err,
       );
       base64Array = [];
+    }
+    if (options.requireInputImage && base64Array.length !== inputImageUrls.length) {
+      recordFailure();
+      return {
+        status: "error",
+        message: "MJ 图生图未能读取输入照片，已停止，避免回落成纯文生图。",
+      };
     }
   }
 
@@ -944,7 +967,7 @@ async function generate302MidjourneyImage(
           state: "",
         }),
       }),
-      TIMEOUT_MS,
+      submitTimeoutMs,
     );
 
     if (!submitResponse.ok) {

@@ -10,19 +10,24 @@ import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
 import { editImage, generateImage, type ImageProvider } from "./imageGen";
 import { composeScenePrompt } from "./composeScenePrompt";
+import { deriveInjection } from "./imageInjection";
 import { renderViaGate } from "./renderGate";
 import {
   createGeneratedImage,
   createImageSignal,
   reassignImage as reassignGeneratedImage,
 } from "../db";
-import type { ArtRecipeDNA } from "../../shared/artDirection";
+import {
+  characterReferenceOf,
+  normalizeStoryArtDirection,
+  type ArtRecipeDNA,
+} from "../../shared/artDirection";
 import {
   canonicalizeShotNo,
   type ImageAsset,
 } from "../../shared/imageAsset";
-import { analyzeVisionReference } from "../archive/visionAgent";
 import type { SceneAnalysis } from "../../shared/sceneAnalysis";
+import { analyzeVisionReference } from "../archive/visionAgent";
 import { materializeImageInput } from "./imageAssets";
 
 // ── Types ──
@@ -52,6 +57,7 @@ export type CreationAgentInput = {
   imageProvider?: ImageProvider;
   artDirection?: ArtRecipeDNA;
   referenceImages?: string[];
+  story?: { body: unknown } | null;
   /** 创作目标（求职/社媒/记录）。决定生成时往哪个方向用力，默认 unset=行为不变。 */
   goal?: CreationGoal;
   /** 图片资产层（codex 合并）：当前项目的统一图片资产投影 */
@@ -63,6 +69,12 @@ export type GenerateImageToolCall = {
   prompt: string;
   shotNo: string;
   sceneAnalysis?: SceneAnalysis;
+};
+
+export type ProposeSceneToolCall = {
+  tool: "proposeScene";
+  shotNo?: string;
+  sceneAnalysis: SceneAnalysis;
 };
 
 export type UpdateFocusToolCall = {
@@ -106,7 +118,19 @@ export type ReassignImageToolCall = {
   newShotNo: string;
 };
 
+export type SetCharacterAnchorToolCall = {
+  tool: "setCharacterAnchor";
+  imageId?: number;
+  imageUrl?: string;
+};
+
+export type CreateCharacterFromPhotoToolCall = {
+  tool: "createCharacterFromPhoto";
+  photoUrl: string;
+};
+
 type ToolCall =
+  | ProposeSceneToolCall
   | GenerateImageToolCall
   | UpdateFocusToolCall
   | UpdateShotPromptToolCall
@@ -114,7 +138,9 @@ type ToolCall =
   | AnalyzeImageToolCall
   | ReviseImageToolCall
   | SelectImageToolCall
-  | ReassignImageToolCall;
+  | ReassignImageToolCall
+  | SetCharacterAnchorToolCall
+  | CreateCharacterFromPhotoToolCall;
 
 export type CreationAgentResult = {
   reply: string;
@@ -152,6 +178,7 @@ function buildSystemPrompt(
   currentFocusShotNo: string | null,
   goal: CreationGoal = "unset",
   assets: ImageAsset[] = [],
+  hasCharacterAnchor = false,
 ): string {
   // 目标指引放在最前面，框住后面所有判断（unset 时为空串，不注入，行为与接入前一致）
   const guidance = goalGuidance(goal);
@@ -190,6 +217,9 @@ function buildSystemPrompt(
         })
         .join("\n")
     : "（焦点镜头尚无图片）";
+  const anchorLine = hasCharacterAnchor
+    ? "当前人物锚点：已设置。"
+    : "当前人物锚点：未设置。若后续镜头需要同一个固定人物，请先让用户确认哪张图或哪张照片作为人物锚点。";
 
   return `${goalBlock}你是小酌——会听用户说话的朋友，也是帮用户把故事做成画面的助手。用户始终只和你交流；视觉分析、美术判断和出图只是你的后台能力，不要把它们说成其他角色。
 
@@ -219,18 +249,32 @@ ${focusLine}
 焦点镜头图片:
 ${assetSummary}
 
+${anchorLine}
+
 ## 返回格式
 返回 JSON：
 {
   "reply": "你的回复文字",
   "toolCalls": [
     { "tool": "generateImage", "prompt": "英文出图提示词", "shotNo": "SH01" },
+    { "tool": "proposeScene", "shotNo": "SH01", "sceneAnalysis": {
+      "subjectDescription": "这一刻的画面主体",
+      "isPerson": false,
+      "recurringCharacter": null,
+      "action": "正在发生的动作",
+      "emotion": "情绪",
+      "keyElements": ["关键物件", "场景", "光线"],
+      "needsCharacterAnchor": false,
+      "confidence": 75
+    } },
     { "tool": "updateFocus", "shotNo": "SH02" },
     { "tool": "updateShotPrompt", "shotNo": "SH01", "promptDraft": "修改后的中文出图描述" },
     { "tool": "analyzeImage", "imageId": 12 },
     { "tool": "reviseImage", "imageId": 12, "shotNo": "SH01", "prompt": "英文修改提示词" },
     { "tool": "selectImage", "imageId": 10 },
     { "tool": "reassignImage", "imageId": 10, "newShotNo": "SH02" },
+    { "tool": "setCharacterAnchor", "imageId": 10 },
+    { "tool": "createCharacterFromPhoto", "photoUrl": "data:image/jpeg;base64,..." },
     // 可选，镜头表空且素材已足够时，铺整张镜头表（storyDigest=蒸馏后的故事素材）:
     { "tool": "buildShotList", "storyDigest": "理清后的人物/事件/情绪/想要的效果，一段连贯文字" }
   ],
@@ -239,6 +283,14 @@ ${assetSummary}
 
 ## 规则
 - prompt 必须是英文，描述画面内容、构图、光线和氛围
+- 出图前先用 proposeScene 复述你准备画的内容，必须说清楚“画人物 / 画空镜不放人”；用户确认后，下一轮再用 generateImage
+- 若 confidence 低于 75，必须 proposeScene，不要直接 generateImage
+- 用户明确说“直接画 / 不用确认 / 就按这个画”时，可以跳过 proposeScene 直接 generateImage，但 generateImage 要带 sceneAnalysis
+- 用户纠偏或回复模糊时，按纠偏处理，重新 proposeScene；出错图比多问一次更贵
+- 只有用户素材或镜头内容明确需要具体人物时，才把固定人物写进 prompt；环境、物件、情绪空镜默认不要凭空加人脸或固定主角
+- 当需要固定人物但当前人物锚点未设置时，先引导用户选一张满意图或给照片；用户明确说“把 #12 设为主角/人物锚点/以后都按这张脸”时，用 setCharacterAnchor。单主角策略：再次设置会替换旧锚点
+- 用户给照片并明确要作为人物锚点时，用 createCharacterFromPhoto；只把重绘后的风格化人物图设为锚点，不把原始照片直接设为锚点
+- buildShotList 铺镜头表时也要克制：不需要人物推动的镜头优先写成空镜、物件或环境，不要自动把每一镜都变成人物出镜
 - reply 用中文，只聊画面，不讨论 Agent、模型或 prompt 工程
 - 只能使用上方图片列表中真实存在的 imageId，不得编造
 - reviseImage 只改变用户点名的内容，其余主体、构图关系和美术倾向尽量保持
@@ -321,6 +373,32 @@ function visionSummary(
     .join("\n");
 }
 
+function formatSceneProposal(analysis: SceneAnalysis): string {
+  const decision = analysis.needsCharacterAnchor || analysis.isPerson
+    ? "画人物"
+    : "画空镜，不放人物";
+  const recurring = analysis.recurringCharacter?.name
+    ? `固定角色：${analysis.recurringCharacter.name}。`
+    : "";
+  const elements = analysis.keyElements.length
+    ? `关键元素：${analysis.keyElements.join("、")}。`
+    : "";
+  return [
+    `我理解这一刻要${decision}：${analysis.subjectDescription}。`,
+    analysis.action ? `动作/状态：${analysis.action}。` : "",
+    analysis.emotion ? `情绪：${analysis.emotion}。` : "",
+    recurring,
+    elements,
+    `把握度：${analysis.confidence}。你确认我就按这个方向画；要改的话直接说哪里不对。`,
+  ].filter(Boolean).join("");
+}
+
+function hasStoryCharacterAnchor(story?: { body: unknown } | null): boolean {
+  if (!story?.body || typeof story.body !== "object") return false;
+  const body = story.body as Record<string, unknown>;
+  return Boolean(characterReferenceOf(normalizeStoryArtDirection(body.artDirection)));
+}
+
 // ── Deterministic single-image generation (no LLM tool call) ──
 
 export type GenerateNextImageInput = {
@@ -334,6 +412,8 @@ export type GenerateNextImageInput = {
   artDirection?: ArtRecipeDNA;
   imageProvider?: ImageProvider;
   referenceImages?: string[];
+  story?: { body: unknown } | null;
+  sceneAnalysis?: SceneAnalysis;
   /** 当前镜头已有资产，用于风格连续性参考。 */
   assets?: ImageAsset[];
 };
@@ -373,6 +453,9 @@ export async function generateNextImage(
       ),
     ),
   );
+  const injection = input.story
+    ? await deriveInjection(input.story, input.sceneAnalysis)
+    : {};
 
   let genResult: Awaited<ReturnType<typeof generateImage>>;
   try {
@@ -388,6 +471,7 @@ export async function generateNextImage(
         if (continuitySource) {
           return editImage(continuitySource, prompt, {
             provider: input.imageProvider,
+            ...injection,
           });
         }
         const midjourneyReferencePrefix =
@@ -396,7 +480,7 @@ export async function generateNextImage(
             : "";
         return generateImage(
           [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
-          { provider: input.imageProvider },
+          { provider: input.imageProvider, ...injection },
         );
       },
     );
@@ -478,6 +562,7 @@ export async function replyFromCreationAgent(
       effectiveFocus,
       input.goal ?? "unset",
       assets,
+      hasStoryCharacterAnchor(input.story),
     ),
     history,
     message: input.message,
@@ -495,11 +580,20 @@ export async function replyFromCreationAgent(
     canonicalizeShotNo(parsed.focusShotNo || effectiveFocus) ?? effectiveFocus;
   let assetsChanged = false;
 
+  const proposeCall = toolCalls.find(
+    (tc): tc is ProposeSceneToolCall => tc.tool === "proposeScene",
+  );
+  if (proposeCall?.sceneAnalysis) {
+    reply = appendReply(reply, formatSceneProposal(proposeCall.sceneAnalysis));
+  }
+
   // Process generateImage tool calls
   let generatedImage: CreationAgentResult["generatedImage"] = null;
-  const generateCall = toolCalls.find(
-    (tc): tc is GenerateImageToolCall => tc.tool === "generateImage",
-  );
+  const generateCall = proposeCall
+    ? undefined
+    : toolCalls.find(
+        (tc): tc is GenerateImageToolCall => tc.tool === "generateImage",
+      );
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
     const targetShotNo =
@@ -517,6 +611,8 @@ export async function replyFromCreationAgent(
       artDirection: input.artDirection,
       imageProvider: input.imageProvider,
       referenceImages: input.referenceImages,
+      story: input.story,
+      sceneAnalysis: generateCall.sceneAnalysis,
       assets,
     });
     if (genResult.status === "ok") {

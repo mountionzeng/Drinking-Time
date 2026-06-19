@@ -1,8 +1,9 @@
-export type PromptCategory = 'content' | 'style';
+export type PromptCategory = 'content' | 'narrative' | 'style';
 
 export type PromptSourceSystem =
   | 'chat'
   | 'intent'
+  | 'director'
   | 'art-repo'
   | 'inheritance'
   | 'manual';
@@ -26,6 +27,22 @@ export type PromptRow = {
   category: PromptCategory;
   inheritance: InheritanceState;
   contentLength: number;
+};
+
+export type PromptRunReference = {
+  kind: 'baseImage' | 'characterRef' | 'styleRef';
+  label: string;
+  url?: string;
+};
+
+export type PromptRunRecord = {
+  finalPrompt: string;
+  generatedAt: number;
+  imageId?: number;
+  imageUrl?: string;
+  source: 'draw-this-moment' | 'prompt-table-rerender' | 'creation-agent';
+  usedDimensions: string[];
+  references?: PromptRunReference[];
 };
 
 export type ArtDimension = {

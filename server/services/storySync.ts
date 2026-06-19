@@ -122,6 +122,20 @@ function mergeStoryShotsPreservingFields(
   return merged;
 }
 
+function cleanShotForPersistence(value: unknown): unknown {
+  const shot = asRecord(value);
+  const cleaned: StoryBodyRecord = { ...shot };
+  if (typeof cleaned.promptDraft === "string" && cleaned.promptDraft.trim() === "") {
+    delete cleaned.promptDraft;
+  }
+  return cleaned;
+}
+
+function cleanStoryShotsForPersistence(value: unknown): unknown[] {
+  const shots = Array.isArray(value) ? value : [];
+  return shots.map(cleanShotForPersistence);
+}
+
 export function getStoryRevision(body: unknown): number {
   const revision = asRecord(body)[REVISION_KEY];
   return typeof revision === "number" && Number.isInteger(revision) && revision >= 0
@@ -136,9 +150,8 @@ export function prepareStoryBody(
 ): StoryBodyRecord {
   const prepared = { ...asRecord(body) };
   const existing = asRecord(existingBody);
-  prepared.shots = mergeStoryShotsPreservingFields(
-    existing.shots,
-    prepared.shots
+  prepared.shots = cleanStoryShotsForPersistence(
+    mergeStoryShotsPreservingFields(existing.shots, prepared.shots)
   );
   // 图片以 generatedImages 表为唯一权威来源，避免故事 blob 再保存一份陈旧副本。
   delete prepared.mobileImages;

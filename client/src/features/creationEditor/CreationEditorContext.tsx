@@ -8,11 +8,14 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { trpc } from '@/lib/trpc';
-import type { StoryShot } from '@/features/storyAgent/types';
+import type { NarrativeJob, StoryCard, StoryShot } from '@/features/storyAgent/types';
+import { useStorySpine } from '@/features/storyAgent/spine/storySpine';
 import { canonicalizeShotNo } from '@shared/imageAsset';
 import { rerenderShotImage } from './rerender';
-import { writePromptOverride, writeShotDuration } from './promptTable/persist';
-import type { PromptOverride, PromptOverrides, PromptRow } from './promptTable/types';
+import { writePromptOverride, writePromptRun, writePromptShot, writeShotDuration } from './promptTable/persist';
+import { buildPromptTable } from './promptTable/buildPromptTable';
+import { compilePromptRecipe } from './promptTable/promptRecipe';
+import type { PromptOverride, PromptOverrides, PromptRow, PromptRunRecord } from './promptTable/types';
 
 export type CreationEditorStory = {
   id: number;
@@ -33,7 +36,10 @@ export type CreationEditorShot = StoryShot & {
   imageUrl?: string;
   imagePrompt?: string | null;
   durationMs?: number;
+  narrativeJob?: NarrativeJob;
   promptOverrides?: PromptOverrides;
+  promptRun?: PromptRunRecord;
+  downstreamStale?: boolean;
 };
 
 export type CreationEditorError = {
@@ -60,11 +66,44 @@ type CreationEditorContextValue = {
     dimension: string,
     override: PromptOverride,
   ) => Promise<void>;
+  ensurePromptShot: (input: {
+    shotNo: number;
+    card?: Pick<StoryCard, 'title' | 'content' | 'emotion' | 'sensoryDetails'>;
+    styleRef?: string;
+    narrativeJob?: NarrativeJob;
+  }) => Promise<{ shot: CreationEditorShot; rows: PromptRow[] }>;
+  recordPromptRun: (shotNo: number, promptRun: PromptRunRecord) => Promise<void>;
   rerenderShot: (shotNo: number, rows: PromptRow[]) => Promise<void>;
   refetch: () => void;
 };
 
 const CreationEditorContext = createContext<CreationEditorContextValue | null>(null);
+const EMPTY_STORY_SHOTS: readonly StoryShot[] = [];
+const SHOT_CONTENT_FIELDS = [
+  'shotNo',
+  'subject',
+  'action',
+  'dialogue',
+  'shotType',
+  'beat',
+  'cameraAngle',
+  'cameraMove',
+  'location',
+  'timeLight',
+  'mood',
+  'sound',
+  'styleRef',
+  'note',
+  'emotion',
+  'sourceCardContent',
+  'intent',
+  'rationale',
+  'emotionCharge',
+  'emotionDelta',
+  'visualAnchorText',
+  'promptDraft',
+  'negativePrompt',
+] as const;
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -102,8 +141,107 @@ function normalizePromptOverrides(raw: unknown): PromptOverrides | undefined {
   return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
+function normalizePromptRun(raw: unknown): PromptRunRecord | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const finalPrompt = stringValue(obj.finalPrompt);
+  const generatedAt = typeof obj.generatedAt === 'number' && Number.isFinite(obj.generatedAt)
+    ? obj.generatedAt
+    : undefined;
+  if (!finalPrompt || generatedAt == null) return undefined;
+  return {
+    finalPrompt,
+    generatedAt,
+    source:
+      obj.source === 'prompt-table-rerender' || obj.source === 'creation-agent'
+        ? obj.source
+        : 'draw-this-moment',
+    imageId: typeof obj.imageId === 'number' && Number.isFinite(obj.imageId)
+      ? obj.imageId
+      : undefined,
+    imageUrl: stringValue(obj.imageUrl) || undefined,
+    usedDimensions: Array.isArray(obj.usedDimensions)
+      ? obj.usedDimensions.filter((item): item is string => typeof item === 'string')
+      : [],
+    references: Array.isArray(obj.references)
+      ? obj.references.flatMap((rawRef) => {
+          if (!rawRef || typeof rawRef !== 'object' || Array.isArray(rawRef)) return [];
+          const ref = rawRef as Record<string, unknown>;
+          const label = stringValue(ref.label);
+          if (!label) return [];
+          return [{
+            kind:
+              ref.kind === 'characterRef' || ref.kind === 'styleRef'
+                ? ref.kind
+                : 'baseImage',
+            label,
+            url: stringValue(ref.url) || undefined,
+          }];
+        })
+      : undefined,
+  };
+}
+
+function normalizeNarrativeJob(raw: unknown): NarrativeJob | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const intentSummary = stringValue(obj.intentSummary);
+  const audience = stringValue(obj.audience);
+  const claim = stringValue(obj.claim);
+  const roleConcern = stringValue(obj.roleConcern);
+  const causalExplanation = stringValue(obj.causalExplanation);
+  const evidence = stringValue(obj.evidence);
+  const storyContext = stringValue(obj.storyContext);
+  const visualTranslation = stringValue(obj.visualTranslation);
+  const externalValue = stringValue(obj.externalValue);
+  const recommendationStatus = stringValue(obj.recommendationStatus);
+  const avoidMisread = stringValue(obj.avoidMisread);
+  if (!claim || !visualTranslation) return undefined;
+  return {
+    intentSummary,
+    audience,
+    claim,
+    roleConcern: roleConcern || undefined,
+    causalExplanation: causalExplanation || undefined,
+    evidence,
+    storyContext: storyContext || undefined,
+    visualTranslation,
+    externalValue: externalValue || undefined,
+    recommendationStatus: recommendationStatus || undefined,
+    avoidMisread,
+  };
+}
+
 function shotKey(shotNo: number) {
   return `SH${String(shotNo).padStart(2, '0')}`;
+}
+
+function sourceCardMarker(value: string): string | null {
+  const match = /^\s*\[(\d+)\]/.exec(value);
+  return match?.[1] ?? null;
+}
+
+function promptSourceMarker(value: string): string | null {
+  const match = /Source material:\s*\[(\d+)\]/i.exec(value);
+  return match?.[1] ?? null;
+}
+
+function promptShotNo(value: string): number | null {
+  const match = /Rerender only SH0*(\d+)/i.exec(value);
+  return match ? Number(match[1]) : null;
+}
+
+function isPromptRunStaleForShot(
+  shot: Pick<CreationEditorShot, 'shotNo' | 'sourceCardContent'>,
+  promptRun?: PromptRunRecord,
+) {
+  if (!promptRun?.finalPrompt) return false;
+  const renderedShotNo = promptShotNo(promptRun.finalPrompt);
+  if (renderedShotNo != null && renderedShotNo !== shot.shotNo) return true;
+
+  const expectedSource = sourceCardMarker(shot.sourceCardContent);
+  const renderedSource = promptSourceMarker(promptRun.finalPrompt);
+  return Boolean(expectedSource && renderedSource && expectedSource !== renderedSource);
 }
 
 function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
@@ -112,7 +250,8 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
   const shotNo = numberValue(obj.shotNo) ?? index + 1;
   if (!Number.isSafeInteger(shotNo) || shotNo < 1) return null;
 
-  return {
+  const promptRun = normalizePromptRun(obj.promptRun);
+  const shot: CreationEditorShot = {
     shotNo,
     shotKey: shotKey(shotNo),
     subject: stringValue(obj.subject),
@@ -141,10 +280,18 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
       typeof obj.durationMs === 'number' && Number.isFinite(obj.durationMs)
         ? obj.durationMs
         : undefined,
+    narrativeJob: normalizeNarrativeJob(obj.narrativeJob),
     promptOverrides: normalizePromptOverrides(obj.promptOverrides),
+    promptRun,
     fragmentRefs: Array.isArray(obj.fragmentRefs)
       ? obj.fragmentRefs.filter((item): item is string => typeof item === 'string')
       : undefined,
+  };
+  if (!isPromptRunStaleForShot(shot, promptRun)) return shot;
+  return {
+    ...shot,
+    promptRun: undefined,
+    downstreamStale: true,
   };
 }
 
@@ -154,6 +301,56 @@ export function normalizeStoryShots(body: unknown): CreationEditorShot[] {
   if (!Array.isArray(shots)) return [];
   return shots
     .map(normalizeShot)
+    .filter((shot): shot is CreationEditorShot => Boolean(shot))
+    .sort((left, right) => left.shotNo - right.shotNo);
+}
+
+function preserveEditorMetadata(
+  canonical: CreationEditorShot,
+  persisted?: CreationEditorShot,
+): CreationEditorShot {
+  if (!persisted) return canonical;
+  const sameStoryContent = SHOT_CONTENT_FIELDS.every(
+    (field) => (canonical[field] ?? '') === (persisted[field] ?? ''),
+  );
+  const inheritedPromptRun = sameStoryContent
+    ? canonical.promptRun ?? persisted.promptRun
+    : canonical.promptRun;
+  const promptRun = isPromptRunStaleForShot(canonical, inheritedPromptRun)
+    ? undefined
+    : inheritedPromptRun;
+  const downstreamStale =
+    (!sameStoryContent && !promptRun) ||
+    Boolean(inheritedPromptRun && !promptRun);
+  return {
+    ...persisted,
+    ...canonical,
+    shotKey: persisted.shotKey || canonical.shotKey,
+    durationMs: canonical.durationMs !== undefined ? canonical.durationMs : persisted.durationMs,
+    narrativeJob: sameStoryContent ? canonical.narrativeJob ?? persisted.narrativeJob : canonical.narrativeJob,
+    promptOverrides: sameStoryContent ? canonical.promptOverrides ?? persisted.promptOverrides : canonical.promptOverrides,
+    promptRun,
+    fragmentRefs: sameStoryContent ? canonical.fragmentRefs ?? persisted.fragmentRefs : canonical.fragmentRefs,
+    downstreamStale,
+  };
+}
+
+export function mergeCanonicalStoryShots(
+  canonicalShots: readonly StoryShot[],
+  body: unknown,
+): CreationEditorShot[] {
+  const persistedShots = normalizeStoryShots(body);
+  if (canonicalShots.length === 0) return persistedShots;
+
+  const persistedByShotNo = new Map(
+    persistedShots.map((shot) => [shot.shotNo, shot]),
+  );
+  return canonicalShots
+    .map((raw, index) => {
+      const canonical = normalizeShot(raw, index);
+      if (!canonical) return null;
+      return preserveEditorMetadata(canonical, persistedByShotNo.get(canonical.shotNo));
+    })
     .filter((shot): shot is CreationEditorShot => Boolean(shot))
     .sort((left, right) => left.shotNo - right.shotNo);
 }
@@ -184,14 +381,21 @@ export function mergeShotsWithImages(
   images: readonly CreationEditorImage[],
 ): CreationEditorShot[] {
   const latestByShotNo = new Map<number, CreationEditorImage>();
+  const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
+    byImageId.set(image.id, image);
     if (image.shotNo == null) continue;
     const previous = latestByShotNo.get(image.shotNo);
     if (!previous || image.id >= previous.id) latestByShotNo.set(image.shotNo, image);
   }
 
   return shots.map((shot) => {
-    const image = latestByShotNo.get(shot.shotNo);
+    const image =
+      shot.promptRun?.imageId != null
+        ? byImageId.get(shot.promptRun.imageId)
+        : shot.downstreamStale
+          ? undefined
+          : latestByShotNo.get(shot.shotNo);
     if (!image) return shot;
     return {
       ...shot,
@@ -235,6 +439,11 @@ export function CreationEditorProvider({
   const activeId = isControlled
     ? controlledActiveStoryId
     : localActiveStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
+  const canonicalStoryShots = useStorySpine((state) =>
+    activeId != null && state.activeStoryId === activeId
+      ? state.storyShots
+      : EMPTY_STORY_SHOTS,
+  );
   const storyQuery = trpc.storyAgent.storyGet.useQuery(
     { id: activeId ?? 0 },
     {
@@ -285,10 +494,10 @@ export function CreationEditorProvider({
 
   const shots = useMemo(() => {
     const body = storyQuery.data?.body;
-    const storyShots = normalizeStoryShots(body);
+    const storyShots = mergeCanonicalStoryShots(canonicalStoryShots, body);
     const images = normalizeStoryImages(storyImagesQuery.data);
     return mergeShotsWithImages(storyShots, images);
-  }, [storyImagesQuery.data, storyQuery.data?.body]);
+  }, [canonicalStoryShots, storyImagesQuery.data, storyQuery.data?.body]);
 
   useEffect(() => {
     setSelectedShotNo((current) => selectInitialShotNo(current, shots));
@@ -330,6 +539,69 @@ export function CreationEditorProvider({
     await persistBody(body);
   };
 
+  const ensurePromptShot = async (input: {
+    shotNo: number;
+    card?: Pick<StoryCard, 'title' | 'content' | 'emotion' | 'sensoryDetails'>;
+    styleRef?: string;
+    narrativeJob?: NarrativeJob;
+  }) => {
+    const existing = shots.find((item) => item.shotNo === input.shotNo);
+    const fallbackShot: CreationEditorShot = existing ?? {
+      shotNo: input.shotNo,
+      shotKey: shotKey(input.shotNo),
+      subject: input.card?.title || input.card?.content?.slice(0, 80) || `镜头 ${input.shotNo}`,
+      action: input.card?.content || '',
+      dialogue: '',
+      shotType: '',
+      beat: input.card?.title || `Story Card ${input.shotNo}`,
+      cameraAngle: '',
+      cameraMove: '',
+      location: input.card?.sensoryDetails?.join('，') || '',
+      timeLight: '',
+      mood: input.card?.emotion || '',
+      sound: '',
+      styleRef: input.styleRef || '',
+      note: '',
+      emotion: input.card?.emotion || '',
+      sourceCardContent: input.card?.content || '',
+      narrativeJob: input.narrativeJob,
+    };
+
+    const narrativeChanged = input.narrativeJob
+      ? JSON.stringify(existing?.narrativeJob ?? null) !== JSON.stringify(input.narrativeJob)
+      : false;
+    const shouldPersist =
+      !existing ||
+      (Boolean(input.styleRef) && !existing.styleRef.trim()) ||
+      narrativeChanged;
+    const nextShot = existing
+      ? {
+          ...existing,
+          styleRef: existing.styleRef || input.styleRef || '',
+          narrativeJob: input.narrativeJob ?? existing.narrativeJob,
+        }
+      : fallbackShot;
+    if (shouldPersist) {
+      const body = writePromptShot(
+        storyQuery.data?.body,
+        input.shotNo,
+        nextShot as unknown as Record<string, unknown>,
+      );
+      await persistBody(body);
+    }
+
+    const previousShots = shots.filter((item) => item.shotNo < input.shotNo);
+    return {
+      shot: nextShot,
+      rows: buildPromptTable(nextShot, { previousShots }),
+    };
+  };
+
+  const recordPromptRun = async (shotNo: number, promptRun: PromptRunRecord) => {
+    const body = writePromptRun(storyQuery.data?.body, shotNo, promptRun);
+    await persistBody(body);
+  };
+
   const rerenderShot = async (shotNo: number, rows: PromptRow[]) => {
     if (activeId == null) throw new Error('故事尚未加载，无法重渲');
     const shot = shots.find((item) => item.shotNo === shotNo);
@@ -337,12 +609,22 @@ export function CreationEditorProvider({
     setRerenderError(null);
     setRerenderingShotNo(shotNo);
     try {
-      await rerenderShotImage({
+      const result = await rerenderShotImage({
         storyId: activeId,
         shot,
         rows,
         generate: input => generateForMobileMut.mutateAsync(input),
       });
+      const compiled = compilePromptRecipe({ shot, rows });
+      const body = writePromptRun(storyQuery.data?.body, shotNo, {
+        finalPrompt: result.prompt || compiled.finalPrompt,
+        generatedAt: Date.now(),
+        imageId: result.imageId,
+        imageUrl: result.imageUrl,
+        source: 'prompt-table-rerender',
+        usedDimensions: compiled.usedDimensions,
+      });
+      await persistBody(body);
       await storyImagesQuery.refetch();
       await utils.storyAgent.storyImages.invalidate({ storyId: activeId });
     } catch (error) {
@@ -381,6 +663,8 @@ export function CreationEditorProvider({
       rerenderError,
       updateShotDuration,
       updatePromptOverride,
+      ensurePromptShot,
+      recordPromptRun,
       rerenderShot,
       refetch: () => {
         void storyListQuery.refetch();

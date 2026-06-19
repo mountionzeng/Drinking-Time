@@ -24,6 +24,8 @@ type ScriptShotReasonSource = {
   subject?: string;
   action?: string;
   emotion?: string;
+  intent?: string | null;
+  rationale?: string | null;
   sourceCardContent?: string;
 };
 
@@ -122,11 +124,13 @@ export function annotateScriptShotReasons<T extends ScriptShotReasonSource>(
       shot.emotion ? `情绪=${shot.emotion}` : "",
       task ? `画面任务=${task}` : "",
     ].filter(Boolean).join("；");
+    const explicitIntent = typeof shot.intent === "string" ? shot.intent.trim() : "";
+    const explicitRationale = typeof shot.rationale === "string" ? shot.rationale.trim() : "";
 
     return {
       ...shot,
-      intent: contextIntent || "把用户素材转成当前镜头可理解的画面任务",
-      rationale: rationale || null,
+      intent: explicitIntent || contextIntent || "把用户素材转成当前镜头可理解的画面任务",
+      rationale: explicitRationale || rationale || null,
     };
   });
 }

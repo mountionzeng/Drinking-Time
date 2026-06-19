@@ -88,4 +88,20 @@ describe('storySync shot field preservation', () => {
     expect(body).not.toHaveProperty('mobileImages');
     expect(body.shots).toEqual(serverBody.shots);
   });
+
+  it('drops empty promptDraft fields while preserving real prompt text', () => {
+    const body = prepareStoryBody(
+      {
+        shots: [
+          { shotNo: 1, subject: '第一镜', action: '等待', promptDraft: '' },
+          { shotNo: 2, subject: '第二镜', action: '行动', promptDraft: '真实出图提示词' },
+        ],
+      },
+      6,
+    );
+
+    const shots = body.shots as Array<Record<string, unknown>>;
+    expect(shots[0]).not.toHaveProperty('promptDraft');
+    expect(shots[1]).toMatchObject({ promptDraft: '真实出图提示词' });
+  });
 });

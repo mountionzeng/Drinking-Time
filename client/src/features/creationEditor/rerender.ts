@@ -1,4 +1,5 @@
 import type { CreationEditorShot } from './CreationEditorContext';
+import { compilePromptRecipe } from './promptTable/promptRecipe';
 import type { PromptRow } from './promptTable/types';
 
 export type GenerateForMobileInput = {
@@ -19,19 +20,7 @@ export function buildRerenderPrompt(params: {
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
 }): string {
-  const sortedRows = [...params.rows].sort((left, right) => right.weight - left.weight);
-  const weightedLines = sortedRows.map((row) => {
-    const weight = Math.round(row.weight * 100);
-    return `${row.label}(${weight}%): ${row.value}`;
-  });
-
-  return [
-    `Rerender only ${params.shot.shotKey}. Do not change other shots.`,
-    params.shot.sourceCardContent ? `Source material: ${params.shot.sourceCardContent}` : '',
-    params.shot.dialogue ? `Subtitle/dialogue: ${params.shot.dialogue}` : '',
-    'Prompt dimensions with weights:',
-    ...weightedLines,
-  ].filter(Boolean).join('\n');
+  return compilePromptRecipe(params).finalPrompt;
 }
 
 export function createGenerateForMobileInput(params: {

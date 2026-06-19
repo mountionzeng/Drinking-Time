@@ -17,6 +17,7 @@ const VALID_BEATS: ShotBeat[] = ["开场", "起势", "转折", "收束"];
 // 4. 把每份素材转成一条镜头（1:1 映射，sourceCardContent 原样回填用于回溯）
 // 返回 { characters, arc, shots }
 type ShotListCardInput = {
+  title?: string;
   content: string;
   rawText?: string;
   sourceQuote?: string;
@@ -35,12 +36,194 @@ type ShotListCardInput = {
   softMembership?: string[];
 };
 
+type ShotListIntentInput = {
+  purpose?: string;
+  audience?: string;
+  platform?: string;
+  tone?: string | null;
+  desiredEffect?: string | null;
+  targetRole?: string | null;
+  channel?: string | null;
+};
+
+function cleanText(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function isJobSearchIntent(
+  intent: ShotListIntentInput | null | undefined,
+  resonanceContext?: string,
+): boolean {
+  return (
+    intent?.purpose === "linkedin_job_search" ||
+    /用途=linkedin_job_search/.test(resonanceContext ?? "")
+  );
+}
+
+function jobTargetRole(intent?: ShotListIntentInput | null): string {
+  return cleanText(intent?.targetRole) || "目标岗位";
+}
+
+function jobAudience(intent?: ShotListIntentInput | null): string {
+  const audience = cleanText(intent?.audience);
+  if (audience === "recruiters") return "招聘者";
+  return audience || "招聘者";
+}
+
+function cardTitle(card: ShotListCardInput, index: number): string {
+  return cleanText(card.title) || cleanText(card.personalTrace) || `优势 ${index + 1}`;
+}
+
+function cardEvidence(card: ShotListCardInput): string {
+  return (
+    cleanText(card.sourceQuote) ||
+    cleanText(card.rawText) ||
+    cleanText(card.content) ||
+    "还缺少可验证证据"
+  );
+}
+
+function inferJobStrength(card: ShotListCardInput, targetRole: string, index: number): string {
+  const text = `${cardTitle(card, index)} ${card.content} ${targetRole}`;
+  if (/跨学科|技术.*艺术|艺术.*技术|影视|特效|计算机|CS/i.test(text)) {
+    return "跨学科转译能力";
+  }
+  if (/AIGC|产品|PM|定义产品|方向/i.test(text)) {
+    return "产品方向判断";
+  }
+  if (/流程|运作|系统|标准|判断|抽象/i.test(text)) {
+    return "系统化理解";
+  }
+  if (/结果|说服|交付|作品|展示/i.test(text)) {
+    return "结果导向表达";
+  }
+  if (/验证|试错|需求|想法|访谈/i.test(text)) {
+    return "低成本验证";
+  }
+  return cardTitle(card, index);
+}
+
+function jobRoleConcern(targetRole: string, strength: string): string {
+  if (/AIGC|产品|PM/i.test(targetRole)) {
+    return `${targetRole} 关心候选人能否把技术可能性、用户需求和商业落点转成可验证的产品判断`;
+  }
+  return `${targetRole} 关心候选人的优势是否真实、可验证，并能在外部工作场景里产生价值`;
+}
+
+function buildJobSearchFallbackShotList(
+  cards: ShotListCardInput[],
+  characterHint: string,
+  modelLabel: string,
+  resonanceContext?: string,
+  confirmedIntent?: ShotListIntentInput | null,
+): ShotListPayload {
+  const targetRole = jobTargetRole(confirmedIntent);
+  const audience = jobAudience(confirmedIntent);
+  const characters: ShotCharacter[] = [
+    {
+      name: characterHint || "候选人",
+      role: "求职短片主视点",
+      oneLiner: `面向${audience}证明自己的人`,
+    },
+  ];
+  const total = cards.length;
+  const shots: ShotEntry[] = cards.map((card, index) => {
+    const strength = inferJobStrength(card, targetRole, index);
+    const evidence = cardEvidence(card);
+    const roleConcern = jobRoleConcern(targetRole, strength);
+    const isFirst = index === 0;
+    const isLast = index === total - 1;
+    const beat: ShotBeat = isFirst ? "开场" : isLast ? "收束" : index === 1 ? "转折" : "起势";
+    const action =
+      beat === "开场"
+        ? `把${targetRole}关心的问题摆上桌面`
+        : beat === "收束"
+          ? `把${strength}落到一次值得联系的机会`
+          : `用真实材料证明${strength}`;
+
+    return {
+      shotNo: index + 1,
+      subject: strength.slice(0, 16),
+      action,
+      dialogue: cleanText(card.sourceQuote),
+      shotType: isFirst ? "全" : isLast ? "近" : "中",
+      beat,
+      cameraAngle: "",
+      cameraMove: "",
+      location: isFirst ? "作品整理桌" : "项目复盘现场",
+      timeLight: "",
+      mood: beat === "转折" ? "清晰有压力" : "可信、克制",
+      sound: "",
+      styleRef: "",
+      note: "模型未返回有效 JSON，系统按求职卡片自动整理的兜底镜头。",
+      emotion: beat === "收束" ? "值得联系" : "可信",
+      intent: `证明给${audience}：${strength}能回应${targetRole}的真实岗位关切。`,
+      rationale: `岗位关切：${roleConcern}；这张卡的证据是「${evidence.slice(0, 80)}」。画面要把优势、证据和外部价值连起来，而不是拍成泛泛情绪。`,
+      sourceCardContent: card.content,
+    };
+  });
+  const arc = `岗位关切 → 优势证据 → 值得联系`;
+  const composedShots = annotateScriptShotReasons(
+    applyShotPromptComposition(shots, { arc }),
+    { resonanceContext },
+  );
+
+  return {
+    configured: true,
+    modelLabel,
+    characters,
+    logline: `用优势证据证明${targetRole}竞争力`,
+    theme: "优势必须被看见并被相信",
+    arc,
+    variants: [
+      {
+        mode: "克制版",
+        logline: "像作品集短片一样证明能力",
+        arc: "岗位关切到可信证据",
+        treatment: "少煽情，多拍可验证材料、工作现场和判断过程。",
+      },
+      {
+        mode: "戏剧版",
+        logline: "把抽象优势拍成一次决策压力",
+        arc: "问题压力到判断成立",
+        treatment: "用一个关键选择承重，让优势在压力里发生作用。",
+      },
+      {
+        mode: "诗意版",
+        logline: "用工作痕迹串起候选人的能力轮廓",
+        arc: "零散材料到清晰定位",
+        treatment: "用作品、草图、白板和手部动作做连贯意象。",
+      },
+    ],
+    boringCheck: {
+      hasConflict: cards.length > 1,
+      hasTurn: cards.length > 1,
+      hasWish: true,
+      hasCost: cards.some(card => /难|卡|必须|转型|压力|抽象|需求/.test(card.content)),
+      hasChange: cards.length > 1,
+      note: "求职片张力来自岗位关切、优势证据和外部价值之间是否能闭合；证据不足的卡片应继续追问。",
+    },
+    shots: composedShots,
+  };
+}
+
 function buildFallbackShotList(
   cards: ShotListCardInput[],
   characterHint: string,
   modelLabel: string,
   resonanceContext?: string,
+  confirmedIntent?: ShotListIntentInput | null,
 ): ShotListPayload {
+  if (isJobSearchIntent(confirmedIntent, resonanceContext)) {
+    return buildJobSearchFallbackShotList(
+      cards,
+      characterHint,
+      modelLabel,
+      resonanceContext,
+      confirmedIntent,
+    );
+  }
+
   const sorted = cards
     .map((card, index) => ({ card, index }))
     .sort((a, b) => (b.card.intensity ?? 0) - (a.card.intensity ?? 0));
@@ -160,6 +343,7 @@ export async function synthesizeShotList(params: {
   cards: ShotListCardInput[];
   characterHint?: string;
   visualAnchors?: VisualAnchorPayload[];
+  confirmedIntent?: ShotListIntentInput | null;
   /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
   resonanceContext?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
@@ -182,6 +366,7 @@ export async function synthesizeShotList(params: {
   const cardsText = params.cards
     .map((c, i) => {
       const meta = [
+        c.title ? `卡片标题：${c.title}` : "",
         c.emotion ? `主情绪：${c.emotion}` : "",
         Array.isArray(c.emotionBlend) && c.emotionBlend.length
           ? `混合：${c.emotionBlend.join(" / ")}`
@@ -202,7 +387,7 @@ export async function synthesizeShotList(params: {
           : "",
       ].filter(Boolean);
       return [
-        `[${i + 1}] ${c.content}`,
+        `[${i + 1}] ${c.title ? `${c.title}：` : ""}${c.content}`,
         c.rawText ? `    原话：${c.rawText}` : "",
         c.sourceQuote ? `    原话锚点：${c.sourceQuote}` : "",
         meta.length ? `    情绪样本：${meta.join("；")}` : "",
@@ -211,6 +396,10 @@ export async function synthesizeShotList(params: {
     .join("\n\n");
 
   const characterHint = params.characterHint?.trim() || "";
+  const isJobSearch = isJobSearchIntent(params.confirmedIntent, params.resonanceContext);
+  const targetRole = jobTargetRole(params.confirmedIntent);
+  const audience = jobAudience(params.confirmedIntent);
+  const desiredEffect = cleanText(params.confirmedIntent?.desiredEffect);
   const visualAnchors = Array.isArray(params.visualAnchors)
     ? params.visualAnchors.slice(0, 6)
     : [];
@@ -238,9 +427,15 @@ export async function synthesizeShotList(params: {
     : "";
 
   const systemPrompt = [
-    "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
-    "对方刚刚跟你聊完一段，他沉淀下来这一组情绪样本——每一份都来自日常对话里的真实反应，不一定是感动，也不一定完整。",
-    "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
+    isJobSearch
+      ? "你是一位求职广告片导演：你要把用户的优势卡、证据卡和定位卡，整理成一支能说服招聘者的短篇广告片镜头表。"
+      : "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
+    isJobSearch
+      ? `目标观众：${audience}；目标岗位：${targetRole}；${desiredEffect ? `希望效果：${desiredEffect}。` : "希望效果：让观众相信这个人值得联系。" }`
+      : "对方刚刚跟你聊完一段，他沉淀下来这一组情绪样本——每一份都来自日常对话里的真实反应，不一定是感动，也不一定完整。",
+    isJobSearch
+      ? "现在请把这些卡片整理成**岗位关切 → 用户能力 → 能力来源 → 作用方式 → 可信证据 → 为什么值得联系 → 外部价值**的视觉论证链。不要拍成泛泛情绪短片；每一镜都要说明它在替用户证明什么。"
+      : "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
     "",
     "请做六件事：",
     '1. 从素材里识别 1-3 个核心人物。每个人物给：name（名字或称呼，如「母亲」）、role（关系/在故事里的位置，如「主视点」、「对照面」）、oneLiner（一句话原型，≤16 字）。',
@@ -274,11 +469,22 @@ export async function synthesizeShotList(params: {
         ].join("\n")
       : "",
     "",
-    "【情绪曲线要求】",
-    "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
-    "   - 情绪浓度要有变化：低浓度铺垫 → 中浓度摩擦 → 高浓度转折 → 低浓度余味。不要每一镜都 0.7。",
-    "   - 如果原样本都很轻，你可以通过镜头顺序制造起伏，但不要编造用户没说过的大事件。",
-    "   - 每个镜头都要尽量保留一个个人痕迹：用户的原词、反复出现的人/物、没说出口的动作、身体反应、回避方式。",
+    isJobSearch
+      ? [
+          "【求职说服链要求】",
+          "   - 把卡片当作「优势 + 证据 + 因果解释 + 建议状态」的素材簇，而不是情绪标签。",
+          "   - 全片必须回答：岗位关心什么 → 用户有什么能力 → 为什么有这个能力 → 怎么发生作用 → 凭什么相信 → 为什么值得联系 → 带来什么外部价值。",
+          "   - 卡片证据不足时，不要硬夸；可以把这一镜设计成「证据缺口」或「需要继续追问」的过渡镜，rationale 里说明原因。",
+          "   - 优先拍可验证材料：作品、流程图、原型、项目复盘、白板、简历片段、工具界面、会议讨论、手稿、交付物。不要拍成孤独背影、抽象光影或励志海报。",
+          "   - 每一镜的 intent 必须是一句职业主张；rationale 必须解释为什么这个画面能让招聘者更相信他。",
+        ].join("\n")
+      : [
+          "【情绪曲线要求】",
+          "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
+          "   - 情绪浓度要有变化：低浓度铺垫 → 中浓度摩擦 → 高浓度转折 → 低浓度余味。不要每一镜都 0.7。",
+          "   - 如果原样本都很轻，你可以通过镜头顺序制造起伏，但不要编造用户没说过的大事件。",
+          "   - 每个镜头都要尽量保留一个个人痕迹：用户的原词、反复出现的人/物、没说出口的动作、身体反应、回避方式。",
+        ].join("\n"),
     "",
     "【固定机制 · 剧本整理】",
     "   - 多版本剧本：额外给出 3 个可选叙事壳：克制版 / 戏剧版 / 诗意版。三版只改变叙事骨架、节奏密度和表达方式，不能改变用户事实。",
@@ -302,6 +508,8 @@ export async function synthesizeShotList(params: {
     "   - location:  场景 / 地点，简短具象（如「老屋客厅，下午」），≤20 字",
     "   - mood:      氛围 · 色调，一句话描述整镜情绪/色调（如「冷调，带一点湿意」「灰雾」），≤16 字",
     "   - emotion:   1-4 字的情感词（如「清醒」「笃定」「松弛」「烦躁」「羡慕」「失重」「愧疚」「松开了」），不预设类别，避免全是同一种词。理性、有边界感的表达给力量型词，不要归为'防御'",
+    "   - intent:    这一镜承担的叙事/求职意图。求职片里必须写成职业主张，如「证明用户能把抽象需求转成可验证产品判断」。",
+    "   - rationale: 为什么这样拍能成立。求职片里必须说明岗位关切、卡片证据和外部价值如何被这张画面连起来。",
     "",
     "【请严格留空的列（输出空字符串，不要编造）】",
     "   - cameraAngle: 机位（平视/俯/仰…）—— 留空",
@@ -348,6 +556,8 @@ export async function synthesizeShotList(params: {
     '      "location": "...",',
     '      "mood": "...",',
     '      "emotion": "...",',
+    '      "intent": "...",',
+    '      "rationale": "...",',
     '      "cameraAngle": "",',
     '      "cameraMove": "",',
     '      "timeLight": "",',
@@ -419,6 +629,8 @@ export async function synthesizeShotList(params: {
         styleRef?: unknown;
         note?: unknown;
         emotion?: unknown;
+        intent?: unknown;
+        rationale?: unknown;
         sourceCardContent?: unknown;
       }>;
     }>(text);
@@ -427,7 +639,13 @@ export async function synthesizeShotList(params: {
       // 模型返回了合法 JSON 但 shots 为空 → 跟下面 catch 一样走 buildFallbackShotList 降级，
       // 【绝不】把「整理失败」错误弹给用户（这正是用户踩到的 live bug：救命的兜底零件造好了却没装上）。
       console.warn("[storyAgent] 模型返回的 shots 为空，按卡片降级出兜底分镜");
-      return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
+      return buildFallbackShotList(
+        params.cards,
+        characterHint,
+        modelLabel,
+        params.resonanceContext,
+        params.confirmedIntent,
+      );
     }
 
     const characters: ShotCharacter[] = Array.isArray(parsed.characters)
@@ -495,6 +713,8 @@ export async function synthesizeShotList(params: {
           styleRef: asString(s.styleRef),
           note: asString(s.note),
           emotion: asString(s.emotion) || "未标",
+          intent: asString(s.intent) || null,
+          rationale: asString(s.rationale) || null,
           sourceCardContent: asString(s.sourceCardContent),
         };
       })
@@ -506,7 +726,13 @@ export async function synthesizeShotList(params: {
     if (shots.length === 0) {
       // 模型给的镜头全缺 action、被过滤光了 → 同样降级兜底，不弹错。
       console.warn("[storyAgent] 模型镜头全缺 action，按卡片降级出兜底分镜");
-      return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
+      return buildFallbackShotList(
+        params.cards,
+        characterHint,
+        modelLabel,
+        params.resonanceContext,
+        params.confirmedIntent,
+      );
     }
 
     // ── beat 兜底 ──
@@ -542,6 +768,12 @@ export async function synthesizeShotList(params: {
     };
   } catch (error) {
     console.warn("[storyAgent] shot list JSON parse failed; using local fallback.", error);
-    return buildFallbackShotList(params.cards, characterHint, modelLabel, params.resonanceContext);
+    return buildFallbackShotList(
+      params.cards,
+      characterHint,
+      modelLabel,
+      params.resonanceContext,
+      params.confirmedIntent,
+    );
   }
 }

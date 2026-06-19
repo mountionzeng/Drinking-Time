@@ -18,12 +18,26 @@ import {
 } from '@/components/ui/select';
 import { trpc } from '@/lib/trpc';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { useCreationEditor } from '@/features/creationEditor/CreationEditorContext';
+import { buildNarrativeJob, deriveNarrativeIntent } from '@/features/creationEditor/promptTable/narrativeJob';
+import { compilePromptRecipe } from '@/features/creationEditor/promptTable/promptRecipe';
+import type { PromptRunReference } from '@/features/creationEditor/promptTable/types';
+import {
+  buildStoryboardContinuityHint,
+  buildDrawCardHint,
+  findStoryboardContinuityImage,
+} from './drawThisMomentContinuity';
 
 type DrawnImage = {
   imageId: number;
   imageUrl: string;
   prompt: string;
+  shotNo: number;
+  storyId: number;
   mode: 'draft' | 'final';
+  baseImageUrl?: string;
+  references: PromptRunReference[];
+  usedDimensions: string[];
 };
 
 // 风格锁：用户手动选定后，每次生成稳定附加英文风格词，避免画风漂移。
@@ -44,20 +58,21 @@ const DIMENSION_INSTRUCTIONS: Record<string, string> = {
   style: '调整艺术风格',
 };
 
-// 把选中镜头卡片的内容拼成「画面主体」提示，传给后端做 prompt 的核心来源。
-// 这是「画对镜头内容」的关键——不再让 LLM 从对话历史瞎猜。
-function buildCardHint(card: { title?: string; content?: string; sensoryDetails?: string[]; emotion?: string } | undefined): string {
-  if (!card) return '';
-  const parts: string[] = [];
-  if (card.content?.trim()) parts.push(card.content.trim());
-  if (card.title?.trim() && card.title.trim() !== card.content?.trim()) parts.push(card.title.trim());
-  if (card.sensoryDetails?.length) parts.push(`感官细节：${card.sensoryDetails.join('、')}`);
-  if (card.emotion?.trim()) parts.push(`情绪：${card.emotion.trim()}`);
-  return parts.join('；');
+function clampShotNo(value: number | null | undefined, cardCount: number, fallback: number): number {
+  const max = Math.max(1, cardCount);
+  if (value == null || Number.isNaN(value)) return Math.min(Math.max(1, fallback), max);
+  return Math.min(Math.max(1, Math.round(value)), max);
 }
 
-export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void }) {
-  const { activeStoryId, messages, cards, addStoryImage, visualCanvasItems } = useStoryAgent();
+export default function DrawThisMomentPanel({
+  initialShotNo,
+  onDone,
+}: {
+  initialShotNo?: number | null;
+  onDone?: () => void;
+}) {
+  const { activeStoryId, messages, cards, confirmedIntent, addStoryImage, removeStoryImage, visualCanvasItems, storyImages } = useStoryAgent();
+  const { ensurePromptShot, recordPromptRun } = useCreationEditor();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
 
@@ -73,17 +88,23 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
   const [showFeedbackDimensions, setShowFeedbackDimensions] = useState(false);
   const [selectedFeedbackDimensions, setSelectedFeedbackDimensions] = useState<string[]>([]);
 
-  // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，默认绑当前(最后)一张卡。
+  // 绑定目标：图收下后落到哪张卡片（镜头）。shotNo = 卡片序号(1-based)，优先跟随 Story Cards 当前节点。
   // buildMobileStoryboardScenes 按 scene.shotNo === image.shotNo 精确归位，不再兜底填空卡。
   const cardOptions = useMemo(
     () => cards.map((card, index) => ({ shotNo: index + 1, title: card.title || `卡片 ${index + 1}` })),
     [cards],
   );
-  const [targetShotNo, setTargetShotNo] = useState<number>(() => Math.max(1, cards.length));
-  // 卡片数量变化时把目标夹在合法范围内
+  const hasStoryCardsTarget =
+    initialShotNo != null && initialShotNo >= 1 && initialShotNo <= cards.length;
+  const [targetShotNo, setTargetShotNo] = useState<number>(() =>
+    clampShotNo(initialShotNo, cards.length, cards.length),
+  );
+  // 卡片数量变化时把目标夹在合法范围内；Story Cards 有当前节点时优先跟随它。
   useEffect(() => {
-    setTargetShotNo((prev) => Math.min(Math.max(1, prev), Math.max(1, cards.length)));
-  }, [cards.length]);
+    setTargetShotNo((prev) =>
+      clampShotNo(initialShotNo, cards.length, prev),
+    );
+  }, [cards.length, initialShotNo]);
 
   const recentHistory = useCallback(
     () =>
@@ -119,7 +140,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
 
         // ① 镜头内容：选中卡片的具体内容作为画面主体
         const selectedCard = cards[targetShotNo - 1];
-        let cardHint = buildCardHint(selectedCard);
+        let cardHint = buildDrawCardHint(selectedCard, cards, targetShotNo);
 
         // 当前镜头关联的用户照片（故事材料）——这是「生成图要和我拍的照片相关」的关键。
         // 用户在镜头卡片上传的 reference 照片，作为图生图基底锚定真实画面。
@@ -142,17 +163,41 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         // ② 风格锁：用户手动锁定的画风，稳定附加
         const styleOption = STYLE_OPTIONS.find((s) => s.value === lockedStyle);
         const styleHint = styleOption?.styleHint;
+        const narrativeIntent = deriveNarrativeIntent({
+          confirmedIntent,
+          cards,
+        });
+        const narrativeJob = buildNarrativeJob({
+          intent: narrativeIntent,
+          card: selectedCard,
+          cards,
+          shotNo: targetShotNo,
+          totalShots: cards.length,
+        });
+        const promptRecipe = await ensurePromptShot({
+          shotNo: targetShotNo,
+          card: selectedCard,
+          styleRef: styleHint,
+          narrativeJob,
+        });
+        const compiledRecipe = compilePromptRecipe({
+          shot: promptRecipe.shot,
+          rows: promptRecipe.rows,
+          continuityHint: cardHint || buildStoryboardContinuityHint(cards, targetShotNo),
+        });
 
         // 图生图基底优先级：
         //   有镜头照片 → 始终锚定用户照片（保证「和我拍的照片相关」）
         //   无照片但再来一张 → 延续上一张生成图（保持人物一致）
-        const baseImage = cardPhoto ?? (isRegen ? image!.imageUrl : undefined);
-        const useImg2img = !!baseImage;
+        const continuityImage = findStoryboardContinuityImage(storyImages, targetShotNo);
+        const baseImage = cardPhoto ?? (isRegen ? image!.imageUrl : continuityImage?.imageUrl);
 
         setArtFeatures(
           [
             styleOption ? `画风：${styleOption.label}` : '',
+            narrativeJob ? '已生成导演叙事任务' : '',
             cardPhoto ? '已用你的照片做底图' : '',
+            !cardPhoto && continuityImage ? `已参考镜头 ${continuityImage.shotNo} 保持连续` : '',
           ]
             .filter(Boolean)
             .join(' · '),
@@ -162,19 +207,40 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
           storyId: activeStoryId,
           shotNo: targetShotNo,
           history: recentHistory(),
-          cardHint: cardHint || undefined,
-          styleHint,
+          prompt: compiledRecipe.finalPrompt,
           sceneWeight,
-          // 有底图（用户照片/上一张）→ 慢轨图生图，锚定真实画面；纯首张无底图 → 快草稿
-          mode: useImg2img ? 'final' : 'draft',
+          // 先走 MJ draft 快轨；用户收下后后台正式化，Story Cards 里显示 pending。
+          mode: 'draft',
           originalImageUrl: baseImage,
         });
         if (result.status === 'ok' && result.imageUrl) {
+          const finalPrompt = result.prompt ?? compiledRecipe.finalPrompt;
+          const references: PromptRunReference[] = [];
+          if (baseImage) {
+            references.push({ kind: 'baseImage', label: '生成底图 / 连续性参考', url: baseImage });
+          }
+          if (styleOption) {
+            references.push({ kind: 'styleRef', label: `画风：${styleOption.label}` });
+          }
+          await recordPromptRun(targetShotNo, {
+            finalPrompt,
+            generatedAt: Date.now(),
+            imageId: result.imageId,
+            imageUrl: result.imageUrl,
+            source: 'draw-this-moment',
+            usedDimensions: compiledRecipe.usedDimensions,
+            references,
+          });
           setImage({
             imageId: result.imageId!,
             imageUrl: result.imageUrl,
-            prompt: result.prompt ?? '',
+            prompt: finalPrompt,
+            shotNo: targetShotNo,
+            storyId: activeStoryId,
             mode: result.mode === 'draft' ? 'draft' : 'final',
+            baseImageUrl: baseImage,
+            references,
+            usedDimensions: compiledRecipe.usedDimensions,
           });
         } else {
           setError('出图服务暂时不可用，稍后再试');
@@ -185,7 +251,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         setIsGenerating(false);
       }
     },
-    [activeStoryId, targetShotNo, cards, visualCanvasItems, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle, sceneWeight],
+    [activeStoryId, targetShotNo, cards, confirmedIntent, visualCanvasItems, storyImages, recentHistory, generateMut, signalMut, image, selectedFeedbackDimensions, lockedStyle, sceneWeight, ensurePromptShot, recordPromptRun],
   );
 
   // 进面板即自动出第一张
@@ -195,10 +261,92 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     void draw();
   }, [draw]);
 
-  // 收下：记 swipe_right → 该图成为该故事主图（imageAssets 投影）。
+  const finalizeDraftInBackground = useCallback(
+    async (draft: DrawnImage) => {
+      try {
+        const result = await generateMut.mutateAsync({
+          storyId: draft.storyId,
+          shotNo: draft.shotNo,
+          history: recentHistory(),
+          prompt: draft.prompt,
+          sceneWeight,
+          mode: 'final',
+          originalImageUrl: draft.baseImageUrl,
+          draftImageId: draft.imageId,
+        });
+        if (result.status !== 'ok' || !result.imageUrl) {
+          addStoryImage({
+            id: draft.imageId,
+            imageUrl: draft.imageUrl,
+            prompt: draft.prompt,
+            shotNo: draft.shotNo,
+            storyId: draft.storyId,
+            status: 'draft',
+          });
+          toast.error(result.error ?? '正式版没画成，草稿已保留');
+          return;
+        }
+
+        const finalPrompt = result.prompt ?? draft.prompt;
+        removeStoryImage(draft.imageId);
+        addStoryImage({
+          id: result.imageId!,
+          imageUrl: result.imageUrl,
+          prompt: finalPrompt,
+          shotNo: draft.shotNo,
+          storyId: draft.storyId,
+          status: 'ready',
+        });
+        await recordPromptRun(draft.shotNo, {
+          finalPrompt,
+          generatedAt: Date.now(),
+          imageId: result.imageId,
+          imageUrl: result.imageUrl,
+          source: 'draw-this-moment',
+          usedDimensions: draft.usedDimensions,
+          references: draft.references,
+        });
+        await signalMut.mutateAsync({
+          storyId: draft.storyId,
+          imageId: result.imageId!,
+          action: 'swipe_right',
+          metadata: { source: 'draw-this-moment-final' },
+        });
+        toast.success(`正式版已完成，镜头 ${draft.shotNo} 已更新`);
+      } catch {
+        addStoryImage({
+          id: draft.imageId,
+          imageUrl: draft.imageUrl,
+          prompt: draft.prompt,
+          shotNo: draft.shotNo,
+          storyId: draft.storyId,
+          status: 'draft',
+        });
+        toast.error('正式版没画成，草稿已保留');
+      }
+    },
+    [addStoryImage, removeStoryImage, generateMut, recentHistory, recordPromptRun, sceneWeight, signalMut],
+  );
+
+  // 收下：正式图直接记 swipe_right；草稿先挂 pending，再后台正式化。
   const accept = useCallback(async () => {
     if (!image || activeStoryId == null) return;
     try {
+      if (image.mode === 'draft') {
+        addStoryImage({
+          id: image.imageId,
+          imageUrl: image.imageUrl,
+          prompt: image.prompt,
+          shotNo: image.shotNo,
+          storyId: image.storyId,
+          status: 'finalizing',
+        });
+        toast.success(`已收下草稿，镜头 ${image.shotNo} 正在出正式版`);
+        onDone?.();
+        void finalizeDraftInBackground(image);
+        return;
+      }
+
       await signalMut.mutateAsync({
         storyId: activeStoryId,
         imageId: image.imageId,
@@ -211,16 +359,16 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
         id: image.imageId,
         imageUrl: image.imageUrl,
         prompt: image.prompt,
-        shotNo: targetShotNo,
+        shotNo: image.shotNo,
         storyId: activeStoryId,
         status: 'ready',
       });
-      toast.success(`已收下，绑到镜头 ${targetShotNo}`);
+      toast.success(`已收下，绑到镜头 ${image.shotNo}`);
       onDone?.();
     } catch {
       toast.error('收下失败，稍后再试');
     }
-  }, [image, activeStoryId, targetShotNo, signalMut, addStoryImage, onDone]);
+  }, [image, activeStoryId, signalMut, addStoryImage, finalizeDraftInBackground, onDone]);
 
   // 出正式版：draft → final（Midjourney 精画），关联草稿 parentImageId。
   // 同样带上镜头内容(cardHint)和锁定画风(styleHint)，确保正式版不丢内容/不掉风格。
@@ -229,24 +377,37 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     setError(null);
     setIsGenerating(true);
     try {
-      const selectedCard = cards[targetShotNo - 1];
-      const cardHint = buildCardHint(selectedCard);
-      const styleHint = STYLE_OPTIONS.find((s) => s.value === lockedStyle)?.styleHint;
       const result = await generateMut.mutateAsync({
         storyId: activeStoryId,
-        shotNo: targetShotNo,
+        shotNo: image.shotNo,
         history: recentHistory(),
-        cardHint: cardHint || undefined,
-        styleHint,
+        prompt: image.prompt,
+        sceneWeight,
         mode: 'final',
         draftImageId: image.imageId,
+        originalImageUrl: image.baseImageUrl,
       });
       if (result.status === 'ok' && result.imageUrl) {
+        const finalPrompt = result.prompt ?? image.prompt;
+        await recordPromptRun(image.shotNo, {
+          finalPrompt,
+          generatedAt: Date.now(),
+          imageId: result.imageId,
+          imageUrl: result.imageUrl,
+          source: 'draw-this-moment',
+          usedDimensions: image.usedDimensions,
+          references: image.references,
+        });
         setImage({
           imageId: result.imageId!,
           imageUrl: result.imageUrl,
-          prompt: result.prompt ?? image.prompt,
+          prompt: finalPrompt,
+          shotNo: image.shotNo,
+          storyId: image.storyId,
           mode: 'final',
+          baseImageUrl: image.baseImageUrl,
+          references: image.references,
+          usedDimensions: image.usedDimensions,
         });
       } else {
         setError('出正式版失败，草稿还在，稍后再试');
@@ -256,7 +417,7 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
     } finally {
       setIsGenerating(false);
     }
-  }, [image, activeStoryId, targetShotNo, cards, lockedStyle, recentHistory, generateMut]);
+  }, [image, activeStoryId, recentHistory, generateMut, recordPromptRun, sceneWeight]);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -326,6 +487,11 @@ export default function DrawThisMomentPanel({ onDone }: { onDone?: () => void })
               ))}
             </SelectContent>
           </Select>
+          {hasStoryCardsTarget ? (
+            <span className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground">
+              跟随 Story Cards 当前节点
+            </span>
+          ) : null}
         </div>
 
         {/* 锁定画风：选定后每次生成稳定用它，不漂移 */}

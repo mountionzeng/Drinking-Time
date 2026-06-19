@@ -7,14 +7,15 @@ function source(path: string) {
 }
 
 describe('creation editor spine boundary', () => {
-  it('keeps dynamic storyboard ownership in CreationEditorProvider react-query reads', () => {
+  it('projects dynamic storyboard shots from the active spine story without taking over persistence', () => {
     const context = source('client/src/features/creationEditor/CreationEditorContext.tsx');
 
     expect(context).toContain('trpc.storyAgent.storyGet.useQuery');
     expect(context).toContain('trpc.storyAgent.storyImages.useQuery');
-    expect(context).toContain('normalizeStoryShots(body)');
+    expect(context).toContain('useStorySpine((state)');
+    expect(context).toContain('state.activeStoryId === activeId');
+    expect(context).toContain('mergeCanonicalStoryShots(canonicalStoryShots, body)');
     expect(context).not.toContain('useStoryAgent(');
-    expect(context).not.toContain('useStorySpine(');
   });
 
   it('keeps AnimaticPanel and PromptTablePanel behind useCreationEditor', () => {

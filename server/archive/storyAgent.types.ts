@@ -6,6 +6,7 @@ import type {
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export type StoryCardPayload = {
+  title?: string;
   content: string;
   rawText: string;
   sourceQuote?: string;

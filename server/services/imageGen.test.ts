@@ -52,6 +52,7 @@ describe("generateImage", () => {
     image302GptQuality: ENV.image302GptQuality,
     image302MjAuthHeader: ENV.image302MjAuthHeader,
     image302MjPollMs: ENV.image302MjPollMs,
+    image302MjSubmitTimeoutMs: ENV.image302MjSubmitTimeoutMs,
     image302MjTimeoutMs: ENV.image302MjTimeoutMs,
     falApiKey: ENV.falApiKey,
   };
@@ -67,6 +68,7 @@ describe("generateImage", () => {
     ENV.image302GptQuality = "high";
     ENV.image302MjAuthHeader = "bearer";
     ENV.image302MjPollMs = "1";
+    ENV.image302MjSubmitTimeoutMs = "100";
     ENV.image302MjTimeoutMs = "100";
   });
 
@@ -79,6 +81,7 @@ describe("generateImage", () => {
     ENV.image302GptQuality = originalEnv.image302GptQuality;
     ENV.image302MjAuthHeader = originalEnv.image302MjAuthHeader;
     ENV.image302MjPollMs = originalEnv.image302MjPollMs;
+    ENV.image302MjSubmitTimeoutMs = originalEnv.image302MjSubmitTimeoutMs;
     ENV.image302MjTimeoutMs = originalEnv.image302MjTimeoutMs;
     ENV.falApiKey = originalEnv.falApiKey;
   });
@@ -511,6 +514,34 @@ describe("editImage", () => {
     expect(submitBody.base64Array).toHaveLength(1); // 照片进了 base64Array（MJ image prompt）
     expect(submitBody.base64Array[0]).toContain("base64,");
   });
+
+  it("requireInputImage=true 时 MJ 图生图失败不会回落纯文生图", async () => {
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: { code: 0, description: "malformed image prompt" },
+      },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "把照片重绘成故事画风的人物锚点",
+      {
+        fetcher,
+        provider: "midjourney",
+        requireInputImage: true,
+        mjPollIntervalMs: 1,
+        mjTimeoutMs: 100,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("未能基于输入照片完成");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.base64Array).toHaveLength(1);
+  });
 });
 
 describe("inpaintImage", () => {
@@ -584,6 +615,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     imageProviderDefault: ENV.imageProviderDefault,
     api302Key: ENV.api302Key,
     image302MjPollMs: ENV.image302MjPollMs,
+    image302MjSubmitTimeoutMs: ENV.image302MjSubmitTimeoutMs,
     image302MjTimeoutMs: ENV.image302MjTimeoutMs,
   };
 
@@ -592,6 +624,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     ENV.imageProviderDefault = "midjourney";
     ENV.api302Key = "test-302-key";
     ENV.image302MjPollMs = "1";
+    ENV.image302MjSubmitTimeoutMs = "200";
     ENV.image302MjTimeoutMs = "200";
   });
 
@@ -599,6 +632,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     ENV.imageProviderDefault = saved.imageProviderDefault;
     ENV.api302Key = saved.api302Key;
     ENV.image302MjPollMs = saved.image302MjPollMs;
+    ENV.image302MjSubmitTimeoutMs = saved.image302MjSubmitTimeoutMs;
     ENV.image302MjTimeoutMs = saved.image302MjTimeoutMs;
   });
 
@@ -611,7 +645,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     ]);
   }
 
-  it("characterRef（公网 URL）→ 提交给 MJ 的 prompt 追加 --cref <url>", async () => {
+  it("characterRef（公网 URL）→ 提交给 MJ 的 prompt 追加 v7 --oref <url>", async () => {
     const fetcher = mjFetcher();
     const result = await generateImage("a person walking in the rain", {
       fetcher,
@@ -619,7 +653,9 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     });
     expect(result.status).toBe("ok");
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(submitBody.prompt).toContain("--cref https://file.302.ai/hero.png");
+    expect(submitBody.prompt).toContain("--oref https://file.302.ai/hero.png");
+    expect(submitBody.prompt).toContain("--v 7");
+    expect(submitBody.prompt).not.toContain("--cref");
   });
 
   it("styleRef（公网 URL）→ 提交给 MJ 的 prompt 追加 --sref <url>", async () => {
@@ -632,22 +668,37 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect(submitBody.prompt).toContain("--sref https://file.302.ai/style.png");
   });
 
-  it("无 characterRef/styleRef → prompt 不含 --cref/--sref", async () => {
+  it("mjDraft → 提交给 MJ 的 prompt 使用 v7 --draft，且不再追加 turbo", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a quiet office doorway", {
+      fetcher,
+      mjDraft: true,
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("--draft");
+    expect(submitBody.prompt).toContain("--v 7");
+    expect(submitBody.prompt).not.toContain("--turbo");
+    expect(submitBody.prompt).not.toContain("--quality 0.25");
+  });
+
+  it("无 characterRef/styleRef → prompt 不含 --oref/--sref，也不强制 v7", async () => {
     const fetcher = mjFetcher();
     await generateImage("a plain scene", { fetcher });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(submitBody.prompt).not.toContain("--cref");
+    expect(submitBody.prompt).not.toContain("--oref");
     expect(submitBody.prompt).not.toContain("--sref");
+    expect(submitBody.prompt).not.toContain("--v 7");
   });
 
-  it("data URI 的 characterRef → 不追加 --cref（cref 需公网 URL，降级垫图）", async () => {
+  it("data URI 的 characterRef → 不追加 --oref（oref 需公网 URL，降级垫图）", async () => {
     const fetcher = mjFetcher();
     await generateImage("a scene", {
       fetcher,
       characterRef: "data:image/png;base64,AAAA",
     });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(submitBody.prompt).not.toContain("--cref");
+    expect(submitBody.prompt).not.toContain("--oref");
+    expect(submitBody.prompt).not.toContain("--v 7");
   });
 
   it("MJ 出图默认追加解剖负面词 --no（压制畸形手/多指）", async () => {
@@ -665,7 +716,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect((submitBody.prompt.match(/--no/g) || []).length).toBe(1);
   });
 
-  it("characterWeight 跟随 cref → prompt 追加 --cw（人物锁定强度）", async () => {
+  it("characterWeight 跟随 oref → prompt 追加 --ow（人物锁定强度）", async () => {
     const fetcher = mjFetcher();
     await generateImage("a person", {
       fetcher,
@@ -673,8 +724,25 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
       characterWeight: 100,
     });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(submitBody.prompt).toContain("--cref https://file.302.ai/hero.png");
-    expect(submitBody.prompt).toContain("--cw 100");
+    expect(submitBody.prompt).toContain("--oref https://file.302.ai/hero.png");
+    expect(submitBody.prompt).toContain("--ow 100");
+    expect(submitBody.prompt).toContain("--v 7");
+  });
+
+  it("MJ submit 使用独立超时，不受任务轮询总超时限制", async () => {
+    const fetcher = vi.fn().mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    const result = await generateImage("a slow submit", {
+      fetcher,
+      mjSubmitTimeoutMs: 1,
+      mjTimeoutMs: 10_000,
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.message).toBe("timeout");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("imageWeight（图生图）→ prompt 追加 --iw（场景/垫图强度）", async () => {

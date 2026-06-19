@@ -45,6 +45,14 @@ const storyAgentMocks = vi.hoisted(() => ({
 
 vi.mock("./archive/storyAgent", () => storyAgentMocks);
 
+const creationAgentMocks = vi.hoisted(() => ({
+  runJsonAgent: vi.fn(),
+}));
+
+vi.mock("./services/agentRuntime", () => ({
+  runJsonAgent: creationAgentMocks.runJsonAgent,
+}));
+
 const storageMocks = vi.hoisted(() => ({
   storagePut: vi.fn(async () => ({ key: "uploads/test.jpg", url: "https://storage.example/test.jpg" })),
 }));
@@ -151,8 +159,17 @@ describe("storyAgent tRPC router", () => {
     const caller = appRouter.createCaller(createAuthContext());
 
     const classified = await caller.storyAgent.classify({
-      cards: [{ content: "路灯下等待", emotion: "quiet" }],
+      cards: [{ title: "等待能力", content: "路灯下等待", emotion: "quiet" }],
       characterHint: "林",
+      confirmedIntent: {
+        purpose: "linkedin_job_search",
+        audience: "recruiters",
+        platform: "linkedin",
+        tone: "克制",
+        desiredEffect: "证明值得联系",
+        targetRole: "产品经理",
+        channel: "linkedin",
+      },
     });
     const summary = await caller.storyAgent.summarize({
       priorSummary: "此前在夜里",
@@ -165,7 +182,14 @@ describe("storyAgent tRPC router", () => {
     });
     expect(summary).toBe("旧对话摘要");
     expect(storyAgentMocks.synthesizeShotList).toHaveBeenCalledWith(
-      expect.objectContaining({ characterHint: "林" }),
+      expect.objectContaining({
+        characterHint: "林",
+        confirmedIntent: expect.objectContaining({
+          purpose: "linkedin_job_search",
+          targetRole: "产品经理",
+        }),
+        cards: [expect.objectContaining({ title: "等待能力" })],
+      }),
     );
     expect(storyAgentMocks.summarizeHistory).toHaveBeenCalledWith(
       expect.objectContaining({ priorSummary: "此前在夜里" }),
@@ -443,6 +467,296 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
+  it("setCharacterAnchor 写入 role:character 锚点，重复写会替换而非堆叠", async () => {
+    const caller = appRouter.createCaller(createAuthContext(390));
+    const firstUrl = "https://file.302.ai/first-hero.png";
+    const secondUrl = "https://file.302.ai/second-hero.png";
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "服务端锚点故事",
+      projectId: 7390,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [],
+        artDirection: {
+          phase: "locked",
+          references: [
+            {
+              id: "style-1",
+              label: "画风",
+              source: "visual-anchor",
+              purpose: "aesthetic",
+              selected: true,
+              imageUrl: "https://file.302.ai/style.png",
+            },
+          ],
+        },
+      },
+    });
+
+    const first = await caller.storyAgent.setCharacterAnchor({
+      storyId: story!.id,
+      imageUrl: firstUrl,
+    });
+    expect(first).toMatchObject({ status: "ok", publicUrl: firstUrl });
+
+    const second = await caller.storyAgent.setCharacterAnchor({
+      storyId: story!.id,
+      imageUrl: secondUrl,
+    });
+    expect(second).toMatchObject({ status: "ok", publicUrl: secondUrl });
+
+    const loaded = await caller.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    const characterRefs = (direction.references ?? []).filter(
+      reference => reference.role === "character",
+    );
+    expect(characterRefs).toEqual([
+      expect.objectContaining({ imageUrl: secondUrl, selected: true }),
+    ]);
+    expect(direction.references).toEqual([
+      expect.objectContaining({ id: "style-1" }),
+      expect.objectContaining({ role: "character", imageUrl: secondUrl }),
+    ]);
+  });
+
+  it("setCharacterAnchor 会把本地图转成公网 URL 后再存", async () => {
+    imageGenMocks.toPublicImageUrl.mockResolvedValueOnce("https://file.302.ai/public-local.png");
+    const caller = appRouter.createCaller(createAuthContext(391));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "本地锚点故事",
+      projectId: 7391,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.setCharacterAnchor({
+      storyId: story!.id,
+      imageUrl: "/api/images/local-hero.png",
+    });
+
+    expect(imageGenMocks.toPublicImageUrl).toHaveBeenCalledWith("/api/images/local-hero.png");
+    expect(result).toMatchObject({
+      status: "ok",
+      publicUrl: "https://file.302.ai/public-local.png",
+    });
+
+    const loaded = await caller.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    expect(direction.references).toEqual([
+      expect.objectContaining({
+        role: "character",
+        imageUrl: "https://file.302.ai/public-local.png",
+      }),
+    ]);
+  });
+
+  it("setCharacterAnchor 不能写入其他用户的 story", async () => {
+    const owner = appRouter.createCaller(createAuthContext(392));
+    const other = appRouter.createCaller(createAuthContext(393));
+    const story = await owner.storyAgent.storyUpsert({
+      title: "不能越权",
+      projectId: 7392,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await other.storyAgent.setCharacterAnchor({
+      storyId: story!.id,
+      imageUrl: "https://file.302.ai/other.png",
+    });
+
+    expect(result).toMatchObject({ status: "error" });
+    const loaded = await owner.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    expect(body.artDirection).toBeUndefined();
+  });
+
+  it("setCharacterAnchor 后 generateForMobile 能经 U3 helper 注入人物锚点", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/u6-anchor.png",
+      imageKey: "generated/u6-anchor.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(394));
+    const anchorUrl = "https://file.302.ai/u6-anchor.png";
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "锚点注入故事",
+      projectId: 7394,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    await caller.storyAgent.setCharacterAnchor({
+      storyId: story!.id,
+      imageUrl: anchorUrl,
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角走进雨夜",
+    });
+
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      anchorUrl,
+      expect.stringContaining("主角走进雨夜"),
+      expect.objectContaining({
+        characterRef: anchorUrl,
+        characterWeight: 100,
+        styleRef: anchorUrl,
+      }),
+    );
+  });
+
+  it("creationAgent.chat 的 setCharacterAnchor toolCall 会经 U6 持久化人物锚点", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/agent-anchor.png",
+      imageKey: "generated/agent-anchor.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(395));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "对话设锚点故事",
+      projectId: 7395,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const generated = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角站在窗边",
+    });
+    expect(generated.status).toBe("ok");
+    if (generated.status !== "ok") {
+      throw new Error("expected image generation to succeed");
+    }
+    creationAgentMocks.runJsonAgent.mockResolvedValueOnce({
+      parsed: {
+        reply: "好，我把这张设成主角锚点。",
+        toolCalls: [{ tool: "setCharacterAnchor", imageId: generated.imageId }],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+
+    const result = await caller.creationAgent.chat({
+      projectId: 7395,
+      storyId: story!.id,
+      message: `把 #${generated.imageId} 设成主角`,
+      currentFocusShotNo: "SH01",
+    });
+
+    expect(result).toMatchObject({
+      characterAnchorChanged: true,
+      reply: expect.stringContaining("已把这张图设为人物锚点"),
+    });
+    const loaded = await caller.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    expect(direction.references).toEqual([
+      expect.objectContaining({
+        role: "character",
+        imageUrl: "https://storage.example/generated/agent-anchor.png",
+      }),
+    ]);
+  });
+
+  it("creationAgent.chat 可把照片重绘成风格化人物图后设为锚点", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/stylized-character.png",
+      imageKey: "generated/stylized-character.png",
+    });
+    creationAgentMocks.runJsonAgent.mockResolvedValueOnce({
+      parsed: {
+        reply: "我先把照片重绘成这个故事的画风。",
+        toolCalls: [
+          {
+            tool: "createCharacterFromPhoto",
+            photoUrl: "data:image/jpeg;base64,PHOTO",
+          },
+        ],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+    const caller = appRouter.createCaller(createAuthContext(396));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "照片锚点故事",
+      projectId: 7396,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.creationAgent.chat({
+      projectId: 7396,
+      storyId: story!.id,
+      message: "用这张照片做主角",
+      currentFocusShotNo: "SH01",
+    });
+
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "data:image/jpeg;base64,PHOTO",
+      expect.stringContaining("Preserve the person's recognizable face"),
+      expect.objectContaining({ requireInputImage: true }),
+    );
+    expect(result).toMatchObject({
+      characterAnchorChanged: true,
+      reply: expect.stringContaining("已把照片重绘成风格化人物图"),
+    });
+    const loaded = await caller.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    expect(direction.references).toEqual([
+      expect.objectContaining({
+        role: "character",
+        imageUrl: "https://storage.example/generated/stylized-character.png",
+      }),
+    ]);
+  });
+
+  it("照片重绘失败时不把原照或无关文生图设为人物锚点", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "error",
+      message: "MJ 图生图未能基于输入照片完成：malformed image prompt",
+    });
+    creationAgentMocks.runJsonAgent.mockResolvedValueOnce({
+      parsed: {
+        reply: "我试一下照片重绘。",
+        toolCalls: [
+          {
+            tool: "createCharacterFromPhoto",
+            photoUrl: "data:image/jpeg;base64,PHOTO",
+          },
+        ],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+    const caller = appRouter.createCaller(createAuthContext(397));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "照片失败故事",
+      projectId: 7397,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.creationAgent.chat({
+      projectId: 7397,
+      storyId: story!.id,
+      message: "用这张照片做主角",
+      currentFocusShotNo: "SH01",
+    });
+
+    expect(result).toMatchObject({
+      characterAnchorChanged: false,
+      reply: expect.stringContaining("不会把无关文生图或原始照片设为锚点"),
+    });
+    const loaded = await caller.storyAgent.storyGet({ id: story!.id });
+    const body = loaded?.body as Record<string, unknown>;
+    expect(body.artDirection).toBeUndefined();
+  });
+
   it("手机端文生图成功后带 projectId 落库", async () => {
     imageGenMocks.generateImage.mockResolvedValueOnce({
       status: "ok",
@@ -463,24 +777,24 @@ describe("storyAgent tRPC router", () => {
       prompt: "雨夜路灯下的一个停顿",
     });
 
-    // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含；
-    // 手机端走 draft 档（--quality 0.25 + turbo，省一半渲染时间）
+    // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含。
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
-      // U4: generateForMobile 给出图传 { characterRef } options；本故事无主角参照 → undefined
-      expect.objectContaining({ characterRef: undefined }),
+      expect.any(Object),
     );
+    expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-text.png",
     });
-    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7301 });
+    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
     expect(projectImages).toEqual([
       expect.objectContaining({
         projectId: 7301,
         storyId: story!.id,
         userId: 301,
-        shotNo: "SH01",
+        rawShotNo: "SH01",
+        canonicalShotNo: "SH01",
         imageUrl: "https://storage.example/generated/mobile-text.png",
         generationType: "initial",
         isCurrent: true,
@@ -488,7 +802,162 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
-  it("generateForMobile sceneAnalysis 保留理由旁路且不注入 prompt", async () => {
+  it("generateForMobile draft 文生图走旧版 flux 草稿快轨", async () => {
+    imageGenMocks.generateDraftImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-draft.png",
+      imageKey: "generated/mobile-draft.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(399));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "flux draft 文生图故事",
+      projectId: 7399,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "办公室门口的迟疑瞬间",
+      mode: "draft",
+    });
+
+    expect(imageGenMocks.generateDraftImage).toHaveBeenCalledWith(
+      expect.stringContaining("办公室门口的迟疑瞬间"),
+    );
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-draft.png",
+      mode: "draft",
+    });
+    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    expect(projectImages[0]).toMatchObject({
+      projectId: 7399,
+      storyId: story!.id,
+      userId: 399,
+      rawShotNo: "SH01",
+      canonicalShotNo: "SH01",
+      imageUrl: "https://storage.example/generated/mobile-draft.png",
+      generationType: "generate",
+      isCurrent: true,
+    });
+  });
+
+  it("generateForMobile draft 有原图时仍先走旧版 flux 草稿快轨", async () => {
+    imageGenMocks.generateDraftImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-draft-edit.png",
+      imageKey: "generated/mobile-draft-edit.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(400));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "flux draft 有原图故事",
+      projectId: 7400,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保留人物轮廓，换成暖色办公室灯光",
+      originalImageUrl: "data:image/jpeg;base64,aW1hZ2U=",
+      sceneWeight: 1.25,
+      mode: "draft",
+    });
+
+    expect(imageGenMocks.generateDraftImage).toHaveBeenCalledWith(
+      expect.stringContaining("保留人物轮廓，换成暖色办公室灯光"),
+    );
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-draft-edit.png",
+      mode: "draft",
+    });
+  });
+
+  it("Story Cards 删除画面后 storyGet 不再返回该图", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/delete-me.png",
+      imageKey: "generated/delete-me.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(398));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "删除故事画面",
+      projectId: 7398,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, subject: "窗边的人" }],
+      },
+    });
+
+    const generated = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "窗边的人回头看见晨光",
+    });
+    expect(generated.status).toBe("ok");
+
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: generated.imageId,
+      action: "swipe_right",
+      metadata: { source: "story-cards-accept" },
+    });
+
+    const before = await caller.storyAgent.storyGet({ id: story!.id });
+    expect((before?.body as { mobileImages?: Array<{ id: number }> }).mobileImages).toEqual([
+      expect.objectContaining({ id: generated.imageId }),
+    ]);
+
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: generated.imageId,
+      action: "swipe_left",
+      metadata: { source: "story-cards-delete" },
+    });
+
+    const after = await caller.storyAgent.storyGet({ id: story!.id });
+    expect((after?.body as { mobileImages?: Array<{ id: number }> }).mobileImages ?? []).toEqual([]);
+  });
+
+  it("recordSignal 拒绝给其他用户的故事图片打信号", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/owned-image.png",
+      imageKey: "generated/owned-image.png",
+    });
+    const owner = appRouter.createCaller(createAuthContext(399));
+    const other = appRouter.createCaller(createAuthContext(400));
+
+    const story = await owner.storyAgent.storyUpsert({
+      title: "图片信号鉴权",
+      projectId: 7399,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const generated = await owner.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "只有故事主人能评价这张图",
+    });
+    expect(generated.status).toBe("ok");
+
+    await expect(
+      other.storyAgent.recordSignal({
+        storyId: story!.id,
+        imageId: generated.imageId,
+        action: "swipe_left",
+      }),
+    ).resolves.toMatchObject({ status: "error" });
+  });
+
+  it("generateForMobile 传入 sceneAnalysis 时按分析组 prompt，空镜不造人", async () => {
     imageGenMocks.generateImage.mockResolvedValueOnce({
       status: "ok",
       imageUrl: "https://storage.example/generated/empty-alley.png",
@@ -520,14 +989,18 @@ describe("storyAgent tRPC router", () => {
       },
     });
 
+    expect(result.status).toBe("ok");
     expect(result).toMatchObject({
-      status: "ok",
       intent: "给招聘者看她能把复杂局面降噪",
       rationale: "这一镜用空巷说明问题被她整理清楚了",
     });
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.stringContaining("雨后的窄巷积水反光"),
+      expect.anything(),
+    );
     const submittedPrompt = imageGenMocks.generateImage.mock.calls[0][0] as string;
-    expect(submittedPrompt).toContain("雨后的窄巷积水反光");
     expect(submittedPrompt).toContain("no people");
+    expect(submittedPrompt).toContain("no faces");
     expect(submittedPrompt).toContain("delicate watercolor");
     expect(submittedPrompt).not.toContain("这一镜用空巷");
   });
@@ -588,6 +1061,78 @@ describe("storyAgent tRPC router", () => {
     });
   });
 
+  it("storyImages 和 storyGet 只投影用户收下的镜头主图", async () => {
+    imageGenMocks.generateImage
+      .mockResolvedValueOnce({
+        status: "ok",
+        imageUrl: "https://storage.example/generated/rejected-frame.png",
+        imageKey: "generated/rejected-frame.png",
+      })
+      .mockResolvedValueOnce({
+        status: "ok",
+        imageUrl: "https://storage.example/generated/pending-frame.png",
+        imageKey: "generated/pending-frame.png",
+      })
+      .mockResolvedValueOnce({
+        status: "ok",
+        imageUrl: "https://storage.example/generated/selected-frame.png",
+        imageKey: "generated/selected-frame.png",
+      });
+    const caller = appRouter.createCaller(createAuthContext(312));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "只显示收下的故事画面",
+      projectId: 7312,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, subject: "把优势画出来" }],
+      },
+    });
+
+    const rejected = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "第一张不满意",
+    });
+    expect(rejected.status).toBe("ok");
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: rejected.imageId,
+      action: "swipe_left",
+    });
+
+    const pending = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "第二张还没收下",
+    });
+    expect(pending.status).toBe("ok");
+
+    const selected = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "第三张收下",
+    });
+    expect(selected.status).toBe("ok");
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: selected.imageId,
+      action: "swipe_right",
+    });
+
+    const storyImages = await caller.storyAgent.storyImages({ storyId: story!.id });
+    expect(storyImages.map(image => image.id)).toEqual([selected.imageId]);
+    expect(storyImages[0]).toMatchObject({
+      shotNo: "SH01",
+      imageUrl: "https://storage.example/generated/selected-frame.png",
+    });
+
+    const workspace = await caller.storyAgent.storyGet({ id: story!.id });
+    expect((workspace?.body as { mobileImages?: Array<{ id: number; shotNo: number }> }).mobileImages).toEqual([
+      expect.objectContaining({ id: selected.imageId, shotNo: 1 }),
+    ]);
+  });
+
   it("手机端图生图成功后带 projectId 落库", async () => {
     imageGenMocks.editImage.mockResolvedValueOnce({
       status: "ok",
@@ -613,19 +1158,20 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
-      // U4: 图生图慢轨也带 { characterRef } options；本故事无主角参照 → undefined
-      expect.objectContaining({ characterRef: undefined }),
+      expect.any(Object),
     );
+    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty("characterRef");
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-edit.png",
     });
-    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7302 });
+    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
     expect(projectImages[0]).toMatchObject({
       projectId: 7302,
       storyId: story!.id,
       userId: 302,
-      shotNo: "SH01",
+      rawShotNo: "SH01",
+      canonicalShotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-edit.png",
       generationType: "initial",
       isCurrent: true,
@@ -671,12 +1217,70 @@ describe("storyAgent tRPC router", () => {
       prompt: "主角在公园散步",
     });
 
-    // 主角参照既作图生图垫图基底（第1参数），又经 --cref 锁人物长相（characterRef）
+    // 主角参照既作图生图垫图基底（第1参数），又经 --oref/--sref 锁人物长相与人物镜头画风
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       heroUrl,
       expect.stringContaining("主角在公园散步"),
-      expect.objectContaining({ characterRef: heroUrl }),
+      expect.objectContaining({ characterRef: heroUrl, styleRef: heroUrl }),
     );
+  });
+
+  it("故事有主角参照但 sceneAnalysis 是空镜 → 经 helper 注入 characterRef，不注入 styleRef", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/empty-shot.png",
+      imageKey: "generated/empty-shot.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(309));
+    const heroUrl = "https://file.302.ai/hero.png";
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "空镜保留锚点故事",
+      projectId: 7309,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [],
+        artDirection: {
+          phase: "locked",
+          references: [
+            {
+              id: "r1",
+              label: "主角",
+              source: "visual-anchor",
+              purpose: "fact",
+              selected: true,
+              role: "character",
+              imageUrl: heroUrl,
+            },
+          ],
+        },
+      },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      sceneAnalysis: {
+        subjectDescription: "雨后的空巷积水反光",
+        isPerson: false,
+        recurringCharacter: null,
+        action: "积水反射路灯",
+        emotion: "清冷",
+        keyElements: ["空巷", "积水", "路灯"],
+        needsCharacterAnchor: false,
+        confidence: 75,
+      },
+    });
+
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      heroUrl,
+      expect.stringContaining("雨后的空巷积水反光"),
+      expect.objectContaining({
+        characterRef: heroUrl,
+      }),
+    );
+    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty("styleRef");
   });
 
   it("手机端 mobileInpaint 成功后带 projectId 落库", async () => {
@@ -706,12 +1310,13 @@ describe("storyAgent tRPC router", () => {
       expect.stringContaining("把路牌文字去掉"),
     );
     expect(result.status).toBe("ok");
-    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7303 });
+    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
     expect(projectImages[0]).toMatchObject({
       projectId: 7303,
       storyId: story!.id,
       userId: 303,
-      shotNo: "SH01",
+      rawShotNo: "SH01",
+      canonicalShotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-inpaint.png",
       generationType: "inpaint",
       isCurrent: true,
@@ -739,7 +1344,7 @@ describe("storyAgent tRPC router", () => {
 
     expect(result.status).toBe("error");
     expect(result.error).toContain("302 GPT-image 暂时不可用");
-    const projectImages = await caller.creationAgent.getProjectImages({ projectId: 7304 });
+    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
     expect(projectImages).toEqual([]);
   });
 });

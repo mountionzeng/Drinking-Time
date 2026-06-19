@@ -3,6 +3,16 @@ import { parseShotNo } from '@/features/mobileChat/types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { useStoryGeneratedImagesSlice } from '../spine/selectors';
 
+function normalizeImageStatus(status: unknown): GeneratedImageItem['status'] {
+  return status === 'ready' ||
+    status === 'generating' ||
+    status === 'draft' ||
+    status === 'finalizing' ||
+    status === 'error'
+    ? status
+    : 'ready';
+}
+
 export function useStoryGeneratedImages(): GeneratedImageItem[] {
   // 本地即时来源：context.storyImages（「把这一刻画出来」收下后立刻可见）。
   const { remoteStoryId, activeStoryId, storyImages } = useStoryGeneratedImagesSlice();
@@ -38,7 +48,7 @@ export function useStoryGeneratedImages(): GeneratedImageItem[] {
         prompt: typeof im.prompt === 'string' ? im.prompt : '',
         shotNo: parseShotNo(im.shotNo),
         storyId: imageStoryId,
-        status: 'ready',
+        status: normalizeImageStatus(im.status),
       },
     ];
   });

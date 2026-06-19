@@ -110,10 +110,14 @@ function PhaseMark({
 }
 
 export default function StoryArtDirectionLauncher() {
-  const { artDirection, cardCount } = useStoryArtDirectionLauncherSlice();
+  const { artDirection, cardCount, preferredDrawShotNo } = useStoryArtDirectionLauncherSlice();
   const { prepareArtDirection } = useStoryAgentActions();
   const [open, setOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
+  const drawTargetShotNo =
+    preferredDrawShotNo != null && preferredDrawShotNo >= 1 && preferredDrawShotNo <= cardCount
+      ? preferredDrawShotNo
+      : null;
 
   const phaseIndex =
     artDirection.phase === "empty"
@@ -125,7 +129,7 @@ export default function StoryArtDirectionLauncher() {
           ? 2
           : 3;
 
-  // 主入口：把这一刻画出来（单图，故事页已对齐故事，无需手动选）。
+  // 单镜试画：故事版生成后的微调入口。
   const openDraw = () => {
     if (cardCount === 0) return;
     setDrawOpen(true);
@@ -149,7 +153,7 @@ export default function StoryArtDirectionLauncher() {
           borderColor: "var(--panel-border)",
           background: "var(--panel-header)",
         }}
-        aria-label="把这一刻画出来"
+        aria-label="单镜试画"
       >
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
@@ -162,10 +166,14 @@ export default function StoryArtDirectionLauncher() {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[11px] font-semibold text-foreground">
-            {cardCount === 0 ? "先聊出一个故事画面" : "把这一刻画出来"}
+            {cardCount === 0 ? "先聊出故事素材" : "单镜试画"}
           </span>
           <span className="mt-0.5 block truncate text-[9px] text-muted-foreground">
-            {cardCount === 0 ? "有具体场景后即可出图" : "出一张，满意就收下，不满意再来一张"}
+            {cardCount === 0
+              ? "先把事情说清楚，再生成故事版"
+              : drawTargetShotNo != null
+                ? `微调 Story Cards 当前节点：镜头 ${drawTargetShotNo}`
+                : "故事版之外，单独补一张镜头草稿"}
           </span>
         </span>
         <Sparkles className="h-4 w-4 shrink-0 text-nayin-bright" />
@@ -189,7 +197,7 @@ export default function StoryArtDirectionLauncher() {
         </button>
       ) : null}
 
-      {/* 把这一刻画出来：单图 swipe 面板 */}
+      {/* 单镜试画：单图 swipe 面板 */}
       <Dialog open={drawOpen} onOpenChange={setDrawOpen}>
         <DialogContent className="flex max-w-[min(640px,calc(100%-1rem))] flex-col gap-0 overflow-hidden p-0">
           <DialogHeader
@@ -198,13 +206,18 @@ export default function StoryArtDirectionLauncher() {
           >
             <DialogTitle className="flex items-center gap-2 text-sm">
               <Sparkles className="h-4 w-4 text-nayin-bright" />
-              把这一刻画出来
+              单镜试画
             </DialogTitle>
             <DialogDescription className="text-[10px]">
               出一张 → 满意「收下」成为故事画面，不满意「再来一张」直到满意
             </DialogDescription>
           </DialogHeader>
-          {drawOpen ? <DrawThisMomentPanel onDone={() => setDrawOpen(false)} /> : null}
+          {drawOpen ? (
+            <DrawThisMomentPanel
+              initialShotNo={drawTargetShotNo}
+              onDone={() => setDrawOpen(false)}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
 

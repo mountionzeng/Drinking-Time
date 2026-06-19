@@ -16,6 +16,7 @@ vi.mock('@/lib/trpc', () => ({
       storyAgent: {
         storyList: { fetch: vi.fn(async () => ({ stories: [] })) },
         storyGet: { fetch: vi.fn(async () => null) },
+        storyImages: { invalidate: vi.fn() },
       },
       shot: { list: { invalidate: vi.fn() } },
     }),
@@ -24,6 +25,7 @@ vi.mock('@/lib/trpc', () => ({
       uploadPhoto: { useMutation: makeMutation },
       recordSignal: { useMutation: makeMutation },
       classify: { useMutation: makeMutation },
+      generateForMobile: { useMutation: makeMutation },
       recognizeIntent: { useMutation: makeMutation },
       storyUpsert: { useMutation: makeMutation },
       storyDelete: { useMutation: makeMutation },

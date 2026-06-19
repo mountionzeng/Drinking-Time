@@ -62,6 +62,65 @@ describe('buildPromptTable', () => {
     expect(artRows.find((row) => row.dimension === 'emotion')?.weight).toBe(0.15);
   });
 
+  it('adds director narrative rows when the shot has a narrative job', () => {
+    const rows = buildPromptTable(makeShot({
+      narrativeJob: {
+        intentSummary: '用途：求职；观众：招聘者',
+        audience: '招聘者',
+        claim: '本镜要证明用户具备跨学科创新力。',
+        roleConcern: '岗位关心候选人能否跨语境协作。',
+        causalExplanation: '这个能力来自长期同时处理技术和影像任务。',
+        evidence: '屏幕上密密麻麻的项目名、技能栏、数字',
+        storyContext: '这是第 2 张优势卡。',
+        visualTranslation: '把项目、技能和数字重新组织成清晰职业论点。',
+        externalValue: '减少技术和业务之间的翻译损耗。',
+        recommendationStatus: '强证据，可以直接作为核心镜头。',
+        avoidMisread: '避免画成普通门口背影。',
+      },
+    }));
+    const narrativeRows = rows.filter((row) => row.source.system === 'director');
+
+    expect(narrativeRows.map((row) => row.dimension)).toEqual([
+      'narrativeClaim',
+      'roleConcern',
+      'visualTranslation',
+      'causalExplanation',
+      'narrativeEvidence',
+      'externalValue',
+      'storyContext',
+      'avoidMisread',
+      'recommendationStatus',
+      'intentSummary',
+    ]);
+    expect(narrativeRows.every((row) => row.category === 'narrative')).toBe(true);
+    expect(narrativeRows.find((row) => row.dimension === 'visualTranslation')).toMatchObject({
+      label: '导演画面策略',
+      source: { system: 'director', label: '导演' },
+    });
+  });
+
+  it('adds director rows from shot intent and rationale when no full narrative job exists', () => {
+    const rows = buildPromptTable(makeShot({
+      intent: '证明用户能把抽象需求转成可验证产品判断。',
+      rationale: '岗位关心判断是否可信；这张画面用项目复盘材料把优势和证据连起来。',
+    }));
+    const narrativeRows = rows.filter((row) => row.source.system === 'director');
+
+    expect(narrativeRows.map((row) => row.dimension)).toEqual([
+      'narrativeClaim',
+      'causalExplanation',
+      'storyContext',
+    ]);
+    expect(narrativeRows.find((row) => row.dimension === 'narrativeClaim')).toMatchObject({
+      label: '镜头意图',
+      value: '证明用户能把抽象需求转成可验证产品判断。',
+    });
+    expect(narrativeRows.find((row) => row.dimension === 'causalExplanation')).toMatchObject({
+      label: '导演解释',
+      value: '岗位关心判断是否可信；这张画面用项目复盘材料把优势和证据连起来。',
+    });
+  });
+
   it('omits empty content fields without crashing', () => {
     const rows = buildPromptTable(makeShot({
       subject: '',

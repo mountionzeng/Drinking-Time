@@ -13,6 +13,7 @@ import { buildSceneInheritedImageMap } from '@/features/storyAgent/inheritedPhot
 import { useNayin } from '@/features/nayin/NayinContext';
 import { trpc } from '@/lib/trpc';
 import type { NayinElement } from '@/features/nayin/nayin';
+import type { GeneratedScript, ScriptScene, StoryShot } from '@/features/storyAgent/types';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: '剧本会在这里斟出来 — 像啤酒一样有泡沫与节奏',
@@ -67,13 +68,49 @@ interface ScriptViewerProps {
   projectId?: number | null;
 }
 
+type ScriptSceneView = ScriptScene & {
+  shotIndex?: number;
+};
+
+function sceneNoFromShotNo(shotNo: number) {
+  return `S${String(shotNo).padStart(2, '0')}`;
+}
+
+export function projectScriptScenesFromShots(
+  latestScript: GeneratedScript | null,
+  storyShots: readonly StoryShot[],
+): ScriptSceneView[] {
+  if (storyShots.length === 0) return latestScript?.scenes ?? [];
+  const fallbackBySceneNo = new Map(
+    (latestScript?.scenes ?? []).map((scene) => [scene.sceneNo, scene]),
+  );
+  return storyShots
+    .map((shot, shotIndex) => ({ shot, shotIndex }))
+    .sort((left, right) => left.shot.shotNo - right.shot.shotNo)
+    .map(({ shot, shotIndex }) => {
+      const sceneNo = sceneNoFromShotNo(shot.shotNo);
+      const fallback = fallbackBySceneNo.get(sceneNo);
+      return {
+        sceneNo,
+        fromCardId: fallback?.fromCardId ?? '',
+        visual: [shot.subject, shot.action, shot.dialogue ? `「${shot.dialogue}」` : '']
+          .filter(Boolean)
+          .join(' · '),
+        emotion: shot.emotion || shot.beat || '未标',
+        shotIndex,
+      };
+    });
+}
+
 export default function ScriptViewer({ projectId }: ScriptViewerProps) {
-  const { latestScript, scripts, visualCanvasItems, activeStoryId } = useStoryScriptViewerSlice();
-  const { updateScriptMeta, updateScriptScene } = useStoryAgentActions();
+  const { latestScript, scripts, storyShots, visualCanvasItems, activeStoryId } = useStoryScriptViewerSlice();
+  const { updateScriptMeta, updateScriptScene, updateStoryShotField } = useStoryAgentActions();
   const { element } = useNayin();
   const [copied, setCopied] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [, setLocation] = useLocation();
+  const scriptScenes = projectScriptScenesFromShots(latestScript, storyShots);
+  const isCanonicalScriptProjection = storyShots.length > 0;
 
   // 缩略图按当前故事取（故事为唯一单位）：故事间不共享图片
   const imagesQuery = trpc.creationAgent.getProjectAssets.useQuery(
@@ -84,27 +121,25 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
 
   // Map sceneNo (S01) → shotNo (SH01) → image URL
   const sceneImageMap = new Map<string, { imageUrl: string; shotNo: string; prompt: string }>();
-  if (latestScript) {
-    for (const scene of latestScript.scenes) {
-      // Derive shotNo from sceneNo: S01 → SH01
-      const num = scene.sceneNo.replace(/\D/g, '');
-      const shotNo = `SH${num.padStart(2, '0')}`;
-      const img = projectImages.find(
-        image =>
-          image.canonicalShotNo === shotNo &&
-          image.isPrimary &&
-          image.availability !== 'missing',
-      );
-      if (img) {
-        sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo, prompt: img.prompt ?? '' });
-      }
+  for (const scene of scriptScenes) {
+    // Derive shotNo from sceneNo: S01 → SH01
+    const num = scene.sceneNo.replace(/\D/g, '');
+    const shotNo = `SH${num.padStart(2, '0')}`;
+    const img = projectImages.find(
+      image =>
+        image.canonicalShotNo === shotNo &&
+        image.isPrimary &&
+        image.availability !== 'missing',
+    );
+    if (img) {
+      sceneImageMap.set(scene.sceneNo, { imageUrl: img.imageUrl, shotNo, prompt: img.prompt ?? '' });
     }
   }
 
   // 剧本「派生式」取图：某个场景还没有生成图(world-3)时，回退到它来源卡片继承的对话原图。
   // 不新增字段、不落库——纯渲染期推导，逻辑抽到了 inheritedPhoto.ts（便于单测）。
   const sceneInheritedImageMap = buildSceneInheritedImageMap(
-    latestScript?.scenes ?? [],
+    scriptScenes,
     visualCanvasItems,
   );
 
@@ -121,7 +156,7 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
       '',
       latestScript.logline,
       '',
-      ...latestScript.scenes.map(
+      ...scriptScenes.map(
         (s) => `${s.sceneNo} · ${s.emotion}\n${s.visual}`,
       ),
       '',
@@ -210,7 +245,7 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
 
               {/* Scenes */}
               <div className="space-y-2">
-                {latestScript.scenes.map((s, i) => (
+                {scriptScenes.map((s, i) => (
                   <motion.div
                     key={`${latestScript.id}-${i}`}
                     initial={{ opacity: 0, x: 6 }}
@@ -235,7 +270,13 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
                       <span className="text-[10px] font-mono uppercase tracking-wider text-nayin-bright">
                         <EditableText
                           value={s.emotion}
-                          onCommit={(v) => updateScriptScene(i, 'emotion', v)}
+                          onCommit={(v) => {
+                            if (isCanonicalScriptProjection && s.shotIndex != null) {
+                              updateStoryShotField(s.shotIndex, 'emotion', v);
+                            } else {
+                              updateScriptScene(i, 'emotion', v);
+                            }
+                          }}
                           ariaLabel={`编辑场景 ${s.sceneNo} 情绪`}
                           selectionSource={`script-scene:${i}`}
                         />
@@ -313,7 +354,13 @@ export default function ScriptViewer({ projectId }: ScriptViewerProps) {
                     <p className="text-[11.5px] text-foreground leading-relaxed">
                       <EditableText
                         value={s.visual}
-                        onCommit={(v) => updateScriptScene(i, 'visual', v)}
+                        onCommit={(v) => {
+                          if (isCanonicalScriptProjection && s.shotIndex != null) {
+                            updateStoryShotField(s.shotIndex, 'action', v);
+                          } else {
+                            updateScriptScene(i, 'visual', v);
+                          }
+                        }}
                         multiline
                         ariaLabel={`编辑场景 ${s.sceneNo} 画面`}
                         selectionSource={`script-scene:${i}`}

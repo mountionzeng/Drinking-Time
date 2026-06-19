@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   reassignImage: vi.fn(),
   analyzeVisionReference: vi.fn(),
   materializeImageInput: vi.fn(async (url: string) => `data:image/png;base64,${url}`),
+  deriveInjection: vi.fn(async () => ({})),
 }));
 
 vi.mock("../_core/env", () => ({
@@ -35,6 +36,9 @@ vi.mock("../archive/visionAgent", () => ({
 }));
 vi.mock("./imageAssets", () => ({
   materializeImageInput: mocks.materializeImageInput,
+}));
+vi.mock("./imageInjection", () => ({
+  deriveInjection: mocks.deriveInjection,
 }));
 
 import { replyFromCreationAgent, generateNextImage } from "./creationAgent";
@@ -89,6 +93,7 @@ const baseInput = {
 describe("replyFromCreationAgent image actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.deriveInjection.mockResolvedValue({});
     mocks.createGeneratedImage.mockResolvedValue({
       id: 13,
       imageUrl: "/api/images/13.png",
@@ -144,15 +149,131 @@ describe("replyFromCreationAgent image actions", () => {
     expect(result.reply).toContain("待确认");
   });
 
-  it("generateImage sceneAnalysis 保留理由旁路且不注入 prompt", async () => {
+  it("system prompt 约束自动铺镜头时非必要不画固定人物", async () => {
     mocks.runJsonAgent.mockResolvedValue({
       parsed: {
-        reply: "我按这个空镜画。",
+        reply: "我先把空镜和人物镜头分清楚。",
+        toolCalls: [],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+
+    await replyFromCreationAgent({
+      ...baseInput,
+      message: "先帮我铺一下镜头表",
+      shots: [],
+      assets: [],
+    });
+
+    const systemPrompt = mocks.runJsonAgent.mock.calls[0][0].systemPrompt as string;
+    expect(systemPrompt).toContain("默认不要凭空加人脸或固定主角");
+    expect(systemPrompt).toContain("空镜、物件或环境");
+    expect(systemPrompt).toContain("当前人物锚点：未设置");
+    expect(systemPrompt).toContain("setCharacterAnchor");
+  });
+
+  it("用户指定满意图为主角时透出 setCharacterAnchor toolCall", async () => {
+    mocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        reply: "好，我把 #12 作为这个人的锚点。",
+        toolCalls: [{ tool: "setCharacterAnchor", imageId: 12 }],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+
+    const result = await replyFromCreationAgent({
+      ...baseInput,
+      message: "把 #12 设成主角，以后都按这张脸",
+    });
+
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({ tool: "setCharacterAnchor", imageId: 12 }),
+    ]);
+    expect(result.generatedImage).toBeNull();
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+    expect(mocks.editImage).not.toHaveBeenCalled();
+  });
+
+  it("用户给照片作为主角时透出 createCharacterFromPhoto toolCall", async () => {
+    mocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        reply: "我先把这张照片重绘成故事画风的人物锚点。",
+        toolCalls: [
+          {
+            tool: "createCharacterFromPhoto",
+            photoUrl: "data:image/jpeg;base64,PHOTO",
+          },
+        ],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+
+    const result = await replyFromCreationAgent({
+      ...baseInput,
+      message: "用我刚发的照片当主角",
+    });
+
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        tool: "createCharacterFromPhoto",
+        photoUrl: "data:image/jpeg;base64,PHOTO",
+      }),
+    ]);
+    expect(result.generatedImage).toBeNull();
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+    expect(mocks.editImage).not.toHaveBeenCalled();
+  });
+
+  it("proposeScene 确认轮优先于 generateImage，同一轮不直接出图", async () => {
+    mocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        reply: "我先确认一下画面。",
+        toolCalls: [
+          {
+            tool: "proposeScene",
+            shotNo: "SH01",
+            sceneAnalysis: {
+              subjectDescription: "雨后的窄巷积水反光",
+              isPerson: false,
+              recurringCharacter: null,
+              action: "雨水沿屋檐落下",
+              emotion: "清冷",
+              keyElements: ["窄巷", "积水", "路灯倒影"],
+              needsCharacterAnchor: false,
+              confidence: 75,
+            },
+          },
+          {
+            tool: "generateImage",
+            shotNo: "SH01",
+            prompt: "rainy alley",
+          },
+        ],
+        focusShotNo: "SH01",
+      },
+      modelLabel: "mock-model",
+    });
+
+    const result = await replyFromCreationAgent(baseInput);
+
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+    expect(result.generatedImage).toBeNull();
+    expect(result.reply).toContain("画空镜，不放人物");
+    expect(result.reply).toContain("你确认我就按这个方向画");
+  });
+
+  it("确认后 generateImage 可携带 sceneAnalysis，并用分析 prompt 出图", async () => {
+    mocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        reply: "好，我按这个空镜画。",
         toolCalls: [
           {
             tool: "generateImage",
             shotNo: "SH01",
-            prompt: "legacy prompt should be replaced",
+            prompt: "legacy prompt should be replaced by analysis",
             sceneAnalysis: {
               subjectDescription: "雨后的窄巷积水反光",
               isPerson: false,
@@ -177,13 +298,19 @@ describe("replyFromCreationAgent image actions", () => {
       imageKey: "generated/13.png",
     });
 
-    const result = await replyFromCreationAgent({ ...baseInput, assets: [] });
-
-    expect(result.generatedImage).toMatchObject({
-      imageId: 13,
-      intent: "解释候选人如何处理模糊问题",
-      rationale: "这一镜应该用空巷承接她的冷静判断",
+    const result = await replyFromCreationAgent({
+      ...baseInput,
+      assets: [],
     });
+
+    expect(result.generatedImage?.imageId).toBe(13);
+    expect(result.generatedImage?.intent).toBe("解释候选人如何处理模糊问题");
+    expect(result.generatedImage?.rationale).toBe("这一镜应该用空巷承接她的冷静判断");
+    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("no people"),
+      }),
+    );
     expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining("雨后的窄巷积水反光"),
@@ -280,6 +407,7 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.deriveInjection.mockResolvedValue({});
     mocks.createGeneratedImage.mockResolvedValue({
       id: 21,
       imageUrl: "/api/images/21.png",
@@ -324,6 +452,53 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
       }),
     );
     expect(mocks.editImage).not.toHaveBeenCalled();
+  });
+
+  it("有故事锚点时经 deriveInjection 给 generateImage 传 characterRef 和 styleRef", async () => {
+    mocks.deriveInjection.mockResolvedValueOnce({
+      characterRef: "https://file.302.ai/hero.png",
+      characterWeight: 100,
+      styleRef: "https://file.302.ai/hero.png",
+    });
+    mocks.generateImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+
+    const result = await generateNextImage({
+      prompt: "hero in the rain",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      story: { body: { artDirection: { references: [] } } },
+      sceneAnalysis: {
+        subjectDescription: "主角在雨夜回头",
+        isPerson: true,
+        recurringCharacter: { key: "hero", name: "主角" },
+        action: "回头",
+        emotion: "犹豫",
+        keyElements: ["雨夜", "路灯"],
+        needsCharacterAnchor: true,
+        confidence: 75,
+      },
+      assets: [],
+    });
+
+    expect(result.status).toBe("ok");
+    expect(mocks.deriveInjection).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.any(Object) }),
+      expect.objectContaining({ needsCharacterAnchor: true }),
+    );
+    expect(mocks.generateImage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        characterRef: "https://file.302.ai/hero.png",
+        characterWeight: 100,
+        styleRef: "https://file.302.ai/hero.png",
+      }),
+    );
   });
 
   it("Edge case：焦点镜已有主图 → 用 editImage 做连续性参考", async () => {

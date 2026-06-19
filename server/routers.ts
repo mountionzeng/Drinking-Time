@@ -32,11 +32,7 @@ import {
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
-  getStoryImages,
   createImageSignal,
-  getImagesByShotNo,
-  getCurrentImageForShot,
-  getProjectCurrentImages,
   reassignImage,
 } from "./db";
 import { saveSnapshot, getRecentAnnotations } from "./services/editContext";
@@ -59,14 +55,16 @@ import {
 import {
   replyFromCreationAgent,
   generateNextImage,
+  type CreateCharacterFromPhotoToolCall,
+  type SetCharacterAnchorToolCall,
   type ShotContext,
 } from "./services/creationAgent";
 import { CREATION_GOALS, goalGuidance, detectGoalFromText } from "./services/creationGoal";
 import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
-  generateImage as generateMobileImage,
   generateDraftImage,
+  generateImage as generateMobileImage,
   inpaintImage,
   toPublicImageUrl,
 } from "./services/imageGen";
@@ -74,6 +72,7 @@ import { renderViaGate } from "./services/renderGate";
 import { getProjectImageAssets, getStoryImageAssets } from "./services/imageAssets";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { composeScenePrompt } from "./services/composeScenePrompt";
+import { deriveInjection } from "./services/imageInjection";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import {
   analyzeArtReference,
@@ -137,18 +136,25 @@ function mobileShotNo(value: string | null): number | undefined {
 
 async function composeStoryWorkspace(
   story: StoryRow,
+  userId: number,
   syncConflict = false
 ) {
   const revision = getStoryRevision(story.body);
   try {
-    const tableImages = await getStoryImages(story.id);
-    const mobileImages = tableImages
+    const assets = await getStoryImageAssets(story.id, userId);
+    const mobileImages = assets
+      .filter((asset) => asset.kind === "story_frame")
+      .filter((asset) => asset.assignment === "shot")
+      .filter((asset) => asset.isPrimary)
+      .filter((asset) => asset.status !== "rejected")
+      .filter((asset) => asset.availability !== "missing")
+      .filter((asset) => asset.imageUrl)
       .filter((image) => image.imageUrl)
       .map((image) => ({
         id: image.id,
         imageUrl: image.imageUrl,
         prompt: image.prompt || "画面",
-        shotNo: mobileShotNo(image.shotNo),
+        shotNo: mobileShotNo(image.canonicalShotNo ?? image.rawShotNo),
         storyId: image.storyId,
         status: "ready" as const,
       }));
@@ -230,6 +236,72 @@ function storyArtReferenceImages(story: { body: unknown }): string[] {
       })
     : [];
   return Array.from(new Set([...selected, ...canvas])).slice(0, 4);
+}
+
+async function writeCharacterAnchor(
+  story: StoryRow,
+  userId: number,
+  imageUrl: string,
+) {
+  const publicUrl = await toPublicImageUrl(imageUrl);
+  if (!publicUrl) {
+    return {
+      status: "error" as const,
+      error: "这张图还不能作为人物锚点：需要可公开访问的图片 URL。",
+    };
+  }
+
+  const body =
+    story.body && typeof story.body === "object"
+      ? story.body as Record<string, unknown>
+      : {};
+  const direction = normalizeStoryArtDirection(body.artDirection);
+  const now = Date.now();
+  const nextDirection = {
+    ...direction,
+    phase: direction.phase === "empty" ? "references" as const : direction.phase,
+    references: [
+      ...direction.references.filter(reference => reference.role !== "character"),
+      {
+        id: `character-${now}`,
+        label: "人物锚点",
+        source: "visual-anchor" as const,
+        purpose: "fact" as const,
+        selected: true,
+        role: "character" as const,
+        imageUrl: publicUrl,
+      },
+    ],
+    updatedAt: now,
+  };
+  const nextBody = prepareStoryBody(
+    {
+      ...body,
+      artDirection: nextDirection,
+    },
+    getStoryRevision(story.body) + 1,
+    story.body,
+  );
+
+  await updateStory(story.id, userId, { body: nextBody });
+  const saved = await getStoryById(story.id, userId);
+  return {
+    status: "ok" as const,
+    publicUrl,
+    story: await composeStoryWorkspace(saved ?? { ...story, body: nextBody }, userId),
+  };
+}
+
+function artRecipePrompt(recipe: ArtRecipeDNA | undefined): string {
+  if (!recipe) return "";
+  return [
+    recipe.style.length ? `style: ${recipe.style.join(", ")}` : "",
+    recipe.palette.length ? `palette: ${recipe.palette.join(", ")}` : "",
+    recipe.light.length ? `lighting: ${recipe.light.join(", ")}` : "",
+    recipe.composition.length ? `composition: ${recipe.composition.join(", ")}` : "",
+    recipe.material.length ? `materials: ${recipe.material.join(", ")}` : "",
+    recipe.negative.length ? `avoid: ${recipe.negative.join(", ")}` : "",
+  ].filter(Boolean).join("; ");
 }
 
 function shotStatusFromBeat(beat: string) {
@@ -1149,6 +1221,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           storyId: z.number().optional(),
           cards: z.array(
             z.object({
+              title: z.string().optional(),
               content: z.string(),
               rawText: z.string().optional(),
               sourceQuote: z.string().optional(),
@@ -1227,6 +1300,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           visualAnchors: input.visualAnchors as
             | VisualAnchorPayload[]
             | undefined,
+          confirmedIntent: input.confirmedIntent ?? undefined,
           ...(scriptContext ? { resonanceContext: scriptContext } : {}),
         });
         // 镜头按 storyId 归属（U3）：必须有 storyId 且归属当前用户才写入；
@@ -1284,7 +1358,26 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .query(async ({ ctx, input }) => {
         const story = await getStoryById(input.id, ctx.user.id);
         if (!story) return null;
-        return composeStoryWorkspace(story);
+        return composeStoryWorkspace(story, ctx.user.id);
+      }),
+
+    /** Set or replace the single character anchor for this story. */
+    setCharacterAnchor: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          imageUrl: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          return {
+            status: "error" as const,
+            error: "故事不存在或无权访问",
+          };
+        }
+        return writeCharacterAnchor(story, ctx.user.id, input.imageUrl);
       }),
 
     /**
@@ -1363,7 +1456,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               body: nextBody,
             });
             const saved = await getStoryById(input.id, ctx.user.id);
-            return saved ? composeStoryWorkspace(saved, syncConflict) : null;
+            return saved ? composeStoryWorkspace(saved, ctx.user.id, syncConflict) : null;
           }
           // Story not found (e.g. after server restart cleared in-memory state).
           // Fall through to create a new story rather than failing silently.
@@ -1389,7 +1482,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           ),
         });
         const saved = await getStoryById(newId, ctx.user.id);
-        return saved ? composeStoryWorkspace(saved) : null;
+        return saved ? composeStoryWorkspace(saved, ctx.user.id) : null;
       }),
 
     /** Delete a story */
@@ -1587,8 +1680,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               : undefined,
           );
           const rawCharacterRef = characterReferenceOf(direction);
-          // cref 需公网 URL：本地 /api/images 图自动上传拿公网 URL（带缓存）；失败则 undefined（降级垫图）。
-          const characterRef = await toPublicImageUrl(rawCharacterRef);
+          const injection = await deriveInjection(story, input.sceneAnalysis);
           // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
           const referenceImage = input.originalImageUrl || rawCharacterRef || storyReferences[0];
           const gateContext = {
@@ -1601,12 +1693,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             artDirection: storyArtRecipe(story),
           };
 
-          // 快轨：秒级草稿小样（flux-schnell，确认构图用），美术 DNA 与慢轨完全同源。
-          // 失败（未充值/网络）自动回落到下面的 MJ 慢轨，用户无感知。
+          const imageWeight = input.sceneWeight ?? 0.5;
+
+          // 快轨：复制旧版 7b7d9bf 的 flux-schnell 草稿小样，先让弹窗快速返回单张图。
+          // 失败（额度/网络/网关不支持）自动回落到下面的 MJ 正式轨，用户无感知。
           if (input.mode === "draft") {
-            const draft = await renderViaGate(gateContext, renderedPrompt =>
-              generateDraftImage(renderedPrompt),
-            );
+            let renderedDraftPrompt = prompt;
+            const draft = await renderViaGate(gateContext, renderedPrompt => {
+              renderedDraftPrompt = renderedPrompt;
+              return generateDraftImage(renderedPrompt);
+            });
             if (draft.status === "ok" && draft.imageUrl) {
               const image = await createGeneratedImage({
                 projectId: story.projectId ?? null,
@@ -1615,7 +1711,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 shotNo: canonicalizeShotNo(input.shotNo),
                 imageKey: draft.imageKey ?? null,
                 imageUrl: draft.imageUrl,
-                prompt,
+                prompt: renderedDraftPrompt,
                 generationType: "generate", // 草稿小样；确认后由 final 轨出 MJ 正式版
                 isCurrent: true,
               });
@@ -1623,7 +1719,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 status: "ok" as const,
                 imageUrl: draft.imageUrl,
                 imageId: image.id,
-                prompt,
+                prompt: renderedDraftPrompt,
                 intent: sceneIntent,
                 rationale: sceneRationale,
                 mode: "draft" as const,
@@ -1635,19 +1731,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             );
           }
 
-          // 慢轨正式版：全质量 MJ turbo。人物锁(--cref+--cw 100)跨镜头锁脸/发/衣；
+          // 慢轨正式版：全质量 MJ turbo。人物锁(--oref/--ow 100)跨镜头锁脸/发/衣；
           // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
-          const characterWeight = characterRef ? 100 : undefined;
-          const imageWeight = input.sceneWeight ?? 0.5;
-          const result = await renderViaGate(gateContext, renderedPrompt =>
-            referenceImage
+          let renderedFinalPrompt = prompt;
+          const result = await renderViaGate(gateContext, renderedPrompt => {
+            renderedFinalPrompt = renderedPrompt;
+            return referenceImage
               ? editMobileImage(referenceImage, renderedPrompt, {
-                  characterRef,
-                  characterWeight,
+                  ...injection,
                   imageWeight,
                 })
-              : generateMobileImage(renderedPrompt, { characterRef, characterWeight }),
-          );
+              : generateMobileImage(renderedPrompt, injection);
+          });
           if (result.status === "error" || !result.imageUrl) {
             return {
               status: "error" as const,
@@ -1662,7 +1757,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             shotNo: canonicalizeShotNo(input.shotNo),
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
-            prompt,
+            prompt: renderedFinalPrompt,
             generationType: "initial",
             parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
             isCurrent: true,
@@ -1671,7 +1766,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             status: "ok" as const,
             imageUrl: result.imageUrl,
             imageId: image.id,
-            prompt,
+            prompt: renderedFinalPrompt,
             intent: sceneIntent,
             rationale: sceneRationale,
             mode: "final" as const,
@@ -1763,6 +1858,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
+        if (input.imageId != null) {
+          const image = await getGeneratedImageById(input.imageId);
+          if (
+            !image ||
+            image.storyId !== input.storyId ||
+            (image.userId != null && image.userId !== ctx.user.id)
+          ) {
+            return { status: "error" as const, error: "图片不存在或无权操作" };
+          }
+        }
         const signal = await createImageSignal({
           userId: ctx.user.id,
           storyId: input.storyId,
@@ -1776,8 +1881,29 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     // storyImages: 获取某个 story 的所有当前图片
     storyImages: protectedProcedure
       .input(z.object({ storyId: z.number() }))
-      .query(async ({ input }) => {
-        return getStoryImages(input.storyId);
+      .query(async ({ ctx, input }) => {
+        const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
+        return assets
+          .filter((asset) => asset.kind === "story_frame")
+          .filter((asset) => asset.assignment === "shot")
+          .filter((asset) => asset.isPrimary)
+          .filter((asset) => asset.status !== "rejected")
+          .filter((asset) => asset.availability !== "missing")
+          .map((asset) => ({
+            id: asset.id,
+            projectId: asset.projectId,
+            storyId: asset.storyId,
+            userId: asset.userId,
+            shotNo: asset.canonicalShotNo ?? asset.rawShotNo,
+            imageKey: asset.imageKey,
+            imageUrl: asset.imageUrl,
+            prompt: asset.prompt,
+            parentImageId: asset.parentImageId,
+            isCurrent: asset.isPrimary,
+            generationType: asset.generationType,
+            maskKey: asset.maskKey,
+            createdAt: new Date(asset.createdAt),
+          }));
       }),
   }),
 
@@ -2008,7 +2134,101 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           assets,
           artDirection: story ? storyArtRecipe(story) : undefined,
           referenceImages: story ? storyArtReferenceImages(story) : undefined,
+          story,
         });
+
+        let characterAnchorChanged = false;
+        const anchorCall = result.toolCalls.find(
+          (toolCall): toolCall is SetCharacterAnchorToolCall =>
+            toolCall.tool === "setCharacterAnchor",
+        );
+        if (anchorCall) {
+          const anchorUrl =
+            typeof anchorCall.imageUrl === "string" && anchorCall.imageUrl.trim()
+              ? anchorCall.imageUrl.trim()
+              : typeof anchorCall.imageId === "number"
+                ? assets.find(
+                    asset =>
+                      asset.id === anchorCall.imageId &&
+                      asset.kind === "story_frame" &&
+                      asset.availability !== "missing",
+                  )?.imageUrl
+                : undefined;
+          if (!story) {
+            result.reply = [result.reply, "还没有可写入锚点的故事，先保存故事后我再设人物锚点。"]
+              .filter(Boolean)
+              .join("\n\n");
+          } else if (!anchorUrl) {
+            result.reply = [result.reply, "我没有找到这张可用图片，暂时不能设为人物锚点。"]
+              .filter(Boolean)
+              .join("\n\n");
+          } else {
+            const anchorResult = await writeCharacterAnchor(story, ctx.user.id, anchorUrl);
+            if (anchorResult.status === "ok") {
+              characterAnchorChanged = true;
+              result.reply = [result.reply, "已把这张图设为人物锚点，后续人物镜头会优先按这张脸和整体画风延续。"]
+                .filter(Boolean)
+                .join("\n\n");
+            } else {
+              result.reply = [result.reply, anchorResult.error]
+                .filter(Boolean)
+                .join("\n\n");
+            }
+          }
+        }
+        const photoCall = result.toolCalls.find(
+          (toolCall): toolCall is CreateCharacterFromPhotoToolCall =>
+            toolCall.tool === "createCharacterFromPhoto",
+        );
+        if (photoCall) {
+          if (!story) {
+            result.reply = [result.reply, "还没有可写入锚点的故事，先保存故事后我再把照片重绘成锚点。"]
+              .filter(Boolean)
+              .join("\n\n");
+          } else if (!photoCall.photoUrl?.trim()) {
+            result.reply = [result.reply, "我没有拿到可用照片，暂时不能创建人物锚点。"]
+              .filter(Boolean)
+              .join("\n\n");
+          } else {
+            const recipePrompt = artRecipePrompt(storyArtRecipe(story) ?? defaultArtRecipe());
+            const stylized = await editMobileImage(
+              photoCall.photoUrl.trim(),
+              [
+                "Stylize the provided person photo into this story's visual style.",
+                "Preserve the person's recognizable face, hairstyle, clothing color, clothing material, and overall identity.",
+                "Create a clean character reference portrait suitable for future story frames.",
+                recipePrompt,
+              ].filter(Boolean).join(" "),
+              {
+                provider: input.imageProvider,
+                requireInputImage: true,
+              },
+            );
+            if (stylized.status !== "ok" || !stylized.imageUrl) {
+              result.reply = [
+                result.reply,
+                `这次没能基于照片重绘人物锚点：${stylized.message ?? "图片服务没有返回结果"}。我不会把无关文生图或原始照片设为锚点。`,
+              ].filter(Boolean).join("\n\n");
+            } else {
+              const anchorResult = await writeCharacterAnchor(
+                story,
+                ctx.user.id,
+                stylized.imageUrl,
+              );
+              if (anchorResult.status === "ok") {
+                characterAnchorChanged = true;
+                result.reply = [
+                  result.reply,
+                  "已把照片重绘成风格化人物图，并设为人物锚点；后续人物镜头会按这张锚点延续。",
+                ].filter(Boolean).join("\n\n");
+              } else {
+                result.reply = [result.reply, anchorResult.error]
+                  .filter(Boolean)
+                  .join("\n\n");
+              }
+            }
+          }
+        }
 
         // buildShotList：小酌请求铺整张镜头表 → 用现成 synthesizeShotList 合成、
         // 按 goal 注入求职等目标、写到当前故事（按 storyId 归属，story 已验归属）。
@@ -2037,38 +2257,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           }
         }
 
-        return { ...result, builtShotCount };
-      }),
-
-    /** Get all images for a shot */
-    getShotImages: protectedProcedure
-      .input(
-        z.object({
-          projectId: z.number(),
-          shotNo: z.string(),
-        })
-      )
-      .query(async ({ input }) => {
-        return getImagesByShotNo(input.projectId, input.shotNo);
-      }),
-
-    /** Get the current (main) image for a shot */
-    getCurrentImage: protectedProcedure
-      .input(
-        z.object({
-          projectId: z.number(),
-          shotNo: z.string(),
-        })
-      )
-      .query(async ({ input }) => {
-        return getCurrentImageForShot(input.projectId, input.shotNo);
-      }),
-
-    /** Get all current images for a project */
-    getProjectImages: protectedProcedure
-      .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
-        return getProjectCurrentImages(input.projectId);
+        return { ...result, builtShotCount, characterAnchorChanged };
       }),
 
     /** Unified project image assets, including history and selection state. */
@@ -2169,6 +2358,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 锁定配方优先，未锁定用零点击默认，保证单张也够漂亮、风格一致。
           artDirection: storyArtRecipe(story) ?? defaultArtRecipe(),
           referenceImages: storyArtReferenceImages(story),
+          story,
           assets,
         });
         return result;

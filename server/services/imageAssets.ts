@@ -70,6 +70,23 @@ function compareCreatedAssets(
   return timeDiff || right.id - left.id;
 }
 
+function storyBodyShotNos(story: { body: unknown }): string[] {
+  const body =
+    story.body && typeof story.body === "object"
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const shots = Array.isArray(body.shots) ? body.shots : [];
+  return shots
+    .map(shot => {
+      if (!shot || typeof shot !== "object") return null;
+      const obj = shot as Record<string, unknown>;
+      return canonicalizeShotNo(
+        (obj.shotNo ?? obj.shotKey) as string | number | null | undefined,
+      );
+    })
+    .filter((shotNo): shotNo is string => Boolean(shotNo));
+}
+
 export function projectImageAssets({
   images,
   signals,
@@ -257,7 +274,12 @@ export async function getStoryImageAssets(
   return projectImageAssets({
     images,
     signals,
-    validShotNos: shots.map(shot => shot.shotNo),
+    validShotNos: Array.from(
+      new Set([
+        ...shots.map(shot => shot.shotNo),
+        ...storyBodyShotNos(story),
+      ]),
+    ),
     availabilityByImageId,
   });
 }

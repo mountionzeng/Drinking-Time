@@ -30,6 +30,7 @@ const CONTENT_DIMENSIONS: ContentDimension[] = [
 const SOURCE_LABELS: Record<PromptSource['system'], string> = {
   chat: '聊天',
   intent: '意图',
+  director: '导演',
   'art-repo': 'art库',
   inheritance: '继承',
   manual: '手改',
@@ -108,6 +109,49 @@ export function buildArtPromptRows(
   });
 }
 
+export function buildNarrativePromptRows(shot: CreationEditorShot): PromptRow[] {
+  const job = shot.narrativeJob;
+  const intent = clean(shot.intent ?? '');
+  const rationale = clean(shot.rationale ?? '');
+  if (!job && !intent && !rationale) return [];
+  const dimensions = job
+    ? [
+        { dimension: 'narrativeClaim', label: '优势主张', value: job.claim, weight: 0.54 },
+        { dimension: 'roleConcern', label: '岗位关心什么', value: job.roleConcern, weight: 0.5 },
+        { dimension: 'visualTranslation', label: '导演画面策略', value: job.visualTranslation, weight: 0.48 },
+        { dimension: 'causalExplanation', label: '因果解释', value: job.causalExplanation, weight: 0.46 },
+        { dimension: 'narrativeEvidence', label: '可信证据', value: job.evidence, weight: 0.44 },
+        { dimension: 'externalValue', label: '外部价值', value: job.externalValue, weight: 0.42 },
+        { dimension: 'storyContext', label: '上下文位置', value: job.storyContext, weight: 0.36 },
+        { dimension: 'avoidMisread', label: '避免误读', value: job.avoidMisread, weight: 0.3 },
+        { dimension: 'recommendationStatus', label: '建议状态', value: job.recommendationStatus, weight: 0.26 },
+        { dimension: 'intentSummary', label: '意图摘要', value: job.intentSummary, weight: 0.22 },
+      ]
+    : [
+        { dimension: 'narrativeClaim', label: '镜头意图', value: intent, weight: 0.5 },
+        { dimension: 'causalExplanation', label: '导演解释', value: rationale, weight: 0.46 },
+        {
+          dimension: 'storyContext',
+          label: '上下文位置',
+          value: [shot.beat, shot.sourceCardContent].filter(Boolean).join('：'),
+          weight: 0.34,
+        },
+      ];
+  return dimensions.flatMap((dimension) => {
+    const value = clean(dimension.value);
+    if (!value) return [];
+    return row({
+      id: `director:${dimension.dimension}`,
+      dimension: dimension.dimension,
+      label: dimension.label,
+      value,
+      weight: dimension.weight,
+      source: sourceFor('director', shot),
+      category: 'narrative',
+    });
+  });
+}
+
 export function buildPromptTable(
   shot: CreationEditorShot,
   options: {
@@ -116,26 +160,30 @@ export function buildPromptTable(
   } = {},
 ): PromptRow[] {
   const contentRows = buildContentPromptRows(shot);
+  const narrativeRows = buildNarrativePromptRows(shot);
   let baseRows = contentRows;
   try {
     baseRows = [
       ...contentRows,
+      ...narrativeRows,
       ...buildArtPromptRows(shot, options.structuredPromptAdapter),
     ];
   } catch {
-    baseRows = contentRows;
+    baseRows = [...contentRows, ...narrativeRows];
   }
 
   const previousRowsByShot = (options.previousShots ?? []).map((previousShot) => {
     const previousContentRows = buildContentPromptRows(previousShot);
+    const previousNarrativeRows = buildNarrativePromptRows(previousShot);
     let previousRows = previousContentRows;
     try {
       previousRows = [
         ...previousContentRows,
+        ...previousNarrativeRows,
         ...buildArtPromptRows(previousShot, options.structuredPromptAdapter),
       ];
     } catch {
-      previousRows = previousContentRows;
+      previousRows = [...previousContentRows, ...previousNarrativeRows];
     }
     return {
       shotNo: previousShot.shotNo,

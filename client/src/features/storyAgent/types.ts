@@ -71,6 +71,20 @@ export interface GeneratedScript {
   createdAt: number;
 }
 
+export interface NarrativeJob {
+  intentSummary: string;
+  audience: string;
+  claim: string;
+  roleConcern?: string;
+  causalExplanation?: string;
+  evidence: string;
+  storyContext?: string;
+  visualTranslation: string;
+  externalValue?: string;
+  recommendationStatus?: string;
+  avoidMisread: string;
+}
+
 export interface StoryShot {
   shotNo: number;
   subject: string;
@@ -101,6 +115,22 @@ export interface StoryShot {
   /** 最终出图 prompt：视觉内容 + 情绪电荷 + 视觉锚。 */
   promptDraft?: string;
   negativePrompt?: string;
+  /** 非纪念型意图下，本镜承担的观众理解 / 论证任务。 */
+  narrativeJob?: NarrativeJob;
+  /** 最近一次真实出图使用的最终提示词与引用信息。 */
+  promptRun?: {
+    finalPrompt: string;
+    generatedAt: number;
+    imageId?: number;
+    imageUrl?: string;
+    source: 'draw-this-moment' | 'prompt-table-rerender' | 'creation-agent';
+    usedDimensions: string[];
+    references?: Array<{
+      kind: 'baseImage' | 'characterRef' | 'styleRef';
+      label: string;
+      url?: string;
+    }>;
+  };
   /** 该镜引用的片段 ID 列表（来自提示词片段池）。 */
   fragmentRefs?: string[];
 }

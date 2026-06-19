@@ -31,6 +31,7 @@ import type { GeneratedImageItem } from '@/features/mobileChat/types';
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from './storyCardSimilarity';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
+import { buildStoryboardDraftPrompt, pickStoryboardDraftShots } from './storyboardDrafts';
 import {
   buildCardPhotoMap,
   buildInheritedPhotoReference,
@@ -168,7 +169,7 @@ interface StoryAgentContextValue {
   /** Inline-edit a single shot's script field (subject/action/dialogue); persists. */
   updateStoryShotField: (
     index: number,
-    field: 'subject' | 'action' | 'dialogue',
+    field: 'subject' | 'action' | 'dialogue' | 'emotion',
     value: string,
   ) => void;
   generateScript: (intent?: ScriptIntentArg) => Promise<void>;
@@ -198,6 +199,8 @@ interface StoryAgentContextValue {
   storyImages: GeneratedImageItem[];
   /** 收下一张故事画面：去重追加并持久化到 body.mobileImages。 */
   addStoryImage: (image: GeneratedImageItem) => void;
+  /** 删除一张已选择故事画面：先从本地故事版移除，后端信号由调用方记录。 */
+  removeStoryImage: (imageId: number) => void;
   imageProvider: ImageProviderSelection;
   artDirection: StoryArtDirection;
   setImageProvider: (provider: ImageProviderSelection) => void;
@@ -267,6 +270,7 @@ type StoryAgentActionKey =
   | 'clearSelection'
   | 'sendSelectionEdit'
   | 'addStoryImage'
+  | 'removeStoryImage'
   | 'updateShotFragmentRefs';
 
 export type StoryAgentActions = Pick<StoryAgentContextValue, StoryAgentActionKey>;
@@ -309,6 +313,7 @@ const storyAgentActionKeys = [
   'clearSelection',
   'sendSelectionEdit',
   'addStoryImage',
+  'removeStoryImage',
   'updateShotFragmentRefs',
 ] as const satisfies readonly StoryAgentActionKey[];
 
@@ -398,6 +403,14 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
   const obj = raw as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
   const nullableStr = (v: unknown) => (typeof v === 'string' ? v : null);
+  const promptRun =
+    obj.promptRun && typeof obj.promptRun === 'object' && !Array.isArray(obj.promptRun)
+      ? obj.promptRun as StoryShot['promptRun']
+      : undefined;
+  const narrativeJob =
+    obj.narrativeJob && typeof obj.narrativeJob === 'object' && !Array.isArray(obj.narrativeJob)
+      ? obj.narrativeJob as StoryShot['narrativeJob']
+      : undefined;
   const action = str(obj.action);
   if (!action) return null;
   return {
@@ -424,6 +437,8 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     visualAnchorText: str(obj.visualAnchorText),
     promptDraft: str(obj.promptDraft),
     negativePrompt: str(obj.negativePrompt),
+    narrativeJob,
+    promptRun,
     fragmentRefs: Array.isArray(obj.fragmentRefs)
       ? obj.fragmentRefs.filter((v): v is string => typeof v === 'string')
       : undefined,
@@ -573,6 +588,7 @@ export function StoryAgentProvider({
   const artCandidatesMut = trpc.artAgent.generateCandidates.useMutation();
   const imageSignalMut = trpc.storyAgent.recordSignal.useMutation();
   const classifyMut = trpc.storyAgent.classify.useMutation();
+  const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
@@ -1447,7 +1463,7 @@ export function StoryAgentProvider({
   );
 
   const updateStoryShotField = useCallback(
-    (index: number, field: 'subject' | 'action' | 'dialogue', value: string) => {
+    (index: number, field: 'subject' | 'action' | 'dialogue' | 'emotion', value: string) => {
       if (index < 0 || index >= storyShots.length) return;
       const nextStoryShots = storyShots.map((shot, i) =>
         i === index ? { ...shot, [field]: value } : shot,
@@ -1493,6 +1509,7 @@ export function StoryAgentProvider({
       const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
       const result = await classifyMut.mutateAsync({
         cards: cards.map((card) => ({
+          title: card.title,
           content: card.content,
           rawText: card.rawText,
           sourceQuote: card.sourceQuote,
@@ -1586,7 +1603,7 @@ export function StoryAgentProvider({
       setCharacters(nextCharacters);
       setScripts(nextScripts);
 
-      await saveArchiveStory({
+      const savedStoryId = await saveArchiveStory({
         messages,
         cards,
         scripts: nextScripts,
@@ -1598,10 +1615,64 @@ export function StoryAgentProvider({
         theme: result.theme,
         arc: result.arc,
       });
+      const storyboardStoryId =
+        activeStoryId && activeStoryId > 0 ? activeStoryId : savedStoryId;
+      let generatedDraftCount = 0;
+      let failedDraftCount = 0;
+      if (storyboardStoryId) {
+        const draftShots = pickStoryboardDraftShots(nextShots);
+        const generatedDrafts: GeneratedImageItem[] = [];
+        for (const shot of draftShots) {
+          try {
+            const imageResult = await storyboardImageMut.mutateAsync({
+              storyId: storyboardStoryId,
+              shotNo: shot.shotNo,
+              prompt: buildStoryboardDraftPrompt(shot),
+              mode: 'draft',
+              sceneWeight: 0.5,
+            });
+            if (
+              imageResult.status === 'ok' &&
+              imageResult.imageUrl &&
+              typeof imageResult.imageId === 'number'
+            ) {
+              generatedDraftCount += 1;
+              generatedDrafts.push({
+                id: imageResult.imageId,
+                imageUrl: imageResult.imageUrl,
+                prompt: imageResult.prompt ?? buildStoryboardDraftPrompt(shot),
+                shotNo: shot.shotNo,
+                storyId: storyboardStoryId,
+                status: imageResult.mode === 'draft' ? 'draft' : 'ready',
+              });
+            } else {
+              failedDraftCount += 1;
+            }
+          } catch (error) {
+            failedDraftCount += 1;
+            console.warn('[storyboard] draft frame generation failed', error);
+          }
+        }
+        if (generatedDrafts.length > 0) {
+          setStoryImages((prev) => {
+            const byId = new Map(prev.map((image) => [image.id, image]));
+            for (const image of generatedDrafts) byId.set(image.id, image);
+            return Array.from(byId.values());
+          });
+          await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
+        }
+      }
       if (projectId !== null) {
         await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
       }
-      toast.success(`剧本已生成：${script.title}`);
+      if (generatedDraftCount > 0) {
+        toast.success(`故事版已生成：${script.title} · ${generatedDraftCount} 张关键帧草稿`);
+      } else {
+        toast.success(`故事版已生成：${script.title}`);
+      }
+      if (failedDraftCount > 0) {
+        toast.error(`${failedDraftCount} 张关键帧草稿没画成，剧本和提示词已保留`);
+      }
     } catch (err) {
       console.error('storyAgent.generateScript failed', err);
       toast.error('剧本生成失败');
@@ -1617,8 +1688,12 @@ export function StoryAgentProvider({
     messages,
     projectId,
     scripts,
+    activeStoryId,
     remoteStoryId,
     storyTitle,
+    storyboardImageMut,
+    setStoryImages,
+    utils.storyAgent.storyImages,
     utils.shot.list,
     visualCanvasItems,
     saveArchiveStory,
@@ -2601,6 +2676,10 @@ export function StoryAgentProvider({
     });
   }, []);
 
+  const removeStoryImage = useCallback((imageId: number) => {
+    setStoryImages((prev) => prev.filter((item) => item.id !== imageId));
+  }, []);
+
   const clearIntent = useCallback(() => {
     setConfirmedIntent(null);
   }, []);
@@ -2655,6 +2734,7 @@ export function StoryAgentProvider({
       visualPreference,
       storyImages,
       addStoryImage,
+      removeStoryImage,
       imageProvider,
       artDirection,
       setImageProvider,
@@ -2718,6 +2798,7 @@ export function StoryAgentProvider({
       visualPreference,
       storyImages,
       addStoryImage,
+      removeStoryImage,
       imageProvider,
       artDirection,
       isArtWorking,
@@ -2782,6 +2863,7 @@ export function StoryAgentProvider({
     clearSelection,
     sendSelectionEdit,
     addStoryImage,
+    removeStoryImage,
     updateShotFragmentRefs,
   };
   const actionsRef = useRef<StoryAgentActions | null>(currentActions);

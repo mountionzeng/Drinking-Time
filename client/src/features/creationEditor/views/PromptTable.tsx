@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Filter, ListFilter } from 'lucide-react';
+import { Eye, Filter, ListFilter } from 'lucide-react';
 import type { CreationEditorShot } from '../CreationEditorContext';
 import { buildPromptTable } from '../promptTable/buildPromptTable';
+import { compilePromptRecipe, promptRunUsesDimension } from '../promptTable/promptRecipe';
 import {
   filterPromptRowsBySource,
   getPromptTableColumns,
@@ -41,6 +42,7 @@ const SOURCE_LABELS: Record<PromptSourceFilter, string> = {
   all: '全部',
   chat: '聊天',
   intent: '意图',
+  director: '导演',
   'art-repo': 'art库',
   inheritance: '继承',
   manual: '手改',
@@ -48,6 +50,7 @@ const SOURCE_LABELS: Record<PromptSourceFilter, string> = {
 
 const CATEGORY_LABELS: Record<PromptRow['category'], string> = {
   content: '内容型',
+  narrative: '叙事型',
   style: '风格型',
 };
 
@@ -60,6 +63,7 @@ const INHERITANCE_LABELS: Record<PromptRow['inheritance'], string> = {
 const SOURCE_BADGE_CLASS: Record<PromptSourceSystem, string> = {
   chat: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
   intent: 'bg-sky-500/10 text-sky-700 border-sky-500/20',
+  director: 'bg-orange-500/10 text-orange-700 border-orange-500/20',
   'art-repo': 'bg-violet-500/10 text-violet-700 border-violet-500/20',
   inheritance: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
   manual: 'bg-rose-500/10 text-rose-700 border-rose-500/20',
@@ -73,6 +77,8 @@ function columnLabel(column: PromptTableColumn) {
       return '分类';
     case 'value':
       return '值';
+    case 'usage':
+      return '出图状态';
     case 'weight':
       return '权重';
     case 'source':
@@ -82,7 +88,23 @@ function columnLabel(column: PromptTableColumn) {
   }
 }
 
-function renderCell(row: PromptRow, column: PromptTableColumn) {
+function usageLabel(shot: CreationEditorShot, row: PromptRow) {
+  if (!shot.promptRun) return '待生成';
+  if (!promptRunUsesDimension(shot.promptRun, row.dimension)) return '未使用';
+  if (row.inheritance === 'overridden') return '手改已用';
+  if (row.inheritance === 'inherited') return '继承已用';
+  return '已使用';
+}
+
+function usageClass(label: string) {
+  if (label === '待生成') return 'border-border bg-muted text-muted-foreground';
+  if (label === '未使用') return 'border-border bg-background text-muted-foreground';
+  if (label === '手改已用') return 'border-rose-500/20 bg-rose-500/10 text-rose-700';
+  if (label === '继承已用') return 'border-amber-500/20 bg-amber-500/10 text-amber-700';
+  return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700';
+}
+
+function renderCell(row: PromptRow, column: PromptTableColumn, shot: CreationEditorShot) {
   switch (column) {
     case 'dimension':
       return <span className="font-medium">{row.label}</span>;
@@ -90,6 +112,14 @@ function renderCell(row: PromptRow, column: PromptTableColumn) {
       return <span className="text-xs text-muted-foreground">{CATEGORY_LABELS[row.category]}</span>;
     case 'value':
       return <span className="block min-w-[220px] whitespace-pre-wrap leading-6">{row.value}</span>;
+    case 'usage': {
+      const label = usageLabel(shot, row);
+      return (
+        <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${usageClass(label)}`}>
+          {label}
+        </span>
+      );
+    }
     case 'weight':
       return <span className="tabular-nums">{Math.round(row.weight * 100)}%</span>;
     case 'source':
@@ -160,6 +190,11 @@ export default function PromptTable({
     [baseRows, sortMode, sourceFilter],
   );
   const columns = useMemo(() => getPromptTableColumns(displayedRows), [displayedRows]);
+  const compiledPrompt = useMemo(
+    () => (shot ? compilePromptRecipe({ shot, rows: baseRows }) : null),
+    [baseRows, shot],
+  );
+  const [showFinalPrompt, setShowFinalPrompt] = useState(false);
 
   if (!shot) {
     return (
@@ -187,20 +222,39 @@ export default function PromptTable({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <ListFilter className="h-4 w-4" />
           <span>{displayedRows.length} 条提示词</span>
+          {shot.promptRun ? (
+            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-700">
+              已用于出图
+            </span>
+          ) : (
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5">
+              生成时形成
+            </span>
+          )}
         </div>
-        <div className="flex rounded-md border border-border bg-background p-0.5">
-          {(Object.keys(SORT_LABELS) as PromptSortMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setSortMode(mode)}
-              className={`rounded px-2.5 py-1 text-xs transition ${
-                sortMode === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {SORT_LABELS[mode]}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFinalPrompt((value) => !value)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            查看最终提示词
+          </button>
+          <div className="flex rounded-md border border-border bg-background p-0.5">
+            {(Object.keys(SORT_LABELS) as PromptSortMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSortMode(mode)}
+                className={`rounded px-2.5 py-1 text-xs transition ${
+                  sortMode === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {SORT_LABELS[mode]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -225,6 +279,37 @@ export default function PromptTable({
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+        </div>
+      ) : null}
+
+      {showFinalPrompt ? (
+        <div className="rounded-md border border-border bg-background p-3 text-xs">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="font-semibold text-foreground">
+              {shot.promptRun ? '本镜真实出图提示词' : '本镜下次出图提示词预览'}
+            </span>
+            {shot.promptRun ? (
+              <span className="text-muted-foreground">
+                {new Date(shot.promptRun.generatedAt).toLocaleString()}
+              </span>
+            ) : null}
+          </div>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-2 leading-5 text-muted-foreground">
+            {shot.promptRun?.finalPrompt || compiledPrompt?.finalPrompt || '暂无提示词'}
+          </pre>
+          {shot.promptRun?.references?.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {shot.promptRun.references.map((reference, index) => (
+                <span
+                  key={`${reference.kind}-${index}`}
+                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-muted-foreground"
+                  title={reference.url}
+                >
+                  {reference.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -266,7 +351,7 @@ export default function PromptTable({
                         onRerender={(override) => rerenderWithOverride(row, override)}
                       />
                     ) : (
-                      renderCell(row, column)
+                      renderCell(row, column, shot)
                     )}
                   </td>
                 ))}

@@ -70,6 +70,8 @@ export default function WorkspaceLayout({
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
   const hasCenterStoryPanel = storyCardsVisible || animaticVisible;
+  const hasRightStoryPanel = scriptVisible || promptTableVisible;
+  const hasRightPanel = activeInputTab === 'material' || hasRightStoryPanel;
 
   const workspace = (
       <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -155,7 +157,7 @@ export default function WorkspaceLayout({
 
         {/* Center Panel: Processing */}
         <ResizablePanel
-          defaultSize={35}
+          defaultSize={hasRightPanel ? 35 : 75}
           minSize={18}
           collapsible
           collapsedSize={0}
@@ -192,32 +194,36 @@ export default function WorkspaceLayout({
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        {hasRightPanel ? (
+          <>
+            <ResizableHandle withHandle />
 
-        {/* Right Panel: Output */}
-        <ResizablePanel defaultSize={40} minSize={22}>
-          <div className="h-full overflow-auto space-y-3 p-2">
-            {activeInputTab === 'material' ? (
-              <PromptDistill
-                isActive={analysisActive}
-                analysis={analysis}
-              />
-            ) : (
-              <div className="flex min-h-full flex-col gap-2">
-                {scriptVisible ? (
-                  <div className="min-h-[280px] flex-1 overflow-auto">
-                    <ScriptViewer projectId={projectId} />
+            {/* Right Panel: Output */}
+            <ResizablePanel defaultSize={40} minSize={22}>
+              <div className="h-full overflow-auto space-y-3 p-2">
+                {activeInputTab === 'material' ? (
+                  <PromptDistill
+                    isActive={analysisActive}
+                    analysis={analysis}
+                  />
+                ) : (
+                  <div className="flex min-h-full flex-col gap-2">
+                    {scriptVisible ? (
+                      <div className="min-h-[280px] flex-1 overflow-auto">
+                        <ScriptViewer projectId={projectId} />
+                      </div>
+                    ) : null}
+                    {promptTableVisible ? (
+                      <div className="min-h-[280px] flex-1 overflow-hidden">
+                        <PromptTablePanel />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-                {promptTableVisible ? (
-                  <div className="min-h-[280px] flex-1 overflow-hidden">
-                    <PromptTablePanel />
-                  </div>
-                ) : null}
+                )}
               </div>
-            )}
-          </div>
-        </ResizablePanel>
+            </ResizablePanel>
+          </>
+        ) : null}
       </ResizablePanelGroup>
   );
 

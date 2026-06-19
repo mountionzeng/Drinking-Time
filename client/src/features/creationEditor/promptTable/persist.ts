@@ -1,4 +1,5 @@
 import type { PromptOverride } from './types';
+import type { PromptRunRecord } from './types';
 
 function bodyObject(body: unknown): Record<string, unknown> {
   return body && typeof body === 'object' && !Array.isArray(body)
@@ -81,4 +82,44 @@ export function writePromptOverride(
       promptOverrides: existing,
     };
   });
+}
+
+export function writePromptShot(
+  body: unknown,
+  shotNo: number,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  return updateShot(body, shotNo, (shot) => {
+    const next = { ...shot };
+    Object.entries(patch).forEach(([key, value]) => {
+      if (key === 'shotNo' || value == null) return;
+      const current = next[key];
+      const shouldFill =
+        current == null ||
+        current === '' ||
+        key === 'narrativeJob' ||
+        key === 'promptRun';
+      if (shouldFill) next[key] = value;
+    });
+    return {
+      ...next,
+      shotNo,
+      promptOverrides:
+        shot.promptOverrides && typeof shot.promptOverrides === 'object' && !Array.isArray(shot.promptOverrides)
+          ? shot.promptOverrides
+          : patch.promptOverrides,
+    };
+  });
+}
+
+export function writePromptRun(
+  body: unknown,
+  shotNo: number,
+  promptRun: PromptRunRecord,
+): Record<string, unknown> {
+  return updateShot(body, shotNo, (shot) => ({
+    ...shot,
+    promptDraft: promptRun.finalPrompt,
+    promptRun,
+  }));
 }

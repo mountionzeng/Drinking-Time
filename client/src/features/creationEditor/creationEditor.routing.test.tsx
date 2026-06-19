@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { detectPrefersMobile } from '@/app/router/AppRouter';
 import {
+  mergeCanonicalStoryShots,
   mergeShotsWithImages,
   normalizeStoryShots,
   selectInitialShotNo,
@@ -108,6 +109,20 @@ describe('creation editor route and shell', () => {
           dialogue: '后一句',
           intent: '证明职业判断',
           rationale: '这一镜要把材料转成可见的判断力。',
+          narrativeJob: {
+            intentSummary: '用途：求职',
+            audience: '招聘者',
+            claim: '说明职业判断',
+            evidence: '项目和数字',
+            visualTranslation: '把材料转成职业论点',
+            avoidMisread: '避免普通氛围图',
+          },
+          promptRun: {
+            finalPrompt: 'real prompt',
+            generatedAt: 123,
+            source: 'draw-this-moment',
+            usedDimensions: ['subject'],
+          },
         },
         { shotNo: 1, subject: '第一镜', dialogue: '前一句' },
       ],
@@ -119,6 +134,8 @@ describe('creation editor route and shell', () => {
     expect(shots[0].rationale).toBeNull();
     expect(shots[1].intent).toBe('证明职业判断');
     expect(shots[1].rationale).toBe('这一镜要把材料转成可见的判断力。');
+    expect(shots[1].promptRun?.finalPrompt).toBe('real prompt');
+    expect(shots[1].narrativeJob?.claim).toBe('说明职业判断');
     expect(selectInitialShotNo(null, shots)).toBe(1);
   });
 
@@ -131,5 +148,118 @@ describe('creation editor route and shell', () => {
     expect(merged).toHaveLength(3);
     expect(merged[1].imageUrl).toBe('/api/images/8.png');
     expect(merged[0].imageUrl).toBeUndefined();
+  });
+
+  it('drops stale downstream prompt runs when canonical shot content changed', () => {
+    const merged = mergeCanonicalStoryShots(
+      [
+        shot(1, {
+          subject: '新的镜头主体',
+          action: '新的镜头动作',
+          dialogue: '新的台词',
+          rationale: 'canonical rationale',
+        }),
+      ],
+      {
+        shots: [
+          {
+            ...shot(1, {
+              subject: '旧的 body 主体',
+              action: '旧的 body 动作',
+              dialogue: '旧的台词',
+            }),
+            durationMs: 4200,
+            promptOverrides: {
+              subject: { value: '保留提示词表覆盖', weight: 0.8 },
+            },
+            promptRun: {
+              finalPrompt: '保留上次出图 prompt',
+              generatedAt: 123,
+              source: 'prompt-table-rerender',
+              usedDimensions: ['subject'],
+            },
+          },
+        ],
+      },
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].subject).toBe('新的镜头主体');
+    expect(merged[0].action).toBe('新的镜头动作');
+    expect(merged[0].dialogue).toBe('新的台词');
+    expect(merged[0].rationale).toBe('canonical rationale');
+    expect(merged[0].durationMs).toBe(4200);
+    expect(merged[0].promptOverrides).toBeUndefined();
+    expect(merged[0].promptRun).toBeUndefined();
+    expect(merged[0].downstreamStale).toBe(true);
+  });
+
+  it('preserves downstream prompt metadata when canonical and persisted shots still match', () => {
+    const currentShot = shot(1, {
+      subject: '同一镜头主体',
+      action: '同一镜头动作',
+      dialogue: '同一台词',
+      rationale: 'same rationale',
+    });
+    const merged = mergeCanonicalStoryShots(
+      [currentShot],
+      {
+        shots: [
+          {
+            ...currentShot,
+            durationMs: 4200,
+            promptOverrides: {
+              subject: { value: '保留提示词表覆盖', weight: 0.8 },
+            },
+            promptRun: {
+              finalPrompt: '保留上次出图 prompt',
+              generatedAt: 123,
+              imageId: 8,
+              source: 'prompt-table-rerender',
+              usedDimensions: ['subject'],
+            },
+          },
+        ],
+      },
+    );
+
+    expect(merged[0].durationMs).toBe(4200);
+    expect(merged[0].promptOverrides?.subject?.value).toBe('保留提示词表覆盖');
+    expect(merged[0].promptRun?.finalPrompt).toBe('保留上次出图 prompt');
+    expect(merged[0].downstreamStale).toBe(false);
+  });
+
+  it('does not attach shot-number images to stale downstream shots', () => {
+    const staleShot = shot(5, { downstreamStale: true });
+    const freshShot = shot(6);
+    const merged = mergeShotsWithImages([staleShot, freshShot], [
+      { id: 10, shotNo: 5, imageUrl: '/api/images/stale.png', prompt: 'old prompt' },
+      { id: 11, shotNo: 6, imageUrl: '/api/images/fresh.png', prompt: 'fresh prompt' },
+    ]);
+
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[1].imageUrl).toBe('/api/images/fresh.png');
+  });
+
+  it('marks prompt runs stale when their source material points at another shot card', () => {
+    const shots = normalizeStoryShots({
+      shots: [
+        {
+          ...shot(5, {
+            sourceCardContent: '[5] 当前镜头材料',
+          }),
+          promptRun: {
+            finalPrompt: 'Rerender only SH05. Source material: [4] 旧镜头材料',
+            generatedAt: 123,
+            imageId: 10,
+            source: 'prompt-table-rerender',
+            usedDimensions: ['subject'],
+          },
+        },
+      ],
+    });
+
+    expect(shots[0].promptRun).toBeUndefined();
+    expect(shots[0].downstreamStale).toBe(true);
   });
 });

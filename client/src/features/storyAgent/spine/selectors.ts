@@ -157,6 +157,7 @@ export function selectStoryScriptViewerSlice(state: StorySpineState) {
   return {
     latestScript: selectLatestScript(state),
     scripts: state.scripts,
+    storyShots: state.storyShots,
     visualCanvasItems: state.visualCanvasItems,
     activeStoryId: state.activeStoryId,
   };
@@ -182,6 +183,7 @@ export function selectStoryArtDirectionLauncherSlice(state: StorySpineState) {
   return {
     artDirection: state.artDirection,
     cardCount: state.cards.length,
+    preferredDrawShotNo: state.preferredDrawShotNo,
   };
 }
 
