@@ -41,7 +41,7 @@ describe('story spine redundancy isolation', () => {
   it('does not treat opening a story panel as story workspace data', () => {
     expect(selectHasStoryWorkspaceData(storySpineStore.getState())).toBe(false);
 
-    storySpineStore.getState().toggleVisibleStoryPanel('storyCards');
+    storySpineStore.getState().toggleVisibleStoryPanel('storyboard');
 
     expect(selectHasStoryWorkspaceData(storySpineStore.getState())).toBe(false);
 

@@ -74,18 +74,18 @@ function baseProps() {
 }
 
 describe('WorkspaceLayout story panel buttons', () => {
-  it('keeps story panels hidden by default', () => {
+  it('shows storyCards by default, other panels hidden', () => {
     storyPanelState.visibleStoryPanels = [];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
-    expect(html).not.toContain('data-panel="story-cards"');
+    expect(html).toContain('data-panel="story-cards"');
     expect(html).not.toContain('data-panel="storyboard"');
     expect(html).not.toContain('data-panel="animatic"');
     expect(html).not.toContain('data-panel="prompt-table"');
   });
 
   it('can render multiple story panels at the same time', () => {
-    storyPanelState.visibleStoryPanels = ['storyCards', 'storyboard', 'animatic', 'promptTable'];
+    storyPanelState.visibleStoryPanels = ['storyboard', 'animatic', 'promptTable'];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).toContain('data-panel="story-cards"');

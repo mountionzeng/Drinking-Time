@@ -505,6 +505,7 @@ export function CreationEditorProvider({
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const generateShotVideoMut = trpc.creationAgent.generateShotVideo.useMutation();
+  const spineActiveStoryId = useStorySpine((state) => state.activeStoryId);
   const activeId = isControlled
     ? controlledActiveStoryId
     : localActiveStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;

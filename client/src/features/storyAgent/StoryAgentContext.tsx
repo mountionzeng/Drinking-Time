@@ -1657,6 +1657,7 @@ export function StoryAgentProvider({
             return Array.from(byId.values());
           });
           await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
+          await utils.storyAgent.storyGet.invalidate({ id: storyboardStoryId });
         }
       }
       if (projectId !== null) {
@@ -1666,6 +1667,17 @@ export function StoryAgentProvider({
         toast.success(`故事版已生成：${script.title} · ${generatedDraftCount} 张关键帧草稿`);
       } else {
         toast.success(`故事版已生成：${script.title}`);
+      }
+      // Auto-open animatic & storyboard panels so the user sees the result.
+      const currentPanels = storySpineStore.getState().visibleStoryPanels;
+      const panelsToAdd: Array<'animatic' | 'storyboard'> = [];
+      if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
+      if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
+      if (panelsToAdd.length > 0) {
+        storySpineStore.getState().setVisibleStoryPanels([
+          ...currentPanels,
+          ...panelsToAdd,
+        ]);
       }
       if (failedDraftCount > 0) {
         toast.error(`${failedDraftCount} 张关键帧草稿没画成，剧本和提示词已保留`);

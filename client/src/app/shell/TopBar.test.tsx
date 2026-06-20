@@ -35,7 +35,7 @@ vi.mock('@/_core/hooks/useAuth', () => ({
 
 vi.mock('@/features/storyAgent/spine/selectors', () => ({
   useStoryPanelVisibility: () => ({
-    visibleStoryPanels: ['storyCards'],
+    visibleStoryPanels: ['storyboard'],
     toggleVisibleStoryPanel: vi.fn(),
   }),
 }));

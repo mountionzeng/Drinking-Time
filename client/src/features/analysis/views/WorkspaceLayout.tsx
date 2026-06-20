@@ -65,12 +65,11 @@ export default function WorkspaceLayout({
   const visibleStoryPanels = useVisibleStoryPanels();
   const { setActiveSelection } = useStoryAgentActions();
   useSelectionCapture(setActiveSelection);
-  const storyCardsVisible = visibleStoryPanels.includes('storyCards');
   const storyboardVisible = visibleStoryPanels.includes('storyboard');
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
-  const hasCenterStoryPanel = storyCardsVisible || animaticVisible;
-  const hasRightStoryPanel = storyboardVisible || promptTableVisible;
+  const hasCenterStoryPanel = true; // storyCards always visible on story tab
+  const hasRightStoryPanel = animaticVisible || promptTableVisible;
   const hasRightPanel = activeInputTab === 'material' || hasRightStoryPanel;
 
   const workspace = (
@@ -163,34 +162,37 @@ export default function WorkspaceLayout({
           collapsedSize={0}
         >
           <div className="h-full overflow-auto">
-            {activeInputTab === 'material' ? (
-              <TemplateDraft
-                isActive={analysisActive}
-                analysis={analysis}
-                refsCount={refsCount}
-                onRunAnalysis={onRunAnalysis}
-                isAnalyzing={isAnalyzing}
-              />
-            ) : (
-              <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                <div className="min-h-0 flex-1 overflow-auto p-2">
-                  {hasCenterStoryPanel ? (
-                    <div className="flex min-h-full flex-col gap-2">
-                      {storyCardsVisible ? (
+            {(() => {
+              if (activeInputTab === 'material') {
+                return (
+                  <TemplateDraft
+                    isActive={analysisActive}
+                    analysis={analysis}
+                    refsCount={refsCount}
+                    onRunAnalysis={onRunAnalysis}
+                    isAnalyzing={isAnalyzing}
+                  />
+                );
+              }
+              return (
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  <div className="min-h-0 flex-1 overflow-auto p-2">
+                    {hasCenterStoryPanel ? (
+                      <div className="flex min-h-full flex-col gap-2">
                         <div className="min-h-[280px] flex-1 overflow-hidden">
                           <StoryCardsBoard />
                         </div>
-                      ) : null}
-                      {animaticVisible ? (
-                        <div className="min-h-[280px] flex-1 overflow-hidden">
-                          <AnimaticPanel />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                        {storyboardVisible ? (
+                          <div className="min-h-[280px] flex-1 overflow-auto">
+                            <StoryboardPanel />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </ResizablePanel>
 
@@ -208,9 +210,9 @@ export default function WorkspaceLayout({
                   />
                 ) : (
                   <div className="flex min-h-full flex-col gap-2">
-                    {storyboardVisible ? (
-                      <div className="min-h-[280px] flex-1 overflow-auto">
-                        <StoryboardPanel />
+                    {animaticVisible ? (
+                      <div className="min-h-[280px] flex-1 overflow-hidden">
+                        <AnimaticPanel />
                       </div>
                     ) : null}
                     {promptTableVisible ? (
