@@ -22,6 +22,7 @@ export type {
   ShotEntry,
   ShotListPayload,
   StoryAgentChatResult,
+  StoryCardContextPayload,
   StoryCardPayload,
   SummaryPayload,
   ToolCall,

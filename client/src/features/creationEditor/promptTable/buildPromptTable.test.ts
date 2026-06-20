@@ -21,6 +21,11 @@ function makeShot(overrides: Partial<CreationEditorShot> = {}): CreationEditorSh
     note: '',
     emotion: '犹豫',
     sourceCardContent: '用户说她在厨房门边停了一会儿。',
+    videoStart: '她站在门边，手还没放下',
+    videoEnd: '镜头落在她看向厨房里的停顿',
+    transitionIn: '接上一镜的脚步声',
+    transitionOut: '用视线带到下一镜',
+    videoPrompt: '3-5 秒，平视缓慢推进，人物在门边停住，环境声降低，克制真实',
     ...overrides,
   };
 }
@@ -78,7 +83,7 @@ describe('buildPromptTable', () => {
         avoidMisread: '避免画成普通门口背影。',
       },
     }));
-    const narrativeRows = rows.filter((row) => row.source.system === 'director');
+    const narrativeRows = rows.filter((row) => row.category === 'narrative');
 
     expect(narrativeRows.map((row) => row.dimension)).toEqual([
       'narrativeClaim',
@@ -99,12 +104,55 @@ describe('buildPromptTable', () => {
     });
   });
 
+  it('adds video motion rows from the same shot design source', () => {
+    const rows = buildPromptTable(makeShot({ sound: '冰箱低频声和轻微脚步声' }));
+    const motionRows = rows.filter((row) => row.category === 'motion');
+
+    expect(motionRows.map((row) => row.dimension)).toEqual([
+      'cameraMove',
+      'videoStart',
+      'videoEnd',
+      'transitionIn',
+      'transitionOut',
+      'sound',
+      'videoPrompt',
+    ]);
+    expect(motionRows.find((row) => row.dimension === 'videoPrompt')).toMatchObject({
+      label: '图生视频提示词',
+      source: { system: 'director', label: '导演' },
+    });
+  });
+
+  it('keeps empty video rows editable for older stories without video design fields', () => {
+    const rows = buildPromptTable(makeShot({
+      cameraMove: '',
+      sound: '',
+      videoStart: '',
+      videoEnd: '',
+      transitionIn: '',
+      transitionOut: '',
+      videoPrompt: '',
+    }));
+    const motionRows = rows.filter((row) => row.category === 'motion');
+
+    expect(motionRows.map((row) => row.dimension)).toEqual([
+      'cameraMove',
+      'videoStart',
+      'videoEnd',
+      'transitionIn',
+      'transitionOut',
+      'sound',
+      'videoPrompt',
+    ]);
+    expect(motionRows.find((row) => row.dimension === 'videoPrompt')?.value).toBe('');
+  });
+
   it('adds director rows from shot intent and rationale when no full narrative job exists', () => {
     const rows = buildPromptTable(makeShot({
       intent: '证明用户能把抽象需求转成可验证产品判断。',
       rationale: '岗位关心判断是否可信；这张画面用项目复盘材料把优势和证据连起来。',
     }));
-    const narrativeRows = rows.filter((row) => row.source.system === 'director');
+    const narrativeRows = rows.filter((row) => row.category === 'narrative');
 
     expect(narrativeRows.map((row) => row.dimension)).toEqual([
       'narrativeClaim',
@@ -142,7 +190,9 @@ describe('buildPromptTable', () => {
     });
 
     expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((row) => row.category === 'content')).toBe(true);
+    expect(rows.some((row) => row.category === 'style')).toBe(false);
+    expect(rows.some((row) => row.category === 'content')).toBe(true);
+    expect(rows.some((row) => row.category === 'motion')).toBe(true);
     expect(rows.some((row) => row.source.system === 'art-repo')).toBe(false);
   });
 });

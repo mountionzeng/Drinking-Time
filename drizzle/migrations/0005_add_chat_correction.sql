@@ -1,0 +1,1 @@
+ALTER TABLE `image_signals` MODIFY COLUMN `action` ENUM('swipe_left', 'swipe_right', 'edit_start', 'edit_complete', 'chat_correction') NOT NULL;

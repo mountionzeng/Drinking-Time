@@ -483,7 +483,7 @@ export default function ShotTable({
                   <th className="px-2.5 py-2 w-[110px]">Status</th>
                   <th className="px-2.5 py-2 w-[90px]">Ready</th>
                   {canEditScript ? (
-                    <th className="px-2.5 py-2 min-w-[240px]">剧本 Script · 可改</th>
+                    <th className="px-2.5 py-2 min-w-[240px]">镜头文案 · 可改</th>
                   ) : null}
                   {promptPool && promptPool.length > 0 && onUpdateFragmentRefs && (
                     <th className="px-2.5 py-2 min-w-[200px]">视觉片段</th>

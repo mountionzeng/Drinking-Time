@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCardPhotoMap,
   buildInheritedPhotoReference,
-  buildSceneInheritedImageMap,
   emptyVisualAnalysis,
   reconcileInheritedPhotos,
 } from './inheritedPhoto';
@@ -104,73 +103,6 @@ describe('buildInheritedPhotoReference 构造卡片继承的对话照片视觉�
     });
     expect(item?.x).toBe(18 + 3 * 18); // 72
     expect(item?.y).toBe(18 + 3 * 18);
-  });
-});
-
-describe('buildSceneInheritedImageMap 剧本派生式取图', () => {
-  it('场景 fromCardId 命中某卡片的 reference 图 → 映射到该图 URL', () => {
-    const items = [
-      makeVisualItem({
-        id: 'v1',
-        cardId: 'card_1',
-        imageUrl: 'https://cdn/x.jpg',
-        source: 'reference',
-      }),
-    ];
-    const map = buildSceneInheritedImageMap(
-      [{ sceneNo: 'S01', fromCardId: 'card_1' }],
-      items,
-    );
-    expect(map.get('S01')).toBe('https://cdn/x.jpg');
-  });
-
-  it('fromCardId 为空串的场景被跳过（内容匹配没命中卡片）', () => {
-    const items = [makeVisualItem({ cardId: 'card_1' })];
-    const map = buildSceneInheritedImageMap(
-      [{ sceneNo: 'S01', fromCardId: '' }],
-      items,
-    );
-    expect(map.has('S01')).toBe(false);
-  });
-
-  it('只认 source=reference：美术 Agent 的 riff 图即使 cardId 相同也不当继承图', () => {
-    const items = [
-      makeVisualItem({
-        id: 'v1',
-        cardId: 'card_1',
-        source: 'riff',
-        imageUrl: 'https://cdn/riff.jpg',
-      }),
-    ];
-    const map = buildSceneInheritedImageMap(
-      [{ sceneNo: 'S01', fromCardId: 'card_1' }],
-      items,
-    );
-    expect(map.has('S01')).toBe(false);
-  });
-
-  it('卡片没有任何继承图 → 该场景不进 Map（渲染端自然回退为无缩略图）', () => {
-    const map = buildSceneInheritedImageMap(
-      [{ sceneNo: 'S01', fromCardId: 'card_404' }],
-      [makeVisualItem({ cardId: 'card_1' })],
-    );
-    expect(map.size).toBe(0);
-  });
-
-  it('多场景各取各的卡片继承图', () => {
-    const items = [
-      makeVisualItem({ id: 'v1', cardId: 'card_1', imageUrl: 'https://cdn/1.jpg' }),
-      makeVisualItem({ id: 'v2', cardId: 'card_2', imageUrl: 'https://cdn/2.jpg' }),
-    ];
-    const map = buildSceneInheritedImageMap(
-      [
-        { sceneNo: 'S01', fromCardId: 'card_1' },
-        { sceneNo: 'S02', fromCardId: 'card_2' },
-      ],
-      items,
-    );
-    expect(map.get('S01')).toBe('https://cdn/1.jpg');
-    expect(map.get('S02')).toBe('https://cdn/2.jpg');
   });
 });
 

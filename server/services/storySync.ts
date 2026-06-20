@@ -1,7 +1,15 @@
 type StoryBodyRecord = Record<string, unknown>;
 
 const REVISION_KEY = "_revision";
-const SHOT_FIELDS_TO_PRESERVE = ["intent", "rationale"] as const;
+const SHOT_FIELDS_TO_PRESERVE = [
+  "intent",
+  "rationale",
+  "videoStart",
+  "videoEnd",
+  "transitionIn",
+  "transitionOut",
+  "videoPrompt",
+] as const;
 
 function asRecord(value: unknown): StoryBodyRecord {
   return value && typeof value === "object" && !Array.isArray(value)

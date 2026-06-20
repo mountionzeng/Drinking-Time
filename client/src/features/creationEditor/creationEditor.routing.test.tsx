@@ -1,5 +1,3 @@
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { detectPrefersMobile } from '@/app/router/AppRouter';
 import {
@@ -9,9 +7,6 @@ import {
   selectInitialShotNo,
   type CreationEditorShot,
 } from './CreationEditorContext';
-import { EditorShellView } from './views/EditorShell';
-
-vi.stubGlobal('React', React);
 
 function makeStorage() {
   const data = new Map<string, string>();
@@ -70,31 +65,13 @@ afterEach(() => {
 });
 
 describe('creation editor route and shell', () => {
-  it('renders the studio skeleton with animatic and prompt table panels', () => {
-    const shots = [shot(1), shot(2)];
-    const html = renderToStaticMarkup(
-      <EditorShellView
-        title="小酌故事"
-        shots={shots}
-        selectedShotNo={1}
-        selectedShot={shots[0]}
-        onSelectShot={vi.fn()}
-      />,
-    );
-
-    expect(html).toContain('data-testid="creation-editor-shell"');
-    expect(html).toContain('data-testid="animatic-panel"');
-    expect(html).toContain('data-testid="prompt-table-panel"');
-    expect(html).toContain('小酌故事');
-  });
-
-  it('redirects touch desktop routes such as /studio to mobile mode through the shared detector', () => {
+  it('redirects touch desktop routes to mobile mode through the shared detector', () => {
     stubBrowser({ width: 1024, touchPoints: 1 });
 
     expect(detectPrefersMobile()).toBe(true);
   });
 
-  it('keeps /studio on desktop when the force-desktop escape hatch is present', () => {
+  it('keeps desktop routes on desktop when the force-desktop escape hatch is present', () => {
     stubBrowser({ width: 1024, touchPoints: 1, search: '?desktop=1' });
 
     expect(detectPrefersMobile()).toBe(false);
@@ -142,7 +119,7 @@ describe('creation editor route and shell', () => {
   it('attaches generated images to the matching story shot without changing shot count', () => {
     const shots = [shot(1), shot(2), shot(3)];
     const merged = mergeShotsWithImages(shots, [
-      { id: 8, shotNo: 2, imageUrl: '/api/images/8.png', prompt: 'prompt 8' },
+      { id: 8, shotNo: 2, imageUrl: '/api/images/8.png', prompt: 'prompt 8', isPrimary: true },
     ]);
 
     expect(merged).toHaveLength(3);
@@ -234,11 +211,74 @@ describe('creation editor route and shell', () => {
     const freshShot = shot(6);
     const merged = mergeShotsWithImages([staleShot, freshShot], [
       { id: 10, shotNo: 5, imageUrl: '/api/images/stale.png', prompt: 'old prompt' },
-      { id: 11, shotNo: 6, imageUrl: '/api/images/fresh.png', prompt: 'fresh prompt' },
+      { id: 11, shotNo: 6, imageUrl: '/api/images/fresh.png', prompt: 'fresh prompt', isPrimary: true },
     ]);
 
     expect(merged[0].imageUrl).toBeUndefined();
     expect(merged[1].imageUrl).toBe('/api/images/fresh.png');
+  });
+
+  it('does not attach unbound pending drafts to the animatic fallback', () => {
+    const merged = mergeShotsWithImages([shot(1)], [
+      {
+        id: 12,
+        shotNo: 1,
+        imageUrl: '/api/images/pending.png',
+        prompt: 'pending prompt',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[0].imagePrompt).toBeUndefined();
+  });
+
+  it('keeps prompt-run images visible even when they are still pending drafts', () => {
+    const merged = mergeShotsWithImages([
+      shot(1, {
+        promptRun: {
+          finalPrompt: 'prompt table prompt',
+          generatedAt: 123,
+          imageId: 12,
+          source: 'prompt-table-rerender',
+          usedDimensions: ['subject'],
+        },
+      }),
+    ], [
+      {
+        id: 12,
+        shotNo: 1,
+        imageUrl: '/api/images/prompt-run.png',
+        prompt: 'prompt table prompt',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBe('/api/images/prompt-run.png');
+    expect(merged[0].imagePrompt).toBe('prompt table prompt');
+  });
+
+  it('uses prompt-run image URLs as animatic candidates when image assets are not hydrated yet', () => {
+    const merged = mergeShotsWithImages([
+      shot(1, {
+        promptRun: {
+          finalPrompt: 'prompt table prompt',
+          generatedAt: 123,
+          imageId: 12,
+          imageUrl: '/api/images/prompt-run-only.png',
+          source: 'prompt-table-rerender',
+          usedDimensions: ['subject'],
+        },
+      }),
+    ], []);
+
+    expect(merged[0].imageId).toBe(12);
+    expect(merged[0].imageUrl).toBe('/api/images/prompt-run-only.png');
+    expect(merged[0].imagePrompt).toBe('prompt table prompt');
   });
 
   it('marks prompt runs stale when their source material points at another shot card', () => {

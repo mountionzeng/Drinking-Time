@@ -109,11 +109,18 @@ export default function StoryListView() {
         )}
 
         {storyList.map((story) => (
-          <button
+          <div
             key={story.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => loadStory(story.id)}
-            className="w-full text-left rounded-lg border p-3 transition-colors hover:border-[var(--nayin-accent)] group"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                loadStory(story.id);
+              }
+            }}
+            className="w-full text-left rounded-lg border p-3 transition-colors hover:border-[var(--nayin-accent)] group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
             style={{
               background: 'var(--card)',
               borderColor: 'var(--panel-border)',
@@ -156,7 +163,7 @@ export default function StoryListView() {
                 <Trash2 className="w-3 h-3" />
               </button>
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>

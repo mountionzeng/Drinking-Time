@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, inArray, isNull, or } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   mkdir,
@@ -1373,6 +1373,66 @@ export async function getImageSignalsForImages(
     .orderBy(imageSignals.createdAt);
 }
 
+/**
+ * 查询某个故事最近的 swipe_left 信号（用于矫正循环：拒绝的风格回流到 prompt）。
+ * 返回最近 limit 条，按时间倒序。
+ */
+export async function getRecentRejectionSignals(
+  storyId: number,
+  limit = 10,
+): Promise<ImageSignal[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.imageSignals
+      .filter(s => s.storyId === storyId && s.action === "swipe_left")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+  return db
+    .select()
+    .from(imageSignals)
+    .where(
+      and(
+        eq(imageSignals.storyId, storyId),
+        eq(imageSignals.action, "swipe_left"),
+      ),
+    )
+    .orderBy(desc(imageSignals.createdAt))
+    .limit(limit);
+}
+
+export async function getRecentChatCorrections(
+  projectId: number,
+  limit = 10,
+): Promise<ImageSignal[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.imageSignals
+      .filter(s => {
+        if (s.action !== "chat_correction") return false;
+        const meta = s.metadata as Record<string, unknown> | null;
+        return meta?.projectId === projectId;
+      })
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+  // MySQL: chat_correction 信号的 projectId 存在 metadata JSON 里，用 JSON_EXTRACT 查询
+  return db
+    .select()
+    .from(imageSignals)
+    .where(
+      and(
+        eq(imageSignals.action, "chat_correction"),
+        // @ts-explode — drizzle 不支持 JSON_EXTRACT，用 sql 模板
+        sql`JSON_EXTRACT(${imageSignals.metadata}, '$.projectId') = ${projectId}`,
+      ),
+    )
+    .orderBy(desc(imageSignals.createdAt))
+    .limit(limit);
+}
+
 // ─── Edit Snapshots ──────────────────────────────────────────────────────
 
 export async function createEditSnapshot(
@@ -1525,6 +1585,17 @@ export async function getRecentSemanticAnnotations(
     .where(eq(editSnapshots.projectId, projectId))
     .orderBy(desc(semanticAnnotations.timestamp))
     .limit(limit);
+}
+
+/**
+ * 获取项目最近的编辑偏好注解（供 renderGate 使用）。
+ * 直接用 getRecentSemanticAnnotations，这里只是按 projectId 过滤后的便捷封装。
+ */
+export async function getRecentEditPreferences(
+  projectId: number,
+  limit = 5,
+): Promise<SemanticAnnotation[]> {
+  return getRecentSemanticAnnotations(projectId, limit);
 }
 
 // ─── Generated Images（统一） ────────────────────────────────────────────

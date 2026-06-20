@@ -1,93 +1,149 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   GitBranch,
   LocateFixed,
-  Move3D,
-  Network,
   Sparkles,
   Tags,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import type { StoryCard, StoryShot } from '@/features/storyAgent/types';
-import { useStorySpine } from '@/features/storyAgent/spine/storySpine';
+
+type CausalStepKey =
+  | 'role'
+  | 'ability'
+  | 'cause'
+  | 'effect'
+  | 'proof'
+  | 'contact'
+  | 'value';
+
+type CausalStep = {
+  key: CausalStepKey;
+  label: string;
+  location: '岗位' | '能力' | '原因' | '作用' | '证据' | '联系' | '外部价值';
+  shortLabel: string;
+};
+
+type RelationType = '支撑' | '导致' | '转化为' | '证明' | '带来';
+
+type CausalEdge = {
+  from: CausalStepKey;
+  to: CausalStepKey;
+  type: RelationType;
+  label: string;
+};
 
 type GraphNode = {
   id: string;
   label: string;
-  subtitle: string;
   status: 'ready' | 'ask' | 'evidence' | 'cause' | 'hold';
-  chain: string;
-  x: number;
-  y: number;
-  z: number;
+  stepKey: CausalStepKey;
+  stepIndex: number;
+  location: CausalStep['location'];
+  weight: number;
   shotNo?: number;
-  card?: StoryCard;
+  card: StoryCard;
   shot?: StoryShot;
-};
-
-type GraphEdge = {
-  id: string;
-  from: string;
-  to: string;
-  strength: 'strong' | 'normal' | 'soft';
 };
 
 type StoryCardsGraphProps = {
   cards: StoryCard[];
   storyShots: StoryShot[];
-};
-
-type ClusterMode = 'free' | 'chain' | 'status';
-
-type NodePosition = {
-  x: number;
-  y: number;
-  z: number;
+  onRemoveCard?: (cardId: string) => void;
 };
 
 type ViewportState = {
-  x: number;
-  y: number;
   scale: number;
 };
 
-type DragState =
-  | {
-      type: 'node';
-      id: string;
-      startClientX: number;
-      startClientY: number;
-      startX: number;
-      startY: number;
-      rectWidth: number;
-      rectHeight: number;
-      scale: number;
-    }
-  | {
-      type: 'pan';
-      startClientX: number;
-      startClientY: number;
-      startX: number;
-      startY: number;
-    };
+const CAUSAL_STEPS: CausalStep[] = [
+  {
+    key: 'role',
+    label: '岗位关心什么',
+    location: '岗位',
+    shortLabel: '岗位',
+  },
+  {
+    key: 'ability',
+    label: '你有什么能力',
+    location: '能力',
+    shortLabel: '能力',
+  },
+  {
+    key: 'cause',
+    label: '为什么有这个能力',
+    location: '原因',
+    shortLabel: '原因',
+  },
+  {
+    key: 'effect',
+    label: '怎么发生作用',
+    location: '作用',
+    shortLabel: '作用',
+  },
+  {
+    key: 'proof',
+    label: '凭什么相信',
+    location: '证据',
+    shortLabel: '证据',
+  },
+  {
+    key: 'contact',
+    label: '为什么值得联系',
+    location: '联系',
+    shortLabel: '联系',
+  },
+  {
+    key: 'value',
+    label: '外部价值',
+    location: '外部价值',
+    shortLabel: '价值',
+  },
+];
 
-const CHAIN_STEPS = [
-  '岗位关心什么',
-  '你有什么能力',
-  '为什么有这个能力',
-  '怎么发生作用',
-  '凭什么相信',
-  '为什么值得联系',
-  '外部价值',
+const STEP_BY_KEY = Object.fromEntries(
+  CAUSAL_STEPS.map((step, index) => [step.key, { ...step, index }]),
+) as Record<CausalStepKey, CausalStep & { index: number }>;
+
+const CAUSAL_EDGES: CausalEdge[] = [
+  {
+    from: 'role',
+    to: 'ability',
+    type: '支撑',
+    label: '回应岗位关注',
+  },
+  {
+    from: 'ability',
+    to: 'cause',
+    type: '导致',
+    label: '长期处理抽象需求',
+  },
+  {
+    from: 'cause',
+    to: 'effect',
+    type: '转化为',
+    label: '把来源变成方法',
+  },
+  {
+    from: 'effect',
+    to: 'proof',
+    type: '证明',
+    label: '案例验证方法',
+  },
+  {
+    from: 'proof',
+    to: 'contact',
+    type: '证明',
+    label: '可信度进入判断',
+  },
+  {
+    from: 'contact',
+    to: 'value',
+    type: '带来',
+    label: '最后产生外部价值',
+  },
 ];
 
 const STATUS_LABEL: Record<GraphNode['status'], string> = {
@@ -106,19 +162,19 @@ const STATUS_CLASS: Record<GraphNode['status'], string> = {
   hold: 'border-muted-foreground/20 bg-muted text-muted-foreground',
 };
 
-const STATUS_ORDER: GraphNode['status'][] = ['ready', 'ask', 'evidence', 'cause', 'hold'];
-
-const CLUSTER_LABEL: Record<ClusterMode, string> = {
-  free: '自由图谱',
-  chain: '按说服链聚类',
-  status: '按建议状态聚类',
+const RELATION_CLASS: Record<RelationType, string> = {
+  支撑: 'border-cyan-500/30 bg-cyan-50 text-cyan-700',
+  导致: 'border-amber-500/35 bg-amber-50 text-amber-700',
+  转化为: 'border-emerald-500/30 bg-emerald-50 text-emerald-700',
+  证明: 'border-rose-500/30 bg-rose-50 text-rose-700',
+  带来: 'border-sky-500/30 bg-sky-50 text-sky-700',
 };
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function compact(text: string | undefined, fallback: string, length = 62): string {
+function compact(text: string | undefined | null, fallback: string, length = 62): string {
   const value = text?.replace(/\s+/g, ' ').trim() || fallback;
   return value.length > length ? `${value.slice(0, length)}…` : value;
 }
@@ -126,423 +182,224 @@ function compact(text: string | undefined, fallback: string, length = 62): strin
 function statusFor(card: StoryCard, shot: StoryShot | undefined, index: number): GraphNode['status'] {
   const text = `${card.title} ${card.content} ${shot?.narrativeJob?.evidence ?? ''} ${shot?.rationale ?? ''}`;
   if (shot?.narrativeJob?.visualTranslation || shot?.promptDraft || shot?.promptRun?.finalPrompt) return 'ready';
-  if (/案例|作品|证据|反馈|结果|证明/.test(text)) return 'evidence';
-  if (/因为|所以|判断|取舍|为什么|因果/.test(text)) return 'cause';
+  if (/案例|作品|证据|反馈|结果|证明|真实/.test(text)) return 'evidence';
+  if (/因为|所以|判断|取舍|为什么|因果|来源/.test(text)) return 'cause';
   return index <= 1 ? 'ask' : 'hold';
 }
 
-function chainFor(index: number, card: StoryCard, shot: StoryShot | undefined): string {
-  const text = `${card.title} ${card.content} ${shot?.narrativeJob?.claim ?? ''} ${shot?.narrativeJob?.evidence ?? ''}`;
-  if (/岗位|机会|招聘|合伙|需要|关心/.test(text)) return CHAIN_STEPS[0];
-  if (/能力|优势|擅长|可以|会/.test(text)) return CHAIN_STEPS[1];
-  if (/因为|来源|经历|背景/.test(text)) return CHAIN_STEPS[2];
-  if (/作用|取舍|判断|执行|流程/.test(text)) return CHAIN_STEPS[3];
-  if (/证据|作品|案例|反馈|相信|结果/.test(text)) return CHAIN_STEPS[4];
-  if (/联系|合作|值得|面试/.test(text)) return CHAIN_STEPS[5];
-  if (/价值|带来|产品|外部|影响/.test(text)) return CHAIN_STEPS[6];
-  return CHAIN_STEPS[Math.min(index + 1, CHAIN_STEPS.length - 1)];
+function stepFor(index: number, card: StoryCard, shot: StoryShot | undefined): CausalStepKey {
+  const titleText = card.title;
+  const leadText = [
+    card.title,
+    compact(card.content, '', 240),
+    card.sourceQuote,
+    card.direction,
+    card.dramaticFunction,
+    shot?.narrativeJob?.claim,
+    shot?.rationale,
+    shot?.narrativeJob?.visualTranslation,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (/岗位|职位|招聘|JD|候选|面试|客户/.test(titleText)) return 'role';
+  if (/外部价值|业务价值|用户价值|商业|收益|增长/.test(titleText)) return 'value';
+  if (/联系|合作|值得|邀约|见面|沟通|信任/.test(titleText)) return 'contact';
+  if (/证据|作品|案例|反馈|证明|项目|凭什么|真实/.test(titleText)) return 'proof';
+  if (/发生作用|怎么做|转化|落地|流程|方法|画面|模糊需求|变成/.test(titleText)) return 'effect';
+  if (/为什么|因为|来源|长期|背景|经历|训练|经验|抽象需求/.test(titleText)) return 'cause';
+  if (/能力|优势|擅长|创新力|判断力|审美|表达|组织|抽象|创意/.test(titleText)) return 'ability';
+
+  if (/岗位|职位|招聘|JD|候选|面试|客户/.test(leadText)) return 'role';
+  if (/外部价值|业务价值|用户价值|商业|收益|增长|影响/.test(leadText)) return 'value';
+  if (/联系|合作|值得|邀约|见面|沟通|信任/.test(leadText)) return 'contact';
+  if (/证据|作品|案例|反馈|证明|项目|凭什么|真实/.test(leadText)) return 'proof';
+  if (/发生作用|怎么做|转化|落地|流程|方法|画面|模糊需求|变成/.test(leadText)) return 'effect';
+  if (/为什么|因为|来源|长期|背景|经历|训练|经验|抽象需求/.test(leadText)) return 'cause';
+  if (/能力|优势|擅长|创新力|判断力|审美|表达|组织|抽象|创意/.test(leadText)) return 'ability';
+
+  return CAUSAL_STEPS[Math.min(index + 1, CAUSAL_STEPS.length - 1)].key;
 }
 
-function buildGraph(cards: StoryCard[], storyShots: StoryShot[]) {
-  const nodes: GraphNode[] = [
-    {
-      id: 'root',
-      label: '求职故事主线',
-      subtitle: '把经历组织成可信的机会判断',
-      status: 'ready',
-      chain: '主线',
-      x: 50,
-      y: 50,
-      z: 52,
-    },
-  ];
-  const edges: GraphEdge[] = [];
+function weightFor(card: StoryCard, shot: StoryShot | undefined, status: GraphNode['status']): number {
+  let signalScore = 2;
+  if (card.sourceQuote || card.rawText) signalScore += 1;
+  if (shot?.narrativeJob?.evidence) signalScore += 1;
+  if (shot?.narrativeJob?.visualTranslation || shot?.promptRun?.finalPrompt) signalScore += 1;
+  if (status === 'ready') signalScore += 1;
+  if (status === 'hold') signalScore -= 1;
+  signalScore = clamp(signalScore, 1, 5);
 
-  CHAIN_STEPS.forEach((label, index) => {
-    const x = 12 + index * 12.6;
-    const y = index % 2 === 0 ? 17 : 25;
-    const id = `chain-${index}`;
-    nodes.push({
-      id,
-      label,
-      subtitle: index === 0 ? '目标约束' : '说服链节点',
-      status: 'hold',
-      chain: label,
-      x,
-      y,
-      z: 14 + index * 2,
-    });
-    edges.push({
-      id: `root-${id}`,
-      from: 'root',
-      to: id,
-      strength: index === 1 || index === 4 ? 'normal' : 'soft',
-    });
-    if (index > 0) {
-      edges.push({
-        id: `chain-${index - 1}-${index}`,
-        from: `chain-${index - 1}`,
-        to: id,
-        strength: 'soft',
-      });
+  if (typeof card.intensity === 'number' && Number.isFinite(card.intensity)) {
+    if (card.intensity > 0 && card.intensity < 1) {
+      return clamp(Math.ceil(card.intensity * 5), 1, 5);
     }
-  });
+    if (card.intensity === 1) {
+      return signalScore;
+    }
+    const normalized = card.intensity <= 5 ? card.intensity : Math.ceil(card.intensity / 2);
+    return clamp(Math.max(Math.round(normalized), signalScore), 1, 5);
+  }
 
-  cards.forEach((card, index) => {
+  return signalScore;
+}
+
+function buildGraph(cards: StoryCard[], storyShots: StoryShot[]): GraphNode[] {
+  return cards.map((card, index) => {
     const shot = storyShots[index];
-    const ring = Math.max(1, cards.length);
-    const angle = (Math.PI * 2 * index) / ring - Math.PI / 2;
-    const radiusX = 32 + Math.min(12, cards.length * 1.5);
-    const radiusY = 26 + Math.min(10, cards.length);
-    const x = 50 + Math.cos(angle) * radiusX;
-    const y = 54 + Math.sin(angle) * radiusY;
-    const z = 20 + ((index * 17) % 38);
-    const chain = chainFor(index, card, shot);
     const status = statusFor(card, shot, index);
-    const id = `card-${card.id}`;
-    const chainIndex = Math.max(0, CHAIN_STEPS.indexOf(chain));
+    const stepKey = stepFor(index, card, shot);
+    const step = STEP_BY_KEY[stepKey];
 
-    nodes.push({
-      id,
-      label: compact(card.title, `优势卡 ${index + 1}`, 22),
-      subtitle: compact(card.content || card.sourceQuote, card.emotion || '待解释', 34),
+    return {
+      id: `card-${card.id}`,
+      label: compact(card.title, `优势卡 ${index + 1}`, 28),
       status,
-      chain,
-      x: Math.min(88, Math.max(12, x)),
-      y: Math.min(86, Math.max(30, y)),
-      z,
+      stepKey,
+      stepIndex: step.index,
+      location: step.location,
+      weight: weightFor(card, shot, status),
       shotNo: index + 1,
       card,
       shot,
-    });
-    edges.push({
-      id: `root-${id}`,
-      from: 'root',
-      to: id,
-      strength: status === 'ready' ? 'strong' : 'normal',
-    });
-    edges.push({
-      id: `chain-${chainIndex}-${id}`,
-      from: `chain-${chainIndex}`,
-      to: id,
-      strength: 'normal',
-    });
-    if (index > 0) {
-      edges.push({
-        id: `card-${cards[index - 1].id}-${card.id}`,
-        from: `card-${cards[index - 1].id}`,
-        to: id,
-        strength: 'soft',
-      });
-    }
+    };
   });
-
-  return { nodes, edges };
 }
 
-function basePositions(nodes: GraphNode[]): Record<string, NodePosition> {
-  return Object.fromEntries(
-    nodes.map((node) => [
-      node.id,
-      {
-        x: node.x,
-        y: node.y,
-        z: node.z,
-      },
-    ]),
-  );
-}
-
-function clusteredPositions(nodes: GraphNode[], mode: ClusterMode): Record<string, NodePosition> {
-  if (mode === 'free') return basePositions(nodes);
-
-  const positions: Record<string, NodePosition> = {};
-  const cardNodes = nodes.filter((node) => node.card);
-
-  nodes.forEach((node) => {
-    if (node.id === 'root') {
-      positions[node.id] = { x: 50, y: 50, z: 60 };
-      return;
-    }
-
-    if (node.id.startsWith('chain-')) {
-      const index = Number(node.id.replace('chain-', ''));
-      positions[node.id] = {
-        x: 11 + index * 13,
-        y: mode === 'chain' ? 18 : 13,
-        z: 16 + index,
-      };
-    }
-  });
-
-  if (mode === 'chain') {
-    CHAIN_STEPS.forEach((chain, chainIndex) => {
-      const group = cardNodes.filter((node) => node.chain === chain);
-      const fallback = cardNodes.filter((node, index) => group.length === 0 && index % CHAIN_STEPS.length === chainIndex);
-      const nodesInGroup = group.length > 0 ? group : fallback;
-      nodesInGroup.forEach((node, index) => {
-        const offset = index - (nodesInGroup.length - 1) / 2;
-        positions[node.id] = {
-          x: clamp(11 + chainIndex * 13 + offset * 2.8, 7, 93),
-          y: clamp(52 + offset * 15, 30, 86),
-          z: node.z + 18,
-        };
-      });
-    });
-    return positions;
-  }
-
-  const presentStatuses = STATUS_ORDER.filter((status) => cardNodes.some((node) => node.status === status));
-
-  presentStatuses.forEach((status, statusIndex) => {
-    const group = cardNodes.filter((node) => node.status === status);
-    group.forEach((node, index) => {
-      const columns = Math.min(3, Math.ceil(Math.sqrt(group.length)));
-      const rows = Math.ceil(group.length / columns);
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const statusCenterX =
-        presentStatuses.length === 1
-          ? 50
-          : 14 + statusIndex * (72 / Math.max(1, presentStatuses.length - 1));
-      positions[node.id] = {
-        x: clamp(statusCenterX + (column - (columns - 1) / 2) * 19, 10, 90),
-        y: clamp(50 + (row - (rows - 1) / 2) * 18, 24, 86),
-        z: node.z + 14,
-      };
-    });
-  });
-
-  return positions;
-}
-
-function mergePositions(nodes: GraphNode[], previous: Record<string, NodePosition>): Record<string, NodePosition> {
-  const next: Record<string, NodePosition> = {};
-  nodes.forEach((node) => {
-    next[node.id] = previous[node.id] ?? { x: node.x, y: node.y, z: node.z };
-  });
-  return next;
-}
-
-function edgePoints(edge: GraphEdge, nodeMap: Map<string, GraphNode>) {
-  const from = nodeMap.get(edge.from);
-  const to = nodeMap.get(edge.to);
-  if (!from || !to) return null;
-  return { x1: from.x, y1: from.y, x2: to.x, y2: to.y };
-}
-
-function readableEvidence(node: GraphNode): string {
+function readableEvidence(node: GraphNode | undefined): string {
+  if (!node) return '还缺一条可以让陌生人相信的真实证据。';
   return compact(
-    node.shot?.narrativeJob?.evidence || node.card?.sourceQuote || node.card?.rawText || node.card?.content,
+    node.shot?.narrativeJob?.evidence || node.card.sourceQuote || node.card.rawText || node.card.content,
     '还缺一条可以让陌生人相信的真实证据。',
-    116,
+    148,
   );
 }
 
-function readableCause(node: GraphNode): string {
+function readableCause(node: GraphNode | undefined): string {
+  if (!node) return '需要继续说明：为什么这件事能证明这个优势，以及它如何服务目标机会。';
   return compact(
-    node.shot?.rationale || node.shot?.narrativeJob?.claim || node.card?.dramaticFunction || node.card?.direction,
+    node.shot?.rationale || node.shot?.narrativeJob?.claim || node.card.dramaticFunction || node.card.direction,
     '需要继续说明：为什么这件事能证明这个优势，以及它如何服务目标机会。',
-    116,
+    148,
   );
 }
 
-export default function StoryCardsGraph({ cards, storyShots }: StoryCardsGraphProps) {
-  const graph = useMemo(() => buildGraph(cards, storyShots), [cards, storyShots]);
-  const canvasRef = useRef<HTMLDivElement | null>(null);
-  const setPreferredDrawShotNo = useStorySpine((state) => state.setPreferredDrawShotNo);
-  const [selectedId, setSelectedId] = useState<string>(() => graph.nodes.find((node) => node.card)?.id ?? 'root');
-  const [clusterMode, setClusterMode] = useState<ClusterMode>('free');
-  const [positions, setPositions] = useState<Record<string, NodePosition>>(() => basePositions(graph.nodes));
-  const [viewport, setViewport] = useState<ViewportState>({ x: 0, y: 0, scale: 1 });
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const positionedNodes = useMemo(
-    () =>
-      graph.nodes.map((node) => ({
-        ...node,
-        ...(positions[node.id] ?? { x: node.x, y: node.y, z: node.z }),
-      })),
-    [graph.nodes, positions],
+function readableEffect(node: GraphNode | undefined): string {
+  if (!node) return '还需要说明这个能力如何进入真实工作过程。';
+  return compact(
+    node.shot?.narrativeJob?.visualTranslation ||
+      node.shot?.promptDraft ||
+      node.shot?.action ||
+      node.card.direction,
+    '还需要说明这个能力如何进入真实工作过程。',
+    148,
   );
-  const nodeMap = useMemo(() => new Map(positionedNodes.map((node) => [node.id, node])), [positionedNodes]);
-  const selected = nodeMap.get(selectedId) ?? graph.nodes.find((node) => node.card) ?? graph.nodes[0];
-  const selectedDrawShotNo = selected.card ? selected.shotNo ?? null : null;
+}
+
+function readableValue(node: GraphNode | undefined): string {
+  if (!node) return '还需要落到对外部对象有用的结果。';
+  return compact(
+    node.shot?.narrativeJob?.intentSummary ||
+      node.shot?.narrativeJob?.audience ||
+      node.shot?.narrativeJob?.avoidMisread ||
+      node.card.personalTrace,
+    '还需要落到对外部对象有用的结果。',
+    148,
+  );
+}
+
+function relationsAround(node: GraphNode | undefined): CausalEdge[] {
+  if (!node) return [];
+  return CAUSAL_EDGES.filter((edge) => edge.from === node.stepKey || edge.to === node.stepKey);
+}
+
+function groupByStep(nodes: GraphNode[]): Record<CausalStepKey, GraphNode[]> {
+  const grouped: Record<CausalStepKey, GraphNode[]> = {
+    role: [],
+    ability: [],
+    cause: [],
+    effect: [],
+    proof: [],
+    contact: [],
+    value: [],
+  };
+  nodes.forEach((node) => grouped[node.stepKey].push(node));
+  return grouped;
+}
+
+function relationSentence(edge: CausalEdge): string {
+  const from = STEP_BY_KEY[edge.from].shortLabel;
+  const to = STEP_BY_KEY[edge.to].shortLabel;
+  return `${from} → ${to}`;
+}
+
+export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: StoryCardsGraphProps) {
+  const nodes = useMemo(() => buildGraph(cards, storyShots), [cards, storyShots]);
+  const groupedNodes = useMemo(() => groupByStep(nodes), [nodes]);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const [selectedId, setSelectedId] = useState<string>(() => nodes[0]?.id ?? '');
+  const [viewport, setViewport] = useState<ViewportState>({ scale: 1 });
+  const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
+  const selectedRelations = relationsAround(selected);
 
   useEffect(() => {
-    setPositions((previous) => mergePositions(graph.nodes, previous));
-  }, [graph.nodes]);
-
-  useEffect(() => {
-    if (!nodeMap.has(selectedId)) {
-      setSelectedId(graph.nodes.find((node) => node.card)?.id ?? 'root');
+    if (nodes.length > 0 && !nodes.some((node) => node.id === selectedId)) {
+      setSelectedId(nodes[0].id);
     }
-  }, [graph.nodes, nodeMap, selectedId]);
-
-  useEffect(() => {
-    if (selectedDrawShotNo != null) {
-      setPreferredDrawShotNo(selectedDrawShotNo);
-    }
-  }, [selected.id, selectedDrawShotNo, setPreferredDrawShotNo]);
-
-  const applyCluster = useCallback((mode: ClusterMode) => {
-    setClusterMode(mode);
-    setPositions(clusteredPositions(graph.nodes, mode));
-  }, [graph.nodes]);
-
-  const resetViewport = useCallback(() => {
-    setViewport({ x: 0, y: 0, scale: 1 });
-  }, []);
+  }, [nodes, selectedId]);
 
   const zoomBy = useCallback((delta: number) => {
     setViewport((current) => ({
-      ...current,
-      scale: clamp(Number((current.scale + delta).toFixed(2)), 0.55, 1.85),
+      scale: clamp(Number((current.scale + delta).toFixed(2)), 0.72, 1.35),
     }));
   }, []);
 
-  const startNodeDrag = useCallback((event: ReactPointerEvent<HTMLButtonElement>, node: GraphNode) => {
-    if (event.button !== 0) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setSelectedId(node.id);
-    setDragState({
-      type: 'node',
-      id: node.id,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startX: node.x,
-      startY: node.y,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-      scale: viewport.scale,
-    });
-  }, [viewport.scale]);
-
-  const startPan = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('button')) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragState({
-      type: 'pan',
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startX: viewport.x,
-      startY: viewport.y,
-    });
-  }, [viewport.x, viewport.y]);
-
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragState) return;
-    event.preventDefault();
-    if (dragState.type === 'pan') {
-      setViewport((current) => ({
-        ...current,
-        x: dragState.startX + event.clientX - dragState.startClientX,
-        y: dragState.startY + event.clientY - dragState.startClientY,
-      }));
-      return;
-    }
-
-    const dx = ((event.clientX - dragState.startClientX) / (dragState.rectWidth * dragState.scale)) * 100;
-    const dy = ((event.clientY - dragState.startClientY) / (dragState.rectHeight * dragState.scale)) * 100;
-    setPositions((current) => ({
-      ...current,
-      [dragState.id]: {
-        ...(current[dragState.id] ?? { x: dragState.startX, y: dragState.startY, z: 0 }),
-        x: clamp(dragState.startX + dx, 5, 95),
-        y: clamp(dragState.startY + dy, 8, 92),
-      },
-    }));
-  }, [dragState]);
-
-  const stopDrag = useCallback(() => {
-    setDragState(null);
+  const resetViewport = useCallback(() => {
+    setViewport({ scale: 1 });
+    canvasRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
   }, []);
-
-  const handleWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const nextScale = clamp(viewport.scale * (event.deltaY > 0 ? 0.9 : 1.1), 0.55, 1.85);
-    setViewport((current) => ({
-      ...current,
-      scale: Number(nextScale.toFixed(2)),
-    }));
-  }, [viewport.scale]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-[10px]" style={{ borderColor: 'var(--panel-border)', background: 'var(--background)' }}>
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-[10px]"
+        style={{ borderColor: 'var(--panel-border)', background: 'var(--background)' }}
+      >
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            <Move3D className="h-3.5 w-3.5 text-nayin-bright" />
-            Advantage Graph
+            <GitBranch className="h-3.5 w-3.5 text-nayin-bright" />
+            Causal Chain
           </span>
-          <span className="rounded-full border px-2 py-0.5 text-muted-foreground" style={{ borderColor: 'var(--panel-border)' }}>
-            {CLUSTER_LABEL[clusterMode]}
+          <span
+            className="rounded-full border px-2 py-0.5 text-muted-foreground"
+            style={{ borderColor: 'var(--panel-border)' }}
+          >
+            {CAUSAL_STEPS.length} 列
           </span>
-          <span className="text-muted-foreground">
-            拖节点 · 拖空白平移 · 滚轮缩放
+          <span
+            className="rounded-full border px-2 py-0.5 text-muted-foreground"
+            style={{ borderColor: 'var(--panel-border)' }}
+          >
+            {CAUSAL_EDGES.length} 条关系
           </span>
         </div>
+
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
-            onClick={() => applyCluster('free')}
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 transition hover:text-foreground"
-            style={{
-              borderColor: 'var(--panel-border)',
-              background: clusterMode === 'free' ? 'var(--nayin-glow)' : 'transparent',
-              color: clusterMode === 'free' ? 'var(--nayin-accent-bright)' : 'var(--muted-foreground)',
-            }}
-          >
-            <Network className="h-3 w-3" />
-            自由
-          </button>
-          <button
-            type="button"
-            onClick={() => applyCluster('chain')}
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 transition hover:text-foreground"
-            style={{
-              borderColor: 'var(--panel-border)',
-              background: clusterMode === 'chain' ? 'var(--nayin-glow)' : 'transparent',
-              color: clusterMode === 'chain' ? 'var(--nayin-accent-bright)' : 'var(--muted-foreground)',
-            }}
-          >
-            <GitBranch className="h-3 w-3" />
-            链条聚类
-          </button>
-          <button
-            type="button"
-            onClick={() => applyCluster('status')}
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 transition hover:text-foreground"
-            style={{
-              borderColor: 'var(--panel-border)',
-              background: clusterMode === 'status' ? 'var(--nayin-glow)' : 'transparent',
-              color: clusterMode === 'status' ? 'var(--nayin-accent-bright)' : 'var(--muted-foreground)',
-            }}
-          >
-            <Tags className="h-3 w-3" />
-            状态聚类
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(0.12)}
+            onClick={() => zoomBy(0.08)}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="放大图谱"
+            aria-label="放大因果链图"
           >
             <ZoomIn className="h-3 w-3" />
           </button>
           <button
             type="button"
-            onClick={() => zoomBy(-0.12)}
+            onClick={() => zoomBy(-0.08)}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="缩小图谱"
+            aria-label="缩小因果链图"
           >
             <ZoomOut className="h-3 w-3" />
           </button>
@@ -551,7 +408,7 @@ export default function StoryCardsGraph({ cards, storyShots }: StoryCardsGraphPr
             onClick={resetViewport}
             className="flex h-6 w-6 items-center justify-center rounded-full border text-muted-foreground transition hover:text-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
-            aria-label="重置图谱视图"
+            aria-label="重置因果链图"
           >
             <LocateFixed className="h-3 w-3" />
           </button>
@@ -560,119 +417,210 @@ export default function StoryCardsGraph({ cards, storyShots }: StoryCardsGraphPr
 
       <div
         ref={canvasRef}
-        className="relative min-h-[430px] flex-1 overflow-hidden rounded-lg border"
+        className="relative min-h-[390px] flex-1 overflow-auto rounded-lg border custom-scrollbar"
         style={{
           borderColor: 'var(--panel-border)',
-          background:
-            'radial-gradient(circle at 50% 50%, var(--nayin-glow), transparent 42%), linear-gradient(145deg, var(--background), var(--panel-header))',
-          perspective: '900px',
-          cursor: dragState?.type === 'pan' ? 'grabbing' : 'grab',
-          touchAction: 'none',
+          background: 'linear-gradient(145deg, var(--background), var(--panel-header))',
         }}
-        onPointerDown={startPan}
-        onPointerMove={handlePointerMove}
-        onPointerUp={stopDrag}
-        onPointerCancel={stopDrag}
-        onWheel={handleWheel}
       >
-        <div className="pointer-events-none absolute left-2 top-2 z-[300] rounded-full border bg-background/80 px-2 py-1 text-[10px] font-mono text-muted-foreground" style={{ borderColor: 'var(--panel-border)' }}>
+        <div
+          className="sticky left-2 top-2 z-[40] inline-flex rounded-full border bg-background/85 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur"
+          style={{ borderColor: 'var(--panel-border)' }}
+        >
           {Math.round(viewport.scale * 100)}%
         </div>
 
         <div
-          className="absolute inset-0"
+          className="origin-top-left px-3 pb-4 pt-1"
           style={{
-            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
-            transformOrigin: '50% 50%',
+            transform: `scale(${viewport.scale})`,
+            width: `${100 / viewport.scale}%`,
           }}
         >
-          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            {graph.edges.map((edge) => {
-              const points = edgePoints(edge, nodeMap);
-              if (!points) return null;
-              const opacity = edge.strength === 'strong' ? 0.48 : edge.strength === 'normal' ? 0.3 : 0.16;
-              const width = edge.strength === 'strong' ? 0.42 : 0.26;
+          <div
+            className="grid min-w-[1380px] items-stretch gap-2"
+            style={{
+              gridTemplateColumns:
+                'minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr)',
+            }}
+          >
+            {CAUSAL_STEPS.map((step, index) => {
+              const columnNodes = groupedNodes[step.key];
+              const edge = CAUSAL_EDGES[index];
+
               return (
-                <line
-                  key={edge.id}
-                  x1={points.x1}
-                  y1={points.y1}
-                  x2={points.x2}
-                  y2={points.y2}
-                  stroke="var(--nayin-accent)"
-                  strokeWidth={width}
-                  strokeOpacity={opacity}
-                />
+                <div key={step.key} className="contents">
+                  <section
+                    className="flex min-h-[330px] flex-col rounded-md border bg-background/78"
+                    style={{ borderColor: 'var(--panel-border)' }}
+                    aria-label={step.label}
+                  >
+                    <div
+                      className="border-b px-2.5 py-2"
+                      style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-header)' }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold leading-tight text-foreground">
+                          {step.label}
+                        </span>
+                        <span className="rounded-full border px-1.5 py-0.5 text-[8px] font-mono text-muted-foreground" style={{ borderColor: 'var(--panel-border)' }}>
+                          {columnNodes.length}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[9px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
+                        {step.location}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-1 flex-col gap-2 p-2">
+                      {columnNodes.length > 0 ? (
+                        columnNodes.map((node) => {
+                          const isSelected = selected?.id === node.id;
+
+                          return (
+                            <div
+                              key={node.id}
+                              className={[
+                                'group relative min-h-[102px] rounded-md border bg-background px-2 py-2 text-left shadow-sm transition',
+                                isSelected
+                                  ? 'ring-2 ring-[var(--nayin-accent)] ring-offset-2 ring-offset-background'
+                                  : 'hover:-translate-y-0.5 hover:shadow-md',
+                              ].join(' ')}
+                              style={{ borderColor: isSelected ? 'var(--nayin-accent)' : 'var(--panel-border)' }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setSelectedId(node.id)}
+                                className="block h-full w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                                aria-pressed={isSelected}
+                              >
+                                <div className="flex items-start justify-between gap-1 pr-6">
+                                  <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-semibold ${STATUS_CLASS[node.status]}`}>
+                                    {STATUS_LABEL[node.status]}
+                                  </span>
+                                  <span className="shrink-0 text-[8px] font-mono text-muted-foreground">
+                                    #{node.shotNo}
+                                  </span>
+                                </div>
+
+                                <span className="mt-1.5 line-clamp-2 block text-[10px] font-semibold leading-snug text-foreground">
+                                  {node.label}
+                                </span>
+
+                                <div className="mt-2 grid grid-cols-2 gap-1 text-[8px] leading-tight text-muted-foreground">
+                                  <span className="rounded border px-1 py-0.5" style={{ borderColor: 'var(--panel-border)' }}>
+                                    权重 {node.weight}/5
+                                  </span>
+                                  <span className="rounded border px-1 py-0.5" style={{ borderColor: 'var(--panel-border)' }}>
+                                    {node.location}
+                                  </span>
+                                </div>
+                              </button>
+                              {onRemoveCard ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onRemoveCard(node.card.id);
+                                  }}
+                                  className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background/90 text-muted-foreground opacity-75 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                                  style={{ borderColor: 'var(--panel-border)' }}
+                                  aria-label={`删除卡片：${node.card.title || node.label}`}
+                                  title="删除这张卡片"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div
+                          className="flex min-h-[86px] items-center justify-center rounded-md border border-dashed px-2 text-center text-[9px] leading-relaxed text-muted-foreground"
+                          style={{ borderColor: 'var(--panel-border)' }}
+                        >
+                          等待材料
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {edge ? (
+                    <div className="flex min-h-[330px] items-center justify-center">
+                      <div className="relative flex w-full items-center">
+                        <span className="h-px flex-1 bg-[var(--nayin-accent)]/35" />
+                        <span className="h-2 w-2 rotate-45 border-r border-t border-[var(--nayin-accent)]/55" />
+                        <div className="absolute left-1/2 top-1/2 flex w-[72px] -translate-x-1/2 -translate-y-[2.3rem] flex-col items-center gap-1 text-center">
+                          <span className={`rounded-full border px-1.5 py-0.5 text-[8px] font-semibold ${RELATION_CLASS[edge.type]}`}>
+                            {edge.type}
+                          </span>
+                          <span className="text-[8px] leading-tight text-muted-foreground">
+                            {edge.label}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
-          </svg>
-
-          <div className="absolute inset-0" style={{ transformStyle: 'preserve-3d', transform: 'rotateX(8deg) rotateZ(-1deg)' }}>
-          {positionedNodes.map((node) => {
-            const isSelected = node.id === selected.id;
-            const isRoot = node.id === 'root';
-            const isChain = node.id.startsWith('chain-');
-            const scale = isRoot ? 1.08 : isChain ? 0.74 : 0.9 + node.z / 180;
-            return (
-              <button
-                key={node.id}
-                type="button"
-                onPointerDown={(event) => startNodeDrag(event, node)}
-                onClick={() => setSelectedId(node.id)}
-                className={[
-                  'absolute rounded-lg border text-left shadow-sm transition-all duration-200',
-                  isRoot ? 'w-[172px] px-3 py-2.5' : isChain ? 'w-[94px] px-2 py-1.5' : 'w-[150px] px-2 py-1.5',
-                  isSelected ? 'ring-2 ring-[var(--nayin-accent)] ring-offset-2 ring-offset-background' : 'hover:-translate-y-0.5 hover:shadow-md',
-                  isRoot ? 'border-[var(--nayin-accent)] bg-[var(--nayin-accent)] text-background' : 'bg-background/92',
-                ].join(' ')}
-                style={{
-                  left: `${node.x}%`,
-                  top: `${node.y}%`,
-                  transform: `translate(-50%, -50%) translateZ(${node.z}px) scale(${scale})`,
-                  zIndex: Math.round(node.z) + (isSelected ? 100 : 0),
-                  borderColor: isRoot ? 'var(--nayin-accent)' : 'var(--panel-border)',
-                  cursor: dragState?.type === 'node' && dragState.id === node.id ? 'grabbing' : 'grab',
-                }}
-                aria-pressed={isSelected}
-              >
-                {!isRoot && !isChain ? (
-                  <span className={`mb-1 inline-flex rounded-full border px-1.5 py-0.5 text-[8px] font-semibold ${STATUS_CLASS[node.status]}`}>
-                    {STATUS_LABEL[node.status]}
-                  </span>
-                ) : null}
-                <span className={isRoot ? 'block text-[11px] font-semibold' : isChain ? 'block text-[10px] font-medium leading-tight' : 'block text-[10px] font-semibold leading-tight text-foreground'}>
-                  {node.label}
-                </span>
-                {!isChain ? (
-                  <span className={isRoot ? 'mt-1 block text-[9px] opacity-80' : 'mt-1 line-clamp-1 block text-[8px] leading-relaxed text-muted-foreground'}>
-                    {node.subtitle}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border p-3" style={{ borderColor: 'var(--panel-border)', background: 'var(--background)' }}>
-        <div className="mb-2 flex items-start justify-between gap-2">
-          <div>
+      <div
+        className="rounded-lg border p-3"
+        style={{ borderColor: 'var(--panel-border)', background: 'var(--background)' }}
+      >
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
-              <GitBranch className="h-3 w-3 text-nayin-bright" />
-              {selected.chain}
+              <Tags className="h-3 w-3 text-nayin-bright" />
+              {selected ? STEP_BY_KEY[selected.stepKey].label : '因果链'}
             </div>
-            <h4 className="mt-1 text-sm font-semibold text-foreground">{selected.label}</h4>
+            <h4 className="mt-1 text-sm font-semibold text-foreground">
+              {selected?.card.title || selected?.label || '未选择卡片'}
+            </h4>
           </div>
-          <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold ${STATUS_CLASS[selected.status]}`}>
-            {STATUS_LABEL[selected.status]}
-          </span>
+
+          {selected ? (
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${STATUS_CLASS[selected.status]}`}>
+                {STATUS_LABEL[selected.status]}
+              </span>
+              <span
+                className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+                style={{ borderColor: 'var(--panel-border)' }}
+              >
+                权重 {selected.weight}/5
+              </span>
+              <span
+                className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground"
+                style={{ borderColor: 'var(--panel-border)' }}
+              >
+                {selected.location}
+              </span>
+              {onRemoveCard ? (
+                <button
+                  type="button"
+                  onClick={() => onRemoveCard(selected.card.id)}
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] text-muted-foreground transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
+                  style={{ borderColor: 'var(--panel-border)' }}
+                  aria-label={`删除卡片：${selected.card.title || selected.label}`}
+                  title="删除这张卡片"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  删除
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-2 text-[11px] leading-relaxed text-muted-foreground">
           <p>
-            <span className="font-semibold text-foreground">优势：</span>
-            {compact(selected.card?.title || selected.shot?.narrativeJob?.claim, selected.subtitle, 96)}
+            <span className="font-semibold text-foreground">内容：</span>
+            {compact(selected?.card.content || selected?.card.sourceQuote, '选择上方卡片查看具体内容。', 148)}
           </p>
           <p>
             <span className="font-semibold text-foreground">证据：</span>
@@ -682,11 +630,35 @@ export default function StoryCardsGraph({ cards, storyShots }: StoryCardsGraphPr
             <span className="font-semibold text-foreground">因果解释：</span>
             {readableCause(selected)}
           </p>
+          <p>
+            <span className="font-semibold text-foreground">发生作用：</span>
+            {readableEffect(selected)}
+          </p>
+          <p>
+            <span className="font-semibold text-foreground">外部价值：</span>
+            {readableValue(selected)}
+          </p>
+
+          {selectedRelations.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {selectedRelations.map((edge) => (
+                <span
+                  key={`${edge.from}-${edge.to}`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-medium ${RELATION_CLASS[edge.type]}`}
+                >
+                  {edge.type}
+                  <span className="font-normal opacity-75">{relationSentence(edge)}</span>
+                  <span className="font-normal">{edge.label}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           <p className="flex items-center gap-1.5 text-[10px]">
             <Sparkles className="h-3 w-3 text-nayin-bright" />
-            {selected.status === 'ready'
-              ? '这类节点可以进入“把这一刻画出来”：先转成镜头任务，再生成提示词。'
-              : '这类节点先继续追问，补足证据或因果后再成片。'}
+            {selected?.status === 'ready'
+              ? '这张卡已经能进入镜头任务。'
+              : '这张卡还需要补足证据、因果或对外价值。'}
           </p>
         </div>
       </div>

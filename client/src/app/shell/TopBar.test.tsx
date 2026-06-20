@@ -60,9 +60,10 @@ describe('TopBar story panel controls', () => {
     expect(html).toContain('w-[250px]');
     expect(html).toContain('Nayin Five Elements / 纳音五行');
     expect(html).toContain('Story Cards');
-    expect(html).toContain('Script');
+    expect(html).toContain('故事版看板');
     expect(html).toContain('动态分镜');
-    expect(html).toContain('提示词表');
+    expect(html).toContain('镜头设计表');
+    expect(html).not.toContain('Script');
     expect(html).not.toContain('默认分析项目');
     expect(html).not.toContain('DRINKING TIME');
   });

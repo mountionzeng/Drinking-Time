@@ -17,14 +17,23 @@ type ContentDimension = {
 const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'subject', dimension: 'subject', label: '主体', weight: 0.42, source: 'chat' },
   { key: 'action', dimension: 'action', label: '动作', weight: 0.38, source: 'chat' },
-  { key: 'dialogue', dimension: 'dialogue', label: '台词', weight: 0.34, source: 'chat' },
+  { key: 'dialogue', dimension: 'dialogue', label: '字幕/旁白', weight: 0.34, source: 'chat' },
   { key: 'location', dimension: 'location', label: '场景', weight: 0.32, source: 'intent' },
   { key: 'shotType', dimension: 'shotType', label: '景别', weight: 0.28, source: 'intent' },
   { key: 'cameraAngle', dimension: 'cameraAngle', label: '机位', weight: 0.24, source: 'intent' },
-  { key: 'cameraMove', dimension: 'cameraMove', label: '运镜', weight: 0.22, source: 'intent' },
   { key: 'timeLight', dimension: 'timeLight', label: '时间光', weight: 0.24, source: 'intent' },
   { key: 'mood', dimension: 'mood', label: '情绪', weight: 0.3, source: 'intent' },
   { key: 'styleRef', dimension: 'styleRef', label: '风格参考', weight: 0.26, source: 'intent' },
+];
+
+const VIDEO_DIMENSIONS: ContentDimension[] = [
+  { key: 'cameraMove', dimension: 'cameraMove', label: '相机运动', weight: 0.36, source: 'director' },
+  { key: 'videoStart', dimension: 'videoStart', label: '起始画面', weight: 0.35, source: 'director' },
+  { key: 'videoEnd', dimension: 'videoEnd', label: '结束状态', weight: 0.34, source: 'director' },
+  { key: 'transitionIn', dimension: 'transitionIn', label: '接前镜', weight: 0.3, source: 'director' },
+  { key: 'transitionOut', dimension: 'transitionOut', label: '接后镜', weight: 0.3, source: 'director' },
+  { key: 'sound', dimension: 'sound', label: '背景音/字幕气口', weight: 0.32, source: 'director' },
+  { key: 'videoPrompt', dimension: 'videoPrompt', label: '图生视频提示词', weight: 0.5, source: 'director' },
 ];
 
 const SOURCE_LABELS: Record<PromptSource['system'], string> = {
@@ -85,6 +94,21 @@ export function buildContentPromptRows(shot: CreationEditorShot): PromptRow[] {
       weight: dimension.weight,
       source: sourceFor(dimension.source, shot),
       category: 'content',
+    });
+  });
+}
+
+export function buildVideoPromptRows(shot: CreationEditorShot): PromptRow[] {
+  return VIDEO_DIMENSIONS.map((dimension) => {
+    const value = clean(shot[dimension.key]);
+    return row({
+      id: `video:${dimension.dimension}`,
+      dimension: dimension.dimension,
+      label: dimension.label,
+      value,
+      weight: dimension.weight,
+      source: sourceFor(dimension.source, shot),
+      category: 'motion',
     });
   });
 }
@@ -160,30 +184,34 @@ export function buildPromptTable(
   } = {},
 ): PromptRow[] {
   const contentRows = buildContentPromptRows(shot);
+  const videoRows = buildVideoPromptRows(shot);
   const narrativeRows = buildNarrativePromptRows(shot);
-  let baseRows = contentRows;
+  let baseRows = [...contentRows, ...videoRows];
   try {
     baseRows = [
       ...contentRows,
+      ...videoRows,
       ...narrativeRows,
       ...buildArtPromptRows(shot, options.structuredPromptAdapter),
     ];
   } catch {
-    baseRows = [...contentRows, ...narrativeRows];
+    baseRows = [...contentRows, ...videoRows, ...narrativeRows];
   }
 
   const previousRowsByShot = (options.previousShots ?? []).map((previousShot) => {
     const previousContentRows = buildContentPromptRows(previousShot);
+    const previousVideoRows = buildVideoPromptRows(previousShot);
     const previousNarrativeRows = buildNarrativePromptRows(previousShot);
-    let previousRows = previousContentRows;
+    let previousRows = [...previousContentRows, ...previousVideoRows];
     try {
       previousRows = [
         ...previousContentRows,
+        ...previousVideoRows,
         ...previousNarrativeRows,
         ...buildArtPromptRows(previousShot, options.structuredPromptAdapter),
       ];
     } catch {
-      previousRows = [...previousContentRows, ...previousNarrativeRows];
+      previousRows = [...previousContentRows, ...previousVideoRows, ...previousNarrativeRows];
     }
     return {
       shotNo: previousShot.shotNo,

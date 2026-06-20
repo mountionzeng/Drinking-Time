@@ -24,6 +24,7 @@ export function compilePromptRecipe(params: {
       `Rerender only ${params.shot.shotKey}. Create exactly one single ad-film storyboard key frame. Use other shots only as continuity context; do not show them.`,
       'Director goal: communicate the user strength behind this Story Card to the intended audience. Make the image explain why this moment is credible, useful, and worth contacting the person for.',
       'Hard constraints: no split screen, no comic panels, no storyboard grid, no contact sheet, no subtitles, no captions, no readable text, no UI, no watermark.',
+      'Video-direction rows are context for motion and continuity; when rendering a still key frame, express them through composition, posture, light, and spatial direction only.',
       'Avoid generic mood posters. Prefer concrete work evidence, visible decision process, artifacts, prototypes, whiteboards, portfolios, tools, meetings, or material traces that make the advantage believable.',
       params.shot.sourceCardContent ? `Source material: ${params.shot.sourceCardContent}` : '',
       params.continuityHint ? `Continuity: ${params.continuityHint}` : '',

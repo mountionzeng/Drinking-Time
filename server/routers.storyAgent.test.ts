@@ -1133,6 +1133,69 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
+  it("storyImages 保留划走旧图后的 current 草稿，避免故事版图片闪一下消失", async () => {
+    imageGenMocks.generateDraftImage
+      .mockResolvedValueOnce({
+        status: "ok",
+        imageUrl: "https://storage.example/generated/rejected-draft.png",
+        imageKey: "generated/rejected-draft.png",
+      })
+      .mockResolvedValueOnce({
+        status: "ok",
+        imageUrl: "https://storage.example/generated/current-draft.png",
+        imageKey: "generated/current-draft.png",
+      });
+    const caller = appRouter.createCaller(createAuthContext(313));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "故事版草稿不消失",
+      projectId: 7313,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, subject: "把优势画出来" }],
+      },
+    });
+
+    const rejected = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "第一张草稿",
+      mode: "draft",
+    });
+    expect(rejected.status).toBe("ok");
+    await caller.storyAgent.recordSignal({
+      storyId: story!.id,
+      imageId: rejected.imageId,
+      action: "swipe_left",
+    });
+
+    const currentDraft = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "第二张 current 草稿",
+      mode: "draft",
+    });
+    expect(currentDraft.status).toBe("ok");
+
+    const storyImages = await caller.storyAgent.storyImages({ storyId: story!.id });
+    expect(storyImages).toEqual([
+      expect.objectContaining({
+        id: currentDraft.imageId,
+        shotNo: "SH01",
+        status: "pending",
+        generationType: "generate",
+        isCurrent: true,
+        imageUrl: "https://storage.example/generated/current-draft.png",
+      }),
+    ]);
+
+    const projectAssets = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    expect(projectAssets.find(asset => asset.id === currentDraft.imageId)).toMatchObject({
+      status: "pending",
+      isPrimary: false,
+    });
+  });
+
   it("手机端图生图成功后带 projectId 落库", async () => {
     imageGenMocks.editImage.mockResolvedValueOnce({
       status: "ok",

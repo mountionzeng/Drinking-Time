@@ -16,6 +16,7 @@ import { writePromptOverride, writePromptRun, writePromptShot, writeShotDuration
 import { buildPromptTable } from './promptTable/buildPromptTable';
 import { compilePromptRecipe } from './promptTable/promptRecipe';
 import type { PromptOverride, PromptOverrides, PromptRow, PromptRunRecord } from './promptTable/types';
+import type { FrameQuadrant } from './video/frameCrop';
 
 export type CreationEditorStory = {
   id: number;
@@ -28,6 +29,11 @@ export type CreationEditorImage = {
   shotNo: number | null;
   imageUrl: string;
   prompt?: string | null;
+  status?: 'selected' | 'pending' | 'rejected';
+  isCurrent?: boolean;
+  isPrimary?: boolean;
+  generationType?: 'generate' | 'initial' | 'inpaint';
+  selectionSource?: 'explicit' | 'legacy' | 'none';
 };
 
 export type CreationEditorShot = StoryShot & {
@@ -60,6 +66,8 @@ type CreationEditorContextValue = {
   isSaving: boolean;
   rerenderingShotNo: number | null;
   rerenderError: string | null;
+  promotingFrameCropShotNo: number | null;
+  generatingVideoShotNo: number | null;
   updateShotDuration: (shotNo: number, durationMs: number) => Promise<void>;
   updatePromptOverride: (
     shotNo: number,
@@ -74,6 +82,20 @@ type CreationEditorContextValue = {
   }) => Promise<{ shot: CreationEditorShot; rows: PromptRow[] }>;
   recordPromptRun: (shotNo: number, promptRun: PromptRunRecord) => Promise<void>;
   rerenderShot: (shotNo: number, rows: PromptRow[]) => Promise<void>;
+  promoteFrameCrop: (input: {
+    shotNo: number;
+    imageBase64: string;
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+    parentImageId?: number;
+    quadrant?: FrameQuadrant;
+  }) => Promise<{ imageId: number; imageUrl: string }>;
+  generateShotVideo: (input: {
+    shotNo: number;
+    imageId: number;
+    prompt: string;
+    subtitle?: string;
+    durationSec?: number;
+  }) => Promise<{ videoUrl: string; taskId?: string; prompt: string }>;
   refetch: () => void;
 };
 
@@ -98,6 +120,11 @@ const SHOT_CONTENT_FIELDS = [
   'sourceCardContent',
   'intent',
   'rationale',
+  'videoStart',
+  'videoEnd',
+  'transitionIn',
+  'transitionOut',
+  'videoPrompt',
   'emotionCharge',
   'emotionDelta',
   'visualAnchorText',
@@ -271,6 +298,11 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     sourceCardContent: stringValue(obj.sourceCardContent),
     intent: nullableStringValue(obj.intent),
     rationale: nullableStringValue(obj.rationale),
+    videoStart: stringValue(obj.videoStart) || undefined,
+    videoEnd: stringValue(obj.videoEnd) || undefined,
+    transitionIn: stringValue(obj.transitionIn) || undefined,
+    transitionOut: stringValue(obj.transitionOut) || undefined,
+    videoPrompt: stringValue(obj.videoPrompt) || undefined,
     emotionCharge: stringValue(obj.emotionCharge) || undefined,
     emotionDelta: stringValue(obj.emotionDelta) || undefined,
     visualAnchorText: stringValue(obj.visualAnchorText) || undefined,
@@ -366,11 +398,32 @@ export function normalizeStoryImages(rawImages: unknown): CreationEditorImage[] 
       const canonical = canonicalizeShotNo(obj.shotNo as string | number | null | undefined);
       const shotNo = canonical ? Number(canonical.slice(2)) : null;
       const id = numberValue(obj.id);
+      const status =
+        obj.status === 'selected' || obj.status === 'pending' || obj.status === 'rejected'
+          ? obj.status
+          : undefined;
+      const generationType =
+        obj.generationType === 'generate' ||
+        obj.generationType === 'initial' ||
+        obj.generationType === 'inpaint'
+          ? obj.generationType
+          : undefined;
+      const selectionSource =
+        obj.selectionSource === 'explicit' ||
+        obj.selectionSource === 'legacy' ||
+        obj.selectionSource === 'none'
+          ? obj.selectionSource
+          : undefined;
       return {
         id: id ?? 0,
         shotNo,
         imageUrl,
         prompt: stringValue(obj.prompt) || null,
+        status,
+        isCurrent: typeof obj.isCurrent === 'boolean' ? obj.isCurrent : undefined,
+        isPrimary: typeof obj.isPrimary === 'boolean' ? obj.isPrimary : undefined,
+        generationType,
+        selectionSource,
       } satisfies CreationEditorImage;
     })
     .filter((image): image is CreationEditorImage => image != null);
@@ -380,22 +433,34 @@ export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[],
 ): CreationEditorShot[] {
-  const latestByShotNo = new Map<number, CreationEditorImage>();
+  const primaryByShotNo = new Map<number, CreationEditorImage>();
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
     byImageId.set(image.id, image);
     if (image.shotNo == null) continue;
-    const previous = latestByShotNo.get(image.shotNo);
-    if (!previous || image.id >= previous.id) latestByShotNo.set(image.shotNo, image);
+    if (!image.isPrimary) continue;
+    const previous = primaryByShotNo.get(image.shotNo);
+    if (!previous || image.id >= previous.id) primaryByShotNo.set(image.shotNo, image);
   }
 
   return shots.map((shot) => {
-    const image =
+    const promptRunImage =
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
-        : shot.downstreamStale
-          ? undefined
-          : latestByShotNo.get(shot.shotNo);
+        : undefined;
+    const primaryImage = shot.downstreamStale
+      ? undefined
+      : primaryByShotNo.get(shot.shotNo);
+    const image = promptRunImage ?? primaryImage;
+
+    if (shot.promptRun?.imageUrl) {
+      return {
+        ...shot,
+        imageId: shot.promptRun.imageId ?? image?.id,
+        imageUrl: image?.imageUrl ?? shot.promptRun.imageUrl,
+        imagePrompt: image?.prompt ?? shot.promptRun.finalPrompt,
+      };
+    }
     if (!image) return shot;
     return {
       ...shot,
@@ -429,6 +494,8 @@ export function CreationEditorProvider({
   const [selectedShotNo, setSelectedShotNo] = useState<number | null>(null);
   const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(null);
   const [rerenderError, setRerenderError] = useState<string | null>(null);
+  const [promotingFrameCropShotNo, setPromotingFrameCropShotNo] = useState<number | null>(null);
+  const [generatingVideoShotNo, setGeneratingVideoShotNo] = useState<number | null>(null);
   const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
@@ -436,6 +503,8 @@ export function CreationEditorProvider({
   });
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
+  const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
+  const generateShotVideoMut = trpc.creationAgent.generateShotVideo.useMutation();
   const activeId = isControlled
     ? controlledActiveStoryId
     : localActiveStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
@@ -636,6 +705,58 @@ export function CreationEditorProvider({
     }
   };
 
+  const promoteFrameCrop = async (input: {
+    shotNo: number;
+    imageBase64: string;
+    mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+    parentImageId?: number;
+    quadrant?: FrameQuadrant;
+  }) => {
+    if (activeId == null) throw new Error('故事尚未加载，无法保存首帧');
+    setPromotingFrameCropShotNo(input.shotNo);
+    try {
+      const result = await promoteFrameCropMut.mutateAsync({
+        storyId: activeId,
+        ...input,
+      });
+      if (result.status !== 'ok' || !result.imageUrl || !result.imageId) {
+        throw new Error(result.error || '首帧保存失败');
+      }
+      await storyImagesQuery.refetch();
+      await utils.storyAgent.storyImages.invalidate({ storyId: activeId });
+      return { imageId: result.imageId, imageUrl: result.imageUrl };
+    } finally {
+      setPromotingFrameCropShotNo(null);
+    }
+  };
+
+  const generateShotVideo = async (input: {
+    shotNo: number;
+    imageId: number;
+    prompt: string;
+    subtitle?: string;
+    durationSec?: number;
+  }) => {
+    if (activeId == null) throw new Error('故事尚未加载，无法生成视频');
+    setGeneratingVideoShotNo(input.shotNo);
+    try {
+      const result = await generateShotVideoMut.mutateAsync({
+        storyId: activeId,
+        ...input,
+      });
+      if (result.status !== 'ok' || !result.videoUrl) {
+        throw new Error(result.error || '视频生成失败');
+      }
+      return {
+        videoUrl: result.videoUrl,
+        taskId: result.taskId,
+        prompt: result.prompt,
+      };
+    } finally {
+      setGeneratingVideoShotNo(null);
+    }
+  };
+
   const rawError =
     storyListQuery.error ??
     storyQuery.error ??
@@ -661,11 +782,15 @@ export function CreationEditorProvider({
       isSaving: storyUpsertMut.isPending,
       rerenderingShotNo,
       rerenderError,
+      promotingFrameCropShotNo,
+      generatingVideoShotNo,
       updateShotDuration,
       updatePromptOverride,
       ensurePromptShot,
       recordPromptRun,
       rerenderShot,
+      promoteFrameCrop,
+      generateShotVideo,
       refetch: () => {
         void storyListQuery.refetch();
         void storyQuery.refetch();
@@ -679,6 +804,8 @@ export function CreationEditorProvider({
       selectedShot,
       selectedShotNo,
       setActiveStoryId,
+      promotingFrameCropShotNo,
+      generatingVideoShotNo,
       rerenderError,
       rerenderingShotNo,
       shots,

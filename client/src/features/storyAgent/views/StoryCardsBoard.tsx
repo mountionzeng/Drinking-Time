@@ -24,20 +24,20 @@ import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import {
   useCardReferenceDockSlice,
   useStoryCardsBoardSlice,
-  useStoryArtDirectionStudioSlice,
 } from '@/features/storyAgent/spine/selectors';
+import { useStorySpine } from '@/features/storyAgent/spine/storySpine';
 import { trpc } from '@/lib/trpc';
+import { toast } from 'sonner';
 import { useStoryGeneratedImages } from './StoryImagesStrip';
 import { useNayin } from '@/features/nayin/NayinContext';
 import type { GeneratedScript, StoryCard, StoryShot, VisualCanvasItem } from '@/features/storyAgent/types';
 import type { NayinElement } from '@/features/nayin/nayin';
-import type { ArtDirectionCandidate, ArtRecipeDNA, StoryArtDirection } from '@shared/artDirection';
+import type { ArtRecipeDNA, StoryArtDirection } from '@shared/artDirection';
 import {
   buildMobileStoryboardScenes,
   parseShotNo,
   type GeneratedImageItem,
 } from '@/features/mobileChat/types';
-import StoryArtDirectionStudio from './StoryArtDirectionStudio';
 import StoryCardsGraph from './StoryCardsGraph';
 
 const EMPTY_HINT: Record<NayinElement, string> = {
@@ -241,43 +241,6 @@ function EmotionBridge({
   );
 }
 
-function ArtCandidateButton({
-  candidate,
-  selected,
-  onSelect,
-}: {
-  candidate: ArtDirectionCandidate;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const tokens = recipeTokens(candidate.recipe, 4);
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className="grid min-w-[150px] max-w-[180px] shrink-0 gap-1.5 rounded-md border p-1.5 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-      style={{
-        borderColor: selected ? 'var(--nayin-accent)' : 'var(--panel-border)',
-        background: selected ? 'var(--nayin-glow)' : 'var(--background)',
-      }}
-    >
-      <img
-        src={candidate.imageUrl}
-        alt={candidate.title}
-        className="aspect-video w-full rounded object-cover"
-        draggable={false}
-      />
-      <span className="line-clamp-1 text-[10px] font-semibold text-foreground">
-        {candidate.title}
-      </span>
-      <span className="line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
-        {tokens.length > 0 ? tokens.join(' · ') : candidate.axis || '视觉候选'}
-      </span>
-    </button>
-  );
-}
-
 function VisualPresetButton({
   preset,
   selected,
@@ -317,18 +280,20 @@ function VisualPresetButton({
   );
 }
 
-function StoryboardReviewBoard({
+export function StoryboardReviewBoard({
   images,
   shots,
   latestScript,
   artDirection,
   isGeneratingScript,
+  className = '',
 }: {
   images: GeneratedImageItem[];
   shots: StoryShot[];
   latestScript: GeneratedScript | null;
   artDirection: StoryArtDirection;
   isGeneratingScript: boolean;
+  className?: string;
 }) {
   const [selectedNarrativeId, setSelectedNarrativeId] = useState('');
   const [selectedArtId, setSelectedArtId] = useState('');
@@ -341,22 +306,17 @@ function StoryboardReviewBoard({
   const activeNarrativeId = narrativeChoices.some((choice) => choice.id === selectedNarrativeId)
     ? selectedNarrativeId
     : narrativeChoices[0]?.id ?? '';
-  const visibleCandidates = artDirection.candidates.slice(0, 6);
-  const likedCandidate = visibleCandidates.find((candidate) => candidate.verdict === 'liked');
-  const activeArtId = visibleCandidates.some((candidate) => candidate.id === selectedArtId)
+  const activeArtId = FALLBACK_VISUAL_STYLES.some((preset) => preset.id === selectedArtId)
     ? selectedArtId
-    : FALLBACK_VISUAL_STYLES.some((preset) => preset.id === selectedArtId)
-      ? selectedArtId
-      : likedCandidate?.id ?? visibleCandidates[0]?.id ?? FALLBACK_VISUAL_STYLES[0].id;
-  const activeRecipe = visibleCandidates.find((candidate) => candidate.id === activeArtId)?.recipe
-    ?? FALLBACK_VISUAL_STYLES.find((preset) => preset.id === activeArtId)?.recipe
+    : FALLBACK_VISUAL_STYLES[0].id;
+  const activeRecipe = FALLBACK_VISUAL_STYLES.find((preset) => preset.id === activeArtId)?.recipe
     ?? artDirection.recipe;
   const shouldShow = frames.length > 0 || isGeneratingScript || shots.length > 0 || latestScript;
   if (!shouldShow) return null;
 
   return (
     <section
-      className="mb-2 rounded-md border p-2"
+      className={`rounded-md border p-2 ${className}`.trim()}
       style={{
         borderColor: 'var(--panel-border)',
         background: 'var(--panel-header)',
@@ -426,23 +386,14 @@ function StoryboardReviewBoard({
             ) : null}
           </div>
           <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-            {visibleCandidates.length > 0
-              ? visibleCandidates.map((candidate) => (
-                <ArtCandidateButton
-                  key={candidate.id}
-                  candidate={candidate}
-                  selected={candidate.id === activeArtId}
-                  onSelect={() => setSelectedArtId(candidate.id)}
-                />
-              ))
-              : FALLBACK_VISUAL_STYLES.map((preset) => (
-                <VisualPresetButton
-                  key={preset.id}
-                  preset={preset}
-                  selected={preset.id === activeArtId}
-                  onSelect={() => setSelectedArtId(preset.id)}
-                />
-              ))}
+            {FALLBACK_VISUAL_STYLES.map((preset) => (
+              <VisualPresetButton
+                key={preset.id}
+                preset={preset}
+                selected={preset.id === activeArtId}
+                onSelect={() => setSelectedArtId(preset.id)}
+              />
+            ))}
           </div>
           {recipeTokens(activeRecipe, 6).length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -514,6 +465,19 @@ function StoryboardReviewBoard({
                   <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
                     {body || shot.sourceCardContent || '等待导演把这一镜拆成可拍的动作'}
                   </p>
+                  {[shot.cameraMove, shot.transitionOut, shot.sound].some(Boolean) ? (
+                    <div className="mt-1.5 grid gap-1 text-[8.5px] leading-relaxed text-muted-foreground/80 sm:grid-cols-3">
+                      <span className="rounded border px-1.5 py-1" style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-header)' }}>
+                        运镜：{shortText(shot.cameraMove, '待定')}
+                      </span>
+                      <span className="rounded border px-1.5 py-1" style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-header)' }}>
+                        接后：{shortText(shot.transitionOut, '待定')}
+                      </span>
+                      <span className="rounded border px-1.5 py-1" style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-header)' }}>
+                        声音：{shortText(shot.sound, '待定')}
+                      </span>
+                    </div>
+                  ) : null}
                   <p className="mt-1 rounded-md border px-2 py-1 text-[9px] leading-relaxed text-muted-foreground/80" style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-header)' }}>
                     导演理由：{shortText(shot.rationale, image?.prompt || '这一镜需要说明它和求职优势的关系。')}
                   </p>
@@ -896,10 +860,11 @@ function CardItem({
           <button
             type="button"
             onClick={onRemove}
-            className="shrink-0 w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-foreground/5 transition-all"
+            className="shrink-0 w-6 h-6 rounded flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 transition-all"
             aria-label="删除卡片"
+            title="删除这张卡片"
           >
-            <X className="w-3 h-3 text-muted-foreground" />
+            <X className="w-3 h-3" />
           </button>
         </div>
       </motion.div>
@@ -922,12 +887,13 @@ export default function StoryCardsBoard() {
     generateScript,
     removeStoryImage,
   } = useStoryAgentActions();
-  const { artDirection } = useStoryArtDirectionStudioSlice();
   const { element } = useNayin();
   const [boardView, setBoardView] = useState<'graph' | 'list'>('graph');
   const lastOrderRef = useRef<string>('');
   const utils = trpc.useUtils();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
+  const cycleStyleMut = trpc.storyAgent.cycleStyle.useMutation();
+  const activeStoryId = useStorySpine((state) => state.activeStoryId);
   const generatedImages = useStoryGeneratedImages();
   const generatedScenes = useMemo(
     () => buildMobileStoryboardScenes(cards, generatedImages),
@@ -955,6 +921,7 @@ export default function StoryCardsBoard() {
           action: 'swipe_left',
           metadata: { source: 'story-cards-delete' },
         });
+        void utils.storyAgent.storyImages.invalidate({ storyId: image.storyId });
         void utils.storyAgent.storyGet.invalidate({ id: image.storyId });
       } catch (error) {
         console.warn(
@@ -1037,19 +1004,14 @@ export default function StoryCardsBoard() {
           </motion.div>
         ) : (
           <>
-            <StoryboardReviewBoard
-              images={generatedImages}
-              shots={storyShots}
-              latestScript={latestScript}
-              artDirection={artDirection}
-              isGeneratingScript={isGeneratingScript}
-            />
-
             {boardView === 'graph' ? (
-              <StoryCardsGraph cards={cards} storyShots={storyShots} />
+              <StoryCardsGraph
+                cards={cards}
+                storyShots={storyShots}
+                onRemoveCard={removeCard}
+              />
             ) : (
               <>
-                <StoryArtDirectionStudio />
                 <Reorder.Group
                   axis="y"
                   values={cards}
@@ -1084,33 +1046,49 @@ export default function StoryCardsBoard() {
               className="border-t pt-2.5 mt-2 flex flex-col gap-2"
               style={{ borderColor: 'var(--panel-border)' }}
             >
-              <button
-                type="button"
-                onClick={() => generateScript()}
-                disabled={isGeneratingScript || cards.length === 0}
-                className="w-full text-xs py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                style={{
-                  background: 'var(--nayin-accent)',
-                  color: 'var(--background)',
-                  boxShadow: '0 4px 16px -6px var(--nayin-glow)',
-                }}
-              >
-                {isGeneratingScript ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    正在生成故事版…
-                  </>
-                ) : (
-                  <>
-                    <Clapperboard className="w-3.5 h-3.5" />
-                    {latestScript && !orderChanged
-                      ? '重新生成故事版'
-                      : latestScript && orderChanged
-                        ? '按新顺序生成故事版'
-                        : '生成故事版'}
-                  </>
-                )}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => generateScript()}
+                  disabled={isGeneratingScript || cards.length === 0}
+                  className="flex-1 text-xs py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  style={{
+                    background: 'var(--nayin-accent)',
+                    color: 'var(--background)',
+                    boxShadow: '0 4px 16px -6px var(--nayin-glow)',
+                  }}
+                >
+                  {isGeneratingScript ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      正在生成故事版…
+                    </>
+                  ) : (
+                    <>
+                      <Clapperboard className="w-3.5 h-3.5" />
+                      {latestScript && !orderChanged
+                        ? '重新生成故事版'
+                        : latestScript && orderChanged
+                          ? '按新顺序生成故事版'
+                          : '生成故事版'}
+                    </>
+                  )}
+                </button>
+                {activeStoryId && activeStoryId > 0 ? (
+                  <button
+                    type="button"
+                    disabled={cycleStyleMut.isPending}
+                    onClick={() => cycleStyleMut.mutate(
+                      { storyId: activeStoryId },
+                      { onSuccess: () => toast.success('风格已切换，下次出图生效') },
+                    )}
+                    className="shrink-0 w-9 h-9 rounded-md flex items-center justify-center border transition-colors hover:bg-accent disabled:opacity-50"
+                    title="换风格"
+                  >
+                    <Palette className="w-4 h-4" />
+                  </button>
+                ) : null}
+              </div>
               <p className="text-[10px] text-muted-foreground/70 text-center">
                 生成剧本 · 统一提示词 · 关键镜头草稿图
               </p>

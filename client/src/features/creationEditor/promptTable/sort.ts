@@ -14,7 +14,8 @@ export type PromptTableColumn =
 const CATEGORY_RANK: Record<PromptRow['category'], number> = {
   content: 0,
   narrative: 1,
-  style: 2,
+  motion: 2,
+  style: 3,
 };
 
 export function sortPromptRows(

@@ -106,6 +106,16 @@ export interface StoryShot {
   intent?: string | null;
   /** 当前镜头为什么这样画，缺失时按 null 降级。 */
   rationale?: string | null;
+  /** 图生视频第一帧应该落在什么画面状态。 */
+  videoStart?: string;
+  /** 图生视频这一镜结束时应该落到什么状态。 */
+  videoEnd?: string;
+  /** 与上一镜的视觉 / 动作 / 声音衔接。 */
+  transitionIn?: string;
+  /** 给下一镜留下的视觉 / 动作 / 声音钩子。 */
+  transitionOut?: string;
+  /** 可直接喂给图生视频模型的镜头运动提示词。 */
+  videoPrompt?: string;
   /** 情绪电荷：本镜情绪 + beat 位置 + 与上一镜的流动 delta。 */
   emotionCharge?: string;
   /** 与上一镜的情绪转变描述。转折镜重点表达这个变化。 */

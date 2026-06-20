@@ -406,7 +406,7 @@ function saveImageLocally(data: Uint8Array, mimeType: string, storageKey: string
  * 旧方案是「远程优先、URL 直存」：远程代理 503 频发、成功时存的又是会过期的
  * 外链 —— 这正是「图片链接很脆弱」的根源。
  */
-async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "image/png"): Promise<ImageGenResult> {
+export async function storeImageBytes(bytes: ArrayBuffer | Uint8Array, mimeType = "image/png"): Promise<ImageGenResult> {
   const storageKey = makeStorageKey();
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 

@@ -2,7 +2,7 @@
  * WorkspaceLayout — Three-panel resizable workspace layout.
  * Left: DropZone / StoryAgentChat (tabbed, CSS toggle)
  * Center: TemplateDraft / StoryCardsBoard (follows active tab)
- * Right: ShotTable + PromptDistill / ScriptViewer
+ * Right: ShotTable + PromptDistill / StoryboardPanel
  */
 import {
   ResizablePanelGroup,
@@ -15,7 +15,7 @@ import StoryListView from '@/features/storyAgent/views/StoryListView';
 import TemplateDraft from './TemplateDraft';
 import StoryCardsBoard from '@/features/storyAgent/views/StoryCardsBoard';
 import PromptDistill from './PromptDistill';
-import ScriptViewer from '@/features/storyAgent/views/ScriptViewer';
+import StoryboardPanel from '@/features/storyAgent/views/StoryboardPanel';
 import { CreationEditorProvider } from '@/features/creationEditor/CreationEditorContext';
 import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
 import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
@@ -66,11 +66,11 @@ export default function WorkspaceLayout({
   const { setActiveSelection } = useStoryAgentActions();
   useSelectionCapture(setActiveSelection);
   const storyCardsVisible = visibleStoryPanels.includes('storyCards');
-  const scriptVisible = visibleStoryPanels.includes('script');
+  const storyboardVisible = visibleStoryPanels.includes('storyboard');
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
   const hasCenterStoryPanel = storyCardsVisible || animaticVisible;
-  const hasRightStoryPanel = scriptVisible || promptTableVisible;
+  const hasRightStoryPanel = storyboardVisible || promptTableVisible;
   const hasRightPanel = activeInputTab === 'material' || hasRightStoryPanel;
 
   const workspace = (
@@ -208,9 +208,9 @@ export default function WorkspaceLayout({
                   />
                 ) : (
                   <div className="flex min-h-full flex-col gap-2">
-                    {scriptVisible ? (
+                    {storyboardVisible ? (
                       <div className="min-h-[280px] flex-1 overflow-auto">
-                        <ScriptViewer projectId={projectId} />
+                        <StoryboardPanel />
                       </div>
                     ) : null}
                     {promptTableVisible ? (

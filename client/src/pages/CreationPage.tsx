@@ -42,11 +42,12 @@ function CreationWorkspaceInner({
     promptPool,
     storyShots,
     updateShotFragmentRefs,
+    activeStoryId,
   } = useStoryAgent();
   const utils = trpc.useUtils();
   const updateShotMut = trpc.shot.update.useMutation();
 
-  // Cross-page handoff: pick up focusShotNo from sessionStorage (set by ScriptViewer)
+  // Cross-page handoff: pick up focusShotNo from sessionStorage when another view targets a shot.
   useEffect(() => {
     const stored = sessionStorage.getItem('dt:creation:focusShotNo');
     if (stored) {
@@ -162,6 +163,7 @@ function CreationWorkspaceInner({
         onGenerateNext={generateNextImage}
         generatingShotNo={generatingShotNo}
         generateError={generateError}
+        storyId={activeStoryId}
       />
 
       {/* ShotTable 占满主区；无当前故事时给一致空状态（U5/R5/AE3）——不串故事 */}

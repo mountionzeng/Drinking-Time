@@ -1,4 +1,4 @@
-export type PromptCategory = 'content' | 'narrative' | 'style';
+export type PromptCategory = 'content' | 'narrative' | 'motion' | 'style';
 
 export type PromptSourceSystem =
   | 'chat'

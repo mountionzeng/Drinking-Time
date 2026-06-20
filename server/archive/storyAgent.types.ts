@@ -40,6 +40,25 @@ export type SimilarStoryCardPayload = {
   score?: number;
 };
 
+export type StoryCardContextPayload = {
+  title?: string;
+  content: string;
+  sourceQuote?: string;
+  emotion?: string;
+  emotionOptions?: string[];
+  emotionBlend?: string[];
+  intensity?: number;
+  direction?: string;
+  complexity?: string;
+  trigger?: string;
+  dramaticFunction?: string;
+  personalTrace?: string;
+  retrievalQuery?: string;
+  themeHints?: string[];
+  outlierSignal?: string;
+  softMembership?: string[];
+};
+
 export type VisualAnchorPayload = {
   title: string;
   imageUrl?: string;

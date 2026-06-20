@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStoryArtReferences, nextReferencePurpose } from "./storyArtReferences";
+import { buildStoryArtReferences } from "./storyArtReferences";
 import type { ChatMessage, StoryCard, VisualCanvasItem } from "./types";
 
 const card: StoryCard = {
@@ -64,11 +64,5 @@ describe("story art references", () => {
       selected: true,
     });
     expect(references.filter(reference => reference.selected)).toHaveLength(2);
-  });
-
-  it("cycles how a reference is used", () => {
-    expect(nextReferencePurpose("fact")).toBe("aesthetic");
-    expect(nextReferencePurpose("aesthetic")).toBe("both");
-    expect(nextReferencePurpose("both")).toBe("fact");
   });
 });

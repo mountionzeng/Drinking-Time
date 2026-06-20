@@ -49,6 +49,7 @@ import {
   type SimilarStoryCardPayload,
   type ShotDraft,
   type ShotEntry,
+  type StoryCardContextPayload,
   type StoryIntentPayload,
   type VisualAnchorPayload,
 } from "./archive/storyAgent";
@@ -66,10 +67,12 @@ import {
   generateDraftImage,
   generateImage as generateMobileImage,
   inpaintImage,
+  storeImageBytes,
   toPublicImageUrl,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
-import { getProjectImageAssets, getStoryImageAssets } from "./services/imageAssets";
+import { getProjectImageAssets, getStoryImageAssets, materializeImageInput } from "./services/imageAssets";
+import { generateShotVideo } from "./services/videoGen";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { composeScenePrompt } from "./services/composeScenePrompt";
 import { deriveInjection } from "./services/imageInjection";
@@ -78,7 +81,6 @@ import {
   analyzeArtReference,
   createArtRiff,
 } from "./services/artAgent";
-import { generateArtDirectionCandidates } from "./services/artDirection";
 import {
   normalizeStoryArtDirection,
   characterReferenceOf,
@@ -90,6 +92,7 @@ import {
   mergeStaleStoryBody,
   prepareStoryBody,
 } from "./services/storySync";
+import { getActiveStyles } from "./services/styleLibrary";
 import { sceneAnalysisSchema } from "../shared/sceneAnalysis";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
@@ -173,31 +176,6 @@ async function composeStoryWorkspace(
     return { ...story, revision, syncConflict };
   }
 }
-
-const artRecipeDnaSchema = z.object({
-  style: z.array(z.string()),
-  palette: z.array(z.string()),
-  light: z.array(z.string()),
-  composition: z.array(z.string()),
-  material: z.array(z.string()),
-  negative: z.array(z.string()),
-});
-
-const artReferenceSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  source: z.enum(["message-photo", "visual-anchor", "story-card"]),
-  purpose: z.enum(["fact", "aesthetic", "both"]),
-  selected: z.boolean(),
-  imageUrl: z.string().optional(),
-  text: z.string().optional(),
-  visualStyle: z.array(z.string()).optional(),
-  colorPalette: z.array(z.string()).optional(),
-  lighting: z.string().optional(),
-  composition: z.string().optional(),
-  material: z.array(z.string()).optional(),
-  confidence: z.number().optional(),
-});
 
 function storyArtRecipe(story: { body: unknown }): ArtRecipeDNA | undefined {
   const body =
@@ -550,45 +528,6 @@ export const appRouter = router({
         });
       }),
 
-    generateCandidates: protectedProcedure
-      .input(
-        z.object({
-          storyId: z.number(),
-          targetContent: z.string().min(1),
-          references: z.array(artReferenceSchema),
-          round: z.number().int().min(1),
-          mode: z.enum(["explore", "converge"]).optional(),
-          likedRecipes: z.array(artRecipeDnaSchema).optional(),
-          imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        const story = await getStoryById(input.storyId, ctx.user.id);
-        if (!story) throw new Error("找不到故事，无法开始美术定调。");
-        const candidates = await generateArtDirectionCandidates({
-          targetContent: input.targetContent,
-          references: input.references,
-          round: input.round,
-          mode: input.mode,
-          likedRecipes: input.likedRecipes,
-          imageProvider: input.imageProvider,
-        });
-        return Promise.all(
-          candidates.map(async (candidate, index) => {
-            const image = await createGeneratedImage({
-              projectId: story.projectId ?? null,
-              storyId: story.id,
-              userId: ctx.user.id,
-              shotNo: `ART-R${input.round}-${index + 1}`,
-              imageUrl: candidate.imageUrl,
-              prompt: candidate.prompt,
-              generationType: "generate",
-              isCurrent: true,
-            });
-            return { ...candidate, imageId: image.id };
-          }),
-        );
-      }),
   }),
 
   // ─── Daily Almanac / 老黄历 ─────────────────────────────────────────
@@ -1153,6 +1092,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               })
             )
             .optional(),
+          storyCards: z
+            .array(
+              z.object({
+                title: z.string().optional(),
+                content: z.string(),
+                sourceQuote: z.string().optional(),
+                emotion: z.string().optional(),
+                emotionOptions: z.array(z.string()).optional(),
+                emotionBlend: z.array(z.string()).optional(),
+                intensity: z.number().optional(),
+                direction: z.string().optional(),
+                complexity: z.string().optional(),
+                trigger: z.string().optional(),
+                dramaticFunction: z.string().optional(),
+                personalTrace: z.string().optional(),
+                retrievalQuery: z.string().optional(),
+                themeHints: z.array(z.string()).optional(),
+                outlierSignal: z.string().optional(),
+                softMembership: z.array(z.string()).optional(),
+              })
+            )
+            .optional(),
           projectId: z.number().optional(),
           photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
           confirmedIntent: z
@@ -1168,7 +1129,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             .nullish(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         return replyFromStoryAgent({
           message: input.message,
           history: input.history,
@@ -1178,7 +1139,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           similarCards: input.similarCards as
             | SimilarStoryCardPayload[]
             | undefined,
+          storyCards: input.storyCards as StoryCardContextPayload[] | undefined,
           projectId: input.projectId,
+          userId: ctx.user.id,
           photoUrl: input.photoUrl,
           confirmedIntent: input.confirmedIntent ?? undefined,
         });
@@ -1493,6 +1456,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         return { ok: true };
       }),
 
+    /** Cycle the art style for a story (advance styleIndex by 1) */
+    cycleStyle: protectedProcedure
+      .input(z.object({ storyId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          return { status: "error" as const, error: "故事不存在" };
+        }
+        const styles = getActiveStyles();
+        if (styles.length === 0) {
+          return { status: "error" as const, error: "没有可用风格" };
+        }
+        const body = (story.body ?? {}) as Record<string, unknown>;
+        const current = typeof body.styleIndex === "number" ? body.styleIndex : -1;
+        const next = (current + 1) % styles.length;
+        const nextBody = { ...body, styleIndex: next };
+        await updateStory(story.id, ctx.user.id, {
+          body: prepareStoryBody(nextBody, getStoryRevision(story.body) + 1, story.body),
+        });
+        return { status: "ok" as const, styleIndex: next, styleName: styles[next].name };
+      }),
+
     // ─── 手机端聊天出图端点 ──────────────────────────────────────────
     // mobileChat: 带出图能力的聊天（enableImageGen=true）
     mobileChat: protectedProcedure
@@ -1545,7 +1530,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         return replyFromStoryAgent({
           message: input.message,
           history: input.history,
@@ -1556,6 +1541,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             | SimilarStoryCardPayload[]
             | undefined,
           projectId: input.projectId,
+          userId: ctx.user.id,
           enableImageGen: true, // 手机端开启出图能力
           photoUrl: input.photoUrl,
         });
@@ -1691,6 +1677,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
             projectId: story.projectId ?? undefined,
             artDirection: storyArtRecipe(story),
+            styleIndex: typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
+              ? (story.body as Record<string, unknown>).styleIndex as number
+              : undefined,
           };
 
           const imageWeight = input.sceneWeight ?? 0.5;
@@ -1809,6 +1798,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
               projectId: story.projectId ?? undefined,
               artDirection: storyArtRecipe(story),
+              styleIndex: typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
+                ? (story.body as Record<string, unknown>).styleIndex as number
+                : undefined,
             },
             renderedPrompt =>
               editMobileImage(input.originalImageUrl, renderedPrompt),
@@ -1886,7 +1878,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         return assets
           .filter((asset) => asset.kind === "story_frame")
           .filter((asset) => asset.assignment === "shot")
-          .filter((asset) => asset.isPrimary)
+          .filter((asset) => asset.isPrimary || (asset.status === "pending" && asset.isCurrent))
           .filter((asset) => asset.status !== "rejected")
           .filter((asset) => asset.availability !== "missing")
           .map((asset) => ({
@@ -1899,7 +1891,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageUrl: asset.imageUrl,
             prompt: asset.prompt,
             parentImageId: asset.parentImageId,
-            isCurrent: asset.isPrimary,
+            isCurrent: asset.isCurrent,
+            isPrimary: asset.isPrimary,
+            selectionSource: asset.selectionSource,
+            status: asset.status,
             generationType: asset.generationType,
             maskKey: asset.maskKey,
             createdAt: new Date(asset.createdAt),
@@ -2304,6 +2299,142 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       }),
 
     /**
+     * 把前端从四宫格候选图里裁出的单张画面，提升为该镜头的正式首帧。
+     * 裁切发生在浏览器 canvas；后端只负责鉴权、稳定存图、入库并标记为主图。
+     */
+    promoteFrameCrop: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          shotNo: z.number(),
+          imageBase64: z.string().min(1),
+          mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]).default("image/png"),
+          parentImageId: z.number().optional(),
+          quadrant: z.enum(["top-left", "top-right", "bottom-left", "bottom-right"]).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          return { status: "error" as const, error: "故事不存在或无权操作" };
+        }
+
+        if (input.parentImageId != null) {
+          const parent = await getGeneratedImageById(input.parentImageId);
+          if (
+            !parent ||
+            parent.storyId !== input.storyId ||
+            (parent.userId != null && parent.userId !== ctx.user.id)
+          ) {
+            return { status: "error" as const, error: "原图不存在或无权操作" };
+          }
+        }
+
+        const buffer = Buffer.from(input.imageBase64, "base64");
+        if (buffer.byteLength === 0) {
+          return { status: "error" as const, error: "裁切图片为空" };
+        }
+        if (buffer.byteLength > 12 * 1024 * 1024) {
+          return { status: "error" as const, error: "裁切图片过大，请先压缩或重渲单张首帧" };
+        }
+
+        const stored = await storeImageBytes(buffer, input.mimeType);
+        if (stored.status !== "ok" || !stored.imageUrl) {
+          return { status: "error" as const, error: stored.message ?? "首帧保存失败" };
+        }
+
+        const shotNo = canonicalizeShotNo(input.shotNo);
+        const image = await createGeneratedImage({
+          projectId: story.projectId ?? null,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          shotNo,
+          imageKey: stored.imageKey ?? null,
+          imageUrl: stored.imageUrl,
+          prompt: `从四宫格候选图裁出单张首帧${input.quadrant ? `（${input.quadrant}）` : ""}`,
+          parentImageId: input.parentImageId ?? null,
+          generationType: "initial",
+          isCurrent: true,
+        });
+
+        await createImageSignal({
+          userId: ctx.user.id,
+          storyId: input.storyId,
+          imageId: image.id,
+          action: "swipe_right",
+          metadata: {
+            source: "frame_crop",
+            projectId: story.projectId,
+            shotNo,
+            parentImageId: input.parentImageId ?? null,
+            quadrant: input.quadrant ?? null,
+          },
+        });
+
+        return {
+          status: "ok" as const,
+          imageId: image.id,
+          imageUrl: image.imageUrl,
+          imageKey: image.imageKey,
+        };
+      }),
+
+    /**
+     * 单镜头图生视频：只吃已经确认的首帧图 + 镜头设计表编译出来的视频包。
+     * 不在视频里烧字幕；subtitle 只作为模型语义提示和后续合成层输入。
+     */
+    generateShotVideo: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          shotNo: z.number(),
+          imageId: z.number(),
+          prompt: z.string().min(1),
+          subtitle: z.string().optional(),
+          durationSec: z.number().min(3).max(10).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) return { status: "error" as const, error: "故事不存在或无权操作" };
+
+        const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
+        const asset = assets.find(candidate => candidate.id === input.imageId);
+        if (
+          !asset ||
+          asset.assignment !== "shot" ||
+          asset.canonicalShotNo !== canonicalizeShotNo(input.shotNo) ||
+          asset.availability === "missing"
+        ) {
+          return { status: "error" as const, error: "首帧图不存在或不属于当前镜头" };
+        }
+
+        const sourceImage = await materializeImageInput(asset.imageUrl);
+        const result = await generateShotVideo({
+          prompt: input.prompt,
+          sourceImage,
+          subtitle: input.subtitle,
+          durationSec: input.durationSec ?? 5,
+          aspectRatio: "16:9",
+        });
+
+        if (result.status !== "ok") {
+          return {
+            status: "error" as const,
+            error: result.message,
+            taskId: result.taskId,
+          };
+        }
+
+        return {
+          status: "ok" as const,
+          videoUrl: result.videoUrl,
+          taskId: result.taskId,
+          prompt: result.prompt,
+        };
+      }),
+
+    /**
      * 确定性单图出图：「画出来 / 再来一张」循环的发动机，不经 LLM。
      * rejectImageId 存在时先对该图记 swipe_left（淘汰、进历史），再为焦点镜头出下一张。
      * 配方 = 故事锁定配方，未锁定则零点击默认；失败只返回 error，不动已有资产。
@@ -2343,6 +2474,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 source: "creation",
                 projectId: input.projectId,
                 shotNo: rejected.canonicalShotNo,
+                rejectedRecipe: storyArtRecipe(story) ?? null,
               },
             });
           }
@@ -2423,6 +2555,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             shotNo: input.shotNo,
             projectId: input.projectId,
             artDirection: story ? storyArtRecipe(story) : undefined,
+            styleIndex: story && typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
+              ? (story.body as Record<string, unknown>).styleIndex as number
+              : undefined,
           },
           prompt => inpaintImage(input.imageUrl, input.maskUrl, prompt)
         );

@@ -27,13 +27,13 @@ describe('story spine redundancy isolation', () => {
     const boardBefore = selectStoryCardsBoardSlice(storySpineStore.getState());
     const panelBefore = selectStoryPanelVisibility(storySpineStore.getState());
 
-    storySpineStore.getState().toggleVisibleStoryPanel('script');
+    storySpineStore.getState().toggleVisibleStoryPanel('storyboard');
 
     const boardAfter = selectStoryCardsBoardSlice(storySpineStore.getState());
     const panelAfter = selectStoryPanelVisibility(storySpineStore.getState());
 
     expect(panelBefore.visibleStoryPanels).toEqual([]);
-    expect(panelAfter.visibleStoryPanels).toEqual(['script']);
+    expect(panelAfter.visibleStoryPanels).toEqual(['storyboard']);
     expect(boardAfter.cards).toBe(boardBefore.cards);
     expect(boardAfter.latestScript).toBe(boardBefore.latestScript);
   });

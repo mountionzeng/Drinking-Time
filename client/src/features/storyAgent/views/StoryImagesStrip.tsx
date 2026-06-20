@@ -3,43 +3,36 @@ import { parseShotNo } from '@/features/mobileChat/types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { useStoryGeneratedImagesSlice } from '../spine/selectors';
 
-function normalizeImageStatus(status: unknown): GeneratedImageItem['status'] {
-  return status === 'ready' ||
-    status === 'generating' ||
-    status === 'draft' ||
-    status === 'finalizing' ||
-    status === 'error'
-    ? status
-    : 'ready';
+type StoryImageAssetProjection = {
+  id?: unknown;
+  imageUrl?: unknown;
+  prompt?: unknown;
+  shotNo?: unknown;
+  storyId?: unknown;
+  status?: unknown;
+  generationType?: unknown;
+};
+
+function normalizeAssetStatus(
+  status: unknown,
+  generationType: unknown,
+): GeneratedImageItem['status'] {
+  if (status === 'selected') return 'ready';
+  if (status === 'pending' && generationType === 'generate') return 'draft';
+  if (status === 'pending') return 'ready';
+  return 'ready';
 }
 
-export function useStoryGeneratedImages(): GeneratedImageItem[] {
-  // 本地即时来源：context.storyImages（「把这一刻画出来」收下后立刻可见）。
-  const { remoteStoryId, activeStoryId, storyImages } = useStoryGeneratedImagesSlice();
-  const storyId = remoteStoryId ?? activeStoryId ?? undefined;
-
-  // 服务端来源：跨端（手机另一端刚加的图）经 storyGet.body.mobileImages 拉回，与本地合并。
-  const storyQuery = trpc.storyAgent.storyGet.useQuery(
-    { id: storyId as number },
-    { enabled: typeof storyId === 'number', refetchOnWindowFocus: true },
-  );
-
-  const body =
-    storyQuery.data?.body && typeof storyQuery.data.body === 'object'
-      ? (storyQuery.data.body as Record<string, unknown>)
-      : {};
-  const rawImages = Array.isArray(body.mobileImages)
-    ? (body.mobileImages as unknown[])
-    : [];
-
-  const serverImages = rawImages.flatMap((raw): GeneratedImageItem[] => {
-    if (!raw || typeof raw !== 'object') return [];
-    const im = raw as Record<string, unknown>;
+export function projectStoryImageAssetsForDisplay(
+  rawImages: readonly StoryImageAssetProjection[],
+  fallbackStoryId: number | undefined,
+): GeneratedImageItem[] {
+  return rawImages.flatMap((im): GeneratedImageItem[] => {
     const imageUrl = typeof im.imageUrl === 'string' ? im.imageUrl : '';
-    if (!imageUrl || im.status === 'error') return [];
+    if (!imageUrl || im.status === 'rejected') return [];
     const id = typeof im.id === 'number' ? im.id : -1;
     const imageStoryId =
-      typeof im.storyId === 'number' ? im.storyId : storyId;
+      typeof im.storyId === 'number' ? im.storyId : fallbackStoryId;
     if (id < 0 || typeof imageStoryId !== 'number') return [];
     return [
       {
@@ -48,17 +41,38 @@ export function useStoryGeneratedImages(): GeneratedImageItem[] {
         prompt: typeof im.prompt === 'string' ? im.prompt : '',
         shotNo: parseShotNo(im.shotNo),
         storyId: imageStoryId,
-        status: normalizeImageStatus(im.status),
+        status: normalizeAssetStatus(im.status, im.generationType),
       },
     ];
   });
+}
 
-  // 本地优先，按 id 去重合并（本地刚收下的覆盖服务端旧值）。
+export function mergeStoryImagesForDisplay(
+  serverImages: readonly GeneratedImageItem[],
+  localImages: readonly GeneratedImageItem[],
+): GeneratedImageItem[] {
   const byId = new Map<number, GeneratedImageItem>();
   for (const img of serverImages) byId.set(img.id, img);
-  for (const img of storyImages) {
-    if (!img.imageUrl || img.status === 'error') continue;
+  for (const img of localImages) {
+    if (!img.imageUrl || img.status === 'error' || byId.has(img.id)) continue;
     byId.set(img.id, img);
   }
   return Array.from(byId.values());
+}
+
+export function useStoryGeneratedImages(): GeneratedImageItem[] {
+  // 本地即时来源：context.storyImages（刚出图/刚收下后立刻可见）。
+  const { remoteStoryId, activeStoryId, storyImages } = useStoryGeneratedImagesSlice();
+  const storyId = remoteStoryId ?? activeStoryId ?? undefined;
+
+  // 服务端权威来源：generated_images 投影。不要再读 story body 的 mobileImages 旧副本；
+  // 否则重新生成故事版后，内存里的 3 张草稿会被旧 body 短暂覆盖掉。
+  const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
+    { storyId: storyId as number },
+    { enabled: typeof storyId === 'number', refetchOnWindowFocus: true },
+  );
+
+  const serverImages = projectStoryImageAssetsForDisplay(storyImagesQuery.data ?? [], storyId);
+
+  return mergeStoryImagesForDisplay(serverImages, storyImages);
 }

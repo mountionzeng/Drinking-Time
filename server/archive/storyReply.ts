@@ -3,9 +3,10 @@ import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
+import { createImageSignal } from "../db";
 import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
 import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt } from "./storyAgent.prompts";
-import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardPayload, StoryChatIntentPayload, ToolCall } from "./storyAgent.types";
+import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardContextPayload, StoryCardPayload, StoryChatIntentPayload, ToolCall } from "./storyAgent.types";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
   "defensive",
@@ -40,6 +41,48 @@ function extractReplyText(raw: string): string {
   return text;
 }
 
+/**
+ * 轻量级视觉修正检测：判断用户消息是否包含对画面/风格/视觉的修正指令。
+ * 返回修正摘要或 null（非视觉修正）。
+ * 单独一次 LLM 调用，prompt 极短，延迟低。
+ */
+async function detectVisualCorrection(
+  message: string,
+  history: Array<{ role: string; content: string }>,
+): Promise<string | null> {
+  try {
+    const recentContext = history
+      .slice(-4)
+      .map((t) => `${t.role === "user" ? "用户" : "小酌"}：${t.content}`)
+      .join("\n");
+
+    const { text } = await invokeAgent(
+      [
+        {
+          role: "system",
+          content:
+            "你是视觉修正检测器。判断用户最新消息是否包含对画面、风格、色调、构图、人物外貌、氛围等视觉元素的修正或明确要求。" +
+            "注意：内容创意指令（如「我要一个雨天场景」）不算视觉修正；只有对已有或将有画面的修改指令才算（如「不要太亮」「人物太瘦了」「换冷色调」）。" +
+            '返回 JSON：{"correction":"修正摘要"} 或 {"correction":null}。仅返回 JSON。',
+        },
+        ...(recentContext
+          ? [{ role: "user" as const, content: `近期对话：\n${recentContext}` }]
+          : []),
+        { role: "user" as const, content: `用户最新消息：${message}` },
+      ],
+      128,
+    );
+
+    const parsed = parseJsonLoose<{ correction?: string | null }>(text);
+    return typeof parsed.correction === "string" && parsed.correction.trim()
+      ? parsed.correction.trim()
+      : null;
+  } catch {
+    // 检测失败不影响对话，静默跳过
+    return null;
+  }
+}
+
 export async function replyFromStoryAgent(params: {
   message: string;
   history?: ChatTurn[];
@@ -47,7 +90,9 @@ export async function replyFromStoryAgent(params: {
   summary?: string;
   currentShots?: ShotDraft[];
   similarCards?: SimilarStoryCardPayload[];
+  storyCards?: StoryCardContextPayload[];
   projectId?: number;
+  userId?: number;
   enableImageGen?: boolean;  // 手机端出图开关
   photoUrl?: string;         // 用户上传的照片 URL，传给 LLM 做多模态理解
   confirmedIntent?: StoryChatIntentPayload;
@@ -115,6 +160,7 @@ export async function replyFromStoryAgent(params: {
         params.enableImageGen,
         Boolean(params.photoUrl),  // 有照片 → 注入「先看图」指令
         params.confirmedIntent,
+        params.storyCards,
       ),
     },
     ...turns,
@@ -268,6 +314,34 @@ export async function replyFromStoryAgent(params: {
 
   // 如果有 generateImage toolCall，说明小酌建议出图
   const suggestImage = toolCalls.some(tc => tc.name === "generateImage");
+
+  // 矫正循环：检测用户消息中的视觉修正，写入 image_signals 供出图网关消费
+  if (params.userId != null && params.projectId != null) {
+    detectVisualCorrection(params.message, cleanedHistory)
+      .then(async (correction) => {
+        if (!correction) return;
+        // 从 currentShots 中找第一个镜头的 shotNo 作为关联
+        const firstShotNo = currentShots[0]?.shotNo != null
+          ? String(currentShots[0].shotNo)
+          : undefined;
+        await createImageSignal({
+          userId: params.userId!,
+          storyId: 0, // 聊天矫正不关联特定故事
+          imageId: null,
+          action: "chat_correction",
+          metadata: {
+            source: "chat",
+            projectId: params.projectId,
+            shotNo: firstShotNo ?? null,
+            correction,
+            userMessage: params.message,
+          },
+        });
+      })
+      .catch(() => {
+        // 检测或写入失败不影响对话
+      });
+  }
 
   return {
     configured: true,

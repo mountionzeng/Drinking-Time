@@ -1,7 +1,6 @@
 import { Route, Switch, Redirect } from 'wouter';
 import AnalysisPage from '@/pages/AnalysisPage';
 import CreationPage from '@/pages/CreationPage';
-import CreationEditorPage from '@/pages/CreationEditorPage';
 import LoginPage from '@/pages/LoginPage';
 import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
 import MobilePage from '@/pages/MobilePage';
@@ -58,9 +57,6 @@ export default function AppRouter() {
       </Route>
       <Route path="/creation">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationPage /></AuthGuard>}
-      </Route>
-      <Route path="/studio">
-        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationEditorPage /></AuthGuard>}
       </Route>
       {/* 手机端路由 */}
       <Route path="/m/welcome" component={MobileWelcomePage} />

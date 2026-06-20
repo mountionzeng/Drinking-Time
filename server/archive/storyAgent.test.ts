@@ -106,6 +106,51 @@ describe('storyAgent edit context injection (U6)', () => {
     expect(systemContent).toContain('倾向于克制的情感表达');
   });
 
+  it('injects Story Cards as job-search gap context for the chat agent', async () => {
+    mockGetRecentAnnotations.mockResolvedValueOnce([]);
+    mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '下一步该问什么？',
+      projectId: 42,
+      existingCardCount: 3,
+      confirmedIntent: {
+        purpose: 'linkedin_job_search',
+        audience: 'recruiters',
+        targetRole: '创业公司合伙人',
+      },
+      storyCards: [
+        {
+          title: '我知道流程怎么运作',
+          content: '用户说自己能把抽象需求变成画面，让观众理解共通情感。',
+          emotion: '清醒',
+          themeHints: ['能力主张', '视觉表达'],
+        },
+        {
+          title: '缺少外部价值',
+          content: '目前还没有说明这种能力对团队、公司或产品有什么具体价值。',
+          emotion: '待补',
+          themeHints: ['外部价值', '证据缺口'],
+        },
+      ],
+    });
+
+    const systemMessage = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    );
+    const systemContent = systemMessage?.content as string;
+    expect(systemContent).toContain('当前 Story Cards 全局上下文');
+    expect(systemContent).toContain('我知道流程怎么运作');
+    expect(systemContent).toContain('缺少外部价值');
+    expect(systemContent).toContain('求职故事缺口诊断');
+    expect(systemContent).toContain('不要等用户问');
+    expect(systemContent).toContain('为什么有这个能力');
+    expect(systemContent).toContain('带来什么外部价值');
+    expect(systemContent).toContain('先给出你的推断，再请用户确认或修正');
+    expect(systemContent).toContain('这个说法接近吗');
+    expect(systemContent).toContain('一次只点一个最关键缺口');
+  });
+
   it('uses vanilla prompt (no edit block) when no annotations exist', async () => {
     mockGetRecentAnnotations.mockResolvedValueOnce([]);
     mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());

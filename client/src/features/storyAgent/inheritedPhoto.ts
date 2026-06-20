@@ -1,7 +1,7 @@
 /**
- * 「卡片 / 剧本继承对话照片」的纯逻辑。
+ * 「卡片继承对话照片」的纯逻辑。
  *
- * 从 StoryAgentContext / ScriptViewer 里抽出来单独成文件，有两个好处：
+ * 从 StoryAgentContext 里抽出来单独成文件，有两个好处：
  *   1. 可单测 —— 不用渲染 React、不用 mock tRPC，直接喂数据断言输出；
  *   2. 给那个越来越重的 god-object 减负。
  *
@@ -10,7 +10,6 @@
  */
 import type {
   ChatMessage,
-  ScriptScene,
   StoryCard,
   VisualCanvasAnalysis,
   VisualCanvasItem,
@@ -76,30 +75,6 @@ export function buildInheritedPhotoReference(params: {
     analysis: emptyVisualAnalysis(),
     createdAt,
   };
-}
-
-/**
- * 剧本「派生式」取图：为每个场景算出它从来源卡片继承来的对话原图 URL。
- *
- * 纯渲染期推导，不新增字段、不落库：
- *   scene.fromCardId → 该卡片上 source==='reference' 的视觉锚 → imageUrl。
- *
- * 返回 Map<sceneNo, imageUrl>；场景没有 fromCardId、或该卡片没有继承图，就不进 Map。
- * 调用方（ScriptViewer）用它作为「还没有生成图时」的回退缩略图。
- */
-export function buildSceneInheritedImageMap(
-  scenes: ReadonlyArray<Pick<ScriptScene, 'sceneNo' | 'fromCardId'>>,
-  visualCanvasItems: ReadonlyArray<VisualCanvasItem>,
-): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const scene of scenes) {
-    if (!scene.fromCardId) continue; // fromCardId 是内容匹配出来的，匹配不到就是空串
-    const ref = visualCanvasItems.find(
-      item => item.source === 'reference' && item.cardId === scene.fromCardId,
-    );
-    if (ref) map.set(scene.sceneNo, ref.imageUrl);
-  }
-  return map;
 }
 
 /**

@@ -1,5 +1,10 @@
 import type { SemanticAnnotation } from "../db";
-import type { SimilarStoryCardPayload, ShotDraft, StoryChatIntentPayload } from "./storyAgent.types";
+import type {
+  SimilarStoryCardPayload,
+  ShotDraft,
+  StoryCardContextPayload,
+  StoryChatIntentPayload,
+} from "./storyAgent.types";
 
 export const FIRST_QUESTION =
   "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
@@ -67,6 +72,60 @@ function formatSimilarMemoryCards(cards: SimilarStoryCardPayload[]): string {
   });
 
   return lines.filter(Boolean).join("\n") + "\n";
+}
+
+function shortText(value: string | undefined, max = 120): string {
+  const text = value?.replace(/\s+/g, " ").trim() ?? "";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function formatStoryCardContext(cards: StoryCardContextPayload[] | undefined): string {
+  if (!Array.isArray(cards) || cards.length === 0) return "";
+
+  const lines = [
+    "【当前 Story Cards 全局上下文（只读，用来判断求职故事缺口）】",
+    "这些卡片是用户到目前为止交给你的全部求职素材。你要把它们当成同一条说服链，而不是互不相关的片段。",
+  ];
+
+  cards.slice(-12).forEach((card, index) => {
+    const meta = [
+      card.emotion ? `状态：${card.emotion}` : "",
+      typeof card.intensity === "number" ? `权重：${card.intensity.toFixed(2)}` : "",
+      card.direction ? `方向：${shortText(card.direction, 40)}` : "",
+      card.trigger ? `触发：${shortText(card.trigger, 50)}` : "",
+      card.dramaticFunction ? `作用：${shortText(card.dramaticFunction, 50)}` : "",
+      Array.isArray(card.themeHints) && card.themeHints.length
+        ? `主题：${card.themeHints.slice(0, 4).join(" / ")}`
+        : "",
+    ].filter(Boolean);
+    lines.push(
+      `· 卡片 ${index + 1}${card.title ? `《${shortText(card.title, 28)}》` : ""}：${shortText(card.content, 160)}`,
+      meta.length ? `  ${meta.join("；")}` : "",
+      card.sourceQuote ? `  原话锚点：${shortText(card.sourceQuote, 48)}` : "",
+    );
+  });
+
+  lines.push(
+    "",
+    "【求职故事缺口诊断】",
+    "你每轮回复前，都要主动站在招聘者视角默默检查这条链是否完整；不要等用户问「下一步该问什么」才诊断。",
+    "1. 岗位关心什么：目标岗位 / JD / 招聘者最在意的筛选标准是否清楚。",
+    "2. 你有什么能力：用户真正可出售的优势是否具体，不只是抽象形容词。",
+    "3. 为什么有这个能力：能力形成的原因、经历来源、训练路径是否说清楚。",
+    "4. 怎么发生作用：这些能力如何在项目、团队、产品或业务里产生结果。",
+    "5. 凭什么相信：是否有作品、职责、数字、过程细节、他人反馈或可验证证据。",
+    "6. 为什么值得联系：是否有一句清楚的定位或下一步邀约。",
+    "7. 带来什么外部价值：对公司、团队、用户、业务或产品能带来什么具体价值。",
+    "如果卡片里已经暴露明显缺口，要直接告诉用户你的判断，但要让用户确认：",
+    "「我现在看下来，链条最缺的是 X。不是让你包装，而是招聘者会想知道 Y。我们要不要先把这里补清楚？」",
+    "更进一步：如果现有卡片已经足够支持一个暂定答案，你要先给出你的推断，再请用户确认或修正。",
+    "示例：「我先替你试着说一句：你不是只会把画面做漂亮，而是能把抽象需求翻译成别人能共情、能行动的视觉判断。这个说法接近吗？」",
+    "一次只点一个最关键缺口；不要把 7 项做成 checklist；不要编硬事实，但可以基于已有卡片给出明确假设，让用户确认、改写或否定。",
+    "用户确认或补充后，再把新信息沉淀成卡片；用户否定时，顺着他的修正继续追问。",
+    "",
+  );
+
+  return lines.filter(Boolean).join("\n");
 }
 
 function formatJobSearchIntentBlock(intent?: StoryChatIntentPayload): string {
@@ -166,6 +225,7 @@ export function buildAgentSystemPrompt(
   enableImageGen?: boolean,
   photoShared?: boolean,  // 这一轮对方有没有附带照片（决定是否注入「先看图」指令）
   confirmedIntent?: StoryChatIntentPayload,
+  storyCards?: StoryCardContextPayload[],
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
   // 节奏指令：先接住，再慢慢补齐；不要等成完整故事才留卡。
@@ -217,6 +277,9 @@ export function buildAgentSystemPrompt(
     ? formatSimilarMemoryCards(similarCards)
     : "";
   const jobSearchBlock = formatJobSearchIntentBlock(confirmedIntent);
+  const storyCardContextBlock = isJobSearch
+    ? formatStoryCardContext(storyCards)
+    : "";
   const taskBlock = isJobSearch
     ? [
         "你在做的事很具体：帮对方把求职目标、简历经历、项目证据和个人定位整理成能打动招聘者的短片素材。",
@@ -286,6 +349,7 @@ export function buildAgentSystemPrompt(
     similarMemoryBlock,
     editContextBlock ?? "",
     jobSearchBlock,
+    storyCardContextBlock,
     // ── 在做的事 ──
     taskBlock,
     "",

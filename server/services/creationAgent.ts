@@ -8,7 +8,7 @@
 import { ENV } from "../_core/env";
 import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
-import { editImage, generateImage, type ImageProvider } from "./imageGen";
+import { editImage, generateImage, type ImageGenResult, type ImageProvider } from "./imageGen";
 import { composeScenePrompt } from "./composeScenePrompt";
 import { deriveInjection } from "./imageInjection";
 import { renderViaGate } from "./renderGate";
@@ -456,6 +456,8 @@ export async function generateNextImage(
   const injection = input.story
     ? await deriveInjection(input.story, input.sceneAnalysis)
     : {};
+  const storyBody = input.story?.body as Record<string, unknown> | undefined;
+  const styleIndex = typeof storyBody?.styleIndex === "number" ? storyBody.styleIndex : undefined;
 
   let genResult: Awaited<ReturnType<typeof generateImage>>;
   try {
@@ -464,8 +466,10 @@ export async function generateNextImage(
         prompt: input.prompt,
         shotNo: targetShotNo,
         projectId: input.projectId,
+        storyId: input.storyId ?? undefined,
         artDirection: input.artDirection,
         referenceImages,
+        styleIndex,
       },
       prompt => {
         if (continuitySource) {
@@ -672,16 +676,26 @@ export async function replyFromCreationAgent(
         const referenceImages = Array.from(
           new Set([asset.imageUrl, ...(input.referenceImages ?? [])]),
         );
-        const revised = await renderViaGate(
+        const injection = input.story
+          ? await deriveInjection(input.story)
+          : {};
+        const reviseStoryBody = input.story?.body as Record<string, unknown> | undefined;
+        const reviseStyleIndex = typeof reviseStoryBody?.styleIndex === "number" ? reviseStoryBody.styleIndex : undefined;
+        const revised = await renderViaGate<ImageGenResult>(
           {
             prompt: reviseCall.prompt,
             intent: input.message,
             referenceImages,
             shotNo: targetShotNo ?? asset.canonicalShotNo ?? undefined,
             projectId: input.projectId,
+            storyId: input.storyId ?? undefined,
             artDirection: input.artDirection,
+            styleIndex: reviseStyleIndex,
           },
-          prompt => editImage(source, prompt, { provider: input.imageProvider }),
+          prompt => editImage(source, prompt, {
+            provider: input.imageProvider,
+            ...injection,
+          }),
         );
         if (revised.status === "ok" && revised.imageUrl) {
           const dbImage = await createGeneratedImage({

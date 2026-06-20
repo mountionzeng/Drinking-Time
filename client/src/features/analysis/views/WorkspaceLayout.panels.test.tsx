@@ -47,8 +47,8 @@ vi.mock('@/features/storyAgent/views/StoryCardsBoard', () => ({
   default: () => <div data-panel="story-cards">Story cards panel</div>,
 }));
 vi.mock('./PromptDistill', () => ({ default: () => <div>PromptDistill</div> }));
-vi.mock('@/features/storyAgent/views/ScriptViewer', () => ({
-  default: () => <div data-panel="script">Script panel</div>,
+vi.mock('@/features/storyAgent/views/StoryboardPanel', () => ({
+  default: () => <div data-panel="storyboard">Storyboard panel</div>,
 }));
 vi.mock('@/features/creationEditor/views/AnimaticPanel', () => ({
   default: () => <div data-panel="animatic">Animatic panel</div>,
@@ -79,17 +79,17 @@ describe('WorkspaceLayout story panel buttons', () => {
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).not.toContain('data-panel="story-cards"');
-    expect(html).not.toContain('data-panel="script"');
+    expect(html).not.toContain('data-panel="storyboard"');
     expect(html).not.toContain('data-panel="animatic"');
     expect(html).not.toContain('data-panel="prompt-table"');
   });
 
   it('can render multiple story panels at the same time', () => {
-    storyPanelState.visibleStoryPanels = ['storyCards', 'script', 'animatic', 'promptTable'];
+    storyPanelState.visibleStoryPanels = ['storyCards', 'storyboard', 'animatic', 'promptTable'];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).toContain('data-panel="story-cards"');
-    expect(html).toContain('data-panel="script"');
+    expect(html).toContain('data-panel="storyboard"');
     expect(html).toContain('data-panel="animatic"');
     expect(html).toContain('data-panel="prompt-table"');
   });

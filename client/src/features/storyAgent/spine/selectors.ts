@@ -153,20 +153,6 @@ export function useCardReferenceDockSlice() {
   return useStorySpine(useShallow(selectCardReferenceDockSlice));
 }
 
-export function selectStoryScriptViewerSlice(state: StorySpineState) {
-  return {
-    latestScript: selectLatestScript(state),
-    scripts: state.scripts,
-    storyShots: state.storyShots,
-    visualCanvasItems: state.visualCanvasItems,
-    activeStoryId: state.activeStoryId,
-  };
-}
-
-export function useStoryScriptViewerSlice() {
-  return useStorySpine(useShallow(selectStoryScriptViewerSlice));
-}
-
 export function selectStoryGeneratedImagesSlice(state: StorySpineState) {
   return {
     remoteStoryId: state.remoteStoryId,
@@ -179,19 +165,7 @@ export function useStoryGeneratedImagesSlice() {
   return useStorySpine(useShallow(selectStoryGeneratedImagesSlice));
 }
 
-export function selectStoryArtDirectionLauncherSlice(state: StorySpineState) {
-  return {
-    artDirection: state.artDirection,
-    cardCount: state.cards.length,
-    preferredDrawShotNo: state.preferredDrawShotNo,
-  };
-}
-
-export function useStoryArtDirectionLauncherSlice() {
-  return useStorySpine(useShallow(selectStoryArtDirectionLauncherSlice));
-}
-
-export function selectStoryArtDirectionStudioSlice(state: StorySpineState) {
+export function selectStoryboardPanelArtSlice(state: StorySpineState) {
   return {
     artDirection: state.artDirection,
     imageProvider: state.imageProvider,
@@ -199,8 +173,8 @@ export function selectStoryArtDirectionStudioSlice(state: StorySpineState) {
   };
 }
 
-export function useStoryArtDirectionStudioSlice() {
-  return useStorySpine(useShallow(selectStoryArtDirectionStudioSlice));
+export function useStoryboardPanelArtSlice() {
+  return useStorySpine(useShallow(selectStoryboardPanelArtSlice));
 }
 
 export function usePromptPool() {

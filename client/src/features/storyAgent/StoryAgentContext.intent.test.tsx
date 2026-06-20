@@ -34,7 +34,6 @@ vi.mock('@/lib/trpc', () => ({
     artAgent: {
       riff: { useMutation: makeMutation },
       analyzeReference: { useMutation: makeMutation },
-      generateCandidates: { useMutation: makeMutation },
     },
     editContext: {
       saveSnapshot: { useMutation: makeMutation },

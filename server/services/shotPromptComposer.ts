@@ -38,6 +38,11 @@ export type ShotForPrompt = {
   note: string;
   emotion: string;
   sourceCardContent: string;
+  videoStart?: string;
+  videoEnd?: string;
+  transitionIn?: string;
+  transitionOut?: string;
+  videoPrompt?: string;
 };
 
 export type ShotPromptComposition = {
@@ -165,6 +170,15 @@ export function composeShotPrompt(params: {
     shot.styleRef ? `风格参考：${shot.styleRef}` : "",
   ], "；");
 
+  const videoDirection = compactJoin([
+    shot.videoStart ? `起始画面：${shot.videoStart}` : "",
+    shot.videoEnd ? `结束状态：${shot.videoEnd}` : "",
+    shot.transitionIn ? `接上一镜：${shot.transitionIn}` : "",
+    shot.transitionOut ? `接下一镜：${shot.transitionOut}` : "",
+    shot.sound ? `背景音：${shot.sound}` : "",
+    shot.videoPrompt ? `图生视频提示：${shot.videoPrompt}` : "",
+  ], "；");
+
   // 有引用片段时用离散片段代替压扁的视觉锚；没有引用片段时回退到旧的视觉锚摘要
   const fragmentText = fragmentSection(params.fragments);
   const visualAnchorLine = fragmentText
@@ -176,6 +190,7 @@ export function composeShotPrompt(params: {
   const promptDraft = [
     visualContent || "主体与动作来自用户故事素材",
     cameraAndLook,
+    videoDirection,
     `情绪电荷：${emotionCharge}`,
     shot.beat === "转折"
       ? "转折镜重点：不要只画静态悲伤或静态快乐，要用光线、色温、距离、姿态或构图表现情绪正在变化。"

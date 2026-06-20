@@ -18,14 +18,21 @@ describe('StoryCardsBoard intent entry', () => {
     ).toBe(false);
   });
 
-  it('exposes an integrated storyboard review board outside the list-only card body', () => {
+  it('keeps the storyboard review board in the right-side storyboard panel', () => {
     const boardSource = readFileSync(
       resolve(root, 'client/src/features/storyAgent/views/StoryCardsBoard.tsx'),
+      'utf8',
+    );
+    const panelSource = readFileSync(
+      resolve(root, 'client/src/features/storyAgent/views/StoryboardPanel.tsx'),
       'utf8',
     );
 
     expect(boardSource).toContain('故事版看板');
     expect(boardSource).toContain('StoryboardReviewBoard');
+    expect(boardSource).not.toContain('<StoryboardReviewBoard');
+    expect(panelSource).toContain('<StoryboardReviewBoard');
+    expect(panelSource).toContain('Story Cards 整理好求职优势后');
     expect(boardSource).toContain('叙事风格');
     expect(boardSource).toContain('美术风格');
     expect(boardSource).toContain('导演理由');

@@ -3,8 +3,8 @@ import type { ShotStatus, Priority, SourceType } from '@/features/analysis/types
 export const SOURCE_TYPE_CONFIG: Record<SourceType, { label: string; icon: string; color: string }> = {
   image: { label: 'Image', icon: '🖼', color: 'oklch(0.70 0.12 250)' },
   video: { label: 'Video', icon: '🎬', color: 'oklch(0.65 0.15 310)' },
-  script: { label: 'Script', icon: '📜', color: 'oklch(0.72 0.10 80)' },
-  storyboard: { label: 'Storyboard', icon: '🎞', color: 'oklch(0.68 0.12 155)' },
+  script: { label: '文本稿', icon: '📜', color: 'oklch(0.72 0.10 80)' },
+  storyboard: { label: '故事板', icon: '🎞', color: 'oklch(0.68 0.12 155)' },
   brief: { label: 'Brief', icon: '📋', color: 'oklch(0.65 0.10 195)' },
   note: { label: 'Note', icon: '📝', color: 'oklch(0.60 0.05 270)' },
 };

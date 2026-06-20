@@ -57,7 +57,6 @@ type StorySpineData = {
   storyList: StoryListItem[];
   returningGreeting: string | null;
   activeSelection: SelectionState | null;
-  preferredDrawShotNo: number | null;
   hydratedFor: number | null;
   sessionId: string;
   lastSnapshotHash: string;
@@ -97,7 +96,6 @@ type StorySpineActions = {
   setStoryList: StorySpineSetter<StoryListItem[]>;
   setReturningGreeting: StorySpineSetter<string | null>;
   setActiveSelection: StorySpineSetter<SelectionState | null>;
-  setPreferredDrawShotNo: StorySpineSetter<number | null>;
   setHydratedFor: StorySpineSetter<number | null>;
   setLastSnapshotHash: StorySpineSetter<string>;
   setLastArchiveSaveHash: StorySpineSetter<string>;
@@ -143,7 +141,6 @@ function initialData(): StorySpineData {
     storyList: [],
     returningGreeting: null,
     activeSelection: null,
-    preferredDrawShotNo: null,
     hydratedFor: null,
     sessionId: sessionId(),
     lastSnapshotHash: '',
@@ -198,7 +195,6 @@ export const useStorySpine = create<StorySpineState>()((set) => {
     setStoryList: setField('storyList'),
     setReturningGreeting: setField('returningGreeting'),
     setActiveSelection: setField('activeSelection'),
-    setPreferredDrawShotNo: setField('preferredDrawShotNo'),
     setHydratedFor: setField('hydratedFor'),
     setLastSnapshotHash: setField('lastSnapshotHash'),
     setLastArchiveSaveHash: setField('lastArchiveSaveHash'),

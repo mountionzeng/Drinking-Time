@@ -6,12 +6,14 @@ import {
   ImageIcon,
   Link2,
   Loader2,
+  Palette,
   RefreshCw,
   Sparkles,
   Wand2,
 } from 'lucide-react';
 import type { ImageAsset } from '@shared/imageAsset';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -48,6 +50,8 @@ type ShotImageWorkspaceProps = {
   generatingShotNo?: string | null;
   /** 出图失败信息（按镜头）→ inline 错误 + 重试 */
   generateError?: { shotNo: string; message: string } | null;
+  /** 当前故事 ID（用于换风格） */
+  storyId?: number | null;
 };
 
 /** 焦点镜头的出图提示词：优先 promptDraft，退而求其次用素材摘要 / 镜号。 */
@@ -177,6 +181,7 @@ export default function ShotImageWorkspace({
   onGenerateNext,
   generatingShotNo,
   generateError,
+  storyId,
 }: ShotImageWorkspaceProps) {
   const model = useMemo(
     () => buildImageAssetWorkspace(assets, shots.map(shot => shot.shotNo)),
@@ -188,6 +193,8 @@ export default function ShotImageWorkspace({
       : shots[0]?.shotNo ?? null;
   const group = resolvedFocus ? model.shotGroups.get(resolvedFocus) : undefined;
   const [previewId, setPreviewId] = useState<number | null>(null);
+
+  const cycleStyleMut = trpc.storyAgent.cycleStyle.useMutation();
 
   useEffect(() => {
     setPreviewId(null);
@@ -323,6 +330,25 @@ export default function ShotImageWorkspace({
                         <Check className="h-4 w-4" />
                         收下
                       </Button>
+                      {loopEnabled && storyId ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              className="h-8 w-8"
+                              disabled={cycleStyleMut.isPending}
+                              onClick={() => cycleStyleMut.mutate(
+                                { storyId },
+                                { onSuccess: () => startGenerate(activePending.id) },
+                              )}
+                            >
+                              <Palette className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>换风格</TooltipContent>
+                        </Tooltip>
+                      ) : null}
                       {loopEnabled ? (
                         <Button
                           size="sm"
@@ -367,6 +393,25 @@ export default function ShotImageWorkspace({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>对这张整图微调（如「改暖一点」）</TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      {loopEnabled && storyId ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              className="h-8 w-8"
+                              disabled={cycleStyleMut.isPending}
+                              onClick={() => cycleStyleMut.mutate(
+                                { storyId },
+                                { onSuccess: () => startGenerate() },
+                              )}
+                            >
+                              <Palette className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>换风格</TooltipContent>
                         </Tooltip>
                       ) : null}
                       {loopEnabled ? (

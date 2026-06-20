@@ -36,6 +36,13 @@
       "when": 1781340040837,
       "tag": "0004_rare_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1781999834000,
+      "tag": "0005_add_chat_correction",
+      "breakpoints": true
     }
   ]
 }

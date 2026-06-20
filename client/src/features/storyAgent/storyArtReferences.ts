@@ -133,11 +133,3 @@ export function buildStoryArtReferences(params: {
       selected: index < maxSelected,
     }));
 }
-
-export function nextReferencePurpose(
-  purpose: ArtReferenceMaterial["purpose"],
-): ArtReferenceMaterial["purpose"] {
-  if (purpose === "fact") return "aesthetic";
-  if (purpose === "aesthetic") return "both";
-  return "fact";
-}

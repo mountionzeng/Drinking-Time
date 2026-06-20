@@ -178,10 +178,6 @@ vi.mock('@/features/storyAgent/hooks/useVoiceInput', () => ({
   }),
 }));
 
-vi.mock('./views/StoryArtDirectionLauncher', () => ({
-  default: () => null,
-}));
-
 describe('StoryAgentChat intent soft confirm', () => {
   beforeEach(() => {
     fixtures.chatContextState.pendingIntentDraft = fixtures.jobIntent;

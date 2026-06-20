@@ -362,6 +362,7 @@ export const imageSignals = mysqlTable("image_signals", {
     "swipe_right",
     "edit_start",
     "edit_complete",
+    "chat_correction",
   ]).notNull(),
   metadata: json("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

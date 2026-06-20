@@ -66,6 +66,14 @@ export const ENV = {
   image302MjSubmitTimeoutMs: process.env.IMAGE_302_MJ_SUBMIT_TIMEOUT_MS ?? "90000", // Midjourney submit 单次请求上限（区别于任务轮询总时长）
   image302MjTimeoutMs: process.env.IMAGE_302_MJ_TIMEOUT_MS ?? "180000", // Midjourney 总等待上限
 
+  // ── 302.ai 图生视频（复用 API302_KEY；模型/路径按 302 控制台实际能力配置）──
+  video302Model: process.env.VIDEO_302_MODEL ?? "",
+  video302SubmitPath: process.env.VIDEO_302_SUBMIT_PATH ?? "",
+  video302PollPath: process.env.VIDEO_302_POLL_PATH ?? "",
+  video302ImageField: process.env.VIDEO_302_IMAGE_FIELD ?? "image_url",
+  video302PollMs: process.env.VIDEO_302_POLL_MS ?? "3000",
+  video302TimeoutMs: process.env.VIDEO_302_TIMEOUT_MS ?? "300000",
+
   // ── 302.ai 视觉分析（不填模型或 Key 时回退原视觉通道）──
   vision302ApiKey: process.env.VISION_302_API_KEY ?? process.env.API302_KEY ?? "", // 302.ai 视觉模型 API Key
   vision302BaseUrl: process.env.VISION_302_BASE_URL ?? process.env.API302_BASE_URL ?? "https://api.302.ai", // 302.ai 视觉网关地址
