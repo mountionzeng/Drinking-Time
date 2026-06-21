@@ -19,20 +19,22 @@ export function compilePromptRecipe(params: {
     return `${row.label}(${weight}%): ${row.value.trim()}`;
   });
 
+  const shotKey = `SH${String(params.shot.shotNo ?? 0).padStart(2, '0')}`;
+
   return {
     finalPrompt: [
-      `Rerender only ${params.shot.shotKey}. Create exactly one single ad-film storyboard key frame. Use other shots only as continuity context; do not show them.`,
-      'Director goal: communicate the user strength behind this Story Card to the intended audience. Make the image explain why this moment is credible, useful, and worth contacting the person for.',
-      'Hard constraints: no split screen, no comic panels, no storyboard grid, no contact sheet, no subtitles, no captions, no readable text, no UI, no watermark.',
-      'Video-direction rows are context for motion and continuity; when rendering a still key frame, express them through composition, posture, light, and spatial direction only.',
-      'Avoid generic mood posters. Prefer concrete work evidence, visible decision process, artifacts, prototypes, whiteboards, portfolios, tools, meetings, or material traces that make the advantage believable.',
-      params.shot.sourceCardContent ? `Source material: ${params.shot.sourceCardContent}` : '',
+      `Create exactly one storyboard key frame for ${shotKey}.`,
+      'This image is part of the generated storyboard, not a standalone poster.',
+      params.shot.intent ? `Director intent: ${params.shot.intent}` : '',
+      params.shot.rationale ? `Why this frame works: ${params.shot.rationale}` : '',
+      params.shot.sourceCardContent ? `Source Story Card: ${params.shot.sourceCardContent}` : '',
       params.continuityHint ? `Continuity: ${params.continuityHint}` : '',
       params.shot.dialogue
         ? `Dialogue meaning to express through acting and composition only, do not render as text: ${params.shot.dialogue}`
         : '',
       'Prompt dimensions with weights:',
       ...weightedLines,
+      'Hard constraints: no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid.',
     ].filter(Boolean).join('\n'),
     usedDimensions: sortedRows.map((row) => row.dimension),
   };

@@ -48,11 +48,10 @@ describe('promptRecipe', () => {
       continuityHint: 'same short film',
     });
 
-    expect(recipe.finalPrompt).toContain('Rerender only SH01');
-    expect(recipe.finalPrompt).toContain('Create exactly one single ad-film storyboard key frame');
-    expect(recipe.finalPrompt).toContain('Director goal: communicate the user strength behind this Story Card');
-    expect(recipe.finalPrompt).toContain('no split screen, no comic panels, no storyboard grid');
-    expect(recipe.finalPrompt).toContain('Avoid generic mood posters');
+    expect(recipe.finalPrompt).toContain('Create exactly one storyboard key frame for SH01');
+    expect(recipe.finalPrompt).toContain('This image is part of the generated storyboard');
+    expect(recipe.finalPrompt).toContain('Source Story Card: 他站在门口。');
+    expect(recipe.finalPrompt).toContain('no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid');
     expect(recipe.finalPrompt).toContain('Dialogue meaning to express through acting and composition only, do not render as text');
     expect(recipe.finalPrompt).toContain('Continuity: same short film');
     expect(recipe.finalPrompt).toContain('主体(80%): 门口的人');

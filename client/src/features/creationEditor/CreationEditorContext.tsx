@@ -254,7 +254,7 @@ function promptSourceMarker(value: string): string | null {
 }
 
 function promptShotNo(value: string): number | null {
-  const match = /Rerender only SH0*(\d+)/i.exec(value);
+  const match = /(?:Rerender only|Create exactly one storyboard key frame for) SH0*(\d+)/i.exec(value);
   return match ? Number(match[1]) : null;
 }
 
