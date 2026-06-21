@@ -517,6 +517,7 @@ function CardReferenceDock({
   } = useStoryAgentActions();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const isFinalizing = generatedImage?.status === 'finalizing';
   const isDraft = generatedImage?.status === 'draft';
   const displayReason = imageRationale?.trim();
@@ -584,11 +585,12 @@ function CardReferenceDock({
       </div>
 
       {generatedImage ? (
-        <a
-          href={generatedImage.imageUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="relative mt-2 grid grid-cols-[72px_1fr] gap-2 overflow-hidden rounded-md border p-1.5"
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setPreviewImageUrl(generatedImage.imageUrl)}
+          onKeyDown={(e) => { if (e.key === 'Enter') setPreviewImageUrl(generatedImage.imageUrl); }}
+          className="relative mt-2 grid grid-cols-[72px_1fr] gap-2 overflow-hidden rounded-md border p-1.5 cursor-pointer"
           style={{ borderColor: 'var(--panel-border)' }}
         >
           <button
@@ -654,7 +656,7 @@ function CardReferenceDock({
                 : generatedImage.imageUrl === characterUrl ? '已设为主角' : '设为主角'}
             </button>
           </div>
-        </a>
+        </div>
       ) : null}
 
       {visualItems.length === 0 ? (
@@ -1096,6 +1098,33 @@ export default function StoryCardsBoard() {
           </>
         )}
       </div>
+      {/* 图片预览弹窗：点击遮罩关闭 */}
+      {previewImageUrl ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setPreviewImageUrl(null)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setPreviewImageUrl(null); }}
+          role="presentation"
+        >
+          <div
+            className="relative max-h-[80vh] max-w-[80vw] rounded-lg overflow-hidden shadow-2xl bg-background"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setPreviewImageUrl(null)}
+              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground shadow-sm transition hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <img
+              src={previewImageUrl}
+              alt="预览"
+              className="max-h-[80vh] max-w-[80vw] object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
