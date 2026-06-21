@@ -1,20 +1,11 @@
 /**
- * WorkspaceLayout — Three-panel resizable workspace layout.
- * Left: DropZone / StoryAgentChat (tabbed, CSS toggle)
- * Center: TemplateDraft / StoryCardsBoard (follows active tab)
- * Right: ShotTable + PromptDistill / StoryboardPanel
+ * WorkspaceLayout — Horizontal-scroll workspace layout.
+ * Left: StoryAgentChat (always visible, anchor)
+ * Right: scrollable strip of storyCards → storyboard → animatic → promptTable
  */
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from '@/components/ui/resizable';
-import DropZone from './DropZone';
 import StoryAgentChat from '@/features/storyAgent/views/StoryAgentChat';
 import StoryListView from '@/features/storyAgent/views/StoryListView';
-import TemplateDraft from './TemplateDraft';
 import StoryCardsBoard from '@/features/storyAgent/views/StoryCardsBoard';
-import PromptDistill from './PromptDistill';
 import StoryboardPanel from '@/features/storyAgent/views/StoryboardPanel';
 import { CreationEditorProvider } from '@/features/creationEditor/CreationEditorContext';
 import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
@@ -68,175 +59,59 @@ export default function WorkspaceLayout({
   const storyboardVisible = visibleStoryPanels.includes('storyboard');
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
-  const hasCenterStoryPanel = true; // storyCards always visible on story tab
-  const hasRightStoryPanel = animaticVisible || promptTableVisible;
-  const hasRightPanel = activeInputTab === 'material' || hasRightStoryPanel;
-
-  const workspace = (
-      <ResizablePanelGroup direction="horizontal" className="h-full">
-        {/* Left Panel: Input */}
-        <ResizablePanel
-          defaultSize={25}
-          minSize={15}
-          collapsible
-          collapsedSize={0}
-        >
-          <div className="h-full flex flex-col overflow-hidden">
-            {/* Tab header */}
-            <div
-              className="flex border-b shrink-0"
-              style={{ borderColor: 'var(--nayin-border)' }}
-            >
-              <button
-                type="button"
-                className={`flex-1 px-3 py-2 text-xs font-mono uppercase tracking-wider transition-colors ${
-                  activeInputTab === 'material'
-                    ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-foreground/70'
-                }`}
-                style={
-                  activeInputTab === 'material'
-                    ? {
-                        background: 'var(--nayin-surface)',
-                        boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
-                      }
-                    : undefined
-                }
-                onClick={() => onTabChange('material')}
-              >
-                素材
-              </button>
-              <button
-                type="button"
-                className={`flex-1 px-3 py-2 text-xs font-mono uppercase tracking-wider transition-colors ${
-                  activeInputTab === 'story'
-                    ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-foreground/70'
-                }`}
-                style={
-                  activeInputTab === 'story'
-                    ? {
-                        background: 'var(--nayin-surface)',
-                        boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
-                      }
-                    : undefined
-                }
-                onClick={() => onTabChange('story')}
-              >
-                故事
-              </button>
-            </div>
-
-            {/* Tab content — both mounted, CSS toggle */}
-            <div className="flex-1 min-h-0 relative">
-              <div
-                className="absolute inset-0 overflow-auto"
-                style={{ display: activeInputTab === 'material' ? 'block' : 'none' }}
-              >
-                <DropZone
-                  projectId={projectId}
-                  onAnalysisComplete={onAnalysisComplete}
-                  onRunAnalysis={onRunAnalysis}
-                  isAnalyzing={isAnalyzing}
-                  onUploadFile={onUploadFile}
-                  onRefreshRefs={onRefreshRefs}
-                />
-              </div>
-              <div
-                className="absolute inset-0 overflow-auto"
-                style={{ display: activeInputTab === 'story' ? 'block' : 'none' }}
-              >
-                {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
-              </div>
-            </div>
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        {/* Center Panel: Processing */}
-        <ResizablePanel
-          defaultSize={hasRightPanel ? 35 : 75}
-          minSize={18}
-          collapsible
-          collapsedSize={0}
-        >
-          <div className="h-full overflow-auto">
-            {(() => {
-              if (activeInputTab === 'material') {
-                return (
-                  <TemplateDraft
-                    isActive={analysisActive}
-                    analysis={analysis}
-                    refsCount={refsCount}
-                    onRunAnalysis={onRunAnalysis}
-                    isAnalyzing={isAnalyzing}
-                  />
-                );
-              }
-              return (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                  <div className="min-h-0 flex-1 overflow-auto p-2">
-                    {hasCenterStoryPanel ? (
-                      <div className="flex min-h-full flex-col gap-2">
-                        <div className="min-h-[280px] flex-1 overflow-hidden">
-                          <StoryCardsBoard />
-                        </div>
-                        {storyboardVisible ? (
-                          <div className="min-h-[280px] flex-1 overflow-auto">
-                            <StoryboardPanel />
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </ResizablePanel>
-
-        {hasRightPanel ? (
-          <>
-            <ResizableHandle withHandle />
-
-            {/* Right Panel: Output */}
-            <ResizablePanel defaultSize={40} minSize={22}>
-              <div className="h-full overflow-auto space-y-3 p-2">
-                {activeInputTab === 'material' ? (
-                  <PromptDistill
-                    isActive={analysisActive}
-                    analysis={analysis}
-                  />
-                ) : (
-                  <div className="flex min-h-full flex-col gap-2">
-                    {animaticVisible ? (
-                      <div className="min-h-[280px] flex-1 overflow-hidden">
-                        <AnimaticPanel />
-                      </div>
-                    ) : null}
-                    {promptTableVisible ? (
-                      <div className="min-h-[280px] flex-1 overflow-hidden">
-                        <PromptTablePanel />
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </ResizablePanel>
-          </>
-        ) : null}
-      </ResizablePanelGroup>
-  );
 
   return (
     <div className="flex-1 min-h-0">
       {activeInputTab === 'story' ? (
         <CreationEditorProvider activeStoryId={activeStoryId}>
-          {workspace}
+          <div className="h-full flex min-h-0">
+            {/* Left: Chat anchor — always visible, fixed width */}
+            <div
+              className="h-full shrink-0 overflow-hidden border-r"
+              style={{ width: 320, minWidth: 240, maxWidth: 400, borderColor: 'var(--nayin-border)' }}
+            >
+              {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
+            </div>
+
+            {/* Right: Horizontal scroll strip of panels */}
+            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
+              <div className="flex h-full" style={{ minWidth: 'min-content' }}>
+                {/* Story Cards — always visible */}
+                <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
+                  <StoryCardsBoard />
+                </div>
+
+                {/* Storyboard — toggle */}
+                {storyboardVisible ? (
+                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                    <StoryboardPanel />
+                  </div>
+                ) : null}
+
+                {/* Animatic — toggle */}
+                {animaticVisible ? (
+                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                    <AnimaticPanel />
+                  </div>
+                ) : null}
+
+                {/* Prompt Table — toggle */}
+                {promptTableVisible ? (
+                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                    <PromptTablePanel />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </CreationEditorProvider>
       ) : (
-        workspace
+        /* Material tab — keep original simple layout */
+        <div className="h-full overflow-auto p-4">
+          <div className="text-sm text-muted-foreground">
+            素材面板（DropZone）— 此模式暂不使用横向滑动布局
+          </div>
+        </div>
       )}
     </div>
   );

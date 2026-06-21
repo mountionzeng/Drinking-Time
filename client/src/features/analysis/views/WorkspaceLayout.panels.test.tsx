@@ -10,16 +10,6 @@ const storyPanelState = vi.hoisted(() => ({
   visibleStoryPanels: [] as string[],
 }));
 
-vi.mock('@/components/ui/resizable', () => ({
-  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel-group">{children}</div>
-  ),
-  ResizablePanel: ({ children }: { children: React.ReactNode }) => (
-    <section data-testid="panel">{children}</section>
-  ),
-  ResizableHandle: () => <div data-testid="handle" />,
-}));
-
 vi.mock('@/features/storyAgent/StoryAgentContext', () => ({
   useStoryAgentActions: () => ({
     setActiveSelection: vi.fn(),
@@ -39,14 +29,11 @@ vi.mock('@/features/creationEditor/CreationEditorContext', () => ({
   CreationEditorProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('./DropZone', () => ({ default: () => <div>DropZone</div> }));
 vi.mock('@/features/storyAgent/views/StoryAgentChat', () => ({ default: () => <div>StoryAgentChat</div> }));
 vi.mock('@/features/storyAgent/views/StoryListView', () => ({ default: () => <div>StoryListView</div> }));
-vi.mock('./TemplateDraft', () => ({ default: () => <div>TemplateDraft</div> }));
 vi.mock('@/features/storyAgent/views/StoryCardsBoard', () => ({
   default: () => <div data-panel="story-cards">Story cards panel</div>,
 }));
-vi.mock('./PromptDistill', () => ({ default: () => <div>PromptDistill</div> }));
 vi.mock('@/features/storyAgent/views/StoryboardPanel', () => ({
   default: () => <div data-panel="storyboard">Storyboard panel</div>,
 }));
