@@ -1908,6 +1908,20 @@ export function StoryAgentProvider({
           }),
         );
       }
+
+      // Auto-open panels if the loaded story has shots (previously generated storyboard).
+      if (restoredShots.length > 0) {
+        const currentPanels = storySpineStore.getState().visibleStoryPanels;
+        const panelsToAdd: Array<'animatic' | 'storyboard'> = [];
+        if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
+        if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
+        if (panelsToAdd.length > 0) {
+          storySpineStore.getState().setVisibleStoryPanels([
+            ...currentPanels,
+            ...panelsToAdd,
+          ]);
+        }
+      }
     } catch (error) {
       console.error('loadStory failed', error);
       toast.error('加载故事失败');
