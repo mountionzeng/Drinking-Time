@@ -1615,6 +1615,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 前端滑块传入；缺省走默认 0.5（场景可变不卡死）。
           sceneWeight: z.number().min(0).max(3).optional(),
           sceneAnalysis: sceneAnalysisSchema.optional(),
+          imageProvider: z.string().optional(), // 图片生成器选择，透传给 generateImage/editImage
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1727,10 +1728,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             renderedFinalPrompt = renderedPrompt;
             return referenceImage
               ? editMobileImage(referenceImage, renderedPrompt, {
+                  provider: input.imageProvider,
                   ...injection,
                   imageWeight,
                 })
-              : generateMobileImage(renderedPrompt, injection);
+              : generateMobileImage(renderedPrompt, {
+                  provider: input.imageProvider,
+                  ...injection,
+                });
           });
           if (result.status === "error" || !result.imageUrl) {
             return {
