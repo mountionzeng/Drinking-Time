@@ -54,6 +54,7 @@ import {
   hasLiveStoryWork,
 } from './storyAgentPersistence';
 import {
+  defaultArtRecipe,
   emptyStoryArtDirection,
   normalizeStoryArtDirection,
   type StoryArtDirection,
@@ -2219,7 +2220,27 @@ export function StoryAgentProvider({
               },
               ...cleared,
             ];
-      return { ...current, references, updatedAt: Date.now() };
+      // 首次设主角时自动锁定美术风格——后续所有出图（正式版、重渲）都用同一个 recipe，
+      // 不再每次 pickStyle 随机选流派，确保跨镜头风格一致。
+      const needsLock = current.phase !== 'locked';
+      const recipe = needsLock
+        ? {
+            ...defaultArtRecipe(),
+            version: 1,
+            sourceCandidateIds: [],
+            updatedAt: Date.now(),
+          }
+        : current.recipe;
+      return {
+        ...current,
+        phase: needsLock ? 'locked' : current.phase,
+        references,
+        recipe,
+        recipeVersions: needsLock
+          ? [...current.recipeVersions, recipe!]
+          : current.recipeVersions,
+        updatedAt: Date.now(),
+      };
     });
   }, []);
 
