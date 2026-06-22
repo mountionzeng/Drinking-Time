@@ -101,7 +101,13 @@ type CreationEditorContextValue = {
 
 const CreationEditorContext = createContext<CreationEditorContextValue | null>(null);
 const EMPTY_STORY_SHOTS: readonly StoryShot[] = [];
-const SHOT_CONTENT_FIELDS = [
+const CURRENT_STORY_FRAME_TYPES = new Set<CreationEditorImage['generationType']>([
+  'generate',
+  'initial',
+  'inpaint',
+]);
+
+const SHOT_STORY_IDENTITY_FIELDS = [
   'shotNo',
   'subject',
   'action',
@@ -128,7 +134,6 @@ const SHOT_CONTENT_FIELDS = [
   'emotionCharge',
   'emotionDelta',
   'visualAnchorText',
-  'promptDraft',
   'negativePrompt',
 ] as const;
 
@@ -271,6 +276,14 @@ function isPromptRunStaleForShot(
   return Boolean(expectedSource && renderedSource && expectedSource !== renderedSource);
 }
 
+function isCurrentStoryFrame(image: CreationEditorImage): boolean {
+  return (
+    image.status === 'pending' &&
+    image.isCurrent === true &&
+    CURRENT_STORY_FRAME_TYPES.has(image.generationType)
+  );
+}
+
 function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
@@ -342,7 +355,7 @@ function preserveEditorMetadata(
   persisted?: CreationEditorShot,
 ): CreationEditorShot {
   if (!persisted) return canonical;
-  const sameStoryContent = SHOT_CONTENT_FIELDS.every(
+  const sameStoryContent = SHOT_STORY_IDENTITY_FIELDS.every(
     (field) => (canonical[field] ?? '') === (persisted[field] ?? ''),
   );
   const inheritedPromptRun = sameStoryContent
@@ -438,11 +451,7 @@ export function mergeShotsWithImages(
   for (const image of images) {
     byImageId.set(image.id, image);
     if (image.shotNo == null) continue;
-    const isStoryboardDraft =
-      image.status === 'pending' &&
-      image.isCurrent &&
-      image.generationType === 'generate';
-    if (!image.isPrimary && !isStoryboardDraft) continue;
+    if (!image.isPrimary && !isCurrentStoryFrame(image)) continue;
     const previous = displayByShotNo.get(image.shotNo);
     if (!previous || image.id >= previous.id) displayByShotNo.set(image.shotNo, image);
   }
@@ -485,6 +494,28 @@ export function selectInitialShotNo(
   return shots[0]?.shotNo ?? null;
 }
 
+export function resolveCreationEditorActiveId({
+  isControlled,
+  controlledActiveStoryId,
+  localActiveStoryId,
+  firstStoryId,
+  spineActiveStoryId,
+  spineRemoteStoryId,
+}: {
+  isControlled: boolean;
+  controlledActiveStoryId: number | null | undefined;
+  localActiveStoryId: number | null;
+  firstStoryId: number | null | undefined;
+  spineActiveStoryId: number | null | undefined;
+  spineRemoteStoryId: number | null | undefined;
+}): number | null {
+  const spineStoryId = spineActiveStoryId ?? spineRemoteStoryId ?? null;
+  if (isControlled) {
+    return controlledActiveStoryId ?? spineStoryId;
+  }
+  return localActiveStoryId ?? firstStoryId ?? spineStoryId;
+}
+
 type CreationEditorProviderProps = PropsWithChildren<{
   activeStoryId?: number | null;
 }>;
@@ -510,11 +541,18 @@ export function CreationEditorProvider({
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const generateShotVideoMut = trpc.creationAgent.generateShotVideo.useMutation();
   const spineActiveStoryId = useStorySpine((state) => state.activeStoryId);
-  const activeId = isControlled
-    ? controlledActiveStoryId
-    : localActiveStoryId ?? storyListQuery.data?.stories?.[0]?.id ?? null;
+  const spineRemoteStoryId = useStorySpine((state) => state.remoteStoryId);
+  const activeId = resolveCreationEditorActiveId({
+    isControlled,
+    controlledActiveStoryId,
+    localActiveStoryId,
+    firstStoryId: storyListQuery.data?.stories?.[0]?.id,
+    spineActiveStoryId,
+    spineRemoteStoryId,
+  });
   const canonicalStoryShots = useStorySpine((state) =>
-    activeId != null && state.activeStoryId === activeId
+    activeId != null &&
+    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
       ? state.storyShots
       : EMPTY_STORY_SHOTS,
   );

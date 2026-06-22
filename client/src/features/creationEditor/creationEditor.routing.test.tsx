@@ -4,6 +4,7 @@ import {
   mergeCanonicalStoryShots,
   mergeShotsWithImages,
   normalizeStoryShots,
+  resolveCreationEditorActiveId,
   selectInitialShotNo,
   type CreationEditorShot,
 } from './CreationEditorContext';
@@ -206,6 +207,39 @@ describe('creation editor route and shell', () => {
     expect(merged[0].downstreamStale).toBe(false);
   });
 
+  it('preserves a rerender prompt run when only the persisted prompt draft differs', () => {
+    const currentShot = shot(6, {
+      subject: '窗外或树',
+      action: '说「有点累了」，重复两遍',
+      dialogue: '有点累了，有点累了',
+      sourceCardContent: '[6] 有点累了，有点累了',
+      promptDraft: '源镜头草稿',
+    });
+    const merged = mergeCanonicalStoryShots(
+      [currentShot],
+      {
+        shots: [
+          {
+            ...currentShot,
+            promptDraft: '重渲最终 prompt',
+            promptRun: {
+              finalPrompt: 'Rerender only SH06. Source material: [6] 有点累了，有点累了',
+              generatedAt: 1782099723290,
+              imageId: 215,
+              imageUrl: '/api/images/sh06-rerender.png',
+              source: 'prompt-table-rerender',
+              usedDimensions: ['subject', 'action'],
+            },
+          },
+        ],
+      },
+    );
+
+    expect(merged[0].promptRun?.imageUrl).toBe('/api/images/sh06-rerender.png');
+    expect(merged[0].downstreamStale).toBe(false);
+    expect(mergeShotsWithImages(merged, [])[0].imageUrl).toBe('/api/images/sh06-rerender.png');
+  });
+
   it('does not attach shot-number images to stale downstream shots', () => {
     const staleShot = shot(5, { downstreamStale: true });
     const freshShot = shot(6);
@@ -253,6 +287,34 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imagePrompt).toBe('storyboard draft prompt');
   });
 
+  it('attaches current initial frames that were generated before explicit selection', () => {
+    const merged = mergeShotsWithImages([shot(5), shot(6)], [
+      {
+        id: 200,
+        shotNo: 5,
+        imageUrl: '/api/images/sh05-current.png',
+        prompt: 'SH05 current initial prompt',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+        generationType: 'initial',
+      },
+      {
+        id: 199,
+        shotNo: 6,
+        imageUrl: '/api/images/sh06-current.png',
+        prompt: 'SH06 current initial prompt',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+        generationType: 'initial',
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBe('/api/images/sh05-current.png');
+    expect(merged[1].imageUrl).toBe('/api/images/sh06-current.png');
+  });
+
   it('keeps prompt-run images visible even when they are still pending drafts', () => {
     const merged = mergeShotsWithImages([
       shot(1, {
@@ -297,6 +359,19 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageId).toBe(12);
     expect(merged[0].imageUrl).toBe('/api/images/prompt-run-only.png');
     expect(merged[0].imagePrompt).toBe('prompt table prompt');
+  });
+
+  it('falls back to the hydrated remote story when the story selector is open', () => {
+    const activeId = resolveCreationEditorActiveId({
+      isControlled: true,
+      controlledActiveStoryId: null,
+      localActiveStoryId: null,
+      firstStoryId: 28,
+      spineActiveStoryId: null,
+      spineRemoteStoryId: 28,
+    });
+
+    expect(activeId).toBe(28);
   });
 
   it('marks prompt runs stale when their source material points at another shot card', () => {

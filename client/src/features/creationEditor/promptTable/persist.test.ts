@@ -86,9 +86,9 @@ describe('creation editor prompt persistence', () => {
     });
   });
 
-  it('records the final prompt run on the target shot', () => {
+  it('records the final prompt run on the target shot without overwriting the source draft', () => {
     const next = writePromptRun(
-      { shots: [{ shotNo: 2, subject: 'B' }] },
+      { shots: [{ shotNo: 2, subject: 'B', promptDraft: 'source draft' }] },
       2,
       {
         finalPrompt: 'final prompt',
@@ -100,7 +100,7 @@ describe('creation editor prompt persistence', () => {
     );
 
     expect((next.shots as any[])[0]).toMatchObject({
-      promptDraft: 'final prompt',
+      promptDraft: 'source draft',
       promptRun: {
         finalPrompt: 'final prompt',
         imageId: 99,

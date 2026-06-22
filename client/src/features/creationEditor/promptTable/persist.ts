@@ -119,7 +119,6 @@ export function writePromptRun(
 ): Record<string, unknown> {
   return updateShot(body, shotNo, (shot) => ({
     ...shot,
-    promptDraft: promptRun.finalPrompt,
     promptRun,
   }));
 }
