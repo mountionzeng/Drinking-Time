@@ -235,6 +235,24 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imagePrompt).toBeUndefined();
   });
 
+  it('attaches current storyboard draft frames to the animatic before they are selected', () => {
+    const merged = mergeShotsWithImages([shot(1)], [
+      {
+        id: 13,
+        shotNo: 1,
+        imageUrl: '/api/images/storyboard-draft.png',
+        prompt: 'storyboard draft prompt',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+        generationType: 'generate',
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBe('/api/images/storyboard-draft.png');
+    expect(merged[0].imagePrompt).toBe('storyboard draft prompt');
+  });
+
   it('keeps prompt-run images visible even when they are still pending drafts', () => {
     const merged = mergeShotsWithImages([
       shot(1, {

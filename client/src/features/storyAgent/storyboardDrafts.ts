@@ -1,11 +1,74 @@
 import type { StoryShot } from './types';
+import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import { defaultArtRecipe, type ArtRecipeDNA } from '@shared/artDirection';
 
 export const STORYBOARD_DRAFT_SHOT_LIMIT = 3;
+const STORYBOARD_STYLE_TOKEN_LIMIT = 8;
 
 const BEAT_PRIORITY = ['开场', '转折', '收束'] as const;
 
+export type StoryboardDraftGenerateInput = {
+  storyId: number;
+  shotNo: number;
+  prompt: string;
+  styleHint?: string;
+  mode: 'draft';
+  sceneWeight: number;
+};
+
+export type StoryboardDraftGenerateResult = {
+  status: 'ok' | 'error';
+  imageUrl?: string;
+  imageId?: number;
+  prompt?: string;
+  mode?: 'draft' | 'final';
+  error?: string;
+};
+
 function clean(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+export function artRecipeToStyleRef(recipe: ArtRecipeDNA | undefined): string {
+  if (!recipe) return '';
+  return [
+    ...recipe.style,
+    ...recipe.palette,
+    ...recipe.light,
+    ...recipe.composition,
+    ...recipe.material,
+  ]
+    .map(clean)
+    .filter(Boolean)
+    .slice(0, STORYBOARD_STYLE_TOKEN_LIMIT)
+    .join(', ');
+}
+
+export function commonShotStyleRef(shots: readonly StoryShot[]): string {
+  const refs = new Set(
+    shots
+      .map((shot) => clean(shot.styleRef))
+      .filter(Boolean),
+  );
+  return refs.size === 1 ? Array.from(refs)[0] : '';
+}
+
+export function resolveStoryboardStyleRef(params: {
+  shots: readonly StoryShot[];
+  artRecipe?: ArtRecipeDNA;
+}): string {
+  return commonShotStyleRef(params.shots)
+    || artRecipeToStyleRef(params.artRecipe)
+    || artRecipeToStyleRef(defaultArtRecipe());
+}
+
+export function applyStoryboardStyleRef(
+  shots: readonly StoryShot[],
+  styleRef: string,
+): StoryShot[] {
+  const cleanStyleRef = clean(styleRef);
+  if (!cleanStyleRef) return [...shots];
+  return shots.map((shot) => ({ ...shot, styleRef: cleanStyleRef }));
 }
 
 export function pickStoryboardDraftShots(
@@ -44,10 +107,57 @@ export function buildStoryboardDraftPrompt(shot: StoryShot): string {
   return [
     `Create exactly one storyboard key frame for SH${String(shot.shotNo).padStart(2, '0')}.`,
     'This image is part of the generated storyboard, not a standalone poster.',
+    clean(shot.styleRef) ? `Shared visual framework for the whole film: ${clean(shot.styleRef)}` : '',
     clean(shot.intent) ? `Director intent: ${clean(shot.intent)}` : '',
     clean(shot.rationale) ? `Why this frame works: ${clean(shot.rationale)}` : '',
     clean(shot.sourceCardContent) ? `Source Story Card: ${clean(shot.sourceCardContent)}` : '',
     clean(shot.promptDraft) || fallbackPrompt,
     'Hard constraints: no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid.',
   ].filter(Boolean).join('\n');
+}
+
+export async function generateStoryboardDraftFrames(params: {
+  storyId: number;
+  shots: readonly StoryShot[];
+  generate: (input: StoryboardDraftGenerateInput) => Promise<StoryboardDraftGenerateResult>;
+}): Promise<{
+  images: GeneratedImageItem[];
+  generatedCount: number;
+  failedCount: number;
+}> {
+  const draftShots = pickStoryboardDraftShots(params.shots);
+  const results = await Promise.all(
+    draftShots.map(async (shot): Promise<GeneratedImageItem | null> => {
+      const prompt = buildStoryboardDraftPrompt(shot);
+      try {
+        const result = await params.generate({
+          storyId: params.storyId,
+          shotNo: shot.shotNo,
+          prompt,
+          styleHint: clean(shot.styleRef) || undefined,
+          mode: 'draft',
+          sceneWeight: 0.5,
+        });
+        if (result.status !== 'ok' || !result.imageUrl || typeof result.imageId !== 'number') {
+          return null;
+        }
+        return {
+          id: result.imageId,
+          imageUrl: result.imageUrl,
+          prompt: result.prompt ?? prompt,
+          shotNo: shot.shotNo,
+          storyId: params.storyId,
+          status: result.mode === 'draft' ? 'draft' : 'ready',
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const images = results.filter((image): image is GeneratedImageItem => Boolean(image));
+  return {
+    images,
+    generatedCount: images.length,
+    failedCount: draftShots.length - images.length,
+  };
 }

@@ -11,6 +11,47 @@ const SHOT_FIELDS_TO_PRESERVE = [
   "videoPrompt",
 ] as const;
 
+const SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA = [
+  "shotNo",
+  "subject",
+  "action",
+  "dialogue",
+  "shotType",
+  "beat",
+  "cameraAngle",
+  "cameraMove",
+  "location",
+  "timeLight",
+  "mood",
+  "sound",
+  "styleRef",
+  "note",
+  "emotion",
+  "sourceCardContent",
+  "intent",
+  "rationale",
+  "videoStart",
+  "videoEnd",
+  "transitionIn",
+  "transitionOut",
+  "videoPrompt",
+  "emotionCharge",
+  "emotionDelta",
+  "visualAnchorText",
+] as const;
+
+const SHOT_STABLE_EDITOR_FIELDS = [
+  "durationMs",
+  "fragmentRefs",
+] as const;
+
+const SHOT_PROMPT_METADATA_FIELDS = [
+  "promptOverrides",
+  "promptRun",
+  "promptDraft",
+  "negativePrompt",
+] as const;
+
 function asRecord(value: unknown): StoryBodyRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as StoryBodyRecord)
@@ -86,6 +127,22 @@ function hasOwn(record: StoryBodyRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+function comparableShotValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function sameShotContentForPromptMetadata(
+  serverShot: StoryBodyRecord,
+  incomingShot: StoryBodyRecord
+): boolean {
+  return SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA.every(
+    (field) => comparableShotValue(serverShot[field]) === comparableShotValue(incomingShot[field])
+  );
+}
+
 function mergeShotPreservedFields(
   serverValue: unknown,
   incomingValue: unknown
@@ -97,6 +154,20 @@ function mergeShotPreservedFields(
   for (const field of SHOT_FIELDS_TO_PRESERVE) {
     if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
       merged[field] = serverShot[field];
+    }
+  }
+
+  for (const field of SHOT_STABLE_EDITOR_FIELDS) {
+    if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
+      merged[field] = serverShot[field];
+    }
+  }
+
+  if (sameShotContentForPromptMetadata(serverShot, incomingShot)) {
+    for (const field of SHOT_PROMPT_METADATA_FIELDS) {
+      if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
+        merged[field] = serverShot[field];
+      }
     }
   }
 

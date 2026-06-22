@@ -186,6 +186,26 @@ function storyArtRecipe(story: { body: unknown }): ArtRecipeDNA | undefined {
   return direction.phase === "locked" ? direction.recipe : undefined;
 }
 
+function artRecipeFromStyleHint(styleHint: string | null | undefined): ArtRecipeDNA | undefined {
+  const style = Array.from(
+    new Set(
+      (styleHint ?? "")
+        .split(/[,，;；、\n]/)
+        .map(part => part.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 12);
+  if (style.length === 0) return undefined;
+  return {
+    style,
+    palette: [],
+    light: [],
+    composition: [],
+    material: [],
+    negative: [],
+  };
+}
+
 function storyArtReferenceImages(story: { body: unknown }): string[] {
   const body =
     story.body && typeof story.body === "object"
@@ -1615,7 +1635,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 前端滑块传入；缺省走默认 0.5（场景可变不卡死）。
           sceneWeight: z.number().min(0).max(3).optional(),
           sceneAnalysis: sceneAnalysisSchema.optional(),
-          imageProvider: z.string().optional(), // 图片生成器选择，透传给 generateImage/editImage
+          imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(), // 图片生成器选择，透传给 generateImage/editImage
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1670,6 +1690,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           const injection = await deriveInjection(story, input.sceneAnalysis);
           // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
           const referenceImage = input.originalImageUrl || rawCharacterRef || storyReferences[0];
+          const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
           const gateContext = {
             prompt,
             referenceImages: referenceImage
@@ -1677,7 +1698,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               : undefined,
             shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
             projectId: story.projectId ?? undefined,
-            artDirection: storyArtRecipe(story),
+            storyId: story.id,
+            artDirection: storyArtRecipe(story) ?? explicitStyleRecipe,
             styleIndex: typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
               ? (story.body as Record<string, unknown>).styleIndex as number
               : undefined,

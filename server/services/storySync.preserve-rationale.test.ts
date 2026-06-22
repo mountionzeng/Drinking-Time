@@ -104,4 +104,98 @@ describe('storySync shot field preservation', () => {
     expect(shots[0]).not.toHaveProperty('promptDraft');
     expect(shots[1]).toMatchObject({ promptDraft: '真实出图提示词' });
   });
+
+  it('preserves prompt-table edits when the incoming canonical shot content is unchanged', () => {
+    const serverBody = {
+      shots: [
+        {
+          shotNo: 1,
+          subject: '桌面镜头',
+          action: '讲述项目',
+          dialogue: '这就是我做判断的方式',
+          cameraMove: 'slow push in',
+          promptOverrides: {
+            subject: { value: '候选人正在整理作品集', weight: 0.9 },
+          },
+          promptRun: {
+            finalPrompt: 'real prompt used for this exact shot',
+            generatedAt: 123,
+            imageId: 99,
+            source: 'prompt-table-rerender',
+            usedDimensions: ['subject'],
+          },
+          promptDraft: 'real prompt used for this exact shot',
+          durationMs: 4200,
+        },
+      ],
+    };
+
+    const incomingBody = {
+      shots: [
+        {
+          shotNo: 1,
+          subject: '桌面镜头',
+          action: '讲述项目',
+          dialogue: '这就是我做判断的方式',
+          cameraMove: 'slow push in',
+        },
+      ],
+    };
+
+    const body = prepareStoryBody(incomingBody, 8, serverBody);
+    const shot = (body.shots as Array<Record<string, unknown>>)[0];
+
+    expect(shot.promptOverrides).toEqual({
+      subject: { value: '候选人正在整理作品集', weight: 0.9 },
+    });
+    expect(shot.promptRun).toMatchObject({
+      finalPrompt: 'real prompt used for this exact shot',
+      imageId: 99,
+    });
+    expect(shot.promptDraft).toBe('real prompt used for this exact shot');
+    expect(shot.durationMs).toBe(4200);
+  });
+
+  it('does not preserve stale prompt runs when the incoming shot content changed', () => {
+    const serverBody = {
+      shots: [
+        {
+          shotNo: 1,
+          subject: '旧主体',
+          action: '旧动作',
+          promptOverrides: {
+            subject: { value: '旧出图主体', weight: 0.9 },
+          },
+          promptRun: {
+            finalPrompt: 'old prompt',
+            generatedAt: 123,
+            imageId: 99,
+            source: 'prompt-table-rerender',
+            usedDimensions: ['subject'],
+          },
+          promptDraft: 'old prompt',
+          durationMs: 4200,
+        },
+      ],
+    };
+
+    const body = prepareStoryBody(
+      {
+        shots: [{ shotNo: 1, subject: '新主体', action: '新动作' }],
+      },
+      9,
+      serverBody,
+    );
+    const shot = (body.shots as Array<Record<string, unknown>>)[0];
+
+    expect(shot).toMatchObject({
+      shotNo: 1,
+      subject: '新主体',
+      action: '新动作',
+      durationMs: 4200,
+    });
+    expect(shot).not.toHaveProperty('promptOverrides');
+    expect(shot).not.toHaveProperty('promptRun');
+    expect(shot).not.toHaveProperty('promptDraft');
+  });
 });

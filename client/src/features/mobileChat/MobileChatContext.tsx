@@ -30,6 +30,7 @@ import {
 } from "./types";
 import type { StoryCard } from "@/features/storyAgent/types";
 import { FIRST_QUESTION } from "@/features/storyAgent/types";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 
 // ── 持久化 ──
 interface PersistedMobileState {
@@ -558,12 +559,17 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        // 从当前镜头读取美术风格锁，确保所有面板生成的图风格一致
+        const shotStyleHint = storySpineStore.getState().storyShots
+          .find(s => s.shotNo === shotNo)?.styleRef || undefined;
+
         // 调用生成（如果有用户照片，传入作为 image-to-image 基底）
         const result = await generateMut.mutateAsync({
           prompt: msg.imagePrompt,
           storyId,
           shotNo,
           originalImageUrl: photoUrl,
+          styleHint: shotStyleHint,
         });
 
         if (result.status === "ok" && result.imageUrl) {
@@ -658,6 +664,10 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         .slice(-16)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // 从当前镜头读取美术风格锁，确保所有面板生成的图风格一致
+      const shotStyleHint = storySpineStore.getState().storyShots
+        .find(s => s.shotNo === shotNo)?.styleRef || undefined;
+
       // 双轨：先要秒级草稿小样（服务端草稿轨不可用时会自动回落 MJ 正式版）
       const result = await generateMut.mutateAsync({
         storyId,
@@ -665,6 +675,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         history,
         originalImageUrl: photoUrl,
         mode: "draft",
+        styleHint: shotStyleHint,
       });
 
       if (result.status === "ok" && result.imageUrl) {

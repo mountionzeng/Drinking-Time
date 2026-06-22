@@ -25,6 +25,7 @@ export function compilePromptRecipe(params: {
     finalPrompt: [
       `Create exactly one storyboard key frame for ${shotKey}.`,
       'This image is part of the generated storyboard, not a standalone poster.',
+      params.shot.styleRef ? `Shared visual framework for the whole film: ${params.shot.styleRef}` : '',
       params.shot.intent ? `Director intent: ${params.shot.intent}` : '',
       params.shot.rationale ? `Why this frame works: ${params.shot.rationale}` : '',
       params.shot.sourceCardContent ? `Source Story Card: ${params.shot.sourceCardContent}` : '',

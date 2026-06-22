@@ -6,6 +6,7 @@ export type GenerateForMobileInput = {
   storyId: number;
   shotNo: number;
   prompt: string;
+  styleHint?: string;
 };
 
 export type GenerateForMobileResult = {
@@ -32,6 +33,7 @@ export function createGenerateForMobileInput(params: {
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
     prompt: buildRerenderPrompt({ shot: params.shot, rows: params.rows }),
+    styleHint: params.shot.styleRef || undefined,
   };
 }
 

@@ -32,7 +32,11 @@ import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { getSimilarCards } from './storyCardSimilarity';
 import { removeStoryCardFromSnapshot } from './storyCardDeletion';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
-import { buildStoryboardDraftPrompt, pickStoryboardDraftShots } from './storyboardDrafts';
+import {
+  applyStoryboardStyleRef,
+  generateStoryboardDraftFrames,
+  resolveStoryboardStyleRef,
+} from './storyboardDrafts';
 import {
   buildCardPhotoMap,
   buildInheritedPhotoReference,
@@ -136,6 +140,34 @@ export function warnIntentRecognitionError(error: unknown) {
   );
 }
 
+export type StoryShotEditableField =
+  | 'subject'
+  | 'action'
+  | 'dialogue'
+  | 'emotion'
+  | 'intent'
+  | 'rationale'
+  | 'beat'
+  | 'shotType'
+  | 'cameraAngle'
+  | 'cameraMove'
+  | 'location'
+  | 'timeLight'
+  | 'mood'
+  | 'sound'
+  | 'styleRef'
+  | 'note'
+  | 'videoStart'
+  | 'videoEnd'
+  | 'transitionIn'
+  | 'transitionOut'
+  | 'videoPrompt'
+  | 'emotionCharge'
+  | 'emotionDelta'
+  | 'visualAnchorText'
+  | 'promptDraft'
+  | 'negativePrompt';
+
 interface StoryAgentContextValue {
   messages: ChatMessage[];
   cards: StoryCard[];
@@ -164,7 +196,11 @@ interface StoryAgentContextValue {
   /** Inline-edit a single shot's script field (subject/action/dialogue); persists. */
   updateStoryShotField: (
     index: number,
-    field: 'subject' | 'action' | 'dialogue' | 'emotion',
+    field: StoryShotEditableField,
+    value: string,
+  ) => void;
+  updateAllStoryShotField: (
+    field: StoryShotEditableField,
     value: string,
   ) => void;
   generateScript: (intent?: ScriptIntentArg) => Promise<void>;
@@ -230,6 +266,7 @@ type StoryAgentActionKey =
   | 'updateScriptMeta'
   | 'updateScriptScene'
   | 'updateStoryShotField'
+  | 'updateAllStoryShotField'
   | 'generateScript'
   | 'resetConversation'
   | 'loadStory'
@@ -264,6 +301,7 @@ const storyAgentActionKeys = [
   'updateScriptMeta',
   'updateScriptScene',
   'updateStoryShotField',
+  'updateAllStoryShotField',
   'generateScript',
   'resetConversation',
   'loadStory',
@@ -1460,12 +1498,8 @@ export function StoryAgentProvider({
     [scripts, commitScripts],
   );
 
-  const updateStoryShotField = useCallback(
-    (index: number, field: 'subject' | 'action' | 'dialogue' | 'emotion', value: string) => {
-      if (index < 0 || index >= storyShots.length) return;
-      const nextStoryShots = storyShots.map((shot, i) =>
-        i === index ? { ...shot, [field]: value } : shot,
-      );
+  const commitStoryShots = useCallback(
+    (nextStoryShots: StoryShot[]) => {
       setStoryShots(nextStoryShots);
       void saveArchiveStory({
         messages,
@@ -1481,7 +1515,6 @@ export function StoryAgentProvider({
       });
     },
     [
-      storyShots,
       messages,
       cards,
       scripts,
@@ -1493,6 +1526,28 @@ export function StoryAgentProvider({
       storyArc,
       saveArchiveStory,
     ],
+  );
+
+  const updateStoryShotField = useCallback(
+    (index: number, field: StoryShotEditableField, value: string) => {
+      const currentShots = storySpineStore.getState().storyShots;
+      if (index < 0 || index >= currentShots.length) return;
+      const nextStoryShots = currentShots.map((shot, i) =>
+        i === index ? { ...shot, [field]: value } : shot,
+      );
+      commitStoryShots(nextStoryShots);
+    },
+    [commitStoryShots],
+  );
+
+  const updateAllStoryShotField = useCallback(
+    (field: StoryShotEditableField, value: string) => {
+      const currentShots = storySpineStore.getState().storyShots;
+      if (currentShots.length === 0) return;
+      const nextStoryShots = currentShots.map((shot) => ({ ...shot, [field]: value }));
+      commitStoryShots(nextStoryShots);
+    },
+    [commitStoryShots],
   );
 
   const generateScript = useCallback(async (intent?: ScriptIntentArg) => {
@@ -1559,9 +1614,14 @@ export function StoryAgentProvider({
         return;
       }
 
-      const nextShots = Array.isArray(result.shots)
+      const generatedShots = Array.isArray(result.shots)
         ? result.shots.map(normalizeShot).filter((s): s is StoryShot => Boolean(s))
         : [];
+      const storyStyleRef = resolveStoryboardStyleRef({
+        shots: generatedShots,
+        artRecipe: artDirection.recipe,
+      });
+      const nextShots = applyStoryboardStyleRef(generatedShots, storyStyleRef);
       if (!nextShots.length) {
         toast.error('模型没有返回有效镜头');
         return;
@@ -1618,39 +1678,14 @@ export function StoryAgentProvider({
       let generatedDraftCount = 0;
       let failedDraftCount = 0;
       if (storyboardStoryId) {
-        const draftShots = pickStoryboardDraftShots(nextShots);
-        const generatedDrafts: GeneratedImageItem[] = [];
-        for (const shot of draftShots) {
-          try {
-            const imageResult = await storyboardImageMut.mutateAsync({
-              storyId: storyboardStoryId,
-              shotNo: shot.shotNo,
-              prompt: buildStoryboardDraftPrompt(shot),
-              mode: 'draft',
-              sceneWeight: 0.5,
-            });
-            if (
-              imageResult.status === 'ok' &&
-              imageResult.imageUrl &&
-              typeof imageResult.imageId === 'number'
-            ) {
-              generatedDraftCount += 1;
-              generatedDrafts.push({
-                id: imageResult.imageId,
-                imageUrl: imageResult.imageUrl,
-                prompt: imageResult.prompt ?? buildStoryboardDraftPrompt(shot),
-                shotNo: shot.shotNo,
-                storyId: storyboardStoryId,
-                status: imageResult.mode === 'draft' ? 'draft' : 'ready',
-              });
-            } else {
-              failedDraftCount += 1;
-            }
-          } catch (error) {
-            failedDraftCount += 1;
-            console.warn('[storyboard] draft frame generation failed', error);
-          }
-        }
+        const draftResult = await generateStoryboardDraftFrames({
+          storyId: storyboardStoryId,
+          shots: nextShots,
+          generate: input => storyboardImageMut.mutateAsync(input),
+        });
+        generatedDraftCount = draftResult.generatedCount;
+        failedDraftCount = draftResult.failedCount;
+        const generatedDrafts = draftResult.images;
         if (generatedDrafts.length > 0) {
           setStoryImages((prev) => {
             const byId = new Map(prev.map((image) => [image.id, image]));
@@ -1658,7 +1693,6 @@ export function StoryAgentProvider({
             return Array.from(byId.values());
           });
           await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
-          await utils.storyAgent.storyGet.invalidate({ id: storyboardStoryId });
         }
       }
       if (projectId !== null) {
@@ -1699,6 +1733,7 @@ export function StoryAgentProvider({
     projectId,
     scripts,
     activeStoryId,
+    artDirection.recipe,
     remoteStoryId,
     storyTitle,
     storyboardImageMut,
@@ -2268,7 +2303,7 @@ export function StoryAgentProvider({
         case 'shot': {
           const parts = sourceId.split(':');
           const shotIdx = Number(parts[0]);
-          const shotField = parts[1] as 'subject' | 'action' | 'dialogue';
+          const shotField = parts[1] as StoryShotEditableField;
           if (!Number.isNaN(shotIdx) && shotField) updateStoryShotField(shotIdx, shotField, modifiedFullText);
           break;
         }
@@ -2446,6 +2481,7 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
+      updateAllStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -2501,6 +2537,7 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
+      updateAllStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -2549,6 +2586,7 @@ export function StoryAgentProvider({
     updateScriptMeta,
     updateScriptScene,
     updateStoryShotField,
+    updateAllStoryShotField,
     generateScript,
     resetConversation,
     loadStory,

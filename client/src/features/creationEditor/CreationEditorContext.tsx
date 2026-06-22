@@ -433,14 +433,18 @@ export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[],
 ): CreationEditorShot[] {
-  const primaryByShotNo = new Map<number, CreationEditorImage>();
+  const displayByShotNo = new Map<number, CreationEditorImage>();
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
     byImageId.set(image.id, image);
     if (image.shotNo == null) continue;
-    if (!image.isPrimary) continue;
-    const previous = primaryByShotNo.get(image.shotNo);
-    if (!previous || image.id >= previous.id) primaryByShotNo.set(image.shotNo, image);
+    const isStoryboardDraft =
+      image.status === 'pending' &&
+      image.isCurrent &&
+      image.generationType === 'generate';
+    if (!image.isPrimary && !isStoryboardDraft) continue;
+    const previous = displayByShotNo.get(image.shotNo);
+    if (!previous || image.id >= previous.id) displayByShotNo.set(image.shotNo, image);
   }
 
   return shots.map((shot) => {
@@ -448,17 +452,17 @@ export function mergeShotsWithImages(
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
         : undefined;
-    const primaryImage = shot.downstreamStale
+    const displayImage = shot.downstreamStale
       ? undefined
-      : primaryByShotNo.get(shot.shotNo);
-    const image = promptRunImage ?? primaryImage;
+      : displayByShotNo.get(shot.shotNo);
+    const image = promptRunImage ?? displayImage;
 
     if (shot.promptRun?.imageUrl) {
       return {
         ...shot,
         imageId: shot.promptRun.imageId ?? image?.id,
-        imageUrl: image?.imageUrl ?? shot.promptRun.imageUrl,
-        imagePrompt: image?.prompt ?? shot.promptRun.finalPrompt,
+        imageUrl: shot.promptRun.imageUrl,
+        imagePrompt: shot.promptRun.finalPrompt,
       };
     }
     if (!image) return shot;

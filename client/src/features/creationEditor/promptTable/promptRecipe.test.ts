@@ -40,7 +40,10 @@ function row(overrides: Partial<PromptRow>): PromptRow {
 describe('promptRecipe', () => {
   it('compiles weighted rows into the final generation prompt', () => {
     const recipe = compilePromptRecipe({
-      shot,
+      shot: {
+        ...shot,
+        styleRef: 'premium commercial film, off-white',
+      },
       rows: [
         row({ dimension: 'tone', label: '色调', value: '暖色', weight: 0.3 }),
         row({ dimension: 'subject', label: '主体', value: '门口的人', weight: 0.8 }),
@@ -51,6 +54,7 @@ describe('promptRecipe', () => {
     expect(recipe.finalPrompt).toContain('Create exactly one storyboard key frame for SH01');
     expect(recipe.finalPrompt).toContain('This image is part of the generated storyboard');
     expect(recipe.finalPrompt).toContain('Source Story Card: 他站在门口。');
+    expect(recipe.finalPrompt).toContain('Shared visual framework for the whole film: premium commercial film, off-white');
     expect(recipe.finalPrompt).toContain('no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid');
     expect(recipe.finalPrompt).toContain('Dialogue meaning to express through acting and composition only, do not render as text');
     expect(recipe.finalPrompt).toContain('Continuity: same short film');

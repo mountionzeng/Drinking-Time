@@ -845,6 +845,37 @@ describe("storyAgent tRPC router", () => {
     });
   });
 
+  it("generateForMobile 有 styleHint 时用共享美术配方，不混入每日流派", async () => {
+    imageGenMocks.generateDraftImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/mobile-style-draft.png",
+      imageKey: "generated/mobile-style-draft.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(401));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "共享美术风格故事",
+      projectId: 7401,
+      body: { cards: [], characters: [], shots: [] },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "候选人在白色工作台前整理作品集",
+      styleHint: "premium commercial film, product storytelling, off-white",
+      mode: "draft",
+    });
+
+    const renderedPrompt = imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
+    expect(renderedPrompt).toContain("候选人在白色工作台前整理作品集");
+    expect(renderedPrompt).toContain("【故事视觉配方】");
+    expect(renderedPrompt).toContain("premium commercial film");
+    expect(renderedPrompt).toContain("product storytelling");
+    expect(renderedPrompt).toContain("off-white");
+    expect(renderedPrompt).not.toContain("【美术流派");
+  });
+
   it("generateForMobile draft 有原图时仍先走旧版 flux 草稿快轨", async () => {
     imageGenMocks.generateDraftImage.mockResolvedValueOnce({
       status: "ok",

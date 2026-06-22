@@ -37,6 +37,7 @@ describe('StoryCardsBoard intent entry', () => {
     expect(boardSource).toContain('美术风格');
     expect(boardSource).toContain('导演理由');
     expect(boardSource).toContain('latestStoryboardFrames');
+    expect(boardSource).not.toContain('trpc.storyAgent.cycleStyle');
   });
 
   it('keeps the server recognizeIntent route for the background direct-speech entry', () => {

@@ -6,10 +6,14 @@ import {
   useStoryCardsBoardSlice,
   useStoryboardPanelArtSlice,
 } from '@/features/storyAgent/spine/selectors';
+import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
+import { useCreationEditor } from '@/features/creationEditor/CreationEditorContext';
 
 export default function StoryboardPanel() {
   const { isGeneratingScript, latestScript, storyShots } = useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
+  const { updateStoryShotField, updateAllStoryShotField } = useStoryAgentActions();
+  const { selectedShotNo, setSelectedShotNo } = useCreationEditor();
   const generatedImages = useStoryGeneratedImages();
   const hasStoryboard =
     isGeneratingScript ||
@@ -55,6 +59,10 @@ export default function StoryboardPanel() {
       latestScript={latestScript}
       artDirection={artDirection}
       isGeneratingScript={isGeneratingScript}
+      selectedShotNo={selectedShotNo}
+      onSelectShot={setSelectedShotNo}
+      onUpdateShotField={updateStoryShotField}
+      onUpdateAllShotsField={updateAllStoryShotField}
       className="h-full min-h-[280px] overflow-auto"
     />
   );

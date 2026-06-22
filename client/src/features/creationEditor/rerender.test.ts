@@ -60,7 +60,10 @@ describe('creation editor rerender', () => {
 
     await rerenderShotImage({
       storyId: 7,
-      shot,
+      shot: {
+        ...shot,
+        styleRef: 'premium commercial film',
+      },
       rows: [row({ value: '水彩', weight: 0.8 })],
       generate,
     });
@@ -69,6 +72,7 @@ describe('creation editor rerender', () => {
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       storyId: 7,
       shotNo: 2,
+      styleHint: 'premium commercial film',
     }));
     expect(generate.mock.calls[0][0].prompt).toContain('水彩');
   });
