@@ -84,6 +84,8 @@ function cardEvidence(card: ShotListCardInput): string {
 }
 
 function inferJobStrength(card: ShotListCardInput, targetRole: string, index: number): string {
+  const titledStrength = cleanText(card.title);
+  if (titledStrength) return titledStrength.slice(0, 16);
   const text = `${cardTitle(card, index)} ${card.content} ${targetRole}`;
   if (/跨学科|技术.*艺术|艺术.*技术|影视|特效|计算机|CS/i.test(text)) {
     return "跨学科转译能力";
@@ -108,6 +110,31 @@ function jobRoleConcern(targetRole: string, strength: string): string {
     return `${targetRole} 关心候选人能否把技术可能性、用户需求和商业落点转成可验证的产品判断`;
   }
   return `${targetRole} 关心候选人的优势是否真实、可验证，并能在外部工作场景里产生价值`;
+}
+
+function jobDialogueLine(
+  card: ShotListCardInput | undefined,
+  targetRole: string,
+  index: number,
+): string {
+  const quote = cleanText(card?.sourceQuote) || cleanText(card?.rawText);
+  if (quote) return quote.slice(0, 42);
+  const strength = card
+    ? inferJobStrength(card, targetRole, index)
+    : "可验证能力";
+  return `我能把${strength}落到${targetRole}真正关心的问题上`;
+}
+
+function findCardForShot(
+  cards: ShotListCardInput[],
+  shot: Pick<ShotEntry, "shotNo" | "sourceCardContent">,
+): ShotListCardInput | undefined {
+  const source = cleanText(shot.sourceCardContent);
+  if (source) {
+    const exact = cards.find(card => cleanText(card.content) === source);
+    if (exact) return exact;
+  }
+  return cards[shot.shotNo - 1];
 }
 
 function buildJobSearchFallbackShotList(
@@ -145,7 +172,7 @@ function buildJobSearchFallbackShotList(
       shotNo: index + 1,
       subject: strength.slice(0, 16),
       action,
-      dialogue: cleanText(card.sourceQuote),
+      dialogue: jobDialogueLine(card, targetRole, index),
       shotType: isFirst ? "全" : isLast ? "近" : "中",
       beat,
       cameraAngle: "",
@@ -477,6 +504,12 @@ export async function synthesizeShotList(params: {
           "   - 卡片证据不足时，不要硬夸；可以把这一镜设计成「证据缺口」或「需要继续追问」的过渡镜，rationale 里说明原因。",
           "   - 优先拍可验证材料：作品、流程图、原型、项目复盘、白板、简历片段、工具界面、会议讨论、手稿、交付物。不要拍成孤独背影、抽象光影或励志海报。",
           "   - 每一镜的 intent 必须是一句职业主张；rationale 必须解释为什么这个画面能让招聘者更相信他。",
+          "",
+          "【求职台词 / 字幕 Agent 规则】",
+          "   - dialogue 在求职片里不是普通生活对白，而是画面上的字幕/旁白候选词；它要帮助招聘者快速读出候选人的优势。",
+          "   - 有 rawText/sourceQuote 且能直接证明能力时，优先短摘原话；如果原话不够清楚，就基于卡片事实写一句 12-28 字的职业主张字幕。",
+          "   - 字幕必须连接「候选人优势」和「岗位为什么会在意」；不要写空泛鸡血、自夸口号，也不要把 AI 改写句伪装成用户原话。",
+          "   - 求职片除纯连接镜外，dialogue 不要留空。它是给招聘者看的重点信息层。",
         ].join("\n")
       : [
           "【情绪曲线要求】",
@@ -490,7 +523,9 @@ export async function synthesizeShotList(params: {
     "   - 多版本剧本：额外给出 3 个可选叙事壳：克制版 / 戏剧版 / 诗意版。三版只改变叙事骨架、节奏密度和表达方式，不能改变用户事实。",
     "   - 无聊检测：生成前检查故事有没有冲突、转折、愿望、代价、变化。缺什么就在 boringCheck 里标出来；如果够了，说明张力来自哪里。",
     "   - 真实性保护：绝不自行补重大事实和重大创伤。用户没有说的疾病、死亡、暴力、背叛、家庭破裂、重大灾难，都不能写进剧本。连接镜只能补气氛、空间、动作或留白。",
-    "   - 原话追溯：关键台词优先来自 rawText 或 sourceQuote；不要把 AI 写的漂亮句子伪装成用户说过的话。",
+    isJobSearch
+      ? "   - 原话追溯：关键原话优先来自 rawText 或 sourceQuote；AI 可写求职字幕/旁白，但不要加引号伪装成用户原话。"
+      : "   - 原话追溯：关键台词优先来自 rawText 或 sourceQuote；不要把 AI 写的漂亮句子伪装成用户说过的话。",
     "",
     "【Module 10 · 记忆整理能力】",
     "   - kNN / 相似度：如果多张样本的 retrievalQuery 很接近，把它们看作同一段人生线索的回声。",
@@ -502,7 +537,9 @@ export async function synthesizeShotList(params: {
     "【每镜要填的列】",
     "   - subject:   主体，谁/什么在画面里（如「母亲」「空着的椅子」），≤16 字",
     "   - action:    一句话动作或事件（≤30 字），从原素材衍生（连接镜可自拟，但要朴素具象），不替对方解释或升华",
-    "   - dialogue:  台词；原话里有有重量的一句就原样保留，没有就空字符串；连接镜原则上空",
+    isJobSearch
+      ? "   - dialogue:  求职字幕/旁白候选词；优先原话，但没有原话时也要基于证据写一句职业主张；纯连接镜可空"
+      : "   - dialogue:  台词；原话里有有重量的一句就原样保留，没有就空字符串；连接镜原则上空",
     "   - shotType:  景别，必须从这 6 个里选一个：远 / 全 / 中 / 近 / 特 / 大特",
     "   - beat:      必须从这 4 个里选一个：开场 / 起势 / 转折 / 收束",
     "   - location:  场景 / 地点，简短具象（如「老屋客厅，下午」），≤20 字",
@@ -721,7 +758,16 @@ export async function synthesizeShotList(params: {
       .filter(s => s.action.length > 0)
       .sort((a, b) => a.shotNo - b.shotNo)
       // 重新连续编号，避免模型给出 1,2,4 这种空洞
-      .map((s, i) => ({ ...s, shotNo: i + 1 }));
+      .map((s, i) => ({ ...s, shotNo: i + 1 }))
+      .map((shot, index) => {
+        if (!isJobSearch || cleanText(shot.dialogue)) return shot;
+        const card = findCardForShot(params.cards, shot);
+        if (!card && !cleanText(shot.sourceCardContent)) return shot;
+        return {
+          ...shot,
+          dialogue: jobDialogueLine(card, targetRole, index),
+        };
+      });
 
     if (shots.length === 0) {
       // 模型给的镜头全缺 action、被过滤光了 → 同样降级兜底，不弹错。
