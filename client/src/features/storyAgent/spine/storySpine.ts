@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import { create } from "zustand";
+import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import type {
   ChatMessage,
   GeneratedScript,
@@ -7,13 +7,17 @@ import type {
   StoryCard,
   StoryShot,
   VisualCanvasItem,
-} from '../types';
-import type { ImageProviderSelection } from '../storyAgentImageProvider';
-import type { StoryIntent } from '../intentTypes';
-import { emptyStoryArtDirection, type StoryArtDirection } from '@shared/artDirection';
-import type { StoryPanel } from '@/features/analysis/storyPanels';
+} from "../types";
+import type { ImageProviderSelection } from "../storyAgentImageProvider";
+import type { StoryIntent } from "../intentTypes";
+import {
+  emptyStoryArtDirection,
+  type StoryArtDirection,
+} from "@shared/artDirection";
+import type { StoryPanel } from "@/features/analysis/storyPanels";
+import { ensureShotIdentities } from "@shared/shotIdentity";
 
-export type StorySaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+export type StorySaveStatus = "idle" | "saving" | "saved" | "error";
 
 export type StoryListItem = {
   id: number;
@@ -70,7 +74,9 @@ type StorySpineActions = {
   setCards: StorySpineSetter<StoryCard[]>;
   setScripts: StorySpineSetter<GeneratedScript[]>;
   setStoryShots: StorySpineSetter<StoryShot[]>;
-  setCharacters: StorySpineSetter<Array<{ name: string; role: string; oneLiner: string }>>;
+  setCharacters: StorySpineSetter<
+    Array<{ name: string; role: string; oneLiner: string }>
+  >;
   setRemoteStoryId: StorySpineSetter<number | undefined>;
   setStoryTitle: StorySpineSetter<string | undefined>;
   setStoryLogline: StorySpineSetter<string | undefined>;
@@ -123,9 +129,9 @@ function initialData(): StorySpineData {
     storyTheme: undefined,
     storyArc: undefined,
     visualCanvasItems: [],
-    visualPreference: '',
+    visualPreference: "",
     storyImages: [],
-    imageProvider: 'default',
+    imageProvider: "default",
     artDirection: emptyStoryArtDirection(),
     isArtWorking: false,
     isReplying: false,
@@ -134,7 +140,7 @@ function initialData(): StorySpineData {
     pendingIntentDraft: null,
     activeStoryId: null,
     visibleStoryPanels: [],
-    saveStatus: 'idle',
+    saveStatus: "idle",
     lastSavedAt: undefined,
     serverRevision: 0,
     isLoadingStories: false,
@@ -143,63 +149,77 @@ function initialData(): StorySpineData {
     activeSelection: null,
     hydratedFor: null,
     sessionId: sessionId(),
-    lastSnapshotHash: '',
-    lastArchiveSaveHash: '',
+    lastSnapshotHash: "",
+    lastArchiveSaveHash: "",
     lastStateChangeTime: Date.now(),
     lastSnapshotId: null,
   };
 }
 
 function resolve<T>(current: T, next: SetterInput<T>): T {
-  return typeof next === 'function' ? (next as (current: T) => T)(current) : next;
+  return typeof next === "function"
+    ? (next as (current: T) => T)(current)
+    : next;
 }
 
-export const useStorySpine = create<StorySpineState>()((set) => {
-  const setField = <K extends keyof StorySpineData>(key: K): StorySpineSetter<StorySpineData[K]> =>
-    (next) => set((state) => ({ [key]: resolve(state[key], next) } as Pick<StorySpineData, K>));
+export const useStorySpine = create<StorySpineState>()(set => {
+  const setField =
+    <K extends keyof StorySpineData>(
+      key: K
+    ): StorySpineSetter<StorySpineData[K]> =>
+    next =>
+      set(
+        state =>
+          ({ [key]: resolve(state[key], next) }) as Pick<StorySpineData, K>
+      );
 
   return {
     ...initialData(),
-    setMessages: setField('messages'),
-    setCards: setField('cards'),
-    setScripts: setField('scripts'),
-    setStoryShots: setField('storyShots'),
-    setCharacters: setField('characters'),
-    setRemoteStoryId: setField('remoteStoryId'),
-    setStoryTitle: setField('storyTitle'),
-    setStoryLogline: setField('storyLogline'),
-    setStoryTheme: setField('storyTheme'),
-    setStoryArc: setField('storyArc'),
-    setVisualCanvasItems: setField('visualCanvasItems'),
-    setVisualPreference: setField('visualPreference'),
-    setStoryImages: setField('storyImages'),
-    setImageProvider: setField('imageProvider'),
-    setArtDirection: setField('artDirection'),
-    setIsArtWorking: setField('isArtWorking'),
-    setIsReplying: setField('isReplying'),
-    setIsGeneratingScript: setField('isGeneratingScript'),
-    setConfirmedIntent: setField('confirmedIntent'),
-    setPendingIntentDraft: setField('pendingIntentDraft'),
-    setActiveStoryId: setField('activeStoryId'),
-    setVisibleStoryPanels: setField('visibleStoryPanels'),
-    toggleVisibleStoryPanel: (panelId) =>
-      set((state) => ({
+    setMessages: setField("messages"),
+    setCards: setField("cards"),
+    setScripts: setField("scripts"),
+    setStoryShots: next =>
+      set(state => ({
+        storyShots: ensureShotIdentities(
+          resolve(state.storyShots, next) as StoryShot[]
+        ),
+      })),
+    setCharacters: setField("characters"),
+    setRemoteStoryId: setField("remoteStoryId"),
+    setStoryTitle: setField("storyTitle"),
+    setStoryLogline: setField("storyLogline"),
+    setStoryTheme: setField("storyTheme"),
+    setStoryArc: setField("storyArc"),
+    setVisualCanvasItems: setField("visualCanvasItems"),
+    setVisualPreference: setField("visualPreference"),
+    setStoryImages: setField("storyImages"),
+    setImageProvider: setField("imageProvider"),
+    setArtDirection: setField("artDirection"),
+    setIsArtWorking: setField("isArtWorking"),
+    setIsReplying: setField("isReplying"),
+    setIsGeneratingScript: setField("isGeneratingScript"),
+    setConfirmedIntent: setField("confirmedIntent"),
+    setPendingIntentDraft: setField("pendingIntentDraft"),
+    setActiveStoryId: setField("activeStoryId"),
+    setVisibleStoryPanels: setField("visibleStoryPanels"),
+    toggleVisibleStoryPanel: panelId =>
+      set(state => ({
         visibleStoryPanels: state.visibleStoryPanels.includes(panelId)
-          ? state.visibleStoryPanels.filter((id) => id !== panelId)
+          ? state.visibleStoryPanels.filter(id => id !== panelId)
           : [...state.visibleStoryPanels, panelId],
       })),
-    setSaveStatus: setField('saveStatus'),
-    setLastSavedAt: setField('lastSavedAt'),
-    setServerRevision: setField('serverRevision'),
-    setIsLoadingStories: setField('isLoadingStories'),
-    setStoryList: setField('storyList'),
-    setReturningGreeting: setField('returningGreeting'),
-    setActiveSelection: setField('activeSelection'),
-    setHydratedFor: setField('hydratedFor'),
-    setLastSnapshotHash: setField('lastSnapshotHash'),
-    setLastArchiveSaveHash: setField('lastArchiveSaveHash'),
-    setLastStateChangeTime: setField('lastStateChangeTime'),
-    setLastSnapshotId: setField('lastSnapshotId'),
+    setSaveStatus: setField("saveStatus"),
+    setLastSavedAt: setField("lastSavedAt"),
+    setServerRevision: setField("serverRevision"),
+    setIsLoadingStories: setField("isLoadingStories"),
+    setStoryList: setField("storyList"),
+    setReturningGreeting: setField("returningGreeting"),
+    setActiveSelection: setField("activeSelection"),
+    setHydratedFor: setField("hydratedFor"),
+    setLastSnapshotHash: setField("lastSnapshotHash"),
+    setLastArchiveSaveHash: setField("lastArchiveSaveHash"),
+    setLastStateChangeTime: setField("lastStateChangeTime"),
+    setLastSnapshotId: setField("lastSnapshotId"),
     resetStorySpine: () => set(initialData()),
   };
 });

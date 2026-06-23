@@ -7,6 +7,11 @@ import {
   type ImageAsset,
   type ImageAssetAvailability,
 } from "../../shared/imageAsset";
+import {
+  ensureShotIdentities,
+  normalizeShotIdentity,
+  shotIdentityFromShot,
+} from "../../shared/shotIdentity";
 import { localImageDir } from "./imageGen";
 import {
   getImageSignalsForImages,
@@ -22,6 +27,8 @@ type AssetProjectionInput = {
   images: GeneratedImage[];
   signals: ImageSignal[];
   validShotNos: string[];
+  validShotIdentities?: string[];
+  shotIdentityByShotNo?: ReadonlyMap<string, string>;
   availabilityByImageId?: ReadonlyMap<number, ImageAssetAvailability>;
 };
 
@@ -31,7 +38,9 @@ type SignalDecision = {
   id: number;
 };
 
-function latestSignalByImage(signals: ImageSignal[]): Map<number, SignalDecision> {
+function latestSignalByImage(
+  signals: ImageSignal[]
+): Map<number, SignalDecision> {
   const latest = new Map<number, SignalDecision>();
   for (const signal of signals) {
     if (signal.imageId == null) continue;
@@ -52,53 +61,67 @@ function latestSignalByImage(signals: ImageSignal[]): Map<number, SignalDecision
   return latest;
 }
 
-function compareSelectedAssets(
-  left: ImageAsset,
-  right: ImageAsset,
-): number {
+function compareSelectedAssets(left: ImageAsset, right: ImageAsset): number {
   const leftTime = left.selectedAt ? Date.parse(left.selectedAt) : 0;
   const rightTime = right.selectedAt ? Date.parse(right.selectedAt) : 0;
   if (leftTime !== rightTime) return rightTime - leftTime;
   return right.id - left.id;
 }
 
-function compareCreatedAssets(
-  left: ImageAsset,
-  right: ImageAsset,
-): number {
+function compareCreatedAssets(left: ImageAsset, right: ImageAsset): number {
   const timeDiff = Date.parse(right.createdAt) - Date.parse(left.createdAt);
   return timeDiff || right.id - left.id;
 }
 
-function storyBodyShotNos(story: { body: unknown }): string[] {
+function storyBodyShotRefs(story: { body: unknown }): Array<{
+  shotNo: string;
+  shotIdentity: string | null;
+}> {
   const body =
     story.body && typeof story.body === "object"
       ? (story.body as Record<string, unknown>)
       : {};
   const shots = Array.isArray(body.shots) ? body.shots : [];
-  return shots
+  return ensureShotIdentities(
+    shots.filter((shot): shot is Record<string, unknown> =>
+      Boolean(shot && typeof shot === "object")
+    )
+  )
     .map(shot => {
-      if (!shot || typeof shot !== "object") return null;
       const obj = shot as Record<string, unknown>;
-      return canonicalizeShotNo(
-        (obj.shotNo ?? obj.shotKey) as string | number | null | undefined,
+      const shotNo = canonicalizeShotNo(
+        (obj.shotNo ?? obj.shotKey) as string | number | null | undefined
       );
+      if (!shotNo) return null;
+      return {
+        shotNo,
+        shotIdentity: shotIdentityFromShot(obj),
+      };
     })
-    .filter((shotNo): shotNo is string => Boolean(shotNo));
+    .filter((ref): ref is { shotNo: string; shotIdentity: string | null } =>
+      Boolean(ref)
+    );
 }
 
 export function projectImageAssets({
   images,
   signals,
   validShotNos,
+  validShotIdentities = [],
+  shotIdentityByShotNo = new Map(),
   availabilityByImageId = new Map(),
 }: AssetProjectionInput): ImageAsset[] {
   const validShots = new Set(
     validShotNos
       .map(shotNo => canonicalizeShotNo(shotNo))
-      .filter((shotNo): shotNo is string => Boolean(shotNo)),
+      .filter((shotNo): shotNo is string => Boolean(shotNo))
   );
   const latestSignals = latestSignalByImage(signals);
+  const validIdentities = new Set(
+    validShotIdentities
+      .map(identity => normalizeShotIdentity(identity))
+      .filter((identity): identity is string => Boolean(identity))
+  );
 
   const assets = images.map((image): ImageAsset => {
     const signal = latestSignals.get(image.id);
@@ -106,10 +129,25 @@ export function projectImageAssets({
       ? "style_reference"
       : "story_frame";
     const canonicalShotNo = canonicalizeShotNo(image.shotNo);
+    const shotIdentity =
+      normalizeShotIdentity(
+        (image as { shotIdentity?: string | null }).shotIdentity
+      ) ??
+      (canonicalShotNo
+        ? (shotIdentityByShotNo.get(canonicalShotNo) ?? null)
+        : null);
+    const isIdentityAssigned = Boolean(
+      shotIdentity && validIdentities.has(shotIdentity)
+    );
+    const isLegacyShotAssigned = Boolean(
+      (!shotIdentity || validIdentities.size === 0) &&
+        canonicalShotNo &&
+        validShots.has(canonicalShotNo)
+    );
     const assignment =
       kind === "style_reference"
         ? "style_reference"
-        : canonicalShotNo && validShots.has(canonicalShotNo)
+        : isIdentityAssigned || isLegacyShotAssigned
           ? "shot"
           : "unassigned";
     const status =
@@ -126,6 +164,7 @@ export function projectImageAssets({
       userId: image.userId,
       rawShotNo: image.shotNo,
       canonicalShotNo,
+      shotIdentity,
       imageKey: image.imageKey,
       imageUrl: image.imageUrl,
       prompt: image.prompt,
@@ -141,16 +180,20 @@ export function projectImageAssets({
       isPrimary: false,
       selectionSource: signal?.action === "swipe_right" ? "explicit" : "none",
       selectedAt:
-        signal?.action === "swipe_right" ? signal.createdAt.toISOString() : null,
+        signal?.action === "swipe_right"
+          ? signal.createdAt.toISOString()
+          : null,
     };
   });
 
   const shotGroups = new Map<string, ImageAsset[]>();
   for (const asset of assets) {
-    if (asset.assignment !== "shot" || !asset.canonicalShotNo) continue;
-    const group = shotGroups.get(asset.canonicalShotNo) ?? [];
+    if (asset.assignment !== "shot") continue;
+    const groupKey = asset.shotIdentity ?? asset.canonicalShotNo;
+    if (!groupKey) continue;
+    const group = shotGroups.get(groupKey) ?? [];
     group.push(asset);
-    shotGroups.set(asset.canonicalShotNo, group);
+    shotGroups.set(groupKey, group);
   }
 
   for (const group of Array.from(shotGroups.values())) {
@@ -179,7 +222,7 @@ export function projectImageAssets({
 
 function localFileName(imageUrl: string): string | null {
   const match = /^\/(?:api\/images|local-images)\/([^/?#]+)(?:[?#].*)?$/.exec(
-    imageUrl,
+    imageUrl
   );
   if (!match) return null;
   const fileName = decodeURIComponent(match[1]);
@@ -192,7 +235,7 @@ export function localImagePathForUrl(imageUrl: string): string | null {
 }
 
 export async function resolveImageAvailability(
-  imageUrl: string,
+  imageUrl: string
 ): Promise<ImageAssetAvailability> {
   if (imageUrl.startsWith("data:") || imageUrl.startsWith("blob:")) {
     return "available";
@@ -222,20 +265,20 @@ export async function materializeImageInput(imageUrl: string): Promise<string> {
 }
 
 export async function resolveAssetAvailability(
-  images: GeneratedImage[],
+  images: GeneratedImage[]
 ): Promise<Map<number, ImageAssetAvailability>> {
   const entries = await Promise.all(
-    images.map(async image => [
-      image.id,
-      await resolveImageAvailability(image.imageUrl),
-    ] as const),
+    images.map(
+      async image =>
+        [image.id, await resolveImageAvailability(image.imageUrl)] as const
+    )
   );
   return new Map(entries);
 }
 
 export async function getProjectImageAssets(
   projectId: number,
-  userId: number,
+  userId: number
 ): Promise<ImageAsset[]> {
   const project = await getProjectById(projectId, userId);
   if (!project) return [];
@@ -259,7 +302,7 @@ export async function getProjectImageAssets(
 // 显示层（Creation 镜头图片工作区 / 小酌看到的图片）用这个；带 userId 验归属。
 export async function getStoryImageAssets(
   storyId: number,
-  userId: number,
+  userId: number
 ): Promise<ImageAsset[]> {
   const story = await getStoryById(storyId, userId);
   if (!story) return [];
@@ -271,15 +314,25 @@ export async function getStoryImageAssets(
     getImageSignalsForImages(images.map(image => image.id)),
     resolveAssetAvailability(images),
   ]);
+  const storyShotRefs = storyBodyShotRefs(story);
+  const shotIdentityByShotNo = new Map(
+    storyShotRefs
+      .filter(ref => ref.shotIdentity)
+      .map(ref => [ref.shotNo, ref.shotIdentity as string])
+  );
   return projectImageAssets({
     images,
     signals,
     validShotNos: Array.from(
       new Set([
         ...shots.map(shot => shot.shotNo),
-        ...storyBodyShotNos(story),
-      ]),
+        ...storyShotRefs.map(ref => ref.shotNo),
+      ])
     ),
+    validShotIdentities: storyShotRefs
+      .map(ref => ref.shotIdentity)
+      .filter((identity): identity is string => Boolean(identity)),
+    shotIdentityByShotNo,
     availabilityByImageId,
   });
 }

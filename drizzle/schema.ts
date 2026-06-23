@@ -241,6 +241,8 @@ export type StoryBody = {
   }>;
   characters: Array<{ name: string; role: string; oneLiner: string }>;
   shots: Array<{
+    stableShotId?: string;
+    shotIdentity?: string;
     shotNo: number;
     subject: string;
     action: string;
@@ -330,6 +332,8 @@ export const generatedImages = mysqlTable("generated_images", {
   userId: int("userId"),
   // shotNo: 桌面端传 "SH02" 格式字符串，手机端传数字的字符串形式
   shotNo: varchar("shotNo", { length: 32 }),
+  // 稳定镜头身份：跨故事体、图片、视频和聊天选区的主关联键。shotNo 只负责展示和旧数据兜底。
+  shotIdentity: varchar("shotIdentity", { length: 128 }),
   imageKey: varchar("imageKey", { length: 512 }), // 桌面端存储 key
   imageUrl: text("imageUrl").notNull(),
   prompt: text("prompt"),
@@ -348,6 +352,89 @@ export const generatedImages = mysqlTable("generated_images", {
 
 export type GeneratedImage = typeof generatedImages.$inferSelect;
 export type InsertGeneratedImage = typeof generatedImages.$inferInsert;
+
+/**
+ * VideoTakes — 单镜头图生视频产物。storyId + stableShotId 是唯一业务归属；
+ * taskId 只是供应商任务句柄，videoKey 是后续托管素材库的对象 key。
+ */
+export const videoTakes = mysqlTable("video_takes", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
+  sourceImageId: int("sourceImageId"),
+  status: mysqlEnum("status", [
+    "submitted",
+    "processing",
+    "available",
+    "failed",
+    "timeout",
+    "unfollowable",
+  ])
+    .default("submitted")
+    .notNull(),
+  taskId: varchar("taskId", { length: 255 }),
+  provider: varchar("provider", { length: 64 }).default("302").notNull(),
+  model: varchar("model", { length: 128 }).notNull(),
+  prompt: text("prompt").notNull(),
+  subtitle: text("subtitle"),
+  durationSec: float("durationSec"),
+  aspectRatio: varchar("aspectRatio", { length: 32 }).default("16:9").notNull(),
+  videoKey: varchar("videoKey", { length: 512 }),
+  videoUrl: text("videoUrl"),
+  errorMessage: text("errorMessage"),
+  parameterSnapshot: json("parameterSnapshot"),
+  idempotencyKey: varchar("idempotencyKey", { length: 255 }),
+  extractionCapability: mysqlEnum("extractionCapability", [
+    "available",
+    "unavailable",
+  ])
+    .default("unavailable")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type VideoTake = typeof videoTakes.$inferSelect;
+export type InsertVideoTake = typeof videoTakes.$inferInsert;
+
+export const videoTakeRanges = mysqlTable("video_take_ranges", {
+  id: int("id").autoincrement().primaryKey(),
+  takeId: int("takeId").notNull(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
+  startSec: float("startSec").notNull(),
+  endSec: float("endSec").notNull(),
+  label: varchar("label", { length: 255 }),
+  source: mysqlEnum("source", ["manual", "extracted"])
+    .default("manual")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type VideoTakeRange = typeof videoTakeRanges.$inferSelect;
+export type InsertVideoTakeRange = typeof videoTakeRanges.$inferInsert;
+
+export const videoTimelineSelections = mysqlTable("video_timeline_selections", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
+  takeId: int("takeId").notNull(),
+  rangeId: int("rangeId"),
+  selectionType: mysqlEnum("selectionType", ["full_take", "range"])
+    .default("full_take")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type VideoTimelineSelection =
+  typeof videoTimelineSelections.$inferSelect;
+export type InsertVideoTimelineSelection =
+  typeof videoTimelineSelections.$inferInsert;
 
 /**
  * ImageSignals — 用户对图片的交互信号（左划/右划/编辑等），时序事件流。

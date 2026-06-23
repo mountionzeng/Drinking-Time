@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   editImage,
+  generateDraftImage,
   generateImage,
   inpaintImage,
   isCircuitOpen,
@@ -20,14 +21,16 @@ vi.mock("../storage", () => ({
 
 // ── Helpers ──
 
-function makeFetcher(responses: Array<{
-  ok: boolean;
-  status: number;
-  statusText?: string;
-  json?: unknown;
-  arrayBuffer?: ArrayBuffer;
-  text?: string;
-}>) {
+function makeFetcher(
+  responses: Array<{
+    ok: boolean;
+    status: number;
+    statusText?: string;
+    json?: unknown;
+    arrayBuffer?: ArrayBuffer;
+    text?: string;
+  }>
+) {
   let callIndex = 0;
   return vi.fn().mockImplementation(() => {
     const resp = responses[callIndex++] ?? responses[responses.length - 1];
@@ -36,7 +39,8 @@ function makeFetcher(responses: Array<{
       status: resp.status,
       statusText: resp.statusText,
       json: () => Promise.resolve(resp.json ?? {}),
-      arrayBuffer: () => Promise.resolve(resp.arrayBuffer ?? new ArrayBuffer(8)),
+      arrayBuffer: () =>
+        Promise.resolve(resp.arrayBuffer ?? new ArrayBuffer(8)),
       text: () => Promise.resolve(resp.text ?? ""),
     });
   });
@@ -50,6 +54,7 @@ describe("generateImage", () => {
     image302GptModel: ENV.image302GptModel,
     image302GptSize: ENV.image302GptSize,
     image302GptQuality: ENV.image302GptQuality,
+    image302DraftTimeoutMs: ENV.image302DraftTimeoutMs,
     image302MjAuthHeader: ENV.image302MjAuthHeader,
     image302MjPollMs: ENV.image302MjPollMs,
     image302MjSubmitTimeoutMs: ENV.image302MjSubmitTimeoutMs,
@@ -66,6 +71,7 @@ describe("generateImage", () => {
     ENV.image302GptModel = "gpt-image-1.5";
     ENV.image302GptSize = "1024x1024";
     ENV.image302GptQuality = "high";
+    ENV.image302DraftTimeoutMs = "100";
     ENV.image302MjAuthHeader = "bearer";
     ENV.image302MjPollMs = "1";
     ENV.image302MjSubmitTimeoutMs = "100";
@@ -79,6 +85,7 @@ describe("generateImage", () => {
     ENV.image302GptModel = originalEnv.image302GptModel;
     ENV.image302GptSize = originalEnv.image302GptSize;
     ENV.image302GptQuality = originalEnv.image302GptQuality;
+    ENV.image302DraftTimeoutMs = originalEnv.image302DraftTimeoutMs;
     ENV.image302MjAuthHeader = originalEnv.image302MjAuthHeader;
     ENV.image302MjPollMs = originalEnv.image302MjPollMs;
     ENV.image302MjSubmitTimeoutMs = originalEnv.image302MjSubmitTimeoutMs;
@@ -88,7 +95,11 @@ describe("generateImage", () => {
 
   it("returns ok with imageUrl on success", async () => {
     const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { images: [{ url: "https://fal.ai/result.png" }] } },
+      {
+        ok: true,
+        status: 200,
+        json: { images: [{ url: "https://fal.ai/result.png" }] },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
     ]);
 
@@ -123,9 +134,14 @@ describe("generateImage", () => {
   });
 
   it("returns error on timeout", async () => {
-    const fetcher = vi.fn().mockImplementation(
-      () => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 50)),
-    );
+    const fetcher = vi
+      .fn()
+      .mockImplementation(
+        () =>
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), 50)
+          )
+      );
 
     const result = await generateImage("a cat", { fetcher });
 
@@ -152,7 +168,11 @@ describe("generateImage", () => {
 
   it("passes aspectRatio and seed to fal.ai", async () => {
     const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { images: [{ url: "https://fal.ai/r.png" }] } },
+      {
+        ok: true,
+        status: 200,
+        json: { images: [{ url: "https://fal.ai/r.png" }] },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
     ]);
 
@@ -165,11 +185,18 @@ describe("generateImage", () => {
 
   it("falls back to fal.ai when 302 provider is selected without a key", async () => {
     const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { images: [{ url: "https://fal.ai/r.png" }] } },
+      {
+        ok: true,
+        status: 200,
+        json: { images: [{ url: "https://fal.ai/r.png" }] },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
     ]);
 
-    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "gpt-image",
+    });
 
     expect(result.status).toBe("ok");
     expect(fetcher.mock.calls[0][0]).toContain("fal-ai/flux-pro");
@@ -181,14 +208,20 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key"; // 却配了 302 key
     try {
       const fetcher = makeFetcher([
-        { ok: true, status: 200, json: { data: [{ url: "https://file.302.ai/r.png" }] } },
+        {
+          ok: true,
+          status: 200,
+          json: { data: [{ url: "https://file.302.ai/r.png" }] },
+        },
         { ok: true, status: 200, arrayBuffer: new ArrayBuffer(8) },
       ]);
       // 不传 provider → 默认 resolve 成 fal；但没 fal key、有 302 key → 应自动改走 302 gpt-image
       const result = await generateImage("a cat", { fetcher });
       expect(result.status).toBe("ok");
       expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
-      expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+      expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+        "Bearer test-302-key"
+      );
     } finally {
       ENV.falApiKey = savedFalKey;
     }
@@ -210,7 +243,9 @@ describe("generateImage", () => {
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
-    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(body.model).toBe("gpt-image-1.5");
     expect(body.prompt).toBe("a cat");
@@ -220,11 +255,18 @@ describe("generateImage", () => {
   it("uses 302 GPT-image url response and downloads before storage", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { data: [{ url: "https://file.302.ai/result.png" }] } },
+      {
+        ok: true,
+        status: 200,
+        json: { data: [{ url: "https://file.302.ai/result.png" }] },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(12) },
     ]);
 
-    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "gpt-image",
+    });
 
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -235,7 +277,10 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([{ ok: false, status: 502 }]);
 
-    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "gpt-image",
+    });
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("502");
@@ -243,9 +288,14 @@ describe("generateImage", () => {
 
   it("returns error when 302 GPT-image returns no images", async () => {
     ENV.api302Key = "test-302-key";
-    const fetcher = makeFetcher([{ ok: true, status: 200, json: { data: [] } }]);
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { data: [] } },
+    ]);
 
-    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "gpt-image",
+    });
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("没有返回图片");
@@ -255,7 +305,10 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key";
     const fetcher = vi.fn().mockRejectedValue(new Error("timeout"));
 
-    const result = await generateImage("a cat", { fetcher, provider: "gpt-image" });
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "gpt-image",
+    });
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("302 GPT-image 生成失败");
@@ -266,8 +319,16 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "IN_PROGRESS", progress: "50%" } },
-      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "IN_PROGRESS", progress: "50%" },
+      },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
 
@@ -282,9 +343,15 @@ describe("generateImage", () => {
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(4);
     expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
-    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
-    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain("--ar 16:9");
-    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain("--turbo");
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain(
+      "--ar 16:9"
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).prompt).toContain(
+      "--turbo"
+    );
     expect(fetcher.mock.calls[1][0]).toContain("/mj/task/task-1/fetch");
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
   });
@@ -293,7 +360,11 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
 
@@ -314,11 +385,17 @@ describe("generateImage", () => {
     ENV.api302Key = "test-302-key";
     // 模拟「把 302 网关当存储用」会触发的 503：storagePut 抛错
     vi.mocked(storagePut).mockRejectedValueOnce(
-      new Error("Storage upload failed (503 Service Unavailable): 当前无可用模型"),
+      new Error(
+        "Storage upload failed (503 Service Unavailable): 当前无可用模型"
+      )
     );
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
 
@@ -341,7 +418,11 @@ describe("generateImage", () => {
     ENV.image302MjAuthHeader = "mj-api-secret";
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
 
@@ -353,14 +434,20 @@ describe("generateImage", () => {
     });
 
     expect(result.status).toBe("ok");
-    expect(fetcher.mock.calls[0][1].headers["mj-api-secret"]).toBe("test-302-key");
+    expect(fetcher.mock.calls[0][1].headers["mj-api-secret"]).toBe(
+      "test-302-key"
+    );
   });
 
   it("returns error when 302 Midjourney task fails", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "FAILURE", failReason: "blocked" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "FAILURE", failReason: "blocked" },
+      },
     ]);
 
     const result = await generateImage("a cat", {
@@ -439,14 +526,16 @@ describe("editImage", () => {
     const result = await editImage(
       "data:image/png;base64,aW1hZ2U=",
       "把这张照片改成夜晚微光",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("ok");
     expect(result.imageUrl).toMatch(/^\/api\/images\/.+\.png$/);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
-    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
     expect(fetcher.mock.calls[0][1].headers["Content-Type"]).toBeUndefined();
     const form = fetcher.mock.calls[0][1].body as FormData;
     expect(form.get("model")).toBe("gpt-image-1.5");
@@ -460,7 +549,7 @@ describe("editImage", () => {
     const result = await editImage(
       "data:image/jpeg;base64,aW1hZ2U=",
       "换成电影海报质感",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("error");
@@ -475,19 +564,25 @@ describe("editImage", () => {
     const b64 = Buffer.from("forge-edited").toString("base64");
     const fetcher = makeFetcher([
       { ok: false, status: 503 },
-      { ok: true, status: 200, json: { image: { b64Json: b64, mimeType: "image/png" } } },
+      {
+        ok: true,
+        status: 200,
+        json: { image: { b64Json: b64, mimeType: "image/png" } },
+      },
     ]);
 
     const result = await editImage(
       "data:image/png;base64,aW1hZ2U=",
       "保留人物，换成雨夜",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
-    expect(fetcher.mock.calls[1][0]).toContain("images.v1.ImageService/GenerateImage");
+    expect(fetcher.mock.calls[1][0]).toContain(
+      "images.v1.ImageService/GenerateImage"
+    );
     const forgeBody = JSON.parse(fetcher.mock.calls[1][1].body);
     expect(forgeBody.original_images[0]).toMatchObject({
       b64Json: "aW1hZ2U=",
@@ -498,14 +593,18 @@ describe("editImage", () => {
   it("provider=midjourney 时图生图走 MJ，并把照片放进 base64Array", async () => {
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-1" } },
-      { ok: true, status: 200, json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/mj.png" },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
 
     const result = await editImage(
       "data:image/png;base64,aW1hZ2U=",
       "把这一刻画成电影感画面",
-      { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: 100 },
+      { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: 100 }
     );
 
     expect(result.status).toBe("ok");
@@ -533,7 +632,7 @@ describe("editImage", () => {
         requireInputImage: true,
         mjPollIntervalMs: 1,
         mjTimeoutMs: 100,
-      },
+      }
     );
 
     expect(result.status).toBe("error");
@@ -558,7 +657,11 @@ describe("inpaintImage", () => {
 
   it("returns ok with imageUrl on success", async () => {
     const fetcher = makeFetcher([
-      { ok: true, status: 200, json: { images: [{ url: "https://fal.ai/inpainted.png" }] } },
+      {
+        ok: true,
+        status: 200,
+        json: { images: [{ url: "https://fal.ai/inpainted.png" }] },
+      },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
     ]);
 
@@ -566,11 +669,13 @@ describe("inpaintImage", () => {
       "https://img.test/original.png",
       "https://img.test/mask.png",
       "old wooden chair",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("ok");
-    expect(result.imageUrl).toBe("https://storage.example.com/generated/test.png");
+    expect(result.imageUrl).toBe(
+      "https://storage.example.com/generated/test.png"
+    );
 
     // Verify inpaint request body
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
@@ -586,7 +691,7 @@ describe("inpaintImage", () => {
       "https://img.test/original.png",
       "https://img.test/mask.png",
       "old wooden chair",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("error");
@@ -601,7 +706,7 @@ describe("inpaintImage", () => {
       "https://img.test/original.png",
       "https://img.test/mask.png",
       "old wooden chair",
-      { fetcher },
+      { fetcher }
     );
 
     expect(result.status).toBe("error");
@@ -701,12 +806,16 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect(submitBody.prompt).not.toContain("--v 7");
   });
 
-  it("MJ 出图默认追加解剖负面词 --no（压制畸形手/多指）", async () => {
+  it("MJ 出图默认追加单镜头规则和负面词（压制拼贴/分屏/多小图）", async () => {
     const fetcher = mjFetcher();
     await generateImage("a person holding stones", { fetcher });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.prompt).toContain("Single-frame rule:");
     expect(submitBody.prompt).toContain("--no");
     expect(submitBody.prompt).toMatch(/deformed hands|extra fingers/);
+    const noSection = submitBody.prompt.split("--no")[1] ?? "";
+    expect(noSection).toMatch(/collage|thumbnails|panels/);
+    expect(noSection).not.toMatch(/multi-panel|side-by-side|contact sheet|poster board|水印/);
   });
 
   it("已显式带 --no 时不重复追加默认负面词", async () => {
@@ -714,6 +823,21 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     await generateImage("a cat --no dogs", { fetcher });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect((submitBody.prompt.match(/--no/g) || []).length).toBe(1);
+    expect(submitBody.prompt.indexOf("Single-frame rule:")).toBeLessThan(
+      submitBody.prompt.indexOf("--no dogs")
+    );
+  });
+
+  it("用户明确要求拼贴/多镜头时不追加单镜头禁令", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("make this a four panel collage of memories", {
+      fetcher,
+    });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    const noSection = submitBody.prompt.split("--no")[1] ?? "";
+    expect(submitBody.prompt).not.toContain("Single-frame rule:");
+    expect(noSection).toMatch(/deformed hands|extra fingers/);
+    expect(noSection).not.toMatch(/collage|panels|storyboard|grid/);
   });
 
   it("characterWeight 跟随 oref → prompt 追加 --ow（人物锁定强度）", async () => {
@@ -730,14 +854,26 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
   });
 
   it("MJ submit 使用独立超时，不受任务轮询总超时限制", async () => {
-    const fetcher = vi.fn().mockImplementation(
-      () => new Promise(() => {}),
-    );
+    const fetcher = vi.fn().mockImplementation(() => new Promise(() => {}));
 
     const result = await generateImage("a slow submit", {
       fetcher,
       mjSubmitTimeoutMs: 1,
       mjTimeoutMs: 10_000,
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.message).toBe("timeout");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("草稿图使用独立短超时，避免快轨卡成慢轨", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.image302DraftTimeoutMs = "1";
+    const fetcher = vi.fn().mockImplementation(() => new Promise(() => {}));
+
+    const result = await generateDraftImage("a fast storyboard sketch", {
+      fetcher,
     });
 
     expect(result.status).toBe("error");

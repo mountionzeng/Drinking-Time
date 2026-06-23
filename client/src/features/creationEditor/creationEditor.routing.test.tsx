@@ -361,6 +361,48 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imagePrompt).toBe('prompt table prompt');
   });
 
+  it('uses the explicitly selected cropped frame instead of the prompt-run four-up parent', () => {
+    const merged = mergeShotsWithImages([
+      shot(6, {
+        promptRun: {
+          finalPrompt: 'Rerender only SH06 as a four-up candidate sheet',
+          generatedAt: 123,
+          imageId: 40,
+          imageUrl: '/api/images/sh06-four-up.png',
+          source: 'prompt-table-rerender',
+          usedDimensions: ['subject'],
+        },
+      }),
+    ], [
+      {
+        id: 40,
+        shotNo: 6,
+        imageUrl: '/api/images/sh06-four-up.png',
+        prompt: 'four-up parent',
+        status: 'pending',
+        isCurrent: true,
+        isPrimary: false,
+        generationType: 'initial',
+      },
+      {
+        id: 41,
+        shotNo: 6,
+        imageUrl: '/api/images/sh06-cropped-frame.png',
+        prompt: 'cropped selected frame',
+        status: 'selected',
+        isCurrent: true,
+        isPrimary: true,
+        generationType: 'initial',
+        selectionSource: 'explicit',
+      },
+    ]);
+
+    expect(merged[0].imageId).toBe(41);
+    expect(merged[0].imageUrl).toBe('/api/images/sh06-cropped-frame.png');
+    expect(merged[0].imagePrompt).toBe('cropped selected frame');
+    expect(merged[0].imageSelectionSource).toBe('explicit');
+  });
+
   it('falls back to the hydrated remote story when the story selector is open', () => {
     const activeId = resolveCreationEditorActiveId({
       isControlled: true,

@@ -1675,34 +1675,39 @@ export function StoryAgentProvider({
       });
       const storyboardStoryId =
         activeStoryId && activeStoryId > 0 ? activeStoryId : savedStoryId;
-      let generatedDraftCount = 0;
-      let failedDraftCount = 0;
       if (storyboardStoryId) {
-        const draftResult = await generateStoryboardDraftFrames({
-          storyId: storyboardStoryId,
-          shots: nextShots,
-          generate: input => storyboardImageMut.mutateAsync(input),
-        });
-        generatedDraftCount = draftResult.generatedCount;
-        failedDraftCount = draftResult.failedCount;
-        const generatedDrafts = draftResult.images;
-        if (generatedDrafts.length > 0) {
-          setStoryImages((prev) => {
-            const byId = new Map(prev.map((image) => [image.id, image]));
-            for (const image of generatedDrafts) byId.set(image.id, image);
-            return Array.from(byId.values());
+        void (async () => {
+          const draftResult = await generateStoryboardDraftFrames({
+            storyId: storyboardStoryId,
+            shots: nextShots,
+            generate: input => storyboardImageMut.mutateAsync(input),
           });
-          await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
-        }
+          const generatedDrafts = draftResult.images;
+          if (generatedDrafts.length > 0) {
+            setStoryImages((prev) => {
+              const byId = new Map(prev.map((image) => [image.id, image]));
+              for (const image of generatedDrafts) byId.set(image.id, image);
+              return Array.from(byId.values());
+            });
+            await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
+            toast.success(`关键帧草稿已补齐：${draftResult.generatedCount} 张`);
+          }
+          if (draftResult.failedCount > 0) {
+            toast.error(`${draftResult.failedCount} 张关键帧草稿没画成，剧本和提示词已保留`);
+          }
+        })().catch(error => {
+          console.warn('storyboard draft generation failed', error);
+          toast.error('关键帧草稿生成失败，剧本和提示词已保留');
+        });
       }
       if (projectId !== null) {
         await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
       }
-      if (generatedDraftCount > 0) {
-        toast.success(`故事版已生成：${script.title} · ${generatedDraftCount} 张关键帧草稿`);
-      } else {
-        toast.success(`故事版已生成：${script.title}`);
-      }
+      toast.success(
+        storyboardStoryId
+          ? `故事版已生成：${script.title} · 关键帧草稿后台生成中`
+          : `故事版已生成：${script.title}`,
+      );
       // Auto-open animatic & storyboard panels so the user sees the result.
       const currentPanels = storySpineStore.getState().visibleStoryPanels;
       const panelsToAdd: Array<'animatic' | 'storyboard'> = [];
@@ -1713,9 +1718,6 @@ export function StoryAgentProvider({
           ...currentPanels,
           ...panelsToAdd,
         ]);
-      }
-      if (failedDraftCount > 0) {
-        toast.error(`${failedDraftCount} 张关键帧草稿没画成，剧本和提示词已保留`);
       }
     } catch (err) {
       console.error('storyAgent.generateScript failed', err);

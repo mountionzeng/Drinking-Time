@@ -1,7 +1,14 @@
+import {
+  ensureShotIdentities,
+  shotIdentityFromShot,
+} from "../../shared/shotIdentity";
+
 type StoryBodyRecord = Record<string, unknown>;
 
 const REVISION_KEY = "_revision";
 const SHOT_FIELDS_TO_PRESERVE = [
+  "stableShotId",
+  "shotIdentity",
   "intent",
   "rationale",
   "videoStart",
@@ -40,10 +47,7 @@ const SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA = [
   "visualAnchorText",
 ] as const;
 
-const SHOT_STABLE_EDITOR_FIELDS = [
-  "durationMs",
-  "fragmentRefs",
-] as const;
+const SHOT_STABLE_EDITOR_FIELDS = ["durationMs", "fragmentRefs"] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [
   "promptOverrides",
@@ -63,7 +67,9 @@ function stringPart(value: unknown): string {
 }
 
 function numberPart(value: unknown): string {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+  return typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : "";
 }
 
 function itemKey(collection: string, value: unknown, index: number): string {
@@ -89,6 +95,8 @@ function itemKey(collection: string, value: unknown, index: number): string {
     ].join(":");
   }
   if (collection === "shots") {
+    const identity = shotIdentityFromShot(item, index);
+    if (identity) return `shotIdentity:${identity}`;
     const shotNo = numberPart(item.shotNo) || stringPart(item.shotNo);
     return shotNo ? `shot:${shotNo}` : `index:${index}`;
   }
@@ -130,7 +138,8 @@ function hasOwn(record: StoryBodyRecord, key: string): boolean {
 function comparableShotValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return JSON.stringify(value);
 }
 
@@ -139,7 +148,9 @@ function sameShotContentForPromptMetadata(
   incomingShot: StoryBodyRecord
 ): boolean {
   return SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA.every(
-    (field) => comparableShotValue(serverShot[field]) === comparableShotValue(incomingShot[field])
+    field =>
+      comparableShotValue(serverShot[field]) ===
+      comparableShotValue(incomingShot[field])
   );
 }
 
@@ -204,7 +215,10 @@ function mergeStoryShotsPreservingFields(
 function cleanShotForPersistence(value: unknown): unknown {
   const shot = asRecord(value);
   const cleaned: StoryBodyRecord = { ...shot };
-  if (typeof cleaned.promptDraft === "string" && cleaned.promptDraft.trim() === "") {
+  if (
+    typeof cleaned.promptDraft === "string" &&
+    cleaned.promptDraft.trim() === ""
+  ) {
     delete cleaned.promptDraft;
   }
   return cleaned;
@@ -212,12 +226,18 @@ function cleanShotForPersistence(value: unknown): unknown {
 
 function cleanStoryShotsForPersistence(value: unknown): unknown[] {
   const shots = Array.isArray(value) ? value : [];
-  return shots.map(cleanShotForPersistence);
+  return ensureShotIdentities(
+    shots
+      .map(cleanShotForPersistence)
+      .filter((shot): shot is StoryBodyRecord => Boolean(shot))
+  );
 }
 
 export function getStoryRevision(body: unknown): number {
   const revision = asRecord(body)[REVISION_KEY];
-  return typeof revision === "number" && Number.isInteger(revision) && revision >= 0
+  return typeof revision === "number" &&
+    Number.isInteger(revision) &&
+    revision >= 0
     ? revision
     : 0;
 }

@@ -845,6 +845,72 @@ describe("storyAgent tRPC router", () => {
     });
   });
 
+  it("generateForMobile 有角色表时给正式图注入人物连续性档案", async () => {
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/character-continuity.png",
+      imageKey: "generated/character-continuity.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(402));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "人物连续性故事",
+      projectId: 7402,
+      body: {
+        cards: [],
+        characters: [
+          { name: "小林", role: "主角", oneLiner: "短发，深色外套，总背着旧包" },
+        ],
+        shots: [],
+      },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角走进雨夜路灯下",
+    });
+
+    const renderedPrompt = imageGenMocks.generateImage.mock.calls[0]?.[0] ?? "";
+    expect(renderedPrompt).toContain("主角走进雨夜路灯下");
+    expect(renderedPrompt).toContain("Character continuity across all generated shots");
+    expect(renderedPrompt).toContain("小林, 主角: 短发，深色外套，总背着旧包");
+    expect(renderedPrompt).toContain("Preserve face shape");
+  });
+
+  it("generateForMobile draft 也注入人物连续性档案", async () => {
+    imageGenMocks.generateDraftImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/character-draft.png",
+      imageKey: "generated/character-draft.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(403));
+
+    const story = await caller.storyAgent.storyUpsert({
+      title: "人物连续性草稿故事",
+      projectId: 7403,
+      body: {
+        cards: [],
+        characters: [
+          { name: "候选人", role: "主视点", oneLiner: "黑色短发，灰色连帽衫" },
+        ],
+        shots: [],
+      },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "候选人在桌前整理作品集",
+      mode: "draft",
+    });
+
+    const renderedPrompt = imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
+    expect(renderedPrompt).toContain("候选人在桌前整理作品集");
+    expect(renderedPrompt).toContain("Character continuity across all generated shots");
+    expect(renderedPrompt).toContain("候选人, 主视点: 黑色短发，灰色连帽衫");
+  });
+
   it("generateForMobile 有 styleHint 时用共享美术配方，不混入每日流派", async () => {
     imageGenMocks.generateDraftImage.mockResolvedValueOnce({
       status: "ok",

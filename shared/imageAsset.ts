@@ -13,6 +13,7 @@ export type ImageAsset = {
   userId: number | null;
   rawShotNo: string | null;
   canonicalShotNo: string | null;
+  shotIdentity: string | null;
   imageKey: string | null;
   imageUrl: string;
   prompt: string | null;
@@ -33,12 +34,16 @@ export type ImageAsset = {
 const ART_DIRECTION_PATTERN = /^ART(?:-|$)/i;
 const NUMERIC_SHOT_PATTERN = /^(?:SH)?0*(\d+)$/i;
 
-export function isStyleReferenceShotNo(shotNo: string | null | undefined): boolean {
-  return typeof shotNo === "string" && ART_DIRECTION_PATTERN.test(shotNo.trim());
+export function isStyleReferenceShotNo(
+  shotNo: string | null | undefined
+): boolean {
+  return (
+    typeof shotNo === "string" && ART_DIRECTION_PATTERN.test(shotNo.trim())
+  );
 }
 
 export function canonicalizeShotNo(
-  shotNo: string | number | null | undefined,
+  shotNo: string | number | null | undefined
 ): string | null {
   if (shotNo == null) return null;
   const value = String(shotNo).trim();
@@ -51,7 +56,7 @@ export function canonicalizeShotNo(
 }
 
 export function shotNoToMobileNumber(
-  shotNo: string | number | null | undefined,
+  shotNo: string | number | null | undefined
 ): number | undefined {
   const canonical = canonicalizeShotNo(shotNo);
   if (!canonical) return undefined;

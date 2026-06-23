@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 
-import { getStoryRevision, prepareStoryBody } from './storySync';
+import { getStoryRevision, prepareStoryBody } from "./storySync";
 
-describe('storySync shot field preservation', () => {
-  it('keeps the existing body cleanup and revision behavior', () => {
+describe("storySync shot field preservation", () => {
+  it("keeps the existing body cleanup and revision behavior", () => {
     const body = prepareStoryBody(
       {
         cards: [],
@@ -12,7 +12,7 @@ describe('storySync shot field preservation', () => {
         mobileImages: [{ id: 1 }],
         images: [{ id: 2 }],
       },
-      7,
+      7
     );
 
     expect(body).toMatchObject({
@@ -21,20 +21,21 @@ describe('storySync shot field preservation', () => {
       shots: [],
       _revision: 7,
     });
-    expect(body).not.toHaveProperty('mobileImages');
-    expect(body).not.toHaveProperty('images');
+    expect(body).not.toHaveProperty("mobileImages");
+    expect(body).not.toHaveProperty("images");
     expect(getStoryRevision(body)).toBe(7);
   });
 
-  it('preserves server shot intent and rationale when an older client omits them', () => {
+  it("preserves server shot intent and rationale when an older client omits them", () => {
     const serverBody = {
       shots: [
         {
           shotNo: 1,
-          subject: '桌面镜头',
-          action: '讲述项目',
-          intent: 'prove judgement',
-          rationale: 'This shot proves the candidate can turn ambiguity into decisions.',
+          subject: "桌面镜头",
+          action: "讲述项目",
+          intent: "prove judgement",
+          rationale:
+            "This shot proves the candidate can turn ambiguity into decisions.",
         },
       ],
     };
@@ -43,8 +44,8 @@ describe('storySync shot field preservation', () => {
       shots: [
         {
           shotNo: 1,
-          subject: '手机镜头',
-          action: '讲述项目更新',
+          subject: "手机镜头",
+          action: "讲述项目更新",
         },
       ],
     };
@@ -53,22 +54,23 @@ describe('storySync shot field preservation', () => {
 
     expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
       shotNo: 1,
-      subject: '手机镜头',
-      action: '讲述项目更新',
-      intent: 'prove judgement',
-      rationale: 'This shot proves the candidate can turn ambiguity into decisions.',
+      subject: "手机镜头",
+      action: "讲述项目更新",
+      intent: "prove judgement",
+      rationale:
+        "This shot proves the candidate can turn ambiguity into decisions.",
     });
   });
 
-  it('keeps existing shots when a mobile-shaped body sends an empty shots array', () => {
+  it("keeps existing shots when a mobile-shaped body sends an empty shots array", () => {
     const serverBody = {
       shots: [
         {
           shotNo: 2,
-          subject: '桌面镜头',
-          action: '展示成果',
-          intent: 'show impact',
-          rationale: 'The image should make the business outcome visible.',
+          subject: "桌面镜头",
+          action: "展示成果",
+          intent: "show impact",
+          rationale: "The image should make the business outcome visible.",
         },
       ],
     };
@@ -77,7 +79,7 @@ describe('storySync shot field preservation', () => {
       cards: [],
       characters: [],
       shots: [],
-      messages: [{ id: 'm1', role: 'user', content: '继续聊', timestamp: 1 }],
+      messages: [{ id: "m1", role: "user", content: "继续聊", timestamp: 1 }],
       mobileImages: [],
     };
 
@@ -85,46 +87,55 @@ describe('storySync shot field preservation', () => {
 
     expect(body.cards).toEqual([]);
     expect(body.messages).toEqual(mobileBody.messages);
-    expect(body).not.toHaveProperty('mobileImages');
-    expect(body.shots).toEqual(serverBody.shots);
+    expect(body).not.toHaveProperty("mobileImages");
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      ...serverBody.shots[0],
+      stableShotId: "legacy-sh02-shot",
+      shotIdentity: "legacy-sh02-shot",
+    });
   });
 
-  it('drops empty promptDraft fields while preserving real prompt text', () => {
+  it("drops empty promptDraft fields while preserving real prompt text", () => {
     const body = prepareStoryBody(
       {
         shots: [
-          { shotNo: 1, subject: '第一镜', action: '等待', promptDraft: '' },
-          { shotNo: 2, subject: '第二镜', action: '行动', promptDraft: '真实出图提示词' },
+          { shotNo: 1, subject: "第一镜", action: "等待", promptDraft: "" },
+          {
+            shotNo: 2,
+            subject: "第二镜",
+            action: "行动",
+            promptDraft: "真实出图提示词",
+          },
         ],
       },
-      6,
+      6
     );
 
     const shots = body.shots as Array<Record<string, unknown>>;
-    expect(shots[0]).not.toHaveProperty('promptDraft');
-    expect(shots[1]).toMatchObject({ promptDraft: '真实出图提示词' });
+    expect(shots[0]).not.toHaveProperty("promptDraft");
+    expect(shots[1]).toMatchObject({ promptDraft: "真实出图提示词" });
   });
 
-  it('preserves prompt-table edits when the incoming canonical shot content is unchanged', () => {
+  it("preserves prompt-table edits when the incoming canonical shot content is unchanged", () => {
     const serverBody = {
       shots: [
         {
           shotNo: 1,
-          subject: '桌面镜头',
-          action: '讲述项目',
-          dialogue: '这就是我做判断的方式',
-          cameraMove: 'slow push in',
+          subject: "桌面镜头",
+          action: "讲述项目",
+          dialogue: "这就是我做判断的方式",
+          cameraMove: "slow push in",
           promptOverrides: {
-            subject: { value: '候选人正在整理作品集', weight: 0.9 },
+            subject: { value: "候选人正在整理作品集", weight: 0.9 },
           },
           promptRun: {
-            finalPrompt: 'real prompt used for this exact shot',
+            finalPrompt: "real prompt used for this exact shot",
             generatedAt: 123,
             imageId: 99,
-            source: 'prompt-table-rerender',
-            usedDimensions: ['subject'],
+            source: "prompt-table-rerender",
+            usedDimensions: ["subject"],
           },
-          promptDraft: 'real prompt used for this exact shot',
+          promptDraft: "real prompt used for this exact shot",
           durationMs: 4200,
         },
       ],
@@ -134,10 +145,10 @@ describe('storySync shot field preservation', () => {
       shots: [
         {
           shotNo: 1,
-          subject: '桌面镜头',
-          action: '讲述项目',
-          dialogue: '这就是我做判断的方式',
-          cameraMove: 'slow push in',
+          subject: "桌面镜头",
+          action: "讲述项目",
+          dialogue: "这就是我做判断的方式",
+          cameraMove: "slow push in",
         },
       ],
     };
@@ -146,34 +157,34 @@ describe('storySync shot field preservation', () => {
     const shot = (body.shots as Array<Record<string, unknown>>)[0];
 
     expect(shot.promptOverrides).toEqual({
-      subject: { value: '候选人正在整理作品集', weight: 0.9 },
+      subject: { value: "候选人正在整理作品集", weight: 0.9 },
     });
     expect(shot.promptRun).toMatchObject({
-      finalPrompt: 'real prompt used for this exact shot',
+      finalPrompt: "real prompt used for this exact shot",
       imageId: 99,
     });
-    expect(shot.promptDraft).toBe('real prompt used for this exact shot');
+    expect(shot.promptDraft).toBe("real prompt used for this exact shot");
     expect(shot.durationMs).toBe(4200);
   });
 
-  it('does not preserve stale prompt runs when the incoming shot content changed', () => {
+  it("does not preserve stale prompt runs when the incoming shot content changed", () => {
     const serverBody = {
       shots: [
         {
           shotNo: 1,
-          subject: '旧主体',
-          action: '旧动作',
+          subject: "旧主体",
+          action: "旧动作",
           promptOverrides: {
-            subject: { value: '旧出图主体', weight: 0.9 },
+            subject: { value: "旧出图主体", weight: 0.9 },
           },
           promptRun: {
-            finalPrompt: 'old prompt',
+            finalPrompt: "old prompt",
             generatedAt: 123,
             imageId: 99,
-            source: 'prompt-table-rerender',
-            usedDimensions: ['subject'],
+            source: "prompt-table-rerender",
+            usedDimensions: ["subject"],
           },
-          promptDraft: 'old prompt',
+          promptDraft: "old prompt",
           durationMs: 4200,
         },
       ],
@@ -181,21 +192,77 @@ describe('storySync shot field preservation', () => {
 
     const body = prepareStoryBody(
       {
-        shots: [{ shotNo: 1, subject: '新主体', action: '新动作' }],
+        shots: [{ shotNo: 1, subject: "新主体", action: "新动作" }],
       },
       9,
-      serverBody,
+      serverBody
     );
     const shot = (body.shots as Array<Record<string, unknown>>)[0];
 
     expect(shot).toMatchObject({
       shotNo: 1,
-      subject: '新主体',
-      action: '新动作',
+      subject: "新主体",
+      action: "新动作",
       durationMs: 4200,
     });
-    expect(shot).not.toHaveProperty('promptOverrides');
-    expect(shot).not.toHaveProperty('promptRun');
-    expect(shot).not.toHaveProperty('promptDraft');
+    expect(shot).not.toHaveProperty("promptOverrides");
+    expect(shot).not.toHaveProperty("promptRun");
+    expect(shot).not.toHaveProperty("promptDraft");
+  });
+
+  it("backfills stable shot identity when persisting legacy story shots", () => {
+    const body = prepareStoryBody(
+      {
+        shots: [
+          { shotNo: 5, subject: "旧镜头", action: "站在风里", beat: "转折" },
+        ],
+      },
+      10
+    );
+
+    const shot = (body.shots as Array<Record<string, unknown>>)[0];
+    expect(shot.stableShotId).toBe("legacy-sh05-shot");
+    expect(shot.shotIdentity).toBe("legacy-sh05-shot");
+  });
+
+  it("preserves editor metadata by stable shot identity even if display shotNo changes", () => {
+    const serverBody = {
+      shots: [
+        {
+          stableShotId: "shot-scene-turn",
+          shotIdentity: "shot-scene-turn",
+          shotNo: 5,
+          subject: "同一个镜头",
+          action: "站在风里",
+          durationMs: 3600,
+          videoPrompt: "slow push in",
+        },
+      ],
+    };
+
+    const body = prepareStoryBody(
+      {
+        shots: [
+          {
+            stableShotId: "shot-scene-turn",
+            shotIdentity: "shot-scene-turn",
+            shotNo: 6,
+            subject: "同一个镜头",
+            action: "站在风里",
+          },
+        ],
+      },
+      11,
+      serverBody
+    );
+
+    const shot = (body.shots as Array<Record<string, unknown>>)[0];
+    expect(shot).toMatchObject({
+      stableShotId: "shot-scene-turn",
+      shotIdentity: "shot-scene-turn",
+      shotNo: 6,
+      durationMs: 3600,
+      videoPrompt: "slow push in",
+    });
   });
 });

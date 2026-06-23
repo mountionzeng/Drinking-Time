@@ -43,6 +43,13 @@
       "when": 1781999834000,
       "tag": "0005_add_chat_correction",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1782141240000,
+      "tag": "0006_shot_video_foundation",
+      "breakpoints": true
     }
   ]
 }

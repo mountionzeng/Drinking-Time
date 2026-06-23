@@ -1,6 +1,7 @@
 import type { StoryShot } from './types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { defaultArtRecipe, type ArtRecipeDNA } from '@shared/artDirection';
+import { SINGLE_FRAME_HARD_CONSTRAINT } from '@shared/singleFramePrompt';
 
 export const STORYBOARD_DRAFT_SHOT_LIMIT = 3;
 const STORYBOARD_STYLE_TOKEN_LIMIT = 8;
@@ -105,14 +106,14 @@ export function buildStoryboardDraftPrompt(shot: StoryShot): string {
   ].filter(Boolean).join('；');
 
   return [
-    `Create exactly one storyboard key frame for SH${String(shot.shotNo).padStart(2, '0')}.`,
-    'This image is part of the generated storyboard, not a standalone poster.',
+    `Create exactly one cinematic key frame for SH${String(shot.shotNo).padStart(2, '0')}.`,
+    'This image belongs to the generated storyboard, but it must be a single continuous shot frame, not a storyboard sheet or poster.',
     clean(shot.styleRef) ? `Shared visual framework for the whole film: ${clean(shot.styleRef)}` : '',
     clean(shot.intent) ? `Director intent: ${clean(shot.intent)}` : '',
     clean(shot.rationale) ? `Why this frame works: ${clean(shot.rationale)}` : '',
     clean(shot.sourceCardContent) ? `Source Story Card: ${clean(shot.sourceCardContent)}` : '',
     clean(shot.promptDraft) || fallbackPrompt,
-    'Hard constraints: no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid.',
+    `Hard constraints: ${SINGLE_FRAME_HARD_CONSTRAINT}`,
   ].filter(Boolean).join('\n');
 }
 

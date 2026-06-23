@@ -1,5 +1,6 @@
 import type { CreationEditorShot } from '../CreationEditorContext';
 import type { PromptRow, PromptRunRecord } from './types';
+import { SINGLE_FRAME_HARD_CONSTRAINT } from '@shared/singleFramePrompt';
 
 export type CompiledPromptRecipe = {
   finalPrompt: string;
@@ -23,8 +24,8 @@ export function compilePromptRecipe(params: {
 
   return {
     finalPrompt: [
-      `Create exactly one storyboard key frame for ${shotKey}.`,
-      'This image is part of the generated storyboard, not a standalone poster.',
+      `Create exactly one cinematic key frame for ${shotKey}.`,
+      'This image belongs to the storyboard, but it must be a single continuous shot frame, not a storyboard sheet or poster.',
       params.shot.styleRef ? `Shared visual framework for the whole film: ${params.shot.styleRef}` : '',
       params.shot.intent ? `Director intent: ${params.shot.intent}` : '',
       params.shot.rationale ? `Why this frame works: ${params.shot.rationale}` : '',
@@ -35,7 +36,7 @@ export function compilePromptRecipe(params: {
         : '',
       'Prompt dimensions with weights:',
       ...weightedLines,
-      'Hard constraints: no captions, no readable text, no UI, no watermark, no split screen, no storyboard grid.',
+      `Hard constraints: ${SINGLE_FRAME_HARD_CONSTRAINT}`,
     ].filter(Boolean).join('\n'),
     usedDimensions: sortedRows.map((row) => row.dimension),
   };

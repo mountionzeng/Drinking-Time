@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
+import { shotIdentityFromShot } from "@shared/shotIdentity";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -60,7 +61,11 @@ import {
   type SetCharacterAnchorToolCall,
   type ShotContext,
 } from "./services/creationAgent";
-import { CREATION_GOALS, goalGuidance, detectGoalFromText } from "./services/creationGoal";
+import {
+  CREATION_GOALS,
+  goalGuidance,
+  detectGoalFromText,
+} from "./services/creationGoal";
 import { segmentAtPoint } from "./services/segmentation";
 import {
   editImage as editMobileImage,
@@ -71,16 +76,27 @@ import {
   toPublicImageUrl,
 } from "./services/imageGen";
 import { renderViaGate } from "./services/renderGate";
-import { getProjectImageAssets, getStoryImageAssets, materializeImageInput } from "./services/imageAssets";
-import { generateShotVideo } from "./services/videoGen";
+import {
+  getProjectImageAssets,
+  getStoryImageAssets,
+} from "./services/imageAssets";
+import { getStoryVideoAssets } from "./services/videoAssets";
+import {
+  refreshVideoTakeStatus,
+  startShotVideoJob,
+} from "./services/videoJobs";
+import { getShotVideoProviderStatus } from "./services/videoGen";
+import {
+  clearVideoTimelineSegment,
+  createUsableVideoRange,
+  selectVideoTimelineSegment,
+} from "./services/videoTimeline";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { composeScenePrompt } from "./services/composeScenePrompt";
+import { withCharacterContinuityPrompt } from "./services/characterContinuity";
 import { deriveInjection } from "./services/imageInjection";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
-import {
-  analyzeArtReference,
-  createArtRiff,
-} from "./services/artAgent";
+import { analyzeArtReference, createArtRiff } from "./services/artAgent";
 import {
   normalizeStoryArtDirection,
   characterReferenceOf,
@@ -97,6 +113,31 @@ import { sceneAnalysisSchema } from "../shared/sceneAnalysis";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
+function shotIdentityForStoryShot(
+  story: Pick<StoryRow, "body">,
+  shotNo: string | number | null | undefined
+): string | null {
+  const canonical = canonicalizeShotNo(shotNo);
+  if (!canonical) return null;
+  const body =
+    story.body && typeof story.body === "object"
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const shots = Array.isArray(body.shots) ? body.shots : [];
+  for (let index = 0; index < shots.length; index += 1) {
+    const shot = shots[index];
+    if (!shot || typeof shot !== "object") continue;
+    const obj = shot as Record<string, unknown>;
+    if (
+      canonicalizeShotNo(obj.shotNo as string | number | null | undefined) ===
+      canonical
+    ) {
+      return shotIdentityFromShot(obj, index);
+    }
+  }
+  return null;
+}
+
 export type ConfirmedScriptIntent = {
   purpose: string;
   audience: string;
@@ -112,7 +153,7 @@ function cleanIntentText(value: string | null | undefined): string {
 }
 
 export function buildConfirmedIntentLine(
-  confirmedIntent: ConfirmedScriptIntent | null | undefined,
+  confirmedIntent: ConfirmedScriptIntent | null | undefined
 ): string {
   if (!confirmedIntent) return "";
 
@@ -146,14 +187,14 @@ async function composeStoryWorkspace(
   try {
     const assets = await getStoryImageAssets(story.id, userId);
     const mobileImages = assets
-      .filter((asset) => asset.kind === "story_frame")
-      .filter((asset) => asset.assignment === "shot")
-      .filter((asset) => asset.isPrimary)
-      .filter((asset) => asset.status !== "rejected")
-      .filter((asset) => asset.availability !== "missing")
-      .filter((asset) => asset.imageUrl)
-      .filter((image) => image.imageUrl)
-      .map((image) => ({
+      .filter(asset => asset.kind === "story_frame")
+      .filter(asset => asset.assignment === "shot")
+      .filter(asset => asset.isPrimary)
+      .filter(asset => asset.status !== "rejected")
+      .filter(asset => asset.availability !== "missing")
+      .filter(asset => asset.imageUrl)
+      .filter(image => image.imageUrl)
+      .map(image => ({
         id: image.id,
         imageUrl: image.imageUrl,
         prompt: image.prompt || "画面",
@@ -172,7 +213,10 @@ async function composeStoryWorkspace(
       body: mobileImages.length > 0 ? { ...body, mobileImages } : body,
     };
   } catch (err) {
-    console.warn("[story workspace] 读取 generatedImages 失败，按正文返回：", err);
+    console.warn(
+      "[story workspace] 读取 generatedImages 失败，按正文返回：",
+      err
+    );
     return { ...story, revision, syncConflict };
   }
 }
@@ -180,20 +224,22 @@ async function composeStoryWorkspace(
 function storyArtRecipe(story: { body: unknown }): ArtRecipeDNA | undefined {
   const body =
     story.body && typeof story.body === "object"
-      ? story.body as Record<string, unknown>
+      ? (story.body as Record<string, unknown>)
       : {};
   const direction = normalizeStoryArtDirection(body.artDirection);
   return direction.phase === "locked" ? direction.recipe : undefined;
 }
 
-function artRecipeFromStyleHint(styleHint: string | null | undefined): ArtRecipeDNA | undefined {
+function artRecipeFromStyleHint(
+  styleHint: string | null | undefined
+): ArtRecipeDNA | undefined {
   const style = Array.from(
     new Set(
       (styleHint ?? "")
         .split(/[,，;；、\n]/)
         .map(part => part.trim())
-        .filter(Boolean),
-    ),
+        .filter(Boolean)
+    )
   ).slice(0, 12);
   if (style.length === 0) return undefined;
   return {
@@ -209,7 +255,7 @@ function artRecipeFromStyleHint(styleHint: string | null | undefined): ArtRecipe
 function storyArtReferenceImages(story: { body: unknown }): string[] {
   const body =
     story.body && typeof story.body === "object"
-      ? story.body as Record<string, unknown>
+      ? (story.body as Record<string, unknown>)
       : {};
   const direction = normalizeStoryArtDirection(body.artDirection);
   const selected = direction.references
@@ -217,7 +263,7 @@ function storyArtReferenceImages(story: { body: unknown }): string[] {
       reference =>
         reference.selected &&
         reference.imageUrl &&
-        (reference.purpose === "fact" || reference.purpose === "both"),
+        (reference.purpose === "fact" || reference.purpose === "both")
     )
     .map(reference => reference.imageUrl!);
   const canvas = Array.isArray(body.visualCanvasItems)
@@ -239,7 +285,7 @@ function storyArtReferenceImages(story: { body: unknown }): string[] {
 async function writeCharacterAnchor(
   story: StoryRow,
   userId: number,
-  imageUrl: string,
+  imageUrl: string
 ) {
   const publicUrl = await toPublicImageUrl(imageUrl);
   if (!publicUrl) {
@@ -251,15 +297,18 @@ async function writeCharacterAnchor(
 
   const body =
     story.body && typeof story.body === "object"
-      ? story.body as Record<string, unknown>
+      ? (story.body as Record<string, unknown>)
       : {};
   const direction = normalizeStoryArtDirection(body.artDirection);
   const now = Date.now();
   const nextDirection = {
     ...direction,
-    phase: direction.phase === "empty" ? "references" as const : direction.phase,
+    phase:
+      direction.phase === "empty" ? ("references" as const) : direction.phase,
     references: [
-      ...direction.references.filter(reference => reference.role !== "character"),
+      ...direction.references.filter(
+        reference => reference.role !== "character"
+      ),
       {
         id: `character-${now}`,
         label: "人物锚点",
@@ -278,7 +327,7 @@ async function writeCharacterAnchor(
       artDirection: nextDirection,
     },
     getStoryRevision(story.body) + 1,
-    story.body,
+    story.body
   );
 
   await updateStory(story.id, userId, { body: nextBody });
@@ -286,7 +335,10 @@ async function writeCharacterAnchor(
   return {
     status: "ok" as const,
     publicUrl,
-    story: await composeStoryWorkspace(saved ?? { ...story, body: nextBody }, userId),
+    story: await composeStoryWorkspace(
+      saved ?? { ...story, body: nextBody },
+      userId
+    ),
   };
 }
 
@@ -296,10 +348,14 @@ function artRecipePrompt(recipe: ArtRecipeDNA | undefined): string {
     recipe.style.length ? `style: ${recipe.style.join(", ")}` : "",
     recipe.palette.length ? `palette: ${recipe.palette.join(", ")}` : "",
     recipe.light.length ? `lighting: ${recipe.light.join(", ")}` : "",
-    recipe.composition.length ? `composition: ${recipe.composition.join(", ")}` : "",
+    recipe.composition.length
+      ? `composition: ${recipe.composition.join(", ")}`
+      : "",
     recipe.material.length ? `materials: ${recipe.material.join(", ")}` : "",
     recipe.negative.length ? `avoid: ${recipe.negative.join(", ")}` : "",
-  ].filter(Boolean).join("; ");
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 function shotStatusFromBeat(beat: string) {
@@ -512,7 +568,7 @@ export const appRouter = router({
           mimeType: z.string().optional(),
           fileName: z.string().optional(),
           instruction: z.string().optional(),
-        }),
+        })
       )
       .mutation(async ({ input }) => analyzeArtReference(input)),
 
@@ -547,7 +603,6 @@ export const appRouter = router({
           imageProvider: input.imageProvider,
         });
       }),
-
   }),
 
   // ─── Daily Almanac / 老黄历 ─────────────────────────────────────────
@@ -1263,18 +1318,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               )
             : "";
         // 用户已确认的意图最高优先级，置顶进剧本上下文，让剧本严格贴合"给谁看/为什么拍/调性"。
-        const confirmedIntentLine = buildConfirmedIntentLine(input.confirmedIntent);
+        const confirmedIntentLine = buildConfirmedIntentLine(
+          input.confirmedIntent
+        );
         const scriptContext = [confirmedIntentLine, resonanceContext]
           .filter(Boolean)
           .join("\n\n");
         // 可观测：把注入剧本的共鸣上下文打到日志，方便测试时确认「意图+情绪+文学声音」是否生效
         if (scriptContext) {
           console.log(
-            `\n[共鸣·剧本] user=${ctx.user.id} ✅ 已注入（${input.cards.length} 张卡片）：\n${scriptContext}\n`,
+            `\n[共鸣·剧本] user=${ctx.user.id} ✅ 已注入（${input.cards.length} 张卡片）：\n${scriptContext}\n`
           );
         } else {
           console.log(
-            `[共鸣·剧本] user=${ctx.user.id} ⚪ 未注入（卡片无情绪 + 无长期情绪画像 → 共鸣信号为空，剧本行为与接入前一致）`,
+            `[共鸣·剧本] user=${ctx.user.id} ⚪ 未注入（卡片无情绪 + 无长期情绪画像 → 共鸣信号为空，剧本行为与接入前一致）`
           );
         }
         const result = await synthesizeShotList({
@@ -1381,13 +1438,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ input }) => {
-        const turns = input.history.filter((t) => t.content.trim());
+        const turns = input.history.filter(t => t.content.trim());
         const message = turns.length ? turns[turns.length - 1].content : "";
         return recognizeStoryIntent({
           message,
           history: turns.slice(0, -1),
           existingIntent:
-            (input.existingIntent as StoryIntentPayload | null | undefined) ?? null,
+            (input.existingIntent as StoryIntentPayload | null | undefined) ??
+            null,
         });
       }),
 
@@ -1423,11 +1481,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               input.body === undefined
                 ? prepareStoryBody(existing.body, nextRevision)
                 : syncConflict
-                  ? mergeStaleStoryBody(
-                      existing.body,
-                      input.body,
-                      nextRevision
-                    )
+                  ? mergeStaleStoryBody(existing.body, input.body, nextRevision)
                   : prepareStoryBody(input.body, nextRevision, existing.body);
             await updateStory(input.id, ctx.user.id, {
               title,
@@ -1439,7 +1493,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               body: nextBody,
             });
             const saved = await getStoryById(input.id, ctx.user.id);
-            return saved ? composeStoryWorkspace(saved, ctx.user.id, syncConflict) : null;
+            return saved
+              ? composeStoryWorkspace(saved, ctx.user.id, syncConflict)
+              : null;
           }
           // Story not found (e.g. after server restart cleared in-memory state).
           // Fall through to create a new story rather than failing silently.
@@ -1489,13 +1545,22 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           return { status: "error" as const, error: "没有可用风格" };
         }
         const body = (story.body ?? {}) as Record<string, unknown>;
-        const current = typeof body.styleIndex === "number" ? body.styleIndex : -1;
+        const current =
+          typeof body.styleIndex === "number" ? body.styleIndex : -1;
         const next = (current + 1) % styles.length;
         const nextBody = { ...body, styleIndex: next };
         await updateStory(story.id, ctx.user.id, {
-          body: prepareStoryBody(nextBody, getStoryRevision(story.body) + 1, story.body),
+          body: prepareStoryBody(
+            nextBody,
+            getStoryRevision(story.body) + 1,
+            story.body
+          ),
         });
-        return { status: "ok" as const, styleIndex: next, styleName: styles[next].name };
+        return {
+          status: "ok" as const,
+          styleIndex: next,
+          styleName: styles[next].name,
+        };
       }),
 
     // ─── 手机端聊天出图端点 ──────────────────────────────────────────
@@ -1623,7 +1688,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             )
             .optional(),
           // 双轨出图：draft = 秒级小样（flux-schnell，确认构图用）；
-          // final / 缺省 = MJ 正式版。草稿轨不可用时服务端自动回落 MJ。
+          // final / 缺省 = MJ 正式版。draft 轨必须快，失败时快速返回，避免偷偷拖到正式轨。
           mode: z.enum(["draft", "final"]).optional(),
           draftImageId: z.number().optional(), // 确认出正式版时关联草稿图，落库 parentImageId
           // 镜头内容提示：选中卡片的具体内容（content + 感官细节），作为画面主体来源。
@@ -1642,7 +1707,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         try {
           const story = await getStoryById(input.storyId, ctx.user.id);
           if (!story) {
-            return { status: "error" as const, error: "找不到故事，无法保存图片" };
+            return {
+              status: "error" as const,
+              error: "找不到故事，无法保存图片",
+            };
           }
 
           // prompt 缺失（手动「画出来」按钮）→ 用最近对话现编一条英文出图 prompt
@@ -1672,6 +1740,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               error: "还没聊到能画的内容，多说两句再点「画出来」？",
             };
           }
+          const storyBody =
+            story.body && typeof story.body === "object"
+              ? (story.body as Record<string, unknown>)
+              : {};
           // 风格锁：把用户锁定的画风稳定追加到 prompt 末尾，避免每次漂移
           if (input.styleHint?.trim() && !styleHintApplied) {
             prompt = `${prompt}, art style: ${input.styleHint.trim()}`;
@@ -1681,15 +1753,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
           const storyReferences = storyArtReferenceImages(story);
           // 主角参照（跨镜头锁人物+场景）：取 role:'character' 的参考图（通常是已收下的镜头图）。
-          const direction = normalizeStoryArtDirection(
-            story.body && typeof story.body === "object"
-              ? (story.body as Record<string, unknown>).artDirection
-              : undefined,
-          );
+          const direction = normalizeStoryArtDirection(storyBody.artDirection);
           const rawCharacterRef = characterReferenceOf(direction);
+          prompt = withCharacterContinuityPrompt(prompt, storyBody, {
+            hasCharacterReference: Boolean(rawCharacterRef),
+            sceneAnalysis: input.sceneAnalysis,
+          });
           const injection = await deriveInjection(story, input.sceneAnalysis);
           // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
-          const referenceImage = input.originalImageUrl || rawCharacterRef || storyReferences[0];
+          const referenceImage =
+            input.originalImageUrl || rawCharacterRef || storyReferences[0];
           const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
           const gateContext = {
             prompt,
@@ -1700,12 +1773,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             projectId: story.projectId ?? undefined,
             storyId: story.id,
             artDirection: storyArtRecipe(story) ?? explicitStyleRecipe,
-            styleIndex: typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
-              ? (story.body as Record<string, unknown>).styleIndex as number
-              : undefined,
+            styleIndex:
+              typeof storyBody.styleIndex === "number"
+                ? (storyBody.styleIndex as number)
+                : undefined,
           };
 
           const imageWeight = input.sceneWeight ?? 0.5;
+          const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
 
           // 快轨：复制旧版 7b7d9bf 的 flux-schnell 草稿小样，先让弹窗快速返回单张图。
           // 失败（额度/网络/网关不支持）自动回落到下面的 MJ 正式轨，用户无感知。
@@ -1721,6 +1796,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 storyId: input.storyId,
                 userId: ctx.user.id,
                 shotNo: canonicalizeShotNo(input.shotNo),
+                shotIdentity,
                 imageKey: draft.imageKey ?? null,
                 imageUrl: draft.imageUrl,
                 prompt: renderedDraftPrompt,
@@ -1737,10 +1813,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 mode: "draft" as const,
               };
             }
-            console.warn(
-              "[generateForMobile] 草稿轨不可用，自动回落 MJ：",
-              draft.message,
-            );
+            return {
+              status: "error" as const,
+              error: draft.message ?? "草稿图生成失败",
+              mode: "draft" as const,
+            };
           }
 
           // 慢轨正式版：全质量 MJ turbo。人物锁(--oref/--ow 100)跨镜头锁脸/发/衣；
@@ -1771,6 +1848,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             storyId: input.storyId,
             userId: ctx.user.id,
             shotNo: canonicalizeShotNo(input.shotNo),
+            shotIdentity,
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt: renderedFinalPrompt,
@@ -1811,7 +1889,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         try {
           const story = await getStoryById(input.storyId, ctx.user.id);
           if (!story) {
-            return { status: "error" as const, error: "找不到故事，无法保存图片" };
+            return {
+              status: "error" as const,
+              error: "找不到故事，无法保存图片",
+            };
           }
 
           // 局部修复同样经美术网关：带上故事的美术 DNA 和参考图
@@ -1820,17 +1901,20 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             {
               prompt: input.prompt,
               referenceImages: Array.from(
-                new Set([input.originalImageUrl, ...storyReferences]),
+                new Set([input.originalImageUrl, ...storyReferences])
               ),
               shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
               projectId: story.projectId ?? undefined,
               artDirection: storyArtRecipe(story),
-              styleIndex: typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
-                ? (story.body as Record<string, unknown>).styleIndex as number
-                : undefined,
+              styleIndex:
+                typeof (story.body as Record<string, unknown>)?.styleIndex ===
+                "number"
+                  ? ((story.body as Record<string, unknown>)
+                      .styleIndex as number)
+                  : undefined,
             },
             renderedPrompt =>
-              editMobileImage(input.originalImageUrl, renderedPrompt),
+              editMobileImage(input.originalImageUrl, renderedPrompt)
           );
           if (result.status === "error" || !result.imageUrl) {
             return {
@@ -1839,11 +1923,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             };
           }
           // shotNo 转为字符串
+          const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
           const image = await createGeneratedImage({
             projectId: story.projectId ?? null,
             storyId: input.storyId,
             userId: ctx.user.id,
             shotNo: canonicalizeShotNo(input.shotNo),
+            shotIdentity,
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt: input.prompt,
@@ -1851,7 +1937,11 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             parentImageId: input.parentImageId ?? null,
             isCurrent: true,
           });
-          return { status: "ok" as const, imageUrl: result.imageUrl, imageId: image.id };
+          return {
+            status: "ok" as const,
+            imageUrl: result.imageUrl,
+            imageId: image.id,
+          };
         } catch (err) {
           console.error("[mobileInpaint] 局部修复失败:", err);
           return {
@@ -1903,17 +1993,21 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
       .query(async ({ ctx, input }) => {
         const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
         return assets
-          .filter((asset) => asset.kind === "story_frame")
-          .filter((asset) => asset.assignment === "shot")
-          .filter((asset) => asset.isPrimary || (asset.status === "pending" && asset.isCurrent))
-          .filter((asset) => asset.status !== "rejected")
-          .filter((asset) => asset.availability !== "missing")
-          .map((asset) => ({
+          .filter(asset => asset.kind === "story_frame")
+          .filter(asset => asset.assignment === "shot")
+          .filter(
+            asset =>
+              asset.isPrimary || (asset.status === "pending" && asset.isCurrent)
+          )
+          .filter(asset => asset.status !== "rejected")
+          .filter(asset => asset.availability !== "missing")
+          .map(asset => ({
             id: asset.id,
             projectId: asset.projectId,
             storyId: asset.storyId,
             userId: asset.userId,
             shotNo: asset.canonicalShotNo ?? asset.rawShotNo,
+            shotIdentity: asset.shotIdentity,
             imageKey: asset.imageKey,
             imageUrl: asset.imageUrl,
             prompt: asset.prompt,
@@ -1926,6 +2020,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             maskKey: asset.maskKey,
             createdAt: new Date(asset.createdAt),
           }));
+      }),
+
+    storyVideoAssets: protectedProcedure
+      .input(z.object({ storyId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return getStoryVideoAssets(input.storyId, ctx.user.id);
       }),
   }),
 
@@ -2074,6 +2174,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // ─── Creation Agent ─────────────────────────────────────────────────
   // Creation Engine: chat with image generation + focus tracking.
   creationAgent: router({
+    shotVideoProviderStatus: protectedProcedure.query(() =>
+      getShotVideoProviderStatus()
+    ),
+
     /** Conversational chat with the creation agent */
     chat: protectedProcedure
       .input(
@@ -2136,9 +2240,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 [
                   input.message,
                   ...(input.history ?? [])
-                    .filter((t) => t.role === "user")
+                    .filter(t => t.role === "user")
                     .slice(-4)
-                    .map((t) => t.content ?? ""),
+                    .map(t => t.content ?? ""),
                 ].join("\n")
               );
         const result = await replyFromCreationAgent({
@@ -2162,33 +2266,47 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         let characterAnchorChanged = false;
         const anchorCall = result.toolCalls.find(
           (toolCall): toolCall is SetCharacterAnchorToolCall =>
-            toolCall.tool === "setCharacterAnchor",
+            toolCall.tool === "setCharacterAnchor"
         );
         if (anchorCall) {
           const anchorUrl =
-            typeof anchorCall.imageUrl === "string" && anchorCall.imageUrl.trim()
+            typeof anchorCall.imageUrl === "string" &&
+            anchorCall.imageUrl.trim()
               ? anchorCall.imageUrl.trim()
               : typeof anchorCall.imageId === "number"
                 ? assets.find(
                     asset =>
                       asset.id === anchorCall.imageId &&
                       asset.kind === "story_frame" &&
-                      asset.availability !== "missing",
+                      asset.availability !== "missing"
                   )?.imageUrl
                 : undefined;
           if (!story) {
-            result.reply = [result.reply, "还没有可写入锚点的故事，先保存故事后我再设人物锚点。"]
+            result.reply = [
+              result.reply,
+              "还没有可写入锚点的故事，先保存故事后我再设人物锚点。",
+            ]
               .filter(Boolean)
               .join("\n\n");
           } else if (!anchorUrl) {
-            result.reply = [result.reply, "我没有找到这张可用图片，暂时不能设为人物锚点。"]
+            result.reply = [
+              result.reply,
+              "我没有找到这张可用图片，暂时不能设为人物锚点。",
+            ]
               .filter(Boolean)
               .join("\n\n");
           } else {
-            const anchorResult = await writeCharacterAnchor(story, ctx.user.id, anchorUrl);
+            const anchorResult = await writeCharacterAnchor(
+              story,
+              ctx.user.id,
+              anchorUrl
+            );
             if (anchorResult.status === "ok") {
               characterAnchorChanged = true;
-              result.reply = [result.reply, "已把这张图设为人物锚点，后续人物镜头会优先按这张脸和整体画风延续。"]
+              result.reply = [
+                result.reply,
+                "已把这张图设为人物锚点，后续人物镜头会优先按这张脸和整体画风延续。",
+              ]
                 .filter(Boolean)
                 .join("\n\n");
             } else {
@@ -2200,19 +2318,27 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         }
         const photoCall = result.toolCalls.find(
           (toolCall): toolCall is CreateCharacterFromPhotoToolCall =>
-            toolCall.tool === "createCharacterFromPhoto",
+            toolCall.tool === "createCharacterFromPhoto"
         );
         if (photoCall) {
           if (!story) {
-            result.reply = [result.reply, "还没有可写入锚点的故事，先保存故事后我再把照片重绘成锚点。"]
+            result.reply = [
+              result.reply,
+              "还没有可写入锚点的故事，先保存故事后我再把照片重绘成锚点。",
+            ]
               .filter(Boolean)
               .join("\n\n");
           } else if (!photoCall.photoUrl?.trim()) {
-            result.reply = [result.reply, "我没有拿到可用照片，暂时不能创建人物锚点。"]
+            result.reply = [
+              result.reply,
+              "我没有拿到可用照片，暂时不能创建人物锚点。",
+            ]
               .filter(Boolean)
               .join("\n\n");
           } else {
-            const recipePrompt = artRecipePrompt(storyArtRecipe(story) ?? defaultArtRecipe());
+            const recipePrompt = artRecipePrompt(
+              storyArtRecipe(story) ?? defaultArtRecipe()
+            );
             const stylized = await editMobileImage(
               photoCall.photoUrl.trim(),
               [
@@ -2220,29 +2346,35 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 "Preserve the person's recognizable face, hairstyle, clothing color, clothing material, and overall identity.",
                 "Create a clean character reference portrait suitable for future story frames.",
                 recipePrompt,
-              ].filter(Boolean).join(" "),
+              ]
+                .filter(Boolean)
+                .join(" "),
               {
                 provider: input.imageProvider,
                 requireInputImage: true,
-              },
+              }
             );
             if (stylized.status !== "ok" || !stylized.imageUrl) {
               result.reply = [
                 result.reply,
                 `这次没能基于照片重绘人物锚点：${stylized.message ?? "图片服务没有返回结果"}。我不会把无关文生图或原始照片设为锚点。`,
-              ].filter(Boolean).join("\n\n");
+              ]
+                .filter(Boolean)
+                .join("\n\n");
             } else {
               const anchorResult = await writeCharacterAnchor(
                 story,
                 ctx.user.id,
-                stylized.imageUrl,
+                stylized.imageUrl
               );
               if (anchorResult.status === "ok") {
                 characterAnchorChanged = true;
                 result.reply = [
                   result.reply,
                   "已把照片重绘成风格化人物图，并设为人物锚点；后续人物镜头会按这张锚点延续。",
-                ].filter(Boolean).join("\n\n");
+                ]
+                  .filter(Boolean)
+                  .join("\n\n");
               } else {
                 result.reply = [result.reply, anchorResult.error]
                   .filter(Boolean)
@@ -2296,19 +2428,29 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         z.object({
           projectId: z.number(),
           imageId: z.number(),
-        }),
+        })
       )
       .mutation(async ({ ctx, input }) => {
         const project = await getProjectById(input.projectId, ctx.user.id);
-        if (!project) return { success: false as const, reason: "project_not_found" as const };
-        const assets = await getProjectImageAssets(input.projectId, ctx.user.id);
+        if (!project)
+          return {
+            success: false as const,
+            reason: "project_not_found" as const,
+          };
+        const assets = await getProjectImageAssets(
+          input.projectId,
+          ctx.user.id
+        );
         const asset = assets.find(candidate => candidate.id === input.imageId);
         if (
           !asset ||
           asset.kind !== "story_frame" ||
           asset.availability === "missing"
         ) {
-          return { success: false as const, reason: "image_not_found" as const };
+          return {
+            success: false as const,
+            reason: "image_not_found" as const,
+          };
         }
         // 故事为唯一单位后弃用 getLatestStoryForProject：图片信号的 storyId 取该资产自身归属
         await createImageSignal({
@@ -2335,10 +2477,14 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           storyId: z.number(),
           shotNo: z.number(),
           imageBase64: z.string().min(1),
-          mimeType: z.enum(["image/png", "image/jpeg", "image/webp"]).default("image/png"),
+          mimeType: z
+            .enum(["image/png", "image/jpeg", "image/webp"])
+            .default("image/png"),
           parentImageId: z.number().optional(),
-          quadrant: z.enum(["top-left", "top-right", "bottom-left", "bottom-right"]).optional(),
-        }),
+          quadrant: z
+            .enum(["top-left", "top-right", "bottom-left", "bottom-right"])
+            .optional(),
+        })
       )
       .mutation(async ({ ctx, input }) => {
         const story = await getStoryById(input.storyId, ctx.user.id);
@@ -2362,20 +2508,28 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           return { status: "error" as const, error: "裁切图片为空" };
         }
         if (buffer.byteLength > 12 * 1024 * 1024) {
-          return { status: "error" as const, error: "裁切图片过大，请先压缩或重渲单张首帧" };
+          return {
+            status: "error" as const,
+            error: "裁切图片过大，请先压缩或重渲单张首帧",
+          };
         }
 
         const stored = await storeImageBytes(buffer, input.mimeType);
         if (stored.status !== "ok" || !stored.imageUrl) {
-          return { status: "error" as const, error: stored.message ?? "首帧保存失败" };
+          return {
+            status: "error" as const,
+            error: stored.message ?? "首帧保存失败",
+          };
         }
 
         const shotNo = canonicalizeShotNo(input.shotNo);
+        const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
         const image = await createGeneratedImage({
           projectId: story.projectId ?? null,
           storyId: input.storyId,
           userId: ctx.user.id,
           shotNo,
+          shotIdentity,
           imageKey: stored.imageKey ?? null,
           imageUrl: stored.imageUrl,
           prompt: `从四宫格候选图裁出单张首帧${input.quadrant ? `（${input.quadrant}）` : ""}`,
@@ -2393,6 +2547,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             source: "frame_crop",
             projectId: story.projectId,
             shotNo,
+            shotIdentity,
             parentImageId: input.parentImageId ?? null,
             quadrant: input.quadrant ?? null,
           },
@@ -2415,50 +2570,170 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         z.object({
           storyId: z.number(),
           shotNo: z.number(),
+          stableShotId: z.string().optional(),
           imageId: z.number(),
+          previousReferenceImageId: z.number().optional(),
+          nextReferenceImageId: z.number().optional(),
           prompt: z.string().min(1),
           subtitle: z.string().optional(),
           durationSec: z.number().min(3).max(10).optional(),
-        }),
+        })
       )
       .mutation(async ({ ctx, input }) => {
-        const story = await getStoryById(input.storyId, ctx.user.id);
-        if (!story) return { status: "error" as const, error: "故事不存在或无权操作" };
-
-        const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
-        const asset = assets.find(candidate => candidate.id === input.imageId);
-        if (
-          !asset ||
-          asset.assignment !== "shot" ||
-          asset.canonicalShotNo !== canonicalizeShotNo(input.shotNo) ||
-          asset.availability === "missing"
-        ) {
-          return { status: "error" as const, error: "首帧图不存在或不属于当前镜头" };
-        }
-
-        const sourceImage = await materializeImageInput(asset.imageUrl);
-        const result = await generateShotVideo({
-          prompt: input.prompt,
-          sourceImage,
-          subtitle: input.subtitle,
-          durationSec: input.durationSec ?? 5,
-          aspectRatio: "16:9",
-        });
+        const result = await startShotVideoJob(
+          {
+            storyId: input.storyId,
+            shotNo: input.shotNo,
+            stableShotId: input.stableShotId ?? null,
+            imageId: input.imageId,
+            previousReferenceImageId: input.previousReferenceImageId,
+            nextReferenceImageId: input.nextReferenceImageId,
+            prompt: input.prompt,
+            subtitle: input.subtitle,
+            durationSec: input.durationSec ?? 5,
+            aspectRatio: "16:9",
+          },
+          ctx.user.id
+        );
 
         if (result.status !== "ok") {
           return {
             status: "error" as const,
-            error: result.message,
-            taskId: result.taskId,
+            error: result.error,
+            take: result.take ?? null,
+            takeId: result.take?.id,
+            taskId: result.take?.taskId ?? undefined,
           };
         }
 
         return {
           status: "ok" as const,
-          videoUrl: result.videoUrl,
-          taskId: result.taskId,
-          prompt: result.prompt,
+          take: result.take,
+          takeId: result.take.id,
+          videoStatus: result.take.status,
+          videoUrl: result.take.videoUrl ?? undefined,
+          taskId: result.take.taskId ?? undefined,
+          prompt: result.take.prompt,
         };
+      }),
+
+    refreshShotVideoStatus: protectedProcedure
+      .input(
+        z.object({
+          takeId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const result = await refreshVideoTakeStatus(input.takeId, ctx.user.id);
+        if (result.status !== "ok") {
+          return { status: "error" as const, error: result.error };
+        }
+        return {
+          status: "ok" as const,
+          take: result.take,
+          takeId: result.take.id,
+          videoStatus: result.take.status,
+          videoUrl: result.take.videoUrl ?? undefined,
+          taskId: result.take.taskId ?? undefined,
+          prompt: result.take.prompt,
+        };
+      }),
+
+    createVideoTakeRange: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          stableShotId: z.string().min(1),
+          takeId: z.number(),
+          startSec: z.number().min(0),
+          endSec: z.number().min(0),
+          label: z.string().optional(),
+          useOnTimeline: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await createUsableVideoRange(
+            {
+              storyId: input.storyId,
+              stableShotId: input.stableShotId,
+              takeId: input.takeId,
+              startSec: input.startSec,
+              endSec: input.endSec,
+              label: input.label,
+              useOnTimeline: input.useOnTimeline,
+            },
+            ctx.user.id
+          );
+          return {
+            status: "ok" as const,
+            range: result.range,
+            selection: result.selection,
+          };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "片段保存失败",
+          };
+        }
+      }),
+
+    selectVideoTimelineSegment: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          stableShotId: z.string().min(1),
+          takeId: z.number(),
+          rangeId: z.number().nullable().optional(),
+          selectionType: z.enum(["full_take", "range"]),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const selection = await selectVideoTimelineSegment(
+            {
+              storyId: input.storyId,
+              stableShotId: input.stableShotId,
+              takeId: input.takeId,
+              rangeId: input.rangeId ?? null,
+              selectionType: input.selectionType,
+            },
+            ctx.user.id
+          );
+          return { status: "ok" as const, selection };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error:
+              error instanceof Error ? error.message : "时间轴选择保存失败",
+          };
+        }
+      }),
+
+    clearVideoTimelineSegment: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          stableShotId: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await clearVideoTimelineSegment(
+            {
+              storyId: input.storyId,
+              stableShotId: input.stableShotId,
+            },
+            ctx.user.id
+          );
+          return { status: "ok" as const };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error:
+              error instanceof Error ? error.message : "时间轴选择清除失败",
+          };
+        }
       }),
 
     /**
@@ -2475,7 +2750,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           prompt: z.string().min(1),
           rejectImageId: z.number().optional(),
           imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
-        }),
+        })
       )
       .mutation(async ({ ctx, input }) => {
         const [story, assets] = await Promise.all([
@@ -2489,7 +2764,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         // 「再来一张」：先淘汰当前这张（记 swipe_left），校验该图属于本人本故事。
         if (input.rejectImageId != null) {
           const rejected = assets.find(
-            candidate => candidate.id === input.rejectImageId,
+            candidate => candidate.id === input.rejectImageId
           );
           if (rejected && rejected.kind === "story_frame") {
             await createImageSignal({
@@ -2533,7 +2808,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const assets = await getProjectImageAssets(input.projectId, ctx.user.id);
+        const assets = await getProjectImageAssets(
+          input.projectId,
+          ctx.user.id
+        );
         if (!assets.some(asset => asset.id === input.imageId)) {
           return { success: false as const };
         }
@@ -2577,14 +2855,17 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           {
             prompt: input.prompt,
             referenceImages: Array.from(
-              new Set([input.imageUrl, ...storyReferences]),
+              new Set([input.imageUrl, ...storyReferences])
             ),
             shotNo: input.shotNo,
             projectId: input.projectId,
             artDirection: story ? storyArtRecipe(story) : undefined,
-            styleIndex: story && typeof (story.body as Record<string, unknown>)?.styleIndex === "number"
-              ? (story.body as Record<string, unknown>).styleIndex as number
-              : undefined,
+            styleIndex:
+              story &&
+              typeof (story.body as Record<string, unknown>)?.styleIndex ===
+                "number"
+                ? ((story.body as Record<string, unknown>).styleIndex as number)
+                : undefined,
           },
           prompt => inpaintImage(input.imageUrl, input.maskUrl, prompt)
         );
@@ -2595,11 +2876,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           };
         }
         // Save the inpainted image to DB
+        const shotIdentity = story
+          ? shotIdentityForStoryShot(story, input.shotNo)
+          : null;
         const saved = await createGeneratedImage({
           projectId: input.projectId,
           storyId: story?.id ?? null,
           userId: ctx.user.id,
           shotNo: canonicalizeShotNo(input.shotNo),
+          shotIdentity,
           imageKey: `inpaint-${Date.now()}`,
           imageUrl: result.imageUrl,
           prompt: input.prompt,

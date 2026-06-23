@@ -12,7 +12,7 @@ describe('creation editor spine boundary', () => {
 
     expect(context).toContain('trpc.storyAgent.storyGet.useQuery');
     expect(context).toContain('trpc.storyAgent.storyImages.useQuery');
-    expect(context).toContain('useStorySpine((state)');
+    expect(context).toMatch(/useStorySpine\(\s*state\s*=>/);
     expect(context).toContain('state.activeStoryId === activeId');
     expect(context).toContain('mergeCanonicalStoryShots(canonicalStoryShots, body)');
     expect(context).not.toContain('useStoryAgent(');

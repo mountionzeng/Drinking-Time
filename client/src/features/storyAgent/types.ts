@@ -4,7 +4,7 @@
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   timestamp: number;
   /** If set, this user message included an uploaded photo. */
@@ -53,7 +53,7 @@ export interface GeneratedScript {
   scenes: ScriptScene[];
   arcSummary: string;
   variants?: Array<{
-    mode: '克制版' | '戏剧版' | '诗意版';
+    mode: "克制版" | "戏剧版" | "诗意版";
     logline: string;
     arc: string;
     treatment: string;
@@ -86,6 +86,10 @@ export interface NarrativeJob {
 }
 
 export interface StoryShot {
+  /** Stable identity shared by story body, images, videos and chat selections. */
+  stableShotId?: string;
+  /** Back-compat alias while older persisted stories are being backfilled. */
+  shotIdentity?: string;
   shotNo: number;
   subject: string;
   action: string;
@@ -133,10 +137,10 @@ export interface StoryShot {
     generatedAt: number;
     imageId?: number;
     imageUrl?: string;
-    source: 'draw-this-moment' | 'prompt-table-rerender' | 'creation-agent';
+    source: "draw-this-moment" | "prompt-table-rerender" | "creation-agent";
     usedDimensions: string[];
     references?: Array<{
-      kind: 'baseImage' | 'characterRef' | 'styleRef';
+      kind: "baseImage" | "characterRef" | "styleRef";
       label: string;
       url?: string;
     }>;
@@ -165,7 +169,7 @@ export interface VisualCanvasItem {
   title: string;
   imageUrl: string;
   originalImageUrl?: string;
-  source: 'reference' | 'riff';
+  source: "reference" | "riff";
   parentId?: string;
   cardId?: string;
   x: number;
@@ -179,38 +183,53 @@ export interface VisualCanvasItem {
 }
 
 export interface SelectionState {
-  sourceType: 'card' | 'script-scene' | 'script-meta' | 'shot' | 'chat';
+  sourceType:
+    | "card"
+    | "script-scene"
+    | "script-meta"
+    | "shot"
+    | "storyboard-image"
+    | "animatic-video"
+    | "timeline-range"
+    | "chat";
   sourceId: string;
   selectedText: string;
   fullText: string;
+  storyId?: number | null;
+  stableShotId?: string | null;
+  shotNo?: number | null;
+  imageId?: number | null;
+  videoTakeId?: number | null;
+  rangeId?: number | null;
 }
 
 export interface SelectionQuote {
-  sourceType: SelectionState['sourceType'];
+  sourceType: SelectionState["sourceType"];
   sourceId: string;
   selectedText: string;
 }
 
 function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 export function normalizeChatMessages(
   rawMessages: unknown,
-  fallbackMessages: ChatMessage[],
+  fallbackMessages: ChatMessage[]
 ): ChatMessage[] {
-  if (!Array.isArray(rawMessages) || rawMessages.length === 0) return fallbackMessages;
+  if (!Array.isArray(rawMessages) || rawMessages.length === 0)
+    return fallbackMessages;
   const converted = rawMessages
     .map((m, i) => {
-      if (!m || typeof m !== 'object') return null;
+      if (!m || typeof m !== "object") return null;
       const obj = m as Record<string, unknown>;
       const role =
-        obj.role === 'user' || obj.who === 'u'
-          ? 'user'
-          : obj.role === 'assistant' || obj.who === 's'
-            ? 'assistant'
+        obj.role === "user" || obj.who === "u"
+          ? "user"
+          : obj.role === "assistant" || obj.who === "s"
+            ? "assistant"
             : null;
-      const content = stringValue(obj.content) ?? stringValue(obj.text) ?? '';
+      const content = stringValue(obj.content) ?? stringValue(obj.text) ?? "";
       const photoUrl = stringValue(obj.photoUrl);
       if (!role || (!content.trim() && !photoUrl)) return null;
       const pending = obj.pendingCard as Record<string, unknown> | undefined;
@@ -218,12 +237,17 @@ export function normalizeChatMessages(
         id: stringValue(obj.id) ?? `msg-${i}-${Date.now()}`,
         role,
         content,
-        timestamp: typeof obj.timestamp === 'number' ? obj.timestamp : Date.now() + i,
+        timestamp:
+          typeof obj.timestamp === "number" ? obj.timestamp : Date.now() + i,
       };
       if (photoUrl) {
         message.photoUrl = photoUrl;
       }
-      if (pending && typeof pending.cardId === 'string' && pending.status === 'kept') {
+      if (
+        pending &&
+        typeof pending.cardId === "string" &&
+        pending.status === "kept"
+      ) {
         message.spawnedCardId = pending.cardId;
       }
       return message;
@@ -233,7 +257,7 @@ export function normalizeChatMessages(
 }
 
 export const FIRST_QUESTION =
-  '今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。';
+  "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
 
 // 桌面端开场「报到 + 人格 + 定位」preamble（U4 / D4：前缀策略，不改 FIRST_QUESTION 文本）。
 // 一句话点到「朋友 + 助手」身份，落点交给 FIRST_QUESTION 的邀请。
@@ -241,7 +265,7 @@ export const FIRST_QUESTION =
 // 硬约束：保留「你好，我是小酌 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
 // 不含「收集 / 采样」字样；不含「永久 / 永远记得 / 都会记住」式永久记忆承诺（R6/R13）。
 export const OPENING_PREAMBLE =
-  '你好，我是小酌——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。';
+  "你好，我是小酌——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。";
 
 // emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
 export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;
@@ -269,11 +293,13 @@ export interface ReturningGreetingInput {
 }
 
 function clampGreetingText(value: string, max: number): string {
-  const compact = value.replace(/\s+/g, ' ').trim();
+  const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max)}…` : compact;
 }
 
-export function buildReturningGreeting(input: ReturningGreetingInput): string | null {
+export function buildReturningGreeting(
+  input: ReturningGreetingInput
+): string | null {
   if (!input.hasPriorUserMessages) return null;
   const logline = input.logline?.trim();
   const quote = input.lastCardQuote?.trim();
@@ -287,5 +313,5 @@ export function buildReturningGreeting(input: ReturningGreetingInput): string | 
   if (title) {
     return `「${clampGreetingText(title, 24)}」我还留着呢。今天想从哪儿接着说？`;
   }
-  return '我还在呢，上次聊的都留着。今天想从哪儿接着说？';
+  return "我还在呢，上次聊的都留着。今天想从哪儿接着说？";
 }

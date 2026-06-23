@@ -45,6 +45,15 @@ import {
   InsertImageSignal,
   imageSignals,
   ImageSignal,
+  InsertVideoTake,
+  videoTakes,
+  VideoTake,
+  InsertVideoTakeRange,
+  videoTakeRanges,
+  VideoTakeRange,
+  InsertVideoTimelineSelection,
+  videoTimelineSelections,
+  VideoTimelineSelection,
   emailOtps,
   EmailOtp,
 } from "../drizzle/schema";
@@ -67,6 +76,9 @@ type MemoryState = {
   semanticAnnotations: SemanticAnnotation[];
   generatedImages: GeneratedImage[];
   imageSignals: ImageSignal[];
+  videoTakes: VideoTake[];
+  videoTakeRanges: VideoTakeRange[];
+  videoTimelineSelections: VideoTimelineSelection[];
   nextIds: {
     user: number;
     project: number;
@@ -79,6 +91,9 @@ type MemoryState = {
     semanticAnnotation: number;
     generatedImage: number;
     imageSignal: number;
+    videoTake: number;
+    videoTakeRange: number;
+    videoTimelineSelection: number;
   };
 };
 
@@ -94,6 +109,9 @@ const memoryState: MemoryState = {
   semanticAnnotations: [],
   generatedImages: [],
   imageSignals: [],
+  videoTakes: [],
+  videoTakeRanges: [],
+  videoTimelineSelections: [],
   nextIds: {
     user: 1,
     project: 1,
@@ -106,6 +124,9 @@ const memoryState: MemoryState = {
     semanticAnnotation: 1,
     generatedImage: 1,
     imageSignal: 1,
+    videoTake: 1,
+    videoTakeRange: 1,
+    videoTimelineSelection: 1,
   },
 };
 
@@ -240,6 +261,8 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
 
   memoryState.generatedImages = (raw.generatedImages ?? []).map(item => ({
     ...item,
+    shotIdentity:
+      (item as { shotIdentity?: string | null }).shotIdentity ?? null,
     createdAt: toDate(item.createdAt),
   })) as GeneratedImage[];
 
@@ -247,6 +270,26 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     ...item,
     createdAt: toDate(item.createdAt),
   })) as ImageSignal[];
+
+  memoryState.videoTakes = (raw.videoTakes ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as VideoTake[];
+
+  memoryState.videoTakeRanges = (raw.videoTakeRanges ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as VideoTakeRange[];
+
+  memoryState.videoTimelineSelections = (raw.videoTimelineSelections ?? []).map(
+    item => ({
+      ...item,
+      createdAt: toDate(item.createdAt),
+      updatedAt: toDate(item.updatedAt),
+    })
+  ) as VideoTimelineSelection[];
 
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
@@ -286,6 +329,18 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     imageSignal: Math.max(
       raw.nextIds?.imageSignal ?? 0,
       nextIdFromRows(memoryState.imageSignals)
+    ),
+    videoTake: Math.max(
+      raw.nextIds?.videoTake ?? 0,
+      nextIdFromRows(memoryState.videoTakes)
+    ),
+    videoTakeRange: Math.max(
+      raw.nextIds?.videoTakeRange ?? 0,
+      nextIdFromRows(memoryState.videoTakeRanges)
+    ),
+    videoTimelineSelection: Math.max(
+      raw.nextIds?.videoTimelineSelection ?? 0,
+      nextIdFromRows(memoryState.videoTimelineSelections)
     ),
   };
 }
@@ -329,7 +384,8 @@ async function backupBeforeWrite(nextBytes: number): Promise<void> {
     return;
   }
   const shrink =
-    existingBytes > SHRINK_MIN_BYTES && nextBytes < existingBytes * SHRINK_RATIO;
+    existingBytes > SHRINK_MIN_BYTES &&
+    nextBytes < existingBytes * SHRINK_RATIO;
   const dueByTime = Date.now() - lastBackupAt > BACKUP_THROTTLE_MS;
   if (!shrink && !dueByTime) return;
   try {
@@ -352,7 +408,10 @@ async function backupBeforeWrite(nextBytes: number): Promise<void> {
     const files = (await readdir(LOCAL_PERSIST_BACKUP_DIR))
       .filter(f => f.startsWith("local-persist-") && f.endsWith(".json"))
       .sort();
-    for (const stale of files.slice(0, Math.max(0, files.length - BACKUP_KEEP))) {
+    for (const stale of files.slice(
+      0,
+      Math.max(0, files.length - BACKUP_KEEP)
+    )) {
       await unlink(path.join(LOCAL_PERSIST_BACKUP_DIR, stale)).catch(() => {});
     }
   } catch (error) {
@@ -550,7 +609,9 @@ export async function createProject(data: InsertProject) {
 
 const defaultProjectLocks = new Map<number, Promise<Project>>();
 
-async function findOrCreateUserDefaultProject(userId: number): Promise<Project> {
+async function findOrCreateUserDefaultProject(
+  userId: number
+): Promise<Project> {
   const existing = await getUserProjects(userId);
   if (existing[0]) return existing[0];
 
@@ -1195,10 +1256,51 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
       memoryState.shots = memoryState.shots.filter(
         s => !(s.storyId === id && s.userId === userId)
       );
+      memoryState.generatedImages = memoryState.generatedImages.filter(
+        image => !(image.storyId === id && image.userId === userId)
+      );
+      memoryState.imageSignals = memoryState.imageSignals.filter(
+        signal => !(signal.storyId === id && signal.userId === userId)
+      );
+      memoryState.videoTakes = memoryState.videoTakes.filter(
+        take => !(take.storyId === id && take.userId === userId)
+      );
+      memoryState.videoTakeRanges = memoryState.videoTakeRanges.filter(
+        range => !(range.storyId === id && range.userId === userId)
+      );
+      memoryState.videoTimelineSelections =
+        memoryState.videoTimelineSelections.filter(
+          selection =>
+            !(selection.storyId === id && selection.userId === userId)
+        );
       await persistMemoryState();
     }
     return;
   }
+  await db
+    .delete(videoTimelineSelections)
+    .where(
+      and(
+        eq(videoTimelineSelections.storyId, id),
+        eq(videoTimelineSelections.userId, userId)
+      )
+    );
+  await db
+    .delete(videoTakeRanges)
+    .where(
+      and(eq(videoTakeRanges.storyId, id), eq(videoTakeRanges.userId, userId))
+    );
+  await db
+    .delete(videoTakes)
+    .where(and(eq(videoTakes.storyId, id), eq(videoTakes.userId, userId)));
+  await db
+    .delete(imageSignals)
+    .where(and(eq(imageSignals.storyId, id), eq(imageSignals.userId, userId)));
+  await db
+    .delete(generatedImages)
+    .where(
+      and(eq(generatedImages.storyId, id), eq(generatedImages.userId, userId))
+    );
   await db
     .delete(shots)
     .where(and(eq(shots.storyId, id), eq(shots.userId, userId)));
@@ -1247,7 +1349,7 @@ export async function getStoryImages(
 
 export async function getProjectGeneratedImages(
   projectId: number,
-  userId: number,
+  userId: number
 ): Promise<GeneratedImage[]> {
   const db = await getDb();
   if (!db) {
@@ -1255,18 +1357,20 @@ export async function getProjectGeneratedImages(
     const storyIds = new Set(
       memoryState.stories
         .filter(
-          story => story.projectId === projectId && story.userId === userId,
+          story => story.projectId === projectId && story.userId === userId
         )
-        .map(story => story.id),
+        .map(story => story.id)
     );
     return memoryState.generatedImages
       .filter(
         image =>
           (image.userId === userId || image.userId == null) &&
           (image.projectId === projectId ||
-            (image.storyId != null && storyIds.has(image.storyId))),
+            (image.storyId != null && storyIds.has(image.storyId)))
       )
-      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      );
   }
 
   const projectStories = await db
@@ -1274,12 +1378,13 @@ export async function getProjectGeneratedImages(
     .from(stories)
     .where(and(eq(stories.projectId, projectId), eq(stories.userId, userId)));
   const storyIds = projectStories.map(story => story.id);
-  const ownership = storyIds.length > 0
-    ? or(
-        eq(generatedImages.projectId, projectId),
-        inArray(generatedImages.storyId, storyIds),
-      )
-    : eq(generatedImages.projectId, projectId);
+  const ownership =
+    storyIds.length > 0
+      ? or(
+          eq(generatedImages.projectId, projectId),
+          inArray(generatedImages.storyId, storyIds)
+        )
+      : eq(generatedImages.projectId, projectId);
 
   return db
     .select()
@@ -1287,8 +1392,8 @@ export async function getProjectGeneratedImages(
     .where(
       and(
         or(eq(generatedImages.userId, userId), isNull(generatedImages.userId)),
-        ownership,
-      ),
+        ownership
+      )
     )
     .orderBy(desc(generatedImages.createdAt));
 }
@@ -1297,7 +1402,7 @@ export async function getProjectGeneratedImages(
 // 带 userId 防越权。
 export async function getStoryGeneratedImages(
   storyId: number,
-  userId: number,
+  userId: number
 ): Promise<GeneratedImage[]> {
   const db = await getDb();
   if (!db) {
@@ -1306,9 +1411,11 @@ export async function getStoryGeneratedImages(
       .filter(
         image =>
           image.storyId === storyId &&
-          (image.userId === userId || image.userId == null),
+          (image.userId === userId || image.userId == null)
       )
-      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      );
   }
   return db
     .select()
@@ -1316,8 +1423,8 @@ export async function getStoryGeneratedImages(
     .where(
       and(
         eq(generatedImages.storyId, storyId),
-        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId)),
-      ),
+        or(eq(generatedImages.userId, userId), isNull(generatedImages.userId))
+      )
     )
     .orderBy(desc(generatedImages.createdAt));
 }
@@ -1353,7 +1460,7 @@ export async function createImageSignal(
 }
 
 export async function getImageSignalsForImages(
-  imageIds: number[],
+  imageIds: number[]
 ): Promise<ImageSignal[]> {
   if (imageIds.length === 0) return [];
   const db = await getDb();
@@ -1361,10 +1468,10 @@ export async function getImageSignalsForImages(
     await ensureMemoryLoaded();
     const targetIds = new Set(imageIds);
     return memoryState.imageSignals
-      .filter(
-        signal => signal.imageId != null && targetIds.has(signal.imageId),
-      )
-      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+      .filter(signal => signal.imageId != null && targetIds.has(signal.imageId))
+      .sort(
+        (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+      );
   }
   return db
     .select()
@@ -1379,7 +1486,7 @@ export async function getImageSignalsForImages(
  */
 export async function getRecentRejectionSignals(
   storyId: number,
-  limit = 10,
+  limit = 10
 ): Promise<ImageSignal[]> {
   const db = await getDb();
   if (!db) {
@@ -1395,8 +1502,8 @@ export async function getRecentRejectionSignals(
     .where(
       and(
         eq(imageSignals.storyId, storyId),
-        eq(imageSignals.action, "swipe_left"),
-      ),
+        eq(imageSignals.action, "swipe_left")
+      )
     )
     .orderBy(desc(imageSignals.createdAt))
     .limit(limit);
@@ -1404,7 +1511,7 @@ export async function getRecentRejectionSignals(
 
 export async function getRecentChatCorrections(
   projectId: number,
-  limit = 10,
+  limit = 10
 ): Promise<ImageSignal[]> {
   const db = await getDb();
   if (!db) {
@@ -1426,8 +1533,8 @@ export async function getRecentChatCorrections(
       and(
         eq(imageSignals.action, "chat_correction"),
         // @ts-explode — drizzle 不支持 JSON_EXTRACT，用 sql 模板
-        sql`JSON_EXTRACT(${imageSignals.metadata}, '$.projectId') = ${projectId}`,
-      ),
+        sql`JSON_EXTRACT(${imageSignals.metadata}, '$.projectId') = ${projectId}`
+      )
     )
     .orderBy(desc(imageSignals.createdAt))
     .limit(limit);
@@ -1593,7 +1700,7 @@ export async function getRecentSemanticAnnotations(
  */
 export async function getRecentEditPreferences(
   projectId: number,
-  limit = 5,
+  limit = 5
 ): Promise<SemanticAnnotation[]> {
   return getRecentSemanticAnnotations(projectId, limit);
 }
@@ -1607,13 +1714,21 @@ export async function createGeneratedImage(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    // 把同一镜头的旧图标记为非当前（桌面端按 projectId+shotNo，手机端按 storyId+shotNo）
-    if (data.shotNo != null) {
+    // 把同一镜头的旧图标记为非当前；优先按稳定镜头身份，旧数据用 shotNo 兜底。
+    if (data.shotNo != null || data.shotIdentity != null) {
       for (const img of memoryState.generatedImages) {
-        if (img.shotNo !== data.shotNo || !img.isCurrent) continue;
+        if (!img.isCurrent) continue;
         const sameDesktop = data.projectId && img.projectId === data.projectId;
         const sameMobile = data.storyId && img.storyId === data.storyId;
-        if (sameDesktop || sameMobile) img.isCurrent = false;
+        const sameIdentity =
+          data.shotIdentity != null && img.shotIdentity === data.shotIdentity;
+        const sameLegacyShot =
+          data.shotNo != null &&
+          img.shotNo === data.shotNo &&
+          (data.shotIdentity == null || img.shotIdentity == null);
+        if ((sameDesktop || sameMobile) && (sameIdentity || sameLegacyShot)) {
+          img.isCurrent = false;
+        }
       }
     }
     const id = nextMemoryId("generatedImage");
@@ -1623,6 +1738,7 @@ export async function createGeneratedImage(
       storyId: data.storyId ?? null,
       userId: data.userId ?? null,
       shotNo: data.shotNo ?? null,
+      shotIdentity: data.shotIdentity ?? null,
       imageKey: data.imageKey ?? null,
       imageUrl: data.imageUrl,
       prompt: data.prompt ?? null,
@@ -1649,8 +1765,22 @@ export async function createGeneratedImage(
     }
     return image;
   }
-  // 把同一镜头的旧图标记为非当前
-  if (data.shotNo != null) {
+  // 把同一镜头的旧图标记为非当前；优先按稳定镜头身份，旧数据用 shotNo 兜底。
+  if (data.shotNo != null || data.shotIdentity != null) {
+    const shotGroup =
+      data.shotIdentity != null
+        ? data.shotNo != null
+          ? or(
+              eq(generatedImages.shotIdentity, data.shotIdentity),
+              and(
+                eq(generatedImages.shotNo, data.shotNo),
+                isNull(generatedImages.shotIdentity)
+              )
+            )
+          : eq(generatedImages.shotIdentity, data.shotIdentity)
+        : data.shotNo != null
+          ? eq(generatedImages.shotNo, data.shotNo)
+          : undefined;
     if (data.projectId) {
       await db
         .update(generatedImages)
@@ -1658,7 +1788,7 @@ export async function createGeneratedImage(
         .where(
           and(
             eq(generatedImages.projectId, data.projectId),
-            eq(generatedImages.shotNo, data.shotNo),
+            shotGroup,
             eq(generatedImages.isCurrent, true)
           )
         );
@@ -1669,7 +1799,7 @@ export async function createGeneratedImage(
         .where(
           and(
             eq(generatedImages.storyId, data.storyId),
-            eq(generatedImages.shotNo, data.shotNo),
+            shotGroup,
             eq(generatedImages.isCurrent, true)
           )
         );
@@ -1810,6 +1940,348 @@ export async function reassignImage(
   }
 }
 
+// ─── Video Takes（图生视频素材）────────────────────────────────────────
+
+export async function createVideoTake(
+  data: Omit<InsertVideoTake, "id" | "createdAt" | "updatedAt">
+): Promise<VideoTake> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: VideoTake = {
+      id: nextMemoryId("videoTake"),
+      storyId: data.storyId,
+      userId: data.userId,
+      stableShotId: data.stableShotId,
+      sourceImageId: data.sourceImageId ?? null,
+      status: data.status ?? "submitted",
+      taskId: data.taskId ?? null,
+      provider: data.provider ?? "302",
+      model: data.model,
+      prompt: data.prompt,
+      subtitle: data.subtitle ?? null,
+      durationSec: data.durationSec ?? null,
+      aspectRatio: data.aspectRatio ?? "16:9",
+      videoKey: data.videoKey ?? null,
+      videoUrl: data.videoUrl ?? null,
+      errorMessage: data.errorMessage ?? null,
+      parameterSnapshot: data.parameterSnapshot ?? null,
+      idempotencyKey: data.idempotencyKey ?? null,
+      extractionCapability: data.extractionCapability ?? "unavailable",
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.videoTakes.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(videoTakes).values(data);
+  const [row] = await db
+    .select()
+    .from(videoTakes)
+    .where(eq(videoTakes.id, result.insertId));
+  return row;
+}
+
+export async function updateVideoTake(
+  id: number,
+  userId: number,
+  data: Partial<Omit<InsertVideoTake, "id" | "createdAt" | "updatedAt">>
+): Promise<VideoTake | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.videoTakes.find(
+      take => take.id === id && take.userId === userId
+    );
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(videoTakes)
+    .set(data)
+    .where(and(eq(videoTakes.id, id), eq(videoTakes.userId, userId)));
+  const [row] = await db
+    .select()
+    .from(videoTakes)
+    .where(and(eq(videoTakes.id, id), eq(videoTakes.userId, userId)));
+  return row ?? null;
+}
+
+export async function getVideoTakeById(
+  id: number,
+  userId: number
+): Promise<VideoTake | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.videoTakes.find(
+        take => take.id === id && take.userId === userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(videoTakes)
+    .where(and(eq(videoTakes.id, id), eq(videoTakes.userId, userId)));
+  return row ?? null;
+}
+
+export async function getStoryVideoTakes(
+  storyId: number,
+  userId: number
+): Promise<VideoTake[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.videoTakes
+      .filter(take => take.storyId === storyId && take.userId === userId)
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      );
+  }
+  return db
+    .select()
+    .from(videoTakes)
+    .where(and(eq(videoTakes.storyId, storyId), eq(videoTakes.userId, userId)))
+    .orderBy(desc(videoTakes.createdAt));
+}
+
+export async function findVideoTakeByIdempotencyKey(
+  storyId: number,
+  userId: number,
+  idempotencyKey: string
+): Promise<VideoTake | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.videoTakes.find(
+        take =>
+          take.storyId === storyId &&
+          take.userId === userId &&
+          take.idempotencyKey === idempotencyKey
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(videoTakes)
+    .where(
+      and(
+        eq(videoTakes.storyId, storyId),
+        eq(videoTakes.userId, userId),
+        eq(videoTakes.idempotencyKey, idempotencyKey)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function createVideoTakeRange(
+  data: Omit<InsertVideoTakeRange, "id" | "createdAt" | "updatedAt">
+): Promise<VideoTakeRange> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: VideoTakeRange = {
+      id: nextMemoryId("videoTakeRange"),
+      takeId: data.takeId,
+      storyId: data.storyId,
+      userId: data.userId,
+      stableShotId: data.stableShotId,
+      startSec: data.startSec,
+      endSec: data.endSec,
+      label: data.label ?? null,
+      source: data.source ?? "manual",
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.videoTakeRanges.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(videoTakeRanges).values(data);
+  const [row] = await db
+    .select()
+    .from(videoTakeRanges)
+    .where(eq(videoTakeRanges.id, result.insertId));
+  return row;
+}
+
+export async function getStoryVideoTakeRanges(
+  storyId: number,
+  userId: number
+): Promise<VideoTakeRange[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.videoTakeRanges
+      .filter(range => range.storyId === storyId && range.userId === userId)
+      .sort(
+        (left, right) => left.startSec - right.startSec || left.id - right.id
+      );
+  }
+  return db
+    .select()
+    .from(videoTakeRanges)
+    .where(
+      and(
+        eq(videoTakeRanges.storyId, storyId),
+        eq(videoTakeRanges.userId, userId)
+      )
+    )
+    .orderBy(videoTakeRanges.startSec, videoTakeRanges.id);
+}
+
+export async function getVideoTakeRangeById(
+  id: number,
+  userId: number
+): Promise<VideoTakeRange | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.videoTakeRanges.find(
+        range => range.id === id && range.userId === userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(videoTakeRanges)
+    .where(and(eq(videoTakeRanges.id, id), eq(videoTakeRanges.userId, userId)));
+  return row ?? null;
+}
+
+export async function getStoryVideoTimelineSelections(
+  storyId: number,
+  userId: number
+): Promise<VideoTimelineSelection[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.videoTimelineSelections.filter(
+      selection => selection.storyId === storyId && selection.userId === userId
+    );
+  }
+  return db
+    .select()
+    .from(videoTimelineSelections)
+    .where(
+      and(
+        eq(videoTimelineSelections.storyId, storyId),
+        eq(videoTimelineSelections.userId, userId)
+      )
+    );
+}
+
+export async function setVideoTimelineSelection(
+  data: Omit<InsertVideoTimelineSelection, "id" | "createdAt" | "updatedAt">
+): Promise<VideoTimelineSelection> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const existing = memoryState.videoTimelineSelections.find(
+      selection =>
+        selection.storyId === data.storyId &&
+        selection.userId === data.userId &&
+        selection.stableShotId === data.stableShotId
+    );
+    if (existing) {
+      existing.takeId = data.takeId;
+      existing.rangeId = data.rangeId ?? null;
+      existing.selectionType = data.selectionType ?? "full_take";
+      existing.updatedAt = current;
+      await persistMemoryState();
+      return existing;
+    }
+    const row: VideoTimelineSelection = {
+      id: nextMemoryId("videoTimelineSelection"),
+      storyId: data.storyId,
+      userId: data.userId,
+      stableShotId: data.stableShotId,
+      takeId: data.takeId,
+      rangeId: data.rangeId ?? null,
+      selectionType: data.selectionType ?? "full_take",
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.videoTimelineSelections.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [existing] = await db
+    .select()
+    .from(videoTimelineSelections)
+    .where(
+      and(
+        eq(videoTimelineSelections.storyId, data.storyId),
+        eq(videoTimelineSelections.userId, data.userId),
+        eq(videoTimelineSelections.stableShotId, data.stableShotId)
+      )
+    )
+    .limit(1);
+  if (existing) {
+    await db
+      .update(videoTimelineSelections)
+      .set(data)
+      .where(eq(videoTimelineSelections.id, existing.id));
+    const [updated] = await db
+      .select()
+      .from(videoTimelineSelections)
+      .where(eq(videoTimelineSelections.id, existing.id));
+    return updated;
+  }
+  const [result] = await db.insert(videoTimelineSelections).values(data);
+  const [row] = await db
+    .select()
+    .from(videoTimelineSelections)
+    .where(eq(videoTimelineSelections.id, result.insertId));
+  return row;
+}
+
+export async function clearVideoTimelineSelection(
+  storyId: number,
+  userId: number,
+  stableShotId: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    memoryState.videoTimelineSelections =
+      memoryState.videoTimelineSelections.filter(
+        selection =>
+          !(
+            selection.storyId === storyId &&
+            selection.userId === userId &&
+            selection.stableShotId === stableShotId
+          )
+      );
+    await persistMemoryState();
+    return;
+  }
+  await db
+    .delete(videoTimelineSelections)
+    .where(
+      and(
+        eq(videoTimelineSelections.storyId, storyId),
+        eq(videoTimelineSelections.userId, userId),
+        eq(videoTimelineSelections.stableShotId, stableShotId)
+      )
+    );
+}
+
 /**
  * Reset in-memory state and loaded flag — for use in tests only.
  * Prevents accumulated state from prior test runs from leaking between tests.
@@ -1826,6 +2298,9 @@ export function resetMemoryStateForTesting(): void {
   memoryState.semanticAnnotations = [];
   memoryState.generatedImages = [];
   memoryState.imageSignals = [];
+  memoryState.videoTakes = [];
+  memoryState.videoTakeRanges = [];
+  memoryState.videoTimelineSelections = [];
   memoryState.nextIds = {
     user: 1,
     project: 1,
@@ -1838,6 +2313,9 @@ export function resetMemoryStateForTesting(): void {
     semanticAnnotation: 1,
     generatedImage: 1,
     imageSignal: 1,
+    videoTake: 1,
+    videoTakeRange: 1,
+    videoTimelineSelection: 1,
   };
   defaultProjectLocks.clear();
   // Mark as loaded so subsequent calls don't reload stale data from disk.

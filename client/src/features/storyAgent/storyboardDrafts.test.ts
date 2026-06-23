@@ -55,10 +55,14 @@ describe('storyboard draft helpers', () => {
     }));
 
     expect(prompt).toContain('SH03');
+    expect(prompt).toContain('Create exactly one cinematic key frame for SH03');
+    expect(prompt).toContain('single continuous shot frame, not a storyboard sheet');
     expect(prompt).toContain('Director intent: 证明用户能把抽象需求转成产品判断。');
     expect(prompt).toContain('Why this frame works: 岗位关心判断是否可信');
     expect(prompt).toContain('Shared visual framework for the whole film: minimal editorial, product storytelling, off-white');
     expect(prompt).toContain('主体：白板上的产品流程');
+    expect(prompt).toContain('Single-frame rule: compose one uninterrupted cinematic camera frame only');
+    expect(prompt).toContain('no collage, no contact sheet, no inset thumbnails');
   });
 
   it('resolves one shared storyboard style and writes it to every shot', () => {

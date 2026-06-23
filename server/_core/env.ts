@@ -62,6 +62,7 @@ export const ENV = {
   image302GptQuality: process.env.IMAGE_302_GPT_QUALITY ?? "high", // GPT-image 默认质量
   image302MjAuthHeader: process.env.IMAGE_302_MJ_AUTH_HEADER ?? "bearer", // Midjourney 鉴权：bearer 或 mj-api-secret
   image302DraftModel: process.env.IMAGE_302_DRAFT_MODEL ?? "flux-schnell", // 双轨出图的快轨模型（302 /302/submit/<model>，5-10s 草稿小样）
+  image302DraftTimeoutMs: process.env.IMAGE_302_DRAFT_TIMEOUT_MS ?? "12000", // 草稿轨必须快；超时后快速失败，不偷偷拖到正式轨
   image302MjPollMs: process.env.IMAGE_302_MJ_POLL_MS ?? "2000", // Midjourney 轮询间隔（出完尽快发现，省平均 ~2s）
   image302MjSubmitTimeoutMs: process.env.IMAGE_302_MJ_SUBMIT_TIMEOUT_MS ?? "90000", // Midjourney submit 单次请求上限（区别于任务轮询总时长）
   image302MjTimeoutMs: process.env.IMAGE_302_MJ_TIMEOUT_MS ?? "180000", // Midjourney 总等待上限
@@ -70,7 +71,8 @@ export const ENV = {
   video302Model: process.env.VIDEO_302_MODEL ?? "",
   video302SubmitPath: process.env.VIDEO_302_SUBMIT_PATH ?? "",
   video302PollPath: process.env.VIDEO_302_POLL_PATH ?? "",
-  video302ImageField: process.env.VIDEO_302_IMAGE_FIELD ?? "image_url",
+  video302ImageField: process.env.VIDEO_302_IMAGE_FIELD ?? "",
+  video302Motion: process.env.VIDEO_302_MOTION ?? "low",
   video302PollMs: process.env.VIDEO_302_POLL_MS ?? "3000",
   video302TimeoutMs: process.env.VIDEO_302_TIMEOUT_MS ?? "300000",
 

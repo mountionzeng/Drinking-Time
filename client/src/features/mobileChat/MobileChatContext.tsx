@@ -668,7 +668,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
       const shotStyleHint = storySpineStore.getState().storyShots
         .find(s => s.shotNo === shotNo)?.styleRef || undefined;
 
-      // 双轨：先要秒级草稿小样（服务端草稿轨不可用时会自动回落 MJ 正式版）
+      // 双轨：先要秒级草稿小样；草稿轨不可用时快速失败，避免卡成慢速正式图。
       const result = await generateMut.mutateAsync({
         storyId,
         shotNo,

@@ -1,5 +1,6 @@
-import type { CreationEditorShot } from '../CreationEditorContext';
-import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS, shotDurationMs, totalDurationMs } from '../playback';
+import type { CreationEditorShot } from "../CreationEditorContext";
+import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS } from "../playback";
+import { shotTimelineDurationMs } from "../videoAssetViewModel";
 
 type TimelineProps = {
   shots: CreationEditorShot[];
@@ -10,19 +11,14 @@ type TimelineProps = {
 };
 
 function shotLabel(shot: CreationEditorShot) {
-  return shot.shotKey || `SH${String(shot.shotNo).padStart(2, '0')}`;
+  return shot.shotKey || `SH${String(shot.shotNo).padStart(2, "0")}`;
 }
 
 function durationFor(
   shot: CreationEditorShot,
-  durationsByShotNo: Record<number, number>,
+  durationsByShotNo: Record<number, number>
 ) {
-  return shotDurationMs({
-    shotNo: shot.shotNo,
-    dialogue: shot.dialogue,
-    beat: shot.beat,
-    durationMs: durationsByShotNo[shot.shotNo] ?? shot.durationMs,
-  });
+  return durationsByShotNo[shot.shotNo] ?? shotTimelineDurationMs(shot);
 }
 
 export default function Timeline({
@@ -32,13 +28,9 @@ export default function Timeline({
   onSelectShot,
   onDurationChange,
 }: TimelineProps) {
-  const total = totalDurationMs(
-    shots.map((shot) => ({
-      shotNo: shot.shotNo,
-      dialogue: shot.dialogue,
-      beat: shot.beat,
-      durationMs: durationsByShotNo[shot.shotNo] ?? shot.durationMs,
-    })),
+  const total = shots.reduce(
+    (sum, shot) => sum + durationFor(shot, durationsByShotNo),
+    0
   );
 
   if (shots.length === 0) {
@@ -50,13 +42,16 @@ export default function Timeline({
   }
 
   return (
-    <div className="rounded-md border border-border/70 bg-background/70 p-2" aria-label="剪辑时间轴">
+    <div
+      className="rounded-md border border-border/70 bg-background/70 p-2"
+      aria-label="剪辑时间轴"
+    >
       <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted-foreground">
         <span>时间轴</span>
         <span>{(total / 1000).toFixed(1)}s</span>
       </div>
       <div className="flex min-h-[92px] gap-2 overflow-x-auto">
-        {shots.map((shot) => {
+        {shots.map(shot => {
           const duration = durationFor(shot, durationsByShotNo);
           const selected = selectedShotNo === shot.shotNo;
           const width = `${Math.max(96, Math.round((duration / Math.max(total, 1)) * 760))}px`;
@@ -66,8 +61,8 @@ export default function Timeline({
               key={shot.shotKey}
               className={`flex shrink-0 flex-col justify-between rounded-md border px-3 py-2 transition ${
                 selected
-                  ? 'border-primary bg-primary/10 text-foreground'
-                  : 'border-border bg-card hover:border-primary/40'
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border bg-card hover:border-primary/40"
               }`}
               style={{ width }}
             >
@@ -76,20 +71,31 @@ export default function Timeline({
                 onClick={() => onSelectShot(shot.shotNo)}
                 className="text-left"
               >
-                <span className="block text-xs font-semibold">{shotLabel(shot)}</span>
+                <span className="block text-xs font-semibold">
+                  {shotLabel(shot)}
+                </span>
                 <span className="mt-1 block truncate text-xs text-muted-foreground">
-                  {shot.beat || shot.subject || shot.mood || '镜头'}
+                  {shot.videoTakes?.some(take => take.isTimelineSelected)
+                    ? "已选视频片段"
+                    : shot.beat || shot.subject || shot.mood || "镜头"}
                 </span>
               </button>
               <label className="mt-2 block text-xs text-muted-foreground">
-                <span className="mb-1 block tabular-nums">{(duration / 1000).toFixed(1)}s</span>
+                <span className="mb-1 block tabular-nums">
+                  {(duration / 1000).toFixed(1)}s
+                </span>
                 <input
                   type="range"
                   min={MIN_SHOT_DURATION_MS}
                   max={MAX_SHOT_DURATION_MS}
                   step={200}
                   value={duration}
-                  onChange={(event) => onDurationChange(shot.shotNo, Number(event.currentTarget.value))}
+                  onChange={event =>
+                    onDurationChange(
+                      shot.shotNo,
+                      Number(event.currentTarget.value)
+                    )
+                  }
                   className="w-full accent-[var(--primary)]"
                   aria-label={`${shotLabel(shot)} 时长`}
                 />

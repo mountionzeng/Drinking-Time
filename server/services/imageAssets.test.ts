@@ -6,7 +6,7 @@ import { projectImageAssets } from "./imageAssets";
 function image(
   id: number,
   shotNo: string | null,
-  overrides: Partial<GeneratedImage> = {},
+  overrides: Partial<GeneratedImage> = {}
 ): GeneratedImage {
   return {
     id,
@@ -14,6 +14,7 @@ function image(
     storyId: 1,
     userId: 1,
     shotNo,
+    shotIdentity: null,
     imageKey: `generated/${id}.png`,
     imageUrl: `/api/images/${id}.png`,
     prompt: `prompt ${id}`,
@@ -30,7 +31,7 @@ function signal(
   id: number,
   imageId: number,
   action: ImageSignal["action"],
-  second: number,
+  second: number
 ): ImageSignal {
   return {
     id,
@@ -39,7 +40,9 @@ function signal(
     imageId,
     action,
     metadata: null,
-    createdAt: new Date(`2026-06-13T00:01:${String(second).padStart(2, "0")}.000Z`),
+    createdAt: new Date(
+      `2026-06-13T00:01:${String(second).padStart(2, "0")}.000Z`
+    ),
   };
 }
 
@@ -67,10 +70,7 @@ describe("projectImageAssets", () => {
         image(2, "SH02", { isCurrent: false }),
         image(3, "SH2", { isCurrent: true }),
       ],
-      signals: [
-        signal(1, 1, "swipe_right", 1),
-        signal(2, 2, "swipe_right", 2),
-      ],
+      signals: [signal(1, 1, "swipe_right", 1), signal(2, 2, "swipe_right", 2)],
       validShotNos: ["SH02"],
     });
 
@@ -122,11 +122,7 @@ describe("projectImageAssets", () => {
 
   it("把美术依据、待归属和文件缺失状态保留在投影里", () => {
     const assets = projectImageAssets({
-      images: [
-        image(1, "ART-R1-1"),
-        image(2, null),
-        image(3, "7"),
-      ],
+      images: [image(1, "ART-R1-1"), image(2, null), image(3, "7")],
       signals: [],
       validShotNos: ["SH01"],
       availabilityByImageId: new Map([[2, "missing"]]),
@@ -180,6 +176,32 @@ describe("projectImageAssets", () => {
     });
     expect(assets.filter(asset => asset.isPrimary)).toHaveLength(1);
     // 历史完整：三张都还在
-    expect(assets.filter(asset => asset.canonicalShotNo === "SH02")).toHaveLength(3);
+    expect(
+      assets.filter(asset => asset.canonicalShotNo === "SH02")
+    ).toHaveLength(3);
+  });
+
+  it("优先按稳定镜头身份分组，避免同展示编号的旧图抢占新镜头主图", () => {
+    const assets = projectImageAssets({
+      images: [
+        image(1, "SH06", { shotIdentity: "legacy-sh06-old", isCurrent: true }),
+        image(2, "SH06", { shotIdentity: "legacy-sh06-new", isCurrent: true }),
+      ],
+      signals: [signal(1, 2, "swipe_right", 1)],
+      validShotNos: ["SH06"],
+      validShotIdentities: ["legacy-sh06-new"],
+    });
+
+    expect(assets.find(asset => asset.id === 1)).toMatchObject({
+      assignment: "unassigned",
+      isPrimary: false,
+      shotIdentity: "legacy-sh06-old",
+    });
+    expect(assets.find(asset => asset.id === 2)).toMatchObject({
+      assignment: "shot",
+      isPrimary: true,
+      shotIdentity: "legacy-sh06-new",
+    });
+    expect(assets.filter(asset => asset.isPrimary)).toHaveLength(1);
   });
 });
