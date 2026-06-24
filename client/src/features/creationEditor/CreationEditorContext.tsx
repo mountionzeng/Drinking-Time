@@ -593,7 +593,8 @@ export function mergeShotsWithImages(
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
     byImageId.set(image.id, image);
-    if (!image.isPrimary && !isCurrentStoryFrame(image)) continue;
+    // Match filtering in latestStoryboardFrames(): exclude rejected and images without URLs
+    if (image.status === "rejected" || !image.imageUrl) continue;
     if (image.shotIdentity) {
       const previous = displayByIdentity.get(image.shotIdentity);
       if (!previous || image.id >= previous.id)
