@@ -83,21 +83,21 @@ export default function WorkspaceLayout({
 
                 {/* Storyboard — toggle */}
                 {storyboardVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
                     <StoryboardPanel />
                   </div>
                 ) : null}
 
                 {/* Animatic — toggle */}
                 {animaticVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
                     <AnimaticPanel />
                   </div>
                 ) : null}
 
                 {/* Prompt Table — toggle */}
                 {promptTableVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2 border-l" style={{ width: 480, borderColor: 'var(--nayin-border)' }}>
+                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
                     <PromptTablePanel />
                   </div>
                 ) : null}

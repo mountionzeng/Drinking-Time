@@ -103,6 +103,17 @@ export function selectedVideoSegmentDurationMs(
   return null;
 }
 
+export function playableVideoTake<
+  T extends Pick<VideoTakeAsset, "status" | "videoUrl">,
+>(takes: readonly T[] | undefined): T | undefined {
+  if (!takes?.length) return undefined;
+  return (
+    takes.find(
+      take => Boolean(take.videoUrl) && videoTakeAffordance(take.status).canPlay
+    ) ?? takes.find(take => Boolean(take.videoUrl))
+  );
+}
+
 export function shotTimelineDurationMs(shot: CreationEditorShot): number {
   const selectedTake = shot.videoTakes?.find(take => take.isTimelineSelected);
   const selectedDuration = selectedTake

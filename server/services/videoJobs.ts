@@ -64,12 +64,40 @@ function videoReferenceLabel(asset: ImageAsset): string {
   return `${shotLabel} image #${asset.id}${publicUrl}${prompt ? `；画面提示：${prompt}` : ""}`;
 }
 
+/**
+ * 清洗 prompt 使其适合 MJ-Video API。
+ * MJ-Video 只接受简短的英文/关键词 prompt，不接受中文长段落、
+ * 多行文本、特殊字符、指令性内容。
+ */
+export function sanitizeVideoPrompt(raw: string): string {
+  let prompt = raw
+    .replace(/连续性参考[：:].*/g, "") // 去掉连续性参考指令行
+    .replace(/前一镜参考图[：:].*/g, "") // 去掉前一镜参考
+    .replace(/后一镜参考图[：:].*/g, "") // 去掉后一镜参考
+    .replace(/画面提示[：:].*/g, "") // 去掉画面提示引用
+    .replace(/[\r\n]+/g, ", ") // 换行 -> 逗号分隔
+    .replace(/[，。；：！？、""''【】（）《》]/g, " ") // 中文标点 -> 空格
+    .replace(/[""'']/g, " ") // 引号 -> 空格
+    .replace(/[{]/g, "(").replace(/[}]/g, ")") // 花括号 -> 圆括号
+    .replace(/\s{2,}/g, " ") // 多个空格合并
+    .trim();
+  // 截断到 MJ-Video 友好长度（太长会被拒绝）
+  if (prompt.length > 500) {
+    prompt = prompt.slice(0, 500).trim();
+  }
+  return prompt || "cinematic shot";
+}
+
 function promptWithVideoReferences(params: {
   prompt: string;
   previousReference: ImageAsset | null;
   nextReference: ImageAsset | null;
+  forMjVideo?: boolean;
 }): string {
-  const lines = [params.prompt.trim()];
+  const cleaned = params.forMjVideo
+    ? sanitizeVideoPrompt(params.prompt)
+    : params.prompt.trim();
+  const lines = [cleaned];
   if (params.previousReference || params.nextReference) {
     lines.push("连续性参考：当前 image 字段只使用本镜已选首帧；以下相邻镜头只用于运动和接镜参考。");
   }
@@ -181,6 +209,7 @@ export async function startShotVideoJob(
     prompt: input.prompt,
     previousReference,
     nextReference,
+    forMjVideo: /\/mj\/submit\/video/.test(providerStatus.submitPath),
   });
   const idempotencyKey = hashParts(
     input.storyId,

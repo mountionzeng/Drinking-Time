@@ -18,6 +18,7 @@ import {
   type PlaybackState,
 } from "../playback";
 import {
+  playableVideoTake,
   shotTimelineDurationMs,
   videoTakeAffordance,
   videoTakeDurationMs,
@@ -30,6 +31,7 @@ type AnimaticPlayerProps = {
   onShotEnter: (shotNo: number) => void;
   isPlaying: boolean;
   onPlayingChange: (isPlaying: boolean) => void;
+  playbackResetKey?: number;
   onPromoteFrameCrop?: (input: {
     shotNo: number;
     imageBase64: string;
@@ -125,6 +127,7 @@ export default function AnimaticPlayer({
   onShotEnter,
   isPlaying,
   onPlayingChange,
+  playbackResetKey = 0,
   onPromoteFrameCrop,
   promotingFrameCropShotNo = null,
   onGenerateShotVideo,
@@ -178,6 +181,8 @@ export default function AnimaticPlayer({
   >({});
   const frameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
 
   useEffect(() => {
     setState(current => ({
@@ -185,6 +190,14 @@ export default function AnimaticPlayer({
       isPlaying: current.isPlaying,
     }));
   }, [playbackShots, selectedShotNo]);
+
+  useEffect(() => {
+    setState({
+      ...seekToShot(selectedShotNo ?? playbackShots[0]?.shotNo ?? null),
+      isPlaying,
+    });
+    lastTimeRef.current = null;
+  }, [playbackResetKey]);
 
   useEffect(() => {
     setState(current => ({ ...current, isPlaying }));
@@ -252,7 +265,7 @@ export default function AnimaticPlayer({
     currentShot?.promptRun?.imageUrl ||
     videoRecipe?.sourceImageUrl ||
     "";
-  const activeFrameId = currentShot?.imageId ?? currentShot?.promptRun?.imageId;
+  const activeFrameId = currentShot?.imageId;
   const hasExplicitSelectedFrame =
     currentShot?.imageSelectionSource === "explicit";
   const videoMissing = videoRecipe
@@ -279,8 +292,17 @@ export default function AnimaticPlayer({
         take => take.id === activeTakeIdByShotNo[currentShot.shotNo]
       ) ??
       currentShot.videoTakes?.find(take => take.isTimelineSelected) ??
+      // 优先选 available 的 take，避免新 failed take 覆盖旧可播放视频
+      currentShot.videoTakes?.find(
+        take => videoTakeAffordance(take.status).canPlay
+      ) ??
       currentShot.videoTakes?.[0])
     : undefined;
+  const previewVideoTake =
+    currentVideoTake?.videoUrl &&
+    videoTakeAffordance(currentVideoTake.status).canPlay
+      ? currentVideoTake
+      : playableVideoTake(currentShot?.videoTakes);
   const currentTakeAffordance = currentVideoTake
     ? videoTakeAffordance(currentVideoTake.status)
     : null;
@@ -302,16 +324,39 @@ export default function AnimaticPlayer({
     : null;
   const currentVideoPreview = currentShot
     ? (videoPreviewByShotNo[currentShot.shotNo] ??
-      (currentVideoTake
+      (previewVideoTake
         ? {
-            videoUrl: currentVideoTake.videoUrl ?? undefined,
-            taskId: currentVideoTake.taskId ?? undefined,
-            takeId: currentVideoTake.id,
-            videoStatus: currentVideoTake.status,
-            prompt: currentVideoTake.prompt,
+            videoUrl: previewVideoTake.videoUrl ?? undefined,
+            taskId: previewVideoTake.taskId ?? undefined,
+            takeId: previewVideoTake.id,
+            videoStatus: previewVideoTake.status,
+            prompt: previewVideoTake.prompt,
           }
         : undefined))
     : undefined;
+  useEffect(() => {
+    const video = videoElementRef.current;
+    if (!video) return;
+    video.playbackRate = playbackSpeed;
+  }, [playbackSpeed]);
+  useEffect(() => {
+    const video = videoElementRef.current;
+    if (!video || !currentVideoPreview?.videoUrl) return;
+    if (!isPlaying) {
+      video.pause();
+      return;
+    }
+    video.currentTime = 0;
+    void video.play().catch(() => {
+      // Browser autoplay policy can reject play() for videos with audio.
+      // The controls remain visible so the user can start it manually.
+    });
+  }, [
+    currentShot?.shotNo,
+    currentVideoPreview?.videoUrl,
+    isPlaying,
+    playbackResetKey,
+  ]);
   const canRefreshVideo =
     Boolean(
       currentVideoTake?.taskId &&
@@ -348,6 +393,9 @@ export default function AnimaticPlayer({
         ? "已选中单张首帧，视频只会使用这张图。"
         : "已有候选图。先从四宫格中选一格成为正式首帧，再生成视频。"
     : "当前镜头还没有首帧图，先到提示词表重渲本镜。";
+  const frameDisplayStatusText = currentVideoPreview?.videoUrl
+    ? "已有可播放视频，动态分镜会优先播放这条视频。"
+    : frameStatusText;
   const canGenerateVideo =
     Boolean(
       isVideoReady &&
@@ -555,6 +603,7 @@ export default function AnimaticPlayer({
       <div className="relative flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
         {currentVideoPreview?.videoUrl ? (
           <video
+            ref={videoElementRef}
             src={currentVideoPreview.videoUrl}
             controls
             playsInline
@@ -602,8 +651,8 @@ export default function AnimaticPlayer({
                 </span>
               </div>
               <p className="leading-5 text-muted-foreground">
-                {frameStatusText}
-                {videoMissing.length > 0
+                {frameDisplayStatusText}
+                {!currentVideoPreview?.videoUrl && videoMissing.length > 0
                   ? ` 还缺：${videoMissing.join(" / ")}。`
                   : ""}
                 {providerStatusText ? ` ${providerStatusText}` : ""}
@@ -613,8 +662,11 @@ export default function AnimaticPlayer({
               </p>
               {currentVideoTake?.errorMessage ? (
                 <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">
-                  当前 Take {currentVideoTake.id} 失败原因：
-                  {currentVideoTake.errorMessage}
+                  {/image not approved/i.test(currentVideoTake.errorMessage)
+                    ? "这张首帧被视频模型拒绝，请换一张首帧或重新裁切。"
+                    : /prompt parameter/i.test(currentVideoTake.errorMessage)
+                      ? "视频模型拒绝了提示词，请检查视频包中的 prompt 是否过长或包含不支持的内容。"
+                      : `当前 Take ${currentVideoTake.id} 失败原因：${currentVideoTake.errorMessage}`}
                 </p>
               ) : null}
             </div>
@@ -741,8 +793,36 @@ export default function AnimaticPlayer({
                           </Button>
                         </div>
                       </div>
+                      {currentVideoPreview?.videoUrl ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground">
+                            播放速度
+                          </span>
+                          {[0.5, 1.0, 1.5, 2.0].map(speed => (
+                            <button
+                              key={speed}
+                              type="button"
+                              onClick={() => setPlaybackSpeed(speed)}
+                              className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition ${
+                                playbackSpeed === speed
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                              }`}
+                            >
+                              {speed}x
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       {currentTakeAffordance?.canUseOnTimeline && rangeDraft ? (
-                        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                        <div className="space-y-2">
+                          <p className="text-[10px] text-muted-foreground">
+                            当前视频 {currentTakeDurationSec.toFixed(1)}s，选择其中一段用于时间轴。
+                            {playbackSpeed !== 1.0
+                              ? ` 以 ${playbackSpeed}x 速度播放，时间轴时长约 ${((rangeDraft.endSec - rangeDraft.startSec) / playbackSpeed).toFixed(1)}s。`
+                              : ` 时间轴时长 ${(rangeDraft.endSec - rangeDraft.startSec).toFixed(1)}s。`}
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                           <label className="block text-[10px] text-muted-foreground">
                             <span className="mb-1 block">
                               入点 {rangeDraft.startSec.toFixed(1)}s
@@ -789,6 +869,7 @@ export default function AnimaticPlayer({
                           >
                             保存片段
                           </Button>
+                          </div>
                         </div>
                       ) : null}
                       {currentVideoTake.ranges.length > 0 ? (
@@ -899,16 +980,6 @@ export default function AnimaticPlayer({
                 </div>
               ) : null}
             </>
-          ) : null}
-          {currentVideoPreview?.videoUrl ? (
-            <div className="mt-2 overflow-hidden rounded-md border border-border/70 bg-muted/40">
-              <video
-                src={currentVideoPreview.videoUrl}
-                controls
-                playsInline
-                className="aspect-video w-full bg-black object-contain"
-              />
-            </div>
           ) : null}
         </div>
       ) : null}

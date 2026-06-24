@@ -88,6 +88,10 @@ type CreationEditorContextValue = {
   setActiveStoryId: (storyId: number | null) => void;
   activeStory: CreationEditorStory | null;
   shots: CreationEditorShot[];
+  timelineShotIds: string[];
+  addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
+  removeShotFromTimeline: (shotId: string) => void;
+  resetTimelineShots: () => void;
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
   selectedShot: CreationEditorShot | null;
@@ -192,6 +196,33 @@ const SHOT_STORY_IDENTITY_FIELDS = [
   "visualAnchorText",
   "negativePrompt",
 ] as const;
+
+export function creationTimelineShotId(
+  shot: Pick<
+    CreationEditorShot,
+    "stableShotId" | "shotIdentity" | "shotKey" | "shotNo"
+  >,
+  index = 0
+): string {
+  return (
+    normalizeShotIdentity(shot.stableShotId) ??
+    normalizeShotIdentity(shot.shotIdentity) ??
+    normalizeShotIdentity(shot.shotKey) ??
+    `legacy-sh${String(shot.shotNo).padStart(2, "0")}-${index + 1}`
+  );
+}
+
+export function resolveTimelineShots(
+  shots: readonly CreationEditorShot[],
+  shotIds: readonly string[]
+): CreationEditorShot[] {
+  const byId = new Map(
+    shots.map((shot, index) => [creationTimelineShotId(shot, index), shot])
+  );
+  return shotIds
+    .map(id => byId.get(id))
+    .filter((shot): shot is CreationEditorShot => Boolean(shot));
+}
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -605,11 +636,11 @@ export function mergeShotsWithImages(
     if (shot.promptRun?.imageUrl) {
       return {
         ...shot,
-        imageId: shot.promptRun.imageId ?? image?.id,
+        imageId: promptRunImage?.id,
         imageUrl: shot.promptRun.imageUrl,
         imagePrompt: shot.promptRun.finalPrompt,
-        imageSelectionSource: image?.selectionSource,
-        imageIsPrimary: image?.isPrimary,
+        imageSelectionSource: promptRunImage?.selectionSource,
+        imageIsPrimary: promptRunImage?.isPrimary,
       };
     }
     if (!image) return shot;
@@ -762,7 +793,10 @@ export function CreationEditorProvider({
   const [generatingVideoShotNo, setGeneratingVideoShotNo] = useState<
     number | null
   >(null);
+  const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
+  const timelineStoryIdRef = useRef<number | null>(null);
+  const removedTimelineShotIdsRef = useRef<Set<string>>(new Set());
   const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
@@ -869,6 +903,60 @@ export function CreationEditorProvider({
     storyQuery.data?.body,
     storyVideoAssetsQuery.data,
   ]);
+
+  useEffect(() => {
+    const allShotIds = shots.map(creationTimelineShotId);
+    if (timelineStoryIdRef.current !== activeId) {
+      timelineStoryIdRef.current = activeId;
+      removedTimelineShotIdsRef.current.clear();
+      setTimelineShotIds(allShotIds);
+      return;
+    }
+
+    const available = new Set(allShotIds);
+    setTimelineShotIds(current => {
+      const kept = current.filter(shotId => available.has(shotId));
+      const keptSet = new Set(kept);
+      const appended = allShotIds.filter(
+        shotId =>
+          !keptSet.has(shotId) && !removedTimelineShotIdsRef.current.has(shotId)
+      );
+      const next = [...kept, ...appended];
+      if (
+        next.length === current.length &&
+        next.every((shotId, index) => shotId === current[index])
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [activeId, shots]);
+
+  const addShotToTimeline = useCallback(
+    (shotNo: number, stableShotId?: string | null) => {
+      const shotId =
+        normalizeShotIdentity(stableShotId) ??
+        shots
+          .map(creationTimelineShotId)
+          .find((id, index) => shots[index]?.shotNo === shotNo);
+      if (!shotId) return;
+      removedTimelineShotIdsRef.current.delete(shotId);
+      setTimelineShotIds(current =>
+        current.includes(shotId) ? current : [...current, shotId]
+      );
+    },
+    [shots]
+  );
+
+  const removeShotFromTimeline = useCallback((shotId: string) => {
+    removedTimelineShotIdsRef.current.add(shotId);
+    setTimelineShotIds(current => current.filter(item => item !== shotId));
+  }, []);
+
+  const resetTimelineShots = useCallback(() => {
+    removedTimelineShotIdsRef.current.clear();
+    setTimelineShotIds(shots.map(creationTimelineShotId));
+  }, [shots]);
 
   useEffect(() => {
     setSelectedShotNo(current => selectInitialShotNo(current, shots));
@@ -1207,6 +1295,10 @@ export function CreationEditorProvider({
       setActiveStoryId,
       activeStory,
       shots,
+      timelineShotIds,
+      addShotToTimeline,
+      removeShotFromTimeline,
+      resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
       selectedShot,
@@ -1255,6 +1347,10 @@ export function CreationEditorProvider({
       rerenderingShotNo,
       shots,
       stories,
+      timelineShotIds,
+      addShotToTimeline,
+      removeShotFromTimeline,
+      resetTimelineShots,
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,

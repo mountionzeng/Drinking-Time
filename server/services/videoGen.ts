@@ -268,9 +268,23 @@ function buildSubmitRequest(input: ShotVideoInput) {
   const submitPath = buildPath(submitPathTemplate, { model });
   const url = endpoint(submitPath);
   const isMjVideo = isMjVideoSubmitPath(submitPathTemplate);
+
+  // 防御性清洗：MJ-Video 模式下清理 prompt 中的换行和超长内容
+  let prompt = input.prompt;
+  if (isMjVideo) {
+    prompt = prompt
+      .replace(/[\r\n]+/g, ", ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    if (prompt.length > 500) {
+      prompt = prompt.slice(0, 500).trim();
+    }
+    prompt = prompt || "cinematic shot";
+  }
+
   const body: Record<string, unknown> = isMjVideo
     ? {
-        prompt: input.prompt,
+        prompt,
         motion: configuredMotion(),
       }
     : {

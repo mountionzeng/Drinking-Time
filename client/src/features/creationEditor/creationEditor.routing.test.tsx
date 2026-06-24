@@ -4,6 +4,7 @@ import {
   mergeCanonicalStoryShots,
   mergeShotsWithImages,
   normalizeStoryShots,
+  resolveTimelineShots,
   resolveCreationEditorActiveId,
   selectInitialShotNo,
   type CreationEditorShot,
@@ -342,7 +343,7 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imagePrompt).toBe('prompt table prompt');
   });
 
-  it('uses prompt-run image URLs as animatic candidates when image assets are not hydrated yet', () => {
+  it('uses unhydrated prompt-run URLs as candidates without a traceable parent image id', () => {
     const merged = mergeShotsWithImages([
       shot(1, {
         promptRun: {
@@ -356,7 +357,7 @@ describe('creation editor route and shell', () => {
       }),
     ], []);
 
-    expect(merged[0].imageId).toBe(12);
+    expect(merged[0].imageId).toBeUndefined();
     expect(merged[0].imageUrl).toBe('/api/images/prompt-run-only.png');
     expect(merged[0].imagePrompt).toBe('prompt table prompt');
   });
@@ -401,6 +402,56 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageUrl).toBe('/api/images/sh06-cropped-frame.png');
     expect(merged[0].imagePrompt).toBe('cropped selected frame');
     expect(merged[0].imageSelectionSource).toBe('explicit');
+  });
+
+  it('keeps duplicate shot numbers distinct on the edit timeline by stable shot id', () => {
+    const first = shot(2, {
+      stableShotId: 'legacy-sh02-old',
+      shotIdentity: 'legacy-sh02-old',
+      videoTakes: [
+        {
+          id: 7,
+          storyId: 23,
+          userId: 1,
+          stableShotId: 'legacy-sh02-old',
+          sourceImageId: 232,
+          status: 'available',
+          taskId: null,
+          provider: '302',
+          model: 'mj-video',
+          prompt: 'old video',
+          subtitle: null,
+          durationSec: 3,
+          aspectRatio: '16:9',
+          videoKey: null,
+          videoUrl: '/videos/old-sh02.mp4',
+          errorMessage: null,
+          parameterSnapshot: null,
+          extractionCapability: 'unavailable',
+          createdAt: '2026-06-23T00:00:00.000Z',
+          updatedAt: '2026-06-23T00:00:00.000Z',
+          ranges: [],
+          selectedRangeId: null,
+          selectedSelectionType: null,
+          isTimelineSelected: false,
+        },
+      ],
+    });
+    const second = shot(2, {
+      stableShotId: 'legacy-sh02-new',
+      shotIdentity: 'legacy-sh02-new',
+      subject: 'new duplicate shot',
+    });
+
+    const timeline = resolveTimelineShots(
+      [first, second],
+      ['legacy-sh02-old', 'legacy-sh02-new'],
+    );
+
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0].stableShotId).toBe('legacy-sh02-old');
+    expect(timeline[0].videoTakes?.[0]?.videoUrl).toBe('/videos/old-sh02.mp4');
+    expect(timeline[1].stableShotId).toBe('legacy-sh02-new');
   });
 
   it('falls back to the hydrated remote story when the story selector is open', () => {

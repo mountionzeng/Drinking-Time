@@ -84,6 +84,7 @@ export function compileVideoShotRecipe(params: {
   addLine(lines, '情绪色调', mood);
   addLine(lines, '美术风格', styleRef);
   lines.push('限制：不要生成文字水印，不要把字幕画进画面，不要新增事实，不要励志海报感。');
+  lines.push('Negative: no floating objects, no gravity-defying elements, birds fly only in sky not on ground, characters obey physics, no impossible poses, no melting or warping of solid objects.');
 
   const missing: string[] = [];
   if (!sourceImageUrl) missing.push('首帧图');

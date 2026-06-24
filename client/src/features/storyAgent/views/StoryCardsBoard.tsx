@@ -24,6 +24,8 @@ import {
   Star,
   Palette,
   ScrollText,
+  CheckCircle2,
+  ListPlus,
 } from "lucide-react";
 import {
   useStoryAgentActions,
@@ -397,6 +399,8 @@ export function StoryboardReviewBoard({
   onUpdateShotField,
   onUpdateAllShotsField,
   creationShots = [],
+  timelineShotIds = [],
+  onAddShotToTimeline,
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
@@ -420,6 +424,8 @@ export function StoryboardReviewBoard({
     value: string
   ) => void;
   creationShots?: CreationEditorShot[];
+  timelineShotIds?: string[];
+  onAddShotToTimeline?: (shotNo: number, stableShotId?: string | null) => void;
   generatingVideoShotNo?: number | null;
   onGenerateShotVideo?: (input: {
     shotNo: number;
@@ -446,6 +452,10 @@ export function StoryboardReviewBoard({
   const creationShotByNo = useMemo(
     () => new Map(creationShots.map(shot => [shot.shotNo, shot])),
     [creationShots]
+  );
+  const timelineShotIdSet = useMemo(
+    () => new Set(timelineShotIds),
+    [timelineShotIds]
   );
   const previousCreationShotsByNo = useMemo(() => {
     const byShotNo = new Map<number, CreationEditorShot[]>();
@@ -647,6 +657,11 @@ export function StoryboardReviewBoard({
               .filter(Boolean)
               .join(" · ");
             const selected = selectedShotNo === shot.shotNo;
+            const shotTimelineId =
+              shot.stableShotId ??
+              shot.shotIdentity ??
+              `legacy-sh${String(shot.shotNo).padStart(2, "0")}`;
+            const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
             const showMaterialBasket =
               Boolean(creationShot) &&
               (selected ||
@@ -708,20 +723,47 @@ export function StoryboardReviewBoard({
                 </div>
 
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                      style={{ borderColor: "var(--panel-border)" }}
-                    >
-                      {shortText(shot.beat, "故事节点")}
-                    </span>
-                    {image ? (
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
                         style={{ borderColor: "var(--panel-border)" }}
                       >
-                        {generatedStatusLabel(image.status)}
+                        {shortText(shot.beat, "故事节点")}
                       </span>
+                      {image ? (
+                        <span
+                          className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
+                          style={{ borderColor: "var(--panel-border)" }}
+                        >
+                          {generatedStatusLabel(image.status)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {onAddShotToTimeline ? (
+                      <button
+                        type="button"
+                        disabled={isOnTimeline}
+                        onClick={event => {
+                          event.stopPropagation();
+                          onAddShotToTimeline(shot.shotNo, shotTimelineId);
+                          onSelectShot?.(shot.shotNo);
+                        }}
+                        className="inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[8.5px] font-medium transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
+                        style={{ borderColor: "var(--panel-border)" }}
+                        aria-label={
+                          isOnTimeline
+                            ? `SH${String(shot.shotNo).padStart(2, "0")} 已在时间轴`
+                            : `把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`
+                        }
+                      >
+                        {isOnTimeline ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <ListPlus className="h-3 w-3" />
+                        )}
+                        {isOnTimeline ? "已在时间轴" : "加入时间轴"}
+                      </button>
                     ) : null}
                   </div>
                   <h4 className="mt-1 line-clamp-1 text-[11px] font-semibold text-foreground">

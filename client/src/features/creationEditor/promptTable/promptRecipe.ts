@@ -32,7 +32,7 @@ export function compilePromptRecipe(params: {
       params.shot.sourceCardContent ? `Source Story Card: ${params.shot.sourceCardContent}` : '',
       params.continuityHint ? `Continuity: ${params.continuityHint}` : '',
       params.shot.dialogue
-        ? `Dialogue meaning to express through acting and composition only, do not render as text: ${params.shot.dialogue}`
+        ? 'Visual storytelling: convey the emotion and meaning of this scene through composition, lighting and acting. Do not render any text.'
         : '',
       'Prompt dimensions with weights:',
       ...weightedLines,

@@ -19,6 +19,8 @@ export default function StoryboardPanel() {
     selectedShotNo,
     setSelectedShotNo,
     shots: creationShots,
+    timelineShotIds,
+    addShotToTimeline,
     generateShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
@@ -80,6 +82,8 @@ export default function StoryboardPanel() {
       onUpdateShotField={updateStoryShotField}
       onUpdateAllShotsField={updateAllStoryShotField}
       creationShots={creationShots}
+      timelineShotIds={timelineShotIds}
+      onAddShotToTimeline={addShotToTimeline}
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}

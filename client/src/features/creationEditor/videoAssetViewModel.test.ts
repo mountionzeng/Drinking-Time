@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  playableVideoTake,
   selectedVideoSegmentDurationMs,
   videoTakeAffordance,
 } from "./videoAssetViewModel";
@@ -66,5 +67,20 @@ describe("videoAssetViewModel", () => {
         ranges: [],
       })
     ).toBeNull();
+  });
+
+  it("prefers a playable video take over a newer failed take for preview", () => {
+    const failedTake = {
+      id: 2,
+      status: "failed" as const,
+      videoUrl: null,
+    };
+    const readyTake = {
+      id: 1,
+      status: "available" as const,
+      videoUrl: "/videos/ready.mp4",
+    };
+
+    expect(playableVideoTake([failedTake, readyTake])).toBe(readyTake);
   });
 });
