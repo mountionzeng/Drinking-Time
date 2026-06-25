@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 import {
+  createImageSignal,
   createGeneratedImage,
   createStory,
   resetMemoryStateForTesting,
@@ -40,6 +41,16 @@ afterEach(() => {
 });
 
 describe("videoJobs", () => {
+  async function selectImage(storyId: number, imageId: number) {
+    await createImageSignal({
+      userId: 1,
+      storyId,
+      imageId,
+      action: "swipe_right",
+      metadata: null,
+    });
+  }
+
   it("creates a processing take from a story frame without storing raw image input in the snapshot", async () => {
     const story = await createStory({
       userId: 1,
@@ -148,6 +159,9 @@ describe("videoJobs", () => {
       generationType: "initial",
       isCurrent: true,
     });
+    await selectImage(story.id, previousImage.id);
+    await selectImage(story.id, image.id);
+    await selectImage(story.id, nextImage.id);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -203,5 +217,165 @@ describe("videoJobs", () => {
     expect(requestBody.prompt).toContain("后一镜参考图：SH07");
     expect(requestBody.prompt).toContain("previous selected frame");
     expect(requestBody.prompt).toContain("next selected frame");
+  });
+
+  it("rejects a pending source image before submitting a video job", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "窗边",
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-01",
+      imageUrl: "data:image/png;base64,AAAA",
+      imageKey: null,
+      prompt: "pending frame",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await startShotVideoJob(
+      {
+        storyId: story.id,
+        shotNo: 1,
+        stableShotId: "shot-01",
+        imageId: image.id,
+        prompt: "gentle camera move",
+      },
+      1
+    );
+
+    expect(result).toEqual({
+      status: "error",
+      error: "首帧图不存在或不属于当前镜头",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps MJ-Video submitted prompt free of adjacent-reference text", async () => {
+    ENV.video302Model = "";
+    ENV.video302SubmitPath = "/mj/submit/video";
+    ENV.video302PollPath = "";
+    ENV.video302ImageField = "";
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "前一镜",
+          },
+          {
+            stableShotId: "shot-02",
+            shotIdentity: "shot-02",
+            shotNo: 2,
+            subject: "当前镜",
+          },
+          {
+            stableShotId: "shot-03",
+            shotIdentity: "shot-03",
+            shotNo: 3,
+            subject: "后一镜",
+          },
+        ],
+      },
+    });
+    const previousImage = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-01",
+      imageUrl: "https://storage.example/previous.png",
+      imageKey: null,
+      prompt: "previous selected frame",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH02",
+      shotIdentity: "shot-02",
+      imageUrl: "data:image/png;base64,BBBB",
+      imageKey: null,
+      prompt: "current selected frame",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const nextImage = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH03",
+      shotIdentity: "shot-03",
+      imageUrl: "https://storage.example/next.png",
+      imageKey: null,
+      prompt: "next selected frame",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    await selectImage(story.id, previousImage.id);
+    await selectImage(story.id, image.id);
+    await selectImage(story.id, nextImage.id);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: 1, result: "mj-task-2" }),
+      }))
+    );
+
+    const result = await startShotVideoJob(
+      {
+        storyId: story.id,
+        shotNo: 2,
+        stableShotId: "shot-02",
+        imageId: image.id,
+        previousReferenceImageId: previousImage.id,
+        nextReferenceImageId: nextImage.id,
+        prompt: "gentle camera move\n前一镜参考图：https://bad.example/ref.png",
+        durationSec: 5,
+      },
+      1
+    );
+
+    expect(result.status).toBe("ok");
+    const requestBody = JSON.parse(
+      String((globalThis.fetch as any).mock.calls[0][1].body)
+    );
+    expect(requestBody).toMatchObject({
+      prompt: "gentle camera move",
+      motion: "low",
+      image: "data:image/png;base64,BBBB",
+    });
+    expect(requestBody.prompt).not.toContain("前一镜参考图");
+    expect(requestBody.prompt).not.toContain("后一镜参考图");
+    expect(requestBody.prompt).not.toContain("storage.example");
+    expect(result.status === "ok" ? result.take.parameterSnapshot : null).toMatchObject({
+      previousReferenceImageId: previousImage.id,
+      nextReferenceImageId: nextImage.id,
+    });
   });
 });

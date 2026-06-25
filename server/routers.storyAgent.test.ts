@@ -1230,7 +1230,7 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
-  it("storyImages 保留划走旧图后的 current 草稿，避免故事版图片闪一下消失", async () => {
+  it("storyImages 不投影划走旧图后的 pending 草稿，草稿只留在图片工作区历史", async () => {
     imageGenMocks.generateDraftImage
       .mockResolvedValueOnce({
         status: "ok",
@@ -1275,21 +1275,13 @@ describe("storyAgent tRPC router", () => {
     expect(currentDraft.status).toBe("ok");
 
     const storyImages = await caller.storyAgent.storyImages({ storyId: story!.id });
-    expect(storyImages).toEqual([
-      expect.objectContaining({
-        id: currentDraft.imageId,
-        shotNo: "SH01",
-        status: "pending",
-        generationType: "generate",
-        isCurrent: true,
-        imageUrl: "https://storage.example/generated/current-draft.png",
-      }),
-    ]);
+    expect(storyImages).toEqual([]);
 
     const projectAssets = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
     expect(projectAssets.find(asset => asset.id === currentDraft.imageId)).toMatchObject({
       status: "pending",
       isPrimary: false,
+      imageUrl: "https://storage.example/generated/current-draft.png",
     });
   });
 

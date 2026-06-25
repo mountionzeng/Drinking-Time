@@ -5,7 +5,14 @@
  *
  * Sits in the TEMPLATE DRAFT slot of the analysis page.
  */
-import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import {
   motion,
   AnimatePresence,
@@ -46,7 +53,10 @@ import type {
   StoryShot,
   VisualCanvasItem,
 } from "@/features/storyAgent/types";
-import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
+import {
+  creationTimelineShotId,
+  type CreationEditorShot,
+} from "@/features/creationEditor/CreationEditorContext";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { ArtRecipeDNA, StoryArtDirection } from "@shared/artDirection";
@@ -441,6 +451,7 @@ export function StoryboardReviewBoard({
   const [selectedNarrativeId, setSelectedNarrativeId] = useState("");
   const [selectedArtId, setSelectedArtId] = useState("");
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const boardRef = useRef<HTMLElement | null>(null);
   const frames = useMemo(
     () => latestStoryboardFrames(images, shots),
     [images, shots]
@@ -494,10 +505,18 @@ export function StoryboardReviewBoard({
   };
   const shouldShow =
     frames.length > 0 || isGeneratingScript || shots.length > 0 || latestScript;
+  useEffect(() => {
+    if (selectedShotNo == null) return;
+    const target = boardRef.current?.querySelector<HTMLElement>(
+      `[data-storyboard-shot-no="${selectedShotNo}"]`
+    );
+    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedShotNo]);
   if (!shouldShow) return null;
 
   return (
     <section
+      ref={boardRef}
       className={`rounded-md border p-2 ${className}`.trim()}
       style={{
         borderColor: "var(--panel-border)",
@@ -657,10 +676,11 @@ export function StoryboardReviewBoard({
               .filter(Boolean)
               .join(" · ");
             const selected = selectedShotNo === shot.shotNo;
-            const shotTimelineId =
-              shot.stableShotId ??
-              shot.shotIdentity ??
-              `legacy-sh${String(shot.shotNo).padStart(2, "0")}`;
+            const shotTimelineId = creationShot
+              ? creationTimelineShotId(creationShot)
+              : (shot.stableShotId ??
+                shot.shotIdentity ??
+                `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
             const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
             const showMaterialBasket =
               Boolean(creationShot) &&
@@ -673,6 +693,7 @@ export function StoryboardReviewBoard({
             return (
               <article
                 key={shot.shotNo}
+                data-storyboard-shot-no={shot.shotNo}
                 className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
                 style={{
                   borderColor: selected

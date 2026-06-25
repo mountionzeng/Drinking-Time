@@ -1995,10 +1995,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         return assets
           .filter(asset => asset.kind === "story_frame")
           .filter(asset => asset.assignment === "shot")
-          .filter(
-            asset =>
-              asset.isPrimary || (asset.status === "pending" && asset.isCurrent)
-          )
+          .filter(asset => asset.isPrimary)
           .filter(asset => asset.status !== "rejected")
           .filter(asset => asset.availability !== "missing")
           .map(asset => ({

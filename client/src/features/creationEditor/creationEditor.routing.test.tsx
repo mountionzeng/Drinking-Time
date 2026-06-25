@@ -3,12 +3,14 @@ import { detectPrefersMobile } from '@/app/router/AppRouter';
 import {
   mergeCanonicalStoryShots,
   mergeShotsWithImages,
+  mergeShotsWithVideos,
   normalizeStoryShots,
   resolveTimelineShots,
   resolveCreationEditorActiveId,
   selectInitialShotNo,
   type CreationEditorShot,
 } from './CreationEditorContext';
+import type { VideoTakeAsset } from '@shared/videoAsset';
 
 function makeStorage() {
   const data = new Map<string, string>();
@@ -58,6 +60,39 @@ function shot(shotNo: number, overrides: Partial<CreationEditorShot> = {}): Crea
     note: '',
     emotion: '',
     sourceCardContent: '',
+    ...overrides,
+  };
+}
+
+function videoTake(
+  id: number,
+  overrides: Partial<VideoTakeAsset> = {},
+): VideoTakeAsset {
+  return {
+    id,
+    storyId: 1,
+    userId: 1,
+    stableShotId: 'shot-01',
+    sourceImageId: 11,
+    status: 'available',
+    taskId: null,
+    provider: '302',
+    model: 'mj-video',
+    prompt: `take ${id}`,
+    subtitle: null,
+    durationSec: 5,
+    aspectRatio: '16:9',
+    videoKey: null,
+    videoUrl: `/videos/take-${id}.mp4`,
+    errorMessage: null,
+    parameterSnapshot: null,
+    extractionCapability: 'unavailable',
+    createdAt: `2026-06-23T00:00:0${id}.000Z`,
+    updatedAt: `2026-06-23T00:00:0${id}.000Z`,
+    ranges: [],
+    selectedRangeId: null,
+    selectedSelectionType: null,
+    isTimelineSelected: false,
     ...overrides,
   };
 }
@@ -270,7 +305,7 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imagePrompt).toBeUndefined();
   });
 
-  it('attaches current storyboard draft frames to the animatic before they are selected', () => {
+  it('does not attach current storyboard draft frames before they are selected', () => {
     const merged = mergeShotsWithImages([shot(1)], [
       {
         id: 13,
@@ -284,11 +319,11 @@ describe('creation editor route and shell', () => {
       },
     ]);
 
-    expect(merged[0].imageUrl).toBe('/api/images/storyboard-draft.png');
-    expect(merged[0].imagePrompt).toBe('storyboard draft prompt');
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[0].imagePrompt).toBeUndefined();
   });
 
-  it('attaches current initial frames that were generated before explicit selection', () => {
+  it('does not attach current initial frames before explicit selection', () => {
     const merged = mergeShotsWithImages([shot(5), shot(6)], [
       {
         id: 200,
@@ -312,8 +347,8 @@ describe('creation editor route and shell', () => {
       },
     ]);
 
-    expect(merged[0].imageUrl).toBe('/api/images/sh05-current.png');
-    expect(merged[1].imageUrl).toBe('/api/images/sh06-current.png');
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[1].imageUrl).toBeUndefined();
   });
 
   it('keeps prompt-run images visible even when they are still pending drafts', () => {
@@ -402,6 +437,31 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageUrl).toBe('/api/images/sh06-cropped-frame.png');
     expect(merged[0].imagePrompt).toBe('cropped selected frame');
     expect(merged[0].imageSelectionSource).toBe('explicit');
+  });
+
+  it('keeps an available video as the selected take when a newer take failed', () => {
+    const merged = mergeShotsWithVideos([
+      shot(1, {
+        stableShotId: 'shot-01',
+        shotIdentity: 'shot-01',
+      }),
+    ], [
+      videoTake(1, {
+        status: 'available',
+        videoUrl: '/videos/old-current.mp4',
+        createdAt: '2026-06-23T00:00:01.000Z',
+      }),
+      videoTake(2, {
+        status: 'failed',
+        videoUrl: null,
+        errorMessage: 'Prompt parameter error or image not approved',
+        createdAt: '2026-06-23T00:00:02.000Z',
+      }),
+    ]);
+
+    expect(merged[0].selectedVideoTake?.id).toBe(1);
+    expect(merged[0].selectedVideoTake?.videoUrl).toBe('/videos/old-current.mp4');
+    expect(merged[0].videoTakes?.map(take => take.id)).toEqual([2, 1]);
   });
 
   it('keeps duplicate shot numbers distinct on the edit timeline by stable shot id', () => {

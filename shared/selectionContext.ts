@@ -8,11 +8,21 @@ export type SelectionSourceType =
   | "timeline-range"
   | "chat";
 
+export type SelectionMaterialStatus =
+  | "current-image"
+  | "candidate-image"
+  | "current-video"
+  | "failed-video"
+  | "timeline-range"
+  | "fallback-image"
+  | "unknown";
+
 export type SelectionContext = {
   sourceType: SelectionSourceType;
   sourceId: string;
   selectedText: string;
   fullText: string;
+  materialStatus?: SelectionMaterialStatus;
   storyId?: number | null;
   stableShotId?: string | null;
   shotNo?: number | null;
@@ -20,3 +30,22 @@ export type SelectionContext = {
   videoTakeId?: number | null;
   rangeId?: number | null;
 };
+
+export function inferSelectionMaterialStatus(
+  context: Pick<
+    SelectionContext,
+    "sourceType" | "imageId" | "videoTakeId" | "rangeId" | "materialStatus"
+  >
+): SelectionMaterialStatus {
+  if (context.materialStatus) return context.materialStatus;
+  if (context.sourceType === "timeline-range" || context.rangeId != null) {
+    return "timeline-range";
+  }
+  if (context.sourceType === "animatic-video" || context.videoTakeId != null) {
+    return "current-video";
+  }
+  if (context.sourceType === "storyboard-image" || context.imageId != null) {
+    return "current-image";
+  }
+  return "unknown";
+}

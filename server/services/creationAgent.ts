@@ -29,6 +29,7 @@ import {
 import type { SceneAnalysis } from "../../shared/sceneAnalysis";
 import { analyzeVisionReference } from "../archive/visionAgent";
 import { materializeImageInput } from "./imageAssets";
+import { collectShotImageReferences } from "./shotImageReferences";
 
 // ── Types ──
 
@@ -341,8 +342,9 @@ function findImageAsset(
   );
   return (
     focusAssets.find(asset => asset.isPrimary) ??
-    focusAssets.find(asset => asset.status === "pending") ??
-    focusAssets[0] ??
+    focusAssets.find(asset => asset.selectionSource === "explicit") ??
+    focusAssets.find(asset => asset.selectionSource === "legacy") ??
+    focusAssets.find(asset => asset.status === "selected") ??
     null
   );
 }
@@ -440,19 +442,21 @@ export async function generateNextImage(
 ): Promise<GenerateNextImageResult> {
   const targetShotNo = canonicalizeShotNo(input.shotNo) ?? input.shotNo;
   const assets = input.assets ?? [];
-  // 连续性：参考该镜现有（非淘汰）主图/待确认图，保持风格一致；没有则纯生成（循环里出新变体）。
-  const continuityAsset = findImageAsset(assets, targetShotNo);
+  const referencePlan = collectShotImageReferences({
+    targetShotNo,
+    assets,
+    storyReferenceImages: input.referenceImages,
+    artDirection: input.artDirection,
+  });
+  const continuityAsset = referencePlan.editSource;
   const continuitySource =
     continuityAsset && continuityAsset.availability !== "missing"
       ? await materializeImageInput(continuityAsset.imageUrl)
       : null;
-  const referenceImages = Array.from(
-    new Set(
-      [continuityAsset?.imageUrl, ...(input.referenceImages ?? [])].filter(
-        (value): value is string => Boolean(value),
-      ),
-    ),
-  );
+  const referenceImages = referencePlan.referenceImages;
+  const renderPrompt = [input.prompt, referencePlan.coldStartPrompt]
+    .filter(Boolean)
+    .join("\n\n");
   const injection = input.story
     ? await deriveInjection(input.story, input.sceneAnalysis)
     : {};
@@ -463,7 +467,7 @@ export async function generateNextImage(
   try {
     genResult = await renderViaGate(
       {
-        prompt: input.prompt,
+        prompt: renderPrompt,
         shotNo: targetShotNo,
         projectId: input.projectId,
         storyId: input.storyId ?? undefined,
@@ -480,7 +484,7 @@ export async function generateNextImage(
         }
         const midjourneyReferencePrefix =
           input.imageProvider === "midjourney"
-            ? input.referenceImages?.slice(0, 2).join(" ")
+            ? referenceImages.slice(0, 2).join(" ")
             : "";
         return generateImage(
           [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),

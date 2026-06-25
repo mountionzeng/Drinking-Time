@@ -1,8 +1,9 @@
 export type ArtReferencePurpose = "fact" | "aesthetic" | "both";
 export type ArtReferenceSource = "message-photo" | "visual-anchor" | "story-card";
-// 主角参照：被标记为 "character" 的参考图，作为整故事跨镜头锁长相的依据。
-// 加法式扩展（可选字段），旧数据无此字段 → 视为非主角，向后兼容。
-export type ArtReferenceRole = "character";
+// 参考图角色：character 锁人物，scene 锁空间/气氛，local 只服务当前镜头。
+// 加法式扩展（可选字段），旧数据无此字段 → 视为普通事实/美术参考，向后兼容。
+export type ArtReferenceRole = "character" | "scene" | "local";
+export type ArtReferenceScope = "story" | "scene" | "shot";
 
 export type ArtReferenceMaterial = {
   id: string;
@@ -11,6 +12,10 @@ export type ArtReferenceMaterial = {
   purpose: ArtReferencePurpose;
   selected: boolean;
   role?: ArtReferenceRole;
+  scope?: ArtReferenceScope;
+  shotNo?: string;
+  shotIdentity?: string;
+  sceneId?: string;
   imageUrl?: string;
   text?: string;
   visualStyle?: string[];
@@ -156,13 +161,25 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     obj.purpose === "fact" || obj.purpose === "aesthetic" || obj.purpose === "both"
       ? obj.purpose
       : "fact";
+  const role =
+    obj.role === "character" || obj.role === "scene" || obj.role === "local"
+      ? obj.role
+      : undefined;
+  const scope =
+    obj.scope === "story" || obj.scope === "scene" || obj.scope === "shot"
+      ? obj.scope
+      : undefined;
   return {
     id: obj.id,
     label: obj.label,
     source,
     purpose,
     selected: obj.selected !== false,
-    ...(obj.role === "character" ? { role: "character" as const } : {}),
+    ...(role ? { role } : {}),
+    ...(scope ? { scope } : {}),
+    ...(typeof obj.shotNo === "string" ? { shotNo: obj.shotNo } : {}),
+    ...(typeof obj.shotIdentity === "string" ? { shotIdentity: obj.shotIdentity } : {}),
+    ...(typeof obj.sceneId === "string" ? { sceneId: obj.sceneId } : {}),
     ...(typeof obj.imageUrl === "string" ? { imageUrl: obj.imageUrl } : {}),
     ...(typeof obj.text === "string" ? { text: obj.text } : {}),
     visualStyle: stringList(obj.visualStyle),
@@ -269,6 +286,42 @@ export function characterReferenceOf(
       reference.imageUrl.length > 0,
   );
   return hit?.imageUrl;
+}
+
+export function sceneReferencesOf(
+  direction: StoryArtDirection,
+): ArtReferenceMaterial[] {
+  return direction.references.filter(
+    reference =>
+      reference.selected !== false &&
+      reference.role === "scene" &&
+      typeof reference.imageUrl === "string" &&
+      reference.imageUrl.length > 0,
+  );
+}
+
+export function referencesForShot(
+  direction: StoryArtDirection,
+  params: {
+    shotNo?: string | null;
+    shotIdentity?: string | null;
+    sceneId?: string | null;
+  },
+): ArtReferenceMaterial[] {
+  return direction.references.filter(reference => {
+    if (reference.selected === false) return false;
+    if (!reference.imageUrl) return false;
+    if (reference.scope === "shot") {
+      return Boolean(
+        (params.shotIdentity && reference.shotIdentity === params.shotIdentity) ||
+          (params.shotNo && reference.shotNo === params.shotNo),
+      );
+    }
+    if (reference.scope === "scene") {
+      return Boolean(params.sceneId && reference.sceneId === params.sceneId);
+    }
+    return reference.scope === "story" || reference.scope == null;
+  });
 }
 
 const POSITIVE_FIELDS: Array<keyof Omit<ArtRecipeDNA, "negative">> = [

@@ -1,6 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Pause, Play, RotateCcw, Video } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
+import {
+  Copy,
+  GitBranchPlus,
+  MessageCircle,
+  Pause,
+  Play,
+  RotateCcw,
+  ScanLine,
+  Video,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 import type { CreationEditorShot } from "../CreationEditorContext";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import { buildPromptTable } from "../promptTable/buildPromptTable";
@@ -40,19 +66,6 @@ type AnimaticPlayerProps = {
     quadrant?: FrameQuadrant;
   }) => Promise<{ imageId: number; imageUrl: string }>;
   promotingFrameCropShotNo?: number | null;
-  onGenerateShotVideo?: (input: {
-    shotNo: number;
-    imageId: number;
-    prompt: string;
-    subtitle?: string;
-    durationSec?: number;
-  }) => Promise<{
-    takeId: number;
-    videoStatus: string;
-    videoUrl?: string;
-    taskId?: string;
-    prompt: string;
-  }>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
   onCreateVideoTakeRange?: (input: {
     stableShotId: string;
@@ -101,6 +114,26 @@ type FrameCropStatus = {
   phase: FrameCropPhase;
 };
 
+type SelectionPoint = {
+  x: number;
+  y: number;
+};
+
+type PixelSelectionRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const DERIVE_FRAME_RATE = 24;
+const DEFAULT_PIXEL_SELECTION: PixelSelectionRect = {
+  x: 30,
+  y: 24,
+  width: 38,
+  height: 34,
+};
+
 function frameCropStatusText(status: FrameCropStatus) {
   const label = frameQuadrantLabel(status.quadrant);
   if (status.phase === "saving") return `正在把${label}小图保存为本镜首帧…`;
@@ -120,6 +153,40 @@ function waitForNextPaint() {
   });
 }
 
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function normalizePixelSelection(
+  start: SelectionPoint,
+  end: SelectionPoint
+): PixelSelectionRect {
+  const left = Math.min(start.x, end.x);
+  const top = Math.min(start.y, end.y);
+  const right = Math.max(start.x, end.x);
+  const bottom = Math.max(start.y, end.y);
+  return {
+    x: clampPercent(left),
+    y: clampPercent(top),
+    width: Math.max(3, clampPercent(right - left)),
+    height: Math.max(3, clampPercent(bottom - top)),
+  };
+}
+
+function pct(value: number) {
+  return `${Math.round(value)}%`;
+}
+
+function frameSampleIndexes(totalFrames: number, maxSamples = 12) {
+  const total = Math.max(1, totalFrames);
+  const count = Math.min(total, maxSamples);
+  if (count === 1) return [0];
+  return Array.from({ length: count }, (_, index) =>
+    Math.min(total - 1, Math.round((index / (count - 1)) * (total - 1)))
+  );
+}
+
 export default function AnimaticPlayer({
   shots,
   selectedShotNo,
@@ -130,7 +197,6 @@ export default function AnimaticPlayer({
   playbackResetKey = 0,
   onPromoteFrameCrop,
   promotingFrameCropShotNo = null,
-  onGenerateShotVideo,
   onRefreshShotVideoStatus,
   onCreateVideoTakeRange,
   onSelectVideoTimelineSegment,
@@ -182,7 +248,22 @@ export default function AnimaticPlayer({
   const frameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const deriveStageRef = useRef<HTMLDivElement | null>(null);
+  const deriveVideoRef = useRef<HTMLVideoElement | null>(null);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [deriveWorkbenchOpen, setDeriveWorkbenchOpen] = useState(false);
+  const [deriveZoom, setDeriveZoom] = useState(1);
+  const [deriveFrameIndex, setDeriveFrameIndex] = useState(0);
+  const [deriveSelection, setDeriveSelection] =
+    useState<PixelSelectionRect>(DEFAULT_PIXEL_SELECTION);
+  const [deriveDragStart, setDeriveDragStart] =
+    useState<SelectionPoint | null>(null);
+  const [deriveInstruction, setDeriveInstruction] = useState("");
+  const [deriveCopied, setDeriveCopied] = useState(false);
+  const [deriveMediaSize, setDeriveMediaSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
   useEffect(() => {
     setState(current => ({
@@ -271,9 +352,6 @@ export default function AnimaticPlayer({
   const videoMissing = videoRecipe
     ? videoRecipe.missing.filter(item => item !== "首帧图" || !activeFrameUrl)
     : [];
-  const isVideoReady = Boolean(
-    videoRecipe && activeFrameUrl && videoMissing.length === 0
-  );
   const isPrepared = Boolean(
     currentShot && preparedVideoShotNo === currentShot.shotNo
   );
@@ -334,11 +412,97 @@ export default function AnimaticPlayer({
           }
         : undefined))
     : undefined;
+  const deriveSourceUrl = currentVideoPreview?.videoUrl || activeFrameUrl;
+  const deriveSourceType = currentVideoPreview?.videoUrl ? "video" : "image";
+  const deriveDurationSec =
+    deriveSourceType === "video"
+      ? Math.max(0.1, currentTakeDurationSec)
+      : Math.max(0.1, duration / 1000 || 0.1);
+  const deriveFrameCount =
+    deriveSourceType === "video"
+      ? Math.max(1, Math.round(deriveDurationSec * DERIVE_FRAME_RATE))
+      : 1;
+  const deriveFrameTimeSec =
+    deriveSourceType === "video"
+      ? Math.min(
+          deriveDurationSec,
+          Number((deriveFrameIndex / DERIVE_FRAME_RATE).toFixed(2))
+        )
+      : 0;
+  const deriveFrameSamples = useMemo(
+    () => frameSampleIndexes(deriveFrameCount),
+    [deriveFrameCount]
+  );
+  const deriveSelectionPixels = useMemo(() => {
+    if (!deriveMediaSize) return null;
+    return {
+      x: Math.round((deriveSelection.x / 100) * deriveMediaSize.width),
+      y: Math.round((deriveSelection.y / 100) * deriveMediaSize.height),
+      width: Math.round(
+        (deriveSelection.width / 100) * deriveMediaSize.width
+      ),
+      height: Math.round(
+        (deriveSelection.height / 100) * deriveMediaSize.height
+      ),
+    };
+  }, [deriveMediaSize, deriveSelection]);
+  const deriveContextMessage = useMemo(() => {
+    if (!currentShot) return "";
+    const frameText =
+      deriveSourceType === "video"
+        ? `视频帧 ${deriveFrameIndex + 1}/${deriveFrameCount}，约 ${deriveFrameTimeSec.toFixed(2)}s`
+        : "当前主图静帧";
+    const pixelText = deriveSelectionPixels
+      ? `像素区域：左上 (${deriveSelectionPixels.x}, ${deriveSelectionPixels.y})，尺寸 ${deriveSelectionPixels.width} x ${deriveSelectionPixels.height}px`
+      : `画面区域：x ${pct(deriveSelection.x)}，y ${pct(deriveSelection.y)}，宽 ${pct(deriveSelection.width)}，高 ${pct(deriveSelection.height)}`;
+    return [
+      `我想从 ${shotLabel(currentShot)} 派生一个新镜头。`,
+      `素材：${frameText}`,
+      pixelText,
+      currentShot.intent ? `原镜头任务：${currentShot.intent}` : "",
+      currentShot.dialogue ? `原台词/声音：${currentShot.dialogue}` : "",
+      deriveInstruction.trim()
+        ? `我想让小酌做：${deriveInstruction.trim()}`
+        : "我想让小酌做：以这个局部为基础，判断能不能图生图派生新镜头。",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }, [
+    currentShot,
+    deriveFrameCount,
+    deriveFrameIndex,
+    deriveFrameTimeSec,
+    deriveInstruction,
+    deriveSelection,
+    deriveSelectionPixels,
+    deriveSourceType,
+  ]);
   useEffect(() => {
     const video = videoElementRef.current;
     if (!video) return;
     video.playbackRate = playbackSpeed;
   }, [playbackSpeed]);
+  useEffect(() => {
+    setDeriveFrameIndex(current =>
+      Math.max(0, Math.min(current, deriveFrameCount - 1))
+    );
+  }, [deriveFrameCount]);
+  useEffect(() => {
+    if (!deriveWorkbenchOpen) return;
+    const video = deriveVideoRef.current;
+    if (!video || deriveSourceType !== "video") return;
+    try {
+      video.currentTime = deriveFrameTimeSec;
+    } catch {
+      // Some remote videos reject seeking until metadata is ready.
+    }
+  }, [deriveFrameTimeSec, deriveSourceType, deriveWorkbenchOpen]);
+  useEffect(() => {
+    if (!deriveWorkbenchOpen) {
+      setDeriveDragStart(null);
+      setDeriveCopied(false);
+    }
+  }, [deriveWorkbenchOpen]);
   useEffect(() => {
     const video = videoElementRef.current;
     if (!video || !currentVideoPreview?.videoUrl) return;
@@ -365,7 +529,6 @@ export default function AnimaticPlayer({
     ) && !isGeneratingVideo;
   const providerMissing = shotVideoProviderStatus?.missing ?? [];
   const providerWarnings = shotVideoProviderStatus?.warnings ?? [];
-  const providerReady = shotVideoProviderStatus?.ready ?? false;
   const providerStatusText = !shotVideoProviderStatus
     ? "正在检查视频服务配置。"
     : providerMissing.length > 0
@@ -373,19 +536,6 @@ export default function AnimaticPlayer({
       : providerWarnings.length > 0
         ? `后端提醒：${providerWarnings.join(" / ")} 未配置，异步视频可能无法刷新。`
         : "";
-  const videoActionLabel = !activeFrameUrl
-    ? "先生成首帧"
-    : activeFrameId == null || !hasExplicitSelectedFrame
-      ? "先选首帧"
-      : !isVideoReady
-        ? "补视频提示"
-        : !providerReady
-          ? "配置视频模型"
-          : canRefreshVideo
-            ? "刷新视频状态"
-            : currentVideoPreview?.videoUrl
-              ? "重新生成视频"
-              : "生成本镜视频";
   const frameStatusText = activeFrameUrl
     ? activeFrameId == null
       ? "已有候选图。若它是四宫格，先点一格成为正式首帧。"
@@ -396,17 +546,6 @@ export default function AnimaticPlayer({
   const frameDisplayStatusText = currentVideoPreview?.videoUrl
     ? "已有可播放视频，动态分镜会优先播放这条视频。"
     : frameStatusText;
-  const canGenerateVideo =
-    Boolean(
-      isVideoReady &&
-        activeFrameId != null &&
-        hasExplicitSelectedFrame &&
-        providerReady &&
-        onGenerateShotVideo
-    ) &&
-    !isGeneratingVideo &&
-    !isFrameCropBusy;
-
   const updateRangeDraft = (
     patch: Partial<{ startSec: number; endSec: number }>
   ) => {
@@ -554,53 +693,72 @@ export default function AnimaticPlayer({
     }
   };
 
-  const generateVideo = async () => {
-    if (!currentShot || !videoRecipe || !onGenerateShotVideo) return;
+  const refreshVideoStatus = async () => {
+    if (!currentVideoTake?.id || !onRefreshShotVideoStatus) return;
     setVideoError(null);
-    if (canRefreshVideo && currentVideoTake?.id && onRefreshShotVideoStatus) {
-      try {
-        await onRefreshShotVideoStatus(currentVideoTake.id);
-      } catch (error) {
-        setVideoError(
-          error instanceof Error ? error.message : "视频状态刷新失败"
-        );
-      }
-      return;
-    }
-    if (activeFrameId == null || !hasExplicitSelectedFrame) {
-      setVideoError("先从四宫格中选一格成为正式首帧，再生成视频。");
-      return;
-    }
-    if (!providerReady) {
-      setVideoError(providerStatusText || "视频服务还没有配置完成。");
-      return;
-    }
-    setPreparedVideoShotNo(currentShot.shotNo);
     try {
-      const result = await onGenerateShotVideo({
-        shotNo: currentShot.shotNo,
-        imageId: activeFrameId,
-        prompt: videoRecipe.finalPrompt,
-        subtitle: currentShot.dialogue || undefined,
-        durationSec: Math.max(
-          3,
-          Math.min(10, Math.round(duration / 1000) || 5)
-        ),
-      });
-      if (result.videoUrl) {
-        setVideoPreviewByShotNo(current => ({
-          ...current,
-          [currentShot.shotNo]: result,
-        }));
-      }
+      await onRefreshShotVideoStatus(currentVideoTake.id);
     } catch (error) {
-      setVideoError(error instanceof Error ? error.message : "视频生成失败");
+      setVideoError(error instanceof Error ? error.message : "视频状态刷新失败");
     }
   };
 
+  const pointFromSelectionEvent = (event: PointerEvent<HTMLDivElement>) => {
+    const bounds = deriveStageRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      return { x: 0, y: 0 };
+    }
+    return {
+      x: clampPercent(((event.clientX - bounds.left) / bounds.width) * 100),
+      y: clampPercent(((event.clientY - bounds.top) / bounds.height) * 100),
+    };
+  };
+
+  const beginPixelSelection = (event: PointerEvent<HTMLDivElement>) => {
+    if (!deriveSourceUrl) return;
+    const point = pointFromSelectionEvent(event);
+    setDeriveDragStart(point);
+    setDeriveSelection({ x: point.x, y: point.y, width: 3, height: 3 });
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const updatePixelSelection = (event: PointerEvent<HTMLDivElement>) => {
+    if (!deriveDragStart) return;
+    setDeriveSelection(
+      normalizePixelSelection(deriveDragStart, pointFromSelectionEvent(event))
+    );
+  };
+
+  const finishPixelSelection = (event: PointerEvent<HTMLDivElement>) => {
+    if (deriveDragStart) {
+      setDeriveSelection(
+        normalizePixelSelection(deriveDragStart, pointFromSelectionEvent(event))
+      );
+    }
+    setDeriveDragStart(null);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
+  const openSelectionInChat = () => {
+    if (!deriveContextMessage) return;
+    window.dispatchEvent(
+      new CustomEvent("dt:open-creation-chat", {
+        detail: { draftMessage: deriveContextMessage },
+      })
+    );
+    setDeriveWorkbenchOpen(false);
+  };
+
+  const copySelectionContext = async () => {
+    if (!deriveContextMessage || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(deriveContextMessage);
+    setDeriveCopied(true);
+    window.setTimeout(() => setDeriveCopied(false), 1600);
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="relative flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
+    <div className="flex shrink-0 flex-col gap-3">
+      <div className="relative flex min-h-[320px] items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
         {currentVideoPreview?.videoUrl ? (
           <video
             ref={videoElementRef}
@@ -634,60 +792,78 @@ export default function AnimaticPlayer({
       </div>
 
       {currentShot ? (
-        <div className="rounded-md border border-border/70 bg-background/70 p-3 text-xs">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-2 font-semibold text-foreground">
+        <div className="rounded-md border border-border/70 bg-background p-3 text-xs">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-foreground">
                 <Video className="h-3.5 w-3.5 text-primary" />
-                镜头动作
+                <span className="min-w-[52px] whitespace-nowrap">镜头动作</span>
                 <span
-                  className={`rounded-full border px-2 py-0.5 text-[11px] font-normal ${
-                    canGenerateVideo
+                  className={`min-w-[64px] shrink-0 rounded-full border px-2 py-0.5 text-center text-[11px] font-normal ${
+                    currentVideoPreview?.videoUrl
                       ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-                      : "border-amber-500/20 bg-amber-500/10 text-amber-700"
+                      : activeFrameUrl
+                        ? "border-primary/20 bg-primary/10 text-primary"
+                        : "border-amber-500/20 bg-amber-500/10 text-amber-700"
                   }`}
                 >
-                  {canGenerateVideo ? "可生成视频" : videoActionLabel}
+                  {currentVideoPreview?.videoUrl
+                    ? "当前视频"
+                    : activeFrameUrl
+                      ? "当前主图"
+                      : "缺素材"}
                 </span>
               </div>
-              <p className="leading-5 text-muted-foreground">
-                {frameDisplayStatusText}
-                {!currentVideoPreview?.videoUrl && videoMissing.length > 0
-                  ? ` 还缺：${videoMissing.join(" / ")}。`
-                  : ""}
-                {providerStatusText ? ` ${providerStatusText}` : ""}
-                {currentVideoTake
-                  ? ` 当前视频：${currentVideoTake.status}。`
-                  : ""}
-              </p>
-              {currentVideoTake?.errorMessage ? (
-                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">
-                  {/image not approved/i.test(currentVideoTake.errorMessage)
-                    ? "这张首帧被视频模型拒绝，请换一张首帧或重新裁切。"
-                    : /prompt parameter/i.test(currentVideoTake.errorMessage)
-                      ? "视频模型拒绝了提示词，请检查视频包中的 prompt 是否过长或包含不支持的内容。"
-                      : `当前 Take ${currentVideoTake.id} 失败原因：${currentVideoTake.errorMessage}`}
-                </p>
-              ) : null}
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={deriveWorkbenchOpen ? "default" : "outline"}
+                  onClick={() => setDeriveWorkbenchOpen(true)}
+                  disabled={!deriveSourceUrl}
+                >
+                  <GitBranchPlus className="h-4 w-4" />
+                  派生新镜头
+                </Button>
+                {canRefreshVideo ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void refreshVideoStatus()}
+                    aria-label="刷新视频状态"
+                  >
+                    <Video className="h-4 w-4" />
+                    刷新视频状态
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={currentVideoPreview?.videoUrl ? "outline" : "default"}
-              disabled={!canGenerateVideo && !canRefreshVideo}
-              onClick={() => void generateVideo()}
-              aria-label="生成本镜视频"
-            >
-              {currentVideoPreview?.videoUrl ? (
-                <CheckCircle2 className="h-4 w-4" />
-              ) : (
-                <Video className="h-4 w-4" />
-              )}
-              {isGeneratingVideo ? "正在生成视频" : videoActionLabel}
-            </Button>
+
+            <div className="rounded-md border border-border bg-muted/20 px-3 py-2 leading-5 text-muted-foreground">
+              {frameDisplayStatusText}
+              {!currentVideoPreview?.videoUrl && videoMissing.length > 0
+                ? ` 还缺：${videoMissing.join(" / ")}。`
+                : ""}
+              {providerStatusText ? ` ${providerStatusText}` : ""}
+              {currentVideoTake ? ` 当前视频：${currentVideoTake.status}。` : ""}
+              {!canRefreshVideo
+                ? " 视频生成在故事版看板完成，需要视频时回故事版看板生成或重试。"
+                : ""}
+            </div>
+
+            {currentVideoTake?.errorMessage ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">
+                {/image not approved/i.test(currentVideoTake.errorMessage)
+                  ? "这张首帧被视频模型拒绝，请换一张首帧或重新裁切。"
+                  : /prompt parameter/i.test(currentVideoTake.errorMessage)
+                    ? "视频模型拒绝了提示词，请检查视频包中的 prompt 是否过长或包含不支持的内容。"
+                    : `当前 Take ${currentVideoTake.id} 失败原因：${currentVideoTake.errorMessage}`}
+              </p>
+            ) : null}
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_176px]">
             <div className="min-w-0 space-y-1.5 text-muted-foreground">
               <p className="leading-5">
                 <span className="font-medium text-foreground">这一镜：</span>
@@ -983,6 +1159,252 @@ export default function AnimaticPlayer({
           ) : null}
         </div>
       ) : null}
+
+      <Dialog open={deriveWorkbenchOpen} onOpenChange={setDeriveWorkbenchOpen}>
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[min(1180px,calc(100vw-2rem))] gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b px-5 py-4 pr-12">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <GitBranchPlus className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <DialogTitle className="text-base">
+                  {currentShot
+                    ? `从 ${shotLabel(currentShot)} 派生新镜头`
+                    : "派生新镜头"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs">
+                  先选帧和画面局部；图片生成和新镜头判断交给小酌继续。
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="grid max-h-[calc(100vh-7.5rem)] min-h-[520px] overflow-hidden lg:grid-cols-[minmax(0,1fr)_330px]">
+            <div className="min-w-0 overflow-auto bg-muted/20 p-4">
+              <div
+                ref={deriveStageRef}
+                className="relative flex min-h-[360px] items-center justify-center overflow-hidden rounded-md border border-border bg-black"
+              >
+                {deriveSourceUrl ? (
+                  <>
+                    <div
+                      className="absolute inset-0 flex items-center justify-center transition-transform duration-150"
+                      style={{ transform: `scale(${deriveZoom})` }}
+                    >
+                      {deriveSourceType === "video" ? (
+                        <video
+                          ref={deriveVideoRef}
+                          src={deriveSourceUrl}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="max-h-full max-w-full object-contain"
+                          onLoadedMetadata={event => {
+                            const video = event.currentTarget;
+                            setDeriveMediaSize({
+                              width: video.videoWidth || 1920,
+                              height: video.videoHeight || 1080,
+                            });
+                            try {
+                              video.currentTime = deriveFrameTimeSec;
+                            } catch {
+                              // Seeking can wait until the media element is ready.
+                            }
+                          }}
+                        />
+                      ) : (
+                        <img
+                          src={deriveSourceUrl}
+                          alt={
+                            currentShot
+                              ? `${shotLabel(currentShot)} 派生取样`
+                              : "派生取样"
+                          }
+                          className="max-h-full max-w-full object-contain"
+                          onLoad={event => {
+                            const image = event.currentTarget;
+                            setDeriveMediaSize({
+                              width: image.naturalWidth || image.width,
+                              height: image.naturalHeight || image.height,
+                            });
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div
+                      className="absolute inset-0 cursor-crosshair touch-none"
+                      onPointerDown={beginPixelSelection}
+                      onPointerMove={updatePixelSelection}
+                      onPointerUp={finishPixelSelection}
+                      onPointerCancel={finishPixelSelection}
+                      aria-label="框选派生像素区域"
+                      role="presentation"
+                    >
+                      <div
+                        className="absolute rounded-sm border-2 border-primary bg-primary/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]"
+                        style={{
+                          left: `${deriveSelection.x}%`,
+                          top: `${deriveSelection.y}%`,
+                          width: `${deriveSelection.width}%`,
+                          height: `${deriveSelection.height}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
+                      <ScanLine className="h-3.5 w-3.5 text-primary" />
+                      拖拽框选画面局部
+                    </div>
+                  </>
+                ) : (
+                  <div className="px-6 text-center text-sm text-muted-foreground">
+                    当前镜头还没有可派生的图片或视频。
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 rounded-md border border-border bg-background p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold text-foreground">
+                      帧 {deriveFrameIndex + 1} / {deriveFrameCount}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {deriveSourceType === "video"
+                        ? `${deriveFrameTimeSec.toFixed(2)}s · 按 24fps 映射`
+                        : "当前主图静帧"}
+                    </div>
+                  </div>
+                  <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {deriveSourceType === "video" ? "视频取帧" : "图片取样"}
+                  </span>
+                </div>
+                <div className="mt-3">
+                  <Slider
+                    min={0}
+                    max={Math.max(0, deriveFrameCount - 1)}
+                    step={1}
+                    value={[deriveFrameIndex]}
+                    disabled={deriveFrameCount <= 1}
+                    onValueChange={value =>
+                      setDeriveFrameIndex(value[0] ?? 0)
+                    }
+                    aria-label="选择派生帧"
+                  />
+                </div>
+                <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+                  {deriveFrameSamples.map(index => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setDeriveFrameIndex(index)}
+                      className={`min-w-[68px] rounded-md border px-2 py-1.5 text-left transition ${
+                        deriveFrameIndex === index
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      <span className="block text-[11px] font-semibold">
+                        F{index + 1}
+                      </span>
+                      <span className="mt-0.5 block text-[10px]">
+                        {deriveSourceType === "video"
+                          ? `${(index / DERIVE_FRAME_RATE).toFixed(2)}s`
+                          : "主图"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <aside className="flex min-h-0 flex-col gap-3 overflow-auto border-l border-border bg-background p-4">
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-foreground">
+                    画面缩放
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {deriveZoom.toFixed(1)}x
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ZoomOut className="h-4 w-4 text-muted-foreground" />
+                  <Slider
+                    min={1}
+                    max={4}
+                    step={0.1}
+                    value={[deriveZoom]}
+                    onValueChange={value => setDeriveZoom(value[0] ?? 1)}
+                    aria-label="派生画面缩放"
+                  />
+                  <ZoomIn className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <div className="text-xs font-semibold text-foreground">
+                  选中区域
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                  <span>x {pct(deriveSelection.x)}</span>
+                  <span>y {pct(deriveSelection.y)}</span>
+                  <span>宽 {pct(deriveSelection.width)}</span>
+                  <span>高 {pct(deriveSelection.height)}</span>
+                </div>
+                {deriveSelectionPixels ? (
+                  <div className="mt-2 rounded-md bg-background px-2 py-1.5 text-[11px] leading-5 text-muted-foreground">
+                    约 {deriveSelectionPixels.width} x{" "}
+                    {deriveSelectionPixels.height}px，左上{" "}
+                    {deriveSelectionPixels.x}, {deriveSelectionPixels.y}
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="block text-xs font-semibold text-foreground">
+                告诉小酌怎么派生
+                <Textarea
+                  value={deriveInstruction}
+                  onChange={event => setDeriveInstruction(event.target.value)}
+                  placeholder="例如：用这块窗边的光和人物背影，生成一个更近的反应镜头。"
+                  className="mt-2 min-h-24 resize-none text-xs"
+                />
+              </label>
+
+              <div className="min-h-[150px] rounded-md border border-border bg-muted/20 p-3">
+                <div className="mb-2 text-xs font-semibold text-foreground">
+                  给小酌的上下文
+                </div>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-muted-foreground">
+                  {deriveContextMessage}
+                </pre>
+              </div>
+
+              <div className="mt-auto flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void copySelectionContext()}
+                  disabled={!deriveContextMessage}
+                >
+                  <Copy className="h-4 w-4" />
+                  {deriveCopied ? "已复制" : "复制上下文"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={openSelectionInChat}
+                  disabled={!deriveContextMessage}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  去问小酌
+                </Button>
+              </div>
+            </aside>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-2">
         <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import { Film } from "lucide-react";
+import { Film, ListPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   creationTimelineShotId,
@@ -20,12 +20,12 @@ export default function AnimaticPanel() {
     isLoading,
     error,
     timelineShotIds,
+    addShotToTimeline,
     removeShotFromTimeline,
     resetTimelineShots,
     updateShotDuration,
     promoteFrameCrop,
     promotingFrameCropShotNo,
-    generateShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
     createVideoTakeRange,
@@ -48,8 +48,18 @@ export default function AnimaticPanel() {
     () => shots.find(shot => shot.shotNo === selectedShotNo) ?? null,
     [selectedShotNo, shots]
   );
+  const selectedTimelineId = selectedShot
+    ? creationTimelineShotId(selectedShot)
+    : null;
+  const selectedShotIsOnTimeline = selectedTimelineId
+    ? timelineShotIds.includes(selectedTimelineId)
+    : false;
   const playbackShots =
-    playbackMode === "single" && selectedShot ? [selectedShot] : timelineShots;
+    playbackMode === "single" && selectedShot
+      ? [selectedShot]
+      : selectedShot && !selectedShotIsOnTimeline && !isPlaying
+        ? [selectedShot]
+        : timelineShots;
 
   const playTimeline = () => {
     if (isPlaying && playbackMode === "timeline") {
@@ -94,6 +104,13 @@ export default function AnimaticPanel() {
     }
   };
 
+  const addSelectedShotToTimeline = () => {
+    if (!selectedShot || !selectedTimelineId) return;
+    addShotToTimeline(selectedShot.shotNo, selectedTimelineId);
+    setPlaybackMode("timeline");
+    setSelectedShotNo(selectedShot.shotNo);
+  };
+
   return (
     <section
       className="monitor-panel flex h-full min-h-0 flex-col overflow-hidden"
@@ -127,6 +144,21 @@ export default function AnimaticPanel() {
           </div>
         ) : (
           <>
+            {selectedShot && !selectedShotIsOnTimeline ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">
+                  当前查看 {shotLabel(selectedShot.shotNo)}，还没放进剪辑时间轴。
+                </span>
+                <button
+                  type="button"
+                  onClick={addSelectedShotToTimeline}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/30 bg-background px-2.5 font-medium text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  <ListPlus className="h-3.5 w-3.5" />
+                  加入时间轴
+                </button>
+              </div>
+            ) : null}
             <AnimaticPlayer
               shots={playbackShots}
               selectedShotNo={selectedShotNo}
@@ -137,7 +169,6 @@ export default function AnimaticPanel() {
               playbackResetKey={playbackResetKey}
               onPromoteFrameCrop={promoteFrameCrop}
               promotingFrameCropShotNo={promotingFrameCropShotNo}
-              onGenerateShotVideo={generateShotVideo}
               onRefreshShotVideoStatus={refreshShotVideoStatus}
               generatingVideoShotNo={generatingVideoShotNo}
               onCreateVideoTakeRange={createVideoTakeRange}

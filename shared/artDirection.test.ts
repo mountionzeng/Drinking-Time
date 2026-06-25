@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeStoryArtDirection, characterReferenceOf } from "./artDirection";
+import {
+  characterReferenceOf,
+  normalizeStoryArtDirection,
+  referencesForShot,
+  sceneReferencesOf,
+} from "./artDirection";
 
 function dir(references: unknown[]) {
   return normalizeStoryArtDirection({ phase: "locked", references });
@@ -66,5 +71,42 @@ describe("artDirection 主角参照（role:'character'）", () => {
     ]);
     expect(d.references[0]?.role).toBeUndefined();
     expect(characterReferenceOf(d)).toBeUndefined();
+  });
+
+  it("scene/local 参考保留角色和范围，但不抢主角锚点", () => {
+    const d = dir([
+      {
+        id: "scene-1",
+        label: "办公室",
+        role: "scene",
+        scope: "story",
+        imageUrl: "https://file.302.ai/office.png",
+        purpose: "fact",
+      },
+      {
+        id: "local-1",
+        label: "本镜窗边",
+        role: "local",
+        scope: "shot",
+        shotIdentity: "shot-06",
+        imageUrl: "https://file.302.ai/window.png",
+        purpose: "fact",
+      },
+    ]);
+
+    expect(characterReferenceOf(d)).toBeUndefined();
+    expect(sceneReferencesOf(d).map(reference => reference.imageUrl)).toEqual([
+      "https://file.302.ai/office.png",
+    ]);
+    expect(
+      referencesForShot(d, { shotIdentity: "shot-06" }).map(
+        reference => reference.id,
+      ),
+    ).toEqual(["scene-1", "local-1"]);
+    expect(
+      referencesForShot(d, { shotIdentity: "shot-07" }).map(
+        reference => reference.id,
+      ),
+    ).toEqual(["scene-1"]);
   });
 });

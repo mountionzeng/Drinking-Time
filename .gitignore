@@ -49,6 +49,7 @@ pids
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov
+.code-health/
 
 # nyc test coverage
 .nyc_output

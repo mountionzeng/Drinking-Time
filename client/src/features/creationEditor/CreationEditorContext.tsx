@@ -42,6 +42,7 @@ import type {
   VideoTakeAsset,
   VideoTakeStatus,
 } from "@shared/videoAsset";
+import { isVideoTakePlayable } from "@shared/videoAsset";
 
 export type CreationEditorStory = {
   id: number;
@@ -584,6 +585,15 @@ export function normalizeStoryImages(
     .filter((image): image is CreationEditorImage => image != null);
 }
 
+function isCurrentMaterialImage(image: CreationEditorImage): boolean {
+  return (
+    image.isPrimary === true ||
+    image.selectionSource === "explicit" ||
+    image.selectionSource === "legacy" ||
+    image.status === "selected"
+  );
+}
+
 export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[]
@@ -595,6 +605,7 @@ export function mergeShotsWithImages(
     byImageId.set(image.id, image);
     // Match filtering in latestStoryboardFrames(): exclude rejected and images without URLs
     if (image.status === "rejected" || !image.imageUrl) continue;
+    if (!isCurrentMaterialImage(image)) continue;
     if (image.shotIdentity) {
       const previous = displayByIdentity.get(image.shotIdentity);
       if (!previous || image.id >= previous.id)
@@ -704,11 +715,14 @@ export function mergeShotsWithVideos(
       );
     });
     if (takes.length === 0) return shot;
+    const timelineTake = takes.find(take => take.isTimelineSelected);
+    const currentAvailableTake = takes.find(
+      take => isVideoTakePlayable(take.status) && Boolean(take.videoUrl)
+    );
     return {
       ...shot,
       videoTakes: takes,
-      selectedVideoTake:
-        takes.find(take => take.isTimelineSelected) ?? takes[0],
+      selectedVideoTake: timelineTake ?? currentAvailableTake ?? takes[0],
     };
   });
 }

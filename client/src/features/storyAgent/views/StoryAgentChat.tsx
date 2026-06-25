@@ -16,6 +16,10 @@ import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 import StoryCapabilityMenu, { shouldShowCapabilityMenu } from './StoryCapabilityMenu';
 import StoryJobIntakePrompt, { getJobIntakeStep } from './StoryJobIntakePrompt';
 
+type OpenCreationChatDetail = {
+  draftMessage?: string;
+};
+
 export default function StoryAgentChat() {
   const {
     messages, cardRefs, isReplying,
@@ -70,6 +74,23 @@ export default function StoryAgentChat() {
     setInput(prev => prev ? `${prev} ${text}` : text);
     resizeAndFocusInput();
   }, [resizeAndFocusInput]);
+
+  useEffect(() => {
+    const applyCreationDraft = (event: Event) => {
+      const detail = (event as CustomEvent<OpenCreationChatDetail>).detail;
+      if (!detail?.draftMessage) return;
+      clearSelection();
+      setInput(prev =>
+        prev.trim()
+          ? `${prev.trim()}\n\n${detail.draftMessage}`
+          : detail.draftMessage ?? ''
+      );
+      resizeAndFocusInput();
+    };
+    window.addEventListener('dt:open-creation-chat', applyCreationDraft);
+    return () =>
+      window.removeEventListener('dt:open-creation-chat', applyCreationDraft);
+  }, [clearSelection, resizeAndFocusInput]);
 
   const handleVoiceError = useCallback((message: string) => {
     alert(message);

@@ -45,7 +45,10 @@ export default function ShotMaterialBasket({
   const rows = buildPromptTable(shot, { previousShots });
   const recipe = compileVideoShotRecipe({ shot, rows });
   const hasTraceableKeyframe = typeof shot.imageId === "number";
-  const hasSelectedKeyframe = shot.imageSelectionSource === "explicit";
+  const hasSelectedKeyframe =
+    shot.imageSelectionSource === "explicit" ||
+    shot.imageSelectionSource === "legacy" ||
+    shot.imageIsPrimary === true;
   const missing = [
     ...recipe.missing,
     ...(recipe.sourceImageUrl && !hasTraceableKeyframe ? ["可追踪首帧"] : []),

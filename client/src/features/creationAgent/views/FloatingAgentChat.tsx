@@ -21,6 +21,10 @@ interface FloatingAgentChatProps {
   onApplyPromptUpdate?: (shotNo: string, promptDraft: string) => void;
 }
 
+type OpenCreationChatDetail = {
+  draftMessage?: string;
+};
+
 export default function FloatingAgentChat({
   shots,
   cards,
@@ -59,7 +63,17 @@ export default function FloatingAgentChat({
   }, [isOpen]);
 
   useEffect(() => {
-    const openChat = () => setIsOpen(true);
+    const openChat = (event: Event) => {
+      const detail = (event as CustomEvent<OpenCreationChatDetail>).detail;
+      setIsOpen(true);
+      if (detail?.draftMessage) {
+        setInput(current =>
+          current.trim()
+            ? `${current.trim()}\n\n${detail.draftMessage}`
+            : detail.draftMessage ?? ''
+        );
+      }
+    };
     window.addEventListener('dt:open-creation-chat', openChat);
     return () => window.removeEventListener('dt:open-creation-chat', openChat);
   }, []);
