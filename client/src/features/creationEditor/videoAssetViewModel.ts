@@ -114,6 +114,18 @@ export function playableVideoTake<
   );
 }
 
+export function videoTakeErrorMessage(message: string): string {
+  if (
+    message
+      .trim()
+      .toLowerCase()
+      .includes("prompt parameter error or image not approved")
+  ) {
+    return "MJ 未通过提示词或首帧审核。请简化动作描述，或更换主图后重试。";
+  }
+  return message;
+}
+
 export function shotTimelineDurationMs(shot: CreationEditorShot): number {
   const selectedTake = shot.videoTakes?.find(take => take.isTimelineSelected);
   const selectedDuration = selectedTake

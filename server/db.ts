@@ -54,11 +54,26 @@ import {
   InsertVideoTimelineSelection,
   videoTimelineSelections,
   VideoTimelineSelection,
+  InsertStoryTimeline,
+  storyTimelines,
+  StoryTimeline,
+  InsertShotDerivationDraft,
+  shotDerivationDrafts,
+  ShotDerivationDraft,
+  InsertStoryOperation,
+  storyOperations,
+  StoryOperation,
+  promptCompilationHeads,
   emailOtps,
   EmailOtp,
 } from "../drizzle/schema";
 export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from "./_core/env";
+import {
+  createEmptyPromptLineageLocalState,
+  normalizePromptLineageLocalState,
+  type PromptLineageLocalState,
+} from "../shared/promptLineage";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let mysqlModeLogged = false;
@@ -79,6 +94,10 @@ type MemoryState = {
   videoTakes: VideoTake[];
   videoTakeRanges: VideoTakeRange[];
   videoTimelineSelections: VideoTimelineSelection[];
+  storyTimelines: StoryTimeline[];
+  shotDerivationDrafts: ShotDerivationDraft[];
+  storyOperations: StoryOperation[];
+  promptLineage: PromptLineageLocalState;
   nextIds: {
     user: number;
     project: number;
@@ -94,6 +113,9 @@ type MemoryState = {
     videoTake: number;
     videoTakeRange: number;
     videoTimelineSelection: number;
+    storyTimeline: number;
+    shotDerivationDraft: number;
+    storyOperation: number;
   };
 };
 
@@ -112,6 +134,10 @@ const memoryState: MemoryState = {
   videoTakes: [],
   videoTakeRanges: [],
   videoTimelineSelections: [],
+  storyTimelines: [],
+  shotDerivationDrafts: [],
+  storyOperations: [],
+  promptLineage: createEmptyPromptLineageLocalState(),
   nextIds: {
     user: 1,
     project: 1,
@@ -127,6 +153,9 @@ const memoryState: MemoryState = {
     videoTake: 1,
     videoTakeRange: 1,
     videoTimelineSelection: 1,
+    storyTimeline: 1,
+    shotDerivationDraft: 1,
+    storyOperation: 1,
   },
 };
 
@@ -263,6 +292,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     ...item,
     shotIdentity:
       (item as { shotIdentity?: string | null }).shotIdentity ?? null,
+    promptCompilationId:
+      (item as { promptCompilationId?: number | null }).promptCompilationId ??
+      null,
     createdAt: toDate(item.createdAt),
   })) as GeneratedImage[];
 
@@ -273,6 +305,9 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
 
   memoryState.videoTakes = (raw.videoTakes ?? []).map(item => ({
     ...item,
+    promptCompilationId:
+      (item as { promptCompilationId?: number | null }).promptCompilationId ??
+      null,
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as VideoTake[];
@@ -290,6 +325,26 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       updatedAt: toDate(item.updatedAt),
     })
   ) as VideoTimelineSelection[];
+  memoryState.storyTimelines = (raw.storyTimelines ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryTimeline[];
+  memoryState.shotDerivationDrafts = (raw.shotDerivationDrafts ?? []).map(
+    item => ({
+      ...item,
+      createdAt: toDate(item.createdAt),
+      updatedAt: toDate(item.updatedAt),
+    })
+  ) as ShotDerivationDraft[];
+  memoryState.storyOperations = (raw.storyOperations ?? []).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as StoryOperation[];
+  memoryState.promptLineage = normalizePromptLineageLocalState(
+    raw.promptLineage,
+  );
 
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
@@ -341,6 +396,18 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     videoTimelineSelection: Math.max(
       raw.nextIds?.videoTimelineSelection ?? 0,
       nextIdFromRows(memoryState.videoTimelineSelections)
+    ),
+    storyTimeline: Math.max(
+      raw.nextIds?.storyTimeline ?? 0,
+      nextIdFromRows(memoryState.storyTimelines)
+    ),
+    shotDerivationDraft: Math.max(
+      raw.nextIds?.shotDerivationDraft ?? 0,
+      nextIdFromRows(memoryState.shotDerivationDrafts)
+    ),
+    storyOperation: Math.max(
+      raw.nextIds?.storyOperation ?? 0,
+      nextIdFromRows(memoryState.storyOperations)
     ),
   };
 }
@@ -481,6 +548,25 @@ export async function getDb() {
     await ensureMemoryLoaded();
   }
   return _db;
+}
+
+export async function getLocalPromptLineageState(): Promise<PromptLineageLocalState | null> {
+  const db = await getDb();
+  if (db) return null;
+  return structuredClone(memoryState.promptLineage);
+}
+
+export async function replaceLocalPromptLineageState(
+  next: PromptLineageLocalState,
+): Promise<void> {
+  const db = await getDb();
+  if (db) {
+    throw new Error("Local prompt lineage state is unavailable in MySQL mode");
+  }
+  memoryState.promptLineage = normalizePromptLineageLocalState(
+    structuredClone(next),
+  );
+  await persistMemoryState();
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -1273,10 +1359,87 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
           selection =>
             !(selection.storyId === id && selection.userId === userId)
         );
+      memoryState.storyTimelines = memoryState.storyTimelines.filter(
+        timeline => !(timeline.storyId === id && timeline.userId === userId)
+      );
+      memoryState.shotDerivationDrafts =
+        memoryState.shotDerivationDrafts.filter(
+          draft => !(draft.storyId === id && draft.userId === userId)
+        );
+      memoryState.storyOperations = memoryState.storyOperations.filter(
+        operation =>
+          !(operation.storyId === id && operation.userId === userId)
+      );
+      const promptLineage = memoryState.promptLineage;
+      const owned = <T extends { storyId: number; userId: number }>(item: T) =>
+        item.storyId === id && item.userId === userId;
+      const removedCompilationIds = new Set(
+        promptLineage.compilations
+          .filter(owned)
+          .map(compilation => compilation.id),
+      );
+      const removedMessageIds = new Set(
+        promptLineage.messages.filter(owned).map(message => message.id),
+      );
+      promptLineage.storyStates = promptLineage.storyStates.filter(
+        item => !owned(item),
+      );
+      promptLineage.nodes = promptLineage.nodes.filter(item => !owned(item));
+      promptLineage.revisions = promptLineage.revisions.filter(
+        item => !owned(item),
+      );
+      promptLineage.bindings = promptLineage.bindings.filter(
+        item => !owned(item),
+      );
+      promptLineage.compilations = promptLineage.compilations.filter(
+        item => !owned(item),
+      );
+      promptLineage.compilationInputs =
+        promptLineage.compilationInputs.filter(
+          item => !removedCompilationIds.has(item.compilationId),
+        );
+      promptLineage.compilationHeads =
+        promptLineage.compilationHeads.filter(item => !owned(item));
+      promptLineage.conversations = promptLineage.conversations.filter(
+        item => !owned(item),
+      );
+      promptLineage.messages = promptLineage.messages.filter(
+        item => !owned(item),
+      );
+      promptLineage.messageReferences =
+        promptLineage.messageReferences.filter(
+          item =>
+            !owned(item) && !removedMessageIds.has(item.messageId),
+        );
+      promptLineage.storyArtBindings =
+        promptLineage.storyArtBindings.filter(item => !owned(item));
+      promptLineage.operationReceipts =
+        promptLineage.operationReceipts.filter(item => !owned(item));
       await persistMemoryState();
     }
     return;
   }
+  await db
+    .delete(storyOperations)
+    .where(
+      and(
+        eq(storyOperations.storyId, id),
+        eq(storyOperations.userId, userId)
+      )
+    );
+  await db
+    .delete(shotDerivationDrafts)
+    .where(
+      and(
+        eq(shotDerivationDrafts.storyId, id),
+        eq(shotDerivationDrafts.userId, userId)
+      )
+    );
+  await db
+    .delete(storyTimelines)
+    .where(
+      and(eq(storyTimelines.storyId, id), eq(storyTimelines.userId, userId))
+    );
   await db
     .delete(videoTimelineSelections)
     .where(
@@ -1457,6 +1620,152 @@ export async function createImageSignal(
     .from(imageSignals)
     .where(eq(imageSignals.id, result.insertId));
   return row;
+}
+
+/**
+ * Promote a story image and persist the explicit selection as one operation.
+ * Changing the main image also deactivates the previously adopted video for
+ * that shot; the take itself remains available in history.
+ */
+export async function promoteStoryImageToCurrent(data: {
+  imageId: number;
+  storyId: number;
+  userId: number;
+  metadata?: InsertImageSignal["metadata"];
+}): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const image = memoryState.generatedImages.find(
+      candidate =>
+        candidate.id === data.imageId &&
+        candidate.storyId === data.storyId &&
+        (candidate.userId === data.userId || candidate.userId == null)
+    );
+    if (!image) return null;
+
+    for (const candidate of memoryState.generatedImages) {
+      if (candidate.storyId !== data.storyId || !candidate.isCurrent) continue;
+      const sameIdentity =
+        image.shotIdentity != null &&
+        candidate.shotIdentity === image.shotIdentity;
+      const sameLegacyShot =
+        image.shotNo != null &&
+        candidate.shotNo === image.shotNo &&
+        (image.shotIdentity == null || candidate.shotIdentity == null);
+      if (sameIdentity || sameLegacyShot) candidate.isCurrent = false;
+    }
+    image.isCurrent = true;
+
+    const stableShotIds = new Set(
+      [
+        image.shotIdentity,
+        image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
+      ].filter((value): value is string => Boolean(value))
+    );
+    memoryState.videoTimelineSelections =
+      memoryState.videoTimelineSelections.filter(
+        selection =>
+          selection.storyId !== data.storyId ||
+          selection.userId !== data.userId ||
+          !stableShotIds.has(selection.stableShotId)
+      );
+
+    const signal: ImageSignal = {
+      id: nextMemoryId("imageSignal"),
+      userId: data.userId,
+      storyId: data.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: data.metadata ?? null,
+      createdAt: now(),
+    };
+    memoryState.imageSignals.push(signal);
+    await persistMemoryState();
+    return { image, signal };
+  }
+
+  return db.transaction(async tx => {
+    const [image] = await tx
+      .select()
+      .from(generatedImages)
+      .where(
+        and(
+          eq(generatedImages.id, data.imageId),
+          eq(generatedImages.storyId, data.storyId),
+          or(
+            eq(generatedImages.userId, data.userId),
+            isNull(generatedImages.userId)
+          )
+        )
+      )
+      .limit(1);
+    if (!image) return null;
+
+    const shotGroup =
+      image.shotIdentity != null
+        ? image.shotNo != null
+          ? or(
+              eq(generatedImages.shotIdentity, image.shotIdentity),
+              and(
+                eq(generatedImages.shotNo, image.shotNo),
+                isNull(generatedImages.shotIdentity)
+              )
+            )
+          : eq(generatedImages.shotIdentity, image.shotIdentity)
+        : image.shotNo != null
+          ? eq(generatedImages.shotNo, image.shotNo)
+          : eq(generatedImages.id, image.id);
+
+    await tx
+      .select({ id: generatedImages.id })
+      .from(generatedImages)
+      .where(and(eq(generatedImages.storyId, data.storyId), shotGroup))
+      .for("update");
+    await tx
+      .update(generatedImages)
+      .set({ isCurrent: false })
+      .where(
+        and(
+          eq(generatedImages.storyId, data.storyId),
+          shotGroup,
+          eq(generatedImages.isCurrent, true)
+        )
+      );
+    await tx
+      .update(generatedImages)
+      .set({ isCurrent: true })
+      .where(eq(generatedImages.id, image.id));
+
+    const stableShotIds = [
+      image.shotIdentity,
+      image.shotNo ? `legacy-${image.shotNo.toUpperCase()}` : null,
+    ].filter((value): value is string => Boolean(value));
+    if (stableShotIds.length > 0) {
+      await tx
+        .delete(videoTimelineSelections)
+        .where(
+          and(
+            eq(videoTimelineSelections.storyId, data.storyId),
+            eq(videoTimelineSelections.userId, data.userId),
+            inArray(videoTimelineSelections.stableShotId, stableShotIds)
+          )
+        );
+    }
+
+    const [result] = await tx.insert(imageSignals).values({
+      userId: data.userId,
+      storyId: data.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: data.metadata ?? null,
+    });
+    const [signal] = await tx
+      .select()
+      .from(imageSignals)
+      .where(eq(imageSignals.id, result.insertId));
+    return { image: { ...image, isCurrent: true }, signal };
+  });
 }
 
 export async function getImageSignalsForImages(
@@ -1705,6 +2014,57 @@ export async function getRecentEditPreferences(
   return getRecentSemanticAnnotations(projectId, limit);
 }
 
+type PromptAssetModality = "image" | "video";
+
+async function resolvePromptCompilationIdForAsset(
+  db: ReturnType<typeof drizzle> | null,
+  input: {
+    explicitPromptCompilationId?: number | null;
+    storyId?: number | null;
+    userId?: number | null;
+    stableShotId?: string | null;
+    modality: PromptAssetModality;
+  }
+): Promise<number | null> {
+  if (input.explicitPromptCompilationId != null) {
+    return input.explicitPromptCompilationId;
+  }
+  if (
+    input.storyId == null ||
+    input.userId == null ||
+    input.stableShotId == null ||
+    input.stableShotId.trim() === ""
+  ) {
+    return null;
+  }
+  if (!db) {
+    return (
+      memoryState.promptLineage.compilationHeads.find(
+        head =>
+          head.storyId === input.storyId &&
+          head.userId === input.userId &&
+          head.stableShotId === input.stableShotId &&
+          head.modality === input.modality
+      )?.currentCompilationId ?? null
+    );
+  }
+  const [head] = await db
+    .select({
+      currentCompilationId: promptCompilationHeads.currentCompilationId,
+    })
+    .from(promptCompilationHeads)
+    .where(
+      and(
+        eq(promptCompilationHeads.storyId, input.storyId),
+        eq(promptCompilationHeads.userId, input.userId),
+        eq(promptCompilationHeads.stableShotId, input.stableShotId),
+        eq(promptCompilationHeads.modality, input.modality)
+      )
+    )
+    .limit(1);
+  return head?.currentCompilationId ?? null;
+}
+
 // ─── Generated Images（统一） ────────────────────────────────────────────
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
@@ -1714,8 +2074,18 @@ export async function createGeneratedImage(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
+    const promptCompilationId = await resolvePromptCompilationIdForAsset(null, {
+      explicitPromptCompilationId: data.promptCompilationId,
+      storyId: data.storyId,
+      userId: data.userId,
+      stableShotId: data.shotIdentity,
+      modality: "image",
+    });
     // 把同一镜头的旧图标记为非当前；优先按稳定镜头身份，旧数据用 shotNo 兜底。
-    if (data.shotNo != null || data.shotIdentity != null) {
+    if (
+      data.isCurrent !== false &&
+      (data.shotNo != null || data.shotIdentity != null)
+    ) {
       for (const img of memoryState.generatedImages) {
         if (!img.isCurrent) continue;
         const sameDesktop = data.projectId && img.projectId === data.projectId;
@@ -1742,6 +2112,7 @@ export async function createGeneratedImage(
       imageKey: data.imageKey ?? null,
       imageUrl: data.imageUrl,
       prompt: data.prompt ?? null,
+      promptCompilationId,
       parentImageId: data.parentImageId ?? null,
       isCurrent: data.isCurrent ?? true,
       generationType: data.generationType ?? "generate",
@@ -1766,7 +2137,10 @@ export async function createGeneratedImage(
     return image;
   }
   // 把同一镜头的旧图标记为非当前；优先按稳定镜头身份，旧数据用 shotNo 兜底。
-  if (data.shotNo != null || data.shotIdentity != null) {
+  if (
+    data.isCurrent !== false &&
+    (data.shotNo != null || data.shotIdentity != null)
+  ) {
     const shotGroup =
       data.shotIdentity != null
         ? data.shotNo != null
@@ -1805,7 +2179,17 @@ export async function createGeneratedImage(
         );
     }
   }
-  const [result] = await db.insert(generatedImages).values(data);
+  const promptCompilationId = await resolvePromptCompilationIdForAsset(db, {
+    explicitPromptCompilationId: data.promptCompilationId,
+    storyId: data.storyId,
+    userId: data.userId,
+    stableShotId: data.shotIdentity,
+    modality: "image",
+  });
+  const [result] = await db.insert(generatedImages).values({
+    ...data,
+    promptCompilationId,
+  });
   const [image] = await db
     .select()
     .from(generatedImages)
@@ -1824,6 +2208,35 @@ export async function createGeneratedImage(
     });
   }
   return image;
+}
+
+export async function deleteGeneratedImage(
+  imageId: number,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    memoryState.generatedImages = memoryState.generatedImages.filter(
+      img => !(img.id === imageId && img.userId === userId)
+    );
+    memoryState.imageSignals = memoryState.imageSignals.filter(
+      sig => sig.imageId !== imageId
+    );
+    await persistMemoryState();
+    return;
+  }
+  await db
+    .delete(imageSignals)
+    .where(eq(imageSignals.imageId, imageId));
+  await db
+    .delete(generatedImages)
+    .where(
+      and(
+        eq(generatedImages.id, imageId),
+        eq(generatedImages.userId, userId)
+      )
+    );
 }
 
 export async function updateImageCurrent(
@@ -1948,6 +2361,13 @@ export async function createVideoTake(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
+    const promptCompilationId = await resolvePromptCompilationIdForAsset(null, {
+      explicitPromptCompilationId: data.promptCompilationId,
+      storyId: data.storyId,
+      userId: data.userId,
+      stableShotId: data.stableShotId,
+      modality: "video",
+    });
     const current = now();
     const row: VideoTake = {
       id: nextMemoryId("videoTake"),
@@ -1955,6 +2375,7 @@ export async function createVideoTake(
       userId: data.userId,
       stableShotId: data.stableShotId,
       sourceImageId: data.sourceImageId ?? null,
+      promptCompilationId,
       status: data.status ?? "submitted",
       taskId: data.taskId ?? null,
       provider: data.provider ?? "302",
@@ -1976,7 +2397,17 @@ export async function createVideoTake(
     await persistMemoryState();
     return row;
   }
-  const [result] = await db.insert(videoTakes).values(data);
+  const promptCompilationId = await resolvePromptCompilationIdForAsset(db, {
+    explicitPromptCompilationId: data.promptCompilationId,
+    storyId: data.storyId,
+    userId: data.userId,
+    stableShotId: data.stableShotId,
+    modality: "video",
+  });
+  const [result] = await db.insert(videoTakes).values({
+    ...data,
+    promptCompilationId,
+  });
   const [row] = await db
     .select()
     .from(videoTakes)
@@ -2064,12 +2495,14 @@ export async function findVideoTakeByIdempotencyKey(
   if (!db) {
     await ensureMemoryLoaded();
     return (
-      memoryState.videoTakes.find(
-        take =>
-          take.storyId === storyId &&
-          take.userId === userId &&
-          take.idempotencyKey === idempotencyKey
-      ) ?? null
+      memoryState.videoTakes
+        .filter(
+          take =>
+            take.storyId === storyId &&
+            take.userId === userId &&
+            take.idempotencyKey === idempotencyKey
+        )
+        .sort((a, b) => b.id - a.id)[0] ?? null
     );
   }
   const [row] = await db
@@ -2082,6 +2515,7 @@ export async function findVideoTakeByIdempotencyKey(
         eq(videoTakes.idempotencyKey, idempotencyKey)
       )
     )
+    .orderBy(desc(videoTakes.id))
     .limit(1);
   return row ?? null;
 }
@@ -2282,6 +2716,828 @@ export async function clearVideoTimelineSelection(
     );
 }
 
+export async function getStoryTimeline(
+  storyId: number,
+  userId: number
+): Promise<StoryTimeline | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyTimelines.find(
+        timeline =>
+          timeline.storyId === storyId && timeline.userId === userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyTimelines)
+    .where(
+      and(
+        eq(storyTimelines.storyId, storyId),
+        eq(storyTimelines.userId, userId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateStoryTimeline(
+  input: {
+    storyId: number;
+    userId: number;
+    expectedVersion: number;
+    items: unknown;
+  }
+): Promise<StoryTimeline> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const existing = memoryState.storyTimelines.find(
+      timeline =>
+        timeline.storyId === input.storyId &&
+        timeline.userId === input.userId
+    );
+    if (!existing) {
+      if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
+      const current = now();
+      const row: StoryTimeline = {
+        id: nextMemoryId("storyTimeline"),
+        storyId: input.storyId,
+        userId: input.userId,
+        version: 1,
+        items: input.items,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.storyTimelines.push(row);
+      await persistMemoryState();
+      return row;
+    }
+    if (existing.version !== input.expectedVersion) {
+      throw new Error("时间轴版本已更新");
+    }
+    existing.items = input.items;
+    existing.version += 1;
+    existing.updatedAt = now();
+    await persistMemoryState();
+    return existing;
+  }
+
+  return db.transaction(async tx => {
+    const [existing] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!existing) {
+      if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
+      const [result] = await tx.insert(storyTimelines).values({
+        storyId: input.storyId,
+        userId: input.userId,
+        version: 1,
+        items: input.items,
+      });
+      const [created] = await tx
+        .select()
+        .from(storyTimelines)
+        .where(eq(storyTimelines.id, result.insertId));
+      return created;
+    }
+    if (existing.version !== input.expectedVersion) {
+      throw new Error("时间轴版本已更新");
+    }
+    await tx
+      .update(storyTimelines)
+      .set({ items: input.items, version: existing.version + 1 })
+      .where(eq(storyTimelines.id, existing.id));
+    const [updated] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(eq(storyTimelines.id, existing.id));
+    return updated;
+  });
+}
+
+export async function createShotDerivationDraft(
+  data: Omit<InsertShotDerivationDraft, "id" | "createdAt" | "updatedAt">
+): Promise<ShotDerivationDraft> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: ShotDerivationDraft = {
+      id: nextMemoryId("shotDerivationDraft"),
+      storyId: data.storyId,
+      userId: data.userId,
+      sourceStableShotId: data.sourceStableShotId,
+      sourceTakeId: data.sourceTakeId,
+      sourceTimeSec: data.sourceTimeSec,
+      crop: data.crop,
+      fullFrameImageUrl: data.fullFrameImageUrl,
+      cropImageUrl: data.cropImageUrl,
+      referenceRole: data.referenceRole ?? null,
+      analysis: data.analysis ?? null,
+      proposal: data.proposal ?? null,
+      candidateImageIds: data.candidateImageIds ?? null,
+      provisionalStableShotId: data.provisionalStableShotId,
+      status: data.status ?? "draft",
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.shotDerivationDrafts.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(shotDerivationDrafts).values(data);
+  const [row] = await db
+    .select()
+    .from(shotDerivationDrafts)
+    .where(eq(shotDerivationDrafts.id, result.insertId));
+  return row;
+}
+
+export async function getShotDerivationDraft(
+  id: number,
+  userId: number
+): Promise<ShotDerivationDraft | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.shotDerivationDrafts.find(
+        draft => draft.id === id && draft.userId === userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(shotDerivationDrafts)
+    .where(
+      and(
+        eq(shotDerivationDrafts.id, id),
+        eq(shotDerivationDrafts.userId, userId)
+      )
+    );
+  return row ?? null;
+}
+
+export async function updateShotDerivationDraft(
+  id: number,
+  userId: number,
+  data: Partial<InsertShotDerivationDraft>
+): Promise<ShotDerivationDraft | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.shotDerivationDrafts.find(
+      draft => draft.id === id && draft.userId === userId
+    );
+    if (!row) return null;
+    applyDefinedValues(
+      row as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
+    );
+    row.updatedAt = now();
+    await persistMemoryState();
+    return row;
+  }
+  await db
+    .update(shotDerivationDrafts)
+    .set(data)
+    .where(
+      and(
+        eq(shotDerivationDrafts.id, id),
+        eq(shotDerivationDrafts.userId, userId)
+      )
+    );
+  return getShotDerivationDraft(id, userId);
+}
+
+export async function createStoryOperation(
+  data: Omit<InsertStoryOperation, "id" | "createdAt" | "updatedAt">
+): Promise<StoryOperation> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const current = now();
+    const row: StoryOperation = {
+      id: nextMemoryId("storyOperation"),
+      storyId: data.storyId,
+      userId: data.userId,
+      kind: data.kind,
+      status: data.status ?? "applied",
+      beforeState: data.beforeState,
+      afterStoryRevision: data.afterStoryRevision,
+      afterTimelineVersion: data.afterTimelineVersion,
+      draftId: data.draftId ?? null,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.storyOperations.push(row);
+    await persistMemoryState();
+    return row;
+  }
+  const [result] = await db.insert(storyOperations).values(data);
+  const [row] = await db
+    .select()
+    .from(storyOperations)
+    .where(eq(storyOperations.id, result.insertId));
+  return row;
+}
+
+export async function getStoryOperation(
+  id: number,
+  userId: number
+): Promise<StoryOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return (
+      memoryState.storyOperations.find(
+        operation => operation.id === id && operation.userId === userId
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(storyOperations)
+    .where(
+      and(eq(storyOperations.id, id), eq(storyOperations.userId, userId))
+    );
+  return row ?? null;
+}
+
+export async function markStoryOperationReverted(
+  id: number,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const row = memoryState.storyOperations.find(
+      operation => operation.id === id && operation.userId === userId
+    );
+    if (row) {
+      row.status = "reverted";
+      row.updatedAt = now();
+      await persistMemoryState();
+    }
+    return;
+  }
+  await db
+    .update(storyOperations)
+    .set({ status: "reverted" })
+    .where(
+      and(eq(storyOperations.id, id), eq(storyOperations.userId, userId))
+    );
+}
+
+function revisionOf(body: unknown): number {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return 0;
+  const value = (body as Record<string, unknown>)._revision;
+  return typeof value === "number" && Number.isInteger(value) ? value : 0;
+}
+
+export async function confirmDerivedShotAtomic(input: {
+  storyId: number;
+  userId: number;
+  draftId: number;
+  selectedImageId: number;
+  stableShotId: string;
+  shotNo: string;
+  expectedStoryRevision: number;
+  expectedTimelineVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+}): Promise<{ operation: StoryOperation; timelineVersion: number }> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const story = memoryState.stories.find(
+      row => row.id === input.storyId && row.userId === input.userId
+    );
+    const draft = memoryState.shotDerivationDrafts.find(
+      row =>
+        row.id === input.draftId &&
+        row.storyId === input.storyId &&
+        row.userId === input.userId
+    );
+    const image = memoryState.generatedImages.find(
+      row =>
+        row.id === input.selectedImageId &&
+        row.storyId === input.storyId &&
+        (row.userId === input.userId || row.userId == null)
+    );
+    const timeline = memoryState.storyTimelines.find(
+      row => row.storyId === input.storyId && row.userId === input.userId
+    );
+    if (!story || !draft || !image) throw new Error("派生草稿或候选图不存在");
+    if (draft.status === "confirmed") {
+      const existingOperation = memoryState.storyOperations.find(
+        operation =>
+          operation.storyId === input.storyId &&
+          operation.userId === input.userId &&
+          operation.draftId === input.draftId &&
+          operation.kind === "derive_shot" &&
+          operation.status === "applied"
+      );
+      if (existingOperation) {
+        return {
+          operation: existingOperation,
+          timelineVersion: existingOperation.afterTimelineVersion,
+        };
+      }
+    }
+    if (draft.status !== "ready" && draft.status !== "draft") {
+      throw new Error("派生草稿状态已变化");
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认派生内容");
+    }
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已经更新，请重新确认插入位置");
+    }
+    const beforeState = {
+      storyBody: story.body,
+      timelineItems: timeline?.items ?? null,
+      timelineVersion: timeline?.version ?? 0,
+      image: {
+        id: image.id,
+        shotNo: image.shotNo,
+        shotIdentity: image.shotIdentity,
+        isCurrent: image.isCurrent,
+      },
+      draftStatus: draft.status,
+    };
+    story.body = input.nextStoryBody;
+    story.updatedAt = now();
+    for (const candidate of memoryState.generatedImages) {
+      if (
+        candidate.storyId === input.storyId &&
+        candidate.shotIdentity === input.stableShotId
+      ) {
+        candidate.isCurrent = candidate.id === image.id;
+      }
+    }
+    image.shotNo = input.shotNo;
+    image.shotIdentity = input.stableShotId;
+    image.isCurrent = true;
+    memoryState.imageSignals.push({
+      id: nextMemoryId("imageSignal"),
+      userId: input.userId,
+      storyId: input.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: { source: "derive_shot", draftId: input.draftId },
+      createdAt: now(),
+    });
+    let timelineVersion: number;
+    if (timeline) {
+      timeline.items = input.nextTimelineItems;
+      timeline.version += 1;
+      timeline.updatedAt = now();
+      timelineVersion = timeline.version;
+    } else {
+      const current = now();
+      timelineVersion = 1;
+      memoryState.storyTimelines.push({
+        id: nextMemoryId("storyTimeline"),
+        storyId: input.storyId,
+        userId: input.userId,
+        version: timelineVersion,
+        items: input.nextTimelineItems,
+        createdAt: current,
+        updatedAt: current,
+      });
+    }
+    draft.status = "confirmed";
+    draft.updatedAt = now();
+    const operation: StoryOperation = {
+      id: nextMemoryId("storyOperation"),
+      storyId: input.storyId,
+      userId: input.userId,
+      kind: "derive_shot",
+      status: "applied",
+      beforeState,
+      afterStoryRevision: revisionOf(input.nextStoryBody),
+      afterTimelineVersion: timelineVersion,
+      draftId: input.draftId,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    memoryState.storyOperations.push(operation);
+    await persistMemoryState();
+    return { operation, timelineVersion };
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)))
+      .for("update")
+      .limit(1);
+    const [draft] = await tx
+      .select()
+      .from(shotDerivationDrafts)
+      .where(
+        and(
+          eq(shotDerivationDrafts.id, input.draftId),
+          eq(shotDerivationDrafts.storyId, input.storyId),
+          eq(shotDerivationDrafts.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    const [image] = await tx
+      .select()
+      .from(generatedImages)
+      .where(
+        and(
+          eq(generatedImages.id, input.selectedImageId),
+          eq(generatedImages.storyId, input.storyId),
+          or(
+            eq(generatedImages.userId, input.userId),
+            isNull(generatedImages.userId)
+          )
+        )
+      )
+      .for("update")
+      .limit(1);
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!story || !draft || !image) throw new Error("派生草稿或候选图不存在");
+    if (draft.status === "confirmed") {
+      const [existingOperation] = await tx
+        .select()
+        .from(storyOperations)
+        .where(
+          and(
+            eq(storyOperations.storyId, input.storyId),
+            eq(storyOperations.userId, input.userId),
+            eq(storyOperations.draftId, input.draftId),
+            eq(storyOperations.kind, "derive_shot"),
+            eq(storyOperations.status, "applied")
+          )
+        )
+        .limit(1);
+      if (existingOperation) {
+        return {
+          operation: existingOperation,
+          timelineVersion: existingOperation.afterTimelineVersion,
+        };
+      }
+    }
+    if (draft.status !== "ready" && draft.status !== "draft") {
+      throw new Error("派生草稿状态已变化");
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认派生内容");
+    }
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已经更新，请重新确认插入位置");
+    }
+    const beforeState = {
+      storyBody: story.body,
+      timelineItems: timeline?.items ?? null,
+      timelineVersion: timeline?.version ?? 0,
+      image: {
+        id: image.id,
+        shotNo: image.shotNo,
+        shotIdentity: image.shotIdentity,
+        isCurrent: image.isCurrent,
+      },
+      draftStatus: draft.status,
+    };
+    await tx
+      .update(stories)
+      .set({ body: input.nextStoryBody })
+      .where(eq(stories.id, story.id));
+    await tx
+      .update(generatedImages)
+      .set({ isCurrent: false })
+      .where(
+        and(
+          eq(generatedImages.storyId, input.storyId),
+          eq(generatedImages.shotIdentity, input.stableShotId)
+        )
+      );
+    await tx
+      .update(generatedImages)
+      .set({
+        shotNo: input.shotNo,
+        shotIdentity: input.stableShotId,
+        isCurrent: true,
+      })
+      .where(eq(generatedImages.id, image.id));
+    await tx.insert(imageSignals).values({
+      userId: input.userId,
+      storyId: input.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: { source: "derive_shot", draftId: input.draftId },
+    });
+    let timelineVersion: number;
+    if (timeline) {
+      timelineVersion = timeline.version + 1;
+      await tx
+        .update(storyTimelines)
+        .set({ items: input.nextTimelineItems, version: timelineVersion })
+        .where(eq(storyTimelines.id, timeline.id));
+    } else {
+      timelineVersion = 1;
+      await tx.insert(storyTimelines).values({
+        storyId: input.storyId,
+        userId: input.userId,
+        version: timelineVersion,
+        items: input.nextTimelineItems,
+      });
+    }
+    await tx
+      .update(shotDerivationDrafts)
+      .set({ status: "confirmed" })
+      .where(eq(shotDerivationDrafts.id, draft.id));
+    const [result] = await tx.insert(storyOperations).values({
+      storyId: input.storyId,
+      userId: input.userId,
+      kind: "derive_shot",
+      status: "applied",
+      beforeState,
+      afterStoryRevision: revisionOf(input.nextStoryBody),
+      afterTimelineVersion: timelineVersion,
+      draftId: input.draftId,
+    });
+    const [operation] = await tx
+      .select()
+      .from(storyOperations)
+      .where(eq(storyOperations.id, result.insertId));
+    return { operation, timelineVersion };
+  });
+}
+
+export async function undoDerivedShotAtomic(
+  operationId: number,
+  userId: number
+): Promise<void> {
+  type DerivationBeforeState = {
+    storyBody?: unknown;
+    timelineItems?: unknown;
+    timelineVersion?: number;
+    image?: {
+      id?: number;
+      shotNo?: string | null;
+      shotIdentity?: string | null;
+      isCurrent?: boolean;
+    };
+    draftStatus?: ShotDerivationDraft["status"];
+  };
+
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const operation = memoryState.storyOperations.find(
+      row => row.id === operationId && row.userId === userId
+    );
+    if (!operation || operation.status !== "applied") {
+      throw new Error("撤销记录不存在或已经撤销");
+    }
+    const before = operation.beforeState as DerivationBeforeState;
+    const story = memoryState.stories.find(
+      row => row.id === operation.storyId && row.userId === userId
+    );
+    const timeline = memoryState.storyTimelines.find(
+      row => row.storyId === operation.storyId && row.userId === userId
+    );
+    if (
+      !story ||
+      revisionOf(story.body) !== operation.afterStoryRevision ||
+      (timeline?.version ?? 0) !== operation.afterTimelineVersion
+    ) {
+      throw new Error("派生后已有新的编辑，不能直接撤销");
+    }
+    const image =
+      before.image?.id != null
+        ? memoryState.generatedImages.find(
+            row =>
+              row.id === before.image?.id &&
+              row.storyId === operation.storyId &&
+              (row.userId === userId || row.userId == null)
+          )
+        : null;
+    const draft =
+      operation.draftId != null
+        ? memoryState.shotDerivationDrafts.find(
+            row =>
+              row.id === operation.draftId &&
+              row.storyId === operation.storyId &&
+              row.userId === userId
+          )
+        : null;
+    const snapshot = {
+      storyBody: story.body,
+      storyUpdatedAt: story.updatedAt,
+      timelineItems: timeline?.items,
+      timelineVersion: timeline?.version,
+      timelineUpdatedAt: timeline?.updatedAt,
+      image: image
+        ? {
+            shotNo: image.shotNo,
+            shotIdentity: image.shotIdentity,
+            isCurrent: image.isCurrent,
+          }
+        : null,
+      draftStatus: draft?.status,
+      draftUpdatedAt: draft?.updatedAt,
+      operationStatus: operation.status,
+      operationUpdatedAt: operation.updatedAt,
+      imageSignals: [...memoryState.imageSignals],
+    };
+    try {
+      const changedAt = now();
+      story.body = before.storyBody;
+      story.updatedAt = changedAt;
+      if (timeline) {
+        timeline.items = before.timelineItems ?? [];
+        timeline.version += 1;
+        timeline.updatedAt = changedAt;
+      }
+      if (image) {
+        image.shotNo = before.image?.shotNo ?? null;
+        image.shotIdentity = before.image?.shotIdentity ?? null;
+        image.isCurrent = before.image?.isCurrent ?? false;
+      }
+      if (draft) {
+        draft.status = "reverted";
+        draft.updatedAt = changedAt;
+      }
+      memoryState.imageSignals = memoryState.imageSignals.filter(signal => {
+        if (
+          signal.userId !== userId ||
+          signal.storyId !== operation.storyId ||
+          signal.action !== "swipe_right"
+        ) {
+          return true;
+        }
+        const metadata =
+          signal.metadata &&
+          typeof signal.metadata === "object" &&
+          !Array.isArray(signal.metadata)
+            ? (signal.metadata as Record<string, unknown>)
+            : {};
+        return !(
+          metadata.source === "derive_shot" &&
+          Number(metadata.draftId) === operation.draftId
+        );
+      });
+      operation.status = "reverted";
+      operation.updatedAt = changedAt;
+      await persistMemoryState();
+    } catch (error) {
+      story.body = snapshot.storyBody;
+      story.updatedAt = snapshot.storyUpdatedAt;
+      if (timeline) {
+        timeline.items = snapshot.timelineItems;
+        timeline.version = snapshot.timelineVersion!;
+        timeline.updatedAt = snapshot.timelineUpdatedAt!;
+      }
+      if (image && snapshot.image) {
+        image.shotNo = snapshot.image.shotNo;
+        image.shotIdentity = snapshot.image.shotIdentity;
+        image.isCurrent = snapshot.image.isCurrent;
+      }
+      if (draft && snapshot.draftStatus && snapshot.draftUpdatedAt) {
+        draft.status = snapshot.draftStatus;
+        draft.updatedAt = snapshot.draftUpdatedAt;
+      }
+      operation.status = snapshot.operationStatus;
+      operation.updatedAt = snapshot.operationUpdatedAt;
+      memoryState.imageSignals = snapshot.imageSignals;
+      throw error;
+    }
+    return;
+  }
+
+  await db.transaction(async tx => {
+    const [operation] = await tx
+      .select()
+      .from(storyOperations)
+      .where(
+        and(
+          eq(storyOperations.id, operationId),
+          eq(storyOperations.userId, userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation || operation.status !== "applied") {
+      throw new Error("撤销记录不存在或已经撤销");
+    }
+    const before = operation.beforeState as DerivationBeforeState;
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(
+        and(eq(stories.id, operation.storyId), eq(stories.userId, userId))
+      )
+      .for("update")
+      .limit(1);
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, operation.storyId),
+          eq(storyTimelines.userId, userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (
+      !story ||
+      revisionOf(story.body) !== operation.afterStoryRevision ||
+      (timeline?.version ?? 0) !== operation.afterTimelineVersion
+    ) {
+      throw new Error("派生后已有新的编辑，不能直接撤销");
+    }
+    await tx
+      .update(stories)
+      .set({ body: before.storyBody })
+      .where(eq(stories.id, story.id));
+    if (timeline) {
+      await tx
+        .update(storyTimelines)
+        .set({
+          items: before.timelineItems ?? [],
+          version: timeline.version + 1,
+        })
+        .where(eq(storyTimelines.id, timeline.id));
+    }
+    if (before.image?.id != null) {
+      await tx
+        .update(generatedImages)
+        .set({
+          shotNo: before.image.shotNo ?? null,
+          shotIdentity: before.image.shotIdentity ?? null,
+          isCurrent: before.image.isCurrent ?? false,
+        })
+        .where(
+          and(
+            eq(generatedImages.id, before.image.id),
+            eq(generatedImages.storyId, operation.storyId),
+            or(
+              eq(generatedImages.userId, userId),
+              isNull(generatedImages.userId)
+            )
+          )
+        );
+    }
+    if (operation.draftId != null) {
+      await tx
+        .update(shotDerivationDrafts)
+        .set({ status: "reverted" })
+        .where(
+          and(
+            eq(shotDerivationDrafts.id, operation.draftId),
+            eq(shotDerivationDrafts.storyId, operation.storyId),
+            eq(shotDerivationDrafts.userId, userId)
+          )
+        );
+      await tx
+        .delete(imageSignals)
+        .where(
+          and(
+            eq(imageSignals.storyId, operation.storyId),
+            eq(imageSignals.userId, userId),
+            eq(imageSignals.action, "swipe_right"),
+            sql`JSON_UNQUOTE(JSON_EXTRACT(${imageSignals.metadata}, '$.source')) = 'derive_shot'`,
+            sql`CAST(JSON_UNQUOTE(JSON_EXTRACT(${imageSignals.metadata}, '$.draftId')) AS UNSIGNED) = ${operation.draftId}`
+          )
+        );
+    }
+    await tx
+      .update(storyOperations)
+      .set({ status: "reverted" })
+      .where(eq(storyOperations.id, operation.id));
+  });
+}
+
 /**
  * Reset in-memory state and loaded flag — for use in tests only.
  * Prevents accumulated state from prior test runs from leaking between tests.
@@ -2301,6 +3557,10 @@ export function resetMemoryStateForTesting(): void {
   memoryState.videoTakes = [];
   memoryState.videoTakeRanges = [];
   memoryState.videoTimelineSelections = [];
+  memoryState.storyTimelines = [];
+  memoryState.shotDerivationDrafts = [];
+  memoryState.storyOperations = [];
+  memoryState.promptLineage = createEmptyPromptLineageLocalState();
   memoryState.nextIds = {
     user: 1,
     project: 1,
@@ -2316,6 +3576,9 @@ export function resetMemoryStateForTesting(): void {
     videoTake: 1,
     videoTakeRange: 1,
     videoTimelineSelection: 1,
+    storyTimeline: 1,
+    shotDerivationDraft: 1,
+    storyOperation: 1,
   };
   defaultProjectLocks.clear();
   // Mark as loaded so subsequent calls don't reload stale data from disk.

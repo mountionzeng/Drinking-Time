@@ -7,6 +7,8 @@ type PromptCellEditorProps = {
   row: PromptRow;
   disabled?: boolean;
   rerendering?: boolean;
+  applyLabel?: string;
+  disableRerenderWhenDirty?: boolean;
   onApply: (override: PromptOverride) => Promise<void> | void;
   onRerender: (override: PromptOverride) => Promise<void> | void;
 };
@@ -15,6 +17,8 @@ export default function PromptCellEditor({
   row,
   disabled = false,
   rerendering = false,
+  applyLabel = '应用',
+  disableRerenderWhenDirty = false,
   onApply,
   onRerender,
 }: PromptCellEditorProps) {
@@ -28,6 +32,7 @@ export default function PromptCellEditor({
   }, [row.dimension, row.value, row.weight]);
 
   const override = { value, weight };
+  const isDirty = value !== row.value || weight !== row.weight;
 
   return (
     <div className="flex min-w-[240px] flex-col gap-2">
@@ -68,12 +73,16 @@ export default function PromptCellEditor({
           }}
         >
           {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          应用
+          {applyLabel}
         </Button>
         <Button
           type="button"
           size="sm"
-          disabled={disabled || rerendering}
+          disabled={
+            disabled ||
+            rerendering ||
+            (disableRerenderWhenDirty && isDirty)
+          }
           onClick={() => onRerender(override)}
         >
           {rerendering ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

@@ -1,13 +1,37 @@
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
 
-import { useStoryGeneratedImages } from "./StoryImagesStrip";
 import { StoryboardReviewBoard } from "./StoryCardsBoard";
 import {
   useStoryCardsBoardSlice,
   useStoryboardPanelArtSlice,
 } from "@/features/storyAgent/spine/selectors";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
-import { useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import {
+  useCreationEditor,
+  type CreationEditorShot,
+} from "@/features/creationEditor/CreationEditorContext";
+import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import { shotIdentityFromShot } from "@shared/shotIdentity";
+
+export function currentStoryboardImages(
+  shots: readonly CreationEditorShot[],
+  storyId = 0
+): GeneratedImageItem[] {
+  return shots.flatMap(shot => {
+    if (shot.imageId == null || !shot.imageUrl) return [];
+    return [
+      {
+        id: shot.imageId,
+        imageUrl: shot.imageUrl,
+        prompt: shot.imagePrompt ?? "",
+        shotNo: shot.shotNo,
+        shotIdentity: shot.stableShotId ?? shot.shotIdentity,
+        storyId,
+        status: "ready" as const,
+      },
+    ];
+  });
+}
 
 export default function StoryboardPanel() {
   const { isGeneratingScript, latestScript, storyShots } =
@@ -16,20 +40,27 @@ export default function StoryboardPanel() {
   const { updateStoryShotField, updateAllStoryShotField } =
     useStoryAgentActions();
   const {
+    activeStoryId,
     selectedShotNo,
     setSelectedShotNo,
     shots: creationShots,
     timelineShotIds,
     addShotToTimeline,
+    updatePersistedShotField,
     generateShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
+    adoptVideoTake,
     shotVideoProviderStatus,
   } = useCreationEditor();
-  const generatedImages = useStoryGeneratedImages();
+  const displayShots = creationShots.length > 0 ? creationShots : storyShots;
+  const generatedImages = currentStoryboardImages(
+    creationShots,
+    activeStoryId ?? 0
+  );
   const hasStoryboard =
     isGeneratingScript ||
-    storyShots.length > 0 ||
+    displayShots.length > 0 ||
     generatedImages.length > 0 ||
     Boolean(latestScript);
 
@@ -73,13 +104,29 @@ export default function StoryboardPanel() {
   return (
     <StoryboardReviewBoard
       images={generatedImages}
-      shots={storyShots}
+      shots={displayShots}
       latestScript={latestScript}
       artDirection={artDirection}
       isGeneratingScript={isGeneratingScript}
       selectedShotNo={selectedShotNo}
       onSelectShot={setSelectedShotNo}
-      onUpdateShotField={updateStoryShotField}
+      onUpdateShotField={(index, field, value) => {
+        const target = displayShots[index];
+        if (!target) return;
+        const identity = shotIdentityFromShot(target, index);
+        const spineIndex = storyShots.findIndex(
+          (shot, shotIndex) =>
+            identity != null &&
+            shotIdentityFromShot(shot, shotIndex) === identity
+        );
+        if (spineIndex >= 0) {
+          updateStoryShotField(spineIndex, field, value);
+          return;
+        }
+        if (identity) {
+          void updatePersistedShotField(identity, field, value);
+        }
+      }}
       onUpdateAllShotsField={updateAllStoryShotField}
       creationShots={creationShots}
       timelineShotIds={timelineShotIds}
@@ -87,6 +134,7 @@ export default function StoryboardPanel() {
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
+      onAdoptVideoTake={adoptVideoTake}
       shotVideoProviderStatus={shotVideoProviderStatus}
       className="h-full min-h-[280px] overflow-auto"
     />

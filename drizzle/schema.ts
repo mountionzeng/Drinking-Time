@@ -8,6 +8,8 @@ import {
   float,
   boolean as mysqlBoolean,
   json,
+  uniqueIndex,
+  index,
 } from "drizzle-orm/mysql-core";
 
 /**
@@ -316,6 +318,502 @@ export type StoryBody = {
   [key: string]: unknown;
 };
 
+export const storyPromptStates = mysqlTable(
+  "story_prompt_states",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    version: int("version").default(0).notNull(),
+    migrationStatus: mysqlEnum("migrationStatus", [
+      "legacy",
+      "migrating",
+      "migrated",
+    ])
+      .default("legacy")
+      .notNull(),
+    migratedAt: timestamp("migratedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyOwner: uniqueIndex("story_prompt_states_story_owner_unique").on(
+      table.storyId,
+      table.userId,
+    ),
+  }),
+);
+
+export type StoryPromptState = typeof storyPromptStates.$inferSelect;
+export type InsertStoryPromptState = typeof storyPromptStates.$inferInsert;
+
+export const promptNodes = mysqlTable(
+  "prompt_nodes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stableShotId: varchar("stableShotId", { length: 128 })
+      .default("")
+      .notNull(),
+    scope: mysqlEnum("scope", ["story", "shot", "modality"]).notNull(),
+    modality: mysqlEnum("modality", [
+      "shared",
+      "dialogue",
+      "image",
+      "video",
+    ]).notNull(),
+    dimension: varchar("dimension", { length: 128 }).notNull(),
+    currentRevisionId: int("currentRevisionId"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    semanticKey: uniqueIndex("prompt_nodes_semantic_key_unique").on(
+      table.storyId,
+      table.userId,
+      table.stableShotId,
+      table.scope,
+      table.modality,
+      table.dimension,
+    ),
+    storyLookup: index("prompt_nodes_story_lookup").on(
+      table.storyId,
+      table.userId,
+      table.stableShotId,
+    ),
+  }),
+);
+
+export type PromptNode = typeof promptNodes.$inferSelect;
+export type InsertPromptNode = typeof promptNodes.$inferInsert;
+
+export const promptRevisions = mysqlTable(
+  "prompt_revisions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodeId: int("nodeId")
+      .notNull()
+      .references(() => promptNodes.id, { onDelete: "cascade" }),
+    parentRevisionId: int("parentRevisionId"),
+    content: text("content").notNull(),
+    weight: float("weight").default(0.3).notNull(),
+    authorType: mysqlEnum("authorType", [
+      "user",
+      "agent",
+      "system",
+      "migration",
+    ]).notNull(),
+    authorUserId: int("authorUserId"),
+    reason: text("reason"),
+    source: varchar("source", { length: 128 }),
+    status: mysqlEnum("status", ["candidate", "confirmed", "rejected"])
+      .default("candidate")
+      .notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    decidedAt: timestamp("decidedAt"),
+  },
+  table => ({
+    nodeHistory: index("prompt_revisions_node_history").on(
+      table.nodeId,
+      table.id,
+    ),
+    storyCandidates: index("prompt_revisions_story_candidates").on(
+      table.storyId,
+      table.userId,
+      table.status,
+    ),
+  }),
+);
+
+export type PromptRevision = typeof promptRevisions.$inferSelect;
+export type InsertPromptRevision = typeof promptRevisions.$inferInsert;
+
+export const promptNodeBindings = mysqlTable(
+  "prompt_node_bindings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    nodeId: int("nodeId")
+      .notNull()
+      .references(() => promptNodes.id, { onDelete: "cascade" }),
+    stableShotId: varchar("stableShotId", { length: 128 })
+      .default("")
+      .notNull(),
+    modality: mysqlEnum("modality", [
+      "shared",
+      "dialogue",
+      "image",
+      "video",
+    ]).notNull(),
+    sortOrder: int("sortOrder").default(0).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    bindingKey: uniqueIndex("prompt_node_bindings_key_unique").on(
+      table.storyId,
+      table.userId,
+      table.nodeId,
+      table.stableShotId,
+      table.modality,
+    ),
+    shotOrder: index("prompt_node_bindings_shot_order").on(
+      table.storyId,
+      table.userId,
+      table.stableShotId,
+      table.modality,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export type PromptNodeBinding = typeof promptNodeBindings.$inferSelect;
+export type InsertPromptNodeBinding = typeof promptNodeBindings.$inferInsert;
+
+export const promptCompilations = mysqlTable(
+  "prompt_compilations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
+    modality: mysqlEnum("modality", ["dialogue", "image", "video"]).notNull(),
+    finalText: text("finalText").notNull(),
+    inputFingerprint: varchar("inputFingerprint", { length: 128 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    shotModality: index("prompt_compilations_shot_modality").on(
+      table.storyId,
+      table.userId,
+      table.stableShotId,
+      table.modality,
+      table.id,
+    ),
+  }),
+);
+
+export type PromptCompilation = typeof promptCompilations.$inferSelect;
+export type InsertPromptCompilation = typeof promptCompilations.$inferInsert;
+
+export const promptCompilationInputs = mysqlTable(
+  "prompt_compilation_inputs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    compilationId: int("compilationId")
+      .notNull()
+      .references(() => promptCompilations.id, { onDelete: "cascade" }),
+    revisionId: int("revisionId")
+      .notNull()
+      .references(() => promptRevisions.id, { onDelete: "restrict" }),
+    position: int("position").notNull(),
+  },
+  table => ({
+    orderedInput: uniqueIndex("prompt_compilation_inputs_order_unique").on(
+      table.compilationId,
+      table.position,
+    ),
+  }),
+);
+
+export type PromptCompilationInput =
+  typeof promptCompilationInputs.$inferSelect;
+export type InsertPromptCompilationInput =
+  typeof promptCompilationInputs.$inferInsert;
+
+export const promptCompilationHeads = mysqlTable(
+  "prompt_compilation_heads",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
+    modality: mysqlEnum("modality", ["dialogue", "image", "video"]).notNull(),
+    currentCompilationId: int("currentCompilationId")
+      .notNull()
+      .references(() => promptCompilations.id, { onDelete: "restrict" }),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    currentKey: uniqueIndex("prompt_compilation_heads_current_unique").on(
+      table.storyId,
+      table.userId,
+      table.stableShotId,
+      table.modality,
+    ),
+  }),
+);
+
+export type PromptCompilationHead =
+  typeof promptCompilationHeads.$inferSelect;
+export type InsertPromptCompilationHead =
+  typeof promptCompilationHeads.$inferInsert;
+
+export const storyConversations = mysqlTable(
+  "story_conversations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyOwner: uniqueIndex("story_conversations_story_owner_unique").on(
+      table.storyId,
+      table.userId,
+    ),
+  }),
+);
+
+export type StoryConversation = typeof storyConversations.$inferSelect;
+export type InsertStoryConversation = typeof storyConversations.$inferInsert;
+
+export const storyConversationMessages = mysqlTable(
+  "story_conversation_messages",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    conversationId: int("conversationId")
+      .notNull()
+      .references(() => storyConversations.id, { onDelete: "cascade" }),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: mysqlEnum("role", ["user", "assistant", "system"]).notNull(),
+    content: text("content").notNull(),
+    source: varchar("source", { length: 128 }),
+    clientMessageId: varchar("clientMessageId", { length: 128 }),
+    candidateRevisionId: int("candidateRevisionId").references(
+      () => promptRevisions.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    conversationOrder: index("story_conversation_messages_order").on(
+      table.conversationId,
+      table.id,
+    ),
+    clientMessage: uniqueIndex(
+      "story_conversation_messages_client_unique",
+    ).on(table.conversationId, table.clientMessageId),
+  }),
+);
+
+export type StoryConversationMessage =
+  typeof storyConversationMessages.$inferSelect;
+export type InsertStoryConversationMessage =
+  typeof storyConversationMessages.$inferInsert;
+
+export const storyMessageReferences = mysqlTable(
+  "story_message_references",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    messageId: int("messageId")
+      .notNull()
+      .references(() => storyConversationMessages.id, { onDelete: "cascade" }),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    objectType: varchar("objectType", { length: 64 }).notNull(),
+    objectId: varchar("objectId", { length: 255 }).notNull(),
+    objectVersion: varchar("objectVersion", { length: 128 }),
+    selection: json("selection"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    messageLookup: index("story_message_references_message").on(
+      table.messageId,
+    ),
+  }),
+);
+
+export type StoryMessageReference =
+  typeof storyMessageReferences.$inferSelect;
+export type InsertStoryMessageReference =
+  typeof storyMessageReferences.$inferInsert;
+
+export const artPromptLibraries = mysqlTable(
+  "art_prompt_libraries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    kind: mysqlEnum("kind", ["system", "user"]).notNull(),
+    ownerUserId: int("ownerUserId").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerName: index("art_prompt_libraries_owner_name").on(
+      table.ownerUserId,
+      table.name,
+    ),
+  }),
+);
+
+export type ArtPromptLibrary = typeof artPromptLibraries.$inferSelect;
+export type InsertArtPromptLibrary = typeof artPromptLibraries.$inferInsert;
+
+export const artPromptLibraryVersions = mysqlTable(
+  "art_prompt_library_versions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    libraryId: int("libraryId")
+      .notNull()
+      .references(() => artPromptLibraries.id, { onDelete: "cascade" }),
+    version: int("version").notNull(),
+    status: mysqlEnum("status", ["draft", "published"])
+      .default("draft")
+      .notNull(),
+    contentFingerprint: varchar("contentFingerprint", {
+      length: 128,
+    }).notNull(),
+    source: varchar("source", { length: 255 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    publishedAt: timestamp("publishedAt"),
+  },
+  table => ({
+    libraryVersion: uniqueIndex(
+      "art_prompt_library_versions_number_unique",
+    ).on(table.libraryId, table.version),
+    libraryFingerprint: uniqueIndex(
+      "art_prompt_library_versions_fingerprint_unique",
+    ).on(table.libraryId, table.contentFingerprint),
+  }),
+);
+
+export type ArtPromptLibraryVersion =
+  typeof artPromptLibraryVersions.$inferSelect;
+export type InsertArtPromptLibraryVersion =
+  typeof artPromptLibraryVersions.$inferInsert;
+
+export const artPromptLibraryItems = mysqlTable(
+  "art_prompt_library_items",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    libraryVersionId: int("libraryVersionId")
+      .notNull()
+      .references(() => artPromptLibraryVersions.id, { onDelete: "cascade" }),
+    dimension: varchar("dimension", { length: 128 }).notNull(),
+    content: text("content").notNull(),
+    negativeContent: text("negativeContent"),
+    sourceRevisionId: int("sourceRevisionId").references(
+      () => promptRevisions.id,
+      { onDelete: "set null" },
+    ),
+    sortOrder: int("sortOrder").default(0).notNull(),
+  },
+  table => ({
+    versionOrder: index("art_prompt_library_items_version_order").on(
+      table.libraryVersionId,
+      table.sortOrder,
+    ),
+  }),
+);
+
+export type ArtPromptLibraryItem =
+  typeof artPromptLibraryItems.$inferSelect;
+export type InsertArtPromptLibraryItem =
+  typeof artPromptLibraryItems.$inferInsert;
+
+export const storyArtPromptBindings = mysqlTable(
+  "story_art_prompt_bindings",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    libraryVersionId: int("libraryVersionId")
+      .notNull()
+      .references(() => artPromptLibraryVersions.id, {
+        onDelete: "restrict",
+      }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyOwner: uniqueIndex("story_art_prompt_bindings_story_unique").on(
+      table.storyId,
+      table.userId,
+    ),
+  }),
+);
+
+export type StoryArtPromptBinding =
+  typeof storyArtPromptBindings.$inferSelect;
+export type InsertStoryArtPromptBinding =
+  typeof storyArtPromptBindings.$inferInsert;
+
+export const promptOperationReceipts = mysqlTable(
+  "prompt_operation_receipts",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operationKey: varchar("operationKey", { length: 255 }).notNull(),
+    committedVersion: int("committedVersion").notNull(),
+    result: json("result"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    ownerOperation: uniqueIndex(
+      "prompt_operation_receipts_owner_operation_unique",
+    ).on(table.storyId, table.userId, table.operationKey),
+  }),
+);
+
+export type PromptOperationReceipt =
+  typeof promptOperationReceipts.$inferSelect;
+export type InsertPromptOperationReceipt =
+  typeof promptOperationReceipts.$inferInsert;
+
 /**
  * GeneratedImages — AI 生成的图片记录（统一表，桌面端+手机端共用）。
  *
@@ -337,6 +835,10 @@ export const generatedImages = mysqlTable("generated_images", {
   imageKey: varchar("imageKey", { length: 512 }), // 桌面端存储 key
   imageUrl: text("imageUrl").notNull(),
   prompt: text("prompt"),
+  promptCompilationId: int("promptCompilationId").references(
+    () => promptCompilations.id,
+    { onDelete: "set null" },
+  ),
   generationType: mysqlEnum("generationType", [
     "generate",
     "initial",
@@ -363,6 +865,10 @@ export const videoTakes = mysqlTable("video_takes", {
   userId: int("userId").notNull(),
   stableShotId: varchar("stableShotId", { length: 128 }).notNull(),
   sourceImageId: int("sourceImageId"),
+  promptCompilationId: int("promptCompilationId").references(
+    () => promptCompilations.id,
+    { onDelete: "set null" },
+  ),
   status: mysqlEnum("status", [
     "submitted",
     "processing",
@@ -435,6 +941,80 @@ export type VideoTimelineSelection =
   typeof videoTimelineSelections.$inferSelect;
 export type InsertVideoTimelineSelection =
   typeof videoTimelineSelections.$inferInsert;
+
+export const storyTimelines = mysqlTable(
+  "story_timelines",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId").notNull(),
+    userId: int("userId").notNull(),
+    version: int("version").default(1).notNull(),
+    items: json("items").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    storyOwner: uniqueIndex("story_timelines_story_owner_unique").on(
+      table.storyId,
+      table.userId
+    ),
+  })
+);
+
+export type StoryTimeline = typeof storyTimelines.$inferSelect;
+export type InsertStoryTimeline = typeof storyTimelines.$inferInsert;
+
+export const shotDerivationDrafts = mysqlTable("shot_derivation_drafts", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  sourceStableShotId: varchar("sourceStableShotId", { length: 128 }).notNull(),
+  sourceTakeId: int("sourceTakeId").notNull(),
+  sourceTimeSec: float("sourceTimeSec").notNull(),
+  crop: json("crop").notNull(),
+  fullFrameImageUrl: text("fullFrameImageUrl").notNull(),
+  cropImageUrl: text("cropImageUrl").notNull(),
+  referenceRole: mysqlEnum("referenceRole", [
+    "person",
+    "scene",
+    "object",
+    "composition",
+  ]),
+  analysis: json("analysis"),
+  proposal: json("proposal"),
+  candidateImageIds: json("candidateImageIds"),
+  provisionalStableShotId: varchar("provisionalStableShotId", {
+    length: 128,
+  }).notNull(),
+  status: mysqlEnum("status", ["draft", "ready", "confirmed", "reverted"])
+    .default("draft")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ShotDerivationDraft = typeof shotDerivationDrafts.$inferSelect;
+export type InsertShotDerivationDraft =
+  typeof shotDerivationDrafts.$inferInsert;
+
+export const storyOperations = mysqlTable("story_operations", {
+  id: int("id").autoincrement().primaryKey(),
+  storyId: int("storyId").notNull(),
+  userId: int("userId").notNull(),
+  kind: mysqlEnum("kind", ["derive_shot"]).notNull(),
+  status: mysqlEnum("status", ["applied", "reverted"])
+    .default("applied")
+    .notNull(),
+  beforeState: json("beforeState").notNull(),
+  afterStoryRevision: int("afterStoryRevision").notNull(),
+  afterTimelineVersion: int("afterTimelineVersion").notNull(),
+  draftId: int("draftId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type StoryOperation = typeof storyOperations.$inferSelect;
+export type InsertStoryOperation = typeof storyOperations.$inferInsert;
 
 /**
  * ImageSignals — 用户对图片的交互信号（左划/右划/编辑等），时序事件流。

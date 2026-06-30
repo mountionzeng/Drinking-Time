@@ -24,6 +24,7 @@ export type GeneratedImageItem = {
   imageUrl: string;
   prompt: string;
   shotNo?: number;
+  shotIdentity?: string;
   storyId: number;
   // draft = 快轨小样（待确认）；finalizing = 已确认、MJ 正式版生成中
   status: "generating" | "ready" | "error" | "draft" | "finalizing";

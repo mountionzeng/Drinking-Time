@@ -168,6 +168,8 @@ export function projectImageAssets({
       imageKey: image.imageKey,
       imageUrl: image.imageUrl,
       prompt: image.prompt,
+      promptCompilationId: image.promptCompilationId,
+      promptFreshness: "legacy",
       generationType: image.generationType,
       parentImageId: image.parentImageId,
       isCurrent: image.isCurrent,
@@ -197,6 +199,7 @@ export function projectImageAssets({
   }
 
   for (const group of Array.from(shotGroups.values())) {
+    // 优先级 1：用户显式 swipe_right 选中的图片
     const explicitlySelected = group
       .filter(asset => asset.status === "selected")
       .sort(compareSelectedAssets);
@@ -206,14 +209,31 @@ export function projectImageAssets({
       continue;
     }
 
+    // New generated images emit a pending signal and must not become legacy
+    // primaries before the user explicitly selects one.
     const hasAnySignal = group.some(asset => latestSignals.has(asset.id));
     if (hasAnySignal) continue;
+
+    // Legacy rows predate explicit selection signals. Keep one compatibility
+    // primary so old stories do not become empty.
     const legacyPrimary = group
-      .filter(asset => asset.isCurrent)
+      .filter(asset => asset.isCurrent && asset.status !== "rejected")
       .sort(compareCreatedAssets)[0];
     if (legacyPrimary) {
       legacyPrimary.isPrimary = true;
       legacyPrimary.selectionSource = "legacy";
+      continue;
+    }
+
+    // Some old rows lost their current flag when a newer version was deleted.
+    // With no signals at all, the newest surviving row is the least surprising
+    // compatibility fallback.
+    const fallbackPrimary = group
+      .filter(asset => asset.status !== "rejected")
+      .sort(compareCreatedAssets)[0];
+    if (fallbackPrimary) {
+      fallbackPrimary.isPrimary = true;
+      fallbackPrimary.selectionSource = "legacy";
     }
   }
 

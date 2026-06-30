@@ -3,6 +3,7 @@ import {
   playableVideoTake,
   selectedVideoSegmentDurationMs,
   videoTakeAffordance,
+  videoTakeErrorMessage,
 } from "./videoAssetViewModel";
 
 describe("videoAssetViewModel", () => {
@@ -82,5 +83,11 @@ describe("videoAssetViewModel", () => {
     };
 
     expect(playableVideoTake([failedTake, readyTake])).toBe(readyTake);
+  });
+
+  it("explains the ambiguous MJ approval error in actionable Chinese", () => {
+    expect(
+      videoTakeErrorMessage("Prompt parameter error or image not approved")
+    ).toBe("MJ 未通过提示词或首帧审核。请简化动作描述，或更换主图后重试。");
   });
 });

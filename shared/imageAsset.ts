@@ -5,6 +5,7 @@ export type ImageAssetStatus = "selected" | "rejected" | "pending";
 export type ImageAssetAvailability = "available" | "missing" | "unknown";
 
 export type ImageAssetAssignment = "shot" | "unassigned" | "style_reference";
+export type PromptAssetFreshness = "current" | "stale" | "legacy";
 
 export type ImageAsset = {
   id: number;
@@ -17,6 +18,8 @@ export type ImageAsset = {
   imageKey: string | null;
   imageUrl: string;
   prompt: string | null;
+  promptCompilationId: number | null;
+  promptFreshness: PromptAssetFreshness;
   generationType: "generate" | "initial" | "inpaint";
   parentImageId: number | null;
   isCurrent: boolean;

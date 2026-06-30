@@ -12,6 +12,7 @@ export type ShotVideoInput = {
   subtitle?: string;
   durationSec?: number;
   aspectRatio?: string;
+  motion?: "low" | "high";
 };
 
 export type ShotVideoResult =
@@ -285,7 +286,7 @@ function buildSubmitRequest(input: ShotVideoInput) {
   const body: Record<string, unknown> = isMjVideo
     ? {
         prompt,
-        motion: configuredMotion(),
+        motion: input.motion ?? configuredMotion(),
       }
     : {
         model,
@@ -326,6 +327,10 @@ export function getShotVideoProviderStatus(): ShotVideoProviderStatus {
     pollPath,
     imageField,
     motion: configuredMotion(),
+    promptDirectorModel: ENV.videoPrompt302Model,
+    promptDirectorReady: Boolean(
+      ENV.api302Key && ENV.videoPrompt302Model.trim()
+    ),
   };
 }
 

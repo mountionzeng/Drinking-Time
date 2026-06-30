@@ -7,7 +7,9 @@ import {
 } from "react";
 import {
   Copy,
+  Check,
   GitBranchPlus,
+  Loader2,
   MessageCircle,
   Pause,
   Play,
@@ -16,6 +18,7 @@ import {
   Video,
   ZoomIn,
   ZoomOut,
+  Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,10 +47,10 @@ import {
   type PlaybackState,
 } from "../playback";
 import {
-  playableVideoTake,
   shotTimelineDurationMs,
   videoTakeAffordance,
   videoTakeDurationMs,
+  videoTakeErrorMessage,
 } from "../videoAssetViewModel";
 
 type AnimaticPlayerProps = {
@@ -84,6 +87,25 @@ type AnimaticPlayerProps = {
   onClearVideoTimelineSegment?: (stableShotId: string) => Promise<void>;
   generatingVideoShotNo?: number | null;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
+  onCreateDerivedShotDraft?: (input: {
+    sourceStableShotId: string;
+    sourceTakeId: number;
+    sourceTimeSec: number;
+    crop: { x: number; y: number; width: number; height: number };
+    fullFrameBase64: string;
+    cropBase64: string;
+    instruction?: string;
+    referenceRole: "person" | "scene" | "object" | "composition";
+  }) => Promise<{
+    draftId: number;
+    proposal: Record<string, unknown> | null;
+    images: Array<{ id: number; imageUrl: string }>;
+  }>;
+  onConfirmDerivedShot?: (
+    draftId: number,
+    selectedImageId: number
+  ) => Promise<number>;
+  onUndoStoryOperation?: (operationId: number) => Promise<void>;
 };
 
 function shotLabel(shot: CreationEditorShot) {
@@ -203,6 +225,9 @@ export default function AnimaticPlayer({
   onClearVideoTimelineSegment,
   generatingVideoShotNo = null,
   shotVideoProviderStatus = null,
+  onCreateDerivedShotDraft,
+  onConfirmDerivedShot,
+  onUndoStoryOperation,
 }: AnimaticPlayerProps) {
   const playbackShots = useMemo(
     () =>
@@ -260,6 +285,22 @@ export default function AnimaticPlayer({
     useState<SelectionPoint | null>(null);
   const [deriveInstruction, setDeriveInstruction] = useState("");
   const [deriveCopied, setDeriveCopied] = useState(false);
+  const [deriveRole, setDeriveRole] = useState<
+    "person" | "scene" | "object" | "composition"
+  >("composition");
+  const [deriveBusy, setDeriveBusy] = useState(false);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
+  const [deriveResult, setDeriveResult] = useState<{
+    draftId: number;
+    proposal: Record<string, unknown> | null;
+    images: Array<{ id: number; imageUrl: string }>;
+  } | null>(null);
+  const [deriveSelectedImageId, setDeriveSelectedImageId] = useState<
+    number | null
+  >(null);
+  const [deriveOperationId, setDeriveOperationId] = useState<number | null>(
+    null
+  );
   const [deriveMediaSize, setDeriveMediaSize] = useState<{
     width: number;
     height: number;
@@ -370,17 +411,20 @@ export default function AnimaticPlayer({
         take => take.id === activeTakeIdByShotNo[currentShot.shotNo]
       ) ??
       currentShot.videoTakes?.find(take => take.isTimelineSelected) ??
-      // 优先选 available 的 take，避免新 failed take 覆盖旧可播放视频
-      currentShot.videoTakes?.find(
-        take => videoTakeAffordance(take.status).canPlay
-      ) ??
       currentShot.videoTakes?.[0])
     : undefined;
+  const explicitPreviewTake = currentShot
+    ? currentShot.videoTakes?.find(
+        take =>
+          take.id === activeTakeIdByShotNo[currentShot.shotNo] ||
+          take.isTimelineSelected
+      )
+    : undefined;
   const previewVideoTake =
-    currentVideoTake?.videoUrl &&
-    videoTakeAffordance(currentVideoTake.status).canPlay
-      ? currentVideoTake
-      : playableVideoTake(currentShot?.videoTakes);
+    explicitPreviewTake?.videoUrl &&
+    videoTakeAffordance(explicitPreviewTake.status).canPlay
+      ? explicitPreviewTake
+      : undefined;
   const currentTakeAffordance = currentVideoTake
     ? videoTakeAffordance(currentVideoTake.status)
     : null;
@@ -414,6 +458,9 @@ export default function AnimaticPlayer({
     : undefined;
   const deriveSourceUrl = currentVideoPreview?.videoUrl || activeFrameUrl;
   const deriveSourceType = currentVideoPreview?.videoUrl ? "video" : "image";
+  const canPersistDerivedFrame =
+    deriveSourceType === "video" &&
+    currentVideoTake?.extractionCapability === "available";
   const deriveDurationSec =
     deriveSourceType === "video"
       ? Math.max(0.1, currentTakeDurationSec)
@@ -501,6 +548,7 @@ export default function AnimaticPlayer({
     if (!deriveWorkbenchOpen) {
       setDeriveDragStart(null);
       setDeriveCopied(false);
+      setDeriveError(null);
     }
   }, [deriveWorkbenchOpen]);
   useEffect(() => {
@@ -756,6 +804,115 @@ export default function AnimaticPlayer({
     window.setTimeout(() => setDeriveCopied(false), 1600);
   };
 
+  const captureDerivationFrame = () => {
+    const video = deriveVideoRef.current;
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      throw new Error("视频帧尚未准备好，请稍后重试");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("浏览器无法读取当前视频帧");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const fullFrameBase64 = canvas.toDataURL("image/png");
+    const sx = Math.round((deriveSelection.x / 100) * canvas.width);
+    const sy = Math.round((deriveSelection.y / 100) * canvas.height);
+    const sw = Math.max(
+      1,
+      Math.round((deriveSelection.width / 100) * canvas.width)
+    );
+    const sh = Math.max(
+      1,
+      Math.round((deriveSelection.height / 100) * canvas.height)
+    );
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = sw;
+    cropCanvas.height = sh;
+    const cropContext = cropCanvas.getContext("2d");
+    if (!cropContext) throw new Error("浏览器无法裁切当前视频帧");
+    cropContext.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    return {
+      fullFrameBase64,
+      cropBase64: cropCanvas.toDataURL("image/png"),
+    };
+  };
+
+  const createDerivedCandidates = async () => {
+    if (
+      !currentShot?.stableShotId ||
+      !currentVideoTake ||
+      !onCreateDerivedShotDraft
+    )
+      return;
+    setDeriveBusy(true);
+    setDeriveError(null);
+    try {
+      const capture = captureDerivationFrame();
+      const result = await onCreateDerivedShotDraft({
+        sourceStableShotId: currentShot.stableShotId,
+        sourceTakeId: currentVideoTake.id,
+        sourceTimeSec: deriveFrameTimeSec,
+        crop: {
+          x: deriveSelection.x / 100,
+          y: deriveSelection.y / 100,
+          width: deriveSelection.width / 100,
+          height: deriveSelection.height / 100,
+        },
+        ...capture,
+        instruction: deriveInstruction.trim() || undefined,
+        referenceRole: deriveRole,
+      });
+      setDeriveResult(result);
+      setDeriveSelectedImageId(result.images[0]?.id ?? null);
+    } catch (error) {
+      setDeriveError(
+        error instanceof Error ? error.message : "派生候选生成失败"
+      );
+    } finally {
+      setDeriveBusy(false);
+    }
+  };
+
+  const confirmDerivedCandidate = async () => {
+    if (
+      !deriveResult ||
+      deriveSelectedImageId == null ||
+      !onConfirmDerivedShot
+    )
+      return;
+    setDeriveBusy(true);
+    setDeriveError(null);
+    try {
+      const operationId = await onConfirmDerivedShot(
+        deriveResult.draftId,
+        deriveSelectedImageId
+      );
+      setDeriveOperationId(operationId);
+    } catch (error) {
+      setDeriveError(
+        error instanceof Error ? error.message : "派生镜头确认失败"
+      );
+    } finally {
+      setDeriveBusy(false);
+    }
+  };
+
+  const undoDerivedOperation = async () => {
+    if (deriveOperationId == null || !onUndoStoryOperation) return;
+    setDeriveBusy(true);
+    try {
+      await onUndoStoryOperation(deriveOperationId);
+      setDeriveOperationId(null);
+      setDeriveResult(null);
+      setDeriveSelectedImageId(null);
+    } catch (error) {
+      setDeriveError(error instanceof Error ? error.message : "撤销失败");
+    } finally {
+      setDeriveBusy(false);
+    }
+  };
+
   return (
     <div className="flex shrink-0 flex-col gap-3">
       <div className="relative flex min-h-[320px] items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
@@ -820,7 +977,12 @@ export default function AnimaticPlayer({
                   size="sm"
                   variant={deriveWorkbenchOpen ? "default" : "outline"}
                   onClick={() => setDeriveWorkbenchOpen(true)}
-                  disabled={!deriveSourceUrl}
+                  disabled={!deriveSourceUrl || !canPersistDerivedFrame}
+                  title={
+                    canPersistDerivedFrame
+                      ? "从视频帧派生新镜头"
+                      : "当前视频尚未完成同源托管，暂时不能抽帧"
+                  }
                 >
                   <GitBranchPlus className="h-4 w-4" />
                   派生新镜头
@@ -854,11 +1016,7 @@ export default function AnimaticPlayer({
 
             {currentVideoTake?.errorMessage ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">
-                {/image not approved/i.test(currentVideoTake.errorMessage)
-                  ? "这张首帧被视频模型拒绝，请换一张首帧或重新裁切。"
-                  : /prompt parameter/i.test(currentVideoTake.errorMessage)
-                    ? "视频模型拒绝了提示词，请检查视频包中的 prompt 是否过长或包含不支持的内容。"
-                    : `当前 Take ${currentVideoTake.id} 失败原因：${currentVideoTake.errorMessage}`}
+                {`当前 Take ${currentVideoTake.id} 失败原因：${videoTakeErrorMessage(currentVideoTake.errorMessage)}`}
               </p>
             ) : null}
           </div>
@@ -926,7 +1084,7 @@ export default function AnimaticPlayer({
                           </span>
                           {take.errorMessage ? (
                             <span className="mt-1 line-clamp-2 block text-[10px] text-destructive">
-                              {take.errorMessage}
+                              {videoTakeErrorMessage(take.errorMessage)}
                             </span>
                           ) : null}
                         </button>
@@ -1344,6 +1502,35 @@ export default function AnimaticPlayer({
 
               <div className="rounded-md border border-border bg-muted/20 p-3">
                 <div className="text-xs font-semibold text-foreground">
+                  这块区域用来参考什么
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1">
+                  {(
+                    [
+                      ["person", "人物"],
+                      ["scene", "场景"],
+                      ["object", "物件"],
+                      ["composition", "构图"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setDeriveRole(value)}
+                      className={`h-8 rounded-md border text-[11px] transition ${
+                        deriveRole === value
+                          ? "border-primary bg-primary/10 font-medium text-primary"
+                          : "border-border text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/20 p-3">
+                <div className="text-xs font-semibold text-foreground">
                   选中区域
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
@@ -1380,6 +1567,52 @@ export default function AnimaticPlayer({
                 </pre>
               </div>
 
+              {deriveResult ? (
+                <div className="rounded-md border border-border bg-muted/20 p-3">
+                  <div className="text-xs font-semibold text-foreground">
+                    小酌建议
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                    {String(
+                      deriveResult.proposal?.intent ||
+                        deriveResult.proposal?.subject ||
+                        "以选中区域为锚点补充一个新镜头"
+                    )}
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {deriveResult.images.map(image => (
+                      <button
+                        key={image.id}
+                        type="button"
+                        onClick={() => setDeriveSelectedImageId(image.id)}
+                        className={`relative overflow-hidden rounded-md border ${
+                          deriveSelectedImageId === image.id
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border"
+                        }`}
+                      >
+                        <img
+                          src={image.imageUrl}
+                          alt="派生候选"
+                          className="aspect-video w-full object-cover"
+                        />
+                        {deriveSelectedImageId === image.id ? (
+                          <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                            <Check className="h-3 w-3" />
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {deriveError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {deriveError}
+                </div>
+              ) : null}
+
               <div className="mt-auto flex flex-wrap justify-end gap-2">
                 <Button
                   type="button"
@@ -1394,12 +1627,50 @@ export default function AnimaticPlayer({
                 <Button
                   type="button"
                   size="sm"
-                  onClick={openSelectionInChat}
-                  disabled={!deriveContextMessage}
+                  variant={deriveResult ? "default" : "outline"}
+                  onClick={() =>
+                    deriveResult
+                      ? void confirmDerivedCandidate()
+                      : void createDerivedCandidates()
+                  }
+                  disabled={
+                    deriveBusy ||
+                    !canPersistDerivedFrame ||
+                    (deriveResult != null && deriveSelectedImageId == null)
+                  }
                 >
-                  <MessageCircle className="h-4 w-4" />
-                  去问小酌
+                  {deriveBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : deriveResult ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <GitBranchPlus className="h-4 w-4" />
+                  )}
+                  {deriveResult ? "确认派生镜头" : "分析并生成四张候选"}
                 </Button>
+                {deriveOperationId != null ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void undoDerivedOperation()}
+                    disabled={deriveBusy}
+                  >
+                    <Undo2 className="h-4 w-4" />
+                    撤销派生
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={openSelectionInChat}
+                    disabled={!deriveContextMessage}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    先问小酌
+                  </Button>
+                )}
               </div>
             </aside>
           </div>

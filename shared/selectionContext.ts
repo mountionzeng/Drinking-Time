@@ -13,7 +13,11 @@ export type SelectionMaterialStatus =
   | "candidate-image"
   | "current-video"
   | "failed-video"
+  | "unadopted-video"
+  | "stale-video"
   | "timeline-range"
+  | "timeline-material"
+  | "derivation-draft"
   | "fallback-image"
   | "unknown";
 

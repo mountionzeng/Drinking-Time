@@ -2,7 +2,12 @@ export type ArtReferencePurpose = "fact" | "aesthetic" | "both";
 export type ArtReferenceSource = "message-photo" | "visual-anchor" | "story-card";
 // 参考图角色：character 锁人物，scene 锁空间/气氛，local 只服务当前镜头。
 // 加法式扩展（可选字段），旧数据无此字段 → 视为普通事实/美术参考，向后兼容。
-export type ArtReferenceRole = "character" | "scene" | "local";
+export type ArtReferenceRole =
+  | "character"
+  | "scene"
+  | "object"
+  | "composition"
+  | "local";
 export type ArtReferenceScope = "story" | "scene" | "shot";
 
 export type ArtReferenceMaterial = {
@@ -162,7 +167,11 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
       ? obj.purpose
       : "fact";
   const role =
-    obj.role === "character" || obj.role === "scene" || obj.role === "local"
+    obj.role === "character" ||
+    obj.role === "scene" ||
+    obj.role === "object" ||
+    obj.role === "composition" ||
+    obj.role === "local"
       ? obj.role
       : undefined;
   const scope =

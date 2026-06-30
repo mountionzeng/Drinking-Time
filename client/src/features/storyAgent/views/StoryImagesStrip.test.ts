@@ -10,6 +10,7 @@ describe('projectStoryImageAssetsForDisplay', () => {
           imageUrl: '/api/images/21.png',
           prompt: 'draft prompt',
           shotNo: 'SH02',
+          shotIdentity: 'shot-two',
           storyId: 7,
           status: 'pending',
           generationType: 'generate',
@@ -24,6 +25,7 @@ describe('projectStoryImageAssetsForDisplay', () => {
         imageUrl: '/api/images/21.png',
         prompt: 'draft prompt',
         shotNo: 2,
+        shotIdentity: 'shot-two',
         storyId: 7,
         status: 'draft',
       },
@@ -99,5 +101,24 @@ describe('mergeStoryImagesForDisplay', () => {
       expect.objectContaining({ id: 21, status: 'draft', prompt: 'server draft' }),
       expect.objectContaining({ id: 22, status: 'draft', prompt: 'optimistic local image' }),
     ]);
+  });
+
+  it('does not merge optimistic images from another story', () => {
+    const images = mergeStoryImagesForDisplay(
+      [],
+      [
+        {
+          id: 22,
+          imageUrl: '/api/images/story-23.png',
+          prompt: 'another story',
+          shotNo: 1,
+          storyId: 23,
+          status: 'ready',
+        },
+      ],
+      33,
+    );
+
+    expect(images).toEqual([]);
   });
 });

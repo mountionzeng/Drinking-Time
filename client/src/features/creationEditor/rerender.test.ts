@@ -73,6 +73,7 @@ describe('creation editor rerender', () => {
       storyId: 7,
       shotNo: 2,
       styleHint: 'premium commercial film',
+      autoSelect: true,
     }));
     expect(generate.mock.calls[0][0].prompt).toContain('水彩');
   });

@@ -197,11 +197,20 @@ function generatedStatusLabel(status: GeneratedImageItem["status"]) {
 
 export function latestStoryboardFrames(
   images: GeneratedImageItem[],
-  _shots: readonly StoryShot[] = []
+  shots: readonly StoryShot[] = []
 ) {
+  const shotNoByIdentity = new Map(
+    shots.flatMap(shot => {
+      const identity = shot.stableShotId ?? shot.shotIdentity;
+      return identity ? [[identity, shot.shotNo] as const] : [];
+    })
+  );
   const byShotNo = new Map<number, GeneratedImageItem>();
   for (const image of images) {
-    const shotNo = parseShotNo(image.shotNo);
+    const shotNo =
+      (image.shotIdentity
+        ? shotNoByIdentity.get(image.shotIdentity)
+        : undefined) ?? parseShotNo(image.shotNo);
     if (!shotNo || image.status === "error" || !image.imageUrl) continue;
     const existing = byShotNo.get(shotNo);
     if (!existing || image.id > existing.id) byShotNo.set(shotNo, image);
@@ -414,6 +423,7 @@ export function StoryboardReviewBoard({
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
+  onAdoptVideoTake,
   shotVideoProviderStatus = null,
   className = "",
 }: {
@@ -443,8 +453,14 @@ export function StoryboardReviewBoard({
     prompt: string;
     subtitle?: string;
     durationSec?: number;
+    motion?: "low" | "high";
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  onAdoptVideoTake?: (input: {
+    stableShotId: string;
+    takeId: number;
+    plannedDurationSec: number;
+  }) => Promise<void>;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
   className?: string;
 }) {
@@ -692,7 +708,7 @@ export function StoryboardReviewBoard({
             };
             return (
               <article
-                key={shot.shotNo}
+                key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                 data-storyboard-shot-no={shot.shotNo}
                 className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
                 style={{
@@ -862,6 +878,7 @@ export function StoryboardReviewBoard({
                       generating={generatingVideoShotNo === creationShot.shotNo}
                       onGenerateShotVideo={onGenerateShotVideo}
                       onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                      onAdoptVideoTake={onAdoptVideoTake}
                       shotVideoProviderStatus={shotVideoProviderStatus}
                     />
                   ) : null}

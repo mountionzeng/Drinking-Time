@@ -68,7 +68,10 @@ export default function WorkspaceLayout({
             {/* Left: Chat anchor — always visible, fixed width */}
             <div
               className="h-full shrink-0 overflow-hidden border-r"
-              style={{ width: 320, minWidth: 240, maxWidth: 400, borderColor: 'var(--nayin-border)' }}
+              style={{
+                width: 'min(320px, 40vw)',
+                borderColor: 'var(--nayin-border)',
+              }}
             >
               {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
             </div>
@@ -77,27 +80,39 @@ export default function WorkspaceLayout({
             <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
               <div className="flex h-full" style={{ minWidth: 'min-content' }}>
                 {/* Story Cards — always visible */}
-                <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
+                <div
+                  className="h-full shrink-0 overflow-auto p-2"
+                  style={{ width: 'min(480px, 60vw)' }}
+                >
                   <StoryCardsBoard />
                 </div>
 
                 {/* Storyboard — toggle */}
                 {storyboardVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
+                  <div
+                    className="h-full shrink-0 overflow-auto p-2"
+                    style={{ width: 'min(480px, 60vw)' }}
+                  >
                     <StoryboardPanel />
                   </div>
                 ) : null}
 
                 {/* Animatic — toggle */}
                 {animaticVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
+                  <div
+                    className="h-full shrink-0 overflow-auto p-2"
+                    style={{ width: 'min(480px, 60vw)' }}
+                  >
                     <AnimaticPanel />
                   </div>
                 ) : null}
 
                 {/* Prompt Table — toggle */}
                 {promptTableVisible ? (
-                  <div className="h-full shrink-0 overflow-auto p-2" style={{ width: 480 }}>
+                  <div
+                    className="h-full shrink-0 overflow-auto p-2"
+                    style={{ width: 'min(480px, 60vw)' }}
+                  >
                     <PromptTablePanel />
                   </div>
                 ) : null}

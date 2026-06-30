@@ -1,4 +1,4 @@
-import { Film, ListPlus } from "lucide-react";
+import { Film, Library, ListPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   creationTimelineShotId,
@@ -7,6 +7,7 @@ import {
 } from "../CreationEditorContext";
 import AnimaticPlayer from "./AnimaticPlayer";
 import Timeline, { type TimelinePlaybackMode } from "./Timeline";
+import AnimaticMaterialDrawer from "./AnimaticMaterialDrawer";
 
 function shotLabel(shotNo: number | null) {
   return shotNo == null ? "未选镜头" : `SH${String(shotNo).padStart(2, "0")}`;
@@ -15,6 +16,7 @@ function shotLabel(shotNo: number | null) {
 export default function AnimaticPanel() {
   const {
     shots,
+    materialState,
     selectedShotNo,
     setSelectedShotNo,
     isLoading,
@@ -32,11 +34,17 @@ export default function AnimaticPanel() {
     selectVideoTimelineSegment,
     clearVideoTimelineSegment,
     shotVideoProviderStatus,
+    adoptVideoTake,
+    promoteStoryImage,
+    createDerivedShotDraft,
+    confirmDerivedShot,
+    undoStoryOperation,
   } = useCreationEditor();
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackMode, setPlaybackMode] =
     useState<TimelinePlaybackMode>("timeline");
   const [playbackResetKey, setPlaybackResetKey] = useState(0);
+  const [materialDrawerOpen, setMaterialDrawerOpen] = useState(false);
   const [durationsByShotNo, setDurationsByShotNo] = useState<
     Record<number, number>
   >({});
@@ -113,7 +121,7 @@ export default function AnimaticPanel() {
 
   return (
     <section
-      className="monitor-panel flex h-full min-h-0 flex-col overflow-hidden"
+      className="monitor-panel relative flex h-full min-h-0 flex-col overflow-hidden"
       aria-label="动态分镜"
       data-testid="analysis-animatic-panel"
     >
@@ -122,9 +130,20 @@ export default function AnimaticPanel() {
           <Film className="h-4 w-4 text-primary" />
           <h2 className="text-sm font-semibold">动态分镜</h2>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {shotLabel(selectedShotNo)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {shotLabel(selectedShotNo)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMaterialDrawerOpen(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+            aria-label="打开素材库"
+            title="素材库"
+          >
+            <Library className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
@@ -175,6 +194,9 @@ export default function AnimaticPanel() {
               onSelectVideoTimelineSegment={selectVideoTimelineSegment}
               onClearVideoTimelineSegment={clearVideoTimelineSegment}
               shotVideoProviderStatus={shotVideoProviderStatus}
+              onCreateDerivedShotDraft={createDerivedShotDraft}
+              onConfirmDerivedShot={confirmDerivedShot}
+              onUndoStoryOperation={undoStoryOperation}
             />
             <div className="shrink-0">
               <Timeline
@@ -204,6 +226,15 @@ export default function AnimaticPanel() {
           </>
         )}
       </div>
+      <AnimaticMaterialDrawer
+        open={materialDrawerOpen}
+        state={materialState}
+        selectedStableShotId={selectedTimelineId}
+        onClose={() => setMaterialDrawerOpen(false)}
+        onSelectShot={setSelectedShotNo}
+        onPromoteImage={promoteStoryImage}
+        onAdoptVideo={adoptVideoTake}
+      />
     </section>
   );
 }

@@ -159,3 +159,48 @@ export async function clearVideoTimelineSegment(
   if (!stableShotId) throw new Error("镜头缺少稳定身份");
   await clearVideoTimelineSelection(input.storyId, userId, stableShotId);
 }
+
+export async function adoptVideoTake(
+  input: {
+    storyId: number;
+    stableShotId: string;
+    takeId: number;
+    plannedDurationSec: number;
+  },
+  userId: number
+): Promise<{
+  range: VideoTakeRange;
+  selection: VideoTimelineSelection;
+}> {
+  const stableShotId = normalizeShotIdentity(input.stableShotId);
+  if (!stableShotId) throw new Error("镜头缺少稳定身份");
+  const take = await assertAvailableTake({
+    storyId: input.storyId,
+    userId,
+    takeId: input.takeId,
+    stableShotId,
+  });
+  const endSec = Math.max(
+    0.1,
+    Math.min(
+      Number.isFinite(input.plannedDurationSec)
+        ? input.plannedDurationSec
+        : 3,
+      take.durationSec ?? input.plannedDurationSec ?? 3
+    )
+  );
+  const result = await createUsableVideoRange(
+    {
+      storyId: input.storyId,
+      stableShotId,
+      takeId: take.id,
+      startSec: 0,
+      endSec,
+      label: "采用片段",
+      useOnTimeline: true,
+    },
+    userId
+  );
+  if (!result.selection) throw new Error("视频采用失败");
+  return { range: result.range, selection: result.selection };
+}

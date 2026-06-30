@@ -120,6 +120,22 @@ describe("projectImageAssets", () => {
     });
   });
 
+  it("删除当前版本后回退到最新的剩余图片", () => {
+    const assets = projectImageAssets({
+      images: [
+        image(1, "SH01", { isCurrent: false }),
+        image(2, "SH01", { isCurrent: false }),
+      ],
+      signals: [],
+      validShotNos: ["SH01"],
+    });
+
+    expect(assets.find(asset => asset.id === 2)).toMatchObject({
+      isPrimary: true,
+      selectionSource: "legacy",
+    });
+  });
+
   it("把美术依据、待归属和文件缺失状态保留在投影里", () => {
     const assets = projectImageAssets({
       images: [image(1, "ART-R1-1"), image(2, null), image(3, "7")],

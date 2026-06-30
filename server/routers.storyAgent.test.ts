@@ -85,6 +85,17 @@ const imageGenMocks = vi.hoisted(() => ({
 
 vi.mock("./services/imageGen", () => imageGenMocks);
 
+const imagePromptDirectorMocks = vi.hoisted(() => ({
+  directImagePrompt: vi.fn(async (input: { fallbackPrompt: string }) => ({
+    prompt: input.fallbackPrompt,
+    source: "deterministic-fallback" as const,
+    model: "test-image-director",
+    analysis: null,
+  })),
+}));
+
+vi.mock("./services/imagePromptDirector", () => imagePromptDirectorMocks);
+
 type AppRouter = typeof import("./routers").appRouter;
 
 let appRouter: AppRouter;
@@ -126,6 +137,14 @@ describe("storyAgent tRPC router", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    imagePromptDirectorMocks.directImagePrompt.mockImplementation(
+      async input => ({
+        prompt: input.fallbackPrompt,
+        source: "deterministic-fallback",
+        model: "test-image-director",
+        analysis: null,
+      }),
+    );
   });
 
   it("wraps chat with the archive Story Agent response shape", async () => {
@@ -575,6 +594,12 @@ describe("storyAgent tRPC router", () => {
   });
 
   it("setCharacterAnchor 后 generateForMobile 能经 U3 helper 注入人物锚点", async () => {
+    imagePromptDirectorMocks.directImagePrompt.mockResolvedValueOnce({
+      prompt: "A directed cinematic frame of the protagonist walking into rain.",
+      source: "302-vision",
+      model: "gpt-5.4-nano-2026-03-17",
+      analysis: null,
+    });
     imageGenMocks.editImage.mockResolvedValueOnce({
       status: "ok",
       imageUrl: "https://storage.example/generated/u6-anchor.png",
@@ -599,9 +624,16 @@ describe("storyAgent tRPC router", () => {
       prompt: "主角走进雨夜",
     });
 
+    expect(imagePromptDirectorMocks.directImagePrompt).toHaveBeenCalledOnce();
+    expect(imagePromptDirectorMocks.directImagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageInput: anchorUrl,
+        referencePurpose: "character",
+      }),
+    );
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       anchorUrl,
-      expect.stringContaining("主角走进雨夜"),
+      expect.stringContaining("A directed cinematic frame"),
       expect.objectContaining({
         characterRef: anchorUrl,
         characterWeight: 100,
@@ -797,7 +829,7 @@ describe("storyAgent tRPC router", () => {
         canonicalShotNo: "SH01",
         imageUrl: "https://storage.example/generated/mobile-text.png",
         generationType: "initial",
-        isCurrent: true,
+        isCurrent: false,
       }),
     ]);
   });
@@ -841,7 +873,7 @@ describe("storyAgent tRPC router", () => {
       canonicalShotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-draft.png",
       generationType: "generate",
-      isCurrent: true,
+      isCurrent: false,
     });
   });
 
@@ -1326,7 +1358,7 @@ describe("storyAgent tRPC router", () => {
       canonicalShotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-edit.png",
       generationType: "initial",
-      isCurrent: true,
+      isCurrent: false,
     });
   });
 
@@ -1471,7 +1503,7 @@ describe("storyAgent tRPC router", () => {
       canonicalShotNo: "SH01",
       imageUrl: "https://storage.example/generated/mobile-inpaint.png",
       generationType: "inpaint",
-      isCurrent: true,
+      isCurrent: false,
     });
   });
 

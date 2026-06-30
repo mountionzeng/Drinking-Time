@@ -74,6 +74,8 @@ function videoTake(
     userId: 1,
     stableShotId: 'shot-01',
     sourceImageId: 11,
+    promptCompilationId: null,
+    promptFreshness: 'legacy',
     status: 'available',
     taskId: null,
     provider: '302',
@@ -243,6 +245,63 @@ describe('creation editor route and shell', () => {
     expect(merged[0].downstreamStale).toBe(false);
   });
 
+  it('preserves a persisted stable shot identity when canonical spine fields are regenerated', () => {
+    const merged = mergeCanonicalStoryShots(
+      [shot(1, { stableShotId: undefined, shotIdentity: undefined })],
+      {
+        shots: [
+          shot(1, {
+            stableShotId: 'persisted-shot-one',
+            shotIdentity: 'persisted-shot-one',
+          }),
+        ],
+      },
+    );
+
+    expect(merged[0].stableShotId).toBe('persisted-shot-one');
+    expect(merged[0].shotIdentity).toBe('persisted-shot-one');
+  });
+
+  it('keeps persisted derived-shot order and assigns unique display numbers', () => {
+    const merged = mergeCanonicalStoryShots(
+      [
+        shot(1, {
+          stableShotId: 'shot-a',
+          shotIdentity: 'shot-a',
+        }),
+        shot(2, {
+          stableShotId: 'shot-b',
+          shotIdentity: 'shot-b',
+        }),
+      ],
+      {
+        shots: [
+          shot(1, {
+            stableShotId: 'shot-a',
+            shotIdentity: 'shot-a',
+          }),
+          shot(2, {
+            stableShotId: 'shot-derived',
+            shotIdentity: 'shot-derived',
+            subject: '派生镜头',
+          }),
+          shot(3, {
+            stableShotId: 'shot-b',
+            shotIdentity: 'shot-b',
+          }),
+        ],
+      },
+    );
+
+    expect(merged.map(item => item.stableShotId)).toEqual([
+      'shot-a',
+      'shot-derived',
+      'shot-b',
+    ]);
+    expect(merged.map(item => item.shotNo)).toEqual([1, 2, 3]);
+    expect(merged.map(item => item.shotKey)).toEqual(['SH01', 'SH02', 'SH03']);
+  });
+
   it('preserves a rerender prompt run when only the persisted prompt draft differs', () => {
     const currentShot = shot(6, {
       subject: '窗外或树',
@@ -276,16 +335,42 @@ describe('creation editor route and shell', () => {
     expect(mergeShotsWithImages(merged, [])[0].imageUrl).toBe('/api/images/sh06-rerender.png');
   });
 
-  it('does not attach shot-number images to stale downstream shots', () => {
+  it('keeps an explicitly selected image visible when only prompt metadata is stale', () => {
     const staleShot = shot(5, { downstreamStale: true });
     const freshShot = shot(6);
     const merged = mergeShotsWithImages([staleShot, freshShot], [
-      { id: 10, shotNo: 5, imageUrl: '/api/images/stale.png', prompt: 'old prompt' },
+      {
+        id: 10,
+        shotNo: 5,
+        imageUrl: '/api/images/selected.png',
+        prompt: 'old prompt',
+        status: 'selected',
+        selectionSource: 'explicit',
+        isPrimary: true,
+      },
       { id: 11, shotNo: 6, imageUrl: '/api/images/fresh.png', prompt: 'fresh prompt', isPrimary: true },
     ]);
 
-    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[0].imageUrl).toBe('/api/images/selected.png');
     expect(merged[1].imageUrl).toBe('/api/images/fresh.png');
+  });
+
+  it('does not use an identified image as a shot-number fallback for another duplicate shot', () => {
+    const merged = mergeShotsWithImages([
+      shot(2, { stableShotId: 'shot-two-a', shotIdentity: 'shot-two-a' }),
+      shot(2, { stableShotId: 'shot-two-b', shotIdentity: 'shot-two-b' }),
+    ], [
+      {
+        id: 12,
+        shotNo: 2,
+        shotIdentity: 'shot-two-b',
+        imageUrl: '/api/images/shot-two-b.png',
+        isPrimary: true,
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[1].imageUrl).toBe('/api/images/shot-two-b.png');
   });
 
   it('does not attach unbound pending drafts to the animatic fallback', () => {
@@ -439,7 +524,7 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageSelectionSource).toBe('explicit');
   });
 
-  it('keeps an available video as the selected take when a newer take failed', () => {
+  it('keeps an adopted available video selected when a newer take failed', () => {
     const merged = mergeShotsWithVideos([
       shot(1, {
         stableShotId: 'shot-01',
@@ -448,6 +533,8 @@ describe('creation editor route and shell', () => {
     ], [
       videoTake(1, {
         status: 'available',
+        isTimelineSelected: true,
+        selectedSelectionType: 'full_take',
         videoUrl: '/videos/old-current.mp4',
         createdAt: '2026-06-23T00:00:01.000Z',
       }),
@@ -461,7 +548,29 @@ describe('creation editor route and shell', () => {
 
     expect(merged[0].selectedVideoTake?.id).toBe(1);
     expect(merged[0].selectedVideoTake?.videoUrl).toBe('/videos/old-current.mp4');
-    expect(merged[0].videoTakes?.map(take => take.id)).toEqual([2, 1]);
+    expect(merged[0].videoTakes?.map(take => take.id)).toEqual([1, 2]);
+  });
+
+  it('does not let an unadopted available take replace the image fallback', () => {
+    const merged = mergeShotsWithVideos(
+      [
+        shot(1, {
+          stableShotId: 'shot-01',
+          shotIdentity: 'shot-01',
+          imageUrl: '/api/images/current.png',
+        }),
+      ],
+      [
+        videoTake(1, {
+          status: 'available',
+          videoUrl: '/videos/preview-only.mp4',
+          isTimelineSelected: false,
+        }),
+      ],
+    );
+
+    expect(merged[0].selectedVideoTake).toBeUndefined();
+    expect(merged[0].imageUrl).toBe('/api/images/current.png');
   });
 
   it('keeps duplicate shot numbers distinct on the edit timeline by stable shot id', () => {
@@ -475,6 +584,8 @@ describe('creation editor route and shell', () => {
           userId: 1,
           stableShotId: 'legacy-sh02-old',
           sourceImageId: 232,
+          promptCompilationId: null,
+          promptFreshness: 'legacy',
           status: 'available',
           taskId: null,
           provider: '302',

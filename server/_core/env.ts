@@ -75,6 +75,14 @@ export const ENV = {
   video302Motion: process.env.VIDEO_302_MOTION ?? "low",
   video302PollMs: process.env.VIDEO_302_POLL_MS ?? "3000",
   video302TimeoutMs: process.env.VIDEO_302_TIMEOUT_MS ?? "300000",
+  videoPrompt302Model:
+    process.env.VIDEO_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
+  videoPrompt302TimeoutMs:
+    process.env.VIDEO_PROMPT_302_TIMEOUT_MS ?? "30000",
+  imagePrompt302Model:
+    process.env.IMAGE_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
+  imagePrompt302TimeoutMs:
+    process.env.IMAGE_PROMPT_302_TIMEOUT_MS ?? "30000",
 
   // ── 302.ai 视觉分析（不填模型或 Key 时回退原视觉通道）──
   vision302ApiKey: process.env.VISION_302_API_KEY ?? process.env.API302_KEY ?? "", // 302.ai 视觉模型 API Key

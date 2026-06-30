@@ -26,10 +26,22 @@ import {
   canonicalizeShotNo,
   type ImageAsset,
 } from "../../shared/imageAsset";
+import {
+  ensureShotIdentities,
+  normalizeShotIdentity,
+} from "../../shared/shotIdentity";
 import type { SceneAnalysis } from "../../shared/sceneAnalysis";
 import { analyzeVisionReference } from "../archive/visionAgent";
 import { materializeImageInput } from "./imageAssets";
 import { collectShotImageReferences } from "./shotImageReferences";
+import {
+  directImagePrompt,
+  type ImageReferencePurpose,
+} from "./imagePromptDirector";
+import {
+  PromptLineageValidationError,
+  resolveGenerationPromptCompilation,
+} from "./promptLineage";
 
 // ── Types ──
 
@@ -410,6 +422,7 @@ export type GenerateNextImageInput = {
   projectId: number;
   storyId?: number | null;
   userId: number;
+  promptCompilationId?: number | null;
   /** 故事锁定配方或 defaultArtRecipe()，由路由层组合后传入。 */
   artDirection?: ArtRecipeDNA;
   imageProvider?: ImageProvider;
@@ -432,6 +445,72 @@ export type GenerateNextImageResult =
     }
   | { status: "error"; message: string };
 
+function numericShotNo(value?: string | null): number | undefined {
+  if (!value) return undefined;
+  const match = value.match(/\d+/);
+  const parsed = match ? Number(match[0]) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function storyTitleOf(story?: { body: unknown } | null): string | undefined {
+  if (!story?.body || typeof story.body !== "object") return undefined;
+  const body = story.body as Record<string, unknown>;
+  return typeof body.title === "string" ? body.title : undefined;
+}
+
+function stableShotIdForShot(params: {
+  story?: { body: unknown } | null;
+  assets?: ImageAsset[];
+  shotNo?: string | null;
+}): string | null {
+  const canonical = canonicalizeShotNo(params.shotNo);
+  if (!canonical) return null;
+  const assetMatch = (params.assets ?? []).find(
+    asset =>
+      asset.canonicalShotNo === canonical &&
+      normalizeShotIdentity(asset.shotIdentity),
+  );
+  if (assetMatch?.shotIdentity) {
+    return normalizeShotIdentity(assetMatch.shotIdentity);
+  }
+  if (!params.story?.body || typeof params.story.body !== "object") return null;
+  const body = params.story.body as Record<string, unknown>;
+  const shots = Array.isArray(body.shots)
+    ? ensureShotIdentities(
+        body.shots.filter(
+          (shot): shot is Record<string, unknown> =>
+            Boolean(shot) && typeof shot === "object" && !Array.isArray(shot),
+        ),
+      )
+    : [];
+  const match = shots.find(shot => {
+    const shotCanonical = canonicalizeShotNo(
+      (shot.shotNo ?? shot.shotKey) as string | number | null | undefined,
+    );
+    return shotCanonical === canonical;
+  });
+  return normalizeShotIdentity(match?.stableShotId) ?? null;
+}
+
+async function directPromptFromReference(input: {
+  imageInput: string;
+  fallbackPrompt: string;
+  narrativePrompt: string;
+  referencePurpose: ImageReferencePurpose;
+  shotNo?: string | null;
+  story?: { body: unknown } | null;
+}): Promise<string> {
+  const result = await directImagePrompt({
+    imageInput: input.imageInput,
+    fallbackPrompt: input.fallbackPrompt,
+    narrativePrompt: input.narrativePrompt,
+    referencePurpose: input.referencePurpose,
+    shotNo: numericShotNo(input.shotNo),
+    storyTitle: storyTitleOf(input.story),
+  });
+  return result.prompt;
+}
+
 /**
  * 确定性单图出图：供「画出来 / 再来一张」循环反复调用，**不经 LLM tool call**。
  * 与 chat 内的 generateImage 工具调用共用同一套 renderViaGate + 落库逻辑（见下方 chat 块复用）。
@@ -442,6 +521,29 @@ export async function generateNextImage(
 ): Promise<GenerateNextImageResult> {
   const targetShotNo = canonicalizeShotNo(input.shotNo) ?? input.shotNo;
   const assets = input.assets ?? [];
+  const stableShotId = stableShotIdForShot({
+    story: input.story,
+    assets,
+    shotNo: targetShotNo,
+  });
+  let promptCompilationId = input.promptCompilationId ?? null;
+  if (input.storyId != null && stableShotId) {
+    try {
+      const resolved = await resolveGenerationPromptCompilation({
+        storyId: input.storyId,
+        userId: input.userId,
+        stableShotId,
+        modality: "image",
+        expectedCompilationId: input.promptCompilationId,
+      });
+      promptCompilationId = resolved.compilationId;
+    } catch (error) {
+      if (error instanceof PromptLineageValidationError) {
+        return { status: "error", message: error.message };
+      }
+      throw error;
+    }
+  }
   const referencePlan = collectShotImageReferences({
     targetShotNo,
     assets,
@@ -460,6 +562,29 @@ export async function generateNextImage(
   const injection = input.story
     ? await deriveInjection(input.story, input.sceneAnalysis)
     : {};
+  let directedPrompt = renderPrompt;
+  const directorReference = continuitySource
+    ? {
+        imageInput: continuitySource,
+        referencePurpose: "current-frame" as const,
+      }
+    : referenceImages[0]
+      ? {
+          imageInput: await materializeImageInput(referenceImages[0]),
+          referencePurpose: injection.characterRef
+            ? ("character" as const)
+            : ("scene-style" as const),
+        }
+      : null;
+  if (directorReference) {
+    directedPrompt = await directPromptFromReference({
+      ...directorReference,
+      fallbackPrompt: renderPrompt,
+      narrativePrompt: input.prompt,
+      shotNo: targetShotNo,
+      story: input.story,
+    });
+  }
   const storyBody = input.story?.body as Record<string, unknown> | undefined;
   const styleIndex = typeof storyBody?.styleIndex === "number" ? storyBody.styleIndex : undefined;
 
@@ -467,7 +592,7 @@ export async function generateNextImage(
   try {
     genResult = await renderViaGate(
       {
-        prompt: renderPrompt,
+        prompt: directedPrompt,
         shotNo: targetShotNo,
         projectId: input.projectId,
         storyId: input.storyId ?? undefined,
@@ -505,9 +630,11 @@ export async function generateNextImage(
       storyId: input.storyId ?? null,
       userId: input.userId,
       shotNo: targetShotNo,
+      shotIdentity: stableShotId,
       imageKey: genResult.imageKey ?? null,
       imageUrl: genResult.imageUrl,
-      prompt: input.prompt,
+      prompt: directedPrompt,
+      promptCompilationId,
       parentImageId: continuityAsset?.id ?? null,
       isCurrent: true,
       generationType: "generate",
@@ -676,7 +803,32 @@ export async function replyFromCreationAgent(
       reply = appendReply(reply, "这张历史图的文件已经缺失，我不会假装能在原图上继续修改。");
     } else {
       try {
+        const stableShotId =
+          normalizeShotIdentity(asset.shotIdentity) ??
+          stableShotIdForShot({
+            story: input.story,
+            assets,
+            shotNo: targetShotNo ?? asset.canonicalShotNo,
+          });
+        let promptCompilationId: number | null = null;
+        if ((asset.storyId ?? input.storyId) != null && stableShotId) {
+          const resolved = await resolveGenerationPromptCompilation({
+            storyId: asset.storyId ?? input.storyId ?? 0,
+            userId: input.userId,
+            stableShotId,
+            modality: "image",
+          });
+          promptCompilationId = resolved.compilationId;
+        }
         const source = await materializeImageInput(asset.imageUrl);
+        const directedPrompt = await directPromptFromReference({
+          imageInput: source,
+          fallbackPrompt: reviseCall.prompt,
+          narrativePrompt: reviseCall.prompt,
+          referencePurpose: "current-frame",
+          shotNo: targetShotNo ?? asset.canonicalShotNo,
+          story: input.story,
+        });
         const referenceImages = Array.from(
           new Set([asset.imageUrl, ...(input.referenceImages ?? [])]),
         );
@@ -687,7 +839,7 @@ export async function replyFromCreationAgent(
         const reviseStyleIndex = typeof reviseStoryBody?.styleIndex === "number" ? reviseStoryBody.styleIndex : undefined;
         const revised = await renderViaGate<ImageGenResult>(
           {
-            prompt: reviseCall.prompt,
+            prompt: directedPrompt,
             intent: input.message,
             referenceImages,
             shotNo: targetShotNo ?? asset.canonicalShotNo ?? undefined,
@@ -707,9 +859,11 @@ export async function replyFromCreationAgent(
             storyId: asset.storyId ?? input.storyId ?? null,
             userId: input.userId,
             shotNo: targetShotNo ?? asset.canonicalShotNo,
+            shotIdentity: stableShotId,
             imageKey: revised.imageKey ?? null,
             imageUrl: revised.imageUrl,
-            prompt: reviseCall.prompt,
+            prompt: directedPrompt,
+            promptCompilationId,
             parentImageId: asset.id,
             isCurrent: true,
             generationType: "generate",

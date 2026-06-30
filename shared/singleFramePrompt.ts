@@ -32,7 +32,7 @@ const NEGATING_PREFIX_PATTERN =
 const MIDJOURNEY_PARAM_PATTERN = /\s--[a-z][a-z0-9-]*(?:\s|$)/i;
 
 export const SINGLE_FRAME_PROMPT_CONSTRAINT =
-  'Single-frame rule: compose one uninterrupted cinematic camera frame only. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image.';
+  'Single-frame rule: compose one uninterrupted cinematic camera frame only, a single continuous shot frame, not a storyboard sheet. Show one moment from one camera angle; no collage, no contact sheet, no inset thumbnails, no split-screen, no side-by-side layout, no storyboard grid, no comic panel, no poster board, no multiple moments in one image.';
 
 export const SINGLE_FRAME_HARD_CONSTRAINT =
   `${SINGLE_FRAME_PROMPT_CONSTRAINT} No captions, no readable text, no UI, no watermark. No black borders, no letterbox, no frame borders, no decorative frame. Absolutely no text of any language.`;

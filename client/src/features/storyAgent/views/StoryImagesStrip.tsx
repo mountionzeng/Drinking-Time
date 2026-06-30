@@ -8,6 +8,7 @@ type StoryImageAssetProjection = {
   imageUrl?: unknown;
   prompt?: unknown;
   shotNo?: unknown;
+  shotIdentity?: unknown;
   storyId?: unknown;
   status?: unknown;
   generationType?: unknown;
@@ -40,6 +41,8 @@ export function projectStoryImageAssetsForDisplay(
         imageUrl,
         prompt: typeof im.prompt === 'string' ? im.prompt : '',
         shotNo: parseShotNo(im.shotNo),
+        shotIdentity:
+          typeof im.shotIdentity === 'string' ? im.shotIdentity : undefined,
         storyId: imageStoryId,
         status: normalizeAssetStatus(im.status, im.generationType),
       },
@@ -50,10 +53,12 @@ export function projectStoryImageAssetsForDisplay(
 export function mergeStoryImagesForDisplay(
   serverImages: readonly GeneratedImageItem[],
   localImages: readonly GeneratedImageItem[],
+  activeStoryId?: number,
 ): GeneratedImageItem[] {
   const byId = new Map<number, GeneratedImageItem>();
   for (const img of serverImages) byId.set(img.id, img);
   for (const img of localImages) {
+    if (activeStoryId != null && img.storyId !== activeStoryId) continue;
     if (!img.imageUrl || img.status === 'error' || byId.has(img.id)) continue;
     byId.set(img.id, img);
   }
@@ -74,5 +79,5 @@ export function useStoryGeneratedImages(): GeneratedImageItem[] {
 
   const serverImages = projectStoryImageAssetsForDisplay(storyImagesQuery.data ?? [], storyId);
 
-  return mergeStoryImagesForDisplay(serverImages, storyImages);
+  return mergeStoryImagesForDisplay(serverImages, storyImages, storyId);
 }

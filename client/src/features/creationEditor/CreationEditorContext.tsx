@@ -14,6 +14,7 @@ import type {
   StoryCard,
   StoryShot,
 } from "@/features/storyAgent/types";
+import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
@@ -42,7 +43,12 @@ import type {
   VideoTakeAsset,
   VideoTakeStatus,
 } from "@shared/videoAsset";
-import { isVideoTakePlayable } from "@shared/videoAsset";
+import {
+  DEFAULT_TIMELINE_TRANSFORM,
+  type StoryMaterialState,
+  type StoryTimelineItem,
+} from "@shared/storyMaterial";
+import type { StoryPromptAggregate } from "@shared/promptLineage";
 
 export type CreationEditorStory = {
   id: number;
@@ -88,6 +94,9 @@ type CreationEditorContextValue = {
   activeStoryId: number | null;
   setActiveStoryId: (storyId: number | null) => void;
   activeStory: CreationEditorStory | null;
+  materialState: StoryMaterialState | null;
+  promptLineageMode: "legacy" | "lineage";
+  promptProjection: StoryPromptAggregate | null;
   shots: CreationEditorShot[];
   timelineShotIds: string[];
   addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
@@ -104,6 +113,11 @@ type CreationEditorContextValue = {
   promotingFrameCropShotNo: number | null;
   generatingVideoShotNo: number | null;
   updateShotDuration: (shotNo: number, durationMs: number) => Promise<void>;
+  updatePersistedShotField: (
+    stableShotId: string,
+    field: StoryShotEditableField,
+    value: string
+  ) => Promise<void>;
   updatePromptOverride: (
     shotNo: number,
     dimension: string,
@@ -127,12 +141,14 @@ type CreationEditorContextValue = {
     parentImageId?: number;
     quadrant?: FrameQuadrant;
   }) => Promise<{ imageId: number; imageUrl: string }>;
+  promoteStoryImage: (imageId: number) => Promise<void>;
   generateShotVideo: (input: {
     shotNo: number;
     imageId: number;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
+    motion?: "low" | "high";
   }) => Promise<{
     takeId: number;
     videoStatus: VideoTakeStatus;
@@ -141,6 +157,11 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
+  adoptVideoTake: (input: {
+    stableShotId: string;
+    takeId: number;
+    plannedDurationSec: number;
+  }) => Promise<void>;
   createVideoTakeRange: (input: {
     stableShotId: string;
     takeId: number;
@@ -156,6 +177,25 @@ type CreationEditorContextValue = {
     selectionType: "full_take" | "range";
   }) => Promise<void>;
   clearVideoTimelineSegment: (stableShotId: string) => Promise<void>;
+  createDerivedShotDraft: (input: {
+    sourceStableShotId: string;
+    sourceTakeId: number;
+    sourceTimeSec: number;
+    crop: { x: number; y: number; width: number; height: number };
+    fullFrameBase64: string;
+    cropBase64: string;
+    instruction?: string;
+    referenceRole: "person" | "scene" | "object" | "composition";
+  }) => Promise<{
+    draftId: number;
+    proposal: Record<string, unknown> | null;
+    images: Array<{ id: number; imageUrl: string }>;
+  }>;
+  confirmDerivedShot: (
+    draftId: number,
+    selectedImageId: number
+  ) => Promise<number>;
+  undoStoryOperation: (operationId: number) => Promise<void>;
   shotVideoProviderStatus: ShotVideoProviderStatus | null;
   refetch: () => void;
 };
@@ -467,6 +507,8 @@ function preserveEditorMetadata(
   persisted?: CreationEditorShot
 ): CreationEditorShot {
   if (!persisted) return canonical;
+  const stableIdentity =
+    shotIdentityFromShot(persisted) ?? shotIdentityFromShot(canonical);
   const sameStoryContent = SHOT_STORY_IDENTITY_FIELDS.every(
     field => (canonical[field] ?? "") === (persisted[field] ?? "")
   );
@@ -482,6 +524,8 @@ function preserveEditorMetadata(
   return {
     ...persisted,
     ...canonical,
+    stableShotId: stableIdentity ?? canonical.stableShotId,
+    shotIdentity: stableIdentity ?? canonical.shotIdentity,
     shotKey: persisted.shotKey || canonical.shotKey,
     durationMs:
       canonical.durationMs !== undefined
@@ -518,7 +562,7 @@ export function mergeCanonicalStoryShots(
   const persistedByShotNo = new Map(
     persistedShots.map(shot => [shot.shotNo, shot])
   );
-  return ensureShotIdentities(canonicalShots)
+  const canonicalResult = ensureShotIdentities(canonicalShots)
     .map((raw, index) => {
       const canonical = normalizeShot(raw, index);
       if (!canonical) return null;
@@ -527,8 +571,32 @@ export function mergeCanonicalStoryShots(
         persistedByShotNo.get(canonical.shotNo);
       return preserveEditorMetadata(canonical, persisted);
     })
-    .filter((shot): shot is CreationEditorShot => Boolean(shot))
-    .sort((left, right) => left.shotNo - right.shotNo);
+    .filter((shot): shot is CreationEditorShot => Boolean(shot));
+  const canonicalByIdentity = new Map(
+    canonicalResult
+      .map((shot, index) => [shotIdentityFromShot(shot, index), shot] as const)
+      .filter((entry): entry is [string, CreationEditorShot] =>
+        Boolean(entry[0])
+      )
+  );
+  const included = new Set<string>();
+  const ordered = persistedShots.map((persisted, index) => {
+    const identity = shotIdentityFromShot(persisted, index);
+    if (!identity) return persisted;
+    included.add(identity);
+    return canonicalByIdentity.get(identity) ?? persisted;
+  });
+  for (const canonical of canonicalResult) {
+    const identity = shotIdentityFromShot(canonical);
+    if (!identity || included.has(identity)) continue;
+    included.add(identity);
+    ordered.push(canonical);
+  }
+  return ensureShotIdentities(ordered).map((shot, index) => ({
+    ...shot,
+    shotNo: index + 1,
+    shotKey: shotKey(index + 1),
+  }));
 }
 
 export function normalizeStoryImages(
@@ -598,7 +666,12 @@ export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[]
 ): CreationEditorShot[] {
+  const shotNoCounts = new Map<number, number>();
+  for (const shot of shots) {
+    shotNoCounts.set(shot.shotNo, (shotNoCounts.get(shot.shotNo) ?? 0) + 1);
+  }
   const displayByShotNo = new Map<number, CreationEditorImage>();
+  const legacyDisplayByShotNo = new Map<number, CreationEditorImage>();
   const displayByIdentity = new Map<string, CreationEditorImage>();
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
@@ -616,6 +689,11 @@ export function mergeShotsWithImages(
       if (!previous || image.id >= previous.id)
         displayByShotNo.set(image.shotNo, image);
     }
+    if (!image.shotIdentity && image.shotNo != null) {
+      const previous = legacyDisplayByShotNo.get(image.shotNo);
+      if (!previous || image.id >= previous.id)
+        legacyDisplayByShotNo.set(image.shotNo, image);
+    }
   }
 
   return shots.map(shot => {
@@ -624,15 +702,21 @@ export function mergeShotsWithImages(
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
         : undefined;
-    const displayImage = shot.downstreamStale
-      ? undefined
-      : ((identity ? displayByIdentity.get(identity) : undefined) ??
-        displayByShotNo.get(shot.shotNo));
+    const matchedImage =
+      (identity ? displayByIdentity.get(identity) : undefined) ??
+      (shotNoCounts.get(shot.shotNo) === 1
+        ? displayByShotNo.get(shot.shotNo)
+        : legacyDisplayByShotNo.get(shot.shotNo));
     const explicitlySelectedImage =
-      displayImage?.selectionSource === "explicit" ||
-      displayImage?.status === "selected"
-        ? displayImage
+      matchedImage?.selectionSource === "explicit" ||
+      matchedImage?.status === "selected"
+        ? matchedImage
         : undefined;
+    // Story metadata becoming stale invalidates derived prompts, not a user's
+    // explicit material choice. Keep the selected image visible across panels.
+    const displayImage = shot.downstreamStale
+      ? explicitlySelectedImage
+      : matchedImage;
     const image = explicitlySelectedImage ?? promptRunImage ?? displayImage;
 
     if (explicitlySelectedImage) {
@@ -716,13 +800,10 @@ export function mergeShotsWithVideos(
     });
     if (takes.length === 0) return shot;
     const timelineTake = takes.find(take => take.isTimelineSelected);
-    const currentAvailableTake = takes.find(
-      take => isVideoTakePlayable(take.status) && Boolean(take.videoUrl)
-    );
     return {
       ...shot,
       videoTakes: takes,
-      selectedVideoTake: timelineTake ?? currentAvailableTake ?? takes[0],
+      selectedVideoTake: timelineTake,
     };
   });
 }
@@ -810,8 +891,6 @@ export function CreationEditorProvider({
   >(null);
   const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
-  const timelineStoryIdRef = useRef<number | null>(null);
-  const removedTimelineShotIdsRef = useRef<Set<string>>(new Set());
   const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
@@ -820,6 +899,8 @@ export function CreationEditorProvider({
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
+  const promoteStoryImageMut =
+    trpc.creationAgent.promoteStoryImage.useMutation();
   const generateShotVideoMut =
     trpc.creationAgent.generateShotVideo.useMutation();
   const refreshShotVideoStatusMut =
@@ -830,6 +911,19 @@ export function CreationEditorProvider({
     trpc.creationAgent.selectVideoTimelineSegment.useMutation();
   const clearVideoTimelineSegmentMut =
     trpc.creationAgent.clearVideoTimelineSegment.useMutation();
+  const adoptVideoTakeMut = trpc.creationAgent.adoptVideoTake.useMutation();
+  const updateStoryTimelineMut =
+    trpc.creationAgent.updateStoryTimeline.useMutation();
+  const createDerivationDraftMut =
+    trpc.creationAgent.createDerivationDraft.useMutation();
+  const analyzeDerivationDraftMut =
+    trpc.creationAgent.analyzeDerivationDraft.useMutation();
+  const generateDerivedCandidatesMut =
+    trpc.creationAgent.generateDerivedCandidates.useMutation();
+  const confirmDerivedShotMut =
+    trpc.creationAgent.confirmDerivedShot.useMutation();
+  const undoStoryOperationMut =
+    trpc.creationAgent.undoStoryOperation.useMutation();
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
   const spineRemoteStoryId = useStorySpine(state => state.remoteStoryId);
   const activeId = resolveCreationEditorActiveId({
@@ -861,6 +955,20 @@ export function CreationEditorProvider({
     }
   );
   const storyVideoAssetsQuery = trpc.storyAgent.storyVideoAssets.useQuery(
+    { storyId: activeId ?? 0 },
+    {
+      enabled: activeId != null,
+      refetchOnWindowFocus: false,
+    }
+  );
+  const storyMaterialQuery = trpc.storyAgent.storyMaterialState.useQuery(
+    { storyId: activeId ?? 0 },
+    {
+      enabled: activeId != null,
+      refetchOnWindowFocus: false,
+    }
+  );
+  const promptLineageQuery = trpc.promptLineage.getStoryProjection.useQuery(
     { storyId: activeId ?? 0 },
     {
       enabled: activeId != null,
@@ -908,44 +1016,84 @@ export function CreationEditorProvider({
   const shots = useMemo(() => {
     const body = storyQuery.data?.body;
     const storyShots = mergeCanonicalStoryShots(canonicalStoryShots, body);
-    const images = normalizeStoryImages(storyImagesQuery.data);
+    const materialImages = storyMaterialQuery.data?.shots.flatMap(shot =>
+      shot.currentImage ? [shot.currentImage] : []
+    );
+    const images = normalizeStoryImages(
+      materialImages ?? storyImagesQuery.data
+    );
     const withImages = mergeShotsWithImages(storyShots, images);
-    const videos = normalizeStoryVideoAssets(storyVideoAssetsQuery.data);
+    const materialVideos = storyMaterialQuery.data?.shots.flatMap(
+      shot => shot.videoTakes
+    );
+    const videos = normalizeStoryVideoAssets(
+      materialVideos ?? storyVideoAssetsQuery.data
+    );
     return mergeShotsWithVideos(withImages, videos);
   }, [
     canonicalStoryShots,
     storyImagesQuery.data,
+    storyMaterialQuery.data,
     storyQuery.data?.body,
     storyVideoAssetsQuery.data,
   ]);
 
   useEffect(() => {
-    const allShotIds = shots.map(creationTimelineShotId);
-    if (timelineStoryIdRef.current !== activeId) {
-      timelineStoryIdRef.current = activeId;
-      removedTimelineShotIdsRef.current.clear();
-      setTimelineShotIds(allShotIds);
-      return;
-    }
+    const items = storyMaterialQuery.data?.timeline.items;
+    const next = items
+      ? [...items]
+          .filter(item => item.included)
+          .sort((left, right) => left.position - right.position)
+          .map(item => item.stableShotId)
+      : shots.map(creationTimelineShotId);
+    setTimelineShotIds(current =>
+      next.length === current.length &&
+      next.every((shotId, index) => shotId === current[index])
+        ? current
+        : next
+    );
+  }, [shots, storyMaterialQuery.data?.timeline.items]);
 
-    const available = new Set(allShotIds);
-    setTimelineShotIds(current => {
-      const kept = current.filter(shotId => available.has(shotId));
-      const keptSet = new Set(kept);
-      const appended = allShotIds.filter(
-        shotId =>
-          !keptSet.has(shotId) && !removedTimelineShotIdsRef.current.has(shotId)
+  const timelineItems = useMemo<StoryTimelineItem[]>(
+    () =>
+      storyMaterialQuery.data?.timeline.items ??
+      shots.map((shot, position) => ({
+        stableShotId: creationTimelineShotId(shot),
+        included: true,
+        position,
+        plannedDurationMs: shot.durationMs ?? 3000,
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      })),
+    [shots, storyMaterialQuery.data?.timeline.items]
+  );
+
+  const saveTimelineItems = useCallback(
+    async (items: StoryTimelineItem[]) => {
+      if (activeId == null) return;
+      const previousIds = timelineShotIds;
+      const normalized = items.map((item, position) => ({
+        ...item,
+        position,
+      }));
+      setTimelineShotIds(
+        normalized.filter(item => item.included).map(item => item.stableShotId)
       );
-      const next = [...kept, ...appended];
-      if (
-        next.length === current.length &&
-        next.every((shotId, index) => shotId === current[index])
-      ) {
-        return current;
+      try {
+        const result = await updateStoryTimelineMut.mutateAsync({
+          storyId: activeId,
+          expectedVersion: storyMaterialQuery.data?.timeline.version ?? 0,
+          items: normalized,
+        });
+        if (result.status !== "ok") throw new Error(result.error);
+        await storyMaterialQuery.refetch();
+      } catch (error) {
+        setTimelineShotIds(previousIds);
+        await storyMaterialQuery.refetch();
+        console.warn("timeline save failed", error);
       }
-      return next;
-    });
-  }, [activeId, shots]);
+    },
+    [activeId, storyMaterialQuery, timelineShotIds, updateStoryTimelineMut]
+  );
 
   const addShotToTimeline = useCallback(
     (shotNo: number, stableShotId?: string | null) => {
@@ -955,23 +1103,35 @@ export function CreationEditorProvider({
           .map(creationTimelineShotId)
           .find((id, index) => shots[index]?.shotNo === shotNo);
       if (!shotId) return;
-      removedTimelineShotIdsRef.current.delete(shotId);
-      setTimelineShotIds(current =>
-        current.includes(shotId) ? current : [...current, shotId]
+      void saveTimelineItems(
+        timelineItems.map(item =>
+          item.stableShotId === shotId ? { ...item, included: true } : item
+        )
       );
     },
-    [shots]
+    [saveTimelineItems, shots, timelineItems]
   );
 
-  const removeShotFromTimeline = useCallback((shotId: string) => {
-    removedTimelineShotIdsRef.current.add(shotId);
-    setTimelineShotIds(current => current.filter(item => item !== shotId));
-  }, []);
+  const removeShotFromTimeline = useCallback(
+    (shotId: string) => {
+      void saveTimelineItems(
+        timelineItems.map(item =>
+          item.stableShotId === shotId ? { ...item, included: false } : item
+        )
+      );
+    },
+    [saveTimelineItems, timelineItems]
+  );
 
   const resetTimelineShots = useCallback(() => {
-    removedTimelineShotIdsRef.current.clear();
-    setTimelineShotIds(shots.map(creationTimelineShotId));
-  }, [shots]);
+    void saveTimelineItems(
+      timelineItems.map((item, position) => ({
+        ...item,
+        included: true,
+        position,
+      }))
+    );
+  }, [saveTimelineItems, timelineItems]);
 
   useEffect(() => {
     setSelectedShotNo(current => selectInitialShotNo(current, shots));
@@ -1009,6 +1169,30 @@ export function CreationEditorProvider({
     });
     await utils.storyAgent.storyGet.invalidate({ id: row.id });
     await storyQuery.refetch();
+  };
+
+  const updatePersistedShotField = async (
+    stableShotId: string,
+    field: StoryShotEditableField,
+    value: string
+  ) => {
+    const body =
+      storyQuery.data?.body &&
+      typeof storyQuery.data.body === "object" &&
+      !Array.isArray(storyQuery.data.body)
+        ? (storyQuery.data.body as Record<string, unknown>)
+        : {};
+    const source = Array.isArray(body.shots) ? body.shots : [];
+    let found = false;
+    const nextShots = source.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const shot = raw as Record<string, unknown>;
+      if (shotIdentityFromShot(shot, index) !== stableShotId) return raw;
+      found = true;
+      return { ...shot, [field]: value };
+    });
+    if (!found) throw new Error("镜头不存在或已经更新");
+    await persistBody({ ...body, shots: nextShots });
   };
 
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
@@ -1113,18 +1297,24 @@ export function CreationEditorProvider({
         rows,
         generate: input => generateForMobileMut.mutateAsync(input),
       });
-      const compiled = compilePromptRecipe({ shot, rows });
-      const body = writePromptRun(storyQuery.data?.body, shotNo, {
-        finalPrompt: result.prompt || compiled.finalPrompt,
-        generatedAt: Date.now(),
-        imageId: result.imageId,
-        imageUrl: result.imageUrl,
-        source: "prompt-table-rerender",
-        usedDimensions: compiled.usedDimensions,
-      });
-      await persistBody(body);
-      await storyImagesQuery.refetch();
-      await utils.storyAgent.storyImages.invalidate({ storyId: activeId });
+      if (promptLineageQuery.data?.mode !== "lineage") {
+        const compiled = compilePromptRecipe({ shot, rows });
+        const body = writePromptRun(storyQuery.data?.body, shotNo, {
+          finalPrompt: result.prompt || compiled.finalPrompt,
+          generatedAt: Date.now(),
+          imageId: result.imageId,
+          imageUrl: result.imageUrl,
+          source: "prompt-table-rerender",
+          usedDimensions: compiled.usedDimensions,
+        });
+        await persistBody(body);
+      }
+      await Promise.all([
+        storyImagesQuery.refetch(),
+        storyMaterialQuery.refetch(),
+        utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "图片生成失败";
       setRerenderError(message);
@@ -1151,12 +1341,29 @@ export function CreationEditorProvider({
       if (result.status !== "ok" || !result.imageUrl || !result.imageId) {
         throw new Error(result.error || "首帧保存失败");
       }
-      await storyImagesQuery.refetch();
-      await utils.storyAgent.storyImages.invalidate({ storyId: activeId });
+      await Promise.all([
+        storyImagesQuery.refetch(),
+        storyMaterialQuery.refetch(),
+        utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      ]);
       return { imageId: result.imageId, imageUrl: result.imageUrl };
     } finally {
       setPromotingFrameCropShotNo(null);
     }
+  };
+
+  const promoteStoryImage = async (imageId: number) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法选择图片");
+    const result = await promoteStoryImageMut.mutateAsync({
+      storyId: activeId,
+      imageId,
+    });
+    if (result.status !== "ok") throw new Error(result.error || "图片选择失败");
+    await Promise.all([
+      storyImagesQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
   };
 
   const generateShotVideo = async (input: {
@@ -1165,6 +1372,7 @@ export function CreationEditorProvider({
     prompt: string;
     subtitle?: string;
     durationSec?: number;
+    motion?: "low" | "high";
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
     setGeneratingVideoShotNo(input.shotNo);
@@ -1181,6 +1389,7 @@ export function CreationEditorProvider({
       }
       await storyVideoAssetsQuery.refetch();
       await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
+      await storyMaterialQuery.refetch();
       return {
         takeId: result.takeId,
         videoStatus: result.videoStatus,
@@ -1201,6 +1410,26 @@ export function CreationEditorProvider({
     }
     await storyVideoAssetsQuery.refetch();
     await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
+    await storyMaterialQuery.refetch();
+  };
+
+  const adoptVideoTakeForShot = async (input: {
+    stableShotId: string;
+    takeId: number;
+    plannedDurationSec: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法采用视频");
+    const result = await adoptVideoTakeMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "视频采用失败");
+    }
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
   };
 
   useEffect(() => {
@@ -1294,11 +1523,84 @@ export function CreationEditorProvider({
     await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
   };
 
+  const createDerivedShotDraft: CreationEditorContextValue["createDerivedShotDraft"] =
+    async input => {
+      if (activeId == null) throw new Error("故事尚未加载，无法派生镜头");
+      const created = await createDerivationDraftMut.mutateAsync({
+        storyId: activeId,
+        sourceStableShotId: input.sourceStableShotId,
+        sourceTakeId: input.sourceTakeId,
+        sourceTimeSec: input.sourceTimeSec,
+        crop: input.crop,
+        fullFrameBase64: input.fullFrameBase64,
+        cropBase64: input.cropBase64,
+        mimeType: "image/png",
+      });
+      if (created.status !== "ok") throw new Error(created.error);
+      const analyzed = await analyzeDerivationDraftMut.mutateAsync({
+        draftId: created.draft.id,
+        instruction: input.instruction,
+        referenceRole: input.referenceRole,
+      });
+      if (analyzed.status !== "ok") throw new Error(analyzed.error);
+      const generated = await generateDerivedCandidatesMut.mutateAsync({
+        draftId: created.draft.id,
+      });
+      if (generated.status !== "ok") throw new Error(generated.error);
+      const proposal =
+        analyzed.draft.proposal &&
+        typeof analyzed.draft.proposal === "object" &&
+        !Array.isArray(analyzed.draft.proposal)
+          ? (analyzed.draft.proposal as Record<string, unknown>)
+          : null;
+      return {
+        draftId: created.draft.id,
+        proposal,
+        images: generated.images,
+      };
+    };
+
+  const confirmDerivedShotFromDraft = async (
+    draftId: number,
+    selectedImageId: number
+  ) => {
+    const body = storyQuery.data?.body;
+    const expectedStoryRevision =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? Number((body as Record<string, unknown>)._revision) || 0
+        : 0;
+    const result = await confirmDerivedShotMut.mutateAsync({
+      draftId,
+      selectedImageId,
+      expectedStoryRevision,
+      expectedTimelineVersion: storyMaterialQuery.data?.timeline.version ?? 0,
+    });
+    if (result.status !== "ok") throw new Error(result.error);
+    await Promise.all([
+      storyQuery.refetch(),
+      storyImagesQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
+    return result.operationId;
+  };
+
+  const undoStoryOperation = async (operationId: number) => {
+    const result = await undoStoryOperationMut.mutateAsync({ operationId });
+    if (result.status !== "ok") throw new Error(result.error);
+    await Promise.all([
+      storyQuery.refetch(),
+      storyImagesQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
+  };
+
   const rawError =
     storyListQuery.error ??
     storyQuery.error ??
     storyImagesQuery.error ??
     storyVideoAssetsQuery.error ??
+    storyMaterialQuery.error ??
+    promptLineageQuery.error ??
     shotVideoProviderStatusQuery.error ??
     null;
   const error = rawError ? { message: rawError.message } : null;
@@ -1309,6 +1611,14 @@ export function CreationEditorProvider({
       activeStoryId: activeId,
       setActiveStoryId,
       activeStory,
+      materialState:
+        (storyMaterialQuery.data as StoryMaterialState | null | undefined) ??
+        null,
+      promptLineageMode: promptLineageQuery.data?.mode ?? "legacy",
+      promptProjection:
+        promptLineageQuery.data?.mode === "lineage"
+          ? promptLineageQuery.data.projection
+          : null,
       shots,
       timelineShotIds,
       addShotToTimeline,
@@ -1322,6 +1632,8 @@ export function CreationEditorProvider({
         storyQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
+        storyMaterialQuery.isLoading ||
+        promptLineageQuery.isLoading ||
         shotVideoProviderStatusQuery.isLoading,
       error,
       isSaving: storyUpsertMut.isPending,
@@ -1330,22 +1642,30 @@ export function CreationEditorProvider({
       promotingFrameCropShotNo,
       generatingVideoShotNo,
       updateShotDuration,
+      updatePersistedShotField,
       updatePromptOverride,
       ensurePromptShot,
       recordPromptRun,
       rerenderShot,
       promoteFrameCrop,
+      promoteStoryImage,
       generateShotVideo,
       refreshShotVideoStatus,
+      adoptVideoTake: adoptVideoTakeForShot,
       createVideoTakeRange,
       selectVideoTimelineSegment,
       clearVideoTimelineSegment,
+      createDerivedShotDraft,
+      confirmDerivedShot: confirmDerivedShotFromDraft,
+      undoStoryOperation,
       shotVideoProviderStatus: shotVideoProviderStatusQuery.data ?? null,
       refetch: () => {
         void storyListQuery.refetch();
         void storyQuery.refetch();
         void storyImagesQuery.refetch();
         void storyVideoAssetsQuery.refetch();
+        void storyMaterialQuery.refetch();
+        void promptLineageQuery.refetch();
         void shotVideoProviderStatusQuery.refetch();
       },
     }),
@@ -1369,6 +1689,8 @@ export function CreationEditorProvider({
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,
+      storyMaterialQuery,
+      promptLineageQuery,
       shotVideoProviderStatusQuery,
       storyListQuery,
       storyQuery,

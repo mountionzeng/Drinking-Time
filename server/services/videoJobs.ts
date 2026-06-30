@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import {
   createVideoTake,
   findVideoTakeByIdempotencyKey,
+  getStoryById,
   getVideoTakeById,
   updateVideoTake,
 } from "../db";
+import { ENV } from "../_core/env";
 import { getStoryImageAssets, materializeImageInput } from "./imageAssets";
 import {
   getShotVideoProviderStatus,
@@ -16,6 +18,16 @@ import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import type { VideoTakeStatus } from "../../shared/videoAsset";
 import type { VideoTake } from "../../drizzle/schema";
 import type { ImageAsset } from "../../shared/imageAsset";
+import { materializeVideoUrl } from "./videoMedia";
+import {
+  directVideoPrompt,
+  type VideoPromptDirectorResult,
+  type VideoPromptShotContext,
+} from "./videoPromptDirector";
+import {
+  PromptLineageValidationError,
+  resolveGenerationPromptCompilation,
+} from "./promptLineage";
 
 function hashParts(
   ...parts: Array<string | number | null | undefined>
@@ -74,17 +86,98 @@ function videoReferenceLabel(asset: ImageAsset): string {
   return `${shotLabel} image #${asset.id}${publicUrl}${prompt ? `；画面提示：${prompt}` : ""}`;
 }
 
+function storyVideoContext(
+  body: unknown,
+  stableShotId: string,
+  shotNo: number
+): {
+  currentShot?: VideoPromptShotContext;
+  previousShot?: VideoPromptShotContext;
+  nextShot?: VideoPromptShotContext;
+} {
+  const record =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const shots = Array.isArray(record.shots)
+    ? record.shots.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item)
+      )
+    : [];
+  const index = shots.findIndex((shot, candidateIndex) => {
+    const identity =
+      normalizeShotIdentity(shot.stableShotId) ??
+      normalizeShotIdentity(shot.shotIdentity) ??
+      normalizeShotIdentity(shot.shotKey);
+    if (identity) return identity === stableShotId;
+    const canonical = canonicalizeShotNo(
+      shot.shotNo as string | number | null | undefined
+    );
+    return canonical === `SH${String(shotNo).padStart(2, "0")}` ||
+      (!canonical && candidateIndex + 1 === shotNo);
+  });
+  if (index < 0) return {};
+
+  const context = (
+    shot: Record<string, unknown> | undefined
+  ): VideoPromptShotContext | undefined => {
+    if (!shot) return undefined;
+    const value = (key: string) =>
+      typeof shot[key] === "string" ? String(shot[key]).trim() : "";
+    return {
+      intent: value("intent"),
+      subject: value("subject"),
+      action: value("action"),
+      cameraMove: value("cameraMove"),
+      videoStart: value("videoStart"),
+      videoEnd: value("videoEnd"),
+      mood: value("mood") || value("emotion"),
+      dialogue: value("dialogue"),
+      transitionIn: value("transitionIn"),
+      transitionOut: value("transitionOut"),
+    };
+  };
+
+  return {
+    currentShot: context(shots[index]),
+    previousShot: context(shots[index - 1]),
+    nextShot: context(shots[index + 1]),
+  };
+}
+
 /**
  * 清洗 prompt 使其适合 MJ-Video API。
- * MJ-Video 只接受简短的英文/关键词 prompt，不接受中文长段落、
- * 多行文本、特殊字符、指令性内容。
+ * 首帧已经定义主体和美术风格，视频端只需要运动相关信息。把整份镜头设计、
+ * 台词和负面词一并提交，会增加 MJ 参数校验和内容审核误判的概率。
  */
 export function sanitizeVideoPrompt(raw: string): string {
-  let prompt = raw
+  const motionLabels = new Set([
+    "核心视频提示",
+    "动作",
+    "相机运动",
+    "起始画面",
+    "结束状态",
+    "接上一镜",
+    "接下一镜",
+  ]);
+  const motionLines = raw
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .flatMap(line => {
+      const match = line.match(/^([^：:]{1,20})[：:]\s*(.+)$/);
+      if (!match || !motionLabels.has(match[1].trim())) return [];
+      return [match[2].trim()];
+    });
+  const source = motionLines.length > 0 ? motionLines.join(", ") : raw;
+  let prompt = source
     .replace(/连续性参考[：:].*/g, "") // 去掉连续性参考指令行
     .replace(/前一镜参考图[：:].*/g, "") // 去掉前一镜参考
     .replace(/后一镜参考图[：:].*/g, "") // 去掉后一镜参考
     .replace(/画面提示[：:].*/g, "") // 去掉画面提示引用
+    .replace(/https?:\/\/\S+/gi, "") // MJ 会单独接收 image，不在 prompt 里重复 URL
+    .replace(/--[a-z][\w-]*(?:\s+\S+)?/gi, "") // 不接受用户注入 MJ 命令参数
     .replace(/[\r\n]+/g, ", ") // 换行 -> 逗号分隔
     .replace(/[，。；：！？、""''【】（）《》]/g, " ") // 中文标点 -> 空格
     .replace(/[""'']/g, " ") // 引号 -> 空格
@@ -92,11 +185,27 @@ export function sanitizeVideoPrompt(raw: string): string {
     .replace(/\s{2,}/g, " ") // 多个空格合并
     .replace(/^[,\s]+|[,\s]+$/g, "")
     .trim();
-  // 截断到 MJ-Video 友好长度（太长会被拒绝）
-  if (prompt.length > 500) {
-    prompt = prompt.slice(0, 500).trim();
+  if (prompt.length > 320) {
+    const head = prompt.slice(0, 320);
+    const boundary = Math.max(head.lastIndexOf(","), head.lastIndexOf(" "));
+    prompt = (boundary >= 240 ? head.slice(0, boundary) : head).trim();
   }
-  return prompt || "cinematic shot";
+  return (
+    prompt ||
+    "subtle natural motion, stable camera, preserve subject and composition"
+  );
+}
+
+export function explainVideoProviderError(message: string): string {
+  if (
+    message
+      .trim()
+      .toLowerCase()
+      .includes("prompt parameter error or image not approved")
+  ) {
+    return "302/MJ 未通过视频提示词或首帧审核。请简化动作描述；若仍失败，请更换当前主图后重试。";
+  }
+  return message;
 }
 
 function promptWithVideoReferences(params: {
@@ -130,6 +239,9 @@ function snapshot(input: {
   nextReference?: ImageAsset | null;
   durationSec: number;
   aspectRatio: string;
+  motion: "low" | "high";
+  taskId?: string | null;
+  promptDirector: VideoPromptDirectorResult;
 }) {
   const providerStatus = getShotVideoProviderStatus();
   return {
@@ -145,7 +257,16 @@ function snapshot(input: {
     submitPath: providerStatus.submitPath,
     pollPath: providerStatus.pollPath || undefined,
     imageField: providerStatus.imageField,
-    motion: providerStatus.motion,
+    motion: input.motion,
+    promptDirector: {
+      source: input.promptDirector.source,
+      model: input.promptDirector.model,
+      analysis: input.promptDirector.analysis,
+      fallbackReason: input.promptDirector.fallbackReason,
+    },
+    taskId: input.taskId ?? undefined,
+    generatedAt: new Date().toISOString(),
+    resultSelectionRule: "first-valid-url",
     submitUrl: input.submitUrl,
     submittedParameters: input.submittedParameters
       ? safeSubmittedParameters(input.submittedParameters)
@@ -163,6 +284,7 @@ export type StartShotVideoJobInput = {
   storyId: number;
   shotNo: number;
   stableShotId?: string | null;
+  promptCompilationId?: number | null;
   imageId: number;
   previousReferenceImageId?: number | null;
   nextReferenceImageId?: number | null;
@@ -170,6 +292,7 @@ export type StartShotVideoJobInput = {
   subtitle?: string;
   durationSec?: number;
   aspectRatio?: string;
+  motion?: "low" | "high";
 };
 
 export async function startShotVideoJob(
@@ -204,10 +327,27 @@ export async function startShotVideoJob(
   if (!stableShotId) {
     return { status: "error", error: "当前镜头缺少稳定身份，无法追踪视频任务" };
   }
+  let promptCompilationId = input.promptCompilationId ?? null;
+  try {
+    const resolved = await resolveGenerationPromptCompilation({
+      storyId: input.storyId,
+      userId,
+      stableShotId,
+      modality: "video",
+      expectedCompilationId: input.promptCompilationId,
+    });
+    promptCompilationId = resolved.compilationId;
+  } catch (error) {
+    if (error instanceof PromptLineageValidationError) {
+      return { status: "error", error: error.message };
+    }
+    throw error;
+  }
 
   const durationSec = input.durationSec ?? 5;
   const aspectRatio = input.aspectRatio ?? "16:9";
   const providerStatus = getShotVideoProviderStatus();
+  const motion = input.motion ?? providerStatus.motion;
   const previousReference = videoReferenceAsset(
     assets,
     input.previousReferenceImageId,
@@ -218,7 +358,7 @@ export async function startShotVideoJob(
     input.nextReferenceImageId,
     input.imageId
   );
-  const videoPrompt = promptWithVideoReferences({
+  const deterministicPrompt = promptWithVideoReferences({
     prompt: input.prompt,
     previousReference,
     nextReference,
@@ -228,13 +368,14 @@ export async function startShotVideoJob(
     input.storyId,
     stableShotId,
     input.imageId,
-    videoPrompt,
+    deterministicPrompt,
     input.subtitle,
     durationSec,
     aspectRatio,
     providerStatus.model,
     providerStatus.submitPath,
-    providerStatus.motion,
+    motion,
+    ENV.videoPrompt302Model,
     previousReference?.id,
     nextReference?.id
   );
@@ -243,13 +384,42 @@ export async function startShotVideoJob(
     userId,
     idempotencyKey
   );
-  if (existing) return { status: "ok", take: existing };
+  if (existing && existing.status !== "failed") {
+    return { status: "ok", take: existing };
+  }
+
+  const sourceImage = await materializeImageInput(asset.imageUrl);
+  const story = await getStoryById(input.storyId, userId);
+  const context = storyVideoContext(
+    story?.body,
+    stableShotId,
+    input.shotNo
+  );
+  const promptDirector = /\/mj\/submit\/video/.test(providerStatus.submitPath)
+    ? await directVideoPrompt({
+        imageInput: sourceImage,
+        fallbackPrompt: deterministicPrompt,
+        shotNo: input.shotNo,
+        draftPrompt: input.prompt,
+        subtitle: input.subtitle,
+        storyTitle: story?.title,
+        ...context,
+      })
+    : {
+        prompt: deterministicPrompt,
+        source: "deterministic-fallback" as const,
+        model: "",
+        analysis: null,
+        fallbackReason: "当前视频供应商不是 MJ-Video",
+      };
+  const videoPrompt = promptDirector.prompt;
 
   const take = await createVideoTake({
     storyId: input.storyId,
     userId,
     stableShotId,
     sourceImageId: input.imageId,
+    promptCompilationId,
     status: "submitted",
     provider: "302",
     model: providerStatus.model || "unconfigured",
@@ -263,33 +433,45 @@ export async function startShotVideoJob(
       nextReference,
       durationSec,
       aspectRatio,
+      motion,
+      promptDirector,
     }),
     idempotencyKey,
     extractionCapability: "unavailable",
   });
 
-  const sourceImage = await materializeImageInput(asset.imageUrl);
   const submitted = await submitShotVideo({
     prompt: videoPrompt,
     sourceImage,
     subtitle: input.subtitle,
     durationSec,
     aspectRatio,
+    motion,
   });
 
   if (submitted.status !== "ok") {
+    const error = explainVideoProviderError(submitted.message);
     const failed = await updateVideoTake(take.id, userId, {
       status: "failed",
-      errorMessage: submitted.message,
+      errorMessage: error,
       taskId: submitted.taskId ?? null,
     });
-    return { status: "error", error: submitted.message, take: failed ?? take };
+    return { status: "error", error, take: failed ?? take };
   }
 
+  const managed = submitted.videoUrl
+    ? await materializeVideoUrl(submitted.videoUrl, take.id)
+    : null;
   const updated = await updateVideoTake(take.id, userId, {
     status: submitted.videoUrl ? "available" : "processing",
     taskId: submitted.taskId ?? null,
-    videoUrl: submitted.videoUrl ?? null,
+    videoUrl:
+      managed?.status === "ok"
+        ? managed.videoUrl
+        : submitted.videoUrl ?? null,
+    videoKey: managed?.status === "ok" ? managed.videoKey : null,
+    extractionCapability:
+      managed?.status === "ok" ? "available" : "unavailable",
     parameterSnapshot: snapshot({
       submitUrl: submitted.submitUrl,
       submittedParameters: submitted.submittedParameters,
@@ -298,6 +480,9 @@ export async function startShotVideoJob(
       nextReference,
       durationSec,
       aspectRatio,
+      motion,
+      taskId: submitted.taskId,
+      promptDirector,
     }),
   });
 
@@ -323,9 +508,14 @@ export async function refreshVideoTakeStatus(
 
   const refreshed = await refreshShotVideoTask(take.taskId);
   if (refreshed.status === "available") {
+    const managed = await materializeVideoUrl(refreshed.videoUrl, take.id);
     const updated = await updateVideoTake(take.id, userId, {
       status: "available",
-      videoUrl: refreshed.videoUrl,
+      videoUrl:
+        managed.status === "ok" ? managed.videoUrl : refreshed.videoUrl,
+      videoKey: managed.status === "ok" ? managed.videoKey : null,
+      extractionCapability:
+        managed.status === "ok" ? "available" : "unavailable",
       errorMessage: null,
     });
     return { status: "ok", take: updated ?? take };
@@ -340,7 +530,7 @@ export async function refreshVideoTakeStatus(
 
   const updated = await updateVideoTake(take.id, userId, {
     status: statusForRefresh(refreshed.status),
-    errorMessage: refreshed.message,
+    errorMessage: explainVideoProviderError(refreshed.message),
   });
   return { status: "ok", take: updated ?? take };
 }

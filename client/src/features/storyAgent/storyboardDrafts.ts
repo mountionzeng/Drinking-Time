@@ -2,6 +2,12 @@ import type { StoryShot } from './types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { defaultArtRecipe, type ArtRecipeDNA } from '@shared/artDirection';
 import { SINGLE_FRAME_HARD_CONSTRAINT } from '@shared/singleFramePrompt';
+import {
+  type PromptContext,
+  type PromptPreviousShot,
+  buildUnifiedPrompt,
+} from '@shared/promptContext';
+import { buildContinuityHint } from '@shared/promptContinuity';
 
 export const STORYBOARD_DRAFT_SHOT_LIMIT = 3;
 const STORYBOARD_STYLE_TOKEN_LIMIT = 8;
@@ -96,25 +102,48 @@ export function pickStoryboardDraftShots(
   return Array.from(picked.values()).sort((left, right) => left.shotNo - right.shotNo);
 }
 
-export function buildStoryboardDraftPrompt(shot: StoryShot): string {
-  const fallbackPrompt = [
-    clean(shot.subject) ? `主体：${clean(shot.subject)}` : '',
-    clean(shot.action) ? `动作：${clean(shot.action)}` : '',
-    clean(shot.location) ? `场景：${clean(shot.location)}` : '',
-    clean(shot.mood) ? `氛围：${clean(shot.mood)}` : '',
-    clean(shot.styleRef) ? `风格：${clean(shot.styleRef)}` : '',
-  ].filter(Boolean).join('；');
+export function buildStoryboardDraftPrompt(
+  shot: StoryShot,
+  previousShot?: PromptPreviousShot,
+): string {
+  const ctx: PromptContext = {
+    shot: {
+      shotNo: shot.shotNo,
+      subject: clean(shot.subject),
+      action: clean(shot.action),
+      location: clean(shot.location),
+      timeLight: clean(shot.timeLight),
+      mood: clean(shot.mood),
+      styleRef: clean(shot.styleRef),
+      shotType: clean(shot.shotType),
+      cameraAngle: clean(shot.cameraAngle),
+      cameraMove: clean(shot.cameraMove),
+      beat: clean(shot.beat),
+      intent: clean(shot.intent),
+      rationale: clean(shot.rationale),
+      sourceCardContent: clean(shot.sourceCardContent),
+      negativePrompt: clean(shot.negativePrompt),
+      promptDraft: clean(shot.promptDraft),
+    },
+    story: { storyId: 0 },
+    previousShot,
+  };
 
-  return [
-    `Create exactly one cinematic key frame for SH${String(shot.shotNo).padStart(2, '0')}.`,
-    'This image belongs to the generated storyboard, but it must be a single continuous shot frame, not a storyboard sheet or poster.',
-    clean(shot.styleRef) ? `Shared visual framework for the whole film: ${clean(shot.styleRef)}` : '',
-    clean(shot.intent) ? `Director intent: ${clean(shot.intent)}` : '',
-    clean(shot.rationale) ? `Why this frame works: ${clean(shot.rationale)}` : '',
-    clean(shot.sourceCardContent) ? `Source Story Card: ${clean(shot.sourceCardContent)}` : '',
-    clean(shot.promptDraft) || fallbackPrompt,
-    `Hard constraints: ${SINGLE_FRAME_HARD_CONSTRAINT}`,
-  ].filter(Boolean).join('\n');
+  const base = buildUnifiedPrompt(ctx);
+
+  if (previousShot) {
+    const continuity = buildContinuityHint(previousShot, ctx.shot);
+    if (continuity) {
+      // 连续性提示插入在镜头内容之后、硬约束之前
+      const constraintIdx = base.indexOf('Single-frame rule:');
+      if (constraintIdx > 0) {
+        return base.slice(0, constraintIdx) + continuity + '\n' + base.slice(constraintIdx);
+      }
+      return base + '\n' + continuity;
+    }
+  }
+
+  return base;
 }
 
 export async function generateStoryboardDraftFrames(params: {
@@ -128,37 +157,51 @@ export async function generateStoryboardDraftFrames(params: {
 }> {
   const draftShots = pickStoryboardDraftShots(params.shots);
   const results = await Promise.all(
-    draftShots.map(async (shot): Promise<GeneratedImageItem | null> => {
-      const prompt = buildStoryboardDraftPrompt(shot);
-      try {
-        const result = await params.generate({
-          storyId: params.storyId,
-          shotNo: shot.shotNo,
-          prompt,
-          styleHint: clean(shot.styleRef) || undefined,
-          mode: 'draft',
-          sceneWeight: 0.5,
-        });
-        if (result.status !== 'ok' || !result.imageUrl || typeof result.imageId !== 'number') {
-          return null;
-        }
+    draftShots.map(async (shot, index) => {
+      const previous = draftShots[index - 1];
+      const previousShot: PromptPreviousShot | undefined = previous
+        ? {
+            shotNo: previous.shotNo,
+            finalPrompt: buildStoryboardDraftPrompt(previous),
+            subject: clean(previous.subject),
+            mood: clean(previous.mood),
+            location: clean(previous.location),
+            styleRef: clean(previous.styleRef),
+          }
+        : undefined;
+    const prompt = buildStoryboardDraftPrompt(shot, previousShot);
+    try {
+      const result = await params.generate({
+        storyId: params.storyId,
+        shotNo: shot.shotNo,
+        prompt,
+        styleHint: clean(shot.styleRef) || undefined,
+        mode: 'draft',
+        sceneWeight: 0.5,
+      });
+      if (result.status === 'ok' && result.imageUrl && typeof result.imageId === 'number') {
         return {
+          image: {
           id: result.imageId,
           imageUrl: result.imageUrl,
           prompt: result.prompt ?? prompt,
           shotNo: shot.shotNo,
           storyId: params.storyId,
           status: result.mode === 'draft' ? 'draft' : 'ready',
+          } satisfies GeneratedImageItem,
+          failed: false,
         };
-      } catch {
-        return null;
       }
-    }),
+      return { image: null, failed: true };
+    } catch {
+      return { image: null, failed: true };
+    }
+    })
   );
-  const images = results.filter((image): image is GeneratedImageItem => Boolean(image));
-  return {
-    images,
-    generatedCount: images.length,
-    failedCount: draftShots.length - images.length,
-  };
+
+  const images: GeneratedImageItem[] = results.flatMap(result =>
+    result.image ? [result.image] : []
+  );
+  const failedCount = results.filter(result => result.failed).length;
+  return { images, generatedCount: images.length, failedCount };
 }

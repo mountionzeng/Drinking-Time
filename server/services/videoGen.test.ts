@@ -16,6 +16,7 @@ const saved = {
   video302Motion: ENV.video302Motion,
   video302PollMs: ENV.video302PollMs,
   video302TimeoutMs: ENV.video302TimeoutMs,
+  videoPrompt302Model: ENV.videoPrompt302Model,
 };
 
 afterEach(() => {
@@ -28,6 +29,7 @@ afterEach(() => {
   ENV.video302Motion = saved.video302Motion;
   ENV.video302PollMs = saved.video302PollMs;
   ENV.video302TimeoutMs = saved.video302TimeoutMs;
+  ENV.videoPrompt302Model = saved.videoPrompt302Model;
 });
 
 describe("generateShotVideo", () => {
@@ -39,6 +41,7 @@ describe("generateShotVideo", () => {
     ENV.video302PollPath = "";
     ENV.video302ImageField = "";
     ENV.video302Motion = "high";
+    ENV.videoPrompt302Model = "gpt-5.4-nano-2026-03-17";
 
     expect(getShotVideoProviderStatus()).toEqual({
       provider: "302",
@@ -51,6 +54,8 @@ describe("generateShotVideo", () => {
       pollPath: "/mj/task/{taskId}/fetch",
       imageField: "image",
       motion: "high",
+      promptDirectorModel: "gpt-5.4-nano-2026-03-17",
+      promptDirectorReady: true,
     });
   });
 

@@ -11,6 +11,17 @@ const mocks = vi.hoisted(() => ({
   analyzeVisionReference: vi.fn(),
   materializeImageInput: vi.fn(async (url: string) => `data:image/png;base64,${url}`),
   deriveInjection: vi.fn(async () => ({})),
+  directImagePrompt: vi.fn(async (input: { fallbackPrompt: string }) => ({
+    prompt: input.fallbackPrompt,
+    source: "deterministic-fallback" as const,
+    model: "test-image-director",
+    analysis: null,
+  })),
+  resolveGenerationPromptCompilation: vi.fn(async () => ({
+    mode: "legacy" as const,
+    compilationId: null,
+    finalText: null,
+  })),
 }));
 
 vi.mock("../_core/env", () => ({
@@ -39,6 +50,13 @@ vi.mock("./imageAssets", () => ({
 }));
 vi.mock("./imageInjection", () => ({
   deriveInjection: mocks.deriveInjection,
+}));
+vi.mock("./imagePromptDirector", () => ({
+  directImagePrompt: mocks.directImagePrompt,
+}));
+vi.mock("./promptLineage", () => ({
+  PromptLineageValidationError: class PromptLineageValidationError extends Error {},
+  resolveGenerationPromptCompilation: mocks.resolveGenerationPromptCompilation,
 }));
 
 import { replyFromCreationAgent, generateNextImage } from "./creationAgent";
@@ -94,9 +112,20 @@ describe("replyFromCreationAgent image actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.deriveInjection.mockResolvedValue({});
+    mocks.directImagePrompt.mockImplementation(async input => ({
+      prompt: input.fallbackPrompt,
+      source: "deterministic-fallback",
+      model: "test-image-director",
+      analysis: null,
+    }));
     mocks.createGeneratedImage.mockResolvedValue({
       id: 13,
       imageUrl: "/api/images/13.png",
+    });
+    mocks.resolveGenerationPromptCompilation.mockResolvedValue({
+      mode: "legacy",
+      compilationId: null,
+      finalText: null,
     });
   });
 
@@ -125,6 +154,14 @@ describe("replyFromCreationAgent image actions", () => {
     const result = await replyFromCreationAgent(baseInput);
 
     expect(mocks.materializeImageInput).toHaveBeenCalledWith("/api/images/12.png");
+    expect(mocks.directImagePrompt).toHaveBeenCalledOnce();
+    expect(mocks.directImagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageInput: expect.stringContaining("data:image/png;base64,"),
+        referencePurpose: "current-frame",
+        narrativePrompt: "keep composition, subject looks away, brighter window",
+      }),
+    );
     expect(mocks.editImage).toHaveBeenCalledWith(
       expect.stringContaining("data:image/png;base64,"),
       "rendered prompt",
@@ -408,9 +445,20 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.deriveInjection.mockResolvedValue({});
+    mocks.directImagePrompt.mockImplementation(async input => ({
+      prompt: input.fallbackPrompt,
+      source: "deterministic-fallback",
+      model: "test-image-director",
+      analysis: null,
+    }));
     mocks.createGeneratedImage.mockResolvedValue({
       id: 21,
       imageUrl: "/api/images/21.png",
+    });
+    mocks.resolveGenerationPromptCompilation.mockResolvedValue({
+      mode: "legacy",
+      compilationId: null,
+      finalText: null,
     });
   });
 
@@ -502,6 +550,12 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
   });
 
   it("Edge case：焦点镜已有主图 → 用 editImage 做连续性参考", async () => {
+    mocks.directImagePrompt.mockResolvedValueOnce({
+      prompt: "302-directed image prompt",
+      source: "302-vision",
+      model: "gpt-5.4-nano-2026-03-17",
+      analysis: null,
+    });
     mocks.editImage.mockResolvedValue({
       status: "ok",
       imageUrl: "/api/images/21.png",
@@ -519,6 +573,17 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
 
     expect(result.status).toBe("ok");
     expect(mocks.materializeImageInput).toHaveBeenCalledWith("/api/images/12.png");
+    expect(mocks.directImagePrompt).toHaveBeenCalledOnce();
+    expect(mocks.directImagePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referencePurpose: "current-frame",
+        narrativePrompt: "another take",
+      }),
+    );
+    expect(renderViaGate).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "302-directed image prompt" }),
+      expect.any(Function),
+    );
     expect(mocks.editImage).toHaveBeenCalled();
     expect(mocks.generateImage).not.toHaveBeenCalled();
   });
@@ -597,5 +662,54 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
     expect(first.generatedImage.imageId).toBe(31);
     expect(second.generatedImage.imageId).toBe(32);
     expect(mocks.generateImage).toHaveBeenCalledTimes(2);
+  });
+
+  it("迁移后的故事会把稳定镜头身份和当前图片编译版本一起写入新图", async () => {
+    mocks.generateImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+    mocks.resolveGenerationPromptCompilation.mockResolvedValue({
+      mode: "lineage",
+      compilationId: 88,
+      finalText: "compiled image prompt",
+    });
+
+    const result = await generateNextImage({
+      prompt: "fallback prompt",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      story: {
+        body: {
+          shots: [
+            {
+              stableShotId: "shot-01",
+              shotIdentity: "shot-01",
+              shotNo: 1,
+              subject: "窗边的人",
+            },
+          ],
+        },
+      },
+      assets: [],
+    });
+
+    expect(result.status).toBe("ok");
+    expect(mocks.resolveGenerationPromptCompilation).toHaveBeenCalledWith({
+      storyId: 8,
+      userId: 9,
+      stableShotId: "shot-01",
+      modality: "image",
+      expectedCompilationId: undefined,
+    });
+    expect(mocks.createGeneratedImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shotIdentity: "shot-01",
+        promptCompilationId: 88,
+      }),
+    );
   });
 });

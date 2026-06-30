@@ -22,6 +22,8 @@ type PromptTableProps = {
   rows?: PromptRow[];
   disabled?: boolean;
   rerendering?: boolean;
+  applyLabel?: string;
+  rerenderStrategy?: 'apply-first' | 'confirmed-only';
   error?: string | null;
   onOverrideChange?: (
     shotNo: number,
@@ -173,6 +175,8 @@ export default function PromptTable({
   rows,
   disabled = false,
   rerendering = false,
+  applyLabel = '应用',
+  rerenderStrategy = 'apply-first',
   error = null,
   onOverrideChange,
   onRerenderShot,
@@ -240,11 +244,15 @@ export default function PromptTable({
   };
 
   const rerenderWithOverride = async (row: PromptRow, override: PromptOverride) => {
-    await onOverrideChange?.(shot.shotNo, row.dimension, override);
-    const nextRows = baseRows.map((candidate) =>
-      candidate.id === row.id ? rowWithOverride(candidate, override) : candidate,
-    );
-    await onRerenderShot?.(shot.shotNo, nextRows);
+    if (rerenderStrategy === 'apply-first') {
+      await onOverrideChange?.(shot.shotNo, row.dimension, override);
+      const nextRows = baseRows.map((candidate) =>
+        candidate.id === row.id ? rowWithOverride(candidate, override) : candidate,
+      );
+      await onRerenderShot?.(shot.shotNo, nextRows);
+      return;
+    }
+    await onRerenderShot?.(shot.shotNo, baseRows);
   };
 
   return (
@@ -427,6 +435,8 @@ export default function PromptTable({
                         row={row}
                         disabled={disabled}
                         rerendering={rerendering}
+                        applyLabel={applyLabel}
+                        disableRerenderWhenDirty={rerenderStrategy === 'confirmed-only'}
                         onApply={(override) => applyOverride(row, override)}
                         onRerender={(override) => rerenderWithOverride(row, override)}
                       />

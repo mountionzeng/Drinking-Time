@@ -49,7 +49,8 @@ function materialStatus(shot: CreationEditorShot) {
   const playableTake = shot.videoTakes?.find(
     take => Boolean(take.videoUrl) && videoTakeAffordance(take.status).canPlay
   );
-  if (playableTake) return "当前视频";
+  if (playableTake && shot.imageUrl) return "主图 · 视频待采用";
+  if (playableTake) return "视频待采用";
 
   const failedTake = shot.videoTakes?.find(take => take.status === "failed");
   if (shot.imageUrl && failedTake) return "主图兜底";

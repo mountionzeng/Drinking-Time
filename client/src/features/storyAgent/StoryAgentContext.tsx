@@ -941,7 +941,9 @@ export function StoryAgentProvider({
               shots: snapshot.storyShots,
               visualCanvasItems: canvasItems,
               visualPreference: preference,
-              mobileImages: latestState.storyImages,
+              mobileImages: latestState.storyImages.filter(
+                image => storyId == null || image.storyId === storyId,
+              ),
               imageProvider: selectedProvider,
               artDirection: selectedArtDirection,
               confirmedIntent: latestState.confirmedIntent,
@@ -1876,7 +1878,9 @@ export function StoryAgentProvider({
       const restoredVisualPreference =
         typeof body.visualPreference === 'string' ? body.visualPreference : '';
       const restoredMobileImages = Array.isArray(body.mobileImages)
-        ? (body.mobileImages as GeneratedImageItem[])
+        ? (body.mobileImages as GeneratedImageItem[]).filter(
+            image => image?.storyId === id && Boolean(image.imageUrl),
+          )
         : [];
       const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
       const restoredArtDirection = normalizeStoryArtDirection(body.artDirection);

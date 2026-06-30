@@ -218,10 +218,16 @@ async function buildEditPreferenceBlock(projectId: number): Promise<string | nul
  * @param render 实际生成器调用，接收（可能被美术判断改写过的）prompt，返回该生成器自己的结果
  * @returns      render 的返回值原样透传（泛型 R，保留各生成器自己的返回形）
  */
+const MJ_PROMPT_MAX_LENGTH = 3500;
+
 export async function renderViaGate<R>(
   ctx: RenderContext,
   render: (prompt: string) => Promise<R>,
 ): Promise<R> {
   const judged = await artJudge(ctx);
-  return render(judged.prompt);
+  // 最终截断：artJudge 可能追加大量内容，确保不超过 MJ 限制
+  const prompt = judged.prompt.length > MJ_PROMPT_MAX_LENGTH
+    ? judged.prompt.slice(0, MJ_PROMPT_MAX_LENGTH)
+    : judged.prompt;
+  return render(prompt);
 }

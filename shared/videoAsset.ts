@@ -41,6 +41,8 @@ export type VideoTakeAsset = {
   userId: number;
   stableShotId: string;
   sourceImageId: number | null;
+  promptCompilationId: number | null;
+  promptFreshness: "current" | "stale" | "legacy";
   status: VideoTakeStatus;
   taskId: string | null;
   provider: string;
@@ -60,6 +62,8 @@ export type VideoTakeAsset = {
   selectedRangeId: number | null;
   selectedSelectionType: VideoTimelineSelection["selectionType"] | null;
   isTimelineSelected: boolean;
+  isStale?: boolean;
+  staleReasons?: Array<"source_image" | "prompt">;
 };
 
 export type ShotVideoProviderStatus = {
@@ -73,6 +77,8 @@ export type ShotVideoProviderStatus = {
   pollPath: string;
   imageField: string;
   motion: "low" | "high";
+  promptDirectorModel: string;
+  promptDirectorReady: boolean;
 };
 
 export function isVideoTakeStatus(value: unknown): value is VideoTakeStatus {

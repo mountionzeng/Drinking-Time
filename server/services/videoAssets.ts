@@ -31,6 +31,14 @@ function safeSnapshot(value: unknown): Record<string, unknown> | null {
     "submitUrl",
     "submittedParameters",
     "sourceImageId",
+    "previousReferenceImageId",
+    "previousReferenceShotNo",
+    "nextReferenceImageId",
+    "nextReferenceShotNo",
+    "motion",
+    "taskId",
+    "generatedAt",
+    "resultSelectionRule",
   ]) {
     if (record[key] !== undefined) safe[key] = record[key];
   }
@@ -101,6 +109,8 @@ export async function getStoryVideoAssets(
       userId: take.userId,
       stableShotId: take.stableShotId,
       sourceImageId: take.sourceImageId,
+      promptCompilationId: take.promptCompilationId,
+      promptFreshness: "legacy",
       status: take.status,
       taskId: take.taskId,
       provider: take.provider,
@@ -121,6 +131,8 @@ export async function getStoryVideoAssets(
       selectedSelectionType:
         selection?.takeId === take.id ? selection.selectionType : null,
       isTimelineSelected: selection?.takeId === take.id,
+      isStale: false,
+      staleReasons: [],
     };
   });
 }

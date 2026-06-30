@@ -7,6 +7,7 @@ export type GenerateForMobileInput = {
   shotNo: number;
   prompt: string;
   styleHint?: string;
+  autoSelect?: boolean;
 };
 
 export type GenerateForMobileResult = {
@@ -34,6 +35,7 @@ export function createGenerateForMobileInput(params: {
     shotNo: params.shot.shotNo,
     prompt: buildRerenderPrompt({ shot: params.shot, rows: params.rows }),
     styleHint: params.shot.styleRef || undefined,
+    autoSelect: true,
   };
 }
 

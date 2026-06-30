@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
@@ -34,7 +35,10 @@ import {
   createGeneratedImage,
   getGeneratedImageById,
   createImageSignal,
+  promoteStoryImageToCurrent,
   reassignImage,
+  deleteGeneratedImage,
+  updateStoryTimeline as persistStoryTimeline,
 } from "./db";
 import { saveSnapshot, getRecentAnnotations } from "./services/editContext";
 import { getAlmanacDay } from "./services/almanac";
@@ -79,8 +83,17 @@ import { renderViaGate } from "./services/renderGate";
 import {
   getProjectImageAssets,
   getStoryImageAssets,
+  materializeImageInput,
 } from "./services/imageAssets";
 import { getStoryVideoAssets } from "./services/videoAssets";
+import { getStoryMaterialState } from "./services/storyMaterials";
+import {
+  analyzeDerivationDraft,
+  confirmDerivedShot,
+  createDerivationDraft,
+  generateDerivedCandidates,
+  undoDerivedShot,
+} from "./services/shotDerivation";
 import {
   refreshVideoTakeStatus,
   startShotVideoJob,
@@ -90,11 +103,14 @@ import {
   clearVideoTimelineSegment,
   createUsableVideoRange,
   selectVideoTimelineSegment,
+  adoptVideoTake,
 } from "./services/videoTimeline";
 import { buildScriptResonanceContextForUser } from "./services/scriptAgent";
 import { composeScenePrompt } from "./services/composeScenePrompt";
 import { withCharacterContinuityPrompt } from "./services/characterContinuity";
 import { deriveInjection } from "./services/imageInjection";
+import { synthesizeShotPrompt } from "./services/synthesizeShotPrompt";
+import { directImagePrompt } from "./services/imagePromptDirector";
 import { transcribeAudioBytes } from "./_core/voiceTranscription";
 import { analyzeArtReference, createArtRiff } from "./services/artAgent";
 import {
@@ -110,8 +126,42 @@ import {
 } from "./services/storySync";
 import { getActiveStyles } from "./services/styleLibrary";
 import { sceneAnalysisSchema } from "../shared/sceneAnalysis";
+import {
+  type PromptContext,
+  buildUnifiedPrompt,
+  promptHasStyleRef,
+} from "../shared/promptContext";
+import { migrateStoryPromptLineage } from "./services/promptLineageMigration";
+import {
+  confirmPromptCandidateForStory,
+  createPromptCandidateForStory,
+  getStoryPromptProjection,
+  previewPromptCandidateForStory,
+  rejectPromptCandidateForStory,
+  resolveGenerationPromptCompilation,
+  restorePromptRevisionForStory,
+} from "./services/promptLineage";
+import {
+  PromptLineageConflictError,
+  PromptLineageValidationError,
+} from "./services/promptLineageStore";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
+
+function storyPromptLineageBody(
+  story: Pick<StoryRow, "title" | "theme" | "arc" | "body">
+): Record<string, unknown> {
+  const body =
+    story.body && typeof story.body === "object"
+      ? { ...(story.body as Record<string, unknown>) }
+      : {};
+  return {
+    ...body,
+    title: story.title,
+    theme: story.theme,
+    arc: story.arc,
+  };
+}
 
 function shotIdentityForStoryShot(
   story: Pick<StoryRow, "body">,
@@ -136,6 +186,27 @@ function shotIdentityForStoryShot(
     }
   }
   return null;
+}
+
+async function resolveStoryImageCompilationId(params: {
+  story: Pick<StoryRow, "id" | "title" | "theme" | "arc" | "body">;
+  storyId: number;
+  userId: number;
+  shotIdentity: string | null;
+}): Promise<number | null> {
+  if (!params.shotIdentity) return null;
+  await migrateStoryPromptLineage({
+    storyId: params.story.id,
+    userId: params.userId,
+    body: storyPromptLineageBody(params.story),
+  });
+  const resolved = await resolveGenerationPromptCompilation({
+    storyId: params.storyId,
+    userId: params.userId,
+    stableShotId: params.shotIdentity,
+    modality: "image",
+  });
+  return resolved.compilationId;
 }
 
 export type ConfirmedScriptIntent = {
@@ -521,6 +592,35 @@ function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
 const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const emotionAnalysisPayloadSchema = z.record(z.string(), z.unknown());
 
+async function ensureStoryPromptLineage(storyId: number, userId: number) {
+  const story = await getStoryById(storyId, userId);
+  if (!story) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+  }
+  await migrateStoryPromptLineage({
+    storyId,
+    userId,
+    body: storyPromptLineageBody(story),
+  });
+}
+
+function throwPromptLineageError(error: unknown): never {
+  if (error instanceof PromptLineageConflictError) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: error.message,
+      cause: { currentVersion: error.currentVersion },
+    });
+  }
+  if (error instanceof PromptLineageValidationError) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error.message,
+    });
+  }
+  throw error;
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -533,6 +633,215 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  promptLineage: router({
+    getStoryProjection: protectedProcedure
+      .input(z.object({ storyId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+        }
+        await migrateStoryPromptLineage({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(story),
+        });
+        const refreshedProjection = await getStoryPromptProjection({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+        return refreshedProjection
+          ? { mode: "lineage" as const, projection: refreshedProjection }
+          : {
+              mode: "legacy" as const,
+              projection: null,
+              legacyBody: story.body,
+            };
+      }),
+
+    createCandidate: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          nodeId: z.number().int().positive(),
+          content: z.string().trim().min(1),
+          weight: z.number().min(0).max(1).optional(),
+          reason: z.string().trim().nullable().optional(),
+          authorType: z.enum(["user", "agent"]).default("user"),
+          expectedVersion: z.number().int().nonnegative(),
+          operationKey: z.string().trim().min(1).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await ensureStoryPromptLineage(input.storyId, ctx.user.id);
+          const result = await createPromptCandidateForStory({
+            ...input,
+            userId: ctx.user.id,
+            operationKey: input.operationKey ?? nanoid(),
+          });
+          return {
+            ...result,
+            projection: await getStoryPromptProjection({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    previewCandidate: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          candidateRevisionId: z.number().int().positive(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+        }
+        try {
+          return await previewPromptCandidateForStory({
+            ...input,
+            userId: ctx.user.id,
+          });
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    confirmCandidate: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          candidateRevisionId: z.number().int().positive(),
+          expectedVersion: z.number().int().nonnegative(),
+          operationKey: z.string().trim().min(1).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await confirmPromptCandidateForStory({
+            ...input,
+            userId: ctx.user.id,
+            operationKey: input.operationKey ?? nanoid(),
+          });
+          return {
+            ...result,
+            projection: await getStoryPromptProjection({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    rejectCandidate: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          candidateRevisionId: z.number().int().positive(),
+          expectedVersion: z.number().int().nonnegative(),
+          operationKey: z.string().trim().min(1).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await rejectPromptCandidateForStory({
+            ...input,
+            userId: ctx.user.id,
+            operationKey: input.operationKey ?? nanoid(),
+          });
+          return {
+            ...result,
+            projection: await getStoryPromptProjection({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    restoreRevision: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          revisionId: z.number().int().positive(),
+          expectedVersion: z.number().int().nonnegative(),
+          operationKey: z.string().trim().min(1).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await restorePromptRevisionForStory({
+            ...input,
+            userId: ctx.user.id,
+            operationKey: input.operationKey ?? nanoid(),
+          });
+          return {
+            ...result,
+            projection: await getStoryPromptProjection({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    listRevisionHistory: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          nodeId: z.number().int().positive(),
+          cursor: z.number().int().positive().optional(),
+          limit: z.number().int().min(1).max(100).default(20),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const projection = await getStoryPromptProjection({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+        if (!projection) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "故事提示词尚未迁移",
+          });
+        }
+        if (!projection.nodes.some(node => node.id === input.nodeId)) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "提示词节点不存在",
+          });
+        }
+        const items = projection.revisions
+          .filter(
+            revision =>
+              revision.nodeId === input.nodeId &&
+              (input.cursor == null || revision.id < input.cursor)
+          )
+          .sort((left, right) => right.id - left.id)
+          .slice(0, input.limit);
+        return {
+          items,
+          nextCursor:
+            items.length === input.limit
+              ? (items[items.length - 1]?.id ?? null)
+              : null,
+        };
+      }),
   }),
 
   voice: router({
@@ -1493,6 +1802,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               body: nextBody,
             });
             const saved = await getStoryById(input.id, ctx.user.id);
+            if (saved) {
+              await migrateStoryPromptLineage({
+                storyId: saved.id,
+                userId: ctx.user.id,
+                body: storyPromptLineageBody(saved),
+              });
+            }
             return saved
               ? composeStoryWorkspace(saved, ctx.user.id, syncConflict)
               : null;
@@ -1520,6 +1836,26 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             revision
           ),
         });
+        try {
+          await migrateStoryPromptLineage({
+            storyId: newId,
+            userId: ctx.user.id,
+            source: "initial",
+            body: {
+              ...(input.body ?? {
+                cards: [],
+                characters: [],
+                shots: [],
+              }),
+              title,
+              theme: input.theme ?? null,
+              arc: input.arc ?? null,
+            },
+          });
+        } catch (error) {
+          await deleteStory(newId, ctx.user.id);
+          throw error;
+        }
         const saved = await getStoryById(newId, ctx.user.id);
         return saved ? composeStoryWorkspace(saved, ctx.user.id) : null;
       }),
@@ -1690,6 +2026,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 双轨出图：draft = 秒级小样（flux-schnell，确认构图用）；
           // final / 缺省 = MJ 正式版。draft 轨必须快，失败时快速返回，避免偷偷拖到正式轨。
           mode: z.enum(["draft", "final"]).optional(),
+          // 镜头设计表重渲成功后直接成为该镜头当前版本。
+          autoSelect: z.boolean().optional(),
           draftImageId: z.number().optional(), // 确认出正式版时关联草稿图，落库 parentImageId
           // 镜头内容提示：选中卡片的具体内容（content + 感官细节），作为画面主体来源。
           // 缺失时退回从对话历史猜（旧行为）。这是「画对镜头内容」的关键入口。
@@ -1713,12 +2051,21 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             };
           }
 
-          // prompt 缺失（手动「画出来」按钮）→ 用最近对话现编一条英文出图 prompt
-          // cardHint（镜头内容）作为画面主体，比对话历史更精准；styleHint（锁定画风）稳定附加。
+          const storyBody =
+            story.body && typeof story.body === "object"
+              ? (story.body as Record<string, unknown>)
+              : {};
+
+          // ── prompt 构建阶段 ──
+          // 三条路径的初始 prompt：
+          //   Path 1/3: 客户端已构建结构化 prompt，传入 input.prompt
+          //   Path 2A:  LLM 写好的 imagePrompt，传入 input.prompt
+          //   Path 2B:  没有 prompt，服务端从对话现编
           let prompt = input.prompt?.trim() ?? "";
           let styleHintApplied = false;
           let sceneIntent: string | undefined;
           let sceneRationale: string | undefined;
+
           if (!prompt && input.sceneAnalysis) {
             const scenePrompt = composeScenePrompt(input.sceneAnalysis, {
               styleHint: input.styleHint,
@@ -1728,31 +2075,216 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             sceneRationale = scenePrompt.rationale;
             styleHintApplied = Boolean(input.styleHint?.trim());
           }
+
+          // Path 2B: 没有结构化镜头信息时才从对话现编
           if (!prompt) {
+            const storyTitle =
+              typeof storyBody.title === "string" ? storyBody.title : undefined;
+            const artDirection = normalizeStoryArtDirection(
+              storyBody.artDirection
+            );
+            const artStyleTokens = artDirection.recipe?.style?.join(", ");
             prompt = await deriveMobileImagePrompt({
               history: input.history,
               cardHint: input.cardHint,
+              storyTheme: storyTitle,
+              artStyle: input.styleHint?.trim() || artStyleTokens,
             });
           }
+
           if (!prompt) {
             return {
               status: "error" as const,
               error: "还没聊到能画的内容，多说两句再点「画出来」？",
             };
           }
-          const storyBody =
-            story.body && typeof story.body === "object"
-              ? (story.body as Record<string, unknown>)
-              : {};
-          // 风格锁：把用户锁定的画风稳定追加到 prompt 末尾，避免每次漂移
-          if (input.styleHint?.trim() && !styleHintApplied) {
-            prompt = `${prompt}, art style: ${input.styleHint.trim()}`;
+
+          // ── LLM 理解阶段：消化镜头意图，重写为有画面感的 prompt ──
+          // 有 sceneAnalysis（Path 2）或有 shotNo + story shots（Path 1/3）时，
+          // 用 LLM 理解镜头意图后重写 prompt。不是字段拼接，是让 AI 理解
+          // "这个镜头要交代什么、用户想表达什么"后输出画面描述。
+          const artDirection = normalizeStoryArtDirection(
+            storyBody.artDirection
+          );
+          const characters = Array.isArray(storyBody.characters)
+            ? (
+                storyBody.characters as Array<{
+                  name?: string;
+                  description?: string;
+                  oneLiner?: string;
+                  role?: string;
+                }>
+              )
+                .slice(0, 3)
+                .map(c => ({
+                  name: c.name ?? "",
+                  description: c.description ?? c.oneLiner ?? c.role,
+                }))
+            : undefined;
+
+          // 尝试从 story body 的 shots 数组中找到当前镜头的结构化数据
+          const storyShots = Array.isArray(storyBody.shots)
+            ? storyBody.shots
+            : [];
+          const storyShot =
+            input.shotNo != null
+              ? (storyShots.find(
+                  (s: Record<string, unknown>) => s.shotNo === input.shotNo
+                ) as Record<string, unknown> | undefined)
+              : undefined;
+
+          // 构建 synthesize 输入：优先 sceneAnalysis > storyShot > 原始 prompt
+          const synthesizeCtx:
+            | import("../shared/promptContext").PromptShotMeta
+            | null = input.sceneAnalysis
+            ? {
+                shotNo: input.shotNo ?? 0,
+                subject: input.sceneAnalysis.subjectDescription,
+                action: input.sceneAnalysis.action,
+                mood: input.sceneAnalysis.emotion,
+                styleRef: input.styleHint?.trim(),
+                intent: input.sceneAnalysis.intent ?? undefined,
+                rationale: input.sceneAnalysis.rationale ?? undefined,
+                sourceCardContent: input.cardHint,
+              }
+            : storyShot
+              ? {
+                  shotNo: input.shotNo ?? 0,
+                  subject:
+                    typeof storyShot.subject === "string"
+                      ? storyShot.subject
+                      : undefined,
+                  action:
+                    typeof storyShot.action === "string"
+                      ? storyShot.action
+                      : undefined,
+                  location:
+                    typeof storyShot.location === "string"
+                      ? storyShot.location
+                      : undefined,
+                  timeLight:
+                    typeof storyShot.timeLight === "string"
+                      ? storyShot.timeLight
+                      : undefined,
+                  mood:
+                    typeof storyShot.mood === "string"
+                      ? storyShot.mood
+                      : undefined,
+                  styleRef:
+                    input.styleHint?.trim() ||
+                    (typeof storyShot.styleRef === "string"
+                      ? storyShot.styleRef
+                      : undefined),
+                  shotType:
+                    typeof storyShot.shotType === "string"
+                      ? storyShot.shotType
+                      : undefined,
+                  cameraAngle:
+                    typeof storyShot.cameraAngle === "string"
+                      ? storyShot.cameraAngle
+                      : undefined,
+                  cameraMove:
+                    typeof storyShot.cameraMove === "string"
+                      ? storyShot.cameraMove
+                      : undefined,
+                  beat:
+                    typeof storyShot.beat === "string"
+                      ? storyShot.beat
+                      : undefined,
+                  intent:
+                    typeof storyShot.intent === "string"
+                      ? storyShot.intent
+                      : undefined,
+                  rationale:
+                    typeof storyShot.rationale === "string"
+                      ? storyShot.rationale
+                      : undefined,
+                  sourceCardContent:
+                    typeof storyShot.sourceCardContent === "string"
+                      ? storyShot.sourceCardContent
+                      : undefined,
+                  promptDraft:
+                    typeof storyShot.promptDraft === "string"
+                      ? storyShot.promptDraft
+                      : undefined,
+                }
+              : null;
+
+          const promptShotForCompile = synthesizeCtx
+            ? input.sceneAnalysis
+              ? {
+                  ...synthesizeCtx,
+                  intent: undefined,
+                  rationale: undefined,
+                }
+              : synthesizeCtx
+            : null;
+          const promptContext: PromptContext | null = promptShotForCompile
+            ? {
+                shot: promptShotForCompile,
+                story: {
+                  storyId: input.storyId,
+                  storyTitle:
+                    typeof storyBody.title === "string"
+                      ? storyBody.title
+                      : undefined,
+                },
+                artDirection: {
+                  recipe: artDirection.recipe ?? undefined,
+                },
+                characters,
+                freeTextPrompt: prompt,
+                mode: input.mode,
+              }
+            : null;
+
+          if (
+            promptContext &&
+            ENV.forgeApiKey &&
+            !process.env.VITEST &&
+            process.env.NODE_ENV !== "test"
+          ) {
+            try {
+              const synthesized = await synthesizeShotPrompt({
+                ctx: promptContext,
+                history: input.history,
+                initialPrompt: prompt,
+                previousPrompt: undefined,
+              });
+              if (synthesized && synthesized.length > 30) {
+                prompt = buildUnifiedPrompt({
+                  ...promptContext,
+                  freeTextPrompt: synthesized,
+                });
+                console.log(
+                  `[generateForMobile] LLM synthesized prompt: ${synthesized.length} chars`
+                );
+              }
+            } catch (err) {
+              console.warn(
+                "[synthesizeShotPrompt] failed, using original prompt:",
+                err instanceof Error ? err.message : err
+              );
+            }
+          } else if (promptContext) {
+            prompt = buildUnifiedPrompt(promptContext);
           }
 
-          // 出图统一经美术网关：故事锁定的美术 DNA（artDirection）+ 参考图一起喂给
-          // artJudge；用户照片优先做 image-to-image 基底，没有就用故事的美术参考图。
+          // 风格锁：如果 prompt 里还没有风格描述，追加 styleHint
+          if (input.styleHint?.trim() && !styleHintApplied) {
+            const hasStyle =
+              prompt.includes("Shared visual framework") ||
+              prompt.includes("Art style") ||
+              prompt.includes("art style") ||
+              prompt.includes("visual style") ||
+              prompt.includes("Style reference");
+            if (!hasStyle) {
+              prompt = `${prompt}\nArt style: ${input.styleHint.trim()}`;
+            }
+          }
+
+          // 出图统一经美术网关
           const storyReferences = storyArtReferenceImages(story);
-          // 主角参照（跨镜头锁人物+场景）：取 role:'character' 的参考图（通常是已收下的镜头图）。
           const direction = normalizeStoryArtDirection(storyBody.artDirection);
           const rawCharacterRef = characterReferenceOf(direction);
           prompt = withCharacterContinuityPrompt(prompt, storyBody, {
@@ -1763,6 +2295,33 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
           const referenceImage =
             input.originalImageUrl || rawCharacterRef || storyReferences[0];
+          if (referenceImage) {
+            try {
+              const referencePurpose = input.originalImageUrl
+                ? "current-frame"
+                : rawCharacterRef
+                  ? "character"
+                  : "scene-style";
+              const imageInput = await materializeImageInput(referenceImage);
+              const directed = await directImagePrompt({
+                imageInput,
+                fallbackPrompt: prompt,
+                narrativePrompt: prompt,
+                referencePurpose,
+                shotNo: input.shotNo,
+                storyTitle:
+                  typeof storyBody.title === "string"
+                    ? storyBody.title
+                    : undefined,
+              });
+              prompt = directed.prompt;
+            } catch (error) {
+              console.warn(
+                "[generateForMobile] image prompt director failed, using existing prompt:",
+                error instanceof Error ? error.message : error
+              );
+            }
+          }
           const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
           const gateContext = {
             prompt,
@@ -1781,6 +2340,16 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
           const imageWeight = input.sceneWeight ?? 0.5;
           const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
+          const promptCompilationId = await resolveStoryImageCompilationId({
+            story,
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            shotIdentity,
+          });
+
+          console.log(
+            `[generateForMobile] prompt length: ${prompt.length} chars, mode: ${input.mode ?? "final"}`
+          );
 
           // 快轨：复制旧版 7b7d9bf 的 flux-schnell 草稿小样，先让弹窗快速返回单张图。
           // 失败（额度/网络/网关不支持）自动回落到下面的 MJ 正式轨，用户无感知。
@@ -1800,8 +2369,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
                 imageKey: draft.imageKey ?? null,
                 imageUrl: draft.imageUrl,
                 prompt: renderedDraftPrompt,
+                promptCompilationId,
                 generationType: "generate", // 草稿小样；确认后由 final 轨出 MJ 正式版
-                isCurrent: true,
+                isCurrent: false,
               });
               return {
                 status: "ok" as const,
@@ -1825,6 +2395,9 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           let renderedFinalPrompt = prompt;
           const result = await renderViaGate(gateContext, renderedPrompt => {
             renderedFinalPrompt = renderedPrompt;
+            console.log(
+              `[generateForMobile] final prompt after gate: ${renderedPrompt.length} chars`
+            );
             return referenceImage
               ? editMobileImage(referenceImage, renderedPrompt, {
                   provider: input.imageProvider,
@@ -1852,9 +2425,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt: renderedFinalPrompt,
+            promptCompilationId,
             generationType: "initial",
             parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
-            isCurrent: true,
+            isCurrent: false,
           });
           return {
             status: "ok" as const,
@@ -1924,6 +2498,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           }
           // shotNo 转为字符串
           const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
+          const promptCompilationId = await resolveStoryImageCompilationId({
+            story,
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            shotIdentity,
+          });
           const image = await createGeneratedImage({
             projectId: story.projectId ?? null,
             storyId: input.storyId,
@@ -1933,9 +2513,10 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             imageKey: result.imageKey ?? null,
             imageUrl: result.imageUrl,
             prompt: input.prompt,
+            promptCompilationId,
             generationType: "inpaint",
             parentImageId: input.parentImageId ?? null,
-            isCurrent: true,
+            isCurrent: false,
           });
           return {
             status: "ok" as const,
@@ -1976,6 +2557,18 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           ) {
             return { status: "error" as const, error: "图片不存在或无权操作" };
           }
+        }
+        if (input.action === "swipe_right" && input.imageId != null) {
+          const promoted = await promoteStoryImageToCurrent({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: input.imageId,
+            metadata: input.metadata ?? null,
+          });
+          if (!promoted) {
+            return { status: "error" as const, error: "图片不存在或无权操作" };
+          }
+          return { id: promoted.signal.id };
         }
         const signal = await createImageSignal({
           userId: ctx.user.id,
@@ -2019,10 +2612,101 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           }));
       }),
 
+    // deleteShotImage: 删除某张图片，释放 primary 给下一张
+    deleteShotImage: protectedProcedure
+      .input(z.object({ imageId: z.number(), storyId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const [image, story] = await Promise.all([
+          getGeneratedImageById(input.imageId),
+          getStoryById(input.storyId, ctx.user.id),
+        ]);
+        if (
+          !image ||
+          !story ||
+          image.storyId !== input.storyId ||
+          (image.userId != null && image.userId !== ctx.user.id)
+        ) {
+          return { status: "error" as const, error: "图片不存在或无权操作" };
+        }
+        await deleteGeneratedImage(input.imageId, ctx.user.id);
+
+        const body =
+          story.body && typeof story.body === "object"
+            ? (story.body as Record<string, unknown>)
+            : {};
+        let removedPromptRunReference = false;
+        const shots = Array.isArray(body.shots)
+          ? body.shots.map(rawShot => {
+              if (!rawShot || typeof rawShot !== "object") return rawShot;
+              const shot = rawShot as Record<string, unknown>;
+              if (
+                !shot.promptRun ||
+                typeof shot.promptRun !== "object" ||
+                Array.isArray(shot.promptRun)
+              ) {
+                return rawShot;
+              }
+              const promptRun = shot.promptRun as Record<string, unknown>;
+              if (promptRun.imageId !== input.imageId) return rawShot;
+              const {
+                imageId: _imageId,
+                imageUrl: _imageUrl,
+                ...rest
+              } = promptRun;
+              removedPromptRunReference = true;
+              return { ...shot, promptRun: rest };
+            })
+          : [];
+        const previousMobileImages = Array.isArray(body.mobileImages)
+          ? body.mobileImages
+          : null;
+        const mobileImages = previousMobileImages
+          ? previousMobileImages.filter(rawImage => {
+              if (!rawImage || typeof rawImage !== "object") return true;
+              return (rawImage as Record<string, unknown>).id !== input.imageId;
+            })
+          : body.mobileImages;
+        const removedMobileImage =
+          previousMobileImages != null &&
+          Array.isArray(mobileImages) &&
+          mobileImages.length !== previousMobileImages.length;
+        if (removedPromptRunReference || removedMobileImage) {
+          await updateStory(story.id, ctx.user.id, {
+            body: prepareStoryBody(
+              { ...body, shots, mobileImages },
+              getStoryRevision(story.body) + 1,
+              story.body
+            ),
+          });
+        }
+
+        const assets = await getStoryImageAssets(input.storyId, ctx.user.id);
+        return {
+          status: "ok" as const,
+          images: assets
+            .filter(a => a.kind === "story_frame" && a.assignment === "shot")
+            .map(a => ({
+              id: a.id,
+              imageUrl: a.imageUrl,
+              prompt: a.prompt,
+              shotNo: a.canonicalShotNo ?? a.rawShotNo,
+              isPrimary: a.isPrimary,
+              status: a.status,
+              createdAt: new Date(a.createdAt),
+            })),
+        };
+      }),
+
     storyVideoAssets: protectedProcedure
       .input(z.object({ storyId: z.number() }))
       .query(async ({ ctx, input }) => {
         return getStoryVideoAssets(input.storyId, ctx.user.id);
+      }),
+
+    storyMaterialState: protectedProcedure
+      .input(z.object({ storyId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return getStoryMaterialState(input.storyId, ctx.user.id);
       }),
   }),
 
@@ -2450,18 +3134,25 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           };
         }
         // 故事为唯一单位后弃用 getLatestStoryForProject：图片信号的 storyId 取该资产自身归属
-        await createImageSignal({
+        if (asset.storyId == null) {
+          return {
+            success: false as const,
+            reason: "image_not_found" as const,
+          };
+        }
+        const promoted = await promoteStoryImageToCurrent({
           userId: ctx.user.id,
-          storyId: asset.storyId ?? 0,
+          storyId: asset.storyId,
           imageId: asset.id,
-          action: "swipe_right",
           metadata: {
             source: "creation",
             projectId: input.projectId,
             shotNo: asset.canonicalShotNo,
           },
         });
-        return { success: true as const };
+        return promoted
+          ? { success: true as const }
+          : { success: false as const, reason: "image_not_found" as const };
       }),
 
     /**
@@ -2532,14 +3223,13 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           prompt: `从四宫格候选图裁出单张首帧${input.quadrant ? `（${input.quadrant}）` : ""}`,
           parentImageId: input.parentImageId ?? null,
           generationType: "initial",
-          isCurrent: true,
+          isCurrent: false,
         });
 
-        await createImageSignal({
+        const promoted = await promoteStoryImageToCurrent({
           userId: ctx.user.id,
           storyId: input.storyId,
           imageId: image.id,
-          action: "swipe_right",
           metadata: {
             source: "frame_crop",
             projectId: story.projectId,
@@ -2549,13 +3239,58 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             quadrant: input.quadrant ?? null,
           },
         });
+        if (!promoted) {
+          return {
+            status: "error" as const,
+            error: "候选首帧保存成功，但设为当前主图失败",
+          };
+        }
 
         return {
           status: "ok" as const,
           imageId: image.id,
           imageUrl: image.imageUrl,
           imageKey: image.imageKey,
+          image: {
+            id: image.id,
+            projectId: image.projectId,
+            storyId: image.storyId,
+            userId: image.userId,
+            shotNo,
+            shotIdentity,
+            imageKey: image.imageKey,
+            imageUrl: image.imageUrl,
+            prompt: image.prompt,
+            parentImageId: image.parentImageId,
+            isCurrent: true,
+            isPrimary: true,
+            selectionSource: "explicit" as const,
+            status: "selected" as const,
+            generationType: image.generationType,
+            maskKey: image.maskKey,
+            createdAt: image.createdAt,
+          },
         };
+      }),
+
+    promoteStoryImage: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          imageId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const promoted = await promoteStoryImageToCurrent({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          imageId: input.imageId,
+          metadata: { source: "material_drawer" },
+        });
+        if (!promoted) {
+          return { status: "error" as const, error: "图片不存在或无权操作" };
+        }
+        return { status: "ok" as const, imageId: promoted.image.id };
       }),
 
     /**
@@ -2568,12 +3303,19 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           storyId: z.number(),
           shotNo: z.number(),
           stableShotId: z.string().optional(),
+          promptCompilationId: z
+            .number()
+            .int()
+            .positive()
+            .nullable()
+            .optional(),
           imageId: z.number(),
           previousReferenceImageId: z.number().optional(),
           nextReferenceImageId: z.number().optional(),
           prompt: z.string().min(1),
           subtitle: z.string().optional(),
           durationSec: z.number().min(3).max(10).optional(),
+          motion: z.enum(["low", "high"]).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -2582,6 +3324,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             storyId: input.storyId,
             shotNo: input.shotNo,
             stableShotId: input.stableShotId ?? null,
+            promptCompilationId: input.promptCompilationId ?? null,
             imageId: input.imageId,
             previousReferenceImageId: input.previousReferenceImageId,
             nextReferenceImageId: input.nextReferenceImageId,
@@ -2589,6 +3332,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             subtitle: input.subtitle,
             durationSec: input.durationSec ?? 5,
             aspectRatio: "16:9",
+            motion: input.motion,
           },
           ctx.user.id
         );
@@ -2612,6 +3356,189 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           taskId: result.take.taskId ?? undefined,
           prompt: result.take.prompt,
         };
+      }),
+
+    adoptVideoTake: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          stableShotId: z.string().min(1),
+          takeId: z.number(),
+          plannedDurationSec: z.number().min(0.1).max(30),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await adoptVideoTake(input, ctx.user.id);
+          return { status: "ok" as const, ...result };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "视频采用失败",
+          };
+        }
+      }),
+
+    updateStoryTimeline: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          expectedVersion: z.number().int().min(0),
+          items: z.array(
+            z.object({
+              stableShotId: z.string().min(1),
+              included: z.boolean(),
+              position: z.number().int().min(0),
+              plannedDurationMs: z.number().min(100),
+              transform: z.object({
+                cropX: z.number().min(0).max(1),
+                cropY: z.number().min(0).max(1),
+                cropWidth: z.number().min(0.01).max(1),
+                cropHeight: z.number().min(0.01).max(1),
+                zoom: z.number().min(1).max(8),
+                panX: z.number().min(-1).max(1),
+                panY: z.number().min(-1).max(1),
+              }),
+            })
+          ),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          return { status: "error" as const, error: "故事不存在或无权操作" };
+        }
+        try {
+          const timeline = await persistStoryTimeline({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            expectedVersion: input.expectedVersion,
+            items: [...input.items]
+              .sort((left, right) => left.position - right.position)
+              .map((item, position) => ({ ...item, position })),
+          });
+          return { status: "ok" as const, timeline };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "时间轴保存失败",
+          };
+        }
+      }),
+
+    createDerivationDraft: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number(),
+          sourceStableShotId: z.string().min(1),
+          sourceTakeId: z.number(),
+          sourceTimeSec: z.number().min(0),
+          crop: z.object({
+            x: z.number().min(0).max(1),
+            y: z.number().min(0).max(1),
+            width: z.number().min(0.01).max(1),
+            height: z.number().min(0.01).max(1),
+          }),
+          fullFrameBase64: z.string().min(1),
+          cropBase64: z.string().min(1),
+          mimeType: z
+            .enum(["image/png", "image/jpeg", "image/webp"])
+            .default("image/png"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const draft = await createDerivationDraft(input, ctx.user.id);
+          return { status: "ok" as const, draft };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "派生草稿保存失败",
+          };
+        }
+      }),
+
+    analyzeDerivationDraft: protectedProcedure
+      .input(
+        z.object({
+          draftId: z.number(),
+          instruction: z.string().optional(),
+          referenceRole: z
+            .enum(["person", "scene", "object", "composition"])
+            .optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const draft = await analyzeDerivationDraft(input, ctx.user.id);
+          return { status: "ok" as const, draft };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "派生分析失败",
+          };
+        }
+      }),
+
+    generateDerivedCandidates: protectedProcedure
+      .input(z.object({ draftId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const images = await generateDerivedCandidates(
+            input.draftId,
+            ctx.user.id
+          );
+          return {
+            status: "ok" as const,
+            images: images.map(image => ({
+              id: image.id,
+              imageUrl: image.imageUrl,
+            })),
+          };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "派生候选生成失败",
+          };
+        }
+      }),
+
+    confirmDerivedShot: protectedProcedure
+      .input(
+        z.object({
+          draftId: z.number(),
+          selectedImageId: z.number(),
+          expectedStoryRevision: z.number().int().min(0),
+          expectedTimelineVersion: z.number().int().min(0),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await confirmDerivedShot(input, ctx.user.id);
+          return {
+            status: "ok" as const,
+            operationId: result.operation.id,
+          };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "派生镜头确认失败",
+          };
+        }
+      }),
+
+    undoStoryOperation: protectedProcedure
+      .input(z.object({ operationId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await undoDerivedShot(input.operationId, ctx.user.id);
+          return { status: "ok" as const };
+        } catch (error) {
+          return {
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "撤销失败",
+          };
+        }
       }),
 
     refreshShotVideoStatus: protectedProcedure
@@ -2746,6 +3673,12 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           shotNo: z.string(),
           prompt: z.string().min(1),
           rejectImageId: z.number().optional(),
+          promptCompilationId: z
+            .number()
+            .int()
+            .positive()
+            .nullable()
+            .optional(),
           imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
         })
       )
@@ -2785,6 +3718,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           projectId: input.projectId,
           storyId: input.storyId,
           userId: ctx.user.id,
+          promptCompilationId: input.promptCompilationId ?? null,
           imageProvider: input.imageProvider,
           // 锁定配方优先，未锁定用零点击默认，保证单张也够漂亮、风格一致。
           artDirection: storyArtRecipe(story) ?? defaultArtRecipe(),
@@ -2876,6 +3810,15 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         const shotIdentity = story
           ? shotIdentityForStoryShot(story, input.shotNo)
           : null;
+        const promptCompilationId =
+          story && story.id
+            ? await resolveStoryImageCompilationId({
+                story,
+                storyId: story.id,
+                userId: ctx.user.id,
+                shotIdentity,
+              })
+            : null;
         const saved = await createGeneratedImage({
           projectId: input.projectId,
           storyId: story?.id ?? null,
@@ -2885,6 +3828,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           imageKey: `inpaint-${Date.now()}`,
           imageUrl: result.imageUrl,
           prompt: input.prompt,
+          promptCompilationId,
           parentImageId: input.parentImageId ?? null,
           generationType: "inpaint",
           maskKey: input.maskUrl,

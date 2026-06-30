@@ -364,17 +364,27 @@ export async function replyFromStoryAgent(params: {
 export async function deriveMobileImagePrompt(params: {
   history?: ChatTurn[];
   cardHint?: string;
+  storyTheme?: string;
+  artStyle?: string;
 }): Promise<string> {
   if (!ENV.forgeApiKey) return "";
   const recent = (params.history ?? []).filter((t) => t.content?.trim()).slice(-12);
   if (recent.length === 0 && !params.cardHint?.trim()) return "";
 
-  const sys = [
+  const contextLines: string[] = [
     "你是小酌的「出图描述师」。从给你的这段对话里，挑出最值得定格成一帧画面的那个瞬间，",
     "把它写成 ONE 行英文出图 prompt，必须包含：场景、光线、氛围、人物动作或神态。",
     "风格偏电影感、温暖、写实的情绪影像。",
-    "只输出这一行英文 prompt 本身 —— 不要解释、不要引号、不要 JSON、不要中文。",
-  ].join("\n");
+  ];
+  if (params.storyTheme?.trim()) {
+    contextLines.push(`故事主题：${params.storyTheme.trim()}`);
+  }
+  if (params.artStyle?.trim()) {
+    contextLines.push(`美术风格：${params.artStyle.trim()}`);
+  }
+  contextLines.push("只输出这一行英文 prompt 本身 —— 不要解释、不要引号、不要 JSON、不要中文。");
+
+  const sys = contextLines.join("\n");
 
   const turns: Message[] = recent.map((t) => ({
     role: t.role,
