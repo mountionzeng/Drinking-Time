@@ -8,6 +8,7 @@ const PROMPT_DIMENSION_WEIGHTS: Record<string, number> = {
   color_palette: 0.28,
   composition: 0.24,
   lighting: 0.24,
+  material: 0.24,
   character_reference: 0.52,
   scene_reference: 0.42,
   art_style_recipe: 0.4,

@@ -292,7 +292,7 @@ describe("prompt lineage view model", () => {
       "相机运动",
     ]);
     expect(view.rows[0]?.inheritance).toBe("inherited");
-    expect(view.rows[0]?.usedBy).toEqual(["dialogue", "image", "video"]);
+    expect(view.rows[0]?.usedBy).toEqual(["image", "video"]);
     expect(view.rows[1]?.weight).toBe(0.42);
     expect(view.rows[1]?.inheritance).toBe("own");
     expect(view.rows[2]?.category).toBe("motion");
@@ -362,9 +362,12 @@ describe("prompt lineage view model", () => {
       "shot-02",
     ]);
     for (const shot of preview.shots) {
-      expect(shot.impactedModalities).toEqual(["dialogue", "image", "video"]);
+      expect(shot.impactedModalities).toEqual(["image", "video"]);
       expect(shot.proposed.image.finalText).toContain(
         "visual_style(36%): desaturated realism, cool fluorescent light",
+      );
+      expect(shot.proposed.dialogue.finalText).not.toContain(
+        "desaturated realism",
       );
     }
   });

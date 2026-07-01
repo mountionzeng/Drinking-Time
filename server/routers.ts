@@ -150,7 +150,13 @@ import {
   appendStoryConversationTurn,
   listStoryConversation,
 } from "./services/storyConversation";
+import {
+  bindStoryArtPromptLibraryVersion,
+  importUserArtPromptLibrary,
+  listArtPromptLibraries,
+} from "./services/artPromptLibrary";
 import type { SelectionContext } from "../shared/selectionContext";
+import { ART_PROMPT_LIBRARY_DIMENSIONS } from "../shared/artPromptLibrary";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
@@ -597,6 +603,11 @@ function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
 
 const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const emotionAnalysisPayloadSchema = z.record(z.string(), z.unknown());
+const artPromptLibraryItemSchema = z.object({
+  dimension: z.enum(ART_PROMPT_LIBRARY_DIMENSIONS),
+  content: z.string(),
+  negativeContent: z.string().nullable().optional(),
+});
 
 async function ensureStoryPromptLineage(storyId: number, userId: number) {
   const story = await getStoryById(storyId, userId);
@@ -900,6 +911,56 @@ export const appRouter = router({
               ? (items[items.length - 1]?.id ?? null)
               : null,
         };
+      }),
+  }),
+
+  artPromptLibrary: router({
+    list: protectedProcedure.query(async ({ ctx }) =>
+      listArtPromptLibraries({ userId: ctx.user.id }),
+    ),
+
+    importUserLibrary: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1),
+          description: z.string().nullable().optional(),
+          source: z.string().nullable().optional(),
+          items: z.array(artPromptLibraryItemSchema).min(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await importUserArtPromptLibrary({
+            ...input,
+            userId: ctx.user.id,
+          });
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
+      }),
+
+    bindToStory: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          libraryVersionId: z.number().int().positive(),
+          expectedVersion: z.number().int().nonnegative(),
+          operationKey: z.string().trim().min(1).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await ensureStoryPromptLineage(input.storyId, ctx.user.id);
+          return await bindStoryArtPromptLibraryVersion({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            libraryVersionId: input.libraryVersionId,
+            expectedVersion: input.expectedVersion,
+            operationKey: input.operationKey ?? nanoid(),
+          });
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
       }),
   }),
 

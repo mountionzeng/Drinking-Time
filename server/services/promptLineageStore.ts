@@ -1,4 +1,8 @@
 import {
+  compilePromptTargets,
+  type CompiledPromptTarget,
+} from "../../shared/promptCompiler";
+import {
   createEmptyPromptLineageLocalState,
   normalizePromptLineageLocalState,
   type PromptCompilation,
@@ -16,6 +20,7 @@ import {
   type StoryConversation,
   type StoryConversationMessage,
   type StoryMessageReference,
+  type StoryArtPromptBinding,
   type StoryPromptAggregate,
   type StoryPromptState,
 } from "../../shared/promptLineage";
@@ -148,6 +153,10 @@ export type PromptLineageTransaction = {
   getOrCreateConversation(): StoryConversation;
   appendMessage(input: AppendMessageInput): StoryConversationMessage;
   addMessageReference(input: AddMessageReferenceInput): StoryMessageReference;
+  upsertStoryArtBinding(libraryVersionId: number): StoryArtPromptBinding;
+  compileTargets(
+    stableShotId: string,
+  ): Record<Exclude<PromptModality, "shared">, CompiledPromptTarget>;
 };
 
 function normalizeInitialState(
@@ -558,6 +567,40 @@ export function createPromptLineageMemoryStore(
         };
         draft.messageReferences.push(reference);
         return reference;
+      },
+
+      upsertStoryArtBinding(libraryVersionId) {
+        if (!Number.isInteger(libraryVersionId) || libraryVersionId <= 0) {
+          throw new PromptLineageValidationError(
+            "Art prompt library version is required",
+          );
+        }
+        const existing = draft.storyArtBindings.find(item =>
+          ownerMatches(item, owner),
+        );
+        if (existing) {
+          existing.libraryVersionId = libraryVersionId;
+          existing.updatedAt = timestamp;
+          return existing;
+        }
+        const binding: StoryArtPromptBinding = {
+          id: draft.nextIds.storyArtBinding++,
+          ...owner,
+          libraryVersionId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        draft.storyArtBindings.push(binding);
+        return binding;
+      },
+
+      compileTargets(stableShotId) {
+        return compilePromptTargets({
+          stableShotId,
+          nodes: draft.nodes.filter(item => ownerMatches(item, owner)),
+          revisions: draft.revisions.filter(item => ownerMatches(item, owner)),
+          bindings: draft.bindings.filter(item => ownerMatches(item, owner)),
+        });
       },
     };
 

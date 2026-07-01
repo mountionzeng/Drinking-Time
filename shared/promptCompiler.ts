@@ -31,6 +31,13 @@ type CompileInput = {
 
 const targets = ["dialogue", "image", "video"] as const;
 const VISUAL_SHARED_DIMENSIONS = new Set([
+  "visual_style",
+  "color_palette",
+  "composition",
+  "lighting",
+  "material",
+  "negative_prompt",
+  "style_reference",
   "character_reference",
   "scene_reference",
   "art_style_recipe",

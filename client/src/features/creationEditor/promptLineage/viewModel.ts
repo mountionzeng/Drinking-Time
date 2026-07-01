@@ -68,6 +68,12 @@ const DIMENSION_META: Record<string, PromptDimensionMeta> = {
     source: "art-repo",
     weight: 0.24,
   },
+  material: {
+    label: "材质",
+    category: "style",
+    source: "art-repo",
+    weight: 0.24,
+  },
   character_reference: {
     label: "人物参考",
     category: "style",
