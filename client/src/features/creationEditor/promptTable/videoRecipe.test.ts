@@ -75,4 +75,42 @@ describe('compileVideoShotRecipe', () => {
     expect(recipe.missing).toContain('首帧图');
     expect(recipe.finalPrompt).toContain('相机运动：缓慢推进');
   });
+
+  it('includes unified art prompt library dimensions in the video package', () => {
+    const recipe = compileVideoShotRecipe({
+      shot: shot(),
+      rows: [
+        row('visual_style', 'oil painting, Dutch Golden Age, in the manner of Rembrandt'),
+        row('color_palette', '暖土, 赭石, 深褐'),
+        row('lighting', '单一侧逆光 / 伦勃朗三角光'),
+        row('composition', '近景半身，大片暗部留白'),
+        row('material', '厚涂油画笔触，画布纹理'),
+        row(
+          'art_style_recipe',
+          '暗调里被一束暖光雕出来的人\nsignature: 暗部里那束温暖的侧光',
+        ),
+        row('negative_prompt', '平光, 霓虹, 网红滤镜'),
+      ],
+    });
+
+    expect(recipe.finalPrompt).toContain('美术配方：暗调里被一束暖光雕出来的人');
+    expect(recipe.finalPrompt).toContain('美术风格：纪实广告片');
+    expect(recipe.finalPrompt).toContain('oil painting, Dutch Golden Age');
+    expect(recipe.finalPrompt).toContain('色彩基调：暖土, 赭石, 深褐');
+    expect(recipe.finalPrompt).toContain('灯光：单一侧逆光 / 伦勃朗三角光');
+    expect(recipe.finalPrompt).toContain('构图：近景半身，大片暗部留白');
+    expect(recipe.finalPrompt).toContain('材质：厚涂油画笔触，画布纹理');
+    expect(recipe.finalPrompt).toContain('平光, 霓虹, 网红滤镜');
+    expect(recipe.usedDimensions).toEqual(
+      expect.arrayContaining([
+        'visual_style',
+        'color_palette',
+        'lighting',
+        'composition',
+        'material',
+        'art_style_recipe',
+        'negative_prompt',
+      ]),
+    );
+  });
 });

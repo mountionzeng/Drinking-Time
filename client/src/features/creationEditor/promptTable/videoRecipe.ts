@@ -43,6 +43,13 @@ export function compileVideoShotRecipe(params: {
     'sound',
     'mood',
     'styleRef',
+    'visual_style',
+    'color_palette',
+    'lighting',
+    'composition',
+    'material',
+    'negative_prompt',
+    'art_style_recipe',
     'rationale',
   ];
   const usedDimensions: string[] = [];
@@ -64,6 +71,13 @@ export function compileVideoShotRecipe(params: {
   const sound = value('sound');
   const mood = value('mood');
   const styleRef = value('styleRef');
+  const visualStyle = value('visual_style');
+  const colorPalette = value('color_palette');
+  const lighting = value('lighting');
+  const composition = value('composition');
+  const material = value('material');
+  const negativePrompt = value('negative_prompt');
+  const artStyleRecipe = value('art_style_recipe');
   const rationale = value('rationale');
 
   const lines = [
@@ -82,9 +96,21 @@ export function compileVideoShotRecipe(params: {
   addLine(lines, '字幕/旁白含义', dialogue);
   addLine(lines, '背景音', sound);
   addLine(lines, '情绪色调', mood);
-  addLine(lines, '美术风格', styleRef);
+  addLine(lines, '美术配方', artStyleRecipe);
+  addLine(lines, '美术风格', [styleRef, visualStyle].filter(Boolean).join('\n'));
+  addLine(lines, '色彩基调', colorPalette);
+  addLine(lines, '灯光', lighting);
+  addLine(lines, '构图', composition);
+  addLine(lines, '材质', material);
   lines.push('限制：不要生成文字水印，不要把字幕画进画面，不要新增事实，不要励志海报感。');
-  lines.push('Negative: no floating objects, no gravity-defying elements, birds fly only in sky not on ground, characters obey physics, no impossible poses, no melting or warping of solid objects.');
+  lines.push(
+    `Negative: ${[
+      'no floating objects, no gravity-defying elements, birds fly only in sky not on ground, characters obey physics, no impossible poses, no melting or warping of solid objects',
+      negativePrompt,
+    ]
+      .filter(Boolean)
+      .join(', ')}.`,
+  );
 
   const missing: string[] = [];
   if (!sourceImageUrl) missing.push('首帧图');
