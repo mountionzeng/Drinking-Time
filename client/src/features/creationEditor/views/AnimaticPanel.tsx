@@ -8,13 +8,16 @@ import {
 import AnimaticPlayer from "./AnimaticPlayer";
 import Timeline, { type TimelinePlaybackMode } from "./Timeline";
 import AnimaticMaterialDrawer from "./AnimaticMaterialDrawer";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 
 function shotLabel(shotNo: number | null) {
   return shotNo == null ? "未选镜头" : `SH${String(shotNo).padStart(2, "0")}`;
 }
 
 export default function AnimaticPanel() {
+  const { setActiveSelection } = useStoryAgentActions();
   const {
+    activeStoryId,
     shots,
     materialState,
     selectedShotNo,
@@ -69,6 +72,51 @@ export default function AnimaticPanel() {
         ? [selectedShot]
         : timelineShots;
 
+  const selectShotWithContext = (shotNo: number) => {
+    setSelectedShotNo(shotNo);
+    const shot = shots.find(item => item.shotNo === shotNo);
+    if (!shot) return;
+    const material = materialState?.shots.find(item =>
+      shot.stableShotId
+        ? item.stableShotId === shot.stableShotId
+        : item.shotNo === shotNo,
+    );
+    const currentVideo = material?.currentVideo ?? null;
+    const currentImage = material?.currentImage ?? null;
+    const fullText = [shot.subject, shot.action, shot.dialogue]
+      .filter(Boolean)
+      .join("；");
+    setActiveSelection({
+      sourceType: currentVideo
+        ? "animatic-video"
+        : currentImage
+          ? "storyboard-image"
+          : "shot",
+      sourceId: currentVideo
+        ? String(currentVideo.id)
+        : currentImage
+          ? String(currentImage.id)
+          : `${Math.max(0, shots.indexOf(shot))}:subject`,
+      selectedText: fullText || shotLabel(shotNo),
+      fullText: fullText || shotLabel(shotNo),
+      storyId: activeStoryId,
+      stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
+      shotNo,
+      imageId: currentImage?.id ?? null,
+      videoTakeId: currentVideo?.id ?? null,
+      objectVersion: currentVideo
+        ? `video:${currentVideo.id}`
+        : currentImage
+          ? `image:${currentImage.id}`
+          : null,
+      materialStatus: currentVideo
+        ? "current-video"
+        : currentImage
+          ? "current-image"
+          : "unknown",
+    });
+  };
+
   const playTimeline = () => {
     if (isPlaying && playbackMode === "timeline") {
       setIsPlaying(false);
@@ -92,7 +140,7 @@ export default function AnimaticPanel() {
       return;
     }
     setPlaybackMode("single");
-    setSelectedShotNo(shotNo);
+    selectShotWithContext(shotNo);
     setPlaybackResetKey(current => current + 1);
     setIsPlaying(true);
   };
@@ -179,12 +227,14 @@ export default function AnimaticPanel() {
               </div>
             ) : null}
             <AnimaticPlayer
+              storyId={activeStoryId}
               shots={playbackShots}
               selectedShotNo={selectedShotNo}
               durationsByShotNo={durationsByShotNo}
               onShotEnter={setSelectedShotNo}
               isPlaying={isPlaying}
               onPlayingChange={setIsPlaying}
+              onSelectContext={setActiveSelection}
               playbackResetKey={playbackResetKey}
               onPromoteFrameCrop={promoteFrameCrop}
               promotingFrameCropShotNo={promotingFrameCropShotNo}
@@ -205,7 +255,7 @@ export default function AnimaticPanel() {
                 durationsByShotNo={durationsByShotNo}
                 playbackMode={playbackMode}
                 isPlaying={isPlaying}
-                onSelectShot={setSelectedShotNo}
+                onSelectShot={selectShotWithContext}
                 onPlayAll={playTimeline}
                 onPlayShot={playShot}
                 onRemoveShot={removeTimelineShot}
@@ -231,7 +281,7 @@ export default function AnimaticPanel() {
         state={materialState}
         selectedStableShotId={selectedTimelineId}
         onClose={() => setMaterialDrawerOpen(false)}
-        onSelectShot={setSelectedShotNo}
+        onSelectShot={selectShotWithContext}
         onPromoteImage={promoteStoryImage}
         onAdoptVideo={adoptVideoTake}
       />

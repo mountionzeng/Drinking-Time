@@ -143,8 +143,14 @@ import {
 } from "./services/promptLineage";
 import {
   PromptLineageConflictError,
+  PromptLineageOwnershipError,
   PromptLineageValidationError,
 } from "./services/promptLineageStore";
+import {
+  appendStoryConversationTurn,
+  listStoryConversation,
+} from "./services/storyConversation";
+import type { SelectionContext } from "../shared/selectionContext";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
@@ -612,7 +618,10 @@ function throwPromptLineageError(error: unknown): never {
       cause: { currentVersion: error.currentVersion },
     });
   }
-  if (error instanceof PromptLineageValidationError) {
+  if (
+    error instanceof PromptLineageValidationError ||
+    error instanceof PromptLineageOwnershipError
+  ) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: error.message,
@@ -620,6 +629,55 @@ function throwPromptLineageError(error: unknown): never {
   }
   throw error;
 }
+
+const selectionRegionSchema = z.union([
+  z
+    .object({
+      kind: z.literal("text"),
+      start: z.number().int().nonnegative(),
+      end: z.number().int().nonnegative(),
+    })
+    .refine(value => value.end >= value.start, {
+      message: "文字选区结束位置不能早于开始位置",
+    }),
+  z
+    .object({
+      kind: z.literal("rect"),
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().positive().max(1),
+      height: z.number().positive().max(1),
+    })
+    .refine(value => value.x + value.width <= 1, {
+      message: "图片选区不能超出画面宽度",
+    })
+    .refine(value => value.y + value.height <= 1, {
+      message: "图片选区不能超出画面高度",
+    }),
+  z
+    .object({
+      kind: z.literal("time"),
+      startSec: z.number().nonnegative(),
+      endSec: z.number().positive(),
+    })
+    .refine(value => value.endSec > value.startSec, {
+      message: "视频选区结束时间必须晚于开始时间",
+    }),
+]);
+
+const selectionMaterialStatusSchema = z.enum([
+  "current-image",
+  "candidate-image",
+  "current-video",
+  "failed-video",
+  "unadopted-video",
+  "stale-video",
+  "timeline-range",
+  "timeline-material",
+  "derivation-draft",
+  "fallback-image",
+  "unknown",
+]);
 
 // ─── Router ──────────────────────────────────────────────────────────────
 
@@ -666,6 +724,7 @@ export const appRouter = router({
         z.object({
           storyId: z.number().int().positive(),
           nodeId: z.number().int().positive(),
+          targetStableShotId: z.string().trim().min(1).nullable().optional(),
           content: z.string().trim().min(1),
           weight: z.number().min(0).max(1).optional(),
           reason: z.string().trim().nullable().optional(),
@@ -841,6 +900,100 @@ export const appRouter = router({
               ? (items[items.length - 1]?.id ?? null)
               : null,
         };
+      }),
+  }),
+
+  storyConversation: router({
+    list: protectedProcedure
+      .input(z.object({ storyId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+        }
+        if (
+          !(await getStoryPromptProjection({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+          }))
+        ) {
+          await ensureStoryPromptLineage(input.storyId, ctx.user.id);
+        }
+        return listStoryConversation({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+      }),
+
+    appendTurn: protectedProcedure
+      .input(
+        z.object({
+          storyId: z.number().int().positive(),
+          userMessage: z.object({
+            clientMessageId: z.string().trim().min(1),
+            content: z.string().trim().min(1),
+            selection: z
+              .object({
+                sourceType: z.enum([
+                  "card",
+                  "script-scene",
+                  "script-meta",
+                  "shot",
+                  "storyboard-image",
+                  "animatic-video",
+                  "timeline-range",
+                  "chat",
+                ]),
+                sourceId: z.string().trim().min(1),
+                selectedText: z.string().trim().min(1),
+                fullText: z.string(),
+                objectVersion: z.string().nullable().optional(),
+                selection: selectionRegionSchema.nullable().optional(),
+                materialStatus: selectionMaterialStatusSchema.optional(),
+                storyId: z.number().int().positive().nullable().optional(),
+                stableShotId: z.string().nullable().optional(),
+                shotNo: z.number().int().positive().nullable().optional(),
+                imageId: z.number().int().positive().nullable().optional(),
+                videoTakeId: z.number().int().positive().nullable().optional(),
+                rangeId: z.number().int().positive().nullable().optional(),
+              })
+              .nullable()
+              .optional(),
+          }),
+          assistantMessage: z.object({
+            clientMessageId: z.string().trim().min(1),
+            content: z.string().trim().min(1),
+            candidateRevisionId: z.number().int().positive().nullable().optional(),
+          }),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const story = await getStoryById(input.storyId, ctx.user.id);
+        if (!story) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+        }
+        if (
+          !(await getStoryPromptProjection({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+          }))
+        ) {
+          await ensureStoryPromptLineage(input.storyId, ctx.user.id);
+        }
+        try {
+          return await appendStoryConversationTurn({
+            ...input,
+            userId: ctx.user.id,
+            userMessage: {
+              ...input.userMessage,
+              selection:
+                (input.userMessage.selection as SelectionContext | null) ??
+                null,
+            },
+          });
+        } catch (error) {
+          throwPromptLineageError(error);
+        }
       }),
   }),
 

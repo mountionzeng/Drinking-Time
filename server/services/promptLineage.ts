@@ -25,6 +25,7 @@ import {
   promptCompilationHeads,
   promptCompilationInputs,
   promptCompilations,
+  promptNodeBindings,
   promptNodes,
   promptOperationReceipts,
   promptRevisions,
@@ -34,6 +35,7 @@ import { getDb } from "../db";
 
 type CandidateInput = PromptLineageOwner & {
   nodeId: number;
+  targetStableShotId?: string | null;
   content: string;
   weight?: number;
   reason?: string | null;
@@ -186,6 +188,27 @@ export async function createPromptCandidate(
       `Prompt node ${input.nodeId} is unavailable`,
     );
   }
+  const targetStableShotId = input.targetStableShotId?.trim() || null;
+  const localNode =
+    targetStableShotId && node.stableShotId !== targetStableShotId
+      ? aggregate.nodes.find(
+          candidate =>
+            candidate.stableShotId === targetStableShotId &&
+            candidate.scope === "shot" &&
+            candidate.modality === node.modality &&
+            candidate.dimension === node.dimension,
+        )
+      : null;
+  if (
+    targetStableShotId &&
+    !aggregate.nodes.some(
+      candidate => candidate.stableShotId === targetStableShotId,
+    )
+  ) {
+    throw new PromptLineageValidationError(
+      `Shot ${targetStableShotId} is unavailable`,
+    );
+  }
   const committed = await store.transact(
     {
       storyId: input.storyId,
@@ -193,16 +216,38 @@ export async function createPromptCandidate(
       expectedVersion: input.expectedVersion,
       operationKey: input.operationKey,
     },
-    tx =>
-      tx.createRevision({
-        nodeId: node.id,
-        parentRevisionId: node.currentRevisionId,
+    tx => {
+      const targetNode =
+        localNode ??
+        (targetStableShotId && node.stableShotId !== targetStableShotId
+          ? tx.createNode({
+              stableShotId: targetStableShotId,
+              scope: "shot",
+              modality: node.modality,
+              dimension: node.dimension,
+            })
+          : node);
+      if (targetNode.id !== node.id && !localNode) {
+        const sourceOrder =
+          aggregate.bindings.find(binding => binding.nodeId === node.id)
+            ?.sortOrder ?? aggregate.bindings.length;
+        tx.bindNode({
+          nodeId: targetNode.id,
+          stableShotId: targetStableShotId,
+          modality: targetNode.modality,
+          sortOrder: sourceOrder,
+        });
+      }
+      return tx.createRevision({
+        nodeId: targetNode.id,
+        parentRevisionId: targetNode.currentRevisionId,
         content: input.content,
         weight: input.weight,
         reason: input.reason,
         authorType: input.authorType,
         status: "candidate",
-      }),
+      });
+    },
   );
   return { version: committed.version, candidate: committed.result };
 }
@@ -429,6 +474,20 @@ export async function createPromptCandidateForStory(
       input,
     );
   }
+  const targetStableShotId = input.targetStableShotId?.trim() || "";
+  const targetAggregate = targetStableShotId
+    ? await loadStoryPromptAggregate(input)
+    : null;
+  if (
+    targetStableShotId &&
+    !targetAggregate?.nodes.some(
+      candidate => candidate.stableShotId === targetStableShotId,
+    )
+  ) {
+    throw new PromptLineageValidationError(
+      `Shot ${targetStableShotId} is unavailable`,
+    );
+  }
 
   const result = await db.transaction(async tx => {
     const [priorReceipt] = await tx
@@ -470,7 +529,7 @@ export async function createPromptCandidateForStory(
         state.version,
       );
     }
-    const [node] = await tx
+    const [sourceNode] = await tx
       .select()
       .from(promptNodes)
       .where(
@@ -481,10 +540,63 @@ export async function createPromptCandidateForStory(
         ),
       )
       .limit(1);
-    if (!node) {
+    if (!sourceNode) {
       throw new PromptLineageValidationError(
         `Prompt node ${input.nodeId} is unavailable`,
       );
+    }
+    let node = sourceNode;
+    if (targetStableShotId && sourceNode.stableShotId !== targetStableShotId) {
+      const [existingLocalNode] = await tx
+        .select()
+        .from(promptNodes)
+        .where(
+          and(
+            eq(promptNodes.storyId, input.storyId),
+            eq(promptNodes.userId, input.userId),
+            eq(promptNodes.stableShotId, targetStableShotId),
+            eq(promptNodes.scope, "shot"),
+            eq(promptNodes.modality, sourceNode.modality),
+            eq(promptNodes.dimension, sourceNode.dimension),
+          ),
+        )
+        .limit(1);
+      if (existingLocalNode) {
+        node = existingLocalNode;
+      } else {
+        const [nodeInsert] = await tx.insert(promptNodes).values({
+          storyId: input.storyId,
+          userId: input.userId,
+          stableShotId: targetStableShotId,
+          scope: "shot",
+          modality: sourceNode.modality,
+          dimension: sourceNode.dimension,
+        });
+        const [createdNode] = await tx
+          .select()
+          .from(promptNodes)
+          .where(eq(promptNodes.id, nodeInsert.insertId))
+          .limit(1);
+        if (!createdNode) {
+          throw new PromptLineageValidationError(
+            "无法创建镜头局部提示词节点",
+          );
+        }
+        node = createdNode;
+        const [sourceBinding] = await tx
+          .select()
+          .from(promptNodeBindings)
+          .where(eq(promptNodeBindings.nodeId, sourceNode.id))
+          .limit(1);
+        await tx.insert(promptNodeBindings).values({
+          storyId: input.storyId,
+          userId: input.userId,
+          nodeId: node.id,
+          stableShotId: targetStableShotId,
+          modality: node.modality,
+          sortOrder: sourceBinding?.sortOrder ?? 0,
+        });
+      }
     }
     const [revisionInsert] = await tx.insert(promptRevisions).values({
       storyId: input.storyId,

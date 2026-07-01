@@ -17,6 +17,13 @@ vi.mock('@/lib/trpc', () => ({
         storyList: { fetch: vi.fn(async () => ({ stories: [] })) },
         storyGet: { fetch: vi.fn(async () => null) },
         storyImages: { invalidate: vi.fn() },
+        storyMaterialState: { invalidate: vi.fn() },
+      },
+      promptLineage: {
+        getStoryProjection: {
+          fetch: vi.fn(),
+          invalidate: vi.fn(),
+        },
       },
       shot: { list: { invalidate: vi.fn() } },
     }),
@@ -37,6 +44,17 @@ vi.mock('@/lib/trpc', () => ({
     },
     editContext: {
       saveSnapshot: { useMutation: makeMutation },
+    },
+    promptLineage: {
+      createCandidate: { useMutation: makeMutation },
+      confirmCandidate: { useMutation: makeMutation },
+      rejectCandidate: { useMutation: makeMutation },
+    },
+    storyConversation: {
+      appendTurn: { useMutation: makeMutation },
+      list: {
+        useQuery: () => ({ data: undefined }),
+      },
     },
   },
 }));
@@ -147,5 +165,15 @@ describe('StoryAgentContext intent state', () => {
     const { resolveScriptIntent } = await import('./StoryAgentContext');
 
     expect(resolveScriptIntent(undefined, null)).toBeUndefined();
+  });
+
+  it('prefers the first persisted story id over draft sentinels', async () => {
+    const { resolvePersistedStoryId, storyScopeMatches } = await import('./StoryAgentContext');
+
+    expect(resolvePersistedStoryId(-1, 36, 42)).toBe(36);
+    expect(resolvePersistedStoryId(null, undefined, 42)).toBe(42);
+    expect(resolvePersistedStoryId(-1, 0, null)).toBeNull();
+    expect(storyScopeMatches(-1, -1)).toBe(true);
+    expect(storyScopeMatches(36, 34)).toBe(false);
   });
 });

@@ -37,7 +37,7 @@ export default function StoryboardPanel() {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
-  const { updateStoryShotField, updateAllStoryShotField } =
+  const { updateStoryShotField, updateAllStoryShotField, setActiveSelection } =
     useStoryAgentActions();
   const {
     activeStoryId,
@@ -109,7 +109,32 @@ export default function StoryboardPanel() {
       artDirection={artDirection}
       isGeneratingScript={isGeneratingScript}
       selectedShotNo={selectedShotNo}
-      onSelectShot={setSelectedShotNo}
+      onSelectShot={shotNo => {
+        setSelectedShotNo(shotNo);
+        const shot = displayShots.find(item => item.shotNo === shotNo);
+        if (!shot) return;
+        const creationShot = creationShots.find(
+          item => item.shotNo === shotNo,
+        );
+        const imageId = creationShot?.imageId ?? null;
+        const fullText = [shot.subject, shot.action, shot.dialogue]
+          .filter(Boolean)
+          .join("；");
+        setActiveSelection({
+          sourceType: imageId ? "storyboard-image" : "shot",
+          sourceId: imageId
+            ? String(imageId)
+            : `${Math.max(0, displayShots.indexOf(shot))}:subject`,
+          selectedText: fullText || `SH${String(shotNo).padStart(2, "0")}`,
+          fullText: fullText || `SH${String(shotNo).padStart(2, "0")}`,
+          storyId: activeStoryId,
+          stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
+          shotNo,
+          imageId,
+          objectVersion: imageId ? `image:${imageId}` : null,
+          materialStatus: imageId ? "current-image" : "unknown",
+        });
+      }}
       onUpdateShotField={(index, field, value) => {
         const target = displayShots[index];
         if (!target) return;

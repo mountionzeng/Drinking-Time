@@ -262,6 +262,27 @@ export type PromptLineageRevisionPreview = {
   shots: PromptLineageShotPreview[];
 };
 
+export function resolvePromptCandidateNodeId(input: {
+  aggregate: StoryPromptAggregate;
+  row: Pick<
+    PromptLineageRowView,
+    "nodeId" | "scope" | "modality" | "dimension"
+  >;
+  targetScope: "shot" | "source";
+}): number | null {
+  if (input.targetScope === "shot" || input.row.scope === "story") {
+    return input.row.nodeId;
+  }
+  return (
+    input.aggregate.nodes.find(
+      node =>
+        node.scope === "story" &&
+        node.modality === input.row.modality &&
+        node.dimension === input.row.dimension,
+    )?.id ?? null
+  );
+}
+
 function bindingOrder(
   aggregate: StoryPromptAggregate,
   stableShotId: string,
@@ -326,7 +347,7 @@ function inheritanceState(
   revision: Pick<PromptRevision, "authorType" | "parentRevisionId">,
 ): PromptRow["inheritance"] {
   if (node.scope === "story") return "inherited";
-  if (revision.authorType === "user" && revision.parentRevisionId != null) {
+  if (revision.authorType === "user") {
     return "overridden";
   }
   return "own";
@@ -370,12 +391,27 @@ export function buildPromptLineageShotView(input: {
     revisions: input.aggregate.revisions,
     bindings: input.aggregate.bindings,
   });
-  const rows = input.aggregate.nodes
+  const eligibleNodes = input.aggregate.nodes
     .filter(
       node =>
         node.dimension !== "image_overrides" &&
         (node.scope === "story" || node.stableShotId === input.stableShotId),
     )
+    .sort((left, right) => {
+      const scopeDelta = scopeRank(left) - scopeRank(right);
+      if (scopeDelta !== 0) return scopeDelta;
+      const orderDelta =
+        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+      return orderDelta || left.id - right.id;
+    });
+  const effectiveNodes = Array.from(
+    eligibleNodes.reduce((nodesByDimension, node) => {
+      nodesByDimension.set(node.dimension, node);
+      return nodesByDimension;
+    }, new Map<string, PromptNode>()).values(),
+  );
+  const rows = effectiveNodes
     .map(node => {
       const revision =
         node.currentRevisionId == null
@@ -411,17 +447,7 @@ export function buildPromptLineageShotView(input: {
         usedBy: usedByModalities(currentTargets, revision.id),
       } satisfies PromptLineageRowView;
     })
-    .filter((row): row is PromptLineageRowView => Boolean(row))
-    .sort((left, right) => {
-      const scopeDelta = scopeRank(left) - scopeRank(right);
-      if (scopeDelta !== 0) return scopeDelta;
-      const modalityDelta = left.modality.localeCompare(right.modality);
-      if (modalityDelta !== 0) return modalityDelta;
-      const orderDelta =
-        (order.get(left.nodeId) ?? Number.MAX_SAFE_INTEGER) -
-        (order.get(right.nodeId) ?? Number.MAX_SAFE_INTEGER);
-      return orderDelta || left.nodeId - right.nodeId;
-    });
+    .filter((row): row is PromptLineageRowView => Boolean(row));
 
   const compilationIds = Object.fromEntries(
     input.aggregate.compilationHeads

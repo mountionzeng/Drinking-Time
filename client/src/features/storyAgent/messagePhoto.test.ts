@@ -31,4 +31,19 @@ describe('storyAgent photo messages', () => {
       }),
     ]);
   });
+
+  it('忽略结构不完整的历史选区，避免引用卡渲染崩溃', () => {
+    const [message] = normalizeChatMessages(
+      [
+        {
+          who: 'u',
+          text: '继续修改',
+          selectionQuote: { sourceType: 'shot' },
+        },
+      ],
+      fallbackMessages,
+    );
+
+    expect(message.selectionQuote).toBeUndefined();
+  });
 });

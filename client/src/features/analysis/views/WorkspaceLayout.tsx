@@ -14,6 +14,8 @@ import type { AnalysisData } from '@/features/analysis/types';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import { useActiveStoryId, useVisibleStoryPanels } from '@/features/storyAgent/spine/selectors';
 import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
+import { useEffect, useState } from 'react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 export type InputTab = 'material' | 'story';
 
@@ -55,7 +57,14 @@ export default function WorkspaceLayout({
   const activeStoryId = useActiveStoryId();
   const visibleStoryPanels = useVisibleStoryPanels();
   const { setActiveSelection } = useStoryAgentActions();
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   useSelectionCapture(setActiveSelection);
+  useEffect(() => {
+    const openChat = () => setChatCollapsed(false);
+    window.addEventListener('dt:open-creation-chat', openChat);
+    return () => window.removeEventListener('dt:open-creation-chat', openChat);
+  }, []);
+  const storyCardsVisible = visibleStoryPanels.includes('storyCards');
   const storyboardVisible = visibleStoryPanels.includes('storyboard');
   const animaticVisible = visibleStoryPanels.includes('animatic');
   const promptTableVisible = visibleStoryPanels.includes('promptTable');
@@ -65,27 +74,49 @@ export default function WorkspaceLayout({
       {activeInputTab === 'story' ? (
         <CreationEditorProvider activeStoryId={activeStoryId}>
           <div className="h-full flex min-h-0">
-            {/* Left: Chat anchor — always visible, fixed width */}
+            {/* Left: one story-scoped chat anchor across all creation panels. */}
             <div
-              className="h-full shrink-0 overflow-hidden border-r"
+              className="relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
               style={{
-                width: 'min(320px, 40vw)',
+                width: chatCollapsed ? 48 : 'min(320px, 40vw)',
                 borderColor: 'var(--nayin-border)',
               }}
             >
-              {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
+              <button
+                type="button"
+                onClick={() => setChatCollapsed(value => !value)}
+                className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
+                aria-label={chatCollapsed ? '展开小酌' : '折叠小酌'}
+                title={chatCollapsed ? '展开小酌' : '折叠小酌'}
+              >
+                {chatCollapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )}
+              </button>
+              <div
+                className={`h-full ${
+                  chatCollapsed ? 'invisible pointer-events-none' : ''
+                }`}
+                aria-hidden={chatCollapsed}
+              >
+                {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
+              </div>
             </div>
 
             {/* Right: Horizontal scroll strip of panels */}
             <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
               <div className="flex h-full" style={{ minWidth: 'min-content' }}>
-                {/* Story Cards — always visible */}
-                <div
-                  className="h-full shrink-0 overflow-auto p-2"
-                  style={{ width: 'min(480px, 60vw)' }}
-                >
-                  <StoryCardsBoard />
-                </div>
+                {/* Story Cards — toggle */}
+                {storyCardsVisible ? (
+                  <div
+                    className="h-full shrink-0 overflow-auto p-2"
+                    style={{ width: 'min(480px, 60vw)' }}
+                  >
+                    <StoryCardsBoard />
+                  </div>
+                ) : null}
 
                 {/* Storyboard — toggle */}
                 {storyboardVisible ? (

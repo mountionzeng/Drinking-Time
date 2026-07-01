@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, Quote, ImagePlus, Mic, Square, Cloud, Check } from 'lucide-react';
+import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, ImagePlus, Mic, Square, Cloud, Check } from 'lucide-react';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import { useStoryAgentChatSlice } from '@/features/storyAgent/spine/selectors';
 import { useNayin } from '@/features/nayin/NayinContext';
@@ -15,9 +15,15 @@ import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
 import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
 import StoryCapabilityMenu, { shouldShowCapabilityMenu } from './StoryCapabilityMenu';
 import StoryJobIntakePrompt, { getJobIntakeStep } from './StoryJobIntakePrompt';
+import SelectionContextCard from './SelectionContextCard';
+import {
+  loadStoryConversationDraft,
+  saveStoryConversationDraft,
+} from '../storyConversationStore';
 
 type OpenCreationChatDetail = {
   draftMessage?: string;
+  preserveSelection?: boolean;
 };
 
 export default function StoryAgentChat() {
@@ -36,6 +42,8 @@ export default function StoryAgentChat() {
     dismissPendingIntent,
     clearSelection,
     sendSelectionEdit,
+    confirmSelectionCandidate,
+    rejectSelectionCandidate,
   } = useStoryAgentActions();
   const { element } = useNayin();
   const [input, setInput] = useState('');
@@ -46,6 +54,26 @@ export default function StoryAgentChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const draftStoryIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const previousStoryId = draftStoryIdRef.current;
+    if (previousStoryId != null && previousStoryId > 0) {
+      saveStoryConversationDraft(previousStoryId, input);
+    }
+    const nextStoryId = activeStoryId && activeStoryId > 0 ? activeStoryId : null;
+    setInput(nextStoryId ? loadStoryConversationDraft(nextStoryId) : '');
+    draftStoryIdRef.current = nextStoryId;
+  }, [activeStoryId]);
+
+  useEffect(() => {
+    if (!activeStoryId || activeStoryId <= 0) return;
+    const timer = window.setTimeout(
+      () => saveStoryConversationDraft(activeStoryId, input),
+      200,
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeStoryId, input]);
 
   const saveLabel =
     saveStatus === 'saving'
@@ -79,7 +107,7 @@ export default function StoryAgentChat() {
     const applyCreationDraft = (event: Event) => {
       const detail = (event as CustomEvent<OpenCreationChatDetail>).detail;
       if (!detail?.draftMessage) return;
-      clearSelection();
+      if (!detail.preserveSelection) clearSelection();
       setInput(prev =>
         prev.trim()
           ? `${prev.trim()}\n\n${detail.draftMessage}`
@@ -271,15 +299,8 @@ export default function StoryAgentChat() {
                   </div>
                 )}
                 {m.selectionQuote && (
-                  <div
-                    className="mb-1.5 rounded px-2 py-1 border-l-2 text-[10px] text-foreground/60"
-                    style={{ borderLeftColor: 'var(--background)', background: 'rgba(255,255,255,0.1)' }}
-                  >
-                    <SelectionSourceLabel selection={m.selectionQuote} cards={cardRefs} />
-                    {' · '}
-                    {m.selectionQuote.selectedText.length > 30
-                      ? m.selectionQuote.selectedText.slice(0, 30) + '…'
-                      : m.selectionQuote.selectedText}
+                  <div className="mb-1.5">
+                    <SelectionContextCard selection={m.selectionQuote} compact />
                   </div>
                 )}
                 {m.role === 'user' && m.photoUrl && (
@@ -296,6 +317,37 @@ export default function StoryAgentChat() {
                     {m.content}
                   </p>
                 )}
+                {m.promptCandidate ? (
+                  <div className="mt-2 border-t border-border/60 pt-2">
+                    <div className="text-[10px] text-muted-foreground">
+                      {m.promptCandidate.label}
+                      {m.promptCandidate.status === 'pending'
+                        ? ' · 等待确认'
+                        : m.promptCandidate.status === 'confirmed'
+                          ? ' · 已确认'
+                          : ' · 已拒绝'}
+                    </div>
+                    {m.promptCandidate.status === 'pending' ? (
+                      <div className="mt-1.5 flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void confirmSelectionCandidate(m.id)}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-[var(--nayin-accent)] px-2 text-[10px] font-medium text-background"
+                        >
+                          <Check className="h-3 w-3" />
+                          确认修改
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void rejectSelectionCandidate(m.id)}
+                          className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[10px] text-muted-foreground"
+                        >
+                          不采用
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {m.spawnedCardId && (
                   <div className="mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider"
                        style={{ borderColor: 'var(--panel-border)' }}>
@@ -443,32 +495,11 @@ export default function StoryAgentChat() {
       >
         {/* Quote block */}
         {activeSelection && (
-          <div
-            className="mt-2.5 flex items-start gap-2 rounded-lg px-2.5 py-2 border-l-2 text-[11px]"
-            style={{
-              borderLeftColor: 'var(--nayin-accent)',
-              background: 'var(--nayin-glow)',
-            }}
-          >
-            <Quote className="w-3 h-3 shrink-0 mt-0.5 text-nayin-bright" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">
-                <SelectionSourceLabel selection={activeSelection} cards={cardRefs} />
-              </div>
-              <p className="text-foreground/80 leading-relaxed truncate">
-                {activeSelection.selectedText.length > 50
-                  ? activeSelection.selectedText.slice(0, 50) + '…'
-                  : activeSelection.selectedText}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={clearSelection}
-              className="shrink-0 w-5 h-5 rounded flex items-center justify-center hover:bg-foreground/10 transition-colors"
-              aria-label="取消选中"
-            >
-              <X className="w-3 h-3 text-muted-foreground" />
-            </button>
+          <div className="mt-2.5">
+            <SelectionContextCard
+              selection={activeSelection}
+              onClear={clearSelection}
+            />
           </div>
         )}
 
@@ -580,34 +611,4 @@ export default function StoryAgentChat() {
       </div>
     </div>
   );
-}
-
-function SelectionSourceLabel({
-  selection,
-  cards,
-}: {
-  selection: { sourceType: string; sourceId: string };
-  cards: Array<{ id: string }>;
-}) {
-  switch (selection.sourceType) {
-    case 'card': {
-      const idx = cards.findIndex((c) => c.id === selection.sourceId);
-      return <>{idx >= 0 ? `卡片 ${idx + 1}` : '卡片'}</>;
-    }
-    case 'script-scene':
-      return <>场景 {Number(selection.sourceId) + 1}</>;
-    case 'script-meta': {
-      const labels: Record<string, string> = { title: '标题', logline: 'Logline', arcSummary: '情感弧线' };
-      return <>{labels[selection.sourceId] || '剧本'}</>;
-    }
-    case 'shot': {
-      const parts = selection.sourceId.split(':');
-      const fieldLabels: Record<string, string> = { subject: '主体', action: '动作', dialogue: '台词' };
-      return <>镜头 {Number(parts[0]) + 1} · {fieldLabels[parts[1]] || parts[1]}</>;
-    }
-    case 'chat':
-      return <>小酌回复</>;
-    default:
-      return <>选中</>;
-  }
 }

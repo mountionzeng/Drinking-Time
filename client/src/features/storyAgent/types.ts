@@ -1,6 +1,18 @@
+import type { SelectionContext } from "@shared/selectionContext";
+
 /**
  * Story Guide Agent — shared types
  */
+
+export type PromptCandidateStatus = "pending" | "confirmed" | "rejected";
+
+export type PromptCandidateReference = {
+  revisionId: number;
+  nodeId: number;
+  expectedVersion: number;
+  label: string;
+  status: PromptCandidateStatus;
+};
 
 export interface ChatMessage {
   id: string;
@@ -13,6 +25,8 @@ export interface ChatMessage {
   spawnedCardId?: string;
   /** If set, this user message was a selection edit instruction. */
   selectionQuote?: SelectionQuote;
+  /** Agent edits are proposals until the user explicitly confirms them. */
+  promptCandidate?: PromptCandidateReference;
 }
 
 export interface StoryCard {
@@ -182,35 +196,38 @@ export interface VisualCanvasItem {
   createdAt: number;
 }
 
-export interface SelectionState {
-  sourceType:
-    | "card"
-    | "script-scene"
-    | "script-meta"
-    | "shot"
-    | "storyboard-image"
-    | "animatic-video"
-    | "timeline-range"
-    | "chat";
-  sourceId: string;
-  selectedText: string;
-  fullText: string;
-  storyId?: number | null;
-  stableShotId?: string | null;
-  shotNo?: number | null;
-  imageId?: number | null;
-  videoTakeId?: number | null;
-  rangeId?: number | null;
-}
+export type SelectionState = SelectionContext;
 
-export interface SelectionQuote {
-  sourceType: SelectionState["sourceType"];
-  sourceId: string;
-  selectedText: string;
-}
+export type SelectionQuote = Pick<
+  SelectionState,
+  | "sourceType"
+  | "sourceId"
+  | "selectedText"
+  | "objectVersion"
+  | "selection"
+  | "storyId"
+  | "stableShotId"
+  | "shotNo"
+  | "imageId"
+  | "videoTakeId"
+  | "rangeId"
+>;
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function normalizeSelectionQuote(value: unknown): SelectionQuote | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const quote = value as Record<string, unknown>;
+  if (
+    typeof quote.sourceType !== "string" ||
+    typeof quote.sourceId !== "string" ||
+    typeof quote.selectedText !== "string"
+  ) {
+    return undefined;
+  }
+  return value as SelectionQuote;
 }
 
 export function normalizeChatMessages(
@@ -249,6 +266,27 @@ export function normalizeChatMessages(
         pending.status === "kept"
       ) {
         message.spawnedCardId = pending.cardId;
+      }
+      message.selectionQuote = normalizeSelectionQuote(obj.selectionQuote);
+      if (obj.promptCandidate && typeof obj.promptCandidate === "object") {
+        const candidate = obj.promptCandidate as Record<string, unknown>;
+        if (
+          typeof candidate.revisionId === "number" &&
+          typeof candidate.nodeId === "number" &&
+          typeof candidate.expectedVersion === "number" &&
+          typeof candidate.label === "string" &&
+          (candidate.status === "pending" ||
+            candidate.status === "confirmed" ||
+            candidate.status === "rejected")
+        ) {
+          message.promptCandidate = {
+            revisionId: candidate.revisionId,
+            nodeId: candidate.nodeId,
+            expectedVersion: candidate.expectedVersion,
+            label: candidate.label,
+            status: candidate.status,
+          };
+        }
       }
       return message;
     })

@@ -59,9 +59,11 @@ describe('TopBar story panel controls', () => {
     expect(html).toContain('aria-label="纳音五行"');
     expect(html).toContain('w-[250px]');
     expect(html).toContain('Nayin Five Elements / 纳音五行');
+    expect(html).toContain('故事卡片');
     expect(html).toContain('故事版看板');
     expect(html).toContain('动态分镜');
     expect(html).toContain('镜头设计表');
+    expect(html.match(/aria-pressed=/g)).toHaveLength(4);
     expect(html).not.toContain('Story Cards');
     expect(html).not.toContain('Script');
     expect(html).not.toContain('默认分析项目');

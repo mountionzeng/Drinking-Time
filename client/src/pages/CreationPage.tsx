@@ -1,16 +1,14 @@
 /**
  * CreationPage — Creation Engine workspace.
- * ShotTable 占满主区 + 悬浮小酌对话框（头像折叠/展开）。
- * 小酌与故事页同人格、各自对话线；创作页不含粘性开场。
+ * ShotTable + the same story-scoped Xiaozhuo conversation used by Analysis.
  */
 import { CreationAgentProvider, useCreationAgent } from '@/features/creationAgent/CreationAgentContext';
-import FloatingAgentChat from '@/features/creationAgent/views/FloatingAgentChat';
 import ShotImageWorkspace from '@/features/creationAgent/views/ShotImageWorkspace';
 import ShotTable from '@/features/analysis/views/ShotTable';
 import { StoryAgentProvider, useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import StoryAgentChat from '@/features/storyAgent/views/StoryAgentChat';
 import { useProjectData } from '@/features/analysis/hooks/useProjectData';
 import type { BackendShot } from '@/features/analysis/types';
-import type { ShotContext } from '@/features/creationAgent/types';
 import { trpc } from '@/lib/trpc';
 import { useCallback, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -37,8 +35,6 @@ function CreationWorkspaceInner({
     generateError,
   } = useCreationAgent();
   const {
-    cards,
-    latestScript,
     promptPool,
     storyShots,
     updateShotFragmentRefs,
@@ -89,33 +85,6 @@ function CreationWorkspaceInner({
     });
   }, [backendShots, projectAssets]);
 
-  // Build context for chat
-  const shotContexts = useMemo<ShotContext[]>(
-    () =>
-      tableShots.map((shot) => ({
-        shotNo: shot.shotNo,
-        subject: shot.sceneType || shot.sourceSummary || '',
-        action: shot.sourceSummary || shot.nextAction || '',
-        dialogue: '',
-        shotType: shot.cameraFocalLength || shot.cameraMovement || '',
-        mood: shot.mood || '',
-        promptDraft: shot.promptDraft || '',
-      })),
-    [tableShots],
-  );
-  const storyCards = useMemo(
-    () => cards.map(card => ({ content: card.content, emotion: card.emotion })),
-    [cards],
-  );
-  const currentScript = useMemo(() => {
-    if (!latestScript) return undefined;
-    return [
-      latestScript.title,
-      latestScript.logline,
-      latestScript.scenes.map(scene => `${scene.sceneNo}: ${scene.visual}`).join('\n'),
-    ].filter(Boolean).join('\n');
-  }, [latestScript]);
-
   const handleEditShotPrompt = useCallback(
     async (shotId: number, promptDraft: string) => {
       if (projectId === null) return;
@@ -131,70 +100,45 @@ function CreationWorkspaceInner({
     [projectId, updateShotMut, utils.shot.list],
   );
 
-  // 小酌建议修改提示词 → 通过 shot.update 写入
-  const handleApplyPromptUpdate = useCallback(
-    async (shotNo: string, promptDraft: string) => {
-      if (projectId === null) return;
-      const targetShot = tableShots.find((s) => s.shotNo === shotNo);
-      if (!targetShot) {
-        toast.error(`找不到镜头 ${shotNo}`);
-        return;
-      }
-      try {
-        await updateShotMut.mutateAsync({ id: targetShot.id, promptDraft });
-        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
-        toast.success(`${shotNo} 提示词已更新`);
-      } catch {
-        toast.error('更新提示词失败');
-      }
-    },
-    [projectId, tableShots, updateShotMut, utils.shot.list],
-  );
-
   return (
-    <div className="h-full flex flex-col relative">
-      <ShotImageWorkspace
-        shots={tableShots}
-        assets={projectAssets}
-        focusShotNo={focusShotNo}
-        onFocusShot={setFocusShotNo}
-        onSelectImage={selectImage}
-        onReassignImage={reassignImage}
-        onGenerateNext={generateNextImage}
-        generatingShotNo={generatingShotNo}
-        generateError={generateError}
-        storyId={activeStoryId}
-      />
+    <div className="flex h-full min-h-0">
+      <aside className="h-full w-[min(320px,40vw)] shrink-0 overflow-hidden border-r border-border">
+        <StoryAgentChat />
+      </aside>
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <ShotImageWorkspace
+          shots={tableShots}
+          assets={projectAssets}
+          focusShotNo={focusShotNo}
+          onFocusShot={setFocusShotNo}
+          onSelectImage={selectImage}
+          onReassignImage={reassignImage}
+          onGenerateNext={generateNextImage}
+          generatingShotNo={generatingShotNo}
+          generateError={generateError}
+          storyId={activeStoryId}
+        />
 
-      {/* ShotTable 占满主区；无当前故事时给一致空状态（U5/R5/AE3）——不串故事 */}
-      <div className="flex-1 overflow-auto p-2">
-        {!hasActiveStory ? (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-            请先在故事页选择或打开一个故事，这里会显示该故事的镜头表。
-          </div>
-        ) : (
-          <ShotTable
-            isActive={!isShotsLoading && tableShots.length > 0}
-            shots={tableShots}
-            projectId={projectId}
-            storyShots={storyShots}
-            onEditShotPrompt={handleEditShotPrompt}
-            focusShotNo={focusShotNo}
-            onShotClick={(shotNo) => setFocusShotNo(shotNo)}
-            promptPool={promptPool}
-            onUpdateFragmentRefs={updateShotFragmentRefs}
-          />
-        )}
+        <div className="flex-1 overflow-auto p-2">
+          {!hasActiveStory ? (
+            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+              请先在故事页选择或打开一个故事，这里会显示该故事的镜头表。
+            </div>
+          ) : (
+            <ShotTable
+              isActive={!isShotsLoading && tableShots.length > 0}
+              shots={tableShots}
+              projectId={projectId}
+              storyShots={storyShots}
+              onEditShotPrompt={handleEditShotPrompt}
+              focusShotNo={focusShotNo}
+              onShotClick={(shotNo) => setFocusShotNo(shotNo)}
+              promptPool={promptPool}
+              onUpdateFragmentRefs={updateShotFragmentRefs}
+            />
+          )}
+        </div>
       </div>
-
-      {/* 悬浮小酌对话框 */}
-      <FloatingAgentChat
-        shots={shotContexts}
-        cards={storyCards}
-        currentScript={currentScript}
-        projectId={projectId}
-        onApplyPromptUpdate={handleApplyPromptUpdate}
-      />
     </div>
   );
 }

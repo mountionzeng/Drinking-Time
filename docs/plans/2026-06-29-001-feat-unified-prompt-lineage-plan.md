@@ -384,6 +384,8 @@ flowchart TB
 
 ### U5. 完成单镜头配方卡片与数据库视图闭环
 
+**Implementation status (2026-06-30):** Completed. 默认在当前镜头创建局部分支；用户可明确切换到共享节点范围。配方卡、数据库视图、revision 历史、影响预览、确认和独立重渲均读取同一服务端投影。
+
 **Goal:** 将镜头设计表改为服务端谱系投影，提供默认配方卡片和高级数据库视图，完成局部编辑、差异、确认、恢复和按需重渲。
 
 **Requirements:** R5-R9, R16-R18；F1, F2；AE1, AE2, AE7, AE8.
@@ -430,6 +432,8 @@ flowchart TB
 - 卡片和高级视图不持有独立可写状态。
 
 ### U6. 统一故事级常驻小酌与版本化选择引用
+
+**Implementation status (2026-07-01):** Completed. 普通对话和选区修改均按 `storyId + userId` 持久化；选区保存对象版本和归一化范围；小酌只创建候选 revision，由用户在聊天中确认或拒绝。Analysis 与 Creation 共用 `StoryAgentChat`，旧浮动聊天不再挂载。动态分镜的图片矩形、视频帧矩形和视频时间范围已接入同一 `SelectionContext`，折叠聊天仍保持会话与事件监听，服务端会校验图片、take、range 和 `stableShotId` 的归属关系。
 
 **Goal:** 把故事页和创作页会话收敛为每故事一条连续对话，扩展左侧可折叠栏和版本化上下文引用，并把直接选区写入改为候选确认。
 

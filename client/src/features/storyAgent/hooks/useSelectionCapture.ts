@@ -1,6 +1,20 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { SelectionState } from '../types';
 
+function textOffset(root: HTMLElement, node: Node, offset: number): number {
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.setEnd(node, offset);
+  return range.toString().length;
+}
+
+function numberAttribute(element: HTMLElement, name: string): number | null {
+  const raw = element.getAttribute(name);
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Listens to document `selectionchange` events and resolves selections
  * within `data-selection-source` containers into a `SelectionState`.
@@ -17,13 +31,11 @@ export function useSelectionCapture(
   const resolve = useCallback(() => {
     const sel = document.getSelection();
     if (!sel || sel.isCollapsed || !sel.anchorNode) {
-      onSelectionRef.current(null);
       return;
     }
 
     const selectedText = sel.toString().trim();
     if (!selectedText) {
-      onSelectionRef.current(null);
       return;
     }
 
@@ -63,9 +75,28 @@ export function useSelectionCapture(
 
     const sourceType = attr.slice(0, colonIdx) as SelectionState['sourceType'];
     const sourceId = attr.slice(colonIdx + 1);
-    const fullText = (sourceEl.innerText || '').trim();
+    const fullText = sourceEl.innerText || '';
+    const anchorOffset = textOffset(sourceEl, sel.anchorNode, sel.anchorOffset);
+    const focusOffset = sel.focusNode
+      ? textOffset(sourceEl, sel.focusNode, sel.focusOffset)
+      : anchorOffset + selectedText.length;
+    const start = Math.min(anchorOffset, focusOffset);
+    const end = Math.max(anchorOffset, focusOffset);
 
-    onSelectionRef.current({ sourceType, sourceId, selectedText, fullText });
+    onSelectionRef.current({
+      sourceType,
+      sourceId,
+      selectedText,
+      fullText: fullText.trim(),
+      objectVersion: sourceEl.getAttribute('data-selection-version'),
+      selection: { kind: 'text', start, end },
+      storyId: numberAttribute(sourceEl, 'data-story-id'),
+      stableShotId: sourceEl.getAttribute('data-stable-shot-id'),
+      shotNo: numberAttribute(sourceEl, 'data-shot-no'),
+      imageId: numberAttribute(sourceEl, 'data-image-id'),
+      videoTakeId: numberAttribute(sourceEl, 'data-video-take-id'),
+      rangeId: numberAttribute(sourceEl, 'data-range-id'),
+    });
   }, []);
 
   useEffect(() => {

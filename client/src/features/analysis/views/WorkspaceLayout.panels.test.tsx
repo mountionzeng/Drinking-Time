@@ -61,8 +61,8 @@ function baseProps() {
 }
 
 describe('WorkspaceLayout story panel buttons', () => {
-  it('shows storyCards by default, other panels hidden', () => {
-    storyPanelState.visibleStoryPanels = [];
+  it('can show only storyCards when that panel is selected', () => {
+    storyPanelState.visibleStoryPanels = ['storyCards'];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).toContain('data-panel="story-cards"');
@@ -72,10 +72,25 @@ describe('WorkspaceLayout story panel buttons', () => {
   });
 
   it('can render multiple story panels at the same time', () => {
-    storyPanelState.visibleStoryPanels = ['storyboard', 'animatic', 'promptTable'];
+    storyPanelState.visibleStoryPanels = [
+      'storyCards',
+      'storyboard',
+      'animatic',
+      'promptTable',
+    ];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).toContain('data-panel="story-cards"');
+    expect(html).toContain('data-panel="storyboard"');
+    expect(html).toContain('data-panel="animatic"');
+    expect(html).toContain('data-panel="prompt-table"');
+  });
+
+  it('can hide storyCards like the other story panels', () => {
+    storyPanelState.visibleStoryPanels = ['storyboard', 'animatic', 'promptTable'];
+    const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
+
+    expect(html).not.toContain('data-panel="story-cards"');
     expect(html).toContain('data-panel="storyboard"');
     expect(html).toContain('data-panel="animatic"');
     expect(html).toContain('data-panel="prompt-table"');

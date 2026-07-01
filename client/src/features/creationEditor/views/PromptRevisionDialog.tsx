@@ -18,6 +18,7 @@ import type {
 
 type CandidateState = {
   kind: "candidate";
+  targetScope: "shot" | "source";
   row: PromptLineageRowView;
   nextValue: string;
   nextWeight: number;
@@ -101,7 +102,9 @@ export default function PromptRevisionDialog({
       : `恢复 ${state.row.label} 的历史版本`;
   const description =
     state.kind === "candidate"
-      ? "先看会影响哪些编译结果和现有素材，再决定是否正式写入。"
+      ? state.targetScope === "shot"
+        ? "这次修改只在当前镜头建立局部分支。先看影响，再决定是否正式写入。"
+        : "这次修改沿用节点原有共享范围，可能影响其他镜头。请确认影响后再写入。"
       : "恢复不会自动重渲素材，但会立刻刷新过期状态。";
   const currentValue = state.row.value.trim() || "暂无内容";
   const nextValue =

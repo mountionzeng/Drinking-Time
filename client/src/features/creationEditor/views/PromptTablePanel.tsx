@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Database, LayoutGrid, ListFilter } from "lucide-react";
+import { Database, Focus, LayoutGrid, ListFilter, Share2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
@@ -12,6 +12,7 @@ import type { PromptOverride } from "../promptTable/types";
 import {
   buildPromptLineageRevisionPreview,
   buildPromptLineageShotView,
+  resolvePromptCandidateNodeId,
   type PromptLineageRowView,
 } from "../promptLineage/viewModel";
 import PromptDatabaseView from "./PromptDatabaseView";
@@ -56,6 +57,7 @@ export default function PromptTablePanel() {
   const rejectCandidateMut = trpc.promptLineage.rejectCandidate.useMutation();
   const restoreRevisionMut = trpc.promptLineage.restoreRevision.useMutation();
   const [viewMode, setViewMode] = useState<"cards" | "database">("cards");
+  const [editScope, setEditScope] = useState<"shot" | "source">("shot");
   const [historyRow, setHistoryRow] = useState<PromptLineageRowView | null>(
     null
   );
@@ -71,6 +73,7 @@ export default function PromptTablePanel() {
   useEffect(() => {
     setInspectedCandidate(null);
     setCandidateCompareOpen(false);
+    setEditScope("shot");
   }, [selectedShot?.stableShotId, selectedShot?.shotNo]);
 
   useEffect(() => {
@@ -164,9 +167,19 @@ export default function PromptTablePanel() {
       if (nextValue === row.value.trim() && nextWeight === row.weight) {
         throw new Error("没有检测到新的提示词改动。");
       }
+      const candidateNodeId = resolvePromptCandidateNodeId({
+        aggregate: promptProjection,
+        row,
+        targetScope: editScope,
+      });
+      if (candidateNodeId == null) {
+        throw new Error(`${row.label} 没有可以修改的共享来源。`);
+      }
       const created = await createCandidateMut.mutateAsync({
         storyId: activeStoryId,
-        nodeId: row.nodeId,
+        nodeId: candidateNodeId,
+        targetStableShotId:
+          editScope === "shot" ? selectedShot?.stableShotId ?? null : null,
         content: nextValue,
         weight: nextWeight,
         reason: `creation-editor:${row.dimension}`,
@@ -177,6 +190,7 @@ export default function PromptTablePanel() {
       }
       setDialogState({
         kind: "candidate",
+        targetScope: editScope,
         row,
         nextValue,
         nextWeight,
@@ -184,12 +198,18 @@ export default function PromptTablePanel() {
         candidateRevisionId: created.candidate.id,
         preview: buildPromptLineageRevisionPreview({
           aggregate: created.projection,
-          nodeId: row.nodeId,
+          nodeId: created.candidate.nodeId,
           revisionId: created.candidate.id,
         }),
       });
     },
-    [activeStoryId, createCandidateMut, promptProjection]
+    [
+      activeStoryId,
+      createCandidateMut,
+      editScope,
+      promptProjection,
+      selectedShot?.stableShotId,
+    ]
   );
 
   const previewOverride = useCallback(
@@ -409,6 +429,41 @@ export default function PromptTablePanel() {
                 ? "当前镜头已切到统一提示词数据库。先预览并确认修订，再单独重渲图片。"
                 : "当前还是兼容模式。首次确认修订后，这个镜头会切到统一提示词数据库。"}
             </div>
+            {promptLineageMode === "lineage" && selectedShot ? (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-3">
+                <span className="text-xs font-medium text-foreground">
+                  修改范围
+                </span>
+                <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5">
+                  <button
+                    type="button"
+                    aria-pressed={editScope === "shot"}
+                    onClick={() => setEditScope("shot")}
+                    className={`inline-flex h-7 items-center gap-1 rounded px-2 text-xs transition-colors ${
+                      editScope === "shot"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Focus className="h-3.5 w-3.5" />
+                    仅 {shotLabel(selectedShot.shotNo)}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={editScope === "source"}
+                    onClick={() => setEditScope("source")}
+                    className={`inline-flex h-7 items-center gap-1 rounded px-2 text-xs transition-colors ${
+                      editScope === "source"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                    共享范围
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <Tabs
               value={viewMode}

@@ -73,6 +73,8 @@ import {
 } from './spine/storySpine';
 import { createActionFacade } from './spine/actionFacade';
 import { selectPromptPool } from './spine/selectors';
+import { resolveSelectionPromptTarget } from './selectionPromptCandidate';
+import { mergeStoryConversationMessages } from './storyConversationStore';
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -138,6 +140,19 @@ export function warnIntentRecognitionError(error: unknown) {
     '[storyAgent.intent] recognizeIntent failed:',
     error instanceof Error ? error.message : error,
   );
+}
+
+export function resolvePersistedStoryId(
+  ...storyIds: Array<number | null | undefined>
+): number | null {
+  return storyIds.find(storyId => storyId != null && storyId > 0) ?? null;
+}
+
+export function storyScopeMatches(
+  expectedStoryId: number | null,
+  currentStoryId: number | null,
+): boolean {
+  return expectedStoryId === currentStoryId;
 }
 
 export type StoryShotEditableField =
@@ -246,6 +261,8 @@ interface StoryAgentContextValue {
   setActiveSelection: (state: SelectionState | null) => void;
   clearSelection: () => void;
   sendSelectionEdit: (instruction: string) => Promise<void>;
+  confirmSelectionCandidate: (messageId: string) => Promise<void>;
+  rejectSelectionCandidate: (messageId: string) => Promise<void>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
   promptPool: import('./promptPool').PromptFragment[];
   /** 更新某镜引用的片段 ID 列表 */
@@ -283,6 +300,8 @@ type StoryAgentActionKey =
   | 'setActiveSelection'
   | 'clearSelection'
   | 'sendSelectionEdit'
+  | 'confirmSelectionCandidate'
+  | 'rejectSelectionCandidate'
   | 'addStoryImage'
   | 'removeStoryImage'
   | 'updateShotFragmentRefs';
@@ -318,6 +337,8 @@ const storyAgentActionKeys = [
   'setActiveSelection',
   'clearSelection',
   'sendSelectionEdit',
+  'confirmSelectionCandidate',
+  'rejectSelectionCandidate',
   'addStoryImage',
   'removeStoryImage',
   'updateShotFragmentRefs',
@@ -602,6 +623,8 @@ export function StoryAgentProvider({
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
+  const appendConversationTurnMut =
+    trpc.storyConversation.appendTurn.useMutation();
 
   const messages = useStorySpine((state) => state.messages);
   const cards = useStorySpine((state) => state.cards);
@@ -666,6 +689,13 @@ export function StoryAgentProvider({
   const setLastArchiveSaveHash = useStorySpine((state) => state.setLastArchiveSaveHash);
   const setLastStateChangeTime = useStorySpine((state) => state.setLastStateChangeTime);
   const setLastSnapshotId = useStorySpine((state) => state.setLastSnapshotId);
+  const storyConversationQuery = trpc.storyConversation.list.useQuery(
+    { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
+    {
+      enabled: Boolean(activeStoryId && activeStoryId > 0),
+      refetchOnWindowFocus: false,
+    },
+  );
 
   // 向上同步当前故事到共享真相源（U4）。仅同步"真实故事 id"（>0）；新故事草稿(-1)/无故事(null)
   // 对 Creation 侧无意义，归一为 null，让 Shot Table 落空状态而非查无效 id。
@@ -758,6 +788,21 @@ export function StoryAgentProvider({
   ]);
 
   // Story loading is now handled explicitly via loadStory() from the story list.
+
+  useEffect(() => {
+    if (!activeStoryId || activeStoryId <= 0 || !storyConversationQuery.data) {
+      return;
+    }
+    const projection = storyConversationQuery.data;
+    setMessages(current =>
+      mergeStoryConversationMessages({
+        current,
+        messages: projection.messages,
+        references: projection.references,
+        candidates: projection.candidates,
+      }),
+    );
+  }, [activeStoryId, setMessages, storyConversationQuery.data]);
 
   // Persist on change
   useEffect(() => {
@@ -1071,7 +1116,7 @@ export function StoryAgentProvider({
   ]);
 
   const recognizeJobIntentFromHistory = useCallback(
-    async (history: ChatMessage[]) => {
+    async (history: ChatMessage[], requestStoryId: number | null) => {
       try {
         const result = await recognizeIntentMut.mutateAsync({
           history: history
@@ -1081,6 +1126,14 @@ export function StoryAgentProvider({
               content: message.content,
             })),
         });
+        if (
+          !storyScopeMatches(
+            requestStoryId,
+            storySpineStore.getState().activeStoryId,
+          )
+        ) {
+          return;
+        }
         const pending = recognitionToPendingJobIntent(result as StoryIntent);
         if (!pending) return;
         const { confirmedIntent, pendingIntentDraft } = storySpineStore.getState();
@@ -1097,6 +1150,7 @@ export function StoryAgentProvider({
     async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
+      const requestStoryId = activeStoryId;
       const shouldRecognizeIntent = shouldTriggerIntentRecognition({
         messages,
         confirmedIntent,
@@ -1140,6 +1194,14 @@ export function StoryAgentProvider({
           } catch (err) {
             console.error("[sendMessage] 照片上传失败:", err);
           }
+        }
+        if (
+          !storyScopeMatches(
+            requestStoryId,
+            storySpineStore.getState().activeStoryId,
+          )
+        ) {
+          return;
         }
 
         const userContent = trimmed || "帮我看看这张照片";
@@ -1229,6 +1291,14 @@ export function StoryAgentProvider({
           photoUrl: photoUrlForLLM, // 传给 LLM 做多模态理解（data URL 最稳）
           confirmedIntent: buildChatIntentPayload(confirmedIntent),
         }) as StoryAgentChatResult;
+        if (
+          !storyScopeMatches(
+            requestStoryId,
+            storySpineStore.getState().activeStoryId,
+          )
+        ) {
+          return;
+        }
         let nextCards = cards;
         let spawnedCardId: string | undefined;
 
@@ -1279,10 +1349,10 @@ export function StoryAgentProvider({
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
         if (shouldRecognizeIntent) {
-          void recognizeJobIntentFromHistory(nextMessages);
+          void recognizeJobIntentFromHistory(nextMessages, requestStoryId);
         }
 
-        await saveArchiveStory({
+        const savedStoryId = await saveArchiveStory({
           messages: finalMessages,
           cards: nextCards,
           visualCanvasItems: nextVisualItems, // 把刚挂上的对话照片一起落库，否则会回退到本轮已过期的闭包值
@@ -1295,6 +1365,32 @@ export function StoryAgentProvider({
           theme: storyTheme,
           arc: storyArc,
         });
+        const conversationStoryId = resolvePersistedStoryId(
+          activeStoryId,
+          remoteStoryId,
+          savedStoryId,
+        );
+        if (conversationStoryId != null) {
+          try {
+            await appendConversationTurnMut.mutateAsync({
+              storyId: conversationStoryId,
+              userMessage: {
+                clientMessageId: userMsg.id,
+                content: userMsg.content,
+                selection: null,
+              },
+              assistantMessage: {
+                clientMessageId: replyMsg.id,
+                content: replyMsg.content,
+              },
+            });
+          } catch (error) {
+            console.warn(
+              '[storyConversation] persist chat turn failed:',
+              error,
+            );
+          }
+        }
       } catch (err) {
         console.error('storyAgent.chat failed', err);
         toast.error('Agent 暂时没接上，再试一次？');
@@ -1320,6 +1416,8 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       artDirection,
+      activeStoryId,
+      appendConversationTurnMut,
       saveArchiveStory,
       uploadPhotoMut,
       recognizeJobIntentFromHistory,
@@ -2288,48 +2386,31 @@ export function StoryAgentProvider({
   const clearSelection = useCallback(() => setActiveSelection(null), []);
 
   const selectionEditMut = trpc.storyAgent.selectionEdit.useMutation();
-
-  /** Apply modifiedFullText back to the source entity */
-  const applySelectionEdit = useCallback(
-    (sourceType: string, sourceId: string, modifiedFullText: string) => {
-      switch (sourceType) {
-        case 'card':
-          updateCardContent(sourceId, modifiedFullText);
-          break;
-        case 'script-scene': {
-          const sceneIdx = Number(sourceId);
-          if (!Number.isNaN(sceneIdx)) updateScriptScene(sceneIdx, 'visual', modifiedFullText);
-          break;
-        }
-        case 'script-meta': {
-          const field = sourceId as 'title' | 'logline' | 'arcSummary';
-          updateScriptMeta(field, modifiedFullText);
-          break;
-        }
-        case 'shot': {
-          const parts = sourceId.split(':');
-          const shotIdx = Number(parts[0]);
-          const shotField = parts[1] as StoryShotEditableField;
-          if (!Number.isNaN(shotIdx) && shotField) updateStoryShotField(shotIdx, shotField, modifiedFullText);
-          break;
-        }
-        case 'chat': {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === sourceId ? { ...m, content: modifiedFullText } : m)),
-          );
-          break;
-        }
-      }
-    },
-    [updateCardContent, updateScriptScene, updateScriptMeta, updateStoryShotField],
-  );
+  const promptCandidateMut = trpc.promptLineage.createCandidate.useMutation();
+  const confirmPromptCandidateMut =
+    trpc.promptLineage.confirmCandidate.useMutation();
+  const rejectPromptCandidateMut =
+    trpc.promptLineage.rejectCandidate.useMutation();
 
   const sendSelectionEdit = useCallback(
     async (instruction: string) => {
       if (!activeSelection || isReplying) return;
+      const requestStoryId = activeStoryId;
 
       const { sourceType, sourceId, selectedText, fullText } = activeSelection;
-      const selectionQuote = { sourceType, sourceId, selectedText };
+      const selectionQuote = {
+        sourceType,
+        sourceId,
+        selectedText,
+        objectVersion: activeSelection.objectVersion,
+        selection: activeSelection.selection,
+        storyId: activeSelection.storyId,
+        stableShotId: activeSelection.stableShotId,
+        shotNo: activeSelection.shotNo,
+        imageId: activeSelection.imageId,
+        videoTakeId: activeSelection.videoTakeId,
+        rangeId: activeSelection.rangeId,
+      };
 
       const userMsg: ChatMessage = {
         id: newId('msg'),
@@ -2354,45 +2435,92 @@ export function StoryAgentProvider({
             content: m.content,
           })),
         });
+        if (
+          !storyScopeMatches(
+            requestStoryId,
+            storySpineStore.getState().activeStoryId,
+          )
+        ) {
+          return;
+        }
 
-        // Apply modification to source entity
-        if (!result.isApprovalOnly && result.modifiedFullText !== fullText) {
-          applySelectionEdit(sourceType, sourceId, result.modifiedFullText);
+        const storyId = resolvePersistedStoryId(
+          activeSelection.storyId,
+          activeStoryId,
+          remoteStoryId,
+        );
+        let promptCandidate: ChatMessage['promptCandidate'];
+        let reply = result.reply || '我看过了。';
+        if (
+          !result.isApprovalOnly &&
+          result.modifiedFullText !== fullText &&
+          storyId != null
+        ) {
+          const loaded = await utils.promptLineage.getStoryProjection.fetch({
+            storyId,
+          });
+          if (loaded.mode === 'lineage') {
+            const target = resolveSelectionPromptTarget({
+              selection: activeSelection,
+              shots: storyShots,
+              aggregate: loaded.projection,
+            });
+            if (target) {
+              const created = await promptCandidateMut.mutateAsync({
+                storyId,
+                nodeId: target.nodeId,
+                targetStableShotId: target.stableShotId,
+                content: result.modifiedFullText,
+                reason: `xiaozhuo-selection:${sourceType}:${sourceId}`,
+                authorType: 'agent',
+                expectedVersion: loaded.projection.state.version,
+              });
+              promptCandidate = {
+                revisionId: created.candidate.id,
+                nodeId: created.candidate.nodeId,
+                expectedVersion: created.version,
+                label: target.label,
+                status: 'pending',
+              };
+              reply = `${reply}\n\n我把修改放成了候选版本。你确认后才会更新正式提示词，也不会自动触发出图。`;
+            } else {
+              reply = `${reply}\n\n这个选区目前还没有对应的提示词节点，所以我只给出建议，没有改动正文。`;
+            }
+          }
         }
 
         const replyMsg: ChatMessage = {
           id: newId('msg'),
           role: 'assistant',
-          content: result.reply || '已处理。',
+          content: reply,
           timestamp: Date.now(),
+          promptCandidate,
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
         setActiveSelection(null);
 
-        // Trigger snapshot for style learning annotation
-        if (projectId !== null) {
+        if (storyId != null) {
           try {
-            const updatedCards = sourceType === 'card'
-              ? cards.map((c) => (c.id === sourceId ? { ...c, content: result.modifiedFullText } : c))
-              : cards;
-            await saveSnapshotMut.mutateAsync({
-              projectId,
-              sessionId: storySpineStore.getState().sessionId,
-              state: {
-                cards: updatedCards as unknown as Record<string, unknown>[],
-                script: scripts as unknown as Record<string, unknown>[],
-                shots: storyShots as unknown as Record<string, unknown>[],
+            await appendConversationTurnMut.mutateAsync({
+              storyId,
+              userMessage: {
+                clientMessageId: userMsg.id,
+                content: instruction,
+                selection: activeSelection,
               },
-              inlineCorrection: {
-                originalText: selectedText,
-                modifiedText: result.isApprovalOnly ? selectedText : result.modifiedFullText,
-                instruction,
-                sourceType,
+              assistantMessage: {
+                clientMessageId: replyMsg.id,
+                content: replyMsg.content,
+                candidateRevisionId:
+                  replyMsg.promptCandidate?.revisionId ?? null,
               },
             });
-          } catch (err) {
-            console.warn('[snapshot] inline correction snapshot failed:', err);
+          } catch (error) {
+            console.warn(
+              '[storyConversation] persist selection turn failed:',
+              error,
+            );
           }
         }
 
@@ -2419,7 +2547,96 @@ export function StoryAgentProvider({
     [
       activeSelection, isReplying, messages, projectId, cards, scripts,
       storyShots, characters, remoteStoryId, storyTitle, storyLogline,
-      storyTheme, storyArc, saveArchiveStory, selectionEditMut, applySelectionEdit,
+      storyTheme, storyArc, saveArchiveStory, selectionEditMut, activeStoryId,
+      utils.promptLineage.getStoryProjection, promptCandidateMut,
+      appendConversationTurnMut,
+    ],
+  );
+
+  const updateSelectionCandidateStatus = useCallback(
+    (
+      messageId: string,
+      status: NonNullable<ChatMessage['promptCandidate']>['status'],
+    ) => {
+      setMessages(previous =>
+        previous.map(message =>
+          message.id === messageId && message.promptCandidate
+            ? {
+                ...message,
+                promptCandidate: { ...message.promptCandidate, status },
+              }
+            : message,
+        ),
+      );
+    },
+    [],
+  );
+
+  const confirmSelectionCandidate = useCallback(
+    async (messageId: string) => {
+      const message = messages.find(item => item.id === messageId);
+      const candidate = message?.promptCandidate;
+      const storyId = resolvePersistedStoryId(activeStoryId, remoteStoryId);
+      if (!candidate || candidate.status !== 'pending' || storyId == null) return;
+      try {
+        await confirmPromptCandidateMut.mutateAsync({
+          storyId,
+          candidateRevisionId: candidate.revisionId,
+          expectedVersion: candidate.expectedVersion,
+        });
+        updateSelectionCandidateStatus(messageId, 'confirmed');
+        await Promise.all([
+          utils.promptLineage.getStoryProjection.invalidate({ storyId }),
+          utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+        ]);
+        toast.success('候选提示词已确认，重渲仍由你决定。');
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : '确认失败，请刷新后重新预览。',
+        );
+      }
+    },
+    [
+      activeStoryId,
+      confirmPromptCandidateMut,
+      messages,
+      remoteStoryId,
+      updateSelectionCandidateStatus,
+      utils,
+    ],
+  );
+
+  const rejectSelectionCandidate = useCallback(
+    async (messageId: string) => {
+      const message = messages.find(item => item.id === messageId);
+      const candidate = message?.promptCandidate;
+      const storyId = resolvePersistedStoryId(activeStoryId, remoteStoryId);
+      if (!candidate || candidate.status !== 'pending' || storyId == null) return;
+      try {
+        await rejectPromptCandidateMut.mutateAsync({
+          storyId,
+          candidateRevisionId: candidate.revisionId,
+          expectedVersion: candidate.expectedVersion,
+        });
+        updateSelectionCandidateStatus(messageId, 'rejected');
+        await utils.promptLineage.getStoryProjection.invalidate({ storyId });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : '拒绝候选失败，请刷新后重试。',
+        );
+      }
+    },
+    [
+      activeStoryId,
+      messages,
+      rejectPromptCandidateMut,
+      remoteStoryId,
+      updateSelectionCandidateStatus,
+      utils.promptLineage.getStoryProjection,
     ],
   );
 
@@ -2520,6 +2737,8 @@ export function StoryAgentProvider({
       setActiveSelection,
       clearSelection,
       sendSelectionEdit,
+      confirmSelectionCandidate,
+      rejectSelectionCandidate,
       promptPool,
       updateShotFragmentRefs,
     }),
@@ -2575,6 +2794,8 @@ export function StoryAgentProvider({
       setActiveSelection,
       clearSelection,
       sendSelectionEdit,
+      confirmSelectionCandidate,
+      rejectSelectionCandidate,
       promptPool,
       updateShotFragmentRefs,
     ],
@@ -2609,6 +2830,8 @@ export function StoryAgentProvider({
     setActiveSelection,
     clearSelection,
     sendSelectionEdit,
+    confirmSelectionCandidate,
+    rejectSelectionCandidate,
     addStoryImage,
     removeStoryImage,
     updateShotFragmentRefs,

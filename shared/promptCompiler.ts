@@ -113,10 +113,17 @@ export function compilePromptTargets(
 
   return Object.fromEntries(
     targets.map(modality => {
-      const inputs = eligibleNodes
+      const applicableNodes = eligibleNodes
         .filter(
           node => node.modality === "shared" || node.modality === modality,
-        )
+        );
+      const effectiveNodes = Array.from(
+        applicableNodes.reduce((nodesByDimension, node) => {
+          nodesByDimension.set(node.dimension, node);
+          return nodesByDimension;
+        }, new Map<string, PromptNode>()).values(),
+      );
+      const inputs = effectiveNodes
         .map(node => {
           const revisionId =
             input.revisionOverrides?.[node.id] ?? node.currentRevisionId;

@@ -186,4 +186,53 @@ describe("prompt lineage candidate service", () => {
       "camera_motion(55%): 固定机位",
     );
   });
+
+  it("branches a story node into the selected shot by default", async () => {
+    const store = createPromptLineageMemoryStore();
+    await migrateLegacyPromptLineage(store, {
+      storyId: 36,
+      userId: 7,
+      body: {
+        title: "原故事标题",
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotNo: 1,
+            subject: "第一个镜头",
+          },
+          {
+            stableShotId: "shot-02",
+            shotNo: 2,
+            subject: "第二个镜头",
+          },
+        ],
+      },
+    });
+    const before = store.getStoryAggregate({ storyId: 36, userId: 7 });
+    const titleNode = before.nodes.find(node => node.dimension === "title")!;
+    const created = await createPromptCandidate(store, {
+      storyId: 36,
+      userId: 7,
+      nodeId: titleNode.id,
+      targetStableShotId: "shot-01",
+      content: "只属于第一镜的标题语义",
+      authorType: "user",
+      expectedVersion: before.state.version,
+      operationKey: "shot-local-title",
+    });
+    const preview = previewPromptCandidate(store, {
+      storyId: 36,
+      userId: 7,
+      candidateRevisionId: created.candidate.id,
+    });
+
+    expect(preview.shots.map(shot => shot.stableShotId)).toEqual(["shot-01"]);
+    expect(preview.proposed.image.finalText).toContain(
+      "title(18%): 只属于第一镜的标题语义",
+    );
+    expect(preview.proposed.image.finalText).not.toContain(
+      "title(18%): 原故事标题",
+    );
+    expect(created.candidate.nodeId).not.toBe(titleNode.id);
+  });
 });

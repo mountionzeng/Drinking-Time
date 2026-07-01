@@ -21,11 +21,32 @@ export type SelectionMaterialStatus =
   | "fallback-image"
   | "unknown";
 
+export type SelectionRegion =
+  | {
+      kind: "text";
+      start: number;
+      end: number;
+    }
+  | {
+      kind: "rect";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | {
+      kind: "time";
+      startSec: number;
+      endSec: number;
+    };
+
 export type SelectionContext = {
   sourceType: SelectionSourceType;
   sourceId: string;
   selectedText: string;
   fullText: string;
+  objectVersion?: string | null;
+  selection?: SelectionRegion | null;
   materialStatus?: SelectionMaterialStatus;
   storyId?: number | null;
   stableShotId?: string | null;

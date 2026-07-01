@@ -12,6 +12,7 @@ import type {
 import {
   buildPromptLineageRevisionPreview,
   buildPromptLineageShotView,
+  resolvePromptCandidateNodeId,
 } from "./viewModel";
 
 function state(): StoryPromptState {
@@ -227,6 +228,55 @@ function aggregate(): StoryPromptAggregate {
 }
 
 describe("prompt lineage view model", () => {
+  it("routes shared-scope edits back to the story source node", () => {
+    const data = aggregate();
+    const localStyleNode = node(5, {
+      stableShotId: "shot-01",
+      scope: "shot",
+      modality: "shared",
+      dimension: "visual_style",
+      currentRevisionId: 15,
+    });
+    data.nodes.push(localStyleNode);
+
+    expect(
+      resolvePromptCandidateNodeId({
+        aggregate: data,
+        row: {
+          nodeId: localStyleNode.id,
+          scope: localStyleNode.scope,
+          modality: localStyleNode.modality,
+          dimension: localStyleNode.dimension,
+        },
+        targetScope: "source",
+      }),
+    ).toBe(1);
+    expect(
+      resolvePromptCandidateNodeId({
+        aggregate: data,
+        row: {
+          nodeId: localStyleNode.id,
+          scope: localStyleNode.scope,
+          modality: localStyleNode.modality,
+          dimension: localStyleNode.dimension,
+        },
+        targetScope: "shot",
+      }),
+    ).toBe(5);
+    expect(
+      resolvePromptCandidateNodeId({
+        aggregate: data,
+        row: {
+          nodeId: 2,
+          scope: "shot",
+          modality: "shared",
+          dimension: "subject",
+        },
+        targetScope: "source",
+      }),
+    ).toBeNull();
+  });
+
   it("builds shot rows from the lineage projection with inheritance and usage", () => {
     const view = buildPromptLineageShotView({
       aggregate: aggregate(),
@@ -264,6 +314,40 @@ describe("prompt lineage view model", () => {
     expect(preview.shots[0]?.proposed.video.finalText).toContain(
       "camera_motion(36%): 固定镜头，几乎不动",
     );
+  });
+
+  it("shows the shot-local branch instead of duplicating its shared source", () => {
+    const value = aggregate();
+    value.nodes.push(
+      node(5, {
+        stableShotId: "shot-01",
+        scope: "shot",
+        modality: "shared",
+        dimension: "visual_style",
+        currentRevisionId: 15,
+      }),
+    );
+    value.revisions.push(
+      revision(15, 5, "shot-local cool realism", {
+        authorType: "user",
+        authorUserId: 7,
+      }),
+    );
+    value.bindings.push(binding(5, 5, "shot-01", "shared", 1));
+
+    const view = buildPromptLineageShotView({
+      aggregate: value,
+      stableShotId: "shot-01",
+      shotNo: 1,
+    });
+    const styles = view.rows.filter(row => row.dimension === "visual_style");
+
+    expect(styles).toHaveLength(1);
+    expect(styles[0]).toMatchObject({
+      nodeId: 5,
+      value: "shot-local cool realism",
+      inheritance: "overridden",
+    });
   });
 
   it("previews a story-level revision as impacting every shot", () => {

@@ -107,7 +107,7 @@ type CreateCompilationInput = {
   revisionIds: number[];
 };
 
-type AppendMessageInput = {
+export type AppendMessageInput = {
   role: StoryConversationMessage["role"];
   content: string;
   source?: string | null;
@@ -115,12 +115,26 @@ type AppendMessageInput = {
   candidateRevisionId?: number | null;
 };
 
-type AddMessageReferenceInput = {
+export type AddMessageReferenceInput = {
   messageId: number;
   objectType: string;
   objectId: string;
   objectVersion?: string | null;
   selection?: unknown;
+};
+
+export type AppendConversationTurnInput = {
+  messages: Array<
+    AppendMessageInput & {
+      reference?: Omit<AddMessageReferenceInput, "messageId"> | null;
+    }
+  >;
+};
+
+export type AppendConversationTurnResult = {
+  conversation: StoryConversation;
+  messages: StoryConversationMessage[];
+  references: StoryMessageReference[];
 };
 
 export type PromptLineageTransaction = {
@@ -569,6 +583,78 @@ export function createPromptLineageMemoryStore(
   return {
     transact,
     getStoryAggregate,
+    async appendConversationTurn(
+      owner: PromptLineageOwner,
+      input: AppendConversationTurnInput,
+    ): Promise<AppendConversationTurnResult> {
+      findOwnedStoryState(owner);
+      const draft = structuredClone(state);
+      const timestamp = nowIso();
+      let conversation = draft.conversations.find(item =>
+        ownerMatches(item, owner),
+      );
+      if (!conversation) {
+        conversation = {
+          id: draft.nextIds.conversation++,
+          ...owner,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        draft.conversations.push(conversation);
+      }
+      const appended: StoryConversationMessage[] = [];
+      const references: StoryMessageReference[] = [];
+      for (const item of input.messages) {
+        const clientMessageId = item.clientMessageId?.trim() || null;
+        const existing = clientMessageId
+          ? draft.messages.find(
+              message =>
+                message.conversationId === conversation!.id &&
+                message.clientMessageId === clientMessageId,
+            )
+          : undefined;
+        if (existing) {
+          appended.push(existing);
+          references.push(
+            ...draft.messageReferences.filter(
+              reference => reference.messageId === existing.id,
+            ),
+          );
+          continue;
+        }
+        const message: StoryConversationMessage = {
+          id: draft.nextIds.message++,
+          ...owner,
+          conversationId: conversation.id,
+          role: item.role,
+          content: item.content,
+          source: item.source?.trim() || null,
+          clientMessageId,
+          candidateRevisionId: item.candidateRevisionId ?? null,
+          createdAt: timestamp,
+        };
+        draft.messages.push(message);
+        appended.push(message);
+        if (item.reference) {
+          const reference: StoryMessageReference = {
+            id: draft.nextIds.messageReference++,
+            ...owner,
+            messageId: message.id,
+            objectType: item.reference.objectType,
+            objectId: item.reference.objectId,
+            objectVersion: item.reference.objectVersion ?? null,
+            selection: item.reference.selection ?? null,
+            createdAt: timestamp,
+          };
+          draft.messageReferences.push(reference);
+          references.push(reference);
+        }
+      }
+      conversation.updatedAt = timestamp;
+      await storeOptions.onCommit?.(structuredClone(draft));
+      state = draft;
+      return structuredClone({ conversation, messages: appended, references });
+    },
     async clearStory(owner: PromptLineageOwner) {
       const next = structuredClone(state);
       const remainingCompilations = next.compilations.filter(

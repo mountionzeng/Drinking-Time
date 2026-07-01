@@ -1,3 +1,4 @@
+import * as React from "react";
 import {
   useEffect,
   useMemo,
@@ -21,6 +22,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { SelectionContext } from "@shared/selectionContext";
 import {
   Dialog,
   DialogContent,
@@ -52,14 +54,21 @@ import {
   videoTakeDurationMs,
   videoTakeErrorMessage,
 } from "../videoAssetViewModel";
+import {
+  buildImageRegionSelection,
+  buildVideoFrameRegionSelection,
+  buildVideoRangeSelection,
+} from "../mediaSelectionContext";
 
 type AnimaticPlayerProps = {
+  storyId?: number | null;
   shots: CreationEditorShot[];
   selectedShotNo: number | null;
   durationsByShotNo?: Record<number, number>;
   onShotEnter: (shotNo: number) => void;
   isPlaying: boolean;
   onPlayingChange: (isPlaying: boolean) => void;
+  onSelectContext?: (context: SelectionContext) => void;
   playbackResetKey?: number;
   onPromoteFrameCrop?: (input: {
     shotNo: number;
@@ -210,12 +219,14 @@ function frameSampleIndexes(totalFrames: number, maxSamples = 12) {
 }
 
 export default function AnimaticPlayer({
+  storyId = null,
   shots,
   selectedShotNo,
   durationsByShotNo = {},
   onShotEnter,
   isPlaying,
   onPlayingChange,
+  onSelectContext,
   playbackResetKey = 0,
   onPromoteFrameCrop,
   promotingFrameCropShotNo = null,
@@ -458,6 +469,8 @@ export default function AnimaticPlayer({
     : undefined;
   const deriveSourceUrl = currentVideoPreview?.videoUrl || activeFrameUrl;
   const deriveSourceType = currentVideoPreview?.videoUrl ? "video" : "image";
+  const deriveVideoTakeId =
+    currentVideoPreview?.takeId ?? currentVideoTake?.id ?? null;
   const canPersistDerivedFrame =
     deriveSourceType === "video" &&
     currentVideoTake?.extractionCapability === "available";
@@ -788,13 +801,90 @@ export default function AnimaticPlayer({
   };
 
   const openSelectionInChat = () => {
-    if (!deriveContextMessage) return;
+    if (!deriveContextMessage || !storyId || !currentShot || !onSelectContext) {
+      return;
+    }
+    const rect = {
+      x: deriveSelection.x / 100,
+      y: deriveSelection.y / 100,
+      width: deriveSelection.width / 100,
+      height: deriveSelection.height / 100,
+    };
+    if (deriveSourceType === "video" && deriveVideoTakeId != null) {
+      onSelectContext(
+        buildVideoFrameRegionSelection({
+          storyId,
+          shot: currentShot,
+          takeId: deriveVideoTakeId,
+          timeSec: deriveFrameTimeSec,
+          rect,
+        })
+      );
+    } else if (activeFrameId != null) {
+      onSelectContext(
+        buildImageRegionSelection({
+          storyId,
+          shot: currentShot,
+          imageId: activeFrameId,
+          rect,
+        })
+      );
+    } else {
+      return;
+    }
     window.dispatchEvent(
       new CustomEvent("dt:open-creation-chat", {
-        detail: { draftMessage: deriveContextMessage },
+        detail: {
+          draftMessage: deriveContextMessage,
+          preserveSelection: true,
+        },
       })
     );
     setDeriveWorkbenchOpen(false);
+  };
+  const canOpenSelectionInChat = Boolean(
+    deriveContextMessage &&
+      storyId &&
+      onSelectContext &&
+      (deriveSourceType === "video"
+        ? deriveVideoTakeId != null
+        : activeFrameId != null)
+  );
+
+  const openRangeInChat = () => {
+    if (
+      !storyId ||
+      !currentShot ||
+      !currentVideoTake ||
+      !rangeDraft ||
+      !onSelectContext
+    ) {
+      return;
+    }
+    const persistedRange = currentVideoTake.ranges.find(
+      range =>
+        Math.abs(range.startSec - rangeDraft.startSec) < 0.05 &&
+        Math.abs(range.endSec - rangeDraft.endSec) < 0.05
+    );
+    onSelectContext(
+      buildVideoRangeSelection({
+        storyId,
+        shot: currentShot,
+        takeId: currentVideoTake.id,
+        rangeId: persistedRange?.id ?? null,
+        startSec: rangeDraft.startSec,
+        endSec: rangeDraft.endSec,
+        durationSec: currentTakeDurationSec,
+      })
+    );
+    window.dispatchEvent(
+      new CustomEvent("dt:open-creation-chat", {
+        detail: {
+          draftMessage: `请帮我判断 ${shotLabel(currentShot)} 的 ${rangeDraft.startSec.toFixed(1)}-${rangeDraft.endSec.toFixed(1)}s 这段是否适合保留，或者应该怎样调整镜头。`,
+          preserveSelection: true,
+        },
+      })
+    );
   };
 
   const copySelectionContext = async () => {
@@ -977,15 +1067,17 @@ export default function AnimaticPlayer({
                   size="sm"
                   variant={deriveWorkbenchOpen ? "default" : "outline"}
                   onClick={() => setDeriveWorkbenchOpen(true)}
-                  disabled={!deriveSourceUrl || !canPersistDerivedFrame}
+                  disabled={!deriveSourceUrl}
                   title={
-                    canPersistDerivedFrame
-                      ? "从视频帧派生新镜头"
-                      : "当前视频尚未完成同源托管，暂时不能抽帧"
+                    deriveSourceType === "image"
+                      ? "框选当前主图区域并发送给小酌"
+                      : canPersistDerivedFrame
+                        ? "框选视频帧区域，可先问小酌，也可继续派生新镜头"
+                        : "可以框选并询问小酌；当前视频尚未完成同源托管，暂时不能生成派生候选"
                   }
                 >
-                  <GitBranchPlus className="h-4 w-4" />
-                  派生新镜头
+                  <ScanLine className="h-4 w-4" />
+                  框选问小酌
                 </Button>
                 {canRefreshVideo ? (
                   <Button
@@ -1151,58 +1243,75 @@ export default function AnimaticPlayer({
                       {currentTakeAffordance?.canUseOnTimeline && rangeDraft ? (
                         <div className="space-y-2">
                           <p className="text-[10px] text-muted-foreground">
-                            当前视频 {currentTakeDurationSec.toFixed(1)}s，选择其中一段用于时间轴。
+                            当前视频 {currentTakeDurationSec.toFixed(1)}s，拖动入点/出点框选一段；可以先发给小酌判断，也可以保存到时间轴。
                             {playbackSpeed !== 1.0
                               ? ` 以 ${playbackSpeed}x 速度播放，时间轴时长约 ${((rangeDraft.endSec - rangeDraft.startSec) / playbackSpeed).toFixed(1)}s。`
                               : ` 时间轴时长 ${(rangeDraft.endSec - rangeDraft.startSec).toFixed(1)}s。`}
                           </p>
-                          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                          <label className="block text-[10px] text-muted-foreground">
-                            <span className="mb-1 block">
-                              入点 {rangeDraft.startSec.toFixed(1)}s
-                            </span>
-                            <input
-                              type="range"
-                              min={0}
-                              max={Math.max(0.1, currentTakeDurationSec - 0.1)}
-                              step={0.1}
-                              value={rangeDraft.startSec}
-                              onChange={event =>
-                                updateRangeDraft({
-                                  startSec: Number(event.currentTarget.value),
-                                })
-                              }
-                              className="w-full accent-[var(--primary)]"
-                              aria-label="可用片段入点"
-                            />
-                          </label>
-                          <label className="block text-[10px] text-muted-foreground">
-                            <span className="mb-1 block">
-                              出点 {rangeDraft.endSec.toFixed(1)}s
-                            </span>
-                            <input
-                              type="range"
-                              min={0.1}
-                              max={Math.max(0.1, currentTakeDurationSec)}
-                              step={0.1}
-                              value={rangeDraft.endSec}
-                              onChange={event =>
-                                updateRangeDraft({
-                                  endSec: Number(event.currentTarget.value),
-                                })
-                              }
-                              className="w-full accent-[var(--primary)]"
-                              aria-label="可用片段出点"
-                            />
-                          </label>
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={rangeBusy || !onCreateVideoTakeRange}
-                            onClick={() => void saveRangeToTimeline()}
-                          >
-                            保存片段
-                          </Button>
+                          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+                            <label className="block text-[10px] text-muted-foreground">
+                              <span className="mb-1 block">
+                                入点 {rangeDraft.startSec.toFixed(1)}s
+                              </span>
+                              <input
+                                type="range"
+                                min={0}
+                                max={Math.max(
+                                  0.1,
+                                  currentTakeDurationSec - 0.1
+                                )}
+                                step={0.1}
+                                value={rangeDraft.startSec}
+                                onChange={event =>
+                                  updateRangeDraft({
+                                    startSec: Number(
+                                      event.currentTarget.value
+                                    ),
+                                  })
+                                }
+                                className="w-full accent-[var(--primary)]"
+                                aria-label="可用片段入点"
+                              />
+                            </label>
+                            <label className="block text-[10px] text-muted-foreground">
+                              <span className="mb-1 block">
+                                出点 {rangeDraft.endSec.toFixed(1)}s
+                              </span>
+                              <input
+                                type="range"
+                                min={0.1}
+                                max={Math.max(0.1, currentTakeDurationSec)}
+                                step={0.1}
+                                value={rangeDraft.endSec}
+                                onChange={event =>
+                                  updateRangeDraft({
+                                    endSec: Number(
+                                      event.currentTarget.value
+                                    ),
+                                  })
+                                }
+                                className="w-full accent-[var(--primary)]"
+                                aria-label="可用片段出点"
+                              />
+                            </label>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={rangeBusy || !onCreateVideoTakeRange}
+                              onClick={() => void saveRangeToTimeline()}
+                            >
+                              保存片段
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={!storyId || !onSelectContext}
+                              onClick={openRangeInChat}
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                              发送给小酌
+                            </Button>
                           </div>
                         </div>
                       ) : null}
@@ -1332,7 +1441,7 @@ export default function AnimaticPlayer({
                     : "派生新镜头"}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs">
-                  先选帧和画面局部；图片生成和新镜头判断交给小酌继续。
+                  先选帧和画面局部，再发送给小酌判断；派生候选生成是单独的下一步。
                 </DialogDescription>
               </div>
             </div>
@@ -1411,7 +1520,7 @@ export default function AnimaticPlayer({
                     </div>
                     <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
                       <ScanLine className="h-3.5 w-3.5 text-primary" />
-                      拖拽框选画面局部
+                      拖拽框选，右侧发送给小酌
                     </div>
                   </>
                 ) : (
@@ -1614,6 +1723,17 @@ export default function AnimaticPlayer({
               ) : null}
 
               <div className="mt-auto flex flex-wrap justify-end gap-2">
+                {deriveOperationId == null ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={openSelectionInChat}
+                    disabled={!canOpenSelectionInChat}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    发送给小酌
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="sm"
@@ -1646,7 +1766,7 @@ export default function AnimaticPlayer({
                   ) : (
                     <GitBranchPlus className="h-4 w-4" />
                   )}
-                  {deriveResult ? "确认派生镜头" : "分析并生成四张候选"}
+                  {deriveResult ? "确认派生镜头" : "生成派生候选"}
                 </Button>
                 {deriveOperationId != null ? (
                   <Button
@@ -1659,18 +1779,7 @@ export default function AnimaticPlayer({
                     <Undo2 className="h-4 w-4" />
                     撤销派生
                   </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={openSelectionInChat}
-                    disabled={!deriveContextMessage}
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    先问小酌
-                  </Button>
-                )}
+                ) : null}
               </div>
             </aside>
           </div>
