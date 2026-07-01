@@ -40,9 +40,18 @@ import {
   PromptLineageOwnershipError,
   PromptLineageValidationError,
 } from "./promptLineageStore";
+import {
+  getActiveStyles,
+  styleNegatives,
+  type StyleEntry,
+} from "./styleLibrary";
 
 type ImportInput = ArtPromptLibraryImportDraft & {
   userId: number;
+};
+
+type SyncSystemLibrariesInput = {
+  entries?: StyleEntry[];
 };
 
 type BindInput = PromptLineageOwner & {
@@ -206,6 +215,248 @@ function normalizeLocalVersionProjection(
   projection: ArtPromptLibraryVersionProjection,
 ): ArtPromptLibraryVersionProjection {
   return structuredClone(projection);
+}
+
+function cleanLibraryText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function joinLibraryTexts(values: readonly string[]): string {
+  return values.map(cleanLibraryText).filter(Boolean).join(", ");
+}
+
+function styleEntryToLibraryDraft(entry: StyleEntry): ArtPromptLibraryImportDraft {
+  const recipe = [
+    cleanLibraryText(entry.one_liner),
+    cleanLibraryText(entry.signature)
+      ? `signature: ${cleanLibraryText(entry.signature)}`
+      : "",
+    cleanLibraryText(entry.era_culture)
+      ? `era/culture: ${cleanLibraryText(entry.era_culture)}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    name: entry.name,
+    description: entry.one_liner || null,
+    source: `style-library:${entry.id}`,
+    items: [
+      { dimension: "visual_style", content: joinLibraryTexts(entry.style) },
+      { dimension: "color_palette", content: joinLibraryTexts(entry.palette) },
+      { dimension: "lighting", content: entry.light },
+      { dimension: "composition", content: entry.composition },
+      { dimension: "material", content: entry.material },
+      {
+        dimension: "negative_prompt",
+        content: joinLibraryTexts(styleNegatives(entry)),
+      },
+      { dimension: "art_style_recipe", content: recipe },
+    ].filter(item => cleanLibraryText(item.content)),
+  };
+}
+
+async function upsertLocalSystemArtPromptLibrary(
+  draft: ArtPromptLibraryImportDraft,
+): Promise<ArtPromptLibraryVersionProjection> {
+  const normalized = normalizeArtPromptLibraryImport(draft);
+  const state = await getLocalPromptLineageState();
+  if (!state) {
+    throw new PromptLineageValidationError("本地提示词状态不可用");
+  }
+  const timestamp = nowIso();
+  let library = state.artLibraries.find(
+    item =>
+      item.kind === "system" &&
+      item.ownerUserId == null &&
+      item.name === normalized.name,
+  );
+  if (!library) {
+    library = {
+      id: state.nextIds.artLibrary++,
+      kind: "system",
+      ownerUserId: null,
+      name: normalized.name,
+      description: normalized.description,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    state.artLibraries.push(library);
+  } else {
+    library.description = normalized.description;
+    library.updatedAt = timestamp;
+  }
+  const existing = state.artLibraryVersions.find(
+    item =>
+      item.libraryId === library!.id &&
+      item.contentFingerprint === normalized.contentFingerprint,
+  );
+  if (existing) {
+    const items = state.artLibraryItems
+      .filter(item => item.libraryVersionId === existing.id)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id);
+    return normalizeLocalVersionProjection({ library, version: existing, items });
+  }
+  const versionNumber =
+    Math.max(
+      0,
+      ...state.artLibraryVersions
+        .filter(item => item.libraryId === library!.id)
+        .map(item => item.version),
+    ) + 1;
+  const version: ArtPromptLibraryVersion = {
+    id: state.nextIds.artLibraryVersion++,
+    libraryId: library.id,
+    version: versionNumber,
+    status: "published",
+    contentFingerprint: normalized.contentFingerprint,
+    source: normalized.source,
+    createdAt: timestamp,
+    publishedAt: timestamp,
+  };
+  state.artLibraryVersions.push(version);
+  const items = normalized.items.map(item => ({
+    id: state.nextIds.artLibraryItem++,
+    libraryVersionId: version.id,
+    dimension: item.dimension,
+    content: item.content,
+    negativeContent: item.negativeContent,
+    sourceRevisionId: null,
+    sortOrder: item.sortOrder,
+  }));
+  state.artLibraryItems.push(...items);
+  await replaceLocalPromptLineageState(state);
+  return normalizeLocalVersionProjection({ library, version, items });
+}
+
+async function upsertDbSystemArtPromptLibrary(
+  draft: ArtPromptLibraryImportDraft,
+): Promise<ArtPromptLibraryVersionProjection> {
+  const normalized = normalizeArtPromptLibraryImport(draft);
+  const db = await getDb();
+  if (!db) return upsertLocalSystemArtPromptLibrary(draft);
+  return db.transaction(async tx => {
+    const [existingLibrary] = await tx
+      .select()
+      .from(artPromptLibraries)
+      .where(
+        and(
+          eq(artPromptLibraries.kind, "system"),
+          eq(artPromptLibraries.name, normalized.name),
+        ),
+      )
+      .limit(1);
+    let library = existingLibrary;
+    if (!library) {
+      const [inserted] = await tx.insert(artPromptLibraries).values({
+        kind: "system",
+        ownerUserId: null,
+        name: normalized.name,
+        description: normalized.description,
+      });
+      [library] = await tx
+        .select()
+        .from(artPromptLibraries)
+        .where(eq(artPromptLibraries.id, inserted.insertId))
+        .limit(1);
+    } else {
+      await tx
+        .update(artPromptLibraries)
+        .set({ description: normalized.description })
+        .where(eq(artPromptLibraries.id, library.id));
+      library = { ...library, description: normalized.description };
+    }
+    if (!library) {
+      throw new PromptLineageValidationError("无法创建系统美术提示词库");
+    }
+    const [existingVersion] = await tx
+      .select()
+      .from(artPromptLibraryVersions)
+      .where(
+        and(
+          eq(artPromptLibraryVersions.libraryId, library.id),
+          eq(
+            artPromptLibraryVersions.contentFingerprint,
+            normalized.contentFingerprint,
+          ),
+        ),
+      )
+      .limit(1);
+    if (existingVersion) {
+      const itemRows = await tx
+        .select()
+        .from(artPromptLibraryItems)
+        .where(eq(artPromptLibraryItems.libraryVersionId, existingVersion.id));
+      return {
+        library: normalizeDbLibrary(library),
+        version: normalizeDbVersion(existingVersion),
+        items: itemRows
+          .map(normalizeDbItem)
+          .sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id),
+      };
+    }
+    const versions = await tx
+      .select()
+      .from(artPromptLibraryVersions)
+      .where(eq(artPromptLibraryVersions.libraryId, library.id));
+    const versionNumber =
+      Math.max(0, ...versions.map(item => item.version)) + 1;
+    const [versionInsert] = await tx.insert(artPromptLibraryVersions).values({
+      libraryId: library.id,
+      version: versionNumber,
+      status: "published",
+      contentFingerprint: normalized.contentFingerprint,
+      source: normalized.source,
+      publishedAt: new Date(),
+    });
+    const [version] = await tx
+      .select()
+      .from(artPromptLibraryVersions)
+      .where(eq(artPromptLibraryVersions.id, versionInsert.insertId))
+      .limit(1);
+    if (!version) {
+      throw new PromptLineageValidationError("无法创建系统美术提示词库版本");
+    }
+    await tx.insert(artPromptLibraryItems).values(
+      normalized.items.map(item => ({
+        libraryVersionId: version.id,
+        dimension: item.dimension,
+        content: item.content,
+        negativeContent: item.negativeContent,
+        sortOrder: item.sortOrder,
+      })),
+    );
+    const itemRows = await tx
+      .select()
+      .from(artPromptLibraryItems)
+      .where(eq(artPromptLibraryItems.libraryVersionId, version.id));
+    return {
+      library: normalizeDbLibrary(library),
+      version: normalizeDbVersion(version),
+      items: itemRows.map(normalizeDbItem),
+    };
+  });
+}
+
+export async function syncSystemArtPromptLibraries(
+  input: SyncSystemLibrariesInput = {},
+): Promise<ArtPromptLibraryVersionProjection[]> {
+  const entries = input.entries ?? getActiveStyles();
+  const projections: ArtPromptLibraryVersionProjection[] = [];
+  for (const entry of entries) {
+    try {
+      projections.push(
+        await upsertDbSystemArtPromptLibrary(styleEntryToLibraryDraft(entry)),
+      );
+    } catch (error) {
+      console.warn(
+        `[artPromptLibrary] 跳过系统美术库 ${entry.id}：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return projections;
 }
 
 export async function importUserArtPromptLibrary(
@@ -391,6 +642,7 @@ export async function importUserArtPromptLibrary(
 export async function listArtPromptLibraries(input: {
   userId: number;
 }): Promise<ArtPromptLibraryVersionProjection[]> {
+  await syncSystemArtPromptLibraries();
   const db = await getDb();
   if (!db) {
     const state = await getLocalPromptLineageState();

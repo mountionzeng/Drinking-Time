@@ -6,6 +6,7 @@ import {
   bindStoryArtPromptLibraryVersion,
   importUserArtPromptLibrary,
   listArtPromptLibraries,
+  syncSystemArtPromptLibraries,
 } from "./artPromptLibrary";
 import type { StoryPromptAggregate } from "../../shared/promptLineage";
 
@@ -60,10 +61,83 @@ describe("artPromptLibrary service", () => {
     expect(duplicate.version.id).toBe(first.version.id);
     expect(changed.version.version).toBe(first.version.version + 1);
     const listed = await listArtPromptLibraries({ userId: 7 });
-    expect(listed.map(item => item.version.id)).toEqual([
+    const userLibraries = listed.filter(item => item.library.kind === "user");
+    expect(userLibraries.map(item => item.version.id)).toEqual([
       changed.version.id,
       first.version.id,
     ]);
+  });
+
+  it("syncs active style entries into reusable system art prompt libraries", async () => {
+    const [seeded] = await syncSystemArtPromptLibraries({
+      entries: [
+        {
+          id: "test-documentary",
+          name: "测试纪实摄影",
+          one_liner: "真实工作现场里的柔和观察",
+          status: "active",
+          style: ["documentary photography", "cinematic realism"],
+          palette: ["warm neutrals", "muted contrast"],
+          light: "soft window light",
+          composition: "medium shot with breathing room",
+          material: "fine film grain",
+          era_culture: "contemporary workplace",
+          signature: "honest faces held in practical light",
+          negative: ["split screen", "collage", "plastic skin"],
+          emotion_fit: [],
+          theme_fit: [],
+          affinity: { age: {}, profession: {}, wuxing: {} },
+          references: [],
+          notes: "",
+        },
+      ],
+    });
+
+    expect(seeded.library.kind).toBe("system");
+    expect(seeded.version.source).toBe("style-library:test-documentary");
+    expect(seeded.items.map(item => item.dimension)).toEqual([
+      "visual_style",
+      "color_palette",
+      "lighting",
+      "composition",
+      "material",
+      "negative_prompt",
+      "art_style_recipe",
+    ]);
+
+    const [duplicate] = await syncSystemArtPromptLibraries({
+      entries: [
+        {
+          id: "test-documentary",
+          name: "测试纪实摄影",
+          one_liner: "真实工作现场里的柔和观察",
+          status: "active",
+          style: ["documentary photography", "cinematic realism"],
+          palette: ["warm neutrals", "muted contrast"],
+          light: "soft window light",
+          composition: "medium shot with breathing room",
+          material: "fine film grain",
+          era_culture: "contemporary workplace",
+          signature: "honest faces held in practical light",
+          negative: ["split screen", "collage", "plastic skin"],
+          emotion_fit: [],
+          theme_fit: [],
+          affinity: { age: {}, profession: {}, wuxing: {} },
+          references: [],
+          notes: "",
+        },
+      ],
+    });
+    expect(duplicate.version.id).toBe(seeded.version.id);
+
+    const listed = await listArtPromptLibraries({ userId: 7 });
+    expect(
+      listed.some(
+        item =>
+          item.library.kind === "system" &&
+          item.version.source === "style-library:test-documentary",
+      ),
+    ).toBe(true);
   });
 
   it("binds a version to a story and feeds image/video prompt lineage only", async () => {
