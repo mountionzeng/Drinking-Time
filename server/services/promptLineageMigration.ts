@@ -1,9 +1,15 @@
 import { ensureShotIdentities } from "../../shared/shotIdentity";
 import {
   fingerprintCompiledPromptInputs,
+  isVisualSharedPromptDimension,
   renderCompiledPromptText,
 } from "../../shared/promptCompiler";
 import { promptDimensionWeight } from "../../shared/promptDimensionWeights";
+import {
+  artRecipePrompt,
+  normalizeStoryArtDirection,
+  type ArtReferenceMaterial,
+} from "../../shared/artDirection";
 import { and, eq } from "drizzle-orm";
 import {
   promptCompilationHeads,
@@ -72,6 +78,14 @@ type CompilationSeedInput = {
   weight: number;
 };
 
+function sharedInputsForModality(
+  inputs: CompilationSeedInput[],
+  modality: Exclude<PromptModality, "shared">,
+): CompilationSeedInput[] {
+  if (modality !== "dialogue") return inputs;
+  return inputs.filter(input => !isVisualSharedPromptDimension(input.dimension));
+}
+
 function asRecord(value: unknown): LegacyRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as LegacyRecord)
@@ -88,6 +102,85 @@ function textList(value: unknown): string[] {
     : text(value)
       ? [text(value)]
       : [];
+}
+
+function referenceText(reference: ArtReferenceMaterial): string {
+  return [
+    reference.label ? `名称=${reference.label}` : "",
+    reference.text ? `描述=${reference.text}` : "",
+    reference.imageUrl ? `参考图=${reference.imageUrl}` : "",
+    reference.visualStyle.length
+      ? `风格=${reference.visualStyle.join(" / ")}`
+      : "",
+    reference.colorPalette.length
+      ? `色彩=${reference.colorPalette.join(" / ")}`
+      : "",
+    reference.lighting ? `光线=${reference.lighting}` : "",
+    reference.composition ? `构图=${reference.composition}` : "",
+    reference.material.length
+      ? `材质=${reference.material.join(" / ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("；");
+}
+
+function selectedArtReferences(body: LegacyRecord): ArtReferenceMaterial[] {
+  const direction = normalizeStoryArtDirection(body.artDirection);
+  return direction.references.filter(reference => reference.selected !== false);
+}
+
+function collectArtDirectionFacts(body: LegacyRecord): PromptFact[] {
+  const facts: PromptFact[] = [];
+  const direction = normalizeStoryArtDirection(body.artDirection);
+  const references = selectedArtReferences(body);
+
+  const characterReferences = references.filter(
+    reference => reference.role === "character",
+  );
+  addFact(facts, {
+    stableShotId: null,
+    scope: "story",
+    modality: "shared",
+    dimension: "character_reference",
+    content: characterReferences
+      .map(referenceText)
+      .filter(Boolean)
+      .join("\n"),
+    source: "story.artDirection.references.character",
+  });
+
+  const sceneReferences = references.filter(
+    reference =>
+      reference.role === "scene" ||
+      (!reference.role &&
+        reference.imageUrl &&
+        (reference.purpose === "fact" || reference.purpose === "both")),
+  );
+  addFact(facts, {
+    stableShotId: null,
+    scope: "story",
+    modality: "shared",
+    dimension: "scene_reference",
+    content: sceneReferences
+      .map(referenceText)
+      .filter(Boolean)
+      .join("\n"),
+    source: "story.artDirection.references.scene",
+  });
+
+  if (direction.recipe) {
+    addFact(facts, {
+      stableShotId: null,
+      scope: "story",
+      modality: "shared",
+      dimension: "art_style_recipe",
+      content: artRecipePrompt(direction.recipe),
+      source: "story.artDirection.recipe",
+    });
+  }
+
+  return facts;
 }
 
 function addFact(
@@ -317,7 +410,11 @@ type MigrationSeed = {
 function buildMigrationSeed(body: LegacyRecord): MigrationSeed {
   const { facts: shotFacts, stableShotIds } = collectShotFacts(body);
   return {
-    facts: [...collectStoryFacts(body), ...shotFacts],
+    facts: [
+      ...collectStoryFacts(body),
+      ...collectArtDirectionFacts(body),
+      ...shotFacts,
+    ],
     stableShotIds,
     messages: collectMessages(body),
   };
@@ -520,7 +617,11 @@ export async function migrateLegacyPromptLineage(
         const shotShared = byModality.get("shared") ?? [];
         for (const modality of ["dialogue", "image", "video"] as const) {
           const local = byModality.get(modality) ?? [];
-          const inputs = [...storyShared, ...shotShared, ...local];
+          const inputs = [
+            ...sharedInputsForModality(storyShared, modality),
+            ...sharedInputsForModality(shotShared, modality),
+            ...local,
+          ];
           if (inputs.length === 0) continue;
           tx.createCompilation({
             stableShotId,
@@ -679,7 +780,11 @@ export async function migrateStoryPromptLineage(
       const shotShared = byModality.get("shared") ?? [];
       for (const modality of ["dialogue", "image", "video"] as const) {
         const local = byModality.get(modality) ?? [];
-        const inputs = [...storyShared, ...shotShared, ...local];
+        const inputs = [
+          ...sharedInputsForModality(storyShared, modality),
+          ...sharedInputsForModality(shotShared, modality),
+          ...local,
+        ];
         if (inputs.length === 0) continue;
         const [compilationInsert] = await tx.insert(promptCompilations).values({
           storyId: input.storyId,

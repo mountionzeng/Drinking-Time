@@ -220,4 +220,54 @@ describe("compilePromptTargets", () => {
     );
     expect(proposed.video.finalText).toContain("camera_motion(55%): 固定机位");
   });
+
+  it("keeps visual shared references out of dialogue while feeding image and video", () => {
+    const visualNode: PromptNode = {
+      id: 4,
+      ...owner,
+      stableShotId: null,
+      scope: "story",
+      modality: "shared",
+      dimension: "character_reference",
+      currentRevisionId: 6,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const visualRevision: PromptRevision = {
+      id: 6,
+      nodeId: visualNode.id,
+      ...owner,
+      parentRevisionId: null,
+      content: "主角参照图：短发，深色风衣，保持同一张脸",
+      weight: 0.52,
+      authorType: "migration",
+      authorUserId: null,
+      reason: null,
+      source: "story.artDirection.references.character",
+      status: "confirmed",
+      createdAt: timestamp,
+      decidedAt: timestamp,
+    };
+    const compiled = compilePromptTargets({
+      stableShotId: "shot-01",
+      nodes: [...nodes, visualNode],
+      revisions: [...revisions, visualRevision],
+      bindings: [
+        ...bindings,
+        {
+          id: 4,
+          ...owner,
+          nodeId: visualNode.id,
+          stableShotId: null,
+          modality: "shared",
+          sortOrder: -1,
+          createdAt: timestamp,
+        },
+      ],
+    });
+
+    expect(compiled.dialogue.finalText).not.toContain("character_reference");
+    expect(compiled.image.finalText).toContain("character_reference(52%)");
+    expect(compiled.video.finalText).toContain("character_reference(52%)");
+  });
 });

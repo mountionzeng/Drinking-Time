@@ -30,6 +30,15 @@ type CompileInput = {
 };
 
 const targets = ["dialogue", "image", "video"] as const;
+const VISUAL_SHARED_DIMENSIONS = new Set([
+  "character_reference",
+  "scene_reference",
+  "art_style_recipe",
+]);
+
+export function isVisualSharedPromptDimension(dimension: string): boolean {
+  return VISUAL_SHARED_DIMENSIONS.has(dimension);
+}
 
 function fingerprint(value: string): string {
   let hash = 2166136261;
@@ -115,7 +124,14 @@ export function compilePromptTargets(
     targets.map(modality => {
       const applicableNodes = eligibleNodes
         .filter(
-          node => node.modality === "shared" || node.modality === modality,
+          node => {
+            if (node.modality === modality) return true;
+            if (node.modality !== "shared") return false;
+            return !(
+              modality === "dialogue" &&
+              isVisualSharedPromptDimension(node.dimension)
+            );
+          },
         );
       const effectiveNodes = Array.from(
         applicableNodes.reduce((nodesByDimension, node) => {

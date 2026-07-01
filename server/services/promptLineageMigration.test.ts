@@ -110,6 +110,110 @@ describe("migrateLegacyPromptLineage", () => {
     expect(aggregate.compilations).toHaveLength(0);
   });
 
+  it("imports confirmed art references and recipe into the unified prompt lineage", async () => {
+    const store = createPromptLineageMemoryStore();
+    await migrateLegacyPromptLineage(store, {
+      storyId: 34,
+      userId: 7,
+      body: {
+        title: "参考进入谱系",
+        artDirection: {
+          phase: "locked",
+          round: 1,
+          targetContent: "一个求职故事",
+          updatedAt: 1,
+          references: [
+            {
+              id: "char-1",
+              label: "主角定妆照",
+              source: "visual-anchor",
+              purpose: "fact",
+              selected: true,
+              role: "character",
+              scope: "story",
+              imageUrl: "https://example.com/character.jpg",
+              text: "短发，深色风衣，安静但坚定",
+            },
+            {
+              id: "scene-1",
+              label: "办公室清晨",
+              source: "message-photo",
+              purpose: "both",
+              selected: true,
+              role: "scene",
+              scope: "story",
+              imageUrl: "https://example.com/office.jpg",
+              text: "玻璃会议室，低饱和晨光",
+              visualStyle: ["documentary realism"],
+              colorPalette: ["warm neutrals"],
+              lighting: "soft key light",
+            },
+          ],
+          candidates: [],
+          recipe: {
+            style: ["premium commercial film", "human-centered"],
+            palette: ["warm neutrals"],
+            light: ["golden practical light"],
+            composition: ["clean subject focus"],
+            material: ["soft film grain"],
+            negative: ["split-screen", "multi-panel"],
+            version: 2,
+            sourceCandidateIds: ["liked-1"],
+            updatedAt: 2,
+          },
+          recipeVersions: [],
+        },
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotNo: 1,
+            subject: "主角坐在会议室里准备开口",
+            promptDraft: "one person in a glass meeting room",
+            cameraMove: "缓慢推近",
+          },
+        ],
+      },
+    });
+
+    const aggregate = store.getStoryAggregate({ storyId: 34, userId: 7 });
+    const dimensions = aggregate.nodes.map(node => node.dimension);
+    expect(dimensions).toEqual(
+      expect.arrayContaining([
+        "character_reference",
+        "scene_reference",
+        "art_style_recipe",
+      ]),
+    );
+
+    const characterRevision = aggregate.revisions.find(revision =>
+      revision.content.includes("主角定妆照"),
+    );
+    expect(characterRevision?.weight).toBe(0.52);
+    expect(characterRevision?.source).toBe(
+      "story.artDirection.references.character",
+    );
+
+    const imageCompilation = aggregate.compilations.find(
+      compilation =>
+        compilation.stableShotId === "shot-01" &&
+        compilation.modality === "image",
+    );
+    const videoCompilation = aggregate.compilations.find(
+      compilation =>
+        compilation.stableShotId === "shot-01" &&
+        compilation.modality === "video",
+    );
+    const dialogueCompilation = aggregate.compilations.find(
+      compilation =>
+        compilation.stableShotId === "shot-01" &&
+        compilation.modality === "dialogue",
+    );
+    expect(imageCompilation?.finalText).toContain("character_reference(52%)");
+    expect(imageCompilation?.finalText).toContain("art_style_recipe(40%)");
+    expect(videoCompilation?.finalText).toContain("scene_reference(42%)");
+    expect(dialogueCompilation?.finalText).not.toContain("character_reference");
+  });
+
   it("rebuilds a system-only migrated story when shots arrive later", async () => {
     const store = createPromptLineageMemoryStore();
     await migrateLegacyPromptLineage(store, {
