@@ -15,6 +15,8 @@ import {
   resolvePromptCandidateNodeId,
   type PromptLineageRowView,
 } from "../promptLineage/viewModel";
+import type { ArtPromptLibraryImportDraft } from "@shared/artPromptLibrary";
+import ArtPromptLibraryPanel from "./ArtPromptLibraryPanel";
 import PromptDatabaseView from "./PromptDatabaseView";
 import PromptRevisionDialog, {
   type PromptRevisionDialogState,
@@ -56,6 +58,13 @@ export default function PromptTablePanel() {
   const confirmCandidateMut = trpc.promptLineage.confirmCandidate.useMutation();
   const rejectCandidateMut = trpc.promptLineage.rejectCandidate.useMutation();
   const restoreRevisionMut = trpc.promptLineage.restoreRevision.useMutation();
+  const importArtLibraryMut =
+    trpc.artPromptLibrary.importUserLibrary.useMutation();
+  const bindArtLibraryMut = trpc.artPromptLibrary.bindToStory.useMutation();
+  const artLibraryQuery = trpc.artPromptLibrary.list.useQuery(undefined, {
+    enabled: promptLineageMode === "lineage",
+    refetchOnWindowFocus: false,
+  });
   const [viewMode, setViewMode] = useState<"cards" | "database">("cards");
   const [editScope, setEditScope] = useState<"shot" | "source">("shot");
   const [historyRow, setHistoryRow] = useState<PromptLineageRowView | null>(
@@ -69,6 +78,9 @@ export default function PromptTablePanel() {
   const [inspectedCandidate, setInspectedCandidate] =
     useState<FrameCandidateSource | null>(null);
   const [candidateCompareOpen, setCandidateCompareOpen] = useState(false);
+  const [bindingLibraryVersionId, setBindingLibraryVersionId] = useState<
+    number | null
+  >(null);
 
   useEffect(() => {
     setInspectedCandidate(null);
@@ -138,6 +150,7 @@ export default function PromptTablePanel() {
   const invalidatePromptViews = useCallback(async () => {
     if (activeStoryId == null) return;
     await Promise.all([
+      utils.artPromptLibrary.list.invalidate(),
       utils.promptLineage.getStoryProjection.invalidate({
         storyId: activeStoryId,
       }),
@@ -150,6 +163,46 @@ export default function PromptTablePanel() {
     ]);
     refetch();
   }, [activeStoryId, refetch, utils]);
+
+  const importArtLibrary = useCallback(
+    async (draft: ArtPromptLibraryImportDraft) => {
+      await importArtLibraryMut.mutateAsync(draft);
+      await utils.artPromptLibrary.list.invalidate();
+    },
+    [importArtLibraryMut, utils],
+  );
+
+  const bindArtLibrary = useCallback(
+    async (libraryVersionId: number) => {
+      if (activeStoryId == null || !promptProjection) {
+        throw new Error("提示词数据库尚未加载完成");
+      }
+      setBindingLibraryVersionId(libraryVersionId);
+      try {
+        const result = await bindArtLibraryMut.mutateAsync({
+          storyId: activeStoryId,
+          libraryVersionId,
+          expectedVersion: promptProjection.state.version,
+        });
+        if (result.projection) {
+          utils.promptLineage.getStoryProjection.setData(
+            { storyId: activeStoryId },
+            { mode: "lineage", projection: result.projection },
+          );
+        }
+        await invalidatePromptViews();
+      } finally {
+        setBindingLibraryVersionId(null);
+      }
+    },
+    [
+      activeStoryId,
+      bindArtLibraryMut,
+      invalidatePromptViews,
+      promptProjection,
+      utils,
+    ],
+  );
 
   const openLineageCandidatePreview = useCallback(
     async (row: PromptLineageRowView, override: PromptOverride) => {
@@ -423,6 +476,25 @@ export default function PromptTablePanel() {
                 setCandidateCompareOpen(true);
               }}
             />
+
+            {promptLineageMode === "lineage" && promptProjection ? (
+              <ArtPromptLibraryPanel
+                versions={artLibraryQuery.data ?? []}
+                currentLibraryVersionId={
+                  promptProjection.artBinding?.libraryVersionId ?? null
+                }
+                loading={artLibraryQuery.isLoading || artLibraryQuery.isFetching}
+                disabled={
+                  isSaving ||
+                  importArtLibraryMut.isPending ||
+                  bindArtLibraryMut.isPending
+                }
+                error={artLibraryQuery.error?.message ?? null}
+                pendingVersionId={bindingLibraryVersionId}
+                onImport={importArtLibrary}
+                onBind={bindArtLibrary}
+              />
+            ) : null}
 
             <div className="mb-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {promptLineageMode === "lineage"
