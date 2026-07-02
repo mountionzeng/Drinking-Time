@@ -22,9 +22,19 @@ const fixtures = vi.hoisted(() => {
     confidence: 0.72,
     missingQuestion: '',
   };
+  const fictionIntent: StoryIntent = {
+    purpose: 'fiction',
+    audience: 'public',
+    platform: 'presentation',
+    desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+    tone: '有世界感、有人物动机、带一点电影气质',
+    confidence: 0.74,
+    missingQuestion: '',
+  };
   return {
     openingMessage,
     jobIntent,
+    fictionIntent,
     chatContextState: {
       messages: [
         openingMessage,
@@ -95,22 +105,30 @@ describe('StoryAgentContext background intent recognition', () => {
   });
 
   it('turns high-confidence job-search recognition into a soft-confirm draft', async () => {
-    const { recognitionToPendingJobIntent } = await import('./StoryAgentContext');
+    const { recognitionToPendingIntent, recognitionToPendingJobIntent } = await import('./StoryAgentContext');
 
+    expect(recognitionToPendingIntent(fixtures.jobIntent)).toEqual(fixtures.jobIntent);
     expect(recognitionToPendingJobIntent(fixtures.jobIntent)).toEqual(fixtures.jobIntent);
   });
 
-  it('stays quiet for low-confidence or non-job recognition', async () => {
-    const { recognitionToPendingJobIntent } = await import('./StoryAgentContext');
+  it('turns high-confidence fiction recognition into a soft-confirm draft', async () => {
+    const { recognitionToPendingIntent, recognitionToPendingJobIntent } = await import('./StoryAgentContext');
+
+    expect(recognitionToPendingIntent(fixtures.fictionIntent)).toEqual(fixtures.fictionIntent);
+    expect(recognitionToPendingJobIntent(fixtures.fictionIntent)).toBeNull();
+  });
+
+  it('stays quiet for low-confidence or unsupported recognition', async () => {
+    const { recognitionToPendingIntent } = await import('./StoryAgentContext');
 
     expect(
-      recognitionToPendingJobIntent({
+      recognitionToPendingIntent({
         ...fixtures.jobIntent,
         confidence: 0.59,
       }),
     ).toBeNull();
     expect(
-      recognitionToPendingJobIntent({
+      recognitionToPendingIntent({
         ...fixtures.jobIntent,
         purpose: 'exploration',
         confidence: 0.95,
@@ -193,6 +211,18 @@ describe('StoryAgentChat intent soft confirm', () => {
     expect(html).toContain('听起来你是想做求职片');
     expect(html).toContain('对，按求职片来');
     expect(html).toContain('先不，继续聊');
+  });
+
+  it('renders the world-building reflect-back bubble when a pending fiction intent exists', async () => {
+    fixtures.chatContextState.pendingIntentDraft = fixtures.fictionIntent;
+    const { default: StoryAgentChat } = await import('./views/StoryAgentChat');
+
+    const html = renderToStaticMarkup(<StoryAgentChat />);
+
+    expect(html).toContain('听起来你是想创造一个虚构故事世界');
+    expect(html).toContain('对，创造另一个世界');
+    expect(html).toContain('先不，继续聊');
+    expect(html).not.toContain('招聘者');
   });
 
   it('does not render the bubble while the assistant is replying', async () => {

@@ -22,7 +22,7 @@ type CausalStepKey =
 type CausalStep = {
   key: CausalStepKey;
   label: string;
-  location: '岗位' | '能力' | '原因' | '作用' | '证据' | '联系' | '外部价值';
+  location: string;
   shortLabel: string;
 };
 
@@ -52,13 +52,14 @@ type StoryCardsGraphProps = {
   cards: StoryCard[];
   storyShots: StoryShot[];
   onRemoveCard?: (cardId: string) => void;
+  mode?: 'default' | 'fiction';
 };
 
 type ViewportState = {
   scale: number;
 };
 
-const CAUSAL_STEPS: CausalStep[] = [
+const JOB_CAUSAL_STEPS: CausalStep[] = [
   {
     key: 'role',
     label: '岗位关心什么',
@@ -103,11 +104,58 @@ const CAUSAL_STEPS: CausalStep[] = [
   },
 ];
 
-const STEP_BY_KEY = Object.fromEntries(
-  CAUSAL_STEPS.map((step, index) => [step.key, { ...step, index }]),
-) as Record<CausalStepKey, CausalStep & { index: number }>;
+const FICTION_STEPS: CausalStep[] = [
+  {
+    key: 'role',
+    label: '故事核心',
+    location: '核心',
+    shortLabel: '核心',
+  },
+  {
+    key: 'ability',
+    label: '主角/视点',
+    location: '主角',
+    shortLabel: '主角',
+  },
+  {
+    key: 'cause',
+    label: '欲望与阻碍',
+    location: '冲突',
+    shortLabel: '冲突',
+  },
+  {
+    key: 'effect',
+    label: '世界规则',
+    location: '规则',
+    shortLabel: '规则',
+  },
+  {
+    key: 'proof',
+    label: '关键场景',
+    location: '场景',
+    shortLabel: '场景',
+  },
+  {
+    key: 'contact',
+    label: '视觉风格',
+    location: '风格',
+    shortLabel: '风格',
+  },
+  {
+    key: 'value',
+    label: '主题余味',
+    location: '余味',
+    shortLabel: '余味',
+  },
+];
 
-const CAUSAL_EDGES: CausalEdge[] = [
+function stepByKeyFor(steps: CausalStep[]): Record<CausalStepKey, CausalStep & { index: number }> {
+  return Object.fromEntries(
+    steps.map((step, index) => [step.key, { ...step, index }]),
+  ) as Record<CausalStepKey, CausalStep & { index: number }>;
+}
+
+const JOB_CAUSAL_EDGES: CausalEdge[] = [
   {
     from: 'role',
     to: 'ability',
@@ -143,6 +191,45 @@ const CAUSAL_EDGES: CausalEdge[] = [
     to: 'value',
     type: '带来',
     label: '最后产生外部价值',
+  },
+];
+
+const FICTION_EDGES: CausalEdge[] = [
+  {
+    from: 'role',
+    to: 'ability',
+    type: '支撑',
+    label: '谁在这个世界里行动',
+  },
+  {
+    from: 'ability',
+    to: 'cause',
+    type: '导致',
+    label: '人物欲望推动冲突',
+  },
+  {
+    from: 'cause',
+    to: 'effect',
+    type: '转化为',
+    label: '冲突暴露世界规则',
+  },
+  {
+    from: 'effect',
+    to: 'proof',
+    type: '证明',
+    label: '规则落成可拍场景',
+  },
+  {
+    from: 'proof',
+    to: 'contact',
+    type: '转化为',
+    label: '场景决定视觉气质',
+  },
+  {
+    from: 'contact',
+    to: 'value',
+    type: '带来',
+    label: '视觉留下故事余味',
   },
 ];
 
@@ -187,7 +274,12 @@ function statusFor(card: StoryCard, shot: StoryShot | undefined, index: number):
   return index <= 1 ? 'ask' : 'hold';
 }
 
-function stepFor(index: number, card: StoryCard, shot: StoryShot | undefined): CausalStepKey {
+function stepFor(
+  index: number,
+  card: StoryCard,
+  shot: StoryShot | undefined,
+  mode: StoryCardsGraphProps['mode'],
+): CausalStepKey {
   const titleText = card.title;
   const leadText = [
     card.title,
@@ -201,6 +293,17 @@ function stepFor(index: number, card: StoryCard, shot: StoryShot | undefined): C
   ]
     .filter(Boolean)
     .join(' ');
+
+  if (mode === 'fiction') {
+    if (/故事核心|核心|灵感|月亮|发生了什么|设定句/.test(leadText)) return 'role';
+    if (/主角|视点|谁|人物|菜贩|孩子|老人|她|他|他们/.test(leadText)) return 'ability';
+    if (/欲望|想要|阻碍|冲突|困难|害怕|追|逃|选择/.test(leadText)) return 'cause';
+    if (/世界规则|规则|世界|为什么|设定|魔法|异常|变成/.test(leadText)) return 'effect';
+    if (/关键场景|场景|菜市场|街|屋|夜|晨|画面|镜头|地点|光线/.test(leadText)) return 'proof';
+    if (/视觉|风格|色调|电影|纪录|动画|质感|摄影|美术/.test(leadText)) return 'contact';
+    if (/主题|余味|结尾|留下|意味|回声|命运/.test(leadText)) return 'value';
+    return FICTION_STEPS[Math.min(index, FICTION_STEPS.length - 1)].key;
+  }
 
   if (/岗位|职位|招聘|JD|候选|面试|客户/.test(titleText)) return 'role';
   if (/外部价值|业务价值|用户价值|商业|收益|增长/.test(titleText)) return 'value';
@@ -218,7 +321,7 @@ function stepFor(index: number, card: StoryCard, shot: StoryShot | undefined): C
   if (/为什么|因为|来源|长期|背景|经历|训练|经验|抽象需求/.test(leadText)) return 'cause';
   if (/能力|优势|擅长|创新力|判断力|审美|表达|组织|抽象|创意/.test(leadText)) return 'ability';
 
-  return CAUSAL_STEPS[Math.min(index + 1, CAUSAL_STEPS.length - 1)].key;
+  return JOB_CAUSAL_STEPS[Math.min(index + 1, JOB_CAUSAL_STEPS.length - 1)].key;
 }
 
 function weightFor(card: StoryCard, shot: StoryShot | undefined, status: GraphNode['status']): number {
@@ -244,12 +347,17 @@ function weightFor(card: StoryCard, shot: StoryShot | undefined, status: GraphNo
   return signalScore;
 }
 
-function buildGraph(cards: StoryCard[], storyShots: StoryShot[]): GraphNode[] {
+function buildGraph(
+  cards: StoryCard[],
+  storyShots: StoryShot[],
+  stepsByKey: Record<CausalStepKey, CausalStep & { index: number }>,
+  mode: StoryCardsGraphProps['mode'],
+): GraphNode[] {
   return cards.map((card, index) => {
     const shot = storyShots[index];
     const status = statusFor(card, shot, index);
-    const stepKey = stepFor(index, card, shot);
-    const step = STEP_BY_KEY[stepKey];
+    const stepKey = stepFor(index, card, shot, mode);
+    const step = stepsByKey[stepKey];
 
     return {
       id: `card-${card.id}`,
@@ -308,9 +416,9 @@ function readableValue(node: GraphNode | undefined): string {
   );
 }
 
-function relationsAround(node: GraphNode | undefined): CausalEdge[] {
+function relationsAround(node: GraphNode | undefined, edges: CausalEdge[]): CausalEdge[] {
   if (!node) return [];
-  return CAUSAL_EDGES.filter((edge) => edge.from === node.stepKey || edge.to === node.stepKey);
+  return edges.filter((edge) => edge.from === node.stepKey || edge.to === node.stepKey);
 }
 
 function groupByStep(nodes: GraphNode[]): Record<CausalStepKey, GraphNode[]> {
@@ -327,20 +435,34 @@ function groupByStep(nodes: GraphNode[]): Record<CausalStepKey, GraphNode[]> {
   return grouped;
 }
 
-function relationSentence(edge: CausalEdge): string {
-  const from = STEP_BY_KEY[edge.from].shortLabel;
-  const to = STEP_BY_KEY[edge.to].shortLabel;
+function relationSentence(
+  edge: CausalEdge,
+  stepsByKey: Record<CausalStepKey, CausalStep & { index: number }>,
+): string {
+  const from = stepsByKey[edge.from].shortLabel;
+  const to = stepsByKey[edge.to].shortLabel;
   return `${from} → ${to}`;
 }
 
-export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: StoryCardsGraphProps) {
-  const nodes = useMemo(() => buildGraph(cards, storyShots), [cards, storyShots]);
+export default function StoryCardsGraph({
+  cards,
+  storyShots,
+  onRemoveCard,
+  mode = 'default',
+}: StoryCardsGraphProps) {
+  const steps = mode === 'fiction' ? FICTION_STEPS : JOB_CAUSAL_STEPS;
+  const edges = mode === 'fiction' ? FICTION_EDGES : JOB_CAUSAL_EDGES;
+  const stepsByKey = useMemo(() => stepByKeyFor(steps), [steps]);
+  const nodes = useMemo(
+    () => buildGraph(cards, storyShots, stepsByKey, mode),
+    [cards, storyShots, stepsByKey, mode],
+  );
   const groupedNodes = useMemo(() => groupByStep(nodes), [nodes]);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [selectedId, setSelectedId] = useState<string>(() => nodes[0]?.id ?? '');
   const [viewport, setViewport] = useState<ViewportState>({ scale: 1 });
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
-  const selectedRelations = relationsAround(selected);
+  const selectedRelations = relationsAround(selected, edges);
 
   useEffect(() => {
     if (nodes.length > 0 && !nodes.some((node) => node.id === selectedId)) {
@@ -368,19 +490,19 @@ export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: Sto
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 font-mono font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             <GitBranch className="h-3.5 w-3.5 text-nayin-bright" />
-            Causal Chain
+            {mode === 'fiction' ? 'Story World' : 'Causal Chain'}
           </span>
           <span
             className="rounded-full border px-2 py-0.5 text-muted-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
           >
-            {CAUSAL_STEPS.length} 列
+            {steps.length} 列
           </span>
           <span
             className="rounded-full border px-2 py-0.5 text-muted-foreground"
             style={{ borderColor: 'var(--panel-border)' }}
           >
-            {CAUSAL_EDGES.length} 条关系
+            {edges.length} 条关系
           </span>
         </div>
 
@@ -444,9 +566,9 @@ export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: Sto
                 'minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr) 74px minmax(142px,1fr)',
             }}
           >
-            {CAUSAL_STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const columnNodes = groupedNodes[step.key];
-              const edge = CAUSAL_EDGES[index];
+              const edge = edges[index];
 
               return (
                 <div key={step.key} className="contents">
@@ -576,7 +698,7 @@ export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: Sto
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
               <Tags className="h-3 w-3 text-nayin-bright" />
-              {selected ? STEP_BY_KEY[selected.stepKey].label : '因果链'}
+              {selected ? stepsByKey[selected.stepKey].label : mode === 'fiction' ? '故事世界' : '因果链'}
             </div>
             <h4 className="mt-1 text-sm font-semibold text-foreground">
               {selected?.card.title || selected?.label || '未选择卡片'}
@@ -647,7 +769,7 @@ export default function StoryCardsGraph({ cards, storyShots, onRemoveCard }: Sto
                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-medium ${RELATION_CLASS[edge.type]}`}
                 >
                   {edge.type}
-                  <span className="font-normal opacity-75">{relationSentence(edge)}</span>
+                  <span className="font-normal opacity-75">{relationSentence(edge, stepsByKey)}</span>
                   <span className="font-normal">{edge.label}</span>
                 </span>
               ))}

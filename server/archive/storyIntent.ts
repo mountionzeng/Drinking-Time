@@ -98,6 +98,22 @@ function localIntentFallback(text: string): StoryIntentPayload {
     text.includes("求职") ||
     text.includes("招聘") ||
     text.includes("面试");
+  const hasFiction =
+    text.includes("虚构") ||
+    text.includes("另一个世界") ||
+    text.includes("编一个故事") ||
+    text.includes("编故事") ||
+    /(?:我想|想要|希望|帮我)?(?:写|讲|做|创造|生成|设计)(?:一个|一段|一部)?[^。！？\n]{0,48}(?:故事|短片|世界)/.test(text) ||
+    text.includes("故事世界") ||
+    text.includes("小说") ||
+    text.includes("童话") ||
+    text.includes("科幻") ||
+    text.includes("奇幻") ||
+    text.includes("世界观") ||
+    normalized.includes("fiction") ||
+    normalized.includes("fantasy") ||
+    normalized.includes("sci-fi") ||
+    normalized.includes("story world");
 
   if (hasLinkedIn) {
     return {
@@ -112,6 +128,19 @@ function localIntentFallback(text: string): StoryIntentPayload {
     };
   }
 
+  if (hasFiction) {
+    return {
+      purpose: "fiction",
+      audience: "public",
+      platform: "presentation",
+      desiredEffect: "把一句虚构灵感发展成一个能拍的短片故事",
+      tone: "有世界感、有人物动机、带一点电影气质",
+      confidence: 0.72,
+      evidence: ["文本里出现了虚构故事 / 另一个世界 / 世界观等信号"],
+      missingQuestion: "这个世界里最先打动你的，是一个人物、一个场景，还是一个冲突？",
+    };
+  }
+
   return {
     purpose: "exploration",
     audience: "unknown",
@@ -121,6 +150,38 @@ function localIntentFallback(text: string): StoryIntentPayload {
     confidence: 0.35,
     evidence: [],
     missingQuestion: "这个小短片最后主要是给自己看，还是给别人看？",
+  };
+}
+
+function applyDeterministicIntentGuard(
+  parsed: Partial<StoryIntentPayload>,
+  fallbackText: string,
+): Partial<StoryIntentPayload> {
+  const fallback = localIntentFallback(fallbackText);
+  if (fallback.purpose === "exploration") return parsed;
+
+  const parsedPurpose = normalizePurpose(parsed.purpose);
+  if (parsedPurpose === fallback.purpose) return parsed;
+
+  return {
+    ...parsed,
+    purpose: fallback.purpose,
+    audience:
+      normalizeAudience(parsed.audience) === "unknown"
+        ? fallback.audience
+        : parsed.audience ?? fallback.audience,
+    platform:
+      normalizePlatform(parsed.platform) === "unknown"
+        ? fallback.platform
+        : parsed.platform ?? fallback.platform,
+    desiredEffect: fallback.desiredEffect,
+    tone: fallback.tone,
+    confidence: Math.max(clampConfidence(parsed.confidence), fallback.confidence ?? 0.72),
+    evidence: [
+      ...cleanStringArray(parsed.evidence),
+      ...cleanStringArray(fallback.evidence),
+    ].slice(0, 5),
+    missingQuestion: fallback.missingQuestion,
   };
 }
 
@@ -163,6 +224,12 @@ function buildIntentPrompt(params: {
     "LinkedIn / 求职 特别规则：",
     "只要用户提到 LinkedIn、领英、找工作、求职、招聘者、面试、个人品牌、职业机会，优先判断为 linkedin_job_search。",
     "这种用途的 audience 通常是 recruiters，platform 通常是 linkedin，tone 应偏清晰、专业、可信、有个人温度，但不要太私密。",
+    "",
+    "虚构故事 / 创造另一个世界 特别规则：",
+    "只要用户明确说想写虚构故事、创造另一个世界、编一个人物/故事世界、小说感、科幻、奇幻、童话、世界观，优先判断为 fiction。",
+    "这种用途的 audience 通常是 public 或 self，platform 可用 presentation，tone 应服务人物动机、场景规则和电影感，不要套用求职、简历、招聘者话术。",
+    "",
+    "架构约束：这里只做用途识别，不生成故事卡、不拆镜、不写素材状态；下游模块必须通过 purpose=fiction 自己决定表现。",
     "",
     params.summary?.trim()
       ? `【已有对话摘要】\n${params.summary.trim()}\n`
@@ -240,7 +307,7 @@ export async function recognizeStoryIntent(params: {
     const { text, modelLabel } = await invokeAgent(messages, 900);
     const parsed = parseJsonLoose<Partial<StoryIntentPayload>>(text);
     return {
-      ...normalizeIntent(parsed, fallbackText),
+      ...normalizeIntent(applyDeterministicIntentGuard(parsed, fallbackText), fallbackText),
       configured: true,
       modelLabel,
     };

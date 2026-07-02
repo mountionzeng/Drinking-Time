@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "./_core/context";
-import { resetMemoryStateForTesting } from "./db";
+import {
+  getLocalPromptLineageState,
+  replaceLocalPromptLineageState,
+  resetMemoryStateForTesting,
+} from "./db";
 import { appRouter } from "./routers";
+import type { ArtPromptLibraryDimension } from "../shared/artPromptLibrary";
 import type { StoryPromptAggregate } from "../shared/promptLineage";
 
 function context(userId: number): TrpcContext {
@@ -57,15 +62,64 @@ function currentCompilation(
   );
 }
 
+async function seedLocalArtLibrary(input: {
+  userId: number;
+  name: string;
+  source?: string | null;
+  items: Array<{
+    dimension: ArtPromptLibraryDimension;
+    content: string;
+    negativeContent?: string | null;
+  }>;
+}) {
+  const state = await getLocalPromptLineageState();
+  if (!state) throw new Error("expected local prompt lineage state");
+  const timestamp = new Date().toISOString();
+  const library = {
+    id: state.nextIds.artLibrary++,
+    kind: "user" as const,
+    ownerUserId: input.userId,
+    name: input.name,
+    description: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const version = {
+    id: state.nextIds.artLibraryVersion++,
+    libraryId: library.id,
+    version: 1,
+    status: "published" as const,
+    contentFingerprint: `test-artlib-${library.id}`,
+    source: input.source ?? null,
+    createdAt: timestamp,
+    publishedAt: timestamp,
+  };
+  const items = input.items.map((item, sortOrder) => ({
+    id: state.nextIds.artLibraryItem++,
+    libraryVersionId: version.id,
+    dimension: item.dimension,
+    content: item.content,
+    negativeContent: item.negativeContent ?? null,
+    sourceRevisionId: null,
+    sortOrder,
+  }));
+  state.artLibraries.push(library);
+  state.artLibraryVersions.push(version);
+  state.artLibraryItems.push(...items);
+  await replaceLocalPromptLineageState(state);
+  return { library, version, items };
+}
+
 describe("artPromptLibrary tRPC router", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "";
     resetMemoryStateForTesting();
   });
 
-  it("imports, lists, and binds a user art library version to a story", async () => {
+  it("lists and binds a user art library version to a story", async () => {
     const { caller, story } = await createStory(701);
-    const imported = await caller.artPromptLibrary.importUserLibrary({
+    const imported = await seedLocalArtLibrary({
+      userId: 701,
       name: "写实记录",
       source: "obsidian://styles/doc-realism",
       items: [
@@ -96,8 +150,8 @@ describe("artPromptLibrary tRPC router", () => {
   });
 
   it("rejects binding another user's private library", async () => {
-    const owner = appRouter.createCaller(context(702));
-    const imported = await owner.artPromptLibrary.importUserLibrary({
+    const imported = await seedLocalArtLibrary({
+      userId: 702,
       name: "私有暗调库",
       items: [{ dimension: "visual_style", content: "low key noir realism" }],
     });

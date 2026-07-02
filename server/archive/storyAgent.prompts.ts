@@ -148,6 +148,62 @@ function formatJobSearchIntentBlock(intent?: StoryChatIntentPayload): string {
   ].join("\n");
 }
 
+function formatFictionStoryCardContext(cards: StoryCardContextPayload[] | undefined): string {
+  if (!Array.isArray(cards) || cards.length === 0) return "";
+
+  const lines = [
+    "【当前虚构故事卡上下文（只读，用来延展同一个世界）】",
+    "这些卡片是用户已经确认或正在打磨的虚构故事素材。你要把它们当成同一个短片世界，而不是每轮重开一个新故事。",
+  ];
+
+  cards.slice(-8).forEach((card, index) => {
+    const meta = [
+      card.emotion ? `气质：${card.emotion}` : "",
+      typeof card.intensity === "number" ? `权重：${card.intensity.toFixed(2)}` : "",
+      card.direction ? `方向：${shortText(card.direction, 40)}` : "",
+      card.trigger ? `触发：${shortText(card.trigger, 50)}` : "",
+      card.dramaticFunction ? `作用：${shortText(card.dramaticFunction, 50)}` : "",
+      Array.isArray(card.themeHints) && card.themeHints.length
+        ? `主题：${card.themeHints.slice(0, 4).join(" / ")}`
+        : "",
+    ].filter(Boolean);
+    lines.push(
+      `· 故事卡 ${index + 1}${card.title ? `《${shortText(card.title, 28)}》` : ""}：${shortText(card.content, 180)}`,
+      meta.length ? `  ${meta.join("；")}` : "",
+      card.sourceQuote ? `  用户灵感锚点：${shortText(card.sourceQuote, 48)}` : "",
+    );
+  });
+
+  lines.push(
+    "",
+    "【虚构故事推进】",
+    "每轮都默默检查：这个世界的规则是什么、主角想要什么、阻碍是什么、画面气质是什么、最后留下什么余味。",
+    "如果用户是在修改已有故事卡，优先围绕当前故事核心改写，不要另起一个无关世界。",
+    "一次只点一个最关键的创作问题；不要变成设定问卷，也不要抢先拆镜。",
+    "",
+  );
+
+  return lines.filter(Boolean).join("\n");
+}
+
+function formatFictionIntentBlock(intent?: StoryChatIntentPayload): string {
+  if (!intent || intent.purpose !== "fiction") return "";
+  return [
+    "【当前创作模式：创造另一个世界 / 虚构短片】",
+    "你现在不是求职影片顾问，也不是私人回忆陪聊，而是在帮用户把一句虚构灵感发展成一套能拍的短片故事卡。",
+    "优先任务顺序：",
+    "1. 先接住用户的世界感或奇怪念头，把它整理成故事核心，而不是追问真实经历。",
+    "2. 尽快沉淀一张完整故事卡：故事核心、主角或视点、冲突/阻碍、视觉风格、主题余味都要有。",
+    "3. 如果信息不足，可以给一个明确假设再请用户修正；不要连续问设定问卷。",
+    "4. 在用户确认故事卡前，不要声称已经生成分镜、图片、视频或时间轴。",
+    "5. 语气仍然是小酌：自然、具体、有判断，但不要套用招聘者、简历、JD、优势证明的话术。",
+    intent.desiredEffect ? `用户希望达成的效果：${intent.desiredEffect}` : "用户希望达成的效果：把灵感变成可拍的虚构短片。",
+    intent.tone ? `当前调性：${intent.tone}` : "当前调性：有世界感、有人物动机、带一点电影气质。",
+    "架构约束：本层只负责聊天回应和故事卡沉淀，不写 shots、不生成图片/视频、不修改剪辑状态。",
+    "",
+  ].join("\n");
+}
+
 // 编辑上下文预算约 1000 token（中文大约 4 字 ≈ 1 token）
 const EDIT_CONTEXT_TOKEN_BUDGET_CHARS = 4000;
 
@@ -228,6 +284,7 @@ export function buildAgentSystemPrompt(
   storyCards?: StoryCardContextPayload[],
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
+  const isFiction = confirmedIntent?.purpose === "fiction";
   // 节奏指令：先接住，再慢慢补齐；不要等成完整故事才留卡。
   const pacing = (() => {
     if (isJobSearch) {
@@ -235,6 +292,14 @@ export function buildAgentSystemPrompt(
         "【求职模式节奏】",
         `当前已有 ${existingCardCount} 份求职素材。不要因为已有 4-5 张卡就停止收集；求职片需要足够多的证据卡，通常要持续收集到目标职位、简历项目、成果数字、优势证据、顾虑/限制都比较清楚为止。`,
         "只要这一轮出现新的职位信息、JD 要求、简历事实、项目经历、量化结果、工具方法、作品线索、求职顾虑或定位冲突，就应该沉淀成卡片。",
+      ].join("\n");
+    }
+    if (isFiction) {
+      return [
+        "【虚构模式节奏】",
+        `当前已有 ${existingCardCount} 份虚构故事素材。第一阶段不是拆镜，而是把一句灵感整理成一张完整故事卡。`,
+        "只要这一轮出现新的世界规则、主角、欲望、冲突、场景、视觉风格或主题余味，card 就不要为 null。",
+        "已有故事卡时，围绕同一个故事核心修订和补强；不要每轮重开一个新世界。",
       ].join("\n");
     }
     if (existingCardCount > 0) {
@@ -277,23 +342,38 @@ export function buildAgentSystemPrompt(
     ? formatSimilarMemoryCards(similarCards)
     : "";
   const jobSearchBlock = formatJobSearchIntentBlock(confirmedIntent);
+  const fictionBlock = formatFictionIntentBlock(confirmedIntent);
   const storyCardContextBlock = isJobSearch
     ? formatStoryCardContext(storyCards)
-    : "";
-  const taskBlock = isJobSearch
-    ? [
+    : isFiction
+      ? formatFictionStoryCardContext(storyCards)
+      : "";
+  const taskBlock = (() => {
+    if (isJobSearch) {
+      return [
         "你在做的事很具体：帮对方把求职目标、简历经历、项目证据和个人定位整理成能打动招聘者的短片素材。",
         "一张卡不需要完整故事。它可以是一条 JD 要求、一段简历经历、一个项目职责、一个量化结果、一个作品链接、一个能力组合、一个证据缺口、一个定位顾虑。",
         "以后生成剧本时，系统会把这些求职素材按招聘者视角重新组合。所以请尽量保留用户自己的岗位词、项目事实、数字、工具方法和作品线索，不要替他编经历、夸大成果或空泛包装。",
-      ].join("\n")
-    : [
-        "你在做的事很简单：陪对方把这件小事说出来，把他愿意给的细节，轻轻沉淀成一张张卡片。",
-        "一张卡不需要完整故事。它可以是一句没回的消息、一次沉默、一个小小的期待、一点松了口气、一个一闪而过的暖意。",
-        "以后生成剧本时，系统会把这些卡片按浓度、方向、戏剧功能重新组合。所以请尽量保留用户自己的词和个人痕迹，不要替他解释、升华、或加 moral。",
       ].join("\n");
+    }
+    if (isFiction) {
+      return [
+        "你在做的事很具体：帮对方把一句虚构灵感整理成一套完整故事卡，先让故事方向成立，再交给后续拆镜。",
+        "这张卡需要能支持一个 3-5 镜短片：故事核心、主角/视点、欲望、阻碍、关键场景、视觉风格和余味都要尽量明确。",
+        "以后生成剧本时，系统会把这张故事卡按短片弧线拆镜。所以请保留用户原始灵感里的怪味、规则和画面，不要把它改成求职优势、真实经历复盘或空泛世界观百科。",
+      ].join("\n");
+    }
+    return [
+      "你在做的事很简单：陪对方把这件小事说出来，把他愿意给的细节，轻轻沉淀成一张张卡片。",
+      "一张卡不需要完整故事。它可以是一句没回的消息、一次沉默、一个小小的期待、一点松了口气、一个一闪而过的暖意。",
+      "以后生成剧本时，系统会把这些卡片按浓度、方向、戏剧功能重新组合。所以请尽量保留用户自己的词和个人痕迹，不要替他解释、升华、或加 moral。",
+    ].join("\n");
+  })();
   const cardRule = isJobSearch
     ? "3. 当你听到任何求职信号——目标岗位、JD、简历事实、项目职责、量化结果、工具方法、作品线索、定位顾虑、证据缺口——先在背后轻轻记下，不必等它完整，也不必当场跟对方确认。"
-    : "3. 当你听到任何情绪信号——即使只有 0.2 的浓度——先在背后轻轻记下，不必等它完整，也不必当场跟对方确认。";
+    : isFiction
+      ? "3. 当你听到任何虚构故事信号——世界规则、主角、欲望、冲突、场景、物件、视觉风格、主题余味——先在背后整理成故事卡素材；不要等完整大纲，也不要抢先拆镜。"
+      : "3. 当你听到任何情绪信号——即使只有 0.2 的浓度——先在背后轻轻记下，不必等它完整，也不必当场跟对方确认。";
   const storyArcBlock = isJobSearch
     ? [
         "【求职素材推进】",
@@ -301,7 +381,15 @@ export function buildAgentSystemPrompt(
         "如果用户愿意给简历、JD 或项目材料，优先接住并请他贴出来；如果材料已经贴出，就站在招聘者视角问一个最有价值的缺口问题。",
         "一次只问一件最关键的事，不要变成 checklist；但每次都要让对话更接近「招聘者为什么相信他」。",
       ].join("\n")
-    : existingCardCount >= 4
+    : isFiction
+      ? [
+          "【虚构故事卡推进】",
+          `已经记下 ${existingCardCount} 份虚构故事素材。现在的重点是让故事卡完整，而不是提前拆成镜头。`,
+          "检查它是否已有：故事核心、主角/视点、欲望、阻碍、世界规则、关键场景、视觉风格、主题余味。",
+          "如果缺一个最关键项，直接给出你的判断并让用户确认或修正；不要一口气问一串设定题。",
+          "用户确认故事卡之前，不要说已经开始分镜、生成图片、生成视频或进入时间轴。",
+        ].join("\n")
+      : existingCardCount >= 4
       ? [
           "【叙事弧线 · 现在用得上了】",
           `已经记下 ${existingCardCount} 份卡片了。一段故事走到这里，开始有情绪曲线了——你心里可以默默留意几件事（只是留意，不要变成审问）：`,
@@ -349,6 +437,7 @@ export function buildAgentSystemPrompt(
     similarMemoryBlock,
     editContextBlock ?? "",
     jobSearchBlock,
+    fictionBlock,
     storyCardContextBlock,
     // ── 在做的事 ──
     taskBlock,
@@ -469,6 +558,7 @@ export function buildCardExtractionPrompt(
   confirmedIntent?: StoryChatIntentPayload,
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
+  const isFiction = confirmedIntent?.purpose === "fiction";
   return [
     "你是 Drinking Time 的后台分析器。你不和任何人对话、不扮演任何人设——你只做一件事：",
     "读下面这段对话（重点是对方【最后一轮】说的话），把这一轮值得沉淀的信号抽成结构化数据。",
@@ -479,6 +569,15 @@ export function buildCardExtractionPrompt(
       "只要这一轮给了新的求职信息，card 就不要为 null。比如「我可以把简历给你看看」「目标是产品经理」「这个项目我负责增长」「没有量化数据」都应沉淀成求职素材卡。",
       "card.content 写成求职专家能用的素材判断：它说明了什么竞争力、证据缺口、定位冲突或下一步追问方向。不要只写感受。",
       "themeHints 优先包含：目标岗位 / JD / 简历 / 项目成果 / 量化指标 / 技能栈 / 作品集 / 定位 / 顾虑 / 招聘者视角。",
+      "",
+    ] : []),
+    ...(isFiction ? [
+      "【当前是虚构故事模式】",
+      "card 不再只是记录情绪，也要把用户的虚构灵感整理成一张完整故事卡。故事核心、主角/视点、欲望、阻碍、世界规则、关键场景、视觉风格、主题余味，都可以成为 card 的内容。",
+      "只要这一轮给了新的虚构灵感或修改方向，card 就不要为 null。比如「月亮掉进菜市场」「主角是一名修钟人」「我想要潮湿的霓虹风格」都应沉淀成虚构故事卡素材。",
+      "card.content 写成短片创作者能直接继续打磨的故事判断：这个世界是什么、主角想要什么、冲突在哪里、画面应该是什么气质。不要写成求职优势，也不要写成真实经历复盘。",
+      "themeHints 优先包含：故事核心 / 主角 / 欲望 / 阻碍 / 世界规则 / 场景 / 视觉风格 / 主题余味 / 短片弧线。",
+      "架构约束：本层只抽取故事卡，不生成 shots、图片、视频或时间轴状态。",
       "",
     ] : []),
     "先判断对方此刻的状态（trait），从下面 7 种里挑【最贴的一种】：",
@@ -496,9 +595,13 @@ export function buildCardExtractionPrompt(
     ] : []),
     isJobSearch
       ? "card 不为 null 的标准：只要这一轮有新的求职信息、职位/JD/简历材料、项目证据、能力线索或定位顾虑，就记一张。"
+      : isFiction
+        ? "card 不为 null 的标准：只要这一轮有虚构故事信息、世界规则、主角、冲突、场景、视觉风格或修改方向，就记一张完整故事卡。"
       : "card 不为 null 的标准：只要这一轮有情绪信号，就记一张。不要等完整故事、不要等感动、不要等时间地点齐全。",
     isJobSearch
       ? "card 只有在纯寒暄、纯 UI 操作、或完全没有任何新求职信息/情绪信号时才为 null。"
+      : isFiction
+        ? "card 只有在纯寒暄、纯 UI 操作、或完全没有任何虚构故事信号时才为 null。"
       : "card 只有在纯寒暄、纯工具指令、或完全没有情绪信号时才为 null。",
     "护栏 1（原话可追溯）：sourceQuote 必须从对方原话里截一个短句或词组（≤24 字）；没有原话锚点就别把情绪说死，sourceQuote 留空。",
     "护栏 2（情绪词平衡）：emotionOptions 至少 5 个、正负面平衡；正面内容给正面词，理性清醒的表达给力量型词（清醒 / 笃定 / 边界感 / 不迁就），不要全往消极方向走，不要把理性判断归为防御。",

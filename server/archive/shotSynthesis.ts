@@ -5,6 +5,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { applyShotPromptComposition } from "../services/shotPromptComposer";
 import { annotateScriptShotReasons } from "../services/scriptAgent";
 import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, StoryCardPayload, VisualAnchorPayload } from "./storyAgent.types";
+import type { ArtRecipeDNA } from "../../shared/artDirection";
 
 const VALID_SHOT_TYPES = ["远", "全", "中", "近", "特", "大特"];
 const VALID_BEATS: ShotBeat[] = ["开场", "起势", "转折", "收束"];
@@ -46,8 +47,104 @@ type ShotListIntentInput = {
   channel?: string | null;
 };
 
+type GenerationProfileInput = {
+  scriptStyle?: {
+    id?: string;
+    label?: string;
+    logline?: string;
+    arc?: string;
+    treatment?: string;
+  } | null;
+  artStyle?: {
+    id?: string;
+    source?: "preset" | "library";
+    title?: string;
+    description?: string | null;
+    recipe?: Partial<ArtRecipeDNA> | null;
+    libraryVersionId?: number | null;
+    items?: Array<{
+      dimension?: string;
+      content?: string;
+      negativeContent?: string | null;
+    }>;
+  } | null;
+};
+
 function cleanText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function cleanList(values: unknown, limit = 8): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map(value => cleanText(value))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function formatGenerationProfile(profile?: GenerationProfileInput): string {
+  if (!profile) return "";
+  const lines: string[] = [];
+  const script = profile.scriptStyle;
+  if (script) {
+    const parts = [
+      cleanText(script.label) ? `选择：${cleanText(script.label)}` : "",
+      cleanText(script.arc) ? `弧线：${cleanText(script.arc)}` : "",
+      cleanText(script.logline) ? `一句话：${cleanText(script.logline)}` : "",
+      cleanText(script.treatment) ? `处理方式：${cleanText(script.treatment)}` : "",
+    ].filter(Boolean);
+    if (parts.length) lines.push(`剧本风格：${parts.join("；")}`);
+  }
+  const art = profile.artStyle;
+  if (art) {
+    const recipe = art.recipe ?? {};
+    const recipeParts = [
+      cleanList(recipe.style).length ? `风格=${cleanList(recipe.style).join(" / ")}` : "",
+      cleanList(recipe.palette).length ? `色彩=${cleanList(recipe.palette).join(" / ")}` : "",
+      cleanList(recipe.light).length ? `光线=${cleanList(recipe.light).join(" / ")}` : "",
+      cleanList(recipe.composition).length ? `构图=${cleanList(recipe.composition).join(" / ")}` : "",
+      cleanList(recipe.material).length ? `材质=${cleanList(recipe.material).join(" / ")}` : "",
+      cleanList(recipe.negative).length ? `避免=${cleanList(recipe.negative).join(" / ")}` : "",
+    ].filter(Boolean);
+    const itemParts = (art.items ?? [])
+      .map(item => {
+        const dimension = cleanText(item.dimension);
+        const content = cleanText(item.content);
+        if (!dimension || !content) return "";
+        return `${dimension}=${content}`;
+      })
+      .filter(Boolean)
+      .slice(0, 7);
+    const artParts = [
+      cleanText(art.title) ? `选择：${cleanText(art.title)}` : "",
+      cleanText(art.description) ? `说明：${cleanText(art.description)}` : "",
+      ...recipeParts,
+      ...itemParts,
+    ].filter(Boolean);
+    if (artParts.length) lines.push(`美术风格：${artParts.join("；")}`);
+  }
+  return lines.length
+    ? ["【生成设置 · 用户在 Story Cards 生成前选择】", ...lines].join("\n")
+    : "";
+}
+
+function artStyleRefFromProfile(profile?: GenerationProfileInput): string {
+  const art = profile?.artStyle;
+  if (!art) return "";
+  const recipe = art.recipe ?? {};
+  const tokens = [
+    cleanText(art.title),
+    ...cleanList(recipe.style, 3),
+    ...cleanList(recipe.palette, 2),
+    ...cleanList(recipe.light, 2),
+    ...(art.items ?? [])
+      .filter(item => /style|palette|lighting|composition|recipe/i.test(cleanText(item.dimension)))
+      .map(item => cleanText(item.content))
+      .filter(Boolean)
+      .slice(0, 4),
+  ].filter(Boolean);
+  return tokens.slice(0, 8).join(", ");
 }
 
 function isJobSearchIntent(
@@ -58,6 +155,13 @@ function isJobSearchIntent(
     intent?.purpose === "linkedin_job_search" ||
     /用途=linkedin_job_search/.test(resonanceContext ?? "")
   );
+}
+
+function isFictionIntent(
+  intent: ShotListIntentInput | null | undefined,
+  resonanceContext?: string,
+): boolean {
+  return intent?.purpose === "fiction" || /用途=fiction/.test(resonanceContext ?? "");
 }
 
 function jobTargetRole(intent?: ShotListIntentInput | null): string {
@@ -234,6 +338,188 @@ function buildJobSearchFallbackShotList(
   };
 }
 
+function fictionStoryCore(cards: ShotListCardInput[]): string {
+  return cleanText(cards[0]?.title) || cleanText(cards[0]?.content).slice(0, 30) || "一个新世界";
+}
+
+function fictionVisualTone(cards: ShotListCardInput[], intent?: ShotListIntentInput | null): string {
+  return (
+    cleanText(intent?.tone) ||
+    cards.flatMap(card => card.themeHints ?? []).find(Boolean) ||
+    cleanText(cards[0]?.emotion) ||
+    "有电影感的虚构气质"
+  );
+}
+
+function buildFictionFallbackShotList(
+  cards: ShotListCardInput[],
+  characterHint: string,
+  modelLabel: string,
+  resonanceContext?: string,
+  confirmedIntent?: ShotListIntentInput | null,
+): ShotListPayload {
+  const core = fictionStoryCore(cards);
+  const first = cards[0];
+  const last = cards[cards.length - 1] ?? first;
+  const protagonist =
+    characterHint ||
+    cleanText(first?.personalTrace) ||
+    cleanText(first?.direction) ||
+    "主角";
+  const obstacle =
+    cleanText(first?.dramaticFunction) ||
+    cleanText(last?.dramaticFunction) ||
+    cleanText(first?.complexity) ||
+    "这个世界里突然出现的阻碍";
+  const worldRule =
+    cleanText(first?.trigger) ||
+    cleanText(first?.retrievalQuery) ||
+    cleanText(first?.content).slice(0, 36) ||
+    "世界规则开始显形";
+  const visualTone = fictionVisualTone(cards, confirmedIntent);
+  const sourceFor = (index: number) => cards[Math.min(index, Math.max(cards.length - 1, 0))]?.content ?? "";
+  const desiredCount = Math.min(5, Math.max(4, cards.length + 2));
+  const templates: Array<{
+    beat: ShotBeat;
+    subject: string;
+    action: string;
+    dialogue: string;
+    shotType: string;
+    location: string;
+    mood: string;
+    emotion: string;
+    sourceCardContent: string;
+  }> = [
+    {
+      beat: "开场",
+      subject: core,
+      action: `建立「${core}」的世界规则`,
+      dialogue: cleanText(first?.sourceQuote),
+      shotType: "远",
+      location: cleanText(first?.trigger) || "故事发生的入口",
+      mood: visualTone.slice(0, 16),
+      emotion: cleanText(first?.emotion) || "奇异",
+      sourceCardContent: sourceFor(0),
+    },
+    {
+      beat: "起势",
+      subject: protagonist,
+      action: `${protagonist}第一次被这条规则推着行动`,
+      dialogue: cleanText(first?.rawText).slice(0, 42),
+      shotType: "中",
+      location: cleanText(first?.direction) || "主角所在的空间",
+      mood: "规则逼近",
+      emotion: "被召唤",
+      sourceCardContent: sourceFor(0),
+    },
+    {
+      beat: "转折",
+      subject: obstacle.slice(0, 16),
+      action: `阻碍显形，迫使主角做选择`,
+      dialogue: cleanText(last?.sourceQuote),
+      shotType: "近",
+      location: cleanText(last?.trigger) || "冲突发生处",
+      mood: "压力升起",
+      emotion: "拉扯",
+      sourceCardContent: sourceFor(1),
+    },
+    {
+      beat: "收束",
+      subject: protagonist,
+      action: `留下「${core}」改变后的余味`,
+      dialogue: "",
+      shotType: "近",
+      location: "回到世界的余光里",
+      mood: "留白",
+      emotion: "余味",
+      sourceCardContent: sourceFor(cards.length - 1),
+    },
+    {
+      beat: "起势",
+      subject: cleanText(last?.personalTrace) || "关键物件",
+      action: `把视觉风格落到一个可拍的具体物件`,
+      dialogue: "",
+      shotType: "特",
+      location: cleanText(last?.direction) || "世界的细节处",
+      mood: visualTone.slice(0, 16),
+      emotion: cleanText(last?.emotion) || "凝住",
+      sourceCardContent: sourceFor(cards.length - 1),
+    },
+  ];
+  const selected = desiredCount === 5
+    ? [templates[0], templates[1], templates[4], templates[2], templates[3]]
+    : templates.slice(0, 4);
+  const shots: ShotEntry[] = selected.map((template, index) => ({
+    shotNo: index + 1,
+    subject: template.subject.slice(0, 16),
+    action: template.action.slice(0, 60),
+    dialogue: template.dialogue,
+    shotType: template.shotType,
+    beat: index === 0 ? "开场" : index === selected.length - 1 ? "收束" : template.beat,
+    cameraAngle: "",
+    cameraMove: "",
+    location: template.location.slice(0, 20),
+    timeLight: "",
+    mood: template.mood.slice(0, 24),
+    sound: "",
+    styleRef: "",
+    note: "模型未返回有效 JSON，系统按虚构故事卡自动整理的兜底镜头。",
+    emotion: template.emotion,
+    intent: `服务虚构短片：让「${core}」的世界规则、主角欲望和冲突更清楚。`,
+    rationale: `这一镜来自已确认故事卡；画面要推进世界、人物和冲突，让虚构短片在可拍的动作里成立。`,
+    sourceCardContent: template.sourceCardContent,
+  }));
+  const arc = `世界规则显形 → 主角被推动 → 冲突迫近 → 留下余味`;
+  const composedShots = annotateScriptShotReasons(
+    applyShotPromptComposition(shots, { arc }),
+    { resonanceContext },
+  );
+
+  return {
+    configured: true,
+    modelLabel,
+    characters: [
+      {
+        name: protagonist,
+        role: "虚构短片主视点",
+        oneLiner: `被${core}改变的人`,
+      },
+    ],
+    logline: `${core}里，${protagonist}必须面对一条新规则`,
+    theme: cleanText(confirmedIntent?.desiredEffect).slice(0, 30) || "虚构世界里的选择与余味",
+    arc,
+    variants: [
+      {
+        mode: "克制版",
+        logline: "让世界规则悄悄显形",
+        arc: "观察到选择",
+        treatment: "少解释，多用空间、物件和动作显示规则。",
+      },
+      {
+        mode: "戏剧版",
+        logline: "把主角推到必须选择的一刻",
+        arc: "规则到冲突",
+        treatment: "强化阻碍和代价，让转折更明确。",
+      },
+      {
+        mode: "诗意版",
+        logline: "用一个奇异意象串起短片",
+        arc: "意象到余味",
+        treatment: "保留怪味和留白，让世界像梦一样成立。",
+      },
+    ],
+    boringCheck: {
+      hasConflict: true,
+      hasTurn: true,
+      hasWish: true,
+      hasCost: cards.some(card => /阻碍|冲突|代价|必须|不能|失去|选择/.test(card.content)),
+      hasChange: true,
+      note: "虚构短片张力来自世界规则、主角欲望和阻碍是否在 3-5 镜内闭合。",
+    },
+    shots: composedShots,
+  };
+}
+
 function buildFallbackShotList(
   cards: ShotListCardInput[],
   characterHint: string,
@@ -243,6 +529,15 @@ function buildFallbackShotList(
 ): ShotListPayload {
   if (isJobSearchIntent(confirmedIntent, resonanceContext)) {
     return buildJobSearchFallbackShotList(
+      cards,
+      characterHint,
+      modelLabel,
+      resonanceContext,
+      confirmedIntent,
+    );
+  }
+  if (isFictionIntent(confirmedIntent, resonanceContext)) {
+    return buildFictionFallbackShotList(
       cards,
       characterHint,
       modelLabel,
@@ -371,6 +666,7 @@ export async function synthesizeShotList(params: {
   characterHint?: string;
   visualAnchors?: VisualAnchorPayload[];
   confirmedIntent?: ShotListIntentInput | null;
+  generationProfile?: GenerationProfileInput | null;
   /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
   resonanceContext?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
@@ -424,9 +720,12 @@ export async function synthesizeShotList(params: {
 
   const characterHint = params.characterHint?.trim() || "";
   const isJobSearch = isJobSearchIntent(params.confirmedIntent, params.resonanceContext);
+  const isFiction = isFictionIntent(params.confirmedIntent, params.resonanceContext);
   const targetRole = jobTargetRole(params.confirmedIntent);
   const audience = jobAudience(params.confirmedIntent);
   const desiredEffect = cleanText(params.confirmedIntent?.desiredEffect);
+  const generationProfileText = formatGenerationProfile(params.generationProfile ?? undefined);
+  const generationArtStyleRef = artStyleRefFromProfile(params.generationProfile ?? undefined);
   const visualAnchors = Array.isArray(params.visualAnchors)
     ? params.visualAnchors.slice(0, 6)
     : [];
@@ -456,13 +755,20 @@ export async function synthesizeShotList(params: {
   const systemPrompt = [
     isJobSearch
       ? "你是一位求职广告片导演：你要把用户的优势卡、证据卡和定位卡，整理成一支能说服招聘者的短篇广告片镜头表。"
+      : isFiction
+        ? "你是一位虚构短片导演：你要把用户已确认的故事卡，整理成一支 3-5 镜的虚构短片镜头表。"
       : "你还是刚才那个朋友——同时你对画面、镜头、和故事结构都有一点感觉。",
     isJobSearch
       ? `目标观众：${audience}；目标岗位：${targetRole}；${desiredEffect ? `希望效果：${desiredEffect}。` : "希望效果：让观众相信这个人值得联系。" }`
+      : isFiction
+        ? `虚构短片目标：${desiredEffect || "把一个故事世界拍成短片"}。这些卡片不是简历素材，而是故事核心、人物、冲突和视觉风格。`
       : "对方刚刚跟你聊完一段，他沉淀下来这一组情绪样本——每一份都来自日常对话里的真实反应，不一定是感动，也不一定完整。",
     isJobSearch
       ? "现在请把这些卡片整理成**岗位关切 → 用户能力 → 能力来源 → 作用方式 → 可信证据 → 为什么值得联系 → 外部价值**的视觉论证链。不要拍成泛泛情绪短片；每一镜都要说明它在替用户证明什么。"
+      : isFiction
+        ? "现在请把已确认故事卡整理成**世界规则 → 主角欲望 → 阻碍/冲突 → 转折选择 → 余味收束**的短片弧线。不要套用求职、简历、JD、招聘者或个人优势证明语言。"
       : "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
+    generationProfileText,
     "",
     "请做六件事：",
     '1. 从素材里识别 1-3 个核心人物。每个人物给：name（名字或称呼，如「母亲」）、role（关系/在故事里的位置，如「主视点」、「对照面」）、oneLiner（一句话原型，≤16 字）。',
@@ -477,12 +783,23 @@ export async function synthesizeShotList(params: {
     "   - 起势：事情发生、关系展开。素材里大部分中段时刻都属于这里。",
     "   - 转折：整段最重的一刻，承重那一下。一段故事通常只有 1 个转折，最多 2 个。",
     "   - 收束（1 镜）：落点。可以是一句话、一个空镜、一个回到开场的呼应；不必给「答案」，但要让故事停得下来。",
-    "6. 把每份素材转化成镜头，**并允许你补 1-2 镜连接镜**让这段故事真正成形——",
-    "   - 你**可以**在最前补一镜「开场镜」（establishing 或定调空镜），如果原素材里没有自然的开场。",
-    "   - 你**可以**在最后补一镜「收束镜」（coda / 留白）让故事有落点，如果原素材里最后一份不足以承担收尾。",
-    "   - 这两镜之外的所有镜，必须 1:1 来自原素材，不合并、不拆分、不替对方写他没说过的事。",
-    "   - 全表镜头总数 = 原素材数 + 你补的连接镜数（≤2）。",
-    "   - 连接镜的 sourceCardContent 必须是空字符串「\"\"」（这样系统知道是你加的）。",
+    ...(isFiction
+      ? [
+          "6. 把已确认故事卡拆成**3-5 镜虚构短片**，哪怕只有一张故事卡，也要拆出完整短片弧线——",
+          "   - 第 1 镜必须建立世界规则或定调画面。",
+          "   - 中段镜头必须让主角欲望、阻碍和选择逐步显形。",
+          "   - 最后一镜必须收束余味，不要继续扩写成长篇世界观。",
+          "   - 全表镜头总数必须在 3-5 镜之间；不要按卡片数 1:1 出一镜。",
+          "   - sourceCardContent 优先回填最相关的故事卡 content；纯连接镜可以为空字符串「\"\"」。",
+        ]
+      : [
+          "6. 把每份素材转化成镜头，**并允许你补 1-2 镜连接镜**让这段故事真正成形——",
+          "   - 你**可以**在最前补一镜「开场镜」（establishing 或定调空镜），如果原素材里没有自然的开场。",
+          "   - 你**可以**在最后补一镜「收束镜」（coda / 留白）让故事有落点，如果原素材里最后一份不足以承担收尾。",
+          "   - 这两镜之外的所有镜，必须 1:1 来自原素材，不合并、不拆分、不替对方写他没说过的事。",
+          "   - 全表镜头总数 = 原素材数 + 你补的连接镜数（≤2）。",
+          "   - 连接镜的 sourceCardContent 必须是空字符串「\"\"」（这样系统知道是你加的）。",
+        ]),
     visualAnchorText
       ? [
           "",
@@ -511,7 +828,16 @@ export async function synthesizeShotList(params: {
           "   - 字幕必须连接「候选人优势」和「岗位为什么会在意」；不要写空泛鸡血、自夸口号，也不要把 AI 改写句伪装成用户原话。",
           "   - 求职片除纯连接镜外，dialogue 不要留空。它是给招聘者看的重点信息层。",
         ].join("\n")
-      : [
+      : isFiction
+        ? [
+            "【虚构短片要求】",
+            "   - 不要写成求职片、简历片、作品集包装或真实经历复盘；这是一个虚构故事世界。",
+            "   - 每一镜都要承担短片功能：世界规则、人物欲望、阻碍冲突、转折选择、余味收束。",
+            "   - 3-5 镜内必须看得到故事核心，不要变成长篇设定百科或概念散文。",
+            "   - intent 必须说明这一镜如何推进虚构故事；rationale 必须解释世界规则、人物动机或视觉风格为什么成立。",
+            "   - 架构约束：这里只返回镜头表 JSON，不声称生成图片、视频、时间轴或素材库记录。",
+          ].join("\n")
+        : [
           "【情绪曲线要求】",
           "   - 不要把所有镜头都写成同一种温柔/怀旧/释然。必须主动寻找差异：烦躁、回避、羞耻、羡慕、期待、空掉、欲望、阻碍、关系裂缝、余味。",
           "   - 情绪浓度要有变化：低浓度铺垫 → 中浓度摩擦 → 高浓度转折 → 低浓度余味。不要每一镜都 0.7。",
@@ -555,7 +881,9 @@ export async function synthesizeShotList(params: {
     "   - sound:       音 —— 留空",
     visualAnchorText
       ? "   - styleRef:    风格参考 —— 必须引用视觉锚的风格/色彩/光线，简短写入"
-      : "   - styleRef:    风格参考 —— 留空",
+      : generationArtStyleRef
+        ? `   - styleRef:    风格参考 —— 必须继承用户选择的美术风格：${generationArtStyleRef}`
+        : "   - styleRef:    风格参考 —— 留空",
     "   - note:        技术备注 —— 留空",
     "",
     "【还要回填的辅助列】",
@@ -781,6 +1109,17 @@ export async function synthesizeShotList(params: {
       );
     }
 
+    if (isFiction && (shots.length < 3 || shots.length > 5)) {
+      console.warn("[storyAgent] fiction 镜头数不在 3-5，按虚构故事卡降级出兜底分镜");
+      return buildFallbackShotList(
+        params.cards,
+        characterHint,
+        modelLabel,
+        params.resonanceContext,
+        params.confirmedIntent,
+      );
+    }
+
     // ── beat 兜底 ──
     // 模型可能没乖乖标 beat。规则：
     //   · 第一镜如果不是「开场」，强制改成「开场」（这一镜会担起 establishing 责任）
@@ -793,8 +1132,16 @@ export async function synthesizeShotList(params: {
     }
 
     const arc = typeof parsed.arc === "string" ? parsed.arc.trim() : "";
+    const styledShots = generationArtStyleRef
+      ? shots.map(shot => ({
+          ...shot,
+          styleRef: cleanText(shot.styleRef)
+            ? `${shot.styleRef} / ${generationArtStyleRef}`
+            : generationArtStyleRef,
+        }))
+      : shots;
     const composedShots = annotateScriptShotReasons(
-      applyShotPromptComposition(shots, {
+      applyShotPromptComposition(styledShots, {
         arc,
         visualAnchors,
       }),

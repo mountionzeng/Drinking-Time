@@ -32,11 +32,7 @@ import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { getSimilarCards } from './storyCardSimilarity';
 import { removeStoryCardFromSnapshot } from './storyCardDeletion';
 import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
-import {
-  applyStoryboardStyleRef,
-  generateStoryboardDraftFrames,
-  resolveStoryboardStyleRef,
-} from './storyboardDrafts';
+import { generateStoryboardDraftFrames } from './storyboardDrafts';
 import {
   buildCardPhotoMap,
   buildInheritedPhotoReference,
@@ -85,6 +81,36 @@ export type { StoryListItem };
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
 
+export type GenerationProfileArg = {
+  scriptStyle?: {
+    id?: string;
+    label?: string;
+    logline?: string;
+    arc?: string;
+    treatment?: string;
+  } | null;
+  artStyle?: {
+    id?: string;
+    source?: 'preset' | 'library';
+    title?: string;
+    description?: string | null;
+    libraryVersionId?: number | null;
+    recipe?: {
+      style?: string[];
+      palette?: string[];
+      light?: string[];
+      composition?: string[];
+      material?: string[];
+      negative?: string[];
+    } | null;
+    items?: Array<{
+      dimension?: string;
+      content?: string;
+      negativeContent?: string | null;
+    }>;
+  } | null;
+};
+
 export type StoryChatIntentArg = Pick<
   StoryIntent,
   'purpose' | 'audience' | 'platform' | 'tone' | 'desiredEffect' | 'targetRole' | 'channel'
@@ -112,7 +138,50 @@ export function resolveScriptIntent(
   return overrideIntent ?? confirmedIntent ?? undefined;
 }
 
-export const JOB_INTENT_CONFIDENCE_THRESHOLD = 0.6;
+type StoryCardConfirmationInput = Pick<StoryCard, 'id' | 'content'>;
+
+export function fictionStoryCardSignature(
+  cards: ReadonlyArray<StoryCardConfirmationInput>,
+): string {
+  return cards
+    .map((card) => `${card.id}:${card.content.trim().replace(/\s+/g, ' ')}`)
+    .join('|');
+}
+
+export function isFictionStoryCardConfirmed(
+  intent: StoryIntent | null | undefined,
+  cards: ReadonlyArray<StoryCardConfirmationInput>,
+): boolean {
+  if (!intent || intent.purpose !== 'fiction' || cards.length === 0) return false;
+  return (
+    intent.fictionStoryCardConfirmed === true &&
+    intent.fictionStoryCardSignature === fictionStoryCardSignature(cards)
+  );
+}
+
+export function confirmFictionStoryCardsForIntent(
+  intent: StoryIntent,
+  cards: ReadonlyArray<StoryCardConfirmationInput>,
+): StoryIntent {
+  if (intent.purpose !== 'fiction') return intent;
+  return {
+    ...intent,
+    fictionStoryCardConfirmed: true,
+    fictionStoryCardSignature: fictionStoryCardSignature(cards),
+  };
+}
+
+export function clearFictionStoryCardConfirmation(intent: StoryIntent | null): StoryIntent | null {
+  if (!intent || intent.purpose !== 'fiction') return intent;
+  if (!intent.fictionStoryCardConfirmed && !intent.fictionStoryCardSignature) return intent;
+  const { fictionStoryCardConfirmed, fictionStoryCardSignature, ...rest } = intent;
+  void fictionStoryCardConfirmed;
+  void fictionStoryCardSignature;
+  return rest;
+}
+
+export const SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD = 0.6;
+const SOFT_CONFIRM_INTENT_PURPOSES = new Set(['linkedin_job_search', 'fiction']);
 
 export function shouldTriggerIntentRecognition({
   messages,
@@ -129,10 +198,15 @@ export function shouldTriggerIntentRecognition({
   );
 }
 
-export function recognitionToPendingJobIntent(intent: StoryIntent): StoryIntent | null {
-  if (intent.purpose !== 'linkedin_job_search') return null;
-  if ((intent.confidence ?? 0) < JOB_INTENT_CONFIDENCE_THRESHOLD) return null;
+export function recognitionToPendingIntent(intent: StoryIntent): StoryIntent | null {
+  if (!SOFT_CONFIRM_INTENT_PURPOSES.has(intent.purpose)) return null;
+  if ((intent.confidence ?? 0) < SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD) return null;
   return intent;
+}
+
+export function recognitionToPendingJobIntent(intent: StoryIntent): StoryIntent | null {
+  const pending = recognitionToPendingIntent(intent);
+  return pending?.purpose === 'linkedin_job_search' ? pending : null;
 }
 
 export function warnIntentRecognitionError(error: unknown) {
@@ -199,6 +273,7 @@ interface StoryAgentContextValue {
   pendingIntentDraft: StoryIntent | null;
   confirmPendingIntent: () => void;
   dismissPendingIntent: () => void;
+  confirmFictionStoryCards: () => void;
   sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
@@ -218,7 +293,7 @@ interface StoryAgentContextValue {
     field: StoryShotEditableField,
     value: string,
   ) => void;
-  generateScript: (intent?: ScriptIntentArg) => Promise<void>;
+  generateScript: (intent?: ScriptIntentArg, profile?: GenerationProfileArg) => Promise<void>;
   resetConversation: () => void;
   /** Story list management */
   activeStoryId: number | null;
@@ -276,6 +351,7 @@ type StoryAgentActionKey =
   | 'clearIntent'
   | 'confirmPendingIntent'
   | 'dismissPendingIntent'
+  | 'confirmFictionStoryCards'
   | 'sendMessage'
   | 'reorderCards'
   | 'removeCard'
@@ -313,6 +389,7 @@ const storyAgentActionKeys = [
   'clearIntent',
   'confirmPendingIntent',
   'dismissPendingIntent',
+  'confirmFictionStoryCards',
   'sendMessage',
   'reorderCards',
   'removeCard',
@@ -1115,7 +1192,7 @@ export function StoryAgentProvider({
     setLastArchiveSaveHash,
   ]);
 
-  const recognizeJobIntentFromHistory = useCallback(
+  const recognizeIntentFromHistory = useCallback(
     async (history: ChatMessage[], requestStoryId: number | null) => {
       try {
         const result = await recognizeIntentMut.mutateAsync({
@@ -1134,7 +1211,7 @@ export function StoryAgentProvider({
         ) {
           return;
         }
-        const pending = recognitionToPendingJobIntent(result as StoryIntent);
+        const pending = recognitionToPendingIntent(result as StoryIntent);
         if (!pending) return;
         const { confirmedIntent, pendingIntentDraft } = storySpineStore.getState();
         if (confirmedIntent || pendingIntentDraft) return;
@@ -1349,7 +1426,7 @@ export function StoryAgentProvider({
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
         if (shouldRecognizeIntent) {
-          void recognizeJobIntentFromHistory(nextMessages, requestStoryId);
+          void recognizeIntentFromHistory(nextMessages, requestStoryId);
         }
 
         const savedStoryId = await saveArchiveStory({
@@ -1420,12 +1497,19 @@ export function StoryAgentProvider({
       appendConversationTurnMut,
       saveArchiveStory,
       uploadPhotoMut,
-      recognizeJobIntentFromHistory,
+      recognizeIntentFromHistory,
     ],
   );
 
+  const clearFictionConfirmationIfNeeded = useCallback(() => {
+    const currentIntent = storySpineStore.getState().confirmedIntent;
+    const nextIntent = clearFictionStoryCardConfirmation(currentIntent);
+    if (nextIntent !== currentIntent) setConfirmedIntent(nextIntent);
+  }, [setConfirmedIntent]);
+
   const reorderCards = useCallback(
     (newOrder: StoryCard[]) => {
+      clearFictionConfirmationIfNeeded();
       setCards(newOrder);
       void saveArchiveStory({
         messages,
@@ -1450,6 +1534,7 @@ export function StoryAgentProvider({
       storyLogline,
       storyTheme,
       storyArc,
+      clearFictionConfirmationIfNeeded,
       saveArchiveStory,
     ],
   );
@@ -1466,6 +1551,7 @@ export function StoryAgentProvider({
         id,
       );
       if (!removedCard) return;
+      clearFictionConfirmationIfNeeded();
       setCards(nextCards);
       setStoryShots(nextStoryShots);
       setVisualCanvasItems(nextVisualCanvasItems);
@@ -1496,6 +1582,7 @@ export function StoryAgentProvider({
       storyTheme,
       storyArc,
       setVisualCanvasItems,
+      clearFictionConfirmationIfNeeded,
       saveArchiveStory,
     ],
   );
@@ -1508,6 +1595,7 @@ export function StoryAgentProvider({
       const nextCards = cards.map((card) =>
         card.id === id ? { ...card, content } : card,
       );
+      clearFictionConfirmationIfNeeded();
       setCards(nextCards);
       void saveArchiveStory({
         messages,
@@ -1533,6 +1621,7 @@ export function StoryAgentProvider({
       storyLogline,
       storyTheme,
       storyArc,
+      clearFictionConfirmationIfNeeded,
       saveArchiveStory,
     ],
   );
@@ -1650,16 +1739,26 @@ export function StoryAgentProvider({
     [commitStoryShots],
   );
 
-  const generateScript = useCallback(async (intent?: ScriptIntentArg) => {
+  const generateScript = useCallback(async (
+    intent?: ScriptIntentArg,
+    profile?: GenerationProfileArg,
+  ) => {
     if (cards.length === 0) {
       toast.error('先生成卡片再合成剧本');
+      return;
+    }
+    const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
+    if (
+      effectiveIntent?.purpose === 'fiction' &&
+      !isFictionStoryCardConfirmed(effectiveIntent, cards)
+    ) {
+      toast.error('先确认虚构故事卡，再生成 3-5 镜短片');
       return;
     }
     if (isGeneratingScript) return;
     setIsGeneratingScript(true);
 
     try {
-      const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
       const result = await classifyMut.mutateAsync({
         cards: cards.map((card) => ({
           title: card.title,
@@ -1708,6 +1807,7 @@ export function StoryAgentProvider({
               channel: effectiveIntent.channel,
             }
           : undefined,
+        generationProfile: profile ?? undefined,
       }) as StoryAgentClassifyResult;
       if ('error' in result) {
         toast.error(result.error);
@@ -1717,11 +1817,7 @@ export function StoryAgentProvider({
       const generatedShots = Array.isArray(result.shots)
         ? result.shots.map(normalizeShot).filter((s): s is StoryShot => Boolean(s))
         : [];
-      const storyStyleRef = resolveStoryboardStyleRef({
-        shots: generatedShots,
-        artRecipe: artDirection.recipe,
-      });
-      const nextShots = applyStoryboardStyleRef(generatedShots, storyStyleRef);
+      const nextShots = generatedShots;
       if (!nextShots.length) {
         toast.error('模型没有返回有效镜头');
         return;
@@ -1835,7 +1931,6 @@ export function StoryAgentProvider({
     projectId,
     scripts,
     activeStoryId,
-    artDirection.recipe,
     remoteStoryId,
     storyTitle,
     storyboardImageMut,
@@ -2669,6 +2764,43 @@ export function StoryAgentProvider({
     setStoryImages((prev) => prev.filter((item) => item.id !== imageId));
   }, []);
 
+  const confirmFictionStoryCards = useCallback(() => {
+    const currentIntent = storySpineStore.getState().confirmedIntent;
+    if (!currentIntent || currentIntent.purpose !== 'fiction') return;
+    if (cards.length === 0) {
+      toast.error('先生成虚构故事卡，再确认方向');
+      return;
+    }
+    const nextIntent = confirmFictionStoryCardsForIntent(currentIntent, cards);
+    setConfirmedIntent(nextIntent);
+    void saveArchiveStory({
+      messages,
+      cards,
+      scripts,
+      storyShots,
+      characters,
+      remoteStoryId,
+      title: storyTitle,
+      logline: storyLogline,
+      theme: storyTheme,
+      arc: storyArc,
+    });
+    toast.success('故事卡已确认，可以生成 3-5 镜短片');
+  }, [
+    cards,
+    characters,
+    messages,
+    remoteStoryId,
+    saveArchiveStory,
+    scripts,
+    setConfirmedIntent,
+    storyArc,
+    storyLogline,
+    storyShots,
+    storyTheme,
+    storyTitle,
+  ]);
+
   const clearIntent = useCallback(() => {
     setConfirmedIntent(null);
   }, []);
@@ -2698,6 +2830,7 @@ export function StoryAgentProvider({
       pendingIntentDraft,
       confirmPendingIntent,
       dismissPendingIntent,
+      confirmFictionStoryCards,
       sendMessage,
       reorderCards,
       removeCard,
@@ -2756,6 +2889,7 @@ export function StoryAgentProvider({
       pendingIntentDraft,
       confirmPendingIntent,
       dismissPendingIntent,
+      confirmFictionStoryCards,
       sendMessage,
       reorderCards,
       removeCard,
@@ -2807,6 +2941,7 @@ export function StoryAgentProvider({
     clearIntent,
     confirmPendingIntent,
     dismissPendingIntent,
+    confirmFictionStoryCards,
     sendMessage,
     reorderCards,
     removeCard,

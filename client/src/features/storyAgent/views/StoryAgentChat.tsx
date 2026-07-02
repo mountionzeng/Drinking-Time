@@ -20,11 +20,26 @@ import {
   loadStoryConversationDraft,
   saveStoryConversationDraft,
 } from '../storyConversationStore';
+import type { StoryIntent } from '../intentTypes';
 
 type OpenCreationChatDetail = {
   draftMessage?: string;
   preserveSelection?: boolean;
 };
+
+function getPendingIntentCopy(intent: StoryIntent) {
+  if (intent.purpose === 'fiction') {
+    return {
+      body: '听起来你是想创造一个虚构故事世界，对吗？',
+      confirmLabel: '对，创造另一个世界',
+    };
+  }
+
+  return {
+    body: '听起来你是想做求职片，给招聘者看，对吗？',
+    confirmLabel: '对，按求职片来',
+  };
+}
 
 export default function StoryAgentChat() {
   const {
@@ -55,6 +70,9 @@ export default function StoryAgentChat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draftStoryIdRef = useRef<number | null>(null);
+  const pendingIntentCopy = pendingIntentDraft
+    ? getPendingIntentCopy(pendingIntentDraft)
+    : null;
 
   useEffect(() => {
     const previousStoryId = draftStoryIdRef.current;
@@ -384,7 +402,7 @@ export default function StoryAgentChat() {
                 </span>
               </div>
               <p className="whitespace-pre-wrap">
-                听起来你是想做求职片，给招聘者看，对吗？
+                {pendingIntentCopy?.body}
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button
@@ -397,7 +415,7 @@ export default function StoryAgentChat() {
                   }}
                 >
                   <Check className="h-3 w-3" />
-                  对，按求职片来
+                  {pendingIntentCopy?.confirmLabel}
                 </button>
                 <button
                   type="button"

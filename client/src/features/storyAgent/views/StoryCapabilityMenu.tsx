@@ -1,4 +1,4 @@
-import { Briefcase, Gift, Heart, Images, Share2 } from 'lucide-react';
+import { Briefcase, Gift, Heart, Images, Share2, Sparkles } from 'lucide-react';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import type { ChatMessage } from '@/features/storyAgent/types';
 import { PURPOSE_LABELS, type StoryIntent } from '../intentTypes';
@@ -8,7 +8,8 @@ export type StoryCapabilityId =
   | 'social_post'
   | 'linkedin_job_search'
   | 'gift'
-  | 'portfolio';
+  | 'portfolio'
+  | 'fiction';
 
 export const CAPABILITY_OPTIONS: Array<{
   id: StoryCapabilityId;
@@ -45,6 +46,12 @@ export const CAPABILITY_OPTIONS: Array<{
     label: PURPOSE_LABELS.portfolio,
     description: '整理成对外展示作品',
     icon: Images,
+  },
+  {
+    id: 'fiction',
+    label: '创造另一个世界',
+    description: '一句话生成虚构短片故事',
+    icon: Sparkles,
   },
 ];
 
@@ -90,6 +97,17 @@ export function buildCapabilityIntent(capabilityId: StoryCapabilityId): StoryInt
         platform: 'portfolio_site',
         desiredEffect: '整理成对外展示的个人作品',
         tone: '清楚、精致、可展示',
+        confidence: 1,
+        missingQuestion: '',
+        configured: true,
+      };
+    case 'fiction':
+      return {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+        tone: '有世界感、有人物动机、带一点电影气质',
         confidence: 1,
         missingQuestion: '',
         configured: true,
@@ -152,7 +170,7 @@ export default function StoryCapabilityMenu() {
         }}
       >
         <div className="mb-2 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-          小酌可以帮你把一段经历做成
+          小酌可以帮你把一段经历或灵感做成
         </div>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1.5">
           {CAPABILITY_OPTIONS.map((option) => {

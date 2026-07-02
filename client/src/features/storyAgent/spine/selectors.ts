@@ -135,6 +135,8 @@ export function selectStoryCardsBoardSlice(state: StorySpineState) {
     latestScript: selectLatestScript(state),
     storyShots: state.storyShots,
     visualCanvasItems: state.visualCanvasItems,
+    confirmedIntent: state.confirmedIntent,
+    pendingIntentDraft: state.pendingIntentDraft,
   };
 }
 

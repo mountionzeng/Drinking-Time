@@ -871,6 +871,85 @@ describe('storyAgent 求职意图聊天触发', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 虚构意图进入聊天链路：用户确认「创造另一个世界」后，小酌应先把一句灵感
+// 沉淀成完整故事卡，而不是套用求职/私人回忆路线，也不能提前声称已拆镜。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('storyAgent 虚构意图聊天触发', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvokeLLM.mockReset();
+  });
+
+  it('把 confirmed fiction intent 注入回话 prompt，并要求先生成完整故事卡', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse('我会先把这个世界收成一张故事卡。'))
+      .mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '我想写一个月亮掉进菜市场的故事',
+      existingCardCount: 1,
+      confirmedIntent: {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+        tone: '潮湿、奇异、带一点现实魔幻',
+      },
+      storyCards: [
+        {
+          title: '月亮掉进菜市场',
+          content: '一个菜市场凌晨发现月亮像一颗湿漉漉的水果落在鱼摊旁。',
+          emotion: '奇异',
+          themeHints: ['故事核心', '现实魔幻'],
+        },
+      ],
+    });
+
+    const replySystem = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+
+    expect(replySystem).toContain('当前创作模式：创造另一个世界 / 虚构短片');
+    expect(replySystem).toContain('一句虚构灵感发展成一套能拍的短片故事卡');
+    expect(replySystem).toContain('故事核心、主角或视点、冲突/阻碍、视觉风格');
+    expect(replySystem).toContain('当前虚构故事卡上下文');
+    expect(replySystem).toContain('月亮掉进菜市场');
+    expect(replySystem).toContain('不要每轮重开一个新世界');
+    expect(replySystem).toContain('本层只负责聊天回应和故事卡沉淀');
+    expect(replySystem).not.toContain('必须接住并请他贴简历');
+    expect(replySystem).not.toContain('招聘者为什么相信你');
+  });
+
+  it('虚构模式的后台抽取把灵感整理成完整故事卡素材', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse('这个点子很清楚，我先收成故事卡。'))
+      .mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '我想写一个月亮掉进菜市场的故事',
+      confirmedIntent: {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+      },
+    });
+
+    const extractionSystem = mockInvokeLLM.mock.calls[1][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+    const extractionPayload = JSON.stringify(mockInvokeLLM.mock.calls[1][0].messages);
+
+    expect(extractionSystem).toContain('当前是虚构故事模式');
+    expect(extractionSystem).toContain('完整故事卡');
+    expect(extractionSystem).toContain('故事核心、主角/视点、欲望、阻碍');
+    expect(extractionSystem).toContain('视觉风格、主题余味');
+    expect(extractionSystem).toContain('card 就不要为 null');
+    expect(extractionSystem).toContain('本层只抽取故事卡，不生成 shots、图片、视频或时间轴状态');
+    expect(extractionPayload).not.toContain('这个点子很清楚，我先收成故事卡。');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // synthesizeShotList 兜底韧性 · shots 缺失 / 坏 JSON 时降级出兜底分镜，绝不弹「整理失败」
 // 文件里早有完整的 buildFallbackShotList，但旧实现只在 parse 抛错的 catch 里用了它；
 // 当模型「返回了合法 JSON、但 shots 为空 / 所有镜头都缺 action」时，旧实现直接 return error，
@@ -978,6 +1057,96 @@ describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分�
     expect(r.shots[0].rationale).toBe('这不是情绪海报，而是在展示他对环境信号的捕捉。');
   });
 
+  it('Story Cards 的剧本/美术生成设置会进入导演 prompt，并写入镜头 styleRef', async () => {
+    mockInvokeLLM.mockResolvedValue(
+      makeShotResponse({
+        characters: [{ name: '修钟人', role: '主视点', oneLiner: '调慢夜晚的人' }],
+        arc: '世界规则 → 选择',
+        logline: '月亮掉进菜市场',
+        theme: '奇异规则里的选择',
+        variants: [],
+        shots: [
+          {
+            shotNo: 1,
+            subject: '菜市场',
+            action: '月亮掉在鱼摊旁',
+            beat: '开场',
+            shotType: '远',
+            styleRef: '',
+          },
+          {
+            shotNo: 2,
+            subject: '修钟人',
+            action: '试着调慢夜晚',
+            beat: '起势',
+            shotType: '近',
+            styleRef: 'old film grain',
+          },
+          {
+            shotNo: 3,
+            subject: '空摊位',
+            action: '天亮后只剩银色水痕',
+            beat: '收束',
+            shotType: '近',
+            styleRef: '',
+          },
+        ],
+      }),
+    );
+
+    const result = await synthesizeShotList({
+      cards: [
+        {
+          title: '月亮掉进菜市场',
+          content: '一个菜市场凌晨发现月亮像湿漉漉的水果落在鱼摊旁。',
+        },
+      ],
+      confirmedIntent: {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+      },
+      generationProfile: {
+        scriptStyle: {
+          id: 'fiction-fable',
+          label: '寓言版',
+          logline: '保留怪味，让故事像一个会回响的寓言',
+          arc: '异常发生 → 人群反应 → 主角理解 → 留白',
+          treatment: '少解释世界观，多用一两个物件把意义落住。',
+        },
+        artStyle: {
+          id: 'library:12',
+          source: 'library',
+          title: '宋人山水',
+          description: '水墨留白',
+          libraryVersionId: 12,
+          items: [
+            { dimension: 'composition', content: 'large negative space' },
+            { dimension: 'lighting', content: 'misty backlight' },
+          ],
+        },
+      },
+    });
+
+    const systemContent = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+
+    expect(systemContent).toContain('【生成设置 · 用户在 Story Cards 生成前选择】');
+    expect(systemContent).toContain('剧本风格：选择：寓言版');
+    expect(systemContent).toContain('异常发生 → 人群反应 → 主角理解 → 留白');
+    expect(systemContent).toContain('美术风格：选择：宋人山水');
+    expect(systemContent).toContain('composition=large negative space');
+    expect(systemContent).toContain('必须继承用户选择的美术风格：宋人山水');
+
+    const shots = (result as { shots: Array<{ styleRef: string }> }).shots;
+    expect(shots[0].styleRef).toContain('宋人山水');
+    expect(shots[0].styleRef).toContain('large negative space');
+    expect(shots[1].styleRef).toContain('old film grain');
+    expect(shots[1].styleRef).toContain('宋人山水');
+  });
+
   it('求职意图下模型漏填 dialogue → 服务端补成招聘者能读懂的优势字幕', async () => {
     mockInvokeLLM.mockResolvedValue(
       makeShotResponse({
@@ -1049,5 +1218,90 @@ describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分�
     expect(shot.dialogue).toContain('我知道整个流程是怎么运作的');
     expect(shot.intent).toContain('招聘者');
     expect(shot.rationale).toContain('岗位关切');
+  });
+
+  it('虚构意图下导演 prompt 要求 3-5 镜短片，不走求职说服链', async () => {
+    mockInvokeLLM.mockResolvedValue(
+      makeShotResponse({
+        characters: [{ name: '修钟人', role: '主视点', oneLiner: '调慢夜晚的人' }],
+        arc: '世界规则 → 选择',
+        logline: '月亮掉进菜市场',
+        theme: '被规则改变的人',
+        variants: [],
+        shots: [
+          { shotNo: 1, subject: '菜市场', action: '月亮掉在鱼摊旁', beat: '开场', shotType: '远' },
+          { shotNo: 2, subject: '修钟人', action: '试着调慢夜晚', beat: '起势', shotType: '中' },
+          { shotNo: 3, subject: '月亮', action: '潮水从摊位涌出', beat: '转折', shotType: '近' },
+          { shotNo: 4, subject: '空摊位', action: '天亮后只剩银色水痕', beat: '收束', shotType: '近' },
+        ],
+      }),
+    );
+
+    await synthesizeShotList({
+      cards: [
+        {
+          title: '月亮掉进菜市场',
+          content: '一个菜市场凌晨发现月亮像湿漉漉的水果落在鱼摊旁。',
+          themeHints: ['故事核心', '现实魔幻'],
+        },
+      ],
+      confirmedIntent: {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+      },
+    });
+
+    const systemContent = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    )?.content as string;
+
+    expect(systemContent).toContain('虚构短片导演');
+    expect(systemContent).toContain('3-5 镜虚构短片');
+    expect(systemContent).toContain('世界规则 → 主角欲望 → 阻碍/冲突');
+    expect(systemContent).toContain('不要按卡片数 1:1 出一镜');
+    expect(systemContent).toContain('这里只返回镜头表 JSON');
+    expect(systemContent).not.toContain('岗位关切 → 用户能力');
+    expect(systemContent).not.toContain('招聘者为什么相信');
+  });
+
+  it('虚构意图下模型坏 JSON → 兜底分镜仍生成 3-5 镜短片', async () => {
+    mockInvokeLLM.mockResolvedValue(makeRawResponse('先想想这个世界怎么拍'));
+
+    const result = await synthesizeShotList({
+      cards: [
+        {
+          title: '月亮掉进菜市场',
+          content: '一个菜市场凌晨发现月亮像湿漉漉的水果落在鱼摊旁。',
+          sourceQuote: '月亮掉进菜市场',
+          themeHints: ['故事核心', '现实魔幻'],
+        },
+      ],
+      confirmedIntent: {
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+        tone: '潮湿、奇异、带一点现实魔幻',
+      },
+    });
+
+    expect('error' in result).toBe(false);
+    const fiction = result as {
+      logline: string;
+      arc: string;
+      shots: Array<{ note: string; intent?: string | null; rationale?: string | null; beat: string }>;
+    };
+    expect(fiction.shots.length).toBeGreaterThanOrEqual(3);
+    expect(fiction.shots.length).toBeLessThanOrEqual(5);
+    expect(fiction.logline).toContain('月亮掉进菜市场');
+    expect(fiction.arc).toContain('世界规则');
+    expect(fiction.shots[0].beat).toBe('开场');
+    expect(fiction.shots[fiction.shots.length - 1].beat).toBe('收束');
+    expect(fiction.shots[0].note).toContain('虚构故事卡');
+    expect(fiction.shots[0].intent).toContain('虚构短片');
+    expect(fiction.shots[0].rationale).not.toContain('招聘者');
+    expect(fiction.shots[0].rationale).not.toContain('个人优势');
   });
 });

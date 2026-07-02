@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetMemoryStateForTesting } from "../db";
+import {
+  getLocalPromptLineageState,
+  replaceLocalPromptLineageState,
+  resetMemoryStateForTesting,
+} from "../db";
 import { migrateStoryPromptLineage } from "./promptLineageMigration";
 import { getStoryPromptProjection } from "./promptLineage";
 import {
   bindStoryArtPromptLibraryVersion,
-  importUserArtPromptLibrary,
   listArtPromptLibraries,
   syncSystemArtPromptLibraries,
 } from "./artPromptLibrary";
+import type { ArtPromptLibraryDimension } from "../../shared/artPromptLibrary";
 import type { StoryPromptAggregate } from "../../shared/promptLineage";
 
 function currentCompilation(
@@ -23,49 +27,58 @@ function currentCompilation(
   );
 }
 
+async function seedLocalArtLibrary(input: {
+  userId: number;
+  name: string;
+  source?: string | null;
+  items: Array<{
+    dimension: ArtPromptLibraryDimension;
+    content: string;
+    negativeContent?: string | null;
+  }>;
+}) {
+  const state = await getLocalPromptLineageState();
+  if (!state) throw new Error("expected local prompt lineage state");
+  const timestamp = new Date().toISOString();
+  const library = {
+    id: state.nextIds.artLibrary++,
+    kind: "user" as const,
+    ownerUserId: input.userId,
+    name: input.name,
+    description: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const version = {
+    id: state.nextIds.artLibraryVersion++,
+    libraryId: library.id,
+    version: 1,
+    status: "published" as const,
+    contentFingerprint: `test-artlib-${library.id}`,
+    source: input.source ?? null,
+    createdAt: timestamp,
+    publishedAt: timestamp,
+  };
+  const items = input.items.map((item, sortOrder) => ({
+    id: state.nextIds.artLibraryItem++,
+    libraryVersionId: version.id,
+    dimension: item.dimension,
+    content: item.content,
+    negativeContent: item.negativeContent ?? null,
+    sourceRevisionId: null,
+    sortOrder,
+  }));
+  state.artLibraries.push(library);
+  state.artLibraryVersions.push(version);
+  state.artLibraryItems.push(...items);
+  await replaceLocalPromptLineageState(state);
+  return { library, version, items };
+}
+
 describe("artPromptLibrary service", () => {
   beforeEach(() => {
     process.env.DATABASE_URL = "";
     resetMemoryStateForTesting();
-  });
-
-  it("deduplicates identical imports and creates a new version when content changes", async () => {
-    const first = await importUserArtPromptLibrary({
-      userId: 7,
-      name: "写实记录",
-      source: "obsidian://styles/documentary",
-      items: [
-        { dimension: "visual_style", content: "documentary realism" },
-        { dimension: "lighting", content: "soft natural light" },
-      ],
-    });
-    const duplicate = await importUserArtPromptLibrary({
-      userId: 7,
-      name: "写实记录",
-      source: "obsidian://styles/documentary",
-      items: [
-        { dimension: "lighting", content: "soft natural light" },
-        { dimension: "visual_style", content: "documentary realism" },
-      ],
-    });
-    const changed = await importUserArtPromptLibrary({
-      userId: 7,
-      name: "写实记录",
-      source: "obsidian://styles/documentary",
-      items: [
-        { dimension: "visual_style", content: "documentary realism" },
-        { dimension: "lighting", content: "golden practical light" },
-      ],
-    });
-
-    expect(duplicate.version.id).toBe(first.version.id);
-    expect(changed.version.version).toBe(first.version.version + 1);
-    const listed = await listArtPromptLibraries({ userId: 7 });
-    const userLibraries = listed.filter(item => item.library.kind === "user");
-    expect(userLibraries.map(item => item.version.id)).toEqual([
-      changed.version.id,
-      first.version.id,
-    ]);
   });
 
   it("syncs active style entries into reusable system art prompt libraries", async () => {
@@ -158,7 +171,7 @@ describe("artPromptLibrary service", () => {
         ],
       },
     });
-    const library = await importUserArtPromptLibrary({
+    const library = await seedLocalArtLibrary({
       userId: 7,
       name: "温暖广告片",
       source: "obsidian://styles/warm-commercial",

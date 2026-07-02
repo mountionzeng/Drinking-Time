@@ -33,9 +33,12 @@ import {
   ScrollText,
   CheckCircle2,
   ListPlus,
+  Link2,
 } from "lucide-react";
 import {
+  isFictionStoryCardConfirmed,
   useStoryAgentActions,
+  type GenerationProfileArg,
   type StoryShotEditableField,
 } from "@/features/storyAgent/StoryAgentContext";
 import {
@@ -59,7 +62,7 @@ import {
 } from "@/features/creationEditor/CreationEditorContext";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import type { NayinElement } from "@/features/nayin/nayin";
-import type { ArtRecipeDNA, StoryArtDirection } from "@shared/artDirection";
+import type { ArtRecipeDNA } from "@shared/artDirection";
 import {
   buildMobileStoryboardScenes,
   parseShotNo,
@@ -115,6 +118,60 @@ const FALLBACK_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
     logline: "把抽象能力翻译成可感知的画面",
     arc: "模糊问题 → 画面化理解 → 共同情感",
     treatment: "保留情绪，但每个画面都要能回扣岗位价值。",
+    generated: false,
+  },
+];
+
+const FICTION_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
+  {
+    id: "fiction-short",
+    label: "短片版",
+    logline: "一句奇异设定长成 3-5 镜短片",
+    arc: "世界规则 → 主角欲望 → 阻碍选择 → 余味",
+    treatment: "先让规则可见，再让人物在规则里做一个选择。",
+    generated: false,
+  },
+  {
+    id: "fiction-fable",
+    label: "寓言版",
+    logline: "保留怪味，让故事像一个会回响的寓言",
+    arc: "异常发生 → 人群反应 → 主角理解 → 留白",
+    treatment: "少解释世界观，多用一两个物件把意义落住。",
+    generated: false,
+  },
+  {
+    id: "fiction-cinematic",
+    label: "电影版",
+    logline: "把灵感压成更强的视觉和冲突",
+    arc: "定调画面 → 冲突升级 → 转折画面 → 收束",
+    treatment: "画面更明确，冲突更集中，但不扩成长篇设定。",
+    generated: false,
+  },
+];
+
+const GENERAL_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
+  {
+    id: "memory-restraint",
+    label: "克制版",
+    logline: "让日常细节自己发光",
+    arc: "具体处境 → 细微变化 → 留白",
+    treatment: "少解释，多保留原话、动作和空间。",
+    generated: false,
+  },
+  {
+    id: "memory-dramatic",
+    label: "戏剧版",
+    logline: "把愿望、阻碍和转折讲清楚",
+    arc: "愿望 → 阻碍 → 转折 → 余味",
+    treatment: "适度加强事件推进，但不补用户没说过的大事。",
+    generated: false,
+  },
+  {
+    id: "memory-poetic",
+    label: "诗意版",
+    logline: "把情绪翻译成可拍的意象",
+    arc: "意象定调 → 情绪流动 → 轻轻收束",
+    treatment: "更看重光线、物件和重复出现的私人痕迹。",
     generated: false,
   },
 ];
@@ -220,19 +277,10 @@ export function latestStoryboardFrames(
     .map(([shotNo, image]) => ({ shotNo, image }));
 }
 
-function narrativeChoicesFromScript(
-  script: GeneratedScript | null
-): NarrativeStyleChoice[] {
-  const variants = script?.variants ?? [];
-  if (variants.length === 0) return FALLBACK_NARRATIVE_STYLES;
-  return variants.map(variant => ({
-    id: variant.mode,
-    label: variant.mode,
-    logline: variant.logline,
-    arc: variant.arc,
-    treatment: variant.treatment,
-    generated: true,
-  }));
+function narrativeChoicesForIntent(purpose?: string | null): NarrativeStyleChoice[] {
+  if (purpose === "fiction") return FICTION_NARRATIVE_STYLES;
+  if (purpose === "linkedin_job_search") return FALLBACK_NARRATIVE_STYLES;
+  return GENERAL_NARRATIVE_STYLES;
 }
 
 function recipeTokens(recipe: ArtRecipeDNA | undefined, limit = 5): string[] {
@@ -248,32 +296,48 @@ function recipeTokens(recipe: ArtRecipeDNA | undefined, limit = 5): string[] {
     .slice(0, limit);
 }
 
-function styleRefFromRecipe(recipe: ArtRecipeDNA | undefined): string {
-  return recipeTokens(recipe, 8).join(", ");
+type ArtLibraryVersionView = {
+  library: {
+    id: number;
+    kind: "system" | "user";
+    name: string;
+    description: string | null;
+  };
+  version: {
+    id: number;
+    version: number;
+    source: string | null;
+  };
+  items: Array<{
+    dimension: string;
+    content: string;
+    negativeContent: string | null;
+  }>;
+};
+
+function artChoiceKey(source: "preset" | "library", id: string | number): string {
+  return `${source}:${id}`;
 }
 
-function normalizeStyleRef(value: string | null | undefined): string {
-  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+function dimensionLabel(dimension: string): string {
+  const labels: Record<string, string> = {
+    visual_style: "风格",
+    color_palette: "色彩",
+    lighting: "光线",
+    composition: "构图",
+    material: "材质",
+    negative_prompt: "避免",
+    art_style_recipe: "配方",
+  };
+  return labels[dimension] ?? dimension;
 }
 
-function appliedStyleRefs(shots: readonly StoryShot[]): string[] {
-  const refs = new Set<string>();
-  for (const shot of shots) {
-    const styleRef = shot.styleRef?.trim();
-    if (styleRef) refs.add(styleRef);
-  }
-  return Array.from(refs);
-}
-
-function presetIdForStyleRef(styleRef: string): string {
-  const normalized = normalizeStyleRef(styleRef);
-  if (!normalized) return "";
-  return (
-    FALLBACK_VISUAL_STYLES.find(
-      preset =>
-        normalizeStyleRef(styleRefFromRecipe(preset.recipe)) === normalized
-    )?.id ?? ""
-  );
+function libraryTokens(version: ArtLibraryVersionView, limit = 4): string[] {
+  return version.items
+    .slice()
+    .sort((left, right) => left.dimension.localeCompare(right.dimension))
+    .map(item => dimensionLabel(item.dimension))
+    .slice(0, limit);
 }
 
 function shortText(value: string | null | undefined, fallback: string): string {
@@ -367,6 +431,207 @@ function VisualPresetButton({
   );
 }
 
+function GenerationSettingsPanel({
+  narrativeChoices,
+  activeNarrativeId,
+  onSelectNarrative,
+  activeArtChoiceId,
+  artLibraryVersions,
+  currentLibraryVersionId,
+  artLibraryLoading,
+  artLibraryError,
+  canBindArtLibrary,
+  bindingLibraryVersionId,
+  onSelectArtPreset,
+  onSelectArtLibrary,
+  onBindArtLibrary,
+}: {
+  narrativeChoices: NarrativeStyleChoice[];
+  activeNarrativeId: string;
+  onSelectNarrative: (id: string) => void;
+  activeArtChoiceId: string;
+  artLibraryVersions: ArtLibraryVersionView[];
+  currentLibraryVersionId: number | null;
+  artLibraryLoading: boolean;
+  artLibraryError?: string | null;
+  canBindArtLibrary: boolean;
+  bindingLibraryVersionId: number | null;
+  onSelectArtPreset: (preset: VisualStylePreset) => void;
+  onSelectArtLibrary: (libraryVersion: ArtLibraryVersionView) => void;
+  onBindArtLibrary: (libraryVersionId: number) => void;
+}) {
+  return (
+    <div className="mb-2 grid gap-2 xl:grid-cols-2">
+      <section
+        className="rounded-md border p-2"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "var(--background)",
+        }}
+        aria-label="剧本生成设置"
+      >
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <ScrollText className="h-3.5 w-3.5 text-nayin-bright" />
+            <span className="text-[10px] font-semibold text-foreground">
+              剧本
+            </span>
+          </div>
+          <span className="text-[8px] text-muted-foreground">生成故事版时使用</span>
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+          {narrativeChoices.map(choice => (
+            <button
+              key={choice.id}
+              type="button"
+              aria-pressed={choice.id === activeNarrativeId}
+              onClick={() => onSelectNarrative(choice.id)}
+              className="min-w-[150px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+              style={{
+                borderColor:
+                  choice.id === activeNarrativeId
+                    ? "var(--nayin-accent)"
+                    : "var(--panel-border)",
+                background:
+                  choice.id === activeNarrativeId
+                    ? "var(--nayin-glow)"
+                    : "var(--panel-header)",
+              }}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-semibold text-foreground">
+                  {choice.label}
+                </span>
+                {!choice.generated ? (
+                  <span
+                    className="rounded-full border px-1 py-0.5 text-[8px] text-muted-foreground"
+                    style={{ borderColor: "var(--panel-border)" }}
+                  >
+                    预设
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
+                {choice.arc || choice.logline}
+              </p>
+              <p className="mt-1 line-clamp-2 text-[8px] leading-relaxed text-muted-foreground/75">
+                {choice.treatment}
+              </p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section
+        className="rounded-md border p-2"
+        style={{
+          borderColor: "var(--panel-border)",
+          background: "var(--background)",
+        }}
+        aria-label="美术生成设置"
+      >
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Palette className="h-3.5 w-3.5 text-nayin-bright" />
+            <span className="text-[10px] font-semibold text-foreground">
+              美术
+            </span>
+          </div>
+          <span className="text-[8px] text-muted-foreground">
+            {currentLibraryVersionId ? "已绑定库" : "预设或库"}
+          </span>
+        </div>
+
+        {artLibraryError ? (
+          <div className="mb-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
+            {artLibraryError}
+          </div>
+        ) : null}
+
+        <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+          {FALLBACK_VISUAL_STYLES.map(preset => (
+            <VisualPresetButton
+              key={preset.id}
+              preset={preset}
+              selected={activeArtChoiceId === artChoiceKey("preset", preset.id)}
+              onSelect={() => onSelectArtPreset(preset)}
+            />
+          ))}
+
+          {artLibraryLoading ? (
+            <div
+              className="flex min-w-[150px] shrink-0 items-center justify-center rounded-md border p-2 text-[9px] text-muted-foreground"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--panel-header)",
+              }}
+            >
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              读取库
+            </div>
+          ) : null}
+
+          {artLibraryVersions.map(version => {
+            const key = artChoiceKey("library", version.version.id);
+            const selected = activeArtChoiceId === key;
+            const bound = currentLibraryVersionId === version.version.id;
+            const pending = bindingLibraryVersionId === version.version.id;
+            return (
+              <button
+                key={version.version.id}
+                type="button"
+                aria-pressed={selected}
+                disabled={pending}
+                onClick={() => {
+                  onSelectArtLibrary(version);
+                  if (canBindArtLibrary) onBindArtLibrary(version.version.id);
+                }}
+                className="min-w-[170px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  borderColor: selected ? "var(--nayin-accent)" : "var(--panel-border)",
+                  background: selected ? "var(--nayin-glow)" : "var(--panel-header)",
+                }}
+                title={
+                  canBindArtLibrary
+                    ? "选择并绑定到当前故事"
+                    : "先用于本次生成，故事保存后可绑定"
+                }
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="line-clamp-1 text-[10px] font-semibold text-foreground">
+                    {version.library.name}
+                  </span>
+                  {pending ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                  ) : bound ? (
+                    <CheckCircle2 className="h-3 w-3 shrink-0 text-nayin-bright" />
+                  ) : (
+                    <Link2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                </div>
+                <p className="mt-1 text-[8.5px] text-muted-foreground">
+                  v{version.version.version} · {version.library.kind === "system" ? "系统" : "用户"}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {libraryTokens(version, 4).map(token => (
+                    <span
+                      key={token}
+                      className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
+                      style={{ borderColor: "var(--panel-border)" }}
+                    >
+                      {token}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function StoryboardShotField({
   label,
   value,
@@ -411,12 +676,10 @@ export function StoryboardReviewBoard({
   images,
   shots,
   latestScript,
-  artDirection,
   isGeneratingScript,
   selectedShotNo = null,
   onSelectShot,
   onUpdateShotField,
-  onUpdateAllShotsField,
   creationShots = [],
   timelineShotIds = [],
   onAddShotToTimeline,
@@ -430,16 +693,11 @@ export function StoryboardReviewBoard({
   images: GeneratedImageItem[];
   shots: StoryShot[];
   latestScript: GeneratedScript | null;
-  artDirection: StoryArtDirection;
   isGeneratingScript: boolean;
   selectedShotNo?: number | null;
   onSelectShot?: (shotNo: number) => void;
   onUpdateShotField?: (
     index: number,
-    field: StoryShotEditableField,
-    value: string
-  ) => void;
-  onUpdateAllShotsField?: (
     field: StoryShotEditableField,
     value: string
   ) => void;
@@ -464,8 +722,6 @@ export function StoryboardReviewBoard({
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
   className?: string;
 }) {
-  const [selectedNarrativeId, setSelectedNarrativeId] = useState("");
-  const [selectedArtId, setSelectedArtId] = useState("");
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
   const frames = useMemo(
@@ -493,32 +749,6 @@ export function StoryboardReviewBoard({
     }
     return byShotNo;
   }, [creationShots]);
-  const narrativeChoices = useMemo(
-    () => narrativeChoicesFromScript(latestScript),
-    [latestScript]
-  );
-  const styleRefs = useMemo(() => appliedStyleRefs(shots), [shots]);
-  const commonStyleRef = styleRefs.length === 1 ? styleRefs[0] : "";
-  const inferredArtId = presetIdForStyleRef(commonStyleRef);
-  const hasMixedStyleRefs = styleRefs.length > 1;
-  const activeNarrativeId = narrativeChoices.some(
-    choice => choice.id === selectedNarrativeId
-  )
-    ? selectedNarrativeId
-    : (narrativeChoices[0]?.id ?? "");
-  const activeArtId = FALLBACK_VISUAL_STYLES.some(
-    preset => preset.id === selectedArtId
-  )
-    ? selectedArtId
-    : inferredArtId;
-  const activeRecipe =
-    FALLBACK_VISUAL_STYLES.find(preset => preset.id === activeArtId)?.recipe ??
-    (commonStyleRef ? undefined : artDirection.recipe);
-  const applyVisualStyle = (preset: VisualStylePreset) => {
-    setSelectedArtId(preset.id);
-    const styleRef = styleRefFromRecipe(preset.recipe);
-    onUpdateAllShotsField?.("styleRef", styleRef);
-  };
   const shouldShow =
     frames.length > 0 || isGeneratingScript || shots.length > 0 || latestScript;
   useEffect(() => {
@@ -552,131 +782,6 @@ export function StoryboardReviewBoard({
             ? "生成故事版中"
             : `${shots.length} 镜 · ${frames.length} 张图`}
         </span>
-      </div>
-
-      <div className="mb-2 grid gap-2 md:grid-cols-2">
-        <div
-          className="rounded-md border p-2"
-          style={{
-            borderColor: "var(--panel-border)",
-            background: "var(--background)",
-          }}
-        >
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <ScrollText className="h-3.5 w-3.5 text-nayin-bright" />
-            <span className="text-[10px] font-semibold text-foreground">
-              叙事风格
-            </span>
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-            {narrativeChoices.map(choice => (
-              <button
-                key={choice.id}
-                type="button"
-                aria-pressed={choice.id === activeNarrativeId}
-                onClick={() => setSelectedNarrativeId(choice.id)}
-                className="min-w-[150px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                style={{
-                  borderColor:
-                    choice.id === activeNarrativeId
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
-                  background:
-                    choice.id === activeNarrativeId
-                      ? "var(--nayin-glow)"
-                      : "var(--panel-header)",
-                }}
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-semibold text-foreground">
-                    {choice.label}
-                  </span>
-                  {!choice.generated ? (
-                    <span
-                      className="rounded-full border px-1 py-0.5 text-[8px] text-muted-foreground"
-                      style={{ borderColor: "var(--panel-border)" }}
-                    >
-                      预设
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
-                  {choice.arc || choice.logline}
-                </p>
-                <p className="mt-1 line-clamp-2 text-[8px] leading-relaxed text-muted-foreground/75">
-                  {choice.treatment}
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          className="rounded-md border p-2"
-          style={{
-            borderColor: "var(--panel-border)",
-            background: "var(--background)",
-          }}
-        >
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <Palette className="h-3.5 w-3.5 text-nayin-bright" />
-              <span className="text-[10px] font-semibold text-foreground">
-                美术风格
-              </span>
-            </div>
-            {artDirection.recipe ? (
-              <span
-                className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                style={{ borderColor: "var(--panel-border)" }}
-              >
-                已锁定
-              </span>
-            ) : null}
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-            {FALLBACK_VISUAL_STYLES.map(preset => (
-              <VisualPresetButton
-                key={preset.id}
-                preset={preset}
-                selected={preset.id === activeArtId}
-                onSelect={() => applyVisualStyle(preset)}
-              />
-            ))}
-          </div>
-          {hasMixedStyleRefs ? (
-            <p
-              className="mt-1.5 rounded-md border px-2 py-1 text-[8.5px] leading-relaxed text-muted-foreground"
-              style={{
-                borderColor: "var(--nayin-accent)",
-                background: "var(--nayin-glow)",
-              }}
-            >
-              当前镜头存在多个美术风格。选一个风格会统一写入所有镜头，旧风格图片会等待重渲。
-            </p>
-          ) : null}
-          {!hasMixedStyleRefs && commonStyleRef && !activeArtId ? (
-            <p
-              className="mt-1.5 rounded-md border px-2 py-1 text-[8.5px] leading-relaxed text-muted-foreground"
-              style={{ borderColor: "var(--panel-border)" }}
-            >
-              当前使用自定义风格：{commonStyleRef}
-            </p>
-          ) : null}
-          {recipeTokens(activeRecipe, 6).length > 0 ? (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {recipeTokens(activeRecipe, 6).map(token => (
-                <span
-                  key={token}
-                  className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                  style={{ borderColor: "var(--panel-border)" }}
-                >
-                  {token}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
       </div>
 
       {shots.length > 0 ? (
@@ -1379,6 +1484,8 @@ export default function StoryCardsBoard() {
     latestScript,
     storyShots,
     visualCanvasItems,
+    confirmedIntent,
+    pendingIntentDraft,
   } = useStoryCardsBoardSlice();
   const {
     reorderCards,
@@ -1386,6 +1493,8 @@ export default function StoryCardsBoard() {
     updateCardContent,
     generateScript,
     removeStoryImage,
+    confirmPendingIntent,
+    confirmFictionStoryCards,
   } = useStoryAgentActions();
   const { element } = useNayin();
   const [boardView, setBoardView] = useState<"graph" | "list">("graph");
@@ -1393,11 +1502,31 @@ export default function StoryCardsBoard() {
   const utils = trpc.useUtils();
   const signalMut = trpc.storyAgent.recordSignal.useMutation();
   const activeStoryId = useStorySpine(state => state.activeStoryId);
+  const promptProjectionQuery = trpc.promptLineage.getStoryProjection.useQuery(
+    { storyId: activeStoryId ?? 0 },
+    { enabled: activeStoryId != null && activeStoryId > 0 }
+  );
+  const artLibraryQuery = trpc.artPromptLibrary.list.useQuery(undefined, {
+    staleTime: 30_000,
+  });
+  const bindArtLibraryMut = trpc.artPromptLibrary.bindToStory.useMutation();
   const generatedImages = useStoryGeneratedImages();
+  const [selectedNarrativeId, setSelectedNarrativeId] = useState("");
+  const [selectedArtChoiceId, setSelectedArtChoiceId] = useState("");
+  const [bindingLibraryVersionId, setBindingLibraryVersionId] =
+    useState<number | null>(null);
   const generatedScenes = useMemo(
     () => buildMobileStoryboardScenes(cards, generatedImages),
     [cards, generatedImages]
   );
+  const promptProjection =
+    promptProjectionQuery.data?.mode === "lineage"
+      ? promptProjectionQuery.data.projection
+      : null;
+  const artLibraryVersions = (artLibraryQuery.data ??
+    []) as ArtLibraryVersionView[];
+  const currentLibraryVersionId =
+    promptProjection?.artBinding?.libraryVersionId ?? null;
   const handleDeleteGeneratedImage = useCallback(
     async (image: GeneratedImageItem) => {
       removeStoryImage(image.id);
@@ -1440,6 +1569,139 @@ export default function StoryCardsBoard() {
     if (latestScript.cardOrder.length !== cards.length) return true;
     return cards.some((c, i) => latestScript.cardOrder[i] !== c.id);
   }, [cards, latestScript]);
+  const effectiveIntent = confirmedIntent ?? pendingIntentDraft;
+  const isFictionIntent = effectiveIntent?.purpose === "fiction";
+  const hasPendingFictionIntent =
+    !confirmedIntent && pendingIntentDraft?.purpose === "fiction";
+  const hasConfirmedFictionIntent = confirmedIntent?.purpose === "fiction";
+  const fictionCardsConfirmed = isFictionStoryCardConfirmed(
+    confirmedIntent,
+    cards
+  );
+  const shouldGateFictionStoryboard =
+    isFictionIntent && (!hasConfirmedFictionIntent || !fictionCardsConfirmed);
+  const primaryActionDisabled = isGeneratingScript || cards.length === 0;
+  const narrativeChoices = useMemo(
+    () => narrativeChoicesForIntent(effectiveIntent?.purpose),
+    [effectiveIntent?.purpose]
+  );
+  const activeNarrativeId = narrativeChoices.some(
+    choice => choice.id === selectedNarrativeId
+  )
+    ? selectedNarrativeId
+    : (narrativeChoices[0]?.id ?? "");
+  const defaultArtChoiceId = currentLibraryVersionId
+    ? artChoiceKey("library", currentLibraryVersionId)
+    : artChoiceKey("preset", FALLBACK_VISUAL_STYLES[0]?.id ?? "");
+  const activeArtChoiceId =
+    selectedArtChoiceId &&
+    (FALLBACK_VISUAL_STYLES.some(
+      preset => selectedArtChoiceId === artChoiceKey("preset", preset.id)
+    ) ||
+      artLibraryVersions.some(
+        version => selectedArtChoiceId === artChoiceKey("library", version.version.id)
+      ))
+      ? selectedArtChoiceId
+      : defaultArtChoiceId;
+  const selectedNarrativeChoice =
+    narrativeChoices.find(choice => choice.id === activeNarrativeId) ??
+    narrativeChoices[0] ??
+    null;
+  const selectedArtPreset = FALLBACK_VISUAL_STYLES.find(
+    preset => activeArtChoiceId === artChoiceKey("preset", preset.id)
+  );
+  const selectedArtLibrary = artLibraryVersions.find(
+    version => activeArtChoiceId === artChoiceKey("library", version.version.id)
+  );
+  const generationProfile = useMemo<GenerationProfileArg>(
+    () => ({
+      scriptStyle: selectedNarrativeChoice
+        ? {
+            id: selectedNarrativeChoice.id,
+            label: selectedNarrativeChoice.label,
+            logline: selectedNarrativeChoice.logline,
+            arc: selectedNarrativeChoice.arc,
+            treatment: selectedNarrativeChoice.treatment,
+          }
+        : undefined,
+      artStyle: selectedArtLibrary
+        ? {
+            id: artChoiceKey("library", selectedArtLibrary.version.id),
+            source: "library",
+            title: selectedArtLibrary.library.name,
+            description: selectedArtLibrary.library.description,
+            libraryVersionId: selectedArtLibrary.version.id,
+            items: selectedArtLibrary.items.map(item => ({
+              dimension: item.dimension,
+              content: item.content,
+              negativeContent: item.negativeContent,
+            })),
+          }
+        : selectedArtPreset
+          ? {
+              id: selectedArtPreset.id,
+              source: "preset",
+              title: selectedArtPreset.title,
+              description: selectedArtPreset.description,
+              recipe: selectedArtPreset.recipe,
+            }
+          : undefined,
+    }),
+    [selectedArtLibrary, selectedArtPreset, selectedNarrativeChoice]
+  );
+  const handleBindArtLibrary = useCallback(
+    async (libraryVersionId: number) => {
+      if (activeStoryId == null || activeStoryId <= 0 || !promptProjection) {
+        toast.error("故事保存后才能绑定美术库");
+        return;
+      }
+      setBindingLibraryVersionId(libraryVersionId);
+      try {
+        const result = await bindArtLibraryMut.mutateAsync({
+          storyId: activeStoryId,
+          libraryVersionId,
+          expectedVersion: promptProjection.state.version,
+        });
+        if (result.projection) {
+          utils.promptLineage.getStoryProjection.setData(
+            { storyId: activeStoryId },
+            { mode: "lineage", projection: result.projection }
+          );
+        }
+        setSelectedArtChoiceId(artChoiceKey("library", libraryVersionId));
+        await Promise.all([
+          utils.promptLineage.getStoryProjection.invalidate({
+            storyId: activeStoryId,
+          }),
+          utils.storyAgent.storyGet.invalidate({ id: activeStoryId }),
+        ]);
+        toast.success("美术库已绑定到故事");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "绑定美术库失败");
+      } finally {
+        setBindingLibraryVersionId(null);
+      }
+    },
+    [activeStoryId, bindArtLibraryMut, promptProjection, utils]
+  );
+  const handlePrimaryAction = useCallback(() => {
+    if (hasPendingFictionIntent) {
+      confirmPendingIntent();
+      return;
+    }
+    if (shouldGateFictionStoryboard) {
+      confirmFictionStoryCards();
+      return;
+    }
+    void generateScript(undefined, generationProfile);
+  }, [
+    confirmFictionStoryCards,
+    confirmPendingIntent,
+    generateScript,
+    generationProfile,
+    hasPendingFictionIntent,
+    shouldGateFictionStoryboard,
+  ]);
 
   // Track the last order string for animation triggers (reserved for future use)
   const orderKey = cards.map(c => c.id).join("|");
@@ -1523,11 +1785,38 @@ export default function StoryCardsBoard() {
           </motion.div>
         ) : (
           <>
+            <GenerationSettingsPanel
+              narrativeChoices={narrativeChoices}
+              activeNarrativeId={activeNarrativeId}
+              onSelectNarrative={setSelectedNarrativeId}
+              activeArtChoiceId={activeArtChoiceId}
+              artLibraryVersions={artLibraryVersions}
+              currentLibraryVersionId={currentLibraryVersionId}
+              artLibraryLoading={
+                artLibraryQuery.isLoading || artLibraryQuery.isFetching
+              }
+              artLibraryError={artLibraryQuery.error?.message ?? null}
+              canBindArtLibrary={Boolean(activeStoryId && promptProjection)}
+              bindingLibraryVersionId={bindingLibraryVersionId}
+              onSelectArtPreset={preset =>
+                setSelectedArtChoiceId(artChoiceKey("preset", preset.id))
+              }
+              onSelectArtLibrary={libraryVersion =>
+                setSelectedArtChoiceId(
+                  artChoiceKey("library", libraryVersion.version.id)
+                )
+              }
+              onBindArtLibrary={libraryVersionId => {
+                void handleBindArtLibrary(libraryVersionId);
+              }}
+            />
+
             {boardView === "graph" ? (
               <StoryCardsGraph
                 cards={cards}
                 storyShots={storyShots}
                 onRemoveCard={removeCard}
+                mode={isFictionIntent ? "fiction" : "default"}
               />
             ) : (
               <>
@@ -1569,10 +1858,73 @@ export default function StoryCardsBoard() {
               className="border-t pt-2.5 mt-2 flex flex-col gap-2"
               style={{ borderColor: "var(--panel-border)" }}
             >
+              {isFictionIntent ? (
+                <div
+                  className="rounded-lg border p-2 text-[11px] leading-relaxed"
+                  style={{
+                    borderColor: fictionCardsConfirmed
+                      ? "var(--nayin-accent-dim)"
+                      : "var(--panel-border)",
+                    background: "var(--background)",
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                      style={{
+                        color: fictionCardsConfirmed
+                          ? "var(--nayin-accent)"
+                          : "var(--muted-foreground)",
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground">
+                        {hasPendingFictionIntent
+                          ? "先确认创造另一个世界"
+                          : fictionCardsConfirmed
+                          ? "虚构故事卡已确认"
+                          : "先确认虚构故事卡"}
+                      </p>
+                      <p className="mt-0.5 text-muted-foreground">
+                        {hasPendingFictionIntent
+                          ? "小酌已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。"
+                          : fictionCardsConfirmed
+                          ? "现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。"
+                          : "确认后再进入拆镜，避免还没定故事方向就生成镜头。"}
+                      </p>
+                    </div>
+                    {hasPendingFictionIntent ? (
+                      <button
+                        type="button"
+                        onClick={confirmPendingIntent}
+                        className="shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium"
+                        style={{
+                          borderColor: "var(--nayin-accent-dim)",
+                          color: "var(--nayin-accent)",
+                        }}
+                      >
+                        确认意图
+                      </button>
+                    ) : !fictionCardsConfirmed ? (
+                      <button
+                        type="button"
+                        onClick={confirmFictionStoryCards}
+                        className="shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium"
+                        style={{
+                          borderColor: "var(--nayin-accent-dim)",
+                          color: "var(--nayin-accent)",
+                        }}
+                      >
+                        确认故事卡
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <button
                 type="button"
-                onClick={() => generateScript()}
-                disabled={isGeneratingScript || cards.length === 0}
+                onClick={handlePrimaryAction}
+                disabled={primaryActionDisabled}
                 className="text-xs py-2 rounded-md font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 style={{
                   background: "var(--nayin-accent)",
@@ -1592,7 +1944,11 @@ export default function StoryCardsBoard() {
                       ? "重新生成故事版"
                       : latestScript && orderChanged
                         ? "按新顺序生成故事版"
-                        : "生成故事版"}
+                        : hasPendingFictionIntent
+                          ? "先确认意图"
+                        : shouldGateFictionStoryboard
+                          ? "确认故事卡"
+                          : "生成故事版"}
                   </>
                 )}
               </button>

@@ -23,16 +23,19 @@ const openingMessage: ChatMessage = {
 };
 
 describe('StoryCapabilityMenu', () => {
-  it('renders the five opening capabilities and the direct-speech escape hatch', async () => {
+  it('renders the opening capabilities and the direct-speech escape hatch', async () => {
     const { default: StoryCapabilityMenu } = await import('./StoryCapabilityMenu');
 
     const html = renderToStaticMarkup(<StoryCapabilityMenu />);
 
+    expect(html).toContain('经历或灵感');
     expect(html).toContain('给自己留念');
     expect(html).toContain('发社交平台');
     expect(html).toContain('求职 · 给招聘者看');
     expect(html).toContain('送给某个人');
     expect(html).toContain('作品集');
+    expect(html).toContain('创造另一个世界');
+    expect(html).toContain('虚构短片故事');
     expect(html).toContain('直接说你的事');
   });
 
@@ -62,6 +65,25 @@ describe('StoryCapabilityMenu', () => {
     expect(intent.purpose).toBe('social_post');
     expect(intent.purpose).not.toBe('linkedin_job_search');
     expect(setConfirmedIntent).toHaveBeenCalledWith(intent);
+  });
+
+  it('selecting fiction confirms a world-building story intent without entering the job lane', async () => {
+    const { chooseCapability } = await import('./StoryCapabilityMenu');
+    const setConfirmedIntent = vi.fn();
+
+    const intent = chooseCapability('fiction', setConfirmedIntent);
+
+    expect(setConfirmedIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: 'fiction',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: expect.stringContaining('虚构灵感'),
+      }),
+    );
+    expect(intent.targetRole).toBeUndefined();
+    expect(intent.channel).toBeUndefined();
+    expect(intent.jobMaterialsPrompted).toBeUndefined();
   });
 
   it('hides once an intent already exists', async () => {

@@ -11,6 +11,8 @@ export interface StoryIntent {
   targetRole?: string;
   channel?: string;
   jobMaterialsPrompted?: boolean;
+  fictionStoryCardConfirmed?: boolean;
+  fictionStoryCardSignature?: string;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -43,6 +45,11 @@ export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
     channel: optionalString(obj.channel),
     jobMaterialsPrompted:
       typeof obj.jobMaterialsPrompted === 'boolean' ? obj.jobMaterialsPrompted : undefined,
+    fictionStoryCardConfirmed:
+      typeof obj.fictionStoryCardConfirmed === 'boolean'
+        ? obj.fictionStoryCardConfirmed
+        : undefined,
+    fictionStoryCardSignature: optionalString(obj.fictionStoryCardSignature),
   };
 }
 
@@ -53,7 +60,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
   portfolio: '作品集',
   gift: '送给某个人',
   relationship_record: '记录一段关系',
-  fiction: '讲别人的故事（虚构）',
+  fiction: '创造另一个世界',
   product_intro: '介绍自己的产品',
   creative_expression: '纯表达 / 情绪短片',
   exploration: '还在探索',

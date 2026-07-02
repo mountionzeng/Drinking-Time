@@ -1,10 +1,7 @@
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
 
 import { StoryboardReviewBoard } from "./StoryCardsBoard";
-import {
-  useStoryCardsBoardSlice,
-  useStoryboardPanelArtSlice,
-} from "@/features/storyAgent/spine/selectors";
+import { useStoryCardsBoardSlice } from "@/features/storyAgent/spine/selectors";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import {
   useCreationEditor,
@@ -36,9 +33,7 @@ export function currentStoryboardImages(
 export default function StoryboardPanel() {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
-  const { artDirection } = useStoryboardPanelArtSlice();
-  const { updateStoryShotField, updateAllStoryShotField, setActiveSelection } =
-    useStoryAgentActions();
+  const { updateStoryShotField, setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
     selectedShotNo,
@@ -106,7 +101,6 @@ export default function StoryboardPanel() {
       images={generatedImages}
       shots={displayShots}
       latestScript={latestScript}
-      artDirection={artDirection}
       isGeneratingScript={isGeneratingScript}
       selectedShotNo={selectedShotNo}
       onSelectShot={shotNo => {
@@ -152,7 +146,6 @@ export default function StoryboardPanel() {
           void updatePersistedShotField(identity, field, value);
         }
       }}
-      onUpdateAllShotsField={updateAllStoryShotField}
       creationShots={creationShots}
       timelineShotIds={timelineShotIds}
       onAddShotToTimeline={addShotToTimeline}

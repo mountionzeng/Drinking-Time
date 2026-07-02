@@ -152,11 +152,9 @@ import {
 } from "./services/storyConversation";
 import {
   bindStoryArtPromptLibraryVersion,
-  importUserArtPromptLibrary,
   listArtPromptLibraries,
 } from "./services/artPromptLibrary";
 import type { SelectionContext } from "../shared/selectionContext";
-import { ART_PROMPT_LIBRARY_DIMENSIONS } from "../shared/artPromptLibrary";
 
 type StoryRow = NonNullable<Awaited<ReturnType<typeof getStoryById>>>;
 
@@ -251,8 +249,16 @@ export function buildConfirmedIntentLine(
           `剧本优先服务${targetRole ? "这个岗位的竞争力" : "求职竞争力"}与${channel ? "该平台的时长/正式度" : "招聘者的阅读效率"}`,
         ].filter(Boolean)
       : [];
+  const fictionDetails =
+    confirmedIntent.purpose === "fiction"
+      ? [
+          "剧本优先服务虚构短片：把已确认故事卡拆成 3-5 镜",
+          "强调世界规则、主角欲望、冲突、视觉风格和余味",
+          "不要使用求职、简历、JD、招聘者或个人优势证明话术",
+        ]
+      : [];
 
-  return `【用户已确认意图】用途=${confirmedIntent.purpose}；给谁看=${confirmedIntent.audience}；平台=${confirmedIntent.platform}；调性=${cleanIntentText(confirmedIntent.tone)}${desiredEffect ? `；想要的效果=${desiredEffect}` : ""}${jobDetails.length ? `；${jobDetails.join("；")}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`;
+  return `【用户已确认意图】用途=${confirmedIntent.purpose}；给谁看=${confirmedIntent.audience}；平台=${confirmedIntent.platform}；调性=${cleanIntentText(confirmedIntent.tone)}${desiredEffect ? `；想要的效果=${desiredEffect}` : ""}${jobDetails.length ? `；${jobDetails.join("；")}` : ""}${fictionDetails.length ? `；${fictionDetails.join("；")}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`;
 }
 
 function mobileShotNo(value: string | null): number | undefined {
@@ -603,12 +609,6 @@ function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
 
 const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const emotionAnalysisPayloadSchema = z.record(z.string(), z.unknown());
-const artPromptLibraryItemSchema = z.object({
-  dimension: z.enum(ART_PROMPT_LIBRARY_DIMENSIONS),
-  content: z.string(),
-  negativeContent: z.string().nullable().optional(),
-});
-
 async function ensureStoryPromptLineage(storyId: number, userId: number) {
   const story = await getStoryById(storyId, userId);
   if (!story) {
@@ -943,26 +943,6 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) =>
       listArtPromptLibraries({ userId: ctx.user.id }),
     ),
-
-    importUserLibrary: protectedProcedure
-      .input(
-        z.object({
-          name: z.string().trim().min(1),
-          description: z.string().nullable().optional(),
-          source: z.string().nullable().optional(),
-          items: z.array(artPromptLibraryItemSchema).min(1),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        try {
-          return await importUserArtPromptLibrary({
-            ...input,
-            userId: ctx.user.id,
-          });
-        } catch (error) {
-          throwPromptLineageError(error);
-        }
-      }),
 
     bindToStory: protectedProcedure
       .input(
@@ -1829,6 +1809,48 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
               channel: z.string().nullish(),
             })
             .nullish(),
+          generationProfile: z
+            .object({
+              scriptStyle: z
+                .object({
+                  id: z.string().optional(),
+                  label: z.string().optional(),
+                  logline: z.string().optional(),
+                  arc: z.string().optional(),
+                  treatment: z.string().optional(),
+                })
+                .nullish(),
+              artStyle: z
+                .object({
+                  id: z.string().optional(),
+                  source: z.enum(["preset", "library"]).optional(),
+                  title: z.string().optional(),
+                  description: z.string().nullable().optional(),
+                  libraryVersionId: z.number().int().positive().nullable().optional(),
+                  recipe: z
+                    .object({
+                      style: z.array(z.string()).optional(),
+                      palette: z.array(z.string()).optional(),
+                      light: z.array(z.string()).optional(),
+                      composition: z.array(z.string()).optional(),
+                      material: z.array(z.string()).optional(),
+                      negative: z.array(z.string()).optional(),
+                    })
+                    .nullable()
+                    .optional(),
+                  items: z
+                    .array(
+                      z.object({
+                        dimension: z.string().optional(),
+                        content: z.string().optional(),
+                        negativeContent: z.string().nullable().optional(),
+                      }),
+                    )
+                    .optional(),
+                })
+                .nullish(),
+            })
+            .nullish(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1865,6 +1887,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             | VisualAnchorPayload[]
             | undefined,
           confirmedIntent: input.confirmedIntent ?? undefined,
+          generationProfile: input.generationProfile ?? undefined,
           ...(scriptContext ? { resonanceContext: scriptContext } : {}),
         });
         // 镜头按 storyId 归属（U3）：必须有 storyId 且归属当前用户才写入；

@@ -76,6 +76,8 @@ describe("recognizeStoryIntent", () => {
     );
     expect(String(system?.content)).toContain("linkedin_job_search");
     expect(String(system?.content)).toContain("招聘者");
+    expect(String(system?.content)).toContain("创造另一个世界");
+    expect(String(system?.content)).toContain("这里只做用途识别");
   });
 
   it("模型返回坏 JSON 时，本地兜底仍能识别领英找工作", async () => {
@@ -117,6 +119,49 @@ describe("recognizeStoryIntent", () => {
     expect(result.confidence).toBe(1);
     expect(result.desiredEffect).toContain("真实目的");
     expect(result.missingQuestion).toContain("给自己看");
+  });
+
+  it("未配置 API 时也能把虚构灵感兜底识别为 fiction", async () => {
+    envMock.ENV.forgeApiKey = undefined;
+
+    const result = await recognizeStoryIntent({
+      message: "我想创造另一个世界，写一个月亮掉进菜市场的虚构故事",
+    });
+
+    expect(llmMocks.invokeLLM).not.toHaveBeenCalled();
+    expect(result.configured).toBe(false);
+    expect(result.modelLabel).toBe("未配置 API");
+    expect(result.purpose).toBe("fiction");
+    expect(result.audience).toBe("public");
+    expect(result.platform).toBe("presentation");
+    expect(result.desiredEffect).toContain("虚构灵感");
+    expect(result.missingQuestion).toContain("人物");
+  });
+
+  it("模型误判时也把“写一个……故事”的入口守回 fiction", async () => {
+    llmMocks.invokeLLM.mockResolvedValueOnce(
+      makeLLMResponse(JSON.stringify({
+        purpose: "exploration",
+        audience: "unknown",
+        platform: "unknown",
+        desiredEffect: "继续追问用户想给谁看",
+        tone: "开放追问",
+        confidence: 0.91,
+        evidence: ["模型误判为不确定"],
+        missingQuestion: "这个短片最后主要给谁看？",
+      })),
+    );
+
+    const result = await recognizeStoryIntent({
+      message: "我想写一个月亮掉进菜市场的故事",
+    });
+
+    expect(result.configured).toBe(true);
+    expect(result.purpose).toBe("fiction");
+    expect(result.audience).toBe("public");
+    expect(result.platform).toBe("presentation");
+    expect(result.desiredEffect).toContain("虚构灵感");
+    expect(result.evidence.join(" ")).toContain("虚构故事");
   });
 
   it("未配置 API 时不调用模型，直接返回本地兜底", async () => {

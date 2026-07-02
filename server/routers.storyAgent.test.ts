@@ -189,6 +189,29 @@ describe("storyAgent tRPC router", () => {
         targetRole: "产品经理",
         channel: "linkedin",
       },
+      generationProfile: {
+        scriptStyle: {
+          id: "director-doc",
+          label: "观察式",
+          logline: "让事实自己说话",
+          arc: "具体处境 → 做法选择 → 结果与可信度",
+          treatment: "少煽情，多保留判断过程。",
+        },
+        artStyle: {
+          id: "library:7",
+          source: "library",
+          title: "宋人山水",
+          description: "水墨留白",
+          libraryVersionId: 7,
+          items: [
+            {
+              dimension: "composition",
+              content: "large negative space",
+              negativeContent: "crowded frame",
+            },
+          ],
+        },
+      },
     });
     const summary = await caller.storyAgent.summarize({
       priorSummary: "此前在夜里",
@@ -206,6 +229,13 @@ describe("storyAgent tRPC router", () => {
         confirmedIntent: expect.objectContaining({
           purpose: "linkedin_job_search",
           targetRole: "产品经理",
+        }),
+        generationProfile: expect.objectContaining({
+          scriptStyle: expect.objectContaining({ id: "director-doc" }),
+          artStyle: expect.objectContaining({
+            source: "library",
+            libraryVersionId: 7,
+          }),
         }),
         cards: [expect.objectContaining({ title: "等待能力" })],
       }),

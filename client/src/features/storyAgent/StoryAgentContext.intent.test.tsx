@@ -69,6 +69,14 @@ const jobIntent: StoryIntent = {
   channel: 'linkedin',
 };
 
+const fictionIntent: StoryIntent = {
+  purpose: 'fiction',
+  audience: 'public',
+  platform: 'presentation',
+  tone: '有世界感、有人物动机',
+  desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+};
+
 describe('StoryAgentContext intent state', () => {
   it('exposes shared confirmedIntent state and controls from context', async () => {
     const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
@@ -116,6 +124,69 @@ describe('StoryAgentContext intent state', () => {
       channel: 'linkedin',
     });
     expect(buildChatIntentPayload(null)).toBeUndefined();
+  });
+
+  it('builds the chat payload that carries a confirmed fiction intent into storyAgent.chat', async () => {
+    const { buildChatIntentPayload } = await import('./StoryAgentContext');
+
+    expect(buildChatIntentPayload(fictionIntent)).toEqual({
+      purpose: 'fiction',
+      audience: 'public',
+      platform: 'presentation',
+      tone: '有世界感、有人物动机',
+      desiredEffect: '把一句虚构灵感发展成一个能拍的短片故事',
+      targetRole: undefined,
+      channel: undefined,
+    });
+  });
+
+  it('normalizes the fiction intent label used by the opening menu', async () => {
+    const { PURPOSE_LABELS, normalizeStoryIntent } = await import('./intentTypes');
+
+    expect(PURPOSE_LABELS.fiction).toBe('创造另一个世界');
+    expect(
+      normalizeStoryIntent({
+        ...fictionIntent,
+        fictionStoryCardConfirmed: true,
+        fictionStoryCardSignature: 'card-1:月亮掉进菜市场',
+      }),
+    ).toMatchObject({
+      purpose: 'fiction',
+      audience: 'public',
+      platform: 'presentation',
+      fictionStoryCardConfirmed: true,
+      fictionStoryCardSignature: 'card-1:月亮掉进菜市场',
+    });
+  });
+
+  it('tracks fiction story-card confirmation on the shared intent', async () => {
+    const {
+      confirmFictionStoryCardsForIntent,
+      isFictionStoryCardConfirmed,
+      clearFictionStoryCardConfirmation,
+    } = await import('./StoryAgentContext');
+    const cards = [
+      { id: 'card-1', content: '月亮掉进菜市场' },
+      { id: 'card-2', content: '修钟人想把夜晚调慢' },
+    ];
+
+    const confirmed = confirmFictionStoryCardsForIntent(fictionIntent, cards);
+
+    expect(confirmed).toMatchObject({
+      purpose: 'fiction',
+      fictionStoryCardConfirmed: true,
+    });
+    expect(isFictionStoryCardConfirmed(confirmed, cards)).toBe(true);
+    expect(
+      isFictionStoryCardConfirmed(confirmed, [
+        cards[0],
+        { id: 'card-2', content: '修钟人想把夜晚调快' },
+      ]),
+    ).toBe(false);
+    const cleared = clearFictionStoryCardConfirmation(confirmed);
+    expect(cleared).toMatchObject({ purpose: 'fiction' });
+    expect(cleared).not.toHaveProperty('fictionStoryCardConfirmed');
+    expect(cleared).not.toHaveProperty('fictionStoryCardSignature');
   });
 
   it('normalizes and persists confirmed intent so loaded stories keep the job lane active', async () => {
