@@ -105,20 +105,23 @@ function textList(value: unknown): string[] {
 }
 
 function referenceText(reference: ArtReferenceMaterial): string {
+  const visualStyle = reference.visualStyle ?? [];
+  const colorPalette = reference.colorPalette ?? [];
+  const material = reference.material ?? [];
   return [
     reference.label ? `名称=${reference.label}` : "",
     reference.text ? `描述=${reference.text}` : "",
     reference.imageUrl ? `参考图=${reference.imageUrl}` : "",
-    reference.visualStyle.length
-      ? `风格=${reference.visualStyle.join(" / ")}`
+    visualStyle.length
+      ? `风格=${visualStyle.join(" / ")}`
       : "",
-    reference.colorPalette.length
-      ? `色彩=${reference.colorPalette.join(" / ")}`
+    colorPalette.length
+      ? `色彩=${colorPalette.join(" / ")}`
       : "",
     reference.lighting ? `光线=${reference.lighting}` : "",
     reference.composition ? `构图=${reference.composition}` : "",
-    reference.material.length
-      ? `材质=${reference.material.join(" / ")}`
+    material.length
+      ? `材质=${material.join(" / ")}`
       : "",
   ]
     .filter(Boolean)

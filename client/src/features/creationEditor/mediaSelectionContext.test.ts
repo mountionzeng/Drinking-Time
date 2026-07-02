@@ -43,6 +43,31 @@ describe("media selection context", () => {
     });
   });
 
+  it("keeps URL-only current frames selectable for Xiaozhuo advice", () => {
+    expect(
+      buildImageRegionSelection({
+        storyId: 36,
+        shot,
+        imageId: null,
+        imageUrl: "https://example.test/frame.png",
+        rect: { x: 0.2, y: 0.1, width: 0.4, height: 0.3 },
+      }),
+    ).toMatchObject({
+      sourceType: "storyboard-image",
+      sourceId: "shot-06:current-frame",
+      imageId: null,
+      objectVersion: "image:current-frame",
+      materialStatus: "current-image",
+      selection: {
+        kind: "rect",
+        x: 0.2,
+        y: 0.1,
+        width: 0.4,
+        height: 0.3,
+      },
+    });
+  });
+
   it("builds a bounded video time reference with a persisted range id", () => {
     expect(
       buildVideoRangeSelection({

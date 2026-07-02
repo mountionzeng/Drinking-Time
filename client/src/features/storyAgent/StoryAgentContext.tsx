@@ -2429,6 +2429,7 @@ export function StoryAgentProvider({
           fullText,
           selectedText,
           instruction,
+          selectionContext: activeSelection,
           projectId: projectId ?? undefined,
           history: nextMessages.slice(-8).map((m) => ({
             role: m.role as 'user' | 'assistant',

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
-import { directVideoPrompt } from "./videoPromptDirector";
+import { directVideoPrompt, mjSafeVideoPrompt } from "./videoPromptDirector";
 
 const saved = {
   api302Key: ENV.api302Key,
@@ -74,7 +74,7 @@ describe("directVideoPrompt", () => {
     expect(result.model).toBe("gpt-5.4-nano-2026-03-17");
     expect(result.prompt).toContain("breathing feels faint and steady");
     expect(result.prompt).toContain("A very gentle push-in");
-    expect(result.prompt).toContain("Preserve identity");
+    expect(result.prompt).toContain("Preserve visible subject");
     expect(result.prompt).not.toContain("warm window light");
     expect(result.prompt).not.toContain("gaze subtly shifts");
     expect(result.prompt).not.toContain("shallow depth");
@@ -96,6 +96,56 @@ describe("directVideoPrompt", () => {
         detail: "high",
       },
     });
+  });
+
+  it("rewrites MJ-sensitive cooking vocabulary before submission", async () => {
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "gpt-5.4-nano-2026-03-17",
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                visualSummary: "厨房里一只锅正在冒蒸汽。",
+                narrativeIntent: "建立厨房里的安静余温。",
+                subjectMotion:
+                  "Steam rises gently from the pot, then thins and drifts upward.",
+                cameraMotion: "A slow micro push-in toward the pot.",
+                continuity: "保持厨房、暖光和构图。",
+                recommendedMotion: "low",
+                finalPrompt:
+                  "Steam rises gently from the pot while the camera slowly moves toward the pot.",
+                confidence: 0.82,
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await directVideoPrompt({
+      imageInput: "data:image/png;base64,BBBB",
+      fallbackPrompt: "steam rises gently from the cooking pan",
+      shotNo: 1,
+      draftPrompt: "动作：锅里冒出蒸汽\n相机运动：轻微推进",
+    });
+
+    expect(result.source).toBe("302-vision");
+    expect(result.prompt).toContain("saucepan");
+    expect(result.prompt).not.toMatch(/\bpot\b/i);
+  });
+
+  it("keeps the MJ-safe video prompt rewrite narrowly scoped", () => {
+    expect(mjSafeVideoPrompt("steam rises from the pot")).toBe(
+      "steam rises from the saucepan"
+    );
+    expect(mjSafeVideoPrompt("a potter shapes clay")).toBe(
+      "a potter shapes clay"
+    );
   });
 
   it("falls back without blocking video generation when 302 analysis fails", async () => {

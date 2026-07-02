@@ -114,6 +114,34 @@ export function playableVideoTake<
   );
 }
 
+export function currentVideoTakeForEditing<
+  T extends Pick<
+    VideoTakeAsset,
+    "id" | "status" | "videoUrl" | "isTimelineSelected"
+  >,
+>(
+  takes: readonly T[] | undefined,
+  activeTakeId?: number | null
+): T | undefined {
+  if (!takes?.length) return undefined;
+  const isOperational = (take: T) => {
+    const affordance = videoTakeAffordance(take.status);
+    return (
+      take.isTimelineSelected || affordance.canPlay || affordance.canRefresh
+    );
+  };
+  const explicitTake =
+    activeTakeId == null
+      ? undefined
+      : takes.find(take => take.id === activeTakeId);
+  if (explicitTake && isOperational(explicitTake)) return explicitTake;
+  return (
+    takes.find(take => take.isTimelineSelected) ??
+    takes.find(take => videoTakeAffordance(take.status).canRefresh) ??
+    playableVideoTake(takes)
+  );
+}
+
 export function videoTakeErrorMessage(message: string): string {
   if (
     message

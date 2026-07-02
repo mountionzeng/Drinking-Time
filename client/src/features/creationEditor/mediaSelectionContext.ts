@@ -54,23 +54,26 @@ function shotContext(shot: SelectionShot): string {
 export function buildImageRegionSelection(input: {
   storyId: number;
   shot: SelectionShot;
-  imageId: number;
+  imageId?: number | null;
+  imageUrl?: string | null;
   rect: NormalizedRect;
 }): SelectionContext {
   const rect = normalizedRect(input.rect);
   const label = shotLabel(input.shot);
+  const shotId = stableShotId(input.shot);
+  const imageId = input.imageId ?? null;
   return {
     sourceType: "storyboard-image",
-    sourceId: String(input.imageId),
+    sourceId: imageId != null ? String(imageId) : `${shotId ?? label}:current-frame`,
     selectedText: `${label} 画面区域 x ${Math.round(rect.x * 100)}%，y ${Math.round(rect.y * 100)}%，宽 ${Math.round(rect.width * 100)}%，高 ${Math.round(rect.height * 100)}%`,
     fullText: shotContext(input.shot) || `${label} 当前主图`,
-    objectVersion: `image:${input.imageId}`,
+    objectVersion: imageId != null ? `image:${imageId}` : "image:current-frame",
     selection: { kind: "rect", ...rect },
     materialStatus: "current-image",
     storyId: input.storyId,
-    stableShotId: stableShotId(input.shot),
+    stableShotId: shotId,
     shotNo: input.shot.shotNo,
-    imageId: input.imageId,
+    imageId,
   };
 }
 

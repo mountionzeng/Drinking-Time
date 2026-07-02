@@ -690,6 +690,31 @@ const selectionMaterialStatusSchema = z.enum([
   "unknown",
 ]);
 
+const selectionContextSchema = z.object({
+  sourceType: z.enum([
+    "card",
+    "script-scene",
+    "script-meta",
+    "shot",
+    "storyboard-image",
+    "animatic-video",
+    "timeline-range",
+    "chat",
+  ]),
+  sourceId: z.string().trim().min(1),
+  selectedText: z.string().trim().min(1),
+  fullText: z.string(),
+  objectVersion: z.string().nullable().optional(),
+  selection: selectionRegionSchema.nullable().optional(),
+  materialStatus: selectionMaterialStatusSchema.optional(),
+  storyId: z.number().int().positive().nullable().optional(),
+  stableShotId: z.string().nullable().optional(),
+  shotNo: z.number().int().positive().nullable().optional(),
+  imageId: z.number().int().positive().nullable().optional(),
+  videoTakeId: z.number().int().positive().nullable().optional(),
+  rangeId: z.number().int().positive().nullable().optional(),
+});
+
 // ─── Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -993,33 +1018,7 @@ export const appRouter = router({
           userMessage: z.object({
             clientMessageId: z.string().trim().min(1),
             content: z.string().trim().min(1),
-            selection: z
-              .object({
-                sourceType: z.enum([
-                  "card",
-                  "script-scene",
-                  "script-meta",
-                  "shot",
-                  "storyboard-image",
-                  "animatic-video",
-                  "timeline-range",
-                  "chat",
-                ]),
-                sourceId: z.string().trim().min(1),
-                selectedText: z.string().trim().min(1),
-                fullText: z.string(),
-                objectVersion: z.string().nullable().optional(),
-                selection: selectionRegionSchema.nullable().optional(),
-                materialStatus: selectionMaterialStatusSchema.optional(),
-                storyId: z.number().int().positive().nullable().optional(),
-                stableShotId: z.string().nullable().optional(),
-                shotNo: z.number().int().positive().nullable().optional(),
-                imageId: z.number().int().positive().nullable().optional(),
-                videoTakeId: z.number().int().positive().nullable().optional(),
-                rangeId: z.number().int().positive().nullable().optional(),
-              })
-              .nullable()
-              .optional(),
+            selection: selectionContextSchema.nullable().optional(),
           }),
           assistantMessage: z.object({
             clientMessageId: z.string().trim().min(1),
@@ -1752,6 +1751,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           fullText: z.string().min(1),
           selectedText: z.string().min(1),
           instruction: z.string().min(1),
+          selectionContext: selectionContextSchema.optional(),
           projectId: z.number().optional(),
           history: z
             .array(
@@ -1768,6 +1768,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           fullText: input.fullText,
           selectedText: input.selectedText,
           instruction: input.instruction,
+          selectionContext: input.selectionContext,
           projectId: input.projectId,
           history: input.history,
         });

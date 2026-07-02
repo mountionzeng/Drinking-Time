@@ -49,6 +49,7 @@ import {
   type PlaybackState,
 } from "../playback";
 import {
+  currentVideoTakeForEditing,
   shotTimelineDurationMs,
   videoTakeAffordance,
   videoTakeDurationMs,
@@ -398,7 +399,7 @@ export default function AnimaticPlayer({
     currentShot?.promptRun?.imageUrl ||
     videoRecipe?.sourceImageUrl ||
     "";
-  const activeFrameId = currentShot?.imageId;
+  const activeFrameId = currentShot?.imageId ?? currentShot?.promptRun?.imageId ?? null;
   const hasExplicitSelectedFrame =
     currentShot?.imageSelectionSource === "explicit";
   const videoMissing = videoRecipe
@@ -418,23 +419,15 @@ export default function AnimaticPlayer({
     currentShot && generatingVideoShotNo === currentShot.shotNo
   );
   const currentVideoTake = currentShot
-    ? (currentShot.videoTakes?.find(
-        take => take.id === activeTakeIdByShotNo[currentShot.shotNo]
-      ) ??
-      currentShot.videoTakes?.find(take => take.isTimelineSelected) ??
-      currentShot.videoTakes?.[0])
-    : undefined;
-  const explicitPreviewTake = currentShot
-    ? currentShot.videoTakes?.find(
-        take =>
-          take.id === activeTakeIdByShotNo[currentShot.shotNo] ||
-          take.isTimelineSelected
+    ? currentVideoTakeForEditing(
+        currentShot.videoTakes,
+        activeTakeIdByShotNo[currentShot.shotNo]
       )
     : undefined;
   const previewVideoTake =
-    explicitPreviewTake?.videoUrl &&
-    videoTakeAffordance(explicitPreviewTake.status).canPlay
-      ? explicitPreviewTake
+    currentVideoTake?.videoUrl &&
+    videoTakeAffordance(currentVideoTake.status).canPlay
+      ? currentVideoTake
       : undefined;
   const currentTakeAffordance = currentVideoTake
     ? videoTakeAffordance(currentVideoTake.status)
@@ -735,7 +728,7 @@ export default function AnimaticPlayer({
         shotNo: currentShot.shotNo,
         imageBase64: cropped.imageBase64,
         mimeType: cropped.mimeType,
-        parentImageId: activeFrameId,
+        parentImageId: activeFrameId ?? undefined,
         quadrant,
       });
       setFrameCropStatus({ quadrant, phase: "done" });
@@ -820,12 +813,13 @@ export default function AnimaticPlayer({
           rect,
         })
       );
-    } else if (activeFrameId != null) {
+    } else if (activeFrameUrl) {
       onSelectContext(
         buildImageRegionSelection({
           storyId,
           shot: currentShot,
           imageId: activeFrameId,
+          imageUrl: activeFrameUrl,
           rect,
         })
       );
@@ -848,7 +842,7 @@ export default function AnimaticPlayer({
       onSelectContext &&
       (deriveSourceType === "video"
         ? deriveVideoTakeId != null
-        : activeFrameId != null)
+        : Boolean(activeFrameUrl))
   );
 
   const openRangeInChat = () => {
@@ -1149,11 +1143,17 @@ export default function AnimaticPlayer({
                     {currentShot.videoTakes.map(take => {
                       const affordance = videoTakeAffordance(take.status);
                       const active = currentVideoTake?.id === take.id;
+                      const canActivate =
+                        take.isTimelineSelected ||
+                        affordance.canPlay ||
+                        affordance.canRefresh;
                       return (
                         <button
                           key={take.id}
                           type="button"
+                          disabled={!canActivate}
                           onClick={() => {
+                            if (!canActivate) return;
                             setActiveTakeIdByShotNo(current => ({
                               ...current,
                               [currentShot.shotNo]: take.id,
@@ -1164,7 +1164,9 @@ export default function AnimaticPlayer({
                           className={`min-w-[118px] rounded-md border px-2 py-1.5 text-left transition ${
                             active
                               ? "border-primary bg-primary/10"
-                              : "border-border bg-background hover:border-primary/40"
+                              : affordance.tone === "danger"
+                                ? "border-destructive/30 bg-destructive/5"
+                                : "border-border bg-background hover:border-primary/40"
                           }`}
                         >
                           <span className="block text-[11px] font-semibold text-foreground">

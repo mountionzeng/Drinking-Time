@@ -140,14 +140,15 @@ export function artRecipeToLibraryItems(
   recipe: ArtRecipeDNA,
 ): ArtPromptLibraryItemDraft[] {
   const join = (values: string[]) => values.map(cleanText).filter(Boolean).join(", ");
-  return [
+  const items: ArtPromptLibraryItemDraft[] = [
     { dimension: "visual_style", content: join(recipe.style) },
     { dimension: "color_palette", content: join(recipe.palette) },
     { dimension: "lighting", content: join(recipe.light) },
     { dimension: "composition", content: join(recipe.composition) },
     { dimension: "material", content: join(recipe.material) },
     { dimension: "negative_prompt", content: join(recipe.negative) },
-  ].filter(item => item.content);
+  ];
+  return items.filter(item => item.content);
 }
 
 export function artPromptLibraryItemsToLineageItems(

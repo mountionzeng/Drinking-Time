@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentVideoTakeForEditing,
   playableVideoTake,
   selectedVideoSegmentDurationMs,
   videoTakeAffordance,
@@ -83,6 +84,39 @@ describe("videoAssetViewModel", () => {
     };
 
     expect(playableVideoTake([failedTake, readyTake])).toBe(readyTake);
+  });
+
+  it("does not make failed-only video history the current editable take", () => {
+    expect(
+      currentVideoTakeForEditing([
+        {
+          id: 17,
+          status: "failed" as const,
+          videoUrl: null,
+          isTimelineSelected: false,
+        },
+      ])
+    ).toBeUndefined();
+  });
+
+  it("keeps an older available take current when the newest take failed", () => {
+    const failedTake = {
+      id: 17,
+      status: "failed" as const,
+      videoUrl: null,
+      isTimelineSelected: false,
+    };
+    const readyTake = {
+      id: 16,
+      status: "available" as const,
+      videoUrl: "/videos/ready.mp4",
+      isTimelineSelected: false,
+    };
+
+    expect(currentVideoTakeForEditing([failedTake, readyTake])).toBe(readyTake);
+    expect(currentVideoTakeForEditing([failedTake, readyTake], 17)).toBe(
+      readyTake
+    );
   });
 
   it("explains the ambiguous MJ approval error in actionable Chinese", () => {

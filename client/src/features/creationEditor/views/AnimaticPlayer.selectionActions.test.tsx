@@ -37,6 +37,16 @@ function videoTake(overrides: Partial<VideoTakeAsset> = {}) {
   } satisfies VideoTakeAsset;
 }
 
+function buttonHtmlAround(html: string, label: string) {
+  const labelIndex = html.indexOf(label);
+  expect(labelIndex).toBeGreaterThanOrEqual(0);
+  const start = html.lastIndexOf("<button", labelIndex);
+  const end = html.indexOf("</button>", labelIndex);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end);
+}
+
 describe("AnimaticPlayer selection actions", () => {
   it("surfaces image/video region and video time-range actions for Xiaozhuo", () => {
     const shot = {
@@ -50,7 +60,7 @@ describe("AnimaticPlayer selection actions", () => {
       imageUrl: "/api/images/current-frame.png",
       imageSelectionSource: "explicit",
       videoTakes: [videoTake()],
-    } as CreationEditorShot;
+    } as unknown as CreationEditorShot;
 
     const html = renderToStaticMarkup(
       <AnimaticPlayer
@@ -69,5 +79,81 @@ describe("AnimaticPlayer selection actions", () => {
     expect(html).toContain("框选问小酌");
     expect(html).toContain("拖动入点/出点框选一段");
     expect(html).toContain("发送给小酌");
+  });
+
+  it("keeps the image region entry enabled for legacy URL-only current frames", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-001",
+      subject: "人物在窗边停顿",
+      action: "慢慢回头",
+      dialogue: "这句话很有意思",
+      promptRun: {
+        finalPrompt: "人物在窗边停顿",
+        generatedAt: Date.now(),
+        imageUrl: "/api/images/legacy-frame.png",
+        source: "prompt-table-rerender",
+        usedDimensions: ["subject", "action"],
+      },
+      imageSelectionSource: "legacy",
+      videoTakes: [],
+    } as unknown as CreationEditorShot;
+
+    const html = renderToStaticMarkup(
+      <AnimaticPlayer
+        storyId={36}
+        shots={[shot]}
+        selectedShotNo={1}
+        onShotEnter={vi.fn()}
+        isPlaying={false}
+        onPlayingChange={vi.fn()}
+        onSelectContext={vi.fn()}
+      />
+    );
+
+    expect(buttonHtmlAround(html, "框选问小酌")).not.toMatch(
+      /\sdisabled(=|\s|>)/,
+    );
+  });
+
+  it("shows failed video takes as history without making them current", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-001",
+      subject: "人物在窗边停顿",
+      action: "慢慢回头",
+      dialogue: "这句话很有意思",
+      imageId: 270,
+      imageUrl: "/api/images/current-frame.png",
+      imageSelectionSource: "explicit",
+      videoTakes: [
+        videoTake({
+          id: 17,
+          status: "failed",
+          videoUrl: null,
+          errorMessage: "Prompt parameter error or image not approved",
+          isTimelineSelected: false,
+        }),
+      ],
+    } as unknown as CreationEditorShot;
+
+    const html = renderToStaticMarkup(
+      <AnimaticPlayer
+        storyId={36}
+        shots={[shot]}
+        selectedShotNo={1}
+        onShotEnter={vi.fn()}
+        isPlaying={false}
+        onPlayingChange={vi.fn()}
+        onSelectContext={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("Take 17");
+    expect(html).toContain("MJ 未通过提示词或首帧审核");
+    expect(html).not.toContain("当前 Take 17");
+    expect(html).not.toContain("当前视频：failed");
   });
 });

@@ -16,6 +16,7 @@ import {
 import {
   artPromptLibraryItemsToLineageItems,
   normalizeArtPromptLibraryImport,
+  type ArtPromptLibraryItemDraft,
   type ArtPromptLibraryImportDraft,
   type NormalizedArtPromptLibraryItem,
 } from "../../shared/artPromptLibrary";
@@ -237,22 +238,23 @@ function styleEntryToLibraryDraft(entry: StyleEntry): ArtPromptLibraryImportDraf
   ]
     .filter(Boolean)
     .join("\n");
+  const items: ArtPromptLibraryItemDraft[] = [
+    { dimension: "visual_style", content: joinLibraryTexts(entry.style) },
+    { dimension: "color_palette", content: joinLibraryTexts(entry.palette) },
+    { dimension: "lighting", content: entry.light },
+    { dimension: "composition", content: entry.composition },
+    { dimension: "material", content: entry.material },
+    {
+      dimension: "negative_prompt",
+      content: joinLibraryTexts(styleNegatives(entry)),
+    },
+    { dimension: "art_style_recipe", content: recipe },
+  ];
   return {
     name: entry.name,
     description: entry.one_liner || null,
     source: `style-library:${entry.id}`,
-    items: [
-      { dimension: "visual_style", content: joinLibraryTexts(entry.style) },
-      { dimension: "color_palette", content: joinLibraryTexts(entry.palette) },
-      { dimension: "lighting", content: entry.light },
-      { dimension: "composition", content: entry.composition },
-      { dimension: "material", content: entry.material },
-      {
-        dimension: "negative_prompt",
-        content: joinLibraryTexts(styleNegatives(entry)),
-      },
-      { dimension: "art_style_recipe", content: recipe },
-    ].filter(item => cleanLibraryText(item.content)),
+    items: items.filter(item => cleanLibraryText(item.content)),
   };
 }
 
@@ -320,7 +322,7 @@ async function upsertLocalSystemArtPromptLibrary(
     libraryVersionId: version.id,
     dimension: item.dimension,
     content: item.content,
-    negativeContent: item.negativeContent,
+    negativeContent: item.negativeContent ?? null,
     sourceRevisionId: null,
     sortOrder: item.sortOrder,
   }));
@@ -528,7 +530,7 @@ export async function importUserArtPromptLibrary(
       libraryVersionId: version.id,
       dimension: item.dimension,
       content: item.content,
-      negativeContent: item.negativeContent,
+      negativeContent: item.negativeContent ?? null,
       sourceRevisionId: null,
       sortOrder: item.sortOrder,
     }));

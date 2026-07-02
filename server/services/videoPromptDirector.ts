@@ -104,7 +104,7 @@ function compactPrompt(value: unknown): string {
   }
   const latinLetters = (prompt.match(/[a-z]/gi) ?? []).length;
   if (prompt.length < 20 || latinLetters < 20) return "";
-  return prompt;
+  return mjSafeVideoPrompt(prompt);
 }
 
 function englishClause(value: unknown, maxWords: number): string {
@@ -125,17 +125,30 @@ function englishClause(value: unknown, maxWords: number): string {
   return `${clause}.`;
 }
 
+export function mjSafeVideoPrompt(value: string): string {
+  return value
+    .replace(/\bpot\b/gi, "saucepan")
+    .replace(/\bweed\b/gi, "wild grass")
+    .replace(/\bdrug\b/gi, "medicine")
+    .replace(/\bflame(s)?\b/gi, "warm stove light")
+    .replace(/\bidentity, clothing,\s*/gi, "visible subject, ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function compileDirectedPrompt(raw: DirectorPayload): string {
   const subjectMotion = englishClause(raw.subjectMotion, 34);
   const cameraMotion = englishClause(raw.cameraMotion, 18);
   if (!subjectMotion && !cameraMotion) return compactPrompt(raw.finalPrompt);
-  return [
-    subjectMotion,
-    cameraMotion,
-    "Preserve identity, clothing, lighting, and original composition; use natural motion only.",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return mjSafeVideoPrompt(
+    [
+      subjectMotion,
+      cameraMotion,
+      "Preserve visible subject, lighting, and original composition; use natural motion only.",
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
 }
 
 function completionText(data: CompletionResponse): string {

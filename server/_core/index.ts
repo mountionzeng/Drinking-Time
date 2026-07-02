@@ -13,7 +13,7 @@ import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
 import { getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
-import { sdk } from "./sdk";
+import { resolveMediaRouteUserId } from "./mediaRouteAuth";
 
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -100,14 +100,16 @@ async function startServer() {
       res.status(400).end();
       return;
     }
-    let userId = 1;
-    if (process.env.NODE_ENV === "production" && process.env.DISABLE_AUTH !== "true") {
-      try {
-        userId = (await sdk.authenticateRequest(req)).id;
-      } catch {
-        res.status(401).end();
-        return;
-      }
+    let userId: number | null = null;
+    try {
+      userId = await resolveMediaRouteUserId(req);
+    } catch {
+      res.status(401).end();
+      return;
+    }
+    if (userId == null) {
+      res.status(401).end();
+      return;
     }
     const take = await getVideoTakeById(Number(match[1]), userId);
     if (!take || take.videoKey !== file) {
