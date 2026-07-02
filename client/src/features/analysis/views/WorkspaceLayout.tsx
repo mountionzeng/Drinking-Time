@@ -3,21 +3,30 @@
  * Left: StoryAgentChat (always visible, anchor)
  * Right: scrollable strip of storyCards → storyboard → animatic → promptTable
  */
-import StoryAgentChat from '@/features/storyAgent/views/StoryAgentChat';
-import StoryListView from '@/features/storyAgent/views/StoryListView';
-import StoryCardsBoard from '@/features/storyAgent/views/StoryCardsBoard';
-import StoryboardPanel from '@/features/storyAgent/views/StoryboardPanel';
-import { CreationEditorProvider } from '@/features/creationEditor/CreationEditorContext';
-import AnimaticPanel from '@/features/creationEditor/views/AnimaticPanel';
-import PromptTablePanel from '@/features/creationEditor/views/PromptTablePanel';
-import type { AnalysisData } from '@/features/analysis/types';
-import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
-import { useActiveStoryId, useVisibleStoryPanels } from '@/features/storyAgent/spine/selectors';
-import { useSelectionCapture } from '@/features/storyAgent/hooks/useSelectionCapture';
-import { useEffect, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
+import StoryListView from "@/features/storyAgent/views/StoryListView";
+import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
+import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
+import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
+import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
+import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
+import type { AnalysisData } from "@/features/analysis/types";
+import { STORY_PANELS, type StoryPanel } from "@/features/analysis/storyPanels";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import {
+  useActiveStoryId,
+  useVisibleStoryPanels,
+} from "@/features/storyAgent/spine/selectors";
+import { useSelectionCapture } from "@/features/storyAgent/hooks/useSelectionCapture";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 
-export type InputTab = 'material' | 'story';
+export type InputTab = "material" | "story";
 
 interface WorkspaceLayoutProps {
   activeInputTab: InputTab;
@@ -32,7 +41,14 @@ interface WorkspaceLayoutProps {
     fileName: string;
     mimeType: string;
     fileBase64: string;
-    sourceType: 'image' | 'video' | 'script' | 'storyboard' | 'brief' | 'note' | 'pdf';
+    sourceType:
+      | "image"
+      | "video"
+      | "script"
+      | "storyboard"
+      | "brief"
+      | "note"
+      | "pdf";
   }) => Promise<void>;
   onRefreshRefs: (projectId: number) => void;
   /** TemplateDraft props */
@@ -58,36 +74,54 @@ export default function WorkspaceLayout({
   const visibleStoryPanels = useVisibleStoryPanels();
   const { setActiveSelection } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const hasOpenStory = activeStoryId !== null;
   useSelectionCapture(setActiveSelection);
   useEffect(() => {
     const openChat = () => setChatCollapsed(false);
-    window.addEventListener('dt:open-creation-chat', openChat);
-    return () => window.removeEventListener('dt:open-creation-chat', openChat);
+    window.addEventListener("dt:open-creation-chat", openChat);
+    return () => window.removeEventListener("dt:open-creation-chat", openChat);
   }, []);
-  const storyCardsVisible = visibleStoryPanels.includes('storyCards');
-  const storyboardVisible = visibleStoryPanels.includes('storyboard');
-  const animaticVisible = visibleStoryPanels.includes('animatic');
-  const promptTableVisible = visibleStoryPanels.includes('promptTable');
+  const visiblePanelDefs = useMemo(
+    () => STORY_PANELS.filter(panel => visibleStoryPanels.includes(panel.id)),
+    [visibleStoryPanels]
+  );
+  const panelDefaultSize =
+    visiblePanelDefs.length > 0 ? 100 / visiblePanelDefs.length : 100;
+  const panelMinSize = visiblePanelDefs.length >= 4 ? 16 : 22;
+  const boardStripMinWidth =
+    visiblePanelDefs.length > 0 ? `${visiblePanelDefs.length * 24}rem` : "100%";
+  const renderPanel = (panelId: StoryPanel) => {
+    switch (panelId) {
+      case "storyCards":
+        return <StoryCardsBoard />;
+      case "storyboard":
+        return <StoryboardPanel />;
+      case "animatic":
+        return <AnimaticPanel />;
+      case "promptTable":
+        return <PromptTablePanel />;
+    }
+  };
 
   return (
     <div className="flex-1 min-h-0">
-      {activeInputTab === 'story' ? (
+      {activeInputTab === "story" ? (
         <CreationEditorProvider activeStoryId={activeStoryId}>
           <div className="h-full flex min-h-0">
             {/* Left: one story-scoped chat anchor across all creation panels. */}
             <div
               className="relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
               style={{
-                width: chatCollapsed ? 48 : 'min(320px, 40vw)',
-                borderColor: 'var(--nayin-border)',
+                width: chatCollapsed ? 48 : "min(320px, 40vw)",
+                borderColor: "var(--nayin-border)",
               }}
             >
               <button
                 type="button"
                 onClick={() => setChatCollapsed(value => !value)}
                 className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
-                aria-label={chatCollapsed ? '展开小酌' : '折叠小酌'}
-                title={chatCollapsed ? '展开小酌' : '折叠小酌'}
+                aria-label={chatCollapsed ? "展开小酌" : "折叠小酌"}
+                title={chatCollapsed ? "展开小酌" : "折叠小酌"}
               >
                 {chatCollapsed ? (
                   <PanelLeftOpen className="h-4 w-4" />
@@ -97,57 +131,64 @@ export default function WorkspaceLayout({
               </button>
               <div
                 className={`h-full ${
-                  chatCollapsed ? 'invisible pointer-events-none' : ''
+                  chatCollapsed ? "invisible pointer-events-none" : ""
                 }`}
                 aria-hidden={chatCollapsed}
               >
-                {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
+                {activeStoryId !== null ? (
+                  <StoryAgentChat />
+                ) : (
+                  <StoryListView />
+                )}
               </div>
             </div>
 
-            {/* Right: Horizontal scroll strip of panels */}
-            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
-              <div className="flex h-full" style={{ minWidth: 'min-content' }}>
-                {/* Story Cards — toggle */}
-                {storyCardsVisible ? (
-                  <div
-                    className="h-full shrink-0 overflow-auto p-2"
-                    style={{ width: 'min(480px, 60vw)' }}
+            {/* Right: resizable creation boards */}
+            <div className="min-w-0 flex-1 overflow-hidden">
+              {!hasOpenStory ? (
+                <div
+                  className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground"
+                  aria-label="未选择故事"
+                >
+                  从左侧新建或打开一个故事后，故事卡片、故事版看板、动态分镜和镜头设计表会显示在这里。
+                </div>
+              ) : visiblePanelDefs.length > 0 ? (
+                <div className="h-full min-w-0 overflow-x-auto overflow-y-hidden custom-scrollbar">
+                  <ResizablePanelGroup
+                    direction="horizontal"
+                    autoSaveId="story-creation-board-widths-v2"
+                    className="h-full min-h-0"
+                    style={{ minWidth: `max(100%, ${boardStripMinWidth})` }}
                   >
-                    <StoryCardsBoard />
-                  </div>
-                ) : null}
-
-                {/* Storyboard — toggle */}
-                {storyboardVisible ? (
-                  <div
-                    className="h-full shrink-0 overflow-auto p-2"
-                    style={{ width: 'min(480px, 60vw)' }}
-                  >
-                    <StoryboardPanel />
-                  </div>
-                ) : null}
-
-                {/* Animatic — toggle */}
-                {animaticVisible ? (
-                  <div
-                    className="h-full shrink-0 overflow-auto p-2"
-                    style={{ width: 'min(480px, 60vw)' }}
-                  >
-                    <AnimaticPanel />
-                  </div>
-                ) : null}
-
-                {/* Prompt Table — toggle */}
-                {promptTableVisible ? (
-                  <div
-                    className="h-full shrink-0 overflow-auto p-2"
-                    style={{ width: 'min(480px, 60vw)' }}
-                  >
-                    <PromptTablePanel />
-                  </div>
-                ) : null}
-              </div>
+                    {visiblePanelDefs.map((panel, index) => (
+                      <Fragment key={panel.id}>
+                        {index > 0 ? (
+                          <ResizableHandle className="creation-board-resize-handle" />
+                        ) : null}
+                        <ResizablePanel
+                          id={panel.id}
+                          order={index}
+                          defaultSize={panelDefaultSize}
+                          minSize={panelMinSize}
+                          className="min-w-0"
+                        >
+                          <div
+                            className="h-full min-h-0 overflow-hidden"
+                            data-story-panel={panel.id}
+                            aria-label={panel.label}
+                          >
+                            {renderPanel(panel.id)}
+                          </div>
+                        </ResizablePanel>
+                      </Fragment>
+                    ))}
+                  </ResizablePanelGroup>
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                  在顶部打开一个看板后，内容会显示在这里。
+                </div>
+              )}
             </div>
           </div>
         </CreationEditorProvider>

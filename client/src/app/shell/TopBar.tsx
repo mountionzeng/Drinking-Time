@@ -2,26 +2,32 @@
  * TopBar — Simplified top navigation
  * Shows: nayin logo, story panel toggles, user avatar
  */
-import { useNayin } from '@/features/nayin/NayinContext';
-import WuxingDrinkIcon from '@/features/nayin/views/WuxingDrinkIcon';
-import { STORY_PANELS } from '@/features/analysis/storyPanels';
-import { useStoryPanelVisibility } from '@/features/storyAgent/spine/selectors';
-import { useState } from 'react';
+import { useNayin } from "@/features/nayin/NayinContext";
+import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
+import { STORY_PANELS } from "@/features/analysis/storyPanels";
+import { useStoryPanelVisibility } from "@/features/storyAgent/spine/selectors";
+import { useState } from "react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@/components/ui/popover';
-import { useAuth } from '@/_core/hooks/useAuth';
+} from "@/components/ui/popover";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 interface TopBarProps {
   onStoryPanelToggle?: () => void;
+  showStoryPanelNav?: boolean;
 }
 
-export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
-  const { allThemes, setPreviewElement, previewElement, element, today } = useNayin();
+export default function TopBar({
+  onStoryPanelToggle,
+  showStoryPanelNav = true,
+}: TopBarProps) {
+  const { allThemes, setPreviewElement, previewElement, element, today } =
+    useNayin();
   const { user, logout } = useAuth();
-  const { visibleStoryPanels, toggleVisibleStoryPanel } = useStoryPanelVisibility();
+  const { visibleStoryPanels, toggleVisibleStoryPanel } =
+    useStoryPanelVisibility();
   const [themeOpen, setThemeOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
 
@@ -34,9 +40,9 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
         className="border-b px-4 py-2.5 md:px-6"
         style={{
           background:
-            'linear-gradient(180deg, oklch(1 0 0 / 92%), oklch(from var(--nayin-surface) l c h / 80%))',
-          borderColor: 'var(--nayin-border)',
-          backdropFilter: 'blur(20px) saturate(140%)',
+            "linear-gradient(180deg, oklch(1 0 0 / 92%), oklch(from var(--nayin-surface) l c h / 80%))",
+          borderColor: "var(--nayin-border)",
+          backdropFilter: "blur(20px) saturate(140%)",
         }}
       >
         <div className="flex items-center justify-between gap-4">
@@ -47,9 +53,9 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                   aria-label="纳音五行"
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-all duration-200 hover:bg-foreground/[0.04]"
                   style={{
-                    borderColor: 'var(--nayin-border)',
-                    background: 'oklch(1 0 0 / 60%)',
-                    boxShadow: '0 0 16px -6px var(--nayin-glow)',
+                    borderColor: "var(--nayin-border)",
+                    background: "oklch(1 0 0 / 60%)",
+                    boxShadow: "0 0 16px -6px var(--nayin-glow)",
                   }}
                 >
                   <WuxingDrinkIcon element={element} size={30} />
@@ -58,9 +64,15 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
               <PopoverContent
                 align="start"
                 className="w-[250px] max-w-[calc(100vw-24px)] p-0"
-                style={{ background: 'var(--panel-bg)', border: '1px solid var(--nayin-border)' }}
+                style={{
+                  background: "var(--panel-bg)",
+                  border: "1px solid var(--nayin-border)",
+                }}
               >
-                <div className="p-3 border-b" style={{ borderColor: 'var(--nayin-border)' }}>
+                <div
+                  className="p-3 border-b"
+                  style={{ borderColor: "var(--nayin-border)" }}
+                >
                   <div className="text-xs text-muted-foreground font-mono uppercase tracking-wider">
                     Nayin Five Elements / 纳音五行
                   </div>
@@ -68,26 +80,38 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                     {today.cstDateStr}（东八区）
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5">
-                    农历 {today.lunar.yearGanzhi}年 {today.lunar.monthCn}{today.lunar.dayCn}
+                    农历 {today.lunar.yearGanzhi}年 {today.lunar.monthCn}
+                    {today.lunar.dayCn}
                   </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5">
-                    日柱 <span className="text-nayin-bright">{today.ganzhi}</span>
+                    日柱{" "}
+                    <span className="text-nayin-bright">{today.ganzhi}</span>
                     <span className="mx-1 opacity-40">·</span>
-                    纳音 <span className="text-nayin-bright font-semibold">{today.nayinName}</span>
+                    纳音{" "}
+                    <span className="text-nayin-bright font-semibold">
+                      {today.nayinName}
+                    </span>
                     <span className="mx-1 opacity-40">·</span>
-                    五行 <span className="text-nayin-bright">{today.theme.elementCn}</span>
+                    五行{" "}
+                    <span className="text-nayin-bright">
+                      {today.theme.elementCn}
+                    </span>
                     {today.theme.element !== element && (
-                      <span className="ml-1.5 text-[10px] opacity-60">(已切换预览)</span>
+                      <span className="ml-1.5 text-[10px] opacity-60">
+                        (已切换预览)
+                      </span>
                     )}
                   </div>
                 </div>
                 <div className="p-2">
-                  {allThemes.map((t) => (
+                  {allThemes.map(t => (
                     <button
                       key={t.element}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-left transition-colors hover:bg-[var(--muted)]"
                       onClick={() => {
-                        setPreviewElement(t.element === today.element ? null : t.element);
+                        setPreviewElement(
+                          t.element === today.element ? null : t.element
+                        );
                         setThemeOpen(false);
                       }}
                     >
@@ -96,7 +120,9 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                         <div className="text-xs font-medium text-foreground">
                           {t.elementCn}
                           {t.element === today.element && (
-                            <span className="ml-2 text-[10px] text-muted-foreground">(今日)</span>
+                            <span className="ml-2 text-[10px] text-muted-foreground">
+                              (今日)
+                            </span>
                           )}
                         </div>
                       </div>
@@ -107,7 +133,10 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                   ))}
                 </div>
                 {previewElement && (
-                  <div className="p-2 border-t" style={{ borderColor: 'var(--nayin-border)' }}>
+                  <div
+                    className="p-2 border-t"
+                    style={{ borderColor: "var(--nayin-border)" }}
+                  >
                     <button
                       className="w-full text-xs text-center py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-[var(--muted)] transition-colors"
                       onClick={() => {
@@ -122,40 +151,44 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
               </PopoverContent>
             </Popover>
 
-            <nav
-              aria-label="故事面板切换"
-              className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
-            >
-              {STORY_PANELS.map((panel) => {
-                const active = visibleStoryPanels.includes(panel.id);
-                return (
-                  <button
-                    key={panel.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => {
-                      onStoryPanelToggle?.();
-                      toggleVisibleStoryPanel(panel.id);
-                    }}
-                    className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
-                      active
-                        ? 'text-foreground'
-                        : 'text-muted-foreground hover:text-foreground/80'
-                    }`}
-                    style={
-                      active
-                        ? {
-                            background: 'var(--nayin-surface)',
-                            boxShadow: 'inset 0 -2px 0 var(--nayin-accent)',
-                          }
-                        : undefined
-                    }
-                  >
-                    {panel.label}
-                  </button>
-                );
-              })}
-            </nav>
+            {showStoryPanelNav ? (
+              <nav
+                aria-label="故事面板切换"
+                className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
+              >
+                {STORY_PANELS.map(panel => {
+                  const active = visibleStoryPanels.includes(panel.id);
+                  return (
+                    <button
+                      key={panel.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        onStoryPanelToggle?.();
+                        toggleVisibleStoryPanel(panel.id);
+                      }}
+                      className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                        active
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:text-foreground/80"
+                      }`}
+                      style={
+                        active
+                          ? {
+                              background: "var(--nayin-surface)",
+                              boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
+                            }
+                          : undefined
+                      }
+                    >
+                      {panel.label}
+                    </button>
+                  );
+                })}
+              </nav>
+            ) : (
+              <div className="min-w-0 flex-1" aria-hidden="true" />
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -165,31 +198,41 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                 <button
                   className="w-9 h-9 rounded-full flex items-center justify-center transition-all hover:scale-105"
                   style={{
-                    border: '1.4px solid var(--foreground)',
-                    background: 'var(--background)',
-                    boxShadow: '0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)',
+                    border: "1.4px solid var(--foreground)",
+                    background: "var(--background)",
+                    boxShadow:
+                      "0 0 0 3px var(--background), 0 0 0 4px var(--nayin-border)",
                   }}
                   aria-label="用户"
                 >
                   <span
                     className="text-sm font-medium"
-                    style={{ fontFamily: "'Noto Serif SC', serif", color: 'var(--foreground)' }}
+                    style={{
+                      fontFamily: "'Noto Serif SC', serif",
+                      color: "var(--foreground)",
+                    }}
                   >
-                    {user?.name ? user.name[0].toUpperCase() : 'G'}
+                    {user?.name ? user.name[0].toUpperCase() : "G"}
                   </span>
                 </button>
               </PopoverTrigger>
               <PopoverContent
                 className="w-52 p-0"
                 align="end"
-                style={{ background: 'var(--panel-bg)', border: '1px solid var(--nayin-border)' }}
+                style={{
+                  background: "var(--panel-bg)",
+                  border: "1px solid var(--nayin-border)",
+                }}
               >
-                <div className="p-3 border-b" style={{ borderColor: 'var(--nayin-border)' }}>
+                <div
+                  className="p-3 border-b"
+                  style={{ borderColor: "var(--nayin-border)" }}
+                >
                   <div className="text-xs font-medium text-foreground truncate">
-                    {user?.name || '访客'}
+                    {user?.name || "访客"}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-                    {user?.email || ''}
+                    {user?.email || ""}
                   </div>
                 </div>
                 <div className="p-1.5">
@@ -198,7 +241,7 @@ export default function TopBar({ onStoryPanelToggle }: TopBarProps) {
                     onClick={async () => {
                       setUserOpen(false);
                       await logout();
-                      window.location.href = '/login';
+                      window.location.href = "/login";
                     }}
                   >
                     退出登录

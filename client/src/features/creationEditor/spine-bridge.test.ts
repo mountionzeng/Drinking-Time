@@ -37,6 +37,13 @@ describe('creation editor spine boundary', () => {
     expect(workspace).toContain('useActiveStoryId()');
     expect(workspace).toContain('useStoryAgentActions()');
     expect(workspace).toContain('<CreationEditorProvider activeStoryId={activeStoryId}>');
+    expect(workspace).toContain('autoSaveId="story-creation-board-widths-v2"');
     expect(workspace).not.toContain('useStoryAgent()');
+  });
+
+  it('syncs the active story id from StoryAgentProvider back into the analysis data layer', () => {
+    const workspace = source('client/src/features/analysis/views/AnalysisWorkspace.tsx');
+
+    expect(workspace).toContain('onActiveStoryChange={projectData.setActiveStoryId}');
   });
 });

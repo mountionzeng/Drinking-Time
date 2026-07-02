@@ -29,14 +29,10 @@ export default function AnimaticPanel() {
     removeShotFromTimeline,
     resetTimelineShots,
     updateShotDuration,
-    promoteFrameCrop,
-    promotingFrameCropShotNo,
-    generatingVideoShotNo,
     refreshShotVideoStatus,
     createVideoTakeRange,
     selectVideoTimelineSegment,
     clearVideoTimelineSegment,
-    shotVideoProviderStatus,
     adoptVideoTake,
     promoteStoryImage,
     createDerivedShotDraft,
@@ -65,12 +61,11 @@ export default function AnimaticPanel() {
   const selectedShotIsOnTimeline = selectedTimelineId
     ? timelineShotIds.includes(selectedTimelineId)
     : false;
+  const fullPlaybackShots = timelineShots.length > 0 ? timelineShots : shots;
   const playbackShots =
     playbackMode === "single" && selectedShot
       ? [selectedShot]
-      : selectedShot && !selectedShotIsOnTimeline && !isPlaying
-        ? [selectedShot]
-        : timelineShots;
+      : fullPlaybackShots;
 
   const selectShotWithContext = (shotNo: number) => {
     setSelectedShotNo(shotNo);
@@ -79,7 +74,7 @@ export default function AnimaticPanel() {
     const material = materialState?.shots.find(item =>
       shot.stableShotId
         ? item.stableShotId === shot.stableShotId
-        : item.shotNo === shotNo,
+        : item.shotNo === shotNo
     );
     const currentVideo = material?.currentVideo ?? null;
     const currentImage = material?.currentImage ?? null;
@@ -117,25 +112,21 @@ export default function AnimaticPanel() {
     });
   };
 
-  const playTimeline = () => {
+  const playFullFilm = () => {
     if (isPlaying && playbackMode === "timeline") {
       setIsPlaying(false);
       return;
     }
-    const firstShotNo = timelineShots[0]?.shotNo ?? null;
+    const firstShotNo = fullPlaybackShots[0]?.shotNo ?? null;
     if (firstShotNo == null) return;
     setPlaybackMode("timeline");
-    setSelectedShotNo(firstShotNo);
+    selectShotWithContext(firstShotNo);
     setPlaybackResetKey(current => current + 1);
     setIsPlaying(true);
   };
 
   const playShot = (shotNo: number) => {
-    if (
-      isPlaying &&
-      playbackMode === "single" &&
-      selectedShotNo === shotNo
-    ) {
+    if (isPlaying && playbackMode === "single" && selectedShotNo === shotNo) {
       setIsPlaying(false);
       return;
     }
@@ -155,7 +146,10 @@ export default function AnimaticPanel() {
     removeShotFromTimeline(shotId);
     setIsPlaying(false);
     setPlaybackMode("timeline");
-    if (shots.find(shot => creationTimelineShotId(shot) === shotId)?.shotNo === selectedShotNo) {
+    if (
+      shots.find(shot => creationTimelineShotId(shot) === shotId)?.shotNo ===
+      selectedShotNo
+    ) {
       setSelectedShotNo(nextShotNo);
     }
   };
@@ -169,17 +163,17 @@ export default function AnimaticPanel() {
 
   return (
     <section
-      className="monitor-panel relative flex h-full min-h-0 flex-col overflow-hidden"
+      className="creation-board-panel relative flex h-full min-h-0 flex-col overflow-hidden"
       aria-label="动态分镜"
       data-testid="analysis-animatic-panel"
     >
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Film className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">动态分镜</h2>
+      <div className="creation-board-panel-header justify-between">
+        <div className="creation-board-panel-title">
+          <Film className="creation-board-panel-icon" />
+          <h2 className="creation-board-panel-title-text">动态分镜</h2>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
+          <span className="creation-board-panel-status">
             {shotLabel(selectedShotNo)}
           </span>
           <button
@@ -214,7 +208,8 @@ export default function AnimaticPanel() {
             {selectedShot && !selectedShotIsOnTimeline ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">
-                  当前查看 {shotLabel(selectedShot.shotNo)}，还没放进剪辑时间轴。
+                  当前查看 {shotLabel(selectedShot.shotNo)}
+                  ，还没放进剪辑时间轴。
                 </span>
                 <button
                   type="button"
@@ -231,19 +226,16 @@ export default function AnimaticPanel() {
               shots={playbackShots}
               selectedShotNo={selectedShotNo}
               durationsByShotNo={durationsByShotNo}
-              onShotEnter={setSelectedShotNo}
+              onShotEnter={selectShotWithContext}
               isPlaying={isPlaying}
               onPlayingChange={setIsPlaying}
+              onTogglePlayback={playFullFilm}
               onSelectContext={setActiveSelection}
               playbackResetKey={playbackResetKey}
-              onPromoteFrameCrop={promoteFrameCrop}
-              promotingFrameCropShotNo={promotingFrameCropShotNo}
               onRefreshShotVideoStatus={refreshShotVideoStatus}
-              generatingVideoShotNo={generatingVideoShotNo}
               onCreateVideoTakeRange={createVideoTakeRange}
               onSelectVideoTimelineSegment={selectVideoTimelineSegment}
               onClearVideoTimelineSegment={clearVideoTimelineSegment}
-              shotVideoProviderStatus={shotVideoProviderStatus}
               onCreateDerivedShotDraft={createDerivedShotDraft}
               onConfirmDerivedShot={confirmDerivedShot}
               onUndoStoryOperation={undoStoryOperation}
@@ -256,7 +248,7 @@ export default function AnimaticPanel() {
                 playbackMode={playbackMode}
                 isPlaying={isPlaying}
                 onSelectShot={selectShotWithContext}
-                onPlayAll={playTimeline}
+                onPlayAll={playFullFilm}
                 onPlayShot={playShot}
                 onRemoveShot={removeTimelineShot}
                 onResetTimeline={() => {

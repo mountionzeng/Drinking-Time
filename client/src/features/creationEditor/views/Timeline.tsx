@@ -125,13 +125,16 @@ export default function Timeline({
 
   useEffect(() => {
     if (selectedShotNo == null) return;
-    const target = railRef.current?.querySelector<HTMLElement>(
+    const rail = railRef.current;
+    const target = rail?.querySelector<HTMLElement>(
       `[data-timeline-shot-no="${selectedShotNo}"]`
     );
-    target?.scrollIntoView({
+    if (!rail || !target) return;
+    const nextLeft =
+      target.offsetLeft - rail.clientWidth / 2 + target.clientWidth / 2;
+    rail.scrollTo({
+      left: Math.max(0, nextLeft),
       behavior: "smooth",
-      block: "nearest",
-      inline: "center",
     });
   }, [selectedShotNo, shots]);
 

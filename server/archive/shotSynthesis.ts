@@ -70,8 +70,198 @@ type GenerationProfileInput = {
   } | null;
 };
 
+type ClaudeMessageResponse = {
+  content?: Array<{ type?: string; text?: string }>;
+  model?: string;
+};
+
+type OpenAICompatibleMessageResponse = {
+  model?: string;
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+};
+
 function cleanText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function hasScriptStructureAgentConfig(): boolean {
+  return Boolean(ENV.scriptStructureAgentApiKey?.trim());
+}
+
+function shouldUseScriptStructureClaudeChannel(): boolean {
+  return Boolean(
+    ENV.scriptStructureAgentModel?.startsWith("cc-") ||
+      ENV.scriptStructureAgentApiUrl?.includes("/cc")
+  );
+}
+
+function resolveScriptStructureClaudeUrl(): string {
+  const raw = (
+    ENV.scriptStructureAgentApiUrl ||
+    ENV.dropZoneApiUrl ||
+    ENV.forgeApiUrl ||
+    ""
+  ).trim();
+  if (!raw) return "";
+  const normalized = raw.replace(/\/+$/, "");
+  if (normalized.endsWith("/v1/messages")) return normalized;
+  if (normalized.endsWith("/cc")) return `${normalized}/v1/messages`;
+  return normalized;
+}
+
+function resolveScriptStructureChatUrl(): string {
+  const raw = (ENV.scriptStructureAgentApiUrl || ENV.forgeApiUrl || "").trim();
+  if (!raw) return "https://forge.manus.im/v1/chat/completions";
+  const normalized = raw.replace(/\/+$/, "");
+  if (normalized.endsWith("/chat/completions")) return normalized;
+  if (normalized.endsWith("/v1")) return `${normalized}/chat/completions`;
+  return `${normalized}/v1/chat/completions`;
+}
+
+function textFromMessageContent(content: Message["content"]): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) {
+    if (content.type === "text") return content.text;
+    return JSON.stringify(content);
+  }
+  return content
+    .map(part => {
+      if (typeof part === "string") return part;
+      if (part.type === "text") return part.text;
+      return JSON.stringify(part);
+    })
+    .join("\n");
+}
+
+function textFromLLMContent(
+  content: string | Array<{ type?: string; text?: string }> | undefined
+): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map(part => (part.type === "text" ? part.text || "" : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function invokeScriptStructureClaudeMessages(
+  messages: Message[],
+  maxTokens: number
+): Promise<{ text: string; modelLabel: string }> {
+  const apiUrl = resolveScriptStructureClaudeUrl();
+  const apiKey = ENV.scriptStructureAgentApiKey?.trim();
+  if (!apiUrl) throw new Error("SCRIPT_STRUCTURE_AGENT_API_URL is not configured");
+  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
+
+  const system = messages
+    .filter(message => message.role === "system")
+    .map(message => textFromMessageContent(message.content))
+    .join("\n\n");
+  const anthropicMessages = messages
+    .filter(message => message.role !== "system")
+    .map(message => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: textFromMessageContent(message.content),
+    }));
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model:
+        ENV.scriptStructureAgentModel ||
+        ENV.dropZoneModel ||
+        ENV.llmModel,
+      max_tokens: maxTokens,
+      system,
+      messages: anthropicMessages,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Script structure agent invoke failed: ${response.status} ${body}`
+    );
+  }
+
+  const data = (await response.json()) as ClaudeMessageResponse;
+  const text =
+    data.content
+      ?.filter(block => block.type === "text" && block.text)
+      .map(block => block.text)
+      .join("\n")
+      .trim() || "";
+
+  return {
+    text,
+    modelLabel:
+      data.model ||
+      ENV.scriptStructureAgentModel ||
+      ENV.dropZoneModel ||
+      ENV.llmModel,
+  };
+}
+
+async function invokeScriptStructureOpenAICompatible(
+  messages: Message[],
+  maxTokens: number
+): Promise<{ text: string; modelLabel: string }> {
+  const apiKey = ENV.scriptStructureAgentApiKey?.trim();
+  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
+  const model = ENV.scriptStructureAgentModel || ENV.llmModel;
+  const payload: Record<string, unknown> = {
+    model,
+    messages: messages.map(message => ({
+      role: message.role,
+      content: textFromMessageContent(message.content),
+    })),
+    max_tokens: maxTokens,
+  };
+  if (ENV.llmSupportsResponseFormat) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch(resolveScriptStructureChatUrl(), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Script structure agent invoke failed: ${response.status} ${body}`
+    );
+  }
+
+  const data = (await response.json()) as OpenAICompatibleMessageResponse;
+  const text = textFromLLMContent(data.choices?.[0]?.message?.content).trim();
+  return { text, modelLabel: data.model || model };
+}
+
+async function invokeScriptStructureAgent(
+  messages: Message[],
+  maxTokens: number
+): Promise<{ text: string; modelLabel: string }> {
+  if (!hasScriptStructureAgentConfig()) {
+    return invokeAgent(messages, maxTokens);
+  }
+  if (shouldUseScriptStructureClaudeChannel()) {
+    return invokeScriptStructureClaudeMessages(messages, maxTokens);
+  }
+  return invokeScriptStructureOpenAICompatible(messages, maxTokens);
 }
 
 function cleanList(values: unknown, limit = 8): string[] {
@@ -670,9 +860,10 @@ export async function synthesizeShotList(params: {
   /** 共鸣上下文（用户意图 / 情绪 + 文学声音）。缺省时合成行为与之前完全一致。 */
   resonanceContext?: string;
 }): Promise<ShotListPayload | { error: string; configured: boolean; modelLabel: string }> {
-  if (!ENV.forgeApiKey) {
+  if (!ENV.forgeApiKey && !hasScriptStructureAgentConfig()) {
     return {
-      error: "本地未配置 LLM API Key，无法整理创作素材。",
+      error:
+        "本地未配置 LLM API Key，无法整理创作素材。请配置 BUILT_IN_FORGE_API_KEY 或 SCRIPT_STRUCTURE_AGENT_API_KEY。",
       configured: false,
       modelLabel: "未配置 API",
     };
@@ -942,7 +1133,7 @@ export async function synthesizeShotList(params: {
     .filter(line => line !== "")
     .join("\n");
 
-  const { text, modelLabel } = await invokeAgent(
+  const { text, modelLabel } = await invokeScriptStructureAgent(
     [
       { role: "system", content: systemPrompt },
       ...(params.resonanceContext

@@ -51,6 +51,21 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain("onUpdateAllShotsField");
     expect(boardSource).toContain("导演理由");
     expect(boardSource).toContain("ShotMaterialBasket");
+    expect(boardSource).toContain('useState<"full" | "simple">("simple")');
+    expect(boardSource).toContain("setViewMode(\"simple\")");
+    expect(boardSource).toContain("openFullShot");
+    expect(boardSource).toContain("storyboardScriptText");
+    expect(boardSource).toContain("snap-y snap-mandatory");
+    expect(boardSource).not.toContain("snap-x snap-mandatory");
+    expect(
+      readFileSync(
+        resolve(
+          root,
+          "client/src/features/storyAgent/views/ShotMaterialBasket.tsx"
+        ),
+        "utf8"
+      )
+    ).toContain("视频的生成、预览和采用都在故事版看板完成");
     expect(boardSource).toContain("confirmFictionStoryCards");
     expect(boardSource).toContain("pendingIntentDraft");
     expect(boardSource).toContain("hasPendingFictionIntent");

@@ -179,7 +179,7 @@ export default function PromptTablePanel() {
         storyId: activeStoryId,
         nodeId: candidateNodeId,
         targetStableShotId:
-          editScope === "shot" ? selectedShot?.stableShotId ?? null : null,
+          editScope === "shot" ? (selectedShot?.stableShotId ?? null) : null,
         content: nextValue,
         weight: nextWeight,
         reason: `creation-editor:${row.dimension}`,
@@ -337,16 +337,16 @@ export default function PromptTablePanel() {
 
   return (
     <aside
-      className="monitor-panel flex h-full min-h-0 flex-col overflow-hidden"
+      className="creation-board-panel flex h-full min-h-0 flex-col overflow-hidden"
       aria-label="镜头设计表"
       data-testid="analysis-prompt-table-panel"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <ListFilter className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">镜头设计表</h2>
+      <div className="creation-board-panel-header shrink-0 justify-between">
+        <div className="creation-board-panel-title">
+          <ListFilter className="creation-board-panel-icon" />
+          <h2 className="creation-board-panel-title-text">镜头设计表</h2>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="creation-board-panel-status">
           {shotLabel(selectedShotNo)}
         </span>
       </div>
@@ -445,8 +445,8 @@ export default function PromptTablePanel() {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Focus className="h-3.5 w-3.5" />
-                    仅 {shotLabel(selectedShot.shotNo)}
+                    <Focus className="h-3.5 w-3.5" />仅{" "}
+                    {shotLabel(selectedShot.shotNo)}
                   </button>
                   <button
                     type="button"

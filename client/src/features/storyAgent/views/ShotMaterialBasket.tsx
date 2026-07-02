@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Loader2, Play, Video } from "lucide-react";
+import type { CSSProperties } from "react";
+import {
+  Check,
+  ChevronDown,
+  Loader2,
+  Play,
+  ScanLine,
+  Video,
+} from "lucide-react";
 import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
+import {
+  cropFrameQuadrant,
+  FRAME_QUADRANTS,
+  type FrameQuadrant,
+} from "@/features/creationEditor/video/frameCrop";
 import {
   videoTakeAffordance,
   videoTakeErrorMessage,
@@ -23,6 +36,18 @@ function shotLabel(shot: CreationEditorShot) {
   return shot.shotKey || `SH${String(shot.shotNo).padStart(2, "0")}`;
 }
 
+function quadrantImageStyle(quadrant: FrameQuadrant): CSSProperties {
+  const right = quadrant === "top-right" || quadrant === "bottom-right";
+  const bottom = quadrant === "bottom-left" || quadrant === "bottom-right";
+  return {
+    width: "200%",
+    height: "200%",
+    maxWidth: "none",
+    left: right ? "-100%" : "0",
+    top: bottom ? "-100%" : "0",
+  };
+}
+
 type ShotMaterialBasketProps = {
   shot: CreationEditorShot;
   previousShots: CreationEditorShot[];
@@ -41,6 +66,14 @@ type ShotMaterialBasketProps = {
     takeId: number;
     plannedDurationSec: number;
   }) => Promise<void>;
+  onPromoteFrameCrop?: (input: {
+    shotNo: number;
+    imageBase64: string;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    parentImageId?: number;
+    quadrant?: FrameQuadrant;
+  }) => Promise<{ imageId: number; imageUrl: string }>;
+  promotingFrameCrop?: boolean;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
 };
 
@@ -51,6 +84,8 @@ export default function ShotMaterialBasket({
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
   onAdoptVideoTake,
+  onPromoteFrameCrop,
+  promotingFrameCrop = false,
   shotVideoProviderStatus = null,
 }: ShotMaterialBasketProps) {
   const rows = buildPromptTable(shot, { previousShots });
@@ -67,9 +102,16 @@ export default function ShotMaterialBasket({
   const [videoPrompt, setVideoPrompt] = useState(recipe.finalPrompt);
   const [motion, setMotion] = useState<"low" | "high">(suggestedMotion);
   const [adoptingTakeId, setAdoptingTakeId] = useState<number | null>(null);
+  const [busyQuadrant, setBusyQuadrant] = useState<FrameQuadrant | null>(null);
+  const [selectedQuadrant, setSelectedQuadrant] =
+    useState<FrameQuadrant | null>(null);
+  const [frameCropError, setFrameCropError] = useState<string | null>(null);
   useEffect(() => {
     setVideoPrompt(recipe.finalPrompt);
     setMotion(suggestedMotion);
+    setBusyQuadrant(null);
+    setSelectedQuadrant(null);
+    setFrameCropError(null);
   }, [recipe.finalPrompt, shot.stableShotId, suggestedMotion]);
   const hasTraceableKeyframe = typeof shot.imageId === "number";
   const hasSelectedKeyframe =
@@ -86,6 +128,12 @@ export default function ShotMaterialBasket({
   const providerMissing = shotVideoProviderStatus?.missing ?? [];
   const providerWarnings = shotVideoProviderStatus?.warnings ?? [];
   const providerReady = shotVideoProviderStatus?.ready ?? false;
+  const candidateFrameUrl = hasSelectedKeyframe
+    ? ""
+    : shot.imageUrl || shot.promptRun?.imageUrl || recipe.sourceImageUrl || "";
+  const candidateFrameId = shot.imageId ?? shot.promptRun?.imageId ?? undefined;
+  const canPickFrameCandidate =
+    Boolean(onPromoteFrameCrop && candidateFrameUrl) && !hasSelectedKeyframe;
   const canGenerate =
     hasTraceableKeyframe &&
     hasSelectedKeyframe &&
@@ -133,6 +181,29 @@ export default function ShotMaterialBasket({
     }
   };
 
+  const selectCandidateFrame = async (quadrant: FrameQuadrant) => {
+    if (!onPromoteFrameCrop || !candidateFrameUrl) return;
+    setFrameCropError(null);
+    setBusyQuadrant(quadrant);
+    try {
+      const cropped = await cropFrameQuadrant(candidateFrameUrl, quadrant);
+      await onPromoteFrameCrop({
+        shotNo: shot.shotNo,
+        imageBase64: cropped.imageBase64,
+        mimeType: cropped.mimeType,
+        parentImageId: candidateFrameId,
+        quadrant,
+      });
+      setSelectedQuadrant(quadrant);
+    } catch (error) {
+      setFrameCropError(
+        error instanceof Error ? error.message : "候选首帧保存失败"
+      );
+    } finally {
+      setBusyQuadrant(null);
+    }
+  };
+
   return (
     <div
       className="mt-2 rounded-md border p-2"
@@ -173,14 +244,16 @@ export default function ShotMaterialBasket({
           ) : (
             <Video className="h-3 w-3" />
           )}
-          {processingTake
-            ? "刷新视频"
-            : generating
-              ? "提交中"
-              : generateLabel}
+          {processingTake ? "刷新视频" : generating ? "提交中" : generateLabel}
         </button>
       </div>
       <div className="mt-2 grid gap-2">
+        <p
+          className="rounded-md border px-2 py-1.5 text-[9px] leading-relaxed text-muted-foreground"
+          style={{ borderColor: "var(--panel-border)" }}
+        >
+          当前主图会同步到动态分镜作占位；视频的生成、预览和采用都在故事版看板完成。
+        </p>
         <label className="grid gap-1 text-[9px] font-medium text-muted-foreground">
           导演输入（提交时自动看图）
           <textarea
@@ -256,6 +329,69 @@ export default function ShotMaterialBasket({
                   }`}
         </div>
       </div>
+      {canPickFrameCandidate ? (
+        <div
+          className="mt-2 rounded-md border p-2"
+          style={{ borderColor: "var(--panel-border)" }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <ScanLine className="h-3.5 w-3.5 text-nayin-bright" />
+              <span className="text-[9px] font-semibold text-foreground">
+                四宫格选首帧
+              </span>
+            </div>
+            <span className="text-[8px] text-muted-foreground">
+              选择后进入视频阶段
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {FRAME_QUADRANTS.map(quadrant => {
+              const busy = busyQuadrant === quadrant.value;
+              const selected = selectedQuadrant === quadrant.value;
+              return (
+                <button
+                  key={quadrant.value}
+                  type="button"
+                  disabled={promotingFrameCrop || busyQuadrant != null}
+                  onClick={() => void selectCandidateFrame(quadrant.value)}
+                  className="group min-w-0 overflow-hidden rounded-md border bg-background text-left transition hover:border-nayin-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-65"
+                  style={{ borderColor: "var(--panel-border)" }}
+                  aria-label={`选择${quadrant.label}作为当前主图`}
+                >
+                  <div className="relative aspect-video overflow-hidden bg-black/5">
+                    <img
+                      src={candidateFrameUrl}
+                      alt={`${shotLabel(shot)} ${quadrant.label}候选首帧`}
+                      className="absolute object-fill transition-opacity group-hover:opacity-95"
+                      style={quadrantImageStyle(quadrant.value)}
+                      loading="eager"
+                    />
+                  </div>
+                  <span className="flex h-7 items-center justify-between gap-1 border-t px-2 text-[8.5px]">
+                    <span className="font-medium text-foreground">
+                      {quadrant.label}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-nayin-bright">
+                      {busy ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : selected ? (
+                        <Check className="h-3 w-3" />
+                      ) : null}
+                      {busy ? "保存中" : selected ? "已选" : "设为主图"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {frameCropError ? (
+            <p className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[9px] text-destructive">
+              {frameCropError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {latestTake ? (
         <div className="mt-2 space-y-1.5">
           {shot.videoTakes?.slice(0, 3).map(take => {

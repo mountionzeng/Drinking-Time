@@ -1,18 +1,18 @@
-import { useShallow } from 'zustand/react/shallow';
-import { buildPromptPool, type PromptFragment } from '../promptPool';
+import { useShallow } from "zustand/react/shallow";
+import { buildPromptPool, type PromptFragment } from "../promptPool";
 import type {
   ChatMessage,
   GeneratedScript,
   SelectionState,
   StoryCard,
   VisualCanvasItem,
-} from '../types';
-import { useStorySpine, type StorySpineState } from './storySpine';
-import type { StoryPanel } from '@/features/analysis/storyPanels';
+} from "../types";
+import { useStorySpine, type StorySpineState } from "./storySpine";
+import type { StoryPanel } from "@/features/analysis/storyPanels";
 
-export type StoryChatCardRef = Pick<StoryCard, 'id' | 'emotion'>;
+export type StoryChatCardRef = Pick<StoryCard, "id" | "emotion">;
 
-let lastChatCardRefsKey = '';
+let lastChatCardRefsKey = "";
 let lastChatCardRefs: StoryChatCardRef[] = [];
 
 function listKey(parts: unknown[]): string {
@@ -20,10 +20,10 @@ function listKey(parts: unknown[]): string {
 }
 
 export function selectChatCardRefs(state: StorySpineState): StoryChatCardRef[] {
-  const key = listKey(state.cards.map((card) => [card.id, card.emotion]));
+  const key = listKey(state.cards.map(card => [card.id, card.emotion]));
   if (key === lastChatCardRefsKey) return lastChatCardRefs;
   lastChatCardRefsKey = key;
-  lastChatCardRefs = state.cards.map((card) => ({
+  lastChatCardRefs = state.cards.map(card => ({
     id: card.id,
     emotion: card.emotion,
   }));
@@ -33,7 +33,7 @@ export function selectChatCardRefs(state: StorySpineState): StoryChatCardRef[] {
 function visualCanvasAnalysisKey(item: VisualCanvasItem): unknown[] {
   return [
     item.id,
-    item.cardId ?? '',
+    item.cardId ?? "",
     item.analysis.objective,
     item.analysis.aesthetic,
     item.analysis.visualStyle,
@@ -47,7 +47,7 @@ function visualCanvasAnalysisKey(item: VisualCanvasItem): unknown[] {
   ];
 }
 
-let lastPromptPoolKey = '';
+let lastPromptPoolKey = "";
 let lastPromptPool: PromptFragment[] = [];
 
 export function selectPromptPool(state: StorySpineState): PromptFragment[] {
@@ -58,8 +58,12 @@ export function selectPromptPool(state: StorySpineState): PromptFragment[] {
   return lastPromptPool;
 }
 
-export function selectLatestScript(state: StorySpineState): GeneratedScript | null {
-  return state.scripts.length > 0 ? state.scripts[state.scripts.length - 1] : null;
+export function selectLatestScript(
+  state: StorySpineState
+): GeneratedScript | null {
+  return state.scripts.length > 0
+    ? state.scripts[state.scripts.length - 1]
+    : null;
 }
 
 export function selectHasStoryWorkspaceData(state: StorySpineState): boolean {
@@ -75,7 +79,9 @@ export type StoryPanelVisibilitySlice = {
   toggleVisibleStoryPanel: (panelId: StoryPanel) => void;
 };
 
-export function selectStoryPanelVisibility(state: StorySpineState): StoryPanelVisibilitySlice {
+export function selectStoryPanelVisibility(
+  state: StorySpineState
+): StoryPanelVisibilitySlice {
   return {
     visibleStoryPanels: state.visibleStoryPanels,
     toggleVisibleStoryPanel: state.toggleVisibleStoryPanel,
@@ -87,7 +93,7 @@ export function useHasStoryWorkspaceData() {
 }
 
 export function useVisibleStoryPanels() {
-  return useStorySpine((state) => state.visibleStoryPanels);
+  return useStorySpine(state => state.visibleStoryPanels);
 }
 
 export function useStoryPanelVisibility() {
@@ -100,21 +106,29 @@ export type StoryAgentChatSlice = {
   isReplying: boolean;
   activeStoryId: number | null;
   remoteStoryId?: number;
-  saveStatus: StorySpineState['saveStatus'];
+  storyTitle?: string;
+  storyLogline?: string;
+  storyShotsCount: number;
+  saveStatus: StorySpineState["saveStatus"];
   lastSavedAt?: number;
   returningGreeting: string | null;
-  confirmedIntent: StorySpineState['confirmedIntent'];
-  pendingIntentDraft: StorySpineState['pendingIntentDraft'];
+  confirmedIntent: StorySpineState["confirmedIntent"];
+  pendingIntentDraft: StorySpineState["pendingIntentDraft"];
   activeSelection: SelectionState | null;
 };
 
-export function selectStoryAgentChatSlice(state: StorySpineState): StoryAgentChatSlice {
+export function selectStoryAgentChatSlice(
+  state: StorySpineState
+): StoryAgentChatSlice {
   return {
     messages: state.messages,
     cardRefs: selectChatCardRefs(state),
     isReplying: state.isReplying,
     activeStoryId: state.activeStoryId,
     remoteStoryId: state.remoteStoryId,
+    storyTitle: state.storyTitle,
+    storyLogline: state.storyLogline,
+    storyShotsCount: state.storyShots.length,
     saveStatus: state.saveStatus,
     lastSavedAt: state.lastSavedAt,
     returningGreeting: state.returningGreeting,
@@ -184,15 +198,13 @@ export function usePromptPool() {
 }
 
 export function useConfirmedIntent() {
-  return useStorySpine((state) => state.confirmedIntent);
+  return useStorySpine(state => state.confirmedIntent);
 }
 
 export function useActiveStoryId() {
-  return useStorySpine((state) => state.activeStoryId);
+  return useStorySpine(state => state.activeStoryId);
 }
 
 export function useSetConfirmedIntent() {
-  return useStorySpine(
-    (state) => state.setConfirmedIntent,
-  );
+  return useStorySpine(state => state.setConfirmedIntent);
 }

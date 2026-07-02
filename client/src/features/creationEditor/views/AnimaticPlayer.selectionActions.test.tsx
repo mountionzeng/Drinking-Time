@@ -113,11 +113,11 @@ describe("AnimaticPlayer selection actions", () => {
     );
 
     expect(buttonHtmlAround(html, "框选问小酌")).not.toMatch(
-      /\sdisabled(=|\s|>)/,
+      /\sdisabled(=|\s|>)/
     );
   });
 
-  it("shows failed video takes as history without making them current", () => {
+  it("keeps failed, unadopted takes out of the animatic editing surface", () => {
     const shot = {
       shotNo: 1,
       shotKey: "SH01",
@@ -151,9 +151,45 @@ describe("AnimaticPlayer selection actions", () => {
       />
     );
 
-    expect(html).toContain("Take 17");
-    expect(html).toContain("MJ 未通过提示词或首帧审核");
+    expect(html).not.toContain("视频预览和采用在故事版看板完成");
+    expect(html).not.toContain("这一镜：");
+    expect(html).not.toContain("运动/声音：");
+    expect(html).not.toContain("还没有已采用视频");
+    expect(html).not.toContain("Take 17");
+    expect(html).not.toContain("MJ 未通过提示词或首帧审核");
     expect(html).not.toContain("当前 Take 17");
     expect(html).not.toContain("当前视频：failed");
+  });
+
+  it("plays the whole film with text fallback when a shot has no media", () => {
+    const shot = {
+      shotNo: 2,
+      shotKey: "SH02",
+      stableShotId: "shot-002",
+      intent: "建立世界规则",
+      subject: "猫作为主角的日常空间",
+      action: "穿过安静的房间",
+      dialogue: "",
+      rationale: "让观众理解这个世界的气质",
+      videoTakes: [],
+    } as unknown as CreationEditorShot;
+
+    const html = renderToStaticMarkup(
+      <AnimaticPlayer
+        storyId={36}
+        shots={[shot]}
+        selectedShotNo={2}
+        onShotEnter={vi.fn()}
+        isPlaying={false}
+        onPlayingChange={vi.fn()}
+        onSelectContext={vi.fn()}
+      />
+    );
+
+    expect(html).toContain('aria-label="播放全片"');
+    expect(html).toContain("暂无画面素材，播放时先以文字镜头占位。");
+    expect(html).toContain("建立世界规则");
+    expect(html).toContain("猫作为主角的日常空间");
+    expect(html).not.toContain("动态分镜待出图");
   });
 });

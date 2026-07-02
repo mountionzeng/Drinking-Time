@@ -60,6 +60,7 @@ import {
   creationTimelineShotId,
   type CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
+import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { ArtRecipeDNA } from "@shared/artDirection";
@@ -277,7 +278,9 @@ export function latestStoryboardFrames(
     .map(([shotNo, image]) => ({ shotNo, image }));
 }
 
-function narrativeChoicesForIntent(purpose?: string | null): NarrativeStyleChoice[] {
+function narrativeChoicesForIntent(
+  purpose?: string | null
+): NarrativeStyleChoice[] {
   if (purpose === "fiction") return FICTION_NARRATIVE_STYLES;
   if (purpose === "linkedin_job_search") return FALLBACK_NARRATIVE_STYLES;
   return GENERAL_NARRATIVE_STYLES;
@@ -315,7 +318,10 @@ type ArtLibraryVersionView = {
   }>;
 };
 
-function artChoiceKey(source: "preset" | "library", id: string | number): string {
+function artChoiceKey(
+  source: "preset" | "library",
+  id: string | number
+): string {
   return `${source}:${id}`;
 }
 
@@ -477,7 +483,9 @@ function GenerationSettingsPanel({
               剧本
             </span>
           </div>
-          <span className="text-[8px] text-muted-foreground">生成故事版时使用</span>
+          <span className="text-[8px] text-muted-foreground">
+            生成故事版时使用
+          </span>
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
           {narrativeChoices.map(choice => (
@@ -588,8 +596,12 @@ function GenerationSettingsPanel({
                 }}
                 className="min-w-[170px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
-                  borderColor: selected ? "var(--nayin-accent)" : "var(--panel-border)",
-                  background: selected ? "var(--nayin-glow)" : "var(--panel-header)",
+                  borderColor: selected
+                    ? "var(--nayin-accent)"
+                    : "var(--panel-border)",
+                  background: selected
+                    ? "var(--nayin-glow)"
+                    : "var(--panel-header)",
                 }}
                 title={
                   canBindArtLibrary
@@ -610,7 +622,8 @@ function GenerationSettingsPanel({
                   )}
                 </div>
                 <p className="mt-1 text-[8.5px] text-muted-foreground">
-                  v{version.version.version} · {version.library.kind === "system" ? "系统" : "用户"}
+                  v{version.version.version} ·{" "}
+                  {version.library.kind === "system" ? "系统" : "用户"}
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {libraryTokens(version, 4).map(token => (
@@ -672,6 +685,21 @@ function StoryboardShotField({
   );
 }
 
+function storyboardScriptText(shot: StoryShot) {
+  const parts = [shot.intent, shot.subject, shot.action]
+    .map(part => part?.trim())
+    .filter(Boolean);
+  return (
+    parts.join("；") ||
+    shot.sourceCardContent?.trim() ||
+    "等待剧本整理这一镜"
+  );
+}
+
+function storyboardDialogueText(shot: StoryShot) {
+  return shot.dialogue?.trim() || "无台词";
+}
+
 export function StoryboardReviewBoard({
   images,
   shots,
@@ -687,6 +715,8 @@ export function StoryboardReviewBoard({
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
   onAdoptVideoTake,
+  onPromoteFrameCrop,
+  promotingFrameCropShotNo = null,
   shotVideoProviderStatus = null,
   className = "",
 }: {
@@ -719,10 +749,19 @@ export function StoryboardReviewBoard({
     takeId: number;
     plannedDurationSec: number;
   }) => Promise<void>;
+  onPromoteFrameCrop?: (input: {
+    shotNo: number;
+    imageBase64: string;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    parentImageId?: number;
+    quadrant?: FrameQuadrant;
+  }) => Promise<{ imageId: number; imageUrl: string }>;
+  promotingFrameCropShotNo?: number | null;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
   className?: string;
 }) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"full" | "simple">("simple");
   const boardRef = useRef<HTMLElement | null>(null);
   const frames = useMemo(
     () => latestStoryboardFrames(images, shots),
@@ -756,257 +795,404 @@ export function StoryboardReviewBoard({
     const target = boardRef.current?.querySelector<HTMLElement>(
       `[data-storyboard-shot-no="${selectedShotNo}"]`
     );
-    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [selectedShotNo]);
+    target?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+  }, [selectedShotNo, viewMode]);
   if (!shouldShow) return null;
+
+  const openFullShot = (shotNo: number) => {
+    onSelectShot?.(shotNo);
+    setViewMode("full");
+  };
 
   return (
     <section
       ref={boardRef}
-      className={`rounded-md border p-2 ${className}`.trim()}
-      style={{
-        borderColor: "var(--panel-border)",
-        background: "var(--panel-header)",
-      }}
+      className={`creation-board-panel h-full min-h-0 flex flex-col ${className}`.trim()}
       aria-label="故事版看板"
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <Clapperboard className="h-3.5 w-3.5 text-nayin-bright" />
-          <span className="text-[10px] font-semibold text-foreground">
-            故事版看板
-          </span>
+      <div className="creation-board-panel-header shrink-0 justify-between">
+        <div className="creation-board-panel-title">
+          <Clapperboard className="creation-board-panel-icon" />
+          <span className="creation-board-panel-title-text">故事版看板</span>
         </div>
-        <span className="text-[9px] text-muted-foreground">
-          {isGeneratingScript
-            ? "生成故事版中"
-            : `${shots.length} 镜 · ${frames.length} 张图`}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="creation-board-panel-status">
+            {isGeneratingScript
+              ? "生成故事版中"
+              : `${shots.length} 镜 · ${frames.length} 张图`}
+          </span>
+          {shots.length > 0 ? (
+            <span
+              className="inline-flex rounded-full border p-0.5 text-[10px]"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--background)",
+              }}
+              aria-label="故事版看板视图"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("full")}
+                className="rounded-full px-2 py-0.5 transition"
+                style={{
+                  background:
+                    viewMode === "full"
+                      ? "var(--nayin-accent)"
+                      : "transparent",
+                  color:
+                    viewMode === "full"
+                      ? "var(--background)"
+                      : "var(--muted-foreground)",
+                }}
+              >
+                完整
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("simple")}
+                className="rounded-full px-2 py-0.5 transition"
+                style={{
+                  background:
+                    viewMode === "simple"
+                      ? "var(--nayin-accent)"
+                      : "transparent",
+                  color:
+                    viewMode === "simple"
+                      ? "var(--background)"
+                      : "var(--muted-foreground)",
+                }}
+              >
+                简读
+              </button>
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      {shots.length > 0 ? (
-        <div className="grid gap-2">
-          {shots.map((shot, index) => {
-            const image = frameByShotNo.get(shot.shotNo);
-            const creationShot = creationShotByNo.get(shot.shotNo);
-            const title = shortText(
-              shot.intent,
-              shortText(shot.subject, "关键镜头")
-            );
-            const body = [shot.action, shot.dialogue]
-              .filter(Boolean)
-              .join(" · ");
-            const selected = selectedShotNo === shot.shotNo;
-            const shotTimelineId = creationShot
-              ? creationTimelineShotId(creationShot)
-              : (shot.stableShotId ??
-                shot.shotIdentity ??
-                `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
-            const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
-            const showMaterialBasket =
-              Boolean(creationShot) &&
-              (selected ||
-                generatingVideoShotNo === shot.shotNo ||
-                (creationShot?.videoTakes?.length ?? 0) > 0);
-            const commit = (field: StoryShotEditableField, value: string) => {
-              onUpdateShotField?.(index, field, value);
-            };
-            return (
-              <article
-                key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
-                data-storyboard-shot-no={shot.shotNo}
-                className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
-                style={{
-                  borderColor: selected
-                    ? "var(--nayin-accent)"
-                    : "var(--panel-border)",
-                  background: selected
-                    ? "var(--nayin-glow)"
-                    : "var(--background)",
-                }}
-                onClick={() => onSelectShot?.(shot.shotNo)}
-              >
-                <div
-                  className="relative block overflow-hidden rounded-md border cursor-pointer"
+      <div className="creation-board-panel-body min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+        {shots.length > 0 && viewMode === "simple" ? (
+          <div className="grid snap-y snap-mandatory gap-3 pb-2 pr-1">
+            {shots.map((shot, index) => {
+              const image = frameByShotNo.get(shot.shotNo);
+              const selected = selectedShotNo === shot.shotNo;
+              const title = shortText(
+                shot.intent,
+                shortText(shot.subject, "关键镜头")
+              );
+              return (
+                <article
+                  key={`simple-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
+                  data-storyboard-shot-no={shot.shotNo}
+                  className="flex min-h-0 snap-start flex-col overflow-hidden rounded-md border bg-background transition"
                   style={{
-                    borderColor: "var(--panel-border)",
-                    background: "var(--panel-header)",
+                    borderColor: selected
+                      ? "var(--nayin-accent)"
+                      : "var(--panel-border)",
+                    boxShadow: selected
+                      ? "0 0 0 1px var(--nayin-accent-dim)"
+                      : "none",
                   }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`查看 SH${String(shot.shotNo).padStart(2, "0")} 画面`}
-                  onClick={() => {
-                    if (image?.imageUrl) setPreviewImageUrl(image.imageUrl);
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && image?.imageUrl)
-                      setPreviewImageUrl(image.imageUrl);
-                  }}
+                  onClick={() => openFullShot(shot.shotNo)}
                 >
-                  {image?.imageUrl ? (
-                    <img
-                      src={image.imageUrl}
-                      alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
-                      className="aspect-video h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex aspect-video h-full w-full items-center justify-center gap-1.5 text-[9px] text-muted-foreground">
-                      {isGeneratingScript ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <ImagePlus className="h-3 w-3" />
-                      )}
-                      待生成关键帧
-                    </div>
-                  )}
-                  <span className="absolute left-1.5 top-1.5 rounded-full bg-background/90 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground shadow-sm">
-                    SH{String(shot.shotNo).padStart(2, "0")}
-                  </span>
-                </div>
-
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center justify-between gap-1.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span
-                        className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                        style={{ borderColor: "var(--panel-border)" }}
-                      >
-                        {shortText(shot.beat, "故事节点")}
+                  <button
+                    type="button"
+                    className="relative block w-full overflow-hidden bg-muted text-left"
+                    onClick={event => {
+                      event.stopPropagation();
+                      openFullShot(shot.shotNo);
+                    }}
+                    aria-label={`打开 SH${String(shot.shotNo).padStart(2, "0")} 完整画面`}
+                  >
+                    {image?.imageUrl ? (
+                      <img
+                        src={image.imageUrl}
+                        alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
+                        className="aspect-video w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex aspect-video w-full items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
+                        {isGeneratingScript ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ImagePlus className="h-3.5 w-3.5" />
+                        )}
+                        待生成关键帧
+                      </div>
+                    )}
+                    <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-foreground shadow-sm">
+                      SH{String(shot.shotNo).padStart(2, "0")}
+                    </span>
+                  </button>
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+                    <button
+                      type="button"
+                      className="block text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openFullShot(shot.shotNo);
+                      }}
+                    >
+                      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+                        <ScrollText className="h-3 w-3 text-primary" />
+                        剧本
+                      </div>
+                      <p className="text-sm font-medium leading-relaxed text-foreground">
+                        {storyboardScriptText(shot)}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      className="mt-auto block border-t pt-3 text-left text-[12px] leading-relaxed text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openFullShot(shot.shotNo);
+                      }}
+                    >
+                      <span className="mb-1 block text-[10px] font-semibold text-muted-foreground">
+                        台词
                       </span>
-                      {image ? (
+                      {storyboardDialogueText(shot)}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : shots.length > 0 ? (
+          <div className="grid gap-2">
+            {shots.map((shot, index) => {
+              const image = frameByShotNo.get(shot.shotNo);
+              const creationShot = creationShotByNo.get(shot.shotNo);
+              const title = shortText(
+                shot.intent,
+                shortText(shot.subject, "关键镜头")
+              );
+              const body = [shot.action, shot.dialogue]
+                .filter(Boolean)
+                .join(" · ");
+              const selected = selectedShotNo === shot.shotNo;
+              const shotTimelineId = creationShot
+                ? creationTimelineShotId(creationShot)
+                : (shot.stableShotId ??
+                  shot.shotIdentity ??
+                  `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
+              const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
+              const showMaterialBasket =
+                Boolean(creationShot) &&
+                (selected ||
+                  generatingVideoShotNo === shot.shotNo ||
+                  (creationShot?.videoTakes?.length ?? 0) > 0);
+              const commit = (field: StoryShotEditableField, value: string) => {
+                onUpdateShotField?.(index, field, value);
+              };
+              return (
+                <article
+                  key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
+                  data-storyboard-shot-no={shot.shotNo}
+                  className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
+                  style={{
+                    borderColor: selected
+                      ? "var(--nayin-accent)"
+                      : "var(--panel-border)",
+                    background: selected
+                      ? "var(--nayin-glow)"
+                      : "var(--background)",
+                  }}
+                  onClick={() => onSelectShot?.(shot.shotNo)}
+                >
+                  <div
+                    className="relative block overflow-hidden rounded-md border cursor-pointer"
+                    style={{
+                      borderColor: "var(--panel-border)",
+                      background: "var(--panel-header)",
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`查看 SH${String(shot.shotNo).padStart(2, "0")} 画面`}
+                    onClick={() => {
+                      if (image?.imageUrl) setPreviewImageUrl(image.imageUrl);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && image?.imageUrl)
+                        setPreviewImageUrl(image.imageUrl);
+                    }}
+                  >
+                    {image?.imageUrl ? (
+                      <img
+                        src={image.imageUrl}
+                        alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
+                        className="aspect-video h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex aspect-video h-full w-full items-center justify-center gap-1.5 text-[9px] text-muted-foreground">
+                        {isGeneratingScript ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <ImagePlus className="h-3 w-3" />
+                        )}
+                        待生成关键帧
+                      </div>
+                    )}
+                    <span className="absolute left-1.5 top-1.5 rounded-full bg-background/90 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground shadow-sm">
+                      SH{String(shot.shotNo).padStart(2, "0")}
+                    </span>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span
                           className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
                           style={{ borderColor: "var(--panel-border)" }}
                         >
-                          {generatedStatusLabel(image.status)}
+                          {shortText(shot.beat, "故事节点")}
                         </span>
+                        {image ? (
+                          <span
+                            className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
+                            style={{ borderColor: "var(--panel-border)" }}
+                          >
+                            {generatedStatusLabel(image.status)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {onAddShotToTimeline ? (
+                        <button
+                          type="button"
+                          disabled={isOnTimeline}
+                          onClick={event => {
+                            event.stopPropagation();
+                            onAddShotToTimeline(shot.shotNo, shotTimelineId);
+                            onSelectShot?.(shot.shotNo);
+                          }}
+                          className="inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[8.5px] font-medium transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
+                          style={{ borderColor: "var(--panel-border)" }}
+                          aria-label={
+                            isOnTimeline
+                              ? `SH${String(shot.shotNo).padStart(2, "0")} 已在时间轴`
+                              : `把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`
+                          }
+                        >
+                          {isOnTimeline ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : (
+                            <ListPlus className="h-3 w-3" />
+                          )}
+                          {isOnTimeline ? "已在时间轴" : "加入时间轴"}
+                        </button>
                       ) : null}
                     </div>
-                    {onAddShotToTimeline ? (
-                      <button
-                        type="button"
-                        disabled={isOnTimeline}
-                        onClick={event => {
-                          event.stopPropagation();
-                          onAddShotToTimeline(shot.shotNo, shotTimelineId);
-                          onSelectShot?.(shot.shotNo);
-                        }}
-                        className="inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[8.5px] font-medium transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
-                        style={{ borderColor: "var(--panel-border)" }}
-                        aria-label={
-                          isOnTimeline
-                            ? `SH${String(shot.shotNo).padStart(2, "0")} 已在时间轴`
-                            : `把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`
+                    <h4 className="mt-1 line-clamp-1 text-[11px] font-semibold text-foreground">
+                      {title}
+                    </h4>
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+                      {body ||
+                        shot.sourceCardContent ||
+                        "等待导演把这一镜拆成可拍的动作"}
+                    </p>
+                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                      <StoryboardShotField
+                        label="镜头任务"
+                        value={shot.intent || shot.subject}
+                        placeholder="这一镜要让观众明白什么"
+                        onCommit={value => commit("intent", value)}
+                      />
+                      <StoryboardShotField
+                        label="画面动作"
+                        value={shot.action}
+                        placeholder="画面里正在发生什么"
+                        onCommit={value => commit("action", value)}
+                      />
+                      <StoryboardShotField
+                        label="字幕/旁白"
+                        value={shot.dialogue}
+                        placeholder="台词、字幕或画外音"
+                        onCommit={value => commit("dialogue", value)}
+                      />
+                      <StoryboardShotField
+                        label="运镜"
+                        value={shot.cameraMove}
+                        placeholder="推、拉、摇、移或静态"
+                        onCommit={value => commit("cameraMove", value)}
+                      />
+                      <StoryboardShotField
+                        label="声音"
+                        value={shot.sound}
+                        placeholder="背景音、气口或音乐进入点"
+                        onCommit={value => commit("sound", value)}
+                      />
+                      <StoryboardShotField
+                        label="接后"
+                        value={shot.transitionOut}
+                        placeholder="如何接到下一镜"
+                        onCommit={value => commit("transitionOut", value)}
+                      />
+                      <div className="sm:col-span-2">
+                        <StoryboardShotField
+                          label="导演理由"
+                          value={shot.rationale}
+                          rows={2}
+                          placeholder={
+                            image?.prompt || "为什么这一镜能证明这个求职优势"
+                          }
+                          onCommit={value => commit("rationale", value)}
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <StoryboardShotField
+                          label="图生视频提示"
+                          value={shot.videoPrompt}
+                          rows={2}
+                          placeholder="这一镜的动态变化、相机运动、开始和结束状态"
+                          onCommit={value => commit("videoPrompt", value)}
+                        />
+                      </div>
+                    </div>
+                    {showMaterialBasket && creationShot ? (
+                      <ShotMaterialBasket
+                        shot={creationShot}
+                        previousShots={
+                          previousCreationShotsByNo.get(creationShot.shotNo) ??
+                          []
                         }
-                      >
-                        {isOnTimeline ? (
-                          <CheckCircle2 className="h-3 w-3" />
-                        ) : (
-                          <ListPlus className="h-3 w-3" />
-                        )}
-                        {isOnTimeline ? "已在时间轴" : "加入时间轴"}
-                      </button>
+                        generating={
+                          generatingVideoShotNo === creationShot.shotNo
+                        }
+                        onGenerateShotVideo={onGenerateShotVideo}
+                        onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                        onAdoptVideoTake={onAdoptVideoTake}
+                        onPromoteFrameCrop={onPromoteFrameCrop}
+                        promotingFrameCrop={
+                          promotingFrameCropShotNo === creationShot.shotNo
+                        }
+                        shotVideoProviderStatus={shotVideoProviderStatus}
+                      />
                     ) : null}
                   </div>
-                  <h4 className="mt-1 line-clamp-1 text-[11px] font-semibold text-foreground">
-                    {title}
-                  </h4>
-                  <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
-                    {body ||
-                      shot.sourceCardContent ||
-                      "等待导演把这一镜拆成可拍的动作"}
-                  </p>
-                  <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                    <StoryboardShotField
-                      label="镜头任务"
-                      value={shot.intent || shot.subject}
-                      placeholder="这一镜要让观众明白什么"
-                      onCommit={value => commit("intent", value)}
-                    />
-                    <StoryboardShotField
-                      label="画面动作"
-                      value={shot.action}
-                      placeholder="画面里正在发生什么"
-                      onCommit={value => commit("action", value)}
-                    />
-                    <StoryboardShotField
-                      label="字幕/旁白"
-                      value={shot.dialogue}
-                      placeholder="台词、字幕或画外音"
-                      onCommit={value => commit("dialogue", value)}
-                    />
-                    <StoryboardShotField
-                      label="运镜"
-                      value={shot.cameraMove}
-                      placeholder="推、拉、摇、移或静态"
-                      onCommit={value => commit("cameraMove", value)}
-                    />
-                    <StoryboardShotField
-                      label="声音"
-                      value={shot.sound}
-                      placeholder="背景音、气口或音乐进入点"
-                      onCommit={value => commit("sound", value)}
-                    />
-                    <StoryboardShotField
-                      label="接后"
-                      value={shot.transitionOut}
-                      placeholder="如何接到下一镜"
-                      onCommit={value => commit("transitionOut", value)}
-                    />
-                    <div className="sm:col-span-2">
-                      <StoryboardShotField
-                        label="导演理由"
-                        value={shot.rationale}
-                        rows={2}
-                        placeholder={
-                          image?.prompt || "为什么这一镜能证明这个求职优势"
-                        }
-                        onCommit={value => commit("rationale", value)}
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <StoryboardShotField
-                        label="图生视频提示"
-                        value={shot.videoPrompt}
-                        rows={2}
-                        placeholder="这一镜的动态变化、相机运动、开始和结束状态"
-                        onCommit={value => commit("videoPrompt", value)}
-                      />
-                    </div>
-                  </div>
-                  {showMaterialBasket && creationShot ? (
-                    <ShotMaterialBasket
-                      shot={creationShot}
-                      previousShots={
-                        previousCreationShotsByNo.get(creationShot.shotNo) ?? []
-                      }
-                      generating={generatingVideoShotNo === creationShot.shotNo}
-                      onGenerateShotVideo={onGenerateShotVideo}
-                      onRefreshShotVideoStatus={onRefreshShotVideoStatus}
-                      onAdoptVideoTake={onAdoptVideoTake}
-                      shotVideoProviderStatus={shotVideoProviderStatus}
-                    />
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <div
-          className="flex h-20 items-center justify-center gap-2 rounded-md border border-dashed text-[10px] text-muted-foreground"
-          style={{ borderColor: "var(--panel-border)" }}
-        >
-          {isGeneratingScript ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Clapperboard className="h-3.5 w-3.5" />
-          )}
-          {isGeneratingScript
-            ? "正在写剧本并准备关键帧草稿"
-            : "还没有故事版，点“生成故事版”后会出现在这里"}
-        </div>
-      )}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            className="flex h-20 items-center justify-center gap-2 rounded-md border border-dashed text-[10px] text-muted-foreground"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            {isGeneratingScript ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Clapperboard className="h-3.5 w-3.5" />
+            )}
+            {isGeneratingScript
+              ? "正在写剧本并准备关键帧草稿"
+              : "还没有故事版，点“生成故事版”后会出现在这里"}
+          </div>
+        )}
+      </div>
       {previewImageUrl ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -1513,8 +1699,9 @@ export default function StoryCardsBoard() {
   const generatedImages = useStoryGeneratedImages();
   const [selectedNarrativeId, setSelectedNarrativeId] = useState("");
   const [selectedArtChoiceId, setSelectedArtChoiceId] = useState("");
-  const [bindingLibraryVersionId, setBindingLibraryVersionId] =
-    useState<number | null>(null);
+  const [bindingLibraryVersionId, setBindingLibraryVersionId] = useState<
+    number | null
+  >(null);
   const generatedScenes = useMemo(
     () => buildMobileStoryboardScenes(cards, generatedImages),
     [cards, generatedImages]
@@ -1599,7 +1786,8 @@ export default function StoryCardsBoard() {
       preset => selectedArtChoiceId === artChoiceKey("preset", preset.id)
     ) ||
       artLibraryVersions.some(
-        version => selectedArtChoiceId === artChoiceKey("library", version.version.id)
+        version =>
+          selectedArtChoiceId === artChoiceKey("library", version.version.id)
       ))
       ? selectedArtChoiceId
       : defaultArtChoiceId;
@@ -1708,63 +1896,64 @@ export default function StoryCardsBoard() {
   if (orderKey !== lastOrderRef.current) lastOrderRef.current = orderKey;
 
   return (
-    <div className="monitor-panel h-full flex flex-col">
-      <div className="monitor-panel-header">
-        <div className="status-dot" />
-        <span>Story Cards</span>
-        <span className="ml-auto flex items-center gap-2 text-[10px] opacity-60 font-mono">
-          {cards.length > 0 ? (
-            <>
-              <Sparkles className="w-3 h-3" />
-              {cards.length} cards
-            </>
-          ) : (
-            <span>EMPTY</span>
-          )}
-        </span>
-        {cards.length > 0 ? (
-          <span
-            className="ml-2 inline-flex rounded-full border p-0.5 text-[10px]"
-            style={{
-              borderColor: "var(--panel-border)",
-              background: "var(--background)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setBoardView("graph")}
-              className="rounded-full px-2 py-0.5 transition"
-              style={{
-                background:
-                  boardView === "graph" ? "var(--nayin-accent)" : "transparent",
-                color:
-                  boardView === "graph"
-                    ? "var(--background)"
-                    : "var(--muted-foreground)",
-              }}
-            >
-              图谱
-            </button>
-            <button
-              type="button"
-              onClick={() => setBoardView("list")}
-              className="rounded-full px-2 py-0.5 transition"
-              style={{
-                background:
-                  boardView === "list" ? "var(--nayin-accent)" : "transparent",
-                color:
-                  boardView === "list"
-                    ? "var(--background)"
-                    : "var(--muted-foreground)",
-              }}
-            >
-              列表
-            </button>
+    <div className="creation-board-panel h-full flex flex-col">
+      <div className="creation-board-panel-header justify-between">
+        <div className="creation-board-panel-title">
+          <Sparkles className="creation-board-panel-icon" />
+          <h2 className="creation-board-panel-title-text">故事卡片</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="creation-board-panel-status">
+            {cards.length > 0 ? `${cards.length} 张卡片` : "等待卡片"}
           </span>
-        ) : null}
+          {cards.length > 0 ? (
+            <span
+              className="inline-flex rounded-full border p-0.5 text-[10px]"
+              style={{
+                borderColor: "var(--panel-border)",
+                background: "var(--background)",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setBoardView("graph")}
+                className="rounded-full px-2 py-0.5 transition"
+                style={{
+                  background:
+                    boardView === "graph"
+                      ? "var(--nayin-accent)"
+                      : "transparent",
+                  color:
+                    boardView === "graph"
+                      ? "var(--background)"
+                      : "var(--muted-foreground)",
+                }}
+              >
+                图谱
+              </button>
+              <button
+                type="button"
+                onClick={() => setBoardView("list")}
+                className="rounded-full px-2 py-0.5 transition"
+                style={{
+                  background:
+                    boardView === "list"
+                      ? "var(--nayin-accent)"
+                      : "transparent",
+                  color:
+                    boardView === "list"
+                      ? "var(--background)"
+                      : "var(--muted-foreground)",
+                }}
+              >
+                列表
+              </button>
+            </span>
+          ) : null}
+        </div>
       </div>
 
-      <div className="monitor-panel-body flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+      <div className="creation-board-panel-body flex min-h-0 flex-1 flex-col overflow-hidden">
         {cards.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
@@ -1785,41 +1974,41 @@ export default function StoryCardsBoard() {
           </motion.div>
         ) : (
           <>
-            <GenerationSettingsPanel
-              narrativeChoices={narrativeChoices}
-              activeNarrativeId={activeNarrativeId}
-              onSelectNarrative={setSelectedNarrativeId}
-              activeArtChoiceId={activeArtChoiceId}
-              artLibraryVersions={artLibraryVersions}
-              currentLibraryVersionId={currentLibraryVersionId}
-              artLibraryLoading={
-                artLibraryQuery.isLoading || artLibraryQuery.isFetching
-              }
-              artLibraryError={artLibraryQuery.error?.message ?? null}
-              canBindArtLibrary={Boolean(activeStoryId && promptProjection)}
-              bindingLibraryVersionId={bindingLibraryVersionId}
-              onSelectArtPreset={preset =>
-                setSelectedArtChoiceId(artChoiceKey("preset", preset.id))
-              }
-              onSelectArtLibrary={libraryVersion =>
-                setSelectedArtChoiceId(
-                  artChoiceKey("library", libraryVersion.version.id)
-                )
-              }
-              onBindArtLibrary={libraryVersionId => {
-                void handleBindArtLibrary(libraryVersionId);
-              }}
-            />
-
-            {boardView === "graph" ? (
-              <StoryCardsGraph
-                cards={cards}
-                storyShots={storyShots}
-                onRemoveCard={removeCard}
-                mode={isFictionIntent ? "fiction" : "default"}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+              <GenerationSettingsPanel
+                narrativeChoices={narrativeChoices}
+                activeNarrativeId={activeNarrativeId}
+                onSelectNarrative={setSelectedNarrativeId}
+                activeArtChoiceId={activeArtChoiceId}
+                artLibraryVersions={artLibraryVersions}
+                currentLibraryVersionId={currentLibraryVersionId}
+                artLibraryLoading={
+                  artLibraryQuery.isLoading || artLibraryQuery.isFetching
+                }
+                artLibraryError={artLibraryQuery.error?.message ?? null}
+                canBindArtLibrary={Boolean(activeStoryId && promptProjection)}
+                bindingLibraryVersionId={bindingLibraryVersionId}
+                onSelectArtPreset={preset =>
+                  setSelectedArtChoiceId(artChoiceKey("preset", preset.id))
+                }
+                onSelectArtLibrary={libraryVersion =>
+                  setSelectedArtChoiceId(
+                    artChoiceKey("library", libraryVersion.version.id)
+                  )
+                }
+                onBindArtLibrary={libraryVersionId => {
+                  void handleBindArtLibrary(libraryVersionId);
+                }}
               />
-            ) : (
-              <>
+
+              {boardView === "graph" ? (
+                <StoryCardsGraph
+                  cards={cards}
+                  storyShots={storyShots}
+                  onRemoveCard={removeCard}
+                  mode={isFictionIntent ? "fiction" : "default"}
+                />
+              ) : (
                 <Reorder.Group
                   axis="y"
                   values={cards}
@@ -1851,11 +2040,11 @@ export default function StoryCardsBoard() {
                     ))}
                   </AnimatePresence>
                 </Reorder.Group>
-              </>
-            )}
+              )}
+            </div>
 
             <div
-              className="border-t pt-2.5 mt-2 flex flex-col gap-2"
+              className="mt-2 flex shrink-0 flex-col gap-2 border-t pt-2.5"
               style={{ borderColor: "var(--panel-border)" }}
             >
               {isFictionIntent ? (
@@ -1882,15 +2071,15 @@ export default function StoryCardsBoard() {
                         {hasPendingFictionIntent
                           ? "先确认创造另一个世界"
                           : fictionCardsConfirmed
-                          ? "虚构故事卡已确认"
-                          : "先确认虚构故事卡"}
+                            ? "虚构故事卡已确认"
+                            : "先确认虚构故事卡"}
                       </p>
                       <p className="mt-0.5 text-muted-foreground">
                         {hasPendingFictionIntent
                           ? "小酌已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。"
                           : fictionCardsConfirmed
-                          ? "现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。"
-                          : "确认后再进入拆镜，避免还没定故事方向就生成镜头。"}
+                            ? "现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。"
+                            : "确认后再进入拆镜，避免还没定故事方向就生成镜头。"}
                       </p>
                     </div>
                     {hasPendingFictionIntent ? (
@@ -1946,9 +2135,9 @@ export default function StoryCardsBoard() {
                         ? "按新顺序生成故事版"
                         : hasPendingFictionIntent
                           ? "先确认意图"
-                        : shouldGateFictionStoryboard
-                          ? "确认故事卡"
-                          : "生成故事版"}
+                          : shouldGateFictionStoryboard
+                            ? "确认故事卡"
+                            : "生成故事版"}
                   </>
                 )}
               </button>

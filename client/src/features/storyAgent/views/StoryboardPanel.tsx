@@ -46,6 +46,8 @@ export default function StoryboardPanel() {
     generatingVideoShotNo,
     refreshShotVideoStatus,
     adoptVideoTake,
+    promoteFrameCrop,
+    promotingFrameCropShotNo,
     shotVideoProviderStatus,
   } = useCreationEditor();
   const displayShots = creationShots.length > 0 ? creationShots : storyShots;
@@ -62,24 +64,17 @@ export default function StoryboardPanel() {
   if (!hasStoryboard) {
     return (
       <section
-        className="flex h-full min-h-[280px] flex-col rounded-md border"
-        style={{
-          borderColor: "var(--panel-border)",
-          background: "var(--panel-header)",
-        }}
+        className="creation-board-panel flex h-full min-h-[280px] flex-col"
         aria-label="故事版看板"
       >
-        <div
-          className="flex items-center justify-between gap-2 border-b px-3 py-2"
-          style={{ borderColor: "var(--panel-border)" }}
-        >
-          <div className="flex items-center gap-1.5">
-            <Clapperboard className="h-3.5 w-3.5 text-nayin-bright" />
-            <span className="text-[10px] font-semibold text-foreground">
+        <div className="creation-board-panel-header justify-between">
+          <div className="creation-board-panel-title">
+            <Clapperboard className="creation-board-panel-icon" />
+            <span className="creation-board-panel-title-text">
               故事版看板
             </span>
           </div>
-          <span className="text-[9px] text-muted-foreground">等待生成</span>
+          <span className="creation-board-panel-status">等待生成</span>
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
           {isGeneratingScript ? (
@@ -107,9 +102,7 @@ export default function StoryboardPanel() {
         setSelectedShotNo(shotNo);
         const shot = displayShots.find(item => item.shotNo === shotNo);
         if (!shot) return;
-        const creationShot = creationShots.find(
-          item => item.shotNo === shotNo,
-        );
+        const creationShot = creationShots.find(item => item.shotNo === shotNo);
         const imageId = creationShot?.imageId ?? null;
         const fullText = [shot.subject, shot.action, shot.dialogue]
           .filter(Boolean)
@@ -153,6 +146,8 @@ export default function StoryboardPanel() {
       onGenerateShotVideo={generateShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
       onAdoptVideoTake={adoptVideoTake}
+      onPromoteFrameCrop={promoteFrameCrop}
+      promotingFrameCropShotNo={promotingFrameCropShotNo}
       shotVideoProviderStatus={shotVideoProviderStatus}
       className="h-full min-h-[280px] overflow-auto"
     />

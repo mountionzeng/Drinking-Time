@@ -4,23 +4,45 @@
  *
  * Sits in the DROP ZONE slot of the analysis page.
  */
-import { useEffect, useRef, useState, useCallback, type KeyboardEvent, type ChangeEvent } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, RefreshCcw, Loader2, ChevronLeft, X, ImagePlus, Mic, Square, Cloud, Check } from 'lucide-react';
-import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
-import { useStoryAgentChatSlice } from '@/features/storyAgent/spine/selectors';
-import { useNayin } from '@/features/nayin/NayinContext';
-import EmotiveWuxingIcon from '@/features/nayin/views/EmotiveWuxingIcon';
-import { useVoiceInput } from '@/features/storyAgent/hooks/useVoiceInput';
-import { formatBytes, optimizeImageForUpload } from '@/lib/imageUpload';
-import StoryCapabilityMenu, { shouldShowCapabilityMenu } from './StoryCapabilityMenu';
-import StoryJobIntakePrompt, { getJobIntakeStep } from './StoryJobIntakePrompt';
-import SelectionContextCard from './SelectionContextCard';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type KeyboardEvent,
+  type ChangeEvent,
+} from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Send,
+  Sparkles,
+  RefreshCcw,
+  Loader2,
+  ChevronLeft,
+  X,
+  ImagePlus,
+  Mic,
+  Square,
+  Cloud,
+  Check,
+  Link2,
+} from "lucide-react";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
+import { useNayin } from "@/features/nayin/NayinContext";
+import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
+import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
+import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
+import StoryCapabilityMenu, {
+  shouldShowCapabilityMenu,
+} from "./StoryCapabilityMenu";
+import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
+import SelectionContextCard from "./SelectionContextCard";
 import {
   loadStoryConversationDraft,
   saveStoryConversationDraft,
-} from '../storyConversationStore';
-import type { StoryIntent } from '../intentTypes';
+} from "../storyConversationStore";
+import type { StoryIntent } from "../intentTypes";
 
 type OpenCreationChatDetail = {
   draftMessage?: string;
@@ -28,23 +50,43 @@ type OpenCreationChatDetail = {
 };
 
 function getPendingIntentCopy(intent: StoryIntent) {
-  if (intent.purpose === 'fiction') {
+  if (intent.purpose === "fiction") {
     return {
-      body: '听起来你是想创造一个虚构故事世界，对吗？',
-      confirmLabel: '对，创造另一个世界',
+      body: "听起来你是想创造一个虚构故事世界，对吗？",
+      confirmLabel: "对，创造另一个世界",
     };
   }
 
   return {
-    body: '听起来你是想做求职片，给招聘者看，对吗？',
-    confirmLabel: '对，按求职片来',
+    body: "听起来你是想做求职片，给招聘者看，对吗？",
+    confirmLabel: "对，按求职片来",
   };
+}
+
+function intentLabel(intent: StoryIntent | null): string {
+  if (!intent) return "未定意图";
+  if (intent.purpose === "fiction") return "虚构故事";
+  if (intent.purpose === "linkedin_job_search") return "求职短片";
+  if (intent.purpose === "personal_memory") return "个人记忆";
+  if (intent.purpose === "social_post") return "社交发布";
+  if (intent.purpose === "gift") return "送给某个人";
+  if (intent.purpose === "portfolio") return "作品集";
+  return "创作故事";
 }
 
 export default function StoryAgentChat() {
   const {
-    messages, cardRefs, isReplying,
-    activeStoryId, remoteStoryId, saveStatus, lastSavedAt, returningGreeting,
+    messages,
+    cardRefs,
+    isReplying,
+    activeStoryId,
+    remoteStoryId,
+    storyTitle,
+    storyLogline,
+    storyShotsCount,
+    saveStatus,
+    lastSavedAt,
+    returningGreeting,
     confirmedIntent,
     pendingIntentDraft,
     activeSelection,
@@ -61,10 +103,10 @@ export default function StoryAgentChat() {
     rejectSelectionCandidate,
   } = useStoryAgentActions();
   const { element } = useNayin();
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
-  const [photoMimeType, setPhotoMimeType] = useState<string>('image/jpeg');
+  const [photoMimeType, setPhotoMimeType] = useState<string>("image/jpeg");
   const [photoInfo, setPhotoInfo] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -73,14 +115,31 @@ export default function StoryAgentChat() {
   const pendingIntentCopy = pendingIntentDraft
     ? getPendingIntentCopy(pendingIntentDraft)
     : null;
+  const currentIntent = confirmedIntent ?? pendingIntentDraft;
+  const storyDisplayTitle =
+    storyTitle?.trim() ||
+    (remoteStoryId || (activeStoryId && activeStoryId > 0)
+      ? `故事 #${remoteStoryId ?? activeStoryId}`
+      : "新故事草稿");
+  const storyDisplaySubtitle =
+    storyLogline?.trim() ||
+    (storyShotsCount > 0
+      ? `${storyShotsCount} 个镜头正在同步`
+      : cardRefs.length > 0
+        ? `${cardRefs.length} 张故事卡正在同步`
+        : "等待整理成故事卡");
+  const inputPlaceholder = activeSelection
+    ? "告诉小酌这处想怎么改…"
+    : "说说这一版哪里需要推进…";
 
   useEffect(() => {
     const previousStoryId = draftStoryIdRef.current;
     if (previousStoryId != null && previousStoryId > 0) {
       saveStoryConversationDraft(previousStoryId, input);
     }
-    const nextStoryId = activeStoryId && activeStoryId > 0 ? activeStoryId : null;
-    setInput(nextStoryId ? loadStoryConversationDraft(nextStoryId) : '');
+    const nextStoryId =
+      activeStoryId && activeStoryId > 0 ? activeStoryId : null;
+    setInput(nextStoryId ? loadStoryConversationDraft(nextStoryId) : "");
     draftStoryIdRef.current = nextStoryId;
   }, [activeStoryId]);
 
@@ -88,38 +147,41 @@ export default function StoryAgentChat() {
     if (!activeStoryId || activeStoryId <= 0) return;
     const timer = window.setTimeout(
       () => saveStoryConversationDraft(activeStoryId, input),
-      200,
+      200
     );
     return () => window.clearTimeout(timer);
   }, [activeStoryId, input]);
 
   const saveLabel =
-    saveStatus === 'saving'
-      ? '云端保存中'
-      : saveStatus === 'error'
-        ? '云端保存失败，本地备份还在'
+    saveStatus === "saving"
+      ? "云端保存中"
+      : saveStatus === "error"
+        ? "云端保存失败，本地备份还在"
         : remoteStoryId || (activeStoryId && activeStoryId > 0)
           ? `已云端保存 #${remoteStoryId ?? activeStoryId}`
-          : '待云端保存';
+          : "待云端保存";
   const saveTitle =
-    saveStatus === 'saved' && lastSavedAt
-      ? `保存到当前账号的云端故事库：${new Date(lastSavedAt).toLocaleString('zh-CN')}`
-      : '保存到当前账号的云端故事库';
+    saveStatus === "saved" && lastSavedAt
+      ? `保存到当前账号的云端故事库：${new Date(lastSavedAt).toLocaleString("zh-CN")}`
+      : "保存到当前账号的云端故事库";
 
   const resizeAndFocusInput = useCallback(() => {
     requestAnimationFrame(() => {
       const ta = inputRef.current;
       if (!ta) return;
       ta.focus();
-      ta.style.height = 'auto';
+      ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
     });
   }, []);
 
-  const handleVoiceTranscribed = useCallback((text: string) => {
-    setInput(prev => prev ? `${prev} ${text}` : text);
-    resizeAndFocusInput();
-  }, [resizeAndFocusInput]);
+  const handleVoiceTranscribed = useCallback(
+    (text: string) => {
+      setInput(prev => (prev ? `${prev} ${text}` : text));
+      resizeAndFocusInput();
+    },
+    [resizeAndFocusInput]
+  );
 
   useEffect(() => {
     const applyCreationDraft = (event: Event) => {
@@ -129,13 +191,13 @@ export default function StoryAgentChat() {
       setInput(prev =>
         prev.trim()
           ? `${prev.trim()}\n\n${detail.draftMessage}`
-          : detail.draftMessage ?? ''
+          : (detail.draftMessage ?? "")
       );
       resizeAndFocusInput();
     };
-    window.addEventListener('dt:open-creation-chat', applyCreationDraft);
+    window.addEventListener("dt:open-creation-chat", applyCreationDraft);
     return () =>
-      window.removeEventListener('dt:open-creation-chat', applyCreationDraft);
+      window.removeEventListener("dt:open-creation-chat", applyCreationDraft);
   }, [clearSelection, resizeAndFocusInput]);
 
   const handleVoiceError = useCallback((message: string) => {
@@ -143,7 +205,7 @@ export default function StoryAgentChat() {
   }, []);
 
   const voice = useVoiceInput({
-    language: 'zh',
+    language: "zh",
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
@@ -154,32 +216,41 @@ export default function StoryAgentChat() {
     isReplying,
   });
   const jobIntakeStep = getJobIntakeStep(confirmedIntent);
-  const showJobIntake = jobIntakeStep !== 'none' && jobIntakeStep !== 'done' && !isReplying;
+  const showJobIntake =
+    jobIntakeStep !== "none" && jobIntakeStep !== "done" && !isReplying;
 
   // 选择照片
-  const handlePhotoSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 30 * 1024 * 1024) { alert("照片太大了，请选择 30MB 以内的图片"); return; }
-    try {
-      const upload = await optimizeImageForUpload(file, { profile: 'chat' });
-      setPhotoBase64(upload.base64);
-      setPhotoMimeType(upload.mimeType);
-      setPhotoPreview(upload.dataUrl);
-      setPhotoInfo(
-        upload.wasOptimized
-          ? `已压缩 ${formatBytes(upload.originalBytes)} → ${formatBytes(upload.optimizedBytes)}`
-          : `已准备 ${formatBytes(upload.optimizedBytes)}`
-      );
-    } catch { console.error("[StoryAgentChat] 读取照片失败"); }
-    e.target.value = "";
-  }, []);
+  const handlePhotoSelect = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > 30 * 1024 * 1024) {
+        alert("照片太大了，请选择 30MB 以内的图片");
+        return;
+      }
+      try {
+        const upload = await optimizeImageForUpload(file, { profile: "chat" });
+        setPhotoBase64(upload.base64);
+        setPhotoMimeType(upload.mimeType);
+        setPhotoPreview(upload.dataUrl);
+        setPhotoInfo(
+          upload.wasOptimized
+            ? `已压缩 ${formatBytes(upload.originalBytes)} → ${formatBytes(upload.optimizedBytes)}`
+            : `已准备 ${formatBytes(upload.optimizedBytes)}`
+        );
+      } catch {
+        console.error("[StoryAgentChat] 读取照片失败");
+      }
+      e.target.value = "";
+    },
+    []
+  );
 
   const clearPhoto = useCallback(() => {
-    if (photoPreview?.startsWith('blob:')) URL.revokeObjectURL(photoPreview);
+    if (photoPreview?.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     setPhotoPreview(null);
     setPhotoBase64(null);
-    setPhotoMimeType('image/jpeg');
+    setPhotoMimeType("image/jpeg");
     setPhotoInfo(null);
   }, [photoPreview]);
 
@@ -187,13 +258,20 @@ export default function StoryAgentChat() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [messages, isReplying, returningGreeting, showCapabilityMenu, showJobIntake, pendingIntentDraft]);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [
+    messages,
+    isReplying,
+    returningGreeting,
+    showCapabilityMenu,
+    showJobIntake,
+    pendingIntentDraft,
+  ]);
 
   const handleSubmit = async () => {
     const text = input.trim();
     if ((!text && !photoBase64) || isReplying || voice.isBusy) return;
-    setInput('');
+    setInput("");
     const b64 = photoBase64;
     const mimeType = photoMimeType;
     clearPhoto();
@@ -206,7 +284,7 @@ export default function StoryAgentChat() {
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -214,9 +292,13 @@ export default function StoryAgentChat() {
 
   // 小酌头像的情绪回应：消息凝出过卡片就用卡片上识别到的情绪摆姿势。
   // 只让最新一条小酌消息动起来，历史消息保留姿势但不做动画。
-  const lastAssistantId = [...messages].reverse().find(m => m.role === 'assistant')?.id;
+  const lastAssistantId = [...messages]
+    .reverse()
+    .find(m => m.role === "assistant")?.id;
   const emotionForMessage = (spawnedCardId?: string) =>
-    spawnedCardId ? cardRefs.find(c => c.id === spawnedCardId)?.emotion : undefined;
+    spawnedCardId
+      ? cardRefs.find(c => c.id === spawnedCardId)?.emotion
+      : undefined;
 
   return (
     <div className="monitor-panel h-full flex flex-col">
@@ -230,14 +312,14 @@ export default function StoryAgentChat() {
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
         <div className="status-dot" />
-        <span>Drop Zone Agent</span>
+        <span>小酌 · 创作对话</span>
         <span className="ml-auto flex items-center gap-2">
           {cardRefs.length > 0 && (
             <span
               className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
               style={{
-                background: 'var(--nayin-glow)',
-                color: 'var(--nayin-accent-bright)',
+                background: "var(--nayin-glow)",
+                color: "var(--nayin-accent-bright)",
               }}
             >
               {cardRefs.length} 张卡片
@@ -246,12 +328,12 @@ export default function StoryAgentChat() {
           <span
             className="hidden items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full sm:inline-flex"
             style={{
-              background: 'var(--nayin-glow)',
-              color: 'var(--nayin-accent-bright)',
+              background: "var(--nayin-glow)",
+              color: "var(--nayin-accent-bright)",
             }}
             title={saveTitle}
           >
-            {saveStatus === 'saving' ? (
+            {saveStatus === "saving" ? (
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
               <Cloud className="h-2.5 w-2.5" />
@@ -271,39 +353,82 @@ export default function StoryAgentChat() {
       </div>
 
       <div
+        className="border-b px-3 py-2.5"
+        style={{ borderColor: "var(--panel-border)" }}
+      >
+        <section
+          className="rounded-md border px-3 py-2"
+          style={{
+            borderColor: activeSelection
+              ? "var(--nayin-accent-dim)"
+              : "var(--panel-border)",
+            background: activeSelection
+              ? "var(--nayin-glow)"
+              : "var(--panel-header)",
+          }}
+          aria-label="小酌当前上下文"
+        >
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 shrink-0 text-nayin-bright">
+              <Link2 className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider text-muted-foreground">
+                <span>当前故事</span>
+                <span>·</span>
+                <span>{intentLabel(currentIntent)}</span>
+              </div>
+              <p className="mt-0.5 truncate text-[12px] font-semibold text-foreground">
+                {storyDisplayTitle}
+              </p>
+              <p className="mt-0.5 truncate text-[10.5px] leading-relaxed text-muted-foreground">
+                {storyDisplaySubtitle}
+              </p>
+            </div>
+          </div>
+          {activeSelection ? (
+            <div className="mt-2">
+              <SelectionContextCard selection={activeSelection} compact />
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                下一条消息会带着这个选区交给小酌。
+              </p>
+            </div>
+          ) : null}
+        </section>
+      </div>
+
+      <div
         ref={scrollRef}
         className="monitor-panel-body flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-1"
       >
         <AnimatePresence initial={false}>
-          {messages.map((m) => (
+          {messages.map(m => (
             <motion.div
               key={m.id}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[85%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${
-                  m.role === 'user'
-                    ? 'rounded-tr-sm'
-                    : 'rounded-tl-sm border'
+                  m.role === "user" ? "rounded-tr-sm" : "rounded-tl-sm border"
                 }`}
                 style={
-                  m.role === 'user'
+                  m.role === "user"
                     ? {
-                        background: 'var(--nayin-accent)',
-                        color: 'var(--background)',
-                        boxShadow: '0 1px 8px -2px var(--nayin-glow)',
+                        background: "var(--nayin-accent)",
+                        color: "var(--background)",
+                        boxShadow: "0 1px 8px -2px var(--nayin-glow)",
                       }
                     : {
-                        background: 'var(--card)',
-                        borderColor: 'var(--panel-border)',
-                        color: 'var(--foreground)',
+                        background: "var(--card)",
+                        borderColor: "var(--panel-border)",
+                        color: "var(--foreground)",
                       }
                 }
               >
-                {m.role === 'assistant' && (
+                {m.role === "assistant" && (
                   <div className="flex items-center gap-1.5 mb-1">
                     <EmotiveWuxingIcon
                       element={element}
@@ -318,20 +443,26 @@ export default function StoryAgentChat() {
                 )}
                 {m.selectionQuote && (
                   <div className="mb-1.5">
-                    <SelectionContextCard selection={m.selectionQuote} compact />
+                    <SelectionContextCard
+                      selection={m.selectionQuote}
+                      compact
+                    />
                   </div>
                 )}
-                {m.role === 'user' && m.photoUrl && (
+                {m.role === "user" && m.photoUrl && (
                   <img
                     src={m.photoUrl}
                     alt="用户上传照片"
                     className={`h-28 max-w-full rounded-xl border border-white/20 object-cover ${
-                      m.content.trim() ? 'mb-1.5' : ''
+                      m.content.trim() ? "mb-1.5" : ""
                     }`}
                   />
                 )}
                 {m.content.trim() && (
-                  <p className="whitespace-pre-wrap" data-selection-source={`chat:${m.id}`}>
+                  <p
+                    className="whitespace-pre-wrap"
+                    data-selection-source={`chat:${m.id}`}
+                  >
                     {m.content}
                   </p>
                 )}
@@ -339,13 +470,13 @@ export default function StoryAgentChat() {
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <div className="text-[10px] text-muted-foreground">
                       {m.promptCandidate.label}
-                      {m.promptCandidate.status === 'pending'
-                        ? ' · 等待确认'
-                        : m.promptCandidate.status === 'confirmed'
-                          ? ' · 已确认'
-                          : ' · 已拒绝'}
+                      {m.promptCandidate.status === "pending"
+                        ? " · 等待确认"
+                        : m.promptCandidate.status === "confirmed"
+                          ? " · 已确认"
+                          : " · 已拒绝"}
                     </div>
-                    {m.promptCandidate.status === 'pending' ? (
+                    {m.promptCandidate.status === "pending" ? (
                       <div className="mt-1.5 flex gap-1.5">
                         <button
                           type="button"
@@ -367,8 +498,10 @@ export default function StoryAgentChat() {
                   </div>
                 ) : null}
                 {m.spawnedCardId && (
-                  <div className="mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider"
-                       style={{ borderColor: 'var(--panel-border)' }}>
+                  <div
+                    className="mt-2 pt-2 border-t flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider"
+                    style={{ borderColor: "var(--panel-border)" }}
+                  >
                     <Sparkles className="w-3 h-3 text-nayin-bright" />
                     <span className="text-nayin-bright">+ 1 张卡片入册</span>
                   </div>
@@ -390,28 +523,30 @@ export default function StoryAgentChat() {
             <div
               className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[12.5px] leading-relaxed"
               style={{
-                background: 'var(--nayin-glow)',
-                borderColor: 'var(--nayin-accent-dim)',
-                color: 'var(--foreground)',
+                background: "var(--nayin-glow)",
+                borderColor: "var(--nayin-accent-dim)",
+                color: "var(--foreground)",
               }}
             >
               <div className="flex items-center gap-1.5 mb-1">
-                <EmotiveWuxingIcon element={element} size={26} mood="thinking" />
+                <EmotiveWuxingIcon
+                  element={element}
+                  size={26}
+                  mood="thinking"
+                />
                 <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
                   小酌
                 </span>
               </div>
-              <p className="whitespace-pre-wrap">
-                {pendingIntentCopy?.body}
-              </p>
+              <p className="whitespace-pre-wrap">{pendingIntentCopy?.body}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={confirmPendingIntent}
                   className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-90"
                   style={{
-                    background: 'var(--nayin-accent)',
-                    color: 'var(--background)',
+                    background: "var(--nayin-accent)",
+                    color: "var(--background)",
                   }}
                 >
                   <Check className="h-3 w-3" />
@@ -421,7 +556,7 @@ export default function StoryAgentChat() {
                   type="button"
                   onClick={dismissPendingIntent}
                   className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  style={{ borderColor: 'var(--panel-border)' }}
+                  style={{ borderColor: "var(--panel-border)" }}
                 >
                   <X className="h-3 w-3" />
                   先不，继续聊
@@ -443,23 +578,23 @@ export default function StoryAgentChat() {
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
               <span
                 className="flex-1 border-t"
-                style={{ borderColor: 'var(--panel-border)' }}
+                style={{ borderColor: "var(--panel-border)" }}
               />
               <span className="font-mono uppercase tracking-[0.16em]">
                 接着上次聊
               </span>
               <span
                 className="flex-1 border-t"
-                style={{ borderColor: 'var(--panel-border)' }}
+                style={{ borderColor: "var(--panel-border)" }}
               />
             </div>
             <div className="flex justify-start">
               <div
                 className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2 text-[12.5px] leading-relaxed"
                 style={{
-                  background: 'var(--nayin-glow)',
-                  borderColor: 'var(--nayin-accent-dim)',
-                  color: 'var(--foreground)',
+                  background: "var(--nayin-glow)",
+                  borderColor: "var(--nayin-accent-dim)",
+                  color: "var(--foreground)",
                 }}
               >
                 <div className="flex items-center gap-1.5 mb-1">
@@ -484,8 +619,8 @@ export default function StoryAgentChat() {
             <div
               className="rounded-2xl rounded-tl-sm px-3 py-2 border flex items-center gap-2"
               style={{
-                background: 'var(--card)',
-                borderColor: 'var(--panel-border)',
+                background: "var(--card)",
+                borderColor: "var(--panel-border)",
               }}
             >
               {/* 回复中：托腮思考的姿势 */}
@@ -494,11 +629,11 @@ export default function StoryAgentChat() {
                 <span className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse" />
                 <span
                   className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse"
-                  style={{ animationDelay: '0.15s' }}
+                  style={{ animationDelay: "0.15s" }}
                 />
                 <span
                   className="w-1.5 h-1.5 rounded-full bg-nayin animate-pulse"
-                  style={{ animationDelay: '0.3s' }}
+                  style={{ animationDelay: "0.3s" }}
                 />
               </div>
             </div>
@@ -509,7 +644,7 @@ export default function StoryAgentChat() {
       {/* Input */}
       <div
         className="border-t px-3 pb-3 flex flex-col gap-2"
-        style={{ borderColor: 'var(--panel-border)' }}
+        style={{ borderColor: "var(--panel-border)" }}
       >
         {/* Quote block */}
         {activeSelection && (
@@ -523,22 +658,33 @@ export default function StoryAgentChat() {
 
         {/* 照片预览 */}
         {photoPreview && (
-          <div className={`flex items-center gap-2 ${!activeSelection ? 'mt-2.5' : 'mt-1.5'}`}>
+          <div
+            className={`flex items-center gap-2 ${!activeSelection ? "mt-2.5" : "mt-1.5"}`}
+          >
             <div className="relative">
-              <img src={photoPreview} alt="已选照片" className="h-12 w-12 rounded-lg object-cover" />
-              <button type="button" onClick={clearPhoto}
-                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-600 text-white shadow">
+              <img
+                src={photoPreview}
+                alt="已选照片"
+                className="h-12 w-12 rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                onClick={clearPhoto}
+                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gray-600 text-white shadow"
+              >
                 <X className="h-2.5 w-2.5" />
               </button>
             </div>
-            <span className="text-[10px] text-muted-foreground">{photoInfo ?? '照片已添加'}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {photoInfo ?? "照片已添加"}
+            </span>
           </div>
         )}
 
         {voice.isBusy && (
           <div
-            className={`flex items-center gap-1.5 text-[10px] ${!activeSelection && !photoPreview ? 'mt-2.5' : 'mt-1.5'}`}
-            style={{ color: 'var(--nayin-accent-bright)' }}
+            className={`flex items-center gap-1.5 text-[10px] ${!activeSelection && !photoPreview ? "mt-2.5" : "mt-1.5"}`}
+            style={{ color: "var(--nayin-accent-bright)" }}
           >
             {voice.isRecording ? (
               <>
@@ -554,77 +700,91 @@ export default function StoryAgentChat() {
           </div>
         )}
 
-        <div className={`flex items-end gap-2 ${!activeSelection && !photoPreview ? 'pt-2.5' : 'pt-1.5'}`}>
-        {/* 图片上传按钮 */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isReplying || voice.isBusy}
-          className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          aria-label="添加照片"
+        <div
+          className={`flex items-end gap-2 ${!activeSelection && !photoPreview ? "pt-2.5" : "pt-1.5"}`}
         >
-          <ImagePlus className="w-4 h-4" />
-        </button>
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
-        <button
-          type="button"
-          onClick={voice.toggleRecording}
-          disabled={isReplying || voice.isTranscribing}
-          className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          style={voice.isRecording ? {
-            background: 'var(--nayin-glow)',
-            color: 'var(--nayin-accent-bright)',
-          } : undefined}
-          aria-label={voice.isRecording ? '停止录音' : '开始录音'}
-          title={voice.isRecording ? '停止录音' : '语音输入'}
-        >
-          {voice.isTranscribing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : voice.isRecording ? (
-            <Square className="w-4 h-4 fill-current" />
-          ) : (
-            <Mic className="w-4 h-4" />
-          )}
-        </button>
-        <textarea
-          ref={inputRef}
-          rows={1}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            // auto-resize
-            const ta = e.currentTarget;
-            ta.style.height = 'auto';
-            ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
-          }}
-          onKeyDown={handleKey}
-          placeholder="慢慢说，越具体越好…"
-          disabled={isReplying}
-          className="flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
-          style={{
-            borderColor: 'var(--panel-border)',
-            // @ts-expect-error custom prop for tailwind ring color via inline style
-            '--tw-ring-color': 'var(--nayin-accent)',
-          }}
-        />
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={(!input.trim() && !photoBase64) || isReplying || voice.isBusy}
-          className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
-          style={{
-            background: 'var(--nayin-accent)',
-            color: 'var(--background)',
-            boxShadow: '0 2px 12px -4px var(--nayin-glow)',
-          }}
-          aria-label="发送"
-        >
-          {isReplying ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-        </button>
+          {/* 图片上传按钮 */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isReplying || voice.isBusy}
+            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+            aria-label="添加照片"
+          >
+            <ImagePlus className="w-4 h-4" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoSelect}
+          />
+          <button
+            type="button"
+            onClick={voice.toggleRecording}
+            disabled={isReplying || voice.isTranscribing}
+            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+            style={
+              voice.isRecording
+                ? {
+                    background: "var(--nayin-glow)",
+                    color: "var(--nayin-accent-bright)",
+                  }
+                : undefined
+            }
+            aria-label={voice.isRecording ? "停止录音" : "开始录音"}
+            title={voice.isRecording ? "停止录音" : "语音输入"}
+          >
+            {voice.isTranscribing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : voice.isRecording ? (
+              <Square className="w-4 h-4 fill-current" />
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
+          </button>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={e => {
+              setInput(e.target.value);
+              // auto-resize
+              const ta = e.currentTarget;
+              ta.style.height = "auto";
+              ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
+            }}
+            onKeyDown={handleKey}
+            placeholder={inputPlaceholder}
+            disabled={isReplying}
+            className="flex-1 resize-none rounded-lg border px-3 py-2 text-xs leading-relaxed bg-transparent focus:outline-none focus:ring-2 transition-shadow disabled:opacity-60"
+            style={{
+              borderColor: "var(--panel-border)",
+              // @ts-expect-error custom prop for tailwind ring color via inline style
+              "--tw-ring-color": "var(--nayin-accent)",
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={
+              (!input.trim() && !photoBase64) || isReplying || voice.isBusy
+            }
+            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-nayin"
+            style={{
+              background: "var(--nayin-accent)",
+              color: "var(--background)",
+              boxShadow: "0 2px 12px -4px var(--nayin-glow)",
+            }}
+            aria-label="发送"
+          >
+            {isReplying ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </button>
         </div>
       </div>
     </div>

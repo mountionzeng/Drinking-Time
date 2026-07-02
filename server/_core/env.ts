@@ -25,6 +25,9 @@ export const ENV = {
   llmSupportsImage: process.env.LLM_SUPPORTS_IMAGE === "true", // 模型是否支持图片输入
   llmSupportsResponseFormat: process.env.LLM_SUPPORTS_RESPONSE_FORMAT !== "false", // 模型是否支持 structured output
   voiceTranscriptionModel: process.env.VOICE_TRANSCRIPTION_MODEL ?? "whisper-1", // 语音转文字模型
+  scriptStructureAgentApiUrl: process.env.SCRIPT_STRUCTURE_AGENT_API_URL ?? "", // 剧本/台词 Agent API 地址（可选）
+  scriptStructureAgentApiKey: process.env.SCRIPT_STRUCTURE_AGENT_API_KEY ?? "", // 剧本/台词 Agent API Key（可选，不填则复用默认通道）
+  scriptStructureAgentModel: process.env.SCRIPT_STRUCTURE_AGENT_MODEL ?? "", // 剧本/台词 Agent 模型（可选）
 
   // ── DROP ZONE 聊天 Agent 专用配置 ──
   dropZoneApiUrl: process.env.DROP_ZONE_API_URL ?? "",         // 聊天 Agent 单独的 API 地址（可选，不填则用 forgeApiUrl）
