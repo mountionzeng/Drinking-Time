@@ -1,5 +1,5 @@
 import { Film, Library, ListPlus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   creationTimelineShotId,
   resolveTimelineShots,
@@ -12,6 +12,15 @@ import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 
 function shotLabel(shotNo: number | null) {
   return shotNo == null ? "未选镜头" : `SH${String(shotNo).padStart(2, "0")}`;
+}
+
+function targetOwnsSpacebar(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest(
+      'input, textarea, select, button, [contenteditable="true"], [role="slider"]'
+    )
+  );
 }
 
 export default function AnimaticPanel() {
@@ -47,6 +56,7 @@ export default function AnimaticPanel() {
   const [durationsByShotNo, setDurationsByShotNo] = useState<
     Record<number, number>
   >({});
+  const pointerInsidePanelRef = useRef(false);
   const timelineShots = useMemo(
     () => resolveTimelineShots(shots, timelineShotIds),
     [shots, timelineShotIds]
@@ -136,6 +146,18 @@ export default function AnimaticPanel() {
     setIsPlaying(true);
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!pointerInsidePanelRef.current) return;
+      if (event.key !== " " && event.key !== "Spacebar") return;
+      if (targetOwnsSpacebar(event.target)) return;
+      event.preventDefault();
+      playFullFilm();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [playFullFilm]);
+
   const removeTimelineShot = (shotId: string) => {
     const index = timelineShotIds.indexOf(shotId);
     const nextShotNo =
@@ -166,6 +188,12 @@ export default function AnimaticPanel() {
       className="creation-board-panel relative flex h-full min-h-0 flex-col overflow-hidden"
       aria-label="动态分镜"
       data-testid="analysis-animatic-panel"
+      onPointerEnter={() => {
+        pointerInsidePanelRef.current = true;
+      }}
+      onPointerLeave={() => {
+        pointerInsidePanelRef.current = false;
+      }}
     >
       <div className="creation-board-panel-header justify-between">
         <div className="creation-board-panel-title">
@@ -224,6 +252,7 @@ export default function AnimaticPanel() {
             <AnimaticPlayer
               storyId={activeStoryId}
               shots={playbackShots}
+              progressShots={fullPlaybackShots}
               selectedShotNo={selectedShotNo}
               durationsByShotNo={durationsByShotNo}
               onShotEnter={selectShotWithContext}

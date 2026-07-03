@@ -32,6 +32,8 @@ import {
   enteredShotNo,
   initialPlaybackState,
   seekToShot,
+  shotDurationMs,
+  totalDurationMs,
   type PlaybackState,
 } from "../playback";
 import {
@@ -50,6 +52,7 @@ import {
 type AnimaticPlayerProps = {
   storyId?: number | null;
   shots: CreationEditorShot[];
+  progressShots?: CreationEditorShot[];
   selectedShotNo: number | null;
   durationsByShotNo?: Record<number, number>;
   onShotEnter: (shotNo: number) => void;
@@ -113,6 +116,10 @@ function shotTextFallback(shot: CreationEditorShot | null) {
   return parts.length > 0 ? parts.join(" · ") : shotLabel(shot);
 }
 
+function formatTimelineTime(ms: number) {
+  return `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+}
+
 type SelectionPoint = {
   x: number;
   y: number;
@@ -170,6 +177,7 @@ function frameSampleIndexes(totalFrames: number, maxSamples = 12) {
 export default function AnimaticPlayer({
   storyId = null,
   shots,
+  progressShots,
   selectedShotNo,
   durationsByShotNo = {},
   onShotEnter,
@@ -196,6 +204,17 @@ export default function AnimaticPlayer({
           durationsByShotNo[shot.shotNo] ?? shotTimelineDurationMs(shot),
       })),
     [durationsByShotNo, shots]
+  );
+  const progressPlaybackShots = useMemo(
+    () =>
+      (progressShots ?? shots).map(shot => ({
+        shotNo: shot.shotNo,
+        dialogue: shot.dialogue,
+        beat: shot.beat,
+        durationMs:
+          durationsByShotNo[shot.shotNo] ?? shotTimelineDurationMs(shot),
+      })),
+    [durationsByShotNo, progressShots, shots]
   );
   const [state, setState] = useState<PlaybackState>(() =>
     initialPlaybackState(playbackShots)
@@ -305,7 +324,22 @@ export default function AnimaticPlayer({
     ? (durationsByShotNo[currentShot.shotNo] ??
       shotTimelineDurationMs(currentShot))
     : 0;
-  const progress = duration > 0 ? Math.min(1, state.elapsedMs / duration) : 0;
+  const currentPlaybackIndex = progressPlaybackShots.findIndex(
+    shot => shot.shotNo === state.currentShotNo
+  );
+  const elapsedBeforeCurrentShot =
+    currentPlaybackIndex > 0
+      ? progressPlaybackShots
+          .slice(0, currentPlaybackIndex)
+          .reduce((total, shot) => total + shotDurationMs(shot), 0)
+      : 0;
+  const fullDuration = totalDurationMs(progressPlaybackShots);
+  const fullElapsed = Math.min(
+    fullDuration,
+    elapsedBeforeCurrentShot + Math.max(0, state.elapsedMs)
+  );
+  const progress =
+    fullDuration > 0 ? Math.min(1, fullElapsed / fullDuration) : 0;
   const activeFrameUrl =
     currentShot?.imageUrl || currentShot?.promptRun?.imageUrl || "";
   const activeFrameId =
@@ -867,7 +901,7 @@ export default function AnimaticPlayer({
       </div>
 
       {currentShot ? (
-        <div className="rounded-md border border-border/70 bg-background p-3 text-xs">
+        <div className="text-xs">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-foreground">
@@ -1455,7 +1489,7 @@ export default function AnimaticPlayer({
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-background/70 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 py-1">
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -1499,7 +1533,7 @@ export default function AnimaticPlayer({
         </div>
         <div className="text-xs tabular-nums text-muted-foreground">
           {currentShot
-            ? `${shotLabel(currentShot)} · ${(duration / 1000).toFixed(1)}s`
+            ? `${shotLabel(currentShot)} · ${formatTimelineTime(fullElapsed)} / ${formatTimelineTime(fullDuration)}`
             : "0.0s"}
         </div>
       </div>

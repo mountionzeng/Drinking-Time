@@ -192,4 +192,73 @@ describe("AnimaticPlayer selection actions", () => {
     expect(html).toContain("猫作为主角的日常空间");
     expect(html).not.toContain("动态分镜待出图");
   });
+
+  it("shows the progress rail against the full film duration", () => {
+    const shots = [
+      {
+        shotNo: 1,
+        shotKey: "SH01",
+        stableShotId: "shot-001",
+        dialogue: "第一镜",
+        videoTakes: [],
+      },
+      {
+        shotNo: 2,
+        shotKey: "SH02",
+        stableShotId: "shot-002",
+        dialogue: "第二镜",
+        videoTakes: [],
+      },
+    ] as unknown as CreationEditorShot[];
+
+    const html = renderToStaticMarkup(
+      <AnimaticPlayer
+        storyId={36}
+        shots={shots}
+        selectedShotNo={1}
+        durationsByShotNo={{ 1: 2000, 2: 3000 }}
+        onShotEnter={vi.fn()}
+        isPlaying={false}
+        onPlayingChange={vi.fn()}
+        onSelectContext={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("SH01 · 0.0s / 5.0s");
+  });
+
+  it("keeps full-film progress visible while previewing a single shot", () => {
+    const fullFilmShots = [
+      {
+        shotNo: 1,
+        shotKey: "SH01",
+        stableShotId: "shot-001",
+        dialogue: "第一镜",
+        videoTakes: [],
+      },
+      {
+        shotNo: 2,
+        shotKey: "SH02",
+        stableShotId: "shot-002",
+        dialogue: "第二镜",
+        videoTakes: [],
+      },
+    ] as unknown as CreationEditorShot[];
+
+    const html = renderToStaticMarkup(
+      <AnimaticPlayer
+        storyId={36}
+        shots={[fullFilmShots[1]]}
+        progressShots={fullFilmShots}
+        selectedShotNo={2}
+        durationsByShotNo={{ 1: 2000, 2: 3000 }}
+        onShotEnter={vi.fn()}
+        isPlaying={false}
+        onPlayingChange={vi.fn()}
+        onSelectContext={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("SH02 · 2.0s / 5.0s");
+  });
 });
