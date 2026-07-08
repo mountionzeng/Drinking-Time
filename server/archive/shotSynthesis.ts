@@ -22,6 +22,7 @@ type ShotListCardInput = {
   content: string;
   rawText?: string;
   sourceQuote?: string;
+  dialogue?: string;
   emotion?: string;
   emotionOptions?: string[];
   emotionBlend?: string[];
@@ -904,6 +905,7 @@ export async function synthesizeShotList(params: {
         `[${i + 1}] ${c.title ? `${c.title}：` : ""}${c.content}`,
         c.rawText ? `    原话：${c.rawText}` : "",
         c.sourceQuote ? `    原话锚点：${c.sourceQuote}` : "",
+        c.dialogue ? `    台词：${c.dialogue}` : "",
         meta.length ? `    情绪样本：${meta.join("；")}` : "",
       ].filter(Boolean).join("\n");
     })
@@ -957,7 +959,7 @@ export async function synthesizeShotList(params: {
     isJobSearch
       ? "现在请把这些卡片整理成**岗位关切 → 用户能力 → 能力来源 → 作用方式 → 可信证据 → 为什么值得联系 → 外部价值**的视觉论证链。不要拍成泛泛情绪短片；每一镜都要说明它在替用户证明什么。"
       : isFiction
-        ? "现在请把已确认故事卡整理成**世界规则 → 主角欲望 → 阻碍/冲突 → 转折选择 → 余味收束**的短片弧线。不要套用求职、简历、JD、招聘者或个人优势证明语言。"
+        ? "现在请把已确认故事卡整理成**最有张力的短片弧线**。从卡片内容里判断故事结构——可能是三幕、五幕、或者更自由的形式。让弧线服务于故事本身，而不是套用固定模板。不要套用求职、简历、JD、招聘者或个人优势证明语言。"
       : "现在请帮他把这些样本整理成一份**可以拍出来的、有完整形状的短片镜头表**。这是只属于他的故事，请保留个人痕迹，不要替他升华、不要加结论；但要让这段故事**有情绪起伏、有矛盾、有转向、有落点**——不是一串同色系的漂亮瞬间。",
     generationProfileText,
     "",
@@ -976,11 +978,12 @@ export async function synthesizeShotList(params: {
     "   - 收束（1 镜）：落点。可以是一句话、一个空镜、一个回到开场的呼应；不必给「答案」，但要让故事停得下来。",
     ...(isFiction
       ? [
-          "6. 把已确认故事卡拆成**3-5 镜虚构短片**，哪怕只有一张故事卡，也要拆出完整短片弧线——",
-          "   - 第 1 镜必须建立世界规则或定调画面。",
-          "   - 中段镜头必须让主角欲望、阻碍和选择逐步显形。",
+          "6. 把已确认故事卡拆成**短片**——镜头数量和结构由故事本身决定，不套用固定模板：",
+          "   - 如果故事是三幕结构，就用三幕；如果是五幕，就用五幕；如果更适合自由形式，就用自由形式。",
+          "   - 第一镜必须建立世界规则或定调画面。",
+          "   - 中段镜头必须让冲突、选择和变化逐步显形。",
           "   - 最后一镜必须收束余味，不要继续扩写成长篇世界观。",
-          "   - 全表镜头总数必须在 3-5 镜之间；不要按卡片数 1:1 出一镜。",
+          "   - 镜头总数由故事弧线决定，通常 3-8 镜；不要为了凑数而拆分或合并。",
           "   - sourceCardContent 优先回填最相关的故事卡 content；纯连接镜可以为空字符串「\"\"」。",
         ]
       : [
@@ -1042,7 +1045,7 @@ export async function synthesizeShotList(params: {
     "   - 真实性保护：绝不自行补重大事实和重大创伤。用户没有说的疾病、死亡、暴力、背叛、家庭破裂、重大灾难，都不能写进剧本。连接镜只能补气氛、空间、动作或留白。",
     isJobSearch
       ? "   - 原话追溯：关键原话优先来自 rawText 或 sourceQuote；AI 可写求职字幕/旁白，但不要加引号伪装成用户原话。"
-      : "   - 原话追溯：关键台词优先来自 rawText 或 sourceQuote；不要把 AI 写的漂亮句子伪装成用户说过的话。",
+      : "   - 原话追溯：关键台词优先来自 dialogue 字段（用户已打磨的台词），其次 rawText 或 sourceQuote；不要把 AI 写的漂亮句子伪装成用户说过的话。",
     "",
     "【Module 10 · 记忆整理能力】",
     "   - kNN / 相似度：如果多张样本的 retrievalQuery 很接近，把它们看作同一段人生线索的回声。",
@@ -1056,7 +1059,7 @@ export async function synthesizeShotList(params: {
     "   - action:    一句话动作或事件（≤30 字），从原素材衍生（连接镜可自拟，但要朴素具象），不替对方解释或升华",
     isJobSearch
       ? "   - dialogue:  求职字幕/旁白候选词；优先原话，但没有原话时也要基于证据写一句职业主张；纯连接镜可空"
-      : "   - dialogue:  台词；原话里有有重量的一句就原样保留，没有就空字符串；连接镜原则上空",
+      : "   - dialogue:  台词；优先使用卡片 dialogue 字段（用户已打磨的台词），其次 rawText/sourceQuote；没有台词时留空；连接镜原则上空",
     "   - shotType:  景别，必须从这 6 个里选一个：远 / 全 / 中 / 近 / 特 / 大特",
     "   - beat:      必须从这 4 个里选一个：开场 / 起势 / 转折 / 收束",
     "   - location:  场景 / 地点，简短具象（如「老屋客厅，下午」），≤20 字",

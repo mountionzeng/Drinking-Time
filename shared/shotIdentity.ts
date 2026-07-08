@@ -28,6 +28,64 @@ export function normalizeShotIdentity(value: unknown): string | null {
   );
 }
 
+function safeShotNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    return null;
+  }
+  return value;
+}
+
+export function shotNumberFromIdentity(value: unknown): number | null {
+  const normalized = normalizeShotIdentity(value);
+  if (!normalized) return null;
+
+  const canonical = canonicalizeShotNo(normalized);
+  if (canonical) return Number(canonical.slice(2));
+
+  const patterns = [
+    /(?:^|[-_:])sh[-_:]?0*(\d+)(?:$|[-_:])/,
+    /(?:^|[-_:])s[-_:]?0*(\d+)(?:$|[-_:])/,
+    /(?:^|[-_:])shot[-_:]?0*(\d+)(?:$|[-_:])/,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(normalized);
+    const shotNo = match ? Number(match[1]) : NaN;
+    if (Number.isSafeInteger(shotNo) && shotNo > 0) return shotNo;
+  }
+  return null;
+}
+
+export function shotIdentityAliasesForNumber(shotNo: number): string[] {
+  const safe = safeShotNumber(shotNo);
+  if (safe == null) return [];
+  const padded = String(safe).padStart(2, "0");
+  return [
+    `genji-s${padded}`,
+    `legacy-sh${padded}`,
+    `legacy-sh${padded}-shot`,
+    `shot-${padded}`,
+    `sh${padded}`,
+  ];
+}
+
+export function shotIdentityMatchKeys(
+  identity: unknown,
+  shotNo?: number | null
+): string[] {
+  const keys = new Set<string>();
+  const normalized = normalizeShotIdentity(identity);
+  if (normalized) keys.add(normalized);
+  const inferredShotNo = shotNumberFromIdentity(normalized);
+  const fallbackShotNo = normalized ? null : safeShotNumber(shotNo);
+  const resolvedShotNo = inferredShotNo ?? fallbackShotNo;
+  if (resolvedShotNo != null) {
+    for (const alias of shotIdentityAliasesForNumber(resolvedShotNo)) {
+      keys.add(alias);
+    }
+  }
+  return Array.from(keys);
+}
+
 export function legacyShotIdentityForShot(
   shot: ShotLike,
   index: number

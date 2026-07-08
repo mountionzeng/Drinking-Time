@@ -27,6 +27,9 @@ export default function AnimaticMaterialDrawer({
 }: Props) {
   const [scope, setScope] = useState<"shot" | "all">("shot");
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [loadedVideoTakeIds, setLoadedVideoTakeIds] = useState<Set<number>>(
+    () => new Set()
+  );
   const shots = useMemo(
     () =>
       (state?.shots ?? []).filter(
@@ -142,18 +145,36 @@ export default function AnimaticMaterialDrawer({
                   take.sourceImageId != null &&
                   shot.currentImage.id !== take.sourceImageId;
                 const key = `video-${take.id}`;
+                const canPreview =
+                  Boolean(take.videoUrl) && take.status === "available";
+                const previewLoaded = loadedVideoTakeIds.has(take.id);
                 return (
                   <article
                     key={take.id}
                     className="col-span-2 overflow-hidden rounded-md border border-border bg-card"
                   >
-                    {take.videoUrl && take.status === "available" ? (
+                    {canPreview && previewLoaded ? (
                       <video
-                        src={take.videoUrl}
+                        src={take.videoUrl ?? undefined}
                         controls
-                        preload="metadata"
+                        preload="none"
                         className="aspect-video w-full bg-black object-contain"
                       />
+                    ) : canPreview ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLoadedVideoTakeIds(current => {
+                            const next = new Set(current);
+                            next.add(take.id);
+                            return next;
+                          })
+                        }
+                        className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-muted text-xs text-muted-foreground transition hover:bg-muted/80 hover:text-foreground"
+                      >
+                        <Video className="h-5 w-5" />
+                        载入预览
+                      </button>
                     ) : (
                       <div className="flex aspect-video items-center justify-center bg-muted text-xs text-muted-foreground">
                         {take.errorMessage || take.status}

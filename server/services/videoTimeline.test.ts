@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createStory,
   createVideoTake,
+  getStoryVideoTakeRanges,
   getStoryVideoTimelineSelections,
+  getVideoTakeById,
   resetMemoryStateForTesting,
 } from "../db";
 import {
   clearVideoTimelineSegment,
   createUsableVideoRange,
+  moveVideoTakeToShot,
   selectVideoTimelineSegment,
 } from "./videoTimeline";
 
@@ -123,6 +126,54 @@ describe("videoTimeline", () => {
       rangeId: null,
       selectionType: "full_take",
     });
+  });
+
+  it("moves a take, its ranges, and its timeline selection to another shot", async () => {
+    const { story, take } = await seedStory();
+    const rangeResult = await createUsableVideoRange(
+      {
+        storyId: story.id,
+        stableShotId: "shot-06",
+        takeId: take.id,
+        startSec: 1,
+        endSec: 2,
+        useOnTimeline: true,
+      },
+      1
+    );
+
+    const moved = await moveVideoTakeToShot(
+      {
+        storyId: story.id,
+        takeId: take.id,
+        targetStableShotId: "shot-07",
+      },
+      1
+    );
+
+    expect(moved).toMatchObject({
+      sourceStableShotId: "shot-06",
+      targetStableShotId: "shot-07",
+      movedTimelineSelection: true,
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      stableShotId: "shot-07",
+    });
+    expect(await getStoryVideoTakeRanges(story.id, 1)).toContainEqual(
+      expect.objectContaining({
+        id: rangeResult.range.id,
+        stableShotId: "shot-07",
+        takeId: take.id,
+      })
+    );
+    expect(await getStoryVideoTimelineSelections(story.id, 1)).toEqual([
+      expect.objectContaining({
+        stableShotId: "shot-07",
+        takeId: take.id,
+        rangeId: rangeResult.range.id,
+        selectionType: "range",
+      }),
+    ]);
   });
 
   it("clears timeline truth without deleting the take", async () => {

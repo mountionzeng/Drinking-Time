@@ -65,6 +65,10 @@ describe('creation editor rerender', () => {
         styleRef: 'premium commercial film',
       },
       rows: [row({ value: '水彩', weight: 0.8 })],
+      reference: {
+        imageUrl: "data:image/png;base64,full-frame",
+        identityImageUrl: "data:image/png;base64,identity-crop",
+      },
       generate,
     });
 
@@ -74,6 +78,8 @@ describe('creation editor rerender', () => {
       shotNo: 2,
       styleHint: 'premium commercial film',
       autoSelect: true,
+      referenceImageUrl: "data:image/png;base64,full-frame",
+      referenceIdentityImageUrl: "data:image/png;base64,identity-crop",
     }));
     expect(generate.mock.calls[0][0].prompt).toContain('水彩');
   });

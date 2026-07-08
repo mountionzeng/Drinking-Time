@@ -166,6 +166,29 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageUrl).toBeUndefined();
   });
 
+  it('attaches imported genji images to legacy shot identities', () => {
+    const merged = mergeShotsWithImages(
+      [
+        shot(1, {
+          stableShotId: 'legacy-sh01-shot',
+          shotIdentity: 'legacy-sh01-shot',
+        }),
+      ],
+      [
+        {
+          id: 9,
+          shotNo: null,
+          shotIdentity: 'genji-s01',
+          imageUrl: '/api/images/genji-s01.png',
+          prompt: 'imported frame',
+          isPrimary: true,
+        },
+      ],
+    );
+
+    expect(merged[0].imageUrl).toBe('/api/images/genji-s01.png');
+  });
+
   it('drops stale downstream prompt runs when canonical shot content changed', () => {
     const merged = mergeCanonicalStoryShots(
       [
@@ -549,6 +572,25 @@ describe('creation editor route and shell', () => {
     expect(merged[0].selectedVideoTake?.id).toBe(1);
     expect(merged[0].selectedVideoTake?.videoUrl).toBe('/videos/old-current.mp4');
     expect(merged[0].videoTakes?.map(take => take.id)).toEqual([1, 2]);
+  });
+
+  it('attaches imported genji video takes to legacy shot identities', () => {
+    const merged = mergeShotsWithVideos(
+      [
+        shot(1, {
+          stableShotId: 'legacy-sh01-shot',
+          shotIdentity: 'legacy-sh01-shot',
+        }),
+      ],
+      [
+        videoTake(7, {
+          stableShotId: 'genji-s01',
+          videoUrl: '/videos/take-7.mp4',
+        }),
+      ],
+    );
+
+    expect(merged[0].videoTakes?.map(take => take.id)).toEqual([7]);
   });
 
   it('does not let an unadopted available take replace the image fallback', () => {

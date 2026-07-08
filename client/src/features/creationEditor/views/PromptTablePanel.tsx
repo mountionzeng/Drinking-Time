@@ -9,6 +9,7 @@ import {
   type FrameCandidateSource,
 } from "../frameCandidate";
 import type { PromptOverride } from "../promptTable/types";
+import type { RerenderReference } from "../rerender";
 import {
   buildPromptLineageRevisionPreview,
   buildPromptLineageShotView,
@@ -23,6 +24,10 @@ import PromptRevisionStatus from "./PromptRevisionStatus";
 import PromptTable from "./PromptTable";
 import ShotFrameCandidatePicker from "./ShotFrameCandidatePicker";
 import ShotImageHistory from "./ShotImageHistory";
+import {
+  captureReferenceFrameFromVideoUrl,
+  captureReferenceFrameFromFile,
+} from "../video/captureFrame";
 
 function shotLabel(shotNo: number | null) {
   return shotNo == null ? "等待镜头" : `SH${String(shotNo).padStart(2, "0")}`;
@@ -69,11 +74,94 @@ export default function PromptTablePanel() {
   const [inspectedCandidate, setInspectedCandidate] =
     useState<FrameCandidateSource | null>(null);
   const [candidateCompareOpen, setCandidateCompareOpen] = useState(false);
+  const [referenceShotNo, setReferenceShotNo] = useState<number | null>(null);
+  const [extractingFrame, setExtractingFrame] = useState(false);
+  const [localVideoRef, setLocalVideoRef] = useState<{ file: File; preview: string } | null>(null);
+  const [localVideoDragOver, setLocalVideoDragOver] = useState(false);
+
+  const selectedShotMaterial = useMemo(() => {
+    if (!selectedShot) return undefined;
+    return materialState?.shots.find(item =>
+      selectedShot.stableShotId
+        ? item.stableShotId === selectedShot.stableShotId
+        : item.shotNo === selectedShot.shotNo
+    );
+  }, [materialState, selectedShot]);
+
+  // 有图片或有视频的镜头列表（排除当前选中镜头），用于参考镜头下拉
+  const referenceOptions = useMemo(() => {
+    return shots.filter(s => {
+      if (s.shotNo === selectedShotNo) return false;
+      const ms = materialState?.shots.find(item =>
+        s.stableShotId
+          ? item.stableShotId === s.stableShotId
+          : item.shotNo === s.shotNo
+      );
+      return Boolean(
+        ms?.currentImage?.imageUrl ||
+          s.imageUrl ||
+          ms?.currentVideo?.videoUrl ||
+          ms?.videoTakes.some(take => take.status === "available" && take.videoUrl) ||
+          s.videoTakes?.some(take => take.status === "available" && take.videoUrl)
+      );
+    });
+  }, [shots, selectedShotNo, materialState]);
+
+  // 解析参考镜头的图片 URL（仅对有图的镜头返回）
+  const referenceImageUrl = useMemo(() => {
+    if (referenceShotNo == null) return undefined;
+    const refShot = shots.find(s => s.shotNo === referenceShotNo);
+    if (!refShot) return undefined;
+    const material = materialState?.shots.find(ms =>
+      refShot.stableShotId
+        ? ms.stableShotId === refShot.stableShotId
+        : ms.shotNo === referenceShotNo
+    );
+    return material?.currentImage?.imageUrl || refShot.imageUrl || undefined;
+  }, [referenceShotNo, shots, materialState]);
+
+  // 获取参考镜头的视频 URL（仅对有视频的镜头返回）
+  const referenceVideoUrl = useMemo(() => {
+    if (referenceShotNo == null) return undefined;
+    const refShot = shots.find(s => s.shotNo === referenceShotNo);
+    if (!refShot) return undefined;
+    const material = materialState?.shots.find(ms =>
+      refShot.stableShotId
+        ? ms.stableShotId === refShot.stableShotId
+        : ms.shotNo === referenceShotNo
+    );
+    return (
+      material?.currentVideo?.videoUrl ||
+      material?.videoTakes.find(take => take.status === "available" && take.videoUrl)
+        ?.videoUrl ||
+      refShot.selectedVideoTake?.videoUrl ||
+      refShot.videoTakes?.find(take => take.status === "available" && take.videoUrl)
+        ?.videoUrl ||
+      undefined
+    );
+  }, [referenceShotNo, shots, materialState]);
+
+  const currentShotVideoUrl = useMemo(() => {
+    if (!selectedShot) return undefined;
+    return (
+      selectedShotMaterial?.currentVideo?.videoUrl ||
+      selectedShotMaterial?.videoTakes.find(
+        take => take.status === "available" && take.videoUrl
+      )?.videoUrl ||
+      selectedShot.selectedVideoTake?.videoUrl ||
+      selectedShot.videoTakes?.find(
+        take => take.status === "available" && take.videoUrl
+      )?.videoUrl ||
+      undefined
+    );
+  }, [selectedShot, selectedShotMaterial]);
 
   useEffect(() => {
     setInspectedCandidate(null);
     setCandidateCompareOpen(false);
     setEditScope("shot");
+    setReferenceShotNo(null);
+    setLocalVideoRef(null);
   }, [selectedShot?.stableShotId, selectedShot?.shotNo]);
 
   useEffect(() => {
@@ -83,14 +171,8 @@ export default function PromptTablePanel() {
   }, [rerenderingShotNo, selectedShot?.shotNo]);
 
   const latestMaterialCandidate = useMemo(() => {
-    if (!selectedShot) return null;
-    const materialShot = materialState?.shots.find(item =>
-      selectedShot.stableShotId
-        ? item.stableShotId === selectedShot.stableShotId
-        : item.shotNo === selectedShot.shotNo
-    );
-    return latestFrameCandidateSheet(materialShot?.imageVersions ?? []);
-  }, [materialState, selectedShot]);
+    return latestFrameCandidateSheet(selectedShotMaterial?.imageVersions ?? []);
+  }, [selectedShotMaterial]);
 
   const frameCandidate =
     inspectedCandidate ?? latestMaterialCandidate ?? undefined;
@@ -329,11 +411,75 @@ export default function PromptTablePanel() {
     utils,
   ]);
 
+  const resolveReferenceForRerender = useCallback(async () => {
+    const captureVideoReference = async (
+      videoUrl: string,
+      fallback?: RerenderReference
+    ): Promise<RerenderReference | undefined> => {
+      setExtractingFrame(true);
+      try {
+        const captured = await captureReferenceFrameFromVideoUrl(videoUrl);
+        return {
+          imageUrl: captured.frameUrl,
+          identityImageUrl: captured.identityCropUrl,
+        };
+      } catch (error) {
+        console.warn("[PromptTablePanel] reference frame extraction failed", error);
+        setPanelError(
+          `${messageOf(error, "参考视频取帧失败")}；已改用当前提示词继续重渲。`
+        );
+        return fallback;
+      } finally {
+        setExtractingFrame(false);
+      }
+    };
+
+    // 优先级：本地拖入的视频 > 手动选择的参考镜头 > 本镜现成视频
+    if (localVideoRef) {
+      setExtractingFrame(true);
+      try {
+        const captured = await captureReferenceFrameFromFile(localVideoRef.file);
+        return {
+          imageUrl: captured.frameUrl,
+          identityImageUrl: captured.identityCropUrl,
+        };
+      } catch (error) {
+        console.warn("[PromptTablePanel] local reference frame extraction failed", error);
+        setPanelError(
+          `${messageOf(error, "本地参考视频取帧失败")}；已改用当前提示词继续重渲。`
+        );
+        return undefined;
+      } finally {
+        setExtractingFrame(false);
+      }
+    }
+    if (referenceVideoUrl) {
+      return captureVideoReference(referenceVideoUrl, {
+        imageUrl: referenceImageUrl,
+      });
+    }
+    if (referenceImageUrl) return { imageUrl: referenceImageUrl };
+    if (currentShotVideoUrl) {
+      return captureVideoReference(currentShotVideoUrl);
+    }
+    return undefined;
+  }, [currentShotVideoUrl, localVideoRef, referenceImageUrl, referenceVideoUrl]);
+
   const rerenderConfirmedLineageShot = useCallback(async () => {
     if (!selectedShotNo || !lineageView) return;
     setPanelError(null);
-    await rerenderShot(selectedShotNo, lineageView.rows);
-  }, [lineageView, rerenderShot, selectedShotNo]);
+    const reference = await resolveReferenceForRerender();
+    await rerenderShot(
+      selectedShotNo,
+      lineageView.rows,
+      reference
+    );
+  }, [
+    lineageView,
+    rerenderShot,
+    resolveReferenceForRerender,
+    selectedShotNo,
+  ]);
 
   return (
     <aside
@@ -350,6 +496,108 @@ export default function PromptTablePanel() {
           {shotLabel(selectedShotNo)}
         </span>
       </div>
+
+      {/* 参考视频区域：固定在 header 和滚动内容之间 */}
+      {selectedShot ? (
+        <div className="shrink-0 border-b border-border/70 px-4 pb-3 pt-2">
+          {!localVideoRef ? (
+            <div
+              className={`flex items-center justify-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs transition-colors ${
+                localVideoDragOver
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-border text-muted-foreground hover:border-primary/40"
+              }`}
+              onDragOver={e => {
+                e.preventDefault();
+                setLocalVideoDragOver(true);
+              }}
+              onDragLeave={() => setLocalVideoDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setLocalVideoDragOver(false);
+                const file = Array.from(e.dataTransfer.files).find(f =>
+                  f.type.startsWith("video/")
+                );
+                if (file) {
+                  setLocalVideoRef({ file, preview: URL.createObjectURL(file) });
+                  setReferenceShotNo(null);
+                }
+              }}
+            >
+              <span>拖入本地视频作为参考，让出图和视频风格一致</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+              <span className="truncate text-muted-foreground">
+                参考视频：{localVideoRef.file.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  URL.revokeObjectURL(localVideoRef.preview);
+                  setLocalVideoRef(null);
+                }}
+                className="ml-auto text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          {referenceOptions.length > 0 || currentShotVideoUrl ? (
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">或选已有镜头：</span>
+              <select
+                value={referenceShotNo ?? ""}
+                onChange={e => {
+                  const val = e.target.value;
+                  setReferenceShotNo(val === "" ? null : Number(val));
+                }}
+                disabled={extractingFrame}
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              >
+                <option value="">
+                  {currentShotVideoUrl ? "本镜视频（默认）" : "不使用"}
+                </option>
+                {referenceOptions.map(s => {
+                  const ms = materialState?.shots.find(item =>
+                    s.stableShotId
+                      ? item.stableShotId === s.stableShotId
+                      : item.shotNo === s.shotNo
+                  );
+                  const hasImage = Boolean(ms?.currentImage?.imageUrl || s.imageUrl);
+                  const hasVideo = Boolean(
+                    ms?.currentVideo?.videoUrl ||
+                      ms?.videoTakes.some(
+                        take => take.status === "available" && take.videoUrl
+                      ) ||
+                      s.selectedVideoTake?.videoUrl ||
+                      s.videoTakes?.some(
+                        take => take.status === "available" && take.videoUrl
+                      )
+                  );
+                  const tag = hasVideo ? " 🎬" : hasImage ? " 🖼️" : "";
+                  return (
+                    <option key={s.shotNo} value={s.shotNo}>
+                      {shotLabel(s.shotNo)}{tag}
+                    </option>
+                  );
+                })}
+              </select>
+              {extractingFrame ? (
+                <span className="text-muted-foreground">正在从视频取帧…</span>
+              ) : referenceShotNo != null ? (
+                <span className="text-muted-foreground">
+                  → FLUX Kontext 保持角色一致
+                </span>
+              ) : currentShotVideoUrl ? (
+                <span className="text-muted-foreground">
+                  → 默认跟随本镜视频
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 [scrollbar-gutter:stable]"
@@ -511,11 +759,15 @@ export default function PromptTablePanel() {
                   }}
                   onRerenderShot={async (shotNo, rows) => {
                     try {
-                      if (promptLineageMode === "lineage") {
-                        await rerenderConfirmedLineageShot();
-                        return;
-                      }
-                      await rerenderShot(shotNo, rows);
+                      setPanelError(null);
+                      const reference = await resolveReferenceForRerender();
+                      await rerenderShot(
+                        shotNo,
+                        promptLineageMode === "lineage" && lineageView
+                          ? lineageView.rows
+                          : rows,
+                        reference
+                      );
                     } catch (error) {
                       setPanelError(messageOf(error, "图片生成失败"));
                     }

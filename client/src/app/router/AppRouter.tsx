@@ -46,11 +46,15 @@ export default function AppRouter() {
 
   return (
     <Switch>
-      <Route path="/login" component={LoginPage} />
-      <Route path="/welcome" component={WelcomePreviewPage} />
-      {/* 站点首页：桌面端先落欢迎页；触屏设备（iPad/手机）自动转入消费端 /m */}
+      <Route path="/login">
+        <LoginPage />
+      </Route>
+      <Route path="/welcome">
+        <WelcomePreviewPage />
+      </Route>
+      {/* 站点首页：桌面端直接进故事编辑；触屏设备（iPad/手机）自动转入消费端 /m */}
       <Route path="/">
-        {prefersMobile ? <Redirect to="/m" /> : <WelcomePreviewPage />}
+        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><AnalysisPage /></AuthGuard>}
       </Route>
       <Route path="/analysis">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><AnalysisPage /></AuthGuard>}

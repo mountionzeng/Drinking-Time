@@ -33,7 +33,8 @@ export function currentStoryboardImages(
 export default function StoryboardPanel() {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
-  const { updateStoryShotField, setActiveSelection } = useStoryAgentActions();
+  const { loadStory, updateStoryShotField, setActiveSelection } =
+    useStoryAgentActions();
   const {
     activeStoryId,
     selectedShotNo,
@@ -42,9 +43,11 @@ export default function StoryboardPanel() {
     timelineShotIds,
     addShotToTimeline,
     updatePersistedShotField,
+    insertPersistedShotAfter,
     generateShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
+    moveVideoTake,
     adoptVideoTake,
     promoteFrameCrop,
     promotingFrameCropShotNo,
@@ -142,9 +145,22 @@ export default function StoryboardPanel() {
       creationShots={creationShots}
       timelineShotIds={timelineShotIds}
       onAddShotToTimeline={addShotToTimeline}
+      onInsertShotAfter={async (shotNo, stableShotId) => {
+        if (!stableShotId) return;
+        const insertedShotNo = await insertPersistedShotAfter(stableShotId);
+        if (activeStoryId) {
+          await loadStory(activeStoryId);
+        }
+        if (insertedShotNo != null) {
+          setSelectedShotNo(insertedShotNo);
+        } else {
+          setSelectedShotNo(shotNo + 1);
+        }
+      }}
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
+      onMoveVideoTake={moveVideoTake}
       onAdoptVideoTake={adoptVideoTake}
       onPromoteFrameCrop={promoteFrameCrop}
       promotingFrameCropShotNo={promotingFrameCropShotNo}

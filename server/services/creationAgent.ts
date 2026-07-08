@@ -618,6 +618,12 @@ export async function generateNextImage(
       },
     );
   } catch (error) {
+    // undici 的 "fetch failed" 不带目标信息，把 cause 打出来才能定位是哪一环挂了
+    console.warn(
+      "[generateNextImage] 出图失败:",
+      error instanceof Error ? error.message : error,
+      error instanceof Error && error.cause ? `cause: ${String(error.cause)}` : ""
+    );
     return {
       status: "error",
       message: error instanceof Error ? error.message : "出图服务暂时不可用",

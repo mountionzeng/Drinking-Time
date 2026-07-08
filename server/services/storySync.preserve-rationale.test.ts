@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getStoryRevision, prepareStoryBody } from "./storySync";
+import {
+  getStoryRevision,
+  mergeStaleStoryBody,
+  prepareStoryBody,
+} from "./storySync";
 
 describe("storySync shot field preservation", () => {
   it("keeps the existing body cleanup and revision behavior", () => {
@@ -264,5 +268,127 @@ describe("storySync shot field preservation", () => {
       durationMs: 3600,
       videoPrompt: "slow push in",
     });
+  });
+
+  it("does not append server-only shots during normal canonical saves", () => {
+    const body = prepareStoryBody(
+      {
+        shots: [
+          {
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            shotNo: 1,
+            subject: "新的完整列表",
+          },
+        ],
+      },
+      12,
+      {
+        shots: [
+          {
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            shotNo: 1,
+            subject: "旧镜头",
+            durationMs: 3000,
+          },
+          {
+            stableShotId: "server-only-ghost",
+            shotIdentity: "server-only-ghost",
+            shotNo: 2,
+            subject: "不应被追加回来的旧镜头",
+          },
+        ],
+      }
+    );
+
+    expect(
+      (body.shots as Array<Record<string, unknown>>).map(shot => [
+        shot.stableShotId,
+        shot.subject,
+        shot.durationMs,
+      ])
+    ).toEqual([["shot-a", "新的完整列表", 3000]]);
+  });
+
+  it("weaves a stale client's newly inserted shot into the server order", () => {
+    const body = mergeStaleStoryBody(
+      {
+        shots: [
+          { stableShotId: "shot-a", shotIdentity: "shot-a", shotNo: 1 },
+          {
+            stableShotId: "shot-server",
+            shotIdentity: "shot-server",
+            shotNo: 2,
+          },
+          { stableShotId: "shot-b", shotIdentity: "shot-b", shotNo: 3 },
+        ],
+      },
+      {
+        shots: [
+          { stableShotId: "shot-a", shotIdentity: "shot-a", shotNo: 1 },
+          {
+            stableShotId: "shot-client",
+            shotIdentity: "shot-client",
+            shotNo: 2,
+          },
+          { stableShotId: "shot-b", shotIdentity: "shot-b", shotNo: 3 },
+        ],
+      },
+      12
+    );
+
+    expect(
+      (body.shots as Array<Record<string, unknown>>).map(shot => [
+        shot.stableShotId,
+        shot.shotNo,
+      ])
+    ).toEqual([
+      ["shot-a", 1],
+      ["shot-client", 2],
+      ["shot-server", 3],
+      ["shot-b", 4],
+    ]);
+  });
+
+  it("drops stale re-sent copies whose content matches an existing server shot", () => {
+    const serverShots = [
+      {
+        stableShotId: "legacy-sh01-shot",
+        shotIdentity: "legacy-sh01-shot",
+        shotNo: 1,
+        subject: "老宅门口",
+        action: "推门",
+        dialogue: "我回来了",
+      },
+      {
+        stableShotId: "legacy-sh02-shot",
+        shotIdentity: "legacy-sh02-shot",
+        shotNo: 2,
+        subject: "院子里的树",
+        action: "抬头看",
+        dialogue: "",
+      },
+    ];
+    // 过期客户端把同样内容的镜头表带着重编号的身份再送回来
+    const staleResent = serverShots.map((shot, index) => ({
+      ...shot,
+      stableShotId: undefined,
+      shotIdentity: undefined,
+      shotNo: index + 100,
+    }));
+
+    const body = mergeStaleStoryBody(
+      { shots: serverShots },
+      { shots: staleResent },
+      12
+    );
+
+    expect((body.shots as unknown[]).length).toBe(2);
+    expect(
+      (body.shots as Array<Record<string, unknown>>).map(
+        shot => shot.stableShotId
+      )
+    ).toEqual(["legacy-sh01-shot", "legacy-sh02-shot"]);
   });
 });

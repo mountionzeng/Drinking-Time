@@ -154,6 +154,17 @@ function sameShotContentForPromptMetadata(
   );
 }
 
+// shotNo/shotKey 会被 reindexStoryShots 重编号，身份字段会被 ensureShotIdentities
+// 重新生成，都不能参与内容比较——否则同一镜头换个编号就认不出来了。
+function shotContentKey(value: unknown): string | null {
+  const shot = asRecord(value);
+  const parts = SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA.filter(
+    field => field !== "shotNo"
+  ).map(field => comparableShotValue(shot[field]));
+  if (parts.every(part => part === "")) return null;
+  return parts.join("\u0000");
+}
+
 function mergeShotPreservedFields(
   serverValue: unknown,
   incomingValue: unknown
@@ -185,28 +196,100 @@ function mergeShotPreservedFields(
   return merged;
 }
 
+function reindexStoryShots(items: unknown[]): unknown[] {
+  return items.map((item, index) => {
+    const shot = asRecord(item);
+    if (!shot) return item;
+    return {
+      ...shot,
+      shotNo: index + 1,
+      shotKey: `SH${String(index + 1).padStart(2, "0")}`,
+    };
+  });
+}
+
 function mergeStoryShotsPreservingFields(
   serverValue: unknown,
-  incomingValue: unknown
+  incomingValue: unknown,
+  options: { preserveServerOnly?: boolean } = {}
 ): unknown[] {
   const serverItems = Array.isArray(serverValue) ? serverValue : [];
   const incomingItems = Array.isArray(incomingValue) ? incomingValue : [];
   if (incomingItems.length === 0) return [...serverItems];
 
+  const serverEntries = serverItems.map((item, index) => ({
+    item,
+    key: itemKey("shots", item, index),
+  }));
+  const incomingEntries = incomingItems.map((item, index) => ({
+    item,
+    key: itemKey("shots", item, index),
+  }));
   const serverByKey = new Map(
-    serverItems.map((item, index) => [itemKey("shots", item, index), item])
+    serverEntries.map(entry => [entry.key, entry.item])
   );
-  const incomingKeys = new Set<string>();
+  const incomingByKey = new Map(
+    incomingEntries.map(entry => [entry.key, entry.item])
+  );
 
-  const merged = incomingItems.map((item, index) => {
-    const key = itemKey("shots", item, index);
-    incomingKeys.add(key);
-    return mergeShotPreservedFields(serverByKey.get(key), item);
-  });
+  if (options.preserveServerOnly) {
+    const knownServerKeys = new Set(serverEntries.map(entry => entry.key));
+    // 身份没匹配上但内容和服务端某个镜头一致的，视为同一镜头的旧快照副本，
+    // 直接丢弃——过期客户端反复回传整张镜头表时，这里是防止列表滚雪球的闸门。
+    const serverContentKeys = new Set(
+      serverEntries
+        .map(entry => shotContentKey(entry.item))
+        .filter((key): key is string => key !== null)
+    );
+    const insertionsByPreviousKnownKey = new Map<string, typeof incomingEntries>();
+    const leadingInsertions: typeof incomingEntries = [];
+    let previousKnownKey: string | null = null;
 
-  serverItems.forEach((item, index) => {
-    const key = itemKey("shots", item, index);
-    if (!incomingKeys.has(key)) merged.push(item);
+    incomingEntries.forEach(entry => {
+      if (knownServerKeys.has(entry.key)) {
+        previousKnownKey = entry.key;
+        return;
+      }
+      const contentKey = shotContentKey(entry.item);
+      if (contentKey !== null && serverContentKeys.has(contentKey)) {
+        return;
+      }
+      if (previousKnownKey) {
+        const bucket = insertionsByPreviousKnownKey.get(previousKnownKey) ?? [];
+        bucket.push(entry);
+        insertionsByPreviousKnownKey.set(previousKnownKey, bucket);
+      } else {
+        leadingInsertions.push(entry);
+      }
+    });
+
+    const merged = leadingInsertions.map(entry =>
+      mergeShotPreservedFields(serverByKey.get(entry.key), entry.item)
+    );
+
+    serverEntries.forEach(entry => {
+      const incoming = incomingByKey.get(entry.key);
+      if (incoming !== undefined) {
+        merged.push(mergeShotPreservedFields(entry.item, incoming));
+      } else {
+        merged.push(entry.item);
+      }
+      const inserted = insertionsByPreviousKnownKey.get(entry.key) ?? [];
+      inserted.forEach(insertedEntry => {
+        merged.push(
+          mergeShotPreservedFields(
+            serverByKey.get(insertedEntry.key),
+            insertedEntry.item
+          )
+        );
+      });
+    });
+
+    return reindexStoryShots(merged);
+  }
+
+  const merged = incomingEntries.map(entry => {
+    return mergeShotPreservedFields(serverByKey.get(entry.key), entry.item);
   });
 
   return merged;
@@ -276,11 +359,12 @@ export function mergeStaleStoryBody(
     "visualCanvasItems",
   ]) {
     if (Array.isArray(incoming[collection])) {
-      merged[collection] = mergeStableArray(
-        collection,
-        server[collection],
-        incoming[collection]
-      );
+      merged[collection] =
+        collection === "shots"
+          ? mergeStoryShotsPreservingFields(server[collection], incoming[collection], {
+              preserveServerOnly: true,
+            })
+          : mergeStableArray(collection, server[collection], incoming[collection]);
     }
   }
 

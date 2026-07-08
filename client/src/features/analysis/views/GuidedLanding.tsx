@@ -4,6 +4,7 @@
  */
 import { motion } from "framer-motion";
 import { Upload, MessageCircle } from "lucide-react";
+import type { ReactNode } from "react";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import DailyDrinkHero from "@/features/nayin/views/DailyDrinkHero";
@@ -41,6 +42,8 @@ interface GuidedLandingProps {
   onSaveEmotionProfile?: (
     input: SaveEmotionAnalysisProfileInput
   ) => Promise<EmotionAnalysisProfile | void>;
+  authPanel?: ReactNode;
+  authPanelFirst?: boolean;
 }
 
 const easing = [0.22, 1, 0.36, 1] as const;
@@ -52,6 +55,8 @@ export default function GuidedLanding({
   emotionProfile,
   emotionProfileLoading,
   onSaveEmotionProfile,
+  authPanel,
+  authPanelFirst = false,
 }: GuidedLandingProps) {
   const { element, today } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
@@ -60,6 +65,17 @@ export default function GuidedLanding({
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-8 sm:px-6 sm:py-10">
       <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center gap-5">
         <DailyDrinkHero today={today} />
+
+        {authPanel && authPanelFirst ? (
+          <motion.div
+            className="w-full flex justify-center"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08, duration: 0.5, ease: easing }}
+          >
+            {authPanel}
+          </motion.div>
+        ) : null}
 
         <motion.div
           className={`flex w-full flex-col gap-4 ${storyOnly ? "max-w-md" : "max-w-2xl sm:flex-row"}`}
@@ -139,6 +155,17 @@ export default function GuidedLanding({
             </div>
           </motion.button>
         </motion.div>
+
+        {authPanel && !authPanelFirst ? (
+          <motion.div
+            className="w-full flex justify-center"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.26, duration: 0.5, ease: easing }}
+          >
+            {authPanel}
+          </motion.div>
+        ) : null}
 
         <motion.div
           className="w-full flex justify-center"

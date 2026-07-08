@@ -111,6 +111,61 @@ describe("normalizeTimelineItems", () => {
 });
 
 describe("getStoryMaterialState", () => {
+  it("matches imported genji assets to legacy shot identities by shot number", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "旧素材故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "legacy-sh01-shot",
+            shotIdentity: "legacy-sh01-shot",
+            shotNo: 1,
+            subject: "蒙眼的女主",
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: null,
+      shotIdentity: "genji-s01",
+      imageUrl: "data:image/png;base64,AAAA",
+      imageKey: null,
+      prompt: "旧导入首帧",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const take = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "genji-s01",
+      sourceImageId: image.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "旧导入视频",
+      durationSec: 8,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-1.mp4",
+      extractionCapability: "available",
+    });
+    await selectImage(story.id, image.id);
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    const shot = materials?.shots[0];
+
+    expect(shot).toMatchObject({
+      stableShotId: "legacy-sh01-shot",
+      shotNo: 1,
+    });
+    expect(shot?.currentImage?.id).toBe(image.id);
+    expect(shot?.videoTakes.map(item => item.id)).toContain(take.id);
+  });
+
   it("auto-binds current prompt compilations to new image and video assets", async () => {
     const story = await seedPromptStory();
     const projection = await getPromptProjection(story.id);

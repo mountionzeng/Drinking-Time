@@ -10,6 +10,7 @@ import {
 import {
   ensureShotIdentities,
   normalizeShotIdentity,
+  shotIdentityMatchKeys,
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
 import { localImageDir } from "./imageGen";
@@ -119,6 +120,7 @@ export function projectImageAssets({
   const latestSignals = latestSignalByImage(signals);
   const validIdentities = new Set(
     validShotIdentities
+      .flatMap(identity => shotIdentityMatchKeys(identity))
       .map(identity => normalizeShotIdentity(identity))
       .filter((identity): identity is string => Boolean(identity))
   );

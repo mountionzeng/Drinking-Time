@@ -1258,9 +1258,9 @@ describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分�
     )?.content as string;
 
     expect(systemContent).toContain('虚构短片导演');
-    expect(systemContent).toContain('3-5 镜虚构短片');
-    expect(systemContent).toContain('世界规则 → 主角欲望 → 阻碍/冲突');
-    expect(systemContent).toContain('不要按卡片数 1:1 出一镜');
+    expect(systemContent).toContain('3-5 镜的虚构短片');
+    expect(systemContent).toContain('弧线服务于故事本身');
+    expect(systemContent).toContain('镜头数量和结构由故事本身决定');
     expect(systemContent).toContain('这里只返回镜头表 JSON');
     expect(systemContent).not.toContain('岗位关切 → 用户能力');
     expect(systemContent).not.toContain('招聘者为什么相信');

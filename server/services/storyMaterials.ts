@@ -7,7 +7,10 @@ import {
   type TimelineDocument,
   type TimelineTransform,
 } from "../../shared/storyMaterial";
-import { normalizeShotIdentity } from "../../shared/shotIdentity";
+import {
+  normalizeShotIdentity,
+  shotIdentityMatchKeys,
+} from "../../shared/shotIdentity";
 import { getStoryById, getStoryTimeline } from "../db";
 import { getStoryImageAssets } from "./imageAssets";
 import { getStoryPromptProjection } from "./promptLineage";
@@ -27,6 +30,23 @@ function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : fallback;
+}
+
+function shotNoFromCanonical(value: unknown): number | null {
+  const canonical = canonicalizeShotNo(
+    value as string | number | null | undefined
+  );
+  return canonical ? Number(canonical.slice(2)) : null;
+}
+
+function keysOverlap(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length === 0 || right.length === 0) return false;
+  const rightKeys = new Set(right);
+  return left.some(key => rightKeys.has(key));
+}
+
+function shotMaterialKeys(fact: StoryShotFact): string[] {
+  return shotIdentityMatchKeys(fact.stableShotId, fact.shotNo);
 }
 
 function storyShots(story: Story): StoryShotFact[] {
@@ -154,13 +174,15 @@ export async function getStoryMaterialState(
       const videoCompilationId =
         compilationHeadByKey.get(`${fact.stableShotId}:video`) ?? null;
       const imageVersions = images
-        .filter(image => {
-          if (image.shotIdentity) return image.shotIdentity === fact.stableShotId;
-          return (
-            image.canonicalShotNo ===
-            `SH${String(fact.shotNo).padStart(2, "0")}`
-          );
-        })
+        .filter(image =>
+          keysOverlap(
+            shotMaterialKeys(fact),
+            shotIdentityMatchKeys(
+              image.shotIdentity,
+              shotNoFromCanonical(image.canonicalShotNo ?? image.rawShotNo)
+            )
+          )
+        )
         .map(image => ({
           ...image,
           promptFreshness: resolvePromptAssetFreshness(
@@ -171,7 +193,12 @@ export async function getStoryMaterialState(
       const currentImage =
         imageVersions.find(image => image.isPrimary) ?? null;
       const videoTakes = videos
-        .filter(take => take.stableShotId === fact.stableShotId)
+        .filter(take =>
+          keysOverlap(
+            shotMaterialKeys(fact),
+            shotIdentityMatchKeys(take.stableShotId)
+          )
+        )
         .map(take => {
           const promptFreshness = resolvePromptAssetFreshness(
             take.promptCompilationId,

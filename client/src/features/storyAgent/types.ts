@@ -35,6 +35,7 @@ export interface StoryCard {
   content: string;
   rawText?: string;
   sourceQuote?: string;
+  dialogue?: string;
   emotion: string;
   emotionOptions?: string[];
   emotionBlend?: string[];

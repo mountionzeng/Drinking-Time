@@ -10,6 +10,7 @@ export type StoryCardPayload = {
   content: string;
   rawText: string;
   sourceQuote?: string;
+  dialogue?: string;
   emotion?: string;
   emotionOptions?: string[];
   emotionBlend?: string[];
@@ -19,13 +20,9 @@ export type StoryCardPayload = {
   trigger?: string;
   dramaticFunction?: string;
   personalTrace?: string;
-  // 第 10 模块对应：kNN / 相似度检索。以后接 embedding 后，可用这句话去找相似记忆。
   retrievalQuery?: string;
-  // 第 10 模块对应：Clustering。先让模型给出主题线索，后续可替换成自动聚类标签。
   themeHints?: string[];
-  // 第 10 模块对应：DBSCAN / outlier。记录“不属于普通主题但可能很有戏”的异常故事点。
   outlierSignal?: string;
-  // 第 10 模块对应：GMM soft membership。真实人生片段通常同时属于多个主题。
   softMembership?: string[];
 };
 
@@ -44,6 +41,7 @@ export type StoryCardContextPayload = {
   title?: string;
   content: string;
   sourceQuote?: string;
+  dialogue?: string;
   emotion?: string;
   emotionOptions?: string[];
   emotionBlend?: string[];

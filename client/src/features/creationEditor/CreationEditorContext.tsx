@@ -20,9 +20,10 @@ import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
   ensureShotIdentities,
   normalizeShotIdentity,
+  shotIdentityMatchKeys,
   shotIdentityFromShot,
 } from "@shared/shotIdentity";
-import { rerenderShotImage } from "./rerender";
+import { rerenderShotImage, type RerenderReference } from "./rerender";
 import {
   writePromptOverride,
   writePromptRun,
@@ -118,6 +119,10 @@ type CreationEditorContextValue = {
     field: StoryShotEditableField,
     value: string
   ) => Promise<void>;
+  insertPersistedShotAfter: (
+    stableShotId: string,
+    dialogue?: string
+  ) => Promise<number | null>;
   updatePromptOverride: (
     shotNo: number,
     dimension: string,
@@ -133,7 +138,11 @@ type CreationEditorContextValue = {
     shotNo: number,
     promptRun: PromptRunRecord
   ) => Promise<void>;
-  rerenderShot: (shotNo: number, rows: PromptRow[]) => Promise<void>;
+  rerenderShot: (
+    shotNo: number,
+    rows: PromptRow[],
+    reference?: RerenderReference
+  ) => Promise<void>;
   promoteFrameCrop: (input: {
     shotNo: number;
     imageBase64: string;
@@ -157,6 +166,10 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
+  moveVideoTake: (input: {
+    takeId: number;
+    targetStableShotId: string;
+  }) => Promise<void>;
   adoptVideoTake: (input: {
     stableShotId: string;
     takeId: number;
@@ -502,6 +515,14 @@ export function normalizeStoryShots(body: unknown): CreationEditorShot[] {
   );
 }
 
+export function storyBodyRevision(body: unknown): number {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return 0;
+  const revision = (body as Record<string, unknown>)._revision;
+  return typeof revision === "number" && Number.isFinite(revision)
+    ? revision
+    : 0;
+}
+
 function preserveEditorMetadata(
   canonical: CreationEditorShot,
   persisted?: CreationEditorShot
@@ -610,7 +631,11 @@ export function normalizeStoryImages(
       const imageUrl = stringValue(obj.imageUrl);
       if (!imageUrl) return null;
       const canonical = canonicalizeShotNo(
-        obj.shotNo as string | number | null | undefined
+        (obj.shotNo ?? obj.canonicalShotNo ?? obj.rawShotNo) as
+          | string
+          | number
+          | null
+          | undefined
       );
       const shotNo = canonical ? Number(canonical.slice(2)) : null;
       const shotIdentity = normalizeShotIdentity(
@@ -680,9 +705,14 @@ export function mergeShotsWithImages(
     if (image.status === "rejected" || !image.imageUrl) continue;
     if (!isCurrentMaterialImage(image)) continue;
     if (image.shotIdentity) {
-      const previous = displayByIdentity.get(image.shotIdentity);
-      if (!previous || image.id >= previous.id)
-        displayByIdentity.set(image.shotIdentity, image);
+      for (const key of shotIdentityMatchKeys(
+        image.shotIdentity,
+        image.shotNo
+      )) {
+        const previous = displayByIdentity.get(key);
+        if (!previous || image.id >= previous.id)
+          displayByIdentity.set(key, image);
+      }
     }
     if (image.shotNo != null) {
       const previous = displayByShotNo.get(image.shotNo);
@@ -698,12 +728,21 @@ export function mergeShotsWithImages(
 
   return shots.map(shot => {
     const identity = shotIdentityFromShot(shot);
+    const matchedIdentityImage = shotIdentityMatchKeys(
+      identity,
+      shot.shotNo
+    ).reduce<CreationEditorImage | undefined>((selected, key) => {
+      const candidate = displayByIdentity.get(key);
+      if (!candidate) return selected;
+      if (!selected || candidate.id >= selected.id) return candidate;
+      return selected;
+    }, undefined);
     const promptRunImage =
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
         : undefined;
     const matchedImage =
-      (identity ? displayByIdentity.get(identity) : undefined) ??
+      matchedIdentityImage ??
       (shotNoCounts.get(shot.shotNo) === 1
         ? displayByShotNo.get(shot.shotNo)
         : legacyDisplayByShotNo.get(shot.shotNo));
@@ -779,17 +818,26 @@ export function mergeShotsWithVideos(
   shots: readonly CreationEditorShot[],
   videoTakes: readonly VideoTakeAsset[]
 ): CreationEditorShot[] {
-  const takesByShot = new Map<string, VideoTakeAsset[]>();
+  const takesByShot = new Map<string, Map<number, VideoTakeAsset>>();
   for (const take of videoTakes) {
-    const group = takesByShot.get(take.stableShotId) ?? [];
-    group.push(take);
-    takesByShot.set(take.stableShotId, group);
+    for (const key of shotIdentityMatchKeys(take.stableShotId)) {
+      const group = takesByShot.get(key) ?? new Map<number, VideoTakeAsset>();
+      group.set(take.id, take);
+      takesByShot.set(key, group);
+    }
   }
 
   return shots.map(shot => {
     const identity = shotIdentityFromShot(shot);
-    if (!identity) return shot;
-    const takes = [...(takesByShot.get(identity) ?? [])].sort((left, right) => {
+    const matched = new Map<number, VideoTakeAsset>();
+    for (const key of shotIdentityMatchKeys(identity, shot.shotNo)) {
+      const group = takesByShot.get(key);
+      if (!group) continue;
+      group.forEach((take, takeId) => {
+        matched.set(takeId, take);
+      });
+    }
+    const takes = Array.from(matched.values()).sort((left, right) => {
       const selectedDiff =
         Number(right.isTimelineSelected) - Number(left.isTimelineSelected);
       if (selectedDiff) return selectedDiff;
@@ -897,6 +945,8 @@ export function CreationEditorProvider({
     refetchOnWindowFocus: false,
   });
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const insertStoryShotAfterMut =
+    trpc.storyAgent.insertStoryShotAfter.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const promoteStoryImageMut =
@@ -911,6 +961,7 @@ export function CreationEditorProvider({
     trpc.creationAgent.selectVideoTimelineSegment.useMutation();
   const clearVideoTimelineSegmentMut =
     trpc.creationAgent.clearVideoTimelineSegment.useMutation();
+  const moveVideoTakeMut = trpc.creationAgent.moveVideoTake.useMutation();
   const adoptVideoTakeMut = trpc.creationAgent.adoptVideoTake.useMutation();
   const updateStoryTimelineMut =
     trpc.creationAgent.updateStoryTimeline.useMutation();
@@ -926,6 +977,11 @@ export function CreationEditorProvider({
     trpc.creationAgent.undoStoryOperation.useMutation();
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
   const spineRemoteStoryId = useStorySpine(state => state.remoteStoryId);
+  const setCanonicalStoryShots = useStorySpine(state => state.setStoryShots);
+  const setSpineRemoteStoryId = useStorySpine(state => state.setRemoteStoryId);
+  const setSpineServerRevision = useStorySpine(
+    state => state.setServerRevision
+  );
   const activeId = resolveCreationEditorActiveId({
     isControlled,
     controlledActiveStoryId,
@@ -943,35 +999,36 @@ export function CreationEditorProvider({
   const storyQuery = trpc.storyAgent.storyGet.useQuery(
     { id: activeId ?? 0 },
     {
-      enabled: activeId != null,
+      // 草稿故事的 activeId 是 -1，服务端只认正数 id，别让 400 进入重试循环
+      enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
     }
   );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
     { storyId: activeId ?? 0 },
     {
-      enabled: activeId != null,
+      enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
     }
   );
   const storyVideoAssetsQuery = trpc.storyAgent.storyVideoAssets.useQuery(
     { storyId: activeId ?? 0 },
     {
-      enabled: activeId != null,
+      enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
     }
   );
   const storyMaterialQuery = trpc.storyAgent.storyMaterialState.useQuery(
     { storyId: activeId ?? 0 },
     {
-      enabled: activeId != null,
+      enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
     }
   );
   const promptLineageQuery = trpc.promptLineage.getStoryProjection.useQuery(
     { storyId: activeId ?? 0 },
     {
-      enabled: activeId != null,
+      enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
     }
   );
@@ -1157,8 +1214,12 @@ export function CreationEditorProvider({
   const persistBody = async (body: Record<string, unknown>) => {
     const row = storyQuery.data;
     if (!row) throw new Error("故事尚未加载，无法保存");
-    await storyUpsertMut.mutateAsync({
+    const saved = await storyUpsertMut.mutateAsync({
       id: row.id,
+      baseRevision:
+        typeof row.revision === "number"
+          ? row.revision
+          : storyBodyRevision(row.body),
       title: row.title,
       logline: row.logline,
       theme: row.theme,
@@ -1167,8 +1228,27 @@ export function CreationEditorProvider({
       projectId: row.projectId,
       body,
     });
-    await utils.storyAgent.storyGet.invalidate({ id: row.id });
-    await storyQuery.refetch();
+    const savedBody =
+      saved?.body &&
+      typeof saved.body === "object" &&
+      !Array.isArray(saved.body)
+        ? (saved.body as Record<string, unknown>)
+        : body;
+    if (saved && typeof saved.id === "number") {
+      setSpineRemoteStoryId(saved.id);
+    }
+    if (saved && typeof saved.revision === "number") {
+      setSpineServerRevision(saved.revision);
+    }
+    if (Array.isArray(savedBody.shots)) {
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: row.id }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: row.id }),
+    ]);
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
   };
 
   const updatePersistedShotField = async (
@@ -1193,6 +1273,40 @@ export function CreationEditorProvider({
     });
     if (!found) throw new Error("镜头不存在或已经更新");
     await persistBody({ ...body, shots: nextShots });
+  };
+
+  const insertPersistedShotAfter = async (
+    stableShotId: string,
+    dialogue = ""
+  ) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法添加镜头");
+    const result = await insertStoryShotAfterMut.mutateAsync({
+      storyId: activeId,
+      stableShotId,
+      dialogue,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "添加镜头失败");
+    }
+    const savedBody =
+      result.story?.body &&
+      typeof result.story.body === "object" &&
+      !Array.isArray(result.story.body)
+        ? (result.story.body as Record<string, unknown>)
+        : null;
+    if (savedBody && Array.isArray(savedBody.shots)) {
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    }
+    if (result.story && typeof result.story.revision === "number") {
+      setSpineServerRevision(result.story.revision);
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    return result.insertedShotNo;
   };
 
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
@@ -1284,7 +1398,11 @@ export function CreationEditorProvider({
     await persistBody(body);
   };
 
-  const rerenderShot = async (shotNo: number, rows: PromptRow[]) => {
+  const rerenderShot = async (
+    shotNo: number,
+    rows: PromptRow[],
+    reference?: RerenderReference
+  ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法重渲");
     const shot = shots.find(item => item.shotNo === shotNo);
     if (!shot) throw new Error(`找不到镜头 ${shotNo}`);
@@ -1295,6 +1413,7 @@ export function CreationEditorProvider({
         storyId: activeId,
         shot,
         rows,
+        reference,
         generate: input => generateForMobileMut.mutateAsync(input),
       });
       if (promptLineageQuery.data?.mode !== "lineage") {
@@ -1523,6 +1642,26 @@ export function CreationEditorProvider({
     await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
   };
 
+  const moveVideoTakeToShot = async (input: {
+    takeId: number;
+    targetStableShotId: string;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法移动视频素材");
+    const result = await moveVideoTakeMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "视频 Take 移动失败");
+    }
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+  };
+
   const createDerivedShotDraft: CreationEditorContextValue["createDerivedShotDraft"] =
     async input => {
       if (activeId == null) throw new Error("故事尚未加载，无法派生镜头");
@@ -1651,6 +1790,8 @@ export function CreationEditorProvider({
       promoteStoryImage,
       generateShotVideo,
       refreshShotVideoStatus,
+      insertPersistedShotAfter,
+      moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
       createVideoTakeRange,
       selectVideoTimelineSegment,
@@ -1686,6 +1827,8 @@ export function CreationEditorProvider({
       addShotToTimeline,
       removeShotFromTimeline,
       resetTimelineShots,
+      insertPersistedShotAfter,
+      moveVideoTakeToShot,
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,

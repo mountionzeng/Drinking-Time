@@ -7,9 +7,12 @@ import {
   clearVideoTimelineSelection,
   createVideoTakeRange,
   getStoryById,
+  getStoryVideoTimelineSelections,
   getVideoTakeById,
   getVideoTakeRangeById,
   setVideoTimelineSelection,
+  updateVideoTake,
+  updateVideoTakeRangesShotIdentity,
 } from "../db";
 
 function finiteSecond(value: number): boolean {
@@ -203,4 +206,89 @@ export async function adoptVideoTake(
   );
   if (!result.selection) throw new Error("视频采用失败");
   return { range: result.range, selection: result.selection };
+}
+
+export async function moveVideoTakeToShot(
+  input: {
+    storyId: number;
+    takeId: number;
+    targetStableShotId: string;
+  },
+  userId: number
+): Promise<{
+  takeId: number;
+  sourceStableShotId: string;
+  targetStableShotId: string;
+  movedTimelineSelection: boolean;
+}> {
+  await assertStory(input.storyId, userId);
+  const targetStableShotId = normalizeShotIdentity(input.targetStableShotId);
+  if (!targetStableShotId) throw new Error("目标镜头缺少稳定身份");
+
+  const take = await getVideoTakeById(input.takeId, userId);
+  if (!take || take.storyId !== input.storyId || take.userId !== userId) {
+    throw new Error("视频素材不存在或无权移动");
+  }
+  const sourceStableShotId = take.stableShotId;
+  if (sourceStableShotId === targetStableShotId) {
+    return {
+      takeId: take.id,
+      sourceStableShotId,
+      targetStableShotId,
+      movedTimelineSelection: false,
+    };
+  }
+
+  const selections = await getStoryVideoTimelineSelections(input.storyId, userId);
+  const movedSelection =
+    selections.find(selection => selection.takeId === take.id) ?? null;
+
+  if (movedSelection) {
+    await clearVideoTimelineSelection(
+      input.storyId,
+      userId,
+      movedSelection.stableShotId
+    );
+  }
+
+  const parameterSnapshot =
+    take.parameterSnapshot &&
+    typeof take.parameterSnapshot === "object" &&
+    !Array.isArray(take.parameterSnapshot)
+      ? {
+          ...(take.parameterSnapshot as Record<string, unknown>),
+          assignedStableShotId: targetStableShotId,
+        }
+      : take.parameterSnapshot;
+
+  const updated = await updateVideoTake(take.id, userId, {
+    stableShotId: targetStableShotId,
+    parameterSnapshot,
+  });
+  if (!updated) throw new Error("视频素材移动失败");
+
+  await updateVideoTakeRangesShotIdentity({
+    takeId: take.id,
+    storyId: input.storyId,
+    userId,
+    stableShotId: targetStableShotId,
+  });
+
+  if (movedSelection) {
+    await setVideoTimelineSelection({
+      storyId: input.storyId,
+      userId,
+      stableShotId: targetStableShotId,
+      takeId: take.id,
+      rangeId: movedSelection.rangeId,
+      selectionType: movedSelection.selectionType,
+    });
+  }
+
+  return {
+    takeId: take.id,
+    sourceStableShotId,
+    targetStableShotId,
+    movedTimelineSelection: Boolean(movedSelection),
+  };
 }

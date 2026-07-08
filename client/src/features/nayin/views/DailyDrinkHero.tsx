@@ -16,6 +16,10 @@ const brandTitleFont = "'Honglei Zhuoshu', 'Noto Serif SC', 'Songti SC', serif";
 export default function DailyDrinkHero({ today }: DailyDrinkHeroProps) {
   const presentation = getDailyDrinkPresentation(today.element);
   const [titleCn, titleEn] = presentation.title.split(' · ');
+  const subtitleLines = presentation.subtitle
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   return (
     <motion.section
@@ -70,9 +74,27 @@ export default function DailyDrinkHero({ today }: DailyDrinkHeroProps) {
           </span>
         ) : null}
       </h1>
-      <p className="mt-2 max-w-lg whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-        {presentation.subtitle}
-      </p>
+      <div
+        className="mt-2 flex max-w-xl flex-col items-center gap-1 text-sm leading-relaxed text-muted-foreground sm:text-[15px]"
+        aria-label={presentation.subtitle}
+      >
+        {subtitleLines.map((line, index) => (
+          <motion.p
+            key={`${line}-${index}`}
+            aria-hidden="true"
+            className="text-balance"
+            initial={{ opacity: 0, y: 8, filter: 'blur(3px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            transition={{
+              delay: 0.28 + index * 0.38,
+              duration: 0.48,
+              ease: easing,
+            }}
+          >
+            {line}
+          </motion.p>
+        ))}
+      </div>
       <p className="mt-3 text-[11px] font-mono text-muted-foreground/80">
         {formatTodayIdentity(today)}
       </p>

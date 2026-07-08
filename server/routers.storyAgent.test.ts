@@ -54,7 +54,10 @@ vi.mock("./services/agentRuntime", () => ({
 }));
 
 const storageMocks = vi.hoisted(() => ({
-  storagePut: vi.fn(async () => ({ key: "uploads/test.jpg", url: "https://storage.example/test.jpg" })),
+  storagePut: vi.fn(async () => ({
+    key: "uploads/test.jpg",
+    url: "https://storage.example/test.jpg",
+  })),
 }));
 
 vi.mock("./storage", () => storageMocks);
@@ -130,7 +133,7 @@ describe("storyAgent tRPC router", () => {
       os.tmpdir(),
       `drinking-time-story-router-${Date.now()}-${Math.random()
         .toString(36)
-        .slice(2)}.json`,
+        .slice(2)}.json`
     );
     ({ appRouter } = await import("./routers"));
   });
@@ -143,7 +146,7 @@ describe("storyAgent tRPC router", () => {
         source: "deterministic-fallback",
         model: "test-image-director",
         analysis: null,
-      }),
+      })
     );
   });
 
@@ -170,7 +173,7 @@ describe("storyAgent tRPC router", () => {
         message: "今天晚上有点安静",
         existingCardCount: 1,
         projectId: 7,
-      }),
+      })
     );
   });
 
@@ -238,10 +241,10 @@ describe("storyAgent tRPC router", () => {
           }),
         }),
         cards: [expect.objectContaining({ title: "等待能力" })],
-      }),
+      })
     );
     expect(storyAgentMocks.summarizeHistory).toHaveBeenCalledWith(
-      expect.objectContaining({ priorSummary: "此前在夜里" }),
+      expect.objectContaining({ priorSummary: "此前在夜里" })
     );
   });
 
@@ -334,10 +337,63 @@ describe("storyAgent tRPC router", () => {
       summary: "修订后的摘要",
     });
 
-    await expect(caller.storyAgent.storyDelete({ id: created!.id })).resolves.toEqual({
+    await expect(
+      caller.storyAgent.storyDelete({ id: created!.id })
+    ).resolves.toEqual({
       ok: true,
     });
-    await expect(caller.storyAgent.storyGet({ id: created!.id })).resolves.toBeNull();
+    await expect(
+      caller.storyAgent.storyGet({ id: created!.id })
+    ).resolves.toBeNull();
+  });
+
+  it("inserts a manual shot directly into the persisted story trunk", async () => {
+    const caller = appRouter.createCaller(createAuthContext(105));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "主干添加镜头",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "第一镜",
+          },
+          {
+            shotNo: 2,
+            stableShotId: "shot-b",
+            shotIdentity: "shot-b",
+            subject: "第二镜",
+          },
+        ],
+      },
+    });
+
+    const inserted = await caller.storyAgent.insertStoryShotAfter({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+      dialogue: "承接一句话",
+    });
+
+    expect(inserted).toMatchObject({
+      status: "ok",
+      insertedShotNo: 2,
+    });
+
+    const loaded = await caller.storyAgent.storyGet({ id: created!.id });
+    const body = loaded?.body as { shots?: Array<Record<string, unknown>> };
+    expect(body.shots?.map(shot => shot.shotNo)).toEqual([1, 2, 3]);
+    expect(body.shots?.[1]).toMatchObject({
+      subject: "新增镜头",
+      dialogue: "承接一句话",
+    });
+    expect(body.shots?.[2]).toMatchObject({
+      stableShotId: "shot-b",
+      shotNo: 3,
+    });
   });
 
   it("手机端保存会把 messages 与 cards 写进 story body，且更新时不抹掉原标题", async () => {
@@ -382,7 +438,10 @@ describe("storyAgent tRPC router", () => {
 
     expect(loaded?.title).toBe("手机故事");
     expect(body.cards).toEqual([
-      expect.objectContaining({ id: "card-mobile-1", content: "晚风里的一句停顿" }),
+      expect.objectContaining({
+        id: "card-mobile-1",
+        content: "晚风里的一句停顿",
+      }),
     ]);
     expect(body.messages).toEqual([
       expect.objectContaining({
@@ -558,9 +617,11 @@ describe("storyAgent tRPC router", () => {
 
     const loaded = await caller.storyAgent.storyGet({ id: story!.id });
     const body = loaded?.body as Record<string, unknown>;
-    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    const direction = body.artDirection as {
+      references?: Array<Record<string, unknown>>;
+    };
     const characterRefs = (direction.references ?? []).filter(
-      reference => reference.role === "character",
+      reference => reference.role === "character"
     );
     expect(characterRefs).toEqual([
       expect.objectContaining({ imageUrl: secondUrl, selected: true }),
@@ -572,7 +633,9 @@ describe("storyAgent tRPC router", () => {
   });
 
   it("setCharacterAnchor 会把本地图转成公网 URL 后再存", async () => {
-    imageGenMocks.toPublicImageUrl.mockResolvedValueOnce("https://file.302.ai/public-local.png");
+    imageGenMocks.toPublicImageUrl.mockResolvedValueOnce(
+      "https://file.302.ai/public-local.png"
+    );
     const caller = appRouter.createCaller(createAuthContext(391));
 
     const story = await caller.storyAgent.storyUpsert({
@@ -586,7 +649,9 @@ describe("storyAgent tRPC router", () => {
       imageUrl: "/api/images/local-hero.png",
     });
 
-    expect(imageGenMocks.toPublicImageUrl).toHaveBeenCalledWith("/api/images/local-hero.png");
+    expect(imageGenMocks.toPublicImageUrl).toHaveBeenCalledWith(
+      "/api/images/local-hero.png"
+    );
     expect(result).toMatchObject({
       status: "ok",
       publicUrl: "https://file.302.ai/public-local.png",
@@ -594,7 +659,9 @@ describe("storyAgent tRPC router", () => {
 
     const loaded = await caller.storyAgent.storyGet({ id: story!.id });
     const body = loaded?.body as Record<string, unknown>;
-    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    const direction = body.artDirection as {
+      references?: Array<Record<string, unknown>>;
+    };
     expect(direction.references).toEqual([
       expect.objectContaining({
         role: "character",
@@ -625,7 +692,8 @@ describe("storyAgent tRPC router", () => {
 
   it("setCharacterAnchor 后 generateForMobile 能经 U3 helper 注入人物锚点", async () => {
     imagePromptDirectorMocks.directImagePrompt.mockResolvedValueOnce({
-      prompt: "A directed cinematic frame of the protagonist walking into rain.",
+      prompt:
+        "A directed cinematic frame of the protagonist walking into rain.",
       source: "302-vision",
       model: "gpt-5.4-nano-2026-03-17",
       analysis: null,
@@ -659,7 +727,7 @@ describe("storyAgent tRPC router", () => {
       expect.objectContaining({
         imageInput: anchorUrl,
         referencePurpose: "character",
-      }),
+      })
     );
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       anchorUrl,
@@ -668,7 +736,7 @@ describe("storyAgent tRPC router", () => {
         characterRef: anchorUrl,
         characterWeight: 100,
         styleRef: anchorUrl,
-      }),
+      })
     );
   });
 
@@ -716,7 +784,9 @@ describe("storyAgent tRPC router", () => {
     });
     const loaded = await caller.storyAgent.storyGet({ id: story!.id });
     const body = loaded?.body as Record<string, unknown>;
-    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    const direction = body.artDirection as {
+      references?: Array<Record<string, unknown>>;
+    };
     expect(direction.references).toEqual([
       expect.objectContaining({
         role: "character",
@@ -761,7 +831,7 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,PHOTO",
       expect.stringContaining("Preserve the person's recognizable face"),
-      expect.objectContaining({ requireInputImage: true }),
+      expect.objectContaining({ requireInputImage: true })
     );
     expect(result).toMatchObject({
       characterAnchorChanged: true,
@@ -769,7 +839,9 @@ describe("storyAgent tRPC router", () => {
     });
     const loaded = await caller.storyAgent.storyGet({ id: story!.id });
     const body = loaded?.body as Record<string, unknown>;
-    const direction = body.artDirection as { references?: Array<Record<string, unknown>> };
+    const direction = body.artDirection as {
+      references?: Array<Record<string, unknown>>;
+    };
     expect(direction.references).toEqual([
       expect.objectContaining({
         role: "character",
@@ -842,14 +914,18 @@ describe("storyAgent tRPC router", () => {
     // 出图经美术网关，prompt 会被追加美术流派 DNA，这里只断言用户原 prompt 被包含。
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨夜路灯下的一个停顿"),
-      expect.any(Object),
+      expect.any(Object)
     );
-    expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty("characterRef");
+    expect(imageGenMocks.generateImage.mock.calls[0][1]).not.toHaveProperty(
+      "characterRef"
+    );
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-text.png",
     });
-    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    const projectImages = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
     expect(projectImages).toEqual([
       expect.objectContaining({
         projectId: 7301,
@@ -886,7 +962,7 @@ describe("storyAgent tRPC router", () => {
     });
 
     expect(imageGenMocks.generateDraftImage).toHaveBeenCalledWith(
-      expect.stringContaining("办公室门口的迟疑瞬间"),
+      expect.stringContaining("办公室门口的迟疑瞬间")
     );
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -894,7 +970,9 @@ describe("storyAgent tRPC router", () => {
       imageUrl: "https://storage.example/generated/mobile-draft.png",
       mode: "draft",
     });
-    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    const projectImages = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
     expect(projectImages[0]).toMatchObject({
       projectId: 7399,
       storyId: story!.id,
@@ -921,7 +999,11 @@ describe("storyAgent tRPC router", () => {
       body: {
         cards: [],
         characters: [
-          { name: "小林", role: "主角", oneLiner: "短发，深色外套，总背着旧包" },
+          {
+            name: "小林",
+            role: "主角",
+            oneLiner: "短发，深色外套，总背着旧包",
+          },
         ],
         shots: [],
       },
@@ -935,7 +1017,9 @@ describe("storyAgent tRPC router", () => {
 
     const renderedPrompt = imageGenMocks.generateImage.mock.calls[0]?.[0] ?? "";
     expect(renderedPrompt).toContain("主角走进雨夜路灯下");
-    expect(renderedPrompt).toContain("Character continuity across all generated shots");
+    expect(renderedPrompt).toContain(
+      "Character continuity across all generated shots"
+    );
     expect(renderedPrompt).toContain("小林, 主角: 短发，深色外套，总背着旧包");
     expect(renderedPrompt).toContain("Preserve face shape");
   });
@@ -967,9 +1051,12 @@ describe("storyAgent tRPC router", () => {
       mode: "draft",
     });
 
-    const renderedPrompt = imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
+    const renderedPrompt =
+      imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
     expect(renderedPrompt).toContain("候选人在桌前整理作品集");
-    expect(renderedPrompt).toContain("Character continuity across all generated shots");
+    expect(renderedPrompt).toContain(
+      "Character continuity across all generated shots"
+    );
     expect(renderedPrompt).toContain("候选人, 主视点: 黑色短发，灰色连帽衫");
   });
 
@@ -995,7 +1082,8 @@ describe("storyAgent tRPC router", () => {
       mode: "draft",
     });
 
-    const renderedPrompt = imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
+    const renderedPrompt =
+      imageGenMocks.generateDraftImage.mock.calls[0]?.[0] ?? "";
     expect(renderedPrompt).toContain("候选人在白色工作台前整理作品集");
     expect(renderedPrompt).toContain("【故事视觉配方】");
     expect(renderedPrompt).toContain("premium commercial film");
@@ -1028,7 +1116,7 @@ describe("storyAgent tRPC router", () => {
     });
 
     expect(imageGenMocks.generateDraftImage).toHaveBeenCalledWith(
-      expect.stringContaining("保留人物轮廓，换成暖色办公室灯光"),
+      expect.stringContaining("保留人物轮廓，换成暖色办公室灯光")
     );
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -1071,9 +1159,9 @@ describe("storyAgent tRPC router", () => {
     });
 
     const before = await caller.storyAgent.storyGet({ id: story!.id });
-    expect((before?.body as { mobileImages?: Array<{ id: number }> }).mobileImages).toEqual([
-      expect.objectContaining({ id: generated.imageId }),
-    ]);
+    expect(
+      (before?.body as { mobileImages?: Array<{ id: number }> }).mobileImages
+    ).toEqual([expect.objectContaining({ id: generated.imageId })]);
 
     await caller.storyAgent.recordSignal({
       storyId: story!.id,
@@ -1083,7 +1171,10 @@ describe("storyAgent tRPC router", () => {
     });
 
     const after = await caller.storyAgent.storyGet({ id: story!.id });
-    expect((after?.body as { mobileImages?: Array<{ id: number }> }).mobileImages ?? []).toEqual([]);
+    expect(
+      (after?.body as { mobileImages?: Array<{ id: number }> }).mobileImages ??
+        []
+    ).toEqual([]);
   });
 
   it("recordSignal 拒绝给其他用户的故事图片打信号", async () => {
@@ -1112,7 +1203,7 @@ describe("storyAgent tRPC router", () => {
         storyId: story!.id,
         imageId: generated.imageId,
         action: "swipe_left",
-      }),
+      })
     ).resolves.toMatchObject({ status: "error" });
   });
 
@@ -1155,9 +1246,10 @@ describe("storyAgent tRPC router", () => {
     });
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
       expect.stringContaining("雨后的窄巷积水反光"),
-      expect.anything(),
+      expect.anything()
     );
-    const submittedPrompt = imageGenMocks.generateImage.mock.calls[0][0] as string;
+    const submittedPrompt = imageGenMocks.generateImage.mock
+      .calls[0][0] as string;
     expect(submittedPrompt).toContain("no people");
     expect(submittedPrompt).toContain("no faces");
     expect(submittedPrompt).toContain("delicate watercolor");
@@ -1279,7 +1371,9 @@ describe("storyAgent tRPC router", () => {
       action: "swipe_right",
     });
 
-    const storyImages = await caller.storyAgent.storyImages({ storyId: story!.id });
+    const storyImages = await caller.storyAgent.storyImages({
+      storyId: story!.id,
+    });
     expect(storyImages.map(image => image.id)).toEqual([selected.imageId]);
     expect(storyImages[0]).toMatchObject({
       shotNo: "SH01",
@@ -1287,9 +1381,13 @@ describe("storyAgent tRPC router", () => {
     });
 
     const workspace = await caller.storyAgent.storyGet({ id: story!.id });
-    expect((workspace?.body as { mobileImages?: Array<{ id: number; shotNo: number }> }).mobileImages).toEqual([
-      expect.objectContaining({ id: selected.imageId, shotNo: 1 }),
-    ]);
+    expect(
+      (
+        workspace?.body as {
+          mobileImages?: Array<{ id: number; shotNo: number }>;
+        }
+      ).mobileImages
+    ).toEqual([expect.objectContaining({ id: selected.imageId, shotNo: 1 })]);
   });
 
   it("storyImages 不投影划走旧图后的 pending 草稿，草稿只留在图片工作区历史", async () => {
@@ -1336,11 +1434,17 @@ describe("storyAgent tRPC router", () => {
     });
     expect(currentDraft.status).toBe("ok");
 
-    const storyImages = await caller.storyAgent.storyImages({ storyId: story!.id });
+    const storyImages = await caller.storyAgent.storyImages({
+      storyId: story!.id,
+    });
     expect(storyImages).toEqual([]);
 
-    const projectAssets = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
-    expect(projectAssets.find(asset => asset.id === currentDraft.imageId)).toMatchObject({
+    const projectAssets = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
+    expect(
+      projectAssets.find(asset => asset.id === currentDraft.imageId)
+    ).toMatchObject({
       status: "pending",
       isPrimary: false,
       imageUrl: "https://storage.example/generated/current-draft.png",
@@ -1372,14 +1476,18 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/jpeg;base64,aW1hZ2U=",
       expect.stringContaining("保留人物，把背景换成微雨夜色"),
-      expect.any(Object),
+      expect.any(Object)
     );
-    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty("characterRef");
+    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty(
+      "characterRef"
+    );
     expect(result).toMatchObject({
       status: "ok",
       imageUrl: "https://storage.example/generated/mobile-edit.png",
     });
-    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    const projectImages = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
     expect(projectImages[0]).toMatchObject({
       projectId: 7302,
       storyId: story!.id,
@@ -1435,7 +1543,7 @@ describe("storyAgent tRPC router", () => {
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       heroUrl,
       expect.stringContaining("主角在公园散步"),
-      expect.objectContaining({ characterRef: heroUrl, styleRef: heroUrl }),
+      expect.objectContaining({ characterRef: heroUrl, styleRef: heroUrl })
     );
   });
 
@@ -1492,9 +1600,11 @@ describe("storyAgent tRPC router", () => {
       expect.stringContaining("雨后的空巷积水反光"),
       expect.objectContaining({
         characterRef: heroUrl,
-      }),
+      })
     );
-    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty("styleRef");
+    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty(
+      "styleRef"
+    );
   });
 
   it("手机端 mobileInpaint 成功后带 projectId 落库", async () => {
@@ -1521,10 +1631,12 @@ describe("storyAgent tRPC router", () => {
     // 经美术网关，prompt 被追加风格 DNA → 只断言含原 prompt（基底图不变）
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "data:image/png;base64,aW1hZ2U=",
-      expect.stringContaining("把路牌文字去掉"),
+      expect.stringContaining("把路牌文字去掉")
     );
     expect(result.status).toBe("ok");
-    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    const projectImages = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
     expect(projectImages[0]).toMatchObject({
       projectId: 7303,
       storyId: story!.id,
@@ -1558,7 +1670,9 @@ describe("storyAgent tRPC router", () => {
 
     expect(result.status).toBe("error");
     expect(result.error).toContain("302 GPT-image 暂时不可用");
-    const projectImages = await caller.creationAgent.getProjectAssets({ storyId: story!.id });
+    const projectImages = await caller.creationAgent.getProjectAssets({
+      storyId: story!.id,
+    });
     expect(projectImages).toEqual([]);
   });
 });

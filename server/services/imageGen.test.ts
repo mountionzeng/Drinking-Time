@@ -59,6 +59,11 @@ describe("generateImage", () => {
     image302MjPollMs: ENV.image302MjPollMs,
     image302MjSubmitTimeoutMs: ENV.image302MjSubmitTimeoutMs,
     image302MjTimeoutMs: ENV.image302MjTimeoutMs,
+    imagePrompt302Model: ENV.imagePrompt302Model,
+    imagePrompt302TimeoutMs: ENV.imagePrompt302TimeoutMs,
+    vision302ApiKey: ENV.vision302ApiKey,
+    vision302BaseUrl: ENV.vision302BaseUrl,
+    vision302Model: ENV.vision302Model,
     falApiKey: ENV.falApiKey,
   };
 
@@ -76,6 +81,11 @@ describe("generateImage", () => {
     ENV.image302MjPollMs = "1";
     ENV.image302MjSubmitTimeoutMs = "100";
     ENV.image302MjTimeoutMs = "100";
+    ENV.imagePrompt302Model = "";
+    ENV.imagePrompt302TimeoutMs = "100";
+    ENV.vision302ApiKey = "";
+    ENV.vision302BaseUrl = "https://api.302.ai";
+    ENV.vision302Model = "";
   });
 
   afterEach(() => {
@@ -90,6 +100,11 @@ describe("generateImage", () => {
     ENV.image302MjPollMs = originalEnv.image302MjPollMs;
     ENV.image302MjSubmitTimeoutMs = originalEnv.image302MjSubmitTimeoutMs;
     ENV.image302MjTimeoutMs = originalEnv.image302MjTimeoutMs;
+    ENV.imagePrompt302Model = originalEnv.imagePrompt302Model;
+    ENV.imagePrompt302TimeoutMs = originalEnv.imagePrompt302TimeoutMs;
+    ENV.vision302ApiKey = originalEnv.vision302ApiKey;
+    ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
+    ENV.vision302Model = originalEnv.vision302Model;
     ENV.falApiKey = originalEnv.falApiKey;
   });
 
@@ -487,6 +502,11 @@ describe("editImage", () => {
     image302GptModel: ENV.image302GptModel,
     image302GptSize: ENV.image302GptSize,
     image302GptQuality: ENV.image302GptQuality,
+    imagePrompt302Model: ENV.imagePrompt302Model,
+    imagePrompt302TimeoutMs: ENV.imagePrompt302TimeoutMs,
+    vision302ApiKey: ENV.vision302ApiKey,
+    vision302BaseUrl: ENV.vision302BaseUrl,
+    vision302Model: ENV.vision302Model,
     forgeApiUrl: ENV.forgeApiUrl,
     forgeApiKey: ENV.forgeApiKey,
     imageProviderDefault: ENV.imageProviderDefault,
@@ -499,6 +519,11 @@ describe("editImage", () => {
     ENV.image302GptModel = "gpt-image-1.5";
     ENV.image302GptSize = "1024x1024";
     ENV.image302GptQuality = "high";
+    ENV.imagePrompt302Model = "";
+    ENV.imagePrompt302TimeoutMs = "100";
+    ENV.vision302ApiKey = "";
+    ENV.vision302BaseUrl = "https://api.302.ai";
+    ENV.vision302Model = "";
     ENV.forgeApiUrl = "";
     ENV.forgeApiKey = "";
     // 这些用例专测 gpt-image 图生图 → Forge 的兜底链；显式钉成 gpt-image，
@@ -512,6 +537,11 @@ describe("editImage", () => {
     ENV.image302GptModel = originalEnv.image302GptModel;
     ENV.image302GptSize = originalEnv.image302GptSize;
     ENV.image302GptQuality = originalEnv.image302GptQuality;
+    ENV.imagePrompt302Model = originalEnv.imagePrompt302Model;
+    ENV.imagePrompt302TimeoutMs = originalEnv.imagePrompt302TimeoutMs;
+    ENV.vision302ApiKey = originalEnv.vision302ApiKey;
+    ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
+    ENV.vision302Model = originalEnv.vision302Model;
     ENV.forgeApiUrl = originalEnv.forgeApiUrl;
     ENV.forgeApiKey = originalEnv.forgeApiKey;
     ENV.imageProviderDefault = originalEnv.imageProviderDefault;
@@ -541,6 +571,100 @@ describe("editImage", () => {
     expect(form.get("model")).toBe("gpt-image-1.5");
     expect(form.get("prompt")).toBe("把这张照片改成夜晚微光");
     expect(form.get("image")).toBeTruthy();
+  });
+
+  it("有 referenceImageUrl 时优先用 FLUX Kontext，不再拿旧主图做编辑", async () => {
+    const b64 = Buffer.from("kontext-image").toString("base64");
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,b2xkLW1haW4taW1hZ2U=",
+      "跟随视频参考的画风重绘",
+      {
+        fetcher,
+        provider: "midjourney",
+        referenceImageUrl: "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l",
+        referenceIdentityImageUrl:
+          "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body.model).toBe("flux-kontext-pro");
+    expect(body.input_image).toBe(
+      "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l"
+    );
+    expect(body.prompt).toContain("Reference identity lock");
+    expect(body.prompt).toContain("face outline and proportions");
+    expect(body.prompt).toContain("Lower-face continuity is critical");
+    expect(body.prompt).toContain("do not round, widen, square off");
+    expect(body.prompt).toContain("decorative eye motifs");
+    expect(body.prompt).toContain("跟随视频参考的画风重绘");
+  });
+
+  it("配置视觉模型时先提取参考帧五官脸型，再送进 FLUX Kontext", async () => {
+    ENV.vision302ApiKey = "test-vision-key";
+    ENV.vision302Model = "gemini-3-pro-preview";
+    const b64 = Buffer.from("kontext-image").toString("base64");
+    const identityText =
+      "Small oval face, narrow pointed chin, delicate straight nose, softly full lips, pale painted skin, short dark hair silhouette, white blindfold covering the eyes with horizontal folds.";
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: {
+          choices: [{ message: { content: identityText } }],
+        },
+      },
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,b2xkLW1haW4taW1hZ2U=",
+      "保持画廊里的蒙眼女人，冷绿色光线",
+      {
+        fetcher,
+        provider: "midjourney",
+        referenceImageUrl: "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l",
+        referenceIdentityImageUrl:
+          "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "https://api.302.ai/v1/chat/completions"
+    );
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-vision-key"
+    );
+    const visionBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(visionBody.model).toBe("gemini-3-pro-preview");
+    expect(visionBody.messages[0].content).toContain(
+      "Prioritize lower-face geometry"
+    );
+    expect(visionBody.messages[1].content[0].text).toContain(
+      "Be precise about the chin and mouth"
+    );
+    expect(visionBody.messages[1].content[1].image_url.url).toBe(
+      "data:image/png;base64,aWRlbnRpdHktY3JvcA=="
+    );
+
+    expect(fetcher.mock.calls[1][0]).toContain("/v1/images/generations");
+    const body = JSON.parse(fetcher.mock.calls[1][1].body);
+    expect(body.model).toBe("flux-kontext-pro");
+    expect(body.input_image).toBe(
+      "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l"
+    );
+    expect(body.prompt).toContain("Extracted visible identity traits");
+    expect(body.prompt).toContain(identityText);
+    expect(body.prompt).toContain("Do not recast the face");
   });
 
   it("302 图生图端点失败且没有 Forge 回退时返回中文错误、不抛出", async () => {

@@ -37,6 +37,8 @@ export interface DataFileInfo {
 
 export interface WorktreeStatus extends WorktreeInfo {
   dataFile: DataFileInfo;
+  promptLineageFile: DataFileInfo;
+  editSnapshotsFile: DataFileInfo;
 }
 
 export interface MappedListener extends ListenerInfo {
@@ -88,7 +90,8 @@ export function parseLsofListeners(text: string): ListenerInfo[] {
     if (cols.length < 9) continue;
     const command = cols[0];
     const pid = Number(cols[1]);
-    if (!command.toLowerCase().includes("node") || !Number.isFinite(pid)) continue;
+    if (!command.toLowerCase().includes("node") || !Number.isFinite(pid))
+      continue;
     const name = cols[cols.length - 2]; // "(LISTEN)" 前一列，如 "*:3000" / "127.0.0.1:18789"
     const port = Number(name.slice(name.lastIndexOf(":") + 1));
     if (!Number.isFinite(port)) continue;
@@ -109,13 +112,14 @@ export function mapListenersToWorktrees(
   // 注意嵌套 worktree：.claude/worktrees/* 在主仓库目录内部，
   // 必须取最长前缀匹配，否则嵌套 worktree 的进程会被误归属到主仓库。
   const byDepth = [...worktrees].sort((a, b) => b.path.length - a.path.length);
-  return listeners.map((l) => {
+  return listeners.map(l => {
     const cwd = pidCwds.get(l.pid) ?? null;
     const worktreePath =
       cwd === null
         ? null
-        : byDepth.find((w) => cwd === w.path || cwd.startsWith(w.path + path.sep))
-            ?.path ?? null;
+        : (byDepth.find(
+            w => cwd === w.path || cwd.startsWith(w.path + path.sep)
+          )?.path ?? null);
     return { ...l, cwd, worktreePath };
   });
 }
@@ -141,7 +145,8 @@ export function buildReport(input: ReportInput): string {
   // 项目内 dev server（cwd 归属到某个 worktree 的监听进程），按 pid 去重
   const projectPids = new Map<number, MappedListener>();
   for (const l of listeners) {
-    if (l.worktreePath !== null && !projectPids.has(l.pid)) projectPids.set(l.pid, l);
+    if (l.worktreePath !== null && !projectPids.has(l.pid))
+      projectPids.set(l.pid, l);
   }
 
   if (!lsofError && projectPids.size >= 2) {
@@ -167,19 +172,37 @@ export function buildReport(input: ReportInput): string {
         ? `   数据: .webdev/local-persist.json  ${formatSize(df.sizeBytes ?? 0)}  最后改动 ${formatTime(df.mtimeMs ?? 0)}`
         : `   数据: 无数据文件`
     );
-    const serving = [...projectPids.values()].filter((l) => l.worktreePath === w.path);
+    const pf = w.promptLineageFile;
+    if (pf?.exists) {
+      lines.push(
+        `   谱系: .webdev/prompt-lineage-local.json  ${formatSize(pf.sizeBytes ?? 0)}  最后改动 ${formatTime(pf.mtimeMs ?? 0)}`
+      );
+    }
+    const sf = w.editSnapshotsFile;
+    if (sf?.exists) {
+      lines.push(
+        `   快照: .webdev/edit-snapshots-local.json  ${formatSize(sf.sizeBytes ?? 0)}  最后改动 ${formatTime(sf.mtimeMs ?? 0)}`
+      );
+    }
+    const serving = [...projectPids.values()].filter(
+      l => l.worktreePath === w.path
+    );
     lines.push(
       serving.length > 0
-        ? `   服务: ${serving.map((l) => `端口 ${l.port}（PID ${l.pid}）`).join("、")}  ← 正在运行`
+        ? `   服务: ${serving.map(l => `端口 ${l.port}（PID ${l.pid}）`).join("、")}  ← 正在运行`
         : `   服务: 无`
     );
   });
 
   lines.push("");
   if (lsofError) {
-    lines.push(`== 端口采集失败 ==`, `   ${lsofError}`, `   （worktree 信息不受影响；可手动运行 lsof -nP -iTCP -sTCP:LISTEN 查看）`);
+    lines.push(
+      `== 端口采集失败 ==`,
+      `   ${lsofError}`,
+      `   （worktree 信息不受影响；可手动运行 lsof -nP -iTCP -sTCP:LISTEN 查看）`
+    );
   } else {
-    const orphans = listeners.filter((l) => l.worktreePath === null);
+    const orphans = listeners.filter(l => l.worktreePath === null);
     if (orphans.length > 0) {
       lines.push("== 其他 node 监听进程（未归属到任何 worktree）==");
       for (const l of orphans) {
@@ -190,7 +213,9 @@ export function buildReport(input: ReportInput): string {
       lines.push("当前没有任何 dev server 在运行。");
     } else if (projectPids.size === 1) {
       const only = [...projectPids.values()][0];
-      lines.push(`✅ 只有一个 dev server 在跑：端口 ${only.port} ← ${only.worktreePath}，环境健康。`);
+      lines.push(
+        `✅ 只有一个 dev server 在跑：端口 ${only.port} ← ${only.worktreePath}，环境健康。`
+      );
     }
   }
 
@@ -208,7 +233,31 @@ function collectWorktrees(): WorktreeInfo[] {
 
 function statDataFile(worktreePath: string): DataFileInfo {
   try {
-    const s = statSync(path.join(worktreePath, ".webdev", "local-persist.json"));
+    const s = statSync(
+      path.join(worktreePath, ".webdev", "local-persist.json")
+    );
+    return { exists: true, sizeBytes: s.size, mtimeMs: s.mtimeMs };
+  } catch {
+    return { exists: false };
+  }
+}
+
+function statPromptLineageFile(worktreePath: string): DataFileInfo {
+  try {
+    const s = statSync(
+      path.join(worktreePath, ".webdev", "prompt-lineage-local.json")
+    );
+    return { exists: true, sizeBytes: s.size, mtimeMs: s.mtimeMs };
+  } catch {
+    return { exists: false };
+  }
+}
+
+function statEditSnapshotsFile(worktreePath: string): DataFileInfo {
+  try {
+    const s = statSync(
+      path.join(worktreePath, ".webdev", "edit-snapshots-local.json")
+    );
     return { exists: true, sizeBytes: s.size, mtimeMs: s.mtimeMs };
   } catch {
     return { exists: false };
@@ -227,16 +276,23 @@ function collectListeners(): { listeners: ListenerInfo[]; error?: string } {
     if (e.stdout && e.stdout.includes("(LISTEN)")) {
       return { listeners: parseLsofListeners(e.stdout) };
     }
-    return { listeners: [], error: `lsof 执行失败：${e.message ?? String(err)}` };
+    return {
+      listeners: [],
+      error: `lsof 执行失败：${e.message ?? String(err)}`,
+    };
   }
 }
 
 function collectPidCwd(pid: number): string | null {
   try {
-    const out = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
-      encoding: "utf-8",
-    });
-    const nLine = out.split("\n").find((l) => l.startsWith("n"));
+    const out = execFileSync(
+      "lsof",
+      ["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+      {
+        encoding: "utf-8",
+      }
+    );
+    const nLine = out.split("\n").find(l => l.startsWith("n"));
     return nLine ? nLine.slice(1) : null;
   } catch {
     return null;
@@ -244,9 +300,11 @@ function collectPidCwd(pid: number): string | null {
 }
 
 function main(): void {
-  const worktrees = collectWorktrees().map((w) => ({
+  const worktrees = collectWorktrees().map(w => ({
     ...w,
     dataFile: statDataFile(w.path),
+    promptLineageFile: statPromptLineageFile(w.path),
+    editSnapshotsFile: statEditSnapshotsFile(w.path),
   }));
   const { listeners: raw, error } = collectListeners();
   const pidCwds = new Map<number, string | null>();
@@ -257,6 +315,9 @@ function main(): void {
   console.log(buildReport({ worktrees, listeners, lsofError: error }));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main();
 }

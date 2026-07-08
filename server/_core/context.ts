@@ -67,6 +67,13 @@ async function issueBrowserGuestSession(
 async function resolveDisabledAuthUser(
   opts: CreateExpressContextOptions
 ): Promise<User> {
+  // 本机开发用固定身份：设了 DEV_FIXED_GUEST_OPEN_ID 后，所有浏览器都解析成
+  // 同一个用户，故事不会因为换浏览器/清 cookie 散落到不同访客账号下。
+  const fixedOpenId = process.env.DEV_FIXED_GUEST_OPEN_ID?.trim();
+  if (fixedOpenId) {
+    return loadOrCreateGuestUser(fixedOpenId, "Guest");
+  }
+
   const sessionCookie = readSessionCookie(opts.req);
   const session = await sdk.verifySession(sessionCookie);
 

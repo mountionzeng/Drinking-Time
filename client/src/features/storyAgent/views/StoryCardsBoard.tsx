@@ -34,6 +34,8 @@ import {
   CheckCircle2,
   ListPlus,
   Link2,
+  PlusCircle,
+  Video,
 } from "lucide-react";
 import {
   isFictionStoryCardConfirmed,
@@ -64,6 +66,7 @@ import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type { ArtRecipeDNA } from "@shared/artDirection";
+import { shotIdentityFromShot } from "@shared/shotIdentity";
 import {
   buildMobileStoryboardScenes,
   parseShotNo,
@@ -71,6 +74,65 @@ import {
 } from "@/features/mobileChat/types";
 import StoryCardsGraph from "./StoryCardsGraph";
 import ShotMaterialBasket from "./ShotMaterialBasket";
+import {
+  hasVideoTakeDragPayload,
+  readVideoTakeDragPayload,
+} from "./videoTakeDrag";
+
+const STORYBOARD_DRAG_SCROLL_ZONE_PX = 160;
+const STORYBOARD_DRAG_SCROLL_MAX_PX = 36;
+const STORYBOARD_DRAG_SCROLL_ACCELERATION_MS = 1600;
+const STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION = 2.75;
+
+export function hasStoryboardScrollableDragPayload(
+  dataTransfer: DataTransfer
+): boolean {
+  return (
+    hasVideoTakeDragPayload(dataTransfer) ||
+    Array.from(dataTransfer.types).includes("Files")
+  );
+}
+
+export function autoScrollElementAtPoint(
+  element: HTMLElement | null,
+  clientY: number,
+  speedMultiplier = 1
+): number {
+  if (!element) return 0;
+  const rect = element.getBoundingClientRect();
+  const distanceFromTop = clientY - rect.top;
+  const distanceFromBottom = rect.bottom - clientY;
+  const speed = Math.max(0.25, speedMultiplier);
+  let delta = 0;
+  if (distanceFromTop < STORYBOARD_DRAG_SCROLL_ZONE_PX) {
+    const ratio =
+      (STORYBOARD_DRAG_SCROLL_ZONE_PX - Math.max(0, distanceFromTop)) /
+      STORYBOARD_DRAG_SCROLL_ZONE_PX;
+    delta = -Math.ceil(ratio * STORYBOARD_DRAG_SCROLL_MAX_PX * speed);
+  } else if (distanceFromBottom < STORYBOARD_DRAG_SCROLL_ZONE_PX) {
+    const ratio =
+      (STORYBOARD_DRAG_SCROLL_ZONE_PX - Math.max(0, distanceFromBottom)) /
+      STORYBOARD_DRAG_SCROLL_ZONE_PX;
+    delta = Math.ceil(ratio * STORYBOARD_DRAG_SCROLL_MAX_PX * speed);
+  }
+  if (delta !== 0) element.scrollBy({ top: delta, behavior: "auto" });
+  return delta;
+}
+
+export function storyboardDragScrollSpeedMultiplier(elapsedMs: number): number {
+  const progress = Math.max(0, elapsedMs) / STORYBOARD_DRAG_SCROLL_ACCELERATION_MS;
+  return Math.min(
+    STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION,
+    1 + progress * (STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION - 1)
+  );
+}
+
+export function storyShotInsertIdentity(
+  shot: StoryShot,
+  index: number
+): string | null {
+  return shotIdentityFromShot(shot, index);
+}
 
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: "先开瓶啤酒，跟小酌聊聊一句让你记住的话",
@@ -711,9 +773,11 @@ export function StoryboardReviewBoard({
   creationShots = [],
   timelineShotIds = [],
   onAddShotToTimeline,
+  onInsertShotAfter,
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
+  onMoveVideoTake,
   onAdoptVideoTake,
   onPromoteFrameCrop,
   promotingFrameCropShotNo = null,
@@ -734,6 +798,10 @@ export function StoryboardReviewBoard({
   creationShots?: CreationEditorShot[];
   timelineShotIds?: string[];
   onAddShotToTimeline?: (shotNo: number, stableShotId?: string | null) => void;
+  onInsertShotAfter?: (
+    shotNo: number,
+    stableShotId?: string | null
+  ) => void | Promise<void>;
   generatingVideoShotNo?: number | null;
   onGenerateShotVideo?: (input: {
     shotNo: number;
@@ -744,6 +812,10 @@ export function StoryboardReviewBoard({
     motion?: "low" | "high";
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  onMoveVideoTake?: (input: {
+    takeId: number;
+    targetStableShotId: string;
+  }) => Promise<void>;
   onAdoptVideoTake?: (input: {
     stableShotId: string;
     takeId: number;
@@ -762,7 +834,20 @@ export function StoryboardReviewBoard({
 }) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"full" | "simple">("simple");
+  const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<number | null>(
+    null
+  );
+  const [videoTakeDropTargetId, setVideoTakeDropTargetId] = useState<
+    string | null
+  >(null);
+  const [movingVideoTakeId, setMovingVideoTakeId] = useState<number | null>(
+    null
+  );
   const boardRef = useRef<HTMLElement | null>(null);
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const dragScrollFrameRef = useRef<number | null>(null);
+  const dragScrollClientYRef = useRef<number | null>(null);
+  const dragScrollStartedAtRef = useRef<number | null>(null);
   const frames = useMemo(
     () => latestStoryboardFrames(images, shots),
     [images, shots]
@@ -801,6 +886,53 @@ export function StoryboardReviewBoard({
       behavior: "smooth",
     });
   }, [selectedShotNo, viewMode]);
+
+  const stopStoryboardDragScroll = useCallback(() => {
+    dragScrollClientYRef.current = null;
+    dragScrollStartedAtRef.current = null;
+    if (dragScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(dragScrollFrameRef.current);
+      dragScrollFrameRef.current = null;
+    }
+  }, []);
+
+  const tickStoryboardDragScroll = useCallback(() => {
+    const clientY = dragScrollClientYRef.current;
+    if (clientY == null) {
+      dragScrollFrameRef.current = null;
+      return;
+    }
+    const now = window.performance.now();
+    const startedAt = dragScrollStartedAtRef.current ?? now;
+    dragScrollStartedAtRef.current = startedAt;
+    const delta = autoScrollElementAtPoint(
+      boardScrollRef.current,
+      clientY,
+      storyboardDragScrollSpeedMultiplier(now - startedAt)
+    );
+    if (delta === 0) {
+      dragScrollStartedAtRef.current = null;
+      dragScrollFrameRef.current = null;
+      return;
+    }
+    dragScrollFrameRef.current =
+      window.requestAnimationFrame(tickStoryboardDragScroll);
+  }, []);
+
+  const startStoryboardDragScroll = useCallback(
+    (clientY: number) => {
+      dragScrollClientYRef.current = clientY;
+      if (dragScrollFrameRef.current == null) {
+        dragScrollFrameRef.current = window.requestAnimationFrame(
+          tickStoryboardDragScroll
+        );
+      }
+    },
+    [tickStoryboardDragScroll]
+  );
+
+  useEffect(() => stopStoryboardDragScroll, [stopStoryboardDragScroll]);
+
   if (!shouldShow) return null;
 
   const openFullShot = (shotNo: number) => {
@@ -808,11 +940,113 @@ export function StoryboardReviewBoard({
     setViewMode("full");
   };
 
+  const insertShotAfter = async (
+    shotNo: number,
+    stableShotId?: string | null
+  ) => {
+    if (!onInsertShotAfter || insertingAfterShotNo != null) return;
+    setInsertingAfterShotNo(shotNo);
+    try {
+      await onInsertShotAfter(shotNo, stableShotId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "添加镜头失败，请稍后再试"
+      );
+    } finally {
+      setInsertingAfterShotNo(null);
+    }
+  };
+
+  const videoTakeDropHandlers = (
+    shot: StoryShot,
+    stableShotId: string | null | undefined
+  ) => {
+    if (!stableShotId || !onMoveVideoTake) return {};
+    const isVideoTakeDrag = (event: DragEvent<HTMLElement>) =>
+      hasVideoTakeDragPayload(event.dataTransfer);
+    return {
+      onDragEnter: (event: DragEvent<HTMLElement>) => {
+        if (!isVideoTakeDrag(event)) return;
+        event.preventDefault();
+        setVideoTakeDropTargetId(stableShotId);
+      },
+      onDragOver: (event: DragEvent<HTMLElement>) => {
+        if (!isVideoTakeDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        startStoryboardDragScroll(event.clientY);
+        setVideoTakeDropTargetId(stableShotId);
+      },
+      onDragLeave: (event: DragEvent<HTMLElement>) => {
+        const nextTarget = event.relatedTarget;
+        if (
+          nextTarget instanceof Node &&
+          event.currentTarget.contains(nextTarget)
+        ) {
+          return;
+        }
+        setVideoTakeDropTargetId(current =>
+          current === stableShotId ? null : current
+        );
+      },
+      onDrop: (event: DragEvent<HTMLElement>) => {
+        if (!isVideoTakeDrag(event)) return;
+        event.preventDefault();
+        // stopPropagation 会拦住看板容器上的 onDrop={stopStoryboardDragScroll}，
+        // 这里必须自己停掉拖拽自动滚动，否则循环带着最后的坐标一路滚到底。
+        event.stopPropagation();
+        stopStoryboardDragScroll();
+        setVideoTakeDropTargetId(null);
+        const payload = readVideoTakeDragPayload(event.dataTransfer);
+        if (!payload) return;
+        if (payload.sourceStableShotId === stableShotId) {
+          toast.info("这个 Take 已经在当前镜头下");
+          return;
+        }
+        setMovingVideoTakeId(payload.takeId);
+        void onMoveVideoTake({
+          takeId: payload.takeId,
+          targetStableShotId: stableShotId,
+        })
+          .then(() => {
+            onSelectShot?.(shot.shotNo);
+            const shotLabel = `SH${String(shot.shotNo).padStart(2, "0")}`;
+            toast.success(`已移动 Take ${payload.takeId} 到 ${shotLabel}`);
+          })
+          .catch(error => {
+            toast.error(
+              error instanceof Error ? error.message : "视频 Take 移动失败"
+            );
+          })
+          .finally(() => setMovingVideoTakeId(null));
+      },
+    };
+  };
+
   return (
     <section
       ref={boardRef}
       className={`creation-board-panel h-full min-h-0 flex flex-col ${className}`.trim()}
       aria-label="故事版看板"
+      onDragOver={event => {
+        if (!hasStoryboardScrollableDragPayload(event.dataTransfer)) return;
+        if (hasVideoTakeDragPayload(event.dataTransfer)) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }
+        startStoryboardDragScroll(event.clientY);
+      }}
+      onDragLeave={event => {
+        const nextTarget = event.relatedTarget;
+        if (
+          nextTarget instanceof Node &&
+          event.currentTarget.contains(nextTarget)
+        ) {
+          return;
+        }
+        stopStoryboardDragScroll();
+      }}
+      onDrop={stopStoryboardDragScroll}
     >
       <div className="creation-board-panel-header shrink-0 justify-between">
         <div className="creation-board-panel-title">
@@ -873,12 +1107,20 @@ export function StoryboardReviewBoard({
         </div>
       </div>
 
-      <div className="creation-board-panel-body min-h-0 flex-1 overflow-y-auto custom-scrollbar">
+      <div
+        ref={boardScrollRef}
+        className="creation-board-panel-body min-h-0 flex-1 overflow-y-auto custom-scrollbar"
+      >
         {shots.length > 0 && viewMode === "simple" ? (
           <div className="grid snap-y snap-mandatory gap-3 pb-2 pr-1">
             {shots.map((shot, index) => {
               const image = frameByShotNo.get(shot.shotNo);
+              const creationShot = creationShotByNo.get(shot.shotNo);
+              const insertStableShotId = storyShotInsertIdentity(shot, index);
               const selected = selectedShotNo === shot.shotNo;
+              const isVideoTakeDropTarget =
+                insertStableShotId != null &&
+                videoTakeDropTargetId === insertStableShotId;
               const title = shortText(
                 shot.intent,
                 shortText(shot.subject, "关键镜头")
@@ -887,14 +1129,22 @@ export function StoryboardReviewBoard({
                 <article
                   key={`simple-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
-                  className="flex min-h-0 snap-start flex-col overflow-hidden rounded-md border bg-background transition"
+                  {...videoTakeDropHandlers(shot, insertStableShotId)}
+                  className="relative flex min-h-0 snap-start flex-col overflow-hidden rounded-md border bg-background transition"
                   style={{
-                    borderColor: selected
+                    borderColor: isVideoTakeDropTarget
+                      ? "var(--nayin-accent)"
+                      : selected
                       ? "var(--nayin-accent)"
                       : "var(--panel-border)",
-                    boxShadow: selected
+                    boxShadow: isVideoTakeDropTarget
+                      ? "0 0 0 2px var(--nayin-accent-dim)"
+                      : selected
                       ? "0 0 0 1px var(--nayin-accent-dim)"
                       : "none",
+                    background: isVideoTakeDropTarget
+                      ? "var(--nayin-glow)"
+                      : "var(--background)",
                   }}
                   onClick={() => openFullShot(shot.shotNo)}
                 >
@@ -980,12 +1230,15 @@ export function StoryboardReviewBoard({
                 : (shot.stableShotId ??
                   shot.shotIdentity ??
                   `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
+              const insertStableShotId = storyShotInsertIdentity(shot, index);
+              const isVideoTakeDropTarget =
+                insertStableShotId != null &&
+                videoTakeDropTargetId === insertStableShotId;
               const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
+              const videoTakeCount = creationShot?.videoTakes?.length ?? 0;
               const showMaterialBasket =
                 Boolean(creationShot) &&
-                (selected ||
-                  generatingVideoShotNo === shot.shotNo ||
-                  (creationShot?.videoTakes?.length ?? 0) > 0);
+                (selected || generatingVideoShotNo === shot.shotNo);
               const commit = (field: StoryShotEditableField, value: string) => {
                 onUpdateShotField?.(index, field, value);
               };
@@ -993,12 +1246,17 @@ export function StoryboardReviewBoard({
                 <article
                   key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
+                  {...videoTakeDropHandlers(shot, insertStableShotId)}
                   className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
                   style={{
-                    borderColor: selected
+                    borderColor: isVideoTakeDropTarget
+                      ? "var(--nayin-accent)"
+                      : selected
                       ? "var(--nayin-accent)"
                       : "var(--panel-border)",
-                    background: selected
+                    background: isVideoTakeDropTarget
+                      ? "var(--nayin-glow)"
+                      : selected
                       ? "var(--nayin-glow)"
                       : "var(--background)",
                   }}
@@ -1164,6 +1422,7 @@ export function StoryboardReviewBoard({
                         }
                         onGenerateShotVideo={onGenerateShotVideo}
                         onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                        movingVideoTakeId={movingVideoTakeId}
                         onAdoptVideoTake={onAdoptVideoTake}
                         onPromoteFrameCrop={onPromoteFrameCrop}
                         promotingFrameCrop={
@@ -1171,6 +1430,42 @@ export function StoryboardReviewBoard({
                         }
                         shotVideoProviderStatus={shotVideoProviderStatus}
                       />
+                    ) : videoTakeCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          onSelectShot?.(shot.shotNo);
+                        }}
+                        className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                        style={{ borderColor: "var(--panel-border)" }}
+                      >
+                        <Video className="h-3.5 w-3.5" />
+                        {videoTakeCount} 个视频 Take，点开本镜查看
+                      </button>
+                    ) : null}
+                    {onInsertShotAfter ? (
+                      <button
+                        type="button"
+                        disabled={insertingAfterShotNo != null}
+                        onClick={event => {
+                          event.stopPropagation();
+                          void insertShotAfter(
+                            shot.shotNo,
+                            insertStableShotId
+                          );
+                        }}
+                        className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70"
+                        style={{ borderColor: "var(--panel-border)" }}
+                        aria-label={`在 SH${String(shot.shotNo).padStart(2, "0")} 后添加镜头`}
+                      >
+                        {insertingAfterShotNo === shot.shotNo ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PlusCircle className="h-3.5 w-3.5" />
+                        )}
+                        添加镜头
+                      </button>
                     ) : null}
                   </div>
                 </article>
@@ -1623,6 +1918,18 @@ function CardItem({
             >
               {card.content}
             </p>
+            {card.dialogue && (
+              <div
+                className="mt-2 px-2 py-1.5 rounded text-[10px] italic leading-relaxed"
+                style={{
+                  background: "var(--nayin-glow)",
+                  color: "var(--nayin-accent-bright)",
+                  borderLeft: "2px solid var(--nayin-accent)",
+                }}
+              >
+                💬 {card.dialogue}
+              </div>
+            )}
             {card.sensoryDetails.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {card.sensoryDetails.map((d, i) => (

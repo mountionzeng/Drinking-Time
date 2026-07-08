@@ -180,6 +180,13 @@ function now(): Date {
   return new Date();
 }
 
+function localTempPath(targetPath: string): string {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  return `${targetPath}.${suffix}.tmp`;
+}
+
 function applyDefinedValues(
   target: Record<string, unknown>,
   patch: Record<string, unknown>
@@ -201,6 +208,20 @@ const DEFAULT_LOCAL_PERSIST_PATH = path.join(
 );
 const LOCAL_PERSIST_PATH =
   process.env.LOCAL_PERSIST_PATH?.trim() || DEFAULT_LOCAL_PERSIST_PATH;
+const DEFAULT_LOCAL_PROMPT_LINEAGE_PATH =
+  LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH
+    ? path.join(path.dirname(LOCAL_PERSIST_PATH), "prompt-lineage-local.json")
+    : `${LOCAL_PERSIST_PATH}.prompt-lineage.json`;
+const DEFAULT_LOCAL_EDIT_SNAPSHOTS_PATH =
+  LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH
+    ? path.join(path.dirname(LOCAL_PERSIST_PATH), "edit-snapshots-local.json")
+    : `${LOCAL_PERSIST_PATH}.edit-snapshots.json`;
+const LOCAL_PROMPT_LINEAGE_PATH =
+  process.env.LOCAL_PROMPT_LINEAGE_PATH?.trim() ||
+  DEFAULT_LOCAL_PROMPT_LINEAGE_PATH;
+const LOCAL_EDIT_SNAPSHOTS_PATH =
+  process.env.LOCAL_EDIT_SNAPSHOTS_PATH?.trim() ||
+  DEFAULT_LOCAL_EDIT_SNAPSHOTS_PATH;
 
 // ── 本地持久化安全网（2026-06-01 数据事故后加）──
 // 文件模式是「每次改动整体重写 + 原子替换」。原子只防「写一半崩了」，不防
@@ -225,6 +246,13 @@ const isTestEnv = () =>
 let memoryLoaded = false;
 let memoryLoadPromise: Promise<void> | null = null;
 let memoryPersistQueue: Promise<void> = Promise.resolve();
+let promptLineageLoaded = false;
+let promptLineageLoadFallback:
+  | Partial<PromptLineageLocalState>
+  | null
+  | undefined;
+let editSnapshotsLoaded = false;
+let editSnapshotsLoadFallback: Partial<EditSnapshot>[] | undefined;
 
 function toDate(value: unknown): Date {
   if (value instanceof Date) return value;
@@ -237,6 +265,15 @@ function toDate(value: unknown): Date {
 
 function nextIdFromRows(rows: Array<{ id: number }>): number {
   return rows.reduce((max, row) => Math.max(max, row.id), 0) + 1;
+}
+
+function normalizeLoadedEditSnapshots(
+  raw: Partial<EditSnapshot>[] | undefined
+): EditSnapshot[] {
+  return (raw ?? []).map(item => ({
+    ...item,
+    timestamp: toDate(item.timestamp),
+  })) as EditSnapshot[];
 }
 
 function normalizeLoadedState(raw: Partial<MemoryState>) {
@@ -287,10 +324,7 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     updatedAt: toDate(item.updatedAt),
   })) as Story[];
 
-  memoryState.editSnapshots = (raw.editSnapshots ?? []).map(item => ({
-    ...item,
-    timestamp: toDate(item.timestamp),
-  })) as EditSnapshot[];
+  memoryState.editSnapshots = normalizeLoadedEditSnapshots(raw.editSnapshots);
 
   memoryState.semanticAnnotations = (raw.semanticAnnotations ?? []).map(
     item => ({
@@ -354,7 +388,7 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     updatedAt: toDate(item.updatedAt),
   })) as StoryOperation[];
   memoryState.promptLineage = normalizePromptLineageLocalState(
-    raw.promptLineage,
+    raw.promptLineage
   );
 
   memoryState.nextIds = {
@@ -423,6 +457,98 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
   };
 }
 
+async function loadLocalPromptLineageState(
+  fallback: Partial<PromptLineageLocalState> | null | undefined
+): Promise<PromptLineageLocalState> {
+  try {
+    const raw = await readFile(LOCAL_PROMPT_LINEAGE_PATH, "utf-8");
+    return normalizePromptLineageLocalState(JSON.parse(raw));
+  } catch (error) {
+    const e = error as NodeJS.ErrnoException;
+    if (e.code !== "ENOENT") {
+      console.warn(
+        `[LocalPersist] Failed to load ${LOCAL_PROMPT_LINEAGE_PATH}:`,
+        error
+      );
+    }
+    const normalized = normalizePromptLineageLocalState(fallback);
+    if (e.code === "ENOENT") {
+      await persistLocalPromptLineageStateToDisk(normalized).catch(error => {
+        console.warn(
+          `[LocalPersist] Failed to initialize ${LOCAL_PROMPT_LINEAGE_PATH}:`,
+          error
+        );
+      });
+    }
+    return normalized;
+  }
+}
+
+async function loadLocalEditSnapshots(
+  fallback: Partial<EditSnapshot>[] | undefined
+): Promise<EditSnapshot[]> {
+  try {
+    const raw = await readFile(LOCAL_EDIT_SNAPSHOTS_PATH, "utf-8");
+    return normalizeLoadedEditSnapshots(JSON.parse(raw));
+  } catch (error) {
+    const e = error as NodeJS.ErrnoException;
+    if (e.code !== "ENOENT") {
+      console.warn(
+        `[LocalPersist] Failed to load ${LOCAL_EDIT_SNAPSHOTS_PATH}:`,
+        error
+      );
+    }
+    const normalized = normalizeLoadedEditSnapshots(fallback);
+    if (e.code === "ENOENT") {
+      await persistLocalEditSnapshotsToDisk(normalized).catch(error => {
+        console.warn(
+          `[LocalPersist] Failed to initialize ${LOCAL_EDIT_SNAPSHOTS_PATH}:`,
+          error
+        );
+      });
+    }
+    return normalized;
+  }
+}
+
+async function persistLocalPromptLineageStateToDisk(
+  next: PromptLineageLocalState
+) {
+  if (
+    isTestEnv() &&
+    LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH &&
+    LOCAL_PROMPT_LINEAGE_PATH === DEFAULT_LOCAL_PROMPT_LINEAGE_PATH
+  ) {
+    return;
+  }
+  const dir = path.dirname(LOCAL_PROMPT_LINEAGE_PATH);
+  await mkdir(dir, { recursive: true });
+  const payload = JSON.stringify(
+    normalizePromptLineageLocalState(next),
+    null,
+    2
+  );
+  const tmpPath = localTempPath(LOCAL_PROMPT_LINEAGE_PATH);
+  await writeFile(tmpPath, payload, "utf-8");
+  await rename(tmpPath, LOCAL_PROMPT_LINEAGE_PATH);
+}
+
+async function persistLocalEditSnapshotsToDisk(next: EditSnapshot[]) {
+  if (
+    isTestEnv() &&
+    LOCAL_PERSIST_PATH === DEFAULT_LOCAL_PERSIST_PATH &&
+    LOCAL_EDIT_SNAPSHOTS_PATH === DEFAULT_LOCAL_EDIT_SNAPSHOTS_PATH
+  ) {
+    return;
+  }
+  const dir = path.dirname(LOCAL_EDIT_SNAPSHOTS_PATH);
+  await mkdir(dir, { recursive: true });
+  const payload = JSON.stringify(normalizeLoadedEditSnapshots(next), null, 2);
+  const tmpPath = localTempPath(LOCAL_EDIT_SNAPSHOTS_PATH);
+  await writeFile(tmpPath, payload, "utf-8");
+  await rename(tmpPath, LOCAL_EDIT_SNAPSHOTS_PATH);
+}
+
 async function ensureMemoryLoaded() {
   if (memoryLoaded) return;
   if (memoryLoadPromise) return memoryLoadPromise;
@@ -431,6 +557,12 @@ async function ensureMemoryLoaded() {
     try {
       const raw = await readFile(LOCAL_PERSIST_PATH, "utf-8");
       const parsed = JSON.parse(raw) as Partial<MemoryState>;
+      promptLineageLoadFallback = parsed.promptLineage;
+      editSnapshotsLoadFallback = parsed.editSnapshots;
+      parsed.promptLineage = createEmptyPromptLineageLocalState();
+      parsed.editSnapshots = [];
+      promptLineageLoaded = false;
+      editSnapshotsLoaded = false;
       normalizeLoadedState(parsed);
       console.log(`[LocalPersist] Loaded data from ${LOCAL_PERSIST_PATH}`);
     } catch (error) {
@@ -448,6 +580,30 @@ async function ensureMemoryLoaded() {
   })();
 
   return memoryLoadPromise;
+}
+
+async function ensureLocalPromptLineageLoaded() {
+  await ensureMemoryLoaded();
+  if (promptLineageLoaded) return;
+  memoryState.promptLineage = await loadLocalPromptLineageState(
+    promptLineageLoadFallback
+  );
+  promptLineageLoadFallback = undefined;
+  promptLineageLoaded = true;
+}
+
+async function ensureLocalEditSnapshotsLoaded() {
+  await ensureMemoryLoaded();
+  if (editSnapshotsLoaded) return;
+  memoryState.editSnapshots = await loadLocalEditSnapshots(
+    editSnapshotsLoadFallback
+  );
+  editSnapshotsLoadFallback = undefined;
+  editSnapshotsLoaded = true;
+  memoryState.nextIds.editSnapshot = Math.max(
+    memoryState.nextIds.editSnapshot,
+    nextIdFromRows(memoryState.editSnapshots)
+  );
 }
 
 // 写前备份：盘上已有文件时，按节流（≤1/分钟）或「体积骤减」拷一份到 backups/，
@@ -511,11 +667,16 @@ async function persistMemoryStateToDisk() {
   }
   const dir = path.dirname(LOCAL_PERSIST_PATH);
   await mkdir(dir, { recursive: true });
-  const payload = JSON.stringify(memoryState, null, 2);
+  const {
+    promptLineage: _promptLineage,
+    editSnapshots: _editSnapshots,
+    ...mainState
+  } = memoryState;
+  const payload = JSON.stringify(mainState, null, 2);
   const nextBytes = Buffer.byteLength(payload, "utf-8");
   // ② 写前滚动备份 + 骤减告警
   await backupBeforeWrite(nextBytes);
-  const tmpPath = `${LOCAL_PERSIST_PATH}.tmp`;
+  const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
   await writeFile(tmpPath, payload, "utf-8");
   await rename(tmpPath, LOCAL_PERSIST_PATH);
 }
@@ -564,20 +725,23 @@ export async function getDb() {
 export async function getLocalPromptLineageState(): Promise<PromptLineageLocalState | null> {
   const db = await getDb();
   if (db) return null;
+  await ensureLocalPromptLineageLoaded();
   return structuredClone(memoryState.promptLineage);
 }
 
 export async function replaceLocalPromptLineageState(
-  next: PromptLineageLocalState,
+  next: PromptLineageLocalState
 ): Promise<void> {
   const db = await getDb();
   if (db) {
     throw new Error("Local prompt lineage state is unavailable in MySQL mode");
   }
   memoryState.promptLineage = normalizePromptLineageLocalState(
-    structuredClone(next),
+    structuredClone(next)
   );
-  await persistMemoryState();
+  promptLineageLoaded = true;
+  promptLineageLoadFallback = undefined;
+  await persistLocalPromptLineageStateToDisk(memoryState.promptLineage);
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -1388,54 +1552,55 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
           draft => !(draft.storyId === id && draft.userId === userId)
         );
       memoryState.storyOperations = memoryState.storyOperations.filter(
-        operation =>
-          !(operation.storyId === id && operation.userId === userId)
+        operation => !(operation.storyId === id && operation.userId === userId)
       );
+      await ensureLocalPromptLineageLoaded();
       const promptLineage = memoryState.promptLineage;
       const owned = <T extends { storyId: number; userId: number }>(item: T) =>
         item.storyId === id && item.userId === userId;
       const removedCompilationIds = new Set(
         promptLineage.compilations
           .filter(owned)
-          .map(compilation => compilation.id),
+          .map(compilation => compilation.id)
       );
       const removedMessageIds = new Set(
-        promptLineage.messages.filter(owned).map(message => message.id),
+        promptLineage.messages.filter(owned).map(message => message.id)
       );
       promptLineage.storyStates = promptLineage.storyStates.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
       promptLineage.nodes = promptLineage.nodes.filter(item => !owned(item));
       promptLineage.revisions = promptLineage.revisions.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
       promptLineage.bindings = promptLineage.bindings.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
       promptLineage.compilations = promptLineage.compilations.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
-      promptLineage.compilationInputs =
-        promptLineage.compilationInputs.filter(
-          item => !removedCompilationIds.has(item.compilationId),
-        );
-      promptLineage.compilationHeads =
-        promptLineage.compilationHeads.filter(item => !owned(item));
+      promptLineage.compilationInputs = promptLineage.compilationInputs.filter(
+        item => !removedCompilationIds.has(item.compilationId)
+      );
+      promptLineage.compilationHeads = promptLineage.compilationHeads.filter(
+        item => !owned(item)
+      );
       promptLineage.conversations = promptLineage.conversations.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
       promptLineage.messages = promptLineage.messages.filter(
-        item => !owned(item),
+        item => !owned(item)
       );
-      promptLineage.messageReferences =
-        promptLineage.messageReferences.filter(
-          item =>
-            !owned(item) && !removedMessageIds.has(item.messageId),
-        );
-      promptLineage.storyArtBindings =
-        promptLineage.storyArtBindings.filter(item => !owned(item));
-      promptLineage.operationReceipts =
-        promptLineage.operationReceipts.filter(item => !owned(item));
+      promptLineage.messageReferences = promptLineage.messageReferences.filter(
+        item => !owned(item) && !removedMessageIds.has(item.messageId)
+      );
+      promptLineage.storyArtBindings = promptLineage.storyArtBindings.filter(
+        item => !owned(item)
+      );
+      promptLineage.operationReceipts = promptLineage.operationReceipts.filter(
+        item => !owned(item)
+      );
+      await persistLocalPromptLineageStateToDisk(promptLineage);
       await persistMemoryState();
     }
     return;
@@ -1443,10 +1608,7 @@ export async function deleteStory(id: number, userId: number): Promise<void> {
   await db
     .delete(storyOperations)
     .where(
-      and(
-        eq(storyOperations.storyId, id),
-        eq(storyOperations.userId, userId)
-      )
+      and(eq(storyOperations.storyId, id), eq(storyOperations.userId, userId))
     );
   await db
     .delete(shotDerivationDrafts)
@@ -1616,8 +1778,11 @@ export async function claimLegacyGuestStories(
       operation.updatedAt = current;
     }
 
+    await ensureLocalPromptLineageLoaded();
     const promptLineage = memoryState.promptLineage;
-    const reassignOwnedStoryRows = <T extends { storyId: number; userId: number }>(
+    const reassignOwnedStoryRows = <
+      T extends { storyId: number; userId: number },
+    >(
       rows: T[]
     ) => {
       for (const row of rows) {
@@ -1645,6 +1810,7 @@ export async function claimLegacyGuestStories(
     reassignOwnedStoryRows(promptLineage.storyArtBindings);
     reassignOwnedStoryRows(promptLineage.operationReceipts);
 
+    await persistLocalPromptLineageStateToDisk(promptLineage);
     await persistMemoryState();
     return {
       sourceUserId: sourceUser.id,
@@ -1674,7 +1840,10 @@ export async function claimLegacyGuestStories(
   const storyIds = sourceStories.map(story => story.id);
 
   await db.transaction(async tx => {
-    const storyScope = (storyIdColumn: { name: string }, userIdColumn: { name: string }) =>
+    const storyScope = (
+      storyIdColumn: { name: string },
+      userIdColumn: { name: string }
+    ) =>
       and(
         eq(userIdColumn as any, sourceUser.id),
         inArray(storyIdColumn as any, storyIds)
@@ -1690,7 +1859,10 @@ export async function claimLegacyGuestStories(
       .where(
         and(
           inArray(generatedImages.storyId, storyIds),
-          or(eq(generatedImages.userId, sourceUser.id), isNull(generatedImages.userId))
+          or(
+            eq(generatedImages.userId, sourceUser.id),
+            isNull(generatedImages.userId)
+          )
         )
       );
     await tx
@@ -1708,7 +1880,12 @@ export async function claimLegacyGuestStories(
     await tx
       .update(videoTimelineSelections)
       .set({ userId: targetUserId })
-      .where(storyScope(videoTimelineSelections.storyId, videoTimelineSelections.userId));
+      .where(
+        storyScope(
+          videoTimelineSelections.storyId,
+          videoTimelineSelections.userId
+        )
+      );
     await tx
       .update(storyTimelines)
       .set({ userId: targetUserId })
@@ -1716,7 +1893,9 @@ export async function claimLegacyGuestStories(
     await tx
       .update(shotDerivationDrafts)
       .set({ userId: targetUserId })
-      .where(storyScope(shotDerivationDrafts.storyId, shotDerivationDrafts.userId));
+      .where(
+        storyScope(shotDerivationDrafts.storyId, shotDerivationDrafts.userId)
+      );
     await tx
       .update(storyOperations)
       .set({ userId: targetUserId })
@@ -1747,7 +1926,12 @@ export async function claimLegacyGuestStories(
     await tx
       .update(promptCompilationHeads)
       .set({ userId: targetUserId })
-      .where(storyScope(promptCompilationHeads.storyId, promptCompilationHeads.userId));
+      .where(
+        storyScope(
+          promptCompilationHeads.storyId,
+          promptCompilationHeads.userId
+        )
+      );
     await tx
       .update(storyConversations)
       .set({ userId: targetUserId })
@@ -1755,23 +1939,45 @@ export async function claimLegacyGuestStories(
     await tx
       .update(storyConversationMessages)
       .set({ userId: targetUserId })
-      .where(storyScope(storyConversationMessages.storyId, storyConversationMessages.userId));
+      .where(
+        storyScope(
+          storyConversationMessages.storyId,
+          storyConversationMessages.userId
+        )
+      );
     await tx
       .update(storyMessageReferences)
       .set({ userId: targetUserId })
-      .where(storyScope(storyMessageReferences.storyId, storyMessageReferences.userId));
+      .where(
+        storyScope(
+          storyMessageReferences.storyId,
+          storyMessageReferences.userId
+        )
+      );
     await tx
       .update(storyArtPromptBindings)
       .set({ userId: targetUserId })
-      .where(storyScope(storyArtPromptBindings.storyId, storyArtPromptBindings.userId));
+      .where(
+        storyScope(
+          storyArtPromptBindings.storyId,
+          storyArtPromptBindings.userId
+        )
+      );
     await tx
       .update(promptOperationReceipts)
       .set({ userId: targetUserId })
-      .where(storyScope(promptOperationReceipts.storyId, promptOperationReceipts.userId));
+      .where(
+        storyScope(
+          promptOperationReceipts.storyId,
+          promptOperationReceipts.userId
+        )
+      );
     await tx
       .update(stories)
       .set({ userId: targetUserId, projectId: targetProject.id })
-      .where(and(eq(stories.userId, sourceUser.id), inArray(stories.id, storyIds)));
+      .where(
+        and(eq(stories.userId, sourceUser.id), inArray(stories.id, storyIds))
+      );
   });
 
   return {
@@ -2175,7 +2381,7 @@ export async function createEditSnapshot(
 ): Promise<EditSnapshot> {
   const db = await getDb();
   if (!db) {
-    await ensureMemoryLoaded();
+    await ensureLocalEditSnapshotsLoaded();
     const id = nextMemoryId("editSnapshot");
     const snapshot: EditSnapshot = {
       id,
@@ -2187,7 +2393,7 @@ export async function createEditSnapshot(
       timestamp: now(),
     };
     memoryState.editSnapshots.push(snapshot);
-    await persistMemoryState();
+    await persistLocalEditSnapshotsToDisk(memoryState.editSnapshots);
     return snapshot;
   }
   const [result] = await db.insert(editSnapshots).values(data);
@@ -2203,7 +2409,7 @@ export async function getLatestEditSnapshot(
 ): Promise<EditSnapshot | null> {
   const db = await getDb();
   if (!db) {
-    await ensureMemoryLoaded();
+    await ensureLocalEditSnapshotsLoaded();
     const projectSnapshots = memoryState.editSnapshots
       .filter(s => s.projectId === projectId)
       .sort((a, b) => {
@@ -2226,7 +2432,7 @@ export async function getEditSnapshotById(
 ): Promise<EditSnapshot | null> {
   const db = await getDb();
   if (!db) {
-    await ensureMemoryLoaded();
+    await ensureLocalEditSnapshotsLoaded();
     return memoryState.editSnapshots.find(s => s.id === id) ?? null;
   }
   const [snapshot] = await db
@@ -2289,7 +2495,7 @@ export async function getRecentSemanticAnnotations(
 ): Promise<SemanticAnnotation[]> {
   const db = await getDb();
   if (!db) {
-    await ensureMemoryLoaded();
+    await ensureLocalEditSnapshotsLoaded();
     // Join with editSnapshots to filter by projectId
     const projectSnapshotIds = new Set(
       memoryState.editSnapshots
@@ -2357,6 +2563,7 @@ async function resolvePromptCompilationIdForAsset(
     return null;
   }
   if (!db) {
+    await ensureLocalPromptLineageLoaded();
     return (
       memoryState.promptLineage.compilationHeads.find(
         head =>
@@ -2545,16 +2752,11 @@ export async function deleteGeneratedImage(
     await persistMemoryState();
     return;
   }
-  await db
-    .delete(imageSignals)
-    .where(eq(imageSignals.imageId, imageId));
+  await db.delete(imageSignals).where(eq(imageSignals.imageId, imageId));
   await db
     .delete(generatedImages)
     .where(
-      and(
-        eq(generatedImages.id, imageId),
-        eq(generatedImages.userId, userId)
-      )
+      and(eq(generatedImages.id, imageId), eq(generatedImages.userId, userId))
     );
 }
 
@@ -2763,6 +2965,40 @@ export async function updateVideoTake(
     .from(videoTakes)
     .where(and(eq(videoTakes.id, id), eq(videoTakes.userId, userId)));
   return row ?? null;
+}
+
+export async function updateVideoTakeRangesShotIdentity(input: {
+  takeId: number;
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    for (const range of memoryState.videoTakeRanges) {
+      if (
+        range.takeId === input.takeId &&
+        range.storyId === input.storyId &&
+        range.userId === input.userId
+      ) {
+        range.stableShotId = input.stableShotId;
+        range.updatedAt = now();
+      }
+    }
+    await persistMemoryState();
+    return;
+  }
+  await db
+    .update(videoTakeRanges)
+    .set({ stableShotId: input.stableShotId })
+    .where(
+      and(
+        eq(videoTakeRanges.takeId, input.takeId),
+        eq(videoTakeRanges.storyId, input.storyId),
+        eq(videoTakeRanges.userId, input.userId)
+      )
+    );
 }
 
 export async function getVideoTakeById(
@@ -3044,8 +3280,7 @@ export async function getStoryTimeline(
     await ensureMemoryLoaded();
     return (
       memoryState.storyTimelines.find(
-        timeline =>
-          timeline.storyId === storyId && timeline.userId === userId
+        timeline => timeline.storyId === storyId && timeline.userId === userId
       ) ?? null
     );
   }
@@ -3062,21 +3297,18 @@ export async function getStoryTimeline(
   return row ?? null;
 }
 
-export async function updateStoryTimeline(
-  input: {
-    storyId: number;
-    userId: number;
-    expectedVersion: number;
-    items: unknown;
-  }
-): Promise<StoryTimeline> {
+export async function updateStoryTimeline(input: {
+  storyId: number;
+  userId: number;
+  expectedVersion: number;
+  items: unknown;
+}): Promise<StoryTimeline> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
     const existing = memoryState.storyTimelines.find(
       timeline =>
-        timeline.storyId === input.storyId &&
-        timeline.userId === input.userId
+        timeline.storyId === input.storyId && timeline.userId === input.userId
     );
     if (!existing) {
       if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
@@ -3288,9 +3520,7 @@ export async function getStoryOperation(
   const [row] = await db
     .select()
     .from(storyOperations)
-    .where(
-      and(eq(storyOperations.id, id), eq(storyOperations.userId, userId))
-    );
+    .where(and(eq(storyOperations.id, id), eq(storyOperations.userId, userId)));
   return row ?? null;
 }
 
@@ -3314,9 +3544,7 @@ export async function markStoryOperationReverted(
   await db
     .update(storyOperations)
     .set({ status: "reverted" })
-    .where(
-      and(eq(storyOperations.id, id), eq(storyOperations.userId, userId))
-    );
+    .where(and(eq(storyOperations.id, id), eq(storyOperations.userId, userId)));
 }
 
 function revisionOf(body: unknown): number {
@@ -3461,7 +3689,9 @@ export async function confirmDerivedShotAtomic(input: {
     const [story] = await tx
       .select()
       .from(stories)
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)))
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
       .for("update")
       .limit(1);
     const [draft] = await tx
@@ -3772,9 +4002,7 @@ export async function undoDerivedShotAtomic(
     const [story] = await tx
       .select()
       .from(stories)
-      .where(
-        and(eq(stories.id, operation.storyId), eq(stories.userId, userId))
-      )
+      .where(and(eq(stories.id, operation.storyId), eq(stories.userId, userId)))
       .for("update")
       .limit(1);
     const [timeline] = await tx
@@ -3880,6 +4108,10 @@ export function resetMemoryStateForTesting(): void {
   memoryState.shotDerivationDrafts = [];
   memoryState.storyOperations = [];
   memoryState.promptLineage = createEmptyPromptLineageLocalState();
+  promptLineageLoaded = true;
+  promptLineageLoadFallback = undefined;
+  editSnapshotsLoaded = true;
+  editSnapshotsLoadFallback = undefined;
   memoryState.nextIds = {
     user: 1,
     project: 1,

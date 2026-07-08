@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import type { CSSProperties } from "react";
 import {
   Check,
@@ -21,6 +21,7 @@ import {
   videoTakeErrorMessage,
 } from "@/features/creationEditor/videoAssetViewModel";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
+import { writeVideoTakeDragPayload } from "./videoTakeDrag";
 
 function compactSnapshot(snapshot: Record<string, unknown> | null | undefined) {
   if (!snapshot) return "";
@@ -61,6 +62,7 @@ type ShotMaterialBasketProps = {
     motion?: "low" | "high";
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  movingVideoTakeId?: number | null;
   onAdoptVideoTake?: (input: {
     stableShotId: string;
     takeId: number;
@@ -83,6 +85,7 @@ export default function ShotMaterialBasket({
   generating,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
+  movingVideoTakeId = null,
   onAdoptVideoTake,
   onPromoteFrameCrop,
   promotingFrameCrop = false,
@@ -102,6 +105,7 @@ export default function ShotMaterialBasket({
   const [videoPrompt, setVideoPrompt] = useState(recipe.finalPrompt);
   const [motion, setMotion] = useState<"low" | "high">(suggestedMotion);
   const [adoptingTakeId, setAdoptingTakeId] = useState<number | null>(null);
+  const [draggingTakeId, setDraggingTakeId] = useState<number | null>(null);
   const [busyQuadrant, setBusyQuadrant] = useState<FrameQuadrant | null>(null);
   const [selectedQuadrant, setSelectedQuadrant] =
     useState<FrameQuadrant | null>(null);
@@ -179,6 +183,22 @@ export default function ShotMaterialBasket({
     } finally {
       setAdoptingTakeId(null);
     }
+  };
+
+  const startTakeDrag = (
+    event: DragEvent<HTMLDivElement>,
+    takeId: number
+  ) => {
+    if (!shot.stableShotId) {
+      event.preventDefault();
+      return;
+    }
+    setDraggingTakeId(takeId);
+    writeVideoTakeDragPayload(event.dataTransfer, {
+      takeId,
+      sourceStableShotId: shot.stableShotId,
+      sourceShotNo: shot.shotNo,
+    });
   };
 
   const selectCandidateFrame = async (quadrant: FrameQuadrant) => {
@@ -403,9 +423,21 @@ export default function ShotMaterialBasket({
             return (
               <div
                 key={take.id}
-                className="rounded-md border px-2 py-1.5 text-[9px]"
+                draggable={Boolean(shot.stableShotId)}
+                aria-grabbed={draggingTakeId === take.id}
+                onDragStart={event => startTakeDrag(event, take.id)}
+                onDragEnd={() => setDraggingTakeId(null)}
+                title="拖到另一个镜头卡片"
+                className={`rounded-md border px-2 py-1.5 text-[9px] transition ${
+                  movingVideoTakeId === take.id
+                    ? "cursor-wait opacity-60"
+                    : "cursor-grab active:cursor-grabbing"
+                }`}
                 style={{
-                  borderColor: "var(--panel-border)",
+                  borderColor:
+                    draggingTakeId === take.id
+                      ? "var(--nayin-accent)"
+                      : "var(--panel-border)",
                   background: "var(--background)",
                 }}
               >

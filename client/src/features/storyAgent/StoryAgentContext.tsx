@@ -289,6 +289,10 @@ interface StoryAgentContextValue {
     field: StoryShotEditableField,
     value: string,
   ) => void;
+  insertStoryShotAfter: (
+    shotNo: number,
+    stableShotId?: string | null,
+  ) => Promise<number | null>;
   updateAllStoryShotField: (
     field: StoryShotEditableField,
     value: string,
@@ -359,6 +363,7 @@ type StoryAgentActionKey =
   | 'updateScriptMeta'
   | 'updateScriptScene'
   | 'updateStoryShotField'
+  | 'insertStoryShotAfter'
   | 'updateAllStoryShotField'
   | 'generateScript'
   | 'resetConversation'
@@ -397,6 +402,7 @@ const storyAgentActionKeys = [
   'updateScriptMeta',
   'updateScriptScene',
   'updateStoryShotField',
+  'insertStoryShotAfter',
   'updateAllStoryShotField',
   'generateScript',
   'resetConversation',
@@ -698,6 +704,7 @@ export function StoryAgentProvider({
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const insertShotMut = trpc.storyAgent.insertStoryShotAfter.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
   const appendConversationTurnMut =
@@ -1091,9 +1098,9 @@ export function StoryAgentProvider({
           }
         } catch (error) {
           console.warn('save archive story failed', error);
-          // 保存失败后清掉失效的远端 ID，让下次保存可以重新创建故事。
-          setRemoteStoryId(undefined);
-          setServerRevision(0);
+          // 保留远端 ID 原样重试。失败就清 id 会让下一次保存把整篇故事另存成
+          // 新副本（服务端对查不到的 id 会降级新建）——服务器重启抖动时曾一小时
+          // 复制出十几篇。故事真不存在时服务端新建后返回新 id，上面会正常认领。
           setSaveStatus('error');
           toast.error('云端保存失败，本机仍有临时备份，会继续重试');
         }
@@ -1727,6 +1734,35 @@ export function StoryAgentProvider({
       commitStoryShots(nextStoryShots);
     },
     [commitStoryShots],
+  );
+
+  const insertStoryShotAfter = useCallback(
+    async (shotNo: number, stableShotId?: string | null) => {
+      const id = remoteStoryId;
+      if (!id) return null;
+
+      const result = await insertShotMut.mutateAsync({
+        storyId: id,
+        stableShotId: stableShotId ?? '',
+      });
+      if (result.status !== 'ok' || !result.story) {
+        throw new Error(result.status === 'error' ? (result as { error: string }).error : '添加镜头失败');
+      }
+
+      const body = result.story.body as Record<string, unknown> | undefined;
+      const restoredShots = Array.isArray(body?.shots)
+        ? (body.shots as StoryShot[])
+        : storySpineStore.getState().storyShots;
+      setStoryShots(restoredShots);
+      setSaveStatus('saved');
+      setLastSavedAt(Date.now());
+      if (typeof result.story.revision === 'number') {
+        setServerRevision(result.story.revision);
+      }
+
+      return result.insertedShotNo;
+    },
+    [remoteStoryId, insertShotMut, setStoryShots],
   );
 
   const updateAllStoryShotField = useCallback(
@@ -2838,6 +2874,7 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
+      insertStoryShotAfter,
       updateAllStoryShotField,
       generateScript,
       resetConversation,
@@ -2897,6 +2934,7 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
+      insertStoryShotAfter,
       updateAllStoryShotField,
       generateScript,
       resetConversation,
@@ -2949,6 +2987,7 @@ export function StoryAgentProvider({
     updateScriptMeta,
     updateScriptScene,
     updateStoryShotField,
+    insertStoryShotAfter,
     updateAllStoryShotField,
     generateScript,
     resetConversation,

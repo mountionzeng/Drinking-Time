@@ -38,6 +38,15 @@ type Fetcher = (
   init?: RequestInit
 ) => Promise<FetchResponseLike>;
 
+type ChatCompletionResponse = {
+  model?: string;
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+};
+
 export interface ImageGenOptions {
   fetcher?: Fetcher;
   aspectRatio?: string;
@@ -60,6 +69,10 @@ export interface ImageGenOptions {
   imageWeight?: number;
   /** 严格图生图：输入图不可读或上游图生图失败时直接报错，不回落纯文生图。用于真人照片锚点重绘。 */
   requireInputImage?: boolean;
+  /** FLUX Kontext 参考图 URL：传入后走 Kontext 路径，保持角色/场景一致 */
+  referenceImageUrl?: string;
+  /** 人物身份锚点图：通常是视频帧的人脸/下半张脸裁切，仅用于五官脸型提取 */
+  referenceIdentityImageUrl?: string;
 }
 
 // ── 常量 ──
@@ -148,6 +161,14 @@ function build302MultipartHeaders(): Record<string, string> {
   };
 }
 
+function build302VisionHeaders(apiKey: string): Record<string, string> {
+  return {
+    Accept: "application/json",
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timeout")), ms);
@@ -175,6 +196,21 @@ function normalizeBaseUrl(raw: string): string {
 function parseNumber(raw: string | undefined, fallback: number): number {
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function completionText(data: ChatCompletionResponse): string {
+  const content = data.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map(part => (part.type === "text" ? part.text ?? "" : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function compactForPrompt(value: string, maxLength: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength).trim();
 }
 
 function gptImageSizeFor(aspectRatio?: string): string {
@@ -224,6 +260,106 @@ function parseDataImageUrl(value: string): {
   };
 }
 
+function referenceIdentityLockPrompt(identityDescription?: string): string {
+  const extracted = identityDescription
+    ? `\nExtracted visible identity traits from the reference frame: ${compactForPrompt(identityDescription, 700)}`
+    : "";
+
+  return `Reference identity lock:
+Use the input image as the primary identity anchor, not merely as a style reference.
+Preserve the same visible person: face outline and proportions, jaw and chin shape, cheek volume, nose bridge/tip/nostrils, mouth and lip shape, philtrum, skin tone and texture, visible hair silhouette, and any cloth/accessory placement.
+Lower-face continuity is critical: match the reference chin taper, chin length, jaw width, lower-face oval/V shape, lip thickness, cupid's bow, mouth width, philtrum, and nose-to-mouth spacing.
+If the eyes are covered, do not invent a new eye identity; preserve the covered-eye silhouette, blindfold height, fabric thickness, folds, and tension.
+Background props, paintings, frames, and decorative eye motifs are not facial identity; never copy an eye symbol or prop onto the person's blindfold or face.
+Do not recast the face, beautify into a different person, change age impression, or alter the person's facial structure.
+Avoid common identity drift: do not round, widen, square off, lengthen, or shorten the chin; do not inflate or redesign the lips; do not make the jaw heavier or softer than the reference.${extracted}`;
+}
+
+function kontextPromptWithReferenceIdentity(
+  prompt: string,
+  identityDescription?: string
+): string {
+  return `${referenceIdentityLockPrompt(identityDescription)}
+
+Scene prompt:
+${prompt}`;
+}
+
+function resolve302VisionUrl(): string {
+  return new URL(
+    "/v1/chat/completions",
+    `${normalizeBaseUrl(ENV.vision302BaseUrl || ENV.api302BaseUrl)}/`
+  ).toString();
+}
+
+function referenceIdentityVisionConfig(): { apiKey: string; model: string } | null {
+  const apiKey = (ENV.vision302ApiKey || ENV.api302Key).trim();
+  const model = (ENV.vision302Model || ENV.imagePrompt302Model).trim();
+  if (!apiKey || !model) return null;
+  return { apiKey, model };
+}
+
+async function describeReferenceIdentity(
+  imageDataUrl: string,
+  fetcher: Fetcher
+): Promise<string | undefined> {
+  const config = referenceIdentityVisionConfig();
+  if (!config) return undefined;
+
+  try {
+    const response = await withTimeout(
+      fetcher(resolve302VisionUrl(), {
+        method: "POST",
+        headers: build302VisionHeaders(config.apiKey),
+        body: JSON.stringify({
+          model: config.model,
+          stream: false,
+          temperature: 0.1,
+          max_tokens: 260,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a visual continuity supervisor. Describe only stable visible facial identity traits of the human subject needed to keep the same person across generated frames. Ignore background, paintings, frames, props, decorative eye motifs, and scene composition unless they physically touch or obscure the human face. Do not name the person or infer biography. If eyes are covered, identity must come from the lower face. Prioritize lower-face geometry over general beauty words: chin taper, chin length, jaw width, lower-face oval/V shape, cheek-to-chin transition, nose bridge/tip/nostrils, philtrum, mouth width, lip thickness, cupid's bow, hair silhouette, skin/texture, and blindfold placement. Include a short 'must not drift' clause naming the opposite mistakes to avoid. Output one concise English paragraph under 110 words.",
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "Extract the human subject's visible identity lock from this reference frame. Be precise about the chin and mouth. If the subject has a narrow, tapered, small, soft, pointed, or rounded chin, say exactly that; if not, say the actual shape. Do the same for lip thickness and mouth shape. Ignore any eye-shaped prop or painting in the scene.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: imageDataUrl, detail: "high" },
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+      Math.min(parseNumber(ENV.imagePrompt302TimeoutMs, TIMEOUT_MS), TIMEOUT_MS)
+    );
+
+    if (!response.ok) {
+      const body = (await response.text?.().catch(() => "")) || "";
+      console.warn(
+        `[imageGen] reference identity analysis skipped: HTTP ${response.status}${body ? ` ${body.slice(0, 160)}` : ""}`
+      );
+      return undefined;
+    }
+
+    const text = completionText((await response.json()) as ChatCompletionResponse);
+    return text ? compactForPrompt(text, 700) : undefined;
+  } catch (error) {
+    console.warn(
+      `[imageGen] reference identity analysis skipped: ${readableError(error, "未知错误")}`
+    );
+    return undefined;
+  }
+}
+
 async function readImageInput(
   imageUrl: string,
   fetcher: Fetcher
@@ -271,6 +407,15 @@ async function readImageInput(
     filename: "source.png",
     mimeType: "image/png",
   };
+}
+
+async function imageInputDataUrl(
+  imageUrl: string,
+  fetcher: Fetcher
+): Promise<string> {
+  const source = await readImageInput(imageUrl, fetcher);
+  const b64 = Buffer.from(source.bytes).toString("base64");
+  return `data:${source.mimeType};base64,${b64}`;
 }
 
 function buildForgeOriginalImage(imageUrl: string): {
@@ -628,6 +773,22 @@ export async function generateImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+
+  // FLUX Kontext：有参考图时优先走 Kontext 保角色/场景一致性
+  if (options.referenceImageUrl && ENV.api302Key) {
+    console.log(
+      `[imageGen] using flux-kontext-pro reference=${
+        options.referenceImageUrl.startsWith("data:") ? "data-url" : "url"
+      }`
+    );
+    return generate302FluxKontext(
+      prompt,
+      options.referenceImageUrl,
+      options,
+      fetcher
+    );
+  }
+
   const requested = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
   );
@@ -780,6 +941,87 @@ async function generate302GptImage(
   }
 }
 
+/**
+ * FLUX Kontext 跨镜头一致性出图：给一张参考图 + prompt，保持角色/物体外观一致。
+ * 通过 302.ai 的 flux-kontext-pro 模型实现。
+ */
+async function generate302FluxKontext(
+  prompt: string,
+  referenceImageUrl: string,
+  options: ImageGenOptions,
+  fetcher: Fetcher
+): Promise<ImageGenResult> {
+  try {
+    const source = await readImageInput(referenceImageUrl, fetcher);
+    const b64 = Buffer.from(source.bytes).toString("base64");
+    const dataUrl = `data:${source.mimeType};base64,${b64}`;
+    const identityDataUrl = options.referenceIdentityImageUrl
+      ? await imageInputDataUrl(options.referenceIdentityImageUrl, fetcher)
+      : dataUrl;
+    const identityDescription = await describeReferenceIdentity(
+      identityDataUrl,
+      fetcher
+    );
+    const promptWithIdentity = kontextPromptWithReferenceIdentity(
+      prompt,
+      identityDescription
+    );
+    console.log(
+      `[imageGen] flux-kontext identity-lock=${
+        identityDescription ? "vision" : "prompt"
+      }`
+    );
+
+    const endpoint = new URL(
+      "/v1/images/generations",
+      `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
+    );
+
+    const response = await withTimeout(
+      fetcher(endpoint.toString(), {
+        method: "POST",
+        headers: build302Headers("openai"),
+        body: JSON.stringify({
+          model: "flux-kontext-pro",
+          prompt: promptWithIdentity,
+          input_image: dataUrl,
+          n: 1,
+          size: "1024x1024",
+        }),
+      }),
+      TIMEOUT_MS
+    );
+
+    if (!response.ok) {
+      recordFailure();
+      return {
+        status: "error",
+        message: `FLUX Kontext 暂时不可用（HTTP ${response.status}）。`,
+      };
+    }
+
+    const stored = await storeImageFromOpenAIJson(
+      await response.json(),
+      fetcher,
+      "FLUX Kontext 没有返回图片。"
+    );
+
+    if (stored.status !== "ok") {
+      recordFailure();
+      return stored;
+    }
+
+    recordSuccess();
+    return stored;
+  } catch (error) {
+    recordFailure();
+    return {
+      status: "error",
+      message: `FLUX Kontext 生成失败：${readableError(error, "未知错误")}`,
+    };
+  }
+}
+
 async function generate302GptImageEdit(
   imageUrl: string,
   prompt: string,
@@ -925,6 +1167,23 @@ export async function editImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+
+  // When the user explicitly picks a reference shot/video, that reference is the
+  // stronger instruction than the current main image. Otherwise rerendering a
+  // shot that already has a main image keeps drifting from the stale main image.
+  if (options.referenceImageUrl && ENV.api302Key) {
+    console.log(
+      `[imageGen] using flux-kontext-pro reference=${
+        options.referenceImageUrl.startsWith("data:") ? "data-url" : "url"
+      }`
+    );
+    return generate302FluxKontext(
+      prompt,
+      options.referenceImageUrl,
+      options,
+      fetcher
+    );
+  }
 
   // 默认 provider = midjourney 时，图生图也走 MJ：把用户照片作为 image prompt 放进 base64Array。
   // （账户里 gpt-image 不可用、MJ 可用时，这条让「带照片的画出来」也能出图。）
@@ -1153,6 +1412,12 @@ async function generate302MidjourneyImage(
     return { status: "error", message: "302 Midjourney task timeout" };
   } catch (error) {
     recordFailure();
+    // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
+    console.warn(
+      "[302 MJ] 出图请求异常:",
+      error instanceof Error ? error.message : error,
+      error instanceof Error && error.cause ? `cause: ${String(error.cause)}` : ""
+    );
     const message =
       error instanceof Error
         ? error.message
