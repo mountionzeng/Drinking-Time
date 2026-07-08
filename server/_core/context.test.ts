@@ -52,6 +52,7 @@ describe("createContext", () => {
     vi.resetModules();
     process.env.DISABLE_AUTH = "true";
     process.env.NODE_ENV = "production";
+    delete process.env.DEV_FIXED_GUEST_OPEN_ID;
   });
 
   it("creates a browser-scoped guest session when auth is disabled", async () => {
@@ -159,5 +160,108 @@ describe("createContext", () => {
       { name: "app_session_id", value: "upgraded-guest-session-token" },
     ]);
     expect(ctx.user?.openId).toBe("guest:upgraded-browser");
+  });
+
+  describe("DEV_FIXED_GUEST_OPEN_ID 固定身份", () => {
+    const FIXED_OPEN_ID = "guest:fixed-dev-user";
+
+    it("无 cookie 请求解析成固定身份，并按固定 openId 签发 cookie", async () => {
+      process.env.DEV_FIXED_GUEST_OPEN_ID = FIXED_OPEN_ID;
+      verifySession.mockResolvedValue(null);
+      createSessionToken.mockResolvedValue("fixed-session-token");
+      getUserByOpenId.mockResolvedValue(makeUser({ openId: FIXED_OPEN_ID }));
+
+      const { createContext } = await import("./context");
+
+      const cookieCalls: Array<{ name: string; value: string }> = [];
+      const ctx = await createContext({
+        req: {
+          headers: {},
+        } as any,
+        res: {
+          cookie: (name: string, value: string) => {
+            cookieCalls.push({ name, value });
+          },
+        } as any,
+      });
+
+      expect(createSessionToken).toHaveBeenCalledTimes(1);
+      expect(createSessionToken).toHaveBeenCalledWith(
+        FIXED_OPEN_ID,
+        expect.objectContaining({ name: "Guest" }),
+      );
+      expect(upsertUser).toHaveBeenCalledWith(
+        expect.objectContaining({ openId: FIXED_OPEN_ID }),
+      );
+      expect(cookieCalls).toEqual([
+        { name: "app_session_id", value: "fixed-session-token" },
+      ]);
+      expect(ctx.user?.openId).toBe(FIXED_OPEN_ID);
+    });
+
+    it("带着别的访客 cookie 也收敛到固定身份并重签 cookie", async () => {
+      process.env.DEV_FIXED_GUEST_OPEN_ID = FIXED_OPEN_ID;
+      verifySession.mockResolvedValue({
+        openId: "guest:some-other-browser",
+        appId: "app-id",
+        name: "Guest",
+      });
+      createSessionToken.mockResolvedValue("fixed-session-token");
+      getUserByOpenId.mockResolvedValue(makeUser({ openId: FIXED_OPEN_ID }));
+
+      const { createContext } = await import("./context");
+
+      const cookieCalls: Array<{ name: string; value: string }> = [];
+      const ctx = await createContext({
+        req: {
+          headers: { cookie: "app_session_id=stray-guest-cookie" },
+        } as any,
+        res: {
+          cookie: (name: string, value: string) => {
+            cookieCalls.push({ name, value });
+          },
+        } as any,
+      });
+
+      expect(createSessionToken).toHaveBeenCalledWith(
+        FIXED_OPEN_ID,
+        expect.objectContaining({ name: "Guest" }),
+      );
+      expect(cookieCalls).toEqual([
+        { name: "app_session_id", value: "fixed-session-token" },
+      ]);
+      expect(ctx.user?.openId).toBe(FIXED_OPEN_ID);
+    });
+
+    it("cookie 已指向固定身份时直接复用，不重复签发", async () => {
+      process.env.DEV_FIXED_GUEST_OPEN_ID = FIXED_OPEN_ID;
+      verifySession.mockResolvedValue({
+        openId: FIXED_OPEN_ID,
+        appId: "app-id",
+        name: "Guest",
+      });
+      getUserByOpenId.mockResolvedValue(makeUser({ openId: FIXED_OPEN_ID }));
+
+      const { createContext } = await import("./context");
+
+      const cookieCalls: Array<{ name: string; value: string }> = [];
+      const ctx = await createContext({
+        req: {
+          headers: { cookie: "app_session_id=fixed-cookie" },
+        } as any,
+        res: {
+          cookie: (name: string, value: string) => {
+            cookieCalls.push({ name, value });
+          },
+        } as any,
+      });
+
+      expect(createSessionToken).not.toHaveBeenCalled();
+      expect(cookieCalls).toHaveLength(0);
+      expect(upsertUser).toHaveBeenCalledWith(
+        expect.objectContaining({ openId: FIXED_OPEN_ID }),
+      );
+      expect(ctx.user?.openId).toBe(FIXED_OPEN_ID);
+    });
   });
 });

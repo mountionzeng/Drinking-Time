@@ -47,9 +47,9 @@ async function loadOrCreateGuestUser(openId: string, name = "Guest") {
 
 async function issueBrowserGuestSession(
   opts: CreateExpressContextOptions,
-  guestName = "Guest"
+  guestName = "Guest",
+  guestOpenId = `${GUEST_OPEN_ID_PREFIX}${randomUUID()}`
 ): Promise<User> {
-  const guestOpenId = `${GUEST_OPEN_ID_PREFIX}${randomUUID()}`;
   const sessionToken = await sdk.createSessionToken(guestOpenId, {
     name: guestName,
     expiresInMs: ONE_YEAR_MS,
@@ -67,15 +67,20 @@ async function issueBrowserGuestSession(
 async function resolveDisabledAuthUser(
   opts: CreateExpressContextOptions
 ): Promise<User> {
+  const sessionCookie = readSessionCookie(opts.req);
+  const session = await sdk.verifySession(sessionCookie);
+
   // 本机开发用固定身份：设了 DEV_FIXED_GUEST_OPEN_ID 后，所有浏览器都解析成
   // 同一个用户，故事不会因为换浏览器/清 cookie 散落到不同访客账号下。
   const fixedOpenId = process.env.DEV_FIXED_GUEST_OPEN_ID?.trim();
   if (fixedOpenId) {
-    return loadOrCreateGuestUser(fixedOpenId, "Guest");
+    if (session?.openId === fixedOpenId) {
+      return loadOrCreateGuestUser(fixedOpenId, session.name || "Guest");
+    }
+    // cookie 缺失或指向其他身份：按固定 openId 签发 cookie，
+    // 以后即使去掉 env，老浏览器也会停留在同一账号上。
+    return issueBrowserGuestSession(opts, "Guest", fixedOpenId);
   }
-
-  const sessionCookie = readSessionCookie(opts.req);
-  const session = await sdk.verifySession(sessionCookie);
 
   if (session?.openId?.startsWith(GUEST_OPEN_ID_PREFIX)) {
     return loadOrCreateGuestUser(session.openId, session.name || "Guest");
