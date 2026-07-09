@@ -69,7 +69,10 @@ type AnimaticPlayerProps = {
   onSelectContext?: (context: SelectionContext) => void;
   playbackResetKey?: number;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
-  onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
+  onMarkVideoTakeUnusable?: (
+    takeId: number,
+    sourceStoryId?: number | null
+  ) => Promise<void>;
   onCreateVideoTakeRange?: (input: {
     stableShotId: string;
     takeId: number;
@@ -656,7 +659,10 @@ export default function AnimaticPlayer({
     setVideoError(null);
     setMarkingVideoUnusable(true);
     try {
-      await onMarkVideoTakeUnusable(currentVideoTake.id);
+      await onMarkVideoTakeUnusable(
+        currentVideoTake.id,
+        currentVideoTake.storyId
+      );
     } catch (error) {
       setVideoError(
         error instanceof Error ? error.message : "视频 Take 标记失败"

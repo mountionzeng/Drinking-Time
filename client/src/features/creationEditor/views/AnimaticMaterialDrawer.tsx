@@ -33,7 +33,10 @@ type Props = {
     targetStableShotId: string;
     plannedDurationSec: number;
   }) => Promise<void>;
-  onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
+  onMarkVideoTakeUnusable?: (
+    takeId: number,
+    sourceStoryId?: number | null
+  ) => Promise<void>;
 };
 
 function isInactiveTake(take: VideoTakeAsset) {
@@ -213,6 +216,26 @@ export default function AnimaticMaterialDrawer({
                       take.videoUrl &&
                       !inactive
                   );
+                  const adoptVideo = () => {
+                    if (take.storyId === state?.storyId) {
+                      return onAdoptVideo({
+                        stableShotId: shot.stableShotId,
+                        takeId: take.id,
+                        plannedDurationSec:
+                          (shot.timelineItem?.plannedDurationMs ?? 3000) /
+                          1000,
+                      });
+                    }
+                    if (!onReuseVideo) {
+                      return Promise.reject(new Error("视频复用入口不可用"));
+                    }
+                    return onReuseVideo({
+                      sourceTakeId: take.id,
+                      targetStableShotId: shot.stableShotId,
+                      plannedDurationSec:
+                        (shot.timelineItem?.plannedDurationMs ?? 3000) / 1000,
+                    });
+                  };
                   const previewLoaded = loadedVideoTakeIds.has(take.id);
                   return (
                     <article
@@ -291,7 +314,7 @@ export default function AnimaticMaterialDrawer({
                               disabled={savingKey === `mark-video-${take.id}`}
                               onClick={() =>
                                 void run(`mark-video-${take.id}`, () =>
-                                  onMarkVideoTakeUnusable(take.id)
+                                  onMarkVideoTakeUnusable(take.id, take.storyId)
                                 )
                               }
                               className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] font-medium text-muted-foreground transition hover:border-destructive/40 hover:text-destructive disabled:text-muted-foreground"
@@ -310,19 +333,11 @@ export default function AnimaticMaterialDrawer({
                               adopted ||
                               take.status !== "available" ||
                               !take.videoUrl ||
+                              (take.storyId !== state?.storyId &&
+                                !onReuseVideo) ||
                               savingKey === key
                             }
-                            onClick={() =>
-                              void run(key, () =>
-                                onAdoptVideo({
-                                  stableShotId: shot.stableShotId,
-                                  takeId: take.id,
-                                  plannedDurationSec:
-                                    (shot.timelineItem?.plannedDurationMs ??
-                                      3000) / 1000,
-                                })
-                              )
-                            }
+                            onClick={() => void run(key, adoptVideo)}
                             className="h-7 rounded-md border border-primary/30 px-2 text-[10px] font-medium text-primary transition hover:bg-primary/10 disabled:border-border disabled:text-muted-foreground"
                           >
                             {savingKey === key ? (

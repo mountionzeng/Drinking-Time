@@ -193,7 +193,7 @@ export async function getStoryMaterialState(
         ),
       }));
     const currentImage = imageVersions.find(image => image.isPrimary) ?? null;
-    const videoTakes = videos
+    const ownVideoTakes = videos
       .filter(take =>
         keysOverlap(
           shotMaterialKeys(fact),
@@ -217,6 +217,20 @@ export async function getStoryMaterialState(
           isStale: staleReasons.length > 0,
         };
       });
+    const inheritedVideoTakes = reusableVideos
+      .filter(take =>
+        keysOverlap(
+          shotMaterialKeys(fact),
+          shotIdentityMatchKeys(take.stableShotId)
+        )
+      )
+      .map(take => ({
+        ...take,
+        promptFreshness: "legacy" as const,
+        staleReasons: [],
+        isStale: false,
+      }));
+    const videoTakes = [...ownVideoTakes, ...inheritedVideoTakes];
     const currentVideo =
       videoTakes.find(
         take =>

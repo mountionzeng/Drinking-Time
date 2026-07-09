@@ -325,6 +325,81 @@ describe("getStoryMaterialState", () => {
     );
   });
 
+  it("projects selected reusable takes back onto matching current story shots", async () => {
+    const currentStory = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "当前故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "legacy-sh02-shot",
+            shotIdentity: "legacy-sh02-shot",
+            shotNo: 3,
+            subject: "插入镜头后的原 SH02",
+          },
+          {
+            stableShotId: "manual-sh02-extra",
+            shotIdentity: "manual-sh02-extra",
+            shotNo: 2,
+            subject: "手动插入镜头",
+          },
+        ],
+      },
+    });
+    const oldStory = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "旧故事",
+      body: { shots: [] },
+    });
+    const selectedTake = await createVideoTake({
+      storyId: oldStory.id,
+      userId: 1,
+      stableShotId: "genji-s02",
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "旧故事已选视频",
+      durationSec: 6,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-selected.mp4",
+      extractionCapability: "available",
+    });
+    await selectVideoTimelineSegment(
+      {
+        storyId: oldStory.id,
+        stableShotId: "genji-s02",
+        takeId: selectedTake.id,
+        selectionType: "full_take",
+      },
+      1
+    );
+
+    const materials = await getStoryMaterialState(currentStory.id, 1);
+    const legacyShot = materials?.shots.find(
+      shot => shot.stableShotId === "legacy-sh02-shot"
+    );
+    const manualShot = materials?.shots.find(
+      shot => shot.stableShotId === "manual-sh02-extra"
+    );
+
+    expect(legacyShot?.currentVideo).toMatchObject({
+      id: selectedTake.id,
+      storyId: oldStory.id,
+      stableShotId: "genji-s02",
+      isTimelineSelected: true,
+      videoUrl: "/api/videos/take-selected.mp4",
+    });
+    expect(legacyShot?.videoTakes.map(item => item.id)).toContain(
+      selectedTake.id
+    );
+    expect(manualShot?.videoTakes.map(item => item.id)).not.toContain(
+      selectedTake.id
+    );
+  });
+
   it("does not match legacy assets to manually inserted shots with inherited display numbers", async () => {
     const manualShotId = "manual-sh03-mrd3pyj1-0rn9tj";
     const story = await createStory({
