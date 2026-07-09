@@ -6,6 +6,27 @@ export function localVideoDir(): string {
   return path.join(path.dirname(localImageDir()), "videos");
 }
 
+function videoExtension(mimeType: string): "mp4" | "webm" | "mov" {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("quicktime") || mimeType.includes("mov")) return "mov";
+  return "mp4";
+}
+
+export function storeVideoBytesForTake(
+  bytes: Uint8Array,
+  takeId: number,
+  mimeType = "video/mp4"
+): { videoKey: string; videoUrl: string } {
+  const extension = videoExtension(mimeType);
+  const file = `take-${takeId}.${extension}`;
+  fs.mkdirSync(localVideoDir(), { recursive: true });
+  fs.writeFileSync(path.join(localVideoDir(), file), bytes);
+  return {
+    videoKey: file,
+    videoUrl: `/api/videos/${file}`,
+  };
+}
+
 export async function materializeVideoUrl(
   url: string,
   takeId: number
@@ -32,19 +53,11 @@ export async function materializeVideoUrl(
       };
     }
     const type = response.headers.get("content-type") ?? "video/mp4";
-    const extension = type.includes("webm") ? "webm" : "mp4";
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.byteLength === 0 || bytes.byteLength > 200 * 1024 * 1024) {
       return { status: "error", message: "视频文件为空或超过 200MB" };
     }
-    const file = `take-${takeId}.${extension}`;
-    fs.mkdirSync(localVideoDir(), { recursive: true });
-    fs.writeFileSync(path.join(localVideoDir(), file), bytes);
-    return {
-      status: "ok",
-      videoKey: file,
-      videoUrl: `/api/videos/${file}`,
-    };
+    return { status: "ok", ...storeVideoBytesForTake(bytes, takeId, type) };
   } catch (error) {
     return {
       status: "error",

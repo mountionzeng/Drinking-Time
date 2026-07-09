@@ -91,6 +91,20 @@ export type CreationEditorError = {
   message: string;
 };
 
+export type ImportedStoryMaterialResult =
+  | {
+      kind: "image";
+      imageId: number;
+      imageUrl: string;
+    }
+  | {
+      kind: "video";
+      takeId: number;
+      videoUrl: string;
+      stableShotId: string;
+      plannedDurationSec: number;
+    };
+
 type CreationEditorContextValue = {
   stories: CreationEditorStory[];
   activeStoryId: number | null;
@@ -153,6 +167,16 @@ type CreationEditorContextValue = {
     quadrant?: FrameQuadrant;
   }) => Promise<{ imageId: number; imageUrl: string }>;
   promoteStoryImage: (imageId: number) => Promise<void>;
+  assignStoryImageToShot: (input: {
+    imageId: number;
+    targetStableShotId: string;
+  }) => Promise<void>;
+  importStoryMaterial: (input: {
+    fileName: string;
+    mimeType: string;
+    fileBase64: string;
+    targetStableShotId?: string | null;
+  }) => Promise<ImportedStoryMaterialResult>;
   generateShotVideo: (input: {
     shotNo: number;
     imageId: number;
@@ -168,7 +192,10 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
-  markVideoTakeUnusable: (takeId: number) => Promise<void>;
+  markVideoTakeUnusable: (
+    takeId: number,
+    sourceStoryId?: number | null
+  ) => Promise<void>;
   moveVideoTake: (input: {
     takeId: number;
     targetStableShotId: string;
@@ -542,34 +569,34 @@ function preserveEditorMetadata(
     field => (canonical[field] ?? "") === (persisted[field] ?? "")
   );
   const inheritedPromptRun = sameStoryContent
-    ? (canonical.promptRun ?? persisted.promptRun)
-    : canonical.promptRun;
-  const promptRun = isPromptRunStaleForShot(canonical, inheritedPromptRun)
+    ? (persisted.promptRun ?? canonical.promptRun)
+    : persisted.promptRun;
+  const promptRun = isPromptRunStaleForShot(persisted, inheritedPromptRun)
     ? undefined
     : inheritedPromptRun;
   const downstreamStale =
     (!sameStoryContent && !promptRun) ||
     Boolean(inheritedPromptRun && !promptRun);
   return {
-    ...persisted,
     ...canonical,
+    ...persisted,
     stableShotId: stableIdentity ?? canonical.stableShotId,
     shotIdentity: stableIdentity ?? canonical.shotIdentity,
     shotKey: persisted.shotKey || canonical.shotKey,
     durationMs:
-      canonical.durationMs !== undefined
-        ? canonical.durationMs
-        : persisted.durationMs,
+      persisted.durationMs !== undefined
+        ? persisted.durationMs
+        : canonical.durationMs,
     narrativeJob: sameStoryContent
-      ? (canonical.narrativeJob ?? persisted.narrativeJob)
-      : canonical.narrativeJob,
+      ? (persisted.narrativeJob ?? canonical.narrativeJob)
+      : persisted.narrativeJob,
     promptOverrides: sameStoryContent
-      ? (canonical.promptOverrides ?? persisted.promptOverrides)
-      : canonical.promptOverrides,
+      ? (persisted.promptOverrides ?? canonical.promptOverrides)
+      : persisted.promptOverrides,
     promptRun,
     fragmentRefs: sameStoryContent
-      ? (canonical.fragmentRefs ?? persisted.fragmentRefs)
-      : canonical.fragmentRefs,
+      ? (persisted.fragmentRefs ?? canonical.fragmentRefs)
+      : persisted.fragmentRefs,
     downstreamStale,
   };
 }
@@ -684,6 +711,32 @@ export function normalizeStoryImages(
       } satisfies CreationEditorImage;
     })
     .filter((image): image is CreationEditorImage => image != null);
+}
+
+function imageSourceKey(image: CreationEditorImage): string {
+  if (image.id > 0) return `id:${image.id}`;
+  return [
+    image.shotIdentity ?? "",
+    image.shotNo ?? "",
+    image.imageUrl,
+  ].join("|");
+}
+
+export function resolveCreationEditorImages(
+  materialState: StoryMaterialState | null | undefined,
+  storyImages: unknown
+): CreationEditorImage[] {
+  const imagesByKey = new Map<string, CreationEditorImage>();
+  for (const image of normalizeStoryImages(storyImages)) {
+    imagesByKey.set(imageSourceKey(image), image);
+  }
+  const materialImages = materialState?.shots.flatMap(shot =>
+    shot.currentImage ? [shot.currentImage] : []
+  );
+  for (const image of normalizeStoryImages(materialImages)) {
+    imagesByKey.set(imageSourceKey(image), image);
+  }
+  return Array.from(imagesByKey.values());
 }
 
 function isCurrentMaterialImage(image: CreationEditorImage): boolean {
@@ -958,6 +1011,10 @@ export function CreationEditorProvider({
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const promoteStoryImageMut =
     trpc.creationAgent.promoteStoryImage.useMutation();
+  const assignStoryImageToShotMut =
+    trpc.creationAgent.assignStoryImageToShot.useMutation();
+  const importStoryMaterialMut =
+    trpc.creationAgent.importStoryMaterial.useMutation();
   const generateShotVideoMut =
     trpc.creationAgent.generateShotVideo.useMutation();
   const refreshShotVideoStatusMut =
@@ -1083,11 +1140,9 @@ export function CreationEditorProvider({
   const shots = useMemo(() => {
     const body = storyQuery.data?.body;
     const storyShots = mergeCanonicalStoryShots(canonicalStoryShots, body);
-    const materialImages = storyMaterialQuery.data?.shots.flatMap(shot =>
-      shot.currentImage ? [shot.currentImage] : []
-    );
-    const images = normalizeStoryImages(
-      materialImages ?? storyImagesQuery.data
+    const images = resolveCreationEditorImages(
+      storyMaterialQuery.data as StoryMaterialState | null | undefined,
+      storyImagesQuery.data
     );
     const withImages = mergeShotsWithImages(storyShots, images);
     const materialVideos = storyMaterialQuery.data?.shots.flatMap(
@@ -1557,6 +1612,66 @@ export function CreationEditorProvider({
     ]);
   };
 
+  const assignStoryImageToShot = async (input: {
+    imageId: number;
+    targetStableShotId: string;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法绑定图片");
+    const result = await assignStoryImageToShotMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "图片绑定失败");
+    }
+    await Promise.all([
+      storyImagesQuery.refetch(),
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+  };
+
+  const importStoryMaterial = async (input: {
+    fileName: string;
+    mimeType: string;
+    fileBase64: string;
+    targetStableShotId?: string | null;
+  }): Promise<ImportedStoryMaterialResult> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法导入素材");
+    const result = await importStoryMaterialMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "素材导入失败");
+    }
+    await Promise.all([
+      storyImagesQuery.refetch(),
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    if (result.kind === "image") {
+      return {
+        kind: "image",
+        imageId: result.imageId,
+        imageUrl: result.imageUrl,
+      };
+    }
+    return {
+      kind: "video",
+      takeId: result.takeId,
+      videoUrl: result.videoUrl,
+      stableShotId: result.stableShotId,
+      plannedDurationSec: result.plannedDurationSec,
+    };
+  };
+
   const generateShotVideo = async (input: {
     shotNo: number;
     imageId: number;
@@ -1604,10 +1719,14 @@ export function CreationEditorProvider({
     await storyMaterialQuery.refetch();
   };
 
-  const markVideoTakeUnusable = async (takeId: number) => {
+  const markVideoTakeUnusable = async (
+    takeId: number,
+    sourceStoryId?: number | null
+  ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法标记视频 Take");
+    const ownerStoryId = sourceStoryId ?? activeId;
     const result = await markVideoTakeUnusableMut.mutateAsync({
-      storyId: activeId,
+      storyId: ownerStoryId,
       takeId,
     });
     if (result.status !== "ok") {
@@ -1618,6 +1737,16 @@ export function CreationEditorProvider({
       storyMaterialQuery.refetch(),
       utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
       utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      ownerStoryId !== activeId
+        ? utils.storyAgent.storyMaterialState.invalidate({
+            storyId: ownerStoryId,
+          })
+        : Promise.resolve(),
+      ownerStoryId !== activeId
+        ? utils.storyAgent.storyVideoAssets.invalidate({
+            storyId: ownerStoryId,
+          })
+        : Promise.resolve(),
     ]);
   };
 
@@ -1898,6 +2027,8 @@ export function CreationEditorProvider({
       rerenderShot,
       promoteFrameCrop,
       promoteStoryImage,
+      assignStoryImageToShot,
+      importStoryMaterial,
       generateShotVideo,
       refreshShotVideoStatus,
       markVideoTakeUnusable,
@@ -1945,6 +2076,8 @@ export function CreationEditorProvider({
       markVideoTakeUnusable,
       moveVideoTakeToShot,
       reuseVideoTakeForShot,
+      assignStoryImageToShot,
+      importStoryMaterial,
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,

@@ -1,8 +1,14 @@
 import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
+import {
+  normalizeShotIdentity,
+  shotIdentityFromShot,
+} from "@shared/shotIdentity";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
+  assignStoryImageToShot as assignStoryImageToShotDb,
+  createVideoTake,
   getProjectById,
   replaceDirectorShotsForStory,
   getStoryById,
@@ -12,6 +18,7 @@ import {
   promoteStoryImageToCurrent,
   reassignImage,
   updateStoryTimeline as persistStoryTimeline,
+  updateVideoTake,
 } from "../db";
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
@@ -32,6 +39,7 @@ import {
   inpaintImage,
   storeImageBytes,
 } from "../services/imageGen";
+import { storeVideoBytesForTake } from "../services/videoMedia";
 import { renderViaGate } from "../services/renderGate";
 import {
   getProjectImageAssets,
@@ -68,6 +76,84 @@ import {
   storyShotToDbRow,
   writeCharacterAnchor,
 } from "./_storyShared";
+
+type StoryShotTarget = {
+  shotNo: string;
+  stableShotId: string;
+  durationSec: number;
+};
+
+function decodeBase64File(value: string): Buffer {
+  const payload = value.includes(",") ? (value.split(",").pop() ?? "") : value;
+  return Buffer.from(payload, "base64");
+}
+
+function isImportImageMime(mimeType: string): boolean {
+  return ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(
+    mimeType.toLowerCase()
+  );
+}
+
+function isImportVideoMime(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase();
+  return (
+    normalized.startsWith("video/") || normalized === "application/octet-stream"
+  );
+}
+
+function storyShotTargets(
+  story: Awaited<ReturnType<typeof getStoryById>>
+): StoryShotTarget[] {
+  const body =
+    story?.body && typeof story.body === "object"
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const shots = Array.isArray(body.shots) ? body.shots : [];
+  return shots.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const shot = raw as Record<string, unknown>;
+    const shotNo =
+      canonicalizeShotNo(
+        (shot.shotNo ?? index + 1) as string | number | null | undefined
+      ) ?? `SH${String(index + 1).padStart(2, "0")}`;
+    const stableShotId =
+      normalizeShotIdentity(shot.stableShotId) ??
+      normalizeShotIdentity(shot.shotIdentity) ??
+      shotIdentityFromShot(shot, index) ??
+      `legacy-${shotNo}`;
+    const rawDurationMs =
+      typeof shot.durationMs === "number" && Number.isFinite(shot.durationMs)
+        ? shot.durationMs
+        : null;
+    const rawDurationSec =
+      typeof shot.durationSec === "number" && Number.isFinite(shot.durationSec)
+        ? shot.durationSec
+        : null;
+    return [
+      {
+        shotNo,
+        stableShotId,
+        durationSec: Math.max(
+          0.1,
+          rawDurationMs ? rawDurationMs / 1000 : (rawDurationSec ?? 3)
+        ),
+      },
+    ];
+  });
+}
+
+function resolveStoryShotTarget(
+  story: Awaited<ReturnType<typeof getStoryById>>,
+  targetStableShotId?: string | null
+): StoryShotTarget | null {
+  const targets = storyShotTargets(story);
+  if (targets.length === 0) return null;
+  const normalizedTarget = normalizeShotIdentity(targetStableShotId);
+  if (!normalizedTarget) return targets[0];
+  return (
+    targets.find(target => target.stableShotId === normalizedTarget) ?? null
+  );
+}
 
 export const creationAgentRouter = router({
   shotVideoProviderStatus: protectedProcedure.query(() =>
@@ -502,6 +588,159 @@ export const creationAgentRouter = router({
         return { status: "error" as const, error: "图片不存在或无权操作" };
       }
       return { status: "ok" as const, imageId: promoted.image.id };
+    }),
+
+  assignStoryImageToShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        imageId: z.number().int().positive(),
+        targetStableShotId: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      const target = resolveStoryShotTarget(story, input.targetStableShotId);
+      if (!target) {
+        return { status: "error" as const, error: "目标镜头不存在" };
+      }
+      const assigned = await assignStoryImageToShotDb({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        imageId: input.imageId,
+        shotNo: target.shotNo,
+        shotIdentity: target.stableShotId,
+        metadata: {
+          source: "material_warehouse",
+          targetStableShotId: target.stableShotId,
+          shotNo: target.shotNo,
+        },
+      });
+      if (!assigned) {
+        return { status: "error" as const, error: "图片不存在或无权操作" };
+      }
+      return {
+        status: "ok" as const,
+        imageId: assigned.image.id,
+        shotNo: target.shotNo,
+        stableShotId: target.stableShotId,
+      };
+    }),
+
+  importStoryMaterial: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        fileName: z.string().min(1).max(300),
+        mimeType: z.string().min(1).max(120),
+        fileBase64: z.string().min(1),
+        targetStableShotId: z.string().min(1).nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      const bytes = decodeBase64File(input.fileBase64);
+      if (bytes.byteLength === 0) {
+        return { status: "error" as const, error: "文件为空" };
+      }
+      if (isImportImageMime(input.mimeType)) {
+        if (bytes.byteLength > 30 * 1024 * 1024) {
+          return { status: "error" as const, error: "图片超过 30MB" };
+        }
+        const stored = await storeImageBytes(bytes, input.mimeType);
+        if (stored.status !== "ok" || !stored.imageUrl) {
+          return {
+            status: "error" as const,
+            error: stored.message ?? "图片保存失败",
+          };
+        }
+        const image = await createGeneratedImage({
+          projectId: story.projectId ?? null,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          shotNo: null,
+          shotIdentity: null,
+          imageKey: stored.imageKey ?? null,
+          imageUrl: stored.imageUrl,
+          prompt: `导入素材：${input.fileName}`,
+          promptCompilationId: null,
+          parentImageId: null,
+          isCurrent: false,
+          generationType: "initial",
+          maskKey: null,
+        });
+        return {
+          status: "ok" as const,
+          kind: "image" as const,
+          imageId: image.id,
+          imageUrl: image.imageUrl,
+        };
+      }
+
+      if (isImportVideoMime(input.mimeType)) {
+        if (bytes.byteLength > 200 * 1024 * 1024) {
+          return { status: "error" as const, error: "视频超过 200MB" };
+        }
+        const target = resolveStoryShotTarget(
+          story,
+          input.targetStableShotId ?? null
+        );
+        if (!target) {
+          return { status: "error" as const, error: "导入视频前需要先有镜头" };
+        }
+        const take = await createVideoTake({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          stableShotId: target.stableShotId,
+          sourceImageId: null,
+          promptCompilationId: null,
+          status: "processing",
+          taskId: null,
+          provider: "manual",
+          model: "local-import",
+          prompt: `导入素材：${input.fileName}`,
+          subtitle: null,
+          durationSec: target.durationSec,
+          aspectRatio: "16:9",
+          videoKey: null,
+          videoUrl: null,
+          errorMessage: null,
+          parameterSnapshot: {
+            source: "material_warehouse",
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            importedAt: new Date().toISOString(),
+          },
+          idempotencyKey: null,
+          extractionCapability: "available",
+        });
+        const stored = storeVideoBytesForTake(bytes, take.id, input.mimeType);
+        const updated = await updateVideoTake(take.id, ctx.user.id, {
+          status: "available",
+          videoKey: stored.videoKey,
+          videoUrl: stored.videoUrl,
+          errorMessage: null,
+        });
+        return {
+          status: "ok" as const,
+          kind: "video" as const,
+          takeId: take.id,
+          videoUrl: stored.videoUrl,
+          stableShotId: target.stableShotId,
+          plannedDurationSec: updated?.durationSec ?? target.durationSec,
+        };
+      }
+
+      return {
+        status: "error" as const,
+        error: "暂时只支持 JPG、PNG、WEBP、MP4、WEBM、MOV",
+      };
     }),
 
   /**

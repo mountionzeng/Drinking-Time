@@ -223,6 +223,57 @@ describe("videoTimeline", () => {
     ]);
   });
 
+  it("reuses a take from another story into the current story", async () => {
+    const { story: sourceStory, take } = await seedStory();
+    const targetStory = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "目标故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "target-shot-01",
+            shotIdentity: "target-shot-01",
+            shotNo: 1,
+            subject: "门口",
+          },
+        ],
+      },
+    });
+
+    const reused = await reuseVideoTakeForShot(
+      {
+        storyId: targetStory.id,
+        sourceTakeId: take.id,
+        targetStableShotId: "target-shot-01",
+        plannedDurationSec: 3,
+      },
+      1
+    );
+
+    expect(reused.take).toMatchObject({
+      storyId: targetStory.id,
+      stableShotId: "target-shot-01",
+      status: "available",
+      videoUrl: take.videoUrl,
+    });
+    expect(reused.take.parameterSnapshot).toMatchObject({
+      reusedFromTakeId: take.id,
+      reusedFromStoryId: sourceStory.id,
+      reusedFromStableShotId: "shot-06",
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      storyId: sourceStory.id,
+      stableShotId: "shot-06",
+    });
+    expect(await getStoryVideoTimelineSelections(targetStory.id, 1)).toEqual([
+      expect.objectContaining({
+        stableShotId: "target-shot-01",
+        takeId: reused.take.id,
+      }),
+    ]);
+  });
+
   it("clears timeline truth without deleting the take", async () => {
     const { story, take } = await seedStory();
     await selectVideoTimelineSegment(

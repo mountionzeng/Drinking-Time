@@ -18,7 +18,10 @@ import {
   resolvePromptAssetFreshness,
   resolveVideoStaleReasons,
 } from "./promptMaterialProjection";
-import { getStoryVideoAssets } from "./videoAssets";
+import {
+  getReusableVideoAssetsForStory,
+  getStoryVideoAssets,
+} from "./videoAssets";
 
 type StoryShotFact = {
   stableShotId: string;
@@ -144,12 +147,14 @@ export async function getStoryMaterialState(
   const story = await getStoryById(storyId, userId);
   if (!story) return null;
   const facts = storyShots(story);
-  const [images, videos, timelineRow, promptProjection] = await Promise.all([
-    getStoryImageAssets(storyId, userId),
-    getStoryVideoAssets(storyId, userId),
-    getStoryTimeline(storyId, userId),
-    getStoryPromptProjection({ storyId, userId }),
-  ]);
+  const [images, videos, reusableVideos, timelineRow, promptProjection] =
+    await Promise.all([
+      getStoryImageAssets(storyId, userId),
+      getStoryVideoAssets(storyId, userId),
+      getReusableVideoAssetsForStory(storyId, userId),
+      getStoryTimeline(storyId, userId),
+      getStoryPromptProjection({ storyId, userId }),
+    ]);
   const timeline: TimelineDocument = {
     storyId,
     version: timelineRow?.version ?? 0,
@@ -165,74 +170,88 @@ export async function getStoryMaterialState(
     ])
   );
 
+  const shots = facts.map(fact => {
+    const imageCompilationId =
+      compilationHeadByKey.get(`${fact.stableShotId}:image`) ?? null;
+    const videoCompilationId =
+      compilationHeadByKey.get(`${fact.stableShotId}:video`) ?? null;
+    const imageVersions = images
+      .filter(image =>
+        keysOverlap(
+          shotMaterialKeys(fact),
+          shotIdentityMatchKeys(
+            image.shotIdentity,
+            shotNoFromCanonical(image.canonicalShotNo ?? image.rawShotNo)
+          )
+        )
+      )
+      .map(image => ({
+        ...image,
+        promptFreshness: resolvePromptAssetFreshness(
+          image.promptCompilationId,
+          imageCompilationId
+        ),
+      }));
+    const currentImage = imageVersions.find(image => image.isPrimary) ?? null;
+    const videoTakes = videos
+      .filter(take =>
+        keysOverlap(
+          shotMaterialKeys(fact),
+          shotIdentityMatchKeys(take.stableShotId)
+        )
+      )
+      .map(take => {
+        const promptFreshness = resolvePromptAssetFreshness(
+          take.promptCompilationId,
+          videoCompilationId
+        );
+        const staleReasons = resolveVideoStaleReasons({
+          sourceImageId: take.sourceImageId,
+          currentImageId: currentImage?.id ?? null,
+          promptFreshness,
+        });
+        return {
+          ...take,
+          promptFreshness,
+          staleReasons,
+          isStale: staleReasons.length > 0,
+        };
+      });
+    const currentVideo =
+      videoTakes.find(
+        take =>
+          take.isTimelineSelected &&
+          take.status === "available" &&
+          Boolean(take.videoUrl) &&
+          !take.isStale
+      ) ?? null;
+    return {
+      stableShotId: fact.stableShotId,
+      shotNo: fact.shotNo,
+      currentImage,
+      imageVersions,
+      currentVideo,
+      videoTakes,
+      timelineItem: timelineByShot.get(fact.stableShotId) ?? null,
+    };
+  });
+  const matchedVideoTakeIds = new Set(
+    shots.flatMap(shot => shot.videoTakes.map(take => take.id))
+  );
+
   return {
     storyId,
     timeline,
-    shots: facts.map(fact => {
-      const imageCompilationId =
-        compilationHeadByKey.get(`${fact.stableShotId}:image`) ?? null;
-      const videoCompilationId =
-        compilationHeadByKey.get(`${fact.stableShotId}:video`) ?? null;
-      const imageVersions = images
-        .filter(image =>
-          keysOverlap(
-            shotMaterialKeys(fact),
-            shotIdentityMatchKeys(
-              image.shotIdentity,
-              shotNoFromCanonical(image.canonicalShotNo ?? image.rawShotNo)
-            )
-          )
-        )
-        .map(image => ({
-          ...image,
-          promptFreshness: resolvePromptAssetFreshness(
-            image.promptCompilationId,
-            imageCompilationId
-          ),
-        }));
-      const currentImage =
-        imageVersions.find(image => image.isPrimary) ?? null;
-      const videoTakes = videos
-        .filter(take =>
-          keysOverlap(
-            shotMaterialKeys(fact),
-            shotIdentityMatchKeys(take.stableShotId)
-          )
-        )
-        .map(take => {
-          const promptFreshness = resolvePromptAssetFreshness(
-            take.promptCompilationId,
-            videoCompilationId
-          );
-          const staleReasons = resolveVideoStaleReasons({
-            sourceImageId: take.sourceImageId,
-            currentImageId: currentImage?.id ?? null,
-            promptFreshness,
-          });
-          return {
-            ...take,
-            promptFreshness,
-            staleReasons,
-            isStale: staleReasons.length > 0,
-          };
-        });
-      const currentVideo =
-        videoTakes.find(
-          take =>
-            take.isTimelineSelected &&
-            take.status === "available" &&
-            Boolean(take.videoUrl) &&
-            !take.isStale
-        ) ?? null;
-      return {
-        stableShotId: fact.stableShotId,
-        shotNo: fact.shotNo,
-        currentImage,
-        imageVersions,
-        currentVideo,
-        videoTakes,
-        timelineItem: timelineByShot.get(fact.stableShotId) ?? null,
-      };
-    }),
+    unassignedImages: images.filter(
+      image =>
+        image.assignment === "unassigned" &&
+        image.status !== "rejected" &&
+        image.availability !== "missing"
+    ),
+    unassignedVideoTakes: videos.filter(
+      take => !matchedVideoTakeIds.has(take.id)
+    ),
+    reusableVideoTakes: reusableVideos,
+    shots,
   };
 }

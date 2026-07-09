@@ -39,6 +39,9 @@ export type StoryMaterialState = {
   storyId: number;
   timeline: TimelineDocument;
   shots: ShotMaterialState[];
+  unassignedImages: ImageAsset[];
+  unassignedVideoTakes: VideoTakeAsset[];
+  reusableVideoTakes: VideoTakeAsset[];
 };
 
 export const DEFAULT_TIMELINE_TRANSFORM: TimelineTransform = {

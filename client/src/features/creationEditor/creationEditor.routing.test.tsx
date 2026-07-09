@@ -5,11 +5,13 @@ import {
   mergeShotsWithImages,
   mergeShotsWithVideos,
   normalizeStoryShots,
+  resolveCreationEditorImages,
   resolveTimelineShots,
   resolveCreationEditorActiveId,
   selectInitialShotNo,
   type CreationEditorShot,
 } from './CreationEditorContext';
+import { buildMaterialWarehouseVideoItems } from './views/MaterialWarehousePanel';
 import type { VideoTakeAsset } from '@shared/videoAsset';
 
 function makeStorage() {
@@ -166,6 +168,97 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageUrl).toBeUndefined();
   });
 
+  it('keeps storyImages visible when material state has no current image', () => {
+    const images = resolveCreationEditorImages(
+      {
+        storyId: 54,
+        timeline: { storyId: 54, version: 1, items: [] },
+        shots: [
+          {
+            stableShotId: 'shot-01',
+            shotNo: 1,
+            currentImage: null,
+            imageVersions: [],
+            currentVideo: null,
+            videoTakes: [],
+            timelineItem: null,
+          },
+        ],
+        unassignedImages: [],
+        unassignedVideoTakes: [],
+        reusableVideoTakes: [],
+      },
+      [
+        {
+          id: 88,
+          shotNo: 'SH01',
+          shotIdentity: 'shot-01',
+          imageUrl: '/api/images/restored.png',
+          prompt: 'restored frame',
+          status: 'selected',
+          selectionSource: 'explicit',
+          isPrimary: true,
+        },
+      ],
+    );
+    const merged = mergeShotsWithImages(
+      [shot(1, { stableShotId: 'shot-01', shotIdentity: 'shot-01' })],
+      images,
+    );
+
+    expect(merged[0].imageUrl).toBe('/api/images/restored.png');
+  });
+
+  it('keeps unmatched video takes visible in the material warehouse', () => {
+    const matchedTake = videoTake(1, { stableShotId: 'shot-01' });
+    const oldTake = videoTake(2, { stableShotId: 'old-shot-99' });
+    const reusableTake = videoTake(3, {
+      storyId: 49,
+      stableShotId: 'genji-s04',
+    });
+    const items = buildMaterialWarehouseVideoItems({
+      storyId: 1,
+      timeline: { storyId: 1, version: 0, items: [] },
+      shots: [
+        {
+          stableShotId: 'shot-01',
+          shotNo: 1,
+          currentImage: null,
+          imageVersions: [],
+          currentVideo: matchedTake,
+          videoTakes: [matchedTake],
+          timelineItem: null,
+        },
+      ],
+      unassignedImages: [],
+      unassignedVideoTakes: [oldTake],
+      reusableVideoTakes: [reusableTake],
+    });
+
+    expect(items.map(item => item.take.id)).toEqual([1, 2, 3]);
+    expect(items[0]).toMatchObject({
+      shotNo: 1,
+      stableShotId: 'shot-01',
+      isCurrent: true,
+      isUnmatched: false,
+      isReusable: false,
+    });
+    expect(items[1]).toMatchObject({
+      shotNo: null,
+      stableShotId: 'old-shot-99',
+      isCurrent: false,
+      isUnmatched: true,
+      isReusable: false,
+    });
+    expect(items[2]).toMatchObject({
+      shotNo: null,
+      stableShotId: 'genji-s04',
+      isCurrent: false,
+      isUnmatched: false,
+      isReusable: true,
+    });
+  });
+
   it('attaches imported genji images to legacy shot identities', () => {
     const merged = mergeShotsWithImages(
       [
@@ -189,23 +282,24 @@ describe('creation editor route and shell', () => {
     expect(merged[0].imageUrl).toBe('/api/images/genji-s01.png');
   });
 
-  it('drops stale downstream prompt runs when canonical shot content changed', () => {
+  it('keeps latest persisted story text when local spine content is stale', () => {
     const merged = mergeCanonicalStoryShots(
       [
         shot(1, {
-          subject: '新的镜头主体',
-          action: '新的镜头动作',
-          dialogue: '新的台词',
-          rationale: 'canonical rationale',
+          subject: '旧的本地主体',
+          action: '旧的本地动作',
+          dialogue: '旧的本地台词',
+          rationale: 'stale local rationale',
         }),
       ],
       {
         shots: [
           {
             ...shot(1, {
-              subject: '旧的 body 主体',
-              action: '旧的 body 动作',
-              dialogue: '旧的台词',
+              subject: '最新服务端主体',
+              action: '最新服务端动作',
+              dialogue: '最新服务端台词',
+              rationale: 'latest persisted rationale',
             }),
             durationMs: 4200,
             promptOverrides: {
@@ -223,14 +317,37 @@ describe('creation editor route and shell', () => {
     );
 
     expect(merged).toHaveLength(1);
-    expect(merged[0].subject).toBe('新的镜头主体');
-    expect(merged[0].action).toBe('新的镜头动作');
-    expect(merged[0].dialogue).toBe('新的台词');
-    expect(merged[0].rationale).toBe('canonical rationale');
+    expect(merged[0].subject).toBe('最新服务端主体');
+    expect(merged[0].action).toBe('最新服务端动作');
+    expect(merged[0].dialogue).toBe('最新服务端台词');
+    expect(merged[0].rationale).toBe('latest persisted rationale');
     expect(merged[0].durationMs).toBe(4200);
-    expect(merged[0].promptOverrides).toBeUndefined();
-    expect(merged[0].promptRun).toBeUndefined();
-    expect(merged[0].downstreamStale).toBe(true);
+    expect(merged[0].promptOverrides?.subject?.value).toBe('保留提示词表覆盖');
+    expect(merged[0].promptRun?.finalPrompt).toBe('保留上次出图 prompt');
+    expect(merged[0].downstreamStale).toBe(false);
+  });
+
+  it('does not let stale local dialogue overwrite the latest server dialogue', () => {
+    const merged = mergeCanonicalStoryShots(
+      [
+        shot(4, {
+          stableShotId: 'shot-04',
+          shotIdentity: 'shot-04',
+          dialogue: '旧字幕',
+        }),
+      ],
+      {
+        shots: [
+          shot(4, {
+            stableShotId: 'shot-04',
+            shotIdentity: 'shot-04',
+            dialogue: '最新字幕/旁白',
+          }),
+        ],
+      },
+    );
+
+    expect(merged[0].dialogue).toBe('最新字幕/旁白');
   });
 
   it('preserves downstream prompt metadata when canonical and persisted shots still match', () => {

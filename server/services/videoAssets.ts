@@ -10,6 +10,7 @@ import type {
 } from "../../shared/videoAsset";
 import {
   getStoryById,
+  getReusableVideoTakesForStory,
   getStoryVideoTakeRanges,
   getStoryVideoTakes,
   getStoryVideoTimelineSelections,
@@ -77,6 +78,45 @@ function projectSelection(
   };
 }
 
+function projectTake(
+  take: DbVideoTake,
+  rangesByTake: ReadonlyMap<number, VideoTakeRange[]>,
+  selectedByShot: ReadonlyMap<string, VideoTimelineSelection>
+): VideoTakeAsset {
+  const selection = selectedByShot.get(take.stableShotId);
+  return {
+    id: take.id,
+    storyId: take.storyId,
+    userId: take.userId,
+    stableShotId: take.stableShotId,
+    sourceImageId: take.sourceImageId,
+    promptCompilationId: take.promptCompilationId,
+    promptFreshness: "legacy",
+    status: take.status,
+    taskId: take.taskId,
+    provider: take.provider,
+    model: take.model,
+    prompt: take.prompt,
+    subtitle: take.subtitle,
+    durationSec: take.durationSec,
+    aspectRatio: take.aspectRatio,
+    videoKey: take.videoKey,
+    videoUrl: take.videoUrl,
+    errorMessage: take.errorMessage,
+    parameterSnapshot: safeSnapshot(take.parameterSnapshot),
+    extractionCapability: take.extractionCapability,
+    createdAt: toIso(take.createdAt),
+    updatedAt: toIso(take.updatedAt),
+    ranges: rangesByTake.get(take.id) ?? [],
+    selectedRangeId: selection?.takeId === take.id ? selection.rangeId : null,
+    selectedSelectionType:
+      selection?.takeId === take.id ? selection.selectionType : null,
+    isTimelineSelected: selection?.takeId === take.id,
+    isStale: false,
+    staleReasons: [],
+  };
+}
+
 export async function getStoryVideoAssets(
   storyId: number,
   userId: number
@@ -101,38 +141,15 @@ export async function getStoryVideoAssets(
       .map(selection => [selection.stableShotId, selection])
   );
 
-  return takes.map((take: DbVideoTake): VideoTakeAsset => {
-    const selection = selectedByShot.get(take.stableShotId);
-    return {
-      id: take.id,
-      storyId: take.storyId,
-      userId: take.userId,
-      stableShotId: take.stableShotId,
-      sourceImageId: take.sourceImageId,
-      promptCompilationId: take.promptCompilationId,
-      promptFreshness: "legacy",
-      status: take.status,
-      taskId: take.taskId,
-      provider: take.provider,
-      model: take.model,
-      prompt: take.prompt,
-      subtitle: take.subtitle,
-      durationSec: take.durationSec,
-      aspectRatio: take.aspectRatio,
-      videoKey: take.videoKey,
-      videoUrl: take.videoUrl,
-      errorMessage: take.errorMessage,
-      parameterSnapshot: safeSnapshot(take.parameterSnapshot),
-      extractionCapability: take.extractionCapability,
-      createdAt: toIso(take.createdAt),
-      updatedAt: toIso(take.updatedAt),
-      ranges: rangesByTake.get(take.id) ?? [],
-      selectedRangeId: selection?.takeId === take.id ? selection.rangeId : null,
-      selectedSelectionType:
-        selection?.takeId === take.id ? selection.selectionType : null,
-      isTimelineSelected: selection?.takeId === take.id,
-      isStale: false,
-      staleReasons: [],
-    };
-  });
+  return takes.map(take => projectTake(take, rangesByTake, selectedByShot));
+}
+
+export async function getReusableVideoAssetsForStory(
+  storyId: number,
+  userId: number
+): Promise<VideoTakeAsset[]> {
+  const story = await getStoryById(storyId, userId);
+  if (!story) return [];
+  const takes = await getReusableVideoTakesForStory(storyId, userId);
+  return takes.map(take => projectTake(take, new Map(), new Map()));
 }

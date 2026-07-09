@@ -166,6 +166,165 @@ describe("getStoryMaterialState", () => {
     expect(shot?.videoTakes.map(item => item.id)).toContain(take.id);
   });
 
+  it("returns unassigned imported images for the material warehouse", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "素材仓库故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "主角看向窗外",
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: null,
+      shotIdentity: null,
+      imageUrl: "data:image/png;base64,BBBB",
+      imageKey: null,
+      prompt: "从 Finder 导入",
+      generationType: "initial",
+      isCurrent: false,
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.unassignedImages.map(item => item.id)).toContain(
+      image.id
+    );
+    expect(materials?.shots[0]?.imageVersions).toEqual([]);
+  });
+
+  it("returns unmatched video takes for the material warehouse", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "旧视频素材故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "主角看向窗外",
+          },
+        ],
+      },
+    });
+    const matchedTake = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-01",
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "当前镜头视频",
+      durationSec: 5,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-current.mp4",
+      extractionCapability: "available",
+    });
+    const unmatchedTake = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "old-shot-99",
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "旧镜头视频",
+      durationSec: 8,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-old.mp4",
+      extractionCapability: "available",
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.shots[0]?.videoTakes.map(item => item.id)).toContain(
+      matchedTake.id
+    );
+    expect(materials?.shots[0]?.videoTakes.map(item => item.id)).not.toContain(
+      unmatchedTake.id
+    );
+    expect(materials?.unassignedVideoTakes.map(item => item.id)).toContain(
+      unmatchedTake.id
+    );
+    expect(materials?.unassignedVideoTakes.map(item => item.id)).not.toContain(
+      matchedTake.id
+    );
+  });
+
+  it("returns reusable video takes from the user's other stories", async () => {
+    const currentStory = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "当前故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "主角看向窗外",
+          },
+        ],
+      },
+    });
+    const oldStory = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "旧故事",
+      body: { shots: [] },
+    });
+    const reusableTake = await createVideoTake({
+      storyId: oldStory.id,
+      userId: 1,
+      stableShotId: "genji-s04",
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "旧故事可复用视频",
+      durationSec: 6,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-reusable.mp4",
+      extractionCapability: "available",
+    });
+    const unusableTake = await createVideoTake({
+      storyId: oldStory.id,
+      userId: 1,
+      stableShotId: "genji-s05",
+      sourceImageId: null,
+      status: "unfollowable",
+      provider: "local",
+      model: "imported",
+      prompt: "旧故事不可用视频",
+      durationSec: 6,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/take-bad.mp4",
+      extractionCapability: "available",
+    });
+
+    const materials = await getStoryMaterialState(currentStory.id, 1);
+
+    expect(materials?.reusableVideoTakes.map(item => item.id)).toContain(
+      reusableTake.id
+    );
+    expect(materials?.reusableVideoTakes.map(item => item.id)).not.toContain(
+      unusableTake.id
+    );
+  });
+
   it("does not match legacy assets to manually inserted shots with inherited display numbers", async () => {
     const manualShotId = "manual-sh03-mrd3pyj1-0rn9tj";
     const story = await createStory({

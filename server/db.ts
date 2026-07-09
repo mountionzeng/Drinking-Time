@@ -1,4 +1,15 @@
-import { eq, and, desc, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  eq,
+  and,
+  desc,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   mkdir,
@@ -2293,6 +2304,143 @@ export async function promoteStoryImageToCurrent(data: {
   });
 }
 
+export async function assignStoryImageToShot(data: {
+  imageId: number;
+  storyId: number;
+  userId: number;
+  shotNo: string;
+  shotIdentity: string;
+  metadata?: InsertImageSignal["metadata"];
+}): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const image = memoryState.generatedImages.find(
+      candidate =>
+        candidate.id === data.imageId &&
+        candidate.storyId === data.storyId &&
+        (candidate.userId === data.userId || candidate.userId == null)
+    );
+    if (!image) return null;
+
+    for (const candidate of memoryState.generatedImages) {
+      if (candidate.storyId !== data.storyId || !candidate.isCurrent) continue;
+      const sameIdentity = candidate.shotIdentity === data.shotIdentity;
+      const sameLegacyShot =
+        candidate.shotNo === data.shotNo && candidate.shotIdentity == null;
+      if (sameIdentity || sameLegacyShot) candidate.isCurrent = false;
+    }
+    image.shotNo = data.shotNo;
+    image.shotIdentity = data.shotIdentity;
+    image.isCurrent = true;
+
+    const stableShotIds = [data.shotIdentity, `legacy-${data.shotNo}`];
+    memoryState.videoTimelineSelections =
+      memoryState.videoTimelineSelections.filter(
+        selection =>
+          selection.storyId !== data.storyId ||
+          selection.userId !== data.userId ||
+          !stableShotIds.includes(selection.stableShotId)
+      );
+
+    const signal: ImageSignal = {
+      id: nextMemoryId("imageSignal"),
+      userId: data.userId,
+      storyId: data.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: data.metadata ?? null,
+      createdAt: now(),
+    };
+    memoryState.imageSignals.push(signal);
+    await persistMemoryState();
+    return { image, signal };
+  }
+
+  return db.transaction(async tx => {
+    const [image] = await tx
+      .select()
+      .from(generatedImages)
+      .where(
+        and(
+          eq(generatedImages.id, data.imageId),
+          eq(generatedImages.storyId, data.storyId),
+          or(
+            eq(generatedImages.userId, data.userId),
+            isNull(generatedImages.userId)
+          )
+        )
+      )
+      .limit(1);
+    if (!image) return null;
+
+    const shotGroup = or(
+      eq(generatedImages.shotIdentity, data.shotIdentity),
+      and(
+        eq(generatedImages.shotNo, data.shotNo),
+        isNull(generatedImages.shotIdentity)
+      )
+    );
+    await tx
+      .select({ id: generatedImages.id })
+      .from(generatedImages)
+      .where(and(eq(generatedImages.storyId, data.storyId), shotGroup))
+      .for("update");
+    await tx
+      .update(generatedImages)
+      .set({ isCurrent: false })
+      .where(
+        and(
+          eq(generatedImages.storyId, data.storyId),
+          shotGroup,
+          eq(generatedImages.isCurrent, true)
+        )
+      );
+    await tx
+      .update(generatedImages)
+      .set({
+        shotNo: data.shotNo,
+        shotIdentity: data.shotIdentity,
+        isCurrent: true,
+      })
+      .where(eq(generatedImages.id, image.id));
+
+    await tx
+      .delete(videoTimelineSelections)
+      .where(
+        and(
+          eq(videoTimelineSelections.storyId, data.storyId),
+          eq(videoTimelineSelections.userId, data.userId),
+          inArray(videoTimelineSelections.stableShotId, [
+            data.shotIdentity,
+            `legacy-${data.shotNo}`,
+          ])
+        )
+      );
+
+    const [result] = await tx.insert(imageSignals).values({
+      userId: data.userId,
+      storyId: data.storyId,
+      imageId: image.id,
+      action: "swipe_right",
+      metadata: data.metadata ?? null,
+    });
+    const [signal] = await tx
+      .select()
+      .from(imageSignals)
+      .where(eq(imageSignals.id, result.insertId));
+    return {
+      image: {
+        ...image,
+        shotNo: data.shotNo,
+        shotIdentity: data.shotIdentity,
+        isCurrent: true,
+      },
+      signal,
+    };
+  });
+}
+
 export async function getImageSignalsForImages(
   imageIds: number[]
 ): Promise<ImageSignal[]> {
@@ -3055,6 +3203,39 @@ export async function getStoryVideoTakes(
     .select()
     .from(videoTakes)
     .where(and(eq(videoTakes.storyId, storyId), eq(videoTakes.userId, userId)))
+    .orderBy(desc(videoTakes.createdAt));
+}
+
+export async function getReusableVideoTakesForStory(
+  storyId: number,
+  userId: number
+): Promise<VideoTake[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryState.videoTakes
+      .filter(
+        take =>
+          take.userId === userId &&
+          take.storyId !== storyId &&
+          take.status === "available" &&
+          Boolean(take.videoUrl)
+      )
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      );
+  }
+  return db
+    .select()
+    .from(videoTakes)
+    .where(
+      and(
+        eq(videoTakes.userId, userId),
+        ne(videoTakes.storyId, storyId),
+        eq(videoTakes.status, "available"),
+        isNotNull(videoTakes.videoUrl)
+      )
+    )
     .orderBy(desc(videoTakes.createdAt));
 }
 

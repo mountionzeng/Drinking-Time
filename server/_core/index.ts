@@ -95,7 +95,7 @@ async function startServer() {
   );
   app.get("/api/videos/:file", async (req, res) => {
     const file = String(req.params.file ?? "");
-    const match = /^take-(\d+)\.(mp4|webm)$/.exec(file);
+    const match = /^take-(\d+)\.(mp4|webm|mov)$/.exec(file);
     if (!match) {
       res.status(400).end();
       return;

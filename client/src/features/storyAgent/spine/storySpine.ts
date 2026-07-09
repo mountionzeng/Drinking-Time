@@ -139,7 +139,12 @@ function initialData(): StorySpineData {
     confirmedIntent: null,
     pendingIntentDraft: null,
     activeStoryId: null,
-    visibleStoryPanels: ['storyCards', 'storyboard', 'animatic', 'promptTable'],
+    visibleStoryPanels: [
+      "materialWarehouse",
+      "storyboard",
+      "animatic",
+      "promptTable",
+    ],
     saveStatus: "idle",
     lastSavedAt: undefined,
     serverRevision: 0,

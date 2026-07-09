@@ -46,6 +46,11 @@ vi.mock("@/features/storyAgent/views/StoryboardPanel", () => ({
 vi.mock("@/features/creationEditor/views/AnimaticPanel", () => ({
   default: () => <div data-panel="animatic">Animatic panel</div>,
 }));
+vi.mock("@/features/creationEditor/views/MaterialWarehousePanel", () => ({
+  default: () => (
+    <div data-panel="material-warehouse">Material warehouse panel</div>
+  ),
+}));
 vi.mock("@/features/creationEditor/views/PromptTablePanel", () => ({
   default: () => <div data-panel="prompt-table">Prompt table panel</div>,
 }));
@@ -70,7 +75,7 @@ describe("WorkspaceLayout story panel buttons", () => {
   it("does not render empty right-side boards before a story is opened", () => {
     storyPanelState.activeStoryId = null;
     storyPanelState.visibleStoryPanels = [
-      "storyCards",
+      "materialWarehouse",
       "storyboard",
       "animatic",
       "promptTable",
@@ -79,6 +84,7 @@ describe("WorkspaceLayout story panel buttons", () => {
 
     expect(html).toContain("StoryListView");
     expect(html).toContain("从左侧新建或打开一个故事后");
+    expect(html).not.toContain('data-panel="material-warehouse"');
     expect(html).not.toContain('data-panel="story-cards"');
     expect(html).not.toContain('data-panel="storyboard"');
     expect(html).not.toContain('data-panel="animatic"');
@@ -96,17 +102,30 @@ describe("WorkspaceLayout story panel buttons", () => {
     expect(html).not.toContain('data-panel="prompt-table"');
   });
 
+  it("can show only materialWarehouse when that panel is selected", () => {
+    storyPanelState.activeStoryId = 21;
+    storyPanelState.visibleStoryPanels = ["materialWarehouse"];
+    const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
+
+    expect(html).toContain('data-panel="material-warehouse"');
+    expect(html).not.toContain('data-panel="story-cards"');
+    expect(html).not.toContain('data-panel="storyboard"');
+    expect(html).not.toContain('data-panel="animatic"');
+    expect(html).not.toContain('data-panel="prompt-table"');
+  });
+
   it("can render multiple story panels at the same time", () => {
     storyPanelState.activeStoryId = 21;
     storyPanelState.visibleStoryPanels = [
-      "storyCards",
+      "materialWarehouse",
       "storyboard",
       "animatic",
       "promptTable",
     ];
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
-    expect(html).toContain('data-panel="story-cards"');
+    expect(html).toContain('data-panel="material-warehouse"');
+    expect(html).not.toContain('data-panel="story-cards"');
     expect(html).toContain('data-panel="storyboard"');
     expect(html).toContain('data-panel="animatic"');
     expect(html).toContain('data-panel="prompt-table"');
@@ -117,6 +136,7 @@ describe("WorkspaceLayout story panel buttons", () => {
   it("can hide storyCards like the other story panels", () => {
     storyPanelState.activeStoryId = 21;
     storyPanelState.visibleStoryPanels = [
+      "materialWarehouse",
       "storyboard",
       "animatic",
       "promptTable",
@@ -124,6 +144,7 @@ describe("WorkspaceLayout story panel buttons", () => {
     const html = renderToStaticMarkup(<WorkspaceLayout {...baseProps()} />);
 
     expect(html).not.toContain('data-panel="story-cards"');
+    expect(html).toContain('data-panel="material-warehouse"');
     expect(html).toContain('data-panel="storyboard"');
     expect(html).toContain('data-panel="animatic"');
     expect(html).toContain('data-panel="prompt-table"');

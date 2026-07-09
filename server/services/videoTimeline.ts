@@ -281,11 +281,7 @@ export async function reuseVideoTakeForShot(
   if (!targetStableShotId) throw new Error("目标镜头缺少稳定身份");
 
   const sourceTake = await getVideoTakeById(input.sourceTakeId, userId);
-  if (
-    !sourceTake ||
-    sourceTake.storyId !== input.storyId ||
-    sourceTake.userId !== userId
-  ) {
+  if (!sourceTake || sourceTake.userId !== userId) {
     throw new Error("视频素材不存在或无权复用");
   }
   if (sourceTake.status !== "available" || !sourceTake.videoUrl) {
@@ -299,7 +295,7 @@ export async function reuseVideoTakeForShot(
       ? (sourceTake.parameterSnapshot as Record<string, unknown>)
       : {};
   const take = await createVideoTake({
-    storyId: sourceTake.storyId,
+    storyId: input.storyId,
     userId,
     stableShotId: targetStableShotId,
     sourceImageId: null,
@@ -318,6 +314,7 @@ export async function reuseVideoTakeForShot(
     parameterSnapshot: {
       ...sourceSnapshot,
       reusedFromTakeId: sourceTake.id,
+      reusedFromStoryId: sourceTake.storyId,
       reusedFromStableShotId: sourceTake.stableShotId,
       reusedAt: new Date().toISOString(),
     },

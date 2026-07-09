@@ -1956,7 +1956,8 @@ export function StoryAgentProvider({
       );
       // Auto-open animatic & storyboard panels so the user sees the result.
       const currentPanels = storySpineStore.getState().visibleStoryPanels;
-      const panelsToAdd: Array<'animatic' | 'storyboard'> = [];
+      const panelsToAdd: Array<'materialWarehouse' | 'animatic' | 'storyboard'> = [];
+      if (!currentPanels.includes('materialWarehouse')) panelsToAdd.push('materialWarehouse');
       if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
       if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
       if (panelsToAdd.length > 0) {
@@ -2197,7 +2198,8 @@ export function StoryAgentProvider({
       // Auto-open panels if the loaded story has shots (previously generated storyboard).
       if (restoredShots.length > 0) {
         const currentPanels = storySpineStore.getState().visibleStoryPanels;
-        const panelsToAdd: Array<'animatic' | 'storyboard'> = [];
+        const panelsToAdd: Array<'materialWarehouse' | 'animatic' | 'storyboard'> = [];
+        if (!currentPanels.includes('materialWarehouse')) panelsToAdd.push('materialWarehouse');
         if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
         if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
         if (panelsToAdd.length > 0) {

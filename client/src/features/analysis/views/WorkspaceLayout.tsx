@@ -1,7 +1,7 @@
 /**
  * WorkspaceLayout — Horizontal-scroll workspace layout.
  * Left: StoryAgentChat (always visible, anchor)
- * Right: scrollable strip of storyCards → storyboard → animatic → promptTable
+ * Right: scrollable strip of materialWarehouse → storyboard → animatic → promptTable
  */
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
@@ -9,6 +9,7 @@ import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
+import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
 import type { AnalysisData } from "@/features/analysis/types";
 import { STORY_PANELS, type StoryPanel } from "@/features/analysis/storyPanels";
@@ -17,6 +18,7 @@ import {
   useActiveStoryId,
   useVisibleStoryPanels,
 } from "@/features/storyAgent/spine/selectors";
+import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useSelectionCapture } from "@/features/storyAgent/hooks/useSelectionCapture";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
@@ -72,6 +74,9 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const activeStoryId = useActiveStoryId();
   const visibleStoryPanels = useVisibleStoryPanels();
+  const setVisibleStoryPanels = useStorySpine(
+    state => state.setVisibleStoryPanels
+  );
   const { setActiveSelection } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const hasOpenStory = activeStoryId !== null;
@@ -81,6 +86,16 @@ export default function WorkspaceLayout({
     window.addEventListener("dt:open-creation-chat", openChat);
     return () => window.removeEventListener("dt:open-creation-chat", openChat);
   }, []);
+  useEffect(() => {
+    if (!hasOpenStory || visibleStoryPanels.includes("materialWarehouse")) {
+      return;
+    }
+    const migratedPanels: StoryPanel[] = [
+      "materialWarehouse",
+      ...visibleStoryPanels.filter(panel => panel !== "storyCards"),
+    ];
+    setVisibleStoryPanels(migratedPanels);
+  }, [hasOpenStory, setVisibleStoryPanels, visibleStoryPanels]);
   const visiblePanelDefs = useMemo(
     () => STORY_PANELS.filter(panel => visibleStoryPanels.includes(panel.id)),
     [visibleStoryPanels]
@@ -92,6 +107,8 @@ export default function WorkspaceLayout({
     visiblePanelDefs.length > 0 ? `${visiblePanelDefs.length * 24}rem` : "100%";
   const renderPanel = (panelId: StoryPanel) => {
     switch (panelId) {
+      case "materialWarehouse":
+        return <MaterialWarehousePanel />;
       case "storyCards":
         return <StoryCardsBoard />;
       case "storyboard":
@@ -150,7 +167,7 @@ export default function WorkspaceLayout({
                   className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground"
                   aria-label="未选择故事"
                 >
-                  从左侧新建或打开一个故事后，故事卡片、故事版看板、动态分镜和镜头设计表会显示在这里。
+                  从左侧新建或打开一个故事后，素材仓库、故事版看板、动态分镜和镜头设计表会显示在这里。
                 </div>
               ) : visiblePanelDefs.length > 0 ? (
                 <div className="h-full min-w-0 overflow-x-auto overflow-y-hidden custom-scrollbar">
