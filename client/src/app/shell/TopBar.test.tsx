@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import TopBar from "./TopBar";
+import { STORY_PANELS } from "@/features/analysis/storyPanels";
 
 vi.stubGlobal("React", React);
 
@@ -55,17 +56,18 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 describe("TopBar story panel controls", () => {
-  it("uses the left top area for the four story panel buttons", () => {
+  it("uses the left top area for the five story panel buttons", () => {
     const html = renderToStaticMarkup(<TopBar />);
 
     expect(html).toContain('aria-label="纳音五行"');
     expect(html).toContain("w-[250px]");
     expect(html).toContain("Nayin Five Elements / 纳音五行");
+    expect(html).toContain("素材仓库");
     expect(html).toContain("故事卡片");
     expect(html).toContain("故事版看板");
     expect(html).toContain("动态分镜");
     expect(html).toContain("镜头设计表");
-    expect(html.match(/aria-pressed=/g)).toHaveLength(4);
+    expect(html.match(/aria-pressed=/g)).toHaveLength(STORY_PANELS.length);
     expect(html).not.toContain("Story Cards");
     expect(html).not.toContain("Script");
     expect(html).not.toContain("默认分析项目");
@@ -76,6 +78,7 @@ describe("TopBar story panel controls", () => {
     const html = renderToStaticMarkup(<TopBar showStoryPanelNav={false} />);
 
     expect(html).toContain('aria-label="纳音五行"');
+    expect(html).not.toContain("素材仓库");
     expect(html).not.toContain("故事卡片");
     expect(html).not.toContain("故事版看板");
     expect(html).not.toContain("动态分镜");
