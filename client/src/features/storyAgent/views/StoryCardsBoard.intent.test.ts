@@ -198,7 +198,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain("onUpdateAllShotsField");
     expect(boardSource).toContain("导演理由");
     expect(boardSource).toContain("ShotMaterialBasket");
-    expect(boardSource).toContain("个视频 Take，点开本镜查看");
+    expect(boardSource).toContain("个 Take · 可用");
+    expect(boardSource).toContain("onMarkVideoTakeUnusable");
     expect(boardSource).toContain("onInsertShotAfter");
     expect(panelSource).toContain("insertPersistedShotAfter");
     expect(boardSource).toContain("onDeleteShot");
@@ -215,15 +216,20 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("storyboardScriptText");
     expect(boardSource).toContain("snap-y snap-mandatory");
     expect(boardSource).not.toContain("snap-x snap-mandatory");
-    expect(
-      readFileSync(
-        resolve(
-          root,
-          "client/src/features/storyAgent/views/ShotMaterialBasket.tsx"
-        ),
-        "utf8"
-      )
-    ).toContain("视频的生成、预览和采用都在故事版看板完成");
+    const materialBasketSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/ShotMaterialBasket.tsx"
+      ),
+      "utf8"
+    );
+    expect(materialBasketSource).toContain(
+      "视频的生成、预览和采用都在故事版看板完成"
+    );
+    expect(materialBasketSource).toContain("Take 总览");
+    expect(materialBasketSource).toContain("标记不可用");
+    expect(materialBasketSource).toContain("不再占用可用位置");
+    expect(materialBasketSource).not.toContain("slice(0, 3)");
     expect(boardSource).toContain("confirmFictionStoryCards");
     expect(boardSource).toContain("pendingIntentDraft");
     expect(boardSource).toContain("hasPendingFictionIntent");

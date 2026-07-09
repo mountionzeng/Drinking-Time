@@ -63,6 +63,7 @@ import {
   creationTimelineShotId,
   type CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
+import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
 import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import type { NayinElement } from "@/features/nayin/nayin";
@@ -121,7 +122,8 @@ export function autoScrollElementAtPoint(
 }
 
 export function storyboardDragScrollSpeedMultiplier(elapsedMs: number): number {
-  const progress = Math.max(0, elapsedMs) / STORYBOARD_DRAG_SCROLL_ACCELERATION_MS;
+  const progress =
+    Math.max(0, elapsedMs) / STORYBOARD_DRAG_SCROLL_ACCELERATION_MS;
   return Math.min(
     STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION,
     1 + progress * (STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION - 1)
@@ -815,9 +817,7 @@ function storyboardScriptText(shot: StoryShot) {
     .map(part => part?.trim())
     .filter(Boolean);
   return (
-    parts.join("；") ||
-    shot.sourceCardContent?.trim() ||
-    "等待剧本整理这一镜"
+    parts.join("；") || shot.sourceCardContent?.trim() || "等待剧本整理这一镜"
   );
 }
 
@@ -841,6 +841,7 @@ export function StoryboardReviewBoard({
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
+  onMarkVideoTakeUnusable,
   onMoveVideoTake,
   onAdoptVideoTake,
   onPromoteFrameCrop,
@@ -880,6 +881,7 @@ export function StoryboardReviewBoard({
     motion?: "low" | "high";
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
   onMoveVideoTake?: (input: {
     takeId: number;
     targetStableShotId: string;
@@ -902,9 +904,9 @@ export function StoryboardReviewBoard({
 }) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"full" | "simple">("simple");
-  const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<number | null>(
-    null
-  );
+  const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<
+    number | null
+  >(null);
   const [deletingShotId, setDeletingShotId] = useState<string | null>(null);
   const [videoTakeDropTargetId, setVideoTakeDropTargetId] = useState<
     string | null
@@ -984,8 +986,9 @@ export function StoryboardReviewBoard({
       dragScrollFrameRef.current = null;
       return;
     }
-    dragScrollFrameRef.current =
-      window.requestAnimationFrame(tickStoryboardDragScroll);
+    dragScrollFrameRef.current = window.requestAnimationFrame(
+      tickStoryboardDragScroll
+    );
   }, []);
 
   const startStoryboardDragScroll = useCallback(
@@ -1028,10 +1031,7 @@ export function StoryboardReviewBoard({
     }
   };
 
-  const deleteShot = async (
-    shotNo: number,
-    stableShotId?: string | null
-  ) => {
+  const deleteShot = async (shotNo: number, stableShotId?: string | null) => {
     if (!onDeleteShot || deletingShotId || insertingAfterShotNo != null) return;
     if (shots.length <= 1) {
       toast.error("至少保留一个镜头");
@@ -1173,9 +1173,7 @@ export function StoryboardReviewBoard({
                 className="rounded-full px-2 py-0.5 transition"
                 style={{
                   background:
-                    viewMode === "full"
-                      ? "var(--nayin-accent)"
-                      : "transparent",
+                    viewMode === "full" ? "var(--nayin-accent)" : "transparent",
                   color:
                     viewMode === "full"
                       ? "var(--background)"
@@ -1234,13 +1232,13 @@ export function StoryboardReviewBoard({
                     borderColor: isVideoTakeDropTarget
                       ? "var(--nayin-accent)"
                       : selected
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
+                        ? "var(--nayin-accent)"
+                        : "var(--panel-border)",
                     boxShadow: isVideoTakeDropTarget
                       ? "0 0 0 2px var(--nayin-accent-dim)"
                       : selected
-                      ? "0 0 0 1px var(--nayin-accent-dim)"
-                      : "none",
+                        ? "0 0 0 1px var(--nayin-accent-dim)"
+                        : "none",
                     background: isVideoTakeDropTarget
                       ? "var(--nayin-glow)"
                       : "var(--background)",
@@ -1371,6 +1369,15 @@ export function StoryboardReviewBoard({
                 videoTakeDropTargetId === insertStableShotId;
               const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
               const videoTakeCount = creationShot?.videoTakes?.length ?? 0;
+              const usableVideoTakeCount =
+                creationShot?.videoTakes?.filter(
+                  take => videoTakeAffordance(take.status).canPlay
+                ).length ?? 0;
+              const unavailableVideoTakeCount =
+                creationShot?.videoTakes?.filter(take => {
+                  const affordance = videoTakeAffordance(take.status);
+                  return !affordance.canPlay && !affordance.canRefresh;
+                }).length ?? 0;
               const showMaterialBasket =
                 Boolean(creationShot) &&
                 (selected || generatingVideoShotNo === shot.shotNo);
@@ -1387,13 +1394,13 @@ export function StoryboardReviewBoard({
                     borderColor: isVideoTakeDropTarget
                       ? "var(--nayin-accent)"
                       : selected
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
+                        ? "var(--nayin-accent)"
+                        : "var(--panel-border)",
                     background: isVideoTakeDropTarget
                       ? "var(--nayin-glow)"
                       : selected
-                      ? "var(--nayin-glow)"
-                      : "var(--background)",
+                        ? "var(--nayin-glow)"
+                        : "var(--background)",
                   }}
                   onClick={() => onSelectShot?.(shot.shotNo)}
                 >
@@ -1557,6 +1564,7 @@ export function StoryboardReviewBoard({
                         }
                         onGenerateShotVideo={onGenerateShotVideo}
                         onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                        onMarkVideoTakeUnusable={onMarkVideoTakeUnusable}
                         movingVideoTakeId={movingVideoTakeId}
                         onAdoptVideoTake={onAdoptVideoTake}
                         onPromoteFrameCrop={onPromoteFrameCrop}
@@ -1576,7 +1584,11 @@ export function StoryboardReviewBoard({
                         style={{ borderColor: "var(--panel-border)" }}
                       >
                         <Video className="h-3.5 w-3.5" />
-                        {videoTakeCount} 个视频 Take，点开本镜查看
+                        {videoTakeCount} 个 Take · 可用 {usableVideoTakeCount}
+                        {unavailableVideoTakeCount > 0
+                          ? ` · 不可用 ${unavailableVideoTakeCount}`
+                          : ""}
+                        ，点开本镜查看
                       </button>
                     ) : null}
                     {onInsertShotAfter || onDeleteShot ? (

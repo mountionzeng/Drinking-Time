@@ -1,10 +1,12 @@
 import type {
+  VideoTake,
   VideoTakeRange,
   VideoTimelineSelection,
 } from "../../drizzle/schema";
 import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import {
   clearVideoTimelineSelection,
+  createVideoTake,
   createVideoTakeRange,
   getStoryById,
   getStoryVideoTimelineSelections,
@@ -163,6 +165,61 @@ export async function clearVideoTimelineSegment(
   await clearVideoTimelineSelection(input.storyId, userId, stableShotId);
 }
 
+export async function markVideoTakeUnusable(
+  input: {
+    storyId: number;
+    takeId: number;
+  },
+  userId: number
+): Promise<{
+  take: VideoTake;
+  clearedTimelineSelection: boolean;
+}> {
+  await assertStory(input.storyId, userId);
+  const take = await getVideoTakeById(input.takeId, userId);
+  if (!take || take.storyId !== input.storyId || take.userId !== userId) {
+    throw new Error("视频素材不存在或无权标记");
+  }
+
+  const selections = await getStoryVideoTimelineSelections(
+    input.storyId,
+    userId
+  );
+  const selected = selections.find(selection => selection.takeId === take.id);
+  if (selected) {
+    await clearVideoTimelineSelection(
+      input.storyId,
+      userId,
+      selected.stableShotId
+    );
+  }
+
+  const parameterSnapshot =
+    take.parameterSnapshot &&
+    typeof take.parameterSnapshot === "object" &&
+    !Array.isArray(take.parameterSnapshot)
+      ? {
+          ...(take.parameterSnapshot as Record<string, unknown>),
+          manuallyMarkedUnusable: true,
+          manuallyMarkedUnusableAt: new Date().toISOString(),
+        }
+      : {
+          manuallyMarkedUnusable: true,
+          manuallyMarkedUnusableAt: new Date().toISOString(),
+        };
+  const updated = await updateVideoTake(take.id, userId, {
+    status: "unfollowable",
+    errorMessage: "用户标记为不可用。",
+    parameterSnapshot,
+  });
+  if (!updated) throw new Error("视频素材标记失败");
+
+  return {
+    take: updated,
+    clearedTimelineSelection: Boolean(selected),
+  };
+}
+
 export async function adoptVideoTake(
   input: {
     storyId: number;
@@ -186,9 +243,7 @@ export async function adoptVideoTake(
   const endSec = Math.max(
     0.1,
     Math.min(
-      Number.isFinite(input.plannedDurationSec)
-        ? input.plannedDurationSec
-        : 3,
+      Number.isFinite(input.plannedDurationSec) ? input.plannedDurationSec : 3,
       take.durationSec ?? input.plannedDurationSec ?? 3
     )
   );
@@ -206,6 +261,80 @@ export async function adoptVideoTake(
   );
   if (!result.selection) throw new Error("视频采用失败");
   return { range: result.range, selection: result.selection };
+}
+
+export async function reuseVideoTakeForShot(
+  input: {
+    storyId: number;
+    sourceTakeId: number;
+    targetStableShotId: string;
+    plannedDurationSec: number;
+  },
+  userId: number
+): Promise<{
+  take: VideoTake;
+  range: VideoTakeRange;
+  selection: VideoTimelineSelection;
+}> {
+  await assertStory(input.storyId, userId);
+  const targetStableShotId = normalizeShotIdentity(input.targetStableShotId);
+  if (!targetStableShotId) throw new Error("目标镜头缺少稳定身份");
+
+  const sourceTake = await getVideoTakeById(input.sourceTakeId, userId);
+  if (
+    !sourceTake ||
+    sourceTake.storyId !== input.storyId ||
+    sourceTake.userId !== userId
+  ) {
+    throw new Error("视频素材不存在或无权复用");
+  }
+  if (sourceTake.status !== "available" || !sourceTake.videoUrl) {
+    throw new Error("只有已生成且可播放的视频素材才能复用");
+  }
+
+  const sourceSnapshot =
+    sourceTake.parameterSnapshot &&
+    typeof sourceTake.parameterSnapshot === "object" &&
+    !Array.isArray(sourceTake.parameterSnapshot)
+      ? (sourceTake.parameterSnapshot as Record<string, unknown>)
+      : {};
+  const take = await createVideoTake({
+    storyId: sourceTake.storyId,
+    userId,
+    stableShotId: targetStableShotId,
+    sourceImageId: null,
+    promptCompilationId: null,
+    status: "available",
+    taskId: null,
+    provider: sourceTake.provider,
+    model: sourceTake.model,
+    prompt: sourceTake.prompt,
+    subtitle: sourceTake.subtitle,
+    durationSec: sourceTake.durationSec,
+    aspectRatio: sourceTake.aspectRatio,
+    videoKey: sourceTake.videoKey,
+    videoUrl: sourceTake.videoUrl,
+    errorMessage: null,
+    parameterSnapshot: {
+      ...sourceSnapshot,
+      reusedFromTakeId: sourceTake.id,
+      reusedFromStableShotId: sourceTake.stableShotId,
+      reusedAt: new Date().toISOString(),
+    },
+    extractionCapability: sourceTake.extractionCapability,
+  });
+
+  const result = await adoptVideoTake(
+    {
+      storyId: input.storyId,
+      stableShotId: targetStableShotId,
+      takeId: take.id,
+      plannedDurationSec: input.plannedDurationSec,
+    },
+    userId
+  );
+
+  return { take, range: result.range, selection: result.selection };
 }
 
 export async function moveVideoTakeToShot(
@@ -239,7 +368,10 @@ export async function moveVideoTakeToShot(
     };
   }
 
-  const selections = await getStoryVideoTimelineSelections(input.storyId, userId);
+  const selections = await getStoryVideoTimelineSelections(
+    input.storyId,
+    userId
+  );
   const movedSelection =
     selections.find(selection => selection.takeId === take.id) ?? null;
 

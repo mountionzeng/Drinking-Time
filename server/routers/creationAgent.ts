@@ -54,7 +54,9 @@ import {
   createUsableVideoRange,
   selectVideoTimelineSegment,
   adoptVideoTake,
+  markVideoTakeUnusable,
   moveVideoTakeToShot,
+  reuseVideoTakeForShot,
 } from "../services/videoTimeline";
 import { defaultArtRecipe } from "../../shared/artDirection";
 import {
@@ -583,6 +585,27 @@ export const creationAgentRouter = router({
       }
     }),
 
+  reuseVideoTake: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        sourceTakeId: z.number().int().positive(),
+        targetStableShotId: z.string().min(1),
+        plannedDurationSec: z.number().min(0.1).max(30),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await reuseVideoTakeForShot(input, ctx.user.id);
+        return { status: "ok" as const, ...result };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "视频 Take 复用失败",
+        };
+      }
+    }),
+
   moveVideoTake: protectedProcedure
     .input(
       z.object({
@@ -598,8 +621,7 @@ export const creationAgentRouter = router({
       } catch (error) {
         return {
           status: "error" as const,
-          error:
-            error instanceof Error ? error.message : "视频 Take 移动失败",
+          error: error instanceof Error ? error.message : "视频 Take 移动失败",
         };
       }
     }),
@@ -786,6 +808,25 @@ export const creationAgentRouter = router({
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
       };
+    }),
+
+  markVideoTakeUnusable: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        takeId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await markVideoTakeUnusable(input, ctx.user.id);
+        return { status: "ok" as const, ...result };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "视频 Take 标记失败",
+        };
+      }
     }),
 
   createVideoTakeRange: protectedProcedure

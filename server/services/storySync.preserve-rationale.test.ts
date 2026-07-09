@@ -391,4 +391,39 @@ describe("storySync shot field preservation", () => {
       )
     ).toEqual(["legacy-sh01-shot", "legacy-sh02-shot"]);
   });
+
+  it("keeps non-empty server dialogue when a stale client sends an empty copy", () => {
+    const body = mergeStaleStoryBody(
+      {
+        shots: [
+          {
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            shotNo: 1,
+            subject: "女主",
+            action: "抬头",
+            dialogue: "而我，永远不够好",
+          },
+        ],
+      },
+      {
+        shots: [
+          {
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            shotNo: 1,
+            subject: "女主",
+            action: "抬头",
+            dialogue: "",
+          },
+        ],
+      },
+      13
+    );
+
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      stableShotId: "shot-a",
+      dialogue: "而我，永远不够好",
+    });
+  });
 });

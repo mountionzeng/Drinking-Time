@@ -39,10 +39,12 @@ export default function AnimaticPanel() {
     resetTimelineShots,
     updateShotDuration,
     refreshShotVideoStatus,
+    markVideoTakeUnusable,
     createVideoTakeRange,
     selectVideoTimelineSegment,
     clearVideoTimelineSegment,
     adoptVideoTake,
+    reuseVideoTake,
     promoteStoryImage,
     createDerivedShotDraft,
     confirmDerivedShot,
@@ -270,6 +272,7 @@ export default function AnimaticPanel() {
               onSelectContext={setActiveSelection}
               playbackResetKey={playbackResetKey}
               onRefreshShotVideoStatus={refreshShotVideoStatus}
+              onMarkVideoTakeUnusable={markVideoTakeUnusable}
               onCreateVideoTakeRange={createVideoTakeRange}
               onSelectVideoTimelineSegment={selectVideoTimelineSegment}
               onClearVideoTimelineSegment={clearVideoTimelineSegment}
@@ -308,6 +311,8 @@ export default function AnimaticPanel() {
         onSelectShot={selectShotWithContext}
         onPromoteImage={promoteStoryImage}
         onAdoptVideo={adoptVideoTake}
+        onReuseVideo={reuseVideoTake}
+        onMarkVideoTakeUnusable={markVideoTakeUnusable}
       />
     </section>
   );

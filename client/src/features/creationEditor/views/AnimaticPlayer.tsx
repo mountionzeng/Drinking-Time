@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
+  Ban,
   Copy,
   Check,
   Clock3,
@@ -68,6 +69,7 @@ type AnimaticPlayerProps = {
   onSelectContext?: (context: SelectionContext) => void;
   playbackResetKey?: number;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
   onCreateVideoTakeRange?: (input: {
     stableShotId: string;
     takeId: number;
@@ -194,6 +196,7 @@ export default function AnimaticPlayer({
   onSelectContext,
   playbackResetKey = 0,
   onRefreshShotVideoStatus,
+  onMarkVideoTakeUnusable,
   onCreateVideoTakeRange,
   onSelectVideoTimelineSegment,
   onClearVideoTimelineSegment,
@@ -228,6 +231,7 @@ export default function AnimaticPlayer({
     initialPlaybackState(playbackShots)
   );
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [markingVideoUnusable, setMarkingVideoUnusable] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [rangeBusy, setRangeBusy] = useState(false);
   const [rangeDraftByTakeId, setRangeDraftByTakeId] = useState<
@@ -509,6 +513,13 @@ export default function AnimaticPlayer({
       onRefreshShotVideoStatus &&
       ["submitted", "processing"].includes(currentVideoTake.status)
   );
+  const canMarkCurrentVideoUnusable = Boolean(
+    currentVideoTake &&
+      onMarkVideoTakeUnusable &&
+      currentVideoTake.status !== "unfollowable" &&
+      currentTakeAffordance &&
+      (currentTakeAffordance.canPlay || currentTakeAffordance.canRefresh)
+  );
   const changeCurrentShotDuration = (nextDurationMs: number) => {
     if (!currentShot || !onDurationChange) return;
     const clamped = Math.min(
@@ -637,6 +648,21 @@ export default function AnimaticPlayer({
       setVideoError(
         error instanceof Error ? error.message : "视频状态刷新失败"
       );
+    }
+  };
+
+  const markCurrentVideoUnusable = async () => {
+    if (!currentVideoTake?.id || !onMarkVideoTakeUnusable) return;
+    setVideoError(null);
+    setMarkingVideoUnusable(true);
+    try {
+      await onMarkVideoTakeUnusable(currentVideoTake.id);
+    } catch (error) {
+      setVideoError(
+        error instanceof Error ? error.message : "视频 Take 标记失败"
+      );
+    } finally {
+      setMarkingVideoUnusable(false);
     }
   };
 
@@ -1056,6 +1082,22 @@ export default function AnimaticPlayer({
                     {currentTakeAffordance?.label}
                   </span>
                   <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        markingVideoUnusable || !canMarkCurrentVideoUnusable
+                      }
+                      onClick={() => void markCurrentVideoUnusable()}
+                    >
+                      {markingVideoUnusable ? (
+                        <Loader2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Ban className="h-3.5 w-3.5" />
+                      )}
+                      标记不可用
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -1579,7 +1621,9 @@ export default function AnimaticPlayer({
             type="button"
             size="sm"
             onClick={() =>
-              onTogglePlayback ? onTogglePlayback() : onPlayingChange(!isPlaying)
+              onTogglePlayback
+                ? onTogglePlayback()
+                : onPlayingChange(!isPlaying)
             }
             disabled={shots.length === 0}
             aria-label={isPlaying ? "暂停全片" : "播放全片"}

@@ -62,7 +62,7 @@ export function videoTakeAffordance(
       };
     case "unfollowable":
       return {
-        label: "不可追踪",
+        label: "不可用",
         tone: "neutral",
         canPlay: false,
         canRefresh: false,
@@ -107,10 +107,8 @@ export function playableVideoTake<
   T extends Pick<VideoTakeAsset, "status" | "videoUrl">,
 >(takes: readonly T[] | undefined): T | undefined {
   if (!takes?.length) return undefined;
-  return (
-    takes.find(
-      take => Boolean(take.videoUrl) && videoTakeAffordance(take.status).canPlay
-    ) ?? takes.find(take => Boolean(take.videoUrl))
+  return takes.find(
+    take => Boolean(take.videoUrl) && videoTakeAffordance(take.status).canPlay
   );
 }
 
@@ -126,9 +124,7 @@ export function currentVideoTakeForEditing<
   if (!takes?.length) return undefined;
   const isOperational = (take: T) => {
     const affordance = videoTakeAffordance(take.status);
-    return (
-      take.isTimelineSelected || affordance.canPlay || affordance.canRefresh
-    );
+    return affordance.canPlay || affordance.canRefresh;
   };
   const explicitTake =
     activeTakeId == null
@@ -136,7 +132,10 @@ export function currentVideoTakeForEditing<
       : takes.find(take => take.id === activeTakeId);
   if (explicitTake && isOperational(explicitTake)) return explicitTake;
   return (
-    takes.find(take => take.isTimelineSelected) ??
+    takes.find(
+      take =>
+        take.isTimelineSelected && videoTakeAffordance(take.status).canPlay
+    ) ??
     takes.find(take => videoTakeAffordance(take.status).canRefresh) ??
     playableVideoTake(takes)
   );
@@ -155,7 +154,11 @@ export function videoTakeErrorMessage(message: string): string {
 }
 
 export function shotTimelineDurationMs(shot: CreationEditorShot): number {
-  const selectedTake = shot.videoTakes?.find(take => take.isTimelineSelected);
+  const selectedTake = shot.videoTakes?.find(
+    take =>
+      take.isTimelineSelected &&
+      videoTakeAffordance(take.status).canUseOnTimeline
+  );
   const selectedDuration = selectedTake
     ? selectedVideoSegmentDurationMs(selectedTake)
     : null;

@@ -19,4 +19,18 @@ describe("AnimaticMaterialDrawer intent", () => {
     expect(source).toContain('preload="none"');
     expect(source).not.toContain('preload="metadata"');
   });
+
+  it("offers reusable takes from other shots without moving the source take", () => {
+    const source = readFileSync(
+      resolve(
+        root,
+        "client/src/features/creationEditor/views/AnimaticMaterialDrawer.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("onReuseVideo");
+    expect(source).toContain("selectedStableShotId !== shot.stableShotId");
+    expect(source).toContain("复用到当前镜头");
+  });
 });

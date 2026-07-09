@@ -47,6 +47,7 @@ export default function StoryboardPanel() {
     generateShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
+    markVideoTakeUnusable,
     moveVideoTake,
     adoptVideoTake,
     promoteFrameCrop,
@@ -74,9 +75,7 @@ export default function StoryboardPanel() {
         <div className="creation-board-panel-header justify-between">
           <div className="creation-board-panel-title">
             <Clapperboard className="creation-board-panel-icon" />
-            <span className="creation-board-panel-title-text">
-              故事版看板
-            </span>
+            <span className="creation-board-panel-title-text">故事版看板</span>
           </div>
           <span className="creation-board-panel-status">等待生成</span>
         </div>
@@ -137,10 +136,11 @@ export default function StoryboardPanel() {
         );
         if (spineIndex >= 0) {
           updateStoryShotField(spineIndex, field, value);
-          return;
         }
         if (identity) {
-          void updatePersistedShotField(identity, field, value);
+          void updatePersistedShotField(identity, field, value).catch(error => {
+            console.warn("persist story shot field failed", error);
+          });
         }
       }}
       creationShots={creationShots}
@@ -170,6 +170,7 @@ export default function StoryboardPanel() {
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
+      onMarkVideoTakeUnusable={markVideoTakeUnusable}
       onMoveVideoTake={moveVideoTake}
       onAdoptVideoTake={adoptVideoTake}
       onPromoteFrameCrop={promoteFrameCrop}

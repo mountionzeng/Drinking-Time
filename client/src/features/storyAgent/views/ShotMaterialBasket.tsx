@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import type { CSSProperties } from "react";
 import {
+  Ban,
   Check,
   ChevronDown,
   Loader2,
@@ -20,7 +21,10 @@ import {
   videoTakeAffordance,
   videoTakeErrorMessage,
 } from "@/features/creationEditor/videoAssetViewModel";
-import type { ShotVideoProviderStatus } from "@shared/videoAsset";
+import type {
+  ShotVideoProviderStatus,
+  VideoTakeAsset,
+} from "@shared/videoAsset";
 import { writeVideoTakeDragPayload } from "./videoTakeDrag";
 
 function compactSnapshot(snapshot: Record<string, unknown> | null | undefined) {
@@ -62,6 +66,7 @@ type ShotMaterialBasketProps = {
     motion?: "low" | "high";
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
+  onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
   movingVideoTakeId?: number | null;
   onAdoptVideoTake?: (input: {
     stableShotId: string;
@@ -85,6 +90,7 @@ export default function ShotMaterialBasket({
   generating,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
+  onMarkVideoTakeUnusable,
   movingVideoTakeId = null,
   onAdoptVideoTake,
   onPromoteFrameCrop,
@@ -105,6 +111,7 @@ export default function ShotMaterialBasket({
   const [videoPrompt, setVideoPrompt] = useState(recipe.finalPrompt);
   const [motion, setMotion] = useState<"low" | "high">(suggestedMotion);
   const [adoptingTakeId, setAdoptingTakeId] = useState<number | null>(null);
+  const [markingTakeId, setMarkingTakeId] = useState<number | null>(null);
   const [draggingTakeId, setDraggingTakeId] = useState<number | null>(null);
   const [busyQuadrant, setBusyQuadrant] = useState<FrameQuadrant | null>(null);
   const [selectedQuadrant, setSelectedQuadrant] =
@@ -154,7 +161,29 @@ export default function ShotMaterialBasket({
   const processingTake = shot.videoTakes?.find(take =>
     ["submitted", "processing"].includes(take.status)
   );
-  const latestTake = shot.videoTakes?.[0];
+  const takeStats = useMemo(() => {
+    const active: VideoTakeAsset[] = [];
+    const unavailable: VideoTakeAsset[] = [];
+    let playableCount = 0;
+    let refreshableCount = 0;
+    for (const take of shot.videoTakes ?? []) {
+      const affordance = videoTakeAffordance(take.status);
+      if (affordance.canPlay) playableCount += 1;
+      if (affordance.canRefresh) refreshableCount += 1;
+      if (affordance.canPlay || affordance.canRefresh) {
+        active.push(take);
+      } else {
+        unavailable.push(take);
+      }
+    }
+    return {
+      active,
+      unavailable,
+      playableCount,
+      refreshableCount,
+      total: active.length + unavailable.length,
+    };
+  }, [shot.videoTakes]);
 
   const generate = async () => {
     if (!canGenerate || shot.imageId == null) return;
@@ -185,10 +214,17 @@ export default function ShotMaterialBasket({
     }
   };
 
-  const startTakeDrag = (
-    event: DragEvent<HTMLDivElement>,
-    takeId: number
-  ) => {
+  const markTakeUnusable = async (takeId: number) => {
+    if (!onMarkVideoTakeUnusable) return;
+    setMarkingTakeId(takeId);
+    try {
+      await onMarkVideoTakeUnusable(takeId);
+    } finally {
+      setMarkingTakeId(null);
+    }
+  };
+
+  const startTakeDrag = (event: DragEvent<HTMLDivElement>, takeId: number) => {
     if (!shot.stableShotId) {
       event.preventDefault();
       return;
@@ -222,6 +258,126 @@ export default function ShotMaterialBasket({
     } finally {
       setBusyQuadrant(null);
     }
+  };
+
+  const renderTakeCard = (take: VideoTakeAsset, activeSlot: boolean) => {
+    const affordance = videoTakeAffordance(take.status);
+    const stale =
+      shot.imageId != null &&
+      take.sourceImageId != null &&
+      shot.imageId !== take.sourceImageId;
+    const canMarkUnusable =
+      Boolean(onMarkVideoTakeUnusable) &&
+      take.status !== "unfollowable" &&
+      (affordance.canPlay || affordance.canRefresh);
+    return (
+      <div
+        key={take.id}
+        draggable={activeSlot && Boolean(shot.stableShotId)}
+        aria-grabbed={draggingTakeId === take.id}
+        onDragStart={event => startTakeDrag(event, take.id)}
+        onDragEnd={() => setDraggingTakeId(null)}
+        title={activeSlot ? "拖到另一个镜头卡片" : "不可用 Take 不占用可用位置"}
+        className={`rounded-md border px-2 py-1.5 text-[9px] transition ${
+          movingVideoTakeId === take.id
+            ? "cursor-wait opacity-60"
+            : activeSlot
+              ? "cursor-grab active:cursor-grabbing"
+              : "opacity-70"
+        }`}
+        style={{
+          borderColor:
+            draggingTakeId === take.id
+              ? "var(--nayin-accent)"
+              : "var(--panel-border)",
+          background: activeSlot ? "var(--background)" : "var(--panel-header)",
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className="font-semibold text-foreground">
+            Take {take.id} · {affordance.label}
+          </span>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {take.isTimelineSelected ? (
+              <span className="inline-flex items-center gap-1 text-nayin-bright">
+                <Check className="h-3 w-3" />
+                已采用
+              </span>
+            ) : stale ? (
+              <span className="text-amber-700">基于旧主图</span>
+            ) : !activeSlot ? (
+              <span className="text-muted-foreground">不占位</span>
+            ) : null}
+            {canMarkUnusable ? (
+              <button
+                type="button"
+                disabled={markingTakeId === take.id}
+                onClick={event => {
+                  event.stopPropagation();
+                  void markTakeUnusable(take.id);
+                }}
+                className="inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-[8.5px] font-medium text-muted-foreground transition hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+                style={{ borderColor: "var(--panel-border)" }}
+                title="标记后会移入不可用区域，并从动态分镜时间线移除"
+              >
+                {markingTakeId === take.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Ban className="h-3 w-3" />
+                )}
+                标记不可用
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <p className="mt-0.5 truncate text-muted-foreground">
+          {compactSnapshot(take.parameterSnapshot) ||
+            take.prompt ||
+            shotLabel(shot)}
+        </p>
+        {take.errorMessage ? (
+          <p className="mt-0.5 text-destructive">
+            {videoTakeErrorMessage(take.errorMessage)}
+          </p>
+        ) : null}
+        {take.status === "available" && take.videoUrl ? (
+          <div className="mt-1.5 grid gap-1.5">
+            <video
+              src={take.videoUrl}
+              controls
+              preload="none"
+              className="aspect-video w-full rounded-md bg-black object-contain"
+            />
+            {!take.isTimelineSelected ? (
+              <button
+                type="button"
+                disabled={adoptingTakeId === take.id || !onAdoptVideoTake}
+                onClick={() => void adopt(take.id)}
+                className="inline-flex h-7 items-center justify-center gap-1 rounded-md bg-nayin-bright px-2 text-[9px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {adoptingTakeId === take.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Play className="h-3 w-3" />
+                )}
+                {stale ? "仍然采用旧版" : "采用到动态分镜"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {take.parameterSnapshot ? (
+          <details className="mt-1.5 text-muted-foreground">
+            <summary className="flex cursor-pointer list-none items-center gap-1">
+              <ChevronDown className="h-3 w-3" />
+              生成参数
+            </summary>
+            <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-1.5 text-[8px]">
+              {JSON.stringify(take.parameterSnapshot, null, 2)}
+            </pre>
+          </details>
+        ) : null}
+      </div>
+    );
   };
 
   return (
@@ -412,99 +568,48 @@ export default function ShotMaterialBasket({
           ) : null}
         </div>
       ) : null}
-      {latestTake ? (
+      {takeStats.total > 0 ? (
         <div className="mt-2 space-y-1.5">
-          {shot.videoTakes?.slice(0, 3).map(take => {
-            const affordance = videoTakeAffordance(take.status);
-            const stale =
-              shot.imageId != null &&
-              take.sourceImageId != null &&
-              shot.imageId !== take.sourceImageId;
-            return (
-              <div
-                key={take.id}
-                draggable={Boolean(shot.stableShotId)}
-                aria-grabbed={draggingTakeId === take.id}
-                onDragStart={event => startTakeDrag(event, take.id)}
-                onDragEnd={() => setDraggingTakeId(null)}
-                title="拖到另一个镜头卡片"
-                className={`rounded-md border px-2 py-1.5 text-[9px] transition ${
-                  movingVideoTakeId === take.id
-                    ? "cursor-wait opacity-60"
-                    : "cursor-grab active:cursor-grabbing"
-                }`}
-                style={{
-                  borderColor:
-                    draggingTakeId === take.id
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
-                  background: "var(--background)",
-                }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-foreground">
-                    Take {take.id} · {affordance.label}
-                  </span>
-                  {take.isTimelineSelected ? (
-                    <span className="inline-flex items-center gap-1 text-nayin-bright">
-                      <Check className="h-3 w-3" />
-                      已采用
-                    </span>
-                  ) : stale ? (
-                    <span className="text-amber-700">基于旧主图</span>
-                  ) : null}
-                </div>
-                <p className="mt-0.5 truncate text-muted-foreground">
-                  {compactSnapshot(take.parameterSnapshot) ||
-                    take.prompt ||
-                    shotLabel(shot)}
-                </p>
-                {take.errorMessage ? (
-                  <p className="mt-0.5 text-destructive">
-                    {videoTakeErrorMessage(take.errorMessage)}
-                  </p>
-                ) : null}
-                {take.status === "available" && take.videoUrl ? (
-                  <div className="mt-1.5 grid gap-1.5">
-                    <video
-                      src={take.videoUrl}
-                      controls
-                      preload="metadata"
-                      className="aspect-video w-full rounded-md bg-black object-contain"
-                    />
-                    {!take.isTimelineSelected ? (
-                      <button
-                        type="button"
-                        disabled={
-                          adoptingTakeId === take.id || !onAdoptVideoTake
-                        }
-                        onClick={() => void adopt(take.id)}
-                        className="inline-flex h-7 items-center justify-center gap-1 rounded-md bg-nayin-bright px-2 text-[9px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                      >
-                        {adoptingTakeId === take.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Play className="h-3 w-3" />
-                        )}
-                        {stale ? "仍然采用旧版" : "采用到动态分镜"}
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-                {take.parameterSnapshot ? (
-                  <details className="mt-1.5 text-muted-foreground">
-                    <summary className="flex cursor-pointer list-none items-center gap-1">
-                      <ChevronDown className="h-3 w-3" />
-                      生成参数
-                    </summary>
-                    <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-1.5 text-[8px]">
-                      {JSON.stringify(take.parameterSnapshot, null, 2)}
-                    </pre>
-                  </details>
-                ) : null}
+          <div
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[9px]"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            <span className="font-semibold text-foreground">Take 总览</span>
+            <span className="text-muted-foreground">
+              可用 {takeStats.playableCount} / 全部 {takeStats.total}
+              {takeStats.refreshableCount > 0
+                ? ` · 待刷新 ${takeStats.refreshableCount}`
+                : ""}
+              {takeStats.unavailable.length > 0
+                ? ` · 不可用 ${takeStats.unavailable.length}`
+                : ""}
+            </span>
+          </div>
+          {takeStats.active.length > 0 ? (
+            takeStats.active.map(take => renderTakeCard(take, true))
+          ) : (
+            <p
+              className="rounded-md border px-2 py-1.5 text-[9px] text-muted-foreground"
+              style={{ borderColor: "var(--panel-border)" }}
+            >
+              当前没有可用或待刷新的 Take；不可用 Take
+              已收起，不再占用可用位置。
+            </p>
+          )}
+          {takeStats.unavailable.length > 0 ? (
+            <details className="rounded-md border px-2 py-1.5 text-[9px] text-muted-foreground">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1">
+                  <ChevronDown className="h-3 w-3" />
+                  不可用 Take
+                </span>
+                <span>{takeStats.unavailable.length} 个，不占用可用位</span>
+              </summary>
+              <div className="mt-1.5 space-y-1.5">
+                {takeStats.unavailable.map(take => renderTakeCard(take, false))}
               </div>
-            );
-          })}
+            </details>
+          ) : null}
         </div>
       ) : (
         <p

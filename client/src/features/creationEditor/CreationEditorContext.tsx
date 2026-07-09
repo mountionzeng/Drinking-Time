@@ -28,6 +28,7 @@ import {
   writePromptOverride,
   writePromptRun,
   writePromptShot,
+  writeShotContentSnapshot,
   writeShotDuration,
 } from "./promptTable/persist";
 import { buildPromptTable } from "./promptTable/buildPromptTable";
@@ -167,6 +168,7 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
+  markVideoTakeUnusable: (takeId: number) => Promise<void>;
   moveVideoTake: (input: {
     takeId: number;
     targetStableShotId: string;
@@ -174,6 +176,11 @@ type CreationEditorContextValue = {
   adoptVideoTake: (input: {
     stableShotId: string;
     takeId: number;
+    plannedDurationSec: number;
+  }) => Promise<void>;
+  reuseVideoTake: (input: {
+    sourceTakeId: number;
+    targetStableShotId: string;
     plannedDurationSec: number;
   }) => Promise<void>;
   createVideoTakeRange: (input: {
@@ -955,6 +962,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.generateShotVideo.useMutation();
   const refreshShotVideoStatusMut =
     trpc.creationAgent.refreshShotVideoStatus.useMutation();
+  const markVideoTakeUnusableMut =
+    trpc.creationAgent.markVideoTakeUnusable.useMutation();
   const createVideoTakeRangeMut =
     trpc.creationAgent.createVideoTakeRange.useMutation();
   const selectVideoTimelineSegmentMut =
@@ -963,6 +972,7 @@ export function CreationEditorProvider({
     trpc.creationAgent.clearVideoTimelineSegment.useMutation();
   const moveVideoTakeMut = trpc.creationAgent.moveVideoTake.useMutation();
   const adoptVideoTakeMut = trpc.creationAgent.adoptVideoTake.useMutation();
+  const reuseVideoTakeMut = trpc.creationAgent.reuseVideoTake.useMutation();
   const updateStoryTimelineMut =
     trpc.creationAgent.updateStoryTimeline.useMutation();
   const createDerivationDraftMut =
@@ -1448,7 +1458,39 @@ export function CreationEditorProvider({
       });
       if (promptLineageQuery.data?.mode !== "lineage") {
         const compiled = compilePromptRecipe({ shot, rows });
-        const body = writePromptRun(storyQuery.data?.body, shotNo, {
+        const bodyWithShotContent = writeShotContentSnapshot(
+          storyQuery.data?.body,
+          shotNo,
+          {
+            stableShotId: shot.stableShotId,
+            shotIdentity: shot.shotIdentity,
+            shotKey: shot.shotKey,
+            subject: shot.subject,
+            action: shot.action,
+            dialogue: shot.dialogue,
+            shotType: shot.shotType,
+            beat: shot.beat,
+            cameraAngle: shot.cameraAngle,
+            cameraMove: shot.cameraMove,
+            location: shot.location,
+            timeLight: shot.timeLight,
+            mood: shot.mood,
+            sound: shot.sound,
+            styleRef: shot.styleRef,
+            note: shot.note,
+            emotion: shot.emotion,
+            sourceCardContent: shot.sourceCardContent,
+            intent: shot.intent,
+            rationale: shot.rationale,
+            videoPrompt: shot.videoPrompt,
+            videoStart: shot.videoStart,
+            videoEnd: shot.videoEnd,
+            transitionIn: shot.transitionIn,
+            transitionOut: shot.transitionOut,
+            negativePrompt: shot.negativePrompt,
+          }
+        );
+        const body = writePromptRun(bodyWithShotContent, shotNo, {
           finalPrompt: result.prompt || compiled.finalPrompt,
           generatedAt: Date.now(),
           imageId: result.imageId,
@@ -1562,6 +1604,23 @@ export function CreationEditorProvider({
     await storyMaterialQuery.refetch();
   };
 
+  const markVideoTakeUnusable = async (takeId: number) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法标记视频 Take");
+    const result = await markVideoTakeUnusableMut.mutateAsync({
+      storyId: activeId,
+      takeId,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "视频 Take 标记失败");
+    }
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+  };
+
   const adoptVideoTakeForShot = async (input: {
     stableShotId: string;
     takeId: number;
@@ -1578,6 +1637,27 @@ export function CreationEditorProvider({
     await Promise.all([
       storyVideoAssetsQuery.refetch(),
       storyMaterialQuery.refetch(),
+    ]);
+  };
+
+  const reuseVideoTakeForShot = async (input: {
+    sourceTakeId: number;
+    targetStableShotId: string;
+    plannedDurationSec: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法复用视频");
+    const result = await reuseVideoTakeMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "视频 Take 复用失败");
+    }
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
     ]);
   };
 
@@ -1820,10 +1900,12 @@ export function CreationEditorProvider({
       promoteStoryImage,
       generateShotVideo,
       refreshShotVideoStatus,
+      markVideoTakeUnusable,
       insertPersistedShotAfter,
       deletePersistedShot,
       moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
+      reuseVideoTake: reuseVideoTakeForShot,
       createVideoTakeRange,
       selectVideoTimelineSegment,
       clearVideoTimelineSegment,
@@ -1860,7 +1942,9 @@ export function CreationEditorProvider({
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,
+      markVideoTakeUnusable,
       moveVideoTakeToShot,
+      reuseVideoTakeForShot,
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,

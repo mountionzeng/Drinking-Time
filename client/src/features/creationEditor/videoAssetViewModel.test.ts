@@ -3,6 +3,7 @@ import {
   currentVideoTakeForEditing,
   playableVideoTake,
   selectedVideoSegmentDurationMs,
+  shotTimelineDurationMs,
   videoTakeAffordance,
   videoTakeErrorMessage,
 } from "./videoAssetViewModel";
@@ -86,6 +87,18 @@ describe("videoAssetViewModel", () => {
     expect(playableVideoTake([failedTake, readyTake])).toBe(readyTake);
   });
 
+  it("keeps manually unusable takes out of preview even if a stale videoUrl remains", () => {
+    expect(
+      playableVideoTake([
+        {
+          id: 3,
+          status: "unfollowable" as const,
+          videoUrl: "/videos/bad.mp4",
+        },
+      ])
+    ).toBeUndefined();
+  });
+
   it("does not make failed-only video history the current editable take", () => {
     expect(
       currentVideoTakeForEditing([
@@ -117,6 +130,82 @@ describe("videoAssetViewModel", () => {
     expect(currentVideoTakeForEditing([failedTake, readyTake], 17)).toBe(
       readyTake
     );
+  });
+
+  it("does not keep an unusable selected take as the current editable take", () => {
+    const unusableSelected = {
+      id: 20,
+      status: "unfollowable" as const,
+      videoUrl: "/videos/bad.mp4",
+      isTimelineSelected: true,
+    };
+    const readyTake = {
+      id: 19,
+      status: "available" as const,
+      videoUrl: "/videos/ready.mp4",
+      isTimelineSelected: false,
+    };
+
+    expect(currentVideoTakeForEditing([unusableSelected, readyTake])).toBe(
+      readyTake
+    );
+  });
+
+  it("does not let an unusable selected take define timeline duration", () => {
+    expect(
+      shotTimelineDurationMs({
+        shotNo: 1,
+        shotKey: "SH01",
+        stableShotId: "shot-1",
+        shotIdentity: "shot-1",
+        subject: "",
+        action: "",
+        dialogue: "",
+        shotType: "",
+        beat: "",
+        cameraAngle: "",
+        cameraMove: "",
+        location: "",
+        timeLight: "",
+        mood: "",
+        sound: "",
+        styleRef: "",
+        note: "",
+        emotion: "",
+        sourceCardContent: "",
+        durationMs: 3200,
+        videoTakes: [
+          {
+            id: 9,
+            storyId: 1,
+            userId: 1,
+            stableShotId: "shot-1",
+            sourceImageId: null,
+            promptCompilationId: null,
+            promptFreshness: "legacy",
+            status: "unfollowable",
+            taskId: null,
+            provider: "302",
+            model: "video-model",
+            prompt: "bad",
+            subtitle: null,
+            durationSec: 12,
+            aspectRatio: "16:9",
+            videoKey: null,
+            videoUrl: "/videos/bad.mp4",
+            errorMessage: null,
+            parameterSnapshot: null,
+            extractionCapability: "unavailable",
+            createdAt: "2026-06-22T00:00:00.000Z",
+            updatedAt: "2026-06-22T00:00:00.000Z",
+            ranges: [],
+            selectedRangeId: null,
+            selectedSelectionType: "full_take",
+            isTimelineSelected: true,
+          },
+        ],
+      })
+    ).toBe(3200);
   });
 
   it("explains the ambiguous MJ approval error in actionable Chinese", () => {

@@ -1,12 +1,12 @@
-import type { CreationEditorShot } from '../CreationEditorContext';
-import type { PromptRow, PromptRunRecord } from './types';
-import { SINGLE_FRAME_HARD_CONSTRAINT } from '@shared/singleFramePrompt';
+import type { CreationEditorShot } from "../CreationEditorContext";
+import type { PromptRow, PromptRunRecord } from "./types";
+import { SINGLE_FRAME_HARD_CONSTRAINT } from "@shared/singleFramePrompt";
 import {
   type PromptContext,
   type PromptPreviousShot,
   buildUnifiedPrompt,
-} from '@shared/promptContext';
-import { buildContinuityHint } from '@shared/promptContinuity';
+} from "@shared/promptContext";
+import { buildContinuityHint } from "@shared/promptContinuity";
 
 export type CompiledPromptRecipe = {
   finalPrompt: string;
@@ -24,7 +24,7 @@ export function compilePromptRecipe(params: {
   previousShot?: PromptPreviousShot;
 }): CompiledPromptRecipe {
   const sortedRows = [...params.rows]
-    .filter((row) => row.value.trim())
+    .filter(row => row.value.trim())
     .sort((left, right) => right.weight - left.weight);
 
   // 构建 PromptContext
@@ -55,53 +55,73 @@ export function compilePromptRecipe(params: {
 
   // 在镜头内容和硬约束之间插入加权维度行
   if (sortedRows.length > 0) {
-    const weightedLines = sortedRows.map((row) => {
+    const weightedLines = sortedRows.map(row => {
       const weight = Math.round(row.weight * 100);
       return `${row.label}(${weight}%): ${row.value.trim()}`;
     });
-    const dimensionBlock = 'Prompt dimensions with weights:\n' + weightedLines.join('\n');
+    const dimensionBlock =
+      "Prompt dimensions with weights:\n" + weightedLines.join("\n");
 
-    const constraintIdx = prompt.indexOf('Single-frame rule:');
+    const constraintIdx = prompt.indexOf("Single-frame rule:");
     if (constraintIdx > 0) {
-      prompt = prompt.slice(0, constraintIdx) + dimensionBlock + '\n' + prompt.slice(constraintIdx);
+      prompt =
+        prompt.slice(0, constraintIdx) +
+        dimensionBlock +
+        "\n" +
+        prompt.slice(constraintIdx);
     } else {
-      prompt = prompt + '\n' + dimensionBlock;
+      prompt = prompt + "\n" + dimensionBlock;
     }
   }
 
   // 连续性提示
   const continuity = params.continuityHint
     ? `Continuity: ${params.continuityHint}`
-    : (params.previousShot ? buildContinuityHint(params.previousShot, ctx.shot) : '');
+    : params.previousShot
+      ? buildContinuityHint(params.previousShot, ctx.shot)
+      : "";
   if (continuity) {
-    const constraintIdx = prompt.indexOf('Single-frame rule:');
+    const constraintIdx = prompt.indexOf("Single-frame rule:");
     if (constraintIdx > 0) {
-      prompt = prompt.slice(0, constraintIdx) + continuity + '\n' + prompt.slice(constraintIdx);
+      prompt =
+        prompt.slice(0, constraintIdx) +
+        continuity +
+        "\n" +
+        prompt.slice(constraintIdx);
     } else {
-      prompt = prompt + '\n' + continuity;
+      prompt = prompt + "\n" + continuity;
     }
   }
 
   // 对话叙事提示
-  if (shot.dialogue) {
-    const narrativeHint = 'Dialogue meaning to express through acting and composition only, do not render as text. Visual storytelling: convey the emotion and meaning of this scene through composition, lighting and acting.';
-    const constraintIdx = prompt.indexOf('Single-frame rule:');
+  const dialogue = shot.dialogue?.trim();
+  if (dialogue) {
+    const narrativeHint = [
+      `Dialogue/subtitle/voiceover reference: ${dialogue}`,
+      "Use this line as emotional and narrative subtext for facial expression, staging, lighting, and composition.",
+      "Do not render the dialogue as visible captions, signs, UI text, subtitles, or typography in the image.",
+    ].join(" ");
+    const constraintIdx = prompt.indexOf("Single-frame rule:");
     if (constraintIdx > 0) {
-      prompt = prompt.slice(0, constraintIdx) + narrativeHint + '\n' + prompt.slice(constraintIdx);
+      prompt =
+        prompt.slice(0, constraintIdx) +
+        narrativeHint +
+        "\n" +
+        prompt.slice(constraintIdx);
     } else {
-      prompt = prompt + '\n' + narrativeHint;
+      prompt = prompt + "\n" + narrativeHint;
     }
   }
 
   return {
     finalPrompt: prompt,
-    usedDimensions: sortedRows.map((row) => row.dimension),
+    usedDimensions: sortedRows.map(row => row.dimension),
   };
 }
 
 export function promptRunUsesDimension(
   promptRun: PromptRunRecord | undefined,
-  dimension: string,
+  dimension: string
 ): boolean {
   return Boolean(promptRun?.usedDimensions.includes(dimension));
 }

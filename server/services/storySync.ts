@@ -165,9 +165,16 @@ function shotContentKey(value: unknown): string | null {
   return parts.join("\u0000");
 }
 
+type MergeShotOptions = { preserveNonEmptyDialogue?: boolean };
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
 function mergeShotPreservedFields(
   serverValue: unknown,
-  incomingValue: unknown
+  incomingValue: unknown,
+  options: MergeShotOptions = {}
 ): unknown {
   const serverShot = asRecord(serverValue);
   const incomingShot = asRecord(incomingValue);
@@ -191,6 +198,14 @@ function mergeShotPreservedFields(
         merged[field] = serverShot[field];
       }
     }
+  }
+
+  if (
+    options.preserveNonEmptyDialogue &&
+    isNonEmptyString(serverShot.dialogue) &&
+    !isNonEmptyString(incomingShot.dialogue)
+  ) {
+    merged.dialogue = serverShot.dialogue;
   }
 
   return merged;
@@ -241,7 +256,10 @@ function mergeStoryShotsPreservingFields(
         .map(entry => shotContentKey(entry.item))
         .filter((key): key is string => key !== null)
     );
-    const insertionsByPreviousKnownKey = new Map<string, typeof incomingEntries>();
+    const insertionsByPreviousKnownKey = new Map<
+      string,
+      typeof incomingEntries
+    >();
     const leadingInsertions: typeof incomingEntries = [];
     let previousKnownKey: string | null = null;
 
@@ -264,13 +282,19 @@ function mergeStoryShotsPreservingFields(
     });
 
     const merged = leadingInsertions.map(entry =>
-      mergeShotPreservedFields(serverByKey.get(entry.key), entry.item)
+      mergeShotPreservedFields(serverByKey.get(entry.key), entry.item, {
+        preserveNonEmptyDialogue: true,
+      })
     );
 
     serverEntries.forEach(entry => {
       const incoming = incomingByKey.get(entry.key);
       if (incoming !== undefined) {
-        merged.push(mergeShotPreservedFields(entry.item, incoming));
+        merged.push(
+          mergeShotPreservedFields(entry.item, incoming, {
+            preserveNonEmptyDialogue: true,
+          })
+        );
       } else {
         merged.push(entry.item);
       }
@@ -279,7 +303,8 @@ function mergeStoryShotsPreservingFields(
         merged.push(
           mergeShotPreservedFields(
             serverByKey.get(insertedEntry.key),
-            insertedEntry.item
+            insertedEntry.item,
+            { preserveNonEmptyDialogue: true }
           )
         );
       });
@@ -361,10 +386,18 @@ export function mergeStaleStoryBody(
     if (Array.isArray(incoming[collection])) {
       merged[collection] =
         collection === "shots"
-          ? mergeStoryShotsPreservingFields(server[collection], incoming[collection], {
-              preserveServerOnly: true,
-            })
-          : mergeStableArray(collection, server[collection], incoming[collection]);
+          ? mergeStoryShotsPreservingFields(
+              server[collection],
+              incoming[collection],
+              {
+                preserveServerOnly: true,
+              }
+            )
+          : mergeStableArray(
+              collection,
+              server[collection],
+              incoming[collection]
+            );
     }
   }
 

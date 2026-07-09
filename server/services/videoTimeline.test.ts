@@ -10,7 +10,9 @@ import {
 import {
   clearVideoTimelineSegment,
   createUsableVideoRange,
+  markVideoTakeUnusable,
   moveVideoTakeToShot,
+  reuseVideoTakeForShot,
   selectVideoTimelineSegment,
 } from "./videoTimeline";
 
@@ -176,6 +178,51 @@ describe("videoTimeline", () => {
     ]);
   });
 
+  it("reuses a take on another shot without moving the source take", async () => {
+    const { story, take } = await seedStory();
+
+    const reused = await reuseVideoTakeForShot(
+      {
+        storyId: story.id,
+        sourceTakeId: take.id,
+        targetStableShotId: "shot-07",
+        plannedDurationSec: 2.4,
+      },
+      1
+    );
+
+    expect(reused.take).toMatchObject({
+      storyId: story.id,
+      stableShotId: "shot-07",
+      status: "available",
+      videoUrl: take.videoUrl,
+      sourceImageId: null,
+      promptCompilationId: null,
+    });
+    expect(reused.take.id).not.toBe(take.id);
+    expect(reused.range).toMatchObject({
+      takeId: reused.take.id,
+      stableShotId: "shot-07",
+      startSec: 0,
+      endSec: 2.4,
+    });
+    expect(reused.selection).toMatchObject({
+      takeId: reused.take.id,
+      stableShotId: "shot-07",
+      rangeId: reused.range.id,
+      selectionType: "range",
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      stableShotId: "shot-06",
+    });
+    expect(await getStoryVideoTimelineSelections(story.id, 1)).toEqual([
+      expect.objectContaining({
+        stableShotId: "shot-07",
+        takeId: reused.take.id,
+      }),
+    ]);
+  });
+
   it("clears timeline truth without deleting the take", async () => {
     const { story, take } = await seedStory();
     await selectVideoTimelineSegment(
@@ -193,6 +240,38 @@ describe("videoTimeline", () => {
       1
     );
 
+    expect(await getStoryVideoTimelineSelections(story.id, 1)).toEqual([]);
+  });
+
+  it("marks a take unusable and removes its timeline slot", async () => {
+    const { story, take } = await seedStory();
+    await selectVideoTimelineSegment(
+      {
+        storyId: story.id,
+        stableShotId: "shot-06",
+        takeId: take.id,
+        selectionType: "full_take",
+      },
+      1
+    );
+
+    const result = await markVideoTakeUnusable(
+      { storyId: story.id, takeId: take.id },
+      1
+    );
+
+    expect(result).toMatchObject({
+      clearedTimelineSelection: true,
+      take: {
+        id: take.id,
+        status: "unfollowable",
+        errorMessage: "用户标记为不可用。",
+      },
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      status: "unfollowable",
+      errorMessage: "用户标记为不可用。",
+    });
     expect(await getStoryVideoTimelineSelections(story.id, 1)).toEqual([]);
   });
 
