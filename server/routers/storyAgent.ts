@@ -482,9 +482,12 @@ export const storyAgentRouter = router({
         const existing = await getStoryById(input.id, ctx.user.id);
         if (existing) {
           const currentRevision = getStoryRevision(existing.body);
+          // 不带 baseRevision 的整包保存（老代码标签页/未知客户端）没有资格全量
+          // 替换 body——曾经把刚插入的手动镜头几秒内抹掉。按过期冲突走保守合并。
           const syncConflict =
-            input.baseRevision !== undefined &&
-            input.baseRevision !== currentRevision;
+            input.baseRevision !== undefined
+              ? input.baseRevision !== currentRevision
+              : input.body !== undefined && currentRevision > 0;
           const nextRevision = currentRevision + 1;
           const title =
             !syncConflict && input.title !== undefined

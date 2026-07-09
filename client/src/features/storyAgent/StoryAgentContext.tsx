@@ -522,8 +522,22 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
       ? obj.narrativeJob as StoryShot['narrativeJob']
       : undefined;
   const action = str(obj.action);
-  if (!action) return null;
+  const identity =
+    typeof obj.stableShotId === 'string' && obj.stableShotId
+      ? obj.stableShotId
+      : typeof obj.shotIdentity === 'string' && obj.shotIdentity
+        ? obj.shotIdentity
+        : undefined;
+  // 手动插入的空镜头 action 为空但有身份，必须保留——曾因这里直接丢弃，
+  // 水合后 spine 缺了这颗镜头，下一次整包保存就把它从服务端抹掉了。
+  if (!action && !identity && !str(obj.subject) && !str(obj.dialogue)) {
+    return null;
+  }
   return {
+    // 身份字段必须透传：剥掉的话，保存时服务端会按镜头号重新生成身份，
+    // 客户端手里的旧身份全部作废，添加/移动/编辑镜头随机报「镜头不存在」。
+    stableShotId: identity,
+    shotIdentity: identity,
     shotNo: typeof obj.shotNo === 'number' ? obj.shotNo : index + 1,
     subject: str(obj.subject),
     action,

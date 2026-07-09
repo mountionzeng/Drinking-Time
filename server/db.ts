@@ -2393,6 +2393,23 @@ export async function createEditSnapshot(
       timestamp: now(),
     };
     memoryState.editSnapshots.push(snapshot);
+    // 每条快照都带完整 state，旧快照没有链式依赖（previousSnapshotId 只在写入时
+    // 算 diff 用）。不修剪的话文件无限增长——2026-07-08 曾涨到 126MB，每次保存
+    // 整体重写一遍，最终把进程写到 OOM。这里按项目只留最近 50 条。
+    const KEEP_PER_PROJECT = 50;
+    const projectSnapshots = memoryState.editSnapshots
+      .filter(s => s.projectId === snapshot.projectId)
+      .sort(
+        (a, b) => b.timestamp.getTime() - a.timestamp.getTime() || b.id - a.id
+      );
+    if (projectSnapshots.length > KEEP_PER_PROJECT) {
+      const dropIds = new Set(
+        projectSnapshots.slice(KEEP_PER_PROJECT).map(s => s.id)
+      );
+      memoryState.editSnapshots = memoryState.editSnapshots.filter(
+        s => !dropIds.has(s.id)
+      );
+    }
     await persistLocalEditSnapshotsToDisk(memoryState.editSnapshots);
     return snapshot;
   }

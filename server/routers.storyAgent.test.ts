@@ -324,6 +324,7 @@ describe("storyAgent tRPC router", () => {
 
     const updated = await caller.storyAgent.storyUpsert({
       id: created!.id,
+      baseRevision: created!.revision,
       title: "夜行修订",
       summary: "修订后的摘要",
       body: {
@@ -394,6 +395,50 @@ describe("storyAgent tRPC router", () => {
       stableShotId: "shot-b",
       shotNo: 3,
     });
+  });
+
+  it("不带 baseRevision 的整包保存不能抹掉刚插入的手动镜头", async () => {
+    const caller = appRouter.createCaller(createAuthContext(106));
+
+    const staleShots = [
+      {
+        shotNo: 1,
+        stableShotId: "shot-a",
+        shotIdentity: "shot-a",
+        subject: "第一镜",
+      },
+      {
+        shotNo: 2,
+        stableShotId: "shot-b",
+        shotIdentity: "shot-b",
+        subject: "第二镜",
+      },
+    ];
+    const created = await caller.storyAgent.storyUpsert({
+      title: "竞态回归",
+      body: { cards: [], characters: [], shots: staleShots },
+    });
+
+    await caller.storyAgent.insertStoryShotAfter({
+      storyId: created!.id,
+      stableShotId: "shot-a",
+    });
+
+    // 老代码标签页的自动保存：整包 body、不带 baseRevision。
+    // 曾被当成权威全量替换，把刚插入的手动镜头几秒内抹掉。
+    await caller.storyAgent.storyUpsert({
+      id: created!.id,
+      body: { cards: [], characters: [], shots: staleShots },
+    });
+
+    const loaded = await caller.storyAgent.storyGet({ id: created!.id });
+    const body = loaded?.body as { shots?: Array<Record<string, unknown>> };
+    expect(body.shots).toHaveLength(3);
+    expect(
+      body.shots?.some(shot =>
+        String(shot.stableShotId ?? "").startsWith("manual-")
+      )
+    ).toBe(true);
   });
 
   it("手机端保存会把 messages 与 cards 写进 story body，且更新时不抹掉原标题", async () => {
@@ -473,8 +518,12 @@ describe("storyAgent tRPC router", () => {
     });
 
     expect(updated?.title).toBe("手机故事");
+    // 不带 baseRevision 的整包保存按保守合并处理（防止清缓存的设备
+    // 把服务端已有进度整包冲掉），旧消息保留、新消息并入。
     const updatedBody = updated?.body as Record<string, unknown>;
     expect(updatedBody.messages).toEqual([
+      expect.objectContaining({ timestamp: 123 }),
+      expect.objectContaining({ timestamp: 124 }),
       expect.objectContaining({
         role: "user",
         content: "新手机清缓存后也能接上",
