@@ -396,6 +396,29 @@ describe('creation editor route and shell', () => {
     expect(merged[1].imageUrl).toBe('/api/images/shot-two-b.png');
   });
 
+  it('does not attach legacy shot images to manually inserted shots with inherited display numbers', () => {
+    const manualShotId = 'manual-sh03-mrd3pyj1-0rn9tj';
+    const merged = mergeShotsWithImages([
+      shot(3, { stableShotId: manualShotId, shotIdentity: manualShotId }),
+      shot(10, {
+        stableShotId: 'legacy-sh03-shot',
+        shotIdentity: 'legacy-sh03-shot',
+      }),
+    ], [
+      {
+        id: 13,
+        shotNo: 3,
+        shotIdentity: 'legacy-sh03-shot',
+        imageUrl: '/api/images/legacy-sh03.png',
+        prompt: 'old SH03 frame',
+        isPrimary: true,
+      },
+    ]);
+
+    expect(merged[0].imageUrl).toBeUndefined();
+    expect(merged[1].imageUrl).toBe('/api/images/legacy-sh03.png');
+  });
+
   it('does not attach unbound pending drafts to the animatic fallback', () => {
     const merged = mergeShotsWithImages([shot(1)], [
       {

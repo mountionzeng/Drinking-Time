@@ -166,6 +166,62 @@ describe("getStoryMaterialState", () => {
     expect(shot?.videoTakes.map(item => item.id)).toContain(take.id);
   });
 
+  it("does not match legacy assets to manually inserted shots with inherited display numbers", async () => {
+    const manualShotId = "manual-sh03-mrd3pyj1-0rn9tj";
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "插入镜头故事",
+      body: {
+        shots: [
+          {
+            stableShotId: "legacy-sh02-shot",
+            shotIdentity: "legacy-sh02-shot",
+            shotNo: 2,
+            subject: "原 SH02",
+          },
+          {
+            stableShotId: manualShotId,
+            shotIdentity: manualShotId,
+            shotNo: 3,
+            subject: "新增镜头",
+          },
+          {
+            stableShotId: "legacy-sh03-shot",
+            shotIdentity: "legacy-sh03-shot",
+            shotNo: 4,
+            subject: "原 SH03",
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH03",
+      shotIdentity: "legacy-sh03-shot",
+      imageUrl: "data:image/png;base64,AAAA",
+      imageKey: null,
+      prompt: "原 SH03 画面",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    await selectImage(story.id, image.id);
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    const manualShot = materials?.shots.find(
+      shot => shot.stableShotId === manualShotId
+    );
+    const legacyShot = materials?.shots.find(
+      shot => shot.stableShotId === "legacy-sh03-shot"
+    );
+
+    expect(manualShot?.currentImage).toBeNull();
+    expect(manualShot?.imageVersions).toEqual([]);
+    expect(legacyShot?.currentImage?.id).toBe(image.id);
+  });
+
   it("auto-binds current prompt compilations to new image and video assets", async () => {
     const story = await seedPromptStory();
     const projection = await getPromptProjection(story.id);

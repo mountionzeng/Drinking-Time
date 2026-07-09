@@ -121,6 +121,17 @@ describe("StoryCardsBoard intent entry", () => {
     ).toBe("story-shot-04");
   });
 
+  it("keeps manual shot insertion available in both storyboard views", () => {
+    const boardSource = readFileSync(
+      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      "utf8"
+    );
+
+    expect((boardSource.match(/<AddShotButton/g) ?? []).length).toBe(2);
+    expect(boardSource).toContain("已在 SH");
+    expect(boardSource).toContain("后添加镜头");
+  });
+
   it("does not keep the old StoryIntentGate entry point on the cards board", () => {
     const boardSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),

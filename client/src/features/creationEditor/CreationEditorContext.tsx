@@ -714,14 +714,12 @@ export function mergeShotsWithImages(
           displayByIdentity.set(key, image);
       }
     }
-    if (image.shotNo != null) {
+    if (!image.shotIdentity && image.shotNo != null) {
       const previous = displayByShotNo.get(image.shotNo);
       if (!previous || image.id >= previous.id)
         displayByShotNo.set(image.shotNo, image);
-    }
-    if (!image.shotIdentity && image.shotNo != null) {
-      const previous = legacyDisplayByShotNo.get(image.shotNo);
-      if (!previous || image.id >= previous.id)
+      const previousLegacy = legacyDisplayByShotNo.get(image.shotNo);
+      if (!previousLegacy || image.id >= previousLegacy.id)
         legacyDisplayByShotNo.set(image.shotNo, image);
     }
   }

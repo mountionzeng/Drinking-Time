@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
 } from "react";
 import {
   motion,
@@ -132,6 +133,36 @@ export function storyShotInsertIdentity(
   index: number
 ): string | null {
   return shotIdentityFromShot(shot, index);
+}
+
+function AddShotButton({
+  shotNo,
+  inserting,
+  disabled,
+  onClick,
+}: {
+  shotNo: number;
+  inserting: boolean;
+  disabled: boolean;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70"
+      style={{ borderColor: "var(--panel-border)" }}
+      aria-label={`在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`}
+    >
+      {inserting ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <PlusCircle className="h-3.5 w-3.5" />
+      )}
+      添加镜头
+    </button>
+  );
 }
 
 const EMPTY_HINT: Record<NayinElement, string> = {
@@ -948,6 +979,7 @@ export function StoryboardReviewBoard({
     setInsertingAfterShotNo(shotNo);
     try {
       await onInsertShotAfter(shotNo, stableShotId);
+      toast.success(`已在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "添加镜头失败，请稍后再试"
@@ -1208,6 +1240,22 @@ export function StoryboardReviewBoard({
                       {storyboardDialogueText(shot)}
                     </button>
                   </div>
+                  {onInsertShotAfter ? (
+                    <div className="px-3 pb-3">
+                      <AddShotButton
+                        shotNo={shot.shotNo}
+                        inserting={insertingAfterShotNo === shot.shotNo}
+                        disabled={insertingAfterShotNo != null}
+                        onClick={event => {
+                          event.stopPropagation();
+                          void insertShotAfter(
+                            shot.shotNo,
+                            insertStableShotId
+                          );
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </article>
               );
             })}
@@ -1445,8 +1493,9 @@ export function StoryboardReviewBoard({
                       </button>
                     ) : null}
                     {onInsertShotAfter ? (
-                      <button
-                        type="button"
+                      <AddShotButton
+                        shotNo={shot.shotNo}
+                        inserting={insertingAfterShotNo === shot.shotNo}
                         disabled={insertingAfterShotNo != null}
                         onClick={event => {
                           event.stopPropagation();
@@ -1455,17 +1504,7 @@ export function StoryboardReviewBoard({
                             insertStableShotId
                           );
                         }}
-                        className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70"
-                        style={{ borderColor: "var(--panel-border)" }}
-                        aria-label={`在 SH${String(shot.shotNo).padStart(2, "0")} 后添加镜头`}
-                      >
-                        {insertingAfterShotNo === shot.shotNo ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <PlusCircle className="h-3.5 w-3.5" />
-                        )}
-                        添加镜头
-                      </button>
+                      />
                     ) : null}
                   </div>
                 </article>

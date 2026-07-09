@@ -68,6 +68,10 @@ export function shotIdentityAliasesForNumber(shotNo: number): string[] {
   ];
 }
 
+function isManualShotIdentity(value: string | null): boolean {
+  return Boolean(value && /^manual[-_:]sh[-_:]?0*\d+(?:$|[-_:])/.test(value));
+}
+
 export function shotIdentityMatchKeys(
   identity: unknown,
   shotNo?: number | null
@@ -75,7 +79,9 @@ export function shotIdentityMatchKeys(
   const keys = new Set<string>();
   const normalized = normalizeShotIdentity(identity);
   if (normalized) keys.add(normalized);
-  const inferredShotNo = shotNumberFromIdentity(normalized);
+  const inferredShotNo = isManualShotIdentity(normalized)
+    ? null
+    : shotNumberFromIdentity(normalized);
   const fallbackShotNo = normalized ? null : safeShotNumber(shotNo);
   const resolvedShotNo = inferredShotNo ?? fallbackShotNo;
   if (resolvedShotNo != null) {
