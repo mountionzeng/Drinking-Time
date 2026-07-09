@@ -3,11 +3,14 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   Copy,
   Check,
+  Clock3,
   GitBranchPlus,
   Loader2,
   MessageCircle,
+  Minus,
   Pause,
   Play,
+  Plus,
   RotateCcw,
   ScanLine,
   Video,
@@ -34,6 +37,9 @@ import {
   seekToShot,
   shotDurationMs,
   totalDurationMs,
+  MAX_SHOT_DURATION_MS,
+  MIN_SHOT_DURATION_MS,
+  SHOT_DURATION_STEP_MS,
   type PlaybackState,
 } from "../playback";
 import {
@@ -96,6 +102,7 @@ type AnimaticPlayerProps = {
     selectedImageId: number
   ) => Promise<number>;
   onUndoStoryOperation?: (operationId: number) => Promise<void>;
+  onDurationChange?: (shotNo: number, durationMs: number) => void;
 };
 
 function shotLabel(shot: CreationEditorShot) {
@@ -193,6 +200,7 @@ export default function AnimaticPlayer({
   onCreateDerivedShotDraft,
   onConfirmDerivedShot,
   onUndoStoryOperation,
+  onDurationChange,
 }: AnimaticPlayerProps) {
   const playbackShots = useMemo(
     () =>
@@ -258,6 +266,7 @@ export default function AnimaticPlayer({
   const [deriveOperationId, setDeriveOperationId] = useState<number | null>(
     null
   );
+  const [durationControlOpen, setDurationControlOpen] = useState(false);
   const [deriveMediaSize, setDeriveMediaSize] = useState<{
     width: number;
     height: number;
@@ -500,6 +509,14 @@ export default function AnimaticPlayer({
       onRefreshShotVideoStatus &&
       ["submitted", "processing"].includes(currentVideoTake.status)
   );
+  const changeCurrentShotDuration = (nextDurationMs: number) => {
+    if (!currentShot || !onDurationChange) return;
+    const clamped = Math.min(
+      MAX_SHOT_DURATION_MS,
+      Math.max(MIN_SHOT_DURATION_MS, Math.round(nextDurationMs))
+    );
+    onDurationChange(currentShot.shotNo, clamped);
+  };
   const updateRangeDraft = (
     patch: Partial<{ startSec: number; endSec: number }>
   ) => {
@@ -927,6 +944,21 @@ export default function AnimaticPlayer({
                 <Button
                   type="button"
                   size="sm"
+                  variant={durationControlOpen ? "default" : "outline"}
+                  onClick={() => setDurationControlOpen(open => !open)}
+                  disabled={!onDurationChange}
+                  aria-label={
+                    currentShot
+                      ? `调整${shotLabel(currentShot)}时长`
+                      : "调整镜头时长"
+                  }
+                >
+                  <Clock3 className="h-4 w-4" />
+                  时长 {(duration / 1000).toFixed(1)}s
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   variant={deriveWorkbenchOpen ? "default" : "outline"}
                   onClick={() => setDeriveWorkbenchOpen(true)}
                   disabled={!deriveSourceUrl}
@@ -955,6 +987,58 @@ export default function AnimaticPlayer({
                 ) : null}
               </div>
             </div>
+
+            {durationControlOpen ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold text-foreground">
+                      {shotLabel(currentShot)} 时长
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      调整后会同步影响播放进度和底部时间轴。
+                    </div>
+                  </div>
+                  <span className="rounded-md border border-border bg-background px-2 py-1 text-xs font-semibold tabular-nums text-foreground">
+                    {(duration / 1000).toFixed(1)}s
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => changeCurrentShotDuration(duration - 200)}
+                    disabled={duration <= MIN_SHOT_DURATION_MS}
+                    aria-label={`缩短${shotLabel(currentShot)}时长`}
+                  >
+                    <Minus className="h-4 w-4" />
+                    0.2s
+                  </Button>
+                  <Slider
+                    min={MIN_SHOT_DURATION_MS}
+                    max={MAX_SHOT_DURATION_MS}
+                    step={SHOT_DURATION_STEP_MS}
+                    value={[duration]}
+                    onValueChange={value =>
+                      changeCurrentShotDuration(value[0] ?? duration)
+                    }
+                    aria-label={`${shotLabel(currentShot)} 时长`}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => changeCurrentShotDuration(duration + 200)}
+                    disabled={duration >= MAX_SHOT_DURATION_MS}
+                    aria-label={`延长${shotLabel(currentShot)}时长`}
+                  >
+                    <Plus className="h-4 w-4" />
+                    0.2s
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             {currentVideoTake?.errorMessage ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 leading-5 text-destructive">

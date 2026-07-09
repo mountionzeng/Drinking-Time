@@ -183,6 +183,14 @@ export default function AnimaticPanel() {
     setSelectedShotNo(selectedShot.shotNo);
   };
 
+  const handleDurationChange = (shotNo: number, durationMs: number) => {
+    setDurationsByShotNo(current => ({
+      ...current,
+      [shotNo]: durationMs,
+    }));
+    void updateShotDuration(shotNo, durationMs);
+  };
+
   return (
     <section
       className="creation-board-panel relative flex h-full min-h-0 flex-col overflow-hidden"
@@ -268,6 +276,7 @@ export default function AnimaticPanel() {
               onCreateDerivedShotDraft={createDerivedShotDraft}
               onConfirmDerivedShot={confirmDerivedShot}
               onUndoStoryOperation={undoStoryOperation}
+              onDurationChange={handleDurationChange}
             />
             <div className="shrink-0">
               <Timeline
@@ -285,13 +294,7 @@ export default function AnimaticPanel() {
                   setPlaybackMode("timeline");
                   setIsPlaying(false);
                 }}
-                onDurationChange={(shotNo, durationMs) => {
-                  setDurationsByShotNo(current => ({
-                    ...current,
-                    [shotNo]: durationMs,
-                  }));
-                  void updateShotDuration(shotNo, durationMs);
-                }}
+                onDurationChange={handleDurationChange}
               />
             </div>
           </>

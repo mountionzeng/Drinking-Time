@@ -1,7 +1,11 @@
 import { Pause, Play, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { CreationEditorShot } from "../CreationEditorContext";
-import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS } from "../playback";
+import {
+  MAX_SHOT_DURATION_MS,
+  MIN_SHOT_DURATION_MS,
+  SHOT_DURATION_STEP_MS,
+} from "../playback";
 import {
   shotTimelineDurationMs,
   videoTakeAffordance,
@@ -261,7 +265,7 @@ export default function Timeline({
                   type="range"
                   min={MIN_SHOT_DURATION_MS}
                   max={MAX_SHOT_DURATION_MS}
-                  step={200}
+                  step={SHOT_DURATION_STEP_MS}
                   value={duration}
                   onChange={event =>
                     onDurationChange(

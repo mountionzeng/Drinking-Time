@@ -221,10 +221,13 @@ describe("AnimaticPlayer selection actions", () => {
         isPlaying={false}
         onPlayingChange={vi.fn()}
         onSelectContext={vi.fn()}
+        onDurationChange={vi.fn()}
       />
     );
 
     expect(html).toContain("SH01 · 0.0s / 5.0s");
+    expect(html).toContain('aria-label="调整SH01时长"');
+    expect(html).toContain("时长 2.0s");
   });
 
   it("keeps full-film progress visible while previewing a single shot", () => {
