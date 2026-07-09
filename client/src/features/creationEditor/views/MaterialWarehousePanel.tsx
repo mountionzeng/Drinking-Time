@@ -9,14 +9,25 @@ import {
   Upload,
   Video,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import type { ImageAsset } from "@shared/imageAsset";
+import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
+import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useCreationEditor } from "../CreationEditorContext";
 
-type WarehouseImage = Pick<ImageAsset, "id" | "imageUrl" | "shotIdentity">;
+type WarehouseImage = Pick<
+  ImageAsset,
+  "id" | "imageUrl" | "shotIdentity" | "prompt" | "storyId"
+>;
+type WarehouseImageItem = {
+  image: WarehouseImage;
+  shotNo: number | null;
+  stableShotId: string | null;
+  isCurrent: boolean;
+};
 type WarehouseVideoItem = {
   take: VideoTakeAsset;
   shotNo: number | null;
@@ -25,6 +36,32 @@ type WarehouseVideoItem = {
   isUnmatched: boolean;
   isReusable: boolean;
 };
+type SelectedMaterialKey = `image:${number}` | `video:${number}`;
+
+export function videoWarehouseActionState(input: {
+  item: WarehouseVideoItem;
+  activeStoryId: number | null | undefined;
+  currentStableShotId: string | null | undefined;
+  playable: boolean;
+  busy?: boolean;
+}) {
+  if (input.item.isCurrent) {
+    return {
+      disabled: true,
+      icon: "check" as const,
+      label: "已采用",
+    };
+  }
+  const sameCurrentStoryShot =
+    input.item.take.storyId === input.activeStoryId &&
+    input.item.take.stableShotId === input.currentStableShotId;
+  return {
+    disabled:
+      Boolean(input.busy) || !input.playable || !input.currentStableShotId,
+    icon: sameCurrentStoryShot ? ("check" as const) : ("reuse" as const),
+    label: sameCurrentStoryShot ? "采用" : "复用",
+  };
+}
 
 export function buildMaterialWarehouseVideoItems(
   materialState: StoryMaterialState | null | undefined
@@ -67,6 +104,17 @@ export function buildMaterialWarehouseVideoItems(
     if (seen.has(item.take.id)) return false;
     seen.add(item.take.id);
     return true;
+  }).sort((left, right) => {
+    const currentDiff = Number(right.isCurrent) - Number(left.isCurrent);
+    if (currentDiff) return currentDiff;
+    const selectedDiff =
+      Number(right.take.isTimelineSelected) -
+      Number(left.take.isTimelineSelected);
+    if (selectedDiff) return selectedDiff;
+    return (
+      Date.parse(right.take.createdAt) - Date.parse(left.take.createdAt) ||
+      right.take.id - left.take.id
+    );
   });
 }
 
@@ -108,6 +156,15 @@ function imageMatchesShot(image: WarehouseImage, stableShotId: string | null) {
   return Boolean(stableShotId && image.shotIdentity === stableShotId);
 }
 
+function runOnSelectKey(
+  event: KeyboardEvent,
+  action: () => void
+) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  action();
+}
+
 function plannedDurationSec(
   shot: { durationMs?: number; durationSec?: number } | null,
   plannedDurationMs: number | null | undefined
@@ -126,6 +183,7 @@ function plannedDurationSec(
 }
 
 export default function MaterialWarehousePanel() {
+  const { setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
     shots,
@@ -147,6 +205,8 @@ export default function MaterialWarehousePanel() {
   const [importing, setImporting] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
+  const [selectedMaterialKey, setSelectedMaterialKey] =
+    useState<SelectedMaterialKey | null>(null);
 
   const currentShot = selectedShot ?? shots[0] ?? null;
   const currentStableShotId =
@@ -163,12 +223,7 @@ export default function MaterialWarehousePanel() {
   }, [currentShot, currentStableShotId, materialState]);
 
   const imageItems = useMemo(() => {
-    const rows: Array<{
-      image: WarehouseImage;
-      shotNo: number | null;
-      stableShotId: string | null;
-      isCurrent: boolean;
-    }> = [];
+    const rows: WarehouseImageItem[] = [];
     for (const image of materialState?.unassignedImages ?? []) {
       rows.push({
         image,
@@ -194,6 +249,8 @@ export default function MaterialWarehousePanel() {
           id: shot.imageId,
           imageUrl: shot.imageUrl,
           shotIdentity: shot.stableShotId ?? shot.shotIdentity ?? null,
+          prompt: shot.imagePrompt ?? null,
+          storyId: activeStoryId,
         },
         shotNo: shot.shotNo,
         stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
@@ -206,7 +263,7 @@ export default function MaterialWarehousePanel() {
       seen.add(row.image.id);
       return true;
     });
-  }, [materialState, shots]);
+  }, [activeStoryId, materialState, shots]);
 
   const videoItems = useMemo(
     () => buildMaterialWarehouseVideoItems(materialState),
@@ -220,6 +277,50 @@ export default function MaterialWarehousePanel() {
     currentShot,
     currentMaterial?.timelineItem?.plannedDurationMs
   );
+
+  const selectImageMaterial = (item: WarehouseImageItem) => {
+    const key: SelectedMaterialKey = `image:${item.image.id}`;
+    setSelectedMaterialKey(key);
+    const label = item.shotNo ? shotLabel(item.shotNo) : "未绑定";
+    const text = `${label} 图片 #${item.image.id}`;
+    setActiveSelection({
+      sourceType: "storyboard-image",
+      sourceId: String(item.image.id),
+      selectedText: text,
+      fullText: item.image.prompt || text,
+      storyId: activeStoryId,
+      stableShotId: item.stableShotId,
+      shotNo: item.shotNo,
+      imageId: item.image.id,
+      objectVersion: `image:${item.image.id}`,
+      materialStatus: item.isCurrent ? "current-image" : "candidate-image",
+    });
+  };
+
+  const selectVideoMaterial = (item: WarehouseVideoItem) => {
+    const key: SelectedMaterialKey = `video:${item.take.id}`;
+    setSelectedMaterialKey(key);
+    const text = `${videoSourceLabel(item)} · Take ${item.take.id}`;
+    const status: SelectionContext["materialStatus"] = item.isCurrent
+      ? "current-video"
+      : item.take.status === "failed" || item.take.status === "timeout"
+        ? "failed-video"
+        : item.isUnmatched || item.isReusable
+          ? "unadopted-video"
+          : "timeline-material";
+    setActiveSelection({
+      sourceType: "animatic-video",
+      sourceId: String(item.take.id),
+      selectedText: text,
+      fullText: item.take.prompt || text,
+      storyId: activeStoryId,
+      stableShotId: item.stableShotId,
+      shotNo: item.shotNo,
+      videoTakeId: item.take.id,
+      objectVersion: `video:${item.take.id}`,
+      materialStatus: status,
+    });
+  };
 
   const importFiles = async (files: FileList | File[]) => {
     const list = Array.from(files).filter(file =>
@@ -501,15 +602,32 @@ export default function MaterialWarehousePanel() {
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {imageItems.map(
-                      ({ image, shotNo, stableShotId, isCurrent }) => {
+                      item => {
+                        const { image, shotNo, stableShotId, isCurrent } =
+                          item;
                         const belongsToCurrent =
                           currentStableShotId != null &&
                           stableShotId === currentStableShotId;
                         const busy = busyKey === `image:${image.id}`;
+                        const selected =
+                          selectedMaterialKey === `image:${image.id}`;
                         return (
                           <article
                             key={image.id}
-                            className="overflow-hidden rounded-md border border-border bg-background"
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={selected}
+                            onClick={() => selectImageMaterial(item)}
+                            onKeyDown={event =>
+                              runOnSelectKey(event, () =>
+                                selectImageMaterial(item)
+                              )
+                            }
+                            className={`cursor-pointer overflow-hidden rounded-md border bg-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                              selected
+                                ? "border-primary/70 ring-2 ring-primary/20"
+                                : "border-border hover:border-primary/50"
+                            }`}
                           >
                             <div className="aspect-video bg-muted">
                               <img
@@ -537,7 +655,10 @@ export default function MaterialWarehousePanel() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => void bindImage(image)}
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void bindImage(image);
+                                }}
                                 disabled={busy || !currentStableShotId}
                                 className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-border text-xs font-medium transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                               >
@@ -578,18 +699,37 @@ export default function MaterialWarehousePanel() {
                   <div className="space-y-3">
                     {videoItems.map(item => {
                       const { take, isCurrent } = item;
-                      const sameShot =
-                        take.storyId === activeStoryId &&
-                        take.stableShotId === currentStableShotId;
                       const playable =
                         take.status === "available" && Boolean(take.videoUrl);
                       const busy = busyKey === `video:${take.id}`;
                       const unusableBusy =
                         busyKey === `video:${take.id}:unusable`;
+                      const selected =
+                        selectedMaterialKey === `video:${take.id}`;
+                      const action = videoWarehouseActionState({
+                        item,
+                        activeStoryId,
+                        currentStableShotId,
+                        playable,
+                        busy,
+                      });
                       return (
                         <article
                           key={take.id}
-                          className="overflow-hidden rounded-md border border-border bg-background"
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={selected}
+                          onClick={() => selectVideoMaterial(item)}
+                          onKeyDown={event =>
+                            runOnSelectKey(event, () =>
+                              selectVideoMaterial(item)
+                            )
+                          }
+                          className={`cursor-pointer overflow-hidden rounded-md border bg-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                            selected
+                              ? "border-primary/70 ring-2 ring-primary/20"
+                              : "border-border hover:border-primary/50"
+                          }`}
                         >
                           {take.videoUrl ? (
                             <video
@@ -597,6 +737,7 @@ export default function MaterialWarehousePanel() {
                               className="aspect-video w-full bg-black object-contain"
                               controls
                               preload="metadata"
+                              onClick={() => selectVideoMaterial(item)}
                             />
                           ) : (
                             <div className="flex aspect-video items-center justify-center bg-muted text-sm text-muted-foreground">
@@ -610,7 +751,7 @@ export default function MaterialWarehousePanel() {
                               </span>
                               <span className={isCurrent ? "text-primary" : ""}>
                                 {isCurrent
-                                  ? "已采用"
+                                  ? "当前"
                                   : item.isUnmatched
                                     ? `旧素材 · ${take.status}`
                                     : item.isReusable
@@ -621,24 +762,28 @@ export default function MaterialWarehousePanel() {
                             <div className="flex gap-2">
                               <button
                                 type="button"
-                                onClick={() => void useVideo(take)}
-                                disabled={
-                                  busy || !playable || !currentStableShotId
-                                }
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void useVideo(take);
+                                }}
+                                disabled={action.disabled}
                                 className="inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-md border border-border text-xs font-medium transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 {busy ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : sameShot ? (
+                                ) : action.icon === "check" ? (
                                   <Check className="h-3.5 w-3.5" />
                                 ) : (
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 )}
-                                {sameShot ? "采用" : "复用"}
+                                {action.label}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void markUnusable(take)}
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void markUnusable(take);
+                                }}
                                 disabled={
                                   unusableBusy || take.status === "unfollowable"
                                 }

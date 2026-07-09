@@ -11,7 +11,10 @@ import {
   selectInitialShotNo,
   type CreationEditorShot,
 } from './CreationEditorContext';
-import { buildMaterialWarehouseVideoItems } from './views/MaterialWarehousePanel';
+import {
+  buildMaterialWarehouseVideoItems,
+  videoWarehouseActionState,
+} from './views/MaterialWarehousePanel';
 import type { VideoTakeAsset } from '@shared/videoAsset';
 
 function makeStorage() {
@@ -235,7 +238,7 @@ describe('creation editor route and shell', () => {
       reusableVideoTakes: [reusableTake],
     });
 
-    expect(items.map(item => item.take.id)).toEqual([1, 2, 3]);
+    expect(items.map(item => item.take.id)).toEqual([1, 3, 2]);
     expect(items[0]).toMatchObject({
       shotNo: 1,
       stableShotId: 'shot-01',
@@ -245,17 +248,70 @@ describe('creation editor route and shell', () => {
     });
     expect(items[1]).toMatchObject({
       shotNo: null,
+      stableShotId: 'genji-s04',
+      isCurrent: false,
+      isUnmatched: false,
+      isReusable: true,
+    });
+    expect(items[2]).toMatchObject({
+      shotNo: null,
       stableShotId: 'old-shot-99',
       isCurrent: false,
       isUnmatched: true,
       isReusable: false,
     });
-    expect(items[2]).toMatchObject({
-      shotNo: null,
-      stableShotId: 'genji-s04',
-      isCurrent: false,
-      isUnmatched: false,
-      isReusable: true,
+  });
+
+  it('shows inherited selected takes as already adopted instead of reusable', () => {
+    const inheritedTake = videoTake(28, {
+      storyId: 49,
+      stableShotId: 'genji-s02',
+      isTimelineSelected: true,
+      createdAt: '2026-06-23T00:00:01.000Z',
+    });
+    const newerUnselectedTake = videoTake(29, {
+      storyId: 49,
+      stableShotId: 'genji-s02',
+      isTimelineSelected: false,
+      createdAt: '2026-06-23T00:00:02.000Z',
+    });
+    const items = buildMaterialWarehouseVideoItems({
+      storyId: 1158,
+      timeline: { storyId: 1158, version: 0, items: [] },
+      shots: [
+        {
+          stableShotId: 'legacy-sh02-shot',
+          shotNo: 3,
+          currentImage: null,
+          imageVersions: [],
+          currentVideo: inheritedTake,
+          videoTakes: [newerUnselectedTake, inheritedTake],
+          timelineItem: null,
+        },
+      ],
+      unassignedImages: [],
+      unassignedVideoTakes: [],
+      reusableVideoTakes: [inheritedTake],
+    });
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      take: { id: 28 },
+      shotNo: 3,
+      stableShotId: 'legacy-sh02-shot',
+      isCurrent: true,
+      isReusable: false,
+    });
+    expect(
+      videoWarehouseActionState({
+        item: items[0],
+        activeStoryId: 1158,
+        currentStableShotId: 'legacy-sh02-shot',
+        playable: true,
+      }),
+    ).toMatchObject({
+      disabled: true,
+      label: '已采用',
     });
   });
 
