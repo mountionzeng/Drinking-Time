@@ -27,6 +27,38 @@ export type GenerateForMobileResult = {
   error?: string;
 };
 
+const MAX_INLINE_REFERENCE_URL_CHARS = 2_500_000;
+
+function isNetworkFetchError(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized === 'failed to fetch' ||
+    normalized === 'load failed' ||
+    normalized.includes('networkerror') ||
+    normalized.includes('fetch failed')
+  );
+}
+
+export function readableRerenderError(
+  error: unknown,
+  fallback = '图片生成失败'
+): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+  if (!message) return fallback;
+  if (!isNetworkFetchError(message)) return message;
+  return '重渲请求没有连上生成服务。请确认本地服务正在运行后再试；如果刚选择了参考视频，可以先切回“不使用参考”再重渲。';
+}
+
+function safeReferenceUrl(value: string | undefined): string | undefined {
+  if (!value?.startsWith('data:')) return value;
+  return value.length <= MAX_INLINE_REFERENCE_URL_CHARS ? value : undefined;
+}
+
 export function buildRerenderPrompt(params: {
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
@@ -46,8 +78,8 @@ export function createGenerateForMobileInput(params: {
     prompt: buildRerenderPrompt({ shot: params.shot, rows: params.rows }),
     styleHint: params.shot.styleRef || undefined,
     autoSelect: true,
-    referenceImageUrl: params.reference?.imageUrl,
-    referenceIdentityImageUrl: params.reference?.identityImageUrl,
+    referenceImageUrl: safeReferenceUrl(params.reference?.imageUrl),
+    referenceIdentityImageUrl: safeReferenceUrl(params.reference?.identityImageUrl),
   };
 }
 
@@ -59,9 +91,14 @@ export async function rerenderShotImage(params: {
   generate: (input: GenerateForMobileInput) => Promise<GenerateForMobileResult>;
 }): Promise<GenerateForMobileResult> {
   const input = createGenerateForMobileInput(params);
-  const result = await params.generate(input);
+  let result: GenerateForMobileResult;
+  try {
+    result = await params.generate(input);
+  } catch (error) {
+    throw new Error(readableRerenderError(error, '重渲请求失败'));
+  }
   if (result.status !== 'ok' || !result.imageUrl) {
-    throw new Error(result.error || '图片生成失败');
+    throw new Error(readableRerenderError(result.error, '图片生成失败'));
   }
   return result;
 }

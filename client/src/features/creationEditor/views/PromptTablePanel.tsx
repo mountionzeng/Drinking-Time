@@ -9,7 +9,10 @@ import {
   type FrameCandidateSource,
 } from "../frameCandidate";
 import type { PromptOverride } from "../promptTable/types";
-import type { RerenderReference } from "../rerender";
+import {
+  readableRerenderError,
+  type RerenderReference,
+} from "../rerender";
 import {
   buildPromptLineageRevisionPreview,
   buildPromptLineageShotView,
@@ -34,7 +37,7 @@ function shotLabel(shotNo: number | null) {
 }
 
 function messageOf(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  return readableRerenderError(error, fallback);
 }
 
 export default function PromptTablePanel() {

@@ -397,6 +397,86 @@ describe("storyAgent tRPC router", () => {
     });
   });
 
+  it("deletes a target shot directly from the persisted story trunk", async () => {
+    const caller = appRouter.createCaller(createAuthContext(107));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "删除镜头回归",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "第一镜",
+          },
+          {
+            shotNo: 2,
+            stableShotId: "manual-sh02-demo",
+            shotIdentity: "manual-sh02-demo",
+            subject: "手动镜头",
+          },
+          {
+            shotNo: 3,
+            stableShotId: "shot-c",
+            shotIdentity: "shot-c",
+            subject: "第三镜",
+          },
+        ],
+      },
+    });
+
+    const deleted = await caller.storyAgent.deleteStoryShot({
+      storyId: created!.id,
+      stableShotId: "manual-sh02-demo",
+    });
+
+    expect(deleted).toMatchObject({
+      status: "ok",
+      deletedShotNo: 2,
+      nextSelectedShotNo: 2,
+    });
+
+    const loaded = await caller.storyAgent.storyGet({ id: created!.id });
+    const body = loaded?.body as { shots?: Array<Record<string, unknown>> };
+    expect(body.shots?.map(shot => [shot.shotNo, shot.stableShotId])).toEqual([
+      [1, "shot-a"],
+      [2, "shot-c"],
+    ]);
+  });
+
+  it("keeps at least one shot when deleting from the persisted story trunk", async () => {
+    const caller = appRouter.createCaller(createAuthContext(108));
+
+    const created = await caller.storyAgent.storyUpsert({
+      title: "不能删空",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "第一镜",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      caller.storyAgent.deleteStoryShot({
+        storyId: created!.id,
+        stableShotId: "shot-a",
+      })
+    ).resolves.toMatchObject({
+      status: "error",
+      error: "至少保留一个镜头",
+    });
+  });
+
   it("不带 baseRevision 的整包保存不能抹掉刚插入的手动镜头", async () => {
     const caller = appRouter.createCaller(createAuthContext(106));
 

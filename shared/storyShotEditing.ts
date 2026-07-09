@@ -52,6 +52,18 @@ function renumberStoryShots<T extends StoryShotLike>(shots: readonly T[]): T[] {
   return shots.map((shot, index) => ({ ...shot, shotNo: index + 1 }));
 }
 
+function storyShotStableId<T extends StoryShotLike>(
+  shot: T,
+  index: number
+): string {
+  return (
+    normalizeShotIdentity(shot.stableShotId) ??
+    normalizeShotIdentity(shot.shotIdentity) ??
+    shotIdentityFromShot(shot, index) ??
+    ""
+  );
+}
+
 export function findStoryShotInsertIndex<T extends StoryShotLike>(
   shots: readonly T[],
   shotNo: number,
@@ -68,6 +80,47 @@ export function findStoryShotInsertIndex<T extends StoryShotLike>(
     }
     return shot.shotNo === shotNo;
   });
+}
+
+export function deleteStoryShotAtIndex<T extends StoryShotLike>(
+  shots: readonly T[],
+  index: number
+): {
+  shots: T[];
+  deletedShotNo: number;
+  deletedStableShotId: string;
+  nextSelectedShotNo: number | null;
+} | null {
+  if (shots.length <= 1 || index < 0 || index >= shots.length) return null;
+  const deleted = shots[index];
+  const remaining = renumberStoryShots([
+    ...shots.slice(0, index),
+    ...shots.slice(index + 1),
+  ]);
+  return {
+    deletedShotNo:
+      typeof deleted.shotNo === "number" && Number.isFinite(deleted.shotNo)
+        ? deleted.shotNo
+        : index + 1,
+    deletedStableShotId: storyShotStableId(deleted, index),
+    nextSelectedShotNo:
+      remaining[Math.min(index, remaining.length - 1)]?.shotNo ?? null,
+    shots: remaining,
+  };
+}
+
+export function deleteStoryShot<T extends StoryShotLike>(
+  shots: readonly T[],
+  shotNo: number,
+  stableShotId?: string | null
+): {
+  shots: T[];
+  deletedShotNo: number;
+  deletedStableShotId: string;
+  nextSelectedShotNo: number | null;
+} | null {
+  const index = findStoryShotInsertIndex(shots, shotNo, stableShotId);
+  return deleteStoryShotAtIndex(shots, index);
 }
 
 export function insertStoryShotAfter<T extends StoryShotLike>(

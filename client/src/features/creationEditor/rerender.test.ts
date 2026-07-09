@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CreationEditorShot } from './CreationEditorContext';
-import { buildRerenderPrompt, rerenderShotImage } from './rerender';
+import {
+  buildRerenderPrompt,
+  createGenerateForMobileInput,
+  readableRerenderError,
+  rerenderShotImage,
+} from './rerender';
 import type { PromptRow } from './promptTable/types';
 
 const shot: CreationEditorShot = {
@@ -91,5 +96,33 @@ describe('creation editor rerender', () => {
       rows: [row({})],
       generate: async () => ({ status: 'error', error: 'service down' }),
     })).rejects.toThrow('service down');
+  });
+
+  it('turns low-level fetch failures into an actionable rerender message', async () => {
+    await expect(rerenderShotImage({
+      storyId: 7,
+      shot,
+      rows: [row({})],
+      generate: async () => {
+        throw new Error('Failed to fetch');
+      },
+    })).rejects.toThrow('重渲请求没有连上生成服务');
+
+    expect(readableRerenderError('fetch failed')).toContain('生成服务');
+  });
+
+  it('does not send oversized inline reference images with the rerender request', () => {
+    const input = createGenerateForMobileInput({
+      storyId: 7,
+      shot,
+      rows: [row({})],
+      reference: {
+        imageUrl: `data:image/jpeg;base64,${'x'.repeat(2_600_000)}`,
+        identityImageUrl: 'data:image/jpeg;base64,small',
+      },
+    });
+
+    expect(input.referenceImageUrl).toBeUndefined();
+    expect(input.referenceIdentityImageUrl).toBe('data:image/jpeg;base64,small');
   });
 });

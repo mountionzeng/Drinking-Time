@@ -165,6 +165,38 @@ function AddShotButton({
   );
 }
 
+function DeleteShotButton({
+  shotNo,
+  deleting,
+  disabled,
+  onClick,
+}: {
+  shotNo: number;
+  deleting: boolean;
+  disabled: boolean;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  const label = `删除 SH${String(shotNo).padStart(2, "0")}`;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="mt-2 inline-flex min-h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 disabled:cursor-wait disabled:opacity-70"
+      style={{ borderColor: "var(--panel-border)" }}
+      aria-label={label}
+      title={label}
+    >
+      {deleting ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Trash2 className="h-3.5 w-3.5" />
+      )}
+      删除
+    </button>
+  );
+}
+
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: "先开瓶啤酒，跟小酌聊聊一句让你记住的话",
   wood: "泡上一壶龙井，慢慢回忆那个让你停下来的瞬间",
@@ -805,6 +837,7 @@ export function StoryboardReviewBoard({
   timelineShotIds = [],
   onAddShotToTimeline,
   onInsertShotAfter,
+  onDeleteShot,
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onRefreshShotVideoStatus,
@@ -833,6 +866,10 @@ export function StoryboardReviewBoard({
     shotNo: number,
     stableShotId?: string | null
   ) => void | Promise<void>;
+  onDeleteShot?: (
+    shotNo: number,
+    stableShotId?: string | null
+  ) => number | null | void | Promise<number | null | void>;
   generatingVideoShotNo?: number | null;
   onGenerateShotVideo?: (input: {
     shotNo: number;
@@ -868,6 +905,7 @@ export function StoryboardReviewBoard({
   const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<number | null>(
     null
   );
+  const [deletingShotId, setDeletingShotId] = useState<string | null>(null);
   const [videoTakeDropTargetId, setVideoTakeDropTargetId] = useState<
     string | null
   >(null);
@@ -975,7 +1013,8 @@ export function StoryboardReviewBoard({
     shotNo: number,
     stableShotId?: string | null
   ) => {
-    if (!onInsertShotAfter || insertingAfterShotNo != null) return;
+    if (!onInsertShotAfter || insertingAfterShotNo != null || deletingShotId)
+      return;
     setInsertingAfterShotNo(shotNo);
     try {
       await onInsertShotAfter(shotNo, stableShotId);
@@ -986,6 +1025,34 @@ export function StoryboardReviewBoard({
       );
     } finally {
       setInsertingAfterShotNo(null);
+    }
+  };
+
+  const deleteShot = async (
+    shotNo: number,
+    stableShotId?: string | null
+  ) => {
+    if (!onDeleteShot || deletingShotId || insertingAfterShotNo != null) return;
+    if (shots.length <= 1) {
+      toast.error("至少保留一个镜头");
+      return;
+    }
+    const label = `SH${String(shotNo).padStart(2, "0")}`;
+    const confirmed = window.confirm(
+      `删除 ${label}？这会移除该镜头，并重新编号后面的镜头。`
+    );
+    if (!confirmed) return;
+    const shotId = stableShotId ?? `shot-${shotNo}`;
+    setDeletingShotId(shotId);
+    try {
+      await onDeleteShot(shotNo, stableShotId);
+      toast.success(`已删除 ${label}`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "删除镜头失败，请稍后再试"
+      );
+    } finally {
+      setDeletingShotId(null);
     }
   };
 
@@ -1240,20 +1307,40 @@ export function StoryboardReviewBoard({
                       {storyboardDialogueText(shot)}
                     </button>
                   </div>
-                  {onInsertShotAfter ? (
-                    <div className="px-3 pb-3">
-                      <AddShotButton
-                        shotNo={shot.shotNo}
-                        inserting={insertingAfterShotNo === shot.shotNo}
-                        disabled={insertingAfterShotNo != null}
-                        onClick={event => {
-                          event.stopPropagation();
-                          void insertShotAfter(
-                            shot.shotNo,
-                            insertStableShotId
-                          );
-                        }}
-                      />
+                  {onInsertShotAfter || onDeleteShot ? (
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 pb-3">
+                      {onInsertShotAfter ? (
+                        <AddShotButton
+                          shotNo={shot.shotNo}
+                          inserting={insertingAfterShotNo === shot.shotNo}
+                          disabled={
+                            insertingAfterShotNo != null ||
+                            deletingShotId != null
+                          }
+                          onClick={event => {
+                            event.stopPropagation();
+                            void insertShotAfter(
+                              shot.shotNo,
+                              insertStableShotId
+                            );
+                          }}
+                        />
+                      ) : null}
+                      {onDeleteShot ? (
+                        <DeleteShotButton
+                          shotNo={shot.shotNo}
+                          deleting={deletingShotId === insertStableShotId}
+                          disabled={
+                            insertingAfterShotNo != null ||
+                            deletingShotId != null ||
+                            shots.length <= 1
+                          }
+                          onClick={event => {
+                            event.stopPropagation();
+                            void deleteShot(shot.shotNo, insertStableShotId);
+                          }}
+                        />
+                      ) : null}
                     </div>
                   ) : null}
                 </article>
@@ -1492,19 +1579,41 @@ export function StoryboardReviewBoard({
                         {videoTakeCount} 个视频 Take，点开本镜查看
                       </button>
                     ) : null}
-                    {onInsertShotAfter ? (
-                      <AddShotButton
-                        shotNo={shot.shotNo}
-                        inserting={insertingAfterShotNo === shot.shotNo}
-                        disabled={insertingAfterShotNo != null}
-                        onClick={event => {
-                          event.stopPropagation();
-                          void insertShotAfter(
-                            shot.shotNo,
-                            insertStableShotId
-                          );
-                        }}
-                      />
+                    {onInsertShotAfter || onDeleteShot ? (
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                        {onInsertShotAfter ? (
+                          <AddShotButton
+                            shotNo={shot.shotNo}
+                            inserting={insertingAfterShotNo === shot.shotNo}
+                            disabled={
+                              insertingAfterShotNo != null ||
+                              deletingShotId != null
+                            }
+                            onClick={event => {
+                              event.stopPropagation();
+                              void insertShotAfter(
+                                shot.shotNo,
+                                insertStableShotId
+                              );
+                            }}
+                          />
+                        ) : null}
+                        {onDeleteShot ? (
+                          <DeleteShotButton
+                            shotNo={shot.shotNo}
+                            deleting={deletingShotId === insertStableShotId}
+                            disabled={
+                              insertingAfterShotNo != null ||
+                              deletingShotId != null ||
+                              shots.length <= 1
+                            }
+                            onClick={event => {
+                              event.stopPropagation();
+                              void deleteShot(shot.shotNo, insertStableShotId);
+                            }}
+                          />
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 </article>

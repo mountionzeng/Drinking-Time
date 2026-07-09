@@ -123,6 +123,7 @@ type CreationEditorContextValue = {
     stableShotId: string,
     dialogue?: string
   ) => Promise<number | null>;
+  deletePersistedShot: (stableShotId: string) => Promise<number | null>;
   updatePromptOverride: (
     shotNo: number,
     dimension: string,
@@ -945,6 +946,7 @@ export function CreationEditorProvider({
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const insertStoryShotAfterMut =
     trpc.storyAgent.insertStoryShotAfter.useMutation();
+  const deleteStoryShotMut = trpc.storyAgent.deleteStoryShot.useMutation();
   const generateForMobileMut = trpc.storyAgent.generateForMobile.useMutation();
   const promoteFrameCropMut = trpc.creationAgent.promoteFrameCrop.useMutation();
   const promoteStoryImageMut =
@@ -1305,6 +1307,36 @@ export function CreationEditorProvider({
     ]);
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
     return result.insertedShotNo;
+  };
+
+  const deletePersistedShot = async (stableShotId: string) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法删除镜头");
+    const result = await deleteStoryShotMut.mutateAsync({
+      storyId: activeId,
+      stableShotId,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "删除镜头失败");
+    }
+    const savedBody =
+      result.story?.body &&
+      typeof result.story.body === "object" &&
+      !Array.isArray(result.story.body)
+        ? (result.story.body as Record<string, unknown>)
+        : null;
+    if (savedBody && Array.isArray(savedBody.shots)) {
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    }
+    if (result.story && typeof result.story.revision === "number") {
+      setSpineServerRevision(result.story.revision);
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    return result.nextSelectedShotNo;
   };
 
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
@@ -1789,6 +1821,7 @@ export function CreationEditorProvider({
       generateShotVideo,
       refreshShotVideoStatus,
       insertPersistedShotAfter,
+      deletePersistedShot,
       moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
       createVideoTakeRange,
@@ -1826,6 +1859,7 @@ export function CreationEditorProvider({
       removeShotFromTimeline,
       resetTimelineShots,
       insertPersistedShotAfter,
+      deletePersistedShot,
       moveVideoTakeToShot,
       storyUpsertMut.isPending,
       storyImagesQuery,

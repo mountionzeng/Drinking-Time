@@ -57,7 +57,10 @@ import {
   mergeStaleStoryBody,
   prepareStoryBody,
 } from "../services/storySync";
-import { insertStoryShotAfter } from "../../shared/storyShotEditing";
+import {
+  deleteStoryShotAtIndex,
+  insertStoryShotAfter,
+} from "../../shared/storyShotEditing";
 import {
   normalizeShotIdentity,
   shotIdentityFromShot,
@@ -658,6 +661,71 @@ export const storyAgentRouter = router({
         status: "ok" as const,
         insertedShotNo: inserted.insertedShotNo,
         insertedStableShotId: inserted.insertedStableShotId,
+        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
+      };
+    }),
+
+  deleteStoryShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        stableShotId: z.string().trim().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      const body =
+        story.body &&
+        typeof story.body === "object" &&
+        !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots)
+        ? body.shots.filter((shot): shot is Record<string, unknown> =>
+            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          )
+        : [];
+      if (shots.length <= 1) {
+        return { status: "error" as const, error: "至少保留一个镜头" };
+      }
+      const targetStableShotId = normalizeShotIdentity(input.stableShotId);
+      const targetIndex = shots.findIndex((shot, index) => {
+        const identities = [
+          shotIdentityFromShot(shot, index),
+          normalizeShotIdentity(shot.stableShotId),
+          normalizeShotIdentity(shot.shotIdentity),
+          normalizeShotIdentity(shotIdentityForStoryShot(story, index + 1)),
+        ];
+        return identities.some(identity => identity === targetStableShotId);
+      });
+      const deleted = deleteStoryShotAtIndex(shots, targetIndex);
+      if (!deleted) {
+        return { status: "error" as const, error: "镜头不存在或已经更新" };
+      }
+      const nextBody = prepareStoryBody(
+        { ...body, shots: deleted.shots },
+        getStoryRevision(story.body) + 1,
+        story.body
+      );
+      await updateStory(story.id, ctx.user.id, { body: nextBody });
+      const saved = await getStoryById(story.id, ctx.user.id);
+      if (saved) {
+        void migrateStoryPromptLineage({
+          storyId: saved.id,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(saved),
+        }).catch(error => {
+          console.warn("deleteStoryShot prompt lineage sync failed", error);
+        });
+      }
+      return {
+        status: "ok" as const,
+        deletedShotNo: deleted.deletedShotNo,
+        deletedStableShotId: deleted.deletedStableShotId,
+        nextSelectedShotNo: deleted.nextSelectedShotNo,
         story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
       };
     }),

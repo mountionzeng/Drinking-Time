@@ -132,6 +132,24 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("后添加镜头");
   });
 
+  it("keeps manual shot deletion available in both storyboard views", () => {
+    const boardSource = readFileSync(
+      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      "utf8"
+    );
+    const panelSource = readFileSync(
+      resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
+      "utf8"
+    );
+
+    expect((boardSource.match(/<DeleteShotButton/g) ?? []).length).toBe(2);
+    expect(boardSource).toContain("删除 SH");
+    expect(boardSource).toContain("删除");
+    expect(boardSource).toContain("至少保留一个镜头");
+    expect(panelSource).toContain("deletePersistedShot");
+    expect(panelSource).toContain("onDeleteShot");
+  });
+
   it("does not keep the old StoryIntentGate entry point on the cards board", () => {
     const boardSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
@@ -183,6 +201,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("个视频 Take，点开本镜查看");
     expect(boardSource).toContain("onInsertShotAfter");
     expect(panelSource).toContain("insertPersistedShotAfter");
+    expect(boardSource).toContain("onDeleteShot");
+    expect(panelSource).toContain("deletePersistedShot");
     expect(panelSource).toContain("onMoveVideoTake={moveVideoTake}");
     expect(boardSource).toContain("autoScrollElementAtPoint");
     expect(boardSource).toContain("boardScrollRef");

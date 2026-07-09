@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { insertStoryShotAfter } from "./storyShotEditing";
+import { deleteStoryShot, insertStoryShotAfter } from "./storyShotEditing";
 import type { StoryShot } from "./types";
 
 function shot(
@@ -76,5 +76,39 @@ describe("story shot editing", () => {
     const source = [shot({ shotNo: 1, stableShotId: "legacy-sh01-shot" })];
     expect(insertStoryShotAfter(source, 8, "missing-shot")).toBeNull();
     expect(source).toHaveLength(1);
+  });
+
+  it("deletes the matched shot and renumbers the remaining shots", () => {
+    const result = deleteStoryShot(
+      [
+        shot({ shotNo: 1, stableShotId: "legacy-sh01-shot", subject: "A" }),
+        shot({ shotNo: 2, stableShotId: "manual-sh02-demo", subject: "B" }),
+        shot({ shotNo: 3, stableShotId: "legacy-sh03-shot", subject: "C" }),
+      ],
+      2,
+      "manual-sh02-demo"
+    );
+
+    expect(result).toMatchObject({
+      deletedShotNo: 2,
+      deletedStableShotId: "manual-sh02-demo",
+      nextSelectedShotNo: 2,
+    });
+    expect(result?.shots.map(item => [item.shotNo, item.stableShotId])).toEqual(
+      [
+        [1, "legacy-sh01-shot"],
+        [2, "legacy-sh03-shot"],
+      ]
+    );
+  });
+
+  it("keeps the last remaining shot instead of deleting it", () => {
+    expect(
+      deleteStoryShot(
+        [shot({ shotNo: 1, stableShotId: "legacy-sh01-shot" })],
+        1,
+        "legacy-sh01-shot"
+      )
+    ).toBeNull();
   });
 });

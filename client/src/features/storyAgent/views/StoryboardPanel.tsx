@@ -50,6 +50,7 @@ export default function StoryboardPanel() {
     moveVideoTake,
     adoptVideoTake,
     promoteFrameCrop,
+    deletePersistedShot,
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
   } = useCreationEditor();
@@ -156,6 +157,15 @@ export default function StoryboardPanel() {
         } else {
           setSelectedShotNo(shotNo + 1);
         }
+      }}
+      onDeleteShot={async (_shotNo, stableShotId) => {
+        if (!stableShotId) return null;
+        const nextSelectedShotNo = await deletePersistedShot(stableShotId);
+        if (activeStoryId) {
+          await loadStory(activeStoryId);
+        }
+        setSelectedShotNo(nextSelectedShotNo);
+        return nextSelectedShotNo;
       }}
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
