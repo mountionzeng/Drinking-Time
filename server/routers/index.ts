@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { invokeLLM } from "./_core/llm";
-import { ENV } from "./_core/env";
-import { storagePut } from "./storage";
+import { getSessionCookieOptions } from "../_core/cookies";
+import { systemRouter } from "../_core/systemRouter";
+import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { invokeLLM } from "../_core/llm";
+import { ENV } from "../_core/env";
+import { storagePut } from "../storage";
 import {
   createProject,
   getOrCreateUserDefaultProject,
@@ -23,22 +23,20 @@ import {
   getProjectAnalysis,
   getEmotionAnalysisProfile,
   upsertEmotionAnalysisProfile,
-} from "./db";
-import { saveSnapshot, getRecentAnnotations } from "./services/editContext";
-import { getAlmanacDay } from "./services/almanac";
-import type { ProjectState } from "./_core/editDiff";
+} from "../db";
+import { saveSnapshot, getRecentAnnotations } from "../services/editContext";
+import { getAlmanacDay } from "../services/almanac";
+import type { ProjectState } from "../_core/editDiff";
 import { nanoid } from "nanoid";
-import { transcribeAudioBytes } from "./_core/voiceTranscription";
-import { analyzeArtReference, createArtRiff } from "./services/artAgent";
+import { transcribeAudioBytes } from "../_core/voiceTranscription";
+import { analyzeArtReference, createArtRiff } from "../services/artAgent";
 import {
   artPromptLibraryRouter,
   promptLineageRouter,
   storyConversationRouter,
-} from "./routers/promptLineage";
-import { storyAgentRouter } from "./routers/storyAgent";
-import { creationAgentRouter } from "./routers/creationAgent";
-export { buildConfirmedIntentLine } from "./routers/_storyShared";
-export type { ConfirmedScriptIntent } from "./routers/_storyShared";
+} from "./promptLineage";
+import { storyAgentRouter } from "./storyAgent";
+import { creationAgentRouter } from "./creationAgent";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 

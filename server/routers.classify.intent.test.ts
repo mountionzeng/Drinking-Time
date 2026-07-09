@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConfirmedIntentLine } from "./routers";
+import { buildConfirmedIntentLine } from "./routers/_storyShared";
 
 describe("storyAgent.classify confirmed intent injection", () => {
   it("includes target role and channel for job-search scripts", () => {
