@@ -130,6 +130,12 @@ export type ShotBeat = "开场" | "起势" | "转折" | "收束";
 
 export type ShotEntry = {
   shotNo: number;
+  /** 幕 / 场编号，例如 SC01。用于按场景选择不同美术参考库。 */
+  sceneNo?: string;
+  /** 幕 / 场标题，例如“第一幕：被规训”。 */
+  sceneTitle?: string;
+  /** 该幕的美术参考标准，后续图片 / 视频渲染会作为场景库提示。 */
+  sceneArtBrief?: string;
   // ── 主线（默认可见）──
   subject: string;     // 主体：谁/什么在画面里
   action: string;      // 主体的动作 / 发生的事件

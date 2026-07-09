@@ -15,6 +15,8 @@ describe("migrateLegacyPromptLineage", () => {
           {
             stableShotId: "shot-01",
             shotNo: 1,
+            sceneTitle: "第一幕：雨后的停顿",
+            sceneArtBrief: "湿润街道、低饱和灰蓝、窗光反射",
             subject: "主角站在雨后的街口",
             action: "抬头看向远处",
             dialogue: "没关系，就这样吧",
@@ -64,6 +66,8 @@ describe("migrateLegacyPromptLineage", () => {
       expect.arrayContaining([
         "theme",
         "visual_style",
+        "sceneTitle",
+        "sceneArtBrief",
         "subject",
         "action",
         "dialogue",

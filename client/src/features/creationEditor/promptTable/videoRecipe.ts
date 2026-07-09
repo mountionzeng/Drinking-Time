@@ -32,6 +32,8 @@ export function compileVideoShotRecipe(params: {
   const sourceImageUrl = clean(shot.imageUrl) || clean(shot.promptRun?.imageUrl);
   const dimensions = [
     'videoPrompt',
+    'sceneTitle',
+    'sceneArtBrief',
     'subject',
     'action',
     'cameraMove',
@@ -60,6 +62,8 @@ export function compileVideoShotRecipe(params: {
   };
 
   const videoPrompt = value('videoPrompt');
+  const sceneTitle = value('sceneTitle');
+  const sceneArtBrief = value('sceneArtBrief');
   const subject = value('subject');
   const action = value('action');
   const cameraMove = value('cameraMove');
@@ -85,6 +89,8 @@ export function compileVideoShotRecipe(params: {
     '使用当前关键帧作为首帧，保持人物、构图、色调和故事上下文一致。',
   ];
   addLine(lines, '核心视频提示', videoPrompt);
+  addLine(lines, '场次', [clean(shot.sceneNo), sceneTitle].filter(Boolean).join(' · '));
+  addLine(lines, '场景美术库', sceneArtBrief);
   addLine(lines, '镜头要传达的信息', clean(shot.intent) || rationale);
   addLine(lines, '主体', subject);
   addLine(lines, '动作', action);

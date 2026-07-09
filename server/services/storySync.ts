@@ -9,6 +9,9 @@ const REVISION_KEY = "_revision";
 const SHOT_FIELDS_TO_PRESERVE = [
   "stableShotId",
   "shotIdentity",
+  "sceneNo",
+  "sceneTitle",
+  "sceneArtBrief",
   "intent",
   "rationale",
   "videoStart",
@@ -20,6 +23,9 @@ const SHOT_FIELDS_TO_PRESERVE = [
 
 const SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA = [
   "shotNo",
+  "sceneNo",
+  "sceneTitle",
+  "sceneArtBrief",
   "subject",
   "action",
   "dialogue",
@@ -48,6 +54,13 @@ const SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA = [
 ] as const;
 
 const SHOT_STABLE_EDITOR_FIELDS = ["durationMs", "fragmentRefs"] as const;
+
+const BODY_FIELDS_TO_PRESERVE = [
+  "scenes",
+  "materialReusePolicy",
+  "sourceStoryId",
+  "sourceStoryTitle",
+] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [
   "promptOverrides",
@@ -357,6 +370,11 @@ export function prepareStoryBody(
 ): StoryBodyRecord {
   const prepared = { ...asRecord(body) };
   const existing = asRecord(existingBody);
+  for (const field of BODY_FIELDS_TO_PRESERVE) {
+    if (!hasOwn(prepared, field) && hasOwn(existing, field)) {
+      prepared[field] = existing[field];
+    }
+  }
   prepared.shots = cleanStoryShotsForPersistence(
     mergeStoryShotsPreservingFields(existing.shots, prepared.shots)
   );

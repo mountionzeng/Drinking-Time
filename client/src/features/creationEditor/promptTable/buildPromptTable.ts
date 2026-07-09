@@ -15,6 +15,8 @@ type ContentDimension = {
 };
 
 const CONTENT_DIMENSIONS: ContentDimension[] = [
+  { key: 'sceneTitle', dimension: 'sceneTitle', label: '场次', weight: 0.34, source: 'intent' },
+  { key: 'sceneArtBrief', dimension: 'sceneArtBrief', label: '场景美术库', weight: 0.4, source: 'art-repo' },
   { key: 'subject', dimension: 'subject', label: '主体', weight: 0.42, source: 'chat' },
   { key: 'action', dimension: 'action', label: '动作', weight: 0.38, source: 'chat' },
   { key: 'dialogue', dimension: 'dialogue', label: '字幕/旁白', weight: 0.34, source: 'chat' },

@@ -122,4 +122,20 @@ describe("promptRecipe", () => {
     );
     expect(recipe.usedDimensions).toEqual(["narrativeClaim"]);
   });
+
+  it("includes scene art library context in the final generation prompt", () => {
+    const recipe = compilePromptRecipe({
+      shot: {
+        ...shot,
+        sceneNo: "SC03",
+        sceneTitle: "第三幕：向下生长",
+        sceneArtBrief: "泥土、根系、身体内部、低饱和绿色与褐色",
+      },
+      rows: [],
+    });
+
+    expect(recipe.finalPrompt).toContain(
+      "Scene art library standard: SC03 | 第三幕：向下生长 | 泥土、根系、身体内部、低饱和绿色与褐色"
+    );
+  });
 });

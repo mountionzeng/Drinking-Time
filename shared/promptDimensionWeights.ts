@@ -14,6 +14,8 @@ const PROMPT_DIMENSION_WEIGHTS: Record<string, number> = {
   art_style_recipe: 0.4,
   subject: 0.42,
   action: 0.38,
+  sceneTitle: 0.34,
+  sceneArtBrief: 0.4,
   dialogue: 0.34,
   location: 0.32,
   time_light: 0.24,

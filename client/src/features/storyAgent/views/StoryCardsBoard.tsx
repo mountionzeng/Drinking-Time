@@ -825,6 +825,10 @@ function storyboardDialogueText(shot: StoryShot) {
   return shot.dialogue?.trim() || "无台词";
 }
 
+function storyboardSceneLabel(shot: StoryShot) {
+  return [shot.sceneNo, shot.sceneTitle].filter(Boolean).join(" · ");
+}
+
 export function StoryboardReviewBoard({
   images,
   shots,
@@ -1273,6 +1277,11 @@ export function StoryboardReviewBoard({
                     <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-foreground shadow-sm">
                       SH{String(shot.shotNo).padStart(2, "0")}
                     </span>
+                    {shot.sceneNo ? (
+                      <span className="absolute right-2 top-2 max-w-[65%] truncate rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-primary shadow-sm">
+                        {shot.sceneNo}
+                      </span>
+                    ) : null}
                   </button>
                   <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
                     <button
@@ -1287,6 +1296,11 @@ export function StoryboardReviewBoard({
                         <ScrollText className="h-3 w-3 text-primary" />
                         剧本
                       </div>
+                      {storyboardSceneLabel(shot) ? (
+                        <div className="mb-1 truncate text-[10px] font-medium text-primary">
+                          {storyboardSceneLabel(shot)}
+                        </div>
+                      ) : null}
                       <p className="text-sm font-medium leading-relaxed text-foreground">
                         {storyboardScriptText(shot)}
                       </p>
@@ -1451,6 +1465,14 @@ export function StoryboardReviewBoard({
                         >
                           {shortText(shot.beat, "故事节点")}
                         </span>
+                        {storyboardSceneLabel(shot) ? (
+                          <span
+                            className="max-w-[12rem] truncate rounded-full border px-1.5 py-0.5 text-[8px] text-primary"
+                            style={{ borderColor: "var(--panel-border)" }}
+                          >
+                            {storyboardSceneLabel(shot)}
+                          </span>
+                        ) : null}
                         {image ? (
                           <span
                             className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"

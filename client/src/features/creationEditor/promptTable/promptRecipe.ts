@@ -32,6 +32,9 @@ export function compilePromptRecipe(params: {
   const ctx: PromptContext = {
     shot: {
       shotNo: shot.shotNo ?? 0,
+      sceneNo: u(shot.sceneNo),
+      sceneTitle: u(shot.sceneTitle),
+      sceneArtBrief: u(shot.sceneArtBrief),
       subject: u(shot.subject),
       action: u(shot.action),
       location: u(shot.location),

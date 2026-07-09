@@ -51,7 +51,11 @@ function row(dimension: string, value: string): PromptRow {
 describe('compileVideoShotRecipe', () => {
   it('builds a video package from current image and shot design rows', () => {
     const recipe = compileVideoShotRecipe({
-      shot: shot(),
+      shot: shot({
+        sceneNo: 'SC01',
+        sceneTitle: '第一幕：被规训',
+        sceneArtBrief: '黑暗画廊、冷白布料、被观看的身体',
+      }),
       rows: [
         row('videoPrompt', '手改视频提示：镜头轻推，材料变成清晰职业论点'),
         row('sound', '纸张声后音乐收住'),
@@ -62,8 +66,12 @@ describe('compileVideoShotRecipe', () => {
     expect(recipe.sourceImageUrl).toBe('/api/images/hero.png');
     expect(recipe.finalPrompt).toContain('只生成 SH01 的 3-5 秒短片片段');
     expect(recipe.finalPrompt).toContain('手改视频提示');
+    expect(recipe.finalPrompt).toContain('场次：SC01 · 第一幕：被规训');
+    expect(recipe.finalPrompt).toContain('场景美术库：黑暗画廊、冷白布料、被观看的身体');
     expect(recipe.finalPrompt).toContain('纸张声后音乐收住');
     expect(recipe.usedDimensions).toContain('videoPrompt');
+    expect(recipe.usedDimensions).toContain('sceneTitle');
+    expect(recipe.usedDimensions).toContain('sceneArtBrief');
   });
 
   it('reports missing source image before the shot can be sent to video generation', () => {

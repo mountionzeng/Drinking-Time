@@ -596,10 +596,10 @@ function scriptFromStory(params: {
     logline: params.logline || params.shots[0]?.action || '这一组素材还在成形',
     theme: params.theme,
     scenes: params.shots.map((shot) => ({
-      sceneNo: `S${String(shot.shotNo).padStart(2, '0')}`,
+      sceneNo: shot.sceneNo || `S${String(shot.shotNo).padStart(2, '0')}`,
       fromCardId:
         params.cards.find((card) => card.content === shot.sourceCardContent)?.id || '',
-      visual: [shot.subject, shot.action, shot.dialogue ? `「${shot.dialogue}」` : '']
+      visual: [shot.sceneTitle, shot.subject, shot.action, shot.dialogue ? `「${shot.dialogue}」` : '']
         .filter(Boolean)
         .join(' · '),
       emotion: shot.emotion || shot.beat || '未标',

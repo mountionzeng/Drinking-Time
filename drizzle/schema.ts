@@ -246,6 +246,9 @@ export type StoryBody = {
     stableShotId?: string;
     shotIdentity?: string;
     shotNo: number;
+    sceneNo?: string;
+    sceneTitle?: string;
+    sceneArtBrief?: string;
     subject: string;
     action: string;
     dialogue: string;
@@ -268,6 +271,14 @@ export type StoryBody = {
     visualAnchorText?: string;
     promptDraft?: string;
     negativePrompt?: string;
+  }>;
+  scenes?: Array<{
+    sceneNo: string;
+    title: string;
+    artBrief: string;
+    shotRange?: string;
+    sourceStoryId?: number;
+    sourceStoryTitle?: string;
   }>;
   // 历史压缩状态（前端 storyAgent 自己用，原样回传即可）
   summaryThroughTurn?: number;

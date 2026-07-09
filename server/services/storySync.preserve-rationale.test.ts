@@ -66,6 +66,62 @@ describe("storySync shot field preservation", () => {
     });
   });
 
+  it("preserves scene metadata when an older client omits scene fields", () => {
+    const serverBody = {
+      scenes: [
+        {
+          sceneNo: "SC01",
+          title: "第一幕：规训与自我改造",
+          artBrief: "冷白画廊、白布、被观看的身体",
+          shotRange: "SH01-SH07",
+        },
+      ],
+      materialReusePolicy: "继承根基稳定镜头 ID",
+      sourceStoryId: 1158,
+      sourceStoryTitle: "根基｜2分35秒提示词工程版",
+      shots: [
+        {
+          stableShotId: "legacy-sh01-shot",
+          shotIdentity: "legacy-sh01-shot",
+          shotNo: 1,
+          sceneNo: "SC01",
+          sceneTitle: "第一幕：规训与自我改造",
+          sceneArtBrief: "冷白画廊、白布、被观看的身体",
+          subject: "SheSelf",
+          action: "承认恐惧",
+          dialogue: "我害怕所有的事情",
+        },
+      ],
+    };
+
+    const incomingBody = {
+      shots: [
+        {
+          stableShotId: "legacy-sh01-shot",
+          shotIdentity: "legacy-sh01-shot",
+          shotNo: 1,
+          subject: "SheSelf",
+          action: "承认恐惧",
+          dialogue: "我害怕所有的事情",
+        },
+      ],
+    };
+
+    const body = prepareStoryBody(incomingBody, 14, serverBody);
+
+    expect(body.scenes).toEqual(serverBody.scenes);
+    expect(body).toMatchObject({
+      materialReusePolicy: "继承根基稳定镜头 ID",
+      sourceStoryId: 1158,
+      sourceStoryTitle: "根基｜2分35秒提示词工程版",
+    });
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      sceneNo: "SC01",
+      sceneTitle: "第一幕：规训与自我改造",
+      sceneArtBrief: "冷白画廊、白布、被观看的身体",
+    });
+  });
+
   it("keeps existing shots when a mobile-shaped body sends an empty shots array", () => {
     const serverBody = {
       shots: [

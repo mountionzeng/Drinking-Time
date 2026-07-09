@@ -331,8 +331,12 @@ export function storyShotToDbRow(params: {
 }) {
   const { projectId, storyId, userId, shot, index } = params;
   const shotNo = `SH${String(shot.shotNo || index + 1).padStart(2, "0")}`;
-  const sceneNo = `SC${String(Math.ceil((index + 1) / 6)).padStart(2, "0")}`;
+  const sceneNo =
+    shot.sceneNo?.trim() ||
+    `SC${String(Math.ceil((index + 1) / 6)).padStart(2, "0")}`;
   const filledFields = [
+    shot.sceneTitle,
+    shot.sceneArtBrief,
     shot.subject,
     shot.action,
     shot.dialogue,
@@ -352,7 +356,7 @@ export function storyShotToDbRow(params: {
     userId,
     sceneNo,
     shotNo,
-    sourceSummary: [shot.beat, shot.sourceCardContent || shot.subject]
+    sourceSummary: [shot.sceneTitle, shot.beat, shot.sourceCardContent || shot.subject]
       .filter(Boolean)
       .join(" · "),
     intentType: "director_note" as const,
@@ -362,7 +366,7 @@ export function storyShotToDbRow(params: {
     autoRender: false,
     blockingIssues: null,
     nextAction: shot.note || null,
-    sceneType: shot.location || shot.beat || null,
+    sceneType: shot.sceneTitle || shot.location || shot.beat || null,
     timeOfDay: shot.timeLight || null,
     weather: null,
     lighting: shot.timeLight || null,
@@ -374,13 +378,17 @@ export function storyShotToDbRow(params: {
         .filter(Boolean)
         .join(" / ") || null,
     colorPalette:
-      [shot.styleRef, shot.visualAnchorText].filter(Boolean).join(" / ") ||
+      [shot.sceneArtBrief, shot.styleRef, shot.visualAnchorText]
+        .filter(Boolean)
+        .join(" / ") ||
       null,
     promptDraft:
       shot.promptDraft ||
       [
         shot.subject,
         shot.action,
+        shot.sceneTitle ? `场次：${shot.sceneTitle}` : "",
+        shot.sceneArtBrief ? `场景美术库：${shot.sceneArtBrief}` : "",
         shot.location ? `场景：${shot.location}` : "",
         shot.mood ? `情绪：${shot.mood}` : "",
       ]

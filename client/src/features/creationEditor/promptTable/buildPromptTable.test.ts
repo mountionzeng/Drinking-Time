@@ -47,6 +47,27 @@ describe('buildPromptTable', () => {
     });
   });
 
+  it('adds scene art library rows when a shot belongs to a scene', () => {
+    const rows = buildPromptTable(makeShot({
+      sceneNo: 'SC02',
+      sceneTitle: '第二幕：被观看',
+      sceneArtBrief: '虚无标准、冷白空间、被审视的身体边界',
+    }));
+
+    expect(rows.find((row) => row.dimension === 'sceneTitle')).toMatchObject({
+      label: '场次',
+      value: '第二幕：被观看',
+      category: 'content',
+      source: { system: 'intent', label: '意图' },
+    });
+    expect(rows.find((row) => row.dimension === 'sceneArtBrief')).toMatchObject({
+      label: '场景美术库',
+      value: '虚无标准、冷白空间、被审视的身体边界',
+      category: 'content',
+      source: { system: 'art-repo', label: 'art库' },
+    });
+  });
+
   it('injects the structured prompt stub as eight art rows with weights', () => {
     const rows = buildPromptTable(makeShot());
     const artRows = rows.filter((row) => row.source.system === 'art-repo');

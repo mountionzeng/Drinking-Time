@@ -106,6 +106,12 @@ export interface StoryShot {
   /** Back-compat alias while older persisted stories are being backfilled. */
   shotIdentity?: string;
   shotNo: number;
+  /** 幕 / 场编号，例如 SC01。用于按场景选择不同美术参考库。 */
+  sceneNo?: string;
+  /** 幕 / 场标题，例如“第一幕：被规训”。 */
+  sceneTitle?: string;
+  /** 该幕的美术参考标准，后续图片 / 视频渲染会作为场景库提示。 */
+  sceneArtBrief?: string;
   subject: string;
   action: string;
   dialogue: string;

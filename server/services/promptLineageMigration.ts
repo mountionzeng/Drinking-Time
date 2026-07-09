@@ -273,6 +273,8 @@ function collectShotFacts(body: LegacyRecord): {
   for (const shot of shots) {
     const stableShotId = shot.stableShotId;
     const shared: Array<[string, keyof typeof shot]> = [
+      ["sceneTitle", "sceneTitle"],
+      ["sceneArtBrief", "sceneArtBrief"],
       ["subject", "subject"],
       ["action", "action"],
       ["intent", "intent"],

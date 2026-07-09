@@ -16,6 +16,9 @@ import { artRecipePrompt } from './artDirection';
 /** 镜头元数据：每个镜头必有的信息 */
 export type PromptShotMeta = {
   shotNo: number;
+  sceneNo?: string;
+  sceneTitle?: string;
+  sceneArtBrief?: string;
   subject?: string;
   action?: string;
   location?: string;
@@ -136,6 +139,18 @@ function extractBlocks(ctx: PromptContext): PromptBlock[] {
       if (ctx.shot.sourceCardContent) contentParts.push(`Source Story Card: ${ctx.shot.sourceCardContent}`);
       add('content', contentParts.join('. ') + '.');
     }
+  }
+
+  const sceneBits = [
+    ctx.shot.sceneNo,
+    ctx.shot.sceneTitle,
+    ctx.shot.sceneArtBrief,
+  ].filter(Boolean);
+  if (sceneBits.length > 0) {
+    add(
+      'sceneArtLibrary',
+      `Scene art library standard: ${sceneBits.join(' | ')}`
+    );
   }
 
   // 4-6. 视觉框架 / 导演意图 / 运镜：仅在没有 promptDraft 时追加（避免重复）
