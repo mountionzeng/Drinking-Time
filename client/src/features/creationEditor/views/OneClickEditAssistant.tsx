@@ -27,6 +27,11 @@ import {
 } from "@/components/ui/sheet";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import {
+  CONSISTENCY_DIMENSION_LABELS,
+  type ShotConsistencyAnalysis,
+  type ShotConsistencyVerdict,
+} from "@shared/shotConsistency";
+import {
   VIDEO_TARGET_DIMENSIONS,
   type VideoConformMode,
 } from "@shared/videoConform";
@@ -57,6 +62,10 @@ type OneClickEditAssistantProps = {
     targetAspectRatio: OneClickTargetAspectRatio;
     mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
+  onAnalyzeConsistency: (input: {
+    anchorImageUrl?: string | null;
+    maxShots?: number;
+  }) => Promise<ShotConsistencyAnalysis>;
 };
 
 function metricLabel(value: number, suffix = "") {
@@ -73,6 +82,20 @@ function healthTone(score: number) {
   if (score >= 88) return "text-emerald-700";
   if (score >= 64) return "text-amber-700";
   return "text-destructive";
+}
+
+function verdictTone(verdict: ShotConsistencyVerdict) {
+  if (verdict === "inconsistent")
+    return "border-amber-300/70 bg-amber-50 text-amber-800";
+  if (verdict === "consistent")
+    return "border-emerald-300/60 bg-emerald-50 text-emerald-700";
+  return "border-border bg-muted/70 text-muted-foreground";
+}
+
+function verdictLabel(verdict: ShotConsistencyVerdict) {
+  if (verdict === "inconsistent") return "不一致";
+  if (verdict === "consistent") return "一致";
+  return "看不清";
 }
 
 function sourceLabel(source: OneClickAnchorCandidate["source"]) {
@@ -285,6 +308,7 @@ export default function OneClickEditAssistant({
   onSelectShot,
   onPrepareTimeline,
   onConformVideos,
+  onAnalyzeConsistency,
 }: OneClickEditAssistantProps) {
   const [open, setOpen] = useState(false);
   const [targetAspectRatio, setTargetAspectRatio] =
@@ -366,6 +390,51 @@ export default function OneClickEditAssistant({
 
   const toggleAll = () => {
     setSelectedTakeIds(allSelected ? new Set() : new Set(selectableTakeIds));
+  };
+
+  const [consistency, setConsistency] =
+    useState<ShotConsistencyAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [acceptedImageIds, setAcceptedImageIds] = useState<Set<number>>(
+    () => new Set()
+  );
+
+  const runConsistency = async () => {
+    const anchor = characterCandidates.find(
+      candidate => candidate.id === selectedCharacterAnchor
+    );
+    setAnalyzing(true);
+    try {
+      const result = await onAnalyzeConsistency({
+        anchorImageUrl: anchor?.imageUrl ?? null,
+      });
+      setConsistency(result);
+      setAcceptedImageIds(new Set());
+      if (result.status === "ok") {
+        const flagged = result.findings.filter(
+          finding => finding.verdict === "inconsistent"
+        ).length;
+        toast.success(
+          flagged > 0
+            ? `发现 ${flagged} 个镜头与锚点不一致`
+            : "各镜头画面与锚点基本一致"
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "视觉一致性识别失败"
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const acceptFinding = (imageId: number) => {
+    setAcceptedImageIds(current => {
+      const next = new Set(current);
+      next.add(imageId);
+      return next;
+    });
   };
 
   const runConform = async () => {
@@ -565,6 +634,119 @@ export default function OneClickEditAssistant({
               onSelect={setSelectedSceneAnchor}
             />
           </div>
+
+          <section className="mt-4 rounded-md border border-border bg-background">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Sparkles className="h-4 w-4 text-primary" />
+                视觉一致性
+              </div>
+              <button
+                type="button"
+                onClick={() => void runConsistency()}
+                disabled={analyzing || activeStoryId == null}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {analyzing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {analyzing ? "识别中" : "AI 找不一致"}
+              </button>
+            </div>
+            <div className="px-3 py-2">
+              {consistency == null ? (
+                <p className="py-1 text-xs text-muted-foreground">
+                  用视觉模型把人物锚点和每个镜头的当前画面成对对比，识别五官、发型、服饰、场景、画风的漂移，逐条由你裁决。
+                </p>
+              ) : consistency.status === "not_configured" ? (
+                <p className="py-1 text-xs text-amber-700">
+                  {consistency.message}
+                </p>
+              ) : consistency.status === "error" ? (
+                <p className="py-1 text-xs text-destructive">
+                  {consistency.message}
+                </p>
+              ) : (
+                <div>
+                  <div className="pb-2 text-[11px] text-muted-foreground">
+                    已检查 {consistency.findings.length} 个镜头 · 模型{" "}
+                    {consistency.modelLabel} ·{" "}
+                    {
+                      consistency.findings.filter(
+                        finding =>
+                          finding.verdict === "inconsistent" &&
+                          !acceptedImageIds.has(finding.imageId)
+                      ).length
+                    }{" "}
+                    个待处理
+                  </div>
+                  <div className="grid gap-1.5">
+                    {consistency.findings.map(finding => {
+                      const accepted = acceptedImageIds.has(finding.imageId);
+                      return (
+                        <div
+                          key={finding.imageId}
+                          className={`flex items-start gap-2.5 rounded-md border px-2.5 py-2 ${
+                            accepted
+                              ? "border-border bg-muted/40 opacity-60"
+                              : verdictTone(finding.verdict)
+                          }`}
+                        >
+                          <img
+                            src={finding.imageUrl}
+                            alt={`镜头 ${finding.shotNo ?? ""} 当前画面`}
+                            className="h-12 w-12 shrink-0 rounded object-cover"
+                            loading="lazy"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+                              <span>镜头 {finding.shotNo ?? "?"}</span>
+                              <span className="rounded border border-current/30 px-1 py-0.5 text-[10px]">
+                                {accepted ? "已确认 OK" : verdictLabel(finding.verdict)}
+                              </span>
+                              {finding.mismatches.map(mismatch => (
+                                <span
+                                  key={`${finding.imageId}-${mismatch.dimension}`}
+                                  className="rounded bg-background/70 px-1 py-0.5 text-[10px]"
+                                >
+                                  {CONSISTENCY_DIMENSION_LABELS[mismatch.dimension]}
+                                </span>
+                              ))}
+                            </div>
+                            {finding.mismatches.length > 0 ? (
+                              <ul className="mt-1 space-y-0.5 text-[11px] leading-relaxed">
+                                {finding.mismatches.map((mismatch, index) => (
+                                  <li key={`${finding.imageId}-note-${index}`}>
+                                    {CONSISTENCY_DIMENSION_LABELS[mismatch.dimension]}
+                                    ：{mismatch.note}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : finding.note ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {finding.note}
+                              </p>
+                            ) : null}
+                          </div>
+                          {finding.verdict === "inconsistent" && !accepted ? (
+                            <button
+                              type="button"
+                              onClick={() => acceptFinding(finding.imageId)}
+                              className="h-7 shrink-0 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary"
+                            >
+                              这张 OK
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
 
           <section className="mt-4 rounded-md border border-border bg-background">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">

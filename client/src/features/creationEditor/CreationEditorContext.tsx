@@ -55,6 +55,7 @@ import type {
   VideoConformMode,
   VideoTargetAspectRatio,
 } from "@shared/videoConform";
+import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
 
 export type CreationEditorStory = {
   id: number;
@@ -215,6 +216,10 @@ type CreationEditorContextValue = {
     targetAspectRatio: VideoTargetAspectRatio;
     mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
+  analyzeShotConsistency: (input: {
+    anchorImageUrl?: string | null;
+    maxShots?: number;
+  }) => Promise<ShotConsistencyAnalysis>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
   markVideoTakeUnusable: (
     takeId: number,
@@ -1046,6 +1051,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.generateShotVideo.useMutation();
   const conformVideoTakesMut =
     trpc.creationAgent.conformVideoTakes.useMutation();
+  const analyzeShotConsistencyMut =
+    trpc.creationAgent.analyzeShotConsistency.useMutation();
   const refreshShotVideoStatusMut =
     trpc.creationAgent.refreshShotVideoStatus.useMutation();
   const markVideoTakeUnusableMut =
@@ -1770,6 +1777,18 @@ export function CreationEditorProvider({
     };
   };
 
+  const analyzeShotConsistency = async (input: {
+    anchorImageUrl?: string | null;
+    maxShots?: number;
+  }): Promise<ShotConsistencyAnalysis> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法做一致性识别");
+    return analyzeShotConsistencyMut.mutateAsync({
+      storyId: activeId,
+      anchorImageUrl: input.anchorImageUrl ?? undefined,
+      maxShots: input.maxShots,
+    });
+  };
+
   const refreshShotVideoStatus = async (takeId: number) => {
     if (activeId == null) throw new Error("故事尚未加载，无法刷新视频状态");
     const result = await refreshShotVideoStatusMut.mutateAsync({ takeId });
@@ -2101,6 +2120,7 @@ export function CreationEditorProvider({
       importStoryMaterial,
       generateShotVideo,
       conformVideoTakes,
+      analyzeShotConsistency,
       refreshShotVideoStatus,
       markVideoTakeUnusable,
       insertPersistedShotAfter,

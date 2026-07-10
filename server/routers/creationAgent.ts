@@ -39,6 +39,7 @@ import {
   detectGoalFromText,
 } from "../services/creationGoal";
 import { segmentAtPoint } from "../services/segmentation";
+import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import {
   editImage as editMobileImage,
   inpaintImage,
@@ -843,6 +844,27 @@ export const creationAgentRouter = router({
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
       };
+    }),
+
+  /**
+   * 一键剪辑 · 视觉一致性识别：锚点图 vs 每镜头当前主图，
+   * 视觉模型逐对找五官/发型/服饰/场景/画风差异。未配置视觉通道时返回 not_configured。
+   */
+  analyzeShotConsistency: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        anchorImageUrl: z.string().trim().min(1).nullable().optional(),
+        maxShots: z.number().int().min(1).max(24).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return analyzeStoryShotConsistency({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        anchorImageUrl: input.anchorImageUrl ?? undefined,
+        maxShots: input.maxShots,
+      });
     }),
 
   conformVideoTakes: protectedProcedure

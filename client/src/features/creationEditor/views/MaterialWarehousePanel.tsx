@@ -202,6 +202,7 @@ export default function MaterialWarehousePanel() {
     reuseVideoTake,
     markVideoTakeUnusable,
     conformVideoTakes,
+    analyzeShotConsistency,
     shotVideoProviderStatus,
   } = useCreationEditor();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -467,6 +468,7 @@ export default function MaterialWarehousePanel() {
             onSelectShot={setSelectedShotNo}
             onPrepareTimeline={resetTimelineShots}
             onConformVideos={conformVideoTakes}
+            onAnalyzeConsistency={analyzeShotConsistency}
           />
           <span className="creation-board-panel-status">
             {shotLabel(currentShot?.shotNo ?? selectedShotNo)}
