@@ -13,6 +13,7 @@ import {
   createVideoTake,
   findVideoTakeByIdempotencyKey,
   getStoryById,
+  getStoryVideoTimelineSelections,
   getVideoTakeById,
   setVideoTimelineSelection,
   updateVideoTake,
@@ -493,12 +494,33 @@ export async function conformVideoTake(
 ): Promise<VideoConformResult> {
   const story = await getStoryById(input.storyId, userId);
   const source = await getVideoTakeById(input.sourceTakeId, userId);
-  if (!story || !source || source.storyId !== input.storyId) {
+  // 与 reuseVideoTakeForShot 同一契约：跨故事复用是特性，只验用户归属不验故事归属。
+  if (!story || !source || source.userId !== userId) {
     return {
       status: "error",
       sourceTakeId: input.sourceTakeId,
-      error: "视频不存在或不属于当前故事",
+      error: "视频不存在或无权处理",
     };
+  }
+  // 跨故事复用的素材：统一尺寸后的新 take 要绑回【当前故事】引用它的镜头，
+  // 否则会挂在源故事的镜头身份上、在这里永远看不见。
+  let targetStableShotId = source.stableShotId;
+  if (source.storyId !== input.storyId) {
+    const selections = await getStoryVideoTimelineSelections(
+      input.storyId,
+      userId
+    );
+    const binding = selections.find(
+      selection => selection.takeId === source.id
+    );
+    if (!binding) {
+      return {
+        status: "error",
+        sourceTakeId: input.sourceTakeId,
+        error: "这个视频还没绑定到当前故事的镜头，先在素材仓库把它挂到镜头上",
+      };
+    }
+    targetStableShotId = binding.stableShotId;
   }
   if (source.status !== "available" || !source.videoUrl) {
     return {
@@ -541,7 +563,7 @@ export async function conformVideoTake(
     const take = await createVideoTake({
       storyId: input.storyId,
       userId,
-      stableShotId: source.stableShotId,
+      stableShotId: targetStableShotId,
       sourceImageId: source.sourceImageId,
       promptCompilationId: source.promptCompilationId,
       status: "processing",
