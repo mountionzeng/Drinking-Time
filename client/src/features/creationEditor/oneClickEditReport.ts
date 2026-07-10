@@ -34,6 +34,7 @@ export type OneClickShotCheck = {
   sceneLabel: string;
   title: string;
   dialogue: string;
+  cameraMove: string;
   imageUrl: string | null;
   videoTakeId: number | null;
   videoUrl: string | null;
@@ -285,6 +286,7 @@ export function buildOneClickEditReport(input: {
       sceneLabel: sceneLabel || inheritedSceneLabel,
       title: shot.subject || shot.action || shotLabel(shot.shotNo),
       dialogue: shot.dialogue || shot.action || shot.visualAnchorText || "",
+      cameraMove: shot.cameraMove?.trim() ?? "",
       imageUrl,
       videoTakeId: currentVideo?.id ?? null,
       videoUrl,

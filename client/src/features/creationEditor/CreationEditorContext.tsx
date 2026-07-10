@@ -112,16 +112,25 @@ export type ImportedStoryMaterialResult =
 
 export type VideoConformBatchResult = {
   status: "ok" | "partial" | "error";
+  acceptedCount: number;
   completedCount: number;
+  availableCount: number;
+  processingCount: number;
   failedCount: number;
   results: Array<
     | {
         status: "ok";
         sourceTakeId: number;
+        stableShotId: string;
         takeId: number;
         videoStatus: VideoTakeStatus;
       }
-    | { status: "error"; sourceTakeId: number; error: string }
+    | {
+        status: "error";
+        sourceTakeId: number;
+        stableShotId: string;
+        error: string;
+      }
   >;
 };
 
@@ -213,9 +222,12 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   conformVideoTakes: (input: {
-    items: Array<{ takeId: number; stableShotId: string }>;
+    items: Array<{
+      takeId: number;
+      stableShotId: string;
+      mode: VideoConformMode;
+    }>;
     targetAspectRatio: VideoTargetAspectRatio;
-    mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
   analyzeShotConsistency: (input: {
     anchorImageUrl?: string | null;
@@ -1747,9 +1759,12 @@ export function CreationEditorProvider({
   };
 
   const conformVideoTakes = async (input: {
-    items: Array<{ takeId: number; stableShotId: string }>;
+    items: Array<{
+      takeId: number;
+      stableShotId: string;
+      mode: VideoConformMode;
+    }>;
     targetAspectRatio: VideoTargetAspectRatio;
-    mode: VideoConformMode;
   }): Promise<VideoConformBatchResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法统一视频尺寸");
     const result = await conformVideoTakesMut.mutateAsync({
@@ -1764,13 +1779,17 @@ export function CreationEditorProvider({
     ]);
     return {
       status: result.status,
+      acceptedCount: result.acceptedCount,
       completedCount: result.completedCount,
+      availableCount: result.availableCount,
+      processingCount: result.processingCount,
       failedCount: result.failedCount,
       results: result.results.map(item =>
         item.status === "ok"
           ? {
               status: "ok" as const,
               sourceTakeId: item.sourceTakeId,
+              stableShotId: item.stableShotId,
               takeId: item.take.id,
               videoStatus: item.take.status,
             }

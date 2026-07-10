@@ -883,35 +883,54 @@ export const creationAgentRouter = router({
             z.object({
               takeId: z.number().int().positive(),
               stableShotId: z.string().trim().min(1),
+              mode: z.enum(VIDEO_CONFORM_MODES),
             })
           )
           .min(1)
-          .max(50),
+          .max(50)
+          .superRefine((items, ctx) => {
+            const seen = new Set<string>();
+            items.forEach((item, index) => {
+              const key = `${item.takeId}\u0000${item.stableShotId}`;
+              if (seen.has(key)) {
+                ctx.addIssue({
+                  code: "custom",
+                  message: "同一个视频镜头不能重复提交",
+                  path: [index],
+                });
+              }
+              seen.add(key);
+            });
+          }),
         targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS),
-        mode: z.enum(VIDEO_CONFORM_MODES),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const seen = new Set<number>();
-      const items = input.items.filter(item => {
-        if (seen.has(item.takeId)) return false;
-        seen.add(item.takeId);
-        return true;
-      });
-      const results = await mapWithConcurrency(items, 2, item =>
+      const items = input.items;
+      const rawResults = await mapWithConcurrency(items, 2, item =>
         conformVideoTake(
           {
             storyId: input.storyId,
             sourceTakeId: item.takeId,
             targetAspectRatio: input.targetAspectRatio,
-            mode: input.mode,
+            mode: item.mode,
             targetStableShotId: item.stableShotId,
           },
           ctx.user.id
         )
       );
+      const results = rawResults.map((result, index) => ({
+        ...result,
+        stableShotId: items[index]!.stableShotId,
+      }));
       const completed = results.filter(result => result.status === "ok");
       const failed = results.filter(result => result.status === "error");
+      const availableCount = completed.filter(
+        result => result.take.status === "available"
+      ).length;
+      const processingCount = completed.filter(
+        result => result.take.status === "processing"
+      ).length;
       return {
         status:
           failed.length === 0
@@ -919,7 +938,10 @@ export const creationAgentRouter = router({
             : completed.length === 0
               ? ("error" as const)
               : ("partial" as const),
-        completedCount: completed.length,
+        acceptedCount: completed.length,
+        completedCount: availableCount,
+        availableCount,
+        processingCount,
         failedCount: failed.length,
         results,
       };

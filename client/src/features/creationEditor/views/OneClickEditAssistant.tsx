@@ -6,7 +6,6 @@ import {
   Image as ImageIcon,
   ListChecks,
   Loader2,
-  PanelTop,
   Scissors,
   Sparkles,
   Square,
@@ -41,6 +40,7 @@ import type {
 } from "../CreationEditorContext";
 import {
   ONE_CLICK_TARGET_ASPECT_RATIOS,
+  aspectRatioMatches,
   buildOneClickEditReport,
   collectOneClickAnchorCandidates,
   type OneClickAnchorCandidate,
@@ -48,6 +48,17 @@ import {
   type OneClickShotCheck,
   type OneClickTargetAspectRatio,
 } from "../oneClickEditReport";
+import {
+  get302VideoExpandAvailability,
+  isVideoConformReviewCandidate,
+  recommendVideoConformMode,
+  summarizeVideoConformResults,
+  type VideoConformReviewMode,
+  videoConformReviewKey,
+} from "../videoConformReview";
+import VideoConformReviewDialog, {
+  type VideoConformReviewItem,
+} from "./VideoConformReviewDialog";
 
 type OneClickEditAssistantProps = {
   activeStoryId: number | null;
@@ -58,9 +69,12 @@ type OneClickEditAssistantProps = {
   onSelectShot: (shotNo: number) => void;
   onPrepareTimeline: () => void;
   onConformVideos: (input: {
-    items: Array<{ takeId: number; stableShotId: string }>;
+    items: Array<{
+      takeId: number;
+      stableShotId: string;
+      mode: VideoConformMode;
+    }>;
     targetAspectRatio: OneClickTargetAspectRatio;
-    mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
   onAnalyzeConsistency: (input: {
     anchorImageUrl?: string | null;
@@ -103,32 +117,6 @@ function sourceLabel(source: OneClickAnchorCandidate["source"]) {
   if (source === "reference") return "参考图";
   return "提示词";
 }
-
-const CONFORM_MODE_OPTIONS = [
-  {
-    id: "crop" as const,
-    label: "中心裁切",
-    meta: "最快",
-    icon: Crop,
-  },
-  {
-    id: "blur_pad" as const,
-    label: "模糊补边",
-    meta: "保留全画面",
-    icon: PanelTop,
-  },
-  {
-    id: "ai_expand" as const,
-    label: "AI 外扩",
-    meta: "302 · Runway",
-    icon: WandSparkles,
-  },
-] satisfies Array<{
-  id: VideoConformMode;
-  label: string;
-  meta: string;
-  icon: typeof Crop;
-}>;
 
 function AnchorPicker({
   title,
@@ -208,11 +196,13 @@ function AnchorPicker({
 function ShotCheckRow({
   check,
   selected,
+  conformSelectable,
   onToggle,
   onSelectShot,
 }: {
   check: OneClickShotCheck;
   selected: boolean;
+  conformSelectable: boolean;
   onToggle: () => void;
   onSelectShot: (shotNo: number) => void;
 }) {
@@ -220,7 +210,7 @@ function ShotCheckRow({
     <article className="grid grid-cols-[1.25rem_4.5rem_minmax(0,1fr)] gap-3 border-b border-border/70 px-3 py-3 last:border-b-0 sm:grid-cols-[1.25rem_4.5rem_minmax(0,1fr)_auto]">
       <Checkbox
         checked={selected}
-        disabled={!check.hasCurrentVideo || check.videoTakeId == null}
+        disabled={!conformSelectable}
         onCheckedChange={onToggle}
         aria-label={`选择 SH${String(check.shotNo).padStart(2, "0")} 视频`}
         className="mt-1"
@@ -266,10 +256,26 @@ function ShotCheckRow({
               {check.videoAspectRatio}
             </span>
           ) : null}
+          {check.hasCurrentVideo &&
+          aspectRatioMatches(
+            check.videoAspectRatio,
+            check.targetAspectRatio
+          ) ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
+              <CheckCircle2 className="h-3 w-3" />
+              画幅已匹配
+            </span>
+          ) : null}
         </div>
         <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
           {check.dialogue || check.title}
         </div>
+        {check.hasCurrentVideo ? (
+          <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">运镜：</span>
+            {check.cameraMove || "未填写，请在确认台播放视频判断"}
+          </div>
+        ) : null}
         <div className="mt-2 flex flex-wrap gap-1.5">
           {check.issues.length === 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
@@ -313,8 +319,8 @@ export default function OneClickEditAssistant({
   const [open, setOpen] = useState(false);
   const [targetAspectRatio, setTargetAspectRatio] =
     useState<OneClickTargetAspectRatio>("1:1");
-  const [conformMode, setConformMode] = useState<VideoConformMode>("crop");
-  const [selectedTakeIds, setSelectedTakeIds] = useState<Set<number>>(
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [selectedVideoKeys, setSelectedVideoKeys] = useState<Set<string>>(
     () => new Set()
   );
   const [conforming, setConforming] = useState(false);
@@ -342,29 +348,68 @@ export default function OneClickEditAssistant({
   const [selectedSceneAnchor, setSelectedSceneAnchor] = useState<string | null>(
     null
   );
-  const selectableTakeIds = useMemo(
+  const selectableVideoKeys = useMemo(
     () =>
       report.checks.flatMap(check =>
-        check.hasCurrentVideo && check.videoTakeId != null
-          ? [check.videoTakeId]
+        isVideoConformReviewCandidate(check) && check.videoTakeId != null
+          ? [
+              videoConformReviewKey({
+                takeId: check.videoTakeId,
+                stableShotId: check.stableShotId,
+              }),
+            ]
           : []
       ),
-    [report.checks]
+    [report.checks, targetAspectRatio]
   );
-  // 视频 → 它在本故事体检行里的镜头身份。跨故事继承的素材靠别名互认绑定，
-  // 服务端无法反推，统一尺寸时必须把这个身份一起传上去。
-  const takeShotMap = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const check of report.checks) {
-      if (check.videoTakeId != null) {
-        map.set(check.videoTakeId, check.stableShotId);
-      }
-    }
-    return map;
-  }, [report.checks]);
-  const selectedCount = selectedTakeIds.size;
+  const selectableSignature = selectableVideoKeys.join(",");
+  const reviewItems = useMemo(
+    () =>
+      report.checks.flatMap((check): VideoConformReviewItem[] => {
+        if (
+          check.videoTakeId == null ||
+          !check.videoUrl ||
+          !selectedVideoKeys.has(
+            videoConformReviewKey({
+              takeId: check.videoTakeId,
+              stableShotId: check.stableShotId,
+            })
+          ) ||
+          !isVideoConformReviewCandidate(check)
+        ) {
+          return [];
+        }
+        const expandAvailability = get302VideoExpandAvailability({
+          sourceAspectRatio: check.videoAspectRatio,
+          targetAspectRatio,
+        });
+        return [
+          {
+            takeId: check.videoTakeId,
+            stableShotId: check.stableShotId,
+            shotNo: check.shotNo,
+            title: check.title,
+            cameraMove: check.cameraMove,
+            videoUrl: check.videoUrl,
+            posterUrl: check.imageUrl,
+            sourceAspectRatio: check.videoAspectRatio,
+            aiExpandUnavailableReason: expandAvailability.supported
+              ? null
+              : expandAvailability.reason,
+            recommendation: recommendVideoConformMode({
+              cameraMove: check.cameraMove,
+              sourceAspectRatio: check.videoAspectRatio,
+              targetAspectRatio,
+            }),
+          },
+        ];
+      }),
+    [report.checks, selectedVideoKeys, targetAspectRatio]
+  );
+  const selectedCount = selectedVideoKeys.size;
   const allSelected =
-    selectableTakeIds.length > 0 && selectedCount === selectableTakeIds.length;
+    selectableVideoKeys.length > 0 &&
+    selectedCount === selectableVideoKeys.length;
   const targetDimensions = VIDEO_TARGET_DIMENSIONS[targetAspectRatio];
 
   useEffect(() => {
@@ -379,28 +424,66 @@ export default function OneClickEditAssistant({
     }
   }, [sceneCandidates, selectedSceneAnchor]);
 
+  useEffect(() => {
+    const selectable = new Set(selectableVideoKeys);
+    setSelectedVideoKeys(current => {
+      const next = new Set(
+        Array.from(current).filter(takeId => selectable.has(takeId))
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [selectableSignature]);
+
   const summaryState =
     report.blockingCount === 0 ? "可预剪" : `${report.blockingCount} 个阻塞`;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && !open) {
-      setSelectedTakeIds(new Set(selectableTakeIds));
+      setSelectedVideoKeys(new Set(selectableVideoKeys));
     }
+    if (!nextOpen) setReviewOpen(false);
     setOpen(nextOpen);
   };
 
-  const toggleTake = (takeId: number | null) => {
-    if (takeId == null) return;
-    setSelectedTakeIds(current => {
+  const handleTargetAspectRatioChange = (
+    nextTarget: OneClickTargetAspectRatio
+  ) => {
+    setTargetAspectRatio(nextTarget);
+    setReviewOpen(false);
+    setSelectedVideoKeys(
+      new Set(
+        report.checks.flatMap(check =>
+          isVideoConformReviewCandidate(check) && check.videoTakeId != null
+            ? [
+                videoConformReviewKey({
+                  takeId: check.videoTakeId,
+                  stableShotId: check.stableShotId,
+                }),
+              ]
+            : []
+        )
+      )
+    );
+  };
+
+  const toggleTake = (check: OneClickShotCheck) => {
+    if (check.videoTakeId == null) return;
+    const key = videoConformReviewKey({
+      takeId: check.videoTakeId,
+      stableShotId: check.stableShotId,
+    });
+    setSelectedVideoKeys(current => {
       const next = new Set(current);
-      if (next.has(takeId)) next.delete(takeId);
-      else next.add(takeId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
   const toggleAll = () => {
-    setSelectedTakeIds(allSelected ? new Set() : new Set(selectableTakeIds));
+    setSelectedVideoKeys(
+      allSelected ? new Set() : new Set(selectableVideoKeys)
+    );
   };
 
   const [consistency, setConsistency] =
@@ -448,21 +531,19 @@ export default function OneClickEditAssistant({
     });
   };
 
-  const runConform = async () => {
-    if (selectedTakeIds.size === 0) {
+  const runConform = async (
+    items: Array<{
+      takeId: number;
+      stableShotId: string;
+      mode: VideoConformReviewMode;
+    }>
+  ) => {
+    if (items.length === 0) {
       toast.error("请先选择至少一个视频");
       return;
     }
-    if (conformMode === "ai_expand" && !aiExpandReady) {
+    if (items.some(item => item.mode === "ai_expand") && !aiExpandReady) {
       toast.error("API302_KEY 未配置，暂时不能使用 AI 外扩");
-      return;
-    }
-    const items = Array.from(selectedTakeIds).flatMap(takeId => {
-      const stableShotId = takeShotMap.get(takeId);
-      return stableShotId ? [{ takeId, stableShotId }] : [];
-    });
-    if (items.length === 0) {
-      toast.error("所选视频没有对应的镜头行，请刷新后重试");
       return;
     }
     setConforming(true);
@@ -470,17 +551,23 @@ export default function OneClickEditAssistant({
       const result = await onConformVideos({
         items,
         targetAspectRatio,
-        mode: conformMode,
       });
-      const processingCount = result.results.filter(
-        item => item.status === "ok" && item.videoStatus === "processing"
-      ).length;
-      if (result.completedCount > 0) {
-        toast.success(
-          processingCount > 0
-            ? `已提交 ${processingCount} 个 AI 外扩任务`
-            : `已统一 ${result.completedCount} 个视频尺寸`
-        );
+      const {
+        successfulItems,
+        processingCount,
+        cropSuccessCount,
+        expandSuccessCount,
+      } = summarizeVideoConformResults(items, result.results);
+      if (successfulItems.length > 0) {
+        const successMessages = [
+          cropSuccessCount > 0 ? `已完成 ${cropSuccessCount} 个本地裁切` : null,
+          expandSuccessCount > 0
+            ? processingCount > 0
+              ? `已提交 ${expandSuccessCount} 个 302 外扩任务`
+              : `已完成 ${expandSuccessCount} 个 302 外扩`
+            : null,
+        ].filter(Boolean);
+        toast.success(successMessages.join("，"));
       }
       if (result.failedCount > 0) {
         const firstError = result.results.find(item => item.status === "error");
@@ -488,7 +575,20 @@ export default function OneClickEditAssistant({
           `${result.failedCount} 个视频处理失败${firstError ? `：${firstError.error}` : ""}`
         );
       }
-      setSelectedTakeIds(new Set());
+      const successfulVideoKeys = new Set(
+        successfulItems.map(item =>
+          videoConformReviewKey({
+            takeId: item.sourceTakeId,
+            stableShotId: item.stableShotId,
+          })
+        )
+      );
+      setSelectedVideoKeys(current => {
+        const next = new Set(current);
+        successfulVideoKeys.forEach(key => next.delete(key));
+        return next;
+      });
+      if (result.failedCount === 0) setReviewOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "视频统一尺寸失败");
     } finally {
@@ -548,7 +648,7 @@ export default function OneClickEditAssistant({
                   <button
                     key={ratio}
                     type="button"
-                    onClick={() => setTargetAspectRatio(ratio)}
+                    onClick={() => handleTargetAspectRatioChange(ratio)}
                     className={`h-9 rounded-md border text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                       targetAspectRatio === ratio
                         ? "border-primary/70 bg-primary/10 text-primary"
@@ -591,50 +691,51 @@ export default function OneClickEditAssistant({
           <section className="mt-4 rounded-md border border-border bg-background p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-semibold">画面处理</div>
+                <div className="text-sm font-semibold">画幅统一流程</div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
-                  {targetDimensions.width} × {targetDimensions.height}
+                  先逐镜播放确认运镜，再决定裁切还是专业外扩
                 </div>
               </div>
               <button
                 type="button"
                 onClick={toggleAll}
-                disabled={selectableTakeIds.length === 0 || conforming}
+                disabled={selectableVideoKeys.length === 0 || conforming}
                 className="h-8 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {allSelected ? "取消全选" : `全选 ${selectableTakeIds.length}`}
+                {allSelected
+                  ? "取消全选"
+                  : `全选 ${selectableVideoKeys.length}`}
               </button>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {CONFORM_MODE_OPTIONS.map(option => {
-                const Icon = option.icon;
-                const selected = conformMode === option.id;
-                const disabled = option.id === "ai_expand" && !aiExpandReady;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setConformMode(option.id)}
-                    disabled={disabled || conforming}
-                    className={`flex min-h-14 items-center gap-2.5 rounded-md border px-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-45 ${
-                      selected
-                        ? "border-primary/70 bg-primary/10 text-primary"
-                        : "border-border text-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-xs font-semibold">
-                        {option.label}
-                      </span>
-                      <span className="block text-[11px] text-muted-foreground">
-                        {disabled ? "缺 API302_KEY" : option.meta}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex min-h-14 items-center gap-2.5 rounded-md border border-emerald-200 bg-emerald-50/70 px-3">
+                <Crop className="h-4 w-4 shrink-0 text-emerald-700" />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-emerald-800">
+                    直接裁切
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    本地 ffmpeg · 免费 · 适合主体始终在安全区
+                  </span>
+                </span>
+              </div>
+              <div className="flex min-h-14 items-center gap-2.5 rounded-md border border-violet-200 bg-violet-50/70 px-3">
+                <WandSparkles className="h-4 w-4 shrink-0 text-violet-700" />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-violet-800">
+                    302 专业视频外扩
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {aiExpandReady
+                      ? "Runway Expand · 逐镜确认后才提交"
+                      : "缺 API302_KEY · 当前只能选择免费裁切"}
+                  </span>
+                </span>
+              </div>
             </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              这里不会直接执行或扣费；点击底部按钮后，才会打开每个镜头的运镜确认台。
+            </p>
           </section>
 
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -791,11 +892,17 @@ export default function OneClickEditAssistant({
                     <ShotCheckRow
                       key={check.stableShotId}
                       check={check}
+                      conformSelectable={isVideoConformReviewCandidate(check)}
                       selected={Boolean(
                         check.videoTakeId != null &&
-                          selectedTakeIds.has(check.videoTakeId)
+                          selectedVideoKeys.has(
+                            videoConformReviewKey({
+                              takeId: check.videoTakeId,
+                              stableShotId: check.stableShotId,
+                            })
+                          )
                       )}
-                      onToggle={() => toggleTake(check.videoTakeId)}
+                      onToggle={() => toggleTake(check)}
                       onSelectShot={shotNo => {
                         onSelectShot(shotNo);
                         setOpen(false);
@@ -814,25 +921,32 @@ export default function OneClickEditAssistant({
           </div>
           <button
             type="button"
-            onClick={() => void runConform()}
-            disabled={
-              conforming ||
-              selectedCount === 0 ||
-              (conformMode === "ai_expand" && !aiExpandReady)
-            }
+            onClick={() => setReviewOpen(true)}
+            disabled={conforming || selectedCount === 0}
             className="inline-flex h-9 min-w-36 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {conforming ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : conformMode === "ai_expand" ? (
-              <WandSparkles className="h-4 w-4" />
             ) : (
-              <Scissors className="h-4 w-4" />
+              <Film className="h-4 w-4" />
             )}
-            {conforming ? "处理中" : `统一 ${selectedCount} 个视频`}
+            {conforming
+              ? "处理中"
+              : selectedCount > 0
+                ? `确认 ${selectedCount} 个镜头的运镜`
+                : "没有待统一的视频"}
           </button>
         </div>
       </SheetContent>
+      <VideoConformReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        items={reviewItems}
+        targetAspectRatio={targetAspectRatio}
+        aiExpandReady={aiExpandReady}
+        submitting={conforming}
+        onConfirm={runConform}
+      />
     </Sheet>
   );
 }

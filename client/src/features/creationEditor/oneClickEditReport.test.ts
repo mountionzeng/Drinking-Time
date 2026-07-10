@@ -263,6 +263,27 @@ describe("oneClickEditReport", () => {
     ]);
   });
 
+  it("projects trimmed camera movement for the conform review", () => {
+    const report = buildOneClickEditReport({
+      shots: [
+        shot({
+          shotNo: 1,
+          stableShotId: "shot-1",
+          cameraMove: "  缓慢推进  ",
+        }),
+        shot({ shotNo: 2, stableShotId: "shot-2", cameraMove: "" }),
+      ],
+      materialState: materialState([]),
+      timelineShotIds: [],
+      targetAspectRatio: "1:1",
+    });
+
+    expect(report.checks.map(check => check.cameraMove)).toEqual([
+      "缓慢推进",
+      "",
+    ]);
+  });
+
   it("normalizes common ratio aliases", () => {
     expect(aspectRatioMatches("square", "1:1")).toBe(true);
     expect(aspectRatioMatches("16 : 9", "16:9")).toBe(true);

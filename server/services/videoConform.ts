@@ -25,6 +25,8 @@ const RUNWAY_EXPAND_SUBMIT_PATH = "/runway_turbo_expand/submit";
 const RUNWAY_EXPAND_POLL_PATH = "/runway/task/{taskId}/fetch";
 const MAX_RUNWAY_INPUT_BYTES = 64 * 1024 * 1024;
 
+export type RunwayExpandAspectRatio = "3:5" | "5:3";
+
 type Fetcher = typeof fetch;
 
 export type VideoProbeMetadata = {
@@ -38,6 +40,19 @@ export type VideoConformResult =
   | { status: "ok"; take: VideoTake; sourceTakeId: number }
   | { status: "error"; error: string; sourceTakeId: number };
 
+export type VideoConformInput = {
+  storyId: number;
+  sourceTakeId: number;
+  targetAspectRatio: VideoTargetAspectRatio;
+  mode: VideoConformMode;
+  /**
+   * 结果绑定到当前故事的哪个镜头（体检行自带的 stableShotId）。
+   * 跨故事继承的素材（副本故事借老故事的视频）没有它就无从落位——
+   * 绑定靠镜头身份别名互认，服务端无法从源 take 反推。
+   */
+  targetStableShotId?: string | null;
+};
+
 export type RunwayExpandRefreshResult =
   | { status: "available"; videoUrl: string; taskId: string }
   | { status: "processing"; taskId: string }
@@ -49,7 +64,16 @@ export type RunwayExpandRefreshResult =
 
 type RunwayExpandSubmission =
   | { status: "ok"; taskId?: string; videoUrl?: string }
-  | { status: "error"; message: string };
+  | {
+      status: "error";
+      message: string;
+      submissionState?: "not_submitted" | "unknown";
+    };
+
+const inFlightVideoConformRequests = new Map<
+  string,
+  Promise<VideoConformResult>
+>();
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -85,6 +109,109 @@ export function aspectRatioFromDimensions(
   if (Math.abs(ratio - 9 / 16) < 0.025) return "9:16";
   const divisor = gcd(width, height);
   return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function aspectRatioValue(value: string): number | null {
+  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(
+    value.replace(/\s+/g, "")
+  );
+  if (!match) return value.toLowerCase() === "square" ? 1 : null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return Number.isFinite(width) && Number.isFinite(height) && height > 0
+    ? width / height
+    : null;
+}
+
+export function runwayExpandProviderAspectRatio(
+  sourceAspectRatio: string,
+  targetAspectRatio: VideoTargetAspectRatio
+): RunwayExpandAspectRatio {
+  const sourceRatio = aspectRatioValue(sourceAspectRatio);
+  if (sourceRatio == null) {
+    throw new Error(`无法识别源视频比例：${sourceAspectRatio}`);
+  }
+  const squareTolerance = 0.025;
+  if (targetAspectRatio === "1:1") {
+    if (sourceRatio > 1 + squareTolerance) return "3:5";
+    if (sourceRatio < 1 - squareTolerance) return "5:3";
+    throw new Error("源视频已经是方形，不需要调用 302 视频外扩");
+  }
+  if (targetAspectRatio === "16:9" && sourceRatio <= 1 + squareTolerance) {
+    return "5:3";
+  }
+  if (targetAspectRatio === "9:16" && sourceRatio >= 1 - squareTolerance) {
+    return "3:5";
+  }
+  throw new Error(
+    "302 Runway Expand 仅支持横竖屏互转；当前同方向改比例请使用直接裁切"
+  );
+}
+
+export function runwayExpandInputError(
+  metadata: Pick<VideoProbeMetadata, "width" | "height" | "durationSec">
+): string | null {
+  if (metadata.width < 620 || metadata.height < 620) {
+    return "302 专业外扩要求源视频至少 620×620，请改用直接裁切或换更高清素材";
+  }
+  if (
+    metadata.durationSec == null ||
+    !Number.isFinite(metadata.durationSec) ||
+    metadata.durationSec <= 0
+  ) {
+    return "无法确认源视频实际时长，为避免错误扣费，302 专业外扩已停止提交";
+  }
+  if (metadata.durationSec != null && metadata.durationSec > 10) {
+    return "302 专业外扩仅支持 10 秒以内的单镜头，请先裁出片段再提交";
+  }
+  return null;
+}
+
+export function canReuseVideoConformTake(
+  take: Pick<VideoTake, "status">
+): boolean {
+  return ["submitted", "processing", "available"].includes(take.status);
+}
+
+export function shouldBlockVideoConformRetry(
+  take: Pick<VideoTake, "status">
+): boolean {
+  return ["timeout", "unfollowable"].includes(take.status);
+}
+
+export function runwayExpandRequestFields(input: {
+  providerAspectRatio: RunwayExpandAspectRatio;
+  durationSec: number;
+  prompt: string;
+}) {
+  return {
+    text_prompt: input.prompt,
+    seconds: input.durationSec <= 5 ? "5" : "10",
+    outpaint_aspect_ratio: input.providerAspectRatio,
+  };
+}
+
+export function runwayExpandSubmissionStateForHttpStatus(
+  status: number
+): "not_submitted" | "unknown" {
+  return status === 408 || status === 429 || status >= 500
+    ? "unknown"
+    : "not_submitted";
+}
+
+export function runwayExpandRefreshFailureStatus(
+  _status: number
+): "failed" | "timeout" {
+  // 查询接口的 HTTP 失败只能说明“本次没查到”，不能证明已付费任务终止。
+  // 只有 parseRunwayExpandRefresh 读到 provider 明确 FAILED/CANCELLED 才可重提。
+  return "timeout";
+}
+
+export function runwayPaidResultFailurePatch(message: string) {
+  return {
+    status: "timeout" as const,
+    errorMessage: `${message}；302 已接单或已返回结果，为避免重复扣费已锁定自动重试`,
+  };
 }
 
 function runProcess(
@@ -366,19 +493,24 @@ export function parseRunwayExpandRefresh(
 
 async function submitRunwayVideoExpand(input: {
   sourcePath: string;
-  targetAspectRatio: VideoTargetAspectRatio;
+  providerAspectRatio: RunwayExpandAspectRatio;
   durationSec: number;
   prompt: string;
   fetcher?: Fetcher;
 }): Promise<RunwayExpandSubmission> {
   if (!ENV.api302Key) {
-    return { status: "error", message: "API302_KEY 未配置，无法使用 AI 外扩" };
+    return {
+      status: "error",
+      message: "API302_KEY 未配置，无法使用 AI 外扩",
+      submissionState: "not_submitted",
+    };
   }
   const bytes = await fs.promises.readFile(input.sourcePath);
   if (bytes.byteLength > MAX_RUNWAY_INPUT_BYTES) {
     return {
       status: "error",
       message: "AI 外扩源视频超过 64MB，请先使用裁切或模糊补边压缩",
+      submissionState: "not_submitted",
     };
   }
   const form = new FormData();
@@ -394,9 +526,10 @@ async function submitRunwayVideoExpand(input: {
     new Blob([bytes as any], { type: mimeType }),
     path.basename(input.sourcePath)
   );
-  form.append("text_prompt", input.prompt);
-  form.append("seconds", input.durationSec <= 5 ? "5" : "10");
-  form.append("outpaint_aspect_ratio", input.targetAspectRatio);
+  const fields = runwayExpandRequestFields(input);
+  form.append("text_prompt", fields.text_prompt);
+  form.append("seconds", fields.seconds);
+  form.append("outpaint_aspect_ratio", fields.outpaint_aspect_ratio);
 
   try {
     const response = await (input.fetcher ?? globalThis.fetch)(
@@ -416,13 +549,20 @@ async function submitRunwayVideoExpand(input: {
           json,
           `302 视频外扩提交失败 HTTP ${response.status}`
         ),
+        submissionState: runwayExpandSubmissionStateForHttpStatus(
+          response.status
+        ),
       };
     }
-    return parseRunwayExpandSubmission(json);
+    const parsed = parseRunwayExpandSubmission(json);
+    return parsed.status === "error"
+      ? { ...parsed, submissionState: "unknown" }
+      : parsed;
   } catch (error) {
     return {
       status: "error",
       message: error instanceof Error ? error.message : "302 视频外扩提交失败",
+      submissionState: "unknown",
     };
   }
 }
@@ -451,7 +591,7 @@ export async function refreshRunwayVideoExpandTask(
     const json = await response.json().catch(() => ({}));
     if (!response.ok) {
       return {
-        status: "failed",
+        status: runwayExpandRefreshFailureStatus(response.status),
         taskId,
         message: providerMessage(
           json,
@@ -480,23 +620,120 @@ async function selectTake(take: VideoTake, userId: number) {
   });
 }
 
+async function recoverPaidExpandedVideoTake(input: {
+  take: VideoTake;
+  userId: number;
+  sourceTakeId: number;
+  targetAspectRatio: VideoTargetAspectRatio;
+}): Promise<VideoConformResult | null> {
+  const stored = record(input.take.parameterSnapshot);
+  if (stored?.providerSubmissionAccepted !== true) return null;
+
+  const providerVideoUrl =
+    typeof stored.providerVideoUrl === "string"
+      ? stored.providerVideoUrl.trim()
+      : "";
+  const providerVideoKey =
+    typeof stored.providerVideoKey === "string"
+      ? videoFileName({ id: input.take.id, videoKey: stored.providerVideoKey })
+      : null;
+  let sourceKey =
+    providerVideoKey &&
+    fs.existsSync(path.join(localVideoDir(), providerVideoKey))
+      ? providerVideoKey
+      : null;
+
+  if (!sourceKey) {
+    if (!providerVideoUrl) return null;
+    const managed = await materializeVideoUrl(providerVideoUrl, input.take.id);
+    if (managed.status !== "ok") {
+      const failure = runwayPaidResultFailurePatch(managed.message);
+      await updateVideoTake(input.take.id, input.userId, failure);
+      return {
+        status: "error",
+        sourceTakeId: input.sourceTakeId,
+        error: failure.errorMessage,
+      };
+    }
+    sourceKey = managed.videoKey;
+  }
+
+  try {
+    const finalVideo = await finalizeExpandedVideoFile({
+      sourcePath: path.join(localVideoDir(), sourceKey),
+      takeId: input.take.id,
+      targetAspectRatio: input.targetAspectRatio,
+    });
+    const updated = await updateVideoTake(input.take.id, input.userId, {
+      status: "available",
+      videoKey: finalVideo.videoKey,
+      videoUrl: finalVideo.videoUrl,
+      extractionCapability: "available",
+      errorMessage: null,
+      parameterSnapshot: {
+        ...stored,
+        providerVideoKey: sourceKey,
+        localRecoveryCompleted: true,
+      },
+    });
+    if (!updated) {
+      return {
+        status: "error",
+        sourceTakeId: input.sourceTakeId,
+        error: "302 外扩结果已恢复，但本地状态保存失败，请刷新后重试",
+      };
+    }
+    await selectTake(updated, input.userId);
+    return { status: "ok", sourceTakeId: input.sourceTakeId, take: updated };
+  } catch (error) {
+    const failure = runwayPaidResultFailurePatch(
+      error instanceof Error ? error.message : "AI 外扩结果尺寸统一失败"
+    );
+    await updateVideoTake(input.take.id, input.userId, {
+      ...failure,
+      parameterSnapshot: { ...stored, providerVideoKey: sourceKey },
+    });
+    return {
+      status: "error",
+      sourceTakeId: input.sourceTakeId,
+      error: failure.errorMessage,
+    };
+  }
+}
+
 export function isRunwayExpandTake(take: Pick<VideoTake, "model">): boolean {
   return take.model === RUNWAY_EXPAND_MODEL;
 }
 
-export async function conformVideoTake(
-  input: {
-    storyId: number;
-    sourceTakeId: number;
-    targetAspectRatio: VideoTargetAspectRatio;
-    mode: VideoConformMode;
-    /**
-     * 结果绑定到当前故事的哪个镜头（体检行自带的 stableShotId）。
-     * 跨故事继承的素材（副本故事借老故事的视频）没有它就无从落位——
-     * 绑定靠镜头身份别名互认，服务端无法从源 take 反推。
-     */
-    targetStableShotId?: string | null;
-  },
+export function conformVideoTake(
+  input: VideoConformInput,
+  userId: number
+): Promise<VideoConformResult> {
+  const requestKey = hashParts(
+    "video-conform-in-flight-v1",
+    userId,
+    input.storyId,
+    input.sourceTakeId,
+    input.targetAspectRatio,
+    input.mode,
+    normalizeShotIdentity(input.targetStableShotId)
+  );
+  const existing = inFlightVideoConformRequests.get(requestKey);
+  if (existing) return existing;
+
+  const pending = conformVideoTakeOnce(input, userId);
+  inFlightVideoConformRequests.set(requestKey, pending);
+  const clear = () => {
+    if (inFlightVideoConformRequests.get(requestKey) === pending) {
+      inFlightVideoConformRequests.delete(requestKey);
+    }
+  };
+  void pending.then(clear, clear);
+  return pending;
+}
+
+async function conformVideoTakeOnce(
+  input: VideoConformInput,
   userId: number
 ): Promise<VideoConformResult> {
   const story = await getStoryById(input.storyId, userId);
@@ -536,6 +773,8 @@ export async function conformVideoTake(
   try {
     const sourcePath = await ensureLocalVideoPath(source, userId);
     const metadata = await probeVideoFileMetadata(sourcePath);
+    const sourceDurationSec =
+      metadata.durationSec ?? source.durationSec ?? null;
     const effectiveMode: VideoConformMode =
       input.mode === "ai_expand" &&
       metadata.aspectRatio === input.targetAspectRatio
@@ -544,11 +783,23 @@ export async function conformVideoTake(
     if (effectiveMode === "ai_expand" && !ENV.api302Key) {
       throw new Error("API302_KEY 未配置，无法使用 AI 外扩");
     }
+    const providerAspectRatio =
+      effectiveMode === "ai_expand"
+        ? runwayExpandProviderAspectRatio(
+            metadata.aspectRatio,
+            input.targetAspectRatio
+          )
+        : null;
+    if (effectiveMode === "ai_expand") {
+      const inputError = runwayExpandInputError(metadata);
+      if (inputError) throw new Error(inputError);
+    }
     const idempotencyKey = hashParts(
       "video-conform-v1",
       source.id,
       input.targetAspectRatio,
       effectiveMode,
+      providerAspectRatio,
       targetStableShotId
     );
     const existing = await findVideoTakeByIdempotencyKey(
@@ -556,7 +807,53 @@ export async function conformVideoTake(
       userId,
       idempotencyKey
     );
-    if (existing && existing.status !== "failed") {
+    const existingSnapshot = existing
+      ? record(existing.parameterSnapshot)
+      : null;
+    const existingSubmissionState =
+      typeof existingSnapshot?.providerSubmissionState === "string"
+        ? existingSnapshot.providerSubmissionState
+        : null;
+    const resumePreparedSubmission = Boolean(
+      existing &&
+        effectiveMode === "ai_expand" &&
+        existing.status === "processing" &&
+        existingSubmissionState === "prepared"
+    );
+    if (
+      existing &&
+      effectiveMode === "ai_expand" &&
+      existing.status === "processing" &&
+      !["prepared", "accepted"].includes(existingSubmissionState ?? "")
+    ) {
+      return {
+        status: "error",
+        sourceTakeId: source.id,
+        error:
+          "已有 302 外扩提交处于未知状态。为避免重复扣费，已阻止自动重提，请先检查原任务",
+      };
+    }
+    if (existing && shouldBlockVideoConformRetry(existing)) {
+      const recovered = await recoverPaidExpandedVideoTake({
+        take: existing,
+        userId,
+        sourceTakeId: source.id,
+        targetAspectRatio: input.targetAspectRatio,
+      });
+      if (recovered) return recovered;
+      return {
+        status: "error",
+        sourceTakeId: source.id,
+        error: existing.taskId
+          ? "该视频已有 302 外扩任务，但上次查询未完成。为避免重复扣费，请先刷新原任务状态"
+          : "上次 302 外扩提交结果未知。为避免重复扣费，已阻止自动重提，请先检查 302 控制台",
+      };
+    }
+    if (
+      existing &&
+      !resumePreparedSubmission &&
+      canReuseVideoConformTake(existing)
+    ) {
       if (existing.status === "available") await selectTake(existing, userId);
       return { status: "ok", sourceTakeId: source.id, take: existing };
     }
@@ -564,37 +861,44 @@ export async function conformVideoTake(
     const dimensions = VIDEO_TARGET_DIMENSIONS[input.targetAspectRatio];
     const prompt =
       "Extend only the surrounding canvas. Preserve the original subject, face, hairstyle, wardrobe, body proportions, camera movement, lighting, color palette, visual texture and rendering style. Keep the original frame content unchanged. Do not add people, objects, text or camera cuts.";
-    const take = await createVideoTake({
-      storyId: input.storyId,
-      userId,
-      stableShotId: targetStableShotId,
-      sourceImageId: source.sourceImageId,
-      promptCompilationId: source.promptCompilationId,
-      status: "processing",
-      taskId: null,
-      provider: effectiveMode === "ai_expand" ? "302" : "local",
-      model:
-        effectiveMode === "ai_expand" ? RUNWAY_EXPAND_MODEL : "ffmpeg-conform",
-      prompt,
-      subtitle: source.subtitle,
-      durationSec: metadata.durationSec ?? source.durationSec ?? 5,
-      aspectRatio: input.targetAspectRatio,
-      videoKey: null,
-      videoUrl: null,
-      errorMessage: null,
-      parameterSnapshot: {
-        sourceTakeId: source.id,
-        conformMode: effectiveMode,
-        requestedMode: input.mode,
-        sourceAspectRatio: metadata.aspectRatio,
-        targetAspectRatio: input.targetAspectRatio,
-        targetWidth: dimensions.width,
-        targetHeight: dimensions.height,
-        autoSelectOnComplete: true,
-      },
-      idempotencyKey,
-      extractionCapability: "unavailable",
-    });
+    const take = resumePreparedSubmission
+      ? existing!
+      : await createVideoTake({
+          storyId: input.storyId,
+          userId,
+          stableShotId: targetStableShotId,
+          sourceImageId: source.sourceImageId,
+          promptCompilationId: source.promptCompilationId,
+          status: "processing",
+          taskId: null,
+          provider: effectiveMode === "ai_expand" ? "302" : "local",
+          model:
+            effectiveMode === "ai_expand"
+              ? RUNWAY_EXPAND_MODEL
+              : "ffmpeg-conform",
+          prompt,
+          subtitle: source.subtitle,
+          durationSec: sourceDurationSec ?? 5,
+          aspectRatio: input.targetAspectRatio,
+          videoKey: null,
+          videoUrl: null,
+          errorMessage: null,
+          parameterSnapshot: {
+            sourceTakeId: source.id,
+            conformMode: effectiveMode,
+            requestedMode: input.mode,
+            sourceAspectRatio: metadata.aspectRatio,
+            targetAspectRatio: input.targetAspectRatio,
+            providerAspectRatio,
+            providerSubmissionState:
+              effectiveMode === "ai_expand" ? "prepared" : "not_applicable",
+            targetWidth: dimensions.width,
+            targetHeight: dimensions.height,
+            autoSelectOnComplete: true,
+          },
+          idempotencyKey,
+          extractionCapability: "unavailable",
+        });
 
     if (effectiveMode !== "ai_expand") {
       const file = `take-${take.id}.mp4`;
@@ -627,21 +931,67 @@ export async function conformVideoTake(
       }
     }
 
+    const takeSnapshot = record(take.parameterSnapshot) ?? {};
+    const submittingTake = await updateVideoTake(take.id, userId, {
+      status: "processing",
+      errorMessage: null,
+      parameterSnapshot: {
+        ...takeSnapshot,
+        providerSubmissionState: "submitting",
+      },
+    });
+    if (!submittingTake) {
+      return {
+        status: "error",
+        sourceTakeId: source.id,
+        error: "无法锁定 302 外扩提交状态，未发送付费请求",
+      };
+    }
+
     const submitted = await submitRunwayVideoExpand({
       sourcePath,
-      targetAspectRatio: input.targetAspectRatio,
-      durationSec: metadata.durationSec ?? source.durationSec ?? 5,
+      providerAspectRatio: providerAspectRatio!,
+      durationSec: sourceDurationSec ?? 5,
       prompt,
     });
     if (submitted.status !== "ok") {
+      const outcomeUnknown = submitted.submissionState === "unknown";
+      const message = outcomeUnknown
+        ? `${submitted.message}；302 是否已接单未知，为避免重复扣费已锁定自动重试`
+        : submitted.message;
       await updateVideoTake(take.id, userId, {
-        status: "failed",
-        errorMessage: submitted.message,
+        status: outcomeUnknown ? "timeout" : "failed",
+        errorMessage: message,
+        parameterSnapshot: {
+          ...takeSnapshot,
+          providerSubmissionState: outcomeUnknown ? "unknown" : "rejected",
+        },
       });
       return {
         status: "error",
         sourceTakeId: source.id,
-        error: submitted.message,
+        error: message,
+      };
+    }
+
+    const acceptedSnapshot = {
+      ...takeSnapshot,
+      providerSubmissionState: "accepted",
+      providerSubmissionAccepted: true,
+      providerTaskId: submitted.taskId,
+      providerVideoUrl: submitted.videoUrl,
+    };
+    const acceptedTake = await updateVideoTake(take.id, userId, {
+      status: "processing",
+      taskId: submitted.taskId ?? null,
+      errorMessage: null,
+      parameterSnapshot: acceptedSnapshot,
+    });
+    if (!acceptedTake) {
+      return {
+        status: "error",
+        sourceTakeId: source.id,
+        error: "302 已接单，但本地回执保存失败。为避免重复扣费，已锁定自动重试",
       };
     }
 
@@ -649,14 +999,19 @@ export async function conformVideoTake(
       ? await materializeVideoUrl(submitted.videoUrl, take.id)
       : null;
     if (managed?.status === "error") {
+      const failure = runwayPaidResultFailurePatch(managed.message);
       await updateVideoTake(take.id, userId, {
-        status: "failed",
-        errorMessage: managed.message,
+        ...failure,
+        taskId: submitted.taskId ?? null,
+        parameterSnapshot: {
+          ...acceptedSnapshot,
+          providerVideoUrl: submitted.videoUrl,
+        },
       });
       return {
         status: "error",
         sourceTakeId: source.id,
-        error: managed.message,
+        error: failure.errorMessage,
       };
     }
     let finalManaged = managed;
@@ -673,11 +1028,21 @@ export async function conformVideoTake(
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "AI 外扩结果尺寸统一失败";
+        const failure = runwayPaidResultFailurePatch(message);
         await updateVideoTake(take.id, userId, {
-          status: "failed",
-          errorMessage: message,
+          ...failure,
+          taskId: submitted.taskId ?? null,
+          parameterSnapshot: {
+            ...acceptedSnapshot,
+            providerVideoUrl: submitted.videoUrl,
+            providerVideoKey: managed.videoKey,
+          },
         });
-        return { status: "error", sourceTakeId: source.id, error: message };
+        return {
+          status: "error",
+          sourceTakeId: source.id,
+          error: failure.errorMessage,
+        };
       }
     }
     const updated = await updateVideoTake(take.id, userId, {

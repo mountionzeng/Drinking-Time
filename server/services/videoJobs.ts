@@ -26,6 +26,7 @@ import {
   finalizeExpandedVideoFile,
   isRunwayExpandTake,
   refreshRunwayVideoExpandTask,
+  runwayPaidResultFailurePatch,
 } from "./videoConform";
 import {
   directVideoPrompt,
@@ -56,6 +57,12 @@ function safeSubmittedParameters(
     safe[key] = /image|url/i.test(key) ? "[source-image]" : value;
   }
   return safe;
+}
+
+function parameterSnapshotRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function videoReferenceAsset(
@@ -525,9 +532,14 @@ export async function refreshVideoTakeStatus(
         : { videoUrl: refreshed.videoUrl, videoKey: null };
     if (isRunwayExpandTake(take)) {
       if (managed.status !== "ok") {
+        const failure = runwayPaidResultFailurePatch(managed.message);
         const failed = await updateVideoTake(take.id, userId, {
-          status: "failed",
-          errorMessage: managed.message,
+          ...failure,
+          parameterSnapshot: {
+            ...parameterSnapshotRecord(take.parameterSnapshot),
+            providerVideoUrl: refreshed.videoUrl,
+            providerSubmissionAccepted: true,
+          },
         });
         return { status: "ok", take: failed ?? take };
       }
@@ -535,9 +547,17 @@ export async function refreshVideoTakeStatus(
         ratio => ratio === take.aspectRatio
       );
       if (!targetAspectRatio) {
+        const failure = runwayPaidResultFailurePatch(
+          `不支持的目标比例：${take.aspectRatio}`
+        );
         const failed = await updateVideoTake(take.id, userId, {
-          status: "failed",
-          errorMessage: `不支持的目标比例：${take.aspectRatio}`,
+          ...failure,
+          parameterSnapshot: {
+            ...parameterSnapshotRecord(take.parameterSnapshot),
+            providerVideoUrl: refreshed.videoUrl,
+            providerVideoKey: managed.videoKey,
+            providerSubmissionAccepted: true,
+          },
         });
         return { status: "ok", take: failed ?? take };
       }
@@ -548,10 +568,17 @@ export async function refreshVideoTakeStatus(
           targetAspectRatio,
         });
       } catch (error) {
+        const failure = runwayPaidResultFailurePatch(
+          error instanceof Error ? error.message : "AI 外扩结果尺寸统一失败"
+        );
         const failed = await updateVideoTake(take.id, userId, {
-          status: "failed",
-          errorMessage:
-            error instanceof Error ? error.message : "AI 外扩结果尺寸统一失败",
+          ...failure,
+          parameterSnapshot: {
+            ...parameterSnapshotRecord(take.parameterSnapshot),
+            providerVideoUrl: refreshed.videoUrl,
+            providerVideoKey: managed.videoKey,
+            providerSubmissionAccepted: true,
+          },
         });
         return { status: "ok", take: failed ?? take };
       }
