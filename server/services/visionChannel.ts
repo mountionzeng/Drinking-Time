@@ -22,6 +22,7 @@ function resolveVisionUrl(): string {
 type VisionChatResponse = {
   model?: string;
   choices?: Array<{
+    finish_reason?: string;
     message?: {
       content?: string | Array<{ type?: string; text?: string }>;
     };
@@ -54,7 +55,9 @@ export async function invokeVisionJson(params: {
     body: JSON.stringify({
       model: ENV.vision302Model,
       stream: false,
-      max_tokens: params.maxTokens ?? 900,
+      // 视觉模型多为 thinking 系（如 gemini-3-pro-preview），思考也消耗
+      // completion 预算：给太少会把正式回答截成空串。
+      max_tokens: params.maxTokens ?? 4000,
       messages: [
         { role: "system", content: params.system },
         {
@@ -88,7 +91,10 @@ export async function invokeVisionJson(params: {
             .join("\n")
         : "";
   if (!text.trim()) {
-    throw new Error("视觉模型返回空内容");
+    const finishReason = data.choices?.[0]?.finish_reason;
+    throw new Error(
+      `视觉模型返回空内容${finishReason === "length" ? "（thinking 耗尽 max_tokens，需调大预算）" : finishReason ? `（finish_reason=${finishReason}）` : ""}`
+    );
   }
   return { text, modelLabel: data.model || ENV.vision302Model };
 }
