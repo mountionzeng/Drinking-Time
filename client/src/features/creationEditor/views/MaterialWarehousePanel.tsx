@@ -8,8 +8,15 @@ import {
   RotateCcw,
   Upload,
   Video,
+  X,
 } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { toast } from "sonner";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { SelectionContext } from "@shared/selectionContext";
@@ -38,6 +45,15 @@ type WarehouseVideoItem = {
   isReusable: boolean;
 };
 type SelectedMaterialKey = `image:${number}` | `video:${number}`;
+
+type PendingImportItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  isVideo: boolean;
+  targetStableShotId: string | null;
+  note: string;
+};
 
 export function videoWarehouseActionState(input: {
   item: WarehouseVideoItem;
@@ -212,6 +228,10 @@ export default function MaterialWarehousePanel() {
   const [panelError, setPanelError] = useState<string | null>(null);
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
+  // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
+  const [pendingImports, setPendingImports] = useState<PendingImportItem[]>(
+    []
+  );
 
   const currentShot = selectedShot ?? shots[0] ?? null;
   const currentStableShotId =
@@ -327,7 +347,8 @@ export default function MaterialWarehousePanel() {
     });
   };
 
-  const importFiles = async (files: FileList | File[]) => {
+  // 拖入/选择的文件先进暂存区，交代目标镜头和运动/场景说明后再确认入库。
+  const stageFiles = (files: FileList | File[]) => {
     const list = Array.from(files).filter(file =>
       /^(image|video)\//.test(fileMime(file))
     );
@@ -336,21 +357,64 @@ export default function MaterialWarehousePanel() {
       toast.error("请先打开一个故事");
       return;
     }
+    setPendingImports(current => [
+      ...current,
+      ...list.map(file => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        isVideo: fileMime(file).startsWith("video/"),
+        targetStableShotId: currentStableShotId,
+        note: "",
+      })),
+    ]);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const updatePendingImport = (
+    id: string,
+    patch: Partial<Pick<PendingImportItem, "targetStableShotId" | "note">>
+  ) => {
+    setPendingImports(current =>
+      current.map(item => (item.id === id ? { ...item, ...patch } : item))
+    );
+  };
+
+  const removePendingImport = (id: string) => {
+    setPendingImports(current => {
+      const target = current.find(item => item.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return current.filter(item => item.id !== id);
+    });
+  };
+
+  const confirmImports = async () => {
+    if (pendingImports.length === 0) return;
+    const missingShotVideo = pendingImports.find(
+      item => item.isVideo && !item.targetStableShotId
+    );
+    if (missingShotVideo) {
+      toast.error(
+        `「${missingShotVideo.file.name}」是视频，需要先指定归属镜头`
+      );
+      return;
+    }
     setImporting(true);
     setPanelError(null);
+    let imageCount = 0;
+    let videoCount = 0;
     try {
-      let imageCount = 0;
-      let videoCount = 0;
-      for (const file of list) {
-        const mimeType = fileMime(file);
+      for (const item of pendingImports) {
         const result = await importStoryMaterial({
-          fileName: file.name,
-          mimeType,
-          fileBase64: await readFileBase64(file),
-          targetStableShotId: currentStableShotId,
+          fileName: item.file.name,
+          mimeType: fileMime(item.file),
+          fileBase64: await readFileBase64(item.file),
+          targetStableShotId: item.targetStableShotId,
+          note: item.note.trim() || undefined,
         });
         if (result.kind === "image") imageCount += 1;
         if (result.kind === "video") videoCount += 1;
+        removePendingImport(item.id);
       }
       const parts = [
         imageCount > 0 ? `${imageCount} 张图片` : null,
@@ -360,12 +424,23 @@ export default function MaterialWarehousePanel() {
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "素材导入失败";
       setPanelError(message);
+      // 已导入的从暂存区移除，失败及未处理的保留，用户改完可以重试。
       toast.error(message);
     } finally {
       setImporting(false);
-      if (inputRef.current) inputRef.current.value = "";
     }
   };
+
+  useEffect(
+    () => () => {
+      // 卸载时释放暂存预览的 blob URL。
+      setPendingImports(current => {
+        for (const item of current) URL.revokeObjectURL(item.previewUrl);
+        return [];
+      });
+    },
+    []
+  );
 
   const bindImage = async (image: WarehouseImage) => {
     if (!currentStableShotId) {
@@ -559,7 +634,7 @@ export default function MaterialWarehousePanel() {
             onDrop={event => {
               event.preventDefault();
               setDragOver(false);
-              void importFiles(event.dataTransfer.files);
+              stageFiles(event.dataTransfer.files);
             }}
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -592,11 +667,129 @@ export default function MaterialWarehousePanel() {
                 className="hidden"
                 onChange={event => {
                   if (event.currentTarget.files) {
-                    void importFiles(event.currentTarget.files);
+                    stageFiles(event.currentTarget.files);
                   }
                 }}
               />
             </div>
+
+            {pendingImports.length > 0 ? (
+              <div className="mt-3 border-t border-border/70 pt-3">
+                <div className="mb-2 text-xs text-muted-foreground">
+                  给每个素材交代：归哪个镜头、人物/镜头怎么运动、场景和道具——
+                  视频模型会照着这些信息决定复用什么。
+                </div>
+                <div className="grid gap-2">
+                  {pendingImports.map(item => (
+                    <div
+                      key={item.id}
+                      className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-2"
+                    >
+                      {item.isVideo ? (
+                        <video
+                          src={item.previewUrl}
+                          muted
+                          preload="metadata"
+                          className="h-16 w-16 shrink-0 rounded object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={item.previewUrl}
+                          alt={item.file.name}
+                          className="h-16 w-16 shrink-0 rounded object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="max-w-56 truncate text-xs font-medium">
+                            {item.file.name}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {(item.file.size / 1024 / 1024).toFixed(1)}MB
+                          </span>
+                          <select
+                            value={item.targetStableShotId ?? ""}
+                            onChange={event =>
+                              updatePendingImport(item.id, {
+                                targetStableShotId:
+                                  event.currentTarget.value || null,
+                              })
+                            }
+                            className="h-7 rounded border border-border bg-background px-1.5 text-xs"
+                          >
+                            {item.isVideo ? null : (
+                              <option value="">暂不绑定镜头</option>
+                            )}
+                            {shots.map(shot => {
+                              const identity =
+                                shot.stableShotId ?? shot.shotIdentity ?? null;
+                              if (!identity) return null;
+                              return (
+                                <option key={identity} value={identity}>
+                                  {shotLabel(shot.shotNo)}{" "}
+                                  {(shot.action || shot.dialogue || "").slice(
+                                    0,
+                                    12
+                                  )}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                        <textarea
+                          value={item.note}
+                          onChange={event =>
+                            updatePendingImport(item.id, {
+                              note: event.currentTarget.value,
+                            })
+                          }
+                          rows={2}
+                          placeholder="交代给视频模型：人物怎么动、镜头怎么运动、场景和道具、色调基准…"
+                          className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs leading-relaxed placeholder:text-muted-foreground/60"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removePendingImport(item.id)}
+                        disabled={importing}
+                        className="rounded p-1 text-muted-foreground transition hover:text-destructive"
+                        aria-label={`移除 ${item.file.name}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      for (const item of pendingImports) {
+                        URL.revokeObjectURL(item.previewUrl);
+                      }
+                      setPendingImports([]);
+                    }}
+                    disabled={importing}
+                    className="h-8 rounded-md border border-border px-2.5 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    清空
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmImports()}
+                    disabled={importing}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    导入 {pendingImports.length} 个素材
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {panelError || error ? (

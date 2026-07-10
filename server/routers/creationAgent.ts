@@ -668,6 +668,9 @@ export const creationAgentRouter = router({
         mimeType: z.string().min(1).max(120),
         fileBase64: z.string().min(1),
         targetStableShotId: z.string().min(1).nullable().optional(),
+        // 导入时交代给下游模型的信息：人物/镜头怎么运动、场景道具、色调基准。
+        // 写进素材 prompt，视频包编译时随素材一起进入模型上下文。
+        note: z.string().trim().max(2000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -698,7 +701,7 @@ export const creationAgentRouter = router({
           shotIdentity: null,
           imageKey: stored.imageKey ?? null,
           imageUrl: stored.imageUrl,
-          prompt: `导入素材：${input.fileName}`,
+          prompt: input.note?.trim() || `导入素材：${input.fileName}`,
           promptCompilationId: null,
           parentImageId: null,
           isCurrent: false,
@@ -734,7 +737,7 @@ export const creationAgentRouter = router({
           taskId: null,
           provider: "manual",
           model: "local-import",
-          prompt: `导入素材：${input.fileName}`,
+          prompt: input.note?.trim() || `导入素材：${input.fileName}`,
           subtitle: null,
           durationSec: target.durationSec,
           aspectRatio: "16:9",
@@ -745,6 +748,7 @@ export const creationAgentRouter = router({
             source: "material_warehouse",
             fileName: input.fileName,
             mimeType: input.mimeType,
+            importNote: input.note?.trim() || null,
             importedAt: new Date().toISOString(),
           },
           idempotencyKey: null,
@@ -764,6 +768,7 @@ export const creationAgentRouter = router({
             source: "material_warehouse",
             fileName: input.fileName,
             mimeType: input.mimeType,
+            importNote: input.note?.trim() || null,
             importedAt: new Date().toISOString(),
             sourceWidth: metadata?.width ?? null,
             sourceHeight: metadata?.height ?? null,

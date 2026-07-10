@@ -196,6 +196,7 @@ type CreationEditorContextValue = {
     mimeType: string;
     fileBase64: string;
     targetStableShotId?: string | null;
+    note?: string;
   }) => Promise<ImportedStoryMaterialResult>;
   generateShotVideo: (input: {
     shotNo: number;
@@ -1675,6 +1676,7 @@ export function CreationEditorProvider({
     mimeType: string;
     fileBase64: string;
     targetStableShotId?: string | null;
+    note?: string;
   }): Promise<ImportedStoryMaterialResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法导入素材");
     const result = await importStoryMaterialMut.mutateAsync({
