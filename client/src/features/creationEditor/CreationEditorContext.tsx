@@ -212,7 +212,7 @@ type CreationEditorContextValue = {
     prompt: string;
   }>;
   conformVideoTakes: (input: {
-    takeIds: number[];
+    items: Array<{ takeId: number; stableShotId: string }>;
     targetAspectRatio: VideoTargetAspectRatio;
     mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
@@ -1745,7 +1745,7 @@ export function CreationEditorProvider({
   };
 
   const conformVideoTakes = async (input: {
-    takeIds: number[];
+    items: Array<{ takeId: number; stableShotId: string }>;
     targetAspectRatio: VideoTargetAspectRatio;
     mode: VideoConformMode;
   }): Promise<VideoConformBatchResult> => {

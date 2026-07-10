@@ -871,20 +871,36 @@ export const creationAgentRouter = router({
     .input(
       z.object({
         storyId: z.number(),
-        takeIds: z.array(z.number().int().positive()).min(1).max(50),
+        // 每个视频带上它在【当前故事】体检行里的镜头身份：跨故事继承的
+        // 素材靠别名互认绑定，服务端无法反推，必须由界面直传。
+        items: z
+          .array(
+            z.object({
+              takeId: z.number().int().positive(),
+              stableShotId: z.string().trim().min(1),
+            })
+          )
+          .min(1)
+          .max(50),
         targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS),
         mode: z.enum(VIDEO_CONFORM_MODES),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const takeIds = Array.from(new Set(input.takeIds));
-      const results = await mapWithConcurrency(takeIds, 2, sourceTakeId =>
+      const seen = new Set<number>();
+      const items = input.items.filter(item => {
+        if (seen.has(item.takeId)) return false;
+        seen.add(item.takeId);
+        return true;
+      });
+      const results = await mapWithConcurrency(items, 2, item =>
         conformVideoTake(
           {
             storyId: input.storyId,
-            sourceTakeId,
+            sourceTakeId: item.takeId,
             targetAspectRatio: input.targetAspectRatio,
             mode: input.mode,
+            targetStableShotId: item.stableShotId,
           },
           ctx.user.id
         )

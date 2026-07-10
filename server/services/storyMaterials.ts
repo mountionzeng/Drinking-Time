@@ -201,15 +201,30 @@ export async function getStoryMaterialState(
         )
       )
       .map(take => {
-        const promptFreshness = resolvePromptAssetFreshness(
-          take.promptCompilationId,
-          videoCompilationId
+        // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
+        // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
+        // 会因为继承源 take 的旧 promptCompilationId 被判 stale，
+        // 永远选不上「当前视频」，反而输给免检的跨故事继承素材。
+        const isDerivedVariant = Boolean(
+          take.parameterSnapshot &&
+            typeof take.parameterSnapshot === "object" &&
+            !Array.isArray(take.parameterSnapshot) &&
+            (take.parameterSnapshot as Record<string, unknown>).sourceTakeId !=
+              null
         );
-        const staleReasons = resolveVideoStaleReasons({
-          sourceImageId: take.sourceImageId,
-          currentImageId: currentImage?.id ?? null,
-          promptFreshness,
-        });
+        const promptFreshness = isDerivedVariant
+          ? ("legacy" as const)
+          : resolvePromptAssetFreshness(
+              take.promptCompilationId,
+              videoCompilationId
+            );
+        const staleReasons = isDerivedVariant
+          ? []
+          : resolveVideoStaleReasons({
+              sourceImageId: take.sourceImageId,
+              currentImageId: currentImage?.id ?? null,
+              promptFreshness,
+            });
         return {
           ...take,
           promptFreshness,

@@ -9,11 +9,11 @@ import {
   type VideoTargetAspectRatio,
 } from "../../shared/videoConform";
 import { ENV } from "../_core/env";
+import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import {
   createVideoTake,
   findVideoTakeByIdempotencyKey,
   getStoryById,
-  getStoryVideoTimelineSelections,
   getVideoTakeById,
   setVideoTimelineSelection,
   updateVideoTake,
@@ -489,6 +489,12 @@ export async function conformVideoTake(
     sourceTakeId: number;
     targetAspectRatio: VideoTargetAspectRatio;
     mode: VideoConformMode;
+    /**
+     * 结果绑定到当前故事的哪个镜头（体检行自带的 stableShotId）。
+     * 跨故事继承的素材（副本故事借老故事的视频）没有它就无从落位——
+     * 绑定靠镜头身份别名互认，服务端无法从源 take 反推。
+     */
+    targetStableShotId?: string | null;
   },
   userId: number
 ): Promise<VideoConformResult> {
@@ -502,25 +508,21 @@ export async function conformVideoTake(
       error: "视频不存在或无权处理",
     };
   }
-  // 跨故事复用的素材：统一尺寸后的新 take 要绑回【当前故事】引用它的镜头，
-  // 否则会挂在源故事的镜头身份上、在这里永远看不见。
-  let targetStableShotId = source.stableShotId;
-  if (source.storyId !== input.storyId) {
-    const selections = await getStoryVideoTimelineSelections(
-      input.storyId,
-      userId
-    );
-    const binding = selections.find(
-      selection => selection.takeId === source.id
-    );
-    if (!binding) {
-      return {
-        status: "error",
-        sourceTakeId: input.sourceTakeId,
-        error: "这个视频还没绑定到当前故事的镜头，先在素材仓库把它挂到镜头上",
-      };
-    }
-    targetStableShotId = binding.stableShotId;
+  const requestedStableShotId = normalizeShotIdentity(
+    input.targetStableShotId
+  );
+  // 统一后的新 take 要绑到【当前故事】的镜头身份上：同故事素材可以沿用
+  // 源身份兜底；跨故事素材必须由调用方给出目标镜头，否则结果会挂在
+  // 源故事名下、在当前故事里永远看不见。
+  const targetStableShotId =
+    requestedStableShotId ||
+    (source.storyId === input.storyId ? source.stableShotId : null);
+  if (!targetStableShotId) {
+    return {
+      status: "error",
+      sourceTakeId: input.sourceTakeId,
+      error: "缺少目标镜头身份，请从一键剪辑的镜头行重新发起",
+    };
   }
   if (source.status !== "available" || !source.videoUrl) {
     return {
@@ -545,7 +547,8 @@ export async function conformVideoTake(
       "video-conform-v1",
       source.id,
       input.targetAspectRatio,
-      effectiveMode
+      effectiveMode,
+      targetStableShotId
     );
     const existing = await findVideoTakeByIdempotencyKey(
       input.storyId,

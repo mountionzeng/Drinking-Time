@@ -58,7 +58,7 @@ type OneClickEditAssistantProps = {
   onSelectShot: (shotNo: number) => void;
   onPrepareTimeline: () => void;
   onConformVideos: (input: {
-    takeIds: number[];
+    items: Array<{ takeId: number; stableShotId: string }>;
     targetAspectRatio: OneClickTargetAspectRatio;
     mode: VideoConformMode;
   }) => Promise<VideoConformBatchResult>;
@@ -351,6 +351,17 @@ export default function OneClickEditAssistant({
       ),
     [report.checks]
   );
+  // 视频 → 它在本故事体检行里的镜头身份。跨故事继承的素材靠别名互认绑定，
+  // 服务端无法反推，统一尺寸时必须把这个身份一起传上去。
+  const takeShotMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const check of report.checks) {
+      if (check.videoTakeId != null) {
+        map.set(check.videoTakeId, check.stableShotId);
+      }
+    }
+    return map;
+  }, [report.checks]);
   const selectedCount = selectedTakeIds.size;
   const allSelected =
     selectableTakeIds.length > 0 && selectedCount === selectableTakeIds.length;
@@ -446,10 +457,18 @@ export default function OneClickEditAssistant({
       toast.error("API302_KEY 未配置，暂时不能使用 AI 外扩");
       return;
     }
+    const items = Array.from(selectedTakeIds).flatMap(takeId => {
+      const stableShotId = takeShotMap.get(takeId);
+      return stableShotId ? [{ takeId, stableShotId }] : [];
+    });
+    if (items.length === 0) {
+      toast.error("所选视频没有对应的镜头行，请刷新后重试");
+      return;
+    }
     setConforming(true);
     try {
       const result = await onConformVideos({
-        takeIds: Array.from(selectedTakeIds),
+        items,
         targetAspectRatio,
         mode: conformMode,
       });

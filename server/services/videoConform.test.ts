@@ -108,27 +108,26 @@ describe("conformVideoTake 归属守卫（跨故事复用契约）", () => {
     }
   });
 
-  it("跨故事素材没绑到本故事镜头时给出指引，而不是笼统报不属于", async () => {
+  it("跨故事素材没带目标镜头身份时给出指引，而不是笼统报不属于", async () => {
     dbMocks.getVideoTakeById.mockResolvedValue({
       id: 9,
       userId: 1,
-      storyId: 200, // 归属另一个故事（素材仓库复用来的）
+      storyId: 200, // 归属另一个故事（副本故事靠身份别名继承来的）
       status: "available",
       videoUrl: "/api/videos/a.mp4",
       stableShotId: "shot-in-story-200",
     });
-    dbMocks.getStoryVideoTimelineSelections.mockResolvedValue([]);
     const result = await conformVideoTake(
       { storyId: 100, sourceTakeId: 9, targetAspectRatio: "1:1", mode: "crop" },
       1
     );
     expect(result.status).toBe("error");
     if (result.status === "error") {
-      expect(result.error).toContain("先在素材仓库把它挂到镜头上");
+      expect(result.error).toContain("缺少目标镜头身份");
     }
   });
 
-  it("跨故事但已绑定的素材放行归属守卫（走到下一步的可用性校验）", async () => {
+  it("跨故事素材带上目标镜头身份即放行归属守卫（走到下一步的可用性校验）", async () => {
     dbMocks.getVideoTakeById.mockResolvedValue({
       id: 9,
       userId: 1,
@@ -137,11 +136,14 @@ describe("conformVideoTake 归属守卫（跨故事复用契约）", () => {
       videoUrl: null,
       stableShotId: "shot-in-story-200",
     });
-    dbMocks.getStoryVideoTimelineSelections.mockResolvedValue([
-      { takeId: 9, stableShotId: "shot-in-story-100" },
-    ]);
     const result = await conformVideoTake(
-      { storyId: 100, sourceTakeId: 9, targetAspectRatio: "1:1", mode: "crop" },
+      {
+        storyId: 100,
+        sourceTakeId: 9,
+        targetAspectRatio: "1:1",
+        mode: "crop",
+        targetStableShotId: "legacy-sh01-shot",
+      },
       1
     );
     expect(result.status).toBe("error");
