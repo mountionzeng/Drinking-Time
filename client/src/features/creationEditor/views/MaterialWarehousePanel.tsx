@@ -17,6 +17,7 @@ import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useCreationEditor } from "../CreationEditorContext";
+import OneClickEditAssistant from "./OneClickEditAssistant";
 
 type WarehouseImage = Pick<
   ImageAsset,
@@ -100,22 +101,24 @@ export function buildMaterialWarehouseVideoItems(
     });
   }
   const seen = new Set<number>();
-  return rows.filter(item => {
-    if (seen.has(item.take.id)) return false;
-    seen.add(item.take.id);
-    return true;
-  }).sort((left, right) => {
-    const currentDiff = Number(right.isCurrent) - Number(left.isCurrent);
-    if (currentDiff) return currentDiff;
-    const selectedDiff =
-      Number(right.take.isTimelineSelected) -
-      Number(left.take.isTimelineSelected);
-    if (selectedDiff) return selectedDiff;
-    return (
-      Date.parse(right.take.createdAt) - Date.parse(left.take.createdAt) ||
-      right.take.id - left.take.id
-    );
-  });
+  return rows
+    .filter(item => {
+      if (seen.has(item.take.id)) return false;
+      seen.add(item.take.id);
+      return true;
+    })
+    .sort((left, right) => {
+      const currentDiff = Number(right.isCurrent) - Number(left.isCurrent);
+      if (currentDiff) return currentDiff;
+      const selectedDiff =
+        Number(right.take.isTimelineSelected) -
+        Number(left.take.isTimelineSelected);
+      if (selectedDiff) return selectedDiff;
+      return (
+        Date.parse(right.take.createdAt) - Date.parse(left.take.createdAt) ||
+        right.take.id - left.take.id
+      );
+    });
 }
 
 function shotLabel(shotNo: number | null | undefined) {
@@ -156,10 +159,7 @@ function imageMatchesShot(image: WarehouseImage, stableShotId: string | null) {
   return Boolean(stableShotId && image.shotIdentity === stableShotId);
 }
 
-function runOnSelectKey(
-  event: KeyboardEvent,
-  action: () => void
-) {
+function runOnSelectKey(event: KeyboardEvent, action: () => void) {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   action();
@@ -190,6 +190,8 @@ export default function MaterialWarehousePanel() {
     selectedShot,
     selectedShotNo,
     setSelectedShotNo,
+    timelineShotIds,
+    resetTimelineShots,
     materialState,
     isLoading,
     error,
@@ -199,6 +201,8 @@ export default function MaterialWarehousePanel() {
     adoptVideoTake,
     reuseVideoTake,
     markVideoTakeUnusable,
+    conformVideoTakes,
+    shotVideoProviderStatus,
   } = useCreationEditor();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -450,9 +454,24 @@ export default function MaterialWarehousePanel() {
           <Archive className="creation-board-panel-icon" />
           <h2 className="creation-board-panel-title-text">素材仓库</h2>
         </div>
-        <span className="creation-board-panel-status">
-          {shotLabel(currentShot?.shotNo ?? selectedShotNo)}
-        </span>
+        <div className="flex items-center gap-2">
+          <OneClickEditAssistant
+            activeStoryId={activeStoryId ?? null}
+            shots={shots}
+            materialState={materialState}
+            timelineShotIds={timelineShotIds}
+            aiExpandReady={Boolean(
+              shotVideoProviderStatus &&
+                !shotVideoProviderStatus.missing.includes("API302_KEY")
+            )}
+            onSelectShot={setSelectedShotNo}
+            onPrepareTimeline={resetTimelineShots}
+            onConformVideos={conformVideoTakes}
+          />
+          <span className="creation-board-panel-status">
+            {shotLabel(currentShot?.shotNo ?? selectedShotNo)}
+          </span>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -601,83 +620,80 @@ export default function MaterialWarehousePanel() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
-                    {imageItems.map(
-                      item => {
-                        const { image, shotNo, stableShotId, isCurrent } =
-                          item;
-                        const belongsToCurrent =
-                          currentStableShotId != null &&
-                          stableShotId === currentStableShotId;
-                        const busy = busyKey === `image:${image.id}`;
-                        const selected =
-                          selectedMaterialKey === `image:${image.id}`;
-                        return (
-                          <article
-                            key={image.id}
-                            role="button"
-                            tabIndex={0}
-                            aria-pressed={selected}
-                            onClick={() => selectImageMaterial(item)}
-                            onKeyDown={event =>
-                              runOnSelectKey(event, () =>
-                                selectImageMaterial(item)
-                              )
-                            }
-                            className={`cursor-pointer overflow-hidden rounded-md border bg-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
-                              selected
-                                ? "border-primary/70 ring-2 ring-primary/20"
-                                : "border-border hover:border-primary/50"
-                            }`}
-                          >
-                            <div className="aspect-video bg-muted">
-                              <img
-                                src={image.imageUrl}
-                                alt={
-                                  shotNo
-                                    ? `${shotLabel(shotNo)} 图片`
-                                    : "未绑定图片"
-                                }
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                            <div className="space-y-2 p-3">
-                              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                                <span>
-                                  {shotNo ? shotLabel(shotNo) : "未绑定"}
+                    {imageItems.map(item => {
+                      const { image, shotNo, stableShotId, isCurrent } = item;
+                      const belongsToCurrent =
+                        currentStableShotId != null &&
+                        stableShotId === currentStableShotId;
+                      const busy = busyKey === `image:${image.id}`;
+                      const selected =
+                        selectedMaterialKey === `image:${image.id}`;
+                      return (
+                        <article
+                          key={image.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={selected}
+                          onClick={() => selectImageMaterial(item)}
+                          onKeyDown={event =>
+                            runOnSelectKey(event, () =>
+                              selectImageMaterial(item)
+                            )
+                          }
+                          className={`cursor-pointer overflow-hidden rounded-md border bg-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                            selected
+                              ? "border-primary/70 ring-2 ring-primary/20"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <div className="aspect-video bg-muted">
+                            <img
+                              src={image.imageUrl}
+                              alt={
+                                shotNo
+                                  ? `${shotLabel(shotNo)} 图片`
+                                  : "未绑定图片"
+                              }
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          </div>
+                          <div className="space-y-2 p-3">
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <span>
+                                {shotNo ? shotLabel(shotNo) : "未绑定"}
+                              </span>
+                              {isCurrent ? (
+                                <span className="inline-flex items-center gap-1 text-primary">
+                                  <Check className="h-3 w-3" />
+                                  当前
                                 </span>
-                                {isCurrent ? (
-                                  <span className="inline-flex items-center gap-1 text-primary">
-                                    <Check className="h-3 w-3" />
-                                    当前
-                                  </span>
-                                ) : null}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={event => {
-                                  event.stopPropagation();
-                                  void bindImage(image);
-                                }}
-                                disabled={busy || !currentStableShotId}
-                                className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-border text-xs font-medium transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {busy ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : belongsToCurrent ? (
-                                  <Check className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Link2 className="h-3.5 w-3.5" />
-                                )}
-                                {belongsToCurrent
-                                  ? "设为当前首帧"
-                                  : "绑定到当前镜头"}
-                              </button>
+                              ) : null}
                             </div>
-                          </article>
-                        );
-                      }
-                    )}
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                void bindImage(image);
+                              }}
+                              disabled={busy || !currentStableShotId}
+                              className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-border text-xs font-medium transition hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {busy ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : belongsToCurrent ? (
+                                <Check className="h-3.5 w-3.5" />
+                              ) : (
+                                <Link2 className="h-3.5 w-3.5" />
+                              )}
+                              {belongsToCurrent
+                                ? "设为当前首帧"
+                                : "绑定到当前镜头"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -756,7 +772,7 @@ export default function MaterialWarehousePanel() {
                                     ? `旧素材 · ${take.status}`
                                     : item.isReusable
                                       ? "可复用"
-                                    : take.status}
+                                      : take.status}
                               </span>
                             </div>
                             <div className="flex gap-2">

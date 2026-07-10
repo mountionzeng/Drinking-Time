@@ -40,6 +40,13 @@ function safeSnapshot(value: unknown): Record<string, unknown> | null {
     "taskId",
     "generatedAt",
     "resultSelectionRule",
+    "sourceTakeId",
+    "conformMode",
+    "requestedMode",
+    "sourceAspectRatio",
+    "targetAspectRatio",
+    "targetWidth",
+    "targetHeight",
   ]) {
     if (record[key] !== undefined) safe[key] = record[key];
   }

@@ -51,6 +51,10 @@ import {
   type StoryTimelineItem,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
+import type {
+  VideoConformMode,
+  VideoTargetAspectRatio,
+} from "@shared/videoConform";
 
 export type CreationEditorStory = {
   id: number;
@@ -104,6 +108,21 @@ export type ImportedStoryMaterialResult =
       stableShotId: string;
       plannedDurationSec: number;
     };
+
+export type VideoConformBatchResult = {
+  status: "ok" | "partial" | "error";
+  completedCount: number;
+  failedCount: number;
+  results: Array<
+    | {
+        status: "ok";
+        sourceTakeId: number;
+        takeId: number;
+        videoStatus: VideoTakeStatus;
+      }
+    | { status: "error"; sourceTakeId: number; error: string }
+  >;
+};
 
 type CreationEditorContextValue = {
   stories: CreationEditorStory[];
@@ -191,6 +210,11 @@ type CreationEditorContextValue = {
     taskId?: string;
     prompt: string;
   }>;
+  conformVideoTakes: (input: {
+    takeIds: number[];
+    targetAspectRatio: VideoTargetAspectRatio;
+    mode: VideoConformMode;
+  }) => Promise<VideoConformBatchResult>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
   markVideoTakeUnusable: (
     takeId: number,
@@ -1020,6 +1044,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.importStoryMaterial.useMutation();
   const generateShotVideoMut =
     trpc.creationAgent.generateShotVideo.useMutation();
+  const conformVideoTakesMut =
+    trpc.creationAgent.conformVideoTakes.useMutation();
   const refreshShotVideoStatusMut =
     trpc.creationAgent.refreshShotVideoStatus.useMutation();
   const markVideoTakeUnusableMut =
@@ -1711,6 +1737,39 @@ export function CreationEditorProvider({
     }
   };
 
+  const conformVideoTakes = async (input: {
+    takeIds: number[];
+    targetAspectRatio: VideoTargetAspectRatio;
+    mode: VideoConformMode;
+  }): Promise<VideoConformBatchResult> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法统一视频尺寸");
+    const result = await conformVideoTakesMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    return {
+      status: result.status,
+      completedCount: result.completedCount,
+      failedCount: result.failedCount,
+      results: result.results.map(item =>
+        item.status === "ok"
+          ? {
+              status: "ok" as const,
+              sourceTakeId: item.sourceTakeId,
+              takeId: item.take.id,
+              videoStatus: item.take.status,
+            }
+          : item
+      ),
+    };
+  };
+
   const refreshShotVideoStatus = async (takeId: number) => {
     if (activeId == null) throw new Error("故事尚未加载，无法刷新视频状态");
     const result = await refreshShotVideoStatusMut.mutateAsync({ takeId });
@@ -1806,10 +1865,16 @@ export function CreationEditorProvider({
           await refreshShotVideoStatusMut.mutateAsync({ takeId });
         }
         if (!cancelled) {
-          await storyVideoAssetsQuery.refetch();
-          await utils.storyAgent.storyVideoAssets.invalidate({
-            storyId: activeId,
-          });
+          await Promise.all([
+            storyVideoAssetsQuery.refetch(),
+            storyMaterialQuery.refetch(),
+            utils.storyAgent.storyVideoAssets.invalidate({
+              storyId: activeId,
+            }),
+            utils.storyAgent.storyMaterialState.invalidate({
+              storyId: activeId,
+            }),
+          ]);
         }
       } catch (error) {
         console.warn("auto refresh video take failed", error);
@@ -1829,7 +1894,9 @@ export function CreationEditorProvider({
     processingVideoTakeKey,
     processingVideoTakeIds,
     refreshShotVideoStatusMut,
+    storyMaterialQuery,
     storyVideoAssetsQuery,
+    utils.storyAgent.storyMaterialState,
     utils.storyAgent.storyVideoAssets,
   ]);
 
@@ -2033,6 +2100,7 @@ export function CreationEditorProvider({
       assignStoryImageToShot,
       importStoryMaterial,
       generateShotVideo,
+      conformVideoTakes,
       refreshShotVideoStatus,
       markVideoTakeUnusable,
       insertPersistedShotAfter,

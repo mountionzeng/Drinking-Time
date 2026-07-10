@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import {
   createVideoTake,
   findVideoTakeByIdempotencyKey,
   getStoryById,
   getVideoTakeById,
+  setVideoTimelineSelection,
   updateVideoTake,
 } from "../db";
 import { ENV } from "../_core/env";
@@ -18,7 +20,13 @@ import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import type { VideoTakeStatus } from "../../shared/videoAsset";
 import type { VideoTake } from "../../drizzle/schema";
 import type { ImageAsset } from "../../shared/imageAsset";
-import { materializeVideoUrl } from "./videoMedia";
+import { VIDEO_TARGET_ASPECT_RATIOS } from "../../shared/videoConform";
+import { localVideoDir, materializeVideoUrl } from "./videoMedia";
+import {
+  finalizeExpandedVideoFile,
+  isRunwayExpandTake,
+  refreshRunwayVideoExpandTask,
+} from "./videoConform";
 import {
   directVideoPrompt,
   type VideoPromptDirectorResult,
@@ -506,19 +514,67 @@ export async function refreshVideoTakeStatus(
     return { status: "ok", take: updated ?? take };
   }
 
-  const refreshed = await refreshShotVideoTask(take.taskId);
+  const refreshed = isRunwayExpandTake(take)
+    ? await refreshRunwayVideoExpandTask(take.taskId)
+    : await refreshShotVideoTask(take.taskId);
   if (refreshed.status === "available") {
     const managed = await materializeVideoUrl(refreshed.videoUrl, take.id);
+    let finalVideo =
+      managed.status === "ok"
+        ? { videoUrl: managed.videoUrl, videoKey: managed.videoKey }
+        : { videoUrl: refreshed.videoUrl, videoKey: null };
+    if (isRunwayExpandTake(take)) {
+      if (managed.status !== "ok") {
+        const failed = await updateVideoTake(take.id, userId, {
+          status: "failed",
+          errorMessage: managed.message,
+        });
+        return { status: "ok", take: failed ?? take };
+      }
+      const targetAspectRatio = VIDEO_TARGET_ASPECT_RATIOS.find(
+        ratio => ratio === take.aspectRatio
+      );
+      if (!targetAspectRatio) {
+        const failed = await updateVideoTake(take.id, userId, {
+          status: "failed",
+          errorMessage: `不支持的目标比例：${take.aspectRatio}`,
+        });
+        return { status: "ok", take: failed ?? take };
+      }
+      try {
+        finalVideo = await finalizeExpandedVideoFile({
+          sourcePath: path.join(localVideoDir(), managed.videoKey),
+          takeId: take.id,
+          targetAspectRatio,
+        });
+      } catch (error) {
+        const failed = await updateVideoTake(take.id, userId, {
+          status: "failed",
+          errorMessage:
+            error instanceof Error ? error.message : "AI 外扩结果尺寸统一失败",
+        });
+        return { status: "ok", take: failed ?? take };
+      }
+    }
     const updated = await updateVideoTake(take.id, userId, {
       status: "available",
-      videoUrl:
-        managed.status === "ok" ? managed.videoUrl : refreshed.videoUrl,
-      videoKey: managed.status === "ok" ? managed.videoKey : null,
-      extractionCapability:
-        managed.status === "ok" ? "available" : "unavailable",
+      videoUrl: finalVideo.videoUrl,
+      videoKey: finalVideo.videoKey,
+      extractionCapability: finalVideo.videoKey ? "available" : "unavailable",
       errorMessage: null,
     });
-    return { status: "ok", take: updated ?? take };
+    const ready = updated ?? take;
+    if (isRunwayExpandTake(take) && ready.status === "available") {
+      await setVideoTimelineSelection({
+        storyId: ready.storyId,
+        userId,
+        stableShotId: ready.stableShotId,
+        takeId: ready.id,
+        rangeId: null,
+        selectionType: "full_take",
+      });
+    }
+    return { status: "ok", take: ready };
   }
   if (refreshed.status === "processing") {
     const updated = await updateVideoTake(take.id, userId, {

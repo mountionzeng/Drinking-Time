@@ -1,6 +1,11 @@
+import path from "node:path";
 import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
+import {
+  VIDEO_CONFORM_MODES,
+  VIDEO_TARGET_ASPECT_RATIOS,
+} from "@shared/videoConform";
 import {
   normalizeShotIdentity,
   shotIdentityFromShot,
@@ -39,7 +44,7 @@ import {
   inpaintImage,
   storeImageBytes,
 } from "../services/imageGen";
-import { storeVideoBytesForTake } from "../services/videoMedia";
+import { localVideoDir, storeVideoBytesForTake } from "../services/videoMedia";
 import { renderViaGate } from "../services/renderGate";
 import {
   getProjectImageAssets,
@@ -57,6 +62,10 @@ import {
   startShotVideoJob,
 } from "../services/videoJobs";
 import { getShotVideoProviderStatus } from "../services/videoGen";
+import {
+  conformVideoTake,
+  probeVideoFileMetadata,
+} from "../services/videoConform";
 import {
   clearVideoTimelineSegment,
   createUsableVideoRange,
@@ -86,6 +95,26 @@ type StoryShotTarget = {
 function decodeBase64File(value: string): Buffer {
   const payload = value.includes(",") ? (value.split(",").pop() ?? "") : value;
   return Buffer.from(payload, "base64");
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await worker(items[index]!);
+      }
+    }
+  );
+  await Promise.all(runners);
+  return results;
 }
 
 function isImportImageMime(mimeType: string): boolean {
@@ -721,11 +750,24 @@ export const creationAgentRouter = router({
           extractionCapability: "available",
         });
         const stored = storeVideoBytesForTake(bytes, take.id, input.mimeType);
+        const metadata = await probeVideoFileMetadata(
+          path.join(localVideoDir(), stored.videoKey)
+        ).catch(() => null);
         const updated = await updateVideoTake(take.id, ctx.user.id, {
           status: "available",
           videoKey: stored.videoKey,
           videoUrl: stored.videoUrl,
+          aspectRatio: metadata?.aspectRatio ?? "16:9",
           errorMessage: null,
+          parameterSnapshot: {
+            source: "material_warehouse",
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            importedAt: new Date().toISOString(),
+            sourceWidth: metadata?.width ?? null,
+            sourceHeight: metadata?.height ?? null,
+            sourceDurationSec: metadata?.durationSec ?? null,
+          },
         });
         return {
           status: "ok" as const,
@@ -800,6 +842,43 @@ export const creationAgentRouter = router({
         videoUrl: result.take.videoUrl ?? undefined,
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
+      };
+    }),
+
+  conformVideoTakes: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        takeIds: z.array(z.number().int().positive()).min(1).max(50),
+        targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS),
+        mode: z.enum(VIDEO_CONFORM_MODES),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const takeIds = Array.from(new Set(input.takeIds));
+      const results = await mapWithConcurrency(takeIds, 2, sourceTakeId =>
+        conformVideoTake(
+          {
+            storyId: input.storyId,
+            sourceTakeId,
+            targetAspectRatio: input.targetAspectRatio,
+            mode: input.mode,
+          },
+          ctx.user.id
+        )
+      );
+      const completed = results.filter(result => result.status === "ok");
+      const failed = results.filter(result => result.status === "error");
+      return {
+        status:
+          failed.length === 0
+            ? ("ok" as const)
+            : completed.length === 0
+              ? ("error" as const)
+              : ("partial" as const),
+        completedCount: completed.length,
+        failedCount: failed.length,
+        results,
       };
     }),
 
