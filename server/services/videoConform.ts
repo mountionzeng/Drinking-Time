@@ -250,13 +250,14 @@ export async function finalizeExpandedVideoFile(input: {
   return { videoKey, videoUrl: `/api/videos/${videoKey}` };
 }
 
-function videoFileName(
+export function videoFileName(
   take: Pick<VideoTake, "id" | "videoKey">
 ): string | null {
+  // 不能只认以自己 id 命名的文件：素材仓库跨镜头复用产生的副本 take
+  // 指向源 take 的文件（如 take=1226 → take-46.mp4）。归属已在上游按
+  // userId 校验；这里只做文件名白名单（basename + 受限字符集）防路径穿越。
   const file = take.videoKey ? path.basename(take.videoKey) : "";
-  return new RegExp(`^take-${take.id}\\.(mp4|webm|mov)$`).test(file)
-    ? file
-    : null;
+  return /^[\w.-]+\.(mp4|webm|mov)$/i.test(file) ? file : null;
 }
 
 async function ensureLocalVideoPath(

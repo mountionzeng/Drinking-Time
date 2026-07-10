@@ -18,6 +18,7 @@ import {
   conformVideoTake,
   parseRunwayExpandRefresh,
   parseRunwayExpandSubmission,
+  videoFileName,
 } from "./videoConform";
 
 describe("videoConform", () => {
@@ -81,6 +82,29 @@ describe("videoConform", () => {
       taskId: "runway_failed",
       message: "input rejected",
     });
+  });
+});
+
+describe("videoFileName", () => {
+  it("接受自己 id 命名的文件，也接受复用副本指向的源文件", () => {
+    expect(videoFileName({ id: 46, videoKey: "take-46.mp4" })).toBe(
+      "take-46.mp4"
+    );
+    // 素材仓库复用：副本 take 1226 指向源 take 46 的文件——不能被拒
+    expect(videoFileName({ id: 1226, videoKey: "take-46.mp4" })).toBe(
+      "take-46.mp4"
+    );
+    expect(videoFileName({ id: 1, videoKey: "clip_01.webm" })).toBe(
+      "clip_01.webm"
+    );
+  });
+
+  it("拒绝路径穿越和非视频扩展名", () => {
+    // basename 先剥目录，剩余文件名再过白名单
+    expect(videoFileName({ id: 1, videoKey: "../../etc/passwd" })).toBeNull();
+    expect(videoFileName({ id: 1, videoKey: "take-1.sh" })).toBeNull();
+    expect(videoFileName({ id: 1, videoKey: null })).toBeNull();
+    expect(videoFileName({ id: 1, videoKey: "a b.mp4" })).toBeNull();
   });
 });
 
