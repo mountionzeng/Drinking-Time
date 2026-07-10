@@ -196,6 +196,73 @@ describe("oneClickEditReport", () => {
     );
   });
 
+  it("keeps legacy inserted shots in the preceding scene group", () => {
+    const report = buildOneClickEditReport({
+      shots: [
+        shot({
+          shotNo: 1,
+          stableShotId: "shot-1",
+          sceneNo: "SC01",
+          sceneTitle: "第一幕",
+        }),
+        shot({ shotNo: 2, stableShotId: "manual-shot-2" }),
+        shot({
+          shotNo: 3,
+          stableShotId: "shot-3",
+          sceneNo: "SC02",
+          sceneTitle: "第二幕",
+        }),
+        shot({ shotNo: 4, stableShotId: "manual-shot-4" }),
+      ],
+      materialState: materialState([]),
+      timelineShotIds: [],
+      targetAspectRatio: "1:1",
+    });
+
+    expect(
+      report.sceneGroups.map(group => ({
+        key: group.key,
+        label: group.label,
+        shots: group.checks.map(check => check.shotNo),
+      }))
+    ).toEqual([
+      { key: "SC01", label: "SC01 · 第一幕", shots: [1, 2] },
+      { key: "SC02", label: "SC02 · 第二幕", shots: [3, 4] },
+    ]);
+  });
+
+  it("does not merge a title-only scene into the preceding numbered scene", () => {
+    const report = buildOneClickEditReport({
+      shots: [
+        shot({
+          shotNo: 1,
+          stableShotId: "shot-1",
+          sceneNo: "SC01",
+          sceneTitle: "第一幕",
+        }),
+        shot({
+          shotNo: 2,
+          stableShotId: "shot-2",
+          sceneTitle: "缺编号的第二幕",
+        }),
+      ],
+      materialState: materialState([]),
+      timelineShotIds: [],
+      targetAspectRatio: "1:1",
+    });
+
+    expect(
+      report.sceneGroups.map(group => ({
+        key: group.key,
+        label: group.label,
+        shots: group.checks.map(check => check.shotNo),
+      }))
+    ).toEqual([
+      { key: "SC01", label: "SC01 · 第一幕", shots: [1] },
+      { key: "未分场", label: "缺编号的第二幕", shots: [2] },
+    ]);
+  });
+
   it("normalizes common ratio aliases", () => {
     expect(aspectRatioMatches("square", "1:1")).toBe(true);
     expect(aspectRatioMatches("16 : 9", "16:9")).toBe(true);

@@ -10,6 +10,8 @@ function shot(
     stableShotId: partial.stableShotId,
     shotIdentity: partial.shotIdentity,
     shotNo: partial.shotNo,
+    sceneNo: partial.sceneNo,
+    sceneTitle: partial.sceneTitle,
     subject: partial.subject ?? `SH${partial.shotNo}`,
     action: partial.action ?? "",
     dialogue: partial.dialogue ?? "",
@@ -46,6 +48,8 @@ describe("story shot editing", () => {
         shot({
           shotNo: 2,
           stableShotId: "legacy-sh02-shot",
+          sceneNo: "SC01",
+          sceneTitle: "第一幕",
           subject: "B",
           location: "gallery",
           transitionOut: "cut on white cloth",
@@ -66,6 +70,8 @@ describe("story shot editing", () => {
       ]
     );
     expect(result?.shots[2]).toMatchObject({
+      sceneNo: "SC01",
+      sceneTitle: "第一幕",
       subject: "新增镜头",
       location: "gallery",
       transitionIn: "cut on white cloth",
@@ -76,6 +82,34 @@ describe("story shot editing", () => {
     const source = [shot({ shotNo: 1, stableShotId: "legacy-sh01-shot" })];
     expect(insertStoryShotAfter(source, 8, "missing-shot")).toBeNull();
     expect(source).toHaveLength(1);
+  });
+
+  it("inherits the nearest preceding scene when a legacy anchor has none", () => {
+    const result = insertStoryShotAfter(
+      [
+        shot({
+          shotNo: 1,
+          stableShotId: "legacy-sh01-shot",
+          sceneNo: "SC01",
+          sceneTitle: "第一幕",
+        }),
+        shot({ shotNo: 2, stableShotId: "manual-sh02-legacy" }),
+        shot({
+          shotNo: 3,
+          stableShotId: "legacy-sh03-shot",
+          sceneNo: "SC02",
+          sceneTitle: "第二幕",
+        }),
+      ],
+      2,
+      "manual-sh02-legacy"
+    );
+
+    expect(result?.shots[2]).toMatchObject({
+      sceneNo: "SC01",
+      sceneTitle: "第一幕",
+      subject: "新增镜头",
+    });
   });
 
   it("deletes the matched shot and renumbers the remaining shots", () => {

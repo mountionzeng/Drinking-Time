@@ -201,6 +201,10 @@ export function buildOneClickEditReport(input: {
   timelineShotIds: readonly string[];
   targetAspectRatio: OneClickTargetAspectRatio;
 }): OneClickEditReport {
+  // 完全没有场次信息的镜头（多为手动插入的空镜头）继承前一个场次，
+  // 保持叙事顺序里的位置；只有标题的残缺数据仍留在「未分场」。
+  let inheritedSceneKey = "未分场";
+  let inheritedSceneLabel = "未分场";
   const checks = input.shots.map((shot, index): OneClickShotCheck => {
     const shotId = stableShotId(shot, index);
     const material = materialForShot(input.materialState, shot, shotId);
@@ -264,12 +268,21 @@ export function buildOneClickEditReport(input: {
       issues.push(issue("missing_scene_reference", "warning", "缺场景锚点"));
     }
 
+    const sceneNo = shot.sceneNo?.trim() ?? "";
+    const sceneTitle = shot.sceneTitle?.trim() ?? "";
+    const sceneLabel = [sceneNo, sceneTitle].filter(Boolean).join(" · ");
+    const inheritsScene = !sceneNo && !sceneTitle;
+    if (sceneNo) {
+      inheritedSceneKey = sceneNo;
+      inheritedSceneLabel = sceneLabel || sceneNo;
+    }
+
     return {
       shotNo: shot.shotNo,
       stableShotId: shotId,
-      sceneKey: shot.sceneNo || "未分场",
-      sceneLabel:
-        [shot.sceneNo, shot.sceneTitle].filter(Boolean).join(" · ") || "未分场",
+      sceneKey:
+        sceneNo || (inheritsScene ? inheritedSceneKey : "未分场"),
+      sceneLabel: sceneLabel || inheritedSceneLabel,
       title: shot.subject || shot.action || shotLabel(shot.shotNo),
       dialogue: shot.dialogue || shot.action || shot.visualAnchorText || "",
       imageUrl,

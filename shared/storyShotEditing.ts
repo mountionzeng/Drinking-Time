@@ -17,14 +17,20 @@ function text(value: unknown): string {
 
 function createInsertedStoryShot<T extends StoryShotLike>(
   previous: T,
-  shotNo: number
+  shotNo: number,
+  sceneSource: T = previous
 ): T {
   const stableShotId = insertedShotId(shotNo);
   const source = previous as Record<string, unknown>;
+  const scene = sceneSource as Record<string, unknown>;
   return {
     stableShotId,
     shotIdentity: stableShotId,
     shotNo,
+    // 场次跟随锚点；旧锚点缺场次时向前找最近场次，避免新镜头
+    // 被按场次分组的视图甩进「未分场」，看起来像镜头丢了。
+    sceneNo: text(scene.sceneNo),
+    sceneTitle: text(scene.sceneTitle),
     subject: "新增镜头",
     action: "",
     dialogue: "",
@@ -46,6 +52,19 @@ function createInsertedStoryShot<T extends StoryShotLike>(
     transitionOut: "",
     videoPrompt: "",
   } as unknown as T;
+}
+
+function nearestSceneSource<T extends StoryShotLike>(
+  shots: readonly T[],
+  fromIndex: number
+): T {
+  for (let index = fromIndex; index >= 0; index -= 1) {
+    const candidate = shots[index] as Record<string, unknown>;
+    if (text(candidate.sceneNo).trim() || text(candidate.sceneTitle).trim()) {
+      return shots[index];
+    }
+  }
+  return shots[fromIndex];
 }
 
 function renumberStoryShots<T extends StoryShotLike>(shots: readonly T[]): T[] {
@@ -133,7 +152,11 @@ export function insertStoryShotAfter<T extends StoryShotLike>(
   if (insertIndex < 0) return null;
 
   const insertedShotNo = insertIndex + 2;
-  const inserted = createInsertedStoryShot(shots[insertIndex], insertedShotNo);
+  const inserted = createInsertedStoryShot(
+    shots[insertIndex],
+    insertedShotNo,
+    nearestSceneSource(shots, insertIndex)
+  );
   const insertedStableShotId =
     normalizeShotIdentity(inserted.stableShotId) ??
     normalizeShotIdentity(inserted.shotIdentity) ??
