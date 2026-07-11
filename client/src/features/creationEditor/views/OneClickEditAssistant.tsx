@@ -507,7 +507,7 @@ export default function OneClickEditAssistant({
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && !open) {
-      setSelectedVideoKeys(new Set(selectableVideoKeys));
+      setSelectedVideoKeys(new Set());
     }
     if (!nextOpen) setReviewOpen(false);
     setOpen(nextOpen);
@@ -516,22 +516,10 @@ export default function OneClickEditAssistant({
   const handleTargetAspectRatioChange = (
     nextTarget: OneClickTargetAspectRatio
   ) => {
+    if (nextTarget === targetAspectRatio) return;
     setTargetAspectRatio(nextTarget);
     setReviewOpen(false);
-    setSelectedVideoKeys(
-      new Set(
-        report.checks.flatMap(check =>
-          isVideoConformReviewCandidate(check) && check.videoTakeId != null
-            ? [
-                videoConformReviewKey({
-                  takeId: check.videoTakeId,
-                  stableShotId: check.stableShotId,
-                }),
-              ]
-            : []
-        )
-      )
-    );
+    setSelectedVideoKeys(new Set());
   };
 
   const toggleTake = (check: OneClickShotCheck) => {
@@ -1018,7 +1006,9 @@ export default function OneClickEditAssistant({
               ? "处理中"
               : selectedCount > 0
                 ? `确认 ${selectedCount} 个镜头的运镜`
-                : "没有待统一的视频"}
+                : selectableVideoKeys.length > 0
+                  ? "请先勾选镜头"
+                  : "没有待统一的视频"}
           </button>
         </div>
       </SheetContent>
