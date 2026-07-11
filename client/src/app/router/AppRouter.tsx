@@ -1,6 +1,7 @@
 import { Route, Switch, Redirect } from 'wouter';
 import AnalysisPage from '@/pages/AnalysisPage';
 import CreationPage from '@/pages/CreationPage';
+import EditingStudioPage from '@/pages/EditingStudioPage';
 import LoginPage from '@/pages/LoginPage';
 import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
 import MobilePage from '@/pages/MobilePage';
@@ -61,6 +62,10 @@ export default function AppRouter() {
       </Route>
       <Route path="/creation">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationPage /></AuthGuard>}
+      </Route>
+      {/* 剪辑工作室：聊天驱动剪辑（小酌对话 + 预览播放器 + 时间轴） */}
+      <Route path="/editing">
+        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><EditingStudioPage /></AuthGuard>}
       </Route>
       {/* 手机端路由 */}
       <Route path="/m/welcome" component={MobileWelcomePage} />
