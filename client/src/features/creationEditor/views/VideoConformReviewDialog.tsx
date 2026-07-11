@@ -370,7 +370,8 @@ export function VideoConformReviewPanel({
                       </span>
                     </label>
                   </RadioGroup>
-                  {decision === "crop" ? (
+                  {decision === "crop" &&
+                  item.recommendation.cropAxis != null ? (
                     <CropPathControls
                       shotNo={item.shotNo}
                       axis={item.recommendation.cropAxis}

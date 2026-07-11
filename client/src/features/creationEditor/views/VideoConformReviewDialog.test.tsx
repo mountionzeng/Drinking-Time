@@ -99,4 +99,37 @@ describe("VideoConformReviewPanel", () => {
     expect(html).toContain('aria-label="SH06 最后一帧 底部"');
     expect(html).toContain('aria-pressed="true"');
   });
+
+  it("does not offer a crop path when the source already matches the target ratio", () => {
+    const matchingItem: VideoConformReviewItem = {
+      ...reviewItem,
+      sourceAspectRatio: "1:1",
+      recommendation: {
+        mode: "crop",
+        confidence: "high",
+        cropAxis: null,
+        reason: "当前画幅已经匹配。",
+      },
+    };
+    const key = videoConformReviewKey(matchingItem);
+    const html = renderToStaticMarkup(
+      <VideoConformReviewPanel
+        items={[matchingItem]}
+        targetAspectRatio="1:1"
+        aiExpandReady
+        decisions={new Map([[key, "crop"]])}
+        cropPaths={new Map([
+          [key, { start: "center" as const, end: "end" as const }],
+        ])}
+        submitting={false}
+        onDecisionChange={vi.fn()}
+        onCropPathChange={vi.fn()}
+        onApplyRecommendations={vi.fn()}
+        onAllCrop={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(html).not.toContain("裁剪路径");
+  });
 });
