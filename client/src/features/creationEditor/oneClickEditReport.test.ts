@@ -284,6 +284,42 @@ describe("oneClickEditReport", () => {
     ]);
   });
 
+  it("projects an adopted video as the visual preview without pretending it is an image anchor", () => {
+    const currentVideo = video(44, "shot-1", "16:9");
+    const report = buildOneClickEditReport({
+      shots: [shot({ shotNo: 1, stableShotId: "shot-1" })],
+      materialState: materialState([
+        {
+          stableShotId: "shot-1",
+          shotNo: 1,
+          currentImage: null,
+          imageVersions: [],
+          currentVideo,
+          videoTakes: [currentVideo],
+          timelineItem: null,
+        },
+      ]),
+      timelineShotIds: ["shot-1"],
+      targetAspectRatio: "1:1",
+    });
+
+    expect(report.currentVideoCount).toBe(1);
+    expect(report.currentImageCount).toBe(0);
+    expect(report.checks[0]?.visualPreview).toEqual({
+      kind: "video",
+      url: "/video-44.mp4",
+    });
+    expect(report.checks[0]?.issues).toContainEqual(
+      expect.objectContaining({
+        kind: "missing_current_image",
+        label: "视频已关联 · 未截首帧",
+      })
+    );
+    expect(collectOneClickAnchorCandidates(report.checks, "character")).toEqual(
+      []
+    );
+  });
+
   it("normalizes common ratio aliases", () => {
     expect(aspectRatioMatches("square", "1:1")).toBe(true);
     expect(aspectRatioMatches("16 : 9", "16:9")).toBe(true);

@@ -36,6 +36,10 @@ export type OneClickShotCheck = {
   dialogue: string;
   cameraMove: string;
   imageUrl: string | null;
+  visualPreview:
+    | { kind: "image"; url: string }
+    | { kind: "video"; url: string }
+    | null;
   videoTakeId: number | null;
   videoUrl: string | null;
   videoAspectRatio: string | null;
@@ -220,6 +224,11 @@ export function buildOneClickEditReport(input: {
     const hasCurrentVideo = Boolean(
       currentVideo?.status === "available" && currentVideo.videoUrl
     );
+    const visualPreview = imageUrl
+      ? ({ kind: "image", url: imageUrl } as const)
+      : hasCurrentVideo && videoUrl
+        ? ({ kind: "video", url: videoUrl } as const)
+        : null;
     const hasCharacterReference =
       hasDimension(shot, "character_reference") ||
       promptReferenceLabels(shot, "character").length > 0;
@@ -243,7 +252,13 @@ export function buildOneClickEditReport(input: {
       issues.push(issue("missing_current_video", "blocking", "缺当前视频"));
     }
     if (!hasCurrentImage) {
-      issues.push(issue("missing_current_image", "warning", "缺首帧"));
+      issues.push(
+        issue(
+          "missing_current_image",
+          "warning",
+          hasCurrentVideo ? "视频已关联 · 未截首帧" : "缺首帧"
+        )
+      );
     }
     if (
       currentVideo?.aspectRatio &&
@@ -288,6 +303,7 @@ export function buildOneClickEditReport(input: {
       dialogue: shot.dialogue || shot.action || shot.visualAnchorText || "",
       cameraMove: shot.cameraMove?.trim() ?? "",
       imageUrl,
+      visualPreview,
       videoTakeId: currentVideo?.id ?? null,
       videoUrl,
       videoAspectRatio: currentVideo?.aspectRatio ?? null,
