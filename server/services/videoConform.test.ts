@@ -98,6 +98,17 @@ describe("videoConform", () => {
     expect(blurPad).toContain("force_original_aspect_ratio=decrease");
   });
 
+  it("moves a square crop from the middle at frame one to the bottom at the final frame", () => {
+    const crop = buildVideoConformFilter("crop", "1:1", {
+      cropPath: { start: "center", end: "end" },
+      durationSec: 4,
+    });
+
+    expect(crop).toContain("0.5+(0.5)*t/4");
+    expect(crop).toContain("x='(iw-ow)*");
+    expect(crop).toContain("y='(ih-oh)*");
+  });
+
   it("parses Runway submission and completion payloads", () => {
     expect(
       parseRunwayExpandSubmission({

@@ -32,6 +32,7 @@ import {
 } from "@shared/shotConsistency";
 import {
   VIDEO_TARGET_DIMENSIONS,
+  type VideoCropPath,
   type VideoConformMode,
 } from "@shared/videoConform";
 import type {
@@ -73,6 +74,7 @@ type OneClickEditAssistantProps = {
       takeId: number;
       stableShotId: string;
       mode: VideoConformMode;
+      cropPath?: VideoCropPath;
     }>;
     targetAspectRatio: OneClickTargetAspectRatio;
   }) => Promise<VideoConformBatchResult>;
@@ -602,6 +604,7 @@ export default function OneClickEditAssistant({
       takeId: number;
       stableShotId: string;
       mode: VideoConformReviewMode;
+      cropPath?: VideoCropPath;
     }>
   ) => {
     if (items.length === 0) {

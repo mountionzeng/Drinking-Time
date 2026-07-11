@@ -52,6 +52,7 @@ import {
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type {
+  VideoCropPath,
   VideoConformMode,
   VideoTargetAspectRatio,
 } from "@shared/videoConform";
@@ -226,6 +227,7 @@ type CreationEditorContextValue = {
       takeId: number;
       stableShotId: string;
       mode: VideoConformMode;
+      cropPath?: VideoCropPath;
     }>;
     targetAspectRatio: VideoTargetAspectRatio;
   }) => Promise<VideoConformBatchResult>;
@@ -1763,6 +1765,7 @@ export function CreationEditorProvider({
       takeId: number;
       stableShotId: string;
       mode: VideoConformMode;
+      cropPath?: VideoCropPath;
     }>;
     targetAspectRatio: VideoTargetAspectRatio;
   }): Promise<VideoConformBatchResult> => {

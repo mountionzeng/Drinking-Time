@@ -3,6 +3,7 @@ import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
+  VIDEO_CROP_ANCHORS,
   VIDEO_CONFORM_MODES,
   VIDEO_TARGET_ASPECT_RATIOS,
 } from "@shared/videoConform";
@@ -884,6 +885,12 @@ export const creationAgentRouter = router({
               takeId: z.number().int().positive(),
               stableShotId: z.string().trim().min(1),
               mode: z.enum(VIDEO_CONFORM_MODES),
+              cropPath: z
+                .object({
+                  start: z.enum(VIDEO_CROP_ANCHORS),
+                  end: z.enum(VIDEO_CROP_ANCHORS),
+                })
+                .optional(),
             })
           )
           .min(1)
@@ -914,6 +921,7 @@ export const creationAgentRouter = router({
             sourceTakeId: item.takeId,
             targetAspectRatio: input.targetAspectRatio,
             mode: item.mode,
+            cropPath: item.cropPath,
             targetStableShotId: item.stableShotId,
           },
           ctx.user.id

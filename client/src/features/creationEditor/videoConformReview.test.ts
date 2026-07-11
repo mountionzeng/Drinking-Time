@@ -91,6 +91,10 @@ describe("video conform review", () => {
   });
 
   it("builds one mixed-mode batch from the user's per-shot choices", () => {
+    const cropKey = videoConformReviewKey({
+      takeId: 42,
+      stableShotId: "shot-2",
+    });
     const items = buildVideoConformBatchItems(
       [
         {
@@ -107,16 +111,19 @@ describe("video conform review", () => {
           videoConformReviewKey({ takeId: 41, stableShotId: "shot-1" }),
           "ai_expand" as const,
         ],
-        [
-          videoConformReviewKey({ takeId: 42, stableShotId: "shot-2" }),
-          "crop" as const,
-        ],
-      ])
+        [cropKey, "crop" as const],
+      ]),
+      new Map([[cropKey, { start: "center" as const, end: "end" as const }]])
     );
 
     expect(items).toEqual([
       { takeId: 41, stableShotId: "shot-1", mode: "ai_expand" },
-      { takeId: 42, stableShotId: "shot-2", mode: "crop" },
+      {
+        takeId: 42,
+        stableShotId: "shot-2",
+        mode: "crop",
+        cropPath: { start: "center", end: "end" },
+      },
     ]);
   });
 

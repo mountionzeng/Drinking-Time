@@ -1,4 +1,5 @@
 import type {
+  VideoCropPath,
   VideoConformMode,
   VideoTargetAspectRatio,
 } from "@shared/videoConform";
@@ -172,16 +173,28 @@ export function recommendVideoConformMode(
 
 export function buildVideoConformBatchItems(
   items: readonly BatchItemSource[],
-  decisions: ReadonlyMap<string, VideoConformReviewMode>
+  decisions: ReadonlyMap<string, VideoConformReviewMode>,
+  cropPaths: ReadonlyMap<string, VideoCropPath> = new Map()
 ): Array<{
   takeId: number;
   stableShotId: string;
   mode: VideoConformReviewMode;
+  cropPath?: VideoCropPath;
 }> {
   return items.flatMap(item => {
-    const mode = decisions.get(videoConformReviewKey(item));
+    const key = videoConformReviewKey(item);
+    const mode = decisions.get(key);
     return mode
-      ? [{ takeId: item.takeId, stableShotId: item.stableShotId, mode }]
+      ? [
+          {
+            takeId: item.takeId,
+            stableShotId: item.stableShotId,
+            mode,
+            ...(mode === "crop" && cropPaths.has(key)
+              ? { cropPath: cropPaths.get(key)! }
+              : {}),
+          },
+        ]
       : [];
   });
 }

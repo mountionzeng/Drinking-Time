@@ -4,7 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import type { VideoTake } from "../../drizzle/schema";
 import {
+  CENTERED_VIDEO_CROP_PATH,
   VIDEO_TARGET_DIMENSIONS,
+  type VideoCropAnchor,
+  type VideoCropPath,
   type VideoConformMode,
   type VideoTargetAspectRatio,
 } from "../../shared/videoConform";
@@ -45,6 +48,7 @@ export type VideoConformInput = {
   sourceTakeId: number;
   targetAspectRatio: VideoTargetAspectRatio;
   mode: VideoConformMode;
+  cropPath?: VideoCropPath;
   /**
    * 结果绑定到当前故事的哪个镜头（体检行自带的 stableShotId）。
    * 跨故事继承的素材（副本故事借老故事的视频）没有它就无从落位——
@@ -295,11 +299,37 @@ export async function probeVideoFileMetadata(
 
 export function buildVideoConformFilter(
   mode: Exclude<VideoConformMode, "ai_expand">,
-  targetAspectRatio: VideoTargetAspectRatio
+  targetAspectRatio: VideoTargetAspectRatio,
+  options: {
+    cropPath?: VideoCropPath | null;
+    durationSec?: number | null;
+  } = {}
 ): string {
   const { width, height } = VIDEO_TARGET_DIMENSIONS[targetAspectRatio];
   if (mode === "crop") {
-    return `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,format=yuv420p[outv]`;
+    const anchorValue: Record<VideoCropAnchor, number> = {
+      start: 0,
+      center: 0.5,
+      end: 1,
+    };
+    const cropPath = options.cropPath ?? CENTERED_VIDEO_CROP_PATH;
+    const start = anchorValue[cropPath.start];
+    const end = anchorValue[cropPath.end];
+    let position = String(start);
+    if (start !== end) {
+      const durationSec = options.durationSec;
+      if (
+        durationSec == null ||
+        !Number.isFinite(durationSec) ||
+        durationSec <= 0
+      ) {
+        throw new Error("动态裁剪需要可识别的视频时长");
+      }
+      const duration = String(Number(durationSec.toFixed(3)));
+      const delta = String(Number((end - start).toFixed(3)));
+      position = `${start}+(${delta})*t/${duration}`;
+    }
+    return `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}:x='(iw-ow)*(${position})':y='(ih-oh)*(${position})',setsar=1,format=yuv420p[outv]`;
   }
   return [
     "[0:v]split=2[bg][fg]",
@@ -314,6 +344,8 @@ async function conformVideoLocally(input: {
   outputPath: string;
   mode: Exclude<VideoConformMode, "ai_expand">;
   targetAspectRatio: VideoTargetAspectRatio;
+  cropPath?: VideoCropPath | null;
+  durationSec?: number | null;
 }) {
   await fs.promises.mkdir(path.dirname(input.outputPath), { recursive: true });
   await fs.promises.rm(input.outputPath, { force: true });
@@ -325,7 +357,10 @@ async function conformVideoLocally(input: {
         "-i",
         input.sourcePath,
         "-filter_complex",
-        buildVideoConformFilter(input.mode, input.targetAspectRatio),
+        buildVideoConformFilter(input.mode, input.targetAspectRatio, {
+          cropPath: input.cropPath,
+          durationSec: input.durationSec,
+        }),
         "-map",
         "[outv]",
         "-map",
@@ -716,6 +751,8 @@ export function conformVideoTake(
     input.sourceTakeId,
     input.targetAspectRatio,
     input.mode,
+    input.cropPath?.start,
+    input.cropPath?.end,
     normalizeShotIdentity(input.targetStableShotId)
   );
   const existing = inFlightVideoConformRequests.get(requestKey);
@@ -746,9 +783,7 @@ async function conformVideoTakeOnce(
       error: "视频不存在或无权处理",
     };
   }
-  const requestedStableShotId = normalizeShotIdentity(
-    input.targetStableShotId
-  );
+  const requestedStableShotId = normalizeShotIdentity(input.targetStableShotId);
   // 统一后的新 take 要绑到【当前故事】的镜头身份上：同故事素材可以沿用
   // 源身份兜底；跨故事素材必须由调用方给出目标镜头，否则结果会挂在
   // 源故事名下、在当前故事里永远看不见。
@@ -780,6 +815,10 @@ async function conformVideoTakeOnce(
       metadata.aspectRatio === input.targetAspectRatio
         ? "crop"
         : input.mode;
+    const effectiveCropPath =
+      effectiveMode === "crop"
+        ? (input.cropPath ?? CENTERED_VIDEO_CROP_PATH)
+        : null;
     if (effectiveMode === "ai_expand" && !ENV.api302Key) {
       throw new Error("API302_KEY 未配置，无法使用 AI 外扩");
     }
@@ -800,6 +839,8 @@ async function conformVideoTakeOnce(
       input.targetAspectRatio,
       effectiveMode,
       providerAspectRatio,
+      effectiveCropPath?.start,
+      effectiveCropPath?.end,
       targetStableShotId
     );
     const existing = await findVideoTakeByIdempotencyKey(
@@ -889,6 +930,7 @@ async function conformVideoTakeOnce(
             requestedMode: input.mode,
             sourceAspectRatio: metadata.aspectRatio,
             targetAspectRatio: input.targetAspectRatio,
+            cropPath: effectiveCropPath,
             providerAspectRatio,
             providerSubmissionState:
               effectiveMode === "ai_expand" ? "prepared" : "not_applicable",
@@ -909,6 +951,8 @@ async function conformVideoTakeOnce(
           outputPath,
           mode: effectiveMode,
           targetAspectRatio: input.targetAspectRatio,
+          cropPath: effectiveCropPath,
+          durationSec: sourceDurationSec,
         });
         const updated = await updateVideoTake(take.id, userId, {
           status: "available",

@@ -33,8 +33,10 @@ describe("VideoConformReviewPanel", () => {
         targetAspectRatio="1:1"
         aiExpandReady={false}
         decisions={new Map()}
+        cropPaths={new Map()}
         submitting={false}
         onDecisionChange={vi.fn()}
+        onCropPathChange={vi.fn()}
         onApplyRecommendations={vi.fn()}
         onAllCrop={vi.fn()}
         onConfirm={vi.fn()}
@@ -56,8 +58,10 @@ describe("VideoConformReviewPanel", () => {
         targetAspectRatio="1:1"
         aiExpandReady
         decisions={new Map([[videoConformReviewKey(reviewItem), "ai_expand"]])}
+        cropPaths={new Map()}
         submitting={false}
         onDecisionChange={vi.fn()}
+        onCropPathChange={vi.fn()}
         onApplyRecommendations={vi.fn()}
         onAllCrop={vi.fn()}
         onConfirm={vi.fn()}
@@ -66,5 +70,33 @@ describe("VideoConformReviewPanel", () => {
 
     expect(html).toContain("执行 1 个视频（含 1 个 302）");
     expect(html).toContain("提交时可能消耗额度");
+  });
+
+  it("shows a per-shot crop path from the middle first frame to the bottom final frame", () => {
+    const key = videoConformReviewKey(reviewItem);
+    const html = renderToStaticMarkup(
+      <VideoConformReviewPanel
+        items={[reviewItem]}
+        targetAspectRatio="1:1"
+        aiExpandReady
+        decisions={new Map([[key, "crop"]])}
+        cropPaths={
+          new Map([[key, { start: "center" as const, end: "end" as const }]])
+        }
+        submitting={false}
+        onDecisionChange={vi.fn()}
+        onCropPathChange={vi.fn()}
+        onApplyRecommendations={vi.fn()}
+        onAllCrop={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("裁剪路径");
+    expect(html).toContain("第一帧");
+    expect(html).toContain("最后一帧");
+    expect(html).toContain("中间 → 底部");
+    expect(html).toContain('aria-label="SH06 最后一帧 底部"');
+    expect(html).toContain('aria-pressed="true"');
   });
 });

@@ -17,7 +17,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { VIDEO_TARGET_DIMENSIONS } from "@shared/videoConform";
+import {
+  CENTERED_VIDEO_CROP_PATH,
+  VIDEO_CROP_ANCHORS,
+  VIDEO_TARGET_DIMENSIONS,
+  type VideoCropAnchor,
+  type VideoCropPath,
+} from "@shared/videoConform";
 import type { OneClickTargetAspectRatio } from "../oneClickEditReport";
 import {
   buildVideoConformBatchItems,
@@ -43,6 +49,7 @@ type VideoConformBatchItem = {
   takeId: number;
   stableShotId: string;
   mode: VideoConformReviewMode;
+  cropPath?: VideoCropPath;
 };
 
 function shotLabel(shotNo: number) {
@@ -56,13 +63,96 @@ function recommendationLabel(
   return recommendation.mode === "ai_expand" ? "建议外扩" : "建议裁切";
 }
 
+function cropAnchorLabel(
+  anchor: VideoCropAnchor,
+  axis: VideoConformRecommendation["cropAxis"]
+): string {
+  if (anchor === "center") return "中间";
+  if (axis === "vertical") return anchor === "start" ? "顶部" : "底部";
+  if (axis === "horizontal") return anchor === "start" ? "左侧" : "右侧";
+  return anchor === "start" ? "起点" : "终点";
+}
+
+export function CropPathControls({
+  shotNo,
+  axis,
+  value,
+  disabled,
+  onChange,
+}: {
+  shotNo: number;
+  axis: VideoConformRecommendation["cropAxis"];
+  value: VideoCropPath;
+  disabled: boolean;
+  onChange: (value: VideoCropPath) => void;
+}) {
+  const rows = [
+    { key: "start" as const, label: "第一帧" },
+    { key: "end" as const, label: "最后一帧" },
+  ];
+  const pathLabel = `${cropAnchorLabel(value.start, axis)} → ${cropAnchorLabel(value.end, axis)}`;
+
+  return (
+    <section className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-emerald-900">
+          裁剪路径
+        </span>
+        <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+          {pathLabel}
+        </span>
+      </div>
+      <div className="mt-2 space-y-2">
+        {rows.map(row => (
+          <div
+            key={row.key}
+            className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2"
+          >
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {row.label}
+            </span>
+            <div className="grid grid-cols-3 overflow-hidden rounded border border-border bg-background">
+              {VIDEO_CROP_ANCHORS.map(anchor => {
+                const selected = value[row.key] === anchor;
+                const label = cropAnchorLabel(anchor, axis);
+                return (
+                  <button
+                    key={anchor}
+                    type="button"
+                    aria-label={`${shotLabel(shotNo)} ${row.label} ${label}`}
+                    aria-pressed={selected}
+                    disabled={disabled}
+                    onClick={() => onChange({ ...value, [row.key]: anchor })}
+                    className={`h-7 border-r border-border text-[10px] font-medium transition last:border-r-0 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50 ${
+                      selected
+                        ? "bg-emerald-700 text-white"
+                        : "text-muted-foreground hover:bg-emerald-50 hover:text-emerald-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-emerald-900/70">
+        裁剪窗口会在整段视频中平滑移动；起止位置相同就是固定裁切。
+      </p>
+    </section>
+  );
+}
+
 export function VideoConformReviewPanel({
   items,
   targetAspectRatio,
   aiExpandReady,
   decisions,
+  cropPaths,
   submitting,
   onDecisionChange,
+  onCropPathChange,
   onApplyRecommendations,
   onAllCrop,
   onConfirm,
@@ -71,8 +161,10 @@ export function VideoConformReviewPanel({
   targetAspectRatio: OneClickTargetAspectRatio;
   aiExpandReady: boolean;
   decisions: ReadonlyMap<string, VideoConformReviewMode>;
+  cropPaths: ReadonlyMap<string, VideoCropPath>;
   submitting: boolean;
   onDecisionChange: (key: string, mode: VideoConformReviewMode) => void;
+  onCropPathChange: (key: string, path: VideoCropPath) => void;
   onApplyRecommendations: () => void;
   onAllCrop: () => void;
   onConfirm: () => void;
@@ -213,70 +305,83 @@ export function VideoConformReviewPanel({
                   </p>
                 </div>
 
-                <RadioGroup
-                  value={decision ?? ""}
-                  disabled={submitting}
-                  onValueChange={value => {
-                    if (value === "crop" || value === "ai_expand") {
-                      onDecisionChange(reviewKey, value);
-                    }
-                  }}
-                  aria-label={`${shotLabel(item.shotNo)} 画幅处理方式`}
-                  className="grid content-start gap-2 sm:col-start-2 xl:col-start-3"
-                >
-                  <label
-                    htmlFor={cropId}
-                    className={`flex cursor-pointer gap-2.5 rounded-md border p-3 transition ${
-                      decision === "crop"
-                        ? "border-emerald-400 bg-emerald-50"
-                        : "border-border hover:border-emerald-300"
-                    }`}
+                <div className="grid content-start gap-2 sm:col-start-2 xl:col-start-3">
+                  <RadioGroup
+                    value={decision ?? ""}
+                    disabled={submitting}
+                    onValueChange={value => {
+                      if (value === "crop" || value === "ai_expand") {
+                        onDecisionChange(reviewKey, value);
+                      }
+                    }}
+                    aria-label={`${shotLabel(item.shotNo)} 画幅处理方式`}
+                    className="grid gap-2"
                   >
-                    <RadioGroupItem
-                      id={cropId}
-                      value="crop"
-                      className="mt-0.5"
+                    <label
+                      htmlFor={cropId}
+                      className={`flex cursor-pointer gap-2.5 rounded-md border p-3 transition ${
+                        decision === "crop"
+                          ? "border-emerald-400 bg-emerald-50"
+                          : "border-border hover:border-emerald-300"
+                      }`}
+                    >
+                      <RadioGroupItem
+                        id={cropId}
+                        value="crop"
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold">
+                          <Crop className="h-3.5 w-3.5 text-emerald-700" />
+                          直接裁切
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                          本地 ffmpeg 取目标画幅，不消耗 302 额度。
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      htmlFor={expandId}
+                      className={`flex gap-2.5 rounded-md border p-3 transition ${
+                        expandDisabled
+                          ? "cursor-not-allowed border-border bg-muted/50 opacity-60"
+                          : decision === "ai_expand"
+                            ? "cursor-pointer border-violet-400 bg-violet-50"
+                            : "cursor-pointer border-border hover:border-violet-300"
+                      }`}
+                    >
+                      <RadioGroupItem
+                        id={expandId}
+                        value="ai_expand"
+                        disabled={expandDisabled}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold">
+                          <WandSparkles className="h-3.5 w-3.5 text-violet-700" />
+                          302 专业视频外扩
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
+                          {!aiExpandReady
+                            ? "缺少 API302_KEY；仍可选择免费裁切。"
+                            : (item.aiExpandUnavailableReason ??
+                              "Runway Expand 补出画面边缘，异步处理，可能消耗额度。")}
+                        </span>
+                      </span>
+                    </label>
+                  </RadioGroup>
+                  {decision === "crop" ? (
+                    <CropPathControls
+                      shotNo={item.shotNo}
+                      axis={item.recommendation.cropAxis}
+                      value={
+                        cropPaths.get(reviewKey) ?? CENTERED_VIDEO_CROP_PATH
+                      }
+                      disabled={submitting}
+                      onChange={path => onCropPathChange(reviewKey, path)}
                     />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold">
-                        <Crop className="h-3.5 w-3.5 text-emerald-700" />
-                        直接裁切
-                      </span>
-                      <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                        本地 ffmpeg 取目标画幅，不消耗 302 额度。
-                      </span>
-                    </span>
-                  </label>
-                  <label
-                    htmlFor={expandId}
-                    className={`flex gap-2.5 rounded-md border p-3 transition ${
-                      expandDisabled
-                        ? "cursor-not-allowed border-border bg-muted/50 opacity-60"
-                        : decision === "ai_expand"
-                          ? "cursor-pointer border-violet-400 bg-violet-50"
-                          : "cursor-pointer border-border hover:border-violet-300"
-                    }`}
-                  >
-                    <RadioGroupItem
-                      id={expandId}
-                      value="ai_expand"
-                      disabled={expandDisabled}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold">
-                        <WandSparkles className="h-3.5 w-3.5 text-violet-700" />
-                        302 专业视频外扩
-                      </span>
-                      <span className="mt-1 block text-[11px] leading-relaxed text-muted-foreground">
-                        {!aiExpandReady
-                          ? "缺少 API302_KEY；仍可选择免费裁切。"
-                          : (item.aiExpandUnavailableReason ??
-                            "Runway Expand 补出画面边缘，异步处理，可能消耗额度。")}
-                      </span>
-                    </span>
-                  </label>
-                </RadioGroup>
+                  ) : null}
+                </div>
               </article>
             );
           })}
@@ -354,18 +459,30 @@ export default function VideoConformReviewDialog({
   const [decisions, setDecisions] = useState<
     Map<string, VideoConformReviewMode>
   >(() => new Map());
+  const [cropPaths, setCropPaths] = useState<Map<string, VideoCropPath>>(
+    () => new Map()
+  );
   const itemSignature = useMemo(
     () => items.map(videoConformReviewKey).join(","),
     [items]
   );
 
   useEffect(() => {
-    if (open) setDecisions(new Map());
+    if (open) {
+      setDecisions(new Map());
+      setCropPaths(new Map());
+    }
   }, [open, targetAspectRatio]);
 
   useEffect(() => {
     const availableKeys = new Set(items.map(videoConformReviewKey));
     setDecisions(current => {
+      const next = new Map(
+        Array.from(current).filter(([key]) => availableKeys.has(key))
+      );
+      return next.size === current.size ? current : next;
+    });
+    setCropPaths(current => {
       const next = new Map(
         Array.from(current).filter(([key]) => availableKeys.has(key))
       );
@@ -380,29 +497,63 @@ export default function VideoConformReviewDialog({
       next.set(key, mode);
       return next;
     });
+    if (mode === "crop") {
+      setCropPaths(current => {
+        if (current.has(key)) return current;
+        const next = new Map(current);
+        next.set(key, CENTERED_VIDEO_CROP_PATH);
+        return next;
+      });
+    }
+  };
+
+  const setCropPath = (key: string, path: VideoCropPath) => {
+    if (submitting) return;
+    setCropPaths(current => {
+      const next = new Map(current);
+      next.set(key, path);
+      return next;
+    });
   };
 
   const applyRecommendations = () => {
-    setDecisions(
-      new Map(
-        items.flatMap(item =>
-          item.recommendation.mode === "ai_expand" &&
-          (!aiExpandReady || item.aiExpandUnavailableReason != null)
-            ? []
-            : [[videoConformReviewKey(item), item.recommendation.mode] as const]
-        )
+    const nextDecisions = new Map(
+      items.flatMap(item =>
+        item.recommendation.mode === "ai_expand" &&
+        (!aiExpandReady || item.aiExpandUnavailableReason != null)
+          ? []
+          : [[videoConformReviewKey(item), item.recommendation.mode] as const]
       )
     );
+    setDecisions(nextDecisions);
+    setCropPaths(current => {
+      const next = new Map(current);
+      items.forEach(item => {
+        const key = videoConformReviewKey(item);
+        if (nextDecisions.get(key) === "crop" && !next.has(key)) {
+          next.set(key, CENTERED_VIDEO_CROP_PATH);
+        }
+      });
+      return next;
+    });
   };
 
   const allCrop = () => {
     setDecisions(
       new Map(items.map(item => [videoConformReviewKey(item), "crop"] as const))
     );
+    setCropPaths(
+      new Map(
+        items.map(item => [
+          videoConformReviewKey(item),
+          CENTERED_VIDEO_CROP_PATH,
+        ])
+      )
+    );
   };
 
   const confirm = async () => {
-    const batchItems = buildVideoConformBatchItems(items, decisions);
+    const batchItems = buildVideoConformBatchItems(items, decisions, cropPaths);
     if (batchItems.length !== items.length) return;
     await onConfirm(batchItems);
   };
@@ -430,8 +581,10 @@ export default function VideoConformReviewDialog({
           targetAspectRatio={targetAspectRatio}
           aiExpandReady={aiExpandReady}
           decisions={decisions}
+          cropPaths={cropPaths}
           submitting={submitting}
           onDecisionChange={setDecision}
+          onCropPathChange={setCropPath}
           onApplyRecommendations={applyRecommendations}
           onAllCrop={allCrop}
           onConfirm={() => void confirm()}
