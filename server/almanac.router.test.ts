@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
 const almanacMock = vi.hoisted(() => ({
@@ -21,6 +21,13 @@ function createPublicContext(): TrpcContext {
 }
 
 describe("almanac tRPC router", () => {
+  // 整棵 appRouter 模块树的转换加载不能算进单测的 5s 超时：
+  // 全量套件并发跑时，首个用例内的动态 import 会偶发超线（flaky）。
+  let appRouter: typeof import("./routers").appRouter;
+  beforeAll(async () => {
+    ({ appRouter } = await import("./routers"));
+  }, 30_000);
+
   beforeEach(() => {
     almanacMock.getAlmanacDay.mockReset();
   });
@@ -39,7 +46,6 @@ describe("almanac tRPC router", () => {
       meta: {},
       fetchedAt: "2026-05-13T00:00:00.000Z",
     });
-    const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(createPublicContext());
 
     const result = await caller.almanac.today({ date: "2026-05-13" });
@@ -67,7 +73,6 @@ describe("almanac tRPC router", () => {
       meta: {},
       fetchedAt: null,
     });
-    const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(createPublicContext());
 
     await expect(caller.almanac.today({ date: "2026-05-13" })).resolves.toMatchObject({
@@ -77,7 +82,6 @@ describe("almanac tRPC router", () => {
   });
 
   it("rejects invalid date strings before hitting the service", async () => {
-    const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(createPublicContext());
 
     await expect(caller.almanac.today({ date: "2026-5-13" })).rejects.toThrow();
