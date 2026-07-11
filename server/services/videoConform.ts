@@ -469,20 +469,82 @@ function artifactVideoUrl(task: Record<string, unknown> | null): string {
   return "";
 }
 
+function compactProviderText(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+export function parseRunwayProviderResponseBody(body: string): unknown {
+  const trimmed = body.trim();
+  if (!trimmed) return {};
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return compactProviderText(trimmed);
+  }
+}
+
+function providerDetail(value: unknown): string {
+  if (typeof value === "string") return compactProviderText(value);
+  if (!Array.isArray(value)) return "";
+  return value
+    .flatMap(item => {
+      const detail = record(item);
+      return typeof detail?.msg === "string" ? [detail.msg.trim()] : [];
+    })
+    .filter(Boolean)
+    .join("；")
+    .slice(0, 500);
+}
+
 function providerMessage(value: unknown, fallback: string): string {
+  if (typeof value === "string") return compactProviderText(value) || fallback;
   const root = record(value);
   const task = runwayTask(value);
+  const nestedError = record(root?.error);
+  const errorCode =
+    nestedError?.err_code ??
+    nestedError?.code ??
+    root?.err_code ??
+    root?.code ??
+    null;
+  const nestedErrorText =
+    typeof root?.error === "string" ? root.error : undefined;
   for (const candidate of [
+    nestedError?.message_cn,
+    nestedError?.message,
+    nestedError?.description,
+    nestedErrorText,
+    providerDetail(nestedError?.detail),
+    providerDetail(root?.detail),
     task?.failReason,
     task?.message,
     root?.message,
     root?.description,
   ]) {
     if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
+      const message = compactProviderText(candidate);
+      return errorCode == null
+        ? message
+        : `${message}（302 错误 ${String(errorCode)}）`;
     }
   }
-  return fallback;
+  return errorCode == null
+    ? fallback
+    : `${fallback}（302 错误 ${String(errorCode)}）`;
+}
+
+async function readRunwayProviderResponse(response: Response): Promise<unknown> {
+  if (typeof response.text === "function") {
+    const body = await response.text().catch(() => "");
+    if (body) return parseRunwayProviderResponseBody(body);
+  }
+  return typeof response.json === "function"
+    ? response.json().catch(() => ({}))
+    : {};
 }
 
 export function parseRunwayExpandSubmission(
@@ -576,7 +638,7 @@ async function submitRunwayVideoExpand(input: {
         signal: AbortSignal.timeout(60_000),
       }
     );
-    const json = await response.json().catch(() => ({}));
+    const json = await readRunwayProviderResponse(response);
     if (!response.ok) {
       return {
         status: "error",
@@ -623,7 +685,7 @@ export async function refreshRunwayVideoExpandTask(
         signal: AbortSignal.timeout(30_000),
       }
     );
-    const json = await response.json().catch(() => ({}));
+    const json = await readRunwayProviderResponse(response);
     if (!response.ok) {
       return {
         status: runwayExpandRefreshFailureStatus(response.status),

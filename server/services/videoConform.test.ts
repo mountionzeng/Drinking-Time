@@ -70,6 +70,7 @@ import {
   canReuseVideoConformTake,
   parseRunwayExpandRefresh,
   parseRunwayExpandSubmission,
+  parseRunwayProviderResponseBody,
   runwayExpandInputError,
   runwayExpandProviderAspectRatio,
   runwayExpandRefreshFailureStatus,
@@ -132,6 +133,33 @@ describe("videoConform", () => {
       taskId: "runway_123",
       videoUrl: "https://example.com/output.mp4",
     });
+  });
+
+  it("preserves the actionable 302 error instead of collapsing it to HTTP 400", () => {
+    expect(
+      parseRunwayExpandSubmission({
+        error: {
+          err_code: -10013,
+          message: "Model disabled",
+          message_cn: "当前 API Key 没有启用 Runway Expand",
+        },
+      })
+    ).toEqual({
+      status: "error",
+      message: "当前 API Key 没有启用 Runway Expand（302 错误 -10013）",
+    });
+
+    expect(
+      parseRunwayExpandSubmission({ detail: "video duration is invalid" })
+    ).toEqual({ status: "error", message: "video duration is invalid" });
+  });
+
+  it("keeps non-JSON provider response text available for diagnosis", () => {
+    expect(
+      parseRunwayProviderResponseBody(
+        "<html><body>upstream rejected the video container</body></html>"
+      )
+    ).toBe("upstream rejected the video container");
   });
 
   it("keeps queued jobs processing and exposes provider failures", () => {
