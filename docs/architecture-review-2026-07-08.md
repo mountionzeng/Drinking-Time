@@ -128,6 +128,18 @@ structuredClone 整个 state、每次落盘重写整个 JSON。数据一膨胀�
 
 ---
 
+## 案例登记（对照根因表持续补充）
+
+- **2026-07-13｜导入素材被 prompt 新鲜度误杀（R1+R2+R5 复合）**：
+  新故事 #1162（ChatCut 复原）的镜头身份 `legacy-shNN-shot` 与故事 49/1159
+  别名互认，导致 prompt lineage 的编译版本跨故事传染到新镜头；素材仓库
+  人工导入的 take 在 lineage 迁移中又被挂上旧编译 id，被 `stale('prompt')`
+  合法判死——「当前视频」永远选不上导入素材，反而输给免检的跨故事继承
+  素材。三次豁免式修补（sourceTakeId / source 字段 / compilationId 判空）
+  全部失效后确认：这不是判定条件问题，是身份与 lineage 的传染问题。
+  临时解：成片导出的 fallbackToLatestTake（按已选素材出片，99c188d）。
+  根治即 P0-2（镜头身份一次性发放、永不从 shotNo 派生）+ R5 读路径去迁移。
+
 ## 怎么让这份诊断别过期
 
 每修一个"加功能引发的连环 bug"，先对照本表：如果根因不在 R1-R6 里，把新根因补进来；
