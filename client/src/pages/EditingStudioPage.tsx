@@ -5,16 +5,18 @@
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import TopBar from "@/app/shell/TopBar";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
+import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { useActiveStoryId } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
+import { trpc } from "@/lib/trpc";
 
 function EditingStudioBody() {
   const activeStoryId = useActiveStoryId();
@@ -81,13 +83,38 @@ function EditingStudioBody() {
 
 export default function EditingStudioPage() {
   const { currentProjectId } = useProjectData();
+  const utils = trpc.useUtils();
+  const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
+
+  // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
+  // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
+  const runEditingCommand = useCallback(
+    async (instruction: string) => {
+      const storyId = storySpineStore.getState().activeStoryId;
+      if (storyId == null) return null;
+      const result = await timelineEditMut.mutateAsync({
+        storyId,
+        instruction,
+      });
+      if (!result.handled) return null;
+      await Promise.all([
+        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+        utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
+      ]);
+      return { handled: true as const, reply: result.reply };
+    },
+    [timelineEditMut, utils]
+  );
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
       <TopBar showStoryPanelNav={false} />
       <div className="relative z-10 min-h-0 flex-1">
-        <StoryAgentProvider projectId={currentProjectId}>
+        <StoryAgentProvider
+          projectId={currentProjectId}
+          editingCommandRunner={runEditingCommand}
+        >
           <EditingStudioBody />
         </StoryAgentProvider>
       </div>

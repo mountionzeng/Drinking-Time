@@ -701,12 +701,21 @@ function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
 export function StoryAgentProvider({
   projectId,
   onActiveStoryChange,
+  editingCommandRunner,
   children,
 }: {
   projectId: number | null;
   // 把"当前打开的故事"向上同步给共享真相源（U4）——故事是唯一单位，
   // Creation 侧（Shot Table / creation 聊天）跟随这个值。
   onActiveStoryChange?: (storyId: number | null) => void;
+  /**
+   * 对话驱动剪辑的指令通道（剪辑工作室注入）：sendMessage 先把这句话交给它，
+   * handled=true 时直接用它的 reply 作为助手消息，不再进故事聊天流程。
+   * 返回 null / handled=false / 抛错 → 一律回落普通小酌聊天。
+   */
+  editingCommandRunner?: (
+    instruction: string
+  ) => Promise<{ handled: boolean; reply: string } | null>;
   children: ReactNode;
 }) {
   const utils = trpc.useUtils();
@@ -1313,6 +1322,34 @@ export function StoryAgentProvider({
         const nextMessages = [...messages, userMsg];
         setMessages(nextMessages);
 
+        // 剪辑工作室的指令通道：先问剪辑代理，接住就不进故事聊天。
+        if (editingCommandRunner && trimmed && !photoBase64) {
+          try {
+            const outcome = await editingCommandRunner(trimmed);
+            if (outcome?.handled) {
+              if (
+                storyScopeMatches(
+                  requestStoryId,
+                  storySpineStore.getState().activeStoryId,
+                )
+              ) {
+                setMessages([
+                  ...nextMessages,
+                  {
+                    id: newId('msg'),
+                    role: 'assistant',
+                    content: outcome.reply,
+                    timestamp: Date.now(),
+                  },
+                ]);
+              }
+              return;
+            }
+          } catch (err) {
+            console.warn('[sendMessage] 剪辑指令通道失败，回落普通聊天:', err);
+          }
+        }
+
         // Capture snapshot of current state before Agent generation.
         // Errors are silent — snapshot failure must never block message send.
         if (projectId !== null) {
@@ -1519,6 +1556,7 @@ export function StoryAgentProvider({
       saveArchiveStory,
       uploadPhotoMut,
       recognizeIntentFromHistory,
+      editingCommandRunner,
     ],
   );
 

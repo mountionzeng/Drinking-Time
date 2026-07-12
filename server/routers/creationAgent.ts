@@ -41,6 +41,7 @@ import {
 } from "../services/creationGoal";
 import { segmentAtPoint } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
+import { runTimelineEditCommand } from "../services/timelineEditAgent";
 import {
   editImage as editMobileImage,
   inpaintImage,
@@ -850,6 +851,25 @@ export const creationAgentRouter = router({
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
       };
+    }),
+
+  /**
+   * 剪辑指令（对话驱动剪辑）：自然语言 → 时间轴操作（移动/删除/恢复/时长/重排）。
+   * 不是剪辑意图时返回 handled=false，由调用方放行回普通小酌聊天。
+   */
+  timelineEditCommand: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        instruction: z.string().trim().min(1).max(500),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return runTimelineEditCommand({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        instruction: input.instruction,
+      });
     }),
 
   /**
