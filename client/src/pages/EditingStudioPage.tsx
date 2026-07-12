@@ -26,7 +26,10 @@ function ExportButton({ storyId }: { storyId: number }) {
   const runExport = async () => {
     setExporting(true);
     try {
-      const result = await exportMut.mutateAsync({ storyId });
+      const result = await exportMut.mutateAsync({
+        storyId,
+        fallbackToLatestTake: true,
+      });
       if (result.status === "ok") {
         const skipped =
           result.skipped.length > 0

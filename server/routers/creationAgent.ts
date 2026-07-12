@@ -863,6 +863,8 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number(),
         targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS).optional(),
+        // 素材兜底：镜头没有「当前视频」时退回已选择/最新可用素材再导。
+        fallbackToLatestTake: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -870,6 +872,7 @@ export const creationAgentRouter = router({
         storyId: input.storyId,
         userId: ctx.user.id,
         targetAspectRatio: input.targetAspectRatio,
+        fallbackToLatestTake: input.fallbackToLatestTake,
       });
     }),
 

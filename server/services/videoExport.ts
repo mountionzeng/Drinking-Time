@@ -45,8 +45,40 @@ export type ExportResult =
 
 const MAX_SEGMENT_SEC = 30;
 
+type ShotVideoLike = {
+  id: number;
+  status: string;
+  videoUrl?: string | null;
+  videoKey?: string | null;
+  durationSec?: number | null;
+  isTimelineSelected?: boolean;
+  selectedSelectionType?: string | null;
+  selectedRangeId?: number | null;
+  ranges: Array<{ id: number; startSec: number; endSec: number }>;
+};
+
+/**
+ * 素材兜底：镜头没有「当前视频」时（常见于新鲜度审判误杀，见架构诊断
+ * R1/R2），退回该镜头名下【已被时间轴选择】的素材，其次最新可用素材。
+ */
+function fallbackTakeForShot(
+  shot: { videoTakes?: ShotVideoLike[] } | undefined
+): ShotVideoLike | null {
+  const takes = (shot?.videoTakes ?? []).filter(
+    take => take.status === "available" && take.videoUrl
+  );
+  if (takes.length === 0) return null;
+  return (
+    takes.find(take => take.isTimelineSelected) ??
+    [...takes].sort((left, right) => right.id - left.id)[0]
+  );
+}
+
 /** 纯函数：从素材状态推导导出计划（每镜头一段：文件 + 入点 + 时长）。 */
-export function buildExportPlan(material: StoryMaterialState): ExportPlan {
+export function buildExportPlan(
+  material: StoryMaterialState,
+  opts: { fallbackToLatestTake?: boolean } = {}
+): ExportPlan {
   const byIdentity = new Map(
     material.shots.map(shot => [shot.stableShotId, shot] as const)
   );
@@ -63,12 +95,17 @@ export function buildExportPlan(material: StoryMaterialState): ExportPlan {
       skipped.push({ shotNo, reason: "已从成片移除" });
       continue;
     }
-    const video = shot?.currentVideo;
+    const video: ShotVideoLike | null | undefined =
+      shot?.currentVideo ??
+      (opts.fallbackToLatestTake ? fallbackTakeForShot(shot) : null);
     if (!video || video.status !== "available") {
       skipped.push({ shotNo, reason: "没有可用的当前视频" });
       continue;
     }
-    const file = videoFileName({ id: video.id, videoKey: video.videoKey });
+    const file = videoFileName({
+      id: video.id,
+      videoKey: video.videoKey ?? null,
+    });
     if (!file) {
       skipped.push({ shotNo, reason: "视频缺少本地文件" });
       continue;
@@ -123,11 +160,14 @@ export async function exportStoryTimeline(params: {
   storyId: number;
   userId: number;
   targetAspectRatio?: VideoTargetAspectRatio;
+  fallbackToLatestTake?: boolean;
 }): Promise<ExportResult> {
   const material = await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { status: "error", error: "故事不存在或无权访问" };
 
-  const plan = buildExportPlan(material);
+  const plan = buildExportPlan(material, {
+    fallbackToLatestTake: params.fallbackToLatestTake,
+  });
   if (plan.segments.length === 0) {
     return {
       status: "error",

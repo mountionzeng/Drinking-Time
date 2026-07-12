@@ -30,6 +30,7 @@ function video(id: number, extra: Record<string, unknown> = {}) {
     id,
     status: "available",
     videoKey: `take-${id}.mp4`,
+    videoUrl: `/api/videos/take-${id}.mp4`,
     durationSec: 8,
     selectedSelectionType: "full_take",
     selectedRangeId: null,
@@ -74,6 +75,34 @@ describe("buildExportPlan", () => {
     expect(plan.skipped).toEqual([
       { shotNo: 3, reason: "没有可用的当前视频" },
       { shotNo: 4, reason: "已从成片移除" },
+    ]);
+  });
+
+  it("素材兜底：没有当前视频时用已选择的素材，关掉兜底则跳过", () => {
+    const shots = [
+      {
+        stableShotId: "a",
+        shotNo: 1,
+        currentVideo: null,
+        videoTakes: [
+          video(21, { isTimelineSelected: false }),
+          video(20, { isTimelineSelected: true }),
+        ],
+      },
+    ];
+    const items = [
+      { stableShotId: "a", included: true, position: 0, plannedDurationMs: 2_000, transform },
+    ];
+
+    const strict = buildExportPlan(material({ shots, items }));
+    expect(strict.segments).toHaveLength(0);
+
+    const relaxed = buildExportPlan(material({ shots, items }), {
+      fallbackToLatestTake: true,
+    });
+    // 已被时间轴选择的 take（20）优先于更新的 take（21）
+    expect(relaxed.segments).toEqual([
+      { shotNo: 1, stableShotId: "a", file: "take-20.mp4", startSec: 0, durationSec: 2 },
     ]);
   });
 
