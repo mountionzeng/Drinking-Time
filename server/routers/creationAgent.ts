@@ -42,6 +42,7 @@ import {
 import { segmentAtPoint } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import { runTimelineEditCommand } from "../services/timelineEditAgent";
+import { exportStoryTimeline } from "../services/videoExport";
 import {
   editImage as editMobileImage,
   inpaintImage,
@@ -851,6 +852,25 @@ export const creationAgentRouter = router({
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
       };
+    }),
+
+  /**
+   * 成片导出：按时间轴顺序把各镜头当前视频归一化转码后拼成一条 mp4。
+   * 所见即所得——界面上每镜头显示什么就导什么。
+   */
+  exportTimeline: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        targetAspectRatio: z.enum(VIDEO_TARGET_ASPECT_RATIOS).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return exportStoryTimeline({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        targetAspectRatio: input.targetAspectRatio,
+      });
     }),
 
   /**

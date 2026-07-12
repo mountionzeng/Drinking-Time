@@ -4,8 +4,9 @@
  * 右：动态分镜剪辑台（AnimaticPanel：预览播放器 + 时间轴 + 素材抽屉 + 一键剪辑）
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Clapperboard, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
@@ -17,6 +18,52 @@ import { useActiveStoryId } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import { trpc } from "@/lib/trpc";
+
+function ExportButton({ storyId }: { storyId: number }) {
+  const exportMut = trpc.creationAgent.exportTimeline.useMutation();
+  const [exporting, setExporting] = useState(false);
+
+  const runExport = async () => {
+    setExporting(true);
+    try {
+      const result = await exportMut.mutateAsync({ storyId });
+      if (result.status === "ok") {
+        const skipped =
+          result.skipped.length > 0
+            ? `（跳过 ${result.skipped.length} 镜：${result.skipped
+                .map(s => `SH${String(s.shotNo).padStart(2, "0")}`)
+                .join("、")}）`
+            : "";
+        toast.success(
+          `成片已导出：${result.segmentCount} 镜 · ${result.durationSec}s${skipped}`
+        );
+        window.open(result.videoUrl, "_blank");
+      } else {
+        toast.error(result.error);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "导出失败");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void runExport()}
+      disabled={exporting}
+      className="absolute right-4 top-3 z-20 inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {exporting ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Clapperboard className="h-4 w-4" />
+      )}
+      {exporting ? "合成中…" : "导出成片"}
+    </button>
+  );
+}
 
 function EditingStudioBody() {
   const activeStoryId = useActiveStoryId();
@@ -57,13 +104,14 @@ function EditingStudioBody() {
         </div>
 
         {/* 右：剪辑台 */}
-        <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="relative min-w-0 flex-1 overflow-hidden">
           {activeStoryId !== null ? (
             <div
               className="h-full min-h-0 overflow-hidden"
               data-story-panel="animatic"
               aria-label="剪辑台"
             >
+              <ExportButton storyId={activeStoryId} />
               <AnimaticPanel />
             </div>
           ) : (
