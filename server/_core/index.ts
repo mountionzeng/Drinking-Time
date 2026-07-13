@@ -11,7 +11,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
-import { getVideoTakeById } from "../db";
+import { getStoryById, getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
 
@@ -96,7 +96,9 @@ async function startServer() {
   app.get("/api/videos/:file", async (req, res) => {
     const file = String(req.params.file ?? "");
     const match = /^take-(\d+)\.(mp4|webm|mov)$/.exec(file);
-    if (!match) {
+    // 成片导出文件：export-<storyId>-<时间戳>.mp4，按故事归属鉴权。
+    const exportMatch = /^export-(\d+)-(\d+)\.mp4$/.exec(file);
+    if (!match && !exportMatch) {
       res.status(400).end();
       return;
     }
@@ -111,10 +113,18 @@ async function startServer() {
       res.status(401).end();
       return;
     }
-    const take = await getVideoTakeById(Number(match[1]), userId);
-    if (!take || take.videoKey !== file) {
-      res.status(404).end();
-      return;
+    if (match) {
+      const take = await getVideoTakeById(Number(match[1]), userId);
+      if (!take || take.videoKey !== file) {
+        res.status(404).end();
+        return;
+      }
+    } else if (exportMatch) {
+      const story = await getStoryById(Number(exportMatch[1]), userId);
+      if (!story) {
+        res.status(404).end();
+        return;
+      }
     }
     const full = path.join(localVideoDir(), file);
     if (!fs.existsSync(full)) {
