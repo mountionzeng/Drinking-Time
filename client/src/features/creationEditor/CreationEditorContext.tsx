@@ -147,6 +147,7 @@ type CreationEditorContextValue = {
   timelineShotIds: string[];
   addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
   removeShotFromTimeline: (shotId: string) => void;
+  moveShotInTimeline: (shotId: string, direction: -1 | 1) => void;
   resetTimelineShots: () => void;
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
@@ -1296,6 +1297,22 @@ export function CreationEditorProvider({
     [saveTimelineItems, timelineItems]
   );
 
+  const moveShotInTimeline = useCallback(
+    (shotId: string, direction: -1 | 1) => {
+      const ordered = [...timelineItems].sort(
+        (left, right) => left.position - right.position
+      );
+      const index = ordered.findIndex(item => item.stableShotId === shotId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= ordered.length) return;
+      [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+      void saveTimelineItems(
+        ordered.map((item, position) => ({ ...item, position }))
+      );
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
   const resetTimelineShots = useCallback(() => {
     void saveTimelineItems(
       timelineItems.map((item, position) => ({
@@ -2114,6 +2131,7 @@ export function CreationEditorProvider({
       timelineShotIds,
       addShotToTimeline,
       removeShotFromTimeline,
+      moveShotInTimeline,
       resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
@@ -2185,6 +2203,7 @@ export function CreationEditorProvider({
       timelineShotIds,
       addShotToTimeline,
       removeShotFromTimeline,
+      moveShotInTimeline,
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,

@@ -1,4 +1,11 @@
-import { Pause, Play, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Pause,
+  Play,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { CreationEditorShot } from "../CreationEditorContext";
 import {
@@ -23,6 +30,7 @@ type TimelineProps = {
   onPlayAll: () => void;
   onPlayShot: (shotNo: number) => void;
   onRemoveShot: (shotId: string) => void;
+  onMoveShot: (shotId: string, direction: -1 | 1) => void;
   onResetTimeline: () => void;
   onDurationChange: (shotNo: number, durationMs: number) => void;
 };
@@ -117,6 +125,7 @@ export default function Timeline({
   onPlayAll,
   onPlayShot,
   onRemoveShot,
+  onMoveShot,
   onResetTimeline,
   onDurationChange,
 }: TimelineProps) {
@@ -188,7 +197,7 @@ export default function Timeline({
         ref={railRef}
         className="flex min-h-[138px] gap-2 overflow-x-auto pb-1"
       >
-        {shots.map(shot => {
+        {shots.map((shot, index) => {
           const shotId = shot.stableShotId || shot.shotIdentity || shot.shotKey;
           const duration = durationFor(shot, durationsByShotNo);
           const selected = selectedShotNo === shot.shotNo;
@@ -196,12 +205,33 @@ export default function Timeline({
             isPlaying && playbackMode === "single" && selected;
           const status = materialStatus(shot);
           const selectedRange = rangeLabel(shot);
+          const isFirst = index === 0;
+          const isLast = index === shots.length - 1;
 
           return (
             <div
               key={shotId}
               data-timeline-shot-no={shot.shotNo}
-              className={`flex h-[132px] w-[172px] shrink-0 flex-col rounded-md border p-2 transition ${
+              tabIndex={0}
+              role="group"
+              aria-label={`${shotLabel(shot)}，第 ${index + 1} 位，按左右方向键移动，Delete 移除`}
+              onFocus={() => onSelectShot(shot.shotNo)}
+              onKeyDown={event => {
+                // 选中镜头块后直接按键盘：←/→ 挪位置，Delete/Backspace 移除。
+                if (event.key === "ArrowLeft" && !isFirst) {
+                  event.preventDefault();
+                  onMoveShot(shotId, -1);
+                } else if (event.key === "ArrowRight" && !isLast) {
+                  event.preventDefault();
+                  onMoveShot(shotId, 1);
+                } else if (event.key === "Delete" || event.key === "Backspace") {
+                  const target = event.target as HTMLElement;
+                  if (target.tagName === "INPUT") return;
+                  event.preventDefault();
+                  onRemoveShot(shotId);
+                }
+              }}
+              className={`flex h-[150px] w-[172px] shrink-0 flex-col rounded-md border p-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                 selected
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border bg-card hover:border-primary/40"
@@ -247,7 +277,29 @@ export default function Timeline({
               </div>
 
               <div className="mt-2 flex min-h-[22px] items-center justify-between gap-1">
-                <span className="truncate rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onMoveShot(shotId, -1)}
+                    disabled={isFirst}
+                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background/80 text-foreground transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35"
+                    aria-label={`${shotLabel(shot)} 前移一位`}
+                    title="前移一位（选中后按 ←）"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveShot(shotId, 1)}
+                    disabled={isLast}
+                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background/80 text-foreground transition hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-35"
+                    aria-label={`${shotLabel(shot)} 后移一位`}
+                    title="后移一位（选中后按 →）"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <span className="min-w-0 truncate rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                   {status}
                 </span>
                 {selectedRange ? (

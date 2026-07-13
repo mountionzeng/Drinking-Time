@@ -36,6 +36,7 @@ export default function AnimaticPanel() {
     timelineShotIds,
     addShotToTimeline,
     removeShotFromTimeline,
+    moveShotInTimeline,
     resetTimelineShots,
     updateShotDuration,
     refreshShotVideoStatus,
@@ -292,6 +293,7 @@ export default function AnimaticPanel() {
                 onPlayAll={playFullFilm}
                 onPlayShot={playShot}
                 onRemoveShot={removeTimelineShot}
+                onMoveShot={moveShotInTimeline}
                 onResetTimeline={() => {
                   resetTimelineShots();
                   setPlaybackMode("timeline");
