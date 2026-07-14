@@ -31,6 +31,7 @@ import {
   writeShotContentSnapshot,
   writeShotDuration,
 } from "./promptTable/persist";
+import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS } from "./playback";
 import { buildPromptTable } from "./promptTable/buildPromptTable";
 import { compilePromptRecipe } from "./promptTable/promptRecipe";
 import type {
@@ -56,6 +57,10 @@ import type {
   VideoConformMode,
   VideoTargetAspectRatio,
 } from "@shared/videoConform";
+import {
+  normalizeChatCutTimeline,
+  type ChatCutTimelineManifest,
+} from "./chatCutTimeline";
 import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
 
 export type CreationEditorStory = {
@@ -141,6 +146,7 @@ type CreationEditorContextValue = {
   setActiveStoryId: (storyId: number | null) => void;
   activeStory: CreationEditorStory | null;
   materialState: StoryMaterialState | null;
+  chatCutTimeline: ChatCutTimelineManifest | null;
   promptLineageMode: "legacy" | "lineage";
   promptProjection: StoryPromptAggregate | null;
   shots: CreationEditorShot[];
@@ -763,11 +769,9 @@ export function normalizeStoryImages(
 
 function imageSourceKey(image: CreationEditorImage): string {
   if (image.id > 0) return `id:${image.id}`;
-  return [
-    image.shotIdentity ?? "",
-    image.shotNo ?? "",
-    image.imageUrl,
-  ].join("|");
+  return [image.shotIdentity ?? "", image.shotNo ?? "", image.imageUrl].join(
+    "|"
+  );
 }
 
 export function resolveCreationEditorImages(
@@ -1188,6 +1192,10 @@ export function CreationEditorProvider({
       logline: row.logline,
     };
   }, [storyQuery.data]);
+  const chatCutTimeline = useMemo(
+    () => normalizeChatCutTimeline(storyQuery.data?.body),
+    [storyQuery.data?.body]
+  );
 
   const shots = useMemo(() => {
     const body = storyQuery.data?.body;
@@ -1473,8 +1481,32 @@ export function CreationEditorProvider({
   };
 
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
-    const body = writeShotDuration(storyQuery.data?.body, shotNo, durationMs);
+    const normalizedDurationMs = Math.min(
+      MAX_SHOT_DURATION_MS,
+      Math.max(MIN_SHOT_DURATION_MS, Math.round(durationMs))
+    );
+    const body = writeShotDuration(
+      storyQuery.data?.body,
+      shotNo,
+      normalizedDurationMs
+    );
+    const targetShot = shots.find(shot => shot.shotNo === shotNo);
+    const targetShotId = targetShot ? creationTimelineShotId(targetShot) : null;
+    const nextTimelineItems = targetShotId
+      ? timelineItems.map(item =>
+          item.stableShotId === targetShotId
+            ? { ...item, plannedDurationMs: normalizedDurationMs }
+            : item
+        )
+      : timelineItems;
+    const timelineChanged = nextTimelineItems.some(
+      (item, index) =>
+        item.plannedDurationMs !== timelineItems[index]?.plannedDurationMs
+    );
     await persistBody(body);
+    if (timelineChanged) {
+      await saveTimelineItems(nextTimelineItems);
+    }
   };
 
   const updatePromptOverride = async (
@@ -2122,6 +2154,7 @@ export function CreationEditorProvider({
       materialState:
         (storyMaterialQuery.data as StoryMaterialState | null | undefined) ??
         null,
+      chatCutTimeline,
       promptLineageMode: promptLineageQuery.data?.mode ?? "legacy",
       promptProjection:
         promptLineageQuery.data?.mode === "lineage"
@@ -2190,6 +2223,7 @@ export function CreationEditorProvider({
     [
       activeId,
       activeStory,
+      chatCutTimeline,
       error,
       selectedShot,
       selectedShotNo,

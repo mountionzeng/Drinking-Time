@@ -2,8 +2,50 @@
  * StoryListView -- Shows all stories for the user.
  * Displayed in the story tab before a story is selected.
  */
-import { Plus, Trash2, Loader2, BookOpen, Cloud } from 'lucide-react';
+import {
+  AlertTriangle,
+  BookOpen,
+  Cloud,
+  FileUp,
+  Film,
+  Layers3,
+  Loader2,
+  Music2,
+  Plus,
+  Ratio,
+  Trash2,
+} from 'lucide-react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useStoryAgent } from '@/features/storyAgent/StoryAgentContext';
+import { trpc } from '@/lib/trpc';
+
+type ChatCutImportPreview = {
+  fileName: string;
+  xml: string;
+  title: string;
+  summary: {
+    sequenceName: string;
+    durationMs: number;
+    fps: number;
+    width: number;
+    height: number;
+    videoTrackCount: number;
+    audioTrackCount: number;
+    primaryClipCount: number;
+    audioClipCount: number;
+    mediaFileCount: number;
+    mediaFiles: string[];
+  };
+};
 
 function formatDate(value: string | Date | null | undefined): string {
   if (!value) return '';
@@ -25,10 +67,72 @@ export default function StoryListView() {
     loadStory,
     createNewStory,
     deleteStory,
+    refreshStoryList,
   } = useStoryAgent();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importPreview, setImportPreview] =
+    useState<ChatCutImportPreview | null>(null);
+  const inspectXml = trpc.storyAgent.inspectChatCutXml.useMutation();
+  const importXml = trpc.storyAgent.importChatCutXml.useMutation();
+
+  const chooseXml = () => fileInputRef.current?.click();
+
+  const inspectSelectedXml = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+      toast.error('请选择 ChatCut 导出的 XML 文件');
+      return;
+    }
+    if (file.size > 2_000_000) {
+      toast.error('XML 文件过大，请控制在 2MB 以内');
+      return;
+    }
+
+    try {
+      const xml = await file.text();
+      const summary = await inspectXml.mutateAsync({ xml });
+      setImportPreview({
+        fileName: file.name,
+        xml,
+        title: summary.sequenceName,
+        summary,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'XML 读取失败');
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview || importXml.isPending) return;
+    try {
+      const result = await importXml.mutateAsync({
+        xml: importPreview.xml,
+        title: importPreview.title.trim() || importPreview.summary.sequenceName,
+      });
+      setImportPreview(null);
+      await refreshStoryList();
+      await loadStory(result.storyId);
+      toast.success(
+        `已导入 ${result.summary.primaryClipCount} 个镜头，素材清单等待重新关联`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'ChatCut XML 导入失败');
+    }
+  };
 
   return (
     <div className="monitor-panel h-full flex flex-col">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xml,text/xml,application/xml"
+        className="sr-only"
+        aria-label="选择 ChatCut XML"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file) void inspectSelectedXml(file);
+        }}
+      />
       <div className="monitor-panel-header">
         <div className="status-dot" />
         <span>故事列表</span>
@@ -42,15 +146,31 @@ export default function StoryListView() {
           <Cloud className="h-2.5 w-2.5" />
           当前账号 · 云端故事库
         </span>
-        <button
-          type="button"
-          onClick={createNewStory}
-          className="ml-auto flex items-center gap-1 text-[10px] opacity-70 hover:opacity-100 transition-opacity"
-          title="新建故事"
-        >
-          <Plus className="w-3 h-3" />
-          新建
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={chooseXml}
+            disabled={inspectXml.isPending}
+            className="flex h-6 w-6 items-center justify-center opacity-70 transition-opacity hover:opacity-100 disabled:cursor-wait disabled:opacity-40"
+            aria-label="导入 ChatCut XML"
+            title="导入 ChatCut XML"
+          >
+            {inspectXml.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <FileUp className="w-3 h-3" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={createNewStory}
+            className="flex h-6 w-6 items-center justify-center opacity-70 hover:opacity-100 transition-opacity"
+            aria-label="新建故事"
+            title="新建故事"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       <div className="monitor-panel-body flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
@@ -101,6 +221,21 @@ export default function StoryListView() {
             >
               <Plus className="w-3.5 h-3.5" />
               开始新故事
+            </button>
+            <button
+              type="button"
+              onClick={chooseXml}
+              disabled={inspectXml.isPending}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors hover:border-[var(--nayin-accent)] disabled:cursor-wait disabled:opacity-50"
+              style={{ borderColor: 'var(--panel-border)' }}
+              title="从 ChatCut 或 Premiere XML 建立可编辑故事"
+            >
+              {inspectXml.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FileUp className="w-3.5 h-3.5" />
+              )}
+              导入 ChatCut XML
             </button>
             <p className="text-[10px] text-muted-foreground leading-snug mt-2">
               或点下面任意一篇，接着上次聊。
@@ -166,6 +301,132 @@ export default function StoryListView() {
           </div>
         ))}
       </div>
+
+      <Dialog
+        open={Boolean(importPreview)}
+        onOpenChange={(open) => {
+          if (!open && !importXml.isPending) setImportPreview(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-xl" showCloseButton={!importXml.isPending}>
+          {importPreview ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-base">导入 ChatCut 时间轴</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {importPreview.fileName}
+                </DialogDescription>
+              </DialogHeader>
+
+              <label className="grid gap-1.5 text-xs font-medium">
+                故事名称
+                <input
+                  value={importPreview.title}
+                  onChange={(event) =>
+                    setImportPreview((current) =>
+                      current ? { ...current, title: event.target.value } : current,
+                    )
+                  }
+                  disabled={importXml.isPending}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal outline-none transition focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-glow)]"
+                />
+              </label>
+
+              <dl className="grid grid-cols-2 gap-x-5 gap-y-3 border-y border-border/70 py-4 text-xs sm:grid-cols-3">
+                <div>
+                  <dt className="flex items-center gap-1 text-muted-foreground">
+                    <Film className="h-3.5 w-3.5" /> 时长
+                  </dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {(importPreview.summary.durationMs / 1000).toFixed(1)} 秒
+                  </dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-muted-foreground">
+                    <Ratio className="h-3.5 w-3.5" /> 画布
+                  </dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {importPreview.summary.width}×{importPreview.summary.height}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-muted-foreground">
+                    <Layers3 className="h-3.5 w-3.5" /> 视频轨
+                  </dt>
+                  <dd className="mt-1 font-medium">
+                    {importPreview.summary.videoTrackCount} 轨 ·{' '}
+                    {importPreview.summary.primaryClipCount} 镜
+                  </dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1 text-muted-foreground">
+                    <Music2 className="h-3.5 w-3.5" /> 音频
+                  </dt>
+                  <dd className="mt-1 font-medium">
+                    {importPreview.summary.audioTrackCount} 轨 ·{' '}
+                    {importPreview.summary.audioClipCount} 段
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">帧率</dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {importPreview.summary.fps} fps
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">素材文件</dt>
+                  <dd className="mt-1 font-medium">
+                    {importPreview.summary.mediaFileCount} 个
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="flex gap-2 rounded-md border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-xs leading-relaxed text-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <p>
+                  时间、主轨顺序、裁剪、缩放、变速、多轨和音频清单会保留。XML
+                  只记录文件名，导入后请在素材仓库重新关联原图片与视频。
+                </p>
+              </div>
+
+              <div className="max-h-24 overflow-y-auto text-[11px] leading-relaxed text-muted-foreground custom-scrollbar">
+                {importPreview.summary.mediaFiles.slice(0, 8).join(' · ')}
+                {importPreview.summary.mediaFiles.length > 8
+                  ? ` · 另 ${importPreview.summary.mediaFiles.length - 8} 个`
+                  : ''}
+              </div>
+
+              <DialogFooter>
+                <button
+                  type="button"
+                  onClick={() => setImportPreview(null)}
+                  disabled={importXml.isPending}
+                  className="h-9 rounded-md border border-border px-3 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmImport()}
+                  disabled={importXml.isPending || !importPreview.title.trim()}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    background: 'var(--nayin-accent)',
+                    color: 'var(--background)',
+                  }}
+                >
+                  {importXml.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FileUp className="h-3.5 w-3.5" />
+                  )}
+                  导入并打开
+                </button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

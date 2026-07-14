@@ -73,6 +73,12 @@ import {
 } from "../../shared/promptContext";
 import { migrateStoryPromptLineage } from "../services/promptLineageMigration";
 import {
+  importChatCutXmlStory,
+  MAX_CHATCUT_XML_BYTES,
+  parseChatCutXml,
+  summarizeChatCutImport,
+} from "../services/chatCutXml";
+import {
   artRecipeFromStyleHint,
   buildConfirmedIntentLine,
   composeStoryWorkspace,
@@ -463,6 +469,48 @@ export const storyAgentRouter = router({
           (input.existingIntent as StoryIntentPayload | null | undefined) ??
           null,
       });
+    }),
+
+  /** 读取 ChatCut / Premiere XMEML，只返回导入预览，不写故事。 */
+  inspectChatCutXml: protectedProcedure
+    .input(
+      z.object({
+        xml: z
+          .string()
+          .min(1, "XML 文件为空")
+          .max(MAX_CHATCUT_XML_BYTES, "XML 文件过大，请控制在 2MB 以内"),
+      })
+    )
+    .mutation(async ({ input }) => {
+      return summarizeChatCutImport(parseChatCutXml(input.xml));
+    }),
+
+  /**
+   * ChatCut XML → 独立小酌故事。主剪辑轨转换为线性镜头时间轴，
+   * 多轨、音频、入出点、变换与变速保存在故事导入清单里，供后续重关联。
+   */
+  importChatCutXml: protectedProcedure
+    .input(
+      z.object({
+        xml: z
+          .string()
+          .min(1, "XML 文件为空")
+          .max(MAX_CHATCUT_XML_BYTES, "XML 文件过大，请控制在 2MB 以内"),
+        title: z.string().trim().min(1).max(255).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const imported = await importChatCutXmlStory({
+        xml: input.xml,
+        userId: ctx.user.id,
+        title: input.title,
+      });
+      return {
+        status: "ok" as const,
+        storyId: imported.story.id,
+        title: imported.story.title,
+        summary: imported.summary,
+      };
     }),
 
   /** Create or update a story */

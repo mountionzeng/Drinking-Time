@@ -60,6 +60,7 @@ const BODY_FIELDS_TO_PRESERVE = [
   "materialReusePolicy",
   "sourceStoryId",
   "sourceStoryTitle",
+  "chatCutImport",
 ] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [

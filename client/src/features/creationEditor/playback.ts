@@ -1,6 +1,6 @@
-export const MIN_SHOT_DURATION_MS = 1200;
+export const MIN_SHOT_DURATION_MS = 100;
 export const MAX_SHOT_DURATION_MS = 12000;
-export const SHOT_DURATION_STEP_MS = 100;
+export const SHOT_DURATION_STEP_MS = 1;
 export const DEFAULT_EMPTY_SHOT_DURATION_MS = 2400;
 
 export type PlaybackShot = {

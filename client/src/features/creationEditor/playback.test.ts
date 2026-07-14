@@ -56,6 +56,10 @@ describe('creation editor playback', () => {
     expect(shotDurationMs(shots[2])).toBe(1500);
   });
 
+  it('preserves sub-second editorial cuts imported from an NLE timeline', () => {
+    expect(shotDurationMs({ shotNo: 1, durationMs: 867 })).toBe(867);
+  });
+
   it('reports a shot entry only when the playback head moves to a new shot', () => {
     const previous = initialPlaybackState(shots);
     const same = { ...previous, elapsedMs: 500, isPlaying: true };
