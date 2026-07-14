@@ -63,6 +63,8 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("<EditingNleWorkspace />");
     expect(editingWorkspace).toContain("<StoryboardPanel");
     expect(editingWorkspace).toContain("embeddedEditorMode");
+    expect(editingWorkspace).toContain("selectShot: true");
+    expect(editingWorkspace).toContain("onSelectShot(nextShotNo)");
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
 

@@ -116,6 +116,31 @@ export type ImportedStoryMaterialResult =
       plannedDurationSec: number;
     };
 
+export type StoryImageMaterialAdvice = {
+  imageId: number;
+  imageUrl: string;
+  verdict: "use" | "maybe" | "skip";
+  reason: string;
+  targetShotNo: number | null;
+  targetStableShotId: string | null;
+  videoDirection: {
+    videoPrompt: string;
+    cameraMove: string;
+    durationSec: number;
+    motion: "low" | "high";
+    emotionalTone: string;
+  } | null;
+  note?: string;
+};
+
+export type StoryImageAdviceResult =
+  | {
+      status: "ok";
+      advices: StoryImageMaterialAdvice[];
+      modelLabel: string;
+    }
+  | { status: "not_configured" | "error"; message: string };
+
 export type VideoConformBatchResult = {
   status: "ok" | "partial" | "error";
   acceptedCount: number;
@@ -215,6 +240,16 @@ type CreationEditorContextValue = {
     targetStableShotId?: string | null;
     note?: string;
   }) => Promise<ImportedStoryMaterialResult>;
+  adviseStoryImages: (input: {
+    imageIds: number[];
+  }) => Promise<StoryImageAdviceResult>;
+  applyStoryImageAdvice: (input: {
+    imageId: number;
+    targetShotNo: number;
+    targetStableShotId: string;
+    reason?: string;
+    videoDirection: StoryImageMaterialAdvice["videoDirection"];
+  }) => Promise<void>;
   generateShotVideo: (input: {
     shotNo: number;
     imageId: number;
@@ -1067,6 +1102,10 @@ export function CreationEditorProvider({
     trpc.creationAgent.assignStoryImageToShot.useMutation();
   const importStoryMaterialMut =
     trpc.creationAgent.importStoryMaterial.useMutation();
+  const adviseStoryImagesMut =
+    trpc.creationAgent.adviseStoryImages.useMutation();
+  const applyImageAdviceMut =
+    trpc.creationAgent.applyImageAdvice.useMutation();
   const generateShotVideoMut =
     trpc.creationAgent.generateShotVideo.useMutation();
   const conformVideoTakesMut =
@@ -1773,6 +1812,39 @@ export function CreationEditorProvider({
     };
   };
 
+  const adviseStoryImages = async (input: {
+    imageIds: number[];
+  }): Promise<StoryImageAdviceResult> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法分析素材");
+    return adviseStoryImagesMut.mutateAsync({
+      storyId: activeId,
+      imageIds: input.imageIds,
+    });
+  };
+
+  const applyStoryImageAdvice = async (input: {
+    imageId: number;
+    targetShotNo: number;
+    targetStableShotId: string;
+    reason?: string;
+    videoDirection: StoryImageMaterialAdvice["videoDirection"];
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法归类素材");
+    const result = await applyImageAdviceMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
+    if (result.status !== "ok") throw new Error(result.message);
+    await Promise.all([
+      storyQuery.refetch(),
+      storyImagesQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+  };
+
   const generateShotVideo = async (input: {
     shotNo: number;
     imageId: number;
@@ -2193,6 +2265,8 @@ export function CreationEditorProvider({
       promoteStoryImage,
       assignStoryImageToShot,
       importStoryMaterial,
+      adviseStoryImages,
+      applyStoryImageAdvice,
       generateShotVideo,
       conformVideoTakes,
       analyzeShotConsistency,
@@ -2246,6 +2320,8 @@ export function CreationEditorProvider({
       reuseVideoTakeForShot,
       assignStoryImageToShot,
       importStoryMaterial,
+      adviseStoryImages,
+      applyStoryImageAdvice,
       storyUpsertMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,
@@ -2271,4 +2347,8 @@ export function useCreationEditor() {
       "useCreationEditor must be used within CreationEditorProvider"
     );
   return ctx;
+}
+
+export function useOptionalCreationEditor() {
+  return useContext(CreationEditorContext);
 }

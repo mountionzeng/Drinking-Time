@@ -39,6 +39,9 @@ vi.mock('@/lib/trpc', () => ({
       storyDelete: { useMutation: makeMutation },
       selectionEdit: { useMutation: makeMutation },
     },
+    creationAgent: {
+      confirmTimelineTransition: { useMutation: makeMutation },
+    },
     artAgent: {
       riff: { useMutation: makeMutation },
       analyzeReference: { useMutation: makeMutation },

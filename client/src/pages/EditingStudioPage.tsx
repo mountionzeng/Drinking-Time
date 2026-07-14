@@ -157,19 +157,32 @@ export default function EditingStudioPage() {
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
   const runEditingCommand = useCallback(
-    async (instruction: string) => {
+    async (
+      instruction: string,
+      selectionContext?: {
+        stableShotId?: string | null;
+        shotNo?: number | null;
+      }
+    ) => {
       const storyId = storySpineStore.getState().activeStoryId;
       if (storyId == null) return null;
       const result = await timelineEditMut.mutateAsync({
         storyId,
         instruction,
+        selectionContext,
       });
       if (!result.handled) return null;
-      await Promise.all([
-        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
-        utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
-      ]);
-      return { handled: true as const, reply: result.reply };
+      if (result.appliedCount > 0) {
+        await Promise.all([
+          utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+          utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
+        ]);
+      }
+      return {
+        handled: true as const,
+        reply: result.reply,
+        transitionCandidate: result.proposal,
+      };
     },
     [timelineEditMut, utils]
   );

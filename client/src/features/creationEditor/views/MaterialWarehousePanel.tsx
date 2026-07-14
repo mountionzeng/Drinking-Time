@@ -2,6 +2,7 @@ import {
   Archive,
   Ban,
   Check,
+  Clapperboard,
   Image as ImageIcon,
   Loader2,
   Link2,
@@ -23,6 +24,7 @@ import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
 import OneClickEditAssistant from "./OneClickEditAssistant";
 
@@ -54,6 +56,209 @@ type PendingImportItem = {
   targetStableShotId: string | null;
   note: string;
 };
+
+type DirectorAdviceItem = {
+  imageId: number;
+  imageUrl: string;
+  verdict: "use" | "maybe" | "skip";
+  reason: string;
+  targetShotNo: number | null;
+  targetStableShotId: string | null;
+  videoDirection: {
+    videoPrompt: string;
+    cameraMove: string;
+    durationSec: number;
+    motion: "low" | "high";
+    emotionalTone: string;
+  } | null;
+  note?: string;
+};
+
+function adviceVerdictTone(verdict: DirectorAdviceItem["verdict"]) {
+  if (verdict === "use") return "border-emerald-300/60 bg-emerald-50 text-emerald-700";
+  if (verdict === "skip") return "border-border bg-muted/70 text-muted-foreground";
+  return "border-amber-300/70 bg-amber-50 text-amber-800";
+}
+
+function adviceVerdictLabel(verdict: DirectorAdviceItem["verdict"]) {
+  if (verdict === "use") return "建议用";
+  if (verdict === "skip") return "不建议";
+  return "可以用";
+}
+
+/**
+ * 导演顾问区：把仓库里待安排的图片交给小酌（导演视角）逐图判断——
+ * 服务哪一镜、为什么、怎么渲染成视频；采纳后图进故事版看板成为首帧，
+ * 渲染参数写进镜头设计表。
+ */
+function DirectorAdviceSection({
+  storyId,
+  unassignedCount,
+}: {
+  storyId: number | null;
+  unassignedCount: number;
+}) {
+  const utils = trpc.useUtils();
+  const adviseMut = trpc.creationAgent.adviseStoryImages.useMutation();
+  const applyMut = trpc.creationAgent.applyImageAdvice.useMutation();
+  const [advices, setAdvices] = useState<DirectorAdviceItem[]>([]);
+  const [advising, setAdvising] = useState(false);
+  const [busyImageId, setBusyImageId] = useState<number | null>(null);
+
+  if (storyId == null || (unassignedCount === 0 && advices.length === 0)) {
+    return null;
+  }
+
+  const ask = async () => {
+    setAdvising(true);
+    try {
+      const result = await adviseMut.mutateAsync({ storyId });
+      if (result.status === "ok") {
+        setAdvices(result.advices);
+        const usable = result.advices.filter(a => a.verdict !== "skip").length;
+        toast.success(`导演看完了 ${result.advices.length} 张图，${usable} 张有安排`);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "导演分析失败");
+    } finally {
+      setAdvising(false);
+    }
+  };
+
+  const apply = async (advice: DirectorAdviceItem) => {
+    if (advice.targetShotNo == null || !advice.targetStableShotId) {
+      toast.error("这条建议没有明确的目标镜头");
+      return;
+    }
+    setBusyImageId(advice.imageId);
+    try {
+      const result = await applyMut.mutateAsync({
+        storyId,
+        imageId: advice.imageId,
+        targetShotNo: advice.targetShotNo,
+        targetStableShotId: advice.targetStableShotId,
+        reason: advice.reason.slice(0, 500),
+        videoDirection: advice.videoDirection,
+      });
+      if (result.status === "ok") {
+        toast.success(
+          `已放进故事版看板 SH${String(result.shotNo).padStart(2, "0")}，渲染参数已写入镜头`
+        );
+        setAdvices(current =>
+          current.filter(item => item.imageId !== advice.imageId)
+        );
+        await Promise.all([
+          utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+          utils.storyAgent.storyImages.invalidate({ storyId }),
+          utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        ]);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "采纳失败");
+    } finally {
+      setBusyImageId(null);
+    }
+  };
+
+  return (
+    <div className="mx-4 mb-3 rounded-md border border-border bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">导演顾问</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {unassignedCount > 0
+              ? `${unassignedCount} 张图片还没安排——让小酌以导演视角判断它们怎么为故事服务`
+              : "建议已生成，逐条裁决"}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void ask()}
+          disabled={advising || unassignedCount === 0}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-xs font-medium text-primary transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {advising ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Clapperboard className="h-3.5 w-3.5" />
+          )}
+          {advising ? "导演看片中…" : "问导演怎么用"}
+        </button>
+      </div>
+      {advices.length > 0 ? (
+        <div className="grid gap-2 p-3">
+          {advices.map(advice => (
+            <div
+              key={advice.imageId}
+              className={`flex items-start gap-3 rounded-md border p-2 ${adviceVerdictTone(advice.verdict)}`}
+            >
+              <img
+                src={advice.imageUrl}
+                alt="待安排素材"
+                className="h-16 w-16 shrink-0 rounded object-cover"
+                loading="lazy"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+                  <span className="rounded border border-current/30 px-1 py-0.5 text-[10px]">
+                    {adviceVerdictLabel(advice.verdict)}
+                  </span>
+                  {advice.targetShotNo != null ? (
+                    <span>建议给 SH{String(advice.targetShotNo).padStart(2, "0")}</span>
+                  ) : null}
+                  {advice.videoDirection ? (
+                    <span className="text-[10px] text-muted-foreground">
+                      {advice.videoDirection.cameraMove || "运镜待定"} ·{" "}
+                      {advice.videoDirection.durationSec}s ·{" "}
+                      {advice.videoDirection.emotionalTone || "情绪待定"}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed">{advice.reason}</p>
+                {advice.videoDirection ? (
+                  <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                    视频提示：{advice.videoDirection.videoPrompt}
+                  </p>
+                ) : null}
+                {advice.note ? (
+                  <p className="mt-1 text-[10px] text-muted-foreground">{advice.note}</p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 flex-col gap-1">
+                {advice.verdict !== "skip" && advice.targetShotNo != null ? (
+                  <button
+                    type="button"
+                    onClick={() => void apply(advice)}
+                    disabled={busyImageId != null}
+                    className="h-7 rounded-md bg-primary px-2 text-[11px] font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {busyImageId === advice.imageId ? "采纳中…" : "采纳"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAdvices(current =>
+                      current.filter(item => item.imageId !== advice.imageId)
+                    )
+                  }
+                  disabled={busyImageId != null}
+                  className="h-7 rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground transition hover:text-foreground"
+                >
+                  忽略
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function videoWarehouseActionState(input: {
   item: WarehouseVideoItem;
@@ -791,6 +996,11 @@ export default function MaterialWarehousePanel() {
               </div>
             ) : null}
           </div>
+
+          <DirectorAdviceSection
+            storyId={activeStoryId ?? null}
+            unassignedCount={materialState?.unassignedImages.length ?? 0}
+          />
 
           {panelError || error ? (
             <div className="mx-4 mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

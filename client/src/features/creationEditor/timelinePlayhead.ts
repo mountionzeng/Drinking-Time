@@ -29,3 +29,19 @@ export function advanceTimelinePlayhead(
   const timeMs = clampTimelinePlayheadMs(currentMs + safeElapsedMs, totalMs);
   return { timeMs, ended: timeMs >= Math.max(0, totalMs) };
 }
+
+export function stepTimelinePlayheadByFrames(
+  currentMs: number,
+  direction: -1 | 1,
+  fps: number,
+  totalMs: number,
+  frameCount = 1
+): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const safeFrameCount = Number.isFinite(frameCount)
+    ? Math.max(1, Math.round(frameCount))
+    : 1;
+  const currentFrame = Math.round((currentMs / 1000) * safeFps);
+  const nextFrame = currentFrame + direction * safeFrameCount;
+  return clampTimelinePlayheadMs((nextFrame / safeFps) * 1000, totalMs);
+}

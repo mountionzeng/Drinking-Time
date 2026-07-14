@@ -60,12 +60,15 @@ export function mergeStoryConversationMessages(input: {
     if (message.role === "system") continue;
     const id = message.clientMessageId || `story-conversation:${message.id}`;
     const candidate = candidateByMessage.get(message.id);
+    const local = merged.get(id);
     merged.set(id, {
+      ...local,
       id,
       role: message.role,
       content: message.content,
       timestamp: Date.parse(message.createdAt) || Date.now(),
-      selectionQuote: referenceByMessage.get(message.id),
+      selectionQuote:
+        referenceByMessage.get(message.id) ?? local?.selectionQuote,
       promptCandidate: candidate
         ? {
             revisionId: candidate.revisionId,
@@ -74,7 +77,7 @@ export function mergeStoryConversationMessages(input: {
             label: candidate.label,
             status: candidate.status,
           }
-        : undefined,
+        : local?.promptCandidate,
     });
   }
   return Array.from(merged.values()).sort(

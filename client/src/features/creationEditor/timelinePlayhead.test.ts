@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
+  stepTimelinePlayheadByFrames,
   timelineMsFromClientX,
 } from "./timelinePlayhead";
 
@@ -23,5 +24,26 @@ describe("timeline playhead", () => {
       timeMs: 10_000,
       ended: true,
     });
+  });
+
+  it("steps exactly one project frame and stays aligned after repeated keys", () => {
+    const first = stepTimelinePlayheadByFrames(0, 1, 30, 10_000);
+    const second = stepTimelinePlayheadByFrames(first, 1, 30, 10_000);
+
+    expect(first).toBeCloseTo(33.333, 2);
+    expect(second).toBeCloseTo(66.667, 2);
+    expect(stepTimelinePlayheadByFrames(second, -1, 30, 10_000)).toBeCloseTo(
+      first,
+      2
+    );
+  });
+
+  it("uses the supplied fps and clamps at both timeline ends", () => {
+    expect(stepTimelinePlayheadByFrames(1000, 1, 24, 10_000)).toBeCloseTo(
+      1041.667,
+      2
+    );
+    expect(stepTimelinePlayheadByFrames(0, -1, 30, 10_000)).toBe(0);
+    expect(stepTimelinePlayheadByFrames(9_990, 1, 30, 10_000)).toBe(10_000);
   });
 });

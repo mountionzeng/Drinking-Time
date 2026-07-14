@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
   buildStoryboardTimingRows,
@@ -49,6 +50,7 @@ import {
 import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
+  stepTimelinePlayheadByFrames,
   timelineMsFromClientX,
 } from "../timelinePlayhead";
 import { videoTakeAffordance } from "../videoAssetViewModel";
@@ -77,6 +79,11 @@ function playableVideoUrl(shot: CreationEditorShot | null): string | null {
 
 function shotImageUrl(shot: CreationEditorShot | null): string | null {
   return shot?.imageUrl || shot?.promptRun?.imageUrl || null;
+}
+
+function chatCutClipIdFromShot(shot: CreationEditorShot | null): string | null {
+  if (!shot?.note) return null;
+  return /^ChatCut XML\s+([^｜\s]+)/.exec(shot.note)?.[1] ?? null;
 }
 
 function fileBase64(file: File): Promise<string> {
@@ -208,7 +215,7 @@ function ShotPreview({
 
     if (!timelinePlaying) {
       video.pause();
-      if (drift > 0.035) video.currentTime = targetTime;
+      if (drift > 0.004) video.currentTime = targetTime;
       return;
     }
 
@@ -675,18 +682,21 @@ function MultiTrackTimeline({
   }, [commitPlayhead, isPlaying, totalMs]);
 
   useEffect(() => {
-    if (!isPlaying) return;
     const viewport = timelineViewportRef.current;
     if (!viewport) return;
     const playheadLeft = (playheadMs / 1000) * scale;
+    const visibleLeft = viewport.scrollLeft;
     const visibleRight = viewport.scrollLeft + viewport.clientWidth;
-    if (playheadLeft > visibleRight - 40) {
+    const margin = Math.min(60, viewport.clientWidth * 0.15);
+    if (playheadLeft < visibleLeft + margin) {
+      viewport.scrollLeft = Math.max(0, playheadLeft - margin);
+    } else if (playheadLeft > visibleRight - margin) {
       viewport.scrollLeft = Math.max(
         0,
         playheadLeft - viewport.clientWidth * 0.35
       );
     }
-  }, [isPlaying, playheadMs, scale]);
+  }, [playheadMs, scale]);
 
   const seekFromPointer = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -735,6 +745,47 @@ function MultiTrackTimeline({
     }
     setPlaybackRunning(true);
   };
+
+  const stepPlayheadByKeyboard = useCallback(
+    (direction: -1 | 1, accelerated = false) => {
+      setPlaybackRunning(false);
+      commitPlayhead(
+        stepTimelinePlayheadByFrames(
+          playheadMsRef.current,
+          direction,
+          manifest?.fps ?? 30,
+          totalMs,
+          accelerated ? 10 : 1
+        ),
+        { selectShot: true, playing: false }
+      );
+    },
+    [commitPlayhead, manifest?.fps, setPlaybackRunning, totalMs]
+  );
+
+  useEffect(() => {
+    const handleTimelineArrowKey = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target?.closest(
+          'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      stepPlayheadByKeyboard(
+        event.key === "ArrowRight" ? 1 : -1,
+        event.shiftKey
+      );
+    };
+    window.addEventListener("keydown", handleTimelineArrowKey);
+    return () => window.removeEventListener("keydown", handleTimelineArrowKey);
+  }, [stepPlayheadByKeyboard]);
 
   return (
     <section
@@ -921,7 +972,7 @@ function MultiTrackTimeline({
               aria-valuemax={totalMs}
               aria-valuenow={Math.round(playheadMs)}
               aria-valuetext={formatStoryboardTimestamp(playheadMs)}
-              title="拖动播放头"
+              title="拖动播放头；左右方向键逐帧移动"
               onPointerDown={event => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -944,13 +995,11 @@ function MultiTrackTimeline({
                   return;
                 }
                 event.preventDefault();
-                setPlaybackRunning(false);
-                const direction = event.key === "ArrowRight" ? 1 : -1;
-                const stepMs = event.shiftKey ? 1000 : 100;
-                commitPlayhead(playheadMsRef.current + direction * stepMs, {
-                  selectShot: true,
-                  playing: false,
-                });
+                event.stopPropagation();
+                stepPlayheadByKeyboard(
+                  event.key === "ArrowRight" ? 1 : -1,
+                  event.shiftKey
+                );
               }}
             >
               <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/70 group-focus-visible:ring-2 group-focus-visible:ring-rose-300" />
@@ -965,6 +1014,7 @@ function MultiTrackTimeline({
 
 export default function EditingNleWorkspace() {
   const { setActiveSelection } = useStoryAgentActions();
+  const activeSelection = useStorySpine(state => state.activeSelection);
   const {
     activeStoryId,
     shots,
@@ -1004,12 +1054,20 @@ export default function EditingNleWorkspace() {
           creationTimelineShotId(shot) === creationTimelineShotId(selectedShot)
       )
     : -1;
+  const primarySourceClips =
+    chatCutTimeline?.videoTracks.find(
+      track => track.index === chatCutTimeline.primaryVideoTrackIndex
+    )?.clips ?? [];
+  const selectedSourceClipId = chatCutClipIdFromShot(selectedShot);
   const selectedSourceClip =
-    selectedTimelineIndex >= 0
-      ? (chatCutTimeline?.videoTracks.find(
-          track => track.index === chatCutTimeline.primaryVideoTrackIndex
-        )?.clips[selectedTimelineIndex] ?? null)
-      : null;
+    selectedShot?.shotType === "转场镜头"
+      ? null
+      : selectedSourceClipId
+        ? (primarySourceClips.find(clip => clip.id === selectedSourceClipId) ??
+          null)
+        : selectedTimelineIndex >= 0
+          ? (primarySourceClips[selectedTimelineIndex] ?? null)
+          : null;
 
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
@@ -1040,6 +1098,18 @@ export default function EditingNleWorkspace() {
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
   );
+
+  // 小酌生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
+  // 定位，而不是依赖会因插入而变化的 SH 序号。
+  useEffect(() => {
+    const stableShotId = activeSelection?.stableShotId;
+    if (!stableShotId) return;
+    const shot = shots.find(
+      item => (item.stableShotId ?? item.shotIdentity) === stableShotId
+    );
+    if (!shot || shot.shotNo === selectedShotNo) return;
+    selectShot(shot.shotNo);
+  }, [activeSelection?.stableShotId, selectShot, selectedShotNo, shots]);
 
   const relinkFiles = async (files: File[]) => {
     const visualFiles = files.filter(isVisualFile);

@@ -14,6 +14,52 @@ export type PromptCandidateReference = {
   status: PromptCandidateStatus;
 };
 
+export type EditingTransitionCandidateStatus =
+  | "pending"
+  | "generating"
+  | "applied"
+  | "rejected"
+  | "failed";
+
+export type EditingTransitionEndpointReference =
+  | {
+      mediaKind: "image";
+      stableShotId: string;
+      shotNo: number;
+      imageId: number;
+      imageUrl: string;
+    }
+  | {
+      mediaKind: "video";
+      stableShotId: string;
+      shotNo: number;
+      videoTakeId: number;
+      rangeId: number | null;
+      selectionType: "full_take" | "range";
+      atSec: number;
+      mediaRevision: string;
+      imageUrl: string;
+    };
+
+export type EditingTransitionCandidateReference = {
+  candidateId: string;
+  provisionalStableShotId: string;
+  storyId: number;
+  source: EditingTransitionEndpointReference;
+  target: EditingTransitionEndpointReference;
+  instruction: string;
+  prompt: string;
+  durationSec: 2;
+  resolution: "720p";
+  cutAtSec: 1.4;
+  estimatedCredits: 10;
+  estimatedCny: 0.35;
+  expectedTimelineVersion: number;
+  status: EditingTransitionCandidateStatus;
+  error?: string;
+  retryable?: boolean;
+};
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -27,6 +73,8 @@ export interface ChatMessage {
   selectionQuote?: SelectionQuote;
   /** Agent edits are proposals until the user explicitly confirms them. */
   promptCandidate?: PromptCandidateReference;
+  /** 小酌提出的付费镜头衔接；只有卡片上的确认按钮会提交 302。 */
+  editingTransitionCandidate?: EditingTransitionCandidateReference;
 }
 
 export interface StoryCard {
@@ -237,6 +285,118 @@ function normalizeSelectionQuote(value: unknown): SelectionQuote | undefined {
   return value as SelectionQuote;
 }
 
+function normalizeEditingTransitionEndpoint(
+  value: unknown
+): EditingTransitionEndpointReference | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const endpoint = value as Record<string, unknown>;
+  if (
+    typeof endpoint.stableShotId !== "string" ||
+    typeof endpoint.shotNo !== "number" ||
+    typeof endpoint.imageUrl !== "string"
+  ) {
+    return undefined;
+  }
+  if (endpoint.mediaKind === "video") {
+    if (
+      typeof endpoint.videoTakeId !== "number" ||
+      (endpoint.rangeId !== null && typeof endpoint.rangeId !== "number") ||
+      (endpoint.selectionType !== "full_take" &&
+        endpoint.selectionType !== "range") ||
+      typeof endpoint.atSec !== "number" ||
+      typeof endpoint.mediaRevision !== "string"
+    ) {
+      return undefined;
+    }
+    return {
+      mediaKind: "video",
+      stableShotId: endpoint.stableShotId,
+      shotNo: endpoint.shotNo,
+      videoTakeId: endpoint.videoTakeId,
+      rangeId: endpoint.rangeId,
+      selectionType: endpoint.selectionType,
+      atSec: endpoint.atSec,
+      mediaRevision: endpoint.mediaRevision,
+      imageUrl: endpoint.imageUrl,
+    };
+  }
+  // 旧聊天里的图片候选没有 mediaKind；继续按 imageId 双读恢复。
+  if (typeof endpoint.imageId !== "number") return undefined;
+  return {
+    mediaKind: "image",
+    stableShotId: endpoint.stableShotId,
+    shotNo: endpoint.shotNo,
+    imageId: endpoint.imageId,
+    imageUrl: endpoint.imageUrl,
+  };
+}
+
+function normalizeEditingTransitionCandidate(
+  value: unknown
+): EditingTransitionCandidateReference | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const source = normalizeEditingTransitionEndpoint(candidate.source);
+  const target = normalizeEditingTransitionEndpoint(candidate.target);
+  const rawStatus = candidate.status;
+  const allowedStatus =
+    rawStatus === "pending" ||
+    rawStatus === "generating" ||
+    rawStatus === "applied" ||
+    rawStatus === "rejected" ||
+    rawStatus === "failed"
+      ? rawStatus
+      : null;
+  if (
+    typeof candidate.candidateId !== "string" ||
+    typeof candidate.provisionalStableShotId !== "string" ||
+    typeof candidate.storyId !== "number" ||
+    !source ||
+    !target ||
+    typeof candidate.instruction !== "string" ||
+    typeof candidate.prompt !== "string" ||
+    candidate.durationSec !== 2 ||
+    candidate.resolution !== "720p" ||
+    candidate.cutAtSec !== 1.4 ||
+    candidate.estimatedCredits !== 10 ||
+    candidate.estimatedCny !== 0.35 ||
+    typeof candidate.expectedTimelineVersion !== "number" ||
+    !allowedStatus
+  ) {
+    return undefined;
+  }
+  const interrupted = allowedStatus === "generating";
+  return {
+    candidateId: candidate.candidateId,
+    provisionalStableShotId: candidate.provisionalStableShotId,
+    storyId: candidate.storyId,
+    source,
+    target,
+    instruction: candidate.instruction,
+    prompt: candidate.prompt,
+    durationSec: 2,
+    resolution: "720p",
+    cutAtSec: 1.4,
+    estimatedCredits: 10,
+    estimatedCny: 0.35,
+    expectedTimelineVersion: candidate.expectedTimelineVersion,
+    status: interrupted ? "failed" : allowedStatus,
+    error: interrupted
+      ? "上次生成被页面刷新打断；继续会查询同一任务，不会重复提交。"
+      : typeof candidate.error === "string"
+        ? candidate.error
+        : undefined,
+    retryable:
+      interrupted || typeof candidate.retryable !== "boolean"
+        ? true
+        : candidate.retryable,
+  };
+}
+
 export function normalizeChatMessages(
   rawMessages: unknown,
   fallbackMessages: ChatMessage[]
@@ -295,6 +455,8 @@ export function normalizeChatMessages(
           };
         }
       }
+      message.editingTransitionCandidate =
+        normalizeEditingTransitionCandidate(obj.editingTransitionCandidate);
       return message;
     })
     .filter((m): m is ChatMessage => Boolean(m));

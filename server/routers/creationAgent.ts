@@ -42,7 +42,12 @@ import {
 import { segmentAtPoint } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
 import { runTimelineEditCommand } from "../services/timelineEditAgent";
+import { confirmEditingTransition } from "../services/editingTransitionWorkflow";
 import { exportStoryTimeline } from "../services/videoExport";
+import {
+  adviseStoryImages,
+  applyImageDirectorAdvice,
+} from "../services/directorAdvice";
 import {
   editImage as editMobileImage,
   inpaintImage,
@@ -95,6 +100,53 @@ type StoryShotTarget = {
   stableShotId: string;
   durationSec: number;
 };
+
+const timelineTransitionImageEndpointInput = z
+  .object({
+    mediaKind: z.literal("image").optional(),
+    stableShotId: z.string().trim().min(1).max(128),
+    shotNo: z.number().int().positive(),
+    imageId: z.number().int().positive(),
+    // 确认请求不需要回传预览 URL；服务端会按 imageId 重新读取当前归属资产。
+    imageUrl: z.string().trim().min(1).max(4096).optional(),
+  })
+  .transform(endpoint => ({ ...endpoint, mediaKind: "image" as const }));
+
+const timelineTransitionVideoEndpointInput = z.object({
+  mediaKind: z.literal("video"),
+  stableShotId: z.string().trim().min(1).max(128),
+  shotNo: z.number().int().positive(),
+  videoTakeId: z.number().int().positive(),
+  rangeId: z.number().int().positive().nullable(),
+  selectionType: z.enum(["full_take", "range"]),
+  atSec: z.number().finite().min(0).max(30),
+  mediaRevision: z.string().trim().min(1).max(1024),
+  // 只用于卡片预览；付费提交按当前 Take/range 重新生成 canonical URL。
+  imageUrl: z.string().trim().min(1).max(4096).optional(),
+});
+
+const timelineTransitionEndpointInput = z.union([
+  timelineTransitionVideoEndpointInput,
+  timelineTransitionImageEndpointInput,
+]);
+
+const timelineTransitionCandidateInput = z.object({
+  candidateId: z.string().regex(/^transition-[a-f0-9]{16}$/),
+  provisionalStableShotId: z
+    .string()
+    .regex(/^transition-shot-[a-f0-9]{16}$/),
+  storyId: z.number().int().positive(),
+  source: timelineTransitionEndpointInput,
+  target: timelineTransitionEndpointInput,
+  instruction: z.string().trim().min(1).max(500),
+  prompt: z.string().trim().min(1).max(5_000),
+  durationSec: z.literal(2),
+  resolution: z.literal("720p"),
+  cutAtSec: z.literal(1.4),
+  estimatedCredits: z.literal(10),
+  estimatedCny: z.literal(0.35),
+  expectedTimelineVersion: z.number().int().min(0),
+});
 
 function decodeBase64File(value: string): Buffer {
   const payload = value.includes(",") ? (value.split(",").pop() ?? "") : value;
@@ -855,6 +907,59 @@ export const creationAgentRouter = router({
     }),
 
   /**
+   * 导演顾问：逐图判断待安排图片能为故事的哪一镜服务 + 渲染成视频的
+   * 具体参数（运镜/时长/情绪/视频提示词）。
+   */
+  adviseStoryImages: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        imageIds: z.array(z.number().int().positive()).optional(),
+        maxImages: z.number().int().min(1).max(12).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return adviseStoryImages({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        imageIds: input.imageIds,
+        maxImages: input.maxImages,
+      });
+    }),
+
+  /** 采纳导演建议：图绑定目标镜头成为首帧，视频参数与理由写进镜头。 */
+  applyImageAdvice: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        imageId: z.number().int().positive(),
+        targetShotNo: z.number().int().positive(),
+        targetStableShotId: z.string().trim().min(1),
+        reason: z.string().trim().max(500).optional(),
+        videoDirection: z
+          .object({
+            videoPrompt: z.string().trim().min(1).max(800),
+            cameraMove: z.string().trim().max(60),
+            durationSec: z.number().min(3).max(10),
+            motion: z.enum(["low", "high"]),
+            emotionalTone: z.string().trim().max(30),
+          })
+          .nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return applyImageDirectorAdvice({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        imageId: input.imageId,
+        targetShotNo: input.targetShotNo,
+        targetStableShotId: input.targetStableShotId,
+        videoDirection: input.videoDirection,
+        reason: input.reason,
+      });
+    }),
+
+  /**
    * 成片导出：按时间轴顺序把各镜头当前视频归一化转码后拼成一条 mp4。
    * 所见即所得——界面上每镜头显示什么就导什么。
    */
@@ -885,6 +990,12 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number(),
         instruction: z.string().trim().min(1).max(500),
+        selectionContext: z
+          .object({
+            stableShotId: z.string().trim().min(1).max(128).nullable().optional(),
+            shotNo: z.number().int().positive().nullable().optional(),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -892,7 +1003,28 @@ export const creationAgentRouter = router({
         storyId: input.storyId,
         userId: ctx.user.id,
         instruction: input.instruction,
+        selectionContext: input.selectionContext,
       });
+    }),
+
+  /** 用户明确确认后才进入的付费衔接生成入口；candidateId 负责续查同一任务。 */
+  confirmTimelineTransition: protectedProcedure
+    .input(z.object({ candidate: timelineTransitionCandidateInput }))
+    .mutation(async ({ ctx, input }) => {
+      return confirmEditingTransition(
+        {
+          ...input.candidate,
+          source: {
+            ...input.candidate.source,
+            imageUrl: input.candidate.source.imageUrl ?? "",
+          },
+          target: {
+            ...input.candidate.target,
+            imageUrl: input.candidate.target.imageUrl ?? "",
+          },
+        },
+        ctx.user.id
+      );
     }),
 
   /**
