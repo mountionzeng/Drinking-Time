@@ -217,9 +217,12 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("storyShotInsertIdentity");
     expect(boardSource).toContain("storyboardDragScrollSpeedMultiplier");
     expect(boardSource).toContain("添加镜头");
-    expect(boardSource).toContain('useState<"full" | "simple">("simple")');
+    expect(boardSource).toContain('useState<"full" | "simple">');
+    expect(boardSource).toContain("openShotEditor");
+    expect(boardSource).toContain("故事版看板视图");
     expect(boardSource).toContain('setViewMode("simple")');
-    expect(boardSource).toContain("openFullShot");
+    expect(boardSource).toContain("snap-y snap-proximity");
+    expect(boardSource).not.toContain('behavior: "smooth"');
     expect(boardSource).not.toContain("storyboardScriptText");
     expect(boardSource).toContain("grid-cols-[72px_minmax(0,1fr)]");
     expect(boardSource).toContain("snap-y snap-mandatory");

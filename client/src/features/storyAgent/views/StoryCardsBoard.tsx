@@ -897,7 +897,7 @@ export function StoryboardReviewBoard({
   className?: string;
 }) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"full" | "simple">("simple");
+  const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<
     number | null
   >(null);
@@ -957,7 +957,6 @@ export function StoryboardReviewBoard({
     target?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
-      behavior: "smooth",
     });
   }, [selectedShotNo, viewMode]);
 
@@ -1010,7 +1009,7 @@ export function StoryboardReviewBoard({
 
   if (!shouldShow) return null;
 
-  const openFullShot = (shotNo: number) => {
+  const openShotEditor = (shotNo: number) => {
     onSelectShot?.(shotNo);
     setViewMode("full");
   };
@@ -1169,15 +1168,13 @@ export function StoryboardReviewBoard({
           {shots.length > 0 ? (
             <span
               className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
-              style={{
-                background: "var(--muted)",
-              }}
               aria-label="故事版看板视图"
             >
               <button
                 type="button"
+                aria-pressed={viewMode === "full"}
                 onClick={() => setViewMode("full")}
-                className="rounded-sm px-2 py-0.5 transition"
+                className="rounded-sm px-2 py-0.5"
                 style={{
                   background:
                     viewMode === "full" ? "var(--nayin-accent)" : "transparent",
@@ -1191,8 +1188,9 @@ export function StoryboardReviewBoard({
               </button>
               <button
                 type="button"
+                aria-pressed={viewMode === "simple"}
                 onClick={() => setViewMode("simple")}
-                className="rounded-sm px-2 py-0.5 transition"
+                className="rounded-sm px-2 py-0.5"
                 style={{
                   background:
                     viewMode === "simple"
@@ -1237,13 +1235,13 @@ export function StoryboardReviewBoard({
               );
               const detail =
                 [shot.subject, shot.cameraMove].filter(Boolean).join(" · ") ||
-                "点击进入完整编辑";
+                "镜头内容待补充";
               return (
                 <article
                   key={`simple-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
                   {...videoTakeDropHandlers(shot, insertStableShotId)}
-                  className="relative grid min-h-0 snap-start grid-cols-[72px_minmax(0,1fr)] gap-2 overflow-hidden rounded-sm p-1.5 transition"
+                  className="relative grid min-h-0 snap-start grid-cols-[72px_minmax(0,1fr)] gap-2 overflow-hidden rounded-sm p-1.5"
                   style={{
                     background: isVideoTakeDropTarget
                       ? "var(--nayin-glow)"
@@ -1251,16 +1249,16 @@ export function StoryboardReviewBoard({
                         ? "var(--nayin-glow)"
                         : "transparent",
                   }}
-                  onClick={() => openFullShot(shot.shotNo)}
+                  onClick={() => openShotEditor(shot.shotNo)}
                 >
                   <button
                     type="button"
                     className="relative block h-[72px] w-[72px] overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                     onClick={event => {
                       event.stopPropagation();
-                      openFullShot(shot.shotNo);
+                      openShotEditor(shot.shotNo);
                     }}
-                    aria-label={`打开 SH${String(shot.shotNo).padStart(2, "0")} 完整画面`}
+                    aria-label={`编辑 SH${String(shot.shotNo).padStart(2, "0")}`}
                   >
                     {image?.imageUrl ? (
                       <img
@@ -1287,8 +1285,9 @@ export function StoryboardReviewBoard({
                       className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                       onClick={event => {
                         event.stopPropagation();
-                        openFullShot(shot.shotNo);
+                        openShotEditor(shot.shotNo);
                       }}
+                      aria-label={`编辑 SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
                     >
                       <p className="line-clamp-2 text-[11px] font-semibold leading-relaxed text-foreground">
                         {title}
@@ -1354,7 +1353,7 @@ export function StoryboardReviewBoard({
             })}
           </div>
         ) : shots.length > 0 ? (
-          <div className="grid gap-2">
+          <div className="grid snap-y snap-proximity gap-2 pb-2 pr-1">
             {shots.map((shot, index) => {
               const image = frameByShotNo.get(shot.shotNo);
               const creationShot = creationShotByNo.get(shot.shotNo);
@@ -1410,7 +1409,7 @@ export function StoryboardReviewBoard({
                   key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
                   {...videoTakeDropHandlers(shot, insertStableShotId)}
-                  className="grid gap-3 rounded-sm p-2 transition"
+                  className="grid snap-start gap-3 rounded-sm p-2"
                   style={{
                     gridTemplateColumns: embeddedEditorMode
                       ? "minmax(0, 1fr)"

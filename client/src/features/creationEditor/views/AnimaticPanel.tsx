@@ -23,7 +23,14 @@ function targetOwnsSpacebar(target: EventTarget | null) {
   );
 }
 
-export default function AnimaticPanel() {
+type AnimaticPanelProps = {
+  layout?: "embedded" | "studio";
+};
+
+export default function AnimaticPanel({
+  layout = "embedded",
+}: AnimaticPanelProps) {
+  const isStudioLayout = layout === "studio";
   const { setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
@@ -60,6 +67,9 @@ export default function AnimaticPanel() {
     Record<number, number>
   >({});
   const pointerInsidePanelRef = useRef(false);
+  const pendingDurationsRef = useRef(new Map<number, number>());
+  const durationSaveTimersRef = useRef(new Map<number, number>());
+  const updateShotDurationRef = useRef(updateShotDuration);
   const timelineShots = useMemo(
     () => resolveTimelineShots(shots, timelineShotIds),
     [shots, timelineShotIds]
@@ -79,6 +89,24 @@ export default function AnimaticPanel() {
     playbackMode === "single" && selectedShot
       ? [selectedShot]
       : fullPlaybackShots;
+
+  useEffect(() => {
+    updateShotDurationRef.current = updateShotDuration;
+  }, [updateShotDuration]);
+
+  useEffect(
+    () => () => {
+      durationSaveTimersRef.current.forEach(timer =>
+        window.clearTimeout(timer)
+      );
+      pendingDurationsRef.current.forEach((durationMs, shotNo) => {
+        void updateShotDurationRef.current(shotNo, durationMs);
+      });
+      durationSaveTimersRef.current.clear();
+      pendingDurationsRef.current.clear();
+    },
+    []
+  );
 
   const selectShotWithContext = (shotNo: number) => {
     setSelectedShotNo(shotNo);
@@ -191,7 +219,17 @@ export default function AnimaticPanel() {
       ...current,
       [shotNo]: durationMs,
     }));
-    void updateShotDuration(shotNo, durationMs);
+    pendingDurationsRef.current.set(shotNo, durationMs);
+    const previousTimer = durationSaveTimersRef.current.get(shotNo);
+    if (previousTimer != null) window.clearTimeout(previousTimer);
+    const timer = window.setTimeout(() => {
+      durationSaveTimersRef.current.delete(shotNo);
+      const pendingDurationMs = pendingDurationsRef.current.get(shotNo);
+      pendingDurationsRef.current.delete(shotNo);
+      if (pendingDurationMs == null) return;
+      void updateShotDurationRef.current(shotNo, pendingDurationMs);
+    }, 300);
+    durationSaveTimersRef.current.set(shotNo, timer);
   };
 
   return (
@@ -199,6 +237,7 @@ export default function AnimaticPanel() {
       className="creation-board-panel relative flex h-full min-h-0 flex-col overflow-hidden"
       aria-label="动态分镜"
       data-testid="analysis-animatic-panel"
+      data-layout={layout}
       onPointerEnter={() => {
         pointerInsidePanelRef.current = true;
       }}
@@ -227,7 +266,13 @@ export default function AnimaticPanel() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
+      <div
+        className={
+          isStudioLayout
+            ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4"
+            : "flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4"
+        }
+      >
         {error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error.message || "加载动态分镜失败"}
@@ -260,28 +305,37 @@ export default function AnimaticPanel() {
                 </button>
               </div>
             ) : null}
-            <AnimaticPlayer
-              storyId={activeStoryId}
-              shots={playbackShots}
-              progressShots={fullPlaybackShots}
-              selectedShotNo={selectedShotNo}
-              durationsByShotNo={durationsByShotNo}
-              onShotEnter={selectShotWithContext}
-              isPlaying={isPlaying}
-              onPlayingChange={setIsPlaying}
-              onTogglePlayback={playFullFilm}
-              onSelectContext={setActiveSelection}
-              playbackResetKey={playbackResetKey}
-              onRefreshShotVideoStatus={refreshShotVideoStatus}
-              onMarkVideoTakeUnusable={markVideoTakeUnusable}
-              onCreateVideoTakeRange={createVideoTakeRange}
-              onSelectVideoTimelineSegment={selectVideoTimelineSegment}
-              onClearVideoTimelineSegment={clearVideoTimelineSegment}
-              onCreateDerivedShotDraft={createDerivedShotDraft}
-              onConfirmDerivedShot={confirmDerivedShot}
-              onUndoStoryOperation={undoStoryOperation}
-              onDurationChange={handleDurationChange}
-            />
+            <div
+              className={
+                isStudioLayout
+                  ? "min-h-0 flex-1 overflow-y-auto pr-1"
+                  : undefined
+              }
+            >
+              <AnimaticPlayer
+                compactViewport={isStudioLayout}
+                storyId={activeStoryId}
+                shots={playbackShots}
+                progressShots={fullPlaybackShots}
+                selectedShotNo={selectedShotNo}
+                durationsByShotNo={durationsByShotNo}
+                onShotEnter={selectShotWithContext}
+                isPlaying={isPlaying}
+                onPlayingChange={setIsPlaying}
+                onTogglePlayback={playFullFilm}
+                onSelectContext={setActiveSelection}
+                playbackResetKey={playbackResetKey}
+                onRefreshShotVideoStatus={refreshShotVideoStatus}
+                onMarkVideoTakeUnusable={markVideoTakeUnusable}
+                onCreateVideoTakeRange={createVideoTakeRange}
+                onSelectVideoTimelineSegment={selectVideoTimelineSegment}
+                onClearVideoTimelineSegment={clearVideoTimelineSegment}
+                onCreateDerivedShotDraft={createDerivedShotDraft}
+                onConfirmDerivedShot={confirmDerivedShot}
+                onUndoStoryOperation={undoStoryOperation}
+                onDurationChange={handleDurationChange}
+              />
+            </div>
             <div className="shrink-0">
               <Timeline
                 shots={timelineShots}

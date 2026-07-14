@@ -57,6 +57,7 @@ import {
 } from "../mediaSelectionContext";
 
 type AnimaticPlayerProps = {
+  compactViewport?: boolean;
   storyId?: number | null;
   shots: CreationEditorShot[];
   progressShots?: CreationEditorShot[];
@@ -187,6 +188,7 @@ function frameSampleIndexes(totalFrames: number, maxSamples = 12) {
 }
 
 export default function AnimaticPlayer({
+  compactViewport = false,
   storyId = null,
   shots,
   progressShots,
@@ -910,7 +912,13 @@ export default function AnimaticPlayer({
 
   return (
     <div className="flex shrink-0 flex-col gap-3">
-      <div className="relative flex min-h-[320px] items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40">
+      <div
+        className={`relative flex items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/40 ${
+          compactViewport
+            ? "h-[clamp(220px,40vh,320px)] min-h-0"
+            : "min-h-[320px]"
+        }`}
+      >
         {currentVideoPreview?.videoUrl ? (
           <video
             ref={videoElementRef}
