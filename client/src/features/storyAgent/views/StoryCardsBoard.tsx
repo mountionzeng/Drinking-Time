@@ -13,6 +13,7 @@ import {
   useState,
   type DragEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
   motion,
@@ -33,6 +34,7 @@ import {
   Palette,
   ScrollText,
   CheckCircle2,
+  ChevronUp,
   ListPlus,
   Link2,
   PlusCircle,
@@ -80,6 +82,7 @@ import {
   hasVideoTakeDragPayload,
   readVideoTakeDragPayload,
 } from "./videoTakeDrag";
+import { buildStoryboardTimingRows } from "../storyboardTiming";
 
 const STORYBOARD_DRAG_SCROLL_ZONE_PX = 160;
 const STORYBOARD_DRAG_SCROLL_MAX_PX = 36;
@@ -142,27 +145,31 @@ function AddShotButton({
   inserting,
   disabled,
   onClick,
+  compact = false,
 }: {
   shotNo: number;
   inserting: boolean;
   disabled: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  compact?: boolean;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70"
-      style={{ borderColor: "var(--panel-border)" }}
+      className={`inline-flex items-center justify-center rounded-sm bg-muted/45 text-[10px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70 ${
+        compact ? "h-7 w-7" : "mt-2 w-full gap-1.5 px-3 py-2"
+      }`}
       aria-label={`在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`}
+      title={`在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`}
     >
       {inserting ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
         <PlusCircle className="h-3.5 w-3.5" />
       )}
-      添加镜头
+      {compact ? null : "添加镜头"}
     </button>
   );
 }
@@ -172,11 +179,13 @@ function DeleteShotButton({
   deleting,
   disabled,
   onClick,
+  compact = false,
 }: {
   shotNo: number;
   deleting: boolean;
   disabled: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  compact?: boolean;
 }) {
   const label = `删除 SH${String(shotNo).padStart(2, "0")}`;
   return (
@@ -184,8 +193,9 @@ function DeleteShotButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="mt-2 inline-flex min-h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 disabled:cursor-wait disabled:opacity-70"
-      style={{ borderColor: "var(--panel-border)" }}
+      className={`inline-flex shrink-0 items-center justify-center rounded-sm bg-muted/45 text-[10px] font-medium text-muted-foreground transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30 disabled:cursor-wait disabled:opacity-70 ${
+        compact ? "h-7 w-7" : "mt-2 min-h-[34px] gap-1.5 px-3 py-2"
+      }`}
       aria-label={label}
       title={label}
     >
@@ -194,7 +204,7 @@ function DeleteShotButton({
       ) : (
         <Trash2 className="h-3.5 w-3.5" />
       )}
-      删除
+      {compact ? null : "删除"}
     </button>
   );
 }
@@ -370,14 +380,6 @@ function latestGeneratedImageForCard(
 
 function rationaleForShot(shots: StoryShot[], shotNo: number): string | null {
   return shots.find(shot => shot.shotNo === shotNo)?.rationale?.trim() || null;
-}
-
-function generatedStatusLabel(status: GeneratedImageItem["status"]) {
-  if (status === "draft") return "草稿";
-  if (status === "finalizing") return "正式版生成中";
-  if (status === "generating") return "生成中";
-  if (status === "ready") return "已收下";
-  return "异常";
 }
 
 export function latestStoryboardFrames(
@@ -802,31 +804,13 @@ function StoryboardShotField({
           if (next !== currentValue) onCommit?.(next);
         }}
         onPointerDown={event => event.stopPropagation()}
-        className="w-full resize-none rounded-md border px-2 py-1.5 text-[9px] leading-relaxed text-foreground outline-none transition focus:ring-2 focus:ring-[var(--nayin-accent)]/35 disabled:opacity-70"
+        className="w-full resize-none rounded-sm bg-muted/35 px-2 py-1.5 text-[9px] leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/35 disabled:opacity-70"
         style={{
-          borderColor: "var(--panel-border)",
-          background: "var(--panel-header)",
+          minHeight: rows > 1 ? `${rows * 1.55 + 0.75}rem` : undefined,
         }}
       />
     </label>
   );
-}
-
-function storyboardScriptText(shot: StoryShot) {
-  const parts = [shot.intent, shot.subject, shot.action]
-    .map(part => part?.trim())
-    .filter(Boolean);
-  return (
-    parts.join("；") || shot.sourceCardContent?.trim() || "等待剧本整理这一镜"
-  );
-}
-
-function storyboardDialogueText(shot: StoryShot) {
-  return shot.dialogue?.trim() || "无台词";
-}
-
-function storyboardSceneLabel(shot: StoryShot) {
-  return [shot.sceneNo, shot.sceneTitle].filter(Boolean).join(" · ");
 }
 
 export function StoryboardReviewBoard({
@@ -851,6 +835,9 @@ export function StoryboardReviewBoard({
   onPromoteFrameCrop,
   promotingFrameCropShotNo = null,
   shotVideoProviderStatus = null,
+  defaultViewMode = "simple",
+  embeddedEditorMode = false,
+  headerAction,
   className = "",
 }: {
   images: GeneratedImageItem[];
@@ -904,6 +891,9 @@ export function StoryboardReviewBoard({
   }) => Promise<{ imageId: number; imageUrl: string }>;
   promotingFrameCropShotNo?: number | null;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
+  defaultViewMode?: "full" | "simple";
+  embeddedEditorMode?: boolean;
+  headerAction?: ReactNode;
   className?: string;
 }) {
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -918,6 +908,10 @@ export function StoryboardReviewBoard({
   const [movingVideoTakeId, setMovingVideoTakeId] = useState<number | null>(
     null
   );
+  const [openMaterialShotNo, setOpenMaterialShotNo] = useState<number | null>(
+    null
+  );
+  useEffect(() => setViewMode(defaultViewMode), [defaultViewMode]);
   const boardRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
@@ -939,6 +933,11 @@ export function StoryboardReviewBoard({
     () => new Set(timelineShotIds),
     [timelineShotIds]
   );
+  const storyboardTimingRows = useMemo(
+    () => buildStoryboardTimingRows(creationShots, timelineShotIds),
+    [creationShots, timelineShotIds]
+  );
+  const storyboardTimelineDurationMs = storyboardTimingRows.at(-1)?.endMs ?? 0;
   const previousCreationShotsByNo = useMemo(() => {
     const byShotNo = new Map<number, CreationEditorShot[]>();
     const previous: CreationEditorShot[] = [];
@@ -1157,24 +1156,28 @@ export function StoryboardReviewBoard({
           <span className="creation-board-panel-title-text">故事版看板</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="creation-board-panel-status">
-            {isGeneratingScript
-              ? "生成故事版中"
-              : `${shots.length} 镜 · ${frames.length} 张图`}
-          </span>
+          {headerAction}
+          {!headerAction ? (
+            <span className="creation-board-panel-status">
+              {isGeneratingScript
+                ? "生成故事版中"
+                : storyboardTimelineDurationMs > 0
+                  ? `${shots.length} 镜 · ${(storyboardTimelineDurationMs / 1000).toFixed(1)}s · ${frames.length} 图`
+                  : `${shots.length} 镜 · ${frames.length} 图`}
+            </span>
+          ) : null}
           {shots.length > 0 ? (
             <span
-              className="inline-flex rounded-full border p-0.5 text-[10px]"
+              className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
               style={{
-                borderColor: "var(--panel-border)",
-                background: "var(--background)",
+                background: "var(--muted)",
               }}
               aria-label="故事版看板视图"
             >
               <button
                 type="button"
                 onClick={() => setViewMode("full")}
-                className="rounded-full px-2 py-0.5 transition"
+                className="rounded-sm px-2 py-0.5 transition"
                 style={{
                   background:
                     viewMode === "full" ? "var(--nayin-accent)" : "transparent",
@@ -1189,7 +1192,7 @@ export function StoryboardReviewBoard({
               <button
                 type="button"
                 onClick={() => setViewMode("simple")}
-                className="rounded-full px-2 py-0.5 transition"
+                className="rounded-sm px-2 py-0.5 transition"
                 style={{
                   background:
                     viewMode === "simple"
@@ -1213,45 +1216,46 @@ export function StoryboardReviewBoard({
         className="creation-board-panel-body min-h-0 flex-1 overflow-y-auto custom-scrollbar"
       >
         {shots.length > 0 && viewMode === "simple" ? (
-          <div className="grid snap-y snap-mandatory gap-3 pb-2 pr-1">
+          <div className="grid snap-y snap-mandatory gap-1 pb-2 pr-1">
             {shots.map((shot, index) => {
               const image = frameByShotNo.get(shot.shotNo);
               const creationShot = creationShotByNo.get(shot.shotNo);
               const insertStableShotId = storyShotInsertIdentity(shot, index);
+              const shotTimelineId = creationShot
+                ? creationTimelineShotId(creationShot)
+                : (shot.stableShotId ??
+                  shot.shotIdentity ??
+                  `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
               const selected = selectedShotNo === shot.shotNo;
+              const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
               const isVideoTakeDropTarget =
                 insertStableShotId != null &&
                 videoTakeDropTargetId === insertStableShotId;
               const title = shortText(
-                shot.intent,
-                shortText(shot.subject, "关键镜头")
+                shot.dialogue,
+                shortText(shot.action, shortText(shot.subject, "关键镜头"))
               );
+              const detail =
+                [shot.subject, shot.cameraMove].filter(Boolean).join(" · ") ||
+                "点击进入完整编辑";
               return (
                 <article
                   key={`simple-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
                   {...videoTakeDropHandlers(shot, insertStableShotId)}
-                  className="relative flex min-h-0 snap-start flex-col overflow-hidden rounded-md border bg-background transition"
+                  className="relative grid min-h-0 snap-start grid-cols-[72px_minmax(0,1fr)] gap-2 overflow-hidden rounded-sm p-1.5 transition"
                   style={{
-                    borderColor: isVideoTakeDropTarget
-                      ? "var(--nayin-accent)"
-                      : selected
-                        ? "var(--nayin-accent)"
-                        : "var(--panel-border)",
-                    boxShadow: isVideoTakeDropTarget
-                      ? "0 0 0 2px var(--nayin-accent-dim)"
-                      : selected
-                        ? "0 0 0 1px var(--nayin-accent-dim)"
-                        : "none",
                     background: isVideoTakeDropTarget
                       ? "var(--nayin-glow)"
-                      : "var(--background)",
+                      : selected
+                        ? "var(--nayin-glow)"
+                        : "transparent",
                   }}
                   onClick={() => openFullShot(shot.shotNo)}
                 >
                   <button
                     type="button"
-                    className="relative block w-full overflow-hidden bg-muted text-left"
+                    className="relative block h-[72px] w-[72px] overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                     onClick={event => {
                       event.stopPropagation();
                       openFullShot(shot.shotNo);
@@ -1262,67 +1266,56 @@ export function StoryboardReviewBoard({
                       <img
                         src={image.imageUrl}
                         alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
-                        className="aspect-video w-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex aspect-video w-full items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
+                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                         {isGeneratingScript ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <ImagePlus className="h-3.5 w-3.5" />
                         )}
-                        待生成关键帧
                       </div>
                     )}
-                    <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-foreground shadow-sm">
+                    <span className="absolute left-1 top-1 rounded-sm bg-background/90 px-1 py-0.5 font-mono text-[8px] font-semibold text-foreground">
                       SH{String(shot.shotNo).padStart(2, "0")}
                     </span>
-                    {shot.sceneNo ? (
-                      <span className="absolute right-2 top-2 max-w-[65%] truncate rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-semibold text-primary shadow-sm">
-                        {shot.sceneNo}
-                      </span>
-                    ) : null}
                   </button>
-                  <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+                  <div className="flex min-w-0 flex-col py-0.5">
                     <button
                       type="button"
-                      className="block text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                      className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                       onClick={event => {
                         event.stopPropagation();
                         openFullShot(shot.shotNo);
                       }}
                     >
-                      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
-                        <ScrollText className="h-3 w-3 text-primary" />
-                        剧本
-                      </div>
-                      {storyboardSceneLabel(shot) ? (
-                        <div className="mb-1 truncate text-[10px] font-medium text-primary">
-                          {storyboardSceneLabel(shot)}
-                        </div>
-                      ) : null}
-                      <p className="text-sm font-medium leading-relaxed text-foreground">
-                        {storyboardScriptText(shot)}
+                      <p className="line-clamp-2 text-[11px] font-semibold leading-relaxed text-foreground">
+                        {title}
+                      </p>
+                      <p className="mt-1 line-clamp-1 text-[9px] leading-relaxed text-muted-foreground">
+                        {detail}
                       </p>
                     </button>
-                    <button
-                      type="button"
-                      className="mt-auto block border-t pt-3 text-left text-[12px] leading-relaxed text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openFullShot(shot.shotNo);
-                      }}
-                    >
-                      <span className="mb-1 block text-[10px] font-semibold text-muted-foreground">
-                        台词
-                      </span>
-                      {storyboardDialogueText(shot)}
-                    </button>
-                  </div>
-                  {onInsertShotAfter || onDeleteShot ? (
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-3 pb-3">
+                    <div className="mt-auto flex items-center gap-1 pt-1">
+                      {onAddShotToTimeline && !isOnTimeline ? (
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            onAddShotToTimeline(shot.shotNo, shotTimelineId);
+                            onSelectShot?.(shot.shotNo);
+                          }}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                          aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
+                          title="加入时间轴"
+                        >
+                          <ListPlus className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                       {onInsertShotAfter ? (
                         <AddShotButton
+                          compact
                           shotNo={shot.shotNo}
                           inserting={insertingAfterShotNo === shot.shotNo}
                           disabled={
@@ -1340,6 +1333,7 @@ export function StoryboardReviewBoard({
                       ) : null}
                       {onDeleteShot ? (
                         <DeleteShotButton
+                          compact
                           shotNo={shot.shotNo}
                           deleting={deletingShotId === insertStableShotId}
                           disabled={
@@ -1354,7 +1348,7 @@ export function StoryboardReviewBoard({
                         />
                       ) : null}
                     </div>
-                  ) : null}
+                  </div>
                 </article>
               );
             })}
@@ -1365,12 +1359,9 @@ export function StoryboardReviewBoard({
               const image = frameByShotNo.get(shot.shotNo);
               const creationShot = creationShotByNo.get(shot.shotNo);
               const title = shortText(
-                shot.intent,
-                shortText(shot.subject, "关键镜头")
+                shot.dialogue,
+                shortText(shot.action, shortText(shot.subject, "关键镜头"))
               );
-              const body = [shot.action, shot.dialogue]
-                .filter(Boolean)
-                .join(" · ");
               const selected = selectedShotNo === shot.shotNo;
               const shotTimelineId = creationShot
                 ? creationTimelineShotId(creationShot)
@@ -1392,9 +1383,25 @@ export function StoryboardReviewBoard({
                   const affordance = videoTakeAffordance(take.status);
                   return !affordance.canPlay && !affordance.canRefresh;
                 }).length ?? 0;
+              const videoPreviewTake = creationShot?.selectedVideoTake?.videoUrl
+                ? creationShot.selectedVideoTake
+                : (creationShot?.videoTakes?.find(
+                    take => take.isTimelineSelected && Boolean(take.videoUrl)
+                  ) ??
+                  creationShot?.videoTakes?.find(
+                    take =>
+                      Boolean(take.videoUrl) &&
+                      videoTakeAffordance(take.status).canPlay
+                  ));
+              const videoPreviewIsSelected = Boolean(
+                videoPreviewTake &&
+                  (videoPreviewTake.isTimelineSelected ||
+                    creationShot?.selectedVideoTake?.id === videoPreviewTake.id)
+              );
               const showMaterialBasket =
                 Boolean(creationShot) &&
-                (selected || generatingVideoShotNo === shot.shotNo);
+                (openMaterialShotNo === shot.shotNo ||
+                  generatingVideoShotNo === shot.shotNo);
               const commit = (field: StoryShotEditableField, value: string) => {
                 onUpdateShotField?.(index, field, value);
               };
@@ -1403,126 +1410,116 @@ export function StoryboardReviewBoard({
                   key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
                   {...videoTakeDropHandlers(shot, insertStableShotId)}
-                  className="grid gap-2 rounded-md border p-2 transition sm:grid-cols-[144px_1fr]"
+                  className="grid gap-3 rounded-sm p-2 transition"
                   style={{
-                    borderColor: isVideoTakeDropTarget
-                      ? "var(--nayin-accent)"
-                      : selected
-                        ? "var(--nayin-accent)"
-                        : "var(--panel-border)",
+                    gridTemplateColumns: embeddedEditorMode
+                      ? "minmax(0, 1fr)"
+                      : "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
                     background: isVideoTakeDropTarget
                       ? "var(--nayin-glow)"
                       : selected
                         ? "var(--nayin-glow)"
-                        : "var(--background)",
+                        : "transparent",
                   }}
                   onClick={() => onSelectShot?.(shot.shotNo)}
                 >
-                  <div
-                    className="relative block overflow-hidden rounded-md border cursor-pointer"
-                    style={{
-                      borderColor: "var(--panel-border)",
-                      background: "var(--panel-header)",
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`查看 SH${String(shot.shotNo).padStart(2, "0")} 画面`}
-                    onClick={() => {
-                      if (image?.imageUrl) setPreviewImageUrl(image.imageUrl);
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && image?.imageUrl)
-                        setPreviewImageUrl(image.imageUrl);
-                    }}
-                  >
-                    {image?.imageUrl ? (
-                      <img
-                        src={image.imageUrl}
-                        alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
-                        className="aspect-video h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex aspect-video h-full w-full items-center justify-center gap-1.5 text-[9px] text-muted-foreground">
-                        {isGeneratingScript ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                  {!embeddedEditorMode ? (
+                    <div
+                      className="relative block cursor-pointer overflow-hidden rounded-sm bg-muted focus-within:ring-2 focus-within:ring-[var(--nayin-accent)]/35"
+                      style={{
+                        background: "var(--panel-header)",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="block w-full text-left"
+                        aria-label={`查看 SH${String(shot.shotNo).padStart(2, "0")} 画面`}
+                        onClick={event => {
+                          event.stopPropagation();
+                          if (image?.imageUrl)
+                            setPreviewImageUrl(image.imageUrl);
+                        }}
+                      >
+                        {image?.imageUrl ? (
+                          <img
+                            src={image.imageUrl}
+                            alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
+                            className="aspect-video h-full w-full object-cover"
+                          />
                         ) : (
-                          <ImagePlus className="h-3 w-3" />
+                          <div className="flex aspect-video h-full w-full items-center justify-center gap-1.5 text-[9px] text-muted-foreground">
+                            {isGeneratingScript ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <ImagePlus className="h-3 w-3" />
+                            )}
+                            待生成关键帧
+                          </div>
                         )}
-                        待生成关键帧
-                      </div>
-                    )}
-                    <span className="absolute left-1.5 top-1.5 rounded-full bg-background/90 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground shadow-sm">
-                      SH{String(shot.shotNo).padStart(2, "0")}
-                    </span>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center justify-between gap-1.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                          style={{ borderColor: "var(--panel-border)" }}
-                        >
-                          {shortText(shot.beat, "故事节点")}
-                        </span>
-                        {storyboardSceneLabel(shot) ? (
-                          <span
-                            className="max-w-[12rem] truncate rounded-full border px-1.5 py-0.5 text-[8px] text-primary"
-                            style={{ borderColor: "var(--panel-border)" }}
-                          >
-                            {storyboardSceneLabel(shot)}
-                          </span>
-                        ) : null}
-                        {image ? (
-                          <span
-                            className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                            style={{ borderColor: "var(--panel-border)" }}
-                          >
-                            {generatedStatusLabel(image.status)}
-                          </span>
-                        ) : null}
-                      </div>
-                      {onAddShotToTimeline ? (
+                      </button>
+                      <span className="absolute left-1.5 top-1.5 rounded-sm bg-background/90 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground">
+                        SH{String(shot.shotNo).padStart(2, "0")}
+                      </span>
+                      {onAddShotToTimeline && !isOnTimeline ? (
                         <button
                           type="button"
-                          disabled={isOnTimeline}
                           onClick={event => {
                             event.stopPropagation();
                             onAddShotToTimeline(shot.shotNo, shotTimelineId);
                             onSelectShot?.(shot.shotNo);
                           }}
-                          className="inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[8.5px] font-medium transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
-                          style={{ borderColor: "var(--panel-border)" }}
-                          aria-label={
-                            isOnTimeline
-                              ? `SH${String(shot.shotNo).padStart(2, "0")} 已在时间轴`
-                              : `把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`
-                          }
+                          className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-sm bg-background/90 text-muted-foreground transition hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                          aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
+                          title="加入时间轴"
                         >
-                          {isOnTimeline ? (
-                            <CheckCircle2 className="h-3 w-3" />
-                          ) : (
-                            <ListPlus className="h-3 w-3" />
-                          )}
-                          {isOnTimeline ? "已在时间轴" : "加入时间轴"}
+                          <ListPlus className="h-3.5 w-3.5" />
                         </button>
                       ) : null}
                     </div>
-                    <h4 className="mt-1 line-clamp-1 text-[11px] font-semibold text-foreground">
-                      {title}
-                    </h4>
-                    <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
-                      {body ||
-                        shot.sourceCardContent ||
-                        "等待导演把这一镜拆成可拍的动作"}
-                    </p>
-                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                      <StoryboardShotField
-                        label="镜头任务"
-                        value={shot.intent || shot.subject}
-                        placeholder="这一镜要让观众明白什么"
-                        onCommit={value => commit("intent", value)}
-                      />
+                  ) : null}
+
+                  <div className="min-w-0">
+                    {embeddedEditorMode ? (
+                      <div className="mb-2 flex min-w-0 items-center justify-between gap-2 px-0.5">
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-baseline gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                          onClick={event => {
+                            event.stopPropagation();
+                            onSelectShot?.(shot.shotNo);
+                          }}
+                        >
+                          <span className="shrink-0 font-mono text-[9px] font-semibold text-foreground">
+                            SH{String(shot.shotNo).padStart(2, "0")}
+                          </span>
+                          <span className="line-clamp-1 text-[9px] text-muted-foreground">
+                            {title}
+                          </span>
+                        </button>
+                        {onAddShotToTimeline && !isOnTimeline ? (
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              onAddShotToTimeline(shot.shotNo, shotTimelineId);
+                              onSelectShot?.(shot.shotNo);
+                            }}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                            aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
+                            title="加入时间轴"
+                          >
+                            <ListPlus className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div
+                      className="grid gap-2"
+                      style={{
+                        gridTemplateColumns:
+                          "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
+                      }}
+                    >
                       <StoryboardShotField
                         label="画面动作"
                         value={shot.action}
@@ -1553,18 +1550,7 @@ export function StoryboardReviewBoard({
                         placeholder="如何接到下一镜"
                         onCommit={value => commit("transitionOut", value)}
                       />
-                      <div className="sm:col-span-2">
-                        <StoryboardShotField
-                          label="导演理由"
-                          value={shot.rationale}
-                          rows={2}
-                          placeholder={
-                            image?.prompt || "为什么这一镜能证明这个求职优势"
-                          }
-                          onCommit={value => commit("rationale", value)}
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
+                      <div style={{ gridColumn: "1 / -1" }}>
                         <StoryboardShotField
                           label="图生视频提示"
                           value={shot.videoPrompt}
@@ -1575,48 +1561,102 @@ export function StoryboardReviewBoard({
                       </div>
                     </div>
                     {showMaterialBasket && creationShot ? (
-                      <ShotMaterialBasket
-                        shot={creationShot}
-                        previousShots={
-                          previousCreationShotsByNo.get(creationShot.shotNo) ??
-                          []
-                        }
-                        generating={
-                          generatingVideoShotNo === creationShot.shotNo
-                        }
-                        onGenerateShotVideo={onGenerateShotVideo}
-                        onRefreshShotVideoStatus={onRefreshShotVideoStatus}
-                        onMarkVideoTakeUnusable={onMarkVideoTakeUnusable}
-                        movingVideoTakeId={movingVideoTakeId}
-                        onAdoptVideoTake={onAdoptVideoTake}
-                        onPromoteFrameCrop={onPromoteFrameCrop}
-                        promotingFrameCrop={
-                          promotingFrameCropShotNo === creationShot.shotNo
-                        }
-                        shotVideoProviderStatus={shotVideoProviderStatus}
-                      />
-                    ) : videoTakeCount > 0 ? (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            setOpenMaterialShotNo(null);
+                          }}
+                          className="mb-1 inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-[9px] text-muted-foreground transition hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                          aria-label={`收起 SH${String(shot.shotNo).padStart(2, "0")} 视频工具`}
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                          收起视频
+                        </button>
+                        <ShotMaterialBasket
+                          shot={creationShot}
+                          previousShots={
+                            previousCreationShotsByNo.get(
+                              creationShot.shotNo
+                            ) ?? []
+                          }
+                          generating={
+                            generatingVideoShotNo === creationShot.shotNo
+                          }
+                          onGenerateShotVideo={onGenerateShotVideo}
+                          onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                          onMarkVideoTakeUnusable={onMarkVideoTakeUnusable}
+                          movingVideoTakeId={movingVideoTakeId}
+                          onAdoptVideoTake={onAdoptVideoTake}
+                          onPromoteFrameCrop={onPromoteFrameCrop}
+                          promotingFrameCrop={
+                            promotingFrameCropShotNo === creationShot.shotNo
+                          }
+                          shotVideoProviderStatus={shotVideoProviderStatus}
+                        />
+                      </div>
+                    ) : creationShot ? (
                       <button
                         type="button"
                         onClick={event => {
                           event.stopPropagation();
                           onSelectShot?.(shot.shotNo);
+                          setOpenMaterialShotNo(shot.shotNo);
                         }}
-                        className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-[10px] font-medium text-muted-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                        style={{ borderColor: "var(--panel-border)" }}
+                        className={`mt-2 inline-flex w-full items-center gap-2 rounded-sm bg-muted/45 px-2.5 py-2 text-[10px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                          embeddedEditorMode && videoPreviewTake?.videoUrl
+                            ? "justify-start"
+                            : "justify-center"
+                        }`}
                       >
-                        <Video className="h-3.5 w-3.5" />
-                        {videoTakeCount} 个 Take · 可用 {usableVideoTakeCount}
-                        {unavailableVideoTakeCount > 0
-                          ? ` · 不可用 ${unavailableVideoTakeCount}`
-                          : ""}
-                        ，点开本镜查看
+                        {embeddedEditorMode && videoPreviewTake?.videoUrl ? (
+                          <span className="relative h-10 w-14 shrink-0 overflow-hidden rounded-sm bg-black">
+                            <video
+                              src={videoPreviewTake.videoUrl}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              className="h-full w-full object-cover"
+                              aria-label={`${videoPreviewIsSelected ? "已采用" : "候选"} Take ${videoPreviewTake.id} 缩略预览`}
+                            />
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/10 text-white/90">
+                              <Video className="h-3.5 w-3.5" />
+                            </span>
+                          </span>
+                        ) : (
+                          <Video className="h-3.5 w-3.5" />
+                        )}
+                        <span
+                          className={
+                            videoPreviewTake?.videoUrl
+                              ? "min-w-0 text-left"
+                              : undefined
+                          }
+                        >
+                          <span className="block">
+                            {videoTakeCount > 0
+                              ? `${videoTakeCount} 个 Take · 可用 ${usableVideoTakeCount}${
+                                  unavailableVideoTakeCount > 0
+                                    ? ` · 不可用 ${unavailableVideoTakeCount}`
+                                    : ""
+                                }`
+                              : "视频生成与 Take"}
+                          </span>
+                          {embeddedEditorMode && videoPreviewTake?.videoUrl ? (
+                            <span className="mt-0.5 block text-[8px] font-normal text-muted-foreground">
+                              {videoPreviewIsSelected ? "已采用" : "候选"} Take{" "}
+                              {videoPreviewTake.id}
+                            </span>
+                          ) : null}
+                        </span>
                       </button>
                     ) : null}
                     {onInsertShotAfter || onDeleteShot ? (
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <div className="mt-2 flex items-center gap-1">
                         {onInsertShotAfter ? (
                           <AddShotButton
+                            compact
                             shotNo={shot.shotNo}
                             inserting={insertingAfterShotNo === shot.shotNo}
                             disabled={
@@ -1634,6 +1674,7 @@ export function StoryboardReviewBoard({
                         ) : null}
                         {onDeleteShot ? (
                           <DeleteShotButton
+                            compact
                             shotNo={shot.shotNo}
                             deleting={deletingShotId === insertStableShotId}
                             disabled={

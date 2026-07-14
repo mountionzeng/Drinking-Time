@@ -196,9 +196,16 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain("美术风格");
     expect(boardSource).not.toContain("artDirection={artDirection}");
     expect(boardSource).not.toContain("onUpdateAllShotsField");
-    expect(boardSource).toContain("导演理由");
+    expect(boardSource).not.toContain("导演理由");
+    expect(boardSource).not.toContain("镜头任务");
+    expect(boardSource).not.toContain("时间码");
+    expect(boardSource).not.toContain("已在时间轴");
     expect(boardSource).toContain("ShotMaterialBasket");
     expect(boardSource).toContain("个 Take · 可用");
+    expect(boardSource).toContain("embeddedEditorMode");
+    expect(boardSource).toContain("videoPreviewTake");
+    expect(boardSource).toContain("videoPreviewIsSelected");
+    expect(boardSource).toContain("缩略预览");
     expect(boardSource).toContain("onMarkVideoTakeUnusable");
     expect(boardSource).toContain("onInsertShotAfter");
     expect(panelSource).toContain("insertPersistedShotAfter");
@@ -213,7 +220,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain('useState<"full" | "simple">("simple")');
     expect(boardSource).toContain('setViewMode("simple")');
     expect(boardSource).toContain("openFullShot");
-    expect(boardSource).toContain("storyboardScriptText");
+    expect(boardSource).not.toContain("storyboardScriptText");
+    expect(boardSource).toContain("grid-cols-[72px_minmax(0,1fr)]");
     expect(boardSource).toContain("snap-y snap-mandatory");
     expect(boardSource).not.toContain("snap-x snap-mandatory");
     const materialBasketSource = readFileSync(

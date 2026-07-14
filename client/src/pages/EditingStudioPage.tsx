@@ -1,16 +1,21 @@
 /**
  * EditingStudioPage — 剪辑工作室（聊天驱动剪辑，ChatCut 式交互）。
  * 左：小酌创作对话（StoryAgentChat；未打开故事时显示故事列表）
- * 右：动态分镜剪辑台（AnimaticPanel：预览播放器 + 时间轴 + 素材抽屉 + 一键剪辑）
+ * 右：故事版镜头 + 动态预览 + 多轨时间轴（共享同一套镜头数据）
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
-import { Clapperboard, Loader2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  Clapperboard,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
-import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
+import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
@@ -56,7 +61,7 @@ function ExportButton({ storyId }: { storyId: number }) {
       type="button"
       onClick={() => void runExport()}
       disabled={exporting}
-      className="absolute right-4 top-3 z-20 inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex h-8 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
     >
       {exporting ? (
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -110,12 +115,24 @@ function EditingStudioBody() {
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {activeStoryId !== null ? (
             <div
-              className="h-full min-h-0 overflow-hidden"
-              data-story-panel="animatic"
-              aria-label="剪辑台"
+              className="flex h-full min-h-0 flex-col overflow-hidden"
+              data-story-panel="editing-nle"
+              aria-label="剪辑工作台"
             >
-              <ExportButton storyId={activeStoryId} />
-              <AnimaticPanel />
+              <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 backdrop-blur">
+                <div className="min-w-0">
+                  <h1 className="truncate text-xs font-semibold text-foreground">
+                    剪辑工作台
+                  </h1>
+                  <p className="mt-0.5 text-[9px] text-muted-foreground">
+                    故事版 · 动态预览 · 多轨时间线
+                  </p>
+                </div>
+                <ExportButton storyId={activeStoryId} />
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <EditingNleWorkspace />
+              </div>
             </div>
           ) : (
             <div

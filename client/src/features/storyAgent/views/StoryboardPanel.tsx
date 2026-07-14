@@ -1,4 +1,5 @@
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { StoryboardReviewBoard } from "./StoryCardsBoard";
 import { useStoryCardsBoardSlice } from "@/features/storyAgent/spine/selectors";
@@ -30,7 +31,15 @@ export function currentStoryboardImages(
   });
 }
 
-export default function StoryboardPanel() {
+export default function StoryboardPanel({
+  defaultViewMode = "simple",
+  embeddedEditorMode = false,
+  headerAction,
+}: {
+  defaultViewMode?: "full" | "simple";
+  embeddedEditorMode?: boolean;
+  headerAction?: ReactNode;
+}) {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { loadStory, updateStoryShotField, setActiveSelection } =
@@ -77,7 +86,12 @@ export default function StoryboardPanel() {
             <Clapperboard className="creation-board-panel-icon" />
             <span className="creation-board-panel-title-text">故事版看板</span>
           </div>
-          <span className="creation-board-panel-status">等待生成</span>
+          <div className="flex items-center gap-2">
+            {headerAction}
+            {!headerAction ? (
+              <span className="creation-board-panel-status">等待生成</span>
+            ) : null}
+          </div>
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
           {isGeneratingScript ? (
@@ -176,6 +190,9 @@ export default function StoryboardPanel() {
       onPromoteFrameCrop={promoteFrameCrop}
       promotingFrameCropShotNo={promotingFrameCropShotNo}
       shotVideoProviderStatus={shotVideoProviderStatus}
+      defaultViewMode={defaultViewMode}
+      embeddedEditorMode={embeddedEditorMode}
+      headerAction={headerAction}
       className="h-full min-h-[280px] overflow-auto"
     />
   );

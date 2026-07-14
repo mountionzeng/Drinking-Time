@@ -1,49 +1,78 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), 'utf8');
+  return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-describe('creation editor spine boundary', () => {
-  it('projects dynamic storyboard shots from the active spine story without taking over persistence', () => {
-    const context = source('client/src/features/creationEditor/CreationEditorContext.tsx');
+describe("creation editor spine boundary", () => {
+  it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {
+    const context = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
 
-    expect(context).toContain('trpc.storyAgent.storyGet.useQuery');
-    expect(context).toContain('trpc.storyAgent.storyImages.useQuery');
+    expect(context).toContain("trpc.storyAgent.storyGet.useQuery");
+    expect(context).toContain("trpc.storyAgent.storyImages.useQuery");
     expect(context).toMatch(/useStorySpine\(\s*state\s*=>/);
-    expect(context).toContain('state.activeStoryId === activeId');
-    expect(context).toContain('mergeCanonicalStoryShots(canonicalStoryShots, body)');
-    expect(context).not.toContain('useStoryAgent(');
+    expect(context).toContain("state.activeStoryId === activeId");
+    expect(context).toContain(
+      "mergeCanonicalStoryShots(canonicalStoryShots, body)"
+    );
+    expect(context).not.toContain("useStoryAgent(");
   });
 
-  it('keeps AnimaticPanel and PromptTablePanel behind useCreationEditor', () => {
-    const animatic = source('client/src/features/creationEditor/views/AnimaticPanel.tsx');
-    const promptTable = source('client/src/features/creationEditor/views/PromptTablePanel.tsx');
+  it("keeps AnimaticPanel and PromptTablePanel behind useCreationEditor", () => {
+    const animatic = source(
+      "client/src/features/creationEditor/views/AnimaticPanel.tsx"
+    );
+    const promptTable = source(
+      "client/src/features/creationEditor/views/PromptTablePanel.tsx"
+    );
 
     for (const panel of [animatic, promptTable]) {
-      expect(panel).toContain('useCreationEditor()');
-      expect(panel).not.toContain('useStoryAgent(');
-      expect(panel).not.toContain('useStorySpine(');
-      expect(panel).not.toContain('storyGet.useQuery');
-      expect(panel).not.toContain('storyImages.useQuery');
+      expect(panel).toContain("useCreationEditor()");
+      expect(panel).not.toContain("useStoryAgent(");
+      expect(panel).not.toContain("useStorySpine(");
+      expect(panel).not.toContain("storyGet.useQuery");
+      expect(panel).not.toContain("storyImages.useQuery");
     }
   });
 
-  it('bridges only the active story id from the spine into CreationEditorProvider', () => {
-    const workspace = source('client/src/features/analysis/views/WorkspaceLayout.tsx');
+  it("bridges only the active story id from the spine into CreationEditorProvider", () => {
+    const workspace = source(
+      "client/src/features/analysis/views/WorkspaceLayout.tsx"
+    );
 
-    expect(workspace).toContain('useActiveStoryId()');
-    expect(workspace).toContain('useStoryAgentActions()');
-    expect(workspace).toContain('<CreationEditorProvider activeStoryId={activeStoryId}>');
+    expect(workspace).toContain("useActiveStoryId()");
+    expect(workspace).toContain("useStoryAgentActions()");
+    expect(workspace).toContain(
+      "<CreationEditorProvider activeStoryId={activeStoryId}>"
+    );
     expect(workspace).toContain('autoSaveId="story-creation-board-widths-v2"');
-    expect(workspace).not.toContain('useStoryAgent()');
+    expect(workspace).not.toContain("useStoryAgent()");
   });
 
-  it('syncs the active story id from StoryAgentProvider back into the analysis data layer', () => {
-    const workspace = source('client/src/features/analysis/views/AnalysisWorkspace.tsx');
+  it("keeps the dedicated editing route in the studio layout", () => {
+    const editingPage = source("client/src/pages/EditingStudioPage.tsx");
+    const editingWorkspace = source(
+      "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
+    );
 
-    expect(workspace).toContain('onActiveStoryChange={projectData.setActiveStoryId}');
+    expect(editingPage).toContain('data-story-panel="editing-nle"');
+    expect(editingPage).toContain("<EditingNleWorkspace />");
+    expect(editingWorkspace).toContain("<StoryboardPanel");
+    expect(editingWorkspace).toContain("embeddedEditorMode");
+    expect(editingWorkspace).not.toContain("StoryboardRail");
+  });
+
+  it("syncs the active story id from StoryAgentProvider back into the analysis data layer", () => {
+    const workspace = source(
+      "client/src/features/analysis/views/AnalysisWorkspace.tsx"
+    );
+
+    expect(workspace).toContain(
+      "onActiveStoryChange={projectData.setActiveStoryId}"
+    );
   });
 });
