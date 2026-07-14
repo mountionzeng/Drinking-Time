@@ -257,6 +257,7 @@ const isTestEnv = () =>
 let memoryLoaded = false;
 let memoryLoadPromise: Promise<void> | null = null;
 let memoryPersistQueue: Promise<void> = Promise.resolve();
+let memoryVideoTakeSubmissionClaimQueue: Promise<void> = Promise.resolve();
 let promptLineageLoaded = false;
 let promptLineageLoadFallback:
   | Partial<PromptLineageLocalState>
@@ -3273,6 +3274,286 @@ export async function findVideoTakeByIdempotencyKey(
   return row ?? null;
 }
 
+/**
+ * 为付费任务预占幂等记录。MySQL 下先锁所属故事行，再查后插；这样即使是
+ * 多个服务实例同时确认同一 candidate，也只能有一个调用方拿到 created=true。
+ * 该入口只给已经锁定 promptCompilationId 的系统任务使用。
+ */
+export async function createVideoTakeIdempotently(
+  data: Omit<InsertVideoTake, "id" | "createdAt" | "updatedAt"> & {
+    idempotencyKey: string;
+  }
+): Promise<{ take: VideoTake; created: boolean }> {
+  const db = await getDb();
+  if (!db) {
+    const existing = await findVideoTakeByIdempotencyKey(
+      data.storyId,
+      data.userId,
+      data.idempotencyKey
+    );
+    if (existing) return { take: existing, created: false };
+    return { take: await createVideoTake(data), created: true };
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, data.storyId), eq(stories.userId, data.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+    const [existing] = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.storyId, data.storyId),
+          eq(videoTakes.userId, data.userId),
+          eq(videoTakes.idempotencyKey, data.idempotencyKey)
+        )
+      )
+      .orderBy(desc(videoTakes.id))
+      .limit(1);
+    if (existing) return { take: existing, created: false };
+
+    const [result] = await tx.insert(videoTakes).values({
+      ...data,
+      promptCompilationId: data.promptCompilationId ?? null,
+    });
+    const [take] = await tx
+      .select()
+      .from(videoTakes)
+      .where(eq(videoTakes.id, result.insertId))
+      .limit(1);
+    if (!take) throw new Error("视频任务预占失败");
+    return { take, created: true };
+  });
+}
+
+type EditingTransitionSubmissionSlot = {
+  candidateId: string;
+  expectedTimelineVersion: number;
+  sourceStableShotId: string;
+  targetStableShotId: string;
+};
+
+export type EditingTransitionSubmissionClaim =
+  | { claimed: true; take: VideoTake }
+  | {
+      claimed: false;
+      take: VideoTake;
+      reason: "already_claimed" | "slot_occupied";
+      blockingTakeId?: number;
+    };
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function editingTransitionSubmissionSlot(
+  take: VideoTake
+): EditingTransitionSubmissionSlot | null {
+  const snapshot = jsonRecord(take.parameterSnapshot);
+  if (snapshot.kind !== "editing-transition") return null;
+  const candidate = jsonRecord(snapshot.candidate);
+  const source = jsonRecord(candidate.source);
+  const target = jsonRecord(candidate.target);
+  if (
+    typeof candidate.candidateId !== "string" ||
+    candidate.storyId !== take.storyId ||
+    typeof candidate.expectedTimelineVersion !== "number" ||
+    typeof source.stableShotId !== "string" ||
+    typeof target.stableShotId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    candidateId: candidate.candidateId,
+    expectedTimelineVersion: candidate.expectedTimelineVersion,
+    sourceStableShotId: source.stableShotId,
+    targetStableShotId: target.stableShotId,
+  };
+}
+
+function sameEditingTransitionSlot(
+  left: EditingTransitionSubmissionSlot,
+  right: EditingTransitionSubmissionSlot
+): boolean {
+  return (
+    left.expectedTimelineVersion === right.expectedTimelineVersion &&
+    left.sourceStableShotId === right.sourceStableShotId &&
+    left.targetStableShotId === right.targetStableShotId
+  );
+}
+
+function hasEditingTransitionSubmissionClaim(take: VideoTake): boolean {
+  const state = jsonRecord(take.parameterSnapshot).submissionState;
+  return state !== "not_started" && state !== "not_submitted";
+}
+
+function claimedEditingTransitionTake(take: VideoTake): VideoTake {
+  return {
+    ...take,
+    status: "submitted",
+    errorMessage: null,
+    parameterSnapshot: {
+      ...jsonRecord(take.parameterSnapshot),
+      submissionState: "submitting",
+      submissionClaimedAt: new Date().toISOString(),
+    },
+    updatedAt: now(),
+  };
+}
+
+async function withMemoryVideoTakeSubmissionClaim<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = memoryVideoTakeSubmissionClaimQueue;
+  let release: () => void = () => undefined;
+  memoryVideoTakeSubmissionClaimQueue = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+/**
+ * 原子取得一次付费提交权。MySQL 通过故事行锁把同故事的所有候选串行化，
+ * 因而同 candidate 以及同 timeline/source/target 槽位都只能有一个 claimant。
+ * 内存模式用同进程互斥执行相同的 compare-and-set。
+ */
+export async function claimEditingTransitionSubmission(input: {
+  takeId: number;
+  storyId: number;
+  userId: number;
+}): Promise<EditingTransitionSubmissionClaim> {
+  const decide = (takes: VideoTake[]) => {
+    const take = takes.find(item => item.id === input.takeId);
+    if (!take) throw new Error("衔接视频任务不存在或无权操作");
+    const slot = editingTransitionSubmissionSlot(take);
+    if (!slot) throw new Error("衔接视频任务缺少可验证的候选快照");
+    if (hasEditingTransitionSubmissionClaim(take)) {
+      return {
+        claimed: false as const,
+        take,
+        reason: "already_claimed" as const,
+      };
+    }
+    const blocker = takes.find(other => {
+      if (other.id === take.id || !hasEditingTransitionSubmissionClaim(other)) {
+        return false;
+      }
+      const otherSlot = editingTransitionSubmissionSlot(other);
+      return Boolean(otherSlot && sameEditingTransitionSlot(slot, otherSlot));
+    });
+    if (blocker) {
+      return {
+        claimed: false as const,
+        take,
+        reason: "slot_occupied" as const,
+        blockingTakeId: blocker.id,
+      };
+    }
+    return { claimed: true as const, take: claimedEditingTransitionTake(take) };
+  };
+
+  const db = await getDb();
+  if (!db) {
+    return withMemoryVideoTakeSubmissionClaim(async () => {
+      await ensureMemoryLoaded();
+      const storyExists = memoryState.stories.some(
+        story => story.id === input.storyId && story.userId === input.userId
+      );
+      if (!storyExists) throw new Error("故事不存在或无权操作");
+      const storyTakes = memoryState.videoTakes.filter(
+        take => take.storyId === input.storyId && take.userId === input.userId
+      );
+      const decision = decide(storyTakes);
+      if (!decision.claimed) return decision;
+      const index = memoryState.videoTakes.findIndex(
+        take => take.id === decision.take.id && take.userId === input.userId
+      );
+      if (index < 0) throw new Error("衔接视频提交权持久化失败");
+      const previous = memoryState.videoTakes[index];
+      memoryState.videoTakes[index] = decision.take;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.videoTakes[index] = previous;
+        throw error;
+      }
+      return decision;
+    });
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+
+    const storyTakes = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      )
+      .for("update");
+    const decision = decide(storyTakes);
+    if (!decision.claimed) return decision;
+
+    await tx
+      .update(videoTakes)
+      .set({
+        status: decision.take.status,
+        errorMessage: decision.take.errorMessage,
+        parameterSnapshot: decision.take.parameterSnapshot,
+      })
+      .where(
+        and(
+          eq(videoTakes.id, decision.take.id),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      );
+    const [updated] = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.id, decision.take.id),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      )
+      .limit(1);
+    if (
+      !updated ||
+      jsonRecord(updated.parameterSnapshot).submissionState !== "submitting"
+    ) {
+      throw new Error("衔接视频提交权持久化失败");
+    }
+    return { claimed: true, take: updated };
+  });
+}
+
 export async function createVideoTakeRange(
   data: Omit<InsertVideoTakeRange, "id" | "createdAt" | "updatedAt">
 ): Promise<VideoTakeRange> {
@@ -3572,6 +3853,162 @@ export async function updateStoryTimeline(input: {
       .from(storyTimelines)
       .where(eq(storyTimelines.id, existing.id));
     return updated;
+  });
+}
+
+function storyBodyContainsStableShotId(
+  body: unknown,
+  stableShotId: string
+): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const shots = (body as Record<string, unknown>).shots;
+  if (!Array.isArray(shots)) return false;
+  return shots.some(shot => {
+    if (!shot || typeof shot !== "object" || Array.isArray(shot)) return false;
+    const record = shot as Record<string, unknown>;
+    return [record.stableShotId, record.shotIdentity, record.shotKey].some(
+      value => value === stableShotId
+    );
+  });
+}
+
+/**
+ * 小酌生成的衔接镜头需要同时进入故事体和时间轴。这个写入点只承担两件事：
+ * 版本校验与原子落库。视频 Take 在调用前已经完成，重复确认则按 stableShotId
+ * 幂等返回，不会再次插入同一镜头。
+ */
+export async function insertTransitionShotAtomic(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  expectedStoryRevision: number;
+  expectedTimelineVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+}): Promise<{
+  applied: boolean;
+  story: Story;
+  timeline: StoryTimeline;
+}> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    const story = memoryState.stories.find(
+      row => row.id === input.storyId && row.userId === input.userId
+    );
+    const timeline = memoryState.storyTimelines.find(
+      row => row.storyId === input.storyId && row.userId === input.userId
+    );
+    if (!story) throw new Error("故事不存在或无权操作");
+    if (storyBodyContainsStableShotId(story.body, input.stableShotId)) {
+      if (!timeline) throw new Error("衔接镜头已经存在，但时间轴记录缺失");
+      return { applied: false, story, timeline };
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认衔接位置");
+    }
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已经更新，请重新确认衔接位置");
+    }
+
+    story.body = input.nextStoryBody as StoryBody;
+    story.updatedAt = now();
+    let savedTimeline: StoryTimeline;
+    if (timeline) {
+      timeline.items = input.nextTimelineItems;
+      timeline.version += 1;
+      timeline.updatedAt = now();
+      savedTimeline = timeline;
+    } else {
+      const current = now();
+      savedTimeline = {
+        id: nextMemoryId("storyTimeline"),
+        storyId: input.storyId,
+        userId: input.userId,
+        version: 1,
+        items: input.nextTimelineItems,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.storyTimelines.push(savedTimeline);
+    }
+    await persistMemoryState();
+    return { applied: true, story, timeline: savedTimeline };
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select()
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    const [timeline] = await tx
+      .select()
+      .from(storyTimelines)
+      .where(
+        and(
+          eq(storyTimelines.storyId, input.storyId),
+          eq(storyTimelines.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+    if (storyBodyContainsStableShotId(story.body, input.stableShotId)) {
+      if (!timeline) throw new Error("衔接镜头已经存在，但时间轴记录缺失");
+      return { applied: false, story, timeline };
+    }
+    if (revisionOf(story.body) !== input.expectedStoryRevision) {
+      throw new Error("故事已经更新，请重新确认衔接位置");
+    }
+    if ((timeline?.version ?? 0) !== input.expectedTimelineVersion) {
+      throw new Error("时间轴已经更新，请重新确认衔接位置");
+    }
+
+    await tx
+      .update(stories)
+      .set({ body: input.nextStoryBody as StoryBody })
+      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)));
+
+    let timelineId: number;
+    if (timeline) {
+      timelineId = timeline.id;
+      await tx
+        .update(storyTimelines)
+        .set({
+          items: input.nextTimelineItems,
+          version: timeline.version + 1,
+        })
+        .where(eq(storyTimelines.id, timeline.id));
+    } else {
+      const [created] = await tx.insert(storyTimelines).values({
+        storyId: input.storyId,
+        userId: input.userId,
+        version: 1,
+        items: input.nextTimelineItems,
+      });
+      timelineId = created.insertId;
+    }
+
+    const [[savedStory], [savedTimeline]] = await Promise.all([
+      tx
+        .select()
+        .from(stories)
+        .where(eq(stories.id, input.storyId))
+        .limit(1),
+      tx
+        .select()
+        .from(storyTimelines)
+        .where(eq(storyTimelines.id, timelineId))
+        .limit(1),
+    ]);
+    if (!savedStory || !savedTimeline) {
+      throw new Error("衔接镜头写入后读取失败");
+    }
+    return { applied: true, story: savedStory, timeline: savedTimeline };
   });
 }
 
@@ -4330,6 +4767,7 @@ export function resetMemoryStateForTesting(): void {
     storyOperation: 1,
   };
   defaultProjectLocks.clear();
+  memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;

@@ -13,6 +13,7 @@ import { localImageDir } from "../services/imageGen";
 import { storageGet } from "../storage";
 import { getStoryById, getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
+import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
 
 
@@ -133,6 +134,55 @@ async function startServer() {
     }
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.sendFile(full);
+  });
+  // 小酌衔接确认卡：从用户有权访问的当前 Take 中抽取精确端点帧。
+  // URL 里的时间只用于预览；真正付费提交前会按当前时间轴重新推导并校验。
+  app.get("/api/video-frames/:takeId", async (req, res) => {
+    const takeId = Number(req.params.takeId);
+    const atSec = Number(req.query.atSec);
+    const rangeIdRaw = req.query.rangeId;
+    const rangeId =
+      typeof rangeIdRaw === "string" && rangeIdRaw.trim()
+        ? Number(rangeIdRaw)
+        : null;
+    if (
+      !Number.isInteger(takeId) ||
+      takeId <= 0 ||
+      !Number.isFinite(atSec) ||
+      atSec < 0 ||
+      (rangeId != null && (!Number.isInteger(rangeId) || rangeId <= 0))
+    ) {
+      res.status(400).end();
+      return;
+    }
+    let userId: number | null = null;
+    try {
+      userId = await resolveMediaRouteUserId(req);
+    } catch {
+      res.status(401).end();
+      return;
+    }
+    if (userId == null) {
+      res.status(401).end();
+      return;
+    }
+    try {
+      const frame = await renderTransitionVideoFrame({
+        takeId,
+        userId,
+        rangeId,
+        atSec,
+      });
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.sendFile(frame.path);
+    } catch (error) {
+      console.warn(
+        "[/api/video-frames] 抽帧失败：",
+        error instanceof Error ? error.message : String(error)
+      );
+      res.status(404).end();
+    }
   });
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
