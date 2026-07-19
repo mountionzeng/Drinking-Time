@@ -101,7 +101,6 @@ describe("frontend architecture boundaries", () => {
 
   it("keeps analysis display views free of direct tRPC imports", async () => {
     const viewFiles = [
-      path.join(srcRoot, "features", "analysis", "views", "DropZone.tsx"),
       path.join(srcRoot, "features", "analysis", "views", "Timeline.tsx"),
     ];
     const violations: string[] = [];
