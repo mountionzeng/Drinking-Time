@@ -2,6 +2,7 @@ import {
   ensureShotIdentities,
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
+import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
 
 type StoryBodyRecord = Record<string, unknown>;
 
@@ -54,6 +55,11 @@ const SHOT_CONTENT_FIELDS_FOR_PROMPT_METADATA = [
 ] as const;
 
 const SHOT_STABLE_EDITOR_FIELDS = ["durationMs", "fragmentRefs"] as const;
+
+const SHOT_DIRECTOR_FIELDS_TO_PRESERVE = [
+  ...STORY_SHOT_EDITABLE_FIELDS,
+  "chatCutMapping",
+] as const;
 
 const BODY_FIELDS_TO_PRESERVE = [
   "scenes",
@@ -179,7 +185,10 @@ function shotContentKey(value: unknown): string | null {
   return parts.join("\u0000");
 }
 
-type MergeShotOptions = { preserveNonEmptyDialogue?: boolean };
+type MergeShotOptions = {
+  preserveNonEmptyDialogue?: boolean;
+  preserveServerDirectorFields?: boolean;
+};
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
@@ -202,6 +211,23 @@ function mergeShotPreservedFields(
 
   for (const field of SHOT_STABLE_EDITOR_FIELDS) {
     if (!hasOwn(merged, field) && hasOwn(serverShot, field)) {
+      merged[field] = serverShot[field];
+    }
+  }
+
+  for (const field of SHOT_DIRECTOR_FIELDS_TO_PRESERVE) {
+    const isPromptMetadata =
+      field === "promptDraft" || field === "negativePrompt";
+    if (
+      options.preserveServerDirectorFields &&
+      hasOwn(serverShot, field)
+    ) {
+      merged[field] = serverShot[field];
+    } else if (
+      !isPromptMetadata &&
+      !hasOwn(merged, field) &&
+      hasOwn(serverShot, field)
+    ) {
       merged[field] = serverShot[field];
     }
   }
@@ -307,6 +333,7 @@ function mergeStoryShotsPreservingFields(
         merged.push(
           mergeShotPreservedFields(entry.item, incoming, {
             preserveNonEmptyDialogue: true,
+            preserveServerDirectorFields: true,
           })
         );
       } else {

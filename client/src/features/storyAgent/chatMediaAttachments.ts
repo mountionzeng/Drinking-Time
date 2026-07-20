@@ -18,6 +18,7 @@ export type ImportedChatMedia = {
   fileName: string;
   assetId: number;
   targetShotNo?: number | null;
+  targetCueCode?: string | null;
 };
 
 export type ChatMediaRejection = {
@@ -127,7 +128,7 @@ export function buildImportedMediaPrompt(
       const idLabel = item.kind === "image" ? `图片 #${item.assetId}` : `Take #${item.assetId}`;
       const target =
         item.kind === "video" && item.targetShotNo != null
-          ? `，暂放 SH${String(item.targetShotNo).padStart(2, "0")}`
+          ? `，暂放 ${item.targetCueCode?.trim() || String(item.targetShotNo).padStart(2, "0")}`
           : "，待归类";
       return `${index + 1}. ${item.fileName}（${idLabel}${target}）`;
     })

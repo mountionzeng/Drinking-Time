@@ -65,6 +65,7 @@ import {
   normalizeShotIdentity,
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
+import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
@@ -73,6 +74,7 @@ import {
 } from "../../shared/promptContext";
 import { migrateStoryPromptLineage } from "../services/promptLineageMigration";
 import {
+  attachChatCutXmlToStory,
   importChatCutXmlStory,
   MAX_CHATCUT_XML_BYTES,
   parseChatCutXml,
@@ -91,6 +93,8 @@ import {
   storyShotToDbRow,
   writeCharacterAnchor,
 } from "./_storyShared";
+
+const editableStoryShotFieldSet = new Set<string>(STORY_SHOT_EDITABLE_FIELDS);
 
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
@@ -112,6 +116,9 @@ export const storyAgentRouter = router({
           .array(
             z.object({
               shotNo: z.number(),
+              stableShotId: z.string().optional(),
+              cueCode: z.string().optional(),
+              actNo: z.string().optional(),
               subject: z.string(),
               action: z.string(),
               dialogue: z.string(),
@@ -123,6 +130,12 @@ export const storyAgentRouter = router({
               mood: z.string(),
               sound: z.string(),
               styleRef: z.string(),
+              intent: z.string().optional(),
+              videoStart: z.string().optional(),
+              videoEnd: z.string().optional(),
+              transitionIn: z.string().optional(),
+              transitionOut: z.string().optional(),
+              videoPrompt: z.string().optional(),
             })
           )
           .optional(),
@@ -513,6 +526,31 @@ export const storyAgentRouter = router({
       };
     }),
 
+  /** Attach ChatCut timing and audio manifests to the current semantic story. */
+  attachChatCutXml: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        xml: z
+          .string()
+          .min(1, "XML 文件为空")
+          .max(MAX_CHATCUT_XML_BYTES, "XML 文件过大，请控制在 2MB 以内"),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const attached = await attachChatCutXmlToStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        xml: input.xml,
+      });
+      return {
+        status: "ok" as const,
+        storyId: attached.story.id,
+        title: attached.story.title,
+        summary: attached.summary,
+      };
+    }),
+
   /** Create or update a story */
   storyUpsert: protectedProcedure
     .input(
@@ -629,6 +667,84 @@ export const storyAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       await deleteStory(input.id, ctx.user.id);
       return { ok: true };
+    }),
+
+  updateStoryShotFields: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        stableShotId: z.string().trim().min(1),
+        patch: z
+          .record(z.string(), z.string().max(6000))
+          .refine(
+            value => Object.keys(value).length > 0,
+            "至少修改一个镜头字段"
+          )
+          .refine(
+            value =>
+              Object.keys(value).every(field =>
+                editableStoryShotFieldSet.has(field)
+              ),
+            "包含不支持修改的镜头字段"
+          ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      const body =
+        story.body &&
+        typeof story.body === "object" &&
+        !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots) ? body.shots : [];
+      const targetStableShotId = normalizeShotIdentity(input.stableShotId);
+      let found = false;
+      const nextShots = shots.map((raw, index) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+        const shot = raw as Record<string, unknown>;
+        const identities = [
+          shotIdentityFromShot(shot, index),
+          normalizeShotIdentity(shot.stableShotId),
+          normalizeShotIdentity(shot.shotIdentity),
+          normalizeShotIdentity(shotIdentityForStoryShot(story, index + 1)),
+        ];
+        if (!identities.some(identity => identity === targetStableShotId)) {
+          return raw;
+        }
+        found = true;
+        return { ...shot, ...input.patch };
+      });
+      if (!found) {
+        return { status: "error" as const, error: "镜头不存在或已经更新" };
+      }
+
+      const nextBody = prepareStoryBody(
+        { ...body, shots: nextShots },
+        getStoryRevision(story.body) + 1,
+        story.body
+      );
+      await updateStory(story.id, ctx.user.id, { body: nextBody });
+      const saved = await getStoryById(story.id, ctx.user.id);
+      if (saved) {
+        void migrateStoryPromptLineage({
+          storyId: saved.id,
+          userId: ctx.user.id,
+          body: storyPromptLineageBody(saved),
+        }).catch(error => {
+          console.warn(
+            "updateStoryShotFields prompt lineage sync failed",
+            error
+          );
+        });
+      }
+      return {
+        status: "ok" as const,
+        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
+      };
     }),
 
   insertStoryShotAfter: protectedProcedure
@@ -829,6 +945,9 @@ export const storyAgentRouter = router({
           .array(
             z.object({
               shotNo: z.number(),
+              stableShotId: z.string().optional(),
+              cueCode: z.string().optional(),
+              actNo: z.string().optional(),
               subject: z.string(),
               action: z.string(),
               dialogue: z.string(),
@@ -840,6 +959,12 @@ export const storyAgentRouter = router({
               mood: z.string(),
               sound: z.string(),
               styleRef: z.string(),
+              intent: z.string().optional(),
+              videoStart: z.string().optional(),
+              videoEnd: z.string().optional(),
+              transitionIn: z.string().optional(),
+              transitionOut: z.string().optional(),
+              videoPrompt: z.string().optional(),
             })
           )
           .optional(),
@@ -1049,6 +1174,10 @@ export const storyAgentRouter = router({
           | null = input.sceneAnalysis
           ? {
               shotNo: input.shotNo ?? 0,
+              cueCode:
+                typeof storyShot?.cueCode === "string"
+                  ? storyShot.cueCode
+                  : undefined,
               subject: input.sceneAnalysis.subjectDescription,
               action: input.sceneAnalysis.action,
               mood: input.sceneAnalysis.emotion,
@@ -1060,6 +1189,10 @@ export const storyAgentRouter = router({
           : storyShot
             ? {
                 shotNo: input.shotNo ?? 0,
+                cueCode:
+                  typeof storyShot.cueCode === "string"
+                    ? storyShot.cueCode
+                    : undefined,
                 subject:
                   typeof storyShot.subject === "string"
                     ? storyShot.subject
@@ -1219,6 +1352,10 @@ export const storyAgentRouter = router({
               narrativePrompt: prompt,
               referencePurpose,
               shotNo: input.shotNo,
+              cueCode:
+                typeof storyShot?.cueCode === "string"
+                  ? storyShot.cueCode
+                  : undefined,
               storyTitle:
                 typeof storyBody.title === "string"
                   ? storyBody.title

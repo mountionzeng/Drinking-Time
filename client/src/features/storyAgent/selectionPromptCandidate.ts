@@ -1,6 +1,7 @@
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryShot } from "./types";
+import { displayShotCode } from "@shared/shotIdentity";
 
 const SHOT_FIELD_DIMENSIONS: Record<string, string> = {
   subject: "subject",
@@ -64,6 +65,11 @@ export function resolveSelectionPromptTarget(input: {
     nodeId: node.id,
     stableShotId,
     dimension,
-    label: `SH${String(input.selection.shotNo ?? index + 1).padStart(2, "0")} · ${field}`,
+    label: `${displayShotCode({
+      cueCode:
+        input.selection.cueCode ??
+        (Number.isInteger(index) ? input.shots[index]?.cueCode : null),
+      shotNo: input.selection.shotNo ?? index + 1,
+    })} · ${field}`,
   };
 }

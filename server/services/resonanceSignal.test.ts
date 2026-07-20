@@ -14,6 +14,9 @@ describe("profileFromAnalysisSeed", () => {
       lifeStage: "选择密度变高",
       birthSeason: "夏生",
       cohort: "九十年代成长",
+      birthPlace: "北京",
+      currentLocation: "上海",
+      userMessage: "最近总觉得工作挤得喘不过气",
       savedFor: "long_term_emotion_analysis",
     });
     expect(profile).toEqual({
@@ -21,6 +24,9 @@ describe("profileFromAnalysisSeed", () => {
       lifeStage: "选择密度变高",
       birthSeason: "夏生",
       cohort: "九十年代成长",
+      birthPlace: "北京",
+      currentLocation: "上海",
+      userMessage: "最近总觉得工作挤得喘不过气",
     });
   });
 
@@ -53,11 +59,20 @@ describe("describeResonanceSignal", () => {
     const text = describeResonanceSignal({
       intent: "想做关于故乡的短片",
       emotion: ["怀旧", "清醒的痛"],
-      profile: { age: 30, cohort: "九十年代成长" },
+      profile: {
+        age: 30,
+        cohort: "九十年代成长",
+        birthPlace: "北京",
+        currentLocation: "上海",
+        userMessage: "想聊聊最近的工作",
+      },
     });
     expect(text).toContain("用户意图：想做关于故乡的短片");
     expect(text).toContain("情绪：怀旧、清醒的痛");
-    expect(text).toContain("长期画像：30岁；九十年代成长");
+    expect(text).toContain(
+      "长期画像：30岁；九十年代成长；出生地北京；现居上海"
+    );
+    expect(text).toContain("用户在首页想说：想聊聊最近的工作");
   });
 });
 

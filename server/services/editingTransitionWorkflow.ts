@@ -18,10 +18,7 @@ import {
   type StoryTimelineItem,
 } from "../../shared/storyMaterial";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
-import {
-  getStoryImageAssets,
-  localImagePathForUrl,
-} from "./imageAssets";
+import { getStoryImageAssets, localImagePathForUrl } from "./imageAssets";
 import { getStoryMaterialState } from "./storyMaterials";
 import { localVideoDir } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
@@ -40,6 +37,7 @@ import {
   ViduSubmissionError,
   waitForViduTransition,
 } from "./videoTransition302";
+import { displayShotCode } from "../../shared/shotIdentity";
 
 type RecordValue = Record<string, unknown>;
 
@@ -85,19 +83,14 @@ function record(value: unknown): RecordValue {
 function storyShots(body: unknown): RecordValue[] {
   const shots = record(body).shots;
   return Array.isArray(shots)
-    ? shots.filter(
-        (shot): shot is RecordValue =>
-          Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+    ? shots.filter((shot): shot is RecordValue =>
+        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
       )
     : [];
 }
 
 function stableShotIdOf(shot: RecordValue): string {
-  for (const value of [
-    shot.stableShotId,
-    shot.shotIdentity,
-    shot.shotKey,
-  ]) {
+  for (const value of [shot.stableShotId, shot.shotIdentity, shot.shotKey]) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
@@ -213,7 +206,10 @@ function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
         (endpoint.rangeId == null ||
           (Number.isInteger(endpoint.rangeId) && endpoint.rangeId > 0)) &&
         Boolean(endpoint.mediaRevision.trim());
-  if (!endpointIsValid(candidate.source) || !endpointIsValid(candidate.target)) {
+  if (
+    !endpointIsValid(candidate.source) ||
+    !endpointIsValid(candidate.target)
+  ) {
     throw new Error("衔接首尾素材无效，请重新生成确认卡");
   }
 }
@@ -290,7 +286,11 @@ async function validateBeforePaidSubmission(
     throw new Error("首帧或尾帧对应镜头已经不存在，请重新选择衔接位置");
   }
   const canonicalSource = transitionEndpointForShot(source, sourceItem, "end");
-  const canonicalTarget = transitionEndpointForShot(target, targetItem, "start");
+  const canonicalTarget = transitionEndpointForShot(
+    target,
+    targetItem,
+    "start"
+  );
   const endpointStillCurrent = (
     requested: TimelineTransitionEndpoint,
     canonical: TimelineTransitionEndpoint | null
@@ -335,12 +335,14 @@ function decodeDataUrl(value: string): {
   bytes: Uint8Array;
   contentType: string;
 } | null {
-  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(
-    value
-  );
+  const match =
+    /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(value);
   if (!match) return null;
   const bytes = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
-  if (bytes.byteLength === 0 || bytes.byteLength >= MAX_TRANSITION_IMAGE_BYTES) {
+  if (
+    bytes.byteLength === 0 ||
+    bytes.byteLength >= MAX_TRANSITION_IMAGE_BYTES
+  ) {
     throw new Error("衔接首尾帧为空或超过 10MB");
   }
   return { bytes, contentType: match[1] };
@@ -446,7 +448,10 @@ async function readLimitedResponse(response: Response): Promise<Uint8Array> {
     reader.releaseLock();
   }
   if (size === 0) throw new Error("衔接首尾帧为空");
-  return Buffer.concat(chunks.map(chunk => Buffer.from(chunk)), size);
+  return Buffer.concat(
+    chunks.map(chunk => Buffer.from(chunk)),
+    size
+  );
 }
 
 async function imageBytesForAsset(imageUrl: string): Promise<{
@@ -486,7 +491,11 @@ async function imageBytesForAsset(imageUrl: string): Promise<{
   const contentType = (response.headers.get("content-type") ?? "")
     .split(";")[0]
     .trim();
-  if (!(["image/png", "image/jpeg", "image/webp"] as string[]).includes(contentType)) {
+  if (
+    !(["image/png", "image/jpeg", "image/webp"] as string[]).includes(
+      contentType
+    )
+  ) {
     throw new Error("首尾帧格式必须是 PNG、JPEG 或 WEBP");
   }
   const declaredLength = Number(response.headers.get("content-length"));
@@ -538,7 +547,8 @@ function runProcess(
 async function squareFrame(
   source: { bytes: Uint8Array; contentType: string },
   inputPath: string,
-  outputPath: string
+  outputPath: string,
+  size = 720
 ) {
   await fs.promises.writeFile(inputPath, source.bytes);
   const ffmpegPath = process.env.FFMPEG_PATH ?? "ffmpeg";
@@ -547,13 +557,58 @@ async function squareFrame(
     "-i",
     inputPath,
     "-vf",
-    "scale=720:720:force_original_aspect_ratio=increase,crop=720:720",
+    `scale=${size}:${size}:force_original_aspect_ratio=increase,crop=${size}:${size}`,
     "-frames:v",
     "1",
     outputPath,
   ]);
   const bytes = new Uint8Array(await fs.promises.readFile(outputPath));
   return { bytes, contentType: "image/png", path: outputPath };
+}
+
+export async function prepareStoryImagePairForVidu(input: {
+  storyId: number;
+  userId: number;
+  firstImageId: number;
+  lastImageId: number;
+  size: 540 | 720 | 1080;
+}) {
+  const assets = await getStoryImageAssets(input.storyId, input.userId);
+  const temporaryDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "xiaozhuo-shot-start-end-")
+  );
+  try {
+    const prepareImage = async (imageId: number, name: "first" | "last") => {
+      const asset = assets.find(item => item.id === imageId);
+      if (
+        !asset ||
+        asset.assignment !== "shot" ||
+        asset.availability === "missing"
+      ) {
+        throw new Error("锁定的首帧或尾帧文件已经不存在");
+      }
+      return squareFrame(
+        await imageBytesForAsset(asset.imageUrl),
+        path.join(temporaryDir, `${name}-input`),
+        path.join(temporaryDir, `${name}.png`),
+        input.size
+      );
+    };
+    const [firstFrame, lastFrame] = await Promise.all([
+      prepareImage(input.firstImageId, "first"),
+      prepareImage(input.lastImageId, "last"),
+    ]);
+    return {
+      temporaryDir,
+      firstFrame,
+      lastFrame,
+      cleanup: () =>
+        fs.promises.rm(temporaryDir, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await fs.promises.rm(temporaryDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function prepareCandidateFrames(
@@ -603,7 +658,8 @@ async function prepareCandidateFrames(
       temporaryDir,
       firstFrame,
       lastFrame,
-      cleanup: () => fs.promises.rm(temporaryDir, { recursive: true, force: true }),
+      cleanup: () =>
+        fs.promises.rm(temporaryDir, { recursive: true, force: true }),
     };
   } catch (error) {
     await fs.promises.rm(temporaryDir, { recursive: true, force: true });
@@ -649,6 +705,16 @@ function insertedTransitionShot(params: {
 }): RecordValue {
   const { candidate, source, target, shotNo, takeId } = params;
   const inherited = (key: string) => target[key] ?? source[key] ?? "";
+  const sourceCode = displayShotCode({
+    cueCode: source.cueCode,
+    shotKey: source.shotKey,
+    shotNo: candidate.source.shotNo,
+  });
+  const targetCode = displayShotCode({
+    cueCode: target.cueCode,
+    shotKey: target.shotKey,
+    shotNo: candidate.target.shotNo,
+  });
   return {
     stableShotId: candidate.provisionalStableShotId,
     shotIdentity: candidate.provisionalStableShotId,
@@ -657,7 +723,7 @@ function insertedTransitionShot(params: {
     sceneNo: inherited("sceneNo"),
     sceneTitle: inherited("sceneTitle"),
     sceneArtBrief: inherited("sceneArtBrief"),
-    subject: `SH${String(candidate.source.shotNo).padStart(2, "0")} 到 SH${String(candidate.target.shotNo).padStart(2, "0")} 的衔接`,
+    subject: `${sourceCode} 到 ${targetCode} 的衔接`,
     action: candidate.instruction,
     dialogue: "",
     shotType: "转场镜头",
@@ -674,8 +740,8 @@ function insertedTransitionShot(params: {
     sourceCardContent: inherited("sourceCardContent"),
     intent: "连接相邻镜头，同时保持人物、场景和画风连续",
     rationale: candidate.instruction,
-    videoStart: `继承 SH${String(candidate.source.shotNo).padStart(2, "0")} 当前画面的末帧`,
-    videoEnd: `准确落在 SH${String(candidate.target.shotNo).padStart(2, "0")} 当前画面的首帧`,
+    videoStart: `继承 ${sourceCode} 当前画面的末帧`,
+    videoEnd: `准确落在 ${targetCode} 当前画面的首帧`,
     transitionIn: candidate.instruction,
     transitionOut: "尾帧与下一镜当前主图一致，可直接硬切",
     videoPrompt: candidate.prompt,
@@ -823,7 +889,8 @@ async function finishAndApply(params: {
         retryable: Boolean(take.taskId),
       };
     }
-    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null = null;
+    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null =
+      null;
     const savedLastFrame = durableLastFramePath(take.id);
     let lastFramePath = await editingTransitionRuntime.findDurableLastFrame(
       take.id
@@ -838,7 +905,10 @@ async function finishAndApply(params: {
         frames.lastFrame.path
       );
     }
-    const rawPath = path.join(localVideoDir(), `take-${take.id}.vidu-source.mp4`);
+    const rawPath = path.join(
+      localVideoDir(),
+      `take-${take.id}.vidu-source.mp4`
+    );
     try {
       await downloadVideoToFile(params.providerVideoUrl, rawPath);
       await hardCutToLastFrame({
@@ -884,7 +954,10 @@ async function finishAndApply(params: {
       take = await patchTake(
         take,
         params.userId,
-        { status: "failed", errorMessage: error instanceof Error ? error.message : "视频落盘失败" },
+        {
+          status: "failed",
+          errorMessage: error instanceof Error ? error.message : "视频落盘失败",
+        },
         { generationState: "postprocess_failed" }
       );
       return {
@@ -933,9 +1006,14 @@ async function finishAndApply(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "衔接镜头插入失败";
-    await patchTake(take, params.userId, { errorMessage: message }, {
-      appliedToTimeline: false,
-    });
+    await patchTake(
+      take,
+      params.userId,
+      { errorMessage: message },
+      {
+        appliedToTimeline: false,
+      }
+    );
     return {
       status: "error",
       error: message,
@@ -1002,8 +1080,7 @@ async function runConfirmation(
   const snapshot = currentSnapshot(take);
   if (
     !take.taskId &&
-    (take.status === "unfollowable" ||
-      snapshot.submissionState === "unknown")
+    (take.status === "unfollowable" || snapshot.submissionState === "unknown")
   ) {
     return {
       status: "error",
@@ -1035,7 +1112,8 @@ async function runConfirmation(
         taskId: take.taskId ?? undefined,
       };
     }
-    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null = null;
+    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null =
+      null;
     try {
       candidate = await validateBeforePaidSubmission(candidate, userId);
       frames = await editingTransitionRuntime.prepareCandidateFrames(
@@ -1122,7 +1200,7 @@ async function runConfirmation(
         status: "error",
         error: unknown
           ? `${take.errorMessage}；为避免重复扣费已禁止自动重提。`
-          : take.errorMessage ?? "302 衔接视频提交失败",
+          : (take.errorMessage ?? "302 衔接视频提交失败"),
         takeId: take.id,
         retryable: !unknown,
         submissionUnknown: unknown,

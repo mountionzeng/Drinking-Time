@@ -1,7 +1,9 @@
 import type { SelectionContext } from "@shared/selectionContext";
+import { displayShotCode } from "@shared/shotIdentity";
 
 type SelectionShot = {
   shotNo: number;
+  cueCode?: string | null;
   shotKey?: string | null;
   stableShotId?: string | null;
   shotIdentity?: string | null;
@@ -41,7 +43,7 @@ function stableShotId(shot: SelectionShot): string | null {
 }
 
 function shotLabel(shot: SelectionShot): string {
-  return shot.shotKey?.trim() || `SH${String(shot.shotNo).padStart(2, "0")}`;
+  return displayShotCode(shot);
 }
 
 function shotContext(shot: SelectionShot): string {
@@ -73,6 +75,7 @@ export function buildImageRegionSelection(input: {
     storyId: input.storyId,
     stableShotId: shotId,
     shotNo: input.shot.shotNo,
+    cueCode: input.shot.cueCode ?? null,
     imageId,
   };
 }
@@ -116,6 +119,7 @@ export function buildVideoRangeSelection(input: {
     storyId: input.storyId,
     stableShotId: stableShotId(input.shot),
     shotNo: input.shot.shotNo,
+    cueCode: input.shot.cueCode ?? null,
     videoTakeId: input.takeId,
     rangeId: input.rangeId ?? null,
   };
@@ -142,6 +146,7 @@ export function buildVideoFrameRegionSelection(input: {
     storyId: input.storyId,
     stableShotId: stableShotId(input.shot),
     shotNo: input.shot.shotNo,
+    cueCode: input.shot.cueCode ?? null,
     videoTakeId: input.takeId,
   };
 }

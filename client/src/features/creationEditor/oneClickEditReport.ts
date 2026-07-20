@@ -5,6 +5,7 @@ import {
   type VideoTargetAspectRatio,
 } from "@shared/videoConform";
 import type { CreationEditorShot } from "./CreationEditorContext";
+import { displayShotCode } from "@shared/shotIdentity";
 
 export const ONE_CLICK_TARGET_ASPECT_RATIOS = VIDEO_TARGET_ASPECT_RATIOS;
 
@@ -29,6 +30,7 @@ export type OneClickShotIssue = {
 
 export type OneClickShotCheck = {
   shotNo: number;
+  cueCode: string | null;
   stableShotId: string;
   sceneKey: string;
   sceneLabel: string;
@@ -86,7 +88,7 @@ export type OneClickAnchorCandidate = {
   source: "prompt" | "reference" | "current_image";
 };
 
-function shotLabel(shotNo: number) {
+function legacyShotLabel(shotNo: number) {
   return `SH${String(shotNo).padStart(2, "0")}`;
 }
 
@@ -95,7 +97,7 @@ function stableShotId(shot: CreationEditorShot, index: number): string {
     shot.stableShotId ??
     shot.shotIdentity ??
     shot.shotKey ??
-    `legacy-${shotLabel(shot.shotNo || index + 1)}`
+    `legacy-${legacyShotLabel(shot.shotNo || index + 1)}`
   );
 }
 
@@ -295,11 +297,12 @@ export function buildOneClickEditReport(input: {
 
     return {
       shotNo: shot.shotNo,
+      cueCode: shot.cueCode?.trim() || null,
       stableShotId: shotId,
       sceneKey:
         sceneNo || (inheritsScene ? inheritedSceneKey : "未分场"),
       sceneLabel: sceneLabel || inheritedSceneLabel,
-      title: shot.subject || shot.action || shotLabel(shot.shotNo),
+      title: shot.subject || shot.action || displayShotCode(shot),
       dialogue: shot.dialogue || shot.action || shot.visualAnchorText || "",
       cameraMove: shot.cameraMove?.trim() ?? "",
       imageUrl,
@@ -378,7 +381,7 @@ export function collectOneClickAnchorCandidates(
       const id = `${role}:image:${check.shotNo}`;
       candidates.set(id, {
         id,
-        label: `${shotLabel(check.shotNo)} 当前首帧`,
+        label: `${displayShotCode(check)} 当前首帧`,
         imageUrl: check.imageUrl,
         shotNo: check.shotNo,
         source: "current_image",

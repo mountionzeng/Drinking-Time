@@ -109,6 +109,7 @@ export function buildStoryboardDraftPrompt(
   const ctx: PromptContext = {
     shot: {
       shotNo: shot.shotNo,
+      cueCode: clean(shot.cueCode),
       subject: clean(shot.subject),
       action: clean(shot.action),
       location: clean(shot.location),
@@ -162,6 +163,7 @@ export async function generateStoryboardDraftFrames(params: {
       const previousShot: PromptPreviousShot | undefined = previous
         ? {
             shotNo: previous.shotNo,
+            cueCode: clean(previous.cueCode),
             finalPrompt: buildStoryboardDraftPrompt(previous),
             subject: clean(previous.subject),
             mood: clean(previous.mood),

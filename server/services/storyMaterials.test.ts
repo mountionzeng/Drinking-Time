@@ -325,7 +325,7 @@ describe("getStoryMaterialState", () => {
     );
   });
 
-  it("projects selected reusable takes back onto matching current story shots", async () => {
+  it("keeps reusable takes out of current story shots until explicitly reused", async () => {
     const currentStory = await createStory({
       userId: 1,
       projectId: null,
@@ -385,17 +385,14 @@ describe("getStoryMaterialState", () => {
       shot => shot.stableShotId === "manual-sh02-extra"
     );
 
-    expect(legacyShot?.currentVideo).toMatchObject({
-      id: selectedTake.id,
-      storyId: oldStory.id,
-      stableShotId: "genji-s02",
-      isTimelineSelected: true,
-      videoUrl: "/api/videos/take-selected.mp4",
-    });
-    expect(legacyShot?.videoTakes.map(item => item.id)).toContain(
+    expect(legacyShot?.currentVideo).toBeNull();
+    expect(legacyShot?.videoTakes.map(item => item.id)).not.toContain(
       selectedTake.id
     );
     expect(manualShot?.videoTakes.map(item => item.id)).not.toContain(
+      selectedTake.id
+    );
+    expect(materials?.reusableVideoTakes.map(item => item.id)).toContain(
       selectedTake.id
     );
   });

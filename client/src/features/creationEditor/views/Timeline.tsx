@@ -17,6 +17,7 @@ import {
   shotTimelineDurationMs,
   videoTakeAffordance,
 } from "../videoAssetViewModel";
+import { displayShotCode } from "@shared/shotIdentity";
 
 export type TimelinePlaybackMode = "timeline" | "single";
 
@@ -36,7 +37,7 @@ type TimelineProps = {
 };
 
 function shotLabel(shot: CreationEditorShot) {
-  return shot.shotKey || `SH${String(shot.shotNo).padStart(2, "0")}`;
+  return displayShotCode(shot);
 }
 
 function durationFor(

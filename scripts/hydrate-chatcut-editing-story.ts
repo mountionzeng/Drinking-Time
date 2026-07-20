@@ -19,6 +19,10 @@ const THIRD_ACT_VIDEO_DIR =
 const V02_DIR = "/Users/yuandai/Desktop/V02";
 const DOWNLOADS_DIR = "/Users/yuandai/Downloads";
 
+function firstExistingPath(...candidates: string[]) {
+  return candidates.find(candidate => existsSync(candidate)) ?? candidates[0];
+}
+
 const SOURCE_FILES: Record<string, string> = {
   "A_closeup_of_202512212021_6ftdp.mp4": path.join(
     FIRST_ACT_VIDEO_DIR,
@@ -37,14 +41,28 @@ const SOURCE_FILES: Record<string, string> = {
     "Long_shot_slow_202512251546_p5i.mp4"
   ),
   "ameropi87_recreate_the_uploaded_reference_scene_as_closely_as_p_32baeae7-3331-48aa-a4e9-9886a1ea7bd9.webp":
-    path.join(
-      V02_DIR,
-      "ameropi87_recreate_the_uploaded_reference_scene_as_closely_as_p_32baeae7-3331-48aa-a4e9-9886a1ea7bd9.webp"
+    firstExistingPath(
+      path.join(
+        V02_DIR,
+        "ameropi87_recreate_the_uploaded_reference_scene_as_closely_as_p_32baeae7-3331-48aa-a4e9-9886a1ea7bd9.webp"
+      ),
+      path.join(
+        V02_DIR,
+        "1",
+        "ameropi87_recreate_the_uploaded_reference_scene_as_closely_as_p_32baeae7-3331-48aa-a4e9-9886a1ea7bd9.webp"
+      )
     ),
   "ameropi87_None_26e48eb7-51ee-4d7c-81f5-0799ffa56bf7.webp":
-    path.join(
-      V02_DIR,
-      "ameropi87_None_26e48eb7-51ee-4d7c-81f5-0799ffa56bf7.webp"
+    firstExistingPath(
+      path.join(
+        V02_DIR,
+        "ameropi87_None_26e48eb7-51ee-4d7c-81f5-0799ffa56bf7.webp"
+      ),
+      path.join(
+        V02_DIR,
+        "1",
+        "ameropi87_None_26e48eb7-51ee-4d7c-81f5-0799ffa56bf7.webp"
+      )
     ),
   "c65ffb57-a62b-4a03-ae43-681ba8e923a5_2_720_N.mp4": path.join(
     DOWNLOADS_DIR,
@@ -89,14 +107,28 @@ const SOURCE_FILES: Record<string, string> = {
     "071095a4-d082-4784-9b8a-64dd0670703b.png"
   ),
   "ameropi87_a_vast_establishing_view_from_deep_inside_the_forest__c73a57ab-1301-469f-8a46-183f903013cc.webp":
-    path.join(
-      V02_DIR,
-      "ameropi87_a_vast_establishing_view_from_deep_inside_the_forest__c73a57ab-1301-469f-8a46-183f903013cc.webp"
+    firstExistingPath(
+      path.join(
+        V02_DIR,
+        "ameropi87_a_vast_establishing_view_from_deep_inside_the_forest__c73a57ab-1301-469f-8a46-183f903013cc.webp"
+      ),
+      path.join(
+        V02_DIR,
+        "1",
+        "ameropi87_a_vast_establishing_view_from_deep_inside_the_forest__c73a57ab-1301-469f-8a46-183f903013cc.webp"
+      )
     ),
   "ameropi87_extreme_close-up_from_a_low_side_angle_the_same_woman_3c1e79ec-6602-4fe9-bba6-26a572644195.webp":
-    path.join(
-      V02_DIR,
-      "ameropi87_extreme_close-up_from_a_low_side_angle_the_same_woman_3c1e79ec-6602-4fe9-bba6-26a572644195.webp"
+    firstExistingPath(
+      path.join(
+        V02_DIR,
+        "ameropi87_extreme_close-up_from_a_low_side_angle_the_same_woman_3c1e79ec-6602-4fe9-bba6-26a572644195.webp"
+      ),
+      path.join(
+        V02_DIR,
+        "1",
+        "ameropi87_extreme_close-up_from_a_low_side_angle_the_same_woman_3c1e79ec-6602-4fe9-bba6-26a572644195.webp"
+      )
     ),
 };
 
@@ -320,6 +352,7 @@ async function main() {
   let restored = 0;
   let videosCreated = 0;
   let videosRestored = 0;
+  let videosAdopted = 0;
   const missing: string[] = [];
 
   for (let index = 0; index < primaryClips.length; index += 1) {
@@ -344,6 +377,19 @@ async function main() {
       )
       .sort((left, right) => numberValue(right.id) - numberValue(left.id))[0];
     if (existing) {
+      const assigned = asRecord(
+        await trpcMutation("creationAgent.assignStoryImageToShot", {
+          storyId: STORY_ID,
+          imageId: numberValue(existing.id),
+          targetStableShotId: shotIdentity,
+        })
+      );
+      if (assigned.status !== "ok") {
+        throw new Error(
+          stringValue(assigned.error) ||
+            `${canonicalShotNo(shotNo)} 代理帧恢复失败`
+        );
+      }
       restored += 1;
       continue;
     }
@@ -376,19 +422,6 @@ async function main() {
           `${canonicalShotNo(shotNo)} 代理帧导入失败`
       );
     }
-    const assigned = asRecord(
-      await trpcMutation("creationAgent.assignStoryImageToShot", {
-        storyId: STORY_ID,
-        imageId: numberValue(imported.imageId),
-        targetStableShotId: shotIdentity,
-      })
-    );
-    if (assigned.status !== "ok") {
-      throw new Error(
-        stringValue(assigned.error) ||
-          `${canonicalShotNo(shotNo)} 代理帧关联失败`
-      );
-    }
     created += 1;
   }
 
@@ -411,13 +444,37 @@ async function main() {
     const videoTakes = Array.isArray(materialShot?.videoTakes)
       ? materialShot.videoTakes.map(asRecord)
       : [];
-    const existingVideo = videoTakes.some(
-      take =>
-        take.status === "available" &&
-        stringValue(take.prompt).startsWith(VIDEO_PROMPT_PREFIX)
+    const existingVideo = videoTakes
+      .filter(
+        take =>
+          take.status === "available" &&
+          stringValue(take.prompt).startsWith(VIDEO_PROMPT_PREFIX)
+      )
+      .sort((left, right) => numberValue(right.id) - numberValue(left.id))[0];
+    const plannedDurationSec = Math.min(
+      30,
+      Math.max(
+        0.1,
+        (numberValue(clip.endFrame) - numberValue(clip.startFrame)) / fps
+      )
     );
     if (existingVideo) {
+      const adopted = asRecord(
+        await trpcMutation("creationAgent.adoptVideoTake", {
+          storyId: STORY_ID,
+          stableShotId: shotIdentity,
+          takeId: numberValue(existingVideo.id),
+          plannedDurationSec,
+        })
+      );
+      if (adopted.status !== "ok") {
+        throw new Error(
+          stringValue(adopted.error) ||
+            `${canonicalShotNo(shotNo)} 原视频恢复失败`
+        );
+      }
       videosRestored += 1;
+      videosAdopted += 1;
       continue;
     }
 
@@ -437,7 +494,22 @@ async function main() {
           `${canonicalShotNo(shotNo)} 原视频导入失败`
       );
     }
+    const adopted = asRecord(
+      await trpcMutation("creationAgent.adoptVideoTake", {
+        storyId: STORY_ID,
+        stableShotId: shotIdentity,
+        takeId: numberValue(imported.takeId),
+        plannedDurationSec,
+      })
+    );
+    if (adopted.status !== "ok") {
+      throw new Error(
+        stringValue(adopted.error) ||
+          `${canonicalShotNo(shotNo)} 原视频采用失败`
+      );
+    }
     videosCreated += 1;
+    videosAdopted += 1;
   }
 
   console.log(
@@ -452,6 +524,7 @@ async function main() {
         proxyFramesRestored: restored,
         videosCreated,
         videosRestored,
+        videosAdopted,
         missingSources: Array.from(new Set(missing)),
       },
       null,

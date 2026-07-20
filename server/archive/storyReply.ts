@@ -83,6 +83,33 @@ async function detectVisualCorrection(
   }
 }
 
+export function historyBeforeCurrentMessage(
+  history: readonly ChatTurn[] | undefined,
+  currentMessage: string,
+): ChatTurn[] {
+  const current = currentMessage.trim();
+  const cleaned = (history ?? [])
+    .filter(turn => turn.content?.trim())
+    .map(turn => ({ role: turn.role, content: turn.content.trim() }));
+  while (
+    current &&
+    cleaned[cleaned.length - 1]?.role === "user" &&
+    cleaned[cleaned.length - 1]?.content === current
+  ) {
+    cleaned.pop();
+  }
+  return cleaned;
+}
+
+export function isReadOnlyStoryChatRequest(message: string): boolean {
+  const normalized = message.replace(/\s+/g, "");
+  if (!normalized) return false;
+  return [
+    /(?:先|暂时)?(?:不要|别)(?:直接|自动|先)?(?:修改|改动|执行|生成|覆盖|保存|入册|出卡|落库|操作)/,
+    /(?:只|仅)(?:需要|要|想)?(?:告诉我|回答|分析|判断|解释|给建议|提建议|看看)/,
+  ].some(pattern => pattern.test(normalized));
+}
+
 export async function replyFromStoryAgent(params: {
   message: string;
   history?: ChatTurn[];
@@ -103,6 +130,7 @@ export async function replyFromStoryAgent(params: {
   const similarCards = Array.isArray(params.similarCards)
     ? params.similarCards.slice(0, 3)
     : [];
+  const readOnlyRequest = isReadOnlyStoryChatRequest(params.message);
 
   if (!ENV.forgeApiKey) {
     return {
@@ -117,7 +145,10 @@ export async function replyFromStoryAgent(params: {
     };
   }
 
-  const cleanedHistory = (params.history ?? []).filter((t) => t.content?.trim());
+  const cleanedHistory = historyBeforeCurrentMessage(
+    params.history,
+    params.message,
+  );
 
   // userTurnNumber = 截至本轮（含本轮），用户一共说了第几次。
   // history 里的 user 条目数 + 1（即将到来的本轮）。
@@ -201,9 +232,11 @@ export async function replyFromStoryAgent(params: {
 
   // 回话和后台抽取没有数据依赖：并行发起，避免一轮对话串行等两次模型。
   const replyPromise = invokeAgent(messages, AGENT_MAX_TOKENS);
-  const extractionPromise = invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS)
-    .then((result) => ({ ok: true as const, result }))
-    .catch((error: unknown) => ({ ok: false as const, error }));
+  const extractionPromise = readOnlyRequest
+    ? null
+    : invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS)
+        .then((result) => ({ ok: true as const, result }))
+        .catch((error: unknown) => ({ ok: false as const, error }));
 
   // ── B 改造 · 第一步：回话（robust，纯人话，不背 JSON）──
   let text: string;
@@ -236,7 +269,7 @@ export async function replyFromStoryAgent(params: {
   let card: StoryCardPayload | null = null;
   let read: HumanityRead | null = null;
   const toolCalls: ToolCall[] = [];
-  try {
+  if (extractionPromise) try {
     const extractionResult = await extractionPromise;
     if (!extractionResult.ok) throw extractionResult.error;
     const { text: extractionText } = extractionResult.result;
@@ -316,7 +349,11 @@ export async function replyFromStoryAgent(params: {
   const suggestImage = toolCalls.some(tc => tc.name === "generateImage");
 
   // 矫正循环：检测用户消息中的视觉修正，写入 image_signals 供出图网关消费
-  if (params.userId != null && params.projectId != null) {
+  if (
+    !readOnlyRequest &&
+    params.userId != null &&
+    params.projectId != null
+  ) {
     detectVisualCorrection(params.message, cleanedHistory)
       .then(async (correction) => {
         if (!correction) return;

@@ -55,6 +55,11 @@ export type ViduTransitionCostEstimate = {
   totalPtc: number;
 };
 
+export type ViduTransitionCnyEstimate = {
+  currency: "CNY";
+  estimatedCny: number;
+};
+
 export type ViduSubmissionState = "not_submitted" | "unknown";
 
 export class ViduSubmissionError extends Error {
@@ -159,6 +164,25 @@ export function estimateViduQ2TransitionCost(input: {
     videoPtc: rounded(videoPtc),
     uploadPtc: rounded(uploadPtc),
     totalPtc: rounded(videoPtc + uploadPtc),
+  };
+}
+
+/**
+ * 与现有已确认的 2 秒 720p 双图报价 ¥0.35 保持同一人民币换算基线。
+ * 向上取分，避免界面确认金额低于提交时的服务端估算。
+ */
+export function estimateViduQ2TransitionCny(input: {
+  durationSec: number;
+  resolution: ViduQ2Resolution;
+  uploadCount?: number;
+}): ViduTransitionCnyEstimate {
+  const estimate = estimateViduQ2TransitionCost(input);
+  const referencePtc = 0.052;
+  const referenceCny = 0.35;
+  return {
+    currency: "CNY",
+    estimatedCny:
+      Math.ceil((estimate.totalPtc * referenceCny * 100) / referencePtc) / 100,
   };
 }
 

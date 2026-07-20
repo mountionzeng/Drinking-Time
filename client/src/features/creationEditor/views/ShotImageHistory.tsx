@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Check, Clock, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { canonicalizeShotNo } from "@shared/imageAsset";
+import { displayShotCode } from "@shared/shotIdentity";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useCreationEditor } from "../CreationEditorContext";
 import {
@@ -135,10 +135,9 @@ export default function ShotImageHistory({
         <div className="flex gap-2 overflow-x-auto pb-1">
           {sortedImages.map((img, index) => {
             const version = sortedImages.length - index;
-            const shotLabel =
-              canonicalizeShotNo(
-                img.canonicalShotNo ?? img.rawShotNo
-              ) ?? "SH??";
+            const shotLabel = displayShotCode(
+              selectedShot ?? { shotNo: selectedShotNo }
+            );
             const candidateVersion = candidateVersionById.get(img.id);
             const candidateSheet = candidateVersion != null;
             const inspecting = inspectedCandidateId === img.id;

@@ -160,17 +160,31 @@ export interface StoryShot {
   sceneTitle?: string;
   /** 该幕的美术参考标准，后续图片 / 视频渲染会作为场景库提示。 */
   sceneArtBrief?: string;
+  /** Stable script cue such as 0107. It does not change when shots reorder. */
+  cueCode?: string;
+  /** Optional act label kept separately from the display order. */
+  actNo?: string;
   subject: string;
   action: string;
+  performance?: string;
+  environmentMotion?: string;
   dialogue: string;
   shotType: string;
   beat: string;
   cameraAngle: string;
   cameraMove: string;
+  cameraHeight?: string;
+  lens?: string;
+  cameraPath?: string;
+  subjectPath?: string;
   location: string;
   timeLight: string;
+  lighting?: string;
+  colorPalette?: string;
+  materialTexture?: string;
   mood: string;
   sound: string;
+  soundBridge?: string;
   styleRef: string;
   note: string;
   emotion: string;
@@ -187,6 +201,7 @@ export interface StoryShot {
   transitionIn?: string;
   /** 给下一镜留下的视觉 / 动作 / 声音钩子。 */
   transitionOut?: string;
+  transitionIntent?: string;
   /** 可直接喂给图生视频模型的镜头运动提示词。 */
   videoPrompt?: string;
   /** 情绪电荷：本镜情绪 + beat 位置 + 与上一镜的流动 delta。 */
@@ -198,6 +213,20 @@ export interface StoryShot {
   /** 最终出图 prompt：视觉内容 + 情绪电荷 + 视觉锚。 */
   promptDraft?: string;
   negativePrompt?: string;
+  characterReference?: string;
+  wardrobeReference?: string;
+  hairReference?: string;
+  sceneReference?: string;
+  textureReference?: string;
+  generationModel?: string;
+  generationParams?: string;
+  chatCutMapping?: {
+    projectId?: string;
+    sequenceId?: string;
+    itemId?: string;
+    assetId?: string;
+    markerId?: string;
+  };
   /** 非纪念型意图下，本镜承担的观众理解 / 论证任务。 */
   narrativeJob?: NarrativeJob;
   /** 最近一次真实出图使用的最终提示词与引用信息。 */
@@ -410,7 +439,9 @@ export function normalizeChatMessages(
       const role =
         obj.role === "user" || obj.who === "u"
           ? "user"
-          : obj.role === "assistant" || obj.who === "s"
+          : obj.role === "assistant" ||
+              obj.who === "s" ||
+              obj.who === "a"
             ? "assistant"
             : null;
       const content = stringValue(obj.content) ?? stringValue(obj.text) ?? "";
@@ -455,12 +486,14 @@ export function normalizeChatMessages(
           };
         }
       }
-      message.editingTransitionCandidate =
-        normalizeEditingTransitionCandidate(obj.editingTransitionCandidate);
+      message.editingTransitionCandidate = normalizeEditingTransitionCandidate(
+        obj.editingTransitionCandidate
+      );
       return message;
     })
     .filter((m): m is ChatMessage => Boolean(m));
-  return converted.length > 0 ? converted : fallbackMessages;
+  const compacted = compactChatMessages(converted);
+  return compacted.length > 0 ? compacted : fallbackMessages;
 }
 
 export const FIRST_QUESTION =
@@ -476,6 +509,69 @@ export const OPENING_PREAMBLE =
 
 // emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
 export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;
+
+function compactMessageText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function isOpeningChatMessage(
+  message: Pick<ChatMessage, "id" | "content">
+): boolean {
+  const content = compactMessageText(message.content);
+  return (
+    message.id === "first-question" ||
+    content === compactMessageText(OPENING_MESSAGE) ||
+    (content.includes("你好，我是小酌") &&
+      content.includes("今天有没有一件很小的事"))
+  );
+}
+
+/**
+ * Older story projections could replay the same opening message many times
+ * with new ids and one shared timestamp. Compact only exact same-turn copies;
+ * an intentionally repeated sentence at a later time remains a real turn.
+ */
+export function compactChatMessages(
+  messages: readonly ChatMessage[]
+): ChatMessage[] {
+  const compacted: ChatMessage[] = [];
+  const seenExactTurn = new Set<string>();
+  let hasOpening = false;
+
+  for (const message of messages) {
+    if (isOpeningChatMessage(message)) {
+      if (hasOpening) continue;
+      hasOpening = true;
+      compacted.push({ ...message, role: "assistant" });
+      continue;
+    }
+    const key = [
+      message.role,
+      compactMessageText(message.content),
+      message.photoUrl ?? "",
+      String(message.timestamp),
+    ].join("\u0000");
+    if (seenExactTurn.has(key)) continue;
+    seenExactTurn.add(key);
+    compacted.push(message);
+  }
+
+  return compacted;
+}
+
+export function shouldShowReturningGreeting(
+  messages: readonly ChatMessage[]
+): boolean {
+  const meaningful = compactChatMessages(messages).filter(
+    message =>
+      !isOpeningChatMessage(message) &&
+      (message.content.trim().length > 0 || Boolean(message.photoUrl))
+  );
+  return (
+    meaningful.some(message => message.role === "user") &&
+    meaningful[meaningful.length - 1]?.role === "assistant"
+  );
+}
 
 // ── 第二步：召回 + 记忆承诺 ──
 // 老用户从「入口选择屏」点回一篇旧故事时，小酌说的「我还记得上次……」再问候。

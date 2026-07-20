@@ -9,7 +9,7 @@ import {
   type CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
-import { shotIdentityFromShot } from "@shared/shotIdentity";
+import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 
 export function currentStoryboardImages(
   shots: readonly CreationEditorShot[],
@@ -52,14 +52,19 @@ export default function StoryboardPanel({
     timelineShotIds,
     addShotToTimeline,
     updatePersistedShotField,
+    updatePersistedShotFields,
     insertPersistedShotAfter,
     generateShotVideo,
+    estimateStartEndShotVideo,
+    generateStartEndShotVideo,
     generatingVideoShotNo,
     refreshShotVideoStatus,
     markVideoTakeUnusable,
     moveVideoTake,
     adoptVideoTake,
     promoteFrameCrop,
+    importStoryMaterial,
+    analyzeShotVideoDirection,
     deletePersistedShot,
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
@@ -129,11 +134,12 @@ export default function StoryboardPanel({
           sourceId: imageId
             ? String(imageId)
             : `${Math.max(0, displayShots.indexOf(shot))}:subject`,
-          selectedText: fullText || `SH${String(shotNo).padStart(2, "0")}`,
-          fullText: fullText || `SH${String(shotNo).padStart(2, "0")}`,
+          selectedText: fullText || displayShotCode(shot),
+          fullText: fullText || displayShotCode(shot),
           storyId: activeStoryId,
           stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
           shotNo,
+          cueCode: shot.cueCode ?? null,
           imageId,
           objectVersion: imageId ? `image:${imageId}` : null,
           materialStatus: imageId ? "current-image" : "unknown",
@@ -183,11 +189,16 @@ export default function StoryboardPanel({
       }}
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
+      onEstimateStartEndShotVideo={estimateStartEndShotVideo}
+      onGenerateStartEndShotVideo={generateStartEndShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
       onMarkVideoTakeUnusable={markVideoTakeUnusable}
       onMoveVideoTake={moveVideoTake}
       onAdoptVideoTake={adoptVideoTake}
       onPromoteFrameCrop={promoteFrameCrop}
+      onImportStoryMaterial={importStoryMaterial}
+      onAnalyzeShotVideoDirection={analyzeShotVideoDirection}
+      onUpdateShotFields={updatePersistedShotFields}
       promotingFrameCropShotNo={promotingFrameCropShotNo}
       shotVideoProviderStatus={shotVideoProviderStatus}
       defaultViewMode={defaultViewMode}

@@ -50,12 +50,13 @@ describe("chatMediaAttachments", () => {
         fileName: "bird.mp4",
         assetId: 30,
         targetShotNo: 7,
+        targetCueCode: "0207",
       },
     ]);
 
     expect(prompt).toContain("帮我整理一下");
     expect(prompt).toContain("forest.png（图片 #12，待归类）");
-    expect(prompt).toContain("bird.mp4（Take #30，暂放 SH07）");
+    expect(prompt).toContain("bird.mp4（Take #30，暂放 0207）");
     expect(prompt).toContain("先给建议，不要自动覆盖已有时间线");
   });
 });

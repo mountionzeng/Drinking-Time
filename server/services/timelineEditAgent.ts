@@ -22,6 +22,10 @@ import {
   transitionVideoFrameTime,
   transitionVideoWindow,
 } from "./videoEndpointFrames";
+import {
+  displayShotCode,
+  promptShotCode,
+} from "../../shared/shotIdentity";
 
 export type TimelineEditSelectionContext = {
   stableShotId?: string | null;
@@ -443,7 +447,7 @@ export async function runTimelineEditCommand(params: {
       shot?.currentVideo?.subtitle || shot?.currentImage?.prompt || "";
     const seconds = (item.plannedDurationMs / 1000).toFixed(1);
     return [
-      `${index + 1}. SH${String(shot?.shotNo ?? index + 1).padStart(2, "0")}`,
+      `${index + 1}. ${promptShotCode(shot ?? { shotNo: index + 1 })}`,
       `${seconds}秒`,
       item.included ? "在轴上" : "已移除",
       line ? line.slice(0, 30) : "",
@@ -510,7 +514,11 @@ export async function runTimelineEditCommand(params: {
     });
     if (!built.proposal) {
       const missing = built.missingShotNos
-        .map(shotNo => `SH${String(shotNo).padStart(2, "0")}`)
+        .map(shotNo =>
+          displayShotCode(
+            material.shots.find(shot => shot.shotNo === shotNo) ?? { shotNo }
+          )
+        )
         .join("、");
       return {
         handled: true,
@@ -520,7 +528,13 @@ export async function runTimelineEditCommand(params: {
     }
     return {
       handled: true,
-      reply: `我已锁定 SH${String(built.proposal.source.shotNo).padStart(2, "0")} → SH${String(built.proposal.target.shotNo).padStart(2, "0")}。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计 10 credits（约 ¥0.35）。`,
+      reply: `我已锁定 ${displayShotCode(
+        byIdentity.get(built.proposal.source.stableShotId) ??
+          built.proposal.source
+      )} → ${displayShotCode(
+        byIdentity.get(built.proposal.target.stableShotId) ??
+          built.proposal.target
+      )}。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 ¥0.35。`,
       appliedCount: 0,
       proposal: built.proposal,
     };

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildReturningGreeting } from './types';
+import {
+  OPENING_MESSAGE,
+  buildReturningGreeting,
+  shouldShowReturningGreeting,
+} from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 第二步：召回 + 记忆承诺 —— 老用户点回旧故事时小酌「我还记得上次……」再问候的文案契约。
@@ -87,5 +91,45 @@ describe('buildReturningGreeting (第二步：召回 + 记忆承诺)', () => {
       // 但必须真的表达出「记着 / 还在」这层召回感，否则失去记忆承诺的意义
       expect(/记|留着|还在/.test(t)).toBe(true);
     }
+  });
+});
+
+describe('shouldShowReturningGreeting', () => {
+  it('最新一条是真实用户请求时不插入续聊问候', () => {
+    expect(
+      shouldShowReturningGreeting([
+        {
+          id: 'first-question',
+          role: 'assistant',
+          content: OPENING_MESSAGE,
+          timestamp: 1,
+        },
+        {
+          id: 'pending-user',
+          role: 'user',
+          content: '0301 改成这张图，先帮我判断怎么衔接。',
+          timestamp: 2,
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it('上次对话已由小酌回复完时允许显示续聊问候', () => {
+    expect(
+      shouldShowReturningGreeting([
+        {
+          id: 'user',
+          role: 'user',
+          content: '这张图适合哪一幕？',
+          timestamp: 1,
+        },
+        {
+          id: 'assistant',
+          role: 'assistant',
+          content: '更适合第三幕向下走的段落。',
+          timestamp: 2,
+        },
+      ]),
+    ).toBe(true);
   });
 });

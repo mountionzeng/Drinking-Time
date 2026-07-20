@@ -217,6 +217,8 @@ export function buildPromptTable(
     }
     return {
       shotNo: previousShot.shotNo,
+      cueCode: previousShot.cueCode,
+      shotKey: previousShot.shotKey,
       rows: previousRows,
     };
   });

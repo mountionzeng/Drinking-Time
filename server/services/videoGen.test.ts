@@ -56,6 +56,7 @@ describe("generateShotVideo", () => {
       motion: "high",
       promptDirectorModel: "gpt-5.4-nano-2026-03-17",
       promptDirectorReady: true,
+      outputAspectRatio: "1:1",
     });
   });
 

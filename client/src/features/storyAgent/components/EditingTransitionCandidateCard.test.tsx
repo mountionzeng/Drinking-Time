@@ -9,8 +9,8 @@ import EditingTransitionCandidateCard, {
 vi.stubGlobal("React", React);
 
 const baseCandidate: EditingTransitionCandidate = {
-  sourceShotNo: 4,
-  targetShotNo: "SH05",
+  sourceShotNo: "0104",
+  targetShotNo: "0105",
   firstImageUrl: "https://example.com/first.webp",
   lastImageUrl: "https://example.com/last.webp",
   instruction: "女性快速转身，直接切到回望镜头，人物与场景不要变化。",
@@ -41,12 +41,12 @@ describe("EditingTransitionCandidateCard", () => {
   it("shows the locked shot pair, generation spec, cost and paid confirmation boundary", () => {
     const html = renderCandidate();
 
-    expect(html).toContain("SH04 → SH05");
+    expect(html).toContain("0104 → 0105");
     expect(html).toContain("女性快速转身");
     expect(html).toContain("2 秒");
     expect(html).toContain("720P");
     expect(html).toContain("Vidu Q2");
-    expect(html).toContain("10 credits");
+    expect(html).not.toContain("credits");
     expect(html).toContain("¥0.35");
     expect(html).toContain("确认后才会提交 302");
     expect(html).toContain("确认并生成");

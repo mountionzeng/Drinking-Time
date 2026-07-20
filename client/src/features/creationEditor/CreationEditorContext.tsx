@@ -62,6 +62,8 @@ import {
   type ChatCutTimelineManifest,
 } from "./chatCutTimeline";
 import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
+import type { ShotDirectorResult, ShotVideoMotion } from "@shared/shotDirector";
+import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
 
 export type CreationEditorStory = {
   id: number;
@@ -196,6 +198,10 @@ type CreationEditorContextValue = {
     field: StoryShotEditableField,
     value: string
   ) => Promise<void>;
+  updatePersistedShotFields: (
+    stableShotId: string,
+    patch: Partial<Record<StoryShotEditableField, string>>
+  ) => Promise<void>;
   insertPersistedShotAfter: (
     stableShotId: string,
     dialogue?: string
@@ -240,6 +246,12 @@ type CreationEditorContextValue = {
     targetStableShotId?: string | null;
     note?: string;
   }) => Promise<ImportedStoryMaterialResult>;
+  attachChatCutXml: (xml: string) => Promise<{
+    primaryClipCount: number;
+    audioClipCount: number;
+    width: number;
+    height: number;
+  }>;
   adviseStoryImages: (input: {
     imageIds: number[];
   }) => Promise<StoryImageAdviceResult>;
@@ -256,14 +268,44 @@ type CreationEditorContextValue = {
     prompt: string;
     subtitle?: string;
     durationSec?: number;
-    motion?: "low" | "high";
+    motion?: ShotVideoMotion;
+    aspectRatio?: "1:1";
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
   }) => Promise<{
     takeId: number;
     videoStatus: VideoTakeStatus;
     videoUrl?: string;
     taskId?: string;
     prompt: string;
+    estimatedCny: number;
   }>;
+  estimateStartEndShotVideo: (
+    stableShotId: string
+  ) => Promise<StartEndShotVideoEstimate>;
+  generateStartEndShotVideo: (input: {
+    shotNo: number;
+    stableShotId: string;
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
+  }) => Promise<{
+    takeId: number;
+    videoStatus: VideoTakeStatus;
+    videoUrl?: string;
+    taskId?: string;
+    prompt: string;
+    estimatedCny: number;
+  }>;
+  analyzeShotVideoDirection: (input: {
+    shotNo: number;
+    stableShotId: string;
+    draftPrompt: string;
+    subtitle?: string;
+  }) => Promise<ShotDirectorResult>;
   conformVideoTakes: (input: {
     items: Array<{
       takeId: number;
@@ -579,17 +621,29 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     sceneNo: stringValue(obj.sceneNo) || undefined,
     sceneTitle: stringValue(obj.sceneTitle) || undefined,
     sceneArtBrief: stringValue(obj.sceneArtBrief) || undefined,
+    cueCode: stringValue(obj.cueCode) || undefined,
+    actNo: stringValue(obj.actNo) || undefined,
     subject: stringValue(obj.subject),
     action: stringValue(obj.action),
+    performance: stringValue(obj.performance) || undefined,
+    environmentMotion: stringValue(obj.environmentMotion) || undefined,
     dialogue: stringValue(obj.dialogue),
     shotType: stringValue(obj.shotType),
     beat: stringValue(obj.beat),
     cameraAngle: stringValue(obj.cameraAngle),
     cameraMove: stringValue(obj.cameraMove),
+    cameraHeight: stringValue(obj.cameraHeight) || undefined,
+    lens: stringValue(obj.lens) || undefined,
+    cameraPath: stringValue(obj.cameraPath) || undefined,
+    subjectPath: stringValue(obj.subjectPath) || undefined,
     location: stringValue(obj.location),
     timeLight: stringValue(obj.timeLight),
+    lighting: stringValue(obj.lighting) || undefined,
+    colorPalette: stringValue(obj.colorPalette) || undefined,
+    materialTexture: stringValue(obj.materialTexture) || undefined,
     mood: stringValue(obj.mood),
     sound: stringValue(obj.sound),
+    soundBridge: stringValue(obj.soundBridge) || undefined,
     styleRef: stringValue(obj.styleRef),
     note: stringValue(obj.note),
     emotion: stringValue(obj.emotion),
@@ -600,12 +654,26 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     videoEnd: stringValue(obj.videoEnd) || undefined,
     transitionIn: stringValue(obj.transitionIn) || undefined,
     transitionOut: stringValue(obj.transitionOut) || undefined,
+    transitionIntent: stringValue(obj.transitionIntent) || undefined,
     videoPrompt: stringValue(obj.videoPrompt) || undefined,
     emotionCharge: stringValue(obj.emotionCharge) || undefined,
     emotionDelta: stringValue(obj.emotionDelta) || undefined,
     visualAnchorText: stringValue(obj.visualAnchorText) || undefined,
     promptDraft: stringValue(obj.promptDraft) || undefined,
     negativePrompt: stringValue(obj.negativePrompt) || undefined,
+    characterReference: stringValue(obj.characterReference) || undefined,
+    wardrobeReference: stringValue(obj.wardrobeReference) || undefined,
+    hairReference: stringValue(obj.hairReference) || undefined,
+    sceneReference: stringValue(obj.sceneReference) || undefined,
+    textureReference: stringValue(obj.textureReference) || undefined,
+    generationModel: stringValue(obj.generationModel) || undefined,
+    generationParams: stringValue(obj.generationParams) || undefined,
+    chatCutMapping:
+      obj.chatCutMapping &&
+      typeof obj.chatCutMapping === "object" &&
+      !Array.isArray(obj.chatCutMapping)
+        ? (obj.chatCutMapping as CreationEditorShot["chatCutMapping"])
+        : undefined,
     durationMs:
       typeof obj.durationMs === "number" && Number.isFinite(obj.durationMs)
         ? obj.durationMs
@@ -1091,6 +1159,8 @@ export function CreationEditorProvider({
     refetchOnWindowFocus: false,
   });
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const updateStoryShotFieldsMut =
+    trpc.storyAgent.updateStoryShotFields.useMutation();
   const insertStoryShotAfterMut =
     trpc.storyAgent.insertStoryShotAfter.useMutation();
   const deleteStoryShotMut = trpc.storyAgent.deleteStoryShot.useMutation();
@@ -1102,12 +1172,18 @@ export function CreationEditorProvider({
     trpc.creationAgent.assignStoryImageToShot.useMutation();
   const importStoryMaterialMut =
     trpc.creationAgent.importStoryMaterial.useMutation();
+  const attachChatCutXmlMut = trpc.storyAgent.attachChatCutXml.useMutation();
   const adviseStoryImagesMut =
     trpc.creationAgent.adviseStoryImages.useMutation();
-  const applyImageAdviceMut =
-    trpc.creationAgent.applyImageAdvice.useMutation();
+  const applyImageAdviceMut = trpc.creationAgent.applyImageAdvice.useMutation();
   const generateShotVideoMut =
     trpc.creationAgent.generateShotVideo.useMutation();
+  const estimateStartEndShotVideoMut =
+    trpc.creationAgent.estimateStartEndShotVideo.useMutation();
+  const submitStartEndShotVideoMut =
+    trpc.creationAgent.submitStartEndShotVideo.useMutation();
+  const analyzeShotVideoDirectionMut =
+    trpc.creationAgent.analyzeShotVideoDirection.useMutation();
   const conformVideoTakesMut =
     trpc.creationAgent.conformVideoTakes.useMutation();
   const analyzeShotConsistencyMut =
@@ -1431,29 +1507,57 @@ export function CreationEditorProvider({
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
   };
 
+  const updatePersistedShotFields = async (
+    stableShotId: string,
+    patch: Partial<Record<StoryShotEditableField, string>>
+  ) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法保存镜头");
+    const result = await updateStoryShotFieldsMut.mutateAsync({
+      storyId: activeId,
+      stableShotId,
+      patch,
+    });
+    if (result.status !== "ok" || !result.story) {
+      throw new Error(
+        result.status === "error" ? result.error : "镜头保存失败"
+      );
+    }
+    const savedBody =
+      result.story.body &&
+      typeof result.story.body === "object" &&
+      !Array.isArray(result.story.body)
+        ? (result.story.body as Record<string, unknown>)
+        : null;
+    const savedShots = Array.isArray(savedBody?.shots) ? savedBody.shots : [];
+    const savedShot = savedShots.find((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+      return shotIdentityFromShot(raw, index) === stableShotId;
+    }) as Record<string, unknown> | undefined;
+    const confirmed =
+      savedShot &&
+      Object.entries(patch).every(
+        ([field, value]) => savedShot[field] === value
+      );
+    if (!confirmed) {
+      throw new Error("服务器没有确认镜头字段，已保留为未保存状态");
+    }
+    setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    if (typeof result.story.revision === "number") {
+      setSpineServerRevision(result.story.revision);
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+  };
+
   const updatePersistedShotField = async (
     stableShotId: string,
     field: StoryShotEditableField,
     value: string
-  ) => {
-    const body =
-      storyQuery.data?.body &&
-      typeof storyQuery.data.body === "object" &&
-      !Array.isArray(storyQuery.data.body)
-        ? (storyQuery.data.body as Record<string, unknown>)
-        : {};
-    const source = Array.isArray(body.shots) ? body.shots : [];
-    let found = false;
-    const nextShots = source.map((raw, index) => {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-      const shot = raw as Record<string, unknown>;
-      if (shotIdentityFromShot(shot, index) !== stableShotId) return raw;
-      found = true;
-      return { ...shot, [field]: value };
-    });
-    if (!found) throw new Error("镜头不存在或已经更新");
-    await persistBody({ ...body, shots: nextShots });
-  };
+  ) => updatePersistedShotFields(stableShotId, { [field]: value });
 
   const insertPersistedShotAfter = async (
     stableShotId: string,
@@ -1812,6 +1916,26 @@ export function CreationEditorProvider({
     };
   };
 
+  const attachChatCutXml = async (xml: string) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法同步 ChatCut XML");
+    const result = await attachChatCutXmlMut.mutateAsync({
+      storyId: activeId,
+      xml,
+    });
+    await Promise.all([
+      storyQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      storyListQuery.refetch(),
+      utils.storyAgent.storyList.invalidate(),
+    ]);
+    return {
+      primaryClipCount: result.summary.primaryClipCount,
+      audioClipCount: result.summary.audioClipCount,
+      width: result.summary.width,
+      height: result.summary.height,
+    };
+  };
+
   const adviseStoryImages = async (input: {
     imageIds: number[];
   }): Promise<StoryImageAdviceResult> => {
@@ -1851,7 +1975,12 @@ export function CreationEditorProvider({
     prompt: string;
     subtitle?: string;
     durationSec?: number;
-    motion?: "low" | "high";
+    motion?: ShotVideoMotion;
+    aspectRatio?: "1:1";
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
     setGeneratingVideoShotNo(input.shotNo);
@@ -1875,10 +2004,76 @@ export function CreationEditorProvider({
         videoUrl: result.videoUrl,
         taskId: result.taskId,
         prompt: result.prompt,
+        estimatedCny: result.estimatedCny,
       };
     } finally {
       setGeneratingVideoShotNo(null);
     }
+  };
+
+  const estimateStartEndShotVideo = async (
+    stableShotId: string
+  ): Promise<StartEndShotVideoEstimate> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法估算视频费用");
+    const result = await estimateStartEndShotVideoMut.mutateAsync({
+      storyId: activeId,
+      stableShotId,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "首尾帧视频报价失败");
+    }
+    return result.estimate;
+  };
+
+  const generateStartEndShotVideo = async (input: {
+    shotNo: number;
+    stableShotId: string;
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
+    setGeneratingVideoShotNo(input.shotNo);
+    try {
+      const result = await submitStartEndShotVideoMut.mutateAsync({
+        storyId: activeId,
+        stableShotId: input.stableShotId,
+        costConfirmation: input.costConfirmation,
+      });
+      if (result.status !== "ok") {
+        throw new Error(result.error || "首尾帧视频生成失败");
+      }
+      await Promise.all([
+        storyVideoAssetsQuery.refetch(),
+        storyMaterialQuery.refetch(),
+        utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      ]);
+      return {
+        takeId: result.takeId,
+        videoStatus: result.videoStatus,
+        videoUrl: result.videoUrl,
+        taskId: result.taskId,
+        prompt: result.prompt,
+        estimatedCny: result.estimatedCny,
+      };
+    } finally {
+      setGeneratingVideoShotNo(null);
+    }
+  };
+
+  const analyzeShotVideoDirection = async (input: {
+    shotNo: number;
+    stableShotId: string;
+    draftPrompt: string;
+    subtitle?: string;
+  }): Promise<ShotDirectorResult> => {
+    if (activeId == null) throw new Error("故事尚未加载，无法分析镜头衔接");
+    return analyzeShotVideoDirectionMut.mutateAsync({
+      storyId: activeId,
+      ...input,
+    });
   };
 
   const conformVideoTakes = async (input: {
@@ -2257,6 +2452,7 @@ export function CreationEditorProvider({
       generatingVideoShotNo,
       updateShotDuration,
       updatePersistedShotField,
+      updatePersistedShotFields,
       updatePromptOverride,
       ensurePromptShot,
       recordPromptRun,
@@ -2265,9 +2461,13 @@ export function CreationEditorProvider({
       promoteStoryImage,
       assignStoryImageToShot,
       importStoryMaterial,
+      attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,
       generateShotVideo,
+      estimateStartEndShotVideo,
+      generateStartEndShotVideo,
+      analyzeShotVideoDirection,
       conformVideoTakes,
       analyzeShotConsistency,
       refreshShotVideoStatus,
@@ -2320,6 +2520,7 @@ export function CreationEditorProvider({
       reuseVideoTakeForShot,
       assignStoryImageToShot,
       importStoryMaterial,
+      attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,
       storyUpsertMut.isPending,

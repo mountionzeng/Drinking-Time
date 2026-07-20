@@ -5,6 +5,12 @@ export const SHOT_IDENTITY_FIELD = "shotIdentity";
 
 type ShotLike = Record<string, unknown>;
 
+export type ShotDisplayLike = {
+  cueCode?: unknown;
+  shotKey?: unknown;
+  shotNo?: unknown;
+};
+
 function slugPart(value: unknown): string {
   if (typeof value !== "string" && typeof value !== "number") return "";
   return String(value)
@@ -33,6 +39,54 @@ function safeShotNumber(value: unknown): number | null {
     return null;
   }
   return value;
+}
+
+function displayCandidate(value: unknown): string {
+  if (typeof value !== "string" && typeof value !== "number") return "";
+  const text = String(value).trim();
+  if (!text || /^SH0*\d+$/i.test(text)) return "";
+  return text;
+}
+
+function promptCandidate(value: unknown): string {
+  if (typeof value !== "string" && typeof value !== "number") return "";
+  return String(value).trim();
+}
+
+/**
+ * The editor keeps legacy SH keys for stable storage and ChatCut mapping, but
+ * the user should only see the story's cue code. Legacy-only stories fall back
+ * to a neutral numeric label instead of exposing a second numbering system.
+ */
+export function displayShotCode(shot: ShotDisplayLike): string {
+  const cueCode = displayCandidate(shot.cueCode);
+  if (cueCode) return cueCode;
+
+  const shotKey = displayCandidate(shot.shotKey);
+  if (shotKey) return shotKey;
+
+  const shotNo =
+    safeShotNumber(shot.shotNo) ??
+    shotNumberFromIdentity(shot.cueCode) ??
+    shotNumberFromIdentity(shot.shotKey);
+  return shotNo == null ? "未编号镜头" : String(shotNo).padStart(2, "0");
+}
+
+/**
+ * Model prompts need an unambiguous shot reference. Prefer the story cue code,
+ * but keep legacy SH labels when a story has not migrated to cue codes yet.
+ */
+export function promptShotCode(shot: ShotDisplayLike): string {
+  const cueCode = promptCandidate(shot.cueCode);
+  if (cueCode) return cueCode;
+
+  const shotKey = promptCandidate(shot.shotKey);
+  if (shotKey) return shotKey;
+
+  const shotNo = safeShotNumber(shot.shotNo);
+  return shotNo == null
+    ? "unnumbered-shot"
+    : `SH${String(shotNo).padStart(2, "0")}`;
 }
 
 export function shotNumberFromIdentity(value: unknown): number | null {

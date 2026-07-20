@@ -12,11 +12,30 @@ export const FIRST_QUESTION =
 function formatShotDraft(shots: ShotDraft[]): string {
   if (!Array.isArray(shots) || shots.length === 0) return "";
   // 用紧凑的近似 YAML 格式，单 shot 一段，空字段用 — 表示，模型能一眼看到哪些列还没填
-  const lines: string[] = ["【当前镜头表草稿（11 列，对方可以随手改任何一格）】"];
+  const lines: string[] = [
+    "【当前创作工作台 · 同一故事的镜头表】",
+    "这里已经进入具体创作与剪辑阶段。你是熟悉整片的创作搭档，要直接回应素材、镜头、台词、衔接和节奏问题；不要把明确的创作问题带回日常情绪访谈。",
+  ];
   for (const s of shots) {
     const safe = (v: string) => (v && v.trim() ? v.trim() : "—");
+    const identity = [
+      safe(s.cueCode ?? ""),
+      `第 ${s.shotNo} 镜`,
+      safe(s.actNo ?? ""),
+      s.stableShotId ? `stableId=${s.stableShotId}` : "",
+    ]
+      .filter(value => value && value !== "—")
+      .join(" · ");
+    const continuity = [
+      s.intent ? `意图「${safe(s.intent)}」` : "",
+      s.videoStart ? `起始「${safe(s.videoStart)}」` : "",
+      s.videoEnd ? `结束「${safe(s.videoEnd)}」` : "",
+      s.transitionIn ? `承上「${safe(s.transitionIn)}」` : "",
+      s.transitionOut ? `启下「${safe(s.transitionOut)}」` : "",
+      s.videoPrompt ? `视频提示「${safe(s.videoPrompt)}」` : "",
+    ].filter(Boolean);
     lines.push(
-      `· 第 ${s.shotNo} 镜：` +
+      `· ${identity}：` +
         `主体「${safe(s.subject)}」 / ` +
         `动作「${safe(s.action)}」 / ` +
         `对白「${safe(s.dialogue)}」 / ` +
@@ -27,15 +46,17 @@ function formatShotDraft(shots: ShotDraft[]): string {
         `时光「${safe(s.timeLight)}」 / ` +
         `氛围「${safe(s.mood)}」 / ` +
         `音「${safe(s.sound)}」 / ` +
-        `风格「${safe(s.styleRef)}」`,
+        `风格「${safe(s.styleRef)}」` +
+        (continuity.length ? ` / ${continuity.join(" / ")}` : ""),
     );
   }
   lines.push(
     "",
     "对话规矩：",
-    "- 这张表是【对方的工作稿】。当他在对话里提到「第 N 镜」「那一镜」「那个机位」之类，请你能定位到具体哪一行。",
-    "- 你可以建议某一格写什么（比如「第 2 镜的运镜我会试一下慢推」），但**不要**自己代改——只口头提议，让对方自己动手填。",
-    "- 当某一镜只有少数几格已填、其它都是「—」，可以顺着对方此刻的话题、问一下「那一镜的光是什么样的」之类，把空格慢慢聊出来。但一次只问一格，别一口气问 5 个空。",
+    "- 用户说「0102」「第 2 镜」「那一镜」时，先用 cueCode、stableId 与上下文定位，绝不混到另一个故事或另一个镜头；回复只使用 cueCode。",
+    "- 先给你的真实判断，可以提出不同剪法，不必机械附和初稿。说明为什么这样接、从哪里开始、在哪里结束。",
+    "- 用户明确要求修改时，简短复述你理解的目标；可执行通道会返回真实结果。没有收到执行结果前不要谎称已经改好。",
+    "- 素材不足时，先用现有画面给出最小可行剪法，再指出只缺哪一个关键镜头或声音；一次不要抛一串问卷。",
   );
   return lines.join("\n") + "\n";
 }

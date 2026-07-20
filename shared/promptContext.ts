@@ -10,12 +10,14 @@
 import { SINGLE_FRAME_HARD_CONSTRAINT } from './singleFramePrompt';
 import type { ArtRecipeDNA } from './artDirection';
 import { artRecipePrompt } from './artDirection';
+import { promptShotCode } from './shotIdentity';
 
 // ── PromptContext 类型 ──
 
 /** 镜头元数据：每个镜头必有的信息 */
 export type PromptShotMeta = {
   shotNo: number;
+  cueCode?: string;
   sceneNo?: string;
   sceneTitle?: string;
   sceneArtBrief?: string;
@@ -54,6 +56,7 @@ export type PromptCharacter = {
 /** 前一个镜头的连续性信息 */
 export type PromptPreviousShot = {
   shotNo: number;
+  cueCode?: string;
   finalPrompt?: string;
   imageUrl?: string;
   subject?: string;
@@ -116,7 +119,7 @@ function extractBlocks(ctx: PromptContext): PromptBlock[] {
   }
 
   // 1. 镜头标识
-  add('shot', `Create exactly one cinematic key frame for SH${String(ctx.shot.shotNo).padStart(2, '0')}.`);
+  add('shot', `Create exactly one cinematic key frame for ${promptShotCode(ctx.shot)}.`);
 
   // 2. 自由文本 prompt（聊天路径的 LLM 生成内容）
   if (ctx.freeTextPrompt) {

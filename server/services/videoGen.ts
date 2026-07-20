@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import type { ShotVideoProviderStatus } from "../../shared/videoAsset";
+import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
 
 type Fetcher = typeof fetch;
 const MJ_VIDEO_MODEL = "mj-video";
@@ -292,7 +293,7 @@ function buildSubmitRequest(input: ShotVideoInput) {
         model,
         prompt: input.prompt,
         duration: input.durationSec ?? 5,
-        aspect_ratio: input.aspectRatio ?? "16:9",
+        aspect_ratio: input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO,
       };
   body[configuredImageField(submitPathTemplate)] = input.sourceImage;
   if (!isMjVideo && input.subtitle?.trim()) {
@@ -331,6 +332,7 @@ export function getShotVideoProviderStatus(): ShotVideoProviderStatus {
     promptDirectorReady: Boolean(
       ENV.api302Key && ENV.videoPrompt302Model.trim()
     ),
+    outputAspectRatio: SHOT_VIDEO_ASPECT_RATIO,
   };
 }
 

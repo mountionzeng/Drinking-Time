@@ -11,6 +11,7 @@ import { invokeAgent } from "../_core/agentChannel";
 import { ENV } from "../_core/env";
 import type { PromptContext } from "../../shared/promptContext";
 import { buildUnifiedPrompt } from "../../shared/promptContext";
+import { promptShotCode } from "../../shared/shotIdentity";
 
 type SynthesizeInput = {
   /** 镜头的结构化上下文 */
@@ -60,7 +61,7 @@ export async function synthesizeShotPrompt(input: SynthesizeInput): Promise<stri
 
   // 镜头元数据
   const shotLines: string[] = [`\n--- 镜头信息 ---`];
-  shotLines.push(`镜头号: SH${String(shot.shotNo).padStart(2, '0')}`);
+  shotLines.push(`镜头号: ${promptShotCode(shot)}`);
   if (shot.subject) shotLines.push(`主体: ${shot.subject}`);
   if (shot.action) shotLines.push(`动作: ${shot.action}`);
   if (shot.location) shotLines.push(`场景: ${shot.location}`);

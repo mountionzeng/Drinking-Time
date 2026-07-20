@@ -225,8 +225,8 @@ describe("AnimaticPlayer selection actions", () => {
       />
     );
 
-    expect(html).toContain("SH01 · 0.0s / 5.0s");
-    expect(html).toContain('aria-label="调整SH01时长"');
+    expect(html).toContain("01 · 0.0s / 5.0s");
+    expect(html).toContain('aria-label="调整01时长"');
     expect(html).toContain("时长 2.0s");
   });
 
@@ -262,6 +262,6 @@ describe("AnimaticPlayer selection actions", () => {
       />
     );
 
-    expect(html).toContain("SH02 · 2.0s / 5.0s");
+    expect(html).toContain("02 · 2.0s / 5.0s");
   });
 });

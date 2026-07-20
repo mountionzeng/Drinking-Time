@@ -1,5 +1,6 @@
 import {
   Captions,
+  FileUp,
   Loader2,
   Mic2,
   Music2,
@@ -22,21 +23,24 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
+import { displayShotCode } from "@shared/shotIdentity";
 
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
   buildStoryboardTimingRows,
-  formatStoryboardSecondsInput,
   formatStoryboardTimestamp,
-  MAX_STORYBOARD_DURATION_MS,
-  MIN_STORYBOARD_DURATION_MS,
-  storyboardDurationMsFromSeconds,
 } from "@/features/storyAgent/storyboardTiming";
 import {
   chatCutBaseName,
   chatCutCueCode,
+  chatCutPlaybackAudioTracks,
   chatCutSourceNameFromShot,
   type ChatCutTimelineClip,
   type ChatCutTimelineManifest,
@@ -57,9 +61,51 @@ import { videoTakeAffordance } from "../videoAssetViewModel";
 
 const MIN_TIMELINE_SCALE = 8;
 const MAX_TIMELINE_SCALE = 42;
+const DEFAULT_STORYBOARD_PANEL_SIZE = 45;
+const DEFAULT_PREVIEW_PANEL_SIZE = 55;
+const PREVIEW_CANVAS_INSET_PX = 12;
 
-function shotLabel(shotNo: number) {
-  return `SH${String(shotNo).padStart(2, "0")}`;
+export function fitProjectCanvas(input: {
+  stageWidth: number;
+  stageHeight: number;
+  projectWidth: number;
+  projectHeight: number;
+  inset?: number;
+}) {
+  const inset = Number.isFinite(input.inset)
+    ? Math.max(0, input.inset ?? 0)
+    : 0;
+  const availableWidth = Math.max(0, input.stageWidth - inset);
+  const availableHeight = Math.max(0, input.stageHeight - inset);
+  const projectWidth =
+    Number.isFinite(input.projectWidth) && input.projectWidth > 0
+      ? input.projectWidth
+      : 1;
+  const projectHeight =
+    Number.isFinite(input.projectHeight) && input.projectHeight > 0
+      ? input.projectHeight
+      : 1;
+  const projectAspect = projectWidth / projectHeight;
+
+  if (availableWidth === 0 || availableHeight === 0) {
+    return { width: 0, height: 0 };
+  }
+  if (availableWidth / availableHeight > projectAspect) {
+    return {
+      width: Math.floor(availableHeight * projectAspect),
+      height: Math.floor(availableHeight),
+    };
+  }
+  return {
+    width: Math.floor(availableWidth),
+    height: Math.floor(availableWidth / projectAspect),
+  };
+}
+
+function shotLabel(
+  shot: Pick<CreationEditorShot, "cueCode" | "shotKey" | "shotNo">
+) {
+  return displayShotCode(shot);
 }
 
 function playableVideoUrl(shot: CreationEditorShot | null): string | null {
@@ -82,6 +128,7 @@ function shotImageUrl(shot: CreationEditorShot | null): string | null {
 }
 
 function chatCutClipIdFromShot(shot: CreationEditorShot | null): string | null {
+  if (shot?.chatCutMapping?.itemId) return shot.chatCutMapping.itemId;
   if (!shot?.note) return null;
   return /^ChatCut XML\s+([^｜\s]+)/.exec(shot.note)?.[1] ?? null;
 }
@@ -115,17 +162,45 @@ function isVisualFile(file: File) {
   return /^(image|video)\//.test(mediaMime(file));
 }
 
+export function timelineSubtitleText(
+  manifest: ChatCutTimelineManifest | null,
+  playheadMs: number,
+  fallbackDialogue?: string | null
+): string | null {
+  const fallback = fallbackDialogue?.trim() || null;
+  if (!manifest) return fallback;
+  const activeVoiceClip = chatCutPlaybackAudioTracks(manifest)
+    .flatMap(track => track.clips)
+    .find(
+      clip =>
+        Boolean(chatCutCueCode(clip.name)) &&
+        playheadMs >= clip.startMs &&
+        playheadMs < clip.endMs
+    );
+  if (!activeVoiceClip) return null;
+  const cueCode = chatCutCueCode(activeVoiceClip.name);
+  const scriptedText = cueCode
+    ? manifest.scriptCues.find(cue => cue.code === cueCode)?.text.trim()
+    : "";
+  return scriptedText || fallback;
+}
+
 function EditingStoryboardPanel({
   onRelink,
   relinkProgress,
+  onAttachXml,
+  attachProgress,
 }: {
   onRelink: (files: File[]) => Promise<void>;
   relinkProgress: string | null;
+  onAttachXml: (file: File) => Promise<void>;
+  attachProgress: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const xmlInputRef = useRef<HTMLInputElement | null>(null);
   return (
     <aside
-      className="flex min-h-0 w-[min(300px,34vw)] min-w-[240px] shrink-0 flex-col border-r border-border bg-background"
+      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
       aria-label="剪辑故事版看板"
     >
       <input
@@ -140,25 +215,56 @@ function EditingStoryboardPanel({
           if (files.length > 0) void onRelink(files);
         }}
       />
+      <input
+        ref={xmlInputRef}
+        type="file"
+        accept=".xml,text/xml,application/xml"
+        className="hidden"
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file) void onAttachXml(file);
+        }}
+      />
       <div className="min-h-0 flex-1">
         <StoryboardPanel
-          defaultViewMode="simple"
+          defaultViewMode="full"
           embeddedEditorMode
           headerAction={
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={Boolean(relinkProgress)}
-              className="flex h-7 w-7 items-center justify-center rounded-sm bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60"
-              aria-label={relinkProgress || "关联本地画面素材"}
-              title={relinkProgress || "选择图片或视频，按文件名自动关联镜头"}
-            >
-              {relinkProgress ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Upload className="h-3.5 w-3.5" />
-              )}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => xmlInputRef.current?.click()}
+                disabled={Boolean(attachProgress)}
+                className="flex h-7 w-7 items-center justify-center rounded-sm bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60"
+                aria-label={attachProgress || "同步 ChatCut XML"}
+                title={
+                  attachProgress || "把 ChatCut 时间线与音频轨同步到当前故事"
+                }
+              >
+                {attachProgress ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileUp className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={Boolean(relinkProgress)}
+                className="flex h-7 w-7 items-center justify-center rounded-sm bg-muted/50 text-muted-foreground transition hover:bg-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60"
+                aria-label={relinkProgress || "关联本地画面素材"}
+                title={
+                  relinkProgress || "选择图片或视频，按 XML 文件名自动关联镜头"
+                }
+              >
+                {relinkProgress ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
           }
         />
       </div>
@@ -173,8 +279,7 @@ function ShotPreview({
   playheadMs,
   timelinePlaying,
   format,
-  onUpdateDuration,
-  onUpdateDialogue,
+  onRequestTimelinePlaying,
 }: {
   shot: CreationEditorShot | null;
   timing?: { startMs: number; endMs: number; durationMs: number };
@@ -182,15 +287,26 @@ function ShotPreview({
   playheadMs: number;
   timelinePlaying: boolean;
   format: ChatCutTimelineManifest | null;
-  onUpdateDuration: (durationMs: number) => Promise<void>;
-  onUpdateDialogue: (dialogue: string) => Promise<void>;
+  onRequestTimelinePlaying: (isPlaying: boolean) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const ignoreNextVideoPauseRef = useRef(false);
+  const previewStageRef = useRef<HTMLDivElement | null>(null);
+  const [previewStageSize, setPreviewStageSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const videoUrl = playableVideoUrl(shot);
   const imageUrl = shotImageUrl(shot);
-  const durationMs = shot?.durationMs ?? timing?.durationMs ?? 2400;
-  const durationValue = formatStoryboardSecondsInput(durationMs);
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
+  const formatLabel = format ? `${format.width}×${format.height}` : "1080×1080";
+  const canvasSize = fitProjectCanvas({
+    stageWidth: previewStageSize.width,
+    stageHeight: previewStageSize.height,
+    projectWidth: format?.width ?? 1,
+    projectHeight: format?.height ?? 1,
+    inset: PREVIEW_CANVAS_INSET_PX,
+  });
   const timelineOffsetMs = timing
     ? Math.min(timing.durationMs, Math.max(0, playheadMs - timing.startMs))
     : 0;
@@ -205,6 +321,28 @@ function ShotPreview({
         ? Math.min(timelineOffsetMs, sourceDurationMs)
         : timelineOffsetMs)) /
     1000;
+  const subtitleText = timelineSubtitleText(format, playheadMs, shot?.dialogue);
+
+  useEffect(() => {
+    const stage = previewStageRef.current;
+    if (!stage) return;
+    const updateStageSize = () => {
+      const rect = stage.getBoundingClientRect();
+      const next = {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+      setPreviewStageSize(current =>
+        current.width === next.width && current.height === next.height
+          ? current
+          : next
+      );
+    };
+    updateStageSize();
+    const observer = new ResizeObserver(updateStageSize);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -214,7 +352,10 @@ function ShotPreview({
     const drift = Math.abs(video.currentTime - targetTime);
 
     if (!timelinePlaying) {
-      video.pause();
+      if (!video.paused) {
+        ignoreNextVideoPauseRef.current = true;
+        video.pause();
+      }
       if (drift > 0.004) video.currentTime = targetTime;
       return;
     }
@@ -225,7 +366,7 @@ function ShotPreview({
 
   return (
     <section
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
       aria-label="动态分镜预览"
     >
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
@@ -233,9 +374,15 @@ function ShotPreview({
           <span className="text-xs font-semibold">动态分镜</span>
           {shot ? (
             <span className="ml-2 font-mono text-[10px] text-primary">
-              {shotLabel(shot.shotNo)}
+              {shotLabel(shot)}
             </span>
           ) : null}
+          <span
+            className="ml-2 font-mono text-[9px] tabular-nums text-muted-foreground"
+            title="项目画布尺寸"
+          >
+            {formatLabel}
+          </span>
         </div>
         <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
           {timing
@@ -244,10 +391,20 @@ function ShotPreview({
         </span>
       </div>
 
-      <div className="flex min-h-[220px] flex-1 items-center justify-center overflow-hidden bg-neutral-950 p-3">
+      <div
+        ref={previewStageRef}
+        className="flex min-h-[150px] flex-1 items-center justify-center overflow-hidden bg-muted/35"
+        data-testid="editing-preview-stage"
+      >
         <div
-          className="relative flex max-h-full max-w-full items-center justify-center overflow-hidden border border-white/10 bg-black shadow-lg"
-          style={{ aspectRatio, height: "min(100%, 52vh)" }}
+          className="relative flex shrink-0 items-center justify-center overflow-hidden border border-white/10 bg-black shadow-sm"
+          style={{
+            aspectRatio,
+            width: canvasSize.width || 180,
+            height: canvasSize.height || 180,
+          }}
+          data-testid="editing-project-canvas"
+          data-project-size={formatLabel}
         >
           {videoUrl ? (
             <video
@@ -281,6 +438,14 @@ function ShotPreview({
                 ) {
                   event.currentTarget.currentTime = startSeconds;
                 }
+                if (!timelinePlaying) onRequestTimelinePlaying(true);
+              }}
+              onPause={() => {
+                if (ignoreNextVideoPauseRef.current) {
+                  ignoreNextVideoPauseRef.current = false;
+                  return;
+                }
+                if (timelinePlaying) onRequestTimelinePlaying(false);
               }}
               onTimeUpdate={event => {
                 const endSeconds = (sourceClip?.sourceOutMs ?? 0) / 1000;
@@ -288,18 +453,24 @@ function ShotPreview({
                   endSeconds > 0 &&
                   event.currentTarget.currentTime >= endSeconds
                 ) {
+                  ignoreNextVideoPauseRef.current = true;
                   event.currentTarget.pause();
                 }
               }}
-              className="h-full w-full object-contain"
-              aria-label={`${shot ? shotLabel(shot.shotNo) : "当前镜头"} 视频预览`}
+              className="h-full w-full object-cover"
+              aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
             />
           ) : imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={`${shot ? shotLabel(shot.shotNo) : "当前镜头"} 预览`}
-              className="h-full w-full object-contain"
-            />
+            <>
+              <img
+                src={imageUrl}
+                alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
+                静态首帧占位 · 尚未采用视频
+              </span>
+            </>
           ) : (
             <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
               <Video className="h-7 w-7" />
@@ -309,58 +480,21 @@ function ShotPreview({
               </span>
             </div>
           )}
+          {subtitleText ? (
+            <div
+              className={`pointer-events-none absolute inset-x-3 z-10 text-center ${
+                videoUrl ? "bottom-16" : "bottom-5"
+              }`}
+              aria-live="polite"
+              data-testid="editing-preview-subtitle"
+            >
+              <span className="inline-block max-w-[92%] bg-black/78 px-3 py-1.5 text-[clamp(12px,1.5vw,18px)] font-medium leading-relaxed text-white shadow-sm">
+                {subtitleText}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
-
-      {shot ? (
-        <div className="grid shrink-0 gap-2 border-t border-border bg-background p-2.5 md:grid-cols-[minmax(0,1fr)_112px]">
-          <label className="min-w-0 text-[9px] font-semibold text-muted-foreground">
-            台词 / 旁白
-            <textarea
-              key={`${shot.stableShotId}:dialogue:${shot.dialogue ?? ""}`}
-              defaultValue={shot.dialogue ?? ""}
-              rows={2}
-              placeholder="输入这一镜对应的台词或旁白"
-              onBlur={event => {
-                const value = event.currentTarget.value.trim();
-                if (value !== (shot.dialogue ?? "").trim()) {
-                  void onUpdateDialogue(value);
-                }
-              }}
-              className="mt-1 block w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-            />
-          </label>
-          <label className="text-[9px] font-semibold text-muted-foreground">
-            镜头时长 / s
-            <input
-              key={`${shot.stableShotId}:duration:${durationValue}`}
-              type="number"
-              min={MIN_STORYBOARD_DURATION_MS / 1000}
-              max={MAX_STORYBOARD_DURATION_MS / 1000}
-              step="0.001"
-              defaultValue={durationValue}
-              onKeyDown={event => {
-                if (event.key === "Enter") event.currentTarget.blur();
-              }}
-              onBlur={event => {
-                const nextDurationMs = storyboardDurationMsFromSeconds(
-                  Number(event.currentTarget.value)
-                );
-                if (nextDurationMs == null) {
-                  event.currentTarget.value = durationValue;
-                  toast.error("镜头时长请输入 0.100–12.000 秒");
-                  return;
-                }
-                if (nextDurationMs !== durationMs) {
-                  void onUpdateDuration(nextDurationMs);
-                }
-              }}
-              className="mt-1 h-[46px] w-full rounded-md border border-border bg-background px-2 font-mono text-sm font-semibold tabular-nums text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              aria-label="选中镜头时长秒数"
-            />
-          </label>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -407,6 +541,27 @@ function cueText(clip: ChatCutTimelineClip, manifest: ChatCutTimelineManifest) {
   return scripted ? `${code}｜${scripted}` : code || clip.name;
 }
 
+export function timelineVoiceLaneLabel(
+  manifest: ChatCutTimelineManifest
+): string {
+  const voiceTracks = chatCutPlaybackAudioTracks(manifest).filter(track =>
+    track.clips.some(clip => Boolean(chatCutCueCode(clip.name)))
+  );
+  const voiceClips = voiceTracks.flatMap(track =>
+    track.clips.filter(clip => Boolean(chatCutCueCode(clip.name)))
+  );
+  const trackLabel =
+    voiceTracks.length > 0
+      ? voiceTracks.map(track => `A${track.index}`).join("+")
+      : "旁白";
+  const languageLabel =
+    voiceClips.length > 0 &&
+    voiceClips.every(clip => /^FR(?:[-_ ]|$)/i.test(clip.name))
+      ? "法语旁白"
+      : "旁白";
+  return trackLabel === "旁白" ? trackLabel : `${trackLabel} ${languageLabel}`;
+}
+
 function findShotAtTime(
   timings: ReturnType<typeof buildStoryboardTimingRows>,
   timeMs: number
@@ -424,10 +579,13 @@ function buildTimelineLanes(
   const timings = buildStoryboardTimingRows(shots, timelineShotIds);
   const shotsByNo = new Map(shots.map(shot => [shot.shotNo, shot]));
   const lanes: TimelineLane[] = [];
+  const playbackAudioTracks = manifest
+    ? chatCutPlaybackAudioTracks(manifest)
+    : [];
   const voiceClips =
-    manifest?.audioTracks.flatMap(track =>
+    playbackAudioTracks.flatMap(track =>
       track.clips.filter(clip => Boolean(chatCutCueCode(clip.name)))
-    ) ?? [];
+    );
   if (voiceClips.length > 0 && manifest) {
     lanes.push({
       id: "captions",
@@ -478,10 +636,10 @@ function buildTimelineLanes(
         id: timing.stableShotId,
         label: shot
           ? chatCutSourceNameFromShot(shot)
-          : shotLabel(timing.shotNo),
+          : displayShotCode({ shotNo: timing.shotNo }),
         title: shot
-          ? `${shotLabel(shot.shotNo)} · ${chatCutSourceNameFromShot(shot)}`
-          : shotLabel(timing.shotNo),
+          ? `${shotLabel(shot)} · ${chatCutSourceNameFromShot(shot)}`
+          : displayShotCode({ shotNo: timing.shotNo }),
         startMs: timing.startMs,
         endMs: timing.endMs,
         shotNo: timing.shotNo,
@@ -493,7 +651,7 @@ function buildTimelineLanes(
   if (voiceClips.length > 0) {
     lanes.push({
       id: "voice",
-      label: "A1 旁白",
+      label: manifest ? timelineVoiceLaneLabel(manifest) : "旁白",
       icon: "voice",
       tone: "green",
       clips: voiceClips.map(clip => ({
@@ -508,9 +666,9 @@ function buildTimelineLanes(
   }
 
   const musicClips =
-    manifest?.audioTracks.flatMap(track =>
+    playbackAudioTracks.flatMap(track =>
       track.clips.filter(clip => /bgm|music|配乐|音乐/i.test(clip.name))
-    ) ?? [];
+    );
   if (musicClips.length > 0) {
     lanes.push({
       id: "music",
@@ -531,9 +689,9 @@ function buildTimelineLanes(
     [...voiceClips, ...musicClips].map(clip => clip.id)
   );
   const sourceAudio =
-    manifest?.audioTracks.flatMap(track =>
+    playbackAudioTracks.flatMap(track =>
       track.clips.filter(clip => !usedAudioIds.has(clip.id))
-    ) ?? [];
+    );
   if (sourceAudio.length > 0) {
     lanes.push({
       id: "source-audio",
@@ -558,6 +716,102 @@ type TimelinePlaybackState = {
   isPlaying: boolean;
 };
 
+type TimelinePlaybackRequest = {
+  id: number;
+  isPlaying: boolean;
+};
+
+export function timelineAudioTargetSeconds(
+  clip: Pick<
+    ChatCutTimelineClip,
+    "startMs" | "endMs" | "sourceInMs" | "sourceOutMs"
+  >,
+  playheadMs: number
+): number | null {
+  if (playheadMs < clip.startMs || playheadMs >= clip.endMs) return null;
+  const timelineOffsetMs = Math.max(0, playheadMs - clip.startMs);
+  const sourceDurationMs = Math.max(0, clip.sourceOutMs - clip.sourceInMs);
+  return (
+    (clip.sourceInMs +
+      (sourceDurationMs > 0
+        ? Math.min(timelineOffsetMs, sourceDurationMs)
+        : timelineOffsetMs)) /
+    1000
+  );
+}
+
+export function timelineAudioVolume(name: string): number {
+  return /bgm|music|配乐|音乐/i.test(name) ? 0.18 : 1;
+}
+
+function TimelineAudioPlayback({
+  manifest,
+  playheadMs,
+  isPlaying,
+}: {
+  manifest: ChatCutTimelineManifest | null;
+  playheadMs: number;
+  isPlaying: boolean;
+}) {
+  const audioRefs = useRef(new Map<string, HTMLAudioElement>());
+  const clips = useMemo(
+    () =>
+      (manifest ? chatCutPlaybackAudioTracks(manifest) : [])
+        .flatMap(track => track.clips)
+        .filter(clip => Boolean(clip.audioUrl)),
+    [manifest]
+  );
+
+  useEffect(() => {
+    for (const clip of clips) {
+      const audio = audioRefs.current.get(clip.id);
+      if (!audio) continue;
+      const targetSeconds = timelineAudioTargetSeconds(clip, playheadMs);
+      if (targetSeconds == null) {
+        audio.pause();
+        continue;
+      }
+      audio.volume = timelineAudioVolume(clip.name);
+      const drift = Math.abs(audio.currentTime - targetSeconds);
+      if (drift > (isPlaying ? 0.35 : 0.004)) {
+        try {
+          audio.currentTime = targetSeconds;
+        } catch {
+          // Metadata may still be loading; the next playback tick retries.
+        }
+      }
+      if (isPlaying) {
+        if (audio.paused) void audio.play().catch(() => undefined);
+      } else {
+        audio.pause();
+      }
+    }
+  }, [clips, isPlaying, playheadMs]);
+
+  useEffect(
+    () => () => {
+      audioRefs.current.forEach(audio => audio.pause());
+    },
+    []
+  );
+
+  return (
+    <div className="hidden" aria-hidden="true">
+      {clips.map(clip => (
+        <audio
+          key={clip.id}
+          ref={element => {
+            if (element) audioRefs.current.set(clip.id, element);
+            else audioRefs.current.delete(clip.id);
+          }}
+          src={clip.audioUrl ?? undefined}
+          preload="auto"
+        />
+      ))}
+    </div>
+  );
+}
+
 function MultiTrackTimeline({
   shots,
   timelineShotIds,
@@ -565,6 +819,7 @@ function MultiTrackTimeline({
   selectedShotNo,
   onSelectShot,
   onPlaybackChange,
+  playbackRequest,
 }: {
   shots: CreationEditorShot[];
   timelineShotIds: string[];
@@ -572,6 +827,7 @@ function MultiTrackTimeline({
   selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
   onPlaybackChange: (playback: TimelinePlaybackState) => void;
+  playbackRequest: TimelinePlaybackRequest;
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
@@ -593,6 +849,7 @@ function MultiTrackTimeline({
   const [isPlaying, setIsPlaying] = useState(false);
   const playheadMsRef = useRef(initialPlayheadMs);
   const isPlayingRef = useRef(false);
+  const handledPlaybackRequestIdRef = useRef(0);
   const selectionFromPlayheadRef = useRef<number | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const timelineViewportRef = useRef<HTMLDivElement | null>(null);
@@ -746,6 +1003,20 @@ function MultiTrackTimeline({
     setPlaybackRunning(true);
   };
 
+  useEffect(() => {
+    if (
+      playbackRequest.id === 0 ||
+      playbackRequest.id === handledPlaybackRequestIdRef.current
+    ) {
+      return;
+    }
+    handledPlaybackRequestIdRef.current = playbackRequest.id;
+    if (playbackRequest.isPlaying && playheadMsRef.current >= totalMs) {
+      commitPlayhead(0, { selectShot: true, playing: false });
+    }
+    setPlaybackRunning(playbackRequest.isPlaying);
+  }, [commitPlayhead, playbackRequest, setPlaybackRunning, totalMs]);
+
   const stepPlayheadByKeyboard = useCallback(
     (direction: -1 | 1, accelerated = false) => {
       setPlaybackRunning(false);
@@ -766,7 +1037,12 @@ function MultiTrackTimeline({
   useEffect(() => {
     const handleTimelineArrowKey = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
         return;
       }
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -789,9 +1065,14 @@ function MultiTrackTimeline({
 
   return (
     <section
-      className="flex min-h-[260px] flex-[0_0_46%] flex-col border-t border-border bg-background"
+      className="flex min-h-[230px] flex-[0_0_42%] flex-col border-t border-border bg-background"
       aria-label="多轨剪辑时间轴"
     >
+      <TimelineAudioPlayback
+        manifest={manifest}
+        playheadMs={playheadMs}
+        isPlaying={isPlaying}
+      />
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold">时间线</span>
@@ -1022,15 +1303,17 @@ export default function EditingNleWorkspace() {
     selectedShotNo,
     setSelectedShotNo,
     chatCutTimeline,
-    updateShotDuration,
-    updatePersistedShotField,
     importStoryMaterial,
-    assignStoryImageToShot,
+    adoptVideoTake,
+    attachChatCutXml,
     isLoading,
   } = useCreationEditor();
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
+  const [attachProgress, setAttachProgress] = useState<string | null>(null);
   const [timelinePlayback, setTimelinePlayback] =
     useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
+  const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
+    useState<TimelinePlaybackRequest>({ id: 0, isPlaying: false });
   const timelineShots = useMemo(
     () => resolveTimelineShots(shots, timelineShotIds),
     [shots, timelineShotIds]
@@ -1086,11 +1369,12 @@ export default function EditingNleWorkspace() {
       setActiveSelection({
         sourceType: shot.imageId ? "storyboard-image" : "shot",
         sourceId: shot.imageId ? String(shot.imageId) : String(shotNo),
-        selectedText: fullText || shotLabel(shotNo),
-        fullText: fullText || shotLabel(shotNo),
+        selectedText: fullText || shotLabel(shot),
+        fullText: fullText || shotLabel(shot),
         storyId: activeStoryId,
         stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
         shotNo,
+        cueCode: shot.cueCode ?? null,
         imageId: shot.imageId ?? null,
         objectVersion: shot.imageId ? `image:${shot.imageId}` : null,
         materialStatus: shot.imageId ? "current-image" : "unknown",
@@ -1120,12 +1404,17 @@ export default function EditingNleWorkspace() {
     const filesByName = new Map(
       visualFiles.map(file => [chatCutBaseName(file.name), file])
     );
-    const matches = shots.flatMap(shot => {
-      const file = filesByName.get(
-        chatCutBaseName(chatCutSourceNameFromShot(shot))
-      );
+    const matches = shots.flatMap((shot, index) => {
+      const mappedClipId = chatCutClipIdFromShot(shot);
+      const sourceClip = mappedClipId
+        ? primarySourceClips.find(clip => clip.id === mappedClipId)
+        : primarySourceClips[index];
+      const sourceName = sourceClip?.name || chatCutSourceNameFromShot(shot);
+      const file = filesByName.get(chatCutBaseName(sourceName));
       const stableShotId = shot.stableShotId ?? shot.shotIdentity;
-      return file && stableShotId ? [{ shot, stableShotId, file }] : [];
+      return file && stableShotId
+        ? [{ shot, stableShotId, file, sourceName }]
+        : [];
     });
     if (matches.length === 0) {
       toast.error("所选文件名与当前故事镜头没有匹配项");
@@ -1147,12 +1436,13 @@ export default function EditingNleWorkspace() {
           mimeType: mediaMime(match.file),
           fileBase64: encoded,
           targetStableShotId: match.stableShotId,
-          note: `ChatCut XML 自动关联：${chatCutSourceNameFromShot(match.shot)}`,
+          note: `ChatCut XML 自动关联：${match.sourceName}`,
         });
-        if (result.kind === "image") {
-          await assignStoryImageToShot({
-            imageId: result.imageId,
-            targetStableShotId: match.stableShotId,
+        if (result.kind === "video") {
+          await adoptVideoTake({
+            stableShotId: result.stableShotId,
+            takeId: result.takeId,
+            plannedDurationSec: result.plannedDurationSec,
           });
         }
         imported += 1;
@@ -1163,6 +1453,30 @@ export default function EditingNleWorkspace() {
       toast.error(error instanceof Error ? error.message : "素材关联失败");
     } finally {
       setRelinkProgress(null);
+    }
+  };
+
+  const attachXml = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".xml")) {
+      toast.error("请选择 ChatCut 导出的 XML 文件");
+      return;
+    }
+    if (file.size > 2_000_000) {
+      toast.error("XML 文件过大，请控制在 2MB 以内");
+      return;
+    }
+    setAttachProgress("正在同步时间线与音频轨");
+    try {
+      const summary = await attachChatCutXml(await file.text());
+      toast.success(
+        `已同步 ${summary.primaryClipCount} 个镜头、${summary.audioClipCount} 段音频 · ${summary.width}×${summary.height}`
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "ChatCut XML 同步失败"
+      );
+    } finally {
+      setAttachProgress(null);
     }
   };
 
@@ -1188,32 +1502,58 @@ export default function EditingNleWorkspace() {
       className="flex h-full min-h-0 flex-col"
       data-testid="editing-nle-workspace"
     >
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <EditingStoryboardPanel
-          onRelink={relinkFiles}
-          relinkProgress={relinkProgress}
+      <ResizablePanelGroup
+        direction="horizontal"
+        autoSaveId="editing-storyboard-preview-widths-v2"
+        className="min-h-0 flex-1 overflow-hidden"
+        data-testid="editing-storyboard-preview-split"
+      >
+        <ResizablePanel
+          id="editing-storyboard"
+          order={1}
+          defaultSize={DEFAULT_STORYBOARD_PANEL_SIZE}
+          minSize={30}
+          maxSize={68}
+          className="min-w-0"
+        >
+          <EditingStoryboardPanel
+            onRelink={relinkFiles}
+            relinkProgress={relinkProgress}
+            onAttachXml={attachXml}
+            attachProgress={attachProgress}
+          />
+        </ResizablePanel>
+        <ResizableHandle
+          withHandle
+          className="creation-board-resize-handle !w-2 after:!w-2"
+          aria-label="调整故事版与动态分镜宽度"
+          title="拖动调整故事版与动态分镜宽度"
         />
-        <ShotPreview
-          shot={selectedShot}
-          timing={
-            selectedShot ? timingByShotNo.get(selectedShot.shotNo) : undefined
-          }
-          sourceClip={selectedSourceClip}
-          playheadMs={timelinePlayback.playheadMs}
-          timelinePlaying={timelinePlayback.isPlaying}
-          format={chatCutTimeline}
-          onUpdateDuration={async durationMs => {
-            if (!selectedShot) return;
-            await updateShotDuration(selectedShot.shotNo, durationMs);
-          }}
-          onUpdateDialogue={async dialogue => {
-            const stableShotId =
-              selectedShot?.stableShotId ?? selectedShot?.shotIdentity;
-            if (!stableShotId) throw new Error("当前镜头缺少稳定标识");
-            await updatePersistedShotField(stableShotId, "dialogue", dialogue);
-          }}
-        />
-      </div>
+        <ResizablePanel
+          id="editing-preview"
+          order={2}
+          defaultSize={DEFAULT_PREVIEW_PANEL_SIZE}
+          minSize={32}
+          className="min-w-0"
+        >
+          <ShotPreview
+            shot={selectedShot}
+            timing={
+              selectedShot ? timingByShotNo.get(selectedShot.shotNo) : undefined
+            }
+            sourceClip={selectedSourceClip}
+            playheadMs={timelinePlayback.playheadMs}
+            timelinePlaying={timelinePlayback.isPlaying}
+            format={chatCutTimeline}
+            onRequestTimelinePlaying={isPlaying => {
+              setTimelinePlaybackRequest(current => ({
+                id: current.id + 1,
+                isPlaying,
+              }));
+            }}
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
       <MultiTrackTimeline
         shots={shots}
         timelineShotIds={timelineShotIds}
@@ -1221,6 +1561,7 @@ export default function EditingNleWorkspace() {
         selectedShotNo={selectedShot?.shotNo ?? null}
         onSelectShot={selectShot}
         onPlaybackChange={setTimelinePlayback}
+        playbackRequest={timelinePlaybackRequest}
       />
     </div>
   );

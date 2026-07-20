@@ -97,6 +97,54 @@ describe("migrateLegacyPromptLineage", () => {
     ).toBe(0.36);
   });
 
+  it("recognizes compact legacy roles and drops duplicated opening greetings", async () => {
+    const store = createPromptLineageMemoryStore();
+    await migrateLegacyPromptLineage(store, {
+      storyId: 29,
+      userId: 7,
+      body: {
+        title: "旧对话",
+        messages: [
+          {
+            id: "opening-1",
+            who: "s",
+            text: "你好，我是小酌——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
+            timestamp: 1,
+          },
+          {
+            id: "opening-2",
+            who: "u",
+            text: "你好，我是小酌——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
+            timestamp: 1,
+          },
+          {
+            id: "user-1",
+            who: "u",
+            text: "这张图应该放在第三幕。",
+            timestamp: 2,
+          },
+          {
+            id: "assistant-1",
+            who: "s",
+            text: "我同意，先接在 0301 后面试。",
+            timestamp: 3,
+          },
+        ],
+      },
+    });
+
+    const aggregate = store.getStoryAggregate({ storyId: 29, userId: 7 });
+    expect(
+      aggregate.messages.map(message => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ).toEqual([
+      { role: "user", content: "这张图应该放在第三幕。" },
+      { role: "assistant", content: "我同意，先接在 0301 后面试。" },
+    ]);
+  });
+
   it("creates a minimal migrated state for a story without shots", async () => {
     const store = createPromptLineageMemoryStore();
     const result = await migrateLegacyPromptLineage(store, {

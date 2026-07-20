@@ -6,11 +6,13 @@ import {
   resetMemoryStateForTesting,
 } from "../db";
 import {
+  attachChatCutXmlToStory,
   buildChatCutStoryPayload,
   importChatCutXmlStory,
   parseChatCutXml,
   summarizeChatCutImport,
 } from "./chatCutXml";
+import { createStory } from "../db";
 
 const savedDatabaseUrl = ENV.databaseUrl;
 
@@ -57,6 +59,36 @@ const FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
     </children>
   </project>
 </xmeml>`;
+
+const VOICE_FIXTURE = FIXTURE.replace(
+  `<audio>
+            <track>
+              <clipitem id="audio-1"><file id="file-1"/><name>first.mp4</name><start>0</start><end>90</end><in>30</in><out>120</out></clipitem>
+            </track>
+          </audio>`,
+  `<audio>
+            <track>
+              <clipitem id="voice-1"><file id="voice-file-1"><pathurl>file://./VO-0101.mp3</pathurl><name>VO-0101.mp3</name></file><name>VO-0101.mp3</name><start>0</start><end>60</end><in>0</in><out>60</out></clipitem>
+              <clipitem id="voice-2"><file id="voice-file-2"><pathurl>file://./VO-0102.mp3</pathurl><name>VO-0102.mp3</name></file><name>VO-0102.mp3</name><start>90</start><end>150</end><in>0</in><out>60</out></clipitem>
+            </track>
+  </audio>`
+);
+
+const SPLIT_VOICE_FIXTURE = FIXTURE.replace(
+  `<audio>
+            <track>
+              <clipitem id="audio-1"><file id="file-1"/><name>first.mp4</name><start>0</start><end>90</end><in>30</in><out>120</out></clipitem>
+            </track>
+          </audio>`,
+  `<audio>
+            <track>
+              <clipitem id="voice-1"><file id="voice-file-1"><pathurl>file://./VO-0301.mp3</pathurl><name>VO-0301.mp3</name></file><name>VO-0301.mp3</name><start>0</start><end>30</end><in>0</in><out>30</out></clipitem>
+              <clipitem id="voice-2"><file id="voice-file-2"><pathurl>file://./VO-0302.mp3</pathurl><name>VO-0302.mp3</name></file><name>VO-0302.mp3</name><start>40</start><end>70</end><in>0</in><out>30</out></clipitem>
+              <clipitem id="voice-3"><file id="voice-file-3"><pathurl>file://./VO-0303.mp3</pathurl><name>VO-0303.mp3</name></file><name>VO-0303.mp3</name><start>80</start><end>110</end><in>0</in><out>30</out></clipitem>
+              <clipitem id="voice-4"><file id="voice-file-4"><pathurl>file://./VO-0304.mp3</pathurl><name>VO-0304.mp3</name></file><name>VO-0304.mp3</name><start>120</start><end>150</end><in>0</in><out>30</out></clipitem>
+            </track>
+          </audio>`
+);
 
 beforeEach(() => {
   resetMemoryStateForTesting();
@@ -156,5 +188,227 @@ describe("importChatCutXmlStory", () => {
       primaryClipCount: 2,
       requiresMediaRelink: true,
     });
+  });
+});
+
+describe("attachChatCutXmlToStory", () => {
+  it("adds the ChatCut timeline to an existing semantic story without changing stable ids or dialogue", async () => {
+    const created = await createStory({
+      userId: 8,
+      projectId: null,
+      title: "SheSelf",
+      body: {
+        chatCutImport: {
+          playbackAudioTrackIndexes: [1],
+          audioTracks: [
+            {
+              index: 1,
+              clips: [
+                {
+                  name: "first.mp4",
+                  audioUrl: "https://media.example/first.mp4",
+                },
+              ],
+            },
+          ],
+        },
+        shots: [
+          {
+            stableShotId: "sheself-0101",
+            shotIdentity: "sheself-0101",
+            shotNo: 1,
+            cueCode: "0101",
+            dialogue: "我害怕所有的事情",
+            subject: "女人回头",
+            action: "她停在画前",
+          },
+          {
+            stableShotId: "sheself-0102",
+            shotIdentity: "sheself-0102",
+            shotNo: 2,
+            cueCode: "0102",
+            dialogue: "我会反反复复地被告知",
+            subject: "凝视她的眼睛",
+            action: "视线没有移开",
+          },
+        ],
+      },
+    });
+
+    const result = await attachChatCutXmlToStory({
+      storyId: created.id,
+      userId: 8,
+      xml: FIXTURE,
+    });
+    const story = await getStoryById(created.id, 8);
+    const timeline = await getStoryTimeline(created.id, 8);
+    const body = story?.body as {
+      shots: Array<Record<string, unknown>>;
+      chatCutImport: {
+        width: number;
+        height: number;
+        playbackAudioTrackIndexes: number[];
+        audioTracks: Array<{
+          clips: Array<{ name: string; audioUrl?: string | null }>;
+        }>;
+        scriptCues: Array<{ code: string; text: string }>;
+      };
+    };
+
+    expect(result.summary).toMatchObject({ primaryClipCount: 2 });
+    expect(body.shots).toHaveLength(2);
+    expect(body.shots[0]).toMatchObject({
+      stableShotId: "sheself-0101",
+      dialogue: "我害怕所有的事情",
+      durationMs: 3000,
+      chatCutMapping: { itemId: "clip-1", assetId: "file-1" },
+    });
+    expect(body.shots[1]).toMatchObject({
+      stableShotId: "sheself-0102",
+      dialogue: "我会反反复复地被告知",
+      durationMs: 3000,
+    });
+    expect(body.chatCutImport).toMatchObject({ width: 1080, height: 1080 });
+    expect(body.chatCutImport.playbackAudioTrackIndexes).toEqual([1]);
+    expect(body.chatCutImport.audioTracks).toHaveLength(1);
+    expect(body.chatCutImport.audioTracks[0].clips[0]).toMatchObject({
+      name: "first.mp4",
+      audioUrl: "https://media.example/first.mp4",
+    });
+    expect(body.chatCutImport.scriptCues).toEqual([
+      {
+        code: "0101",
+        text: "我害怕所有的事情",
+        startFrame: null,
+        endFrame: null,
+      },
+      {
+        code: "0102",
+        text: "我会反反复复地被告知",
+        startFrame: null,
+        endFrame: null,
+      },
+    ]);
+    expect(timeline?.items).toMatchObject([
+      { stableShotId: "sheself-0101", position: 0 },
+      { stableShotId: "sheself-0102", position: 1 },
+    ]);
+  });
+
+  it("rebinds preserved subtitle text to updated VO cue codes and timing", async () => {
+    const created = await createStory({
+      userId: 9,
+      projectId: null,
+      title: "SheSelf",
+      body: {
+        chatCutImport: {
+          scriptCues: [
+            { code: "SH01", text: "我害怕所有的事情" },
+            { code: "SH02", text: "我会反反复复地被告知" },
+          ],
+        },
+        shots: [
+          {
+            stableShotId: "sheself-sh01",
+            shotNo: 1,
+            cueCode: "SH01",
+            dialogue: "我害怕所有的事情",
+          },
+          {
+            stableShotId: "sheself-sh02",
+            shotNo: 2,
+            cueCode: "SH02",
+            dialogue: "我会反反复复地被告知",
+          },
+        ],
+      },
+    });
+
+    await attachChatCutXmlToStory({
+      storyId: created.id,
+      userId: 9,
+      xml: VOICE_FIXTURE,
+    });
+    const story = await getStoryById(created.id, 9);
+    const body = story?.body as {
+      chatCutImport: {
+        scriptCues: Array<{
+          code: string;
+          text: string;
+          startFrame: number | null;
+          endFrame: number | null;
+        }>;
+      };
+    };
+
+    expect(body.chatCutImport.scriptCues).toEqual([
+      {
+        code: "0101",
+        text: "我害怕所有的事情",
+        startFrame: 0,
+        endFrame: 60,
+      },
+      {
+        code: "0102",
+        text: "我会反反复复地被告知",
+        startFrame: 90,
+        endFrame: 150,
+      },
+    ]);
+  });
+
+  it("realigns split subtitle lines when a repeated shot offsets later VO cues", async () => {
+    const repeatedLine =
+      "他们希望把我塑造成一个比他们更低级的物种，成为他们的养料";
+    const created = await createStory({
+      userId: 10,
+      projectId: null,
+      title: "SheSelf",
+      body: {
+        chatCutImport: {
+          scriptCues: [
+            { code: "0301", text: repeatedLine },
+            { code: "0302", text: repeatedLine },
+            { code: "0303", text: "当我无处可逃的时候，\n我只能往下走。" },
+            { code: "0304", text: "走到身体里，走到泥土里。" },
+          ],
+        },
+        shots: [
+          { stableShotId: "sh16", cueCode: "SH16", dialogue: repeatedLine },
+          { stableShotId: "sh17", cueCode: "SH17", dialogue: repeatedLine },
+          {
+            stableShotId: "sh18",
+            cueCode: "SH18",
+            dialogue: "当我无处可逃的时候，\n我只能往下走。",
+          },
+          {
+            stableShotId: "sh19",
+            cueCode: "SH19",
+            dialogue: "走到身体里，走到泥土里。",
+          },
+        ],
+      },
+    });
+
+    await attachChatCutXmlToStory({
+      storyId: created.id,
+      userId: 10,
+      xml: SPLIT_VOICE_FIXTURE,
+    });
+    const story = await getStoryById(created.id, 10);
+    const body = story?.body as {
+      chatCutImport: {
+        scriptCues: Array<{ code: string; text: string }>;
+      };
+    };
+
+    expect(
+      body.chatCutImport.scriptCues.map(({ code, text }) => [code, text])
+    ).toEqual([
+      ["0301", repeatedLine],
+      ["0302", "当我无处可逃的时候，"],
+      ["0303", "我只能往下走。"],
+      ["0304", "走到身体里，走到泥土里。"],
+    ]);
   });
 });

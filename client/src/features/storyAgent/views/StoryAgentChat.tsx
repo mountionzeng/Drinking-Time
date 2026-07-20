@@ -52,7 +52,9 @@ import {
   loadStoryConversationDraft,
   saveStoryConversationDraft,
 } from "../storyConversationStore";
+import { tokenizeChatMessageText } from "../chatMessageFormat";
 import type { StoryIntent } from "../intentTypes";
+import { displayShotCode } from "@shared/shotIdentity";
 import {
   buildImportedMediaPrompt,
   chatMediaFileKey,
@@ -214,6 +216,19 @@ export default function StoryAgentChat() {
     rejectEditingTransitionCandidate,
   } = useStoryAgentActions();
   const creationEditor = useOptionalCreationEditor();
+  const labelForShot = (
+    shotNo: number | null | undefined,
+    stableShotId?: string | null
+  ) =>
+    displayShotCode(
+      creationEditor?.shots.find(
+        shot =>
+          (stableShotId &&
+            (shot.stableShotId === stableShotId ||
+              shot.shotIdentity === stableShotId)) ||
+          shot.shotNo === shotNo
+      ) ?? { shotNo }
+    );
   const { element } = useNayin();
   const [input, setInput] = useState("");
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
@@ -458,7 +473,10 @@ export default function StoryAgentChat() {
         );
         creationEditor.refetch();
         toast.success(
-          `已放入 SH${String(advice.targetShotNo).padStart(2, "0")}，运镜建议也写进镜头了`
+          `已放入 ${labelForShot(
+            advice.targetShotNo,
+            advice.targetStableShotId
+          )}，运镜建议也写进镜头了`
         );
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "素材归类失败");
@@ -565,6 +583,8 @@ export default function StoryAgentChat() {
             assetId: result.kind === "image" ? result.imageId : result.takeId,
             targetShotNo:
               result.kind === "video" ? targetShot?.shotNo ?? null : null,
+            targetCueCode:
+              result.kind === "video" ? targetShot?.cueCode ?? null : null,
           });
           removePendingMedia(attachment.id);
         } catch (error) {
@@ -827,7 +847,18 @@ export default function StoryAgentChat() {
                     className="whitespace-pre-wrap"
                     data-selection-source={`chat:${m.id}`}
                   >
-                    {m.content}
+                    {tokenizeChatMessageText(m.content).map((segment, index) =>
+                      segment.emphasis ? (
+                        <strong
+                          key={`${m.id}:emphasis:${index}`}
+                          className="font-semibold"
+                        >
+                          {segment.text}
+                        </strong>
+                      ) : (
+                        segment.text
+                      ),
+                    )}
                   </p>
                 )}
                 {m.promptCandidate ? (
@@ -865,10 +896,12 @@ export default function StoryAgentChat() {
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <EditingTransitionCandidateCard
                       candidate={{
-                        sourceShotNo:
-                          m.editingTransitionCandidate.source.shotNo,
-                        targetShotNo:
-                          m.editingTransitionCandidate.target.shotNo,
+                        sourceShotNo: labelForShot(
+                          Number(m.editingTransitionCandidate.source.shotNo)
+                        ),
+                        targetShotNo: labelForShot(
+                          Number(m.editingTransitionCandidate.target.shotNo)
+                        ),
                         firstImageUrl:
                           m.editingTransitionCandidate.source.imageUrl,
                         lastImageUrl:
@@ -961,7 +994,10 @@ export default function StoryAgentChat() {
                       </span>
                       {advice.targetShotNo != null ? (
                         <span className="font-mono text-muted-foreground">
-                          SH{String(advice.targetShotNo).padStart(2, "0")}
+                          {labelForShot(
+                            advice.targetShotNo,
+                            advice.targetStableShotId
+                          )}
                         </span>
                       ) : null}
                     </div>
@@ -989,7 +1025,11 @@ export default function StoryAgentChat() {
                         ) : (
                           <Check className="h-3 w-3" />
                         )}
-                        放入 SH{String(advice.targetShotNo).padStart(2, "0")}
+                        放入{" "}
+                        {labelForShot(
+                          advice.targetShotNo,
+                          advice.targetStableShotId
+                        )}
                       </button>
                     ) : null}
                   </div>

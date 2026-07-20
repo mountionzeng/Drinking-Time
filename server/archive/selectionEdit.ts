@@ -2,6 +2,7 @@ import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import type { SelectionContext } from "../../shared/selectionContext";
+import { displayShotCode } from "../../shared/shotIdentity";
 
 // ── 选中编辑（行内选区编辑）──────────────────────────────────
 
@@ -91,7 +92,9 @@ function describeSelectionContext(selection?: SelectionContext): string {
     `来源：${selection.sourceType}:${selection.sourceId}`,
     selection.storyId != null ? `故事 ID：${selection.storyId}` : "",
     selection.stableShotId ? `稳定镜头 ID：${selection.stableShotId}` : "",
-    selection.shotNo != null ? `镜号：SH${String(selection.shotNo).padStart(2, "0")}` : "",
+    selection.shotNo != null
+      ? `镜号：${displayShotCode(selection)}`
+      : "",
     selection.materialStatus ? `素材状态：${selection.materialStatus}` : "",
     selection.objectVersion ? `对象版本：${selection.objectVersion}` : "",
     selection.imageId != null ? `图片 ID：${selection.imageId}` : "",

@@ -4,10 +4,18 @@
 
 @font-face {
   font-family: "Honglei Zhuoshu";
-  src: url("./assets/fonts/honglei-zhuoshu-brand.ttf") format("truetype");
+  src:
+    local("HongLeiZhuoShu"),
+    local("鸿雷拙书简体"),
+    url("./assets/fonts/honglei-zhuoshu.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+}
+
+.font-chat-brand {
+  font-family: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
+  letter-spacing: 0;
 }
 
 @custom-variant dark (&:is(.dark *));

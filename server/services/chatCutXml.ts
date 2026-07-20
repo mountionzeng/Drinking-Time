@@ -4,10 +4,12 @@ import {
   createStory,
   deleteStory,
   getStoryById,
+  getStoryTimeline,
+  updateStory,
   updateStoryTimeline,
 } from "../db";
 import { migrateStoryPromptLineage } from "./promptLineageMigration";
-import { prepareStoryBody } from "./storySync";
+import { getStoryRevision, prepareStoryBody } from "./storySync";
 
 export const MAX_CHATCUT_XML_BYTES = 2_000_000;
 
@@ -38,6 +40,7 @@ export type ChatCutClip = {
   name: string;
   fileId: string | null;
   pathUrl: string | null;
+  audioUrl?: string | null;
   mediaKind: ChatCutMediaKind;
   sourceWidth: number | null;
   sourceHeight: number | null;
@@ -730,6 +733,7 @@ export function buildChatCutStoryPayload(plan: ChatCutImportPlan) {
       stableShotId,
       shotIdentity: stableShotId,
       shotNo: index + 1,
+      cueCode: `SH${String(index + 1).padStart(2, "0")}`,
       durationMs,
       sceneNo: `V${plan.primaryVideoTrackIndex}`,
       sceneTitle: plan.sequenceName,
@@ -760,6 +764,12 @@ export function buildChatCutStoryPayload(plan: ChatCutImportPlan) {
       emotionDelta: "",
       visualAnchorText: "",
       negativePrompt: "",
+      chatCutMapping: {
+        projectId: plan.projectName,
+        sequenceId: plan.sequenceName,
+        itemId: clip.id,
+        assetId: clip.fileId ?? undefined,
+      },
     };
   });
 
@@ -841,4 +851,305 @@ export async function importChatCutXmlStory(input: {
     await deleteStory(id, input.userId);
     throw error;
   }
+}
+
+function attachmentShotId(
+  shot: XmlRecord,
+  fallbackShot: XmlRecord,
+  index: number
+): string {
+  for (const value of [
+    shot.stableShotId,
+    shot.shotIdentity,
+    fallbackShot.stableShotId,
+    fallbackShot.shotIdentity,
+  ]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return `chatcut-shot-${String(index + 1).padStart(4, "0")}`;
+}
+
+function attachmentCueCode(shot: XmlRecord): string | null {
+  if (typeof shot.cueCode === "string" && shot.cueCode.trim()) {
+    return shot.cueCode.trim();
+  }
+  return null;
+}
+
+function voiceCueCode(name: string): string | null {
+  return name.match(/(?:^|\b)VO[-_ ]?(\d{4}(?:-\d)?)/i)?.[1] ?? null;
+}
+
+function mediaBaseName(value: string): string {
+  const leaf = value.split(/[\\/]/).pop() ?? value;
+  try {
+    return decodeURIComponent(leaf).trim().toLocaleLowerCase();
+  } catch {
+    return leaf.trim().toLocaleLowerCase();
+  }
+}
+
+function existingAudioUrls(body: XmlRecord): Map<string, string> {
+  const imported = asRecord(body.chatCutImport);
+  const tracks = Array.isArray(imported.audioTracks)
+    ? imported.audioTracks.map(asRecord)
+    : [];
+  const urls = new Map<string, string>();
+  for (const track of tracks) {
+    const clips = Array.isArray(track.clips) ? track.clips.map(asRecord) : [];
+    for (const clip of clips) {
+      const name = typeof clip.name === "string" ? clip.name.trim() : "";
+      const audioUrl =
+        typeof clip.audioUrl === "string" ? clip.audioUrl.trim() : "";
+      if (name && audioUrl) urls.set(mediaBaseName(name), audioUrl);
+    }
+  }
+  return urls;
+}
+
+function existingPlaybackAudioTrackIndexes(body: XmlRecord): number[] {
+  const imported = asRecord(body.chatCutImport);
+  if (!Array.isArray(imported.playbackAudioTrackIndexes)) return [];
+  return Array.from(
+    new Set(
+      imported.playbackAudioTrackIndexes
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0)
+    )
+  );
+}
+
+type AttachmentScriptCue = {
+  code: string;
+  text: string;
+  startFrame: number | null;
+  endFrame: number | null;
+};
+
+function existingScriptCues(body: XmlRecord): AttachmentScriptCue[] {
+  const imported = asRecord(body.chatCutImport);
+  const cues = Array.isArray(imported.scriptCues)
+    ? imported.scriptCues.map(asRecord)
+    : [];
+  return cues.flatMap(cue => {
+    const code = typeof cue.code === "string" ? cue.code.trim() : "";
+    const text = typeof cue.text === "string" ? cue.text.trim() : "";
+    if (!code || !text) return [];
+    return [{ code, text, startFrame: null, endFrame: null }];
+  });
+}
+
+function cueTextsInVoiceOrder(
+  cues: AttachmentScriptCue[],
+  targetCount: number
+): { texts: string[]; normalized: boolean } {
+  const rawTexts = cues.map(cue => cue.text);
+  const normalizedTexts: string[] = [];
+  for (const text of rawTexts) {
+    for (const part of text
+      .split(/\r?\n+/)
+      .map(value => value.trim())
+      .filter(Boolean)) {
+      const previous = normalizedTexts.at(-1);
+      if (
+        previous &&
+        previous.replace(/\s+/g, "") === part.replace(/\s+/g, "")
+      ) {
+        continue;
+      }
+      normalizedTexts.push(part);
+    }
+  }
+  const normalized =
+    normalizedTexts.length === targetCount &&
+    normalizedTexts.some((text, index) => text !== rawTexts[index]);
+  return {
+    texts: normalized ? normalizedTexts : rawTexts,
+    normalized,
+  };
+}
+
+function scriptCuesForAttachment(
+  existingBody: XmlRecord,
+  mergedShots: XmlRecord[],
+  voiceTimingByCode: Map<string, { startFrame: number; endFrame: number }>
+): AttachmentScriptCue[] {
+  const semanticCues = mergedShots.flatMap(shot => {
+    const code = attachmentCueCode(shot);
+    const text = typeof shot.dialogue === "string" ? shot.dialogue.trim() : "";
+    return code && text
+      ? [{ code, text, startFrame: null, endFrame: null }]
+      : [];
+  });
+  if (voiceTimingByCode.size === 0) return semanticCues;
+
+  const previousCues = existingScriptCues(existingBody);
+  const orderedFallbacks =
+    previousCues.length > 0 ? previousCues : semanticCues;
+  const fallback = cueTextsInVoiceOrder(
+    orderedFallbacks,
+    voiceTimingByCode.size
+  );
+  const textByCode = new Map<string, string>();
+  for (const cue of [...semanticCues, ...previousCues]) {
+    textByCode.set(cue.code, cue.text);
+  }
+
+  return Array.from(voiceTimingByCode.entries())
+    .sort(
+      ([, left], [, right]) =>
+        left.startFrame - right.startFrame || left.endFrame - right.endFrame
+    )
+    .flatMap(([code, timing], index) => {
+      const orderedText = fallback.texts[index] ?? "";
+      const text = fallback.normalized
+        ? orderedText || textByCode.get(code) || ""
+        : textByCode.get(code) || orderedText;
+      if (!text) return [];
+      return [{ code, text, ...timing }];
+    });
+}
+
+/**
+ * Attach a ChatCut timeline to the current semantic story. The XML owns timing,
+ * transforms and audio manifests; the story keeps its stable shot identities,
+ * dialogue, prompts and generation history.
+ */
+export async function attachChatCutXmlToStory(input: {
+  xml: string;
+  storyId: number;
+  userId: number;
+}) {
+  const story = await getStoryById(input.storyId, input.userId);
+  if (!story) throw new Error("故事不存在或无权操作");
+
+  const plan = parseChatCutXml(input.xml);
+  const summary = summarizeChatCutImport(plan);
+  const imported = buildChatCutStoryPayload(plan);
+  const existingBody = asRecord(story.body);
+  const previousAudioUrls = existingAudioUrls(existingBody);
+  const availableAudioTrackIndexes = new Set(
+    plan.audioTracks.map(track => track.index)
+  );
+  const playbackAudioTrackIndexes = existingPlaybackAudioTrackIndexes(
+    existingBody
+  ).filter(index => availableAudioTrackIndexes.has(index));
+  const attachedPlan: ChatCutImportPlan = {
+    ...plan,
+    audioTracks: plan.audioTracks.map(track => ({
+      ...track,
+      clips: track.clips.map(clip => ({
+        ...clip,
+        audioUrl:
+          previousAudioUrls.get(mediaBaseName(clip.name)) ??
+          clip.audioUrl ??
+          null,
+      })),
+    })),
+  };
+  const existingShots = Array.isArray(existingBody.shots)
+    ? existingBody.shots.map(asRecord)
+    : [];
+  const importedShots = imported.shots.map(asRecord);
+  const shotCount = Math.max(existingShots.length, importedShots.length);
+  const mergedShots = Array.from({ length: shotCount }, (_, index) => {
+    const existingShot = existingShots[index] ?? {};
+    const importedShot = importedShots[index] ?? {};
+    const stableShotId = attachmentShotId(existingShot, importedShot, index);
+    const merged: XmlRecord = {
+      ...importedShot,
+      ...existingShot,
+      stableShotId,
+      shotIdentity: stableShotId,
+      shotNo: index + 1,
+    };
+    if (typeof importedShot.durationMs === "number") {
+      merged.durationMs = importedShot.durationMs;
+    }
+    if (importedShot.chatCutMapping) {
+      merged.chatCutMapping = importedShot.chatCutMapping;
+    }
+    if (
+      (!merged.sound || String(merged.sound).trim() === "") &&
+      importedShot.sound
+    ) {
+      merged.sound = importedShot.sound;
+    }
+    return merged;
+  });
+
+  const voiceTimingByCode = new Map<
+    string,
+    { startFrame: number; endFrame: number }
+  >();
+  for (const clip of attachedPlan.audioTracks.flatMap(track => track.clips)) {
+    const code = voiceCueCode(clip.name);
+    if (!code || voiceTimingByCode.has(code)) continue;
+    voiceTimingByCode.set(code, {
+      startFrame: clip.startFrame,
+      endFrame: clip.endFrame,
+    });
+  }
+  const scriptCues = scriptCuesForAttachment(
+    existingBody,
+    mergedShots,
+    voiceTimingByCode
+  );
+  const nextBody = prepareStoryBody(
+    {
+      ...existingBody,
+      shots: mergedShots,
+      chatCutImport: {
+        ...attachedPlan,
+        ...(playbackAudioTrackIndexes.length > 0
+          ? { playbackAudioTrackIndexes }
+          : {}),
+        scriptCues,
+        importedAt: new Date().toISOString(),
+        relinkStatus: "required",
+      },
+    },
+    getStoryRevision(story.body) + 1,
+    story.body
+  );
+
+  const currentTimeline = await getStoryTimeline(input.storyId, input.userId);
+  const currentItems = Array.isArray(currentTimeline?.items)
+    ? currentTimeline.items.map(asRecord)
+    : [];
+  const timelineItems = mergedShots.map((shot, index) => {
+    const importedItem = asRecord(imported.timelineItems[index]);
+    const currentItem = currentItems[index] ?? {};
+    const durationMs =
+      typeof shot.durationMs === "number" ? shot.durationMs : 3000;
+    return {
+      ...currentItem,
+      ...importedItem,
+      stableShotId: String(shot.stableShotId),
+      included: true,
+      position: index,
+      plannedDurationMs: durationMs,
+      transform: importedItem.transform ??
+        currentItem.transform ?? {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+    };
+  });
+
+  const timeline = await updateStoryTimeline({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedVersion: currentTimeline?.version ?? 0,
+    items: timelineItems,
+  });
+  await updateStory(input.storyId, input.userId, { body: nextBody });
+  const updatedStory = await getStoryById(input.storyId, input.userId);
+  if (!updatedStory) throw new Error("ChatCut 时间线已解析，但故事保存失败");
+  return { story: updatedStory, timeline, plan: attachedPlan, summary };
 }

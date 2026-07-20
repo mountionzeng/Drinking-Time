@@ -17,6 +17,9 @@ export type ResonanceProfile = {
   lifeStage?: string;
   birthSeason?: string;
   cohort?: string;
+  birthPlace?: string;
+  currentLocation?: string;
+  userMessage?: string;
   /** 当日五行 element：metal/wood/water/fire/earth */
   wuxing?: string;
 };
@@ -47,6 +50,10 @@ export function profileFromAnalysisSeed(seed: unknown): ResonanceProfile | undef
   if (typeof s.lifeStage === "string") profile.lifeStage = s.lifeStage;
   if (typeof s.birthSeason === "string") profile.birthSeason = s.birthSeason;
   if (typeof s.cohort === "string") profile.cohort = s.cohort;
+  if (typeof s.birthPlace === "string") profile.birthPlace = s.birthPlace;
+  if (typeof s.currentLocation === "string")
+    profile.currentLocation = s.currentLocation;
+  if (typeof s.userMessage === "string") profile.userMessage = s.userMessage;
   if (typeof s.wuxing === "string") profile.wuxing = s.wuxing;
   return Object.keys(profile).length > 0 ? profile : undefined;
 }
@@ -109,9 +116,12 @@ export function describeResonanceSignal(signal: ResonanceSignal): string {
       p.lifeStage,
       p.birthSeason,
       p.cohort,
+      p.birthPlace ? `出生地${p.birthPlace}` : "",
+      p.currentLocation ? `现居${p.currentLocation}` : "",
       p.wuxing ? `当日五行${p.wuxing}` : "",
     ].filter(Boolean);
     if (bits.length) lines.push(`长期画像：${bits.join("；")}`);
+    if (p.userMessage) lines.push(`用户在首页想说：${p.userMessage}`);
   }
   return lines.join("\n");
 }

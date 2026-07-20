@@ -28,6 +28,7 @@ export type TimelineDocument = {
 export type ShotMaterialState = {
   stableShotId: string;
   shotNo: number;
+  cueCode?: string | null;
   currentImage: ImageAsset | null;
   imageVersions: ImageAsset[];
   currentVideo: VideoTakeAsset | null;

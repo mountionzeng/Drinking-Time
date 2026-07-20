@@ -3,6 +3,10 @@ import type {
   PromptCandidateStatus,
   SelectionQuote,
 } from "./types";
+import {
+  compactChatMessages,
+  isOpeningChatMessage,
+} from "./types";
 
 type ServerMessage = {
   id: number;
@@ -46,7 +50,7 @@ export function mergeStoryConversationMessages(input: {
   references: readonly ServerReference[];
   candidates: readonly ServerCandidate[];
 }): ChatMessage[] {
-  const merged = new Map(input.current.map(message => [message.id, message]));
+  const compactedCurrent = compactChatMessages(input.current);
   const referenceByMessage = new Map(
     input.references.map(reference => [
       reference.messageId,
@@ -56,17 +60,68 @@ export function mergeStoryConversationMessages(input: {
   const candidateByMessage = new Map(
     input.candidates.map(candidate => [candidate.messageId, candidate]),
   );
+  const projectedTurns = input.messages.filter(message => message.role !== "system");
+  const legacyCorruptProjection =
+    projectedTurns.length >= 3 &&
+    projectedTurns.filter(message => message.role === "user").length /
+      projectedTurns.length >
+      0.9 &&
+    projectedTurns.filter(message =>
+      isOpeningChatMessage({
+        id: message.clientMessageId ?? `story-conversation:${message.id}`,
+        content: message.content,
+      }),
+    ).length > 1;
+  const projectedClientIds = new Set(
+    projectedTurns.flatMap(message =>
+      message.clientMessageId ? [message.clientMessageId] : [],
+    ),
+  );
+  const projectedContent = new Set(
+    projectedTurns.map(message => message.content.trim()),
+  );
+  const current = legacyCorruptProjection
+    ? compactedCurrent
+    : compactedCurrent.filter(
+        message =>
+          !projectedContent.has(message.content.trim()) ||
+          projectedClientIds.has(message.id),
+      );
+  const merged = new Map(current.map(message => [message.id, message]));
+  const localByContent = new Map(
+    current.map(message => [message.content.trim(), message]),
+  );
+
   for (const message of input.messages) {
     if (message.role === "system") continue;
-    const id = message.clientMessageId || `story-conversation:${message.id}`;
+    const projectedId =
+      message.clientMessageId || `story-conversation:${message.id}`;
+    const directLocal = merged.get(projectedId);
+    const contentLocal = legacyCorruptProjection
+      ? localByContent.get(message.content.trim())
+      : undefined;
+    if (
+      legacyCorruptProjection &&
+      isOpeningChatMessage({
+        id: projectedId,
+        content: message.content,
+      }) &&
+      current.some(isOpeningChatMessage)
+    ) {
+      continue;
+    }
+    const local = directLocal ?? contentLocal;
+    const id = local?.id ?? projectedId;
     const candidate = candidateByMessage.get(message.id);
-    const local = merged.get(id);
     merged.set(id, {
       ...local,
       id,
-      role: message.role,
+      role: legacyCorruptProjection
+        ? local?.role ?? message.role
+        : message.role,
       content: message.content,
-      timestamp: Date.parse(message.createdAt) || Date.now(),
+      timestamp:
+        local?.timestamp ?? (Date.parse(message.createdAt) || Date.now()),
       selectionQuote:
         referenceByMessage.get(message.id) ?? local?.selectionQuote,
       promptCandidate: candidate
@@ -79,9 +134,14 @@ export function mergeStoryConversationMessages(input: {
           }
         : local?.promptCandidate,
     });
+    if (!localByContent.has(message.content.trim())) {
+      localByContent.set(message.content.trim(), merged.get(id)!);
+    }
   }
-  return Array.from(merged.values()).sort(
-    (left, right) => left.timestamp - right.timestamp,
+  return compactChatMessages(
+    Array.from(merged.values()).sort(
+      (left, right) => left.timestamp - right.timestamp,
+    ),
   );
 }
 

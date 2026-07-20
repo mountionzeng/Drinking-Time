@@ -41,10 +41,24 @@ describe("directVideoPrompt", () => {
                   "He slowly leans a touch forward, eyelids droop slightly, and his breathing feels faint and steady; his gaze subtly shifts downward then settles.",
                 cameraMotion:
                   "A very gentle push-in toward his face and upper torso; shallow depth of field remains consistent.",
+                cameraRig: "短滑轨或小型摄影车，缓入缓出，不使用手持漂移。",
+                motionTimeline:
+                  "前 25% 锁住呼吸，中段人物低头后滑轨才轻推，最后 25% 同时减速并收稳。",
+                cameraSubjectCoordination:
+                  "人物先动，摄影机稍后响应，人物停下时摄影机也停下。",
+                preservationConstraints:
+                  "保留人物、沙发、窗光、布料纹理和物体位置，不新增内容。",
                 continuity: "保持人物、暖光和原构图不变。",
+                subjectPosition: "人物位于画面右侧三分之一。",
+                facingGazeDirection: "身体朝左，视线向下。",
+                shotScaleChange: "中景进入近景，再接远景。",
+                lightColorMaterial: "右侧暖光、低饱和布料质感保持一致。",
+                actionContinuity: "承接前镜低头动作，在呼吸后停住。",
+                transitionStrategy: "用视线匹配接到下一镜。",
+                risks: [{ kind: "look", detail: "下一镜视线方向需要保持。" }],
                 recommendedMotion: "low",
                 finalPrompt:
-                  "The seated man breathes slowly and lowers his gaze slightly. A very gentle push-in preserves his face, pose, warm window light, and original composition, with natural micro-movements only.",
+                  "The seated man holds the opening composition, breathes slowly, then lowers his gaze. Only after his eyes begin to move, a short dolly makes one restrained push toward his upper torso with a gentle ease-in. His body settles first and the dolly eases to a complete stop, preserving the warm window light, shallow depth of field, pose, and spatial continuity.",
                 confidence: 0.91,
               }),
             },
@@ -57,6 +71,9 @@ describe("directVideoPrompt", () => {
 
     const result = await directVideoPrompt({
       imageInput: "data:image/png;base64,AAAA",
+      endImageInput: "data:image/png;base64,END",
+      previousImageInput: "data:image/png;base64,PREVIOUS",
+      nextImageInput: "data:image/png;base64,NEXT",
       fallbackPrompt: "subtle natural motion, stable camera",
       shotNo: 2,
       draftPrompt: "动作：坐在沙发边缘\n相机运动：稳定轻微推进",
@@ -72,14 +89,16 @@ describe("directVideoPrompt", () => {
 
     expect(result.source).toBe("302-vision");
     expect(result.model).toBe("gpt-5.4-nano-2026-03-17");
-    expect(result.prompt).toContain("breathing feels faint and steady");
-    expect(result.prompt).toContain("A very gentle push-in");
-    expect(result.prompt).toContain("Preserve visible subject");
-    expect(result.prompt).not.toContain("warm window light");
-    expect(result.prompt).not.toContain("gaze subtly shifts");
-    expect(result.prompt).not.toContain("shallow depth");
-    expect(result.prompt.split(/\s+/).length).toBeLessThanOrEqual(65);
+    expect(result.prompt).toContain("a short dolly");
+    expect(result.prompt).toContain("Treat the supplied source frames");
+    expect(result.prompt).toContain("warm window light");
+    expect(result.prompt).toContain("object count and placement");
+    expect(result.prompt.split(/\s+/).length).toBeLessThanOrEqual(220);
     expect(result.analysis?.narrativeIntent).toContain("平静陈述");
+    expect(result.analysis?.subjectPosition).toContain("右侧三分之一");
+    expect(result.analysis?.cameraRig).toContain("短滑轨");
+    expect(result.analysis?.motionTimeline).toContain("最后 25%");
+    expect(result.analysis?.risks[0]?.kind).toBe("look");
     expect(result.analysis?.recommendedMotion).toBe("low");
 
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -96,6 +115,10 @@ describe("directVideoPrompt", () => {
         detail: "high",
       },
     });
+    expect(body.messages[1].content[3].image_url.url).toContain("END");
+    expect(body.messages[1].content[5].image_url.url).toContain("PREVIOUS");
+    expect(body.messages[1].content[7].image_url.url).toContain("NEXT");
+    expect(body.messages[0].content).toContain("手持不是默认装饰");
   });
 
   it("rewrites MJ-sensitive cooking vocabulary before submission", async () => {

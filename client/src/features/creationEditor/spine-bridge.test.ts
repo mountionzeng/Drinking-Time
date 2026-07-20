@@ -65,6 +65,22 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).toContain("embeddedEditorMode");
     expect(editingWorkspace).toContain("selectShot: true");
     expect(editingWorkspace).toContain("onSelectShot(nextShotNo)");
+    expect(editingWorkspace).toContain("ResizablePanelGroup");
+    expect(editingWorkspace).toContain(
+      'autoSaveId="editing-storyboard-preview-widths-v2"'
+    );
+    expect(editingWorkspace).toContain('defaultViewMode="full"');
+    expect(editingWorkspace).toContain('aria-label="调整故事版与动态分镜宽度"');
+    expect(editingWorkspace).toContain("DEFAULT_STORYBOARD_PANEL_SIZE = 45");
+    expect(editingWorkspace).toContain("DEFAULT_PREVIEW_PANEL_SIZE = 55");
+    expect(editingWorkspace).not.toContain("DEFAULT_DIRECTOR_PANEL_SIZE");
+    expect(editingWorkspace).not.toContain("<ShotDirectorPanel");
+    expect(editingWorkspace).not.toContain(
+      'aria-label="调整动态分镜与导演面板宽度"'
+    );
+    expect(editingWorkspace).toContain(
+      'className="h-full w-full object-cover"'
+    );
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
 

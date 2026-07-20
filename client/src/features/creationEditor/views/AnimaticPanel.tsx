@@ -4,14 +4,16 @@ import {
   creationTimelineShotId,
   resolveTimelineShots,
   useCreationEditor,
+  type CreationEditorShot,
 } from "../CreationEditorContext";
 import AnimaticPlayer from "./AnimaticPlayer";
 import Timeline, { type TimelinePlaybackMode } from "./Timeline";
 import AnimaticMaterialDrawer from "./AnimaticMaterialDrawer";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import { displayShotCode } from "@shared/shotIdentity";
 
-function shotLabel(shotNo: number | null) {
-  return shotNo == null ? "未选镜头" : `SH${String(shotNo).padStart(2, "0")}`;
+function shotLabel(shot: CreationEditorShot | null | undefined) {
+  return shot ? displayShotCode(shot) : "未选镜头";
 }
 
 function targetOwnsSpacebar(target: EventTarget | null) {
@@ -133,11 +135,12 @@ export default function AnimaticPanel({
         : currentImage
           ? String(currentImage.id)
           : `${Math.max(0, shots.indexOf(shot))}:subject`,
-      selectedText: fullText || shotLabel(shotNo),
-      fullText: fullText || shotLabel(shotNo),
+      selectedText: fullText || shotLabel(shot),
+      fullText: fullText || shotLabel(shot),
       storyId: activeStoryId,
       stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
       shotNo,
+      cueCode: shot.cueCode ?? null,
       imageId: currentImage?.id ?? null,
       videoTakeId: currentVideo?.id ?? null,
       objectVersion: currentVideo
@@ -252,7 +255,7 @@ export default function AnimaticPanel({
         </div>
         <div className="flex items-center gap-2">
           <span className="creation-board-panel-status">
-            {shotLabel(selectedShotNo)}
+            {shotLabel(selectedShot)}
           </span>
           <button
             type="button"
@@ -292,7 +295,7 @@ export default function AnimaticPanel({
             {selectedShot && !selectedShotIsOnTimeline ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">
-                  当前查看 {shotLabel(selectedShot.shotNo)}
+                  当前查看 {shotLabel(selectedShot)}
                   ，还没放进剪辑时间轴。
                 </span>
                 <button

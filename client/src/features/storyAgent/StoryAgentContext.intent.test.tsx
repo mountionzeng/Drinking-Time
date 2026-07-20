@@ -243,12 +243,21 @@ describe('StoryAgentContext intent state', () => {
   });
 
   it('prefers the first persisted story id over draft sentinels', async () => {
-    const { resolvePersistedStoryId, storyScopeMatches } = await import('./StoryAgentContext');
+    const {
+      canPersistStoryToActiveScope,
+      resolvePersistedStoryId,
+      storyScopeMatches,
+    } = await import('./StoryAgentContext');
 
     expect(resolvePersistedStoryId(-1, 36, 42)).toBe(36);
     expect(resolvePersistedStoryId(null, undefined, 42)).toBe(42);
     expect(resolvePersistedStoryId(-1, 0, null)).toBeNull();
     expect(storyScopeMatches(-1, -1)).toBe(true);
     expect(storyScopeMatches(36, 34)).toBe(false);
+    expect(canPersistStoryToActiveScope(36, 36)).toBe(true);
+    expect(canPersistStoryToActiveScope(36, null)).toBe(false);
+    expect(canPersistStoryToActiveScope(36, 34)).toBe(false);
+    expect(canPersistStoryToActiveScope(undefined, -1)).toBe(true);
+    expect(canPersistStoryToActiveScope(undefined, null)).toBe(false);
   });
 });

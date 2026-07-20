@@ -9,6 +9,7 @@ import {
   buildHardCutArgs,
   buildViduTransitionBody,
   downloadVideoToFile,
+  estimateViduQ2TransitionCny,
   estimateViduQ2TransitionCost,
   hardCutToLastFrame,
   refreshViduTransition,
@@ -55,6 +56,24 @@ describe("videoTransition302", () => {
       videoPtc: 0.05,
       uploadPtc: 0,
       totalPtc: 0.05,
+    });
+    expect(
+      estimateViduQ2TransitionCny({
+        durationSec: 2,
+        resolution: "720p",
+      })
+    ).toEqual({
+      currency: "CNY",
+      estimatedCny: 0.35,
+    });
+    expect(
+      estimateViduQ2TransitionCny({
+        durationSec: 5,
+        resolution: "1080p",
+      })
+    ).toEqual({
+      currency: "CNY",
+      estimatedCny: 2.54,
     });
   });
 

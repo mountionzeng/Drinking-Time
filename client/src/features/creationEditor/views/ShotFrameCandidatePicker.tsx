@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import type { CreationEditorShot } from "../CreationEditorContext";
 import type { FrameCandidateSource } from "../frameCandidate";
+import { displayShotCode } from "@shared/shotIdentity";
 import {
   cropFrameQuadrant,
   FRAME_QUADRANTS,
@@ -175,7 +176,7 @@ export default function ShotFrameCandidatePicker({
         <DialogContent className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-5 sm:max-w-[min(1180px,calc(100vw-2rem))]">
           <DialogHeader className="pr-8">
             <DialogTitle className="text-base">
-              选择 SH{String(shot.shotNo).padStart(2, "0")} 当前主图
+              选择 {displayShotCode(shot)} 当前主图
             </DialogTitle>
             <DialogDescription>
               四张候选已分别放大。点击画面即可设为当前主图。

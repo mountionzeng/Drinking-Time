@@ -39,6 +39,7 @@ import type {
   CreationEditorShot,
   VideoConformBatchResult,
 } from "../CreationEditorContext";
+import { displayShotCode } from "@shared/shotIdentity";
 import {
   ONE_CLICK_TARGET_ASPECT_RATIOS,
   aspectRatioMatches,
@@ -282,20 +283,21 @@ function ShotCheckRow({
   onToggle: () => void;
   onSelectShot: (shotNo: number) => void;
 }) {
+  const shotCode = displayShotCode(check);
   return (
     <article className="grid grid-cols-[1.25rem_4.5rem_minmax(0,1fr)] gap-3 border-b border-border/70 px-3 py-3 last:border-b-0 sm:grid-cols-[1.25rem_4.5rem_minmax(0,1fr)_auto]">
       <Checkbox
         checked={selected}
         disabled={!conformSelectable}
         onCheckedChange={onToggle}
-        aria-label={`选择 SH${String(check.shotNo).padStart(2, "0")} 视频`}
+        aria-label={`选择 ${shotCode} 视频`}
         className="mt-1"
       />
       <button
         type="button"
         onClick={() => onSelectShot(check.shotNo)}
         className="group relative aspect-square overflow-hidden rounded-md border border-border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-        aria-label={`查看 SH${String(check.shotNo).padStart(2, "0")}`}
+        aria-label={`查看 ${shotCode}`}
       >
         <OneClickShotPreview
           title={check.title}
@@ -305,7 +307,7 @@ function ShotCheckRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold">
-            SH{String(check.shotNo).padStart(2, "0")}
+            {shotCode}
           </span>
           <span
             className={`text-xs font-medium ${healthTone(check.healthScore)}`}
@@ -456,6 +458,7 @@ export default function OneClickEditAssistant({
             takeId: check.videoTakeId,
             stableShotId: check.stableShotId,
             shotNo: check.shotNo,
+            cueCode: check.cueCode,
             title: check.title,
             cameraMove: check.cameraMove,
             videoUrl: check.videoUrl,

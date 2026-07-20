@@ -141,6 +141,29 @@ export function currentVideoTakeForEditing<
   );
 }
 
+function selectedVideoRange(take: VideoTakeAsset) {
+  return take.selectedSelectionType === "range" && take.selectedRangeId != null
+    ? (take.ranges.find(range => range.id === take.selectedRangeId) ?? null)
+    : null;
+}
+
+export function videoTakeFrameUrl(
+  take: VideoTakeAsset,
+  role: "start" | "end"
+): string | null {
+  if (take.status !== "available" || !take.videoUrl) return null;
+  const range = selectedVideoRange(take);
+  const startSec = Math.max(0, range?.startSec ?? 0);
+  const sourceEnd = Math.max(
+    startSec,
+    range?.endSec ?? take.durationSec ?? startSec
+  );
+  const atSec =
+    role === "start" ? startSec : Math.max(startSec, sourceEnd - 1 / 30);
+  const rangeQuery = range ? `&rangeId=${range.id}` : "";
+  return `/api/video-frames/${take.id}?atSec=${atSec.toFixed(3)}${rangeQuery}`;
+}
+
 export function videoTakeErrorMessage(message: string): string {
   if (
     message

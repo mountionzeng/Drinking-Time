@@ -15,6 +15,7 @@ import {
 } from '../promptTable/sort';
 import type { PromptOverride, PromptRow, PromptSourceSystem } from '../promptTable/types';
 import PromptCellEditor from './PromptCellEditor';
+import { displayShotCode } from '@shared/shotIdentity';
 
 type PromptTableProps = {
   shot: CreationEditorShot | null;
@@ -376,7 +377,7 @@ export default function PromptTable({
               {videoRecipe.sourceImageUrl ? (
                 <img
                   src={videoRecipe.sourceImageUrl}
-                  alt={`${shot.shotKey || `SH${String(shot.shotNo).padStart(2, '0')}`} 首帧图`}
+                  alt={`${displayShotCode(shot)} 首帧图`}
                   className="aspect-video h-full w-full object-cover"
                 />
               ) : (

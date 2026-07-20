@@ -215,12 +215,14 @@ describe("runTimelineEditCommand", () => {
         {
           stableShotId: "shot-a",
           shotNo: 1,
+          cueCode: "0101",
           currentVideo: null,
           currentImage: currentImage(101, "https://example.com/a.png", "首帧"),
         },
         {
           stableShotId: "shot-b",
           shotNo: 2,
+          cueCode: "0102",
           currentVideo: null,
           currentImage: null,
         },
@@ -238,7 +240,8 @@ describe("runTimelineEditCommand", () => {
     if (!result.handled) return;
     expect(result.appliedCount).toBe(0);
     expect("proposal" in result && result.proposal).toBeFalsy();
-    expect(result.reply).toContain("SH02");
+    expect(result.reply).toContain("0102");
+    expect(result.reply).not.toContain("SH02");
     expect(result.reply).toContain("不会调用模型或改时间轴");
     expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();

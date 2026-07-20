@@ -5,7 +5,8 @@
  *
  * Sits in the TEMPLATE DRAFT slot of the analysis page.
  */
-import {
+import React, {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -30,14 +31,12 @@ import {
   Clapperboard,
   ImagePlus,
   Trash2,
-  Star,
-  Palette,
-  ScrollText,
   CheckCircle2,
+  ChevronDown,
   ChevronUp,
   ListPlus,
-  Link2,
   PlusCircle,
+  Upload,
   Video,
 } from "lucide-react";
 import {
@@ -46,10 +45,7 @@ import {
   type GenerationProfileArg,
   type StoryShotEditableField,
 } from "@/features/storyAgent/StoryAgentContext";
-import {
-  useCardReferenceDockSlice,
-  useStoryCardsBoardSlice,
-} from "@/features/storyAgent/spine/selectors";
+import { useStoryCardsBoardSlice } from "@/features/storyAgent/spine/selectors";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -64,13 +60,18 @@ import type {
 import {
   creationTimelineShotId,
   type CreationEditorShot,
+  type ImportedStoryMaterialResult,
 } from "@/features/creationEditor/CreationEditorContext";
-import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
+import {
+  videoTakeAffordance,
+  videoTakeFrameUrl,
+} from "@/features/creationEditor/videoAssetViewModel";
 import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
+import type { ShotDirectorResult } from "@shared/shotDirector";
+import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
 import type { NayinElement } from "@/features/nayin/nayin";
-import type { ArtRecipeDNA } from "@shared/artDirection";
-import { shotIdentityFromShot } from "@shared/shotIdentity";
+import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import {
   buildMobileStoryboardScenes,
   parseShotNo,
@@ -83,11 +84,42 @@ import {
   readVideoTakeDragPayload,
 } from "./videoTakeDrag";
 import { buildStoryboardTimingRows } from "../storyboardTiming";
+import {
+  StoryboardMatrixFieldCell,
+  STORYBOARD_MATRIX_ROWS,
+  storyboardMatrixSwapPlan,
+  type StoryboardMatrixField,
+  type StoryboardMatrixRow,
+} from "./StoryboardMatrix";
+import {
+  artChoiceKey,
+  FALLBACK_VISUAL_STYLES,
+  GenerationSettingsPanel,
+  narrativeChoicesForIntent,
+  type ArtLibraryVersionView,
+} from "./GenerationSettingsPanel";
+import {
+  StoryboardMediaPreviewDialog,
+  StoryboardVideoThumbnail,
+  storyboardPreviewVideoTake,
+  type StoryboardMediaPreview,
+} from "./StoryboardMediaPreview";
+import { CardReferenceDock } from "./CardReferenceDock";
+import {
+  importStoryboardMediaFiles,
+  storyboardMediaKind,
+} from "../storyboardLocalMedia";
+
+export { STORYBOARD_MATRIX_ROWS, storyboardMatrixSwapPlan };
+export { StoryboardVideoThumbnail, storyboardPreviewVideoTake };
+export type { StoryboardMatrixField, StoryboardMatrixRow };
 
 const STORYBOARD_DRAG_SCROLL_ZONE_PX = 160;
 const STORYBOARD_DRAG_SCROLL_MAX_PX = 36;
 const STORYBOARD_DRAG_SCROLL_ACCELERATION_MS = 1600;
 const STORYBOARD_DRAG_SCROLL_MAX_ACCELERATION = 2.75;
+const STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX = 84;
+const STORYBOARD_HORIZONTAL_DRAG_SCROLL_MAX_PX = 30;
 
 export function hasStoryboardScrollableDragPayload(
   dataTransfer: DataTransfer
@@ -133,6 +165,51 @@ export function storyboardDragScrollSpeedMultiplier(elapsedMs: number): number {
   );
 }
 
+export function autoScrollElementHorizontallyAtPoint(
+  element: HTMLElement | null,
+  clientX: number
+): number {
+  if (!element) return 0;
+  const rect = element.getBoundingClientRect();
+  const distanceFromLeft = clientX - rect.left;
+  const distanceFromRight = rect.right - clientX;
+  let delta = 0;
+  if (distanceFromLeft < STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX) {
+    const ratio =
+      (STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX -
+        Math.max(0, distanceFromLeft)) /
+      STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX;
+    delta = -Math.ceil(ratio * STORYBOARD_HORIZONTAL_DRAG_SCROLL_MAX_PX);
+  } else if (distanceFromRight < STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX) {
+    const ratio =
+      (STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX -
+        Math.max(0, distanceFromRight)) /
+      STORYBOARD_HORIZONTAL_DRAG_SCROLL_ZONE_PX;
+    delta = Math.ceil(ratio * STORYBOARD_HORIZONTAL_DRAG_SCROLL_MAX_PX);
+  }
+  if (delta !== 0) element.scrollBy({ left: delta, behavior: "auto" });
+  return delta;
+}
+
+export function scrollElementHorizontallyIntoView(
+  scroller: HTMLElement | null,
+  target: HTMLElement | null,
+  leftInset = 0
+): number {
+  if (!scroller || !target) return 0;
+  const scrollerRect = scroller.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const visibleLeft = scrollerRect.left + Math.max(0, leftInset);
+  let delta = 0;
+  if (targetRect.left < visibleLeft) {
+    delta = targetRect.left - visibleLeft;
+  } else if (targetRect.right > scrollerRect.right) {
+    delta = targetRect.right - scrollerRect.right;
+  }
+  if (delta !== 0) scroller.scrollBy({ left: delta, behavior: "auto" });
+  return delta;
+}
+
 export function storyShotInsertIdentity(
   shot: StoryShot,
   index: number
@@ -141,13 +218,13 @@ export function storyShotInsertIdentity(
 }
 
 function AddShotButton({
-  shotNo,
+  shotLabel,
   inserting,
   disabled,
   onClick,
   compact = false,
 }: {
-  shotNo: number;
+  shotLabel: string;
   inserting: boolean;
   disabled: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -161,8 +238,8 @@ function AddShotButton({
       className={`inline-flex items-center justify-center rounded-sm bg-muted/45 text-[10px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-70 ${
         compact ? "h-7 w-7" : "mt-2 w-full gap-1.5 px-3 py-2"
       }`}
-      aria-label={`在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`}
-      title={`在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`}
+      aria-label={`在 ${shotLabel} 后添加镜头`}
+      title={`在 ${shotLabel} 后添加镜头`}
     >
       {inserting ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -175,19 +252,19 @@ function AddShotButton({
 }
 
 function DeleteShotButton({
-  shotNo,
+  shotLabel,
   deleting,
   disabled,
   onClick,
   compact = false,
 }: {
-  shotNo: number;
+  shotLabel: string;
   deleting: boolean;
   disabled: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   compact?: boolean;
 }) {
-  const label = `删除 SH${String(shotNo).padStart(2, "0")}`;
+  const label = `删除 ${shotLabel}`;
   return (
     <button
       type="button"
@@ -209,6 +286,29 @@ function DeleteShotButton({
   );
 }
 
+function StoryboardMediaDropOverlay({
+  shotLabel,
+  importing,
+}: {
+  shotLabel: string;
+  importing: boolean;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center gap-1.5 rounded-sm border bg-background/95 px-2 text-[9px] font-semibold text-foreground shadow-sm"
+      style={{ borderColor: "var(--nayin-accent)" }}
+      aria-live="polite"
+    >
+      {importing ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-nayin-bright" />
+      ) : (
+        <Upload className="h-3.5 w-3.5 text-nayin-bright" />
+      )}
+      {importing ? `正在导入 ${shotLabel}` : `导入到 ${shotLabel}`}
+    </div>
+  );
+}
+
 const EMPTY_HINT: Record<NayinElement, string> = {
   metal: "先开瓶啤酒，跟小酌聊聊一句让你记住的话",
   wood: "泡上一壶龙井，慢慢回忆那个让你停下来的瞬间",
@@ -216,145 +316,6 @@ const EMPTY_HINT: Record<NayinElement, string> = {
   fire: "冲一泡大红袍，让小酌带你回到那一刻",
   earth: "研一杯咖啡，跟小酌聊一段你忘不掉的事",
 };
-
-type NarrativeStyleChoice = {
-  id: string;
-  label: string;
-  logline: string;
-  arc: string;
-  treatment: string;
-  generated: boolean;
-};
-
-type VisualStylePreset = {
-  id: string;
-  title: string;
-  description: string;
-  recipe: ArtRecipeDNA;
-};
-
-const FALLBACK_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
-  {
-    id: "director-ad",
-    label: "广告片",
-    logline: "把优势压成一句清楚的价值主张",
-    arc: "岗位关心什么 → 你为什么能做 → 值得联系",
-    treatment: "镜头要少而准，每一幕都证明一个求职优势。",
-    generated: false,
-  },
-  {
-    id: "director-doc",
-    label: "观察式",
-    logline: "让事实自己说话",
-    arc: "具体处境 → 做法选择 → 结果与可信度",
-    treatment: "少煽情，多保留工作现场和判断过程。",
-    generated: false,
-  },
-  {
-    id: "director-poetic",
-    label: "诗意版",
-    logline: "把抽象能力翻译成可感知的画面",
-    arc: "模糊问题 → 画面化理解 → 共同情感",
-    treatment: "保留情绪，但每个画面都要能回扣岗位价值。",
-    generated: false,
-  },
-];
-
-const FICTION_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
-  {
-    id: "fiction-short",
-    label: "短片版",
-    logline: "一句奇异设定长成 3-5 镜短片",
-    arc: "世界规则 → 主角欲望 → 阻碍选择 → 余味",
-    treatment: "先让规则可见，再让人物在规则里做一个选择。",
-    generated: false,
-  },
-  {
-    id: "fiction-fable",
-    label: "寓言版",
-    logline: "保留怪味，让故事像一个会回响的寓言",
-    arc: "异常发生 → 人群反应 → 主角理解 → 留白",
-    treatment: "少解释世界观，多用一两个物件把意义落住。",
-    generated: false,
-  },
-  {
-    id: "fiction-cinematic",
-    label: "电影版",
-    logline: "把灵感压成更强的视觉和冲突",
-    arc: "定调画面 → 冲突升级 → 转折画面 → 收束",
-    treatment: "画面更明确，冲突更集中，但不扩成长篇设定。",
-    generated: false,
-  },
-];
-
-const GENERAL_NARRATIVE_STYLES: NarrativeStyleChoice[] = [
-  {
-    id: "memory-restraint",
-    label: "克制版",
-    logline: "让日常细节自己发光",
-    arc: "具体处境 → 细微变化 → 留白",
-    treatment: "少解释，多保留原话、动作和空间。",
-    generated: false,
-  },
-  {
-    id: "memory-dramatic",
-    label: "戏剧版",
-    logline: "把愿望、阻碍和转折讲清楚",
-    arc: "愿望 → 阻碍 → 转折 → 余味",
-    treatment: "适度加强事件推进，但不补用户没说过的大事。",
-    generated: false,
-  },
-  {
-    id: "memory-poetic",
-    label: "诗意版",
-    logline: "把情绪翻译成可拍的意象",
-    arc: "意象定调 → 情绪流动 → 轻轻收束",
-    treatment: "更看重光线、物件和重复出现的私人痕迹。",
-    generated: false,
-  },
-];
-
-const FALLBACK_VISUAL_STYLES: VisualStylePreset[] = [
-  {
-    id: "visual-doc-real",
-    title: "写实纪录",
-    description: "适合强调可信证据、真实工作现场和人的判断过程。",
-    recipe: {
-      style: ["documentary realism", "cinematic"],
-      palette: ["natural tones", "low saturation"],
-      light: ["available light", "soft contrast"],
-      composition: ["clear subject focus", "observational framing"],
-      material: ["real workspace texture"],
-      negative: ["overly staged", "fantasy lighting"],
-    },
-  },
-  {
-    id: "visual-warm-ad",
-    title: "温暖广告片",
-    description: "适合把优势讲得更有吸引力，强调人与结果的连接。",
-    recipe: {
-      style: ["premium commercial film", "human-centered"],
-      palette: ["warm neutrals", "clean accent color"],
-      light: ["soft key light", "golden practical light"],
-      composition: ["confident hero framing", "balanced negative space"],
-      material: ["polished but real texture"],
-      negative: ["stock photo", "plastic skin"],
-    },
-  },
-  {
-    id: "visual-portfolio-clean",
-    title: "作品集克制",
-    description: "适合产品、策略、作品集场景，画面干净，让信息更清楚。",
-    recipe: {
-      style: ["minimal editorial", "product storytelling"],
-      palette: ["off-white", "charcoal", "muted teal"],
-      light: ["clean studio light", "soft shadow"],
-      composition: ["structured layout", "precise framing"],
-      material: ["paper", "screen", "work-in-progress artifacts"],
-      negative: ["visual clutter", "heavy vignette"],
-    },
-  },
-];
 
 function emotionAccent(emotion: string): string {
   // Hash-derived hue from the emotion string so similar emotions cluster.
@@ -407,74 +368,6 @@ export function latestStoryboardFrames(
     .map(([shotNo, image]) => ({ shotNo, image }));
 }
 
-function narrativeChoicesForIntent(
-  purpose?: string | null
-): NarrativeStyleChoice[] {
-  if (purpose === "fiction") return FICTION_NARRATIVE_STYLES;
-  if (purpose === "linkedin_job_search") return FALLBACK_NARRATIVE_STYLES;
-  return GENERAL_NARRATIVE_STYLES;
-}
-
-function recipeTokens(recipe: ArtRecipeDNA | undefined, limit = 5): string[] {
-  if (!recipe) return [];
-  return [
-    ...recipe.style,
-    ...recipe.palette,
-    ...recipe.light,
-    ...recipe.composition,
-    ...recipe.material,
-  ]
-    .filter(Boolean)
-    .slice(0, limit);
-}
-
-type ArtLibraryVersionView = {
-  library: {
-    id: number;
-    kind: "system" | "user";
-    name: string;
-    description: string | null;
-  };
-  version: {
-    id: number;
-    version: number;
-    source: string | null;
-  };
-  items: Array<{
-    dimension: string;
-    content: string;
-    negativeContent: string | null;
-  }>;
-};
-
-function artChoiceKey(
-  source: "preset" | "library",
-  id: string | number
-): string {
-  return `${source}:${id}`;
-}
-
-function dimensionLabel(dimension: string): string {
-  const labels: Record<string, string> = {
-    visual_style: "风格",
-    color_palette: "色彩",
-    lighting: "光线",
-    composition: "构图",
-    material: "材质",
-    negative_prompt: "避免",
-    art_style_recipe: "配方",
-  };
-  return labels[dimension] ?? dimension;
-}
-
-function libraryTokens(version: ArtLibraryVersionView, limit = 4): string[] {
-  return version.items
-    .slice()
-    .sort((left, right) => left.dimension.localeCompare(right.dimension))
-    .map(item => dimensionLabel(item.dimension))
-    .slice(0, limit);
-}
-
 function shortText(value: string | null | undefined, fallback: string): string {
   const text = value?.trim();
   return text && text.length > 0 ? text : fallback;
@@ -525,294 +418,6 @@ function EmotionBridge({
   );
 }
 
-function VisualPresetButton({
-  preset,
-  selected,
-  onSelect,
-}: {
-  preset: VisualStylePreset;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className="min-w-[150px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-      style={{
-        borderColor: selected ? "var(--nayin-accent)" : "var(--panel-border)",
-        background: selected ? "var(--nayin-glow)" : "var(--background)",
-      }}
-    >
-      <div className="text-[10px] font-semibold text-foreground">
-        {preset.title}
-      </div>
-      <p className="mt-1 line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
-        {preset.description}
-      </p>
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {recipeTokens(preset.recipe, 3).map(token => (
-          <span
-            key={token}
-            className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
-            {token}
-          </span>
-        ))}
-      </div>
-    </button>
-  );
-}
-
-function GenerationSettingsPanel({
-  narrativeChoices,
-  activeNarrativeId,
-  onSelectNarrative,
-  activeArtChoiceId,
-  artLibraryVersions,
-  currentLibraryVersionId,
-  artLibraryLoading,
-  artLibraryError,
-  canBindArtLibrary,
-  bindingLibraryVersionId,
-  onSelectArtPreset,
-  onSelectArtLibrary,
-  onBindArtLibrary,
-}: {
-  narrativeChoices: NarrativeStyleChoice[];
-  activeNarrativeId: string;
-  onSelectNarrative: (id: string) => void;
-  activeArtChoiceId: string;
-  artLibraryVersions: ArtLibraryVersionView[];
-  currentLibraryVersionId: number | null;
-  artLibraryLoading: boolean;
-  artLibraryError?: string | null;
-  canBindArtLibrary: boolean;
-  bindingLibraryVersionId: number | null;
-  onSelectArtPreset: (preset: VisualStylePreset) => void;
-  onSelectArtLibrary: (libraryVersion: ArtLibraryVersionView) => void;
-  onBindArtLibrary: (libraryVersionId: number) => void;
-}) {
-  return (
-    <div className="mb-2 grid gap-2 xl:grid-cols-2">
-      <section
-        className="rounded-md border p-2"
-        style={{
-          borderColor: "var(--panel-border)",
-          background: "var(--background)",
-        }}
-        aria-label="剧本生成设置"
-      >
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <ScrollText className="h-3.5 w-3.5 text-nayin-bright" />
-            <span className="text-[10px] font-semibold text-foreground">
-              剧本
-            </span>
-          </div>
-          <span className="text-[8px] text-muted-foreground">
-            生成故事版时使用
-          </span>
-        </div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-          {narrativeChoices.map(choice => (
-            <button
-              key={choice.id}
-              type="button"
-              aria-pressed={choice.id === activeNarrativeId}
-              onClick={() => onSelectNarrative(choice.id)}
-              className="min-w-[150px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-              style={{
-                borderColor:
-                  choice.id === activeNarrativeId
-                    ? "var(--nayin-accent)"
-                    : "var(--panel-border)",
-                background:
-                  choice.id === activeNarrativeId
-                    ? "var(--nayin-glow)"
-                    : "var(--panel-header)",
-              }}
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-semibold text-foreground">
-                  {choice.label}
-                </span>
-                {!choice.generated ? (
-                  <span
-                    className="rounded-full border px-1 py-0.5 text-[8px] text-muted-foreground"
-                    style={{ borderColor: "var(--panel-border)" }}
-                  >
-                    预设
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-1 line-clamp-2 text-[8.5px] leading-relaxed text-muted-foreground">
-                {choice.arc || choice.logline}
-              </p>
-              <p className="mt-1 line-clamp-2 text-[8px] leading-relaxed text-muted-foreground/75">
-                {choice.treatment}
-              </p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section
-        className="rounded-md border p-2"
-        style={{
-          borderColor: "var(--panel-border)",
-          background: "var(--background)",
-        }}
-        aria-label="美术生成设置"
-      >
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Palette className="h-3.5 w-3.5 text-nayin-bright" />
-            <span className="text-[10px] font-semibold text-foreground">
-              美术
-            </span>
-          </div>
-          <span className="text-[8px] text-muted-foreground">
-            {currentLibraryVersionId ? "已绑定库" : "预设或库"}
-          </span>
-        </div>
-
-        {artLibraryError ? (
-          <div className="mb-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[10px] text-destructive">
-            {artLibraryError}
-          </div>
-        ) : null}
-
-        <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-          {FALLBACK_VISUAL_STYLES.map(preset => (
-            <VisualPresetButton
-              key={preset.id}
-              preset={preset}
-              selected={activeArtChoiceId === artChoiceKey("preset", preset.id)}
-              onSelect={() => onSelectArtPreset(preset)}
-            />
-          ))}
-
-          {artLibraryLoading ? (
-            <div
-              className="flex min-w-[150px] shrink-0 items-center justify-center rounded-md border p-2 text-[9px] text-muted-foreground"
-              style={{
-                borderColor: "var(--panel-border)",
-                background: "var(--panel-header)",
-              }}
-            >
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              读取库
-            </div>
-          ) : null}
-
-          {artLibraryVersions.map(version => {
-            const key = artChoiceKey("library", version.version.id);
-            const selected = activeArtChoiceId === key;
-            const bound = currentLibraryVersionId === version.version.id;
-            const pending = bindingLibraryVersionId === version.version.id;
-            return (
-              <button
-                key={version.version.id}
-                type="button"
-                aria-pressed={selected}
-                disabled={pending}
-                onClick={() => {
-                  onSelectArtLibrary(version);
-                  if (canBindArtLibrary) onBindArtLibrary(version.version.id);
-                }}
-                className="min-w-[170px] shrink-0 rounded-md border p-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
-                style={{
-                  borderColor: selected
-                    ? "var(--nayin-accent)"
-                    : "var(--panel-border)",
-                  background: selected
-                    ? "var(--nayin-glow)"
-                    : "var(--panel-header)",
-                }}
-                title={
-                  canBindArtLibrary
-                    ? "选择并绑定到当前故事"
-                    : "先用于本次生成，故事保存后可绑定"
-                }
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="line-clamp-1 text-[10px] font-semibold text-foreground">
-                    {version.library.name}
-                  </span>
-                  {pending ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                  ) : bound ? (
-                    <CheckCircle2 className="h-3 w-3 shrink-0 text-nayin-bright" />
-                  ) : (
-                    <Link2 className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  )}
-                </div>
-                <p className="mt-1 text-[8.5px] text-muted-foreground">
-                  v{version.version.version} ·{" "}
-                  {version.library.kind === "system" ? "系统" : "用户"}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {libraryTokens(version, 4).map(token => (
-                    <span
-                      key={token}
-                      className="rounded-full border px-1.5 py-0.5 text-[8px] text-muted-foreground"
-                      style={{ borderColor: "var(--panel-border)" }}
-                    >
-                      {token}
-                    </span>
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function StoryboardShotField({
-  label,
-  value,
-  placeholder,
-  rows = 1,
-  onCommit,
-}: {
-  label: string;
-  value?: string | null;
-  placeholder: string;
-  rows?: number;
-  onCommit?: (value: string) => void;
-}) {
-  const currentValue = value?.trim() ?? "";
-  return (
-    <label className="block min-w-0">
-      <span className="mb-1 block text-[8px] font-semibold text-muted-foreground">
-        {label}
-      </span>
-      <textarea
-        key={`${label}:${currentValue}`}
-        defaultValue={currentValue}
-        rows={rows}
-        placeholder={placeholder}
-        disabled={!onCommit}
-        onBlur={event => {
-          const next = event.currentTarget.value.trim();
-          if (next !== currentValue) onCommit?.(next);
-        }}
-        onPointerDown={event => event.stopPropagation()}
-        className="w-full resize-none rounded-sm bg-muted/35 px-2 py-1.5 text-[9px] leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/35 disabled:opacity-70"
-        style={{
-          minHeight: rows > 1 ? `${rows * 1.55 + 0.75}rem` : undefined,
-        }}
-      />
-    </label>
-  );
-}
-
 export function StoryboardReviewBoard({
   images,
   shots,
@@ -828,11 +433,16 @@ export function StoryboardReviewBoard({
   onDeleteShot,
   generatingVideoShotNo = null,
   onGenerateShotVideo,
+  onEstimateStartEndShotVideo,
+  onGenerateStartEndShotVideo,
   onRefreshShotVideoStatus,
   onMarkVideoTakeUnusable,
   onMoveVideoTake,
   onAdoptVideoTake,
   onPromoteFrameCrop,
+  onImportStoryMaterial,
+  onAnalyzeShotVideoDirection,
+  onUpdateShotFields,
   promotingFrameCropShotNo = null,
   shotVideoProviderStatus = null,
   defaultViewMode = "simple",
@@ -870,6 +480,22 @@ export function StoryboardReviewBoard({
     subtitle?: string;
     durationSec?: number;
     motion?: "low" | "high";
+    aspectRatio?: "1:1";
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
+  }) => Promise<unknown>;
+  onEstimateStartEndShotVideo?: (
+    stableShotId: string
+  ) => Promise<StartEndShotVideoEstimate>;
+  onGenerateStartEndShotVideo?: (input: {
+    shotNo: number;
+    stableShotId: string;
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
   onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
@@ -889,6 +515,23 @@ export function StoryboardReviewBoard({
     parentImageId?: number;
     quadrant?: FrameQuadrant;
   }) => Promise<{ imageId: number; imageUrl: string }>;
+  onImportStoryMaterial?: (input: {
+    fileName: string;
+    mimeType: string;
+    fileBase64: string;
+    targetStableShotId?: string | null;
+    note?: string;
+  }) => Promise<ImportedStoryMaterialResult>;
+  onAnalyzeShotVideoDirection?: (input: {
+    shotNo: number;
+    stableShotId: string;
+    draftPrompt: string;
+    subtitle?: string;
+  }) => Promise<ShotDirectorResult>;
+  onUpdateShotFields?: (
+    stableShotId: string,
+    patch: Partial<Record<StoryShotEditableField, string>>
+  ) => Promise<void>;
   promotingFrameCropShotNo?: number | null;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
   defaultViewMode?: "full" | "simple";
@@ -896,7 +539,8 @@ export function StoryboardReviewBoard({
   headerAction?: ReactNode;
   className?: string;
 }) {
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewMedia, setPreviewMedia] =
+    useState<StoryboardMediaPreview | null>(null);
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<
     number | null
@@ -905,18 +549,44 @@ export function StoryboardReviewBoard({
   const [videoTakeDropTargetId, setVideoTakeDropTargetId] = useState<
     string | null
   >(null);
+  const [localMediaDropTargetId, setLocalMediaDropTargetId] = useState<
+    string | null
+  >(null);
+  const [importingMediaShotId, setImportingMediaShotId] = useState<
+    string | null
+  >(null);
   const [movingVideoTakeId, setMovingVideoTakeId] = useState<number | null>(
     null
   );
   const [openMaterialShotNo, setOpenMaterialShotNo] = useState<number | null>(
     null
   );
+  const [matrixViewportWidth, setMatrixViewportWidth] = useState(0);
+  const [draggedMatrixCell, setDraggedMatrixCell] = useState<{
+    sourceIndex: number;
+    field: StoryboardMatrixField;
+  } | null>(null);
+  const [matrixDropTarget, setMatrixDropTarget] = useState<{
+    targetIndex: number;
+    field: StoryboardMatrixField;
+  } | null>(null);
   useEffect(() => setViewMode(defaultViewMode), [defaultViewMode]);
   const boardRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
   const dragScrollClientYRef = useRef<number | null>(null);
   const dragScrollStartedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (viewMode !== "full") return;
+    const scroller = boardScrollRef.current;
+    if (!scroller) return;
+    const syncWidth = () => setMatrixViewportWidth(scroller.clientWidth);
+    syncWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncWidth);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [shots.length, viewMode]);
   const frames = useMemo(
     () => latestStoryboardFrames(images, shots),
     [images, shots]
@@ -929,6 +599,11 @@ export function StoryboardReviewBoard({
     () => new Map(creationShots.map(shot => [shot.shotNo, shot])),
     [creationShots]
   );
+  useEffect(() => {
+    if (openMaterialShotNo == null || selectedShotNo == null) return;
+    if (!creationShotByNo.has(selectedShotNo)) return;
+    setOpenMaterialShotNo(selectedShotNo);
+  }, [creationShotByNo, openMaterialShotNo, selectedShotNo]);
   const timelineShotIdSet = useMemo(
     () => new Set(timelineShotIds),
     [timelineShotIds]
@@ -951,14 +626,58 @@ export function StoryboardReviewBoard({
     frames.length > 0 || isGeneratingScript || shots.length > 0 || latestScript;
   useEffect(() => {
     if (selectedShotNo == null) return;
-    const target = boardRef.current?.querySelector<HTMLElement>(
-      `[data-storyboard-shot-no="${selectedShotNo}"]`
-    );
-    target?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
+    let nestedFrame = 0;
+    const frame = window.requestAnimationFrame(() => {
+      nestedFrame = window.requestAnimationFrame(() => {
+        const target = boardRef.current?.querySelector<HTMLElement>(
+          `[data-storyboard-shot-no="${selectedShotNo}"]`
+        );
+        if (viewMode === "full") {
+          scrollElementHorizontallyIntoView(
+            boardScrollRef.current,
+            target ?? null,
+            76
+          );
+          return;
+        }
+        target?.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
     });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (nestedFrame) window.cancelAnimationFrame(nestedFrame);
+    };
   }, [selectedShotNo, viewMode]);
+  useEffect(() => {
+    if (
+      viewMode !== "full" ||
+      selectedShotNo == null ||
+      typeof ResizeObserver === "undefined"
+    ) {
+      return;
+    }
+    const scroller = boardScrollRef.current;
+    if (!scroller) return;
+    let frame = 0;
+    const keepSelectedShotVisible = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const target = boardRef.current?.querySelector<HTMLElement>(
+          `[data-storyboard-shot-no="${selectedShotNo}"]`
+        );
+        scrollElementHorizontallyIntoView(scroller, target ?? null, 76);
+      });
+    };
+    const observer = new ResizeObserver(keepSelectedShotVisible);
+    observer.observe(scroller);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [selectedShotNo, shots.length, viewMode]);
 
   const stopStoryboardDragScroll = useCallback(() => {
     dragScrollClientYRef.current = null;
@@ -1009,6 +728,9 @@ export function StoryboardReviewBoard({
 
   if (!shouldShow) return null;
 
+  const labelForShotNo = (shotNo: number) =>
+    displayShotCode(shots.find(shot => shot.shotNo === shotNo) ?? { shotNo });
+
   const openShotEditor = (shotNo: number) => {
     onSelectShot?.(shotNo);
     setViewMode("full");
@@ -1023,7 +745,7 @@ export function StoryboardReviewBoard({
     setInsertingAfterShotNo(shotNo);
     try {
       await onInsertShotAfter(shotNo, stableShotId);
-      toast.success(`已在 SH${String(shotNo).padStart(2, "0")} 后添加镜头`);
+      toast.success(`已在 ${labelForShotNo(shotNo)} 后添加镜头`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "添加镜头失败，请稍后再试"
@@ -1039,7 +761,7 @@ export function StoryboardReviewBoard({
       toast.error("至少保留一个镜头");
       return;
     }
-    const label = `SH${String(shotNo).padStart(2, "0")}`;
+    const label = labelForShotNo(shotNo);
     const confirmed = window.confirm(
       `删除 ${label}？这会移除该镜头，并重新编号后面的镜头。`
     );
@@ -1058,25 +780,103 @@ export function StoryboardReviewBoard({
     }
   };
 
-  const videoTakeDropHandlers = (
+  const importLocalMediaToShot = async (input: {
+    shot: StoryShot;
+    stableShotId: string;
+    shotTimelineId: string;
+    isOnTimeline: boolean;
+    files: File[];
+  }) => {
+    if (!onImportStoryMaterial) return;
+    if (importingMediaShotId) {
+      toast.info("上一个本地素材仍在导入");
+      return;
+    }
+    const label = displayShotCode(input.shot);
+    setImportingMediaShotId(input.stableShotId);
+    onSelectShot?.(input.shot.shotNo);
+    try {
+      const result = await importStoryboardMediaFiles({
+        files: input.files,
+        stableShotId: input.stableShotId,
+        note: `${label} 表格拖入`,
+        importMaterial: onImportStoryMaterial,
+        adoptVideoTake: onAdoptVideoTake,
+      });
+      if (!input.isOnTimeline && onAddShotToTimeline) {
+        onAddShotToTimeline(input.shot.shotNo, input.shotTimelineId);
+      }
+      setOpenMaterialShotNo(input.shot.shotNo);
+      const imported = [
+        result.imageCount > 0 ? `${result.imageCount} 张图片` : null,
+        result.videoCount > 0 ? `${result.videoCount} 条视频` : null,
+      ]
+        .filter(Boolean)
+        .join("、");
+      const outcomes = [
+        result.imageCount > 0 ? "图片已设为主图" : null,
+        result.adoptedVideoCount > 0 ? "视频已进入动态分镜" : null,
+        result.videoCount > result.adoptedVideoCount
+          ? "视频已保存为候选 Take"
+          : null,
+      ]
+        .filter(Boolean)
+        .join("，");
+      toast.success(`${label} 已导入 ${imported}；${outcomes}`);
+      if (result.rejected.length > 0) {
+        toast.info(`另有 ${result.rejected.length} 个文件未导入`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "素材导入失败");
+    } finally {
+      setImportingMediaShotId(null);
+      setLocalMediaDropTargetId(null);
+    }
+  };
+
+  const shotMediaDropHandlers = (
     shot: StoryShot,
-    stableShotId: string | null | undefined
+    stableShotId: string | null | undefined,
+    shotTimelineId: string,
+    isOnTimeline: boolean
   ) => {
-    if (!stableShotId || !onMoveVideoTake) return {};
+    if (!stableShotId) return {};
     const isVideoTakeDrag = (event: DragEvent<HTMLElement>) =>
       hasVideoTakeDragPayload(event.dataTransfer);
+    const isLocalMediaDrag = (event: DragEvent<HTMLElement>) =>
+      Array.from(event.dataTransfer.types).includes("Files");
     return {
       onDragEnter: (event: DragEvent<HTMLElement>) => {
-        if (!isVideoTakeDrag(event)) return;
+        const localMedia = isLocalMediaDrag(event);
+        const videoTake = isVideoTakeDrag(event);
+        if (
+          (!localMedia || !onImportStoryMaterial) &&
+          (!videoTake || !onMoveVideoTake)
+        ) {
+          return;
+        }
         event.preventDefault();
-        setVideoTakeDropTargetId(stableShotId);
+        if (localMedia) setLocalMediaDropTargetId(stableShotId);
+        if (videoTake) setVideoTakeDropTargetId(stableShotId);
       },
       onDragOver: (event: DragEvent<HTMLElement>) => {
-        if (!isVideoTakeDrag(event)) return;
+        const localMedia = isLocalMediaDrag(event);
+        const videoTake = isVideoTakeDrag(event);
+        if (
+          (!localMedia || !onImportStoryMaterial) &&
+          (!videoTake || !onMoveVideoTake)
+        ) {
+          return;
+        }
         event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
+        event.dataTransfer.dropEffect = localMedia ? "copy" : "move";
         startStoryboardDragScroll(event.clientY);
-        setVideoTakeDropTargetId(stableShotId);
+        autoScrollElementHorizontallyAtPoint(
+          boardScrollRef.current,
+          event.clientX
+        );
+        if (localMedia) setLocalMediaDropTargetId(stableShotId);
+        if (videoTake) setVideoTakeDropTargetId(stableShotId);
       },
       onDragLeave: (event: DragEvent<HTMLElement>) => {
         const nextTarget = event.relatedTarget;
@@ -1089,17 +889,39 @@ export function StoryboardReviewBoard({
         setVideoTakeDropTargetId(current =>
           current === stableShotId ? null : current
         );
+        setLocalMediaDropTargetId(current =>
+          current === stableShotId ? null : current
+        );
       },
       onDrop: (event: DragEvent<HTMLElement>) => {
-        if (!isVideoTakeDrag(event)) return;
+        const localMedia = isLocalMediaDrag(event);
+        const videoTake = isVideoTakeDrag(event);
+        if (
+          (!localMedia || !onImportStoryMaterial) &&
+          (!videoTake || !onMoveVideoTake)
+        ) {
+          return;
+        }
         event.preventDefault();
         // stopPropagation 会拦住看板容器上的 onDrop={stopStoryboardDragScroll}，
         // 这里必须自己停掉拖拽自动滚动，否则循环带着最后的坐标一路滚到底。
         event.stopPropagation();
         stopStoryboardDragScroll();
         setVideoTakeDropTargetId(null);
+        setLocalMediaDropTargetId(null);
+        if (localMedia) {
+          const files = Array.from(event.dataTransfer.files);
+          void importLocalMediaToShot({
+            shot,
+            stableShotId,
+            shotTimelineId,
+            isOnTimeline,
+            files,
+          });
+          return;
+        }
         const payload = readVideoTakeDragPayload(event.dataTransfer);
-        if (!payload) return;
+        if (!payload || !onMoveVideoTake) return;
         if (payload.sourceStableShotId === stableShotId) {
           toast.info("这个 Take 已经在当前镜头下");
           return;
@@ -1111,7 +933,7 @@ export function StoryboardReviewBoard({
         })
           .then(() => {
             onSelectShot?.(shot.shotNo);
-            const shotLabel = `SH${String(shot.shotNo).padStart(2, "0")}`;
+            const shotLabel = displayShotCode(shot);
             toast.success(`已移动 Take ${payload.takeId} 到 ${shotLabel}`);
           })
           .catch(error => {
@@ -1122,6 +944,64 @@ export function StoryboardReviewBoard({
           .finally(() => setMovingVideoTakeId(null));
       },
     };
+  };
+
+  const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
+  const matrixMaterialPanelWidth = Math.min(
+    920,
+    Math.max(matrixShotColumnWidth, matrixViewportWidth - 92)
+  );
+  const openMaterialShot =
+    openMaterialShotNo == null
+      ? null
+      : (creationShotByNo.get(openMaterialShotNo) ?? null);
+  const openMaterialShotIndex = openMaterialShot
+    ? creationShots.findIndex(
+        shot =>
+          (shot.stableShotId ?? shot.shotIdentity ?? shot.shotKey) ===
+          (openMaterialShot.stableShotId ??
+            openMaterialShot.shotIdentity ??
+            openMaterialShot.shotKey)
+      )
+    : -1;
+  const nextMaterialShot =
+    openMaterialShotIndex >= 0
+      ? (creationShots[openMaterialShotIndex + 1] ?? null)
+      : null;
+
+  const dropMatrixCell = (
+    targetIndex: number,
+    row: StoryboardMatrixRow,
+    event: DragEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    stopStoryboardDragScroll();
+    const dragged = draggedMatrixCell;
+    setMatrixDropTarget(null);
+    setDraggedMatrixCell(null);
+    if (!dragged || dragged.field !== row.field || !onUpdateShotField) return;
+    const plan = storyboardMatrixSwapPlan(
+      shots,
+      dragged.sourceIndex,
+      targetIndex,
+      row.field
+    );
+    if (!plan) return;
+    const sourceShot = shots[dragged.sourceIndex];
+    const targetShot = shots[targetIndex];
+    if (!sourceShot || !targetShot) return;
+    const sourceLabel = displayShotCode(sourceShot);
+    const targetLabel = displayShotCode(targetShot);
+    const operation = plan.targetValue ? "交换" : "移动";
+    const confirmed = window.confirm(
+      `${operation} ${sourceLabel} 与 ${targetLabel} 的“${row.label}”内容？`
+    );
+    if (!confirmed) return;
+    onUpdateShotField(dragged.sourceIndex, row.field, plan.targetValue);
+    onUpdateShotField(targetIndex, row.field, plan.sourceValue);
+    onSelectShot?.(targetShot.shotNo);
+    toast.success(`已${operation}“${row.label}”`);
   };
 
   return (
@@ -1210,14 +1090,22 @@ export function StoryboardReviewBoard({
       </div>
 
       <div
-        ref={boardScrollRef}
-        className="creation-board-panel-body min-h-0 flex-1 overflow-y-auto custom-scrollbar"
+        ref={viewMode === "simple" ? boardScrollRef : undefined}
+        className={`creation-board-panel-body min-h-0 flex-1 custom-scrollbar ${
+          viewMode === "full" ? "overflow-hidden" : "overflow-y-auto"
+        }`}
       >
         {shots.length > 0 && viewMode === "simple" ? (
           <div className="grid snap-y snap-mandatory gap-1 pb-2 pr-1">
             {shots.map((shot, index) => {
               const image = frameByShotNo.get(shot.shotNo);
               const creationShot = creationShotByNo.get(shot.shotNo);
+              const videoPreviewTake = storyboardPreviewVideoTake(creationShot);
+              const previewImageUrl =
+                image?.imageUrl ?? creationShot?.imageUrl ?? null;
+              const videoPosterUrl = videoPreviewTake
+                ? videoTakeFrameUrl(videoPreviewTake, "start")
+                : null;
               const insertStableShotId = storyShotInsertIdentity(shot, index);
               const shotTimelineId = creationShot
                 ? creationTimelineShotId(creationShot)
@@ -1229,6 +1117,12 @@ export function StoryboardReviewBoard({
               const isVideoTakeDropTarget =
                 insertStableShotId != null &&
                 videoTakeDropTargetId === insertStableShotId;
+              const isLocalMediaDropTarget =
+                insertStableShotId != null &&
+                localMediaDropTargetId === insertStableShotId;
+              const isImportingMedia =
+                insertStableShotId != null &&
+                importingMediaShotId === insertStableShotId;
               const title = shortText(
                 shot.dialogue,
                 shortText(shot.action, shortText(shot.subject, "关键镜头"))
@@ -1240,17 +1134,30 @@ export function StoryboardReviewBoard({
                 <article
                   key={`simple-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
                   data-storyboard-shot-no={shot.shotNo}
-                  {...videoTakeDropHandlers(shot, insertStableShotId)}
+                  {...shotMediaDropHandlers(
+                    shot,
+                    insertStableShotId,
+                    shotTimelineId,
+                    isOnTimeline
+                  )}
+                  aria-busy={isImportingMedia}
                   className="relative grid min-h-0 snap-start grid-cols-[72px_minmax(0,1fr)] gap-2 overflow-hidden rounded-sm p-1.5"
                   style={{
-                    background: isVideoTakeDropTarget
-                      ? "var(--nayin-glow)"
-                      : selected
+                    background:
+                      isVideoTakeDropTarget || isLocalMediaDropTarget
                         ? "var(--nayin-glow)"
-                        : "transparent",
+                        : selected
+                          ? "var(--nayin-glow)"
+                          : "transparent",
                   }}
                   onClick={() => openShotEditor(shot.shotNo)}
                 >
+                  {isLocalMediaDropTarget || isImportingMedia ? (
+                    <StoryboardMediaDropOverlay
+                      shotLabel={displayShotCode(shot)}
+                      importing={isImportingMedia}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className="relative block h-[72px] w-[72px] overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
@@ -1258,12 +1165,20 @@ export function StoryboardReviewBoard({
                       event.stopPropagation();
                       openShotEditor(shot.shotNo);
                     }}
-                    aria-label={`编辑 SH${String(shot.shotNo).padStart(2, "0")}`}
+                    aria-label={`编辑 ${displayShotCode(shot)}`}
                   >
-                    {image?.imageUrl ? (
+                    {videoPreviewTake?.videoUrl ? (
+                      <StoryboardVideoThumbnail
+                        src={videoPreviewTake.videoUrl}
+                        poster={videoPosterUrl}
+                        active={selected}
+                        label={`${displayShotCode(shot)} 视频缩略预览`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : previewImageUrl ? (
                       <img
-                        src={image.imageUrl}
-                        alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
+                        src={previewImageUrl}
+                        alt={`${displayShotCode(shot)} ${title}`}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -1276,7 +1191,7 @@ export function StoryboardReviewBoard({
                       </div>
                     )}
                     <span className="absolute left-1 top-1 rounded-sm bg-background/90 px-1 py-0.5 font-mono text-[8px] font-semibold text-foreground">
-                      SH{String(shot.shotNo).padStart(2, "0")}
+                      {displayShotCode(shot)}
                     </span>
                   </button>
                   <div className="flex min-w-0 flex-col py-0.5">
@@ -1287,7 +1202,7 @@ export function StoryboardReviewBoard({
                         event.stopPropagation();
                         openShotEditor(shot.shotNo);
                       }}
-                      aria-label={`编辑 SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
+                      aria-label={`编辑 ${displayShotCode(shot)} ${title}`}
                     >
                       <p className="line-clamp-2 text-[11px] font-semibold leading-relaxed text-foreground">
                         {title}
@@ -1306,7 +1221,7 @@ export function StoryboardReviewBoard({
                             onSelectShot?.(shot.shotNo);
                           }}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                          aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
+                          aria-label={`把 ${displayShotCode(shot)} 加入时间轴`}
                           title="加入时间轴"
                         >
                           <ListPlus className="h-3.5 w-3.5" />
@@ -1315,7 +1230,7 @@ export function StoryboardReviewBoard({
                       {onInsertShotAfter ? (
                         <AddShotButton
                           compact
-                          shotNo={shot.shotNo}
+                          shotLabel={displayShotCode(shot)}
                           inserting={insertingAfterShotNo === shot.shotNo}
                           disabled={
                             insertingAfterShotNo != null ||
@@ -1333,7 +1248,7 @@ export function StoryboardReviewBoard({
                       {onDeleteShot ? (
                         <DeleteShotButton
                           compact
-                          shotNo={shot.shotNo}
+                          shotLabel={displayShotCode(shot)}
                           deleting={deletingShotId === insertStableShotId}
                           disabled={
                             insertingAfterShotNo != null ||
@@ -1353,148 +1268,91 @@ export function StoryboardReviewBoard({
             })}
           </div>
         ) : shots.length > 0 ? (
-          <div className="grid snap-y snap-proximity gap-2 pb-2 pr-1">
-            {shots.map((shot, index) => {
-              const image = frameByShotNo.get(shot.shotNo);
-              const creationShot = creationShotByNo.get(shot.shotNo);
-              const title = shortText(
-                shot.dialogue,
-                shortText(shot.action, shortText(shot.subject, "关键镜头"))
-              );
-              const selected = selectedShotNo === shot.shotNo;
-              const shotTimelineId = creationShot
-                ? creationTimelineShotId(creationShot)
-                : (shot.stableShotId ??
-                  shot.shotIdentity ??
-                  `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
-              const insertStableShotId = storyShotInsertIdentity(shot, index);
-              const isVideoTakeDropTarget =
-                insertStableShotId != null &&
-                videoTakeDropTargetId === insertStableShotId;
-              const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
-              const videoTakeCount = creationShot?.videoTakes?.length ?? 0;
-              const usableVideoTakeCount =
-                creationShot?.videoTakes?.filter(
-                  take => videoTakeAffordance(take.status).canPlay
-                ).length ?? 0;
-              const unavailableVideoTakeCount =
-                creationShot?.videoTakes?.filter(take => {
-                  const affordance = videoTakeAffordance(take.status);
-                  return !affordance.canPlay && !affordance.canRefresh;
-                }).length ?? 0;
-              const videoPreviewTake = creationShot?.selectedVideoTake?.videoUrl
-                ? creationShot.selectedVideoTake
-                : (creationShot?.videoTakes?.find(
-                    take => take.isTimelineSelected && Boolean(take.videoUrl)
-                  ) ??
-                  creationShot?.videoTakes?.find(
-                    take =>
-                      Boolean(take.videoUrl) &&
-                      videoTakeAffordance(take.status).canPlay
-                  ));
-              const videoPreviewIsSelected = Boolean(
-                videoPreviewTake &&
-                  (videoPreviewTake.isTimelineSelected ||
-                    creationShot?.selectedVideoTake?.id === videoPreviewTake.id)
-              );
-              const showMaterialBasket =
-                Boolean(creationShot) &&
-                (openMaterialShotNo === shot.shotNo ||
-                  generatingVideoShotNo === shot.shotNo);
-              const commit = (field: StoryShotEditableField, value: string) => {
-                onUpdateShotField?.(index, field, value);
-              };
-              return (
-                <article
-                  key={`${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}-${index}`}
-                  data-storyboard-shot-no={shot.shotNo}
-                  {...videoTakeDropHandlers(shot, insertStableShotId)}
-                  className="grid snap-start gap-3 rounded-sm p-2"
+          <div className="flex h-full min-h-0 flex-col">
+            <div
+              ref={boardScrollRef}
+              className="min-h-0 flex-1 overflow-auto custom-scrollbar"
+              style={{ scrollPaddingLeft: 76 }}
+            >
+              <div
+                role="table"
+                aria-label="完整故事版横向分镜表"
+                className="grid min-w-max"
+                style={{
+                  gridTemplateColumns:
+                    "76px repeat(" +
+                    shots.length +
+                    ", " +
+                    matrixShotColumnWidth +
+                    "px)",
+                }}
+              >
+                <div
+                  role="columnheader"
+                  className="sticky left-0 top-0 z-40 flex min-h-20 items-end border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
                   style={{
-                    gridTemplateColumns: embeddedEditorMode
-                      ? "minmax(0, 1fr)"
-                      : "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
-                    background: isVideoTakeDropTarget
-                      ? "var(--nayin-glow)"
-                      : selected
-                        ? "var(--nayin-glow)"
-                        : "transparent",
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                    background: "var(--panel-header)",
                   }}
-                  onClick={() => onSelectShot?.(shot.shotNo)}
                 >
-                  {!embeddedEditorMode ? (
+                  镜头
+                </div>
+                {shots.map((shot, index) => {
+                  const creationShot = creationShotByNo.get(shot.shotNo);
+                  const title = shortText(
+                    shot.dialogue,
+                    shortText(shot.action, shortText(shot.subject, "关键镜头"))
+                  );
+                  const shotLabel = displayShotCode(shot);
+                  const selected = selectedShotNo === shot.shotNo;
+                  const shotTimelineId = creationShot
+                    ? creationTimelineShotId(creationShot)
+                    : (shot.stableShotId ??
+                      shot.shotIdentity ??
+                      "legacy-sh" + String(shot.shotNo).padStart(2, "0"));
+                  const insertStableShotId = storyShotInsertIdentity(
+                    shot,
+                    index
+                  );
+                  const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
+                  return (
                     <div
-                      className="relative block cursor-pointer overflow-hidden rounded-sm bg-muted focus-within:ring-2 focus-within:ring-[var(--nayin-accent)]/35"
+                      key={
+                        "matrix-header-" +
+                        (shot.stableShotId ??
+                          shot.shotIdentity ??
+                          shot.shotNo) +
+                        "-" +
+                        index
+                      }
+                      role="columnheader"
+                      data-storyboard-shot-no={shot.shotNo}
+                      className="sticky top-0 z-30 min-w-0 border-b border-r px-2 py-1.5"
                       style={{
-                        background: "var(--panel-header)",
+                        borderColor:
+                          "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                        background: selected
+                          ? "color-mix(in srgb, var(--nayin-accent) 14%, var(--panel-header))"
+                          : "var(--panel-header)",
                       }}
                     >
                       <button
                         type="button"
-                        className="block w-full text-left"
-                        aria-label={`查看 SH${String(shot.shotNo).padStart(2, "0")} 画面`}
-                        onClick={event => {
-                          event.stopPropagation();
-                          if (image?.imageUrl)
-                            setPreviewImageUrl(image.imageUrl);
-                        }}
+                        onClick={() => onSelectShot?.(shot.shotNo)}
+                        className="block min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                        aria-label={`选择 ${shotLabel} ${title}`}
                       >
-                        {image?.imageUrl ? (
-                          <img
-                            src={image.imageUrl}
-                            alt={`SH${String(shot.shotNo).padStart(2, "0")} ${title}`}
-                            className="aspect-video h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex aspect-video h-full w-full items-center justify-center gap-1.5 text-[9px] text-muted-foreground">
-                            {isGeneratingScript ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <ImagePlus className="h-3 w-3" />
-                            )}
-                            待生成关键帧
-                          </div>
-                        )}
+                        <span className="flex items-baseline gap-1.5">
+                          <span className="font-mono text-[10px] font-semibold text-foreground">
+                            {shotLabel}
+                          </span>
+                        </span>
+                        <span className="mt-1 block line-clamp-2 min-h-7 text-[9px] leading-relaxed text-muted-foreground">
+                          {title}
+                        </span>
                       </button>
-                      <span className="absolute left-1.5 top-1.5 rounded-sm bg-background/90 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground">
-                        SH{String(shot.shotNo).padStart(2, "0")}
-                      </span>
-                      {onAddShotToTimeline && !isOnTimeline ? (
-                        <button
-                          type="button"
-                          onClick={event => {
-                            event.stopPropagation();
-                            onAddShotToTimeline(shot.shotNo, shotTimelineId);
-                            onSelectShot?.(shot.shotNo);
-                          }}
-                          className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-sm bg-background/90 text-muted-foreground transition hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                          aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
-                          title="加入时间轴"
-                        >
-                          <ListPlus className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  <div className="min-w-0">
-                    {embeddedEditorMode ? (
-                      <div className="mb-2 flex min-w-0 items-center justify-between gap-2 px-0.5">
-                        <button
-                          type="button"
-                          className="flex min-w-0 items-baseline gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                          onClick={event => {
-                            event.stopPropagation();
-                            onSelectShot?.(shot.shotNo);
-                          }}
-                        >
-                          <span className="shrink-0 font-mono text-[9px] font-semibold text-foreground">
-                            SH{String(shot.shotNo).padStart(2, "0")}
-                          </span>
-                          <span className="line-clamp-1 text-[9px] text-muted-foreground">
-                            {title}
-                          </span>
-                        </button>
+                      <div className="mt-1 flex items-center gap-1">
                         {onAddShotToTimeline && !isOnTimeline ? (
                           <button
                             type="button"
@@ -1503,160 +1361,17 @@ export function StoryboardReviewBoard({
                               onAddShotToTimeline(shot.shotNo, shotTimelineId);
                               onSelectShot?.(shot.shotNo);
                             }}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                            aria-label={`把 SH${String(shot.shotNo).padStart(2, "0")} 加入时间轴`}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                            aria-label={`把 ${shotLabel} 加入时间轴`}
                             title="加入时间轴"
                           >
-                            <ListPlus className="h-3.5 w-3.5" />
+                            <ListPlus className="h-3 w-3" />
                           </button>
                         ) : null}
-                      </div>
-                    ) : null}
-                    <div
-                      className="grid gap-2"
-                      style={{
-                        gridTemplateColumns:
-                          "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
-                      }}
-                    >
-                      <StoryboardShotField
-                        label="画面动作"
-                        value={shot.action}
-                        placeholder="画面里正在发生什么"
-                        onCommit={value => commit("action", value)}
-                      />
-                      <StoryboardShotField
-                        label="字幕/旁白"
-                        value={shot.dialogue}
-                        placeholder="台词、字幕或画外音"
-                        onCommit={value => commit("dialogue", value)}
-                      />
-                      <StoryboardShotField
-                        label="运镜"
-                        value={shot.cameraMove}
-                        placeholder="推、拉、摇、移或静态"
-                        onCommit={value => commit("cameraMove", value)}
-                      />
-                      <StoryboardShotField
-                        label="声音"
-                        value={shot.sound}
-                        placeholder="背景音、气口或音乐进入点"
-                        onCommit={value => commit("sound", value)}
-                      />
-                      <StoryboardShotField
-                        label="接后"
-                        value={shot.transitionOut}
-                        placeholder="如何接到下一镜"
-                        onCommit={value => commit("transitionOut", value)}
-                      />
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <StoryboardShotField
-                          label="图生视频提示"
-                          value={shot.videoPrompt}
-                          rows={2}
-                          placeholder="这一镜的动态变化、相机运动、开始和结束状态"
-                          onCommit={value => commit("videoPrompt", value)}
-                        />
-                      </div>
-                    </div>
-                    {showMaterialBasket && creationShot ? (
-                      <div className="mt-2">
-                        <button
-                          type="button"
-                          onClick={event => {
-                            event.stopPropagation();
-                            setOpenMaterialShotNo(null);
-                          }}
-                          className="mb-1 inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-[9px] text-muted-foreground transition hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                          aria-label={`收起 SH${String(shot.shotNo).padStart(2, "0")} 视频工具`}
-                        >
-                          <ChevronUp className="h-3 w-3" />
-                          收起视频
-                        </button>
-                        <ShotMaterialBasket
-                          shot={creationShot}
-                          previousShots={
-                            previousCreationShotsByNo.get(
-                              creationShot.shotNo
-                            ) ?? []
-                          }
-                          generating={
-                            generatingVideoShotNo === creationShot.shotNo
-                          }
-                          onGenerateShotVideo={onGenerateShotVideo}
-                          onRefreshShotVideoStatus={onRefreshShotVideoStatus}
-                          onMarkVideoTakeUnusable={onMarkVideoTakeUnusable}
-                          movingVideoTakeId={movingVideoTakeId}
-                          onAdoptVideoTake={onAdoptVideoTake}
-                          onPromoteFrameCrop={onPromoteFrameCrop}
-                          promotingFrameCrop={
-                            promotingFrameCropShotNo === creationShot.shotNo
-                          }
-                          shotVideoProviderStatus={shotVideoProviderStatus}
-                        />
-                      </div>
-                    ) : creationShot ? (
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          onSelectShot?.(shot.shotNo);
-                          setOpenMaterialShotNo(shot.shotNo);
-                        }}
-                        className={`mt-2 inline-flex w-full items-center gap-2 rounded-sm bg-muted/45 px-2.5 py-2 text-[10px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
-                          embeddedEditorMode && videoPreviewTake?.videoUrl
-                            ? "justify-start"
-                            : "justify-center"
-                        }`}
-                      >
-                        {embeddedEditorMode && videoPreviewTake?.videoUrl ? (
-                          <span className="relative h-10 w-14 shrink-0 overflow-hidden rounded-sm bg-black">
-                            <video
-                              src={videoPreviewTake.videoUrl}
-                              muted
-                              playsInline
-                              preload="metadata"
-                              className="h-full w-full object-cover"
-                              aria-label={`${videoPreviewIsSelected ? "已采用" : "候选"} Take ${videoPreviewTake.id} 缩略预览`}
-                            />
-                            <span className="absolute inset-0 flex items-center justify-center bg-black/10 text-white/90">
-                              <Video className="h-3.5 w-3.5" />
-                            </span>
-                          </span>
-                        ) : (
-                          <Video className="h-3.5 w-3.5" />
-                        )}
-                        <span
-                          className={
-                            videoPreviewTake?.videoUrl
-                              ? "min-w-0 text-left"
-                              : undefined
-                          }
-                        >
-                          <span className="block">
-                            {videoTakeCount > 0
-                              ? `${videoTakeCount} 个 Take · 可用 ${usableVideoTakeCount}${
-                                  unavailableVideoTakeCount > 0
-                                    ? ` · 不可用 ${unavailableVideoTakeCount}`
-                                    : ""
-                                }`
-                              : "视频生成与 Take"}
-                          </span>
-                          {embeddedEditorMode && videoPreviewTake?.videoUrl ? (
-                            <span className="mt-0.5 block text-[8px] font-normal text-muted-foreground">
-                              {videoPreviewIsSelected ? "已采用" : "候选"} Take{" "}
-                              {videoPreviewTake.id}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    ) : null}
-                    {onInsertShotAfter || onDeleteShot ? (
-                      <div className="mt-2 flex items-center gap-1">
                         {onInsertShotAfter ? (
                           <AddShotButton
                             compact
-                            shotNo={shot.shotNo}
+                            shotLabel={shotLabel}
                             inserting={insertingAfterShotNo === shot.shotNo}
                             disabled={
                               insertingAfterShotNo != null ||
@@ -1674,7 +1389,7 @@ export function StoryboardReviewBoard({
                         {onDeleteShot ? (
                           <DeleteShotButton
                             compact
-                            shotNo={shot.shotNo}
+                            shotLabel={shotLabel}
                             deleting={deletingShotId === insertStableShotId}
                             disabled={
                               insertingAfterShotNo != null ||
@@ -1688,11 +1403,359 @@ export function StoryboardReviewBoard({
                           />
                         ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
+                    </div>
+                  );
+                })}
+
+                <div
+                  role="rowheader"
+                  className="sticky left-0 z-20 flex items-start border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+                  style={{
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                    background: "var(--background)",
+                  }}
+                >
+                  画面 / Take
+                </div>
+                {shots.map((shot, index) => {
+                  const image = frameByShotNo.get(shot.shotNo);
+                  const creationShot = creationShotByNo.get(shot.shotNo);
+                  const title = shortText(
+                    shot.dialogue,
+                    shortText(shot.action, shortText(shot.subject, "关键镜头"))
+                  );
+                  const selected = selectedShotNo === shot.shotNo;
+                  const insertStableShotId = storyShotInsertIdentity(
+                    shot,
+                    index
+                  );
+                  const shotTimelineId = creationShot
+                    ? creationTimelineShotId(creationShot)
+                    : (shot.stableShotId ??
+                      shot.shotIdentity ??
+                      `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
+                  const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
+                  const isVideoTakeDropTarget =
+                    insertStableShotId != null &&
+                    videoTakeDropTargetId === insertStableShotId;
+                  const isLocalMediaDropTarget =
+                    insertStableShotId != null &&
+                    localMediaDropTargetId === insertStableShotId;
+                  const isImportingMedia =
+                    insertStableShotId != null &&
+                    importingMediaShotId === insertStableShotId;
+                  const videoTakes = creationShot?.videoTakes ?? [];
+                  const playableTakes = videoTakes.filter(
+                    take => videoTakeAffordance(take.status).canPlay
+                  );
+                  const videoPreviewTake =
+                    storyboardPreviewVideoTake(creationShot);
+                  const videoPreviewIsSelected = Boolean(
+                    videoPreviewTake &&
+                      (videoPreviewTake.isTimelineSelected ||
+                        creationShot?.selectedVideoTake?.id ===
+                          videoPreviewTake.id)
+                  );
+                  const previewImageUrl =
+                    image?.imageUrl ?? creationShot?.imageUrl ?? null;
+                  const videoPosterUrl = videoPreviewTake
+                    ? videoTakeFrameUrl(videoPreviewTake, "start")
+                    : null;
+                  const materialOpen =
+                    openMaterialShotNo === shot.shotNo && Boolean(creationShot);
+                  return (
+                    <div
+                      key={
+                        "matrix-media-" +
+                        (shot.stableShotId ??
+                          shot.shotIdentity ??
+                          shot.shotNo) +
+                        "-" +
+                        index
+                      }
+                      role="cell"
+                      {...shotMediaDropHandlers(
+                        shot,
+                        insertStableShotId,
+                        shotTimelineId,
+                        isOnTimeline
+                      )}
+                      aria-busy={isImportingMedia}
+                      data-storyboard-media-drop-target={displayShotCode(shot)}
+                      className="relative min-w-0 border-b border-r p-1.5"
+                      style={{
+                        borderColor:
+                          "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                        background:
+                          isVideoTakeDropTarget || isLocalMediaDropTarget
+                            ? "var(--nayin-glow)"
+                            : selected
+                              ? "color-mix(in srgb, var(--nayin-glow) 46%, transparent)"
+                              : "transparent",
+                      }}
+                    >
+                      {isLocalMediaDropTarget || isImportingMedia ? (
+                        <StoryboardMediaDropOverlay
+                          shotLabel={displayShotCode(shot)}
+                          importing={isImportingMedia}
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        className="relative block aspect-square w-full overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                        onClick={() => {
+                          onSelectShot?.(shot.shotNo);
+                          if (videoPreviewTake?.videoUrl) {
+                            setPreviewMedia({
+                              kind: "video",
+                              url: videoPreviewTake.videoUrl,
+                              poster: videoPosterUrl,
+                              label: `${displayShotCode(shot)} ${title}`,
+                            });
+                          } else if (previewImageUrl) {
+                            setPreviewMedia({
+                              kind: "image",
+                              url: previewImageUrl,
+                              label: `${displayShotCode(shot)} ${title}`,
+                            });
+                          } else if (creationShot) {
+                            setOpenMaterialShotNo(shot.shotNo);
+                          }
+                        }}
+                        aria-label={`${videoPreviewTake?.videoUrl ? "播放" : "查看"} ${displayShotCode(shot)} 画面缩略预览`}
+                      >
+                        {videoPreviewTake?.videoUrl ? (
+                          <StoryboardVideoThumbnail
+                            src={videoPreviewTake.videoUrl}
+                            poster={videoPosterUrl}
+                            active={selected}
+                            label={`${displayShotCode(shot)} 视频缩略预览`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : previewImageUrl ? (
+                          <img
+                            src={previewImageUrl}
+                            alt={`${displayShotCode(shot)} ${title}`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            {isGeneratingScript ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ImagePlus className="h-4 w-4" />
+                            )}
+                          </span>
+                        )}
+                        <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-black/70 px-1.5 py-0.5 text-[8px] text-white">
+                          {videoPreviewTake?.videoUrl
+                            ? (videoPreviewIsSelected ? "已采用" : "候选") +
+                              " Take " +
+                              videoPreviewTake.id
+                            : previewImageUrl
+                              ? "当前主图"
+                              : "待导入画面"}
+                        </span>
+                      </button>
+                      {creationShot ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectShot?.(shot.shotNo);
+                            setOpenMaterialShotNo(current =>
+                              current === shot.shotNo ? null : shot.shotNo
+                            );
+                          }}
+                          className="mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-sm px-1.5 text-left text-[8.5px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                          aria-expanded={materialOpen}
+                          aria-label={`${materialOpen ? "收起 " : "打开 "}${displayShotCode(shot)} 视频与 Take`}
+                          title={`${displayShotCode(shot)} 素材、图生视频与 Take`}
+                        >
+                          <Video className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {videoTakes.length > 0
+                              ? videoTakes.length +
+                                " 个 Take · 可用 " +
+                                playableTakes.length
+                              : "视频制作"}
+                          </span>
+                          {materialOpen ? (
+                            <ChevronUp className="h-3 w-3 shrink-0" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3 shrink-0" />
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+
+                {openMaterialShot ? (
+                  <Fragment>
+                    <div
+                      role="rowheader"
+                      className="sticky left-0 z-20 border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+                      style={{
+                        borderColor:
+                          "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                        background: "var(--background)",
+                      }}
+                    >
+                      视频制作
+                    </div>
+                    <div
+                      role="cell"
+                      aria-label={`${displayShotCode(openMaterialShot)} 视频制作表格行`}
+                      className="min-w-0 border-b border-r"
+                      style={{
+                        gridColumn: "2 / -1",
+                        borderColor:
+                          "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                        background:
+                          "color-mix(in srgb, var(--nayin-glow) 30%, transparent)",
+                      }}
+                    >
+                      <div
+                        className="sticky py-1.5 pr-2"
+                        style={{
+                          left: 76,
+                          width: matrixMaterialPanelWidth,
+                        }}
+                      >
+                        <ShotMaterialBasket
+                          shot={openMaterialShot}
+                          previousShots={
+                            previousCreationShotsByNo.get(
+                              openMaterialShot.shotNo
+                            ) ?? []
+                          }
+                          nextShot={nextMaterialShot}
+                          generating={
+                            generatingVideoShotNo === openMaterialShot.shotNo
+                          }
+                          onGenerateShotVideo={onGenerateShotVideo}
+                          onEstimateStartEndShotVideo={
+                            onEstimateStartEndShotVideo
+                          }
+                          onGenerateStartEndShotVideo={
+                            onGenerateStartEndShotVideo
+                          }
+                          onRefreshShotVideoStatus={onRefreshShotVideoStatus}
+                          onMarkVideoTakeUnusable={onMarkVideoTakeUnusable}
+                          movingVideoTakeId={movingVideoTakeId}
+                          onAdoptVideoTake={onAdoptVideoTake}
+                          onPromoteFrameCrop={onPromoteFrameCrop}
+                          promotingFrameCrop={
+                            promotingFrameCropShotNo === openMaterialShot.shotNo
+                          }
+                          shotVideoProviderStatus={shotVideoProviderStatus}
+                          onImportStoryMaterial={onImportStoryMaterial}
+                          onAnalyzeShotVideoDirection={
+                            onAnalyzeShotVideoDirection
+                          }
+                          onUpdateShotFields={onUpdateShotFields}
+                          displayMode="matrix"
+                          onClose={() => setOpenMaterialShotNo(null)}
+                        />
+                      </div>
+                    </div>
+                  </Fragment>
+                ) : null}
+
+                {STORYBOARD_MATRIX_ROWS.map(row => (
+                  <Fragment key={row.field}>
+                    <div
+                      role="rowheader"
+                      className="sticky left-0 z-20 border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+                      style={{
+                        borderColor:
+                          "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                        background: "var(--background)",
+                      }}
+                    >
+                      {row.label}
+                    </div>
+                    {shots.map((shot, index) => {
+                      const selected = selectedShotNo === shot.shotNo;
+                      const dropTarget =
+                        matrixDropTarget?.targetIndex === index &&
+                        matrixDropTarget.field === row.field;
+                      const shotLabel = displayShotCode(shot);
+                      return (
+                        <StoryboardMatrixFieldCell
+                          key={
+                            "matrix-" +
+                            row.field +
+                            "-" +
+                            (shot.stableShotId ??
+                              shot.shotIdentity ??
+                              shot.shotNo) +
+                            "-" +
+                            index
+                          }
+                          value={shot[row.field]}
+                          row={row}
+                          shotLabel={shotLabel}
+                          selected={selected}
+                          dropTarget={dropTarget}
+                          editable={Boolean(onUpdateShotField)}
+                          onFocus={() => onSelectShot?.(shot.shotNo)}
+                          onCommit={value =>
+                            onUpdateShotField?.(index, row.field, value)
+                          }
+                          onDragStart={event => {
+                            setDraggedMatrixCell({
+                              sourceIndex: index,
+                              field: row.field,
+                            });
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData(
+                              "text/plain",
+                              shotLabel + " " + row.label
+                            );
+                          }}
+                          onDragEnd={() => {
+                            stopStoryboardDragScroll();
+                            setDraggedMatrixCell(null);
+                            setMatrixDropTarget(null);
+                          }}
+                          onDragOver={event => {
+                            if (
+                              !draggedMatrixCell ||
+                              draggedMatrixCell.field !== row.field
+                            ) {
+                              return;
+                            }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            event.dataTransfer.dropEffect = "move";
+                            startStoryboardDragScroll(event.clientY);
+                            autoScrollElementHorizontallyAtPoint(
+                              boardScrollRef.current,
+                              event.clientX
+                            );
+                            setMatrixDropTarget({
+                              targetIndex: index,
+                              field: row.field,
+                            });
+                          }}
+                          onDragLeave={() => {
+                            setMatrixDropTarget(current =>
+                              current?.targetIndex === index &&
+                              current.field === row.field
+                                ? null
+                                : current
+                            );
+                          }}
+                          onDrop={event => dropMatrixCell(index, row, event)}
+                        />
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
+            </div>
           </div>
         ) : (
           <div
@@ -1710,321 +1773,11 @@ export function StoryboardReviewBoard({
           </div>
         )}
       </div>
-      {previewImageUrl ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setPreviewImageUrl(null)}
-          onKeyDown={e => {
-            if (e.key === "Escape") setPreviewImageUrl(null);
-          }}
-          role="presentation"
-        >
-          <div
-            className="relative max-h-[80vh] max-w-[80vw] overflow-hidden rounded-lg bg-background shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setPreviewImageUrl(null)}
-              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground shadow-sm transition hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <img
-              src={previewImageUrl}
-              alt="预览"
-              className="max-h-[80vh] max-w-[80vw] object-contain"
-            />
-          </div>
-        </div>
-      ) : null}
+      <StoryboardMediaPreviewDialog
+        preview={previewMedia}
+        onClose={() => setPreviewMedia(null)}
+      />
     </section>
-  );
-}
-
-function CardReferenceDock({
-  cardId,
-  visualItems,
-  generatedImage,
-  imageRationale,
-  onDeleteGeneratedImage,
-}: {
-  cardId: string;
-  visualItems: VisualCanvasItem[];
-  generatedImage?: GeneratedImageItem;
-  imageRationale?: string | null;
-  onDeleteGeneratedImage?: (image: GeneratedImageItem) => void;
-}) {
-  const { isArtWorking, artDirection } = useCardReferenceDockSlice();
-  const {
-    addVisualReference,
-    removeVisualCanvasItem,
-    setCharacterReferenceByUrl,
-  } = useStoryAgentActions();
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const isFinalizing = generatedImage?.status === "finalizing";
-  const isDraft = generatedImage?.status === "draft";
-  const displayReason = imageRationale?.trim();
-  // 当前主角参照 URL（跨镜头锁人物长相）——用于在照片上标星 + 切换
-  const characterUrl = artDirection.references.find(
-    reference => reference.role === "character"
-  )?.imageUrl;
-
-  const handleFiles = async (files: FileList | File[]) => {
-    const file = Array.from(files).find(entry =>
-      entry.type.startsWith("image/")
-    );
-    if (!file) return;
-    await addVisualReference(file, undefined, cardId);
-  };
-
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragActive(false);
-    void handleFiles(event.dataTransfer.files);
-  };
-
-  return (
-    <>
-      <div
-        className="mt-3 rounded-md border p-2"
-        onPointerDown={event => event.stopPropagation()}
-        style={{
-          borderColor: dragActive
-            ? "var(--nayin-accent)"
-            : "var(--panel-border)",
-          background: "var(--background)",
-        }}
-        onDragEnter={event => {
-          event.preventDefault();
-          setDragActive(true);
-        }}
-        onDragOver={event => event.preventDefault()}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={handleDrop}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[9px] font-semibold text-muted-foreground">
-            故事材料 {visualItems.length ? `· ${visualItems.length} 张` : ""}
-          </span>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={isArtWorking}
-            className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
-            {isArtWorking ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <ImagePlus className="h-3 w-3" />
-            )}
-            添加参考
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={event => {
-              if (event.currentTarget.files)
-                void handleFiles(event.currentTarget.files);
-              event.currentTarget.value = "";
-            }}
-          />
-        </div>
-
-        {generatedImage ? (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setPreviewImageUrl(generatedImage.imageUrl)}
-            onKeyDown={e => {
-              if (e.key === "Enter")
-                setPreviewImageUrl(generatedImage.imageUrl);
-            }}
-            className="relative mt-2 grid grid-cols-[72px_1fr] gap-2 overflow-hidden rounded-md border p-1.5 cursor-pointer"
-            style={{ borderColor: "var(--panel-border)" }}
-          >
-            <button
-              type="button"
-              onClick={event => {
-                event.preventDefault();
-                event.stopPropagation();
-                onDeleteGeneratedImage?.(generatedImage);
-              }}
-              className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm transition hover:text-destructive"
-              aria-label="删除已选择画面"
-              title="删除这张已选择画面，并记录为不想要"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-            <img
-              src={generatedImage.imageUrl}
-              alt={generatedImage.prompt || "当前生成画面"}
-              className="aspect-square w-full rounded object-cover"
-            />
-            {isFinalizing ? (
-              <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/90 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shadow-sm">
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                正在出正式版
-              </span>
-            ) : isDraft ? (
-              <span className="absolute left-2 top-2 rounded-full bg-background/90 px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground shadow-sm">
-                草稿待确认
-              </span>
-            ) : null}
-            <div className="min-w-0 self-center">
-              <div className="text-[10px] font-semibold text-foreground">
-                {isFinalizing ? "正式版生成中" : "当前生成画面"}
-              </div>
-              <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
-                {isFinalizing
-                  ? "已收下草稿，正式版完成后会自动替换到这里"
-                  : displayReason ||
-                    generatedImage.prompt ||
-                    "从手机端同步的故事画面"}
-              </p>
-              {/* 把这张满意的镜头图设为主角参照——后续镜头跨场景锁这个人物 */}
-              <button
-                type="button"
-                onClick={e => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (generatedImage.status !== "ready") return;
-                  setCharacterReferenceByUrl(
-                    generatedImage.imageUrl,
-                    "当前画面主角"
-                  );
-                }}
-                disabled={generatedImage.status !== "ready"}
-                className="mt-1 inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                style={{
-                  borderColor:
-                    generatedImage.imageUrl === characterUrl
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
-                }}
-              >
-                <Star
-                  className={`h-2.5 w-2.5 ${generatedImage.imageUrl === characterUrl ? "fill-amber-400 text-amber-400" : ""}`}
-                />
-                {generatedImage.status !== "ready"
-                  ? "待正式版"
-                  : generatedImage.imageUrl === characterUrl
-                    ? "已设为主角"
-                    : "设为主角"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {visualItems.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={isArtWorking}
-            className="mt-2 flex min-h-[50px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed px-3 text-center transition disabled:opacity-50"
-            style={{
-              borderColor: dragActive
-                ? "var(--nayin-accent)"
-                : "var(--panel-border)",
-              background: dragActive ? "var(--nayin-glow)" : "transparent",
-            }}
-          >
-            <ImagePlus className="h-3.5 w-3.5 text-nayin-bright" />
-            <span className="text-[9px] font-medium text-muted-foreground">
-              把与这一刻有关的照片拖进来
-            </span>
-          </button>
-        ) : (
-          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-            {visualItems.map(item => {
-              const itemUrl = item.originalImageUrl || item.imageUrl;
-              const isCharacter = !!characterUrl && itemUrl === characterUrl;
-              return (
-                <div
-                  key={item.id}
-                  className="group/reference relative h-14 w-14 shrink-0 overflow-hidden rounded-md border"
-                  style={{
-                    borderColor: isCharacter
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
-                  }}
-                  title={
-                    isCharacter ? "主角参照（跨镜头锁人物长相）" : item.title
-                  }
-                >
-                  <img
-                    src={itemUrl}
-                    alt={item.title}
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                  />
-                  {/* 当前主角参照：左上角星标常显 */}
-                  {isCharacter && (
-                    <span className="absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-white">
-                      <Star className="h-2.5 w-2.5 fill-current" />
-                    </span>
-                  )}
-                  {/* 设为主角参照：左下角 hover 显示（单选） */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCharacterReferenceByUrl(itemUrl, item.title)
-                    }
-                    className="absolute bottom-1 left-1 flex h-5 items-center gap-0.5 rounded-full bg-background/85 px-1.5 text-[9px] font-medium text-muted-foreground opacity-0 transition hover:text-foreground group-hover/reference:opacity-100"
-                    aria-label={`设为主角参照 ${item.title}`}
-                  >
-                    <Star className="h-2.5 w-2.5" />
-                    主角
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeVisualCanvasItem(item.id)}
-                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/85 text-muted-foreground opacity-0 transition group-hover/reference:opacity-100"
-                    aria-label={`移除 ${item.title}`}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {previewImageUrl ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setPreviewImageUrl(null)}
-          onKeyDown={event => {
-            if (event.key === "Escape") setPreviewImageUrl(null);
-          }}
-          role="presentation"
-        >
-          <div
-            className="relative max-h-[80vh] max-w-[80vw] overflow-hidden rounded-lg bg-background shadow-2xl"
-            onClick={event => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setPreviewImageUrl(null)}
-              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground shadow-sm transition hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <img
-              src={previewImageUrl}
-              alt="预览"
-              className="max-h-[80vh] max-w-[80vw] object-contain"
-            />
-          </div>
-        </div>
-      ) : null}
-    </>
   );
 }
 

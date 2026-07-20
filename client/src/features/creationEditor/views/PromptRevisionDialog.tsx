@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { CheckCircle2, History, Loader2, Sparkles, TriangleAlert } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
 import type { StoryMaterialState } from "@shared/storyMaterial";
+import { displayShotCode } from "@shared/shotIdentity";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -68,7 +69,7 @@ function formatTargets(
 
 function shotLabel(materialState: StoryMaterialState | null, stableShotId: string) {
   const shot = materialState?.shots.find(item => item.stableShotId === stableShotId);
-  return shot ? `SH${String(shot.shotNo).padStart(2, "0")}` : stableShotId;
+  return shot ? displayShotCode(shot) : stableShotId;
 }
 
 function materialSummary(materialState: StoryMaterialState | null, stableShotId: string) {

@@ -183,9 +183,13 @@ export type ShotListPayload = {
   modelLabel: string;
 };
 
-// 给 chat agent 看的"轻量镜头表草稿"——只送 11 个用户可见列 + shotNo
+// 给 chat agent 看的轻量镜头表草稿。稳定身份与幕号让对话能准确
+// 理解用户口中的 0102 / SH02，而不是只靠当前数组位置猜。
 export type ShotDraft = {
   shotNo: number;
+  stableShotId?: string;
+  cueCode?: string;
+  actNo?: string;
   subject: string;
   action: string;
   dialogue: string;
@@ -197,6 +201,12 @@ export type ShotDraft = {
   mood: string;
   sound: string;
   styleRef: string;
+  intent?: string;
+  videoStart?: string;
+  videoEnd?: string;
+  transitionIn?: string;
+  transitionOut?: string;
+  videoPrompt?: string;
 };
 
 export type SummaryPayload = {

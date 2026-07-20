@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
+import { promptShotCode } from "../../shared/shotIdentity";
 
 export type ImageReferencePurpose =
   | "current-frame"
@@ -32,6 +33,7 @@ type DirectImagePromptInput = {
   referencePurpose: ImageReferencePurpose;
   narrativePrompt: string;
   shotNo?: number;
+  cueCode?: string;
   storyTitle?: string;
 };
 
@@ -171,7 +173,7 @@ function userContext(input: DirectImagePromptInput): string {
     shotNo:
       input.shotNo == null
         ? ""
-        : `SH${String(input.shotNo).padStart(2, "0")}`,
+        : promptShotCode(input),
     referencePurpose: input.referencePurpose,
     narrativePrompt: input.narrativePrompt.slice(0, 1_500),
     existingPrompt: input.fallbackPrompt.slice(0, 1_500),

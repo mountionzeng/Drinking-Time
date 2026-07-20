@@ -11,6 +11,10 @@ import {
   normalizeShotIdentity,
   shotIdentityFromShot,
 } from "@shared/shotIdentity";
+import {
+  estimateShotVideoCost,
+  SHOT_VIDEO_ASPECT_RATIO,
+} from "@shared/shotDirector";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
   assignStoryImageToShot as assignStoryImageToShotDb,
@@ -71,6 +75,11 @@ import {
   startShotVideoJob,
 } from "../services/videoJobs";
 import { getShotVideoProviderStatus } from "../services/videoGen";
+import { analyzeShotVideoDirection } from "../services/shotVideoDirection";
+import {
+  estimateStartEndShotVideo,
+  startEndShotVideoJob,
+} from "../services/startEndShotVideoWorkflow";
 import {
   conformVideoTake,
   probeVideoFileMetadata,
@@ -132,9 +141,7 @@ const timelineTransitionEndpointInput = z.union([
 
 const timelineTransitionCandidateInput = z.object({
   candidateId: z.string().regex(/^transition-[a-f0-9]{16}$/),
-  provisionalStableShotId: z
-    .string()
-    .regex(/^transition-shot-[a-f0-9]{16}$/),
+  provisionalStableShotId: z.string().regex(/^transition-shot-[a-f0-9]{16}$/),
   storyId: z.number().int().positive(),
   source: timelineTransitionEndpointInput,
   target: timelineTransitionEndpointInput,
@@ -244,6 +251,20 @@ export const creationAgentRouter = router({
   shotVideoProviderStatus: protectedProcedure.query(() =>
     getShotVideoProviderStatus()
   ),
+
+  analyzeShotVideoDirection: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        shotNo: z.number().int().positive(),
+        stableShotId: z.string().trim().min(1).max(128),
+        draftPrompt: z.string().trim().min(1).max(8_000),
+        subtitle: z.string().max(2_000).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      analyzeShotVideoDirection(input, ctx.user.id)
+    ),
 
   /** Conversational chat with the creation agent */
   chat: protectedProcedure
@@ -748,12 +769,18 @@ export const creationAgentRouter = router({
             error: stored.message ?? "图片保存失败",
           };
         }
+        const target = input.targetStableShotId
+          ? resolveStoryShotTarget(story, input.targetStableShotId)
+          : null;
+        if (input.targetStableShotId && !target) {
+          return { status: "error" as const, error: "目标镜头不存在" };
+        }
         const image = await createGeneratedImage({
           projectId: story.projectId ?? null,
           storyId: input.storyId,
           userId: ctx.user.id,
-          shotNo: null,
-          shotIdentity: null,
+          shotNo: target?.shotNo ?? null,
+          shotIdentity: target?.stableShotId ?? null,
           imageKey: stored.imageKey ?? null,
           imageUrl: stored.imageUrl,
           prompt: input.note?.trim() || `导入素材：${input.fileName}`,
@@ -763,11 +790,30 @@ export const creationAgentRouter = router({
           generationType: "initial",
           maskKey: null,
         });
+        if (target) {
+          const assigned = await assignStoryImageToShotDb({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            imageId: image.id,
+            shotNo: target.shotNo,
+            shotIdentity: target.stableShotId,
+            metadata: {
+              source: "material_warehouse",
+              targetStableShotId: target.stableShotId,
+              shotNo: target.shotNo,
+            },
+          });
+          if (!assigned) {
+            return { status: "error" as const, error: "图片绑定失败" };
+          }
+        }
         return {
           status: "ok" as const,
           kind: "image" as const,
           imageId: image.id,
           imageUrl: image.imageUrl,
+          shotNo: target?.shotNo ?? null,
+          stableShotId: target?.stableShotId ?? null,
         };
       }
 
@@ -850,6 +896,68 @@ export const creationAgentRouter = router({
    * 单镜头图生视频：只吃已经确认的首帧图 + 镜头设计表编译出来的视频包。
    * 不在视频里烧字幕；subtitle 只作为模型语义提示和后续合成层输入。
    */
+  estimateStartEndShotVideo: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        stableShotId: z.string().trim().min(1).max(128),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return {
+          status: "ok" as const,
+          estimate: await estimateStartEndShotVideo(input, ctx.user.id),
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "首尾帧视频报价失败",
+        };
+      }
+    }),
+
+  submitStartEndShotVideo: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        stableShotId: z.string().trim().min(1).max(128),
+        costConfirmation: z.object({
+          accepted: z.literal(true),
+          estimatedCny: z.number().positive(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await startEndShotVideoJob(
+        {
+          storyId: input.storyId,
+          stableShotId: input.stableShotId,
+          confirmedEstimatedCny: input.costConfirmation.estimatedCny,
+        },
+        ctx.user.id
+      );
+      if (result.status !== "ok") {
+        return {
+          status: "error" as const,
+          error: result.error,
+          take: result.take ?? null,
+          takeId: result.take?.id,
+          estimate: result.estimate,
+        };
+      }
+      return {
+        status: "ok" as const,
+        take: result.take,
+        takeId: result.take.id,
+        videoStatus: result.take.status,
+        videoUrl: result.take.videoUrl ?? undefined,
+        taskId: result.take.taskId ?? undefined,
+        prompt: result.take.prompt,
+        estimatedCny: result.estimate.estimatedCny,
+      };
+    }),
+
   generateShotVideo: protectedProcedure
     .input(
       z.object({
@@ -864,9 +972,26 @@ export const creationAgentRouter = router({
         subtitle: z.string().optional(),
         durationSec: z.number().min(3).max(10).optional(),
         motion: z.enum(["low", "high"]).optional(),
+        aspectRatio: z.literal(SHOT_VIDEO_ASPECT_RATIO).optional(),
+        costConfirmation: z.object({
+          accepted: z.literal(true),
+          estimatedCny: z.number().positive(),
+        }),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const durationSec = input.durationSec ?? 5;
+      const motion = input.motion ?? getShotVideoProviderStatus().motion;
+      const estimate = estimateShotVideoCost({ durationSec, motion });
+      if (
+        Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) >
+        0.001
+      ) {
+        return {
+          status: "error" as const,
+          error: `费用预估已变化，请重新确认预计 ¥${estimate.estimatedCny.toFixed(2)}`,
+        };
+      }
       const result = await startShotVideoJob(
         {
           storyId: input.storyId,
@@ -878,9 +1003,9 @@ export const creationAgentRouter = router({
           nextReferenceImageId: input.nextReferenceImageId,
           prompt: input.prompt,
           subtitle: input.subtitle,
-          durationSec: input.durationSec ?? 5,
-          aspectRatio: "16:9",
-          motion: input.motion,
+          durationSec,
+          aspectRatio: input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO,
+          motion,
         },
         ctx.user.id
       );
@@ -903,6 +1028,7 @@ export const creationAgentRouter = router({
         videoUrl: result.take.videoUrl ?? undefined,
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
+        estimatedCny: estimate.estimatedCny,
       };
     }),
 
@@ -992,7 +1118,13 @@ export const creationAgentRouter = router({
         instruction: z.string().trim().min(1).max(500),
         selectionContext: z
           .object({
-            stableShotId: z.string().trim().min(1).max(128).nullable().optional(),
+            stableShotId: z
+              .string()
+              .trim()
+              .min(1)
+              .max(128)
+              .nullable()
+              .optional(),
             shotNo: z.number().int().positive().nullable().optional(),
           })
           .optional(),

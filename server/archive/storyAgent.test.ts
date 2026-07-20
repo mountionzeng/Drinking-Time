@@ -422,6 +422,59 @@ describe('storyAgent 声音地基契约 (U1：取样器 → 陪伴者)', () => {
     expect(prompt).toContain('他讲开心，接住的就是开心');
   });
 
+  it('不会把已经包含在 history 末尾的本轮用户消息再喂一次', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse('我先看 0301。'))
+      .mockResolvedValueOnce(makeAgentResponse());
+
+    await replyFromStoryAgent({
+      message: '请分析 0301',
+      history: [
+        { role: 'assistant', content: '上一轮已经说完。' },
+        { role: 'user', content: '请分析 0301' },
+      ],
+    });
+
+    const replyMessages = mockInvokeLLM.mock.calls[0][0].messages;
+    expect(
+      replyMessages.filter(
+        message =>
+          message.role === 'user' && message.content === '请分析 0301',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('把四幕与稳定镜头号交给小酌定位当前故事', async () => {
+    const prompt = await getSystemPrompt({
+      summary: '当前故事：SheSelf\n结构：四幕，共 27 镜。',
+      currentShots: [
+        {
+          shotNo: 2,
+          stableShotId: 'manual-sh02',
+          cueCode: '0102',
+          actNo: '第一幕',
+          subject: '画框里的女人',
+          action: '背对观众坐着',
+          dialogue: '我会反反覆覆的被告知：',
+          shotType: '全景',
+          cameraAngle: '平视',
+          cameraMove: '缓慢推近',
+          location: '古典画廊',
+          timeLight: '暗部柔光',
+          mood: '被观看',
+          sound: '低频环境声',
+          styleRef: '古典油画',
+        },
+      ],
+    });
+
+    expect(prompt).toContain('当前故事：SheSelf');
+    expect(prompt).toContain('四幕，共 27 镜');
+    expect(prompt).toContain('0102');
+    expect(prompt).toContain('第一幕');
+    expect(prompt).toContain('manual-sh02');
+  });
+
   it('清除贴标确认 tic：不再强制 reply 问「我先把它记成 X」 (R2)', async () => {
     const prompt = await getSystemPrompt();
     // 旧指令：「reply 里必须自然地问一句『我先把它记成 X，你觉得准吗？』」
@@ -756,6 +809,41 @@ describe('storyAgent B 改造 · 回话/出卡解耦 (两次调用)', () => {
     expect(result.reply).toBe('这张照片好治愈啊，是在海边吗'); // 回复来自第一步纯文本
     expect(result.card).not.toBeNull();
     expect(result.card?.content).toBe('海边的傍晚');           // 卡片来自第二步抽取
+  });
+
+  it('只读问题只自然回话，不后台抽取或自动出卡', async () => {
+    mockInvokeLLM.mockResolvedValueOnce(
+      makeRawResponse('这个故事一共分为 4 幕，0102 属于第一幕。'),
+    );
+
+    const result = await replyFromStoryAgent({
+      message:
+        '先不要修改。请只告诉我：这个故事一共分为几幕？0102 属于哪一幕？',
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(1);
+    expect(result.reply).toContain('4 幕');
+    expect(result.card).toBeNull();
+    expect(result.read).toBeNull();
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('仅分析和不要自动覆盖都按只读请求处理', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('我先给你衔接建议。'))
+      .mockResolvedValueOnce(makeRawResponse('这张图适合放在 0301。'));
+
+    const analysis = await replyFromStoryAgent({
+      message: '只分析这组镜头，不要执行。',
+    });
+    const mediaAdvice = await replyFromStoryAgent({
+      message: '先给建议，不要自动覆盖已有时间线。',
+      photoUrl: 'https://x/p.jpg',
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
+    expect(analysis.card).toBeNull();
+    expect(mediaAdvice.card).toBeNull();
   });
 
   it('抽取破功（吐人话 / 非 JSON）→ 非致命：card=null 但 reply 完好', async () => {

@@ -31,11 +31,13 @@ import {
   type VideoConformReviewMode,
   videoConformReviewKey,
 } from "../videoConformReview";
+import { displayShotCode } from "@shared/shotIdentity";
 
 export type VideoConformReviewItem = {
   takeId: number;
   stableShotId: string;
   shotNo: number;
+  cueCode?: string | null;
   title: string;
   cameraMove: string;
   videoUrl: string;
@@ -52,8 +54,8 @@ type VideoConformBatchItem = {
   cropPath?: VideoCropPath;
 };
 
-function shotLabel(shotNo: number) {
-  return `SH${String(shotNo).padStart(2, "0")}`;
+function shotLabel(shot: { shotNo: number; cueCode?: string | null }) {
+  return displayShotCode(shot);
 }
 
 function recommendationLabel(
@@ -75,12 +77,14 @@ function cropAnchorLabel(
 
 export function CropPathControls({
   shotNo,
+  cueCode,
   axis,
   value,
   disabled,
   onChange,
 }: {
   shotNo: number;
+  cueCode?: string | null;
   axis: VideoConformRecommendation["cropAxis"];
   value: VideoCropPath;
   disabled: boolean;
@@ -119,7 +123,7 @@ export function CropPathControls({
                   <button
                     key={anchor}
                     type="button"
-                    aria-label={`${shotLabel(shotNo)} ${row.label} ${label}`}
+                    aria-label={`${shotLabel({ shotNo, cueCode })} ${row.label} ${label}`}
                     aria-pressed={selected}
                     disabled={disabled}
                     onClick={() => onChange({ ...value, [row.key]: anchor })}
@@ -256,10 +260,10 @@ export function VideoConformReviewPanel({
                     playsInline
                     preload="metadata"
                     className="aspect-video h-full max-h-52 w-full bg-black object-contain"
-                    aria-label={`${shotLabel(item.shotNo)} 运镜预览`}
+                    aria-label={`${shotLabel(item)} 运镜预览`}
                   />
                   <span className="pointer-events-none absolute top-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
-                    {shotLabel(item.shotNo)}
+                    {shotLabel(item)}
                   </span>
                 </div>
 
@@ -314,7 +318,7 @@ export function VideoConformReviewPanel({
                         onDecisionChange(reviewKey, value);
                       }
                     }}
-                    aria-label={`${shotLabel(item.shotNo)} 画幅处理方式`}
+                    aria-label={`${shotLabel(item)} 画幅处理方式`}
                     className="grid gap-2"
                   >
                     <label
@@ -374,6 +378,7 @@ export function VideoConformReviewPanel({
                   item.recommendation.cropAxis != null ? (
                     <CropPathControls
                       shotNo={item.shotNo}
+                      cueCode={item.cueCode}
                       axis={item.recommendation.cropAxis}
                       value={
                         cropPaths.get(reviewKey) ?? CENTERED_VIDEO_CROP_PATH

@@ -369,25 +369,34 @@ function collectMessages(body: LegacyRecord): LegacyMessage[] {
       const message = asRecord(raw);
       const id = text(message.id);
       const content = text(message.content) || text(message.text);
-      const roleText = text(message.role) || text(message.who);
+      const roleText = (text(message.role) || text(message.who)).toLowerCase();
+      const isOpeningGreeting =
+        content.includes("你好，我是小酌") &&
+        content.includes("今天有没有一件很小的事");
       if (
         !content ||
         id === "first-question" ||
         message.ephemeral === true ||
-        text(message.kind) === "greeting"
+        text(message.kind) === "greeting" ||
+        isOpeningGreeting
       ) {
         continue;
       }
       const role: ConversationMessageRole =
-        roleText === "assistant" || roleText === "system"
-          ? roleText
+        roleText === "assistant" ||
+        roleText === "system" ||
+        roleText === "s" ||
+        roleText === "a"
+          ? roleText === "system"
+            ? "system"
+            : "assistant"
           : "user";
       const timestamp =
         typeof message.timestamp === "number" &&
         Number.isFinite(message.timestamp)
           ? message.timestamp
           : 0;
-      const key = id || `${timestamp}:${role}:${content}`;
+      const key = `${timestamp}:${role}:${content}`;
       if (!byKey.has(key)) {
         byKey.set(key, {
           key,

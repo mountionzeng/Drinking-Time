@@ -79,6 +79,7 @@ export type ShotVideoProviderStatus = {
   motion: "low" | "high";
   promptDirectorModel: string;
   promptDirectorReady: boolean;
+  outputAspectRatio: "1:1";
 };
 
 export function isVideoTakeStatus(value: unknown): value is VideoTakeStatus {

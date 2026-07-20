@@ -3,7 +3,11 @@ import { Database, Focus, LayoutGrid, ListFilter, Share2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import { useCreationEditor } from "../CreationEditorContext";
+import {
+  useCreationEditor,
+  type CreationEditorShot,
+} from "../CreationEditorContext";
+import { displayShotCode } from "@shared/shotIdentity";
 import {
   latestFrameCandidateSheet,
   type FrameCandidateSource,
@@ -32,8 +36,8 @@ import {
   captureReferenceFrameFromFile,
 } from "../video/captureFrame";
 
-function shotLabel(shotNo: number | null) {
-  return shotNo == null ? "等待镜头" : `SH${String(shotNo).padStart(2, "0")}`;
+function shotLabel(shot: CreationEditorShot | null | undefined) {
+  return shot ? displayShotCode(shot) : "等待镜头";
 }
 
 function messageOf(error: unknown, fallback: string) {
@@ -496,7 +500,7 @@ export default function PromptTablePanel() {
           <h2 className="creation-board-panel-title-text">镜头设计表</h2>
         </div>
         <span className="creation-board-panel-status">
-          {shotLabel(selectedShotNo)}
+          {shotLabel(selectedShot)}
         </span>
       </div>
 
@@ -581,7 +585,7 @@ export default function PromptTablePanel() {
                   const tag = hasVideo ? " 🎬" : hasImage ? " 🖼️" : "";
                   return (
                     <option key={s.shotNo} value={s.shotNo}>
-                      {shotLabel(s.shotNo)}{tag}
+                      {shotLabel(s)}{tag}
                     </option>
                   );
                 })}
@@ -697,7 +701,7 @@ export default function PromptTablePanel() {
                     }`}
                   >
                     <Focus className="h-3.5 w-3.5" />仅{" "}
-                    {shotLabel(selectedShot.shotNo)}
+                    {shotLabel(selectedShot)}
                   </button>
                   <button
                     type="button"

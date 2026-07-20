@@ -18,6 +18,7 @@ import { getStoryMaterialState } from "./storyMaterials";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { materializeImageInput } from "./imageAssets";
 import { invokeVisionJson, visionChannelConfigured } from "./visionChannel";
+import { promptShotCode } from "../../shared/shotIdentity";
 
 export type ImageVideoDirection = {
   videoPrompt: string;
@@ -149,7 +150,7 @@ export async function adviseStoryImages(params: {
   const shotLines = shots.map((shot, index) => {
     const parts = [
       `${index + 1}.`,
-      `SH${String(shot.shotNo).padStart(2, "0")}`,
+      promptShotCode(shot),
       shot.currentVideo ? "已有视频" : shot.currentImage ? "已有首帧" : "缺画面",
     ];
     return parts.join("｜");

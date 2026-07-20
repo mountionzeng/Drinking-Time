@@ -21,6 +21,7 @@ import type { VideoTakeStatus } from "../../shared/videoAsset";
 import type { VideoTake } from "../../drizzle/schema";
 import type { ImageAsset } from "../../shared/imageAsset";
 import { VIDEO_TARGET_ASPECT_RATIOS } from "../../shared/videoConform";
+import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
 import { localVideoDir, materializeVideoUrl } from "./videoMedia";
 import {
   finalizeExpandedVideoFile,
@@ -31,8 +32,12 @@ import {
 import {
   directVideoPrompt,
   type VideoPromptDirectorResult,
-  type VideoPromptShotContext,
 } from "./videoPromptDirector";
+import { storyVideoContext } from "./videoShotContext";
+import {
+  isStartEndShotVideoTake,
+  refreshStartEndShotVideoTake,
+} from "./startEndShotVideoWorkflow";
 import {
   PromptLineageValidationError,
   resolveGenerationPromptCompilation,
@@ -101,66 +106,6 @@ function videoReferenceLabel(asset: ImageAsset): string {
   return `${shotLabel} image #${asset.id}${publicUrl}${prompt ? `；画面提示：${prompt}` : ""}`;
 }
 
-function storyVideoContext(
-  body: unknown,
-  stableShotId: string,
-  shotNo: number
-): {
-  currentShot?: VideoPromptShotContext;
-  previousShot?: VideoPromptShotContext;
-  nextShot?: VideoPromptShotContext;
-} {
-  const record =
-    body && typeof body === "object" && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  const shots = Array.isArray(record.shots)
-    ? record.shots.filter(
-        (item): item is Record<string, unknown> =>
-          Boolean(item) && typeof item === "object" && !Array.isArray(item)
-      )
-    : [];
-  const index = shots.findIndex((shot, candidateIndex) => {
-    const identity =
-      normalizeShotIdentity(shot.stableShotId) ??
-      normalizeShotIdentity(shot.shotIdentity) ??
-      normalizeShotIdentity(shot.shotKey);
-    if (identity) return identity === stableShotId;
-    const canonical = canonicalizeShotNo(
-      shot.shotNo as string | number | null | undefined
-    );
-    return canonical === `SH${String(shotNo).padStart(2, "0")}` ||
-      (!canonical && candidateIndex + 1 === shotNo);
-  });
-  if (index < 0) return {};
-
-  const context = (
-    shot: Record<string, unknown> | undefined
-  ): VideoPromptShotContext | undefined => {
-    if (!shot) return undefined;
-    const value = (key: string) =>
-      typeof shot[key] === "string" ? String(shot[key]).trim() : "";
-    return {
-      intent: value("intent"),
-      subject: value("subject"),
-      action: value("action"),
-      cameraMove: value("cameraMove"),
-      videoStart: value("videoStart"),
-      videoEnd: value("videoEnd"),
-      mood: value("mood") || value("emotion"),
-      dialogue: value("dialogue"),
-      transitionIn: value("transitionIn"),
-      transitionOut: value("transitionOut"),
-    };
-  };
-
-  return {
-    currentShot: context(shots[index]),
-    previousShot: context(shots[index - 1]),
-    nextShot: context(shots[index + 1]),
-  };
-}
-
 /**
  * 清洗 prompt 使其适合 MJ-Video API。
  * 首帧已经定义主体和美术风格，视频端只需要运动相关信息。把整份镜头设计、
@@ -196,7 +141,8 @@ export function sanitizeVideoPrompt(raw: string): string {
     .replace(/[\r\n]+/g, ", ") // 换行 -> 逗号分隔
     .replace(/[，。；：！？、""''【】（）《》]/g, " ") // 中文标点 -> 空格
     .replace(/[""'']/g, " ") // 引号 -> 空格
-    .replace(/[{]/g, "(").replace(/[}]/g, ")") // 花括号 -> 圆括号
+    .replace(/[{]/g, "(")
+    .replace(/[}]/g, ")") // 花括号 -> 圆括号
     .replace(/\s{2,}/g, " ") // 多个空格合并
     .replace(/^[,\s]+|[,\s]+$/g, "")
     .trim();
@@ -235,10 +181,14 @@ function promptWithVideoReferences(params: {
   if (params.forMjVideo) return cleaned;
   const lines = [cleaned];
   if (params.previousReference || params.nextReference) {
-    lines.push("连续性参考：当前 image 字段只使用本镜已选首帧；以下相邻镜头只用于运动和接镜参考。");
+    lines.push(
+      "连续性参考：当前 image 字段只使用本镜已选首帧；以下相邻镜头只用于运动和接镜参考。"
+    );
   }
   if (params.previousReference) {
-    lines.push(`前一镜参考图：${videoReferenceLabel(params.previousReference)}`);
+    lines.push(
+      `前一镜参考图：${videoReferenceLabel(params.previousReference)}`
+    );
   }
   if (params.nextReference) {
     lines.push(`后一镜参考图：${videoReferenceLabel(params.nextReference)}`);
@@ -360,7 +310,7 @@ export async function startShotVideoJob(
   }
 
   const durationSec = input.durationSec ?? 5;
-  const aspectRatio = input.aspectRatio ?? "16:9";
+  const aspectRatio = input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO;
   const providerStatus = getShotVideoProviderStatus();
   const motion = input.motion ?? providerStatus.motion;
   const previousReference = videoReferenceAsset(
@@ -405,11 +355,7 @@ export async function startShotVideoJob(
 
   const sourceImage = await materializeImageInput(asset.imageUrl);
   const story = await getStoryById(input.storyId, userId);
-  const context = storyVideoContext(
-    story?.body,
-    stableShotId,
-    input.shotNo
-  );
+  const context = storyVideoContext(story?.body, stableShotId, input.shotNo);
   const promptDirector = /\/mj\/submit\/video/.test(providerStatus.submitPath)
     ? await directVideoPrompt({
         imageInput: sourceImage,
@@ -483,7 +429,7 @@ export async function startShotVideoJob(
     videoUrl:
       managed?.status === "ok"
         ? managed.videoUrl
-        : submitted.videoUrl ?? null,
+        : (submitted.videoUrl ?? null),
     videoKey: managed?.status === "ok" ? managed.videoKey : null,
     extractionCapability:
       managed?.status === "ok" ? "available" : "unavailable",
@@ -512,6 +458,9 @@ export async function refreshVideoTakeStatus(
 > {
   const take = await getVideoTakeById(takeId, userId);
   if (!take) return { status: "error", error: "视频任务不存在或无权操作" };
+  if (isStartEndShotVideoTake(take)) {
+    return refreshStartEndShotVideoTake(take, userId);
+  }
   if (!take.taskId) {
     if (take.status === "available") return { status: "ok", take };
     const updated = await updateVideoTake(take.id, userId, {

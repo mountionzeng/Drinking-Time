@@ -4,7 +4,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clapperboard,
-  Coins,
+  CircleDollarSign,
   Loader2,
   Pencil,
   RotateCcw,
@@ -44,9 +44,12 @@ export interface EditingTransitionCandidateCardProps {
 
 function formatShotNo(value: number | string): string {
   const normalized = String(value).trim();
-  if (/^SH\d+$/i.test(normalized)) return normalized.toUpperCase();
+  const legacy = /^SH0*(\d+)$/i.exec(normalized);
+  if (legacy) return legacy[1].padStart(2, "0");
   const numeric = Number(normalized);
-  if (Number.isFinite(numeric)) return `SH${String(numeric).padStart(2, "0")}`;
+  if (Number.isFinite(numeric) && !/^0\d{3,}/.test(normalized)) {
+    return String(numeric).padStart(2, "0");
+  }
   return normalized;
 }
 
@@ -104,10 +107,10 @@ function StatusNotice({
           borderColor: "var(--nayin-accent-dim)",
         }}
       >
-        <Coins className="mt-0.5 h-3 w-3 shrink-0 text-nayin-bright" />
+        <CircleDollarSign className="mt-0.5 h-3 w-3 shrink-0 text-nayin-bright" />
         <span>
-          预计 {candidate.estimatedCredits} credits ≈ ¥
-          {formatCny(candidate.estimatedCny)}；确认后才会提交 302 并产生费用。
+          预计 ¥{formatCny(candidate.estimatedCny)}；确认后才会提交 302
+          并产生费用。
         </span>
       </div>
     );

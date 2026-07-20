@@ -3554,6 +3554,148 @@ export async function claimEditingTransitionSubmission(input: {
   });
 }
 
+export type StartEndShotSubmissionClaim =
+  | { claimed: true; take: VideoTake }
+  | {
+      claimed: false;
+      take: VideoTake;
+      reason: "already_claimed";
+    };
+
+function validateStartEndShotTake(take: VideoTake) {
+  const snapshot = jsonRecord(take.parameterSnapshot);
+  if (
+    snapshot.kind !== "shot-start-end" ||
+    snapshot.stableShotId !== take.stableShotId
+  ) {
+    throw new Error("首尾帧视频任务缺少可验证的镜头快照");
+  }
+  return snapshot;
+}
+
+function claimStartEndShotTake(take: VideoTake): VideoTake {
+  const snapshot = validateStartEndShotTake(take);
+  const state = snapshot.submissionState;
+  if (state !== "not_started" && state !== "not_submitted") return take;
+  return {
+    ...take,
+    status: "submitted",
+    errorMessage: null,
+    parameterSnapshot: {
+      ...snapshot,
+      submissionState: "submitting",
+      submissionClaimedAt: new Date().toISOString(),
+    },
+    updatedAt: now(),
+  };
+}
+
+/** 原子取得单镜头首尾帧付费提交权，避免双击或多实例重复扣费。 */
+export async function claimStartEndShotSubmission(input: {
+  takeId: number;
+  storyId: number;
+  userId: number;
+}): Promise<StartEndShotSubmissionClaim> {
+  const decide = (take: VideoTake) => {
+    const claimed = claimStartEndShotTake(take);
+    return claimed === take
+      ? {
+          claimed: false as const,
+          take,
+          reason: "already_claimed" as const,
+        }
+      : { claimed: true as const, take: claimed };
+  };
+
+  const db = await getDb();
+  if (!db) {
+    return withMemoryVideoTakeSubmissionClaim(async () => {
+      await ensureMemoryLoaded();
+      const storyExists = memoryState.stories.some(
+        story => story.id === input.storyId && story.userId === input.userId
+      );
+      if (!storyExists) throw new Error("故事不存在或无权操作");
+      const index = memoryState.videoTakes.findIndex(
+        take =>
+          take.id === input.takeId &&
+          take.storyId === input.storyId &&
+          take.userId === input.userId
+      );
+      if (index < 0) throw new Error("首尾帧视频任务不存在或无权操作");
+      const decision = decide(memoryState.videoTakes[index]);
+      if (!decision.claimed) return decision;
+      const previous = memoryState.videoTakes[index];
+      memoryState.videoTakes[index] = decision.take;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.videoTakes[index] = previous;
+        throw error;
+      }
+      return decision;
+    });
+  }
+
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .for("update")
+      .limit(1);
+    if (!story) throw new Error("故事不存在或无权操作");
+    const [take] = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.id, input.takeId),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!take) throw new Error("首尾帧视频任务不存在或无权操作");
+    const decision = decide(take);
+    if (!decision.claimed) return decision;
+    await tx
+      .update(videoTakes)
+      .set({
+        status: decision.take.status,
+        errorMessage: decision.take.errorMessage,
+        parameterSnapshot: decision.take.parameterSnapshot,
+      })
+      .where(
+        and(
+          eq(videoTakes.id, input.takeId),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      );
+    const [updated] = await tx
+      .select()
+      .from(videoTakes)
+      .where(
+        and(
+          eq(videoTakes.id, input.takeId),
+          eq(videoTakes.storyId, input.storyId),
+          eq(videoTakes.userId, input.userId)
+        )
+      )
+      .limit(1);
+    if (
+      !updated ||
+      jsonRecord(updated.parameterSnapshot).submissionState !== "submitting"
+    ) {
+      throw new Error("首尾帧视频提交权持久化失败");
+    }
+    return { claimed: true, take: updated };
+  });
+}
+
 export async function createVideoTakeRange(
   data: Omit<InsertVideoTakeRange, "id" | "createdAt" | "updatedAt">
 ): Promise<VideoTakeRange> {

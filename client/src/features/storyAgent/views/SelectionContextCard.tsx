@@ -1,5 +1,6 @@
 import { Image, Quote, Timer, Video, X } from "lucide-react";
 import type { SelectionContext } from "@shared/selectionContext";
+import { displayShotCode } from "@shared/shotIdentity";
 
 type Props = {
   selection: Pick<
@@ -10,6 +11,7 @@ type Props = {
     | "objectVersion"
     | "stableShotId"
     | "shotNo"
+    | "cueCode"
   >;
   compact?: boolean;
   onClear?: () => void;
@@ -27,7 +29,7 @@ function contextLabel(selection: Props["selection"]): string {
   if (selection.sourceType === "shot") {
     const [rawIndex, field] = selection.sourceId.split(":");
     const shotNo = selection.shotNo ?? Number(rawIndex) + 1;
-    return `SH${String(shotNo).padStart(2, "0")} · ${FIELD_LABELS[field] ?? field}`;
+    return `${displayShotCode({ cueCode: selection.cueCode, shotNo })} · ${FIELD_LABELS[field] ?? field}`;
   }
   if (selection.sourceType === "storyboard-image") return "故事版主图";
   if (selection.sourceType === "animatic-video") return "动态分镜视频";

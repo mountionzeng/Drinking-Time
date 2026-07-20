@@ -23,6 +23,10 @@ import type { ImageAsset } from "@shared/imageAsset";
 import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
+import {
+  displayShotCode,
+  type ShotDisplayLike,
+} from "@shared/shotIdentity";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
@@ -35,12 +39,14 @@ type WarehouseImage = Pick<
 type WarehouseImageItem = {
   image: WarehouseImage;
   shotNo: number | null;
+  cueCode: string | null;
   stableShotId: string | null;
   isCurrent: boolean;
 };
 type WarehouseVideoItem = {
   take: VideoTakeAsset;
   shotNo: number | null;
+  cueCode: string | null;
   stableShotId: string | null;
   isCurrent: boolean;
   isUnmatched: boolean;
@@ -98,12 +104,22 @@ function DirectorAdviceSection({
   storyId: number | null;
   unassignedCount: number;
 }) {
+  const { shots } = useCreationEditor();
   const utils = trpc.useUtils();
   const adviseMut = trpc.creationAgent.adviseStoryImages.useMutation();
   const applyMut = trpc.creationAgent.applyImageAdvice.useMutation();
   const [advices, setAdvices] = useState<DirectorAdviceItem[]>([]);
   const [advising, setAdvising] = useState(false);
   const [busyImageId, setBusyImageId] = useState<number | null>(null);
+  const adviceShotLabel = (advice: DirectorAdviceItem) =>
+    displayShotCode(
+      shots.find(
+        shot =>
+          shot.stableShotId === advice.targetStableShotId ||
+          shot.shotIdentity === advice.targetStableShotId ||
+          shot.shotNo === advice.targetShotNo
+      ) ?? { shotNo: advice.targetShotNo }
+    );
 
   if (storyId == null || (unassignedCount === 0 && advices.length === 0)) {
     return null;
@@ -144,7 +160,9 @@ function DirectorAdviceSection({
       });
       if (result.status === "ok") {
         toast.success(
-          `已放进故事版看板 SH${String(result.shotNo).padStart(2, "0")}，渲染参数已写入镜头`
+          `已放进故事版看板 ${displayShotCode(
+            shots.find(shot => shot.shotNo === result.shotNo) ?? result
+          )}，渲染参数已写入镜头`
         );
         setAdvices(current =>
           current.filter(item => item.imageId !== advice.imageId)
@@ -208,7 +226,7 @@ function DirectorAdviceSection({
                     {adviceVerdictLabel(advice.verdict)}
                   </span>
                   {advice.targetShotNo != null ? (
-                    <span>建议给 SH{String(advice.targetShotNo).padStart(2, "0")}</span>
+                    <span>建议给 {adviceShotLabel(advice)}</span>
                   ) : null}
                   {advice.videoDirection ? (
                     <span className="text-[10px] text-muted-foreground">
@@ -294,6 +312,7 @@ export function buildMaterialWarehouseVideoItems(
       rows.push({
         take,
         shotNo: shot.shotNo,
+        cueCode: shot.cueCode ?? null,
         stableShotId: shot.stableShotId,
         isCurrent: shot.currentVideo?.id === take.id,
         isUnmatched: false,
@@ -305,6 +324,7 @@ export function buildMaterialWarehouseVideoItems(
     rows.push({
       take,
       shotNo: null,
+      cueCode: null,
       stableShotId: take.stableShotId,
       isCurrent: false,
       isUnmatched: true,
@@ -315,6 +335,7 @@ export function buildMaterialWarehouseVideoItems(
     rows.push({
       take,
       shotNo: null,
+      cueCode: null,
       stableShotId: take.stableShotId,
       isCurrent: false,
       isUnmatched: false,
@@ -342,12 +363,13 @@ export function buildMaterialWarehouseVideoItems(
     });
 }
 
-function shotLabel(shotNo: number | null | undefined) {
-  return shotNo == null ? "未选镜头" : `SH${String(shotNo).padStart(2, "0")}`;
+function shotLabel(shot: ShotDisplayLike | number | null | undefined) {
+  if (shot == null) return "未选镜头";
+  return displayShotCode(typeof shot === "number" ? { shotNo: shot } : shot);
 }
 
 function videoSourceLabel(item: WarehouseVideoItem) {
-  if (item.shotNo != null) return shotLabel(item.shotNo);
+  if (item.shotNo != null) return shotLabel(item);
   if (item.isReusable) return `素材 #${item.take.storyId}`;
   return item.stableShotId ? `旧镜头 ${item.stableShotId}` : "未绑定";
 }
@@ -458,6 +480,7 @@ export default function MaterialWarehousePanel() {
       rows.push({
         image,
         shotNo: null,
+        cueCode: null,
         stableShotId: null,
         isCurrent: false,
       });
@@ -467,6 +490,7 @@ export default function MaterialWarehousePanel() {
         rows.push({
           image,
           shotNo: shot.shotNo,
+          cueCode: shot.cueCode ?? null,
           stableShotId: shot.stableShotId,
           isCurrent: shot.currentImage?.id === image.id,
         });
@@ -483,6 +507,7 @@ export default function MaterialWarehousePanel() {
           storyId: activeStoryId,
         },
         shotNo: shot.shotNo,
+        cueCode: shot.cueCode?.trim() || null,
         stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
         isCurrent: true,
       });
@@ -511,7 +536,7 @@ export default function MaterialWarehousePanel() {
   const selectImageMaterial = (item: WarehouseImageItem) => {
     const key: SelectedMaterialKey = `image:${item.image.id}`;
     setSelectedMaterialKey(key);
-    const label = item.shotNo ? shotLabel(item.shotNo) : "未绑定";
+    const label = item.shotNo ? shotLabel(item) : "未绑定";
     const text = `${label} 图片 #${item.image.id}`;
     setActiveSelection({
       sourceType: "storyboard-image",
@@ -521,6 +546,7 @@ export default function MaterialWarehousePanel() {
       storyId: activeStoryId,
       stableShotId: item.stableShotId,
       shotNo: item.shotNo,
+      cueCode: item.cueCode,
       imageId: item.image.id,
       objectVersion: `image:${item.image.id}`,
       materialStatus: item.isCurrent ? "current-image" : "candidate-image",
@@ -546,6 +572,7 @@ export default function MaterialWarehousePanel() {
       storyId: activeStoryId,
       stableShotId: item.stableShotId,
       shotNo: item.shotNo,
+      cueCode: item.cueCode,
       videoTakeId: item.take.id,
       objectVersion: `video:${item.take.id}`,
       materialStatus: status,
@@ -657,13 +684,13 @@ export default function MaterialWarehousePanel() {
     try {
       if (imageMatchesShot(image, currentStableShotId)) {
         await promoteStoryImage(image.id);
-        toast.success(`已设为 ${shotLabel(currentShot?.shotNo)} 当前首帧`);
+        toast.success(`已设为 ${shotLabel(currentShot)} 当前首帧`);
       } else {
         await assignStoryImageToShot({
           imageId: image.id,
           targetStableShotId: currentStableShotId,
         });
-        toast.success(`已绑定到 ${shotLabel(currentShot?.shotNo)}`);
+        toast.success(`已绑定到 ${shotLabel(currentShot)}`);
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "图片绑定失败";
@@ -691,14 +718,14 @@ export default function MaterialWarehousePanel() {
           takeId: take.id,
           plannedDurationSec: selectedDurationSec,
         });
-        toast.success(`已采用到 ${shotLabel(currentShot?.shotNo)}`);
+        toast.success(`已采用到 ${shotLabel(currentShot)}`);
       } else {
         await reuseVideoTake({
           sourceTakeId: take.id,
           targetStableShotId: currentStableShotId,
           plannedDurationSec: selectedDurationSec,
         });
-        toast.success(`已复用到 ${shotLabel(currentShot?.shotNo)}`);
+        toast.success(`已复用到 ${shotLabel(currentShot)}`);
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "视频采用失败";
@@ -751,7 +778,7 @@ export default function MaterialWarehousePanel() {
             onAnalyzeConsistency={analyzeShotConsistency}
           />
           <span className="creation-board-panel-status">
-            {shotLabel(currentShot?.shotNo ?? selectedShotNo)}
+            {shotLabel(currentShot ?? selectedShotNo)}
           </span>
         </div>
       </div>
@@ -804,7 +831,7 @@ export default function MaterialWarehousePanel() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">
-                      {shotLabel(shot.shotNo)}
+                      {shotLabel(shot)}
                     </span>
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       {material?.currentImage ? (
@@ -848,7 +875,7 @@ export default function MaterialWarehousePanel() {
                   导入图片 / 视频
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  当前目标：{shotLabel(currentShot?.shotNo)}
+                  当前目标：{shotLabel(currentShot)}
                 </div>
               </div>
               <button
@@ -931,7 +958,7 @@ export default function MaterialWarehousePanel() {
                               if (!identity) return null;
                               return (
                                 <option key={identity} value={identity}>
-                                  {shotLabel(shot.shotNo)}{" "}
+                                  {shotLabel(shot)}{" "}
                                   {(shot.action || shot.dialogue || "").slice(
                                     0,
                                     12
@@ -1056,7 +1083,7 @@ export default function MaterialWarehousePanel() {
                               src={image.imageUrl}
                               alt={
                                 shotNo
-                                  ? `${shotLabel(shotNo)} 图片`
+                                  ? `${shotLabel(item)} 图片`
                                   : "未绑定图片"
                               }
                               className="h-full w-full object-cover"
@@ -1066,7 +1093,7 @@ export default function MaterialWarehousePanel() {
                           <div className="space-y-2 p-3">
                             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                               <span>
-                                {shotNo ? shotLabel(shotNo) : "未绑定"}
+                                {shotNo ? shotLabel(item) : "未绑定"}
                               </span>
                               {isCurrent ? (
                                 <span className="inline-flex items-center gap-1 text-primary">

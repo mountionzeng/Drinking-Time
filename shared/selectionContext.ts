@@ -51,6 +51,7 @@ export type SelectionContext = {
   storyId?: number | null;
   stableShotId?: string | null;
   shotNo?: number | null;
+  cueCode?: string | null;
   imageId?: number | null;
   videoTakeId?: number | null;
   rangeId?: number | null;

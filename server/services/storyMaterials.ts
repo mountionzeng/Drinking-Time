@@ -26,6 +26,7 @@ import {
 type StoryShotFact = {
   stableShotId: string;
   shotNo: number;
+  cueCode: string | null;
   plannedDurationMs: number;
 };
 
@@ -74,6 +75,10 @@ function storyShots(story: Story): StoryShotFact[] {
       {
         stableShotId,
         shotNo,
+        cueCode:
+          typeof shot.cueCode === "string" && shot.cueCode.trim()
+            ? shot.cueCode.trim()
+            : null,
         plannedDurationMs: Math.max(
           100,
           finite(shot.durationMs, finite(shot.durationSec, 3) * 1000)
@@ -204,7 +209,7 @@ export async function getStoryMaterialState(
         // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
         // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
         // 会因为继承源 take 的旧 promptCompilationId 被判 stale，
-        // 永远选不上「当前视频」，反而输给免检的跨故事继承素材。
+        // 导致统一完成的版本无法成为当前视频。
         const isDerivedVariant = Boolean(
           take.parameterSnapshot &&
             typeof take.parameterSnapshot === "object" &&
@@ -232,20 +237,9 @@ export async function getStoryMaterialState(
           isStale: staleReasons.length > 0,
         };
       });
-    const inheritedVideoTakes = reusableVideos
-      .filter(take =>
-        keysOverlap(
-          shotMaterialKeys(fact),
-          shotIdentityMatchKeys(take.stableShotId)
-        )
-      )
-      .map(take => ({
-        ...take,
-        promptFreshness: "legacy" as const,
-        staleReasons: [],
-        isStale: false,
-      }));
-    const videoTakes = [...ownVideoTakes, ...inheritedVideoTakes];
+    // 跨故事素材只作为可复用候选；用户明确复用后才会复制进当前故事。
+    // 否则来源故事的时间线选择会串进同镜号的新故事。
+    const videoTakes = ownVideoTakes;
     const currentVideo =
       videoTakes.find(
         take =>
@@ -257,6 +251,7 @@ export async function getStoryMaterialState(
     return {
       stableShotId: fact.stableShotId,
       shotNo: fact.shotNo,
+      cueCode: fact.cueCode,
       currentImage,
       imageVersions,
       currentVideo,

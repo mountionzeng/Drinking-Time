@@ -1,5 +1,9 @@
 import type { CreationEditorShot } from '../CreationEditorContext';
 import type { PromptOverride, PromptOverrides, PromptRow } from './types';
+import {
+  displayShotCode,
+  type ShotDisplayLike,
+} from '@shared/shotIdentity';
 
 const INHERITABLE_DIMENSIONS = new Set([
   'subject',
@@ -27,10 +31,6 @@ function contentLength(value: string) {
   return Array.from(value).length;
 }
 
-function shotLabel(shotNo: number) {
-  return `SH${String(shotNo).padStart(2, '0')}`;
-}
-
 function applyOverride(row: PromptRow, override: PromptOverride): PromptRow {
   const value = override.value?.trim() || row.value;
   const weight = typeof override.weight === 'number' && Number.isFinite(override.weight)
@@ -51,14 +51,14 @@ function applyOverride(row: PromptRow, override: PromptOverride): PromptRow {
   };
 }
 
-function inheritedRow(source: PromptRow, sourceShotNo: number): PromptRow {
+function inheritedRow(source: PromptRow, sourceShot: ShotDisplayLike & { shotNo: number }): PromptRow {
   return {
     ...source,
     id: `inherit:${source.dimension}`,
     source: {
       system: 'inheritance',
-      label: `继承自 ${shotLabel(sourceShotNo)}`,
-      inheritedFromShotNo: sourceShotNo,
+      label: `继承自 ${displayShotCode(sourceShot)}`,
+      inheritedFromShotNo: sourceShot.shotNo,
       sourceCardContent: source.source.sourceCardContent,
     },
     inheritance: 'inherited',
@@ -94,11 +94,14 @@ function manualRow(
 
 function findInheritanceSource(
   dimension: string,
-  previousRowsByShot: readonly { shotNo: number; rows: readonly PromptRow[] }[],
+  previousRowsByShot: readonly (ShotDisplayLike & {
+    shotNo: number;
+    rows: readonly PromptRow[];
+  })[],
 ) {
   for (const entry of previousRowsByShot) {
     const row = entry.rows.find((candidate) => candidate.dimension === dimension && candidate.value.trim());
-    if (row) return { row, shotNo: entry.shotNo };
+    if (row) return { row, shot: entry };
   }
   return null;
 }
@@ -106,7 +109,10 @@ function findInheritanceSource(
 export function applyPromptInheritance(params: {
   rows: readonly PromptRow[];
   shot: CreationEditorShot;
-  previousRowsByShot?: readonly { shotNo: number; rows: readonly PromptRow[] }[];
+  previousRowsByShot?: readonly (ShotDisplayLike & {
+    shotNo: number;
+    rows: readonly PromptRow[];
+  })[];
   overrides?: PromptOverrides;
 }): PromptRow[] {
   const previousRowsByShot = params.previousRowsByShot ?? [];
@@ -125,7 +131,7 @@ export function applyPromptInheritance(params: {
     if (isInheritableDimension(row.dimension)) {
       const source = findInheritanceSource(row.dimension, previousRowsByShot);
       if (source) {
-        nextRows.push(inheritedRow(source.row, source.shotNo));
+        nextRows.push(inheritedRow(source.row, source.shot));
         seenDimensions.add(row.dimension);
         continue;
       }
@@ -146,13 +152,13 @@ export function applyPromptInheritance(params: {
     }
     if (!isInheritableDimension(dimension)) continue;
     const source = findInheritanceSource(dimension, previousRowsByShot);
-    if (source) nextRows.push(applyOverride(inheritedRow(source.row, source.shotNo), override));
+    if (source) nextRows.push(applyOverride(inheritedRow(source.row, source.shot), override));
   }
 
   for (const dimension of Array.from(INHERITABLE_DIMENSIONS)) {
     if (seenDimensions.has(dimension)) continue;
     const source = findInheritanceSource(dimension, previousRowsByShot);
-    if (source) nextRows.push(inheritedRow(source.row, source.shotNo));
+    if (source) nextRows.push(inheritedRow(source.row, source.shot));
   }
 
   return nextRows;

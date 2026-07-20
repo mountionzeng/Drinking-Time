@@ -11,6 +11,7 @@
  */
 
 import type { PromptPreviousShot, PromptShotMeta } from './promptContext';
+import { promptShotCode } from './shotIdentity';
 
 // ── 连续性分析 ──
 
@@ -38,7 +39,7 @@ function analyzeContinuity(
     if (sameSubject) {
       dims.push({
         name: 'subject',
-        hint: `Maintain the same character/subject appearance as the previous frame (SH${String(prev.shotNo).padStart(2, '0')}).`,
+        hint: `Maintain the same character/subject appearance as the previous frame (${promptShotCode(prev)}).`,
         strength: 0.9,
       });
     } else {
@@ -151,7 +152,7 @@ export function buildContinuityHint(
   if (significant.length === 0) return '';
 
   const lines: string[] = [
-    `【Inter-shot continuity from SH${String(prev.shotNo).padStart(2, '0')} → SH${String(current.shotNo).padStart(2, '0')}】`,
+    `【Inter-shot continuity from ${promptShotCode(prev)} → ${promptShotCode(current)}】`,
   ];
 
   // 如果有前一镜头的 finalPrompt，提取视觉锚点

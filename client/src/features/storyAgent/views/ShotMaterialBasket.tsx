@@ -1,15 +1,31 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import type { CSSProperties } from "react";
 import {
+  AlertTriangle,
+  ArrowRight,
   Ban,
+  BrainCircuit,
   Check,
   ChevronDown,
+  Image as ImageIcon,
   Loader2,
   Play,
   ScanLine,
+  Upload,
   Video,
+  X,
 } from "lucide-react";
-import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
+import type {
+  CreationEditorShot,
+  ImportedStoryMaterialResult,
+} from "@/features/creationEditor/CreationEditorContext";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
 import {
@@ -20,11 +36,30 @@ import {
 import {
   videoTakeAffordance,
   videoTakeErrorMessage,
+  videoTakeFrameUrl,
 } from "@/features/creationEditor/videoAssetViewModel";
+import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
+import { toast } from "sonner";
 import type {
   ShotVideoProviderStatus,
   VideoTakeAsset,
 } from "@shared/videoAsset";
+import { displayShotCode } from "@shared/shotIdentity";
+import {
+  estimateShotVideoCost,
+  SHOT_VIDEO_ASPECT_RATIO,
+  type ShotDirectorResult,
+} from "@shared/shotDirector";
+import {
+  isStartEndVideoTakeSnapshot,
+  parseStartEndVideoConfig,
+  type StartEndShotVideoEstimate,
+} from "@shared/startEndVideo";
+import {
+  readStoryboardMediaBase64,
+  STORYBOARD_MEDIA_ACCEPT,
+  storyboardMediaMime,
+} from "../storyboardLocalMedia";
 import { writeVideoTakeDragPayload } from "./videoTakeDrag";
 
 function compactSnapshot(snapshot: Record<string, unknown> | null | undefined) {
@@ -38,7 +73,31 @@ function compactSnapshot(snapshot: Record<string, unknown> | null | undefined) {
 }
 
 function shotLabel(shot: CreationEditorShot) {
-  return shot.shotKey || `SH${String(shot.shotNo).padStart(2, "0")}`;
+  return displayShotCode(shot);
+}
+
+function stableShotId(shot: CreationEditorShot): string | null {
+  return shot.stableShotId ?? shot.shotIdentity ?? null;
+}
+
+function currentTake(shot: CreationEditorShot): VideoTakeAsset | null {
+  return (
+    shot.selectedVideoTake ??
+    shot.videoTakes?.find(take => take.isTimelineSelected) ??
+    shot.videoTakes?.find(
+      take => take.status === "available" && Boolean(take.videoUrl)
+    ) ??
+    null
+  );
+}
+
+function shotFrame(
+  shot: CreationEditorShot | null | undefined,
+  role: "start" | "end"
+): string | null {
+  if (!shot) return null;
+  const take = currentTake(shot);
+  return (take ? videoTakeFrameUrl(take, role) : null) ?? shot.imageUrl ?? null;
 }
 
 function quadrantImageStyle(quadrant: FrameQuadrant): CSSProperties {
@@ -56,6 +115,7 @@ function quadrantImageStyle(quadrant: FrameQuadrant): CSSProperties {
 type ShotMaterialBasketProps = {
   shot: CreationEditorShot;
   previousShots: CreationEditorShot[];
+  nextShot?: CreationEditorShot | null;
   generating: boolean;
   onGenerateShotVideo?: (input: {
     shotNo: number;
@@ -64,6 +124,22 @@ type ShotMaterialBasketProps = {
     subtitle?: string;
     durationSec?: number;
     motion?: "low" | "high";
+    aspectRatio?: "1:1";
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
+  }) => Promise<unknown>;
+  onEstimateStartEndShotVideo?: (
+    stableShotId: string
+  ) => Promise<StartEndShotVideoEstimate>;
+  onGenerateStartEndShotVideo?: (input: {
+    shotNo: number;
+    stableShotId: string;
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
   onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
@@ -82,13 +158,35 @@ type ShotMaterialBasketProps = {
   }) => Promise<{ imageId: number; imageUrl: string }>;
   promotingFrameCrop?: boolean;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
+  onImportStoryMaterial?: (input: {
+    fileName: string;
+    mimeType: string;
+    fileBase64: string;
+    targetStableShotId?: string | null;
+    note?: string;
+  }) => Promise<ImportedStoryMaterialResult>;
+  onAnalyzeShotVideoDirection?: (input: {
+    shotNo: number;
+    stableShotId: string;
+    draftPrompt: string;
+    subtitle?: string;
+  }) => Promise<ShotDirectorResult>;
+  onUpdateShotFields?: (
+    stableShotId: string,
+    patch: Partial<Record<StoryShotEditableField, string>>
+  ) => Promise<void>;
+  displayMode?: "panel" | "matrix";
+  onClose?: () => void;
 };
 
 export default function ShotMaterialBasket({
   shot,
   previousShots,
+  nextShot = null,
   generating,
   onGenerateShotVideo,
+  onEstimateStartEndShotVideo,
+  onGenerateStartEndShotVideo,
   onRefreshShotVideoStatus,
   onMarkVideoTakeUnusable,
   movingVideoTakeId = null,
@@ -96,6 +194,11 @@ export default function ShotMaterialBasket({
   onPromoteFrameCrop,
   promotingFrameCrop = false,
   shotVideoProviderStatus = null,
+  onImportStoryMaterial,
+  onAnalyzeShotVideoDirection,
+  onUpdateShotFields,
+  displayMode = "panel",
+  onClose,
 }: ShotMaterialBasketProps) {
   const rows = buildPromptTable(shot, { previousShots });
   const recipe = compileVideoShotRecipe({ shot, rows });
@@ -117,13 +220,48 @@ export default function ShotMaterialBasket({
   const [selectedQuadrant, setSelectedQuadrant] =
     useState<FrameQuadrant | null>(null);
   const [frameCropError, setFrameCropError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [analysis, setAnalysis] = useState<ShotDirectorResult | null>(null);
+  const [analysisApplied, setAnalysisApplied] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [applyingAnalysis, setApplyingAnalysis] = useState(false);
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const [startEndEstimate, setStartEndEstimate] =
+    useState<StartEndShotVideoEstimate | null>(null);
+  const [estimatingStartEnd, setEstimatingStartEnd] = useState(false);
+  const [submittingStartEnd, setSubmittingStartEnd] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     setVideoPrompt(recipe.finalPrompt);
     setMotion(suggestedMotion);
     setBusyQuadrant(null);
     setSelectedQuadrant(null);
     setFrameCropError(null);
-  }, [recipe.finalPrompt, shot.stableShotId, suggestedMotion]);
+    setAnalysis(null);
+    setAnalysisApplied(false);
+    setAnalysisError(null);
+    setPromptDirty(false);
+    setStartEndEstimate(null);
+    setEstimatingStartEnd(false);
+    setSubmittingStartEnd(false);
+  }, [shot.stableShotId]);
+  useEffect(() => {
+    if (!promptDirty && !analysisApplied) {
+      setVideoPrompt(recipe.finalPrompt);
+    }
+  }, [analysisApplied, promptDirty, recipe.finalPrompt]);
+  useEffect(() => {
+    if (!analysis) setMotion(suggestedMotion);
+  }, [analysis, suggestedMotion]);
+  const previousShot = previousShots.at(-1) ?? null;
+  const selectedTake = currentTake(shot);
+  const selectedTakeIsTimeline = Boolean(
+    selectedTake &&
+      (selectedTake.isTimelineSelected ||
+        shot.selectedVideoTake?.id === selectedTake.id)
+  );
   const hasTraceableKeyframe = typeof shot.imageId === "number";
   const hasSelectedKeyframe =
     shot.imageSelectionSource === "explicit" ||
@@ -158,8 +296,23 @@ export default function ShotMaterialBasket({
       : missing.length > 0
         ? "补全视频包"
         : "生成视频";
-  const processingTake = shot.videoTakes?.find(take =>
-    ["submitted", "processing"].includes(take.status)
+  const startEndConfig = useMemo(
+    () =>
+      parseStartEndVideoConfig(
+        shot.generationParams,
+        Math.max(0.1, (shot.durationMs ?? 5_000) / 1_000)
+      ),
+    [shot.durationMs, shot.generationParams]
+  );
+  const startEndProcessingTake = shot.videoTakes?.find(
+    take =>
+      isStartEndVideoTakeSnapshot(take.parameterSnapshot) &&
+      ["submitted", "processing"].includes(take.status)
+  );
+  const processingTake = shot.videoTakes?.find(
+    take =>
+      !isStartEndVideoTakeSnapshot(take.parameterSnapshot) &&
+      ["submitted", "processing"].includes(take.status)
   );
   const takeStats = useMemo(() => {
     const active: VideoTakeAsset[] = [];
@@ -187,17 +340,200 @@ export default function ShotMaterialBasket({
 
   const generate = async () => {
     if (!canGenerate || shot.imageId == null) return;
+    if (!analysis) {
+      await analyzeContinuity();
+      toast.info("导演方案已经生成，请检查并应用后再提交视频");
+      return;
+    }
+    if (!analysisApplied) {
+      toast.info("请先确认并应用当前图生视频导演方案");
+      return;
+    }
+    const durationSec = Math.max(
+      3,
+      Math.min(10, Math.round((shot.durationMs ?? 5000) / 1000))
+    );
+    const estimate = estimateShotVideoCost({ durationSec, motion });
+    const confirmed = window.confirm(
+      `预计费用 ¥${estimate.estimatedCny.toFixed(2)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
+    );
+    if (!confirmed) return;
     await onGenerateShotVideo?.({
       shotNo: shot.shotNo,
       imageId: shot.imageId,
       prompt: videoPrompt.trim(),
       subtitle: shot.dialogue || undefined,
-      durationSec: Math.max(
-        3,
-        Math.min(10, Math.round((shot.durationMs ?? 5000) / 1000))
-      ),
+      durationSec,
       motion,
+      aspectRatio: SHOT_VIDEO_ASPECT_RATIO,
+      costConfirmation: {
+        accepted: true,
+        estimatedCny: estimate.estimatedCny,
+      },
     });
+  };
+
+  const requestStartEndEstimate = async () => {
+    const targetStableShotId = stableShotId(shot);
+    if (
+      !startEndConfig ||
+      !targetStableShotId ||
+      !onEstimateStartEndShotVideo
+    ) {
+      return;
+    }
+    if (!analysis) {
+      await analyzeContinuity();
+      toast.info("导演方案已经生成，请检查并应用后再获取报价");
+      return;
+    }
+    if (!analysisApplied) {
+      toast.info("请先确认并应用当前图生视频导演方案");
+      return;
+    }
+    setEstimatingStartEnd(true);
+    try {
+      setStartEndEstimate(
+        await onEstimateStartEndShotVideo(targetStableShotId)
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "首尾帧视频报价失败"
+      );
+    } finally {
+      setEstimatingStartEnd(false);
+    }
+  };
+
+  const submitStartEnd = async () => {
+    if (!startEndEstimate || !onGenerateStartEndShotVideo) return;
+    setSubmittingStartEnd(true);
+    try {
+      await onGenerateStartEndShotVideo({
+        shotNo: shot.shotNo,
+        stableShotId: startEndEstimate.stableShotId,
+        costConfirmation: {
+          accepted: true,
+          estimatedCny: startEndEstimate.estimatedCny,
+        },
+      });
+      setStartEndEstimate(null);
+      toast.success("首尾帧视频任务已提交");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "首尾帧视频提交失败"
+      );
+    } finally {
+      setSubmittingStartEnd(false);
+    }
+  };
+
+  const importForShot = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    const targetStableShotId = stableShotId(shot);
+    if (!file || !targetStableShotId || !onImportStoryMaterial) return;
+    setImporting(true);
+    try {
+      const imported = await onImportStoryMaterial({
+        fileName: file.name,
+        mimeType: storyboardMediaMime(file),
+        fileBase64: await readStoryboardMediaBase64(file),
+        targetStableShotId,
+        note: `${shotLabel(shot)} 本地导入`,
+      });
+      if (imported.kind === "video" && onAdoptVideoTake) {
+        await onAdoptVideoTake({
+          stableShotId: imported.stableShotId,
+          takeId: imported.takeId,
+          plannedDurationSec: imported.plannedDurationSec,
+        });
+        toast.success("视频已导入当前镜头并进入时间线");
+      } else {
+        toast.success("图片已设为当前镜头主图");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "素材导入失败");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const saveVideoPrompt = async () => {
+    const targetStableShotId = stableShotId(shot);
+    if (!promptDirty || !targetStableShotId || !onUpdateShotFields) return;
+    setSavingPrompt(true);
+    try {
+      await onUpdateShotFields(targetStableShotId, {
+        videoPrompt: videoPrompt.trim(),
+      });
+      setPromptDirty(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "视频提示保存失败");
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
+  const analyzeContinuity = async (): Promise<ShotDirectorResult | null> => {
+    const targetStableShotId = stableShotId(shot);
+    if (!targetStableShotId || !onAnalyzeShotVideoDirection) return null;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const result = await onAnalyzeShotVideoDirection({
+        shotNo: shot.shotNo,
+        stableShotId: targetStableShotId,
+        draftPrompt:
+          videoPrompt.trim() ||
+          [shot.action, shot.cameraMove, shot.videoStart, shot.videoEnd]
+            .filter(Boolean)
+            .join("\n") ||
+          "根据当前镜头及相邻镜头设计连续、可剪辑的视频动作",
+        subtitle: shot.dialogue || undefined,
+      });
+      setAnalysis(result);
+      setAnalysisApplied(false);
+      setMotion(result.analysis.recommendedMotion);
+      return result;
+    } catch (error) {
+      setAnalysisError(
+        error instanceof Error ? error.message : "镜头衔接分析失败"
+      );
+      return null;
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const applyAnalysis = async () => {
+    const targetStableShotId = stableShotId(shot);
+    if (!analysis || !targetStableShotId || !onUpdateShotFields) return;
+    const confirmed = window.confirm(
+      "把承载方式、三段运动节拍、人物与摄影机配合、开始/结束画面和视觉保真限制写入当前镜头？"
+    );
+    if (!confirmed) return;
+    const patch = Object.fromEntries(
+      Object.entries(analysis.suggestedFields).filter(
+        (entry): entry is [StoryShotEditableField, string] =>
+          typeof entry[1] === "string" && entry[1].trim().length > 0
+      )
+    ) as Partial<Record<StoryShotEditableField, string>>;
+    setApplyingAnalysis(true);
+    try {
+      await onUpdateShotFields(targetStableShotId, patch);
+      if (patch.videoPrompt) {
+        setVideoPrompt(patch.videoPrompt);
+        setPromptDirty(false);
+      }
+      setAnalysisApplied(true);
+      setStartEndEstimate(null);
+      toast.success("衔接建议已写入当前镜头");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "应用衔接建议失败");
+    } finally {
+      setApplyingAnalysis(false);
+    }
   };
 
   const adopt = async (takeId: number) => {
@@ -382,63 +718,376 @@ export default function ShotMaterialBasket({
 
   return (
     <div
-      className="mt-2 rounded-md border p-2"
-      style={{
-        borderColor: "var(--panel-border)",
-        background: "var(--panel-header)",
-      }}
+      className={
+        displayMode === "matrix" ? "py-1" : "mt-2 rounded-md border p-2"
+      }
+      aria-label="视频的生成、预览和采用都在故事版看板完成"
+      style={
+        displayMode === "matrix"
+          ? undefined
+          : {
+              borderColor: "var(--panel-border)",
+              background: "var(--panel-header)",
+            }
+      }
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={STORYBOARD_MEDIA_ACCEPT}
+        className="hidden"
+        onChange={event => void importForShot(event)}
+      />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Video className="h-3.5 w-3.5 text-nayin-bright" />
           <span className="text-[9px] font-semibold text-foreground">
-            视频确认
+            {displayMode === "matrix"
+              ? `${shotLabel(shot)} · 素材 / 图生视频 / Take`
+              : "镜头素材与视频"}
           </span>
         </div>
-        <button
-          type="button"
-          disabled={generating || (!canGenerate && !processingTake)}
-          title={
-            !canGenerate && !processingTake
-              ? missing.length > 0
-                ? `暂不可生成：${missing.join(" / ")}`
-                : "暂不可生成视频"
-              : undefined
-          }
-          onClick={() => {
-            if (processingTake) {
-              void onRefreshShotVideoStatus?.(processingTake.id);
-              return;
-            }
-            void generate();
-          }}
-          className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
-          style={{ borderColor: "var(--panel-border)" }}
-        >
-          {generating ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={importing || !onImportStoryMaterial}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+            style={{ borderColor: "var(--panel-border)" }}
+            title="导入图片作为主图，或导入视频并用于当前镜头"
+          >
+            {importing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Upload className="h-3 w-3" />
+            )}
+            导入
+          </button>
+          {startEndConfig ? (
+            <button
+              type="button"
+              disabled={
+                generating ||
+                estimatingStartEnd ||
+                submittingStartEnd ||
+                (startEndProcessingTake
+                  ? !onRefreshShotVideoStatus
+                  : !onEstimateStartEndShotVideo ||
+                    !onGenerateStartEndShotVideo)
+              }
+              onClick={() => {
+                if (startEndProcessingTake) {
+                  void onRefreshShotVideoStatus?.(startEndProcessingTake.id);
+                  return;
+                }
+                void requestStartEndEstimate();
+              }}
+              className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-nayin-bright transition hover:bg-[var(--nayin-glow)] disabled:opacity-50"
+              style={{ borderColor: "var(--nayin-accent)" }}
+              title={
+                !analysis
+                  ? "先分析人物动作、摄影机承载、运动节拍和画面保真"
+                  : !analysisApplied
+                    ? "先检查并应用导演方案"
+                    : "使用已锁定的首帧和尾帧生成视频"
+              }
+            >
+              {generating || estimatingStartEnd || submittingStartEnd ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Video className="h-3 w-3" />
+              )}
+              {startEndProcessingTake
+                ? "刷新首尾帧"
+                : generating || submittingStartEnd
+                  ? "提交中"
+                  : estimatingStartEnd
+                    ? "报价中"
+                    : !analysis
+                      ? "分析后生成"
+                      : !analysisApplied
+                        ? "应用后生成"
+                        : "首尾帧生成"}
+            </button>
           ) : (
-            <Video className="h-3 w-3" />
+            <button
+              type="button"
+              disabled={generating || (!canGenerate && !processingTake)}
+              title={
+                !canGenerate && !processingTake
+                  ? missing.length > 0
+                    ? `暂不可生成：${missing.join(" / ")}`
+                    : "暂不可生成视频"
+                  : undefined
+              }
+              onClick={() => {
+                if (processingTake) {
+                  void onRefreshShotVideoStatus?.(processingTake.id);
+                  return;
+                }
+                void generate();
+              }}
+              className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+              style={{ borderColor: "var(--panel-border)" }}
+            >
+              {generating ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Video className="h-3 w-3" />
+              )}
+              {processingTake
+                ? "刷新视频"
+                : generating
+                  ? "提交中"
+                  : generateLabel}
+            </button>
           )}
-          {processingTake ? "刷新视频" : generating ? "提交中" : generateLabel}
-        </button>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+              aria-label="收起视频制作"
+              title="收起"
+            >
+              <ChevronDown className="h-3.5 w-3.5 rotate-180" />
+            </button>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-2 grid gap-2">
-        <p
-          className="rounded-md border px-2 py-1.5 text-[9px] leading-relaxed text-muted-foreground"
+      {startEndEstimate ? (
+        <div
+          className="mt-2 grid items-center gap-2 border-y py-2 sm:grid-cols-[116px_minmax(0,1fr)_auto]"
+          style={{ borderColor: "var(--panel-border)" }}
+          aria-label="首尾帧视频费用确认"
+        >
+          <div className="flex items-center gap-1">
+            <img
+              src={startEndEstimate.firstFrame.imageUrl}
+              alt={startEndEstimate.firstFrame.label}
+              className="h-12 w-12 rounded-sm bg-black object-cover"
+            />
+            <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <img
+              src={startEndEstimate.lastFrame.imageUrl}
+              alt={startEndEstimate.lastFrame.label}
+              className="h-12 w-12 rounded-sm bg-black object-cover"
+            />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[9px] font-semibold text-foreground">
+              预计人民币 ¥{startEndEstimate.estimatedCny.toFixed(2)}
+            </p>
+            <p className="mt-0.5 truncate text-[8px] text-muted-foreground">
+              {startEndEstimate.durationSec}s · {startEndEstimate.resolution} ·
+              1:1 · 候选 Take
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => setStartEndEstimate(null)}
+              disabled={submittingStartEnd}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
+              aria-label="取消首尾帧生成"
+              title="取消"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitStartEnd()}
+              disabled={submittingStartEnd || generating}
+              className="inline-flex h-7 items-center justify-center gap-1 rounded-sm bg-nayin-bright px-2 text-[9px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {submittingStartEnd ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
+              确认并生成
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_132px]">
+        <div className="relative min-h-28 overflow-hidden rounded-md bg-black">
+          {selectedTake?.videoUrl ? (
+            <video
+              src={selectedTake.videoUrl}
+              poster={shot.imageUrl || undefined}
+              controls
+              playsInline
+              preload="metadata"
+              className="aspect-square h-full max-h-52 w-full object-contain"
+              aria-label={`${shotLabel(shot)} 当前视频`}
+            />
+          ) : shot.imageUrl ? (
+            <img
+              src={shot.imageUrl}
+              alt={`${shotLabel(shot)} 当前主图`}
+              className="aspect-square h-full max-h-52 w-full object-contain"
+            />
+          ) : (
+            <div className="flex aspect-square max-h-52 min-h-28 items-center justify-center text-neutral-500">
+              <ImageIcon className="h-5 w-5" />
+            </div>
+          )}
+          <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-black/70 px-1.5 py-0.5 text-[8px] text-white">
+            {selectedTake?.videoUrl
+              ? `${selectedTakeIsTimeline ? "已采用" : "候选"} Take ${selectedTake.id}`
+              : shot.imageUrl
+                ? "当前主图"
+                : "未导入画面"}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <div className="grid grid-cols-3 gap-1">
+            {[
+              ["前尾", previousShot, "end"],
+              ["本首", shot, "start"],
+              ["后首", nextShot, "start"],
+            ].map(([label, target, role]) => {
+              const frame = shotFrame(
+                target as CreationEditorShot | null,
+                role as "start" | "end"
+              );
+              return (
+                <div key={String(label)} className="min-w-0">
+                  <span className="mb-1 block text-center text-[7.5px] text-muted-foreground">
+                    {String(label)}
+                  </span>
+                  <div className="relative aspect-square overflow-hidden rounded-sm bg-muted/50">
+                    {frame ? (
+                      <img
+                        src={frame}
+                        alt={String(label)}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <ImageIcon className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 text-muted-foreground/45" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            disabled={analyzing || !onAnalyzeShotVideoDirection}
+            onClick={() => void analyzeContinuity()}
+            className="mt-2 flex h-7 w-full items-center justify-center gap-1 rounded-md border px-2 text-[8.5px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+            style={{ borderColor: "var(--panel-border)" }}
+          >
+            {analyzing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <BrainCircuit className="h-3 w-3" />
+            )}
+            分析图生视频
+          </button>
+        </div>
+      </div>
+      {analysisError ? (
+        <p className="mt-2 flex items-start gap-1.5 text-[9px] text-destructive">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          {analysisError}
+        </p>
+      ) : null}
+      {analysis ? (
+        <div
+          className="mt-2 border-y py-2 text-[9px]"
           style={{ borderColor: "var(--panel-border)" }}
         >
-          当前主图会同步到动态分镜作占位；视频的生成、预览和采用都在故事版看板完成。
-        </p>
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-foreground">
+              {analysis.analysis.transitionStrategy}
+            </span>
+            <button
+              type="button"
+              disabled={applyingAnalysis || !onUpdateShotFields}
+              onClick={() => void applyAnalysis()}
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-sm bg-nayin-bright px-1.5 text-[8px] font-semibold text-white disabled:opacity-50"
+            >
+              {applyingAnalysis ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Check className="h-3 w-3" />
+              )}
+              {analysisApplied ? "已应用" : "应用方案"}
+            </button>
+          </div>
+          {analysis.referenceFrames.length > 0 ? (
+            <div
+              className="mt-2 grid gap-1"
+              style={{
+                gridTemplateColumns: `repeat(${Math.min(4, analysis.referenceFrames.length)}, minmax(0, 1fr))`,
+              }}
+            >
+              {analysis.referenceFrames.map(frame => (
+                <figure key={`${frame.role}:${frame.stableShotId}`}>
+                  <div className="aspect-square overflow-hidden rounded-sm bg-black">
+                    <img
+                      src={frame.imageUrl}
+                      alt={frame.label}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <figcaption className="mt-0.5 truncate text-center text-[7px] text-muted-foreground">
+                    {frame.label}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : null}
+          <div className="mt-2 divide-y divide-[var(--panel-border)] text-muted-foreground">
+            {[
+              ["承载方式", analysis.analysis.cameraRig],
+              ["运动节拍", analysis.analysis.motionTimeline],
+              ["人物与镜头", analysis.analysis.cameraSubjectCoordination],
+              ["动作衔接", analysis.analysis.actionContinuity],
+              ["画面保真", analysis.analysis.preservationConstraints],
+            ].map(([label, value]) => (
+              <p key={label} className="grid gap-0.5 py-1 leading-relaxed">
+                <span className="font-semibold text-foreground">{label}</span>
+                <span>{value}</span>
+              </p>
+            ))}
+          </div>
+          <p className="mt-1 leading-relaxed text-muted-foreground">
+            执行提示：{analysis.analysis.cameraMotion}；
+            {analysis.analysis.subjectMotion}
+          </p>
+          {analysis.analysis.risks.some(risk => risk.kind !== "none") ? (
+            <p className="mt-1 text-amber-700">
+              风险：
+              {analysis.analysis.risks
+                .filter(risk => risk.kind !== "none")
+                .map(risk => risk.detail)
+                .join("；")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="mt-2 grid gap-2">
         <label className="grid gap-1 text-[9px] font-medium text-muted-foreground">
-          导演输入（提交时自动看图）
+          视频提示词
           <textarea
             value={videoPrompt}
-            onChange={event => setVideoPrompt(event.target.value)}
+            onChange={event => {
+              setVideoPrompt(event.target.value);
+              setPromptDirty(true);
+              setAnalysisApplied(false);
+              setStartEndEstimate(null);
+            }}
+            onBlur={() => void saveVideoPrompt()}
             rows={3}
             className="min-h-[4.5rem] w-full resize-y rounded-md border bg-background px-2 py-1.5 text-[10px] leading-relaxed text-foreground outline-none transition focus:border-nayin-bright"
             style={{ borderColor: "var(--panel-border)" }}
           />
+          <span className="text-[8px] font-normal">
+            {savingPrompt ? "保存中" : promptDirty ? "未保存" : "已保存"}
+          </span>
         </label>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[9px] font-medium text-muted-foreground">

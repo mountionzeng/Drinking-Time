@@ -10,11 +10,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
-import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
+import {
+  CreationEditorProvider,
+  useCreationEditor,
+} from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
@@ -23,8 +26,10 @@ import { useActiveStoryId } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import { trpc } from "@/lib/trpc";
+import { displayShotCode } from "@shared/shotIdentity";
 
 function ExportButton({ storyId }: { storyId: number }) {
+  const { shots } = useCreationEditor();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
 
@@ -39,7 +44,11 @@ function ExportButton({ storyId }: { storyId: number }) {
         const skipped =
           result.skipped.length > 0
             ? `（跳过 ${result.skipped.length} 镜：${result.skipped
-                .map(s => `SH${String(s.shotNo).padStart(2, "0")}`)
+                .map(s =>
+                  displayShotCode(
+                    shots.find(shot => shot.shotNo === s.shotNo) ?? s
+                  )
+                )
                 .join("、")}）`
             : "";
         toast.success(
@@ -76,6 +85,12 @@ function ExportButton({ storyId }: { storyId: number }) {
 function EditingStudioBody() {
   const activeStoryId = useActiveStoryId();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (activeStoryId !== null && window.innerWidth < 1280) {
+      setChatCollapsed(true);
+    }
+  }, [activeStoryId]);
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>

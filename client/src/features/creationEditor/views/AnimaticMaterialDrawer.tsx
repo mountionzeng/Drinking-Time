@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
+import { displayShotCode } from "@shared/shotIdentity";
 import {
   videoTakeAffordance,
   videoTakeErrorMessage,
@@ -143,7 +144,7 @@ export default function AnimaticMaterialDrawer({
                   onClick={() => onSelectShot(shot.shotNo)}
                   className="text-xs font-semibold text-foreground hover:text-primary"
                 >
-                  SH{String(shot.shotNo).padStart(2, "0")}
+                  {displayShotCode(shot)}
                 </button>
                 {shot.videoTakes.length > 0 ? (
                   <span className="text-[10px] text-muted-foreground">
@@ -165,7 +166,7 @@ export default function AnimaticMaterialDrawer({
                     >
                       <img
                         src={image.imageUrl}
-                        alt={`SH${shot.shotNo} 图片版本`}
+                        alt={`${displayShotCode(shot)} 图片版本`}
                         className="aspect-video w-full bg-muted object-cover"
                       />
                       <div className="flex items-center justify-between gap-1 p-1.5">

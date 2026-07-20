@@ -2,6 +2,7 @@ export type ChatCutTimelineClip = {
   id: string;
   name: string;
   mediaKind: "video" | "image" | "audio" | "unknown";
+  audioUrl: string | null;
   startMs: number;
   endMs: number;
   sourceInMs: number;
@@ -28,6 +29,7 @@ export type ChatCutTimelineManifest = {
   height: number;
   durationMs: number;
   primaryVideoTrackIndex: number;
+  playbackAudioTrackIndexes: number[];
   videoTracks: ChatCutTimelineTrack[];
   audioTracks: ChatCutTimelineTrack[];
   scriptCues: ChatCutScriptCue[];
@@ -69,6 +71,7 @@ function normalizeClip(value: unknown, fps: number): ChatCutTimelineClip | null 
       mediaKind === "audio"
         ? mediaKind
         : "unknown",
+    audioUrl: text(clip.audioUrl) || null,
     startMs,
     endMs,
     sourceInMs: frameMs(clip.inFrame, fps),
@@ -118,6 +121,22 @@ export function normalizeChatCutTimeline(
     (Array.isArray(value) ? value : [])
       .map(track => normalizeTrack(track, fps))
       .filter((track): track is ChatCutTimelineTrack => Boolean(track));
+  const videoTracks = normalizeTracks(imported.videoTracks);
+  const audioTracks = normalizeTracks(imported.audioTracks);
+  const availableAudioTrackIndexes = new Set(
+    audioTracks.map(track => track.index)
+  );
+  const configuredPlaybackTracks = Array.isArray(
+    imported.playbackAudioTrackIndexes
+  )
+    ? imported.playbackAudioTrackIndexes
+        .map(index => Math.round(number(index, 0)))
+        .filter(index => availableAudioTrackIndexes.has(index))
+    : [];
+  const playbackAudioTrackIndexes =
+    configuredPlaybackTracks.length > 0
+      ? Array.from(new Set(configuredPlaybackTracks))
+      : audioTracks.map(track => track.index);
   const scriptCues = (Array.isArray(imported.scriptCues)
     ? imported.scriptCues
     : []
@@ -136,15 +155,25 @@ export function normalizeChatCutTimeline(
       1,
       Math.round(number(imported.primaryVideoTrackIndex, 1))
     ),
-    videoTracks: normalizeTracks(imported.videoTracks),
-    audioTracks: normalizeTracks(imported.audioTracks),
+    playbackAudioTrackIndexes,
+    videoTracks,
+    audioTracks,
     scriptCues,
   };
 }
 
 export function chatCutCueCode(name: string): string | null {
-  const match = name.match(/(?:^|\b)VO[-_ ]?(\d{4}(?:-\d)?)/i);
+  const match = name.match(
+    /(?:^|\b)(?:VO[-_ ]?|FR[-_ ]?)(\d{4}(?:-\d)?)/i
+  );
   return match?.[1] ?? null;
+}
+
+export function chatCutPlaybackAudioTracks(
+  manifest: ChatCutTimelineManifest
+): ChatCutTimelineTrack[] {
+  const selected = new Set(manifest.playbackAudioTrackIndexes);
+  return manifest.audioTracks.filter(track => selected.has(track.index));
 }
 
 export function chatCutSourceNameFromShot(shot: {

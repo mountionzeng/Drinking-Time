@@ -482,4 +482,51 @@ describe("storySync shot field preservation", () => {
       dialogue: "而我，永远不够好",
     });
   });
+
+  it("keeps atomic shot-director fields when a queued whole-story save is stale", () => {
+    const body = mergeStaleStoryBody(
+      {
+        shots: [
+          {
+            stableShotId: "legacy-sh01-shot",
+            shotIdentity: "legacy-sh01-shot",
+            shotNo: 1,
+            subject: "SheSelf",
+            dialogue: "我害怕所有的事情",
+            cueCode: "0101",
+            cameraPath: "从正面极近景沿视线轴推进，在眼部停住。",
+            generationModel: "mj-video",
+            chatCutMapping: {
+              projectId: "042d3a35-6b55-4348-b5ac-9f6299386481",
+              itemId: "item-0101",
+            },
+          },
+        ],
+      },
+      {
+        shots: [
+          {
+            stableShotId: "legacy-sh01-shot",
+            shotIdentity: "legacy-sh01-shot",
+            shotNo: 1,
+            subject: "旧客户端里的 SheSelf",
+            dialogue: "我害怕所有的事情",
+          },
+        ],
+      },
+      22
+    );
+
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      stableShotId: "legacy-sh01-shot",
+      subject: "SheSelf",
+      cueCode: "0101",
+      cameraPath: "从正面极近景沿视线轴推进，在眼部停住。",
+      generationModel: "mj-video",
+      chatCutMapping: {
+        projectId: "042d3a35-6b55-4348-b5ac-9f6299386481",
+        itemId: "item-0101",
+      },
+    });
+  });
 });

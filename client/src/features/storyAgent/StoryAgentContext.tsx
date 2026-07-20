@@ -20,6 +20,7 @@ import {
   // OPENING_MESSAGE 现仅被 ./storyAgentPersistence 的 emptyState 使用，本文件不再直接引用。
   buildReturningGreeting,
   normalizeChatMessages,
+  shouldShowReturningGreeting,
   type ChatMessage,
   type StoryCard,
   type GeneratedScript,
@@ -28,6 +29,7 @@ import {
   type SelectionState,
   type VisualCanvasItem,
 } from './types';
+import { buildStoryChatSummary } from './chatStoryContext';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from './storyCardSimilarity';
@@ -230,9 +232,22 @@ export function storyScopeMatches(
   return expectedStoryId === currentStoryId;
 }
 
+export function canPersistStoryToActiveScope(
+  persistedStoryId: number | null | undefined,
+  activeStoryId: number | null,
+): boolean {
+  if (activeStoryId === null) return false;
+  if (persistedStoryId == null) return activeStoryId < 0;
+  return activeStoryId === persistedStoryId;
+}
+
 export type StoryShotEditableField =
+  | 'cueCode'
+  | 'actNo'
   | 'subject'
   | 'action'
+  | 'performance'
+  | 'environmentMotion'
   | 'dialogue'
   | 'emotion'
   | 'intent'
@@ -241,22 +256,38 @@ export type StoryShotEditableField =
   | 'shotType'
   | 'cameraAngle'
   | 'cameraMove'
+  | 'cameraHeight'
+  | 'lens'
+  | 'cameraPath'
+  | 'subjectPath'
   | 'location'
   | 'timeLight'
+  | 'lighting'
+  | 'colorPalette'
+  | 'materialTexture'
   | 'mood'
   | 'sound'
+  | 'soundBridge'
   | 'styleRef'
   | 'note'
   | 'videoStart'
   | 'videoEnd'
   | 'transitionIn'
   | 'transitionOut'
+  | 'transitionIntent'
   | 'videoPrompt'
   | 'emotionCharge'
   | 'emotionDelta'
   | 'visualAnchorText'
   | 'promptDraft'
-  | 'negativePrompt';
+  | 'negativePrompt'
+  | 'characterReference'
+  | 'wardrobeReference'
+  | 'hairReference'
+  | 'sceneReference'
+  | 'textureReference'
+  | 'generationModel'
+  | 'generationParams';
 
 interface StoryAgentContextValue {
   messages: ChatMessage[];
@@ -546,17 +577,29 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     stableShotId: identity,
     shotIdentity: identity,
     shotNo: typeof obj.shotNo === 'number' ? obj.shotNo : index + 1,
+    cueCode: str(obj.cueCode),
+    actNo: str(obj.actNo),
     subject: str(obj.subject),
     action,
+    performance: str(obj.performance),
+    environmentMotion: str(obj.environmentMotion),
     dialogue: str(obj.dialogue),
     shotType: str(obj.shotType) || '中',
     beat: str(obj.beat) || (index === 0 ? '开场' : '起势'),
     cameraAngle: str(obj.cameraAngle),
     cameraMove: str(obj.cameraMove),
+    cameraHeight: str(obj.cameraHeight),
+    lens: str(obj.lens),
+    cameraPath: str(obj.cameraPath),
+    subjectPath: str(obj.subjectPath),
     location: str(obj.location),
     timeLight: str(obj.timeLight),
+    lighting: str(obj.lighting),
+    colorPalette: str(obj.colorPalette),
+    materialTexture: str(obj.materialTexture),
     mood: str(obj.mood),
     sound: str(obj.sound),
+    soundBridge: str(obj.soundBridge),
     styleRef: str(obj.styleRef),
     note: str(obj.note),
     emotion: str(obj.emotion) || '未标',
@@ -567,12 +610,26 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     videoEnd: str(obj.videoEnd),
     transitionIn: str(obj.transitionIn),
     transitionOut: str(obj.transitionOut),
+    transitionIntent: str(obj.transitionIntent),
     videoPrompt: str(obj.videoPrompt),
     emotionCharge: str(obj.emotionCharge),
     emotionDelta: str(obj.emotionDelta),
     visualAnchorText: str(obj.visualAnchorText),
     promptDraft: str(obj.promptDraft),
     negativePrompt: str(obj.negativePrompt),
+    characterReference: str(obj.characterReference),
+    wardrobeReference: str(obj.wardrobeReference),
+    hairReference: str(obj.hairReference),
+    sceneReference: str(obj.sceneReference),
+    textureReference: str(obj.textureReference),
+    generationModel: str(obj.generationModel),
+    generationParams: str(obj.generationParams),
+    chatCutMapping:
+      obj.chatCutMapping &&
+      typeof obj.chatCutMapping === 'object' &&
+      !Array.isArray(obj.chatCutMapping)
+        ? (obj.chatCutMapping as StoryShot['chatCutMapping'])
+        : undefined,
     narrativeJob,
     promptRun,
     fragmentRefs: Array.isArray(obj.fragmentRefs)
@@ -1074,6 +1131,7 @@ export function StoryAgentProvider({
       visualPreference?: string;
       imageProvider?: ImageProviderSelection;
       artDirection?: StoryArtDirection;
+      baseRevision?: number;
     }): Promise<number | undefined> => {
       if (!hasLiveStoryWork(snapshot)) return Promise.resolve(undefined);
       const current = storySpineStore.getState();
@@ -1099,10 +1157,21 @@ export function StoryAgentProvider({
         try {
           const latestState = storySpineStore.getState();
           const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
+          if (
+            !canPersistStoryToActiveScope(
+              storyId,
+              latestState.activeStoryId,
+            )
+          ) {
+            return undefined;
+          }
           setSaveStatus('saving');
           const saved = await storyUpsertMut.mutateAsync({
             id: storyId,
-            baseRevision: storyId ? latestState.serverRevision : undefined,
+            // The body and revision must come from the same snapshot. Reading the
+            // latest revision here can make an older queued body look current and
+            // overwrite atomic shot-director edits that landed in the meantime.
+            baseRevision: storyId ? snapshot.baseRevision : undefined,
             projectId: projectId ?? undefined,
             title,
             logline,
@@ -1172,6 +1241,7 @@ export function StoryAgentProvider({
   useEffect(() => {
     if (projectId !== null && hydratedFor !== projectId) return;
     if (isReplying || isGeneratingScript) return;
+    if (!canPersistStoryToActiveScope(remoteStoryId, activeStoryId)) return;
     const snapshot = {
       messages,
       cards,
@@ -1187,6 +1257,7 @@ export function StoryAgentProvider({
       visualPreference,
       imageProvider,
       artDirection,
+      baseRevision: serverRevision,
     };
     if (!hasLiveStoryWork(snapshot)) return;
 
@@ -1226,6 +1297,7 @@ export function StoryAgentProvider({
     scripts,
     storyShots,
     characters,
+    activeStoryId,
     remoteStoryId,
     storyTitle,
     storyLogline,
@@ -1448,13 +1520,23 @@ export function StoryAgentProvider({
 
         const result = await chatMut.mutateAsync({
           message: userContent,
-          history: nextMessages.map((m) => ({
+          history: messages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),
           existingCardCount: cards.length,
+          summary: buildStoryChatSummary({
+            title: storyTitle,
+            logline: storyLogline,
+            theme: storyTheme,
+            arc: storyArc,
+            shots: storyShots,
+          }),
           currentShots: storyShots.map((shot) => ({
             shotNo: shot.shotNo,
+            stableShotId: shot.stableShotId ?? shot.shotIdentity,
+            cueCode: shot.cueCode,
+            actNo: shot.actNo,
             subject: shot.subject,
             action: shot.action,
             dialogue: shot.dialogue,
@@ -1466,6 +1548,12 @@ export function StoryAgentProvider({
             mood: shot.mood,
             sound: shot.sound,
             styleRef: shot.styleRef,
+            intent: shot.intent ?? undefined,
+            videoStart: shot.videoStart,
+            videoEnd: shot.videoEnd,
+            transitionIn: shot.transitionIn,
+            transitionOut: shot.transitionOut,
+            videoPrompt: shot.videoPrompt,
           })),
           storyCards: cards.map((card) => ({
             title: card.title,
@@ -2285,11 +2373,8 @@ export function StoryAgentProvider({
       if (!options?.silent) {
         setReturningGreeting(
           buildReturningGreeting({
-            hasPriorUserMessages: restoredMessages.some(
-              (m) =>
-                m.role === 'user' &&
-                (m.content.trim().length > 0 || Boolean(m.photoUrl)),
-            ),
+            hasPriorUserMessages:
+              shouldShowReturningGreeting(restoredMessages),
             logline: row.logline,
             lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
             title: row.title,

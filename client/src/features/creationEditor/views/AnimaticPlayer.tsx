@@ -55,6 +55,7 @@ import {
   buildVideoFrameRegionSelection,
   buildVideoRangeSelection,
 } from "../mediaSelectionContext";
+import { displayShotCode } from "@shared/shotIdentity";
 
 type AnimaticPlayerProps = {
   compactViewport?: boolean;
@@ -112,7 +113,7 @@ type AnimaticPlayerProps = {
 };
 
 function shotLabel(shot: CreationEditorShot) {
-  return shot.shotKey || `SH${String(shot.shotNo).padStart(2, "0")}`;
+  return displayShotCode(shot);
 }
 
 function shotTextFallback(shot: CreationEditorShot | null) {

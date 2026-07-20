@@ -283,7 +283,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).toContain("当前故事");
     expect(html).toContain("虚构故事");
     expect(html).toContain("月亮掉进菜市场");
-    expect(html).toContain("SH01 · 镜头意图");
+    expect(html).toContain("01 · 镜头意图");
     expect(html).toContain("下一条消息会带着这个选区交给小酌");
     expect(html).toContain("告诉小酌这处想怎么改");
   });

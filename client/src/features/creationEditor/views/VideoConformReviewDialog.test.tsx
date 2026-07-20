@@ -11,6 +11,7 @@ const reviewItem: VideoConformReviewItem = {
   takeId: 1226,
   stableShotId: "shot-6",
   shotNo: 6,
+  cueCode: "0106",
   title: "人物缓慢转身",
   cameraMove: "镜头缓慢下移，保持人物在画面中央",
   videoUrl: "/api/local-assets/video/take-1226.mp4",
@@ -96,7 +97,7 @@ describe("VideoConformReviewPanel", () => {
     expect(html).toContain("第一帧");
     expect(html).toContain("最后一帧");
     expect(html).toContain("中间 → 底部");
-    expect(html).toContain('aria-label="SH06 最后一帧 底部"');
+    expect(html).toContain('aria-label="0106 最后一帧 底部"');
     expect(html).toContain('aria-pressed="true"');
   });
 

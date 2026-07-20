@@ -1,11 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
 import {
   autoScrollElementAtPoint,
+  autoScrollElementHorizontallyAtPoint,
   hasStoryboardScrollableDragPayload,
+  scrollElementHorizontallyIntoView,
+  StoryboardVideoThumbnail,
+  STORYBOARD_MATRIX_ROWS,
   storyShotInsertIdentity,
   storyboardDragScrollSpeedMultiplier,
+  storyboardMatrixSwapPlan,
+  storyboardPreviewVideoTake,
 } from "./StoryCardsBoard";
 
 const root = process.cwd();
@@ -69,6 +78,149 @@ describe("StoryCardsBoard intent entry", () => {
     expect(deltas).toEqual([initial, accelerated]);
   });
 
+  it("auto-scrolls the matrix horizontally while information is dragged", () => {
+    let scrollLeft = 120;
+    const element = {
+      getBoundingClientRect: () => ({ left: 40, right: 440 }),
+      scrollBy: ({ left }: { left: number }) => {
+        scrollLeft += left;
+      },
+    } as unknown as HTMLElement;
+
+    const left = autoScrollElementHorizontallyAtPoint(element, 48);
+    const still = autoScrollElementHorizontallyAtPoint(element, 240);
+    const right = autoScrollElementHorizontallyAtPoint(element, 432);
+
+    expect(left).toBeLessThan(0);
+    expect(still).toBe(0);
+    expect(right).toBeGreaterThan(0);
+    expect(scrollLeft).toBe(120 + left + right);
+  });
+
+  it("keeps the selected shot clear of the sticky matrix row labels", () => {
+    const deltas: number[] = [];
+    const scroller = {
+      clientWidth: 444,
+      scrollLeft: 76,
+      getBoundingClientRect: () => ({ left: 64, right: 508 }),
+      scrollBy: ({ left }: { left: number }) => deltas.push(left),
+    } as unknown as HTMLElement;
+    const coveredTarget = {
+      offsetLeft: 76,
+      offsetWidth: 224,
+      getBoundingClientRect: () => ({ left: 64, right: 288 }),
+    } as unknown as HTMLElement;
+
+    expect(scrollElementHorizontallyIntoView(scroller, coveredTarget, 76)).toBe(
+      -76
+    );
+    expect(deltas).toEqual([-76]);
+  });
+
+  it("keeps the full storyboard as shot columns with editable information rows", () => {
+    expect(STORYBOARD_MATRIX_ROWS.map(row => row.field)).toEqual([
+      "dialogue",
+      "intent",
+      "action",
+      "performance",
+      "cameraMove",
+      "videoStart",
+      "videoEnd",
+      "sound",
+      "transitionOut",
+      "videoPrompt",
+    ]);
+  });
+
+  it("prefers the adopted playable video take for storyboard previews", () => {
+    const shot = {
+      selectedVideoTake: {
+        id: 22,
+        status: "available",
+        videoUrl: "/api/videos/take-22.mp4",
+        isTimelineSelected: true,
+      },
+      videoTakes: [
+        {
+          id: 21,
+          status: "available",
+          videoUrl: "/api/videos/take-21.mp4",
+          isTimelineSelected: false,
+        },
+        {
+          id: 22,
+          status: "available",
+          videoUrl: "/api/videos/take-22.mp4",
+          isTimelineSelected: true,
+        },
+      ],
+    } as unknown as CreationEditorShot;
+
+    expect(storyboardPreviewVideoTake(shot)?.id).toBe(22);
+  });
+
+  it("keeps the current image visible over an unselected video candidate", () => {
+    const shot = {
+      imageUrl: "/api/images/current-shot.webp",
+      videoTakes: [
+        {
+          id: 21,
+          status: "available",
+          videoUrl: "/api/videos/take-21.mp4",
+          isTimelineSelected: false,
+        },
+      ],
+    } as unknown as CreationEditorShot;
+
+    expect(storyboardPreviewVideoTake(shot)).toBeUndefined();
+  });
+
+  it("renders storyboard video thumbnails as video elements", () => {
+    const markup = renderToStaticMarkup(
+      createElement(StoryboardVideoThumbnail, {
+        src: "/api/videos/take-22.mp4",
+        poster: "/api/video-frames/22?atSec=0.000",
+        active: true,
+        label: "0102 视频缩略预览",
+        className: "preview",
+      })
+    );
+
+    expect(markup).toContain("<video");
+    expect(markup).toContain('data-storyboard-video-preview="true"');
+    expect(markup).toContain('src="/api/videos/take-22.mp4"');
+  });
+
+  it("plans a non-destructive field swap between two shot columns", () => {
+    const base = {
+      subject: "",
+      action: "",
+      dialogue: "",
+      shotType: "",
+      beat: "",
+      cameraAngle: "",
+      cameraMove: "",
+      location: "",
+      timeLight: "",
+      mood: "",
+      sound: "",
+      styleRef: "",
+      note: "",
+      emotion: "",
+      sourceCardContent: "",
+    };
+    const shots = [
+      { ...base, shotNo: 1, dialogue: "第一句" },
+      { ...base, shotNo: 2, dialogue: "第二句" },
+    ];
+
+    expect(storyboardMatrixSwapPlan(shots, 0, 1, "dialogue")).toEqual({
+      sourceValue: "第一句",
+      targetValue: "第二句",
+    });
+    expect(storyboardMatrixSwapPlan(shots, 0, 0, "dialogue")).toBeNull();
+  });
+
   it("uses the story shot identity, not a timeline-only id, for manual insertion", () => {
     expect(
       storyShotInsertIdentity(
@@ -128,7 +280,8 @@ describe("StoryCardsBoard intent entry", () => {
     );
 
     expect((boardSource.match(/<AddShotButton/g) ?? []).length).toBe(2);
-    expect(boardSource).toContain("已在 SH");
+    expect(boardSource).toContain("labelForShotNo(shotNo)");
+    expect(boardSource).toContain("displayShotCode");
     expect(boardSource).toContain("后添加镜头");
   });
 
@@ -141,9 +294,8 @@ describe("StoryCardsBoard intent entry", () => {
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
     );
-
     expect((boardSource.match(/<DeleteShotButton/g) ?? []).length).toBe(2);
-    expect(boardSource).toContain("删除 SH");
+    expect(boardSource).toContain("const label = `删除 ${shotLabel}`");
     expect(boardSource).toContain("删除");
     expect(boardSource).toContain("至少保留一个镜头");
     expect(panelSource).toContain("deletePersistedShot");
@@ -177,6 +329,13 @@ describe("StoryCardsBoard intent entry", () => {
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
     );
+    const settingsSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/GenerationSettingsPanel.tsx"
+      ),
+      "utf8"
+    );
 
     expect(boardSource).toContain("故事版看板");
     expect(boardSource).toContain("StoryboardReviewBoard");
@@ -184,14 +343,14 @@ describe("StoryCardsBoard intent entry", () => {
     expect(panelSource).toContain("<StoryboardReviewBoard");
     expect(panelSource).toContain("整理好求职优势后");
     expect(boardSource).toContain("GenerationSettingsPanel");
-    expect(boardSource).toContain('aria-label="剧本生成设置"');
-    expect(boardSource).toContain('aria-label="美术生成设置"');
+    expect(settingsSource).toContain('aria-label="剧本生成设置"');
+    expect(settingsSource).toContain('aria-label="美术生成设置"');
     expect(boardSource).toContain("generationProfile");
     expect(boardSource).toContain(
       "generateScript(undefined, generationProfile)"
     );
     expect(boardSource).toContain("onSelectArtLibrary");
-    expect(boardSource).toContain("先用于本次生成，故事保存后可绑定");
+    expect(settingsSource).toContain("先用于本次生成，故事保存后可绑定");
     expect(boardSource).not.toContain("叙事风格");
     expect(boardSource).not.toContain("美术风格");
     expect(boardSource).not.toContain("artDirection={artDirection}");
@@ -215,13 +374,23 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("autoScrollElementAtPoint");
     expect(boardSource).toContain("boardScrollRef");
     expect(boardSource).toContain("storyShotInsertIdentity");
+    expect(boardSource).toContain("importStoryboardMediaFiles");
+    expect(boardSource).toContain("StoryboardMediaDropOverlay");
+    expect(boardSource).toContain("data-storyboard-media-drop-target");
+    expect(boardSource).toContain("视频已进入动态分镜");
     expect(boardSource).toContain("storyboardDragScrollSpeedMultiplier");
     expect(boardSource).toContain("添加镜头");
     expect(boardSource).toContain('useState<"full" | "simple">');
     expect(boardSource).toContain("openShotEditor");
     expect(boardSource).toContain("故事版看板视图");
     expect(boardSource).toContain('setViewMode("simple")');
-    expect(boardSource).toContain("snap-y snap-proximity");
+    expect(boardSource).toContain("完整故事版横向分镜表");
+    expect(boardSource).toContain("STORYBOARD_MATRIX_ROWS");
+    expect(boardSource).toContain("gridTemplateColumns");
+    expect(boardSource).toContain('gridColumn: "2 / -1"');
+    expect(boardSource).toContain('displayMode="matrix"');
+    expect(boardSource).toContain("视频制作表格行");
+    expect(boardSource).not.toContain("max-h-[48%]");
     expect(boardSource).not.toContain('behavior: "smooth"');
     expect(boardSource).not.toContain("storyboardScriptText");
     expect(boardSource).toContain("grid-cols-[72px_minmax(0,1fr)]");
@@ -237,6 +406,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(materialBasketSource).toContain(
       "视频的生成、预览和采用都在故事版看板完成"
     );
+    expect(materialBasketSource).toContain("素材 / 图生视频 / Take");
+    expect(materialBasketSource).toContain('displayMode === "matrix"');
     expect(materialBasketSource).toContain("Take 总览");
     expect(materialBasketSource).toContain("标记不可用");
     expect(materialBasketSource).toContain("不再占用可用位置");
