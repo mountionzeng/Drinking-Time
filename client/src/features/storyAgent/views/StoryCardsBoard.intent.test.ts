@@ -385,6 +385,10 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("故事版看板视图");
     expect(boardSource).toContain('setViewMode("simple")');
     expect(boardSource).toContain("完整故事版横向分镜表");
+    expect(boardSource).toContain('data-storyboard-shot-header="two-row"');
+    expect(boardSource).toContain('data-storyboard-shot-actions="true"');
+    expect(boardSource).toContain('data-storyboard-media-layout="compact"');
+    expect(boardSource).toContain('data-storyboard-media-preview-size="half"');
     expect(boardSource).toContain("STORYBOARD_MATRIX_ROWS");
     expect(boardSource).toContain("gridTemplateColumns");
     expect(boardSource).toContain('gridColumn: "2 / -1"');

@@ -1289,7 +1289,7 @@ export function StoryboardReviewBoard({
               >
                 <div
                   role="columnheader"
-                  className="sticky left-0 top-0 z-40 flex min-h-20 items-end border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+                  className="sticky left-0 top-0 z-40 flex min-h-14 items-end border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
                   style={{
                     borderColor:
                       "color-mix(in srgb, var(--panel-border) 72%, transparent)",
@@ -1328,6 +1328,7 @@ export function StoryboardReviewBoard({
                       }
                       role="columnheader"
                       data-storyboard-shot-no={shot.shotNo}
+                      data-storyboard-shot-header="two-row"
                       className="sticky top-0 z-30 min-w-0 border-b border-r px-2 py-1.5"
                       style={{
                         borderColor:
@@ -1340,19 +1341,20 @@ export function StoryboardReviewBoard({
                       <button
                         type="button"
                         onClick={() => onSelectShot?.(shot.shotNo)}
-                        className="block min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                        className="flex w-full min-w-0 items-baseline gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                         aria-label={`选择 ${shotLabel} ${title}`}
                       >
-                        <span className="flex items-baseline gap-1.5">
-                          <span className="font-mono text-[10px] font-semibold text-foreground">
-                            {shotLabel}
-                          </span>
+                        <span className="shrink-0 font-mono text-[10px] font-semibold text-foreground">
+                          {shotLabel}
                         </span>
-                        <span className="mt-1 block line-clamp-2 min-h-7 text-[9px] leading-relaxed text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-[9px] leading-relaxed text-muted-foreground">
                           {title}
                         </span>
                       </button>
-                      <div className="mt-1 flex items-center gap-1">
+                      <div
+                        className="mt-1 flex h-6 items-center gap-1"
+                        data-storyboard-shot-actions="true"
+                      >
                         {onAddShotToTimeline && !isOnTimeline ? (
                           <button
                             type="button"
@@ -1501,92 +1503,98 @@ export function StoryboardReviewBoard({
                           importing={isImportingMedia}
                         />
                       ) : null}
-                      <button
-                        type="button"
-                        className="relative block aspect-square w-full overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                        onClick={() => {
-                          onSelectShot?.(shot.shotNo);
-                          if (videoPreviewTake?.videoUrl) {
-                            setPreviewMedia({
-                              kind: "video",
-                              url: videoPreviewTake.videoUrl,
-                              poster: videoPosterUrl,
-                              label: `${displayShotCode(shot)} ${title}`,
-                            });
-                          } else if (previewImageUrl) {
-                            setPreviewMedia({
-                              kind: "image",
-                              url: previewImageUrl,
-                              label: `${displayShotCode(shot)} ${title}`,
-                            });
-                          } else if (creationShot) {
-                            setOpenMaterialShotNo(shot.shotNo);
-                          }
-                        }}
-                        aria-label={`${videoPreviewTake?.videoUrl ? "播放" : "查看"} ${displayShotCode(shot)} 画面缩略预览`}
+                      <div
+                        className="flex items-stretch gap-1.5"
+                        data-storyboard-media-layout="compact"
                       >
-                        {videoPreviewTake?.videoUrl ? (
-                          <StoryboardVideoThumbnail
-                            src={videoPreviewTake.videoUrl}
-                            poster={videoPosterUrl}
-                            active={selected}
-                            label={`${displayShotCode(shot)} 视频缩略预览`}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : previewImageUrl ? (
-                          <img
-                            src={previewImageUrl}
-                            alt={`${displayShotCode(shot)} ${title}`}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span className="flex h-full w-full items-center justify-center text-muted-foreground">
-                            {isGeneratingScript ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <ImagePlus className="h-4 w-4" />
-                            )}
-                          </span>
-                        )}
-                        <span className="absolute bottom-1.5 left-1.5 rounded-sm bg-black/70 px-1.5 py-0.5 text-[8px] text-white">
-                          {videoPreviewTake?.videoUrl
-                            ? (videoPreviewIsSelected ? "已采用" : "候选") +
-                              " Take " +
-                              videoPreviewTake.id
-                            : previewImageUrl
-                              ? "当前主图"
-                              : "待导入画面"}
-                        </span>
-                      </button>
-                      {creationShot ? (
                         <button
                           type="button"
+                          data-storyboard-media-preview-size="half"
+                          className="relative block aspect-square w-1/2 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                           onClick={() => {
                             onSelectShot?.(shot.shotNo);
-                            setOpenMaterialShotNo(current =>
-                              current === shot.shotNo ? null : shot.shotNo
-                            );
+                            if (videoPreviewTake?.videoUrl) {
+                              setPreviewMedia({
+                                kind: "video",
+                                url: videoPreviewTake.videoUrl,
+                                poster: videoPosterUrl,
+                                label: `${displayShotCode(shot)} ${title}`,
+                              });
+                            } else if (previewImageUrl) {
+                              setPreviewMedia({
+                                kind: "image",
+                                url: previewImageUrl,
+                                label: `${displayShotCode(shot)} ${title}`,
+                              });
+                            } else if (creationShot) {
+                              setOpenMaterialShotNo(shot.shotNo);
+                            }
                           }}
-                          className="mt-1.5 flex h-8 w-full items-center gap-1.5 rounded-sm px-1.5 text-left text-[8.5px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-                          aria-expanded={materialOpen}
-                          aria-label={`${materialOpen ? "收起 " : "打开 "}${displayShotCode(shot)} 视频与 Take`}
-                          title={`${displayShotCode(shot)} 素材、图生视频与 Take`}
+                          aria-label={`${videoPreviewTake?.videoUrl ? "播放" : "查看"} ${displayShotCode(shot)} 画面缩略预览`}
                         >
-                          <Video className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {videoTakes.length > 0
-                              ? videoTakes.length +
-                                " 个 Take · 可用 " +
-                                playableTakes.length
-                              : "视频制作"}
-                          </span>
-                          {materialOpen ? (
-                            <ChevronUp className="h-3 w-3 shrink-0" />
+                          {videoPreviewTake?.videoUrl ? (
+                            <StoryboardVideoThumbnail
+                              src={videoPreviewTake.videoUrl}
+                              poster={videoPosterUrl}
+                              active={selected}
+                              label={`${displayShotCode(shot)} 视频缩略预览`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : previewImageUrl ? (
+                            <img
+                              src={previewImageUrl}
+                              alt={`${displayShotCode(shot)} ${title}`}
+                              className="h-full w-full object-cover"
+                            />
                           ) : (
-                            <ChevronDown className="h-3 w-3 shrink-0" />
+                            <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                              {isGeneratingScript ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ImagePlus className="h-4 w-4" />
+                              )}
+                            </span>
                           )}
+                          <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-0.75rem)] truncate rounded-sm bg-black/70 px-1.5 py-0.5 text-[8px] text-white">
+                            {videoPreviewTake?.videoUrl
+                              ? (videoPreviewIsSelected ? "已采用" : "候选") +
+                                " Take " +
+                                videoPreviewTake.id
+                              : previewImageUrl
+                                ? "当前主图"
+                                : "待导入画面"}
+                          </span>
                         </button>
-                      ) : null}
+                        {creationShot ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectShot?.(shot.shotNo);
+                              setOpenMaterialShotNo(current =>
+                                current === shot.shotNo ? null : shot.shotNo
+                              );
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 text-left text-[8.5px] font-medium text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                            aria-expanded={materialOpen}
+                            aria-label={`${materialOpen ? "收起 " : "打开 "}${displayShotCode(shot)} 视频与 Take`}
+                            title={`${displayShotCode(shot)} 素材、图生视频与 Take`}
+                          >
+                            <Video className="h-3.5 w-3.5 shrink-0" />
+                            <span className="min-w-0 flex-1 truncate">
+                              {videoTakes.length > 0
+                                ? videoTakes.length +
+                                  " 个 Take · 可用 " +
+                                  playableTakes.length
+                                : "视频制作"}
+                            </span>
+                            {materialOpen ? (
+                              <ChevronUp className="h-3 w-3 shrink-0" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3 shrink-0" />
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   );
                 })}
