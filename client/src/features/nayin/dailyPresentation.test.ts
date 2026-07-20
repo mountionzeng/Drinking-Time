@@ -29,7 +29,7 @@ describe("daily drink presentation", () => {
       expect(presentation.element).toBe(element);
       expect(presentation.title).toBe(WELCOME_HERO_TITLE);
       expect(presentation.subtitle).toBe(WELCOME_HERO_SUBTITLE);
-      expect(presentation.subtitle).toContain("倒一杯，随便聊聊。");
+      expect(presentation.subtitle).toBe("");
       expect(presentation.subtitle).not.toContain("适合");
       expect(presentation.drinkNote).toContain("·");
       expect(presentation.motionHint.length).toBeGreaterThan(0);

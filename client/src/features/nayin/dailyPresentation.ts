@@ -24,14 +24,9 @@ export interface DailyActivityAdvice {
   sourceLabel: string;
 }
 
-export const WELCOME_HERO_TITLE = "小酌 · Drinking Time";
+export const WELCOME_HERO_TITLE = "聊会儿 · Drinking Time";
 
-export const WELCOME_HERO_SUBTITLE = [
-  "倒一杯，随便聊聊。",
-  "那些在桌上讲过的八卦、深夜微信里没说完的话、",
-  "都是好故事。",
-  "在这里，慢慢说。",
-].join("\n");
+export const WELCOME_HERO_SUBTITLE = "";
 
 export const DAILY_DRINK_PRESENTATION: Record<
   NayinElement,
