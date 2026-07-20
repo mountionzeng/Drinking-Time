@@ -82,7 +82,7 @@ function ExportButton({ storyId }: { storyId: number }) {
   );
 }
 
-function EditingStudioBody() {
+function EditingStudioBody({ timelineVisible }: { timelineVisible: boolean }) {
   const activeStoryId = useActiveStoryId();
   const [chatCollapsed, setChatCollapsed] = useState(false);
 
@@ -140,13 +140,15 @@ function EditingStudioBody() {
                     剪辑工作台
                   </h1>
                   <p className="mt-0.5 text-[9px] text-muted-foreground">
-                    故事版 · 动态预览 · 多轨时间线
+                    {timelineVisible
+                      ? "故事版 · 动态预览 · 多轨时间线"
+                      : "故事版 · 动态预览"}
                   </p>
                 </div>
                 <ExportButton storyId={activeStoryId} />
               </div>
               <div className="min-h-0 flex-1 overflow-hidden">
-                <EditingNleWorkspace />
+                <EditingNleWorkspace timelineVisible={timelineVisible} />
               </div>
             </div>
           ) : (
@@ -168,6 +170,7 @@ export default function EditingStudioPage() {
   const { currentProjectId } = useProjectData();
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
+  const [timelineVisible, setTimelineVisible] = useState(true);
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
@@ -205,13 +208,20 @@ export default function EditingStudioPage() {
   return (
     <div className="relative flex h-screen flex-col overflow-hidden">
       <BeverageAmbience />
-      <TopBar showStoryPanelNav={false} />
+      <TopBar
+        showStoryPanelNav={false}
+        panelToggle={{
+          label: "时间线",
+          active: timelineVisible,
+          onToggle: () => setTimelineVisible(value => !value),
+        }}
+      />
       <div className="relative z-10 min-h-0 flex-1">
         <StoryAgentProvider
           projectId={currentProjectId}
           editingCommandRunner={runEditingCommand}
         >
-          <EditingStudioBody />
+          <EditingStudioBody timelineVisible={timelineVisible} />
         </StoryAgentProvider>
       </div>
     </div>

@@ -84,4 +84,24 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("动态分镜");
     expect(html).not.toContain("镜头设计表");
   });
+
+  it("uses the same top navigation position for a timeline visibility toggle", () => {
+    const html = renderToStaticMarkup(
+      <TopBar
+        showStoryPanelNav={false}
+        panelToggle={{
+          label: "时间线",
+          active: true,
+          onToggle: vi.fn(),
+        }}
+      />
+    );
+
+    expect(html).toContain('aria-label="剪辑面板切换"');
+    expect(html).toContain('data-testid="topbar-panel-toggle"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('aria-label="隐藏时间线"');
+    expect(html).toContain("时间线");
+    expect(html).not.toContain("故事版看板");
+  });
 });

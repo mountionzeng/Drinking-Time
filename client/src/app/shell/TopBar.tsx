@@ -17,11 +17,17 @@ import { useAuth } from "@/_core/hooks/useAuth";
 interface TopBarProps {
   onStoryPanelToggle?: () => void;
   showStoryPanelNav?: boolean;
+  panelToggle?: {
+    label: string;
+    active: boolean;
+    onToggle: () => void;
+  };
 }
 
 export default function TopBar({
   onStoryPanelToggle,
   showStoryPanelNav = true,
+  panelToggle,
 }: TopBarProps) {
   const { allThemes, setPreviewElement, previewElement, element, today } =
     useNayin();
@@ -185,6 +191,35 @@ export default function TopBar({
                     </button>
                   );
                 })}
+              </nav>
+            ) : panelToggle ? (
+              <nav
+                aria-label="剪辑面板切换"
+                className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
+              >
+                <button
+                  type="button"
+                  data-testid="topbar-panel-toggle"
+                  aria-pressed={panelToggle.active}
+                  aria-label={`${panelToggle.active ? "隐藏" : "显示"}${panelToggle.label}`}
+                  title={`${panelToggle.active ? "隐藏" : "显示"}${panelToggle.label}`}
+                  onClick={panelToggle.onToggle}
+                  className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                    panelToggle.active
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground/80"
+                  }`}
+                  style={
+                    panelToggle.active
+                      ? {
+                          background: "var(--nayin-surface)",
+                          boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
+                        }
+                      : undefined
+                  }
+                >
+                  {panelToggle.label}
+                </button>
               </nav>
             ) : (
               <div className="min-w-0 flex-1" aria-hidden="true" />

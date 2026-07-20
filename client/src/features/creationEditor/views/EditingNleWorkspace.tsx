@@ -813,6 +813,7 @@ function TimelineAudioPlayback({
 }
 
 function MultiTrackTimeline({
+  visible,
   shots,
   timelineShotIds,
   manifest,
@@ -821,6 +822,7 @@ function MultiTrackTimeline({
   onPlaybackChange,
   playbackRequest,
 }: {
+  visible: boolean;
   shots: CreationEditorShot[];
   timelineShotIds: string[];
   manifest: ChatCutTimelineManifest | null;
@@ -868,6 +870,10 @@ function MultiTrackTimeline({
     },
     [onPlaybackChange]
   );
+
+  useEffect(() => {
+    if (!visible) setPlaybackRunning(false);
+  }, [setPlaybackRunning, visible]);
 
   const commitPlayhead = useCallback(
     (
@@ -1035,6 +1041,7 @@ function MultiTrackTimeline({
   );
 
   useEffect(() => {
+    if (!visible) return;
     const handleTimelineArrowKey = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       if (
@@ -1061,12 +1068,15 @@ function MultiTrackTimeline({
     };
     window.addEventListener("keydown", handleTimelineArrowKey);
     return () => window.removeEventListener("keydown", handleTimelineArrowKey);
-  }, [stepPlayheadByKeyboard]);
+  }, [stepPlayheadByKeyboard, visible]);
 
   return (
     <section
-      className="flex min-h-[230px] flex-[0_0_42%] flex-col border-t border-border bg-background"
+      hidden={!visible}
+      data-testid="editing-multitrack-timeline"
+      className={`${visible ? "flex" : "hidden"} min-h-[230px] flex-[0_0_42%] flex-col border-t border-border bg-background`}
       aria-label="多轨剪辑时间轴"
+      aria-hidden={!visible}
     >
       <TimelineAudioPlayback
         manifest={manifest}
@@ -1293,7 +1303,11 @@ function MultiTrackTimeline({
   );
 }
 
-export default function EditingNleWorkspace() {
+export default function EditingNleWorkspace({
+  timelineVisible = true,
+}: {
+  timelineVisible?: boolean;
+}) {
   const { setActiveSelection } = useStoryAgentActions();
   const activeSelection = useStorySpine(state => state.activeSelection);
   const {
@@ -1555,6 +1569,7 @@ export default function EditingNleWorkspace() {
         </ResizablePanel>
       </ResizablePanelGroup>
       <MultiTrackTimeline
+        visible={timelineVisible}
         shots={shots}
         timelineShotIds={timelineShotIds}
         manifest={chatCutTimeline}

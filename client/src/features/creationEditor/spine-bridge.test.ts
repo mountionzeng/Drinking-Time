@@ -60,7 +60,11 @@ describe("creation editor spine boundary", () => {
     );
 
     expect(editingPage).toContain('data-story-panel="editing-nle"');
-    expect(editingPage).toContain("<EditingNleWorkspace />");
+    expect(editingPage).toContain(
+      "<EditingNleWorkspace timelineVisible={timelineVisible} />"
+    );
+    expect(editingPage).toContain('label: "时间线"');
+    expect(editingPage).toContain("setTimelineVisible(value => !value)");
     expect(editingWorkspace).toContain("<StoryboardPanel");
     expect(editingWorkspace).toContain("embeddedEditorMode");
     expect(editingWorkspace).toContain("selectShot: true");
@@ -80,6 +84,11 @@ describe("creation editor spine boundary", () => {
     );
     expect(editingWorkspace).toContain(
       'className="h-full w-full object-cover"'
+    );
+    expect(editingWorkspace).toContain("hidden={!visible}");
+    expect(editingWorkspace).toContain('visible ? "flex" : "hidden"');
+    expect(editingWorkspace).toContain(
+      'data-testid="editing-multitrack-timeline"'
     );
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
