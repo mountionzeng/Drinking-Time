@@ -105,7 +105,6 @@ export function StoryboardMatrixFieldCell({
   dropTarget,
   editable,
   onFocus,
-  onDraft,
   onCommit,
   onDragStart,
   onDragEnd,
@@ -120,8 +119,7 @@ export function StoryboardMatrixFieldCell({
   dropTarget: boolean;
   editable: boolean;
   onFocus: () => void;
-  onDraft?: (value: string) => void;
-  onCommit: (value: string) => void;
+  onCommit: (value: string) => void | Promise<void>;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd: () => void;
   onDragOver: (event: DragEvent<HTMLDivElement>) => void;
@@ -192,7 +190,6 @@ export function StoryboardMatrixFieldCell({
         onChange={event => {
           const next = event.currentTarget.value;
           setDraftValue(next);
-          onDraft?.(next);
         }}
         onBlur={event => {
           setIsFocused(false);

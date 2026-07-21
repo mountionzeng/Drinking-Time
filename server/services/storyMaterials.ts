@@ -4,6 +4,7 @@ import {
   DEFAULT_TIMELINE_TRANSFORM,
   type StoryMaterialState,
   type StoryTimelineItem,
+  type StoryTimelineVisualClip,
   type TimelineDocument,
   type TimelineTransform,
 } from "../../shared/storyMaterial";
@@ -31,9 +32,7 @@ type StoryShotFact = {
 };
 
 function finite(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function shotNoFromCanonical(value: unknown): number | null {
@@ -43,7 +42,10 @@ function shotNoFromCanonical(value: unknown): number | null {
   return canonical ? Number(canonical.slice(2)) : null;
 }
 
-function keysOverlap(left: readonly string[], right: readonly string[]): boolean {
+function keysOverlap(
+  left: readonly string[],
+  right: readonly string[]
+): boolean {
   if (left.length === 0 || right.length === 0) return false;
   const rightKeys = new Set(right);
   return left.some(key => rightKeys.has(key));
@@ -94,7 +96,10 @@ function transform(value: unknown): TimelineTransform {
       ? (value as Record<string, unknown>)
       : {};
   const clamp = (key: keyof TimelineTransform, min: number, max: number) =>
-    Math.min(max, Math.max(min, finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key])));
+    Math.min(
+      max,
+      Math.max(min, finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key]))
+    );
   return {
     cropX: clamp("cropX", 0, 1),
     cropY: clamp("cropY", 0, 1),
@@ -104,6 +109,60 @@ function transform(value: unknown): TimelineTransform {
     panX: clamp("panX", -1, 1),
     panY: clamp("panY", -1, 1),
   };
+}
+
+function visualClips(value: unknown): StoryTimelineVisualClip[] {
+  if (!Array.isArray(value)) return [];
+  const normalized: StoryTimelineVisualClip[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const clip = raw as Record<string, unknown>;
+    const id = typeof clip.id === "string" ? clip.id.trim() : "";
+    const videoUrl =
+      typeof clip.videoUrl === "string" ? clip.videoUrl.trim() : "";
+    const sourceStableShotId = normalizeShotIdentity(clip.sourceStableShotId);
+    const takeId = finite(clip.takeId, 0);
+    const rangeId = finite(clip.rangeId, 0);
+    const sourceStartSec = Math.max(0, finite(clip.sourceStartSec, 0));
+    const sourceEndSec = Math.max(
+      sourceStartSec,
+      finite(clip.sourceEndSec, sourceStartSec)
+    );
+    const durationMs = Math.max(1, finite(clip.durationMs, 0));
+    if (
+      !id ||
+      seen.has(id) ||
+      !videoUrl ||
+      !sourceStableShotId ||
+      takeId <= 0 ||
+      rangeId <= 0 ||
+      sourceEndSec <= sourceStartSec ||
+      durationMs <= 1
+    ) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      takeId,
+      rangeId,
+      sourceStableShotId,
+      videoUrl,
+      label:
+        typeof clip.label === "string" && clip.label.trim()
+          ? clip.label.trim().slice(0, 120)
+          : `片段 ${normalized.length + 1}`,
+      sourceStartSec,
+      sourceEndSec,
+      offsetMs: Math.max(0, finite(clip.offsetMs, 0)),
+      durationMs,
+    });
+  }
+  return normalized.sort(
+    (left, right) =>
+      left.offsetMs - right.offsetMs || left.id.localeCompare(right.id)
+  );
 }
 
 export function normalizeTimelineItems(
@@ -130,6 +189,8 @@ export function normalizeTimelineItems(
         finite(item.plannedDurationMs, fact.plannedDurationMs)
       ),
       transform: transform(item.transform),
+      visualClips: visualClips(item.visualClips),
+      visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
     });
   }
   for (const fact of facts) {

@@ -1,11 +1,13 @@
 import {
   Captions,
   FileUp,
+  ImagePlus,
   Loader2,
   Mic2,
   Music2,
   Pause,
   Play,
+  Scissors,
   SkipBack,
   Upload,
   Video,
@@ -13,6 +15,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   useCallback,
   useEffect,
@@ -20,10 +23,12 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
 import { displayShotCode } from "@shared/shotIdentity";
+import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
 
 import {
   ResizableHandle,
@@ -125,6 +130,140 @@ function playableVideoUrl(shot: CreationEditorShot | null): string | null {
 
 function shotImageUrl(shot: CreationEditorShot | null): string | null {
   return shot?.imageUrl || shot?.promptRun?.imageUrl || null;
+}
+
+const PREVIEW_CONTROL_PAUSE_WINDOW_MS = 1_200;
+
+export function shouldForwardPreviewPause(input: {
+  timelinePlaying: boolean;
+  ignoreNextPause: boolean;
+  mediaIsCurrent: boolean;
+  mediaConnected: boolean;
+  mediaEnded: boolean;
+  lastInteractionAtMs: number | null;
+  nowMs: number;
+}): boolean {
+  const interactionAgeMs =
+    input.lastInteractionAtMs == null
+      ? null
+      : input.nowMs - input.lastInteractionAtMs;
+  return (
+    input.timelinePlaying &&
+    !input.ignoreNextPause &&
+    input.mediaIsCurrent &&
+    input.mediaConnected &&
+    !input.mediaEnded &&
+    interactionAgeMs != null &&
+    interactionAgeMs >= 0 &&
+    interactionAgeMs <= PREVIEW_CONTROL_PAUSE_WINDOW_MS
+  );
+}
+
+export type TimelineVideoSource = {
+  shotNo: number;
+  stableShotId: string;
+  takeStableShotId: string;
+  takeId: number;
+  rangeId: number | null;
+  videoUrl: string;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  sourceTimeSec: number;
+  offsetMs: number;
+  durationMs: number;
+  existingClipId: string | null;
+  label: string;
+};
+
+export function timelineVisualClipFrameUrl(
+  clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
+): string {
+  return `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
+}
+
+export function resolveTimelineVideoSource(
+  shots: CreationEditorShot[],
+  timelineShotIds: string[],
+  playheadMs: number
+): TimelineVideoSource | null {
+  const timings = buildStoryboardTimingRows(shots, timelineShotIds);
+  const finalEndMs = timings.at(-1)?.endMs ?? 0;
+  const lookupMs = Math.min(
+    Math.max(0, playheadMs),
+    Math.max(0, finalEndMs - 1)
+  );
+  const timing = timings.find(
+    item => lookupMs >= item.startMs && lookupMs < item.endMs
+  );
+  if (!timing) return null;
+  const shot = shots.find(item => item.shotNo === timing.shotNo);
+  if (!shot) return null;
+  const stableShotId = creationTimelineShotId(shot);
+  const localMs = Math.max(0, lookupMs - timing.startMs);
+  const visualClip = [...(shot.timelineItem?.visualClips ?? [])]
+    .sort((left, right) => right.offsetMs - left.offsetMs)
+    .find(
+      clip =>
+        localMs >= clip.offsetMs && localMs < clip.offsetMs + clip.durationMs
+    );
+  if (visualClip) {
+    const clipOffsetMs = localMs - visualClip.offsetMs;
+    const sourceDurationSec = Math.max(
+      0,
+      visualClip.sourceEndSec - visualClip.sourceStartSec
+    );
+    return {
+      shotNo: shot.shotNo,
+      stableShotId,
+      takeStableShotId: visualClip.sourceStableShotId,
+      takeId: visualClip.takeId,
+      rangeId: visualClip.rangeId,
+      videoUrl: visualClip.videoUrl,
+      sourceStartSec: visualClip.sourceStartSec,
+      sourceEndSec: visualClip.sourceEndSec,
+      sourceTimeSec:
+        visualClip.sourceStartSec +
+        sourceDurationSec *
+          Math.min(1, Math.max(0, clipOffsetMs / visualClip.durationMs)),
+      offsetMs: visualClip.offsetMs,
+      durationMs: visualClip.durationMs,
+      existingClipId: visualClip.id,
+      label: visualClip.label,
+    };
+  }
+  if (shot.timelineItem?.visualClipsReplacePrimary) return null;
+
+  const take =
+    shot.selectedVideoTake ??
+    shot.videoTakes?.find(
+      item => Boolean(item.videoUrl) && videoTakeAffordance(item.status).canPlay
+    );
+  if (!take?.videoUrl) return null;
+  const selectedRange =
+    take.selectedSelectionType === "range" && take.selectedRangeId != null
+      ? take.ranges.find(range => range.id === take.selectedRangeId)
+      : null;
+  const sourceStartSec = Math.max(0, selectedRange?.startSec ?? 0);
+  const sourceEndSec = Math.max(
+    sourceStartSec,
+    selectedRange?.endSec ?? take.durationSec ?? timing.durationMs / 1000
+  );
+  const progress = Math.min(1, Math.max(0, localMs / timing.durationMs));
+  return {
+    shotNo: shot.shotNo,
+    stableShotId,
+    takeStableShotId: stableShotId,
+    takeId: take.id,
+    rangeId: selectedRange?.id ?? null,
+    videoUrl: take.videoUrl,
+    sourceStartSec,
+    sourceEndSec,
+    sourceTimeSec: sourceStartSec + (sourceEndSec - sourceStartSec) * progress,
+    offsetMs: 0,
+    durationMs: timing.durationMs,
+    existingClipId: null,
+    label: shotLabel(shot),
+  };
 }
 
 function chatCutClipIdFromShot(shot: CreationEditorShot | null): string | null {
@@ -276,6 +415,8 @@ function ShotPreview({
   shot,
   timing,
   sourceClip,
+  timelineVideoSource,
+  suppressDefaultVideo,
   playheadMs,
   timelinePlaying,
   format,
@@ -284,6 +425,8 @@ function ShotPreview({
   shot: CreationEditorShot | null;
   timing?: { startMs: number; endMs: number; durationMs: number };
   sourceClip?: ChatCutTimelineClip | null;
+  timelineVideoSource?: TimelineVideoSource | null;
+  suppressDefaultVideo?: boolean;
   playheadMs: number;
   timelinePlaying: boolean;
   format: ChatCutTimelineManifest | null;
@@ -291,12 +434,15 @@ function ShotPreview({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const ignoreNextVideoPauseRef = useRef(false);
+  const previewControlInteractionAtRef = useRef<number | null>(null);
   const previewStageRef = useRef<HTMLDivElement | null>(null);
   const [previewStageSize, setPreviewStageSize] = useState({
     width: 0,
     height: 0,
   });
-  const videoUrl = playableVideoUrl(shot);
+  const videoUrl =
+    timelineVideoSource?.videoUrl ??
+    (suppressDefaultVideo ? null : playableVideoUrl(shot));
   const imageUrl = shotImageUrl(shot);
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
   const formatLabel = format ? `${format.width}×${format.height}` : "1080×1080";
@@ -316,11 +462,12 @@ function ShotPreview({
     (sourceClip?.sourceOutMs ?? sourceInMs) - sourceInMs
   );
   const targetVideoTimeSeconds =
+    timelineVideoSource?.sourceTimeSec ??
     (sourceInMs +
       (sourceDurationMs > 0
         ? Math.min(timelineOffsetMs, sourceDurationMs)
         : timelineOffsetMs)) /
-    1000;
+      1000;
   const subtitleText = timelineSubtitleText(format, playheadMs, shot?.dialogue);
 
   useEffect(() => {
@@ -391,107 +538,143 @@ function ShotPreview({
         </span>
       </div>
 
-      <div
-        ref={previewStageRef}
-        className="flex min-h-[150px] flex-1 items-center justify-center overflow-hidden bg-muted/35"
-        data-testid="editing-preview-stage"
-      >
+      <div className="flex min-h-[150px] flex-1 flex-col overflow-hidden bg-muted/35">
         <div
-          className="relative flex shrink-0 items-center justify-center overflow-hidden border border-white/10 bg-black shadow-sm"
-          style={{
-            aspectRatio,
-            width: canvasSize.width || 180,
-            height: canvasSize.height || 180,
-          }}
-          data-testid="editing-project-canvas"
-          data-project-size={formatLabel}
+          ref={previewStageRef}
+          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+          data-testid="editing-preview-stage"
         >
-          {videoUrl ? (
-            <video
-              key={videoUrl}
-              ref={videoRef}
-              src={videoUrl}
-              poster={imageUrl ?? undefined}
-              controls
-              playsInline
-              preload="metadata"
-              onLoadedMetadata={event => {
-                const maximumTime = Math.max(
-                  0,
-                  event.currentTarget.duration - 0.001
-                );
-                event.currentTarget.currentTime = Math.min(
-                  targetVideoTimeSeconds,
-                  maximumTime
-                );
-                if (timelinePlaying) {
-                  void event.currentTarget.play().catch(() => undefined);
-                }
-              }}
-              onPlay={event => {
-                const startSeconds = (sourceClip?.sourceInMs ?? 0) / 1000;
-                const endSeconds = (sourceClip?.sourceOutMs ?? 0) / 1000;
-                if (
-                  event.currentTarget.currentTime < startSeconds ||
-                  (endSeconds > startSeconds &&
-                    event.currentTarget.currentTime >= endSeconds - 0.03)
-                ) {
-                  event.currentTarget.currentTime = startSeconds;
-                }
-                if (!timelinePlaying) onRequestTimelinePlaying(true);
-              }}
-              onPause={() => {
-                if (ignoreNextVideoPauseRef.current) {
+          <div
+            className="relative flex shrink-0 items-center justify-center overflow-hidden border border-white/10 bg-black shadow-sm"
+            style={{
+              aspectRatio,
+              width: canvasSize.width || 180,
+              height: canvasSize.height || 180,
+            }}
+            data-testid="editing-project-canvas"
+            data-project-size={formatLabel}
+          >
+            {videoUrl ? (
+              <video
+                key={videoUrl}
+                ref={videoRef}
+                src={videoUrl}
+                poster={imageUrl ?? undefined}
+                controls
+                playsInline
+                preload="metadata"
+                onPointerDown={() => {
+                  previewControlInteractionAtRef.current = Date.now();
+                }}
+                onKeyDown={event => {
+                  if (
+                    event.key === " " ||
+                    event.key === "Enter" ||
+                    event.key.toLowerCase() === "k" ||
+                    event.key === "MediaPlayPause"
+                  ) {
+                    previewControlInteractionAtRef.current = Date.now();
+                  }
+                }}
+                onLoadedMetadata={event => {
+                  const maximumTime = Math.max(
+                    0,
+                    event.currentTarget.duration - 0.001
+                  );
+                  event.currentTarget.currentTime = Math.min(
+                    targetVideoTimeSeconds,
+                    maximumTime
+                  );
+                  if (timelinePlaying) {
+                    void event.currentTarget.play().catch(() => undefined);
+                  }
+                }}
+                onPlay={event => {
+                  previewControlInteractionAtRef.current = null;
+                  const startSeconds =
+                    timelineVideoSource?.sourceStartSec ??
+                    (sourceClip?.sourceInMs ?? 0) / 1000;
+                  const endSeconds =
+                    timelineVideoSource?.sourceEndSec ??
+                    (sourceClip?.sourceOutMs ?? 0) / 1000;
+                  if (
+                    event.currentTarget.currentTime < startSeconds ||
+                    (endSeconds > startSeconds &&
+                      event.currentTarget.currentTime >= endSeconds - 0.03)
+                  ) {
+                    event.currentTarget.currentTime = startSeconds;
+                  }
+                  if (!timelinePlaying) onRequestTimelinePlaying(true);
+                }}
+                onPause={event => {
+                  const ignoreNextPause = ignoreNextVideoPauseRef.current;
+                  const lastInteractionAtMs =
+                    previewControlInteractionAtRef.current;
                   ignoreNextVideoPauseRef.current = false;
-                  return;
-                }
-                if (timelinePlaying) onRequestTimelinePlaying(false);
-              }}
-              onTimeUpdate={event => {
-                const endSeconds = (sourceClip?.sourceOutMs ?? 0) / 1000;
-                if (
-                  endSeconds > 0 &&
-                  event.currentTarget.currentTime >= endSeconds
-                ) {
-                  ignoreNextVideoPauseRef.current = true;
-                  event.currentTarget.pause();
-                }
-              }}
-              className="h-full w-full object-cover"
-              aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
-            />
-          ) : imageUrl ? (
-            <>
-              <img
-                src={imageUrl}
-                alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
+                  previewControlInteractionAtRef.current = null;
+                  if (
+                    shouldForwardPreviewPause({
+                      timelinePlaying,
+                      ignoreNextPause,
+                      mediaIsCurrent: videoRef.current === event.currentTarget,
+                      mediaConnected: event.currentTarget.isConnected,
+                      mediaEnded: event.currentTarget.ended,
+                      lastInteractionAtMs,
+                      nowMs: Date.now(),
+                    })
+                  ) {
+                    onRequestTimelinePlaying(false);
+                  }
+                }}
+                onTimeUpdate={event => {
+                  const endSeconds =
+                    timelineVideoSource?.sourceEndSec ??
+                    (sourceClip?.sourceOutMs ?? 0) / 1000;
+                  if (
+                    endSeconds > 0 &&
+                    event.currentTarget.currentTime >= endSeconds
+                  ) {
+                    ignoreNextVideoPauseRef.current = true;
+                    event.currentTarget.pause();
+                  }
+                }}
                 className="h-full w-full object-cover"
+                aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
               />
-              <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
-                静态首帧占位 · 尚未采用视频
-              </span>
-            </>
-          ) : (
-            <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
-              <Video className="h-7 w-7" />
-              <span className="text-xs">当前镜头尚未关联画面</span>
-              <span className="max-w-[260px] truncate text-[10px] text-neutral-500">
-                {shot ? chatCutSourceNameFromShot(shot) : "从左侧选择镜头"}
-              </span>
-            </div>
-          )}
+            ) : imageUrl ? (
+              <>
+                <img
+                  src={imageUrl}
+                  alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
+                  className="h-full w-full object-cover"
+                />
+                <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
+                  静态首帧占位 · 尚未采用视频
+                </span>
+              </>
+            ) : (
+              <div className="flex h-full min-h-[220px] w-full min-w-[220px] flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
+                <Video className="h-7 w-7" />
+                <span className="text-xs">当前镜头尚未关联画面</span>
+                <span className="max-w-[260px] truncate text-[10px] text-neutral-500">
+                  {shot ? chatCutSourceNameFromShot(shot) : "从左侧选择镜头"}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+        <div
+          className="flex h-12 shrink-0 items-center justify-center overflow-hidden border-t border-border/70 bg-[color:var(--panel-header)] px-4 text-center"
+          aria-live="polite"
+          data-testid="editing-preview-subtitle-rail"
+        >
           {subtitleText ? (
-            <div
-              className={`pointer-events-none absolute inset-x-3 z-10 text-center ${
-                videoUrl ? "bottom-16" : "bottom-5"
-              }`}
-              aria-live="polite"
+            <p
+              className="m-0 line-clamp-2 max-w-[92%] text-[13px] font-medium leading-5 text-foreground"
               data-testid="editing-preview-subtitle"
             >
-              <span className="inline-block max-w-[92%] bg-black/78 px-3 py-1.5 text-[clamp(12px,1.5vw,18px)] font-medium leading-relaxed text-white shadow-sm">
-                {subtitleText}
-              </span>
-            </div>
+              {subtitleText}
+            </p>
           ) : null}
         </div>
       </div>
@@ -512,6 +695,8 @@ type TimelineLane = {
     endMs: number;
     shotNo?: number;
     imageUrl?: string | null;
+    stableShotId?: string;
+    visualClip?: StoryTimelineVisualClip;
   }>;
 };
 
@@ -582,10 +767,9 @@ function buildTimelineLanes(
   const playbackAudioTracks = manifest
     ? chatCutPlaybackAudioTracks(manifest)
     : [];
-  const voiceClips =
-    playbackAudioTracks.flatMap(track =>
-      track.clips.filter(clip => Boolean(chatCutCueCode(clip.name)))
-    );
+  const voiceClips = playbackAudioTracks.flatMap(track =>
+    track.clips.filter(clip => Boolean(chatCutCueCode(clip.name)))
+  );
   if (voiceClips.length > 0 && manifest) {
     lanes.push({
       id: "captions",
@@ -630,9 +814,9 @@ function buildTimelineLanes(
     label: primaryIndex ? `V${primaryIndex}` : "画面",
     icon: "video",
     tone: "green",
-    clips: timings.map(timing => {
+    clips: timings.flatMap(timing => {
       const shot = shotsByNo.get(timing.shotNo);
-      return {
+      const baseClip = {
         id: timing.stableShotId,
         label: shot
           ? chatCutSourceNameFromShot(shot)
@@ -644,7 +828,23 @@ function buildTimelineLanes(
         endMs: timing.endMs,
         shotNo: timing.shotNo,
         imageUrl: shot ? shotImageUrl(shot) : null,
+        stableShotId: timing.stableShotId,
       };
+      const visualClips = shot?.timelineItem?.visualClips ?? [];
+      const derivedClips = visualClips.map(clip => ({
+        id: clip.id,
+        label: clip.label,
+        title: `${shot ? shotLabel(shot) : timing.stableShotId} · ${clip.label}`,
+        startMs: timing.startMs + clip.offsetMs,
+        endMs: timing.startMs + clip.offsetMs + clip.durationMs,
+        shotNo: timing.shotNo,
+        imageUrl: timelineVisualClipFrameUrl(clip),
+        stableShotId: timing.stableShotId,
+        visualClip: clip,
+      }));
+      return shot?.timelineItem?.visualClipsReplacePrimary
+        ? derivedClips
+        : [baseClip, ...derivedClips];
     }),
   });
 
@@ -665,10 +865,9 @@ function buildTimelineLanes(
     });
   }
 
-  const musicClips =
-    playbackAudioTracks.flatMap(track =>
-      track.clips.filter(clip => /bgm|music|配乐|音乐/i.test(clip.name))
-    );
+  const musicClips = playbackAudioTracks.flatMap(track =>
+    track.clips.filter(clip => /bgm|music|配乐|音乐/i.test(clip.name))
+  );
   if (musicClips.length > 0) {
     lanes.push({
       id: "music",
@@ -688,10 +887,9 @@ function buildTimelineLanes(
   const usedAudioIds = new Set(
     [...voiceClips, ...musicClips].map(clip => clip.id)
   );
-  const sourceAudio =
-    playbackAudioTracks.flatMap(track =>
-      track.clips.filter(clip => !usedAudioIds.has(clip.id))
-    );
+  const sourceAudio = playbackAudioTracks.flatMap(track =>
+    track.clips.filter(clip => !usedAudioIds.has(clip.id))
+  );
   if (sourceAudio.length > 0) {
     lanes.push({
       id: "source-audio",
@@ -821,6 +1019,9 @@ function MultiTrackTimeline({
   onSelectShot,
   onPlaybackChange,
   playbackRequest,
+  onSplitAtPlayhead,
+  onExtractFrameAtPlayhead,
+  onMoveTimelineClip,
 }: {
   visible: boolean;
   shots: CreationEditorShot[];
@@ -830,6 +1031,14 @@ function MultiTrackTimeline({
   onSelectShot: (shotNo: number) => void;
   onPlaybackChange: (playback: TimelinePlaybackState) => void;
   playbackRequest: TimelinePlaybackRequest;
+  onSplitAtPlayhead: (playheadMs: number) => Promise<void>;
+  onExtractFrameAtPlayhead: (playheadMs: number) => Promise<void>;
+  onMoveTimelineClip: (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetMs: number;
+  }) => Promise<void>;
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
@@ -849,6 +1058,13 @@ function MultiTrackTimeline({
     timings.find(timing => timing.shotNo === selectedShotNo)?.startMs ?? 0;
   const [playheadMs, setPlayheadMs] = useState(initialPlayheadMs);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "split" | "extract" | "move" | null
+  >(null);
+  const [draggedVisualClip, setDraggedVisualClip] = useState<{
+    clipId: string;
+    sourceStableShotId: string;
+  } | null>(null);
   const playheadMsRef = useRef(initialPlayheadMs);
   const isPlayingRef = useRef(false);
   const handledPlaybackRequestIdRef = useRef(0);
@@ -1040,6 +1256,84 @@ function MultiTrackTimeline({
     [commitPlayhead, manifest?.fps, setPlaybackRunning, totalMs]
   );
 
+  const runPlayheadAction = useCallback(
+    async (action: "split" | "extract") => {
+      setPlaybackRunning(false);
+      setPendingAction(action);
+      try {
+        if (action === "split") {
+          await onSplitAtPlayhead(playheadMsRef.current);
+          toast.success("已在当前帧切割视频，片段可直接拖动");
+        } else {
+          await onExtractFrameAtPlayhead(playheadMsRef.current);
+          toast.success("当前帧已加入该镜头的首尾画面");
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : action === "split"
+              ? "切割当前帧失败"
+              : "提取当前帧失败"
+        );
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [onExtractFrameAtPlayhead, onSplitAtPlayhead, setPlaybackRunning]
+  );
+
+  const dropTimelineVisualClip = useCallback(
+    async (event: ReactDragEvent<HTMLDivElement>) => {
+      if (!draggedVisualClip || pendingAction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const timeline = timelineContentRef.current;
+      if (!timeline) return;
+      const droppedMs = timelineMsFromClientX(
+        event.clientX,
+        timeline.getBoundingClientRect().left,
+        scale,
+        totalMs
+      );
+      const lastTiming = timings.at(-1);
+      const lookupMs = Math.min(
+        droppedMs,
+        Math.max(0, (lastTiming?.endMs ?? totalMs) - 1)
+      );
+      const targetTiming = timings.find(
+        timing => lookupMs >= timing.startMs && lookupMs < timing.endMs
+      );
+      if (!targetTiming) return;
+      setPendingAction("move");
+      try {
+        await onMoveTimelineClip({
+          ...draggedVisualClip,
+          targetStableShotId: targetTiming.stableShotId,
+          targetOffsetMs: Math.max(0, droppedMs - targetTiming.startMs),
+        });
+        onSelectShot(targetTiming.shotNo);
+        toast.success("视频片段位置已保存");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "视频片段移动失败"
+        );
+      } finally {
+        setPendingAction(null);
+        setDraggedVisualClip(null);
+      }
+    },
+    [
+      draggedVisualClip,
+      onMoveTimelineClip,
+      onSelectShot,
+      pendingAction,
+      scale,
+      timings,
+      totalMs,
+    ]
+  );
+
   useEffect(() => {
     if (!visible) return;
     const handleTimelineArrowKey = (event: KeyboardEvent) => {
@@ -1202,6 +1496,16 @@ function MultiTrackTimeline({
                 key={lane.id}
                 className="relative h-[27px] cursor-crosshair border-b border-border/70 bg-background"
                 onPointerDown={seekFromPointer}
+                onDragOver={event => {
+                  if (lane.id !== "primary-video" || !draggedVisualClip) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={event => {
+                  if (lane.id === "primary-video") {
+                    void dropTimelineVisualClip(event);
+                  }
+                }}
                 aria-label={`${lane.label} 轨道`}
               >
                 {lane.clips.map(clip => {
@@ -1215,6 +1519,7 @@ function MultiTrackTimeline({
                     <button
                       key={`${lane.id}-${clip.id}`}
                       type="button"
+                      draggable={Boolean(clip.visualClip)}
                       onClick={() => {
                         setPlaybackRunning(false);
                         commitPlayhead(clip.startMs, {
@@ -1222,10 +1527,27 @@ function MultiTrackTimeline({
                           playing: false,
                         });
                       }}
+                      onDragStart={event => {
+                        if (!clip.visualClip || !clip.stableShotId) {
+                          event.preventDefault();
+                          return;
+                        }
+                        setPlaybackRunning(false);
+                        setDraggedVisualClip({
+                          clipId: clip.visualClip.id,
+                          sourceStableShotId: clip.stableShotId,
+                        });
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(
+                          "text/plain",
+                          clip.visualClip.label
+                        );
+                      }}
+                      onDragEnd={() => setDraggedVisualClip(null)}
                       data-timeline-clip="true"
-                      className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${laneColors(
+                      className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
                         lane.tone
-                      )} ${selected ? "ring-2 ring-primary" : ""}`}
+                      )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
                       style={{ left, width }}
                       title={clip.title}
                       aria-label={clip.title}
@@ -1253,49 +1575,94 @@ function MultiTrackTimeline({
                 })}
               </div>
             ))}
-            <div
-              role="slider"
-              tabIndex={0}
-              className="group absolute bottom-0 top-0 z-30 w-4 -translate-x-1/2 cursor-ew-resize touch-none outline-none"
-              style={{ left: (playheadMs / 1000) * scale }}
-              aria-label="拖动播放头"
-              aria-valuemin={0}
-              aria-valuemax={totalMs}
-              aria-valuenow={Math.round(playheadMs)}
-              aria-valuetext={formatStoryboardTimestamp(playheadMs)}
-              title="拖动播放头；左右方向键逐帧移动"
-              onPointerDown={event => {
-                event.preventDefault();
-                event.stopPropagation();
-                setPlaybackRunning(false);
-                event.currentTarget.setPointerCapture(event.pointerId);
-                seekPlayheadHandle(event.clientX);
-              }}
-              onPointerMove={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  seekPlayheadHandle(event.clientX);
-                }
-              }}
-              onPointerUp={event => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-              }}
-              onKeyDown={event => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                  return;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                stepPlayheadByKeyboard(
-                  event.key === "ArrowRight" ? 1 : -1,
-                  event.shiftKey
-                );
-              }}
-            >
-              <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/70 group-focus-visible:ring-2 group-focus-visible:ring-rose-300" />
-              <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
-            </div>
+            <ContextMenu.Root>
+              <ContextMenu.Trigger asChild>
+                <div
+                  role="slider"
+                  tabIndex={0}
+                  className="group absolute bottom-0 top-0 z-30 w-4 -translate-x-1/2 cursor-ew-resize touch-none outline-none"
+                  style={{ left: (playheadMs / 1000) * scale }}
+                  aria-label="拖动播放头"
+                  aria-valuemin={0}
+                  aria-valuemax={totalMs}
+                  aria-valuenow={Math.round(playheadMs)}
+                  aria-valuetext={formatStoryboardTimestamp(playheadMs)}
+                  title="拖动播放头；右键切割或提取当前帧"
+                  onPointerDown={event => {
+                    if (event.button === 2) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setPlaybackRunning(false);
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    seekPlayheadHandle(event.clientX);
+                  }}
+                  onPointerMove={event => {
+                    if (
+                      event.currentTarget.hasPointerCapture(event.pointerId)
+                    ) {
+                      seekPlayheadHandle(event.clientX);
+                    }
+                  }}
+                  onPointerUp={event => {
+                    if (
+                      event.currentTarget.hasPointerCapture(event.pointerId)
+                    ) {
+                      event.currentTarget.releasePointerCapture(
+                        event.pointerId
+                      );
+                    }
+                  }}
+                  onKeyDown={event => {
+                    if (
+                      event.key !== "ArrowLeft" &&
+                      event.key !== "ArrowRight"
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    stepPlayheadByKeyboard(
+                      event.key === "ArrowRight" ? 1 : -1,
+                      event.shiftKey
+                    );
+                  }}
+                >
+                  <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/70 group-focus-visible:ring-2 group-focus-visible:ring-rose-300" />
+                  <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
+                </div>
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content
+                  className="z-[80] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                  data-testid="timeline-playhead-menu"
+                >
+                  <ContextMenu.Item
+                    disabled={pendingAction != null}
+                    onSelect={() => void runPlayheadAction("split")}
+                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                  >
+                    {pendingAction === "split" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Scissors className="h-3.5 w-3.5" />
+                    )}
+                    切割当前帧
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    disabled={pendingAction != null}
+                    onSelect={() => void runPlayheadAction("extract")}
+                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                  >
+                    {pendingAction === "extract" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-3.5 w-3.5" />
+                    )}
+                    提取当前帧作为素材
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
           </div>
         </div>
       </div>
@@ -1319,6 +1686,8 @@ export default function EditingNleWorkspace({
     chatCutTimeline,
     importStoryMaterial,
     adoptVideoTake,
+    splitTimelineVideoClip,
+    moveTimelineVideoClip,
     attachChatCutXml,
     isLoading,
   } = useCreationEditor();
@@ -1365,6 +1734,15 @@ export default function EditingNleWorkspace({
         : selectedTimelineIndex >= 0
           ? (primarySourceClips[selectedTimelineIndex] ?? null)
           : null;
+  const activeTimelineVideoSource = useMemo(
+    () =>
+      resolveTimelineVideoSource(
+        shots,
+        timelineShotIds,
+        timelinePlayback.playheadMs
+      ),
+    [shots, timelinePlayback.playheadMs, timelineShotIds]
+  );
 
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
@@ -1494,6 +1872,85 @@ export default function EditingNleWorkspace({
     }
   };
 
+  const splitAtPlayhead = useCallback(
+    async (playheadMs: number) => {
+      const source = resolveTimelineVideoSource(
+        shots,
+        timelineShotIds,
+        playheadMs
+      );
+      if (!source) {
+        throw new Error("当前帧没有可切割的视频，请先为这个镜头采用视频 Take");
+      }
+      const sourceDurationSec = source.sourceEndSec - source.sourceStartSec;
+      if (sourceDurationSec <= 2 / 30) {
+        throw new Error("当前视频片段太短，无法继续切割");
+      }
+      const sourceProgress = Math.min(
+        1,
+        Math.max(
+          0,
+          (source.sourceTimeSec - source.sourceStartSec) / sourceDurationSec
+        )
+      );
+      await splitTimelineVideoClip({
+        stableShotId: source.stableShotId,
+        takeStableShotId: source.takeStableShotId,
+        existingClipId: source.existingClipId,
+        takeId: source.takeId,
+        videoUrl: source.videoUrl,
+        sourceStartSec: source.sourceStartSec,
+        sourceEndSec: source.sourceEndSec,
+        splitSourceSec: source.sourceTimeSec,
+        offsetMs: source.offsetMs,
+        durationMs: source.durationMs,
+        splitOffsetMs: source.offsetMs + source.durationMs * sourceProgress,
+        label: source.label,
+      });
+    },
+    [shots, splitTimelineVideoClip, timelineShotIds]
+  );
+
+  const extractFrameAtPlayhead = useCallback(
+    async (playheadMs: number) => {
+      const source = resolveTimelineVideoSource(
+        shots,
+        timelineShotIds,
+        playheadMs
+      );
+      if (!source) {
+        throw new Error("当前帧没有可提取的视频，请先为这个镜头采用视频 Take");
+      }
+      const finalFrameInset = 1 / 30;
+      const captureAtSec = Math.max(
+        source.sourceStartSec,
+        Math.min(
+          source.sourceTimeSec,
+          Math.max(source.sourceStartSec, source.sourceEndSec - finalFrameInset)
+        )
+      );
+      const rangeQuery = source.rangeId ? `&rangeId=${source.rangeId}` : "";
+      const response = await fetch(
+        `/api/video-frames/${source.takeId}?atSec=${captureAtSec.toFixed(3)}${rangeQuery}`
+      );
+      if (!response.ok) throw new Error("服务器无法提取当前视频帧");
+      const frameBlob = await response.blob();
+      const mimeType = frameBlob.type || "image/png";
+      const frameBase64 = await fileBase64(
+        new File([frameBlob], "timeline-frame.png", { type: mimeType })
+      );
+      await importStoryMaterial({
+        fileName: `${source.label.replace(/[\s\\/:*?"<>|]+/g, "-") || "shot"}-${Math.round(playheadMs)}ms.png`,
+        mimeType,
+        fileBase64: frameBase64,
+        targetStableShotId: source.stableShotId,
+        preserveTimelineSelection: true,
+        note: `时间线 ${formatStoryboardTimestamp(playheadMs)} 提取帧，来源 Take ${source.takeId}`,
+      });
+    },
+    [importStoryMaterial, shots, timelineShotIds]
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -1556,6 +2013,15 @@ export default function EditingNleWorkspace({
               selectedShot ? timingByShotNo.get(selectedShot.shotNo) : undefined
             }
             sourceClip={selectedSourceClip}
+            timelineVideoSource={
+              activeTimelineVideoSource?.existingClipId &&
+              activeTimelineVideoSource.shotNo === selectedShot?.shotNo
+                ? activeTimelineVideoSource
+                : null
+            }
+            suppressDefaultVideo={Boolean(
+              selectedShot?.timelineItem?.visualClipsReplacePrimary
+            )}
             playheadMs={timelinePlayback.playheadMs}
             timelinePlaying={timelinePlayback.isPlaying}
             format={chatCutTimeline}
@@ -1577,6 +2043,9 @@ export default function EditingNleWorkspace({
         onSelectShot={selectShot}
         onPlaybackChange={setTimelinePlayback}
         playbackRequest={timelinePlaybackRequest}
+        onSplitAtPlayhead={splitAtPlayhead}
+        onExtractFrameAtPlayhead={extractFrameAtPlayhead}
+        onMoveTimelineClip={moveTimelineVideoClip}
       />
     </div>
   );

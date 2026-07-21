@@ -13,7 +13,10 @@ import {
   getStoryPromptProjection,
 } from "./promptLineage";
 import { migrateStoryPromptLineage } from "./promptLineageMigration";
-import { normalizeTimelineItems, getStoryMaterialState } from "./storyMaterials";
+import {
+  normalizeTimelineItems,
+  getStoryMaterialState,
+} from "./storyMaterials";
 import { selectVideoTimelineSegment } from "./videoTimeline";
 
 const savedDatabaseUrl = ENV.databaseUrl;
@@ -106,6 +109,65 @@ describe("normalizeTimelineItems", () => {
       stableShotId: "shot-a",
       included: true,
       position: 1,
+    });
+  });
+
+  it("keeps valid split video clips and discards malformed timeline clips", () => {
+    const items = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          included: true,
+          visualClipsReplacePrimary: true,
+          visualClips: [
+            {
+              id: "right",
+              takeId: 12,
+              rangeId: 102,
+              sourceStableShotId: "shot-a",
+              videoUrl: "/api/videos/12",
+              label: "后段",
+              sourceStartSec: 1.2,
+              sourceEndSec: 2.4,
+              offsetMs: 1_200,
+              durationMs: 1_200,
+            },
+            {
+              id: "left",
+              takeId: 12,
+              rangeId: 101,
+              sourceStableShotId: "shot-a",
+              videoUrl: "/api/videos/12",
+              label: "前段",
+              sourceStartSec: 0,
+              sourceEndSec: 1.2,
+              offsetMs: 0,
+              durationMs: 1_200,
+            },
+            {
+              id: "missing-video",
+              takeId: 12,
+              rangeId: 103,
+              sourceStableShotId: "shot-a",
+              videoUrl: "",
+              sourceStartSec: 0,
+              sourceEndSec: 1,
+              offsetMs: 0,
+              durationMs: 1_000,
+            },
+          ],
+        },
+      ],
+      facts
+    );
+
+    expect(items[0]).toMatchObject({
+      stableShotId: "shot-a",
+      visualClipsReplacePrimary: true,
+      visualClips: [
+        { id: "left", offsetMs: 0 },
+        { id: "right", offsetMs: 1_200 },
+      ],
     });
   });
 });
@@ -511,7 +573,8 @@ describe("getStoryMaterialState", () => {
     await selectImage(story.id, image.id);
     const projection = await getPromptProjection(story.id);
     const imageNode = projection.nodes.find(
-      node => node.stableShotId === "shot-01" && node.dimension === "image_prompt"
+      node =>
+        node.stableShotId === "shot-01" && node.dimension === "image_prompt"
     );
     expect(imageNode).toBeTruthy();
 
@@ -595,7 +658,8 @@ describe("getStoryMaterialState", () => {
 
     const projection = await getPromptProjection(story.id);
     const videoNode = projection.nodes.find(
-      node => node.stableShotId === "shot-01" && node.dimension === "camera_motion"
+      node =>
+        node.stableShotId === "shot-01" && node.dimension === "camera_motion"
     );
     expect(videoNode).toBeTruthy();
     const candidate = await createPromptCandidateForStory({

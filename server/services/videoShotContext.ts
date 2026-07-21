@@ -70,6 +70,7 @@ export function storyVideoContext(
       transitionIn: value("transitionIn"),
       transitionOut: value("transitionOut"),
       transitionIntent: value("transitionIntent"),
+      videoPrompt: value("videoPrompt"),
       negativePrompt: value("negativePrompt"),
     };
   };

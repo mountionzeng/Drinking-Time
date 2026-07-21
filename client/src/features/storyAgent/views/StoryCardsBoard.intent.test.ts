@@ -15,8 +15,12 @@ import {
   StoryboardVideoThumbnail,
   STORYBOARD_MATRIX_ROWS,
   quickShotVideoRenderPlan,
+  storyboardVideoIntentPatch,
+  storyboardFrameParamsAfterDelete,
   storyboardFrameOrderGenerationParams,
   storyboardFrameOrdersAfterMove,
+  storyboardFrameRoleForImage,
+  storyboardFrameRoleGenerationParams,
   storyboardShotFrameImages,
   storyboardStartEndGenerationParams,
   storyShotInsertIdentity,
@@ -228,6 +232,75 @@ describe("StoryCardsBoard intent entry", () => {
     ).toEqual([41, 42, 43]);
   });
 
+  it("persists explicit first, last, and reference roles for storyboard frames", () => {
+    const images = [
+      { id: 41, imageUrl: "/frames/a.webp" },
+      { id: 42, imageUrl: "/frames/b.webp" },
+      { id: 43, imageUrl: "/frames/c.webp" },
+    ];
+    const withFirst = storyboardFrameRoleGenerationParams(
+      "",
+      images,
+      42,
+      "first"
+    );
+    const withReference = storyboardFrameRoleGenerationParams(
+      withFirst,
+      images,
+      41,
+      "reference"
+    );
+    const parsed = JSON.parse(withReference);
+
+    expect(parsed).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 42,
+      lastFrameImageId: 43,
+      storyboardFrameRoles: {
+        firstImageId: 42,
+        lastImageId: 43,
+        referenceImageIds: [41],
+      },
+    });
+    const ordered = storyboardShotFrameImages({
+      shotNo: 1,
+      shotKey: "story-1165:0101",
+      generationParams: withReference,
+      imageVersions: images,
+    } as unknown as CreationEditorShot);
+    expect(ordered.map(image => image.id)).toEqual([42, 41, 43]);
+    expect(storyboardFrameRoleForImage(withReference, ordered, 41)).toBe(
+      "reference"
+    );
+  });
+
+  it("reassigns the remaining frame roles when a storyboard image is deleted", () => {
+    const images = [
+      { id: 41, imageUrl: "/frames/a.webp" },
+      { id: 42, imageUrl: "/frames/b.webp" },
+      { id: 43, imageUrl: "/frames/c.webp" },
+    ];
+    const generationParams = storyboardFrameRoleGenerationParams(
+      "",
+      images,
+      42,
+      "first"
+    );
+    const afterDelete = JSON.parse(
+      storyboardFrameParamsAfterDelete(generationParams, images, 42)
+    );
+
+    expect(afterDelete).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 41,
+      lastFrameImageId: 43,
+      storyboardFrameRoles: {
+        firstImageId: 41,
+        lastImageId: 43,
+      },
+    });
+  });
+
   it("moves a frame between shots and refreshes both first-last orders", () => {
     const moved = storyboardFrameOrdersAfterMove(
       [
@@ -299,10 +372,69 @@ describe("StoryCardsBoard intent entry", () => {
     expect(plan.motion).toBe("high");
     expect(plan.aspectRatio).toBe("1:1");
     expect(plan.estimatedCny).toBeGreaterThan(0);
+    expect(plan.renderDecision.strategy).toBe("paid-302");
     expect(plan.missing).toEqual([]);
     expect(plan.prompt).toContain("女主快速撑开属于自己的空间");
     expect(plan.prompt).toContain("稳定器从中景贴近");
     expect(plan.prompt).toContain("空间变化必须和人物撑开的动作同步");
+  });
+
+  it("routes a simple scale and position change to the free local renderer", () => {
+    const plan = quickShotVideoRenderPlan(
+      {
+        shotNo: 2,
+        shotKey: "story-1165:0102",
+        imageId: 102,
+        imageUrl: "/api/images/102.webp",
+        action: "人物与环境保持静止",
+        cameraMove: "数码放大画面并轻微向左平移",
+        videoPrompt: "保留原图，只调整构图",
+        durationMs: 4_200,
+      } as unknown as CreationEditorShot,
+      []
+    );
+
+    expect(plan.estimatedCny).toBe(0);
+    expect(plan.renderDecision).toMatchObject({
+      strategy: "local-transform",
+      localMotion: { kind: "zoom-pan" },
+    });
+  });
+
+  it("persists the current storyboard direction before rerendering", () => {
+    expect(
+      storyboardVideoIntentPatch(
+        {
+          action: "女主抬头，眼睛在画面上方出现",
+          performance: "先屏息，再缓慢抬眼",
+          environmentMotion: "背景保持不动",
+          cameraMove: "从人物中景推到眼睛特写",
+          cameraPath: "沿画面中心轴向前",
+          subjectPath: "人物停在原位",
+          videoStart: "女主位于画面下半部",
+          videoEnd: "眼睛占据画面中心",
+          transitionIn: "承接上一镜的抬头动作",
+          transitionOut: "眼睛构图匹配下一镜",
+          videoPrompt: "相机跟随视线抬升后推进",
+          negativePrompt: "不要新增人物",
+        } as unknown as CreationEditorShot,
+        '{"frameMode":"start_end"}'
+      )
+    ).toEqual({
+      action: "女主抬头，眼睛在画面上方出现",
+      performance: "先屏息，再缓慢抬眼",
+      environmentMotion: "背景保持不动",
+      cameraMove: "从人物中景推到眼睛特写",
+      cameraPath: "沿画面中心轴向前",
+      subjectPath: "人物停在原位",
+      videoStart: "女主位于画面下半部",
+      videoEnd: "眼睛占据画面中心",
+      transitionIn: "承接上一镜的抬头动作",
+      transitionOut: "眼睛构图匹配下一镜",
+      videoPrompt: "相机跟随视线抬升后推进",
+      negativePrompt: "不要新增人物",
+      generationParams: '{"frameMode":"start_end"}',
+    });
   });
 
   it("prefers the adopted playable video take for storyboard previews", () => {
@@ -458,6 +590,19 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("后添加镜头");
   });
 
+  it("shows video rendering, failure, candidate and adoption states in the storyboard", () => {
+    const boardSource = readFileSync(
+      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      "utf8"
+    );
+
+    expect(boardSource).toContain('data-video-take-stage="submitting"');
+    expect(boardSource).toContain("videoTakeProgress(take)");
+    expect(boardSource).toContain("onRefreshShotVideoStatus(take.id)");
+    expect(boardSource).toContain("onAdoptVideoTake({");
+    expect(boardSource).toContain("进入时间线");
+  });
+
   it("keeps manual shot deletion available in both storyboard views", () => {
     const boardSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
@@ -568,6 +713,13 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain('data-storyboard-media-height="fixed"');
     expect(boardSource).toContain("data-storyboard-frame-role");
     expect(boardSource).toContain("首尾画面");
+    expect(boardSource).toContain("storyboard-video-menu-clip-");
+    expect(boardSource).toContain("storyboard-video-menu-take-");
+    expect(boardSource).toContain("从首尾画面移除");
+    expect(boardSource).toContain("onRemoveTimelineVideoClip");
+    expect(panelSource).toContain(
+      "onRemoveTimelineVideoClip={removeTimelineVideoClip}"
+    );
     expect(boardSource).toContain("STORYBOARD_MATRIX_ROWS");
     expect(boardSource).toContain("gridTemplateColumns");
     expect(boardSource).not.toContain('gridColumn: "2 / -1"');
@@ -610,13 +762,14 @@ describe("StoryCardsBoard intent entry", () => {
       ),
       "utf8"
     );
-    expect(matrixSource).toContain("onDraft");
+    expect(matrixSource).not.toContain("onDraft");
     expect(matrixSource).toContain("onChange");
     expect(matrixSource).toContain("value={draftValue}");
     expect(matrixSource).toContain("rows={1}");
     expect(matrixSource).toContain("scrollHeight");
     expect(matrixSource).toContain("storyboardMatrixTextareaHeight");
     expect(matrixSource).not.toContain("defaultValue={currentValue}");
+    expect(panelSource).not.toContain("onUpdateShotDraftField");
     expect(boardSource).toContain("confirmFictionStoryCards");
     expect(boardSource).toContain("pendingIntentDraft");
     expect(boardSource).toContain("hasPendingFictionIntent");

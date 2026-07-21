@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   fitProjectCanvas,
+  resolveTimelineVideoSource,
+  shouldForwardPreviewPause,
   timelineAudioTargetSeconds,
   timelineAudioVolume,
   timelineSubtitleText,
   timelineVoiceLaneLabel,
 } from "./views/EditingNleWorkspace";
+import type { CreationEditorShot } from "./CreationEditorContext";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
 
 describe("editing workspace project canvas", () => {
@@ -68,6 +71,41 @@ describe("editing workspace project canvas", () => {
     expect(timelineAudioTargetSeconds(clip, 4_000)).toBeNull();
     expect(timelineAudioVolume("BGM-黑暗现代古典.mp3")).toBe(0.18);
     expect(timelineAudioVolume("VO-0101.mp3")).toBe(1);
+  });
+
+  it("only lets a direct preview control pause the master timeline", () => {
+    const directPause = {
+      timelinePlaying: true,
+      ignoreNextPause: false,
+      mediaIsCurrent: true,
+      mediaConnected: true,
+      mediaEnded: false,
+      lastInteractionAtMs: 1_000,
+      nowMs: 1_400,
+    };
+
+    expect(shouldForwardPreviewPause(directPause)).toBe(true);
+    expect(
+      shouldForwardPreviewPause({
+        ...directPause,
+        lastInteractionAtMs: null,
+      })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPause({ ...directPause, mediaIsCurrent: false })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPause({ ...directPause, mediaConnected: false })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPause({ ...directPause, mediaEnded: true })
+    ).toBe(false);
+    expect(
+      shouldForwardPreviewPause({ ...directPause, ignoreNextPause: true })
+    ).toBe(false);
+    expect(shouldForwardPreviewPause({ ...directPause, nowMs: 3_000 })).toBe(
+      false
+    );
   });
 
   it("shows the script cue that is actually speaking at the playhead", () => {
@@ -136,6 +174,72 @@ describe("editing workspace project canvas", () => {
     expect(timelineVoiceLaneLabel(manifest)).toBe("A3 法语旁白");
     expect(timelineSubtitleText(null, 1_500, "临时镜头台词")).toBe(
       "临时镜头台词"
+    );
+  });
+
+  it("maps the playhead into a persisted split clip source frame", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-a",
+      cueCode: "0101",
+      subject: "女主",
+      action: "转身",
+      dialogue: "台词",
+      shotType: "中景",
+      beat: "",
+      cameraAngle: "",
+      cameraMove: "",
+      location: "",
+      timeLight: "",
+      mood: "",
+      sound: "",
+      styleRef: "",
+      note: "",
+      emotion: "",
+      sourceCardContent: "",
+      durationMs: 4_000,
+      timelineItem: {
+        stableShotId: "shot-a",
+        included: true,
+        position: 0,
+        plannedDurationMs: 4_000,
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+        visualClipsReplacePrimary: true,
+        visualClips: [
+          {
+            id: "split-right",
+            takeId: 22,
+            rangeId: 8,
+            sourceStableShotId: "shot-a",
+            videoUrl: "/api/videos/22",
+            label: "0101 · 后段",
+            sourceStartSec: 3,
+            sourceEndSec: 5,
+            offsetMs: 2_000,
+            durationMs: 2_000,
+          },
+        ],
+      },
+    } as CreationEditorShot;
+
+    expect(resolveTimelineVideoSource([shot], ["shot-a"], 3_000)).toMatchObject(
+      {
+        stableShotId: "shot-a",
+        takeId: 22,
+        existingClipId: "split-right",
+        sourceStartSec: 3,
+        sourceEndSec: 5,
+        sourceTimeSec: 4,
+      }
     );
   });
 });

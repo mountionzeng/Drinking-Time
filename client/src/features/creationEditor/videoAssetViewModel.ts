@@ -11,6 +11,51 @@ export type VideoTakeAffordance = {
   canExplainParameters: boolean;
 };
 
+export type VideoTakeProgress = {
+  stage: "rendering" | "ready" | "selected" | "failed" | "removed";
+  label: string;
+};
+
+export function videoTakeProgress(
+  take: Pick<VideoTakeAsset, "status" | "isTimelineSelected">
+): VideoTakeProgress {
+  if (take.status === "available") {
+    return take.isTimelineSelected
+      ? { stage: "selected", label: "已采用" }
+      : { stage: "ready", label: "待选择" };
+  }
+  if (take.status === "submitted") {
+    return { stage: "rendering", label: "排队中" };
+  }
+  if (take.status === "processing") {
+    return { stage: "rendering", label: "渲染中" };
+  }
+  if (take.status === "timeout") {
+    return { stage: "failed", label: "生成超时" };
+  }
+  if (take.status === "failed") {
+    return { stage: "failed", label: "生成失败" };
+  }
+  return { stage: "removed", label: "已移除" };
+}
+
+export function videoTakeIdsToRefresh(
+  shots: ReadonlyArray<{
+    videoTakes?: ReadonlyArray<Pick<VideoTakeAsset, "id" | "status">>;
+  }>,
+  recentTakeIds: readonly number[] = []
+): number[] {
+  const ids = new Set(recentTakeIds);
+  for (const shot of shots) {
+    for (const take of shot.videoTakes ?? []) {
+      if (take.status === "submitted" || take.status === "processing") {
+        ids.add(take.id);
+      }
+    }
+  }
+  return Array.from(ids).sort((left, right) => left - right);
+}
+
 export function videoTakeAffordance(
   status: VideoTakeStatus
 ): VideoTakeAffordance {

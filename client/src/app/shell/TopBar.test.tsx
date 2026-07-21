@@ -104,4 +104,34 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain("时间线");
     expect(html).not.toContain("故事版看板");
   });
+
+  it("supports independent material warehouse and timeline toggles", () => {
+    const html = renderToStaticMarkup(
+      <TopBar
+        showStoryPanelNav={false}
+        panelToggles={[
+          {
+            label: "素材仓库",
+            active: false,
+            controls: "editing-material-warehouse",
+            testId: "topbar-material-warehouse-toggle",
+            onToggle: vi.fn(),
+          },
+          {
+            label: "时间线",
+            active: true,
+            testId: "topbar-timeline-toggle",
+            onToggle: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    expect(html).toContain('data-testid="topbar-material-warehouse-toggle"');
+    expect(html).toContain('aria-label="显示素材仓库"');
+    expect(html).toContain('aria-controls="editing-material-warehouse"');
+    expect(html).toContain('data-testid="topbar-timeline-toggle"');
+    expect(html).toContain('aria-label="隐藏时间线"');
+    expect(html.match(/aria-pressed=/g)).toHaveLength(2);
+  });
 });

@@ -6,6 +6,8 @@ import {
   shotTimelineDurationMs,
   videoTakeAffordance,
   videoTakeErrorMessage,
+  videoTakeIdsToRefresh,
+  videoTakeProgress,
 } from "./videoAssetViewModel";
 
 describe("videoAssetViewModel", () => {
@@ -23,6 +25,40 @@ describe("videoAssetViewModel", () => {
     ] as const) {
       expect(videoTakeAffordance(status).canUseOnTimeline).toBe(false);
     }
+  });
+
+  it("describes the user-facing generation and selection stages", () => {
+    expect(
+      videoTakeProgress({ status: "submitted", isTimelineSelected: false })
+    ).toMatchObject({ stage: "rendering", label: "排队中" });
+    expect(
+      videoTakeProgress({ status: "processing", isTimelineSelected: false })
+    ).toMatchObject({ stage: "rendering", label: "渲染中" });
+    expect(
+      videoTakeProgress({ status: "available", isTimelineSelected: false })
+    ).toMatchObject({ stage: "ready", label: "待选择" });
+    expect(
+      videoTakeProgress({ status: "available", isTimelineSelected: true })
+    ).toMatchObject({ stage: "selected", label: "已采用" });
+    expect(
+      videoTakeProgress({ status: "failed", isTimelineSelected: false })
+    ).toMatchObject({ stage: "failed", label: "生成失败" });
+  });
+
+  it("keeps a just-submitted take under observation before queries catch up", () => {
+    expect(
+      videoTakeIdsToRefresh(
+        [
+          {
+            videoTakes: [
+              { id: 7, status: "processing" },
+              { id: 8, status: "available" },
+            ],
+          },
+        ],
+        [11]
+      )
+    ).toEqual([7, 11]);
   });
 
   it("uses explicit range duration only when the timeline selection points at that range", () => {

@@ -72,6 +72,7 @@ import {
 } from "../services/shotDerivation";
 import {
   refreshVideoTakeStatus,
+  resolveShotVideoRenderDecision,
   startShotVideoJob,
 } from "../services/videoJobs";
 import { getShotVideoProviderStatus } from "../services/videoGen";
@@ -929,7 +930,7 @@ export const creationAgentRouter = router({
         rerenderRequestId: z.string().trim().min(1).max(128).optional(),
         costConfirmation: z.object({
           accepted: z.literal(true),
-          estimatedCny: z.number().positive(),
+          estimatedCny: z.number().nonnegative(),
         }),
       })
     )
@@ -983,14 +984,30 @@ export const creationAgentRouter = router({
         rerenderRequestId: z.string().trim().min(1).max(128).optional(),
         costConfirmation: z.object({
           accepted: z.literal(true),
-          estimatedCny: z.number().positive(),
+          estimatedCny: z.number().nonnegative(),
         }),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const durationSec = input.durationSec ?? 5;
       const motion = input.motion ?? getShotVideoProviderStatus().motion;
-      const estimate = estimateShotVideoCost({ durationSec, motion });
+      const renderDecision = await resolveShotVideoRenderDecision(
+        {
+          storyId: input.storyId,
+          shotNo: input.shotNo,
+          stableShotId: input.stableShotId,
+          prompt: input.prompt,
+        },
+        ctx.user.id
+      );
+      const paidEstimate = estimateShotVideoCost({ durationSec, motion });
+      const estimate = {
+        ...paidEstimate,
+        estimatedCny:
+          renderDecision.strategy === "local-transform"
+            ? 0
+            : paidEstimate.estimatedCny,
+      };
       if (
         Math.abs(input.costConfirmation.estimatedCny - estimate.estimatedCny) >
         0.001
@@ -1039,6 +1056,8 @@ export const creationAgentRouter = router({
         taskId: result.take.taskId ?? undefined,
         prompt: result.take.prompt,
         estimatedCny: estimate.estimatedCny,
+        renderStrategy: renderDecision.strategy,
+        renderReason: renderDecision.reason,
       };
     }),
 
@@ -1354,6 +1373,23 @@ export const creationAgentRouter = router({
               panX: z.number().min(-1).max(1),
               panY: z.number().min(-1).max(1),
             }),
+            visualClips: z
+              .array(
+                z.object({
+                  id: z.string().min(1).max(160),
+                  takeId: z.number().int().positive(),
+                  rangeId: z.number().int().positive(),
+                  sourceStableShotId: z.string().min(1),
+                  videoUrl: z.string().min(1),
+                  label: z.string().min(1).max(120),
+                  sourceStartSec: z.number().min(0),
+                  sourceEndSec: z.number().min(0),
+                  offsetMs: z.number().min(0),
+                  durationMs: z.number().min(1),
+                })
+              )
+              .optional(),
+            visualClipsReplacePrimary: z.boolean().optional(),
           })
         ),
       })

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { TrpcContext } from "./_core/context";
+import { createStory, resetMemoryStateForTesting } from "./db";
 import { appRouter } from "./routers";
 
 function context(): TrpcContext {
@@ -22,7 +23,6 @@ function context(): TrpcContext {
 }
 
 const generationInput = {
-  storyId: 1165,
   shotNo: 2,
   stableShotId: "shot-02",
   imageId: 88,
@@ -32,12 +32,38 @@ const generationInput = {
   aspectRatio: "1:1" as const,
 };
 
+let storyId = 0;
+
+beforeEach(async () => {
+  resetMemoryStateForTesting();
+  const story = await createStory({
+    userId: 701,
+    projectId: null,
+    title: "费用确认测试",
+    body: {
+      shots: [
+        {
+          shotNo: 2,
+          stableShotId: "shot-02",
+          subject: "女主",
+          action: "转向光线",
+          cameraMove: "固定机位",
+        },
+      ],
+    },
+  });
+  storyId = story.id;
+});
+
 describe("creationAgent.generateShotVideo cost confirmation", () => {
   it("rejects a paid generation request without explicit confirmation", async () => {
     const caller = appRouter.createCaller(context());
 
     await expect(
-      caller.creationAgent.generateShotVideo(generationInput as never)
+      caller.creationAgent.generateShotVideo({
+        ...generationInput,
+        storyId,
+      } as never)
     ).rejects.toThrow(/costConfirmation/);
   });
 
@@ -45,6 +71,7 @@ describe("creationAgent.generateShotVideo cost confirmation", () => {
     const caller = appRouter.createCaller(context());
     const result = await caller.creationAgent.generateShotVideo({
       ...generationInput,
+      storyId,
       costConfirmation: { accepted: true, estimatedCny: 0.01 },
     });
 

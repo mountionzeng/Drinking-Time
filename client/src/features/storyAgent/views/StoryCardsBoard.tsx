@@ -37,7 +37,12 @@ import {
   RotateCcw,
   Upload,
   Video,
+  Check,
+  Focus,
+  SkipBack,
+  SkipForward,
 } from "lucide-react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   isFictionStoryCardConfirmed,
   useStoryAgentActions,
@@ -66,7 +71,9 @@ import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPro
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
 import {
   videoTakeAffordance,
+  videoTakeErrorMessage,
   videoTakeFrameUrl,
+  videoTakeProgress,
 } from "@/features/creationEditor/videoAssetViewModel";
 import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
@@ -79,6 +86,10 @@ import {
   parseStartEndVideoConfig,
   type StartEndShotVideoEstimate,
 } from "@shared/startEndVideo";
+import {
+  decideVideoRenderStrategy,
+  type VideoRenderDecision,
+} from "@shared/videoMotionPolicy";
 import type { NayinElement } from "@/features/nayin/nayin";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import {
@@ -242,7 +253,29 @@ export type QuickShotVideoRenderPlan = {
   motion: "low" | "high";
   aspectRatio: typeof SHOT_VIDEO_ASPECT_RATIO;
   estimatedCny: number;
+  renderDecision: VideoRenderDecision;
 };
+
+export function storyboardVideoIntentPatch(
+  shot: CreationEditorShot,
+  generationParams?: string
+): Partial<Record<StoryShotEditableField, string>> {
+  return {
+    action: shot.action ?? "",
+    performance: shot.performance ?? "",
+    environmentMotion: shot.environmentMotion ?? "",
+    cameraMove: shot.cameraMove ?? "",
+    cameraPath: shot.cameraPath ?? "",
+    subjectPath: shot.subjectPath ?? "",
+    videoStart: shot.videoStart ?? "",
+    videoEnd: shot.videoEnd ?? "",
+    transitionIn: shot.transitionIn ?? "",
+    transitionOut: shot.transitionOut ?? "",
+    videoPrompt: shot.videoPrompt ?? "",
+    negativePrompt: shot.negativePrompt ?? "",
+    ...(generationParams ? { generationParams } : {}),
+  };
+}
 
 export function quickShotVideoRenderPlan(
   shot: CreationEditorShot,
@@ -265,13 +298,26 @@ export function quickShotVideoRenderPlan(
     Math.min(10, Math.round((shot.durationMs ?? 5_000) / 1_000))
   );
   const estimate = estimateShotVideoCost({ durationSec, motion });
+  const renderDecision = decideVideoRenderStrategy({
+    action: shot.action,
+    performance: shot.performance,
+    environmentMotion: shot.environmentMotion,
+    cameraMove: shot.cameraMove,
+    cameraPath: shot.cameraPath,
+    subjectPath: shot.subjectPath,
+    videoStart: shot.videoStart,
+    videoEnd: shot.videoEnd,
+    videoPrompt: shot.videoPrompt,
+  });
   return {
     prompt: recipe.finalPrompt,
     missing: recipe.missing,
     durationSec,
     motion,
     aspectRatio: SHOT_VIDEO_ASPECT_RATIO,
-    estimatedCny: estimate.estimatedCny,
+    estimatedCny:
+      renderDecision.strategy === "local-transform" ? 0 : estimate.estimatedCny,
+    renderDecision,
   };
 }
 
@@ -455,6 +501,231 @@ function generationParamsRecord(
   }
 }
 
+export type StoryboardFrameRole = "first" | "last" | "reference";
+
+type StoryboardFrameRoleConfig = {
+  firstImageId: number | null;
+  lastImageId: number | null;
+  referenceImageIds: number[];
+  explicit: boolean;
+};
+
+function positiveImageId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function positiveImageIds(value: unknown): number[] {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value.map(positiveImageId).filter((id): id is number => id != null)
+        )
+      )
+    : [];
+}
+
+function storyboardFrameRoleConfig(
+  generationParams: string | null | undefined,
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[]
+): StoryboardFrameRoleConfig {
+  const params = generationParamsRecord(generationParams);
+  const rawRoles =
+    params.storyboardFrameRoles &&
+    typeof params.storyboardFrameRoles === "object" &&
+    !Array.isArray(params.storyboardFrameRoles)
+      ? (params.storyboardFrameRoles as Record<string, unknown>)
+      : null;
+  const availableIds = new Set(
+    images
+      .filter(image => image.id > 0 && Boolean(image.imageUrl))
+      .map(image => image.id)
+  );
+  const available = (id: number | null) =>
+    id != null && availableIds.has(id) ? id : null;
+  const firstImageId = available(
+    positiveImageId(rawRoles?.firstImageId ?? params.firstFrameImageId)
+  );
+  const lastImageId = available(
+    positiveImageId(rawRoles?.lastImageId ?? params.lastFrameImageId)
+  );
+  const referenceImageIds = positiveImageIds(
+    rawRoles?.referenceImageIds ?? params.referenceFrameImageIds
+  ).filter(
+    id => availableIds.has(id) && id !== firstImageId && id !== lastImageId
+  );
+  return {
+    firstImageId,
+    lastImageId,
+    referenceImageIds,
+    explicit: rawRoles != null,
+  };
+}
+
+function serializeStoryboardFrameRoles(
+  generationParams: string | null | undefined,
+  roleConfig: Omit<StoryboardFrameRoleConfig, "explicit">,
+  durationMs: number
+): string {
+  const current = generationParamsRecord(generationParams);
+  const firstImageId = positiveImageId(roleConfig.firstImageId);
+  const lastImageId = positiveImageId(roleConfig.lastImageId);
+  const referenceImageIds = Array.from(
+    new Set(roleConfig.referenceImageIds)
+  ).filter(id => id !== firstImageId && id !== lastImageId);
+  current.storyboardFrameRoles = {
+    ...(firstImageId != null ? { firstImageId } : {}),
+    ...(lastImageId != null ? { lastImageId } : {}),
+    referenceImageIds,
+  };
+  current.referenceFrameImageIds = referenceImageIds;
+  if (
+    firstImageId != null &&
+    lastImageId != null &&
+    firstImageId !== lastImageId
+  ) {
+    current.frameMode = "start_end";
+    current.firstFrameImageId = firstImageId;
+    current.lastFrameImageId = lastImageId;
+    if (
+      typeof current.durationSec !== "number" ||
+      !Number.isFinite(current.durationSec) ||
+      current.durationSec <= 0
+    ) {
+      current.durationSec = Math.max(
+        1,
+        Math.min(8, Math.round(durationMs / 1_000))
+      );
+    }
+    if (!["540p", "720p", "1080p"].includes(String(current.resolution))) {
+      current.resolution = "1080p";
+    }
+    if (
+      !["auto", "small", "medium", "large"].includes(
+        String(current.movementAmplitude)
+      )
+    ) {
+      current.movementAmplitude = "auto";
+    }
+  } else {
+    if (current.frameMode === "start_end") delete current.frameMode;
+    delete current.firstFrameImageId;
+    delete current.lastFrameImageId;
+  }
+  return JSON.stringify(current);
+}
+
+export function storyboardFrameRoleGenerationParams(
+  generationParams: string | null | undefined,
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
+  imageId: number,
+  role: StoryboardFrameRole,
+  durationMs = 5_000
+): string {
+  const orderedIds = Array.from(
+    new Set(
+      images
+        .filter(image => image.id > 0 && Boolean(image.imageUrl))
+        .map(image => image.id)
+    )
+  );
+  if (!orderedIds.includes(imageId)) return generationParams?.trim() ?? "";
+  const configured = storyboardFrameRoleConfig(generationParams, images);
+  let firstImageId: number | null =
+    configured.firstImageId ?? orderedIds[0] ?? null;
+  let lastImageId: number | null =
+    configured.lastImageId ??
+    (orderedIds.length > 1 ? (orderedIds.at(-1) ?? null) : null);
+  const replacement = (excluded: Set<number>, fromEnd = false) => {
+    const candidates = fromEnd ? [...orderedIds].reverse() : orderedIds;
+    return candidates.find(id => !excluded.has(id)) ?? null;
+  };
+
+  if (role === "first") {
+    if (lastImageId === imageId) {
+      lastImageId = replacement(new Set([imageId]), true);
+    }
+    firstImageId = imageId;
+  } else if (role === "last") {
+    if (firstImageId === imageId) {
+      firstImageId = replacement(new Set([imageId]));
+    }
+    lastImageId = imageId;
+  } else {
+    if (firstImageId === imageId) {
+      firstImageId = replacement(
+        new Set([imageId, ...(lastImageId != null ? [lastImageId] : [])])
+      );
+    }
+    if (lastImageId === imageId) {
+      lastImageId = replacement(
+        new Set([imageId, ...(firstImageId != null ? [firstImageId] : [])]),
+        true
+      );
+    }
+  }
+  return serializeStoryboardFrameRoles(
+    generationParams,
+    {
+      firstImageId,
+      lastImageId,
+      referenceImageIds: orderedIds.filter(
+        id => id !== firstImageId && id !== lastImageId
+      ),
+    },
+    durationMs
+  );
+}
+
+export function storyboardFrameParamsAfterDelete(
+  generationParams: string | null | undefined,
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
+  imageId: number,
+  durationMs = 5_000
+): string {
+  const remaining = images.filter(image => image.id !== imageId);
+  const remainingIds = remaining.map(image => image.id);
+  const configured = storyboardFrameRoleConfig(generationParams, images);
+  let firstImageId =
+    configured.firstImageId === imageId ? null : configured.firstImageId;
+  let lastImageId =
+    configured.lastImageId === imageId ? null : configured.lastImageId;
+  if (firstImageId == null) {
+    firstImageId = remainingIds.find(id => id !== lastImageId) ?? null;
+  }
+  if (lastImageId == null) {
+    lastImageId =
+      [...remainingIds].reverse().find(id => id !== firstImageId) ?? null;
+  }
+  return serializeStoryboardFrameRoles(
+    generationParams,
+    {
+      firstImageId,
+      lastImageId,
+      referenceImageIds: remainingIds.filter(
+        id => id !== firstImageId && id !== lastImageId
+      ),
+    },
+    durationMs
+  );
+}
+
+export function storyboardFrameRoleForImage(
+  generationParams: string | null | undefined,
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
+  imageId: number
+): StoryboardFrameRole {
+  const configured = storyboardFrameRoleConfig(generationParams, images);
+  if (configured.firstImageId === imageId) return "first";
+  if (configured.lastImageId === imageId) return "last";
+  if (configured.referenceImageIds.includes(imageId)) return "reference";
+  const index = images.findIndex(image => image.id === imageId);
+  if (index <= 0) return "first";
+  if (index === images.length - 1) return "last";
+  return "reference";
+}
+
 export function storyboardStartEndGenerationParams(
   generationParams: string | null | undefined,
   images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
@@ -562,18 +833,29 @@ export function storyboardShotFrameImages(
         .map(image => [image.id, image])
     ).values()
   ).sort((left, right) => left.id - right.id);
-  const config = parseStartEndVideoConfig(
-    shot.generationParams,
-    Math.max(0.1, (shot.durationMs ?? 5_000) / 1_000)
-  );
-  if (!config) return unique;
-  const first = unique.find(image => image.id === config.firstFrameImageId);
-  const last = unique.find(image => image.id === config.lastFrameImageId);
-  if (!first || !last) return unique;
+  const roles = storyboardFrameRoleConfig(shot.generationParams, unique);
+  if (
+    !roles.explicit &&
+    roles.firstImageId == null &&
+    roles.lastImageId == null
+  )
+    return unique;
+  const first = unique.find(image => image.id === roles.firstImageId);
+  const last = unique.find(image => image.id === roles.lastImageId);
+  const references = roles.referenceImageIds.flatMap(imageId => {
+    const image = unique.find(candidate => candidate.id === imageId);
+    return image ? [image] : [];
+  });
+  const used = new Set([
+    ...(first ? [first.id] : []),
+    ...(last ? [last.id] : []),
+    ...references.map(image => image.id),
+  ]);
   return [
-    first,
-    ...unique.filter(image => image.id !== first.id && image.id !== last.id),
-    last,
+    ...(first ? [first] : []),
+    ...references,
+    ...unique.filter(image => !used.has(image.id)),
+    ...(last ? [last] : []),
   ];
 }
 
@@ -635,7 +917,6 @@ export function StoryboardReviewBoard({
   selectedShotNo = null,
   onSelectShot,
   onUpdateShotField,
-  onUpdateShotDraftField,
   creationShots = [],
   timelineShotIds = [],
   onAddShotToTimeline,
@@ -645,9 +926,13 @@ export function StoryboardReviewBoard({
   onGenerateShotVideo,
   onEstimateStartEndShotVideo,
   onGenerateStartEndShotVideo,
+  onRefreshShotVideoStatus,
   onMoveStoryImage,
+  onDeleteStoryImage,
   onMoveVideoTake,
   onAdoptVideoTake,
+  onMarkVideoTakeUnusable,
+  onRemoveTimelineVideoClip,
   onImportStoryMaterial,
   onUpdateShotFields,
   shotVideoProviderStatus = null,
@@ -666,12 +951,7 @@ export function StoryboardReviewBoard({
     index: number,
     field: StoryShotEditableField,
     value: string
-  ) => void;
-  onUpdateShotDraftField?: (
-    index: number,
-    field: StoryShotEditableField,
-    value: string
-  ) => void;
+  ) => void | Promise<void>;
   creationShots?: CreationEditorShot[];
   timelineShotIds?: string[];
   onAddShotToTimeline?: (shotNo: number, stableShotId?: string | null) => void;
@@ -713,11 +993,16 @@ export function StoryboardReviewBoard({
   }) => Promise<unknown>;
   onRefreshShotVideoStatus?: (takeId: number) => Promise<void>;
   onMarkVideoTakeUnusable?: (takeId: number) => Promise<void>;
+  onRemoveTimelineVideoClip?: (input: {
+    stableShotId: string;
+    clipId: string;
+  }) => Promise<void>;
   onMoveStoryImage?: (input: {
     imageId: number;
     targetStableShotId: string;
     preserveTimelineSelection?: boolean;
   }) => Promise<void>;
+  onDeleteStoryImage?: (imageId: number) => Promise<void>;
   onMoveVideoTake?: (input: {
     takeId: number;
     targetStableShotId: string;
@@ -779,9 +1064,19 @@ export function StoryboardReviewBoard({
     string | null
   >(null);
   const [movingImageId, setMovingImageId] = useState<number | null>(null);
+  const [updatingFrameImageId, setUpdatingFrameImageId] = useState<
+    number | null
+  >(null);
   const [movingVideoTakeId, setMovingVideoTakeId] = useState<number | null>(
     null
   );
+  const [refreshingVideoTakeId, setRefreshingVideoTakeId] = useState<
+    number | null
+  >(null);
+  const [adoptingVideoTakeId, setAdoptingVideoTakeId] = useState<number | null>(
+    null
+  );
+  const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(
     null
   );
@@ -1130,6 +1425,81 @@ export function StoryboardReviewBoard({
     }
   };
 
+  const setStoryboardFrameRole = async (input: {
+    shot: StoryShot;
+    creationShot: CreationEditorShot;
+    stableShotId: string;
+    frameImages: Array<Pick<CreationEditorImage, "id" | "imageUrl">>;
+    imageId: number;
+    role: StoryboardFrameRole;
+  }) => {
+    if (!onUpdateShotFields || updatingFrameImageId != null) return;
+    setUpdatingFrameImageId(input.imageId);
+    onSelectShot?.(input.shot.shotNo);
+    try {
+      const generationParams = storyboardFrameRoleGenerationParams(
+        input.creationShot.generationParams,
+        input.frameImages,
+        input.imageId,
+        input.role,
+        input.creationShot.durationMs
+      );
+      await onUpdateShotFields(input.stableShotId, { generationParams });
+      const roleLabel =
+        input.role === "first"
+          ? "首帧"
+          : input.role === "last"
+            ? "尾帧"
+            : "中间参考";
+      toast.success(`图片 #${input.imageId} 已设为${roleLabel}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "画面角色保存失败");
+    } finally {
+      setUpdatingFrameImageId(null);
+    }
+  };
+
+  const deleteStoryboardFrame = async (input: {
+    shot: StoryShot;
+    creationShot: CreationEditorShot;
+    stableShotId: string;
+    frameImages: Array<Pick<CreationEditorImage, "id" | "imageUrl">>;
+    imageId: number;
+  }) => {
+    if (
+      !onDeleteStoryImage ||
+      !onUpdateShotFields ||
+      updatingFrameImageId != null
+    )
+      return;
+    setUpdatingFrameImageId(input.imageId);
+    onSelectShot?.(input.shot.shotNo);
+    try {
+      const generationParams = storyboardFrameParamsAfterDelete(
+        input.creationShot.generationParams,
+        input.frameImages,
+        input.imageId,
+        input.creationShot.durationMs
+      );
+      await onUpdateShotFields(input.stableShotId, { generationParams });
+      await onDeleteStoryImage(input.imageId);
+      if (
+        previewMedia?.kind === "image" &&
+        input.frameImages.find(
+          frame =>
+            frame.id === input.imageId && frame.imageUrl === previewMedia.url
+        )
+      ) {
+        setPreviewMedia(null);
+      }
+      toast.success(`图片 #${input.imageId} 已删除`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "图片删除失败");
+    } finally {
+      setUpdatingFrameImageId(null);
+    }
+  };
+
   const shotMediaDropHandlers = (
     shot: StoryShot,
     stableShotId: string | null | undefined,
@@ -1291,6 +1661,18 @@ export function StoryboardReviewBoard({
         storyboardShotFrameImages(creationShot),
         creationShot.durationMs
       );
+      if (onUpdateShotFields && !stableShotId) {
+        throw new Error(`${label} 缺少稳定镜头编号，无法先保存再重新渲染`);
+      }
+      if (stableShotId && onUpdateShotFields) {
+        await onUpdateShotFields(
+          stableShotId,
+          storyboardVideoIntentPatch(
+            creationShot,
+            derivedGenerationParams ?? undefined
+          )
+        );
+      }
       const effectiveGenerationParams =
         derivedGenerationParams ?? creationShot.generationParams;
       const startEndConfig = parseStartEndVideoConfig(
@@ -1305,28 +1687,13 @@ export function StoryboardReviewBoard({
         ) {
           throw new Error("这个首尾帧镜头暂时无法提交视频生成");
         }
-        if (onUpdateShotFields) {
-          await onUpdateShotFields(stableShotId, {
-            action: creationShot.action ?? "",
-            performance: creationShot.performance ?? "",
-            environmentMotion: creationShot.environmentMotion ?? "",
-            cameraMove: creationShot.cameraMove ?? "",
-            cameraPath: creationShot.cameraPath ?? "",
-            subjectPath: creationShot.subjectPath ?? "",
-            videoStart: creationShot.videoStart ?? "",
-            videoEnd: creationShot.videoEnd ?? "",
-            transitionIn: creationShot.transitionIn ?? "",
-            transitionOut: creationShot.transitionOut ?? "",
-            videoPrompt: creationShot.videoPrompt ?? "",
-            negativePrompt: creationShot.negativePrompt ?? "",
-            ...(derivedGenerationParams
-              ? { generationParams: derivedGenerationParams }
-              : {}),
-          });
-        }
         const estimate = await onEstimateStartEndShotVideo(stableShotId);
+        const usesLocalTransform =
+          estimate.renderStrategy === "local-transform";
         const confirmed = window.confirm(
-          `${label} 将使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+          usesLocalTransform
+            ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+            : `${label} 已先保存本镜文字，将使用当前动作、表演、运镜、衔接，以及首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
         );
         if (!confirmed) return;
         const result = (await onGenerateStartEndShotVideo({
@@ -1340,22 +1707,18 @@ export function StoryboardReviewBoard({
         })) as { takeId?: number } | undefined;
         toast.success(
           result?.takeId
-            ? `${label} 已提交为候选 Take ${result.takeId}`
-            : `${label} 首尾帧视频已提交`
+            ? usesLocalTransform
+              ? `${label} 已在本机生成候选 Take ${result.takeId}，未调用 302`
+              : `${label} 已提交为候选 Take ${result.takeId}`
+            : usesLocalTransform
+              ? `${label} 已完成本地镜头生成`
+              : `${label} 首尾帧视频已提交`
         );
         return;
       }
 
       if (!onGenerateShotVideo) {
         throw new Error("视频生成链路尚未连接");
-      }
-      if (!shotVideoProviderStatus?.ready) {
-        const missing = shotVideoProviderStatus?.missing
-          .filter(Boolean)
-          .join("、");
-        throw new Error(
-          missing ? `视频模型未就绪：${missing}` : "视频模型状态尚未就绪"
-        );
       }
       if (creationShot.imageId == null || !creationShot.imageUrl) {
         throw new Error(`${label} 需要先选择一张当前主图`);
@@ -1367,8 +1730,21 @@ export function StoryboardReviewBoard({
       if (plan.missing.length > 0) {
         throw new Error(`${label} 还缺少：${plan.missing.join("、")}`);
       }
+      if (
+        plan.renderDecision.strategy === "paid-302" &&
+        !shotVideoProviderStatus?.ready
+      ) {
+        const missing = shotVideoProviderStatus?.missing
+          .filter(Boolean)
+          .join("、");
+        throw new Error(
+          missing ? `视频模型未就绪：${missing}` : "视频模型状态尚未就绪"
+        );
+      }
       const confirmed = window.confirm(
-        `${label} 将按表格里当前的画面动作、运镜、首尾画面和视频提示词重新渲染。预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+        plan.renderDecision.strategy === "local-transform"
+          ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+          : `${label} 已先保存本镜文字。视频模型将使用当前的画面动作、表演、运镜、衔接和首尾画面重新渲染。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
       );
       if (!confirmed) return;
       const result = (await onGenerateShotVideo({
@@ -1388,8 +1764,12 @@ export function StoryboardReviewBoard({
       })) as { takeId?: number } | undefined;
       toast.success(
         result?.takeId
-          ? `${label} 已提交为候选 Take ${result.takeId}`
-          : `${label} 视频已提交；结果会显示在画面 / Take 行`
+          ? plan.renderDecision.strategy === "local-transform"
+            ? `${label} 已在本机生成候选 Take ${result.takeId}，未调用 302`
+            : `${label} 已提交为候选 Take ${result.takeId}`
+          : plan.renderDecision.strategy === "local-transform"
+            ? `${label} 已完成本地镜头生成`
+            : `${label} 视频已提交；结果会显示在画面 / Take 行`
       );
     } catch (error) {
       toast.error(
@@ -1951,6 +2331,21 @@ export function StoryboardReviewBoard({
                   const playableTakes = videoTakes.filter(
                     take => videoTakeAffordance(take.status).canPlay
                   );
+                  const statusTakes = videoTakes
+                    .filter(
+                      take =>
+                        !videoTakeAffordance(take.status).canPlay &&
+                        take.status !== "unfollowable"
+                    )
+                    .slice(0, 3);
+                  const readyCandidate = playableTakes.find(
+                    take => !take.isTimelineSelected
+                  );
+                  const isSubmittingVideo =
+                    rerenderingShotNo === shot.shotNo ||
+                    generatingVideoShotNo === shot.shotNo;
+                  const timelineVisualClips =
+                    creationShot?.timelineItem?.visualClips ?? [];
                   const shotFrameImages = creationShot
                     ? storyboardShotFrameImages(creationShot)
                     : [];
@@ -2012,63 +2407,367 @@ export function StoryboardReviewBoard({
                         data-storyboard-media-layout="start-end-strip"
                         data-storyboard-media-height="fixed"
                       >
-                        {frameImages.map((frame, frameIndex) => {
-                          const frameRole =
-                            frameImages.length === 1 || frameIndex === 0
-                              ? "首帧"
-                              : frameIndex === frameImages.length - 1
-                                ? "末帧"
-                                : "参考";
+                        {isSubmittingVideo && statusTakes.length === 0 ? (
+                          <div
+                            className="flex h-11 w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300"
+                            data-video-take-stage="submitting"
+                            title="正在保存镜头信息并提交视频任务"
+                          >
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <span className="text-[7px] font-semibold">
+                              正在提交
+                            </span>
+                          </div>
+                        ) : null}
+                        {statusTakes.map(take => {
+                          const affordance = videoTakeAffordance(take.status);
+                          const progress = videoTakeProgress(take);
+                          const isRefreshing =
+                            refreshingVideoTakeId === take.id;
+                          const failed = progress.stage === "failed";
+                          const error = take.errorMessage
+                            ? videoTakeErrorMessage(take.errorMessage)
+                            : null;
                           return (
                             <button
-                              key={`frame-${frame.id}`}
+                              key={`take-status-${take.id}`}
                               type="button"
-                              draggable={Boolean(
-                                insertStableShotId && onMoveStoryImage
-                              )}
-                              data-storyboard-frame-role={frameRole}
-                              className={`relative h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
-                                movingImageId === frame.id ? "opacity-45" : ""
-                              }`}
-                              onDragStart={event => {
-                                if (!insertStableShotId || !onMoveStoryImage) {
-                                  event.preventDefault();
+                              disabled={
+                                !affordance.canRefresh ||
+                                !onRefreshShotVideoStatus ||
+                                isRefreshing
+                              }
+                              onClick={() => {
+                                if (
+                                  !affordance.canRefresh ||
+                                  !onRefreshShotVideoStatus
+                                ) {
                                   return;
                                 }
-                                writeStoryboardImageDragPayload(
-                                  event.dataTransfer,
-                                  {
-                                    imageId: frame.id,
-                                    sourceStableShotId: insertStableShotId,
-                                    sourceShotNo: shot.shotNo,
-                                  }
-                                );
+                                setRefreshingVideoTakeId(take.id);
+                                void onRefreshShotVideoStatus(take.id)
+                                  .catch(refreshError => {
+                                    toast.error(
+                                      refreshError instanceof Error
+                                        ? refreshError.message
+                                        : "视频状态刷新失败"
+                                    );
+                                  })
+                                  .finally(() =>
+                                    setRefreshingVideoTakeId(current =>
+                                      current === take.id ? null : current
+                                    )
+                                  );
                               }}
-                              onDragEnd={() => {
-                                stopStoryboardDragScroll();
-                                setImageFrameDropTargetId(null);
-                              }}
-                              onClick={() => {
-                                onSelectShot?.(shot.shotNo);
-                                setPreviewMedia({
-                                  kind: "image",
-                                  url: frame.imageUrl,
-                                  label: `${displayShotCode(shot)} ${frameRole}`,
-                                });
-                              }}
-                              aria-label={`查看 ${displayShotCode(shot)} ${frameRole}`}
-                              title={`${frameRole} · 图片 #${frame.id} · 可拖到其他镜头`}
+                              className={`flex h-11 w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm px-1 text-center ${
+                                failed
+                                  ? "bg-destructive/10 text-destructive"
+                                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                              } disabled:cursor-default`}
+                              data-video-take-stage={progress.stage}
+                              aria-label={`${displayShotCode(shot)} Take ${take.id} ${progress.label}`}
+                              title={
+                                error ??
+                                `${progress.label} · Take ${take.id}${affordance.canRefresh ? " · 点击刷新" : ""}`
+                              }
                             >
-                              <img
-                                src={frame.imageUrl}
-                                alt={`${displayShotCode(shot)} ${frameRole}`}
-                                draggable={false}
-                                className="h-full w-full object-cover"
-                              />
-                              <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                {frameRole}
+                              {isRefreshing ||
+                              progress.stage === "rendering" ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <X className="h-3.5 w-3.5" />
+                              )}
+                              <span className="text-[7px] font-semibold">
+                                {progress.label}
+                              </span>
+                              <span className="max-w-full truncate font-mono text-[6px] opacity-75">
+                                #{take.id}
                               </span>
                             </button>
+                          );
+                        })}
+                        {frameImages.map((frame, frameIndex) => {
+                          const role = creationShot
+                            ? storyboardFrameRoleForImage(
+                                creationShot.generationParams,
+                                frameImages,
+                                frame.id
+                              )
+                            : frameImages.length === 1 || frameIndex === 0
+                              ? "first"
+                              : frameIndex === frameImages.length - 1
+                                ? "last"
+                                : "reference";
+                          const frameRole =
+                            role === "first"
+                              ? "首帧"
+                              : role === "last"
+                                ? "尾帧"
+                                : "中间参考";
+                          const canManageFrame = Boolean(
+                            creationShot &&
+                              insertStableShotId &&
+                              onUpdateShotFields
+                          );
+                          const isUpdating = updatingFrameImageId === frame.id;
+                          const manageInput =
+                            creationShot && insertStableShotId
+                              ? {
+                                  shot,
+                                  creationShot,
+                                  stableShotId: insertStableShotId,
+                                  frameImages,
+                                  imageId: frame.id,
+                                }
+                              : null;
+                          return (
+                            <ContextMenu.Root key={`frame-${frame.id}`}>
+                              <ContextMenu.Trigger asChild>
+                                <button
+                                  type="button"
+                                  draggable={Boolean(
+                                    insertStableShotId && onMoveStoryImage
+                                  )}
+                                  data-storyboard-frame-role={frameRole}
+                                  className={`relative order-3 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                    movingImageId === frame.id || isUpdating
+                                      ? "opacity-45"
+                                      : ""
+                                  }`}
+                                  onDragStart={event => {
+                                    if (
+                                      !insertStableShotId ||
+                                      !onMoveStoryImage ||
+                                      isUpdating
+                                    ) {
+                                      event.preventDefault();
+                                      return;
+                                    }
+                                    writeStoryboardImageDragPayload(
+                                      event.dataTransfer,
+                                      {
+                                        imageId: frame.id,
+                                        sourceStableShotId: insertStableShotId,
+                                        sourceShotNo: shot.shotNo,
+                                      }
+                                    );
+                                  }}
+                                  onDragEnd={() => {
+                                    stopStoryboardDragScroll();
+                                    setImageFrameDropTargetId(null);
+                                  }}
+                                  onClick={() => {
+                                    onSelectShot?.(shot.shotNo);
+                                    setPreviewMedia({
+                                      kind: "image",
+                                      url: frame.imageUrl,
+                                      label: `${displayShotCode(shot)} ${frameRole}`,
+                                    });
+                                  }}
+                                  aria-label={`查看 ${displayShotCode(shot)} ${frameRole}`}
+                                  title={`${frameRole} · 图片 #${frame.id} · 可右键设置角色，可拖到其他镜头`}
+                                >
+                                  <img
+                                    src={frame.imageUrl}
+                                    alt={`${displayShotCode(shot)} ${frameRole}`}
+                                    draggable={false}
+                                    className="h-full w-full object-cover"
+                                  />
+                                  {isUpdating ? (
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    </span>
+                                  ) : null}
+                                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
+                                    {frameRole}
+                                  </span>
+                                </button>
+                              </ContextMenu.Trigger>
+                              <ContextMenu.Portal>
+                                <ContextMenu.Content
+                                  className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                                  data-testid={`storyboard-frame-menu-${frame.id}`}
+                                >
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !canManageFrame ||
+                                      isUpdating ||
+                                      role === "first"
+                                    }
+                                    onSelect={() => {
+                                      if (!manageInput) return;
+                                      void setStoryboardFrameRole({
+                                        ...manageInput,
+                                        role: "first",
+                                      });
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                                  >
+                                    <SkipBack className="h-3.5 w-3.5" />
+                                    设为首帧
+                                    {role === "first" ? (
+                                      <Check className="ml-auto h-3.5 w-3.5" />
+                                    ) : null}
+                                  </ContextMenu.Item>
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !canManageFrame ||
+                                      isUpdating ||
+                                      role === "last"
+                                    }
+                                    onSelect={() => {
+                                      if (!manageInput) return;
+                                      void setStoryboardFrameRole({
+                                        ...manageInput,
+                                        role: "last",
+                                      });
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                                  >
+                                    <SkipForward className="h-3.5 w-3.5" />
+                                    设为尾帧
+                                    {role === "last" ? (
+                                      <Check className="ml-auto h-3.5 w-3.5" />
+                                    ) : null}
+                                  </ContextMenu.Item>
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !canManageFrame ||
+                                      isUpdating ||
+                                      role === "reference"
+                                    }
+                                    onSelect={() => {
+                                      if (!manageInput) return;
+                                      void setStoryboardFrameRole({
+                                        ...manageInput,
+                                        role: "reference",
+                                      });
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                                  >
+                                    <Focus className="h-3.5 w-3.5" />
+                                    设为中间参考
+                                    {role === "reference" ? (
+                                      <Check className="ml-auto h-3.5 w-3.5" />
+                                    ) : null}
+                                  </ContextMenu.Item>
+                                  <ContextMenu.Separator className="my-1 h-px bg-border" />
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !canManageFrame ||
+                                      !onDeleteStoryImage ||
+                                      isUpdating
+                                    }
+                                    onSelect={() => {
+                                      if (!manageInput) return;
+                                      void deleteStoryboardFrame(manageInput);
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    删除图片
+                                  </ContextMenu.Item>
+                                </ContextMenu.Content>
+                              </ContextMenu.Portal>
+                            </ContextMenu.Root>
+                          );
+                        })}
+                        {timelineVisualClips.map((clip, clipIndex) => {
+                          const poster = `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
+                          const removalKey = `clip-${clip.id}`;
+                          const isRemoving = removingVideoKey === removalKey;
+                          return (
+                            <ContextMenu.Root key={`timeline-clip-${clip.id}`}>
+                              <ContextMenu.Trigger asChild>
+                                <button
+                                  type="button"
+                                  className={`relative order-4 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                    isRemoving ? "opacity-45" : ""
+                                  }`}
+                                  onClick={() => {
+                                    onSelectShot?.(shot.shotNo);
+                                    setPreviewMedia({
+                                      kind: "video",
+                                      url: clip.videoUrl,
+                                      poster,
+                                      label: `${displayShotCode(shot)} ${clip.label}`,
+                                    });
+                                  }}
+                                  aria-label={`播放 ${displayShotCode(shot)} ${clip.label}`}
+                                  title={`${clip.label} · 时间线切片 ${clipIndex + 1} · 右键可移除`}
+                                >
+                                  <img
+                                    src={poster}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                  {isRemoving ? (
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    </span>
+                                  ) : null}
+                                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
+                                    切片 {clipIndex + 1}
+                                  </span>
+                                </button>
+                              </ContextMenu.Trigger>
+                              <ContextMenu.Portal>
+                                <ContextMenu.Content
+                                  className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                                  data-testid={`storyboard-video-menu-clip-${clip.id}`}
+                                >
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !insertStableShotId ||
+                                      !onRemoveTimelineVideoClip ||
+                                      isRemoving
+                                    }
+                                    onSelect={() => {
+                                      if (
+                                        !insertStableShotId ||
+                                        !onRemoveTimelineVideoClip
+                                      ) {
+                                        return;
+                                      }
+                                      setRemovingVideoKey(removalKey);
+                                      void onRemoveTimelineVideoClip({
+                                        stableShotId: insertStableShotId,
+                                        clipId: clip.id,
+                                      })
+                                        .then(() => {
+                                          setPreviewMedia(current =>
+                                            current?.kind === "video" &&
+                                            current.url === clip.videoUrl
+                                              ? null
+                                              : current
+                                          );
+                                          toast.success(
+                                            `已从 ${displayShotCode(shot)} 移除视频切片`
+                                          );
+                                        })
+                                        .catch(error => {
+                                          toast.error(
+                                            error instanceof Error
+                                              ? error.message
+                                              : "视频切片移除失败"
+                                          );
+                                        })
+                                        .finally(() =>
+                                          setRemovingVideoKey(current =>
+                                            current === removalKey
+                                              ? null
+                                              : current
+                                          )
+                                        );
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    从首尾画面移除
+                                  </ContextMenu.Item>
+                                </ContextMenu.Content>
+                              </ContextMenu.Portal>
+                            </ContextMenu.Root>
                           );
                         })}
                         {playableTakes.map(take => {
@@ -2078,59 +2777,177 @@ export function StoryboardReviewBoard({
                               creationShot?.selectedVideoTake?.id === take.id
                           );
                           const poster = videoTakeFrameUrl(take, "start");
+                          const progress = videoTakeProgress(take);
+                          const removalKey = `take-${take.id}`;
+                          const isRemoving = removingVideoKey === removalKey;
                           return (
-                            <button
-                              key={`take-${take.id}`}
-                              type="button"
-                              draggable={Boolean(
-                                insertStableShotId && onMoveVideoTake
-                              )}
-                              className={`relative h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
-                                movingVideoTakeId === take.id
-                                  ? "opacity-45"
-                                  : ""
-                              }`}
-                              onDragStart={event => {
-                                if (!insertStableShotId || !onMoveVideoTake) {
-                                  event.preventDefault();
-                                  return;
-                                }
-                                writeVideoTakeDragPayload(event.dataTransfer, {
-                                  takeId: take.id,
-                                  sourceStableShotId: insertStableShotId,
-                                  sourceShotNo: shot.shotNo,
-                                });
-                              }}
-                              onDragEnd={() => {
-                                stopStoryboardDragScroll();
-                                setVideoTakeDropTargetId(null);
-                              }}
-                              onClick={() => {
-                                onSelectShot?.(shot.shotNo);
-                                setPreviewMedia({
-                                  kind: "video",
-                                  url: take.videoUrl ?? "",
-                                  poster,
-                                  label: `${displayShotCode(shot)} Take ${take.id}`,
-                                });
-                              }}
-                              aria-label={`播放 ${displayShotCode(shot)} Take ${take.id}`}
-                              title={`${selectedTake ? "已采用" : "候选"} Take ${take.id} · 可拖到其他镜头`}
-                            >
-                              <StoryboardVideoThumbnail
-                                src={take.videoUrl}
-                                poster={poster}
-                                active={selected && selectedTake}
-                                label={`${displayShotCode(shot)} Take ${take.id}`}
-                                className="h-full w-full object-cover"
-                              />
-                              <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                {selectedTake ? "已采用" : `Take ${take.id}`}
-                              </span>
-                            </button>
+                            <ContextMenu.Root key={`take-${take.id}`}>
+                              <ContextMenu.Trigger asChild>
+                                <button
+                                  type="button"
+                                  draggable={Boolean(
+                                    insertStableShotId && onMoveVideoTake
+                                  )}
+                                  className={`relative order-1 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                    movingVideoTakeId === take.id || isRemoving
+                                      ? "opacity-45"
+                                      : ""
+                                  }`}
+                                  onDragStart={event => {
+                                    if (
+                                      !insertStableShotId ||
+                                      !onMoveVideoTake ||
+                                      isRemoving
+                                    ) {
+                                      event.preventDefault();
+                                      return;
+                                    }
+                                    writeVideoTakeDragPayload(
+                                      event.dataTransfer,
+                                      {
+                                        takeId: take.id,
+                                        sourceStableShotId: insertStableShotId,
+                                        sourceShotNo: shot.shotNo,
+                                      }
+                                    );
+                                  }}
+                                  onDragEnd={() => {
+                                    stopStoryboardDragScroll();
+                                    setVideoTakeDropTargetId(null);
+                                  }}
+                                  onClick={() => {
+                                    onSelectShot?.(shot.shotNo);
+                                    setPreviewMedia({
+                                      kind: "video",
+                                      url: take.videoUrl ?? "",
+                                      poster,
+                                      label: `${displayShotCode(shot)} Take ${take.id}`,
+                                    });
+                                  }}
+                                  aria-label={`播放 ${displayShotCode(shot)} Take ${take.id}`}
+                                  title={`${progress.label} · Take ${take.id} · 可拖到其他镜头，右键可移除`}
+                                  data-video-take-stage={progress.stage}
+                                  data-video-take-id={take.id}
+                                >
+                                  <StoryboardVideoThumbnail
+                                    src={take.videoUrl}
+                                    poster={poster}
+                                    active={selected && selectedTake}
+                                    label={`${displayShotCode(shot)} Take ${take.id}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                  {isRemoving ? (
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    </span>
+                                  ) : null}
+                                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
+                                    {progress.label}
+                                  </span>
+                                </button>
+                              </ContextMenu.Trigger>
+                              <ContextMenu.Portal>
+                                <ContextMenu.Content
+                                  className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                                  data-testid={`storyboard-video-menu-take-${take.id}`}
+                                >
+                                  <ContextMenu.Item
+                                    disabled={
+                                      !onMarkVideoTakeUnusable || isRemoving
+                                    }
+                                    onSelect={() => {
+                                      if (!onMarkVideoTakeUnusable) return;
+                                      setRemovingVideoKey(removalKey);
+                                      void onMarkVideoTakeUnusable(take.id)
+                                        .then(() => {
+                                          setPreviewMedia(current =>
+                                            current?.kind === "video" &&
+                                            current.url === take.videoUrl
+                                              ? null
+                                              : current
+                                          );
+                                          toast.success(
+                                            `已从 ${displayShotCode(shot)} 移除 Take ${take.id}，生成记录仍保留`
+                                          );
+                                        })
+                                        .catch(error => {
+                                          toast.error(
+                                            error instanceof Error
+                                              ? error.message
+                                              : "视频 Take 移除失败"
+                                          );
+                                        })
+                                        .finally(() =>
+                                          setRemovingVideoKey(current =>
+                                            current === removalKey
+                                              ? null
+                                              : current
+                                          )
+                                        );
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    从首尾画面移除
+                                  </ContextMenu.Item>
+                                </ContextMenu.Content>
+                              </ContextMenu.Portal>
+                            </ContextMenu.Root>
                           );
                         })}
+                        {readyCandidate &&
+                        insertStableShotId &&
+                        onAdoptVideoTake ? (
+                          <button
+                            type="button"
+                            disabled={adoptingVideoTakeId != null}
+                            onClick={() => {
+                              setAdoptingVideoTakeId(readyCandidate.id);
+                              void onAdoptVideoTake({
+                                stableShotId: insertStableShotId,
+                                takeId: readyCandidate.id,
+                                plannedDurationSec: Math.max(
+                                  0.1,
+                                  readyCandidate.durationSec ??
+                                    (creationShot?.durationMs ?? 5_000) / 1_000
+                                ),
+                              })
+                                .then(() => {
+                                  toast.success(
+                                    `${displayShotCode(shot)} 已采用 Take ${readyCandidate.id}`
+                                  );
+                                })
+                                .catch(error => {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "采用视频版本失败"
+                                  );
+                                })
+                                .finally(() =>
+                                  setAdoptingVideoTakeId(current =>
+                                    current === readyCandidate.id
+                                      ? null
+                                      : current
+                                  )
+                                );
+                            }}
+                            className="order-2 flex h-11 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-50 dark:text-emerald-300"
+                            aria-label={`采用 ${displayShotCode(shot)} Take ${readyCandidate.id}`}
+                            title={`采用 Take ${readyCandidate.id} 进入时间线`}
+                          >
+                            {adoptingVideoTakeId === readyCandidate.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                            <span className="text-[7px] font-semibold">
+                              采用
+                            </span>
+                          </button>
+                        ) : null}
                         {frameImages.length === 0 &&
+                        timelineVisualClips.length === 0 &&
                         playableTakes.length === 0 ? (
                           <div className="flex h-11 min-w-0 flex-1 items-center gap-1.5 px-1 text-[8px] text-muted-foreground">
                             {isGeneratingScript ? (
@@ -2140,14 +2957,6 @@ export function StoryboardReviewBoard({
                             )}
                             <span className="truncate">拖入图片或视频</span>
                           </div>
-                        ) : null}
-                        {videoTakes.length > playableTakes.length ? (
-                          <span
-                            className="shrink-0 px-1 text-[7px] text-muted-foreground"
-                            title={`${videoTakes.length - playableTakes.length} 个 Take 正在生成或不可用`}
-                          >
-                            +{videoTakes.length - playableTakes.length}
-                          </span>
                         ) : null}
                       </div>
                     </div>
@@ -2192,9 +3001,6 @@ export function StoryboardReviewBoard({
                           dropTarget={dropTarget}
                           editable={Boolean(onUpdateShotField)}
                           onFocus={() => onSelectShot?.(shot.shotNo)}
-                          onDraft={value =>
-                            onUpdateShotDraftField?.(index, row.field, value)
-                          }
                           onCommit={value =>
                             onUpdateShotField?.(index, row.field, value)
                           }

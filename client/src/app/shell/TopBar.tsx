@@ -14,20 +14,26 @@ import {
 } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 
+interface TopBarPanelToggle {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+  controls?: string;
+  testId?: string;
+}
+
 interface TopBarProps {
   onStoryPanelToggle?: () => void;
   showStoryPanelNav?: boolean;
-  panelToggle?: {
-    label: string;
-    active: boolean;
-    onToggle: () => void;
-  };
+  panelToggle?: TopBarPanelToggle;
+  panelToggles?: TopBarPanelToggle[];
 }
 
 export default function TopBar({
   onStoryPanelToggle,
   showStoryPanelNav = true,
   panelToggle,
+  panelToggles,
 }: TopBarProps) {
   const { allThemes, setPreviewElement, previewElement, element, today } =
     useNayin();
@@ -36,6 +42,12 @@ export default function TopBar({
     useStoryPanelVisibility();
   const [themeOpen, setThemeOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const editingPanelToggles =
+    panelToggles && panelToggles.length > 0
+      ? panelToggles
+      : panelToggle
+        ? [panelToggle]
+        : [];
 
   return (
     <div className="sticky top-0 z-50 backdrop-blur-md">
@@ -192,34 +204,43 @@ export default function TopBar({
                   );
                 })}
               </nav>
-            ) : panelToggle ? (
+            ) : editingPanelToggles.length > 0 ? (
               <nav
                 aria-label="剪辑面板切换"
                 className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
               >
-                <button
-                  type="button"
-                  data-testid="topbar-panel-toggle"
-                  aria-pressed={panelToggle.active}
-                  aria-label={`${panelToggle.active ? "隐藏" : "显示"}${panelToggle.label}`}
-                  title={`${panelToggle.active ? "隐藏" : "显示"}${panelToggle.label}`}
-                  onClick={panelToggle.onToggle}
-                  className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
-                    panelToggle.active
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground/80"
-                  }`}
-                  style={
-                    panelToggle.active
-                      ? {
-                          background: "var(--nayin-surface)",
-                          boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
-                        }
-                      : undefined
-                  }
-                >
-                  {panelToggle.label}
-                </button>
+                {editingPanelToggles.map((toggle, index) => (
+                  <button
+                    key={toggle.testId ?? toggle.label}
+                    type="button"
+                    data-testid={
+                      toggle.testId ??
+                      (editingPanelToggles.length === 1
+                        ? "topbar-panel-toggle"
+                        : `topbar-panel-toggle-${index}`)
+                    }
+                    aria-pressed={toggle.active}
+                    aria-controls={toggle.controls}
+                    aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
+                    title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
+                    onClick={toggle.onToggle}
+                    className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
+                      toggle.active
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground/80"
+                    }`}
+                    style={
+                      toggle.active
+                        ? {
+                            background: "var(--nayin-surface)",
+                            boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {toggle.label}
+                  </button>
+                ))}
               </nav>
             ) : (
               <div className="min-w-0 flex-1" aria-hidden="true" />

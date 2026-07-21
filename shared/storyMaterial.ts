@@ -11,12 +11,27 @@ export type TimelineTransform = {
   panY: number;
 };
 
+export type StoryTimelineVisualClip = {
+  id: string;
+  takeId: number;
+  rangeId: number;
+  sourceStableShotId: string;
+  videoUrl: string;
+  label: string;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  offsetMs: number;
+  durationMs: number;
+};
+
 export type StoryTimelineItem = {
   stableShotId: string;
   included: boolean;
   position: number;
   plannedDurationMs: number;
   transform: TimelineTransform;
+  visualClips?: StoryTimelineVisualClip[];
+  visualClipsReplacePrimary?: boolean;
 };
 
 export type TimelineDocument = {

@@ -35,6 +35,9 @@ export type StartEndShotVideoEstimate = {
   aspectRatio: "1:1";
   movementAmplitude: StartEndVideoMovementAmplitude;
   model: "viduq2-turbo";
+  renderStrategy: VideoRenderDecision["strategy"];
+  renderReason: string;
+  localMotion: LocalCameraMotion | null;
   firstFrame: {
     imageId: number;
     imageUrl: string;
@@ -132,3 +135,7 @@ export function parseStartEndVideoConfig(
 export function isStartEndVideoTakeSnapshot(value: unknown): boolean {
   return record(value).kind === "shot-start-end";
 }
+import type {
+  LocalCameraMotion,
+  VideoRenderDecision,
+} from "./videoMotionPolicy";

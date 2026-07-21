@@ -22,6 +22,7 @@ import type { VideoTake } from "../../drizzle/schema";
 import type { ImageAsset } from "../../shared/imageAsset";
 import { VIDEO_TARGET_ASPECT_RATIOS } from "../../shared/videoConform";
 import { SHOT_VIDEO_ASPECT_RATIO } from "../../shared/shotDirector";
+import { decideVideoRenderStrategy } from "../../shared/videoMotionPolicy";
 import { localVideoDir, materializeVideoUrl } from "./videoMedia";
 import {
   finalizeExpandedVideoFile,
@@ -39,6 +40,11 @@ import {
   isStartEndShotVideoTake,
   refreshStartEndShotVideoTake,
 } from "./startEndShotVideoWorkflow";
+import {
+  createLocalMotionVideoTake,
+  isLocalMotionVideoTake,
+  refreshLocalMotionVideoTake,
+} from "./localMotionVideo";
 import {
   PromptLineageValidationError,
   resolveGenerationPromptCompilation,
@@ -123,7 +129,10 @@ export function sanitizeVideoPrompt(raw: string): string {
   const motionLabels = new Set([
     "核心视频提示",
     "动作",
+    "表演",
+    "环境变化",
     "相机运动",
+    "主体运动路径",
     "起始画面",
     "结束状态",
     "接上一镜",
@@ -286,6 +295,25 @@ export type StartShotVideoJobInput = {
   rerenderRequestId?: string;
 };
 
+export async function resolveShotVideoRenderDecision(
+  input: Pick<
+    StartShotVideoJobInput,
+    "storyId" | "shotNo" | "stableShotId" | "prompt"
+  >,
+  userId: number
+) {
+  const stableShotId = normalizeShotIdentity(input.stableShotId);
+  const story = await getStoryById(input.storyId, userId);
+  if (!story) throw new Error("故事不存在或无权操作");
+  const context = stableShotId
+    ? storyVideoContext(story.body, stableShotId, input.shotNo)
+    : {};
+  return decideVideoRenderStrategy({
+    ...context.currentShot,
+    videoPrompt: context.currentShot?.videoPrompt || input.prompt,
+  });
+}
+
 export async function startShotVideoJob(
   input: StartShotVideoJobInput,
   userId: number
@@ -337,6 +365,27 @@ export async function startShotVideoJob(
 
   const durationSec = input.durationSec ?? 5;
   const aspectRatio = input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO;
+  const story = await getStoryById(input.storyId, userId);
+  if (!story) return { status: "error", error: "故事不存在或无权操作" };
+  const context = storyVideoContext(story.body, stableShotId, input.shotNo);
+  const renderDecision = decideVideoRenderStrategy({
+    ...context.currentShot,
+    videoPrompt: context.currentShot?.videoPrompt || input.prompt,
+  });
+  if (renderDecision.strategy === "local-transform") {
+    return createLocalMotionVideoTake({
+      storyId: input.storyId,
+      userId,
+      stableShotId,
+      sourceImage: asset,
+      promptCompilationId,
+      prompt: input.prompt,
+      subtitle: input.subtitle,
+      durationSec,
+      decision: renderDecision,
+      rerenderRequestId: input.rerenderRequestId,
+    });
+  }
   const providerStatus = getShotVideoProviderStatus();
   const motion = input.motion ?? providerStatus.motion;
   const previousReference = videoReferenceAsset(
@@ -385,8 +434,6 @@ export async function startShotVideoJob(
   }
 
   const sourceImage = await materializeImageInput(asset.imageUrl);
-  const story = await getStoryById(input.storyId, userId);
-  const context = storyVideoContext(story?.body, stableShotId, input.shotNo);
   const promptDirector: VideoSubmissionPromptDirectorResult =
     input.directorPromptApproved
       ? {
@@ -504,6 +551,9 @@ export async function refreshVideoTakeStatus(
 > {
   const take = await getVideoTakeById(takeId, userId);
   if (!take) return { status: "error", error: "视频任务不存在或无权操作" };
+  if (isLocalMotionVideoTake(take)) {
+    return refreshLocalMotionVideoTake(take, userId);
+  }
   if (isStartEndShotVideoTake(take)) {
     return refreshStartEndShotVideoTake(take, userId);
   }

@@ -46,6 +46,7 @@ import type {
   VideoTakeAsset,
   VideoTakeStatus,
 } from "@shared/videoAsset";
+import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   type StoryMaterialState,
@@ -64,6 +65,7 @@ import {
 import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
 import type { ShotDirectorResult, ShotVideoMotion } from "@shared/shotDirector";
 import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
+import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 
 export type CreationEditorStory = {
   id: number;
@@ -94,6 +96,7 @@ export type CreationEditorShot = StoryShot & {
   imageVersions?: CreationEditorImage[];
   videoTakes?: VideoTakeAsset[];
   selectedVideoTake?: VideoTakeAsset;
+  timelineItem?: StoryTimelineItem | null;
   durationMs?: number;
   narrativeJob?: NarrativeJob;
   promptOverrides?: PromptOverrides;
@@ -241,6 +244,7 @@ type CreationEditorContextValue = {
     targetStableShotId: string;
     preserveTimelineSelection?: boolean;
   }) => Promise<void>;
+  deleteStoryImage: (imageId: number) => Promise<void>;
   importStoryMaterial: (input: {
     fileName: string;
     mimeType: string;
@@ -351,6 +355,30 @@ type CreationEditorContextValue = {
     endSec: number;
     label?: string;
     useOnTimeline?: boolean;
+  }) => Promise<void>;
+  splitTimelineVideoClip: (input: {
+    stableShotId: string;
+    takeStableShotId: string;
+    existingClipId?: string | null;
+    takeId: number;
+    videoUrl: string;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    splitSourceSec: number;
+    offsetMs: number;
+    durationMs: number;
+    splitOffsetMs: number;
+    label: string;
+  }) => Promise<void>;
+  moveTimelineVideoClip: (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetMs: number;
+  }) => Promise<void>;
+  removeTimelineVideoClip: (input: {
+    stableShotId: string;
+    clipId: string;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
     stableShotId: string;
@@ -1185,8 +1213,10 @@ export function CreationEditorProvider({
   const [generatingVideoShotNo, setGeneratingVideoShotNo] = useState<
     number | null
   >(null);
+  const [recentVideoTakeIds, setRecentVideoTakeIds] = useState<number[]>([]);
   const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
+  const shotFieldSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
@@ -1204,6 +1234,7 @@ export function CreationEditorProvider({
     trpc.creationAgent.promoteStoryImage.useMutation();
   const assignStoryImageToShotMut =
     trpc.creationAgent.assignStoryImageToShot.useMutation();
+  const deleteStoryImageMut = trpc.storyAgent.deleteShotImage.useMutation();
   const importStoryMaterialMut =
     trpc.creationAgent.importStoryMaterial.useMutation();
   const attachChatCutXmlMut = trpc.storyAgent.attachChatCutXml.useMutation();
@@ -1360,7 +1391,21 @@ export function CreationEditorProvider({
     const videos = normalizeStoryVideoAssets(
       materialVideos ?? storyVideoAssetsQuery.data
     );
-    return mergeShotsWithVideos(withImages, videos);
+    const timelineByShotId = new Map(
+      (storyMaterialQuery.data?.timeline.items ?? []).map(item => [
+        item.stableShotId,
+        item,
+      ])
+    );
+    return mergeShotsWithVideos(withImages, videos).map(shot => {
+      const timelineItem =
+        timelineByShotId.get(creationTimelineShotId(shot)) ?? null;
+      return {
+        ...shot,
+        timelineItem,
+        durationMs: timelineItem?.plannedDurationMs ?? shot.durationMs,
+      };
+    });
   }, [
     canonicalStoryShots,
     storyImagesQuery.data,
@@ -1399,7 +1444,10 @@ export function CreationEditorProvider({
   );
 
   const saveTimelineItems = useCallback(
-    async (items: StoryTimelineItem[]) => {
+    async (
+      items: StoryTimelineItem[],
+      options: { throwOnError?: boolean } = {}
+    ) => {
       if (activeId == null) return;
       const previousIds = timelineShotIds;
       const normalized = items.map((item, position) => ({
@@ -1421,6 +1469,7 @@ export function CreationEditorProvider({
         setTimelineShotIds(previousIds);
         await storyMaterialQuery.refetch();
         console.warn("timeline save failed", error);
+        if (options.throwOnError) throw error;
       }
     },
     [activeId, storyMaterialQuery, timelineShotIds, updateStoryTimelineMut]
@@ -1489,17 +1538,36 @@ export function CreationEditorProvider({
     [selectedShotNo, shots]
   );
   const processingVideoTakeIds = useMemo(() => {
-    const ids = new Set<number>();
+    return videoTakeIdsToRefresh(shots, recentVideoTakeIds);
+  }, [recentVideoTakeIds, shots]);
+  const processingVideoTakeKey = processingVideoTakeIds.join(",");
+
+  const watchVideoTake = useCallback(
+    (takeId: number, status: VideoTakeStatus) => {
+      if (isVideoTakeTerminal(status)) return;
+      setRecentVideoTakeIds(current =>
+        current.includes(takeId) ? current : [...current, takeId]
+      );
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (recentVideoTakeIds.length === 0) return;
+    const statusById = new Map<number, VideoTakeStatus>();
     for (const shot of shots) {
       for (const take of shot.videoTakes ?? []) {
-        if (take.status === "submitted" || take.status === "processing") {
-          ids.add(take.id);
-        }
+        statusById.set(take.id, take.status);
       }
     }
-    return Array.from(ids).sort((left, right) => left - right);
-  }, [shots]);
-  const processingVideoTakeKey = processingVideoTakeIds.join(",");
+    setRecentVideoTakeIds(current => {
+      const next = current.filter(takeId => {
+        const status = statusById.get(takeId);
+        return status == null || !isVideoTakeTerminal(status);
+      });
+      return next.length === current.length ? current : next;
+    });
+  }, [recentVideoTakeIds, shots]);
 
   const persistBody = async (body: Record<string, unknown>) => {
     const row = storyQuery.data;
@@ -1545,46 +1613,55 @@ export function CreationEditorProvider({
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
   ) => {
-    if (activeId == null) throw new Error("故事尚未加载，无法保存镜头");
-    const result = await updateStoryShotFieldsMut.mutateAsync({
-      storyId: activeId,
-      stableShotId,
-      patch,
-    });
-    if (result.status !== "ok" || !result.story) {
-      throw new Error(
-        result.status === "error" ? result.error : "镜头保存失败"
-      );
-    }
-    const savedBody =
-      result.story.body &&
-      typeof result.story.body === "object" &&
-      !Array.isArray(result.story.body)
-        ? (result.story.body as Record<string, unknown>)
-        : null;
-    const savedShots = Array.isArray(savedBody?.shots) ? savedBody.shots : [];
-    const savedShot = savedShots.find((raw, index) => {
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
-      return shotIdentityFromShot(raw, index) === stableShotId;
-    }) as Record<string, unknown> | undefined;
-    const confirmed =
-      savedShot &&
-      Object.entries(patch).every(
-        ([field, value]) => savedShot[field] === value
-      );
-    if (!confirmed) {
-      throw new Error("服务器没有确认镜头字段，已保留为未保存状态");
-    }
-    setCanonicalStoryShots(normalizeStoryShots(savedBody));
-    if (typeof result.story.revision === "number") {
-      setSpineServerRevision(result.story.revision);
-    }
-    await Promise.all([
-      utils.storyAgent.storyGet.invalidate({ id: activeId }),
-      utils.storyAgent.storyList.invalidate(),
-      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
-    ]);
-    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    const storyId = activeId;
+    if (storyId == null) throw new Error("故事尚未加载，无法保存镜头");
+    const save = async () => {
+      const result = await updateStoryShotFieldsMut.mutateAsync({
+        storyId,
+        stableShotId,
+        patch,
+      });
+      if (result.status !== "ok" || !result.story) {
+        throw new Error(
+          result.status === "error" ? result.error : "镜头保存失败"
+        );
+      }
+      const savedBody =
+        result.story.body &&
+        typeof result.story.body === "object" &&
+        !Array.isArray(result.story.body)
+          ? (result.story.body as Record<string, unknown>)
+          : null;
+      const savedShots = Array.isArray(savedBody?.shots) ? savedBody.shots : [];
+      const savedShot = savedShots.find((raw, index) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+        return shotIdentityFromShot(raw, index) === stableShotId;
+      }) as Record<string, unknown> | undefined;
+      const confirmed =
+        savedShot &&
+        Object.entries(patch).every(
+          ([field, value]) => savedShot[field] === value
+        );
+      if (!confirmed) {
+        throw new Error("服务器没有确认镜头字段，已保留为未保存状态");
+      }
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+      if (typeof result.story.revision === "number") {
+        setSpineServerRevision(result.story.revision);
+      }
+      await Promise.all([
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.storyList.invalidate(),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+      ]);
+      await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    };
+    const queued = shotFieldSaveQueueRef.current.then(save, save);
+    shotFieldSaveQueueRef.current = queued.then(
+      () => undefined,
+      () => undefined
+    );
+    return queued;
   };
 
   const updatePersistedShotField = async (
@@ -1912,6 +1989,27 @@ export function CreationEditorProvider({
     ]);
   };
 
+  const deleteStoryImage = async (imageId: number) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法删除图片");
+    const result = await deleteStoryImageMut.mutateAsync({
+      storyId: activeId,
+      imageId,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "图片删除失败");
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+    await Promise.all([
+      storyQuery.refetch(),
+      storyImagesQuery.refetch(),
+      storyMaterialQuery.refetch(),
+    ]);
+  };
+
   const importStoryMaterial = async (input: {
     fileName: string;
     mimeType: string;
@@ -2033,6 +2131,7 @@ export function CreationEditorProvider({
       if (result.status !== "ok") {
         throw new Error(result.error || "视频生成失败");
       }
+      watchVideoTake(result.takeId, result.videoStatus);
       await storyVideoAssetsQuery.refetch();
       await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
       await storyMaterialQuery.refetch();
@@ -2084,6 +2183,7 @@ export function CreationEditorProvider({
       if (result.status !== "ok") {
         throw new Error(result.error || "首尾帧视频生成失败");
       }
+      watchVideoTake(result.takeId, result.videoStatus);
       await Promise.all([
         storyVideoAssetsQuery.refetch(),
         storyMaterialQuery.refetch(),
@@ -2261,7 +2361,17 @@ export function CreationEditorProvider({
       try {
         for (const takeId of processingVideoTakeIds) {
           if (cancelled) return;
-          await refreshShotVideoStatusMut.mutateAsync({ takeId });
+          const refreshed = await refreshShotVideoStatusMut.mutateAsync({
+            takeId,
+          });
+          if (
+            refreshed.status === "ok" &&
+            isVideoTakeTerminal(refreshed.videoStatus)
+          ) {
+            setRecentVideoTakeIds(current =>
+              current.filter(candidate => candidate !== takeId)
+            );
+          }
         }
         if (!cancelled) {
           await Promise.all([
@@ -2317,6 +2427,206 @@ export function CreationEditorProvider({
     }
     await storyVideoAssetsQuery.refetch();
     await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
+  };
+
+  const splitTimelineVideoClip = async (input: {
+    stableShotId: string;
+    takeStableShotId: string;
+    existingClipId?: string | null;
+    takeId: number;
+    videoUrl: string;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    splitSourceSec: number;
+    offsetMs: number;
+    durationMs: number;
+    splitOffsetMs: number;
+    label: string;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法切割视频");
+    const sourceStartSec = Math.max(0, input.sourceStartSec);
+    const sourceEndSec = Math.max(sourceStartSec, input.sourceEndSec);
+    const splitSourceSec = Math.min(
+      sourceEndSec,
+      Math.max(sourceStartSec, input.splitSourceSec)
+    );
+    const clipStartMs = Math.max(0, input.offsetMs);
+    const clipEndMs = clipStartMs + Math.max(1, input.durationMs);
+    const splitOffsetMs = Math.min(
+      clipEndMs,
+      Math.max(clipStartMs, input.splitOffsetMs)
+    );
+    if (
+      splitSourceSec - sourceStartSec < 1 / 30 ||
+      sourceEndSec - splitSourceSec < 1 / 30 ||
+      splitOffsetMs - clipStartMs < 1 ||
+      clipEndMs - splitOffsetMs < 1
+    ) {
+      throw new Error("播放头离片段边缘太近，无法切割当前帧");
+    }
+
+    const splitId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const createRange = async (
+      startSec: number,
+      endSec: number,
+      suffix: string
+    ) => {
+      const result = await createVideoTakeRangeMut.mutateAsync({
+        storyId: activeId,
+        stableShotId: input.takeStableShotId,
+        takeId: input.takeId,
+        startSec,
+        endSec,
+        label: `时间线切割 ${input.label} ${suffix}`,
+        useOnTimeline: false,
+      });
+      if (result.status !== "ok") {
+        throw new Error(result.error || "片段保存失败");
+      }
+      return result.range;
+    };
+    const [leftRange, rightRange] = await Promise.all([
+      createRange(sourceStartSec, splitSourceSec, "前段"),
+      createRange(splitSourceSec, sourceEndSec, "后段"),
+    ]);
+    const currentItem = timelineItems.find(
+      item => item.stableShotId === input.stableShotId
+    );
+    if (!currentItem) throw new Error("当前镜头不在时间线上");
+    const existingClips = currentItem.visualClips ?? [];
+    const retainedClips = input.existingClipId
+      ? existingClips.filter(clip => clip.id !== input.existingClipId)
+      : existingClips;
+    const nextClips = [
+      ...retainedClips,
+      {
+        id: `split-${splitId}-left`,
+        takeId: input.takeId,
+        rangeId: leftRange.id,
+        sourceStableShotId: input.takeStableShotId,
+        videoUrl: input.videoUrl,
+        label: `${input.label} · 前段`,
+        sourceStartSec,
+        sourceEndSec: splitSourceSec,
+        offsetMs: clipStartMs,
+        durationMs: splitOffsetMs - clipStartMs,
+      },
+      {
+        id: `split-${splitId}-right`,
+        takeId: input.takeId,
+        rangeId: rightRange.id,
+        sourceStableShotId: input.takeStableShotId,
+        videoUrl: input.videoUrl,
+        label: `${input.label} · 后段`,
+        sourceStartSec: splitSourceSec,
+        sourceEndSec,
+        offsetMs: splitOffsetMs,
+        durationMs: clipEndMs - splitOffsetMs,
+      },
+    ].sort((left, right) => left.offsetMs - right.offsetMs);
+
+    await saveTimelineItems(
+      timelineItems.map(item =>
+        item.stableShotId === input.stableShotId
+          ? {
+              ...item,
+              visualClips: nextClips,
+              visualClipsReplacePrimary: true,
+            }
+          : item
+      ),
+      { throwOnError: true }
+    );
+    await storyVideoAssetsQuery.refetch();
+    await utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId });
+  };
+
+  const moveTimelineVideoClip = async (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetMs: number;
+  }) => {
+    const sourceItem = timelineItems.find(
+      item => item.stableShotId === input.sourceStableShotId
+    );
+    const movingClip = sourceItem?.visualClips?.find(
+      clip => clip.id === input.clipId
+    );
+    if (!sourceItem || !movingClip) throw new Error("找不到要移动的视频片段");
+    const targetItem = timelineItems.find(
+      item => item.stableShotId === input.targetStableShotId
+    );
+    if (!targetItem) throw new Error("目标镜头不在时间线上");
+    const movedClip = {
+      ...movingClip,
+      offsetMs: Math.max(0, input.targetOffsetMs),
+    };
+    const nextItems = timelineItems.map(item => {
+      if (input.sourceStableShotId === input.targetStableShotId) {
+        if (item.stableShotId !== input.sourceStableShotId) return item;
+        return {
+          ...item,
+          plannedDurationMs: Math.max(
+            item.plannedDurationMs,
+            movedClip.offsetMs + movedClip.durationMs
+          ),
+          visualClips: (item.visualClips ?? [])
+            .map(clip => (clip.id === input.clipId ? movedClip : clip))
+            .sort((left, right) => left.offsetMs - right.offsetMs),
+        };
+      }
+      if (item.stableShotId === input.sourceStableShotId) {
+        return {
+          ...item,
+          visualClips: (item.visualClips ?? []).filter(
+            clip => clip.id !== input.clipId
+          ),
+        };
+      }
+      if (item.stableShotId === input.targetStableShotId) {
+        return {
+          ...item,
+          plannedDurationMs: Math.max(
+            item.plannedDurationMs,
+            movedClip.offsetMs + movedClip.durationMs
+          ),
+          visualClips: [...(item.visualClips ?? []), movedClip].sort(
+            (left, right) => left.offsetMs - right.offsetMs
+          ),
+        };
+      }
+      return item;
+    });
+    await saveTimelineItems(nextItems, { throwOnError: true });
+  };
+
+  const removeTimelineVideoClip = async (input: {
+    stableShotId: string;
+    clipId: string;
+  }) => {
+    const sourceItem = timelineItems.find(
+      item => item.stableShotId === input.stableShotId
+    );
+    const sourceClips = sourceItem?.visualClips ?? [];
+    if (!sourceItem || !sourceClips.some(clip => clip.id === input.clipId)) {
+      throw new Error("找不到要移除的视频片段");
+    }
+    await saveTimelineItems(
+      timelineItems.map(item => {
+        if (item.stableShotId !== input.stableShotId) return item;
+        const visualClips = sourceClips.filter(
+          clip => clip.id !== input.clipId
+        );
+        return {
+          ...item,
+          visualClips,
+          visualClipsReplacePrimary:
+            visualClips.length > 0 && item.visualClipsReplacePrimary,
+        };
+      }),
+      { throwOnError: true }
+    );
   };
 
   const selectVideoTimelineSegment = async (input: {
@@ -2500,6 +2810,7 @@ export function CreationEditorProvider({
       promoteFrameCrop,
       promoteStoryImage,
       assignStoryImageToShot,
+      deleteStoryImage,
       importStoryMaterial,
       attachChatCutXml,
       adviseStoryImages,
@@ -2518,6 +2829,9 @@ export function CreationEditorProvider({
       adoptVideoTake: adoptVideoTakeForShot,
       reuseVideoTake: reuseVideoTakeForShot,
       createVideoTakeRange,
+      splitTimelineVideoClip,
+      moveTimelineVideoClip,
+      removeTimelineVideoClip,
       selectVideoTimelineSegment,
       clearVideoTimelineSegment,
       createDerivedShotDraft,
@@ -2559,6 +2873,7 @@ export function CreationEditorProvider({
       moveVideoTakeToShot,
       reuseVideoTakeForShot,
       assignStoryImageToShot,
+      deleteStoryImage,
       importStoryMaterial,
       attachChatCutXml,
       adviseStoryImages,

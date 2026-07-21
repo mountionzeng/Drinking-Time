@@ -63,6 +63,14 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain(
       "<EditingNleWorkspace timelineVisible={timelineVisible} />"
     );
+    expect(editingPage).toContain("<MaterialWarehousePanel />");
+    expect(editingPage).toContain(
+      'data-story-panel="editing-material-warehouse"'
+    );
+    expect(editingPage).toContain('label: "素材仓库"');
+    expect(editingPage).toContain(
+      "setMaterialWarehouseVisible(value => !value)"
+    );
     expect(editingPage).toContain('label: "时间线"');
     expect(editingPage).toContain("setTimelineVisible(value => !value)");
     expect(editingWorkspace).toContain("<StoryboardPanel");
@@ -84,6 +92,18 @@ describe("creation editor spine boundary", () => {
     );
     expect(editingWorkspace).toContain(
       'className="h-full w-full object-cover"'
+    );
+    expect(editingWorkspace).toContain(
+      'data-testid="editing-preview-subtitle-rail"'
+    );
+    expect(editingWorkspace).toContain(
+      'className="flex h-12 shrink-0 items-center justify-center overflow-hidden'
+    );
+    expect(editingWorkspace).toContain(
+      'data-testid="editing-preview-subtitle"'
+    );
+    expect(editingWorkspace).not.toContain(
+      "pointer-events-none absolute inset-x-3"
     );
     expect(editingWorkspace).toContain("hidden={!visible}");
     expect(editingWorkspace).toContain('visible ? "flex" : "hidden"');

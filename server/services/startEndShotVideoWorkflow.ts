@@ -10,7 +10,9 @@ import {
 } from "../../shared/startEndVideo";
 import { displayShotCode } from "../../shared/shotIdentity";
 import {
+  decideVideoRenderStrategy,
   VIDEO_VISUAL_FIDELITY_POLICY_VERSION,
+  type VideoRenderDecision,
   withVideoVisualFidelity,
 } from "../../shared/videoMotionPolicy";
 import {
@@ -27,6 +29,7 @@ import { localVideoDir, materializeVideoUrl } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
 import { directVideoPrompt } from "./videoPromptDirector";
 import { storyVideoContext } from "./videoShotContext";
+import { createLocalMotionVideoTake } from "./localMotionVideo";
 import {
   estimateViduQ2TransitionCny,
   refreshViduTransition,
@@ -49,6 +52,7 @@ type ResolvedStartEndShot = {
   config: NonNullable<ReturnType<typeof parseStartEndVideoConfig>>;
   firstFrame: ImageAsset;
   lastFrame: ImageAsset;
+  renderDecision: VideoRenderDecision;
 };
 
 function record(value: unknown): RecordValue {
@@ -96,6 +100,13 @@ function assetBelongsToShot(asset: ImageAsset, stableShotId: string) {
     asset.assignment === "shot" &&
     asset.availability !== "missing" &&
     (!asset.shotIdentity || asset.shotIdentity === stableShotId)
+  );
+}
+
+function sameVisualSource(first: ImageAsset, last: ImageAsset): boolean {
+  return (
+    first.imageUrl === last.imageUrl ||
+    Boolean(first.imageKey && first.imageKey === last.imageKey)
   );
 }
 
@@ -149,6 +160,27 @@ async function resolveStartEndShot(
     .filter(Boolean)
     .join("\n")
     .slice(0, 5_000);
+  const requestedDecision = decideVideoRenderStrategy({
+    action: text(shot.action),
+    performance: text(shot.performance),
+    environmentMotion: text(shot.environmentMotion),
+    cameraMove: text(shot.cameraMove),
+    cameraPath: text(shot.cameraPath),
+    subjectPath: text(shot.subjectPath),
+    videoStart: text(shot.videoStart),
+    videoEnd: text(shot.videoEnd),
+    videoPrompt: basePrompt,
+  });
+  const renderDecision: VideoRenderDecision =
+    requestedDecision.strategy === "local-transform" &&
+    !sameVisualSource(firstFrame, lastFrame)
+      ? {
+          strategy: "paid-302",
+          reason:
+            "首帧和尾帧是不同画面，本地缩放平移不能可靠补出两帧之间的新像素。",
+          localMotion: null,
+        }
+      : requestedDecision;
   return {
     storyId,
     stableShotId,
@@ -161,6 +193,7 @@ async function resolveStartEndShot(
     config,
     firstFrame,
     lastFrame,
+    renderDecision,
   };
 }
 
@@ -174,6 +207,10 @@ function estimateForResolved(
   });
   return {
     ...cost,
+    estimatedCny:
+      resolved.renderDecision.strategy === "local-transform"
+        ? 0
+        : cost.estimatedCny,
     stableShotId: resolved.stableShotId,
     cueCode: resolved.cueCode,
     durationSec: resolved.config.durationSec,
@@ -182,6 +219,9 @@ function estimateForResolved(
     aspectRatio: "1:1",
     movementAmplitude: resolved.config.movementAmplitude,
     model: resolved.config.model,
+    renderStrategy: resolved.renderDecision.strategy,
+    renderReason: resolved.renderDecision.reason,
+    localMotion: resolved.renderDecision.localMotion,
     firstFrame: {
       imageId: resolved.firstFrame.id,
       imageUrl: resolved.firstFrame.imageUrl,
@@ -278,6 +318,29 @@ export async function startEndShotVideoJob(
       error: `费用预估已变化，请重新确认预计 ¥${estimate.estimatedCny.toFixed(2)}`,
       estimate,
     };
+  }
+
+  if (resolved.renderDecision.strategy === "local-transform") {
+    const local = await createLocalMotionVideoTake({
+      storyId: input.storyId,
+      userId,
+      stableShotId: resolved.stableShotId,
+      sourceImage: resolved.firstFrame,
+      promptCompilationId: null,
+      prompt: resolved.prompt,
+      subtitle: resolved.subtitle,
+      durationSec: resolved.config.durationSec,
+      decision: resolved.renderDecision,
+      rerenderRequestId: input.rerenderRequestId,
+    });
+    return local.status === "ok"
+      ? { status: "ok", take: local.take, estimate }
+      : {
+          status: "error",
+          error: local.error,
+          take: local.take,
+          estimate,
+        };
   }
 
   const key = idempotencyKey(resolved, input.rerenderRequestId);

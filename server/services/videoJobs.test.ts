@@ -473,7 +473,10 @@ describe("videoJobs", () => {
 镜头要传达的信息：记录一个身体正在流失能量的瞬间。
 主体：空荡的房间，下午的光。
 动作：坐在沙发边缘，身体微微前倾，手搭在膝盖上。
+表演：先屏住呼吸，再缓慢抬眼。
+环境变化：窗帘只被现有微风轻轻带动。
 相机运动：稳定轻微推进，避免夸张转场。
+主体运动路径：人物留在原位，不横穿画面。
 字幕/旁白含义：我最近一直都在昏昏欲睡的状态。
 情绪色调：平静，像在陈述天气。
 限制：不要生成文字水印。
@@ -481,7 +484,10 @@ Negative: no floating objects, characters obey physics.
     `);
 
     expect(prompt).toContain("坐在沙发边缘");
+    expect(prompt).toContain("先屏住呼吸");
+    expect(prompt).toContain("窗帘只被现有微风轻轻带动");
     expect(prompt).toContain("稳定轻微推进");
+    expect(prompt).toContain("人物留在原位");
     expect(prompt).not.toContain("镜头要传达的信息");
     expect(prompt).not.toContain("昏昏欲睡");
     expect(prompt).not.toContain("Negative");

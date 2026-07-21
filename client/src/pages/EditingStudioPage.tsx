@@ -19,6 +19,7 @@ import {
   useCreationEditor,
 } from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
+import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
@@ -82,7 +83,13 @@ function ExportButton({ storyId }: { storyId: number }) {
   );
 }
 
-function EditingStudioBody({ timelineVisible }: { timelineVisible: boolean }) {
+function EditingStudioBody({
+  timelineVisible,
+  materialWarehouseVisible,
+}: {
+  timelineVisible: boolean;
+  materialWarehouseVisible: boolean;
+}) {
   const activeStoryId = useActiveStoryId();
   const [chatCollapsed, setChatCollapsed] = useState(false);
 
@@ -147,8 +154,18 @@ function EditingStudioBody({ timelineVisible }: { timelineVisible: boolean }) {
                 </div>
                 <ExportButton storyId={activeStoryId} />
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="relative min-h-0 flex-1 overflow-hidden">
                 <EditingNleWorkspace timelineVisible={timelineVisible} />
+                {materialWarehouseVisible ? (
+                  <div
+                    id="editing-material-warehouse"
+                    className="absolute inset-0 z-30 overflow-hidden bg-background"
+                    data-story-panel="editing-material-warehouse"
+                    aria-label="剪辑素材仓库"
+                  >
+                    <MaterialWarehousePanel />
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -171,6 +188,8 @@ export default function EditingStudioPage() {
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(true);
+  const [materialWarehouseVisible, setMaterialWarehouseVisible] =
+    useState(false);
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
@@ -210,18 +229,31 @@ export default function EditingStudioPage() {
       <BeverageAmbience />
       <TopBar
         showStoryPanelNav={false}
-        panelToggle={{
-          label: "时间线",
-          active: timelineVisible,
-          onToggle: () => setTimelineVisible(value => !value),
-        }}
+        panelToggles={[
+          {
+            label: "素材仓库",
+            active: materialWarehouseVisible,
+            controls: "editing-material-warehouse",
+            testId: "topbar-material-warehouse-toggle",
+            onToggle: () => setMaterialWarehouseVisible(value => !value),
+          },
+          {
+            label: "时间线",
+            active: timelineVisible,
+            testId: "topbar-timeline-toggle",
+            onToggle: () => setTimelineVisible(value => !value),
+          },
+        ]}
       />
       <div className="relative z-10 min-h-0 flex-1">
         <StoryAgentProvider
           projectId={currentProjectId}
           editingCommandRunner={runEditingCommand}
         >
-          <EditingStudioBody timelineVisible={timelineVisible} />
+          <EditingStudioBody
+            timelineVisible={timelineVisible}
+            materialWarehouseVisible={materialWarehouseVisible}
+          />
         </StoryAgentProvider>
       </div>
     </div>

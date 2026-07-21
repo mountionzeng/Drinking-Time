@@ -9,6 +9,7 @@ import {
   useCreationEditor,
   type CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
+import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 
@@ -43,8 +44,10 @@ export default function StoryboardPanel({
 }) {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
-  const { loadStory, updateStoryShotField, setActiveSelection } =
-    useStoryAgentActions();
+  const { loadStory, setActiveSelection } = useStoryAgentActions();
+  const setStoryShots = useStorySpine(state => state.setStoryShots);
+  const setSaveStatus = useStorySpine(state => state.setSaveStatus);
+  const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
   const {
     activeStoryId,
     selectedShotNo,
@@ -62,8 +65,10 @@ export default function StoryboardPanel({
     refreshShotVideoStatus,
     markVideoTakeUnusable,
     assignStoryImageToShot,
+    deleteStoryImage,
     moveVideoTake,
     adoptVideoTake,
+    removeTimelineVideoClip,
     promoteFrameCrop,
     importStoryMaterial,
     analyzeShotVideoDirection,
@@ -164,39 +169,42 @@ export default function StoryboardPanel({
           materialStatus: imageId ? "current-image" : "unknown",
         });
       }}
-      onUpdateShotDraftField={(index, field, value) => {
+      onUpdateShotField={async (index, field, value) => {
         const target = displayShots[index];
         if (!target) return;
         const identity = shotIdentityFromShot(target, index);
-        const spineIndex = storyShots.findIndex(
-          (shot, shotIndex) =>
-            identity != null &&
-            shotIdentityFromShot(shot, shotIndex) === identity
-        );
-        if (spineIndex >= 0) {
-          updateStoryShotField(spineIndex, field, value);
+        if (!identity) {
+          toast.error("镜头缺少稳定编号，内容未保存");
+          return;
         }
-      }}
-      onUpdateShotField={(index, field, value) => {
-        const target = displayShots[index];
-        if (!target) return;
-        const identity = shotIdentityFromShot(target, index);
-        const spineIndex = storyShots.findIndex(
-          (shot, shotIndex) =>
-            identity != null &&
+        const previousValue = target[field] ?? "";
+        setStoryShots(current =>
+          current.map((shot, shotIndex) =>
             shotIdentityFromShot(shot, shotIndex) === identity
+              ? { ...shot, [field]: value }
+              : shot
+          )
         );
-        if (spineIndex >= 0) {
-          updateStoryShotField(spineIndex, field, value);
-        }
-        if (identity) {
-          void updatePersistedShotField(identity, field, value).catch(error => {
-            toast.error(
-              error instanceof Error
-                ? `镜头内容未保存：${error.message}`
-                : "镜头内容未保存"
-            );
-          });
+        setSaveStatus("saving");
+        try {
+          await updatePersistedShotField(identity, field, value);
+          setSaveStatus("saved");
+          setLastSavedAt(Date.now());
+        } catch (error) {
+          setStoryShots(current =>
+            current.map((shot, shotIndex) =>
+              shotIdentityFromShot(shot, shotIndex) === identity &&
+              (shot[field] ?? "") === value
+                ? { ...shot, [field]: previousValue }
+                : shot
+            )
+          );
+          setSaveStatus("error");
+          toast.error(
+            error instanceof Error
+              ? `镜头内容未保存：${error.message}`
+              : "镜头内容未保存"
+          );
         }
       }}
       creationShots={mergedCreationShots}
@@ -229,7 +237,9 @@ export default function StoryboardPanel({
       onGenerateStartEndShotVideo={generateStartEndShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
       onMarkVideoTakeUnusable={markVideoTakeUnusable}
+      onRemoveTimelineVideoClip={removeTimelineVideoClip}
       onMoveStoryImage={assignStoryImageToShot}
+      onDeleteStoryImage={deleteStoryImage}
       onMoveVideoTake={moveVideoTake}
       onAdoptVideoTake={adoptVideoTake}
       onPromoteFrameCrop={promoteFrameCrop}
