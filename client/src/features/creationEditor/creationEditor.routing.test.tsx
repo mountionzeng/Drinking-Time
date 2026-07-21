@@ -15,6 +15,7 @@ import {
   buildMaterialWarehouseVideoItems,
   videoWarehouseActionState,
 } from './views/MaterialWarehousePanel';
+import type { ImageAsset } from '@shared/imageAsset';
 import type { VideoTakeAsset } from '@shared/videoAsset';
 
 function makeStorage() {
@@ -66,6 +67,40 @@ function shot(shotNo: number, overrides: Partial<CreationEditorShot> = {}): Crea
     emotion: '',
     sourceCardContent: '',
     ...overrides,
+  };
+}
+
+function materialImage(
+  id: number,
+  imageUrl: string,
+  isPrimary: boolean,
+  selectionSource: ImageAsset['selectionSource'],
+): ImageAsset {
+  return {
+    id,
+    projectId: null,
+    storyId: 54,
+    userId: 1,
+    rawShotNo: 'SH01',
+    canonicalShotNo: 'SH01',
+    shotIdentity: 'shot-01',
+    imageKey: `shot-01-${id}.webp`,
+    imageUrl,
+    prompt: null,
+    promptCompilationId: null,
+    promptFreshness: 'current',
+    generationType: 'initial',
+    parentImageId: null,
+    isCurrent: isPrimary,
+    maskKey: null,
+    createdAt: `2026-07-20T00:00:${String(id).padStart(2, '0')}.000Z`,
+    kind: 'story_frame',
+    status: 'selected',
+    assignment: 'shot',
+    availability: 'available',
+    isPrimary,
+    selectionSource,
+    selectedAt: isPrimary ? '2026-07-20T00:00:00.000Z' : null,
   };
 }
 
@@ -210,6 +245,46 @@ describe('creation editor route and shell', () => {
     );
 
     expect(merged[0].imageUrl).toBe('/api/images/restored.png');
+  });
+
+  it('keeps every image version on its shot for storyboard first and last frames', () => {
+    const images = resolveCreationEditorImages(
+      {
+        storyId: 54,
+        timeline: { storyId: 54, version: 1, items: [] },
+        shots: [
+          {
+            stableShotId: 'shot-01',
+            shotNo: 1,
+            currentImage: materialImage(
+              11,
+              '/api/images/first.webp',
+              true,
+              'explicit',
+            ),
+            imageVersions: [
+              materialImage(11, '/api/images/first.webp', true, 'explicit'),
+              materialImage(12, '/api/images/last.webp', false, 'none'),
+            ],
+            currentVideo: null,
+            videoTakes: [],
+            timelineItem: null,
+          },
+        ],
+        unassignedImages: [],
+        unassignedVideoTakes: [],
+        reusableVideoTakes: [],
+      },
+      [],
+    );
+    const merged = mergeShotsWithImages(
+      [shot(1, { stableShotId: 'shot-01', shotIdentity: 'shot-01' })],
+      images,
+    );
+
+    expect(images.map(image => image.id)).toEqual([11, 12]);
+    expect(merged[0].imageVersions?.map(image => image.id)).toEqual([11, 12]);
+    expect(merged[0].imageId).toBe(11);
   });
 
   it('keeps unmatched video takes visible in the material warehouse', () => {

@@ -1,5 +1,5 @@
 import { GripVertical } from "lucide-react";
-import type { DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import type { StoryShot } from "@/features/storyAgent/types";
 
@@ -30,12 +30,6 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
     rows: 3,
   },
   {
-    field: "intent",
-    label: "叙事目的",
-    placeholder: "观众在这一镜需要理解或感受到什么",
-    rows: 3,
-  },
-  {
     field: "action",
     label: "画面动作",
     placeholder: "主体与环境正在发生什么",
@@ -54,18 +48,6 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
     rows: 3,
   },
   {
-    field: "videoStart",
-    label: "开始画面",
-    placeholder: "首帧构图、动作与光线状态",
-    rows: 3,
-  },
-  {
-    field: "videoEnd",
-    label: "结束画面",
-    placeholder: "末帧需要落到的状态",
-    rows: 3,
-  },
-  {
     field: "sound",
     label: "声音",
     placeholder: "环境声、音乐、音效或声音桥",
@@ -77,13 +59,22 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
     placeholder: "如何自然进入下一镜",
     rows: 3,
   },
-  {
-    field: "videoPrompt",
-    label: "视频提示词",
-    placeholder: "可编辑的图生视频提示词",
-    rows: 5,
-  },
 ];
+
+export function storyboardMatrixTextareaHeight(
+  scrollHeight: number,
+  field: StoryboardMatrixField,
+  expanded = false
+): number {
+  const maxHeight = expanded
+    ? field === "videoPrompt"
+      ? 176
+      : 112
+    : field === "videoPrompt"
+      ? 60
+      : 44;
+  return Math.max(28, Math.min(maxHeight, Math.ceil(scrollHeight)));
+}
 
 export function storyboardMatrixSwapPlan(
   shots: readonly StoryShot[],
@@ -114,6 +105,7 @@ export function StoryboardMatrixFieldCell({
   dropTarget,
   editable,
   onFocus,
+  onDraft,
   onCommit,
   onDragStart,
   onDragEnd,
@@ -128,6 +120,7 @@ export function StoryboardMatrixFieldCell({
   dropTarget: boolean;
   editable: boolean;
   onFocus: () => void;
+  onDraft?: (value: string) => void;
   onCommit: (value: string) => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd: () => void;
@@ -135,7 +128,27 @@ export function StoryboardMatrixFieldCell({
   onDragLeave: () => void;
   onDrop: (event: DragEvent<HTMLDivElement>) => void;
 }) {
-  const currentValue = value?.trim() ?? "";
+  const currentValue = value ?? "";
+  const [draftValue, setDraftValue] = useState(currentValue);
+  const [isFocused, setIsFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    setDraftValue(currentValue);
+  }, [currentValue, row.field, shotLabel]);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const height = storyboardMatrixTextareaHeight(
+      textarea.scrollHeight,
+      row.field,
+      isFocused
+    );
+    textarea.style.height = `${height}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > height ? "auto" : "hidden";
+  }, [draftValue, isFocused, row.field]);
+
   return (
     <div
       role="cell"
@@ -152,7 +165,7 @@ export function StoryboardMatrixFieldCell({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {editable && currentValue ? (
+      {editable && draftValue.trim() ? (
         <button
           type="button"
           draggable
@@ -167,19 +180,38 @@ export function StoryboardMatrixFieldCell({
         </button>
       ) : null}
       <textarea
-        key={`${shotLabel}:${row.field}:${currentValue}`}
-        defaultValue={currentValue}
-        rows={row.rows}
+        ref={textareaRef}
+        value={draftValue}
+        rows={1}
         placeholder={row.placeholder}
         disabled={!editable}
-        onFocus={onFocus}
+        onFocus={() => {
+          setIsFocused(true);
+          onFocus();
+        }}
+        onChange={event => {
+          const next = event.currentTarget.value;
+          setDraftValue(next);
+          onDraft?.(next);
+        }}
         onBlur={event => {
+          setIsFocused(false);
           const next = event.currentTarget.value.trim();
-          if (next !== currentValue) onCommit(next);
+          setDraftValue(next);
+          if (next !== currentValue.trim()) onCommit(next);
         }}
         onPointerDown={event => event.stopPropagation()}
         className="block w-full scroll-mt-24 resize-none rounded-sm bg-transparent px-1.5 py-1 pr-7 text-[9px] leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:opacity-70"
-        style={{ minHeight: `${row.rows * 1.35 + 0.7}rem` }}
+        style={{
+          minHeight: 28,
+          maxHeight: isFocused
+            ? row.field === "videoPrompt"
+              ? 176
+              : 112
+            : row.field === "videoPrompt"
+              ? 60
+              : 44,
+        }}
         aria-label={`${shotLabel} ${row.label}`}
       />
     </div>

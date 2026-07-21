@@ -225,7 +225,10 @@ async function patchTake(
   return updated;
 }
 
-function idempotencyKey(resolved: ResolvedStartEndShot) {
+function idempotencyKey(
+  resolved: ResolvedStartEndShot,
+  rerenderRequestId?: string
+) {
   return `shot-start-end:${hashParts(
     VIDEO_VISUAL_FIDELITY_POLICY_VERSION,
     resolved.storyId,
@@ -236,7 +239,8 @@ function idempotencyKey(resolved: ResolvedStartEndShot) {
     resolved.config.durationSec,
     resolved.config.resolution,
     resolved.config.movementAmplitude,
-    resolved.config.model
+    resolved.config.model,
+    rerenderRequestId
   )}`;
 }
 
@@ -244,6 +248,7 @@ export async function startEndShotVideoJob(
   input: {
     storyId: number;
     stableShotId: string;
+    rerenderRequestId?: string;
     confirmedEstimatedCny: number;
   },
   userId: number
@@ -275,7 +280,7 @@ export async function startEndShotVideoJob(
     };
   }
 
-  const key = idempotencyKey(resolved);
+  const key = idempotencyKey(resolved, input.rerenderRequestId);
   let take = await findVideoTakeByIdempotencyKey(input.storyId, userId, key);
   if (!take) {
     const reserved = await createVideoTakeIdempotently({
@@ -309,6 +314,7 @@ export async function startEndShotVideoJob(
         resolution: resolved.config.resolution,
         aspectRatio: "1:1",
         movementAmplitude: resolved.config.movementAmplitude,
+        rerenderRequestId: input.rerenderRequestId,
         estimatedCny: estimate.estimatedCny,
         visualFidelityPolicyVersion: VIDEO_VISUAL_FIDELITY_POLICY_VERSION,
         submissionState: "not_started",

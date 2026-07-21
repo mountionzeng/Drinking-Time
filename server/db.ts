@@ -2311,6 +2311,7 @@ export async function assignStoryImageToShot(data: {
   userId: number;
   shotNo: string;
   shotIdentity: string;
+  preserveTimelineSelection?: boolean;
   metadata?: InsertImageSignal["metadata"];
 }): Promise<{ image: GeneratedImage; signal: ImageSignal } | null> {
   const db = await getDb();
@@ -2335,14 +2336,16 @@ export async function assignStoryImageToShot(data: {
     image.shotIdentity = data.shotIdentity;
     image.isCurrent = true;
 
-    const stableShotIds = [data.shotIdentity, `legacy-${data.shotNo}`];
-    memoryState.videoTimelineSelections =
-      memoryState.videoTimelineSelections.filter(
-        selection =>
-          selection.storyId !== data.storyId ||
-          selection.userId !== data.userId ||
-          !stableShotIds.includes(selection.stableShotId)
-      );
+    if (!data.preserveTimelineSelection) {
+      const stableShotIds = [data.shotIdentity, `legacy-${data.shotNo}`];
+      memoryState.videoTimelineSelections =
+        memoryState.videoTimelineSelections.filter(
+          selection =>
+            selection.storyId !== data.storyId ||
+            selection.userId !== data.userId ||
+            !stableShotIds.includes(selection.stableShotId)
+        );
+    }
 
     const signal: ImageSignal = {
       id: nextMemoryId("imageSignal"),
@@ -2406,18 +2409,20 @@ export async function assignStoryImageToShot(data: {
       })
       .where(eq(generatedImages.id, image.id));
 
-    await tx
-      .delete(videoTimelineSelections)
-      .where(
-        and(
-          eq(videoTimelineSelections.storyId, data.storyId),
-          eq(videoTimelineSelections.userId, data.userId),
-          inArray(videoTimelineSelections.stableShotId, [
-            data.shotIdentity,
-            `legacy-${data.shotNo}`,
-          ])
-        )
-      );
+    if (!data.preserveTimelineSelection) {
+      await tx
+        .delete(videoTimelineSelections)
+        .where(
+          and(
+            eq(videoTimelineSelections.storyId, data.storyId),
+            eq(videoTimelineSelections.userId, data.userId),
+            inArray(videoTimelineSelections.stableShotId, [
+              data.shotIdentity,
+              `legacy-${data.shotNo}`,
+            ])
+          )
+        );
+    }
 
     const [result] = await tx.insert(imageSignals).values({
       userId: data.userId,

@@ -31,6 +31,7 @@ import {
 } from "./videoConform";
 import {
   directVideoPrompt,
+  mjSafeVideoPrompt,
   type VideoPromptDirectorResult,
 } from "./videoPromptDirector";
 import { storyVideoContext } from "./videoShotContext";
@@ -42,6 +43,13 @@ import {
   PromptLineageValidationError,
   resolveGenerationPromptCompilation,
 } from "./promptLineage";
+
+type VideoSubmissionPromptDirectorResult = Omit<
+  VideoPromptDirectorResult,
+  "source"
+> & {
+  source: VideoPromptDirectorResult["source"] | "editor-approved";
+};
 
 function hashParts(
   ...parts: Array<string | number | null | undefined>
@@ -196,6 +204,20 @@ function promptWithVideoReferences(params: {
   return lines.filter(Boolean).join("\n");
 }
 
+function sanitizeApprovedVideoPrompt(raw: string): string {
+  const prompt = mjSafeVideoPrompt(raw.trim())
+    .replace(/连续性参考[：:].*/g, "")
+    .replace(/前一镜参考图[：:].*/g, "")
+    .replace(/后一镜参考图[：:].*/g, "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/--[a-z][\w-]*(?:\s+\S+)?/gi, "")
+    .trim();
+  return (
+    prompt ||
+    "subtle natural motion, stable camera, preserve subject and composition"
+  );
+}
+
 function snapshot(input: {
   submitUrl?: string;
   submittedParameters?: Record<string, unknown>;
@@ -205,8 +227,9 @@ function snapshot(input: {
   durationSec: number;
   aspectRatio: string;
   motion: "low" | "high";
+  rerenderRequestId?: string;
   taskId?: string | null;
-  promptDirector: VideoPromptDirectorResult;
+  promptDirector: VideoSubmissionPromptDirectorResult;
 }) {
   const providerStatus = getShotVideoProviderStatus();
   return {
@@ -223,6 +246,7 @@ function snapshot(input: {
     pollPath: providerStatus.pollPath || undefined,
     imageField: providerStatus.imageField,
     motion: input.motion,
+    rerenderRequestId: input.rerenderRequestId,
     promptDirector: {
       source: input.promptDirector.source,
       model: input.promptDirector.model,
@@ -258,6 +282,8 @@ export type StartShotVideoJobInput = {
   durationSec?: number;
   aspectRatio?: string;
   motion?: "low" | "high";
+  directorPromptApproved?: boolean;
+  rerenderRequestId?: string;
 };
 
 export async function startShotVideoJob(
@@ -323,12 +349,15 @@ export async function startShotVideoJob(
     input.nextReferenceImageId,
     input.imageId
   );
-  const deterministicPrompt = promptWithVideoReferences({
-    prompt: input.prompt,
-    previousReference,
-    nextReference,
-    forMjVideo: /\/mj\/submit\/video/.test(providerStatus.submitPath),
-  });
+  const isMjVideo = /\/mj\/submit\/video/.test(providerStatus.submitPath);
+  const deterministicPrompt = input.directorPromptApproved
+    ? sanitizeApprovedVideoPrompt(input.prompt)
+    : promptWithVideoReferences({
+        prompt: input.prompt,
+        previousReference,
+        nextReference,
+        forMjVideo: isMjVideo,
+      });
   const idempotencyKey = hashParts(
     input.storyId,
     stableShotId,
@@ -340,9 +369,11 @@ export async function startShotVideoJob(
     providerStatus.model,
     providerStatus.submitPath,
     motion,
+    input.directorPromptApproved ? "editor-approved" : "auto-directed",
     ENV.videoPrompt302Model,
     previousReference?.id,
-    nextReference?.id
+    nextReference?.id,
+    input.rerenderRequestId
   );
   const existing = await findVideoTakeByIdempotencyKey(
     input.storyId,
@@ -356,23 +387,32 @@ export async function startShotVideoJob(
   const sourceImage = await materializeImageInput(asset.imageUrl);
   const story = await getStoryById(input.storyId, userId);
   const context = storyVideoContext(story?.body, stableShotId, input.shotNo);
-  const promptDirector = /\/mj\/submit\/video/.test(providerStatus.submitPath)
-    ? await directVideoPrompt({
-        imageInput: sourceImage,
-        fallbackPrompt: deterministicPrompt,
-        shotNo: input.shotNo,
-        draftPrompt: input.prompt,
-        subtitle: input.subtitle,
-        storyTitle: story?.title,
-        ...context,
-      })
-    : {
-        prompt: deterministicPrompt,
-        source: "deterministic-fallback" as const,
-        model: "",
-        analysis: null,
-        fallbackReason: "当前视频供应商不是 MJ-Video",
-      };
+  const promptDirector: VideoSubmissionPromptDirectorResult =
+    input.directorPromptApproved
+      ? {
+          prompt: deterministicPrompt,
+          source: "editor-approved",
+          model: "",
+          analysis: null,
+          fallbackReason: "用户已在故事版确认并应用导演方案",
+        }
+      : isMjVideo
+        ? await directVideoPrompt({
+            imageInput: sourceImage,
+            fallbackPrompt: deterministicPrompt,
+            shotNo: input.shotNo,
+            draftPrompt: input.prompt,
+            subtitle: input.subtitle,
+            storyTitle: story?.title,
+            ...context,
+          })
+        : {
+            prompt: deterministicPrompt,
+            source: "deterministic-fallback",
+            model: "",
+            analysis: null,
+            fallbackReason: "当前视频供应商不是 MJ-Video",
+          };
   const videoPrompt = promptDirector.prompt;
 
   const take = await createVideoTake({
@@ -395,6 +435,7 @@ export async function startShotVideoJob(
       durationSec,
       aspectRatio,
       motion,
+      rerenderRequestId: input.rerenderRequestId,
       promptDirector,
     }),
     idempotencyKey,
@@ -423,8 +464,13 @@ export async function startShotVideoJob(
   const managed = submitted.videoUrl
     ? await materializeVideoUrl(submitted.videoUrl, take.id)
     : null;
+  const submittedPrompt =
+    typeof submitted.submittedParameters?.prompt === "string"
+      ? submitted.submittedParameters.prompt
+      : videoPrompt;
   const updated = await updateVideoTake(take.id, userId, {
     status: submitted.videoUrl ? "available" : "processing",
+    prompt: submittedPrompt,
     taskId: submitted.taskId ?? null,
     videoUrl:
       managed?.status === "ok"

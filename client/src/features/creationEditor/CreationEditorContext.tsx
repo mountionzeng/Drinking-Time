@@ -91,6 +91,7 @@ export type CreationEditorShot = StoryShot & {
   imagePrompt?: string | null;
   imageSelectionSource?: CreationEditorImage["selectionSource"];
   imageIsPrimary?: boolean;
+  imageVersions?: CreationEditorImage[];
   videoTakes?: VideoTakeAsset[];
   selectedVideoTake?: VideoTakeAsset;
   durationMs?: number;
@@ -238,6 +239,7 @@ type CreationEditorContextValue = {
   assignStoryImageToShot: (input: {
     imageId: number;
     targetStableShotId: string;
+    preserveTimelineSelection?: boolean;
   }) => Promise<void>;
   importStoryMaterial: (input: {
     fileName: string;
@@ -245,6 +247,7 @@ type CreationEditorContextValue = {
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
+    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   attachChatCutXml: (xml: string) => Promise<{
     primaryClipCount: number;
@@ -270,6 +273,8 @@ type CreationEditorContextValue = {
     durationSec?: number;
     motion?: ShotVideoMotion;
     aspectRatio?: "1:1";
+    directorPromptApproved?: boolean;
+    rerenderRequestId?: string;
     costConfirmation: {
       accepted: true;
       estimatedCny: number;
@@ -288,6 +293,7 @@ type CreationEditorContextValue = {
   generateStartEndShotVideo: (input: {
     shotNo: number;
     stableShotId: string;
+    rerenderRequestId?: string;
     costConfirmation: {
       accepted: true;
       estimatedCny: number;
@@ -885,9 +891,10 @@ export function resolveCreationEditorImages(
   for (const image of normalizeStoryImages(storyImages)) {
     imagesByKey.set(imageSourceKey(image), image);
   }
-  const materialImages = materialState?.shots.flatMap(shot =>
-    shot.currentImage ? [shot.currentImage] : []
-  );
+  const materialImages = materialState?.shots.flatMap(shot => [
+    ...(Array.isArray(shot.imageVersions) ? shot.imageVersions : []),
+    ...(shot.currentImage ? [shot.currentImage] : []),
+  ]);
   for (const image of normalizeStoryImages(materialImages)) {
     imagesByKey.set(imageSourceKey(image), image);
   }
@@ -901,6 +908,17 @@ function isCurrentMaterialImage(image: CreationEditorImage): boolean {
     image.selectionSource === "legacy" ||
     image.status === "selected"
   );
+}
+
+function shouldPreferDisplayImage(
+  previous: CreationEditorImage | undefined,
+  candidate: CreationEditorImage
+): boolean {
+  if (!previous) return true;
+  if (previous.isPrimary !== candidate.isPrimary) {
+    return candidate.isPrimary === true;
+  }
+  return candidate.id >= previous.id;
 }
 
 export function mergeShotsWithImages(
@@ -926,22 +944,38 @@ export function mergeShotsWithImages(
         image.shotNo
       )) {
         const previous = displayByIdentity.get(key);
-        if (!previous || image.id >= previous.id)
+        if (shouldPreferDisplayImage(previous, image))
           displayByIdentity.set(key, image);
       }
     }
     if (!image.shotIdentity && image.shotNo != null) {
       const previous = displayByShotNo.get(image.shotNo);
-      if (!previous || image.id >= previous.id)
+      if (shouldPreferDisplayImage(previous, image))
         displayByShotNo.set(image.shotNo, image);
       const previousLegacy = legacyDisplayByShotNo.get(image.shotNo);
-      if (!previousLegacy || image.id >= previousLegacy.id)
+      if (shouldPreferDisplayImage(previousLegacy, image))
         legacyDisplayByShotNo.set(image.shotNo, image);
     }
   }
 
   return shots.map(shot => {
     const identity = shotIdentityFromShot(shot);
+    const identityKeys = new Set(shotIdentityMatchKeys(identity, shot.shotNo));
+    const imageVersions = images
+      .filter(image => {
+        if (image.status === "rejected" || !image.imageUrl) return false;
+        if (image.shotIdentity) {
+          return shotIdentityMatchKeys(image.shotIdentity, image.shotNo).some(
+            key => identityKeys.has(key)
+          );
+        }
+        return (
+          image.shotNo === shot.shotNo && shotNoCounts.get(shot.shotNo) === 1
+        );
+      })
+      .sort((left, right) => left.id - right.id);
+    const shotWithVersions =
+      imageVersions.length > 0 ? { ...shot, imageVersions } : shot;
     const matchedIdentityImage = shotIdentityMatchKeys(
       identity,
       shot.shotNo
@@ -974,7 +1008,7 @@ export function mergeShotsWithImages(
 
     if (explicitlySelectedImage) {
       return {
-        ...shot,
+        ...shotWithVersions,
         imageId: explicitlySelectedImage.id,
         imageUrl: explicitlySelectedImage.imageUrl,
         imagePrompt: explicitlySelectedImage.prompt,
@@ -984,7 +1018,7 @@ export function mergeShotsWithImages(
     }
     if (shot.promptRun?.imageUrl) {
       return {
-        ...shot,
+        ...shotWithVersions,
         imageId: promptRunImage?.id,
         imageUrl: shot.promptRun.imageUrl,
         imagePrompt: shot.promptRun.finalPrompt,
@@ -992,9 +1026,9 @@ export function mergeShotsWithImages(
         imageIsPrimary: promptRunImage?.isPrimary,
       };
     }
-    if (!image) return shot;
+    if (!image) return shotWithVersions;
     return {
-      ...shot,
+      ...shotWithVersions,
       imageId: image.id,
       imageUrl: image.imageUrl,
       imagePrompt: image.prompt,
@@ -1858,6 +1892,7 @@ export function CreationEditorProvider({
   const assignStoryImageToShot = async (input: {
     imageId: number;
     targetStableShotId: string;
+    preserveTimelineSelection?: boolean;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法绑定图片");
     const result = await assignStoryImageToShotMut.mutateAsync({
@@ -1883,6 +1918,7 @@ export function CreationEditorProvider({
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
+    preserveTimelineSelection?: boolean;
   }): Promise<ImportedStoryMaterialResult> => {
     if (activeId == null) throw new Error("故事尚未加载，无法导入素材");
     const result = await importStoryMaterialMut.mutateAsync({
@@ -1977,6 +2013,8 @@ export function CreationEditorProvider({
     durationSec?: number;
     motion?: ShotVideoMotion;
     aspectRatio?: "1:1";
+    directorPromptApproved?: boolean;
+    rerenderRequestId?: string;
     costConfirmation: {
       accepted: true;
       estimatedCny: number;
@@ -2028,6 +2066,7 @@ export function CreationEditorProvider({
   const generateStartEndShotVideo = async (input: {
     shotNo: number;
     stableShotId: string;
+    rerenderRequestId?: string;
     costConfirmation: {
       accepted: true;
       estimatedCny: number;
@@ -2039,6 +2078,7 @@ export function CreationEditorProvider({
       const result = await submitStartEndShotVideoMut.mutateAsync({
         storyId: activeId,
         stableShotId: input.stableShotId,
+        rerenderRequestId: input.rerenderRequestId,
         costConfirmation: input.costConfirmation,
       });
       if (result.status !== "ok") {

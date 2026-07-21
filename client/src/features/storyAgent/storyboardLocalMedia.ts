@@ -3,6 +3,14 @@ import type { ImportedStoryMaterialResult } from "@/features/creationEditor/Crea
 export const STORYBOARD_MEDIA_ACCEPT =
   "image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime";
 
+export const STORYBOARD_IMAGE_DRAG_MIME = "application/x-dt-storyboard-image";
+
+export type StoryboardImageDragPayload = {
+  imageId: number;
+  sourceStableShotId: string;
+  sourceShotNo: number;
+};
+
 export const STORYBOARD_IMAGE_MAX_BYTES = 30 * 1024 * 1024;
 export const STORYBOARD_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 
@@ -20,6 +28,48 @@ const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
 type StoryboardMediaFileInfo = Pick<File, "name" | "size" | "type">;
+
+export function writeStoryboardImageDragPayload(
+  dataTransfer: DataTransfer,
+  payload: StoryboardImageDragPayload
+) {
+  dataTransfer.effectAllowed = "move";
+  dataTransfer.setData(STORYBOARD_IMAGE_DRAG_MIME, JSON.stringify(payload));
+  dataTransfer.setData("text/plain", `Image ${payload.imageId}`);
+}
+
+export function hasStoryboardImageDragPayload(
+  dataTransfer: DataTransfer
+): boolean {
+  return Array.from(dataTransfer.types).includes(STORYBOARD_IMAGE_DRAG_MIME);
+}
+
+export function readStoryboardImageDragPayload(
+  dataTransfer: DataTransfer
+): StoryboardImageDragPayload | null {
+  try {
+    const raw = dataTransfer.getData(STORYBOARD_IMAGE_DRAG_MIME);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoryboardImageDragPayload>;
+    if (
+      !Number.isInteger(parsed.imageId) ||
+      Number(parsed.imageId) <= 0 ||
+      typeof parsed.sourceStableShotId !== "string" ||
+      !parsed.sourceStableShotId.trim() ||
+      !Number.isInteger(parsed.sourceShotNo) ||
+      Number(parsed.sourceShotNo) <= 0
+    ) {
+      return null;
+    }
+    return {
+      imageId: Number(parsed.imageId),
+      sourceStableShotId: parsed.sourceStableShotId,
+      sourceShotNo: Number(parsed.sourceShotNo),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function storyboardMediaMime(file: Pick<File, "name" | "type">): string {
   const declared = file.type.trim().toLowerCase();
@@ -69,6 +119,8 @@ export type StoryboardMediaImportBatchResult = {
   imageCount: number;
   videoCount: number;
   adoptedVideoCount: number;
+  images: Array<Extract<ImportedStoryMaterialResult, { kind: "image" }>>;
+  videos: Array<Extract<ImportedStoryMaterialResult, { kind: "video" }>>;
   rejected: Array<{ fileName: string; reason: string }>;
 };
 
@@ -82,6 +134,7 @@ export async function importStoryboardMediaFiles(input: {
     fileBase64: string;
     targetStableShotId?: string | null;
     note?: string;
+    preserveTimelineSelection?: boolean;
   }) => Promise<ImportedStoryMaterialResult>;
   adoptVideoTake?: (input: {
     stableShotId: string;
@@ -106,6 +159,8 @@ export async function importStoryboardMediaFiles(input: {
   let imageCount = 0;
   let videoCount = 0;
   let adoptedVideoCount = 0;
+  const images: StoryboardMediaImportBatchResult["images"] = [];
+  const videos: StoryboardMediaImportBatchResult["videos"] = [];
   for (const file of accepted) {
     const result = await input.importMaterial({
       fileName: file.name,
@@ -113,12 +168,15 @@ export async function importStoryboardMediaFiles(input: {
       fileBase64: await readBase64(file),
       targetStableShotId: input.stableShotId,
       note: input.note,
+      preserveTimelineSelection: true,
     });
     if (result.kind === "image") {
       imageCount += 1;
+      images.push(result);
       continue;
     }
     videoCount += 1;
+    videos.push(result);
     if (input.adoptVideoTake) {
       await input.adoptVideoTake({
         stableShotId: result.stableShotId,
@@ -129,5 +187,12 @@ export async function importStoryboardMediaFiles(input: {
     }
   }
 
-  return { imageCount, videoCount, adoptedVideoCount, rejected };
+  return {
+    imageCount,
+    videoCount,
+    adoptedVideoCount,
+    images,
+    videos,
+    rejected,
+  };
 }

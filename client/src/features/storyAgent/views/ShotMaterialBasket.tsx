@@ -112,6 +112,61 @@ function quadrantImageStyle(quadrant: FrameQuadrant): CSSProperties {
   };
 }
 
+export type ShotVideoWorkflowStep =
+  | "analyze"
+  | "apply"
+  | "generate"
+  | "refresh";
+
+export function shotVideoWorkflowStep(input: {
+  hasAnalysis: boolean;
+  analysisApplied: boolean;
+  hasProcessingTake: boolean;
+}): ShotVideoWorkflowStep {
+  if (input.hasProcessingTake) return "refresh";
+  if (!input.hasAnalysis) return "analyze";
+  if (!input.analysisApplied) return "apply";
+  return "generate";
+}
+
+export function shotVideoWorkflowLabel(step: ShotVideoWorkflowStep): string {
+  switch (step) {
+    case "analyze":
+      return "1 分析导演方案";
+    case "apply":
+      return "2 应用导演方案";
+    case "generate":
+      return "3 确认费用并生成";
+    case "refresh":
+      return "刷新生成状态";
+  }
+}
+
+export function shotVideoDirectorInputSignature(
+  shot: Partial<CreationEditorShot>
+): string {
+  return JSON.stringify(
+    [
+      shot.dialogue,
+      shot.intent,
+      shot.action,
+      shot.performance,
+      shot.environmentMotion,
+      shot.cameraMove,
+      shot.cameraHeight,
+      shot.lens,
+      shot.cameraPath,
+      shot.subjectPath,
+      shot.videoStart,
+      shot.videoEnd,
+      shot.transitionIn,
+      shot.transitionOut,
+      shot.sound,
+      shot.soundBridge,
+    ].map(value => (typeof value === "string" ? value.trim() : ""))
+  );
+}
+
 type ShotMaterialBasketProps = {
   shot: CreationEditorShot;
   previousShots: CreationEditorShot[];
@@ -125,6 +180,7 @@ type ShotMaterialBasketProps = {
     durationSec?: number;
     motion?: "low" | "high";
     aspectRatio?: "1:1";
+    directorPromptApproved?: boolean;
     costConfirmation: {
       accepted: true;
       estimatedCny: number;
@@ -233,6 +289,29 @@ export default function ShotMaterialBasket({
   const [estimatingStartEnd, setEstimatingStartEnd] = useState(false);
   const [submittingStartEnd, setSubmittingStartEnd] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const analysisSectionRef = useRef<HTMLDivElement | null>(null);
+  const analyzedInputSignatureRef = useRef<string | null>(null);
+  const directorInputSignature = useMemo(
+    () => shotVideoDirectorInputSignature(shot),
+    [
+      shot.action,
+      shot.cameraHeight,
+      shot.cameraMove,
+      shot.cameraPath,
+      shot.dialogue,
+      shot.environmentMotion,
+      shot.intent,
+      shot.lens,
+      shot.performance,
+      shot.sound,
+      shot.soundBridge,
+      shot.subjectPath,
+      shot.transitionIn,
+      shot.transitionOut,
+      shot.videoEnd,
+      shot.videoStart,
+    ]
+  );
   useEffect(() => {
     setVideoPrompt(recipe.finalPrompt);
     setMotion(suggestedMotion);
@@ -246,6 +325,7 @@ export default function ShotMaterialBasket({
     setStartEndEstimate(null);
     setEstimatingStartEnd(false);
     setSubmittingStartEnd(false);
+    analyzedInputSignatureRef.current = null;
   }, [shot.stableShotId]);
   useEffect(() => {
     if (!promptDirty && !analysisApplied) {
@@ -255,6 +335,21 @@ export default function ShotMaterialBasket({
   useEffect(() => {
     if (!analysis) setMotion(suggestedMotion);
   }, [analysis, suggestedMotion]);
+  useEffect(() => {
+    if (
+      !analysis ||
+      applyingAnalysis ||
+      !analyzedInputSignatureRef.current ||
+      analyzedInputSignatureRef.current === directorInputSignature
+    ) {
+      return;
+    }
+    analyzedInputSignatureRef.current = null;
+    setAnalysis(null);
+    setAnalysisApplied(false);
+    setStartEndEstimate(null);
+    toast.info("镜头文字已变化，请重新执行“1 分析导演方案”");
+  }, [analysis, applyingAnalysis, directorInputSignature]);
   const previousShot = previousShots.at(-1) ?? null;
   const selectedTake = currentTake(shot);
   const selectedTakeIsTimeline = Boolean(
@@ -314,6 +409,14 @@ export default function ShotMaterialBasket({
       !isStartEndVideoTakeSnapshot(take.parameterSnapshot) &&
       ["submitted", "processing"].includes(take.status)
   );
+  const workflowStep = shotVideoWorkflowStep({
+    hasAnalysis: Boolean(analysis),
+    analysisApplied,
+    hasProcessingTake: Boolean(processingTake),
+  });
+  const workflowLabel = canGenerate
+    ? shotVideoWorkflowLabel(workflowStep)
+    : generateLabel;
   const takeStats = useMemo(() => {
     const active: VideoTakeAsset[] = [];
     const unavailable: VideoTakeAsset[] = [];
@@ -340,15 +443,8 @@ export default function ShotMaterialBasket({
 
   const generate = async () => {
     if (!canGenerate || shot.imageId == null) return;
-    if (!analysis) {
-      await analyzeContinuity();
-      toast.info("导演方案已经生成，请检查并应用后再提交视频");
-      return;
-    }
-    if (!analysisApplied) {
-      toast.info("请先确认并应用当前图生视频导演方案");
-      return;
-    }
+    if (!analysis || !analysisApplied) return;
+    if (!(await saveVideoPrompt())) return;
     const durationSec = Math.max(
       3,
       Math.min(10, Math.round((shot.durationMs ?? 5000) / 1000))
@@ -358,19 +454,29 @@ export default function ShotMaterialBasket({
       `预计费用 ¥${estimate.estimatedCny.toFixed(2)}。确认后才会提交 302 生成 ${durationSec} 秒、1:1 视频。是否继续？`
     );
     if (!confirmed) return;
-    await onGenerateShotVideo?.({
-      shotNo: shot.shotNo,
-      imageId: shot.imageId,
-      prompt: videoPrompt.trim(),
-      subtitle: shot.dialogue || undefined,
-      durationSec,
-      motion,
-      aspectRatio: SHOT_VIDEO_ASPECT_RATIO,
-      costConfirmation: {
-        accepted: true,
-        estimatedCny: estimate.estimatedCny,
-      },
-    });
+    try {
+      const result = (await onGenerateShotVideo?.({
+        shotNo: shot.shotNo,
+        imageId: shot.imageId,
+        prompt: videoPrompt.trim(),
+        subtitle: shot.dialogue || undefined,
+        durationSec,
+        motion,
+        aspectRatio: SHOT_VIDEO_ASPECT_RATIO,
+        directorPromptApproved: true,
+        costConfirmation: {
+          accepted: true,
+          estimatedCny: estimate.estimatedCny,
+        },
+      })) as { takeId?: number } | undefined;
+      toast.success(
+        result?.takeId
+          ? `视频任务已提交为 Take ${result.takeId}；生成结果会显示在当前预览和下方 Take 列表`
+          : "视频任务已提交；生成结果会显示在当前预览和下方 Take 列表"
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "视频任务提交失败");
+    }
   };
 
   const requestStartEndEstimate = async () => {
@@ -459,17 +565,23 @@ export default function ShotMaterialBasket({
     }
   };
 
-  const saveVideoPrompt = async () => {
+  const saveVideoPrompt = async (): Promise<boolean> => {
     const targetStableShotId = stableShotId(shot);
-    if (!promptDirty || !targetStableShotId || !onUpdateShotFields) return;
+    if (!promptDirty) return true;
+    if (!targetStableShotId || !onUpdateShotFields) {
+      toast.error("当前镜头无法保存最终视频提示词");
+      return false;
+    }
     setSavingPrompt(true);
     try {
       await onUpdateShotFields(targetStableShotId, {
         videoPrompt: videoPrompt.trim(),
       });
       setPromptDirty(false);
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "视频提示保存失败");
+      return false;
     } finally {
       setSavingPrompt(false);
     }
@@ -492,6 +604,7 @@ export default function ShotMaterialBasket({
           "根据当前镜头及相邻镜头设计连续、可剪辑的视频动作",
         subtitle: shot.dialogue || undefined,
       });
+      analyzedInputSignatureRef.current = directorInputSignature;
       setAnalysis(result);
       setAnalysisApplied(false);
       setMotion(result.analysis.recommendedMotion);
@@ -522,6 +635,10 @@ export default function ShotMaterialBasket({
     setApplyingAnalysis(true);
     try {
       await onUpdateShotFields(targetStableShotId, patch);
+      analyzedInputSignatureRef.current = shotVideoDirectorInputSignature({
+        ...shot,
+        ...patch,
+      });
       if (patch.videoPrompt) {
         setVideoPrompt(patch.videoPrompt);
         setPromptDirty(false);
@@ -534,6 +651,40 @@ export default function ShotMaterialBasket({
     } finally {
       setApplyingAnalysis(false);
     }
+  };
+
+  const revealAnalysis = () => {
+    window.requestAnimationFrame(() => {
+      analysisSectionRef.current?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    });
+  };
+
+  const advanceVideoWorkflow = async () => {
+    if (workflowStep === "refresh") {
+      if (processingTake) {
+        await onRefreshShotVideoStatus?.(processingTake.id);
+      }
+      return;
+    }
+    if (workflowStep === "analyze") {
+      const result = await analyzeContinuity();
+      if (result) {
+        revealAnalysis();
+        toast.info(
+          "只生成了导演方案，尚未提交视频。请检查方案后点击“2 应用导演方案”"
+        );
+      }
+      return;
+    }
+    if (workflowStep === "apply") {
+      revealAnalysis();
+      await applyAnalysis();
+      return;
+    }
+    await generate();
   };
 
   const adopt = async (takeId: number) => {
@@ -818,15 +969,15 @@ export default function ShotMaterialBasket({
                   ? missing.length > 0
                     ? `暂不可生成：${missing.join(" / ")}`
                     : "暂不可生成视频"
-                  : undefined
+                  : workflowStep === "analyze"
+                    ? "先结合当前文字和相邻镜头生成导演方案"
+                    : workflowStep === "apply"
+                      ? "确认后把导演方案写入当前镜头"
+                      : workflowStep === "generate"
+                        ? "确认人民币费用后提交视频生成"
+                        : "刷新当前视频任务状态"
               }
-              onClick={() => {
-                if (processingTake) {
-                  void onRefreshShotVideoStatus?.(processingTake.id);
-                  return;
-                }
-                void generate();
-              }}
+              onClick={() => void advanceVideoWorkflow()}
               className="flex h-7 items-center gap-1 rounded-md border px-2 text-[9px] font-semibold text-muted-foreground transition hover:text-foreground disabled:opacity-50"
               style={{ borderColor: "var(--panel-border)" }}
             >
@@ -835,11 +986,7 @@ export default function ShotMaterialBasket({
               ) : (
                 <Video className="h-3 w-3" />
               )}
-              {processingTake
-                ? "刷新视频"
-                : generating
-                  ? "提交中"
-                  : generateLabel}
+              {generating ? "提交中" : workflowLabel}
             </button>
           )}
           {onClose ? (
@@ -996,6 +1143,7 @@ export default function ShotMaterialBasket({
       ) : null}
       {analysis ? (
         <div
+          ref={analysisSectionRef}
           className="mt-2 border-y py-2 text-[9px]"
           style={{ borderColor: "var(--panel-border)" }}
         >
@@ -1071,13 +1219,12 @@ export default function ShotMaterialBasket({
       ) : null}
       <div className="mt-2 grid gap-2">
         <label className="grid gap-1 text-[9px] font-medium text-muted-foreground">
-          视频提示词
+          最终提交给视频模型的提示词
           <textarea
             value={videoPrompt}
             onChange={event => {
               setVideoPrompt(event.target.value);
               setPromptDirty(true);
-              setAnalysisApplied(false);
               setStartEndEstimate(null);
             }}
             onBlur={() => void saveVideoPrompt()}

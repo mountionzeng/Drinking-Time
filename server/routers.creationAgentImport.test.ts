@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { ENV } from "./_core/env";
 import { getStoryMaterialState } from "./services/storyMaterials";
-import { resetMemoryStateForTesting } from "./db";
+import {
+  getStoryVideoTimelineSelections,
+  resetMemoryStateForTesting,
+  setVideoTimelineSelection,
+} from "./db";
 import { appRouter } from "./routers";
 
 const savedDatabaseUrl = ENV.databaseUrl;
@@ -74,5 +78,52 @@ describe("creationAgent.importStoryMaterial", () => {
         : undefined
     );
     expect(materials?.unassignedImages).toHaveLength(0);
+  });
+
+  it("keeps an adopted video selected when a storyboard frame is dropped", async () => {
+    const caller = appRouter.createCaller(context(703));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "SheSelf",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-0102",
+            shotIdentity: "shot-0102",
+            shotNo: 1,
+            subject: "女人看向画框",
+          },
+        ],
+      },
+    });
+    if (!story) throw new Error("story creation failed");
+    await setVideoTimelineSelection({
+      storyId: story.id,
+      userId: 703,
+      stableShotId: "shot-0102",
+      takeId: 88,
+      rangeId: null,
+      selectionType: "full_take",
+    });
+
+    const result = await caller.creationAgent.importStoryMaterial({
+      storyId: story.id,
+      fileName: "0102-last.png",
+      mimeType: "image/png",
+      fileBase64: "iVBORw0KGgo=",
+      targetStableShotId: "shot-0102",
+      preserveTimelineSelection: true,
+    });
+    const selections = await getStoryVideoTimelineSelections(story.id, 703);
+
+    expect(result).toMatchObject({
+      status: "ok",
+      kind: "image",
+      stableShotId: "shot-0102",
+    });
+    expect(selections).toHaveLength(1);
+    expect(selections[0]).toMatchObject({
+      stableShotId: "shot-0102",
+      takeId: 88,
+    });
   });
 });

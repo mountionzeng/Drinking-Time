@@ -119,6 +119,10 @@ describe("directVideoPrompt", () => {
     expect(body.messages[1].content[5].image_url.url).toContain("PREVIOUS");
     expect(body.messages[1].content[7].image_url.url).toContain("NEXT");
     expect(body.messages[0].content).toContain("手持不是默认装饰");
+    expect(body.messages[1].content[0].text).toContain("动作：坐在沙发边缘");
+    expect(body.messages[1].content[0].text).toContain(
+      "身体微微前倾，手搭在膝盖上"
+    );
   });
 
   it("rewrites MJ-sensitive cooking vocabulary before submission", async () => {

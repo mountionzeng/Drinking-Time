@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
+import type {
+  CreationEditorImage,
+  CreationEditorShot,
+} from "@/features/creationEditor/CreationEditorContext";
 import {
   autoScrollElementAtPoint,
   autoScrollElementHorizontallyAtPoint,
@@ -11,15 +14,80 @@ import {
   scrollElementHorizontallyIntoView,
   StoryboardVideoThumbnail,
   STORYBOARD_MATRIX_ROWS,
+  quickShotVideoRenderPlan,
+  storyboardFrameOrderGenerationParams,
+  storyboardFrameOrdersAfterMove,
+  storyboardShotFrameImages,
+  storyboardStartEndGenerationParams,
   storyShotInsertIdentity,
   storyboardDragScrollSpeedMultiplier,
+  storyboardMatrixTextareaHeight,
   storyboardMatrixSwapPlan,
   storyboardPreviewVideoTake,
 } from "./StoryCardsBoard";
+import {
+  shotVideoDirectorInputSignature,
+  shotVideoWorkflowLabel,
+  shotVideoWorkflowStep,
+} from "./ShotMaterialBasket";
 
 const root = process.cwd();
 
 describe("StoryCardsBoard intent entry", () => {
+  it("makes video generation an explicit analyze, apply, then submit workflow", () => {
+    expect(
+      shotVideoWorkflowStep({
+        hasAnalysis: false,
+        analysisApplied: false,
+        hasProcessingTake: false,
+      })
+    ).toBe("analyze");
+    expect(shotVideoWorkflowLabel("analyze")).toBe("1 分析导演方案");
+    expect(
+      shotVideoWorkflowStep({
+        hasAnalysis: true,
+        analysisApplied: false,
+        hasProcessingTake: false,
+      })
+    ).toBe("apply");
+    expect(shotVideoWorkflowLabel("apply")).toBe("2 应用导演方案");
+    expect(
+      shotVideoWorkflowStep({
+        hasAnalysis: true,
+        analysisApplied: true,
+        hasProcessingTake: false,
+      })
+    ).toBe("generate");
+    expect(shotVideoWorkflowLabel("generate")).toBe("3 确认费用并生成");
+    expect(
+      shotVideoWorkflowStep({
+        hasAnalysis: true,
+        analysisApplied: true,
+        hasProcessingTake: true,
+      })
+    ).toBe("refresh");
+  });
+
+  it("invalidates a director plan when the shot intent changes, but not for a final prompt edit", () => {
+    const base = {
+      action: "人物停在画面中央",
+      cameraMove: "固定机位",
+      videoPrompt: "first final prompt",
+    };
+    expect(
+      shotVideoDirectorInputSignature({
+        ...base,
+        action: "女主头上出现一只眼睛，相机给眼睛特写",
+      })
+    ).not.toBe(shotVideoDirectorInputSignature(base));
+    expect(
+      shotVideoDirectorInputSignature({
+        ...base,
+        videoPrompt: "user edited final prompt",
+      })
+    ).toBe(shotVideoDirectorInputSignature(base));
+  });
+
   it("auto-scrolls the board while a take is dragged near vertical edges", () => {
     let scrollTop = 200;
     const element = {
@@ -117,19 +185,124 @@ describe("StoryCardsBoard intent entry", () => {
     expect(deltas).toEqual([-76]);
   });
 
-  it("keeps the full storyboard as shot columns with editable information rows", () => {
+  it("keeps only user-actionable rows editable in the full storyboard", () => {
     expect(STORYBOARD_MATRIX_ROWS.map(row => row.field)).toEqual([
       "dialogue",
-      "intent",
       "action",
       "performance",
       "cameraMove",
-      "videoStart",
-      "videoEnd",
       "sound",
       "transitionOut",
-      "videoPrompt",
     ]);
+  });
+
+  it("uses the first and last storyboard images as the locked video frames", () => {
+    const generationParams = storyboardStartEndGenerationParams(
+      "",
+      [
+        { id: 41, imageUrl: "/frames/first.webp" },
+        { id: 42, imageUrl: "/frames/middle.webp" },
+        { id: 43, imageUrl: "/frames/last.webp" },
+      ],
+      4_200
+    );
+
+    expect(JSON.parse(generationParams ?? "{}")).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 41,
+      lastFrameImageId: 43,
+      durationSec: 4,
+      resolution: "1080p",
+    });
+    expect(
+      storyboardShotFrameImages({
+        shotNo: 1,
+        shotKey: "story-1165:0101",
+        generationParams,
+        imageVersions: [
+          { id: 43, imageUrl: "/frames/last.webp" },
+          { id: 41, imageUrl: "/frames/first.webp" },
+          { id: 42, imageUrl: "/frames/middle.webp" },
+        ],
+      } as unknown as CreationEditorShot).map(image => image.id)
+    ).toEqual([41, 42, 43]);
+  });
+
+  it("moves a frame between shots and refreshes both first-last orders", () => {
+    const moved = storyboardFrameOrdersAfterMove(
+      [
+        { id: 41, imageUrl: "/frames/source-first.webp" },
+        { id: 42, imageUrl: "/frames/source-last.webp" },
+      ] as CreationEditorImage[],
+      [
+        { id: 71, imageUrl: "/frames/target-first.webp" },
+      ] as CreationEditorImage[],
+      42
+    );
+
+    expect(moved?.sourceImages.map(image => image.id)).toEqual([41]);
+    expect(moved?.targetImages.map(image => image.id)).toEqual([71, 42]);
+    expect(
+      JSON.parse(
+        storyboardFrameOrderGenerationParams(
+          JSON.stringify({
+            frameMode: "start_end",
+            firstFrameImageId: 41,
+            lastFrameImageId: 42,
+            model: "kling",
+          }),
+          moved?.sourceImages ?? []
+        )
+      )
+    ).toEqual({ model: "kling" });
+    expect(
+      JSON.parse(
+        storyboardFrameOrderGenerationParams(
+          "",
+          moved?.targetImages ?? [],
+          4_200
+        )
+      )
+    ).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 71,
+      lastFrameImageId: 42,
+    });
+  });
+
+  it("keeps shared storyboard rows compact until the active cell is being edited", () => {
+    expect(storyboardMatrixTextareaHeight(10, "dialogue")).toBe(28);
+    expect(storyboardMatrixTextareaHeight(72, "dialogue")).toBe(44);
+    expect(storyboardMatrixTextareaHeight(999, "videoPrompt")).toBe(60);
+    expect(storyboardMatrixTextareaHeight(72, "dialogue", true)).toBe(72);
+    expect(storyboardMatrixTextareaHeight(999, "dialogue", true)).toBe(112);
+    expect(storyboardMatrixTextareaHeight(999, "videoPrompt", true)).toBe(176);
+  });
+
+  it("builds a paid quick rerender plan from the current shot text", () => {
+    const plan = quickShotVideoRenderPlan(
+      {
+        shotNo: 1,
+        shotKey: "story-1165:0101",
+        imageId: 101,
+        imageUrl: "/api/images/101.webp",
+        action: "女主快速撑开属于自己的空间，墙面结构持续变化",
+        cameraMove: "稳定器从中景贴近，随后跟随双臂向两侧展开",
+        videoPrompt: "空间变化必须和人物撑开的动作同步",
+        durationMs: 4_200,
+        emotion: "挣脱",
+      } as unknown as CreationEditorShot,
+      []
+    );
+
+    expect(plan.durationSec).toBe(4);
+    expect(plan.motion).toBe("high");
+    expect(plan.aspectRatio).toBe("1:1");
+    expect(plan.estimatedCny).toBeGreaterThan(0);
+    expect(plan.missing).toEqual([]);
+    expect(plan.prompt).toContain("女主快速撑开属于自己的空间");
+    expect(plan.prompt).toContain("稳定器从中景贴近");
+    expect(plan.prompt).toContain("空间变化必须和人物撑开的动作同步");
   });
 
   it("prefers the adopted playable video take for storyboard previews", () => {
@@ -359,11 +532,9 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain("镜头任务");
     expect(boardSource).not.toContain("时间码");
     expect(boardSource).not.toContain("已在时间轴");
-    expect(boardSource).toContain("ShotMaterialBasket");
-    expect(boardSource).toContain("个 Take · 可用");
+    expect(boardSource).not.toContain("ShotMaterialBasket");
     expect(boardSource).toContain("embeddedEditorMode");
     expect(boardSource).toContain("videoPreviewTake");
-    expect(boardSource).toContain("videoPreviewIsSelected");
     expect(boardSource).toContain("缩略预览");
     expect(boardSource).toContain("onMarkVideoTakeUnusable");
     expect(boardSource).toContain("onInsertShotAfter");
@@ -371,10 +542,14 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("onDeleteShot");
     expect(panelSource).toContain("deletePersistedShot");
     expect(panelSource).toContain("onMoveVideoTake={moveVideoTake}");
+    expect(panelSource).toContain("onMoveStoryImage={assignStoryImageToShot}");
     expect(boardSource).toContain("autoScrollElementAtPoint");
     expect(boardSource).toContain("boardScrollRef");
     expect(boardSource).toContain("storyShotInsertIdentity");
     expect(boardSource).toContain("importStoryboardMediaFiles");
+    expect(boardSource).toContain("writeStoryboardImageDragPayload");
+    expect(boardSource).toContain("readStoryboardImageDragPayload");
+    expect(boardSource).toContain("onMoveStoryImage");
     expect(boardSource).toContain("StoryboardMediaDropOverlay");
     expect(boardSource).toContain("data-storyboard-media-drop-target");
     expect(boardSource).toContain("视频已进入动态分镜");
@@ -387,13 +562,23 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("完整故事版横向分镜表");
     expect(boardSource).toContain('data-storyboard-shot-header="two-row"');
     expect(boardSource).toContain('data-storyboard-shot-actions="true"');
-    expect(boardSource).toContain('data-storyboard-media-layout="compact"');
-    expect(boardSource).toContain('data-storyboard-media-preview-size="half"');
+    expect(boardSource).toContain(
+      'data-storyboard-media-layout="start-end-strip"'
+    );
+    expect(boardSource).toContain('data-storyboard-media-height="fixed"');
+    expect(boardSource).toContain("data-storyboard-frame-role");
+    expect(boardSource).toContain("首尾画面");
     expect(boardSource).toContain("STORYBOARD_MATRIX_ROWS");
     expect(boardSource).toContain("gridTemplateColumns");
-    expect(boardSource).toContain('gridColumn: "2 / -1"');
-    expect(boardSource).toContain('displayMode="matrix"');
-    expect(boardSource).toContain("视频制作表格行");
+    expect(boardSource).not.toContain('gridColumn: "2 / -1"');
+    expect(boardSource).not.toContain('displayMode="matrix"');
+    expect(boardSource).not.toContain("视频制作表格行");
+    expect(boardSource).toContain("重新渲染视频");
+    expect(boardSource).toContain("quickShotVideoRenderPlan");
+    expect(boardSource).toContain("estimateShotVideoCost");
+    expect(boardSource).toContain("parseStartEndVideoConfig");
+    expect(boardSource).toContain("rerenderRequestId");
+    expect(boardSource).toContain("costConfirmation");
     expect(boardSource).not.toContain("max-h-[48%]");
     expect(boardSource).not.toContain('behavior: "smooth"');
     expect(boardSource).not.toContain("storyboardScriptText");
@@ -415,7 +600,23 @@ describe("StoryCardsBoard intent entry", () => {
     expect(materialBasketSource).toContain("Take 总览");
     expect(materialBasketSource).toContain("标记不可用");
     expect(materialBasketSource).toContain("不再占用可用位置");
+    expect(materialBasketSource).toContain("最终提交给视频模型的提示词");
+    expect(materialBasketSource).toContain("只生成了导演方案，尚未提交视频");
     expect(materialBasketSource).not.toContain("slice(0, 3)");
+    const matrixSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardMatrix.tsx"
+      ),
+      "utf8"
+    );
+    expect(matrixSource).toContain("onDraft");
+    expect(matrixSource).toContain("onChange");
+    expect(matrixSource).toContain("value={draftValue}");
+    expect(matrixSource).toContain("rows={1}");
+    expect(matrixSource).toContain("scrollHeight");
+    expect(matrixSource).toContain("storyboardMatrixTextareaHeight");
+    expect(matrixSource).not.toContain("defaultValue={currentValue}");
     expect(boardSource).toContain("confirmFictionStoryCards");
     expect(boardSource).toContain("pendingIntentDraft");
     expect(boardSource).toContain("hasPendingFictionIntent");
@@ -428,9 +629,10 @@ describe("StoryCardsBoard intent entry", () => {
     expect(panelSource).toContain("generateShotVideo");
     expect(panelSource).toContain("refreshShotVideoStatus");
     expect(panelSource).toContain("shotVideoProviderStatus");
-    expect(boardSource).toContain(
+    expect(panelSource).toContain(
       "shotVideoProviderStatus={shotVideoProviderStatus}"
     );
+    expect(boardSource).toContain("shotVideoProviderStatus?.ready");
     expect(boardSource).toContain("latestStoryboardFrames");
     expect(boardSource).not.toContain("trpc.storyAgent.cycleStyle");
   });

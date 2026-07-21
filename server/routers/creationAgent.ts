@@ -702,6 +702,7 @@ export const creationAgentRouter = router({
         storyId: z.number(),
         imageId: z.number().int().positive(),
         targetStableShotId: z.string().min(1),
+        preserveTimelineSelection: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -719,6 +720,7 @@ export const creationAgentRouter = router({
         imageId: input.imageId,
         shotNo: target.shotNo,
         shotIdentity: target.stableShotId,
+        preserveTimelineSelection: input.preserveTimelineSelection,
         metadata: {
           source: "material_warehouse",
           targetStableShotId: target.stableShotId,
@@ -744,6 +746,7 @@ export const creationAgentRouter = router({
         mimeType: z.string().min(1).max(120),
         fileBase64: z.string().min(1),
         targetStableShotId: z.string().min(1).nullable().optional(),
+        preserveTimelineSelection: z.boolean().optional(),
         // 导入时交代给下游模型的信息：人物/镜头怎么运动、场景道具、色调基准。
         // 写进素材 prompt，视频包编译时随素材一起进入模型上下文。
         note: z.string().trim().max(2000).optional(),
@@ -797,6 +800,7 @@ export const creationAgentRouter = router({
             imageId: image.id,
             shotNo: target.shotNo,
             shotIdentity: target.stableShotId,
+            preserveTimelineSelection: input.preserveTimelineSelection,
             metadata: {
               source: "material_warehouse",
               targetStableShotId: target.stableShotId,
@@ -922,6 +926,7 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number().int().positive(),
         stableShotId: z.string().trim().min(1).max(128),
+        rerenderRequestId: z.string().trim().min(1).max(128).optional(),
         costConfirmation: z.object({
           accepted: z.literal(true),
           estimatedCny: z.number().positive(),
@@ -933,6 +938,7 @@ export const creationAgentRouter = router({
         {
           storyId: input.storyId,
           stableShotId: input.stableShotId,
+          rerenderRequestId: input.rerenderRequestId,
           confirmedEstimatedCny: input.costConfirmation.estimatedCny,
         },
         ctx.user.id
@@ -973,6 +979,8 @@ export const creationAgentRouter = router({
         durationSec: z.number().min(3).max(10).optional(),
         motion: z.enum(["low", "high"]).optional(),
         aspectRatio: z.literal(SHOT_VIDEO_ASPECT_RATIO).optional(),
+        directorPromptApproved: z.boolean().optional(),
+        rerenderRequestId: z.string().trim().min(1).max(128).optional(),
         costConfirmation: z.object({
           accepted: z.literal(true),
           estimatedCny: z.number().positive(),
@@ -1006,6 +1014,8 @@ export const creationAgentRouter = router({
           durationSec,
           aspectRatio: input.aspectRatio ?? SHOT_VIDEO_ASPECT_RATIO,
           motion,
+          directorPromptApproved: input.directorPromptApproved,
+          rerenderRequestId: input.rerenderRequestId,
         },
         ctx.user.id
       );

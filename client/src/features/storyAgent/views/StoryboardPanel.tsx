@@ -1,5 +1,6 @@
 import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { StoryboardReviewBoard } from "./StoryCardsBoard";
 import { useStoryCardsBoardSlice } from "@/features/storyAgent/spine/selectors";
@@ -60,6 +61,7 @@ export default function StoryboardPanel({
     generatingVideoShotNo,
     refreshShotVideoStatus,
     markVideoTakeUnusable,
+    assignStoryImageToShot,
     moveVideoTake,
     adoptVideoTake,
     promoteFrameCrop,
@@ -69,9 +71,26 @@ export default function StoryboardPanel({
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
   } = useCreationEditor();
-  const displayShots = creationShots.length > 0 ? creationShots : storyShots;
+  const mergedCreationShots = useMemo(() => {
+    if (creationShots.length === 0 || storyShots.length === 0) {
+      return creationShots;
+    }
+    const draftsByIdentity = new Map(
+      storyShots.flatMap((shot, index) => {
+        const identity = shotIdentityFromShot(shot, index);
+        return identity ? [[identity, shot] as const] : [];
+      })
+    );
+    return creationShots.map((shot, index) => {
+      const identity = shotIdentityFromShot(shot, index);
+      const draft = identity ? draftsByIdentity.get(identity) : undefined;
+      return draft ? { ...shot, ...draft, shotKey: shot.shotKey } : shot;
+    });
+  }, [creationShots, storyShots]);
+  const displayShots =
+    mergedCreationShots.length > 0 ? mergedCreationShots : storyShots;
   const generatedImages = currentStoryboardImages(
-    creationShots,
+    mergedCreationShots,
     activeStoryId ?? 0
   );
   const hasStoryboard =
@@ -145,6 +164,19 @@ export default function StoryboardPanel({
           materialStatus: imageId ? "current-image" : "unknown",
         });
       }}
+      onUpdateShotDraftField={(index, field, value) => {
+        const target = displayShots[index];
+        if (!target) return;
+        const identity = shotIdentityFromShot(target, index);
+        const spineIndex = storyShots.findIndex(
+          (shot, shotIndex) =>
+            identity != null &&
+            shotIdentityFromShot(shot, shotIndex) === identity
+        );
+        if (spineIndex >= 0) {
+          updateStoryShotField(spineIndex, field, value);
+        }
+      }}
       onUpdateShotField={(index, field, value) => {
         const target = displayShots[index];
         if (!target) return;
@@ -159,11 +191,15 @@ export default function StoryboardPanel({
         }
         if (identity) {
           void updatePersistedShotField(identity, field, value).catch(error => {
-            console.warn("persist story shot field failed", error);
+            toast.error(
+              error instanceof Error
+                ? `镜头内容未保存：${error.message}`
+                : "镜头内容未保存"
+            );
           });
         }
       }}
-      creationShots={creationShots}
+      creationShots={mergedCreationShots}
       timelineShotIds={timelineShotIds}
       onAddShotToTimeline={addShotToTimeline}
       onInsertShotAfter={async (shotNo, stableShotId) => {
@@ -193,6 +229,7 @@ export default function StoryboardPanel({
       onGenerateStartEndShotVideo={generateStartEndShotVideo}
       onRefreshShotVideoStatus={refreshShotVideoStatus}
       onMarkVideoTakeUnusable={markVideoTakeUnusable}
+      onMoveStoryImage={assignStoryImageToShot}
       onMoveVideoTake={moveVideoTake}
       onAdoptVideoTake={adoptVideoTake}
       onPromoteFrameCrop={promoteFrameCrop}

@@ -328,7 +328,7 @@ describe("videoJobs", () => {
     await selectImage(story.id, image.id);
     const projection = await migrateStoryPrompts(story.id, body);
     const head = projection.compilationHeads.find(
-      item => item.stableShotId === "shot-01" && item.modality === "video",
+      item => item.stableShotId === "shot-01" && item.modality === "video"
     );
     expect(head).toBeTruthy();
     const fetch = vi.fn();
@@ -343,7 +343,7 @@ describe("videoJobs", () => {
         imageId: image.id,
         prompt: "outdated prompt",
       },
-      1,
+      1
     );
 
     expect(result).toEqual({
@@ -458,7 +458,9 @@ describe("videoJobs", () => {
     expect(requestBody.prompt).not.toContain("前一镜参考图");
     expect(requestBody.prompt).not.toContain("后一镜参考图");
     expect(requestBody.prompt).not.toContain("storage.example");
-    expect(result.status === "ok" ? result.take.parameterSnapshot : null).toMatchObject({
+    expect(
+      result.status === "ok" ? result.take.parameterSnapshot : null
+    ).toMatchObject({
       previousReferenceImageId: previousImage.id,
       nextReferenceImageId: nextImage.id,
     });
@@ -541,20 +543,24 @@ Negative: no floating objects, characters obey physics.
     const first = await startShotVideoJob(input, 1);
     const retry = await startShotVideoJob(input, 1);
     const duplicateClick = await startShotVideoJob(input, 1);
+    const explicitRerender = await startShotVideoJob(
+      { ...input, rerenderRequestId: "manual-rerender-1" },
+      1
+    );
 
     expect(first.status).toBe("error");
     expect(retry.status).toBe("ok");
     expect(duplicateClick.status).toBe("ok");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(explicitRerender.status).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(first.take?.id).not.toBe(retry.take?.id);
     expect(duplicateClick.take?.id).toBe(retry.take?.id);
+    expect(explicitRerender.take?.id).not.toBe(retry.take?.id);
   });
 
   it("turns the MJ approval error into an actionable message", () => {
     expect(
-      explainVideoProviderError(
-        "Prompt parameter error or image not approved"
-      )
+      explainVideoProviderError("Prompt parameter error or image not approved")
     ).toBe(
       "302/MJ 未通过视频提示词或首帧审核。请简化动作描述；若仍失败，请更换当前主图后重试。"
     );
@@ -661,11 +667,9 @@ Negative: no floating objects, characters obey physics.
     expect(fetch.mock.calls[0][0]).toBe(
       "https://api.302.ai/v1/chat/completions"
     );
-    expect(fetch.mock.calls[1][0]).toBe(
-      "https://api.302.ai/mj/submit/video"
-    );
+    expect(fetch.mock.calls[1][0]).toBe("https://api.302.ai/mj/submit/video");
     const mjBody = JSON.parse(String(fetch.mock.calls[1][1].body));
-    expect(mjBody.prompt).toContain("slow breathing");
+    expect(mjBody.prompt).toContain("breathes slowly");
     expect(mjBody.prompt).not.toContain("昏昏欲睡");
     expect(result.take.prompt).toBe(mjBody.prompt);
     expect(result.take.parameterSnapshot).toMatchObject({
@@ -681,5 +685,76 @@ Negative: no floating objects, characters obey physics.
     expect(JSON.stringify(result.take.parameterSnapshot)).not.toContain(
       "data:image"
     );
+  });
+
+  it("submits an editor-approved director prompt without rewriting it a second time", async () => {
+    ENV.video302Model = "";
+    ENV.video302SubmitPath = "/mj/submit/video";
+    ENV.video302PollPath = "";
+    ENV.video302ImageField = "";
+    ENV.videoPrompt302Model = "gpt-5.4-nano-2026-03-17";
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "SheSelf",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-0107",
+            shotIdentity: "shot-0107",
+            shotNo: 7,
+            cueCode: "0107",
+            action: "女主头上出现一只眼睛，相机给眼睛特写并接下一镜首帧",
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH07",
+      shotIdentity: "shot-0107",
+      imageUrl: "data:image/png;base64,APPROVED",
+      imageKey: null,
+      prompt: "current selected frame",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    await selectImage(story.id, image.id);
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: 1, result: "mj-task-approved" }),
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const approvedPrompt =
+      "The woman holds still as the existing eye above her becomes the visual focus. A controlled dolly pushes toward the eye and settles on a matching composition for the next shot.";
+
+    const result = await startShotVideoJob(
+      {
+        storyId: story.id,
+        shotNo: 7,
+        stableShotId: "shot-0107",
+        imageId: image.id,
+        prompt: approvedPrompt,
+        directorPromptApproved: true,
+        durationSec: 5,
+      },
+      1
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe("https://api.302.ai/mj/submit/video");
+    const body = JSON.parse(String(fetch.mock.calls[0][1].body));
+    expect(body.prompt).toBe(approvedPrompt);
+    expect(result.take.prompt).toBe(approvedPrompt);
+    expect(result.take.parameterSnapshot).toMatchObject({
+      promptDirector: {
+        source: "editor-approved",
+      },
+    });
   });
 });
