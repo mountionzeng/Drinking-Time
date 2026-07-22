@@ -28,14 +28,14 @@ const authDisabled =
   process.env.DISABLE_AUTH === "true" ||
   process.env.NODE_ENV !== "production";
 
-// 从 request 中解析当前用户 ID，dev 模式返回 1（guest）
-async function getRequestUserId(req: Request): Promise<number> {
+// 从 request 中解析当前用户 ID；dev 模式返回 1，线上未登录则明确拒绝。
+async function getRequestUserId(req: Request): Promise<number | null> {
   if (authDisabled) return 1;
   try {
     const user = await sdk.authenticateRequest(req);
     return user.id;
   } catch {
-    return 1;
+    return null;
   }
 }
 
@@ -137,6 +137,10 @@ async function startServer() {
         : [];
 
       const userId = await getRequestUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const result = await replyFromDropZoneAgent({
         userId,
         message,
@@ -410,6 +414,10 @@ async function startServer() {
   app.get("/api/archive/stories", async (req, res) => {
     try {
       const userId = await getRequestUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const items = await listUserStories(userId);
       res.setHeader("Cache-Control", "no-store");
       res.json({ stories: items });
@@ -422,6 +430,10 @@ async function startServer() {
   app.get("/api/archive/stories/:id", async (req, res) => {
     try {
       const userId = await getRequestUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: "invalid id" });
@@ -445,6 +457,10 @@ async function startServer() {
   app.post("/api/archive/stories", async (req, res) => {
     try {
       const userId = await getRequestUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const body = req.body ?? {};
       const patch = pickStoryPatch(body);
       const id = typeof body.id === "number" ? body.id : null;
@@ -486,6 +502,10 @@ async function startServer() {
   app.delete("/api/archive/stories/:id", async (req, res) => {
     try {
       const userId = await getRequestUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: "invalid id" });

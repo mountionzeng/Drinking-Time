@@ -419,7 +419,7 @@ export type InsertEmailOtp = typeof emailOtps.$inferInsert;
  * InviteCodes — 内测邀请码。
  *
  * 数据库只保存 SHA-256 哈希，不保存可直接使用的原始邀请码。邀请码首次成功
- * 登录时绑定邮箱；同一邮箱后续可继续用邮箱验证码登录。
+ * 登录时绑定邮箱；内测期后续仍以同一枚邀请码作为登录口令。
  */
 export const inviteCodes = mysqlTable(
   "invite_codes",

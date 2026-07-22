@@ -64,6 +64,77 @@ describe("邮箱邀请码登录", () => {
     expect(await response.json()).toEqual({ error: "invite_required" });
   });
 
+  it("邮箱与邀请码可以直接创建账号并重复登录", async () => {
+    const email = "direct@example.com";
+    const inviteCode = "LH-DIRECT-01";
+    await createInviteCode({
+      codeHash: hashInviteCode(inviteCode),
+      label: "直接登录测试",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const first = await post("/api/auth/invite/login", { email, inviteCode });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("set-cookie")).toContain("app_session_id");
+    expect(await getUserByOpenId(`email:${email}`)).toBeDefined();
+    expect(await hasRedeemedInviteForEmail(email)).toBe(true);
+
+    const returning = await post("/api/auth/invite/login", {
+      email,
+      inviteCode,
+    });
+    expect(returning.status).toBe(200);
+  });
+
+  it("已绑定的邀请码不能登录另一个邮箱", async () => {
+    const inviteCode = "LH-BOUND-001";
+    await createInviteCode({
+      codeHash: hashInviteCode(inviteCode),
+      label: null,
+      expiresAt: null,
+    });
+
+    await post("/api/auth/invite/login", {
+      email: "owner@example.com",
+      inviteCode,
+    });
+    const intruder = await post("/api/auth/invite/login", {
+      email: "other@example.com",
+      inviteCode,
+    });
+
+    expect(intruder.status).toBe(403);
+    expect(await intruder.json()).toEqual({ error: "invalid_invite" });
+  });
+
+  it("已有账号不能用另一枚未绑定邀请码登录", async () => {
+    const email = "existing@example.com";
+    const originalCode = "LH-OWNER-001";
+    const unrelatedCode = "LH-OTHER-001";
+    await createInviteCode({
+      codeHash: hashInviteCode(originalCode),
+      label: null,
+      expiresAt: null,
+    });
+    await createInviteCode({
+      codeHash: hashInviteCode(unrelatedCode),
+      label: null,
+      expiresAt: null,
+    });
+    await post("/api/auth/invite/login", { email, inviteCode: originalCode });
+
+    const response = await post("/api/auth/invite/login", {
+      email,
+      inviteCode: unrelatedCode,
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "invalid_invite" });
+    expect(
+      await findAvailableInviteCode(hashInviteCode(unrelatedCode))
+    ).not.toBeNull();
+  });
+
   it("新邮箱用邀请码完成登录后，后续不再需要邀请码", async () => {
     const email = "tester@example.com";
     const inviteCode = "LH-AB12-CD34";

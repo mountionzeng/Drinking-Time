@@ -18,15 +18,16 @@ vi.mock("wouter", () => ({
 }));
 
 describe("AuthEntryPanel", () => {
-  it("内测入口只展示邮箱与首次邀请码，不展示 Google 绕行入口", () => {
+  it("内测入口只展示邮箱与邀请码直接登录", () => {
     const html = renderToStaticMarkup(<AuthEntryPanel />);
 
     expect(html).toContain("登录聊会儿");
     expect(html).toContain("邮箱");
-    expect(html).toContain("邀请码（第一次登录需要）");
-    expect(html).toContain("发送邮箱验证码");
-    expect(html).toContain("第一次来需要邀请码，回来时只填邮箱。");
-    expect(html).toContain("还没有邀请码，请联系邀请你来测试的人。");
+    expect(html).toContain("邀请码");
+    expect(html).toContain("进入聊会儿");
+    expect(html).toContain("邮箱用来区分账号，不会发送邮件。");
+    expect(html).toContain("邀请码会绑定这个邮箱，以后登录仍使用同一枚。");
+    expect(html).not.toContain("验证码");
     expect(html).not.toContain("用 Google 帐号继续");
   });
 });

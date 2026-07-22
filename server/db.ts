@@ -1865,6 +1865,37 @@ export async function hasRedeemedInviteForEmail(
   return Boolean(invite);
 }
 
+/** 校验某枚已核销邀请码是否确实属于这个邮箱。 */
+export async function findRedeemedInviteForEmail(
+  codeHash: string,
+  email: string
+): Promise<InviteCode | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.inviteCodes.find(
+        item =>
+          item.codeHash === codeHash &&
+          item.redeemedByEmail === email &&
+          Boolean(item.redeemedAt)
+      ) ?? null
+    );
+  }
+
+  const [invite] = await db
+    .select()
+    .from(inviteCodes)
+    .where(
+      and(
+        eq(inviteCodes.codeHash, codeHash),
+        eq(inviteCodes.redeemedByEmail, email),
+        isNotNull(inviteCodes.redeemedAt)
+      )
+    )
+    .limit(1);
+  return invite ?? null;
+}
+
 /** 将邀请码原子绑定到邮箱；同一邮箱重试同一邀请码视为成功。 */
 export async function redeemInviteForEmail(
   codeHash: string,
