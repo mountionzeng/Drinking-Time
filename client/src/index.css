@@ -3,11 +3,19 @@
 @import "./styles/shot-stage-illustration.css";
 
 @font-face {
-  font-family: 'Honglei Zhuoshu';
-  src: url('./assets/fonts/honglei-zhuoshu-brand.ttf') format('truetype');
+  font-family: "Honglei Zhuoshu";
+  src:
+    local("HongLeiZhuoShu"),
+    local("鸿雷拙书简体"),
+    url("./assets/fonts/honglei-zhuoshu.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+}
+
+.font-chat-brand {
+  font-family: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
+  letter-spacing: 0;
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -49,8 +57,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: 'Space Grotesk', 'PingFang SC', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: "Space Grotesk", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
 /* ===== Nayin Five Element Beverage Theme System =====
@@ -65,8 +73,8 @@
 
   /* Nayin accent — dynamically overridden by [data-nayin] */
   --nayin-accent: oklch(0.62 0.14 45);
-  --nayin-accent-dim: oklch(0.48 0.10 45);
-  --nayin-accent-bright: oklch(0.70 0.18 45);
+  --nayin-accent-dim: oklch(0.48 0.1 45);
+  --nayin-accent-bright: oklch(0.7 0.18 45);
   --nayin-glow: oklch(0.62 0.14 45 / 14%);
 
   /* Claude-style warm cream light theme */
@@ -91,9 +99,9 @@
   --ring: var(--nayin-accent);
   --chart-1: var(--nayin-accent);
   --chart-2: var(--nayin-accent-dim);
-  --chart-3: oklch(0.50 0.15 160);
+  --chart-3: oklch(0.5 0.15 160);
   --chart-4: oklch(0.55 0.12 250);
-  --chart-5: oklch(0.45 0.10 30);
+  --chart-5: oklch(0.45 0.1 30);
   --sidebar: oklch(0.96 0.008 75);
   --sidebar-foreground: oklch(0.24 0.012 55);
   --sidebar-primary: var(--nayin-accent);
@@ -109,7 +117,7 @@
   --status-structured: oklch(0.55 0.18 250);
   --status-ready: oklch(0.58 0.18 155);
   --status-queued: oklch(0.62 0.14 195);
-  --status-rendered: oklch(0.50 0.16 155);
+  --status-rendered: oklch(0.5 0.16 155);
   --status-blocked: oklch(0.58 0.22 25);
 
   /* Panel styling — Claude-style soft white cards */
@@ -122,7 +130,11 @@
   --nayin-surface-dim: oklch(0.97 0.008 75);
   --nayin-text-subtle: oklch(0.48 0.012 55);
   --nayin-border: oklch(0.24 0.012 55 / 10%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.01 75 / 60%), oklch(0.97 0.008 55 / 40%));
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.98 0.01 75 / 60%),
+    oklch(0.97 0.008 55 / 40%)
+  );
 }
 
 /* ===== Nayin Theme Overrides ===== */
@@ -130,27 +142,35 @@
 /* 金 Metal — Beer: amber gold (H85) */
 [data-nayin="metal"] {
   --nayin-accent: oklch(0.72 0.13 85);
-  --nayin-accent-dim: oklch(0.54 0.10 85);
-  --nayin-accent-bright: oklch(0.80 0.16 85);
+  --nayin-accent-dim: oklch(0.54 0.1 85);
+  --nayin-accent-bright: oklch(0.8 0.16 85);
   --nayin-glow: oklch(0.72 0.13 85 / 14%);
   --nayin-surface: oklch(0.988 0.008 85);
   --nayin-surface-dim: oklch(0.97 0.012 85);
-  --nayin-text-subtle: oklch(0.50 0.04 85);
+  --nayin-text-subtle: oklch(0.5 0.04 85);
   --nayin-border: oklch(0.72 0.13 85 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.018 85 / 65%), oklch(0.97 0.012 70 / 40%));
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.98 0.018 85 / 65%),
+    oklch(0.97 0.012 70 / 40%)
+  );
 }
 
 /* 木 Wood — Longjing: jade green (H150) */
 [data-nayin="wood"] {
-  --nayin-accent: oklch(0.58 0.10 150);
+  --nayin-accent: oklch(0.58 0.1 150);
   --nayin-accent-dim: oklch(0.44 0.075 150);
   --nayin-accent-bright: oklch(0.68 0.13 150);
-  --nayin-glow: oklch(0.58 0.10 150 / 14%);
+  --nayin-glow: oklch(0.58 0.1 150 / 14%);
   --nayin-surface: oklch(0.988 0.007 150);
-  --nayin-surface-dim: oklch(0.97 0.010 150);
+  --nayin-surface-dim: oklch(0.97 0.01 150);
   --nayin-text-subtle: oklch(0.46 0.04 150);
-  --nayin-border: oklch(0.58 0.10 150 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.014 150 / 60%), oklch(0.97 0.010 140 / 40%));
+  --nayin-border: oklch(0.58 0.1 150 / 12%);
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.98 0.014 150 / 60%),
+    oklch(0.97 0.01 140 / 40%)
+  );
 }
 
 /* 水 Water — Coconut: soft teal (H220, low chroma) */
@@ -159,11 +179,15 @@
   --nayin-accent-dim: oklch(0.44 0.06 220);
   --nayin-accent-bright: oklch(0.66 0.11 220);
   --nayin-glow: oklch(0.58 0.08 220 / 14%);
-  --nayin-surface: oklch(0.990 0.004 220);
+  --nayin-surface: oklch(0.99 0.004 220);
   --nayin-surface-dim: oklch(0.975 0.006 220);
   --nayin-text-subtle: oklch(0.48 0.03 220);
   --nayin-border: oklch(0.58 0.08 220 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.985 0.008 220 / 60%), oklch(0.975 0.006 210 / 40%));
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.985 0.008 220 / 60%),
+    oklch(0.975 0.006 210 / 40%)
+  );
 }
 
 /* 火 Fire — Dahongpao: cinnabar red (H30) */
@@ -173,10 +197,14 @@
   --nayin-accent-bright: oklch(0.62 0.18 30);
   --nayin-glow: oklch(0.55 0.15 30 / 14%);
   --nayin-surface: oklch(0.988 0.006 30);
-  --nayin-surface-dim: oklch(0.97 0.010 30);
+  --nayin-surface-dim: oklch(0.97 0.01 30);
   --nayin-text-subtle: oklch(0.48 0.05 30);
   --nayin-border: oklch(0.55 0.15 30 / 12%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.98 0.016 30 / 60%), oklch(0.97 0.012 22 / 40%));
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.98 0.016 30 / 60%),
+    oklch(0.97 0.012 22 / 40%)
+  );
 }
 
 /* 土 Earth — Coffee: warm brown (H55) */
@@ -189,26 +217,43 @@
   --nayin-surface-dim: oklch(0.968 0.012 55);
   --nayin-text-subtle: oklch(0.46 0.05 55);
   --nayin-border: oklch(0.48 0.08 55 / 13%);
-  --nayin-bg-gradient: linear-gradient(145deg, oklch(0.975 0.018 55 / 65%), oklch(0.965 0.014 50 / 45%));
+  --nayin-bg-gradient: linear-gradient(
+    145deg,
+    oklch(0.975 0.018 55 / 65%),
+    oklch(0.965 0.014 50 / 45%)
+  );
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  html, body {
+  html,
+  body {
     min-height: 100vh;
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Space Grotesk', 'PingFang SC', system-ui, sans-serif;
-    font-feature-settings: 'ss01', 'cv11';
+    font-family: "Space Grotesk", "PingFang SC", system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
     letter-spacing: -0.005em;
     background-color: var(--background);
     background-image:
-      radial-gradient(ellipse 80% 55% at 15% 0%, var(--nayin-glow), transparent 65%),
-      radial-gradient(ellipse 60% 50% at 100% 15%, oklch(0.94 0.02 40 / 60%), transparent 60%),
-      radial-gradient(ellipse 100% 60% at 50% 100%, oklch(0.97 0.012 55 / 70%), transparent 60%);
+      radial-gradient(
+        ellipse 80% 55% at 15% 0%,
+        var(--nayin-glow),
+        transparent 65%
+      ),
+      radial-gradient(
+        ellipse 60% 50% at 100% 15%,
+        oklch(0.94 0.02 40 / 60%),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 100% 60% at 50% 100%,
+        oklch(0.97 0.012 55 / 70%),
+        transparent 60%
+      );
     background-attachment: fixed;
   }
   button:not(:disabled),
@@ -262,7 +307,10 @@
     box-shadow:
       0 1px 2px oklch(0.24 0.012 55 / 5%),
       0 10px 30px -16px oklch(0.24 0.012 55 / 12%);
-    transition: border-color 300ms ease, box-shadow 300ms ease, transform 300ms ease;
+    transition:
+      border-color 300ms ease,
+      box-shadow 300ms ease,
+      transform 300ms ease;
   }
 
   .monitor-panel:hover {
@@ -275,7 +323,7 @@
 
   /* Hand-drawn border overlay */
   .monitor-panel::before {
-    content: '';
+    content: "";
     position: absolute;
     inset: -2px;
     border-radius: calc(var(--radius) + 2px);
@@ -290,7 +338,11 @@
   }
 
   .monitor-panel-header {
-    background: linear-gradient(180deg, var(--nayin-surface), var(--nayin-surface-dim));
+    background: linear-gradient(
+      180deg,
+      var(--nayin-surface),
+      var(--nayin-surface-dim)
+    );
     padding: 0.625rem 1rem;
     display: flex;
     align-items: center;
@@ -315,12 +367,112 @@
   }
 
   @keyframes pulse-dot {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(0.92); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(0.92);
+    }
   }
 
   .monitor-panel-body {
     padding: 1.25rem;
+  }
+
+  .creation-board-panel {
+    position: relative;
+    background: var(--panel-header);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden;
+  }
+
+  .creation-board-panel-header {
+    background: var(--panel-header);
+    height: 3.5rem;
+    min-height: 3.5rem;
+    padding: 0 1rem;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--panel-border);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .creation-board-panel-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .creation-board-panel-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    color: var(--nayin-accent);
+  }
+
+  .creation-board-panel-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .creation-board-panel-status {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 400;
+    color: var(--muted-foreground);
+  }
+
+  .creation-board-panel-header .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: var(--nayin-accent);
+    box-shadow: 0 0 0 3px var(--nayin-glow);
+  }
+
+  .creation-board-panel-body {
+    padding: 1rem;
+  }
+
+  .creation-board-resize-handle {
+    width: 2px;
+    background: transparent;
+    transition: background 160ms ease;
+  }
+
+  .creation-board-resize-handle::after {
+    width: 1px;
+    background: var(--panel-border);
+  }
+
+  .creation-board-resize-handle:hover,
+  .creation-board-resize-handle[data-resize-handle-active] {
+    background: var(--nayin-accent-dim);
+  }
+
+  .creation-board-resize-handle > div {
+    border-color: var(--panel-border);
+    background: var(--panel-header);
+    color: var(--muted-foreground);
   }
 
   /* Nayin color strip */
@@ -345,7 +497,7 @@
     padding: 0.125rem 0.5rem;
     border-radius: 2px;
     font-size: 0.6875rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-weight: 500;
@@ -368,7 +520,7 @@
   }
 
   .waveform-bar-fill::after {
-    content: '';
+    content: "";
     position: absolute;
     inset: 0;
     background: repeating-linear-gradient(
@@ -398,7 +550,11 @@
     flex-shrink: 0;
     border-radius: 0.85rem;
     border: 1px solid oklch(0.24 0.012 55 / 10%);
-    background: linear-gradient(180deg, oklch(1 0 0 / 74%), oklch(0.98 0.008 75 / 66%));
+    background: linear-gradient(
+      180deg,
+      oklch(1 0 0 / 74%),
+      oklch(0.98 0.008 75 / 66%)
+    );
     display: flex;
     align-items: center;
     justify-content: center;
@@ -416,11 +572,15 @@
     border: 1px solid oklch(0.24 0.012 55 / 16%);
     border-left: none;
     border-radius: 0 0.7rem 0.7rem 0;
-    font: 500 0.68rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.68rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.28em;
     color: var(--muted-foreground);
     z-index: 30;
-    transition: background 160ms ease, color 160ms ease;
+    transition:
+      background 160ms ease,
+      color 160ms ease;
   }
 
   .workshop-profile-rail:hover {
@@ -439,7 +599,9 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 0.5rem;
-    font: 600 0.58rem/1 'JetBrains Mono', monospace;
+    font:
+      600 0.58rem/1 "JetBrains Mono",
+      monospace;
     color: var(--foreground);
   }
 
@@ -448,7 +610,11 @@
     inset: 0 auto 0 0;
     width: 26rem;
     max-width: 92vw;
-    background: linear-gradient(180deg, oklch(1 0 0 / 96%), oklch(0.98 0.008 75 / 96%));
+    background: linear-gradient(
+      180deg,
+      oklch(1 0 0 / 96%),
+      oklch(0.98 0.008 75 / 96%)
+    );
     border-right: 1px solid oklch(0.24 0.012 55 / 18%);
     box-shadow: 12px 0 40px oklch(0.24 0.012 55 / 14%);
     overflow-y: auto;
@@ -471,14 +637,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'Noto Serif SC', serif;
+    font-family: "Noto Serif SC", serif;
     font-size: 1.45rem;
     color: var(--foreground);
-    box-shadow: 0 0 0 4px var(--background), 0 0 0 5px oklch(0.24 0.012 55 / 10%);
+    box-shadow:
+      0 0 0 4px var(--background),
+      0 0 0 5px oklch(0.24 0.012 55 / 10%);
   }
 
   .workshop-profile-name {
-    font-family: 'Noto Serif SC', serif;
+    font-family: "Noto Serif SC", serif;
     font-size: 1.25rem;
     font-weight: 500;
     color: var(--foreground);
@@ -486,7 +654,9 @@
 
   .workshop-profile-handle {
     margin-top: 0.25rem;
-    font: 500 0.66rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.66rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.16em;
     color: var(--muted-foreground);
   }
@@ -500,7 +670,9 @@
     background: var(--foreground);
     color: var(--background);
     border-radius: 999px;
-    font: 500 0.62rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.62rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.12em;
   }
 
@@ -523,7 +695,9 @@
 
   .workshop-profile-section h5 {
     margin: 0 0 0.7rem;
-    font: 500 0.64rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.64rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.22em;
     color: var(--muted-foreground);
   }
@@ -543,14 +717,16 @@
   }
 
   .workshop-profile-stat .v {
-    font-family: 'Noto Serif SC', serif;
+    font-family: "Noto Serif SC", serif;
     font-size: 1.35rem;
     color: var(--foreground);
   }
 
   .workshop-profile-stat .l {
     margin-top: 0.2rem;
-    font: 500 0.56rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.56rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.16em;
     color: var(--muted-foreground);
   }
@@ -575,13 +751,15 @@
 
   .workshop-profile-row .pf-k {
     color: var(--muted-foreground);
-    font: 500 0.6rem/1 'JetBrains Mono', monospace;
+    font:
+      500 0.6rem/1 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.12em;
   }
 
   .workshop-profile-row .pf-v {
     color: var(--foreground);
-    font-family: 'Noto Serif SC', serif;
+    font-family: "Noto Serif SC", serif;
   }
 
   .workshop-profile-row .pf-v.acc {
@@ -603,9 +781,13 @@
     border: 1px solid oklch(0.24 0.012 55 / 12%);
     background: var(--background);
     color: var(--foreground);
-    font: 500 0.68rem/1.2 'JetBrains Mono', monospace;
+    font:
+      500 0.68rem/1.2 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.12em;
-    transition: border-color 160ms ease, background 160ms ease;
+    transition:
+      border-color 160ms ease,
+      background 160ms ease;
   }
 
   .workshop-profile-btn:hover {
@@ -627,13 +809,17 @@
     border-radius: 0.7rem;
     border: 1px solid oklch(0.24 0.012 55 / 10%);
     background: oklch(1 0 0 / 60%);
-    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    transition:
+      border-color 160ms ease,
+      background 160ms ease,
+      transform 160ms ease;
     transform: rotate(var(--workshop-jitter-rotate, 0.8deg));
   }
 
   .workshop-atlas-card:hover {
     border-color: oklch(0.24 0.012 55 / 22%);
-    transform: translateY(-2px) rotate(calc(var(--workshop-jitter-rotate, 0.8deg) * -1));
+    transform: translateY(-2px)
+      rotate(calc(var(--workshop-jitter-rotate, 0.8deg) * -1));
   }
 
   .workshop-atlas-card.is-active {
@@ -642,7 +828,9 @@
   }
 
   .workshop-atlas-label {
-    font: 500 0.58rem/1.2 'JetBrains Mono', monospace;
+    font:
+      500 0.58rem/1.2 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.12em;
     color: var(--muted-foreground);
     text-transform: uppercase;
@@ -654,12 +842,13 @@
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
-    font: 500 0.64rem/1.2 'JetBrains Mono', monospace;
+    font:
+      500 0.64rem/1.2 "JetBrains Mono",
+      monospace;
     letter-spacing: 0.2em;
     color: var(--muted-foreground);
     flex-wrap: wrap;
   }
-
 
   .workshop-tweaks label {
     font-size: 0.72rem;
@@ -667,7 +856,7 @@
   }
 
   .workshop-main::after {
-    content: '';
+    content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
@@ -741,8 +930,11 @@ select option {
     width: 4.5rem;
     height: 4.5rem;
     border-radius: 50%;
-    background:
-      radial-gradient(circle at 50% 50%, var(--nayin-glow) 0%, transparent 70%);
+    background: radial-gradient(
+      circle at 50% 50%,
+      var(--nayin-glow) 0%,
+      transparent 70%
+    );
     border: 1px solid oklch(1 0 0 / 8%);
     box-shadow:
       inset 0 1px 0 oklch(1 0 0 / 10%),
@@ -761,7 +953,10 @@ select option {
     font-size: 0.75rem;
     color: var(--muted-foreground);
     backdrop-filter: blur(8px);
-    transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+    transition:
+      background 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease;
   }
   .meta-chip:hover {
     background: oklch(1 0 0 / 85%);
@@ -789,37 +984,95 @@ select option {
     opacity: 0;
   }
 
-  [data-nayin="metal"] .wx-particles span { background: oklch(0.72 0.12 85 / 25%); animation-name: wxRise; }
-  [data-nayin="wood"] .wx-particles span { background: oklch(0.58 0.10 155 / 22%); animation-name: wxLeaf; border-radius: 40% 60%; }
-  [data-nayin="water"] .wx-particles span { background: oklch(0.65 0.06 220 / 20%); animation-name: wxDrop; }
-  [data-nayin="fire"] .wx-particles span { background: oklch(0.60 0.16 25 / 22%); animation-name: wxEmber; }
-  [data-nayin="earth"] .wx-particles span { background: oklch(0.55 0.10 55 / 20%); animation-name: wxDust; }
+  [data-nayin="metal"] .wx-particles span {
+    background: oklch(0.72 0.12 85 / 25%);
+    animation-name: wxRise;
+  }
+  [data-nayin="wood"] .wx-particles span {
+    background: oklch(0.58 0.1 155 / 22%);
+    animation-name: wxLeaf;
+    border-radius: 40% 60%;
+  }
+  [data-nayin="water"] .wx-particles span {
+    background: oklch(0.65 0.06 220 / 20%);
+    animation-name: wxDrop;
+  }
+  [data-nayin="fire"] .wx-particles span {
+    background: oklch(0.6 0.16 25 / 22%);
+    animation-name: wxEmber;
+  }
+  [data-nayin="earth"] .wx-particles span {
+    background: oklch(0.55 0.1 55 / 20%);
+    animation-name: wxDust;
+  }
 
   @keyframes wxRise {
-    0% { opacity: 0; transform: translateY(100vh) scale(0.5); }
-    20% { opacity: 0.6; }
-    100% { opacity: 0; transform: translateY(-10vh) scale(1.2); }
+    0% {
+      opacity: 0;
+      transform: translateY(100vh) scale(0.5);
+    }
+    20% {
+      opacity: 0.6;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-10vh) scale(1.2);
+    }
   }
   @keyframes wxLeaf {
-    0% { opacity: 0; transform: translate(0, 100vh) rotate(0deg); }
-    20% { opacity: 0.5; }
-    100% { opacity: 0; transform: translate(80px, -10vh) rotate(360deg); }
+    0% {
+      opacity: 0;
+      transform: translate(0, 100vh) rotate(0deg);
+    }
+    20% {
+      opacity: 0.5;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(80px, -10vh) rotate(360deg);
+    }
   }
   @keyframes wxDrop {
-    0% { opacity: 0; transform: translateY(-10vh) scale(0.8); }
-    30% { opacity: 0.5; }
-    100% { opacity: 0; transform: translateY(100vh) scale(1); }
+    0% {
+      opacity: 0;
+      transform: translateY(-10vh) scale(0.8);
+    }
+    30% {
+      opacity: 0.5;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(100vh) scale(1);
+    }
   }
   @keyframes wxEmber {
-    0% { opacity: 0; transform: translateY(100vh) scale(0.3); }
-    30% { opacity: 0.7; }
-    70% { opacity: 0.3; }
-    100% { opacity: 0; transform: translateY(-20vh) scale(0.1); }
+    0% {
+      opacity: 0;
+      transform: translateY(100vh) scale(0.3);
+    }
+    30% {
+      opacity: 0.7;
+    }
+    70% {
+      opacity: 0.3;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-20vh) scale(0.1);
+    }
   }
   @keyframes wxDust {
-    0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
-    30% { opacity: 0.4; }
-    100% { opacity: 0; transform: translate(60px, -40px) scale(1.4); }
+    0% {
+      opacity: 0;
+      transform: translate(0, 0) scale(0.6);
+    }
+    30% {
+      opacity: 0.4;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(60px, -40px) scale(1.4);
+    }
   }
 
   /* Ambient glow layer for hero — soft warm washes */
@@ -830,7 +1083,7 @@ select option {
     overflow: hidden;
   }
   .hero-ambient::before {
-    content: '';
+    content: "";
     position: absolute;
     left: -10%;
     top: -50%;
@@ -841,13 +1094,17 @@ select option {
     opacity: 0.9;
   }
   .hero-ambient::after {
-    content: '';
+    content: "";
     position: absolute;
     right: -5%;
     top: -30%;
     width: 40%;
     height: 160%;
-    background: radial-gradient(circle, oklch(0.92 0.04 45 / 50%) 0%, transparent 60%);
+    background: radial-gradient(
+      circle,
+      oklch(0.92 0.04 45 / 50%) 0%,
+      transparent 60%
+    );
     filter: blur(50px);
   }
 }

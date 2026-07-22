@@ -5,6 +5,7 @@ import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
+import { hashInviteCode } from "../services/inviteAccess";
 
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -14,7 +15,7 @@ function generateOtpCode(): string {
 
 async function sendOtpEmail(to: string, code: string): Promise<void> {
   if (!ENV.resendApiKey) {
-    // Dev fallback: log to console when Resend not configured
+    // 本地开发保留日志兜底；生产环境由路由提前阻止“假发送”。
     console.log(`[EmailOTP] Code for ${to}: ${code}`);
     return;
   }
@@ -23,11 +24,11 @@ async function sendOtpEmail(to: string, code: string): Promise<void> {
     {
       from: ENV.resendFromEmail,
       to: [to],
-      subject: "你的登录验证码 / Your login code",
-      text: `你的验证码是：${code}\n\nYour code: ${code}\n\n10分钟内有效。`,
-      html: `<p style="font-size:24px;font-weight:bold;letter-spacing:8px">${code}</p><p>10分钟内有效 / Valid for 10 minutes</p>`,
+      subject: "聊会儿登录验证码",
+      text: `你的验证码是：${code}\n\n10 分钟内有效。`,
+      html: `<p style="font-size:24px;font-weight:bold;letter-spacing:8px">${code}</p><p>10 分钟内有效。</p>`,
     },
-    { headers: { Authorization: `Bearer ${ENV.resendApiKey}` } },
+    { headers: { Authorization: `Bearer ${ENV.resendApiKey}` } }
   );
 }
 
@@ -44,9 +45,31 @@ function getOrigin(req: Request): string {
   if (ENV.appOrigin) {
     return normalizeOrigin(ENV.appOrigin);
   }
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
-  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.get("host");
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol;
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ?? req.get("host");
   return `${proto}://${host}`;
+}
+
+function getEmail(req: Request): string {
+  return typeof req.body?.email === "string"
+    ? req.body.email.trim().toLowerCase()
+    : "";
+}
+
+function getInviteCode(req: Request): string {
+  return typeof req.body?.inviteCode === "string"
+    ? req.body.inviteCode.trim()
+    : "";
+}
+
+async function emailAlreadyHasAccess(email: string): Promise<boolean> {
+  const [user, redeemedInvite] = await Promise.all([
+    db.getUserByOpenId(`email:${email}`),
+    db.hasRedeemedInviteForEmail(email),
+  ]);
+  return Boolean(user || redeemedInvite);
 }
 
 export function registerOAuthRoutes(app: Express) {
@@ -62,7 +85,9 @@ export function registerOAuthRoutes(app: Express) {
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
     if (!ENV.googleClientId) {
-      res.status(503).json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
+      res
+        .status(503)
+        .json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
       return;
     }
     const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
@@ -93,7 +118,7 @@ export function registerOAuthRoutes(app: Express) {
           client_secret: ENV.googleClientSecret,
           redirect_uri: redirectUri,
           grant_type: "authorization_code",
-        },
+        }
       );
 
       // Get user info from Google
@@ -107,6 +132,11 @@ export function registerOAuthRoutes(app: Express) {
 
       const { sub, email, name } = userRes.data;
       const openId = `google:${sub}`;
+      const existingUser = await db.getUserByOpenId(openId);
+      if (ENV.betaInviteRequired && !existingUser) {
+        res.redirect(302, "/login?error=invite_required");
+        return;
+      }
 
       await db.upsertUser({
         openId,
@@ -122,7 +152,10 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
       res.redirect(302, "/");
     } catch (error) {
       console.error("[Google OAuth] Callback failed", error);
@@ -130,15 +163,33 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
-
   // ── Email OTP ────────────────────────────────────────────────────────
   app.post("/api/auth/email/request", async (req: Request, res: Response) => {
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const email = getEmail(req);
+    const inviteCode = getInviteCode(req);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       res.status(400).json({ error: "invalid_email" });
       return;
     }
     try {
+      if (ENV.betaInviteRequired && !(await emailAlreadyHasAccess(email))) {
+        if (!inviteCode) {
+          res.status(403).json({ error: "invite_required" });
+          return;
+        }
+        const invite = await db.findAvailableInviteCode(
+          hashInviteCode(inviteCode)
+        );
+        if (!invite) {
+          res.status(403).json({ error: "invalid_invite" });
+          return;
+        }
+      }
+      if (ENV.isProduction && !ENV.resendApiKey) {
+        res.status(503).json({ error: "email_not_configured" });
+        return;
+      }
+
       const code = generateOtpCode();
       const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
       await db.createEmailOtp(email, code, expiresAt);
@@ -151,7 +202,8 @@ export function registerOAuthRoutes(app: Express) {
   });
 
   app.post("/api/auth/email/verify", async (req: Request, res: Response) => {
-    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const email = getEmail(req);
+    const inviteCode = getInviteCode(req);
     const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
     if (!email || !code) {
       res.status(400).json({ error: "invalid_request" });
@@ -163,22 +215,45 @@ export function registerOAuthRoutes(app: Express) {
         res.status(401).json({ error: "invalid_or_expired" });
         return;
       }
-      await db.markEmailOtpUsed(otp.id);
 
       const openId = `email:${email}`;
+      if (ENV.betaInviteRequired && !(await emailAlreadyHasAccess(email))) {
+        if (!inviteCode) {
+          res.status(403).json({ error: "invite_required" });
+          return;
+        }
+        const claimedInvite = await db.redeemInviteForEmail(
+          hashInviteCode(inviteCode),
+          email
+        );
+        if (!claimedInvite) {
+          res.status(403).json({ error: "invalid_invite" });
+          return;
+        }
+      }
+
       await db.upsertUser({
         openId,
         email,
         loginMethod: "email",
         lastSignedIn: new Date(),
       });
+      const user = await db.getUserByOpenId(openId);
+      if (!user) {
+        throw new Error("邮箱用户创建后无法读取");
+      }
+      await db.bindRedeemedInviteToUser(email, user.id);
+      await db.markEmailOtpUsed(otp.id);
 
       const sessionToken = await sdk.createSessionToken(openId, {
         name: email.split("@")[0],
         expiresInMs: ONE_YEAR_MS,
       });
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
       res.json({ ok: true });
     } catch (error) {
       console.error("[EmailOTP] verify failed", error);
@@ -203,6 +278,11 @@ export function registerOAuthRoutes(app: Express) {
         res.status(400).json({ error: "openId missing from user info" });
         return;
       }
+      const existingUser = await db.getUserByOpenId(userInfo.openId);
+      if (ENV.betaInviteRequired && !existingUser) {
+        res.status(403).json({ error: "invite_required" });
+        return;
+      }
 
       await db.upsertUser({
         openId: userInfo.openId,
@@ -218,7 +298,10 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, {
+        ...cookieOptions,
+        maxAge: ONE_YEAR_MS,
+      });
 
       res.redirect(302, "/");
     } catch (error) {
