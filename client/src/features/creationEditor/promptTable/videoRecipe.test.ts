@@ -90,6 +90,20 @@ describe("compileVideoShotRecipe", () => {
     expect(recipe.finalPrompt).toContain("相机运动：缓慢推进");
   });
 
+  it("uses the current action instead of a stale director prompt", () => {
+    const recipe = compileVideoShotRecipe({
+      shot: shot({
+        action: "女主从黑暗中撑开自己的空间",
+        cameraMove: "相机快速后撤",
+        videoPrompt: "旧方案：人物不动，相机缓慢推进",
+      }),
+      rows: [],
+    });
+
+    expect(recipe.finalPrompt).toContain("动作：女主从黑暗中撑开自己的空间");
+    expect(recipe.finalPrompt).not.toContain("旧方案：人物不动");
+  });
+
   it("includes unified art prompt library dimensions in the video package", () => {
     const recipe = compileVideoShotRecipe({
       shot: shot(),

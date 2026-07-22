@@ -3,6 +3,7 @@ import { ENV } from "../_core/env";
 import {
   generateShotVideo,
   getShotVideoProviderStatus,
+  refreshShotVideoTask,
   submitShotVideo,
 } from "./videoGen";
 
@@ -189,6 +190,42 @@ describe("generateShotVideo", () => {
       status: "error",
       taskId: "task-1",
       message: "视频任务已提交，但未配置 VIDEO_302_POLL_PATH，无法查询结果。",
+    });
+  });
+
+  it("keeps the four MJ video variants separate from the contact-sheet preview", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302.ai";
+    ENV.video302Model = "";
+    ENV.video302SubmitPath = "/mj/submit/video";
+    ENV.video302PollPath = "/mj/task/{taskId}/fetch";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: "SUCCESS",
+        videoUrl: "https://file.302.ai/contact-sheet.mp4",
+        videoUrls: [
+          { url: "https://file.302.ai/v1.mp4" },
+          { url: "https://file.302.ai/v2.mp4" },
+          { url: "https://file.302.ai/v3.mp4" },
+          { url: "https://file.302.ai/v4.mp4" },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    await expect(
+      refreshShotVideoTask("mj-task-four", { fetcher })
+    ).resolves.toEqual({
+      status: "available",
+      taskId: "mj-task-four",
+      videoUrl: "https://file.302.ai/v1.mp4",
+      previewVideoUrl: "https://file.302.ai/contact-sheet.mp4",
+      candidateVideoUrls: [
+        "https://file.302.ai/v1.mp4",
+        "https://file.302.ai/v2.mp4",
+        "https://file.302.ai/v3.mp4",
+        "https://file.302.ai/v4.mp4",
+      ],
     });
   });
 });

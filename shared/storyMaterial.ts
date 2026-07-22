@@ -9,6 +9,23 @@ export type TimelineTransform = {
   zoom: number;
   panX: number;
   panY: number;
+  rotationDeg?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+};
+
+export type TimelineVideoEffects = {
+  playbackRate: number;
+  reverse: boolean;
+  volume: number;
+  muted: boolean;
+};
+
+export type StoryTimelinePrimaryVideoEdit = {
+  takeId: number;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  effects: TimelineVideoEffects;
 };
 
 export type StoryTimelineVisualClip = {
@@ -22,6 +39,8 @@ export type StoryTimelineVisualClip = {
   sourceEndSec: number;
   offsetMs: number;
   durationMs: number;
+  effects?: TimelineVideoEffects;
+  transform?: TimelineTransform;
 };
 
 export type StoryTimelineItem = {
@@ -30,6 +49,7 @@ export type StoryTimelineItem = {
   position: number;
   plannedDurationMs: number;
   transform: TimelineTransform;
+  primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
   visualClipsReplacePrimary?: boolean;
 };
@@ -68,4 +88,14 @@ export const DEFAULT_TIMELINE_TRANSFORM: TimelineTransform = {
   zoom: 1,
   panX: 0,
   panY: 0,
+  rotationDeg: 0,
+  flipX: false,
+  flipY: false,
+};
+
+export const DEFAULT_TIMELINE_VIDEO_EFFECTS: TimelineVideoEffects = {
+  playbackRate: 1,
+  reverse: false,
+  volume: 1,
+  muted: false,
 };

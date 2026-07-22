@@ -12,6 +12,8 @@ import {
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
+import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
+import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
 
 export function currentStoryboardImages(
   shots: readonly CreationEditorShot[],
@@ -37,10 +39,14 @@ export default function StoryboardPanel({
   defaultViewMode = "simple",
   embeddedEditorMode = false,
   headerAction,
+  onEditVideo,
+  onEditImage,
 }: {
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
+  onEditVideo?: (target: VideoClipEditorTarget) => void;
+  onEditImage?: (target: ImageClipEditorTarget) => void;
 }) {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
@@ -238,6 +244,8 @@ export default function StoryboardPanel({
       onRefreshShotVideoStatus={refreshShotVideoStatus}
       onMarkVideoTakeUnusable={markVideoTakeUnusable}
       onRemoveTimelineVideoClip={removeTimelineVideoClip}
+      onEditVideo={onEditVideo}
+      onEditImage={onEditImage}
       onMoveStoryImage={assignStoryImageToShot}
       onDeleteStoryImage={deleteStoryImage}
       onMoveVideoTake={moveVideoTake}

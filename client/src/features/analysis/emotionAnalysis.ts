@@ -8,7 +8,7 @@ import type { TodayNayin } from "@/features/nayin/nayin";
 
 export const EMOTION_ANALYSIS_LOCAL_KEY = "dt:emotionAnalysisProfile";
 export const EMOTION_ANALYSIS_CONSENT_TEXT =
-  "我同意将出生日期保存为长期情绪分析底盘，用于生成今日参考和后续对话中的个性化理解；这不是医疗、心理诊断或命运判断。";
+  "你愿意留下的资料和这段话，只用来生成今日回信、接住之后的对话；随时可以修改，也不会替你做诊断或决定。";
 
 export interface EmotionScheduleBlock {
   label: string;
@@ -36,6 +36,9 @@ export interface EmotionDailyReference extends Record<string, unknown> {
 
 export interface EmotionAnalysisSeed extends Record<string, unknown> {
   birthDate: string;
+  birthPlace?: string;
+  currentLocation?: string;
+  userMessage?: string;
   age: number | null;
   lifeStage: string;
   birthSeason: string;
@@ -59,6 +62,13 @@ export interface SaveEmotionAnalysisProfileInput {
   analysisSeed: EmotionAnalysisSeed;
   consentAccepted: true;
   consentText: string;
+}
+
+export interface EmotionAnalysisBuildInput {
+  birthDate: string;
+  birthPlace?: string;
+  currentLocation?: string;
+  userMessage?: string;
 }
 
 type BirthParts = {
@@ -246,11 +256,33 @@ function historicalLens(
   return `历史参照上，历法本来就是把个人日程放进季节和共同生活里的工具；${yiText}今天更适合把情绪变成可执行的小安排，而不是把它解释成命运。`;
 }
 
+function cleanOptionalText(value: string | undefined, maxLength: number) {
+  const cleaned = value?.replace(/\s+/g, " ").trim() ?? "";
+  return cleaned.slice(0, maxLength);
+}
+
+function withoutTerminalPunctuation(value: string) {
+  return value.replace(/[。；，、,.!?！？…]+$/g, "");
+}
+
+function quoteUserMessage(value: string) {
+  const compact = cleanOptionalText(value, 54);
+  const quoted = withoutTerminalPunctuation(compact);
+  return quoted
+    ? `“${quoted}${value.trim().length > compact.length ? "…" : ""}”`
+    : "";
+}
+
 export function buildEmotionAnalysisProfile(
-  birthDate: string,
+  input: string | EmotionAnalysisBuildInput,
   today: TodayNayin,
   almanac: AlmanacDay | null | undefined
 ): EmotionAnalysisProfile | null {
+  const values = typeof input === "string" ? { birthDate: input } : input;
+  const birthDate = values.birthDate;
+  const birthPlace = cleanOptionalText(values.birthPlace, 80);
+  const currentLocation = cleanOptionalText(values.currentLocation, 80);
+  const userMessage = cleanOptionalText(values.userMessage, 800);
   const birth = parseBirthDate(birthDate);
   if (!birth || !isValidBirthDate(birthDate, today)) return null;
 
@@ -264,6 +296,9 @@ export function buildEmotionAnalysisProfile(
 
   const analysisSeed: EmotionAnalysisSeed = {
     birthDate,
+    ...(birthPlace ? { birthPlace } : {}),
+    ...(currentLocation ? { currentLocation } : {}),
+    ...(userMessage ? { userMessage } : {}),
     age,
     lifeStage,
     birthSeason,
@@ -274,8 +309,10 @@ export function buildEmotionAnalysisProfile(
   const dailyReference: EmotionDailyReference = {
     todayDate: today.cstDateStr,
     lunarLabel,
-    title: "今日情绪日程参考",
-    summary: `${lifeStage}。今天的${today.theme.elementCn}气更适合把感受落成一个小动作，而不是急着给自己下判断。`,
+    title: "聊会儿的今日回信",
+    summary: userMessage
+      ? `你说：${quoteUserMessage(userMessage)}。这句话先放在今天这里，不急着解释完，也不急着替你下结论。`
+      : `${lifeStage}。今天先把感受落成一个小动作，不必急着给自己下判断。`,
     clothing: clothing.title,
     activity: activity.short,
     schedule: ELEMENT_SCHEDULE[today.element],
@@ -285,7 +322,13 @@ export function buildEmotionAnalysisProfile(
       { label: "历史参照", detail: historicalLens(today, almanac) },
     ],
     avoid: "不适合在疲惫时做重大关系结论，也不适合把一时情绪当成完整的自己。",
-    note: `${birthSeason}；${cohort}。这份参考会进入长期情绪分析底盘，作为后续对话的背景线索。`,
+    note: [
+      birthSeason,
+      cohort,
+      "这份回信会留作之后聊天的背景，你随时可以改",
+    ]
+      .filter(Boolean)
+      .join("；") + "。",
   };
 
   return {
@@ -336,7 +379,12 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
     schedule,
     lenses,
     avoid: String(value.avoid ?? ""),
-    note: String(value.note ?? ""),
+    note: String(value.note ?? "")
+      .replace(
+        /(?:^|；)你从[^；。]+来到[^；。]+，地点变化带来的生活节奏和关系网络，也会放进这份参考里(?=；|。|$)/g,
+        ""
+      )
+      .replace(/^；|；(?=。|$)/g, ""),
   };
 }
 
@@ -344,6 +392,16 @@ function normalizeAnalysisSeed(value: unknown): EmotionAnalysisSeed | null {
   if (!isObject(value) || typeof value.birthDate !== "string") return null;
   return {
     birthDate: value.birthDate,
+    ...(typeof value.birthPlace === "string" && value.birthPlace.trim()
+      ? { birthPlace: value.birthPlace.trim() }
+      : {}),
+    ...(typeof value.currentLocation === "string" &&
+    value.currentLocation.trim()
+      ? { currentLocation: value.currentLocation.trim() }
+      : {}),
+    ...(typeof value.userMessage === "string" && value.userMessage.trim()
+      ? { userMessage: value.userMessage.trim() }
+      : {}),
     age: typeof value.age === "number" ? value.age : null,
     lifeStage: String(value.lifeStage ?? ""),
     birthSeason: String(value.birthSeason ?? ""),

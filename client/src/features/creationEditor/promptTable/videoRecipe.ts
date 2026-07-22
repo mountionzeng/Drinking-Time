@@ -78,7 +78,8 @@ export function compileVideoShotRecipe(params: {
     return next;
   };
 
-  const videoPrompt = value("videoPrompt");
+  const videoPromptRow = rows.find(row => row.dimension === "videoPrompt");
+  const videoPrompt = clean(videoPromptRow?.value) || clean(shot.videoPrompt);
   const sceneTitle = value("sceneTitle");
   const sceneArtBrief = value("sceneArtBrief");
   const subject = value("subject");
@@ -107,12 +108,31 @@ export function compileVideoShotRecipe(params: {
   const negativePrompt = value("negative_prompt");
   const artStyleRecipe = value("art_style_recipe");
   const rationale = value("rationale");
+  const hasCurrentDirection = [
+    action,
+    performance,
+    environmentMotion,
+    cameraMove,
+    cameraPath,
+    subjectPath,
+    videoStart,
+    videoEnd,
+    transitionIn,
+    transitionOut,
+  ].some(Boolean);
+  const useVideoPrompt = Boolean(
+    videoPrompt &&
+      (videoPromptRow?.source.system === "manual" || !hasCurrentDirection)
+  );
 
   const lines = [
     `图生视频任务：只生成 ${shotLabel(shot)} 的 3-5 秒短片片段。`,
     "使用当前关键帧作为首帧，保持人物、构图、色调和故事上下文一致。",
   ];
-  addLine(lines, "核心视频提示", videoPrompt);
+  if (useVideoPrompt) {
+    addLine(lines, "核心视频提示", videoPrompt);
+    usedDimensions.push("videoPrompt");
+  }
   addLine(
     lines,
     "场次",
@@ -169,7 +189,7 @@ export function compileVideoShotRecipe(params: {
 
   const missing: string[] = [];
   if (!sourceImageUrl) missing.push("首帧图");
-  if (!videoPrompt && !action && !cameraMove && !cameraPath)
+  if (!useVideoPrompt && !action && !cameraMove && !cameraPath)
     missing.push("视频运动提示");
 
   return {

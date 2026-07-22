@@ -29,6 +29,18 @@ describe("startEndVideo", () => {
     });
   });
 
+  it("lets an explicit high motion request override a stale auto amplitude", () => {
+    expect(
+      parseStartEndVideoConfig({
+        frameMode: "start_end",
+        firstFrameImageId: 1365,
+        lastFrameImageId: 1364,
+        motion: "high",
+        movementAmplitude: "auto",
+      })?.movementAmplitude
+    ).toBe("large");
+  });
+
   it("rejects incomplete or same-frame configurations", () => {
     expect(parseStartEndVideoConfig("{}")).toBeNull();
     expect(

@@ -15,21 +15,30 @@ import { getStoryById, updateStoryTimeline } from "../db";
 import type {
   ShotMaterialState,
   StoryTimelineItem,
+  TimelineVideoEffects,
 } from "../../shared/storyMaterial";
+import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "../../shared/storyMaterial";
 import { runJsonAgent } from "./agentRuntime";
 import { getStoryMaterialState } from "./storyMaterials";
 import {
   transitionVideoFrameTime,
   transitionVideoWindow,
 } from "./videoEndpointFrames";
-import {
-  displayShotCode,
-  promptShotCode,
-} from "../../shared/shotIdentity";
+import { displayShotCode, promptShotCode } from "../../shared/shotIdentity";
+import { adoptVideoTake } from "./videoTimeline";
 
 export type TimelineEditSelectionContext = {
   stableShotId?: string | null;
   shotNo?: number | null;
+  sourceType?: string;
+  sourceId?: string;
+  videoTakeId?: number | null;
+  rangeId?: number | null;
+  selection?:
+    | { kind: "time"; startSec: number; endSec: number }
+    | { kind: "text"; start: number; end: number }
+    | { kind: "rect"; x: number; y: number; width: number; height: number }
+    | null;
 };
 
 export type TimelineTransitionEndpoint =
@@ -113,6 +122,297 @@ const SCENE_CUT_KEYWORDS = /(?:场景|画面|人物|镜头).{0,6}(?:切换到|�
 const DIRECT_TIMELINE_OPERATION_KEYWORDS =
   /(?:挪|移动|移到|放到|重排|删掉|移除|恢复|时长|前面|后面|第\s*\d+\s*位|\d+(?:\.\d+)?\s*秒)/;
 const PREVIOUS_SHOT_KEYWORDS = /(?:上一(?:个)?镜头?|前一(?:个)?镜头?|和前面)/;
+
+type SelectedVideoEdit = {
+  effects: Partial<TimelineVideoEffects>;
+  sourceStartSec?: number;
+  sourceEndSec?: number;
+  labels: string[];
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseSelectedVideoEdit(
+  instruction: string,
+  selection?: TimelineEditSelectionContext
+): SelectedVideoEdit | null {
+  if (
+    !selection?.videoTakeId ||
+    (selection.sourceType !== "animatic-video" &&
+      selection.sourceType !== "timeline-range")
+  ) {
+    return null;
+  }
+  const effects: Partial<TimelineVideoEffects> = {};
+  const labels: string[] = [];
+  const speedMatch = instruction.match(
+    /(?:播放速度|速度|倍速|调成|调到|改成|设为|用)?\s*(\d+(?:\.\d+)?)\s*(?:倍速?|x)/i
+  );
+  if (
+    speedMatch &&
+    !/(?:画面|构图|镜头).{0,6}(?:放大|缩放)/.test(instruction)
+  ) {
+    const playbackRate = clamp(Number(speedMatch[1]), 0.25, 4);
+    effects.playbackRate = playbackRate;
+    labels.push(`${playbackRate} 倍速`);
+  }
+
+  if (/(?:取消倒放|恢复正放|改回正放|正向播放|正常播放)/.test(instruction)) {
+    effects.reverse = false;
+    labels.push("正向播放");
+  } else if (/(?:倒放|反向播放|反着播放)/.test(instruction)) {
+    effects.reverse = true;
+    labels.push("倒放");
+  }
+
+  if (/(?:取消静音|恢复原声|打开原声|保留原声)/.test(instruction)) {
+    effects.muted = false;
+    labels.push("恢复原声");
+  } else if (/(?:静音|关掉原声|关闭原声|不要原声)/.test(instruction)) {
+    effects.muted = true;
+    labels.push("静音");
+  }
+
+  const volumeMatch = instruction.match(
+    /(?:音量|原声).{0,8}?(\d{1,3}(?:\.\d+)?)\s*%/
+  );
+  if (volumeMatch) {
+    const percent = clamp(Number(volumeMatch[1]), 0, 200);
+    effects.volume = percent / 100;
+    labels.push(`音量 ${percent}%`);
+  }
+
+  const trimMatch = instruction.match(
+    /(?:保留|截取|裁剪|裁到|从)?\s*(\d+(?:\.\d+)?)\s*秒\s*(?:到|至|—|-)\s*(\d+(?:\.\d+)?)\s*秒/
+  );
+  const sourceStartSec = trimMatch ? Number(trimMatch[1]) : undefined;
+  const sourceEndSec = trimMatch ? Number(trimMatch[2]) : undefined;
+  if (
+    sourceStartSec != null &&
+    sourceEndSec != null &&
+    sourceEndSec > sourceStartSec
+  ) {
+    labels.push(`截取 ${sourceStartSec}–${sourceEndSec} 秒`);
+  }
+
+  if (labels.length === 0) return null;
+  return { effects, sourceStartSec, sourceEndSec, labels };
+}
+
+function inferredVideoEffects(input: {
+  sourceStartSec: number;
+  sourceEndSec: number;
+  durationMs: number;
+  effects?: TimelineVideoEffects;
+}): TimelineVideoEffects {
+  if (input.effects) return { ...input.effects };
+  const sourceDurationSec = Math.max(
+    0.1,
+    input.sourceEndSec - input.sourceStartSec
+  );
+  return {
+    ...DEFAULT_TIMELINE_VIDEO_EFFECTS,
+    playbackRate: clamp(
+      sourceDurationSec / Math.max(0.1, input.durationMs / 1_000),
+      0.25,
+      4
+    ),
+  };
+}
+
+async function applySelectedVideoEdit(input: {
+  storyId: number;
+  userId: number;
+  instruction: string;
+  selectionContext?: TimelineEditSelectionContext;
+  items: StoryTimelineItem[];
+  shotsByIdentity: Map<string, ShotMaterialState>;
+  timelineVersion: number;
+}): Promise<TimelineEditResult | null> {
+  const parsed = parseSelectedVideoEdit(
+    input.instruction,
+    input.selectionContext
+  );
+  if (!parsed || !input.selectionContext?.videoTakeId) return null;
+  const selection = input.selectionContext;
+  const shot = selection.stableShotId
+    ? input.shotsByIdentity.get(selection.stableShotId)
+    : Array.from(input.shotsByIdentity.values()).find(
+        candidate => candidate.shotNo === selection.shotNo
+      );
+  if (!shot) {
+    return {
+      handled: true,
+      reply:
+        "我认出了视频剪辑指令，但当前选区已经失效。请重新双击那条视频后再试。",
+      appliedCount: 0,
+    };
+  }
+  const itemIndex = input.items.findIndex(
+    item => item.stableShotId === shot.stableShotId
+  );
+  if (itemIndex < 0) {
+    return {
+      handled: true,
+      reply: `${displayShotCode(shot)} 不在当前时间线上，暂时没有修改。`,
+      appliedCount: 0,
+    };
+  }
+
+  const working = input.items.map(item => ({
+    ...item,
+    visualClips: item.visualClips?.map(clip => ({ ...clip })),
+  }));
+  const item = working[itemIndex];
+  const clipId =
+    selection.sourceType === "timeline-range" ? selection.sourceId : null;
+  const clip = clipId
+    ? item.visualClips?.find(candidate => candidate.id === clipId)
+    : null;
+
+  if (clip) {
+    const sourceStartSec = Math.max(
+      0,
+      parsed.sourceStartSec ?? clip.sourceStartSec
+    );
+    const sourceEndSec = Math.max(
+      sourceStartSec + 1 / 30,
+      parsed.sourceEndSec ?? clip.sourceEndSec
+    );
+    const effects = {
+      ...inferredVideoEffects({
+        sourceStartSec: clip.sourceStartSec,
+        sourceEndSec: clip.sourceEndSec,
+        durationMs: clip.durationMs,
+        effects: clip.effects,
+      }),
+      ...parsed.effects,
+    };
+    const durationMs = Math.max(
+      100,
+      Math.round(
+        ((sourceEndSec - sourceStartSec) * 1_000) / effects.playbackRate
+      )
+    );
+    const previousEndMs = clip.offsetMs + clip.durationMs;
+    const deltaMs = durationMs - clip.durationMs;
+    item.visualClips = (item.visualClips ?? [])
+      .map(candidate => {
+        if (candidate.id === clip.id) {
+          return {
+            ...candidate,
+            sourceStartSec,
+            sourceEndSec,
+            durationMs,
+            effects,
+          };
+        }
+        if (
+          item.visualClipsReplacePrimary &&
+          candidate.offsetMs >= previousEndMs - 1
+        ) {
+          return {
+            ...candidate,
+            offsetMs: Math.max(0, candidate.offsetMs + deltaMs),
+          };
+        }
+        return candidate;
+      })
+      .sort((left, right) => left.offsetMs - right.offsetMs);
+    const lastClipEndMs = item.visualClips.reduce(
+      (maximum, candidate) =>
+        Math.max(maximum, candidate.offsetMs + candidate.durationMs),
+      0
+    );
+    item.plannedDurationMs = item.visualClipsReplacePrimary
+      ? Math.max(100, lastClipEndMs)
+      : Math.max(item.plannedDurationMs, lastClipEndMs);
+  } else {
+    const take = shot.videoTakes.find(
+      candidate => candidate.id === selection.videoTakeId
+    );
+    if (!take?.videoUrl || take.status !== "available") {
+      return {
+        handled: true,
+        reply: "这条视频现在不可播放，未修改时间线。请重新选择一个可用 Take。",
+        appliedCount: 0,
+      };
+    }
+    const selectedRange =
+      take.selectedSelectionType === "range" && take.selectedRangeId != null
+        ? take.ranges.find(range => range.id === take.selectedRangeId)
+        : null;
+    const currentEdit =
+      item.primaryVideoEdit?.takeId === take.id ? item.primaryVideoEdit : null;
+    const initialStartSec =
+      currentEdit?.sourceStartSec ??
+      (selection.selection?.kind === "time"
+        ? selection.selection.startSec
+        : (selectedRange?.startSec ?? 0));
+    const initialEndSec =
+      currentEdit?.sourceEndSec ??
+      (selection.selection?.kind === "time"
+        ? selection.selection.endSec
+        : (selectedRange?.endSec ?? take.durationSec ?? initialStartSec + 3));
+    const sourceStartSec = clamp(
+      parsed.sourceStartSec ?? initialStartSec,
+      0,
+      Math.max(0, (take.durationSec ?? initialEndSec) - 1 / 30)
+    );
+    const sourceEndSec = clamp(
+      parsed.sourceEndSec ?? initialEndSec,
+      sourceStartSec + 1 / 30,
+      Math.max(sourceStartSec + 1 / 30, take.durationSec ?? initialEndSec)
+    );
+    const effects = {
+      ...inferredVideoEffects({
+        sourceStartSec: initialStartSec,
+        sourceEndSec: initialEndSec,
+        durationMs: item.plannedDurationMs,
+        effects: currentEdit?.effects,
+      }),
+      ...parsed.effects,
+    };
+    const durationMs = Math.max(
+      100,
+      Math.round(
+        ((sourceEndSec - sourceStartSec) * 1_000) / effects.playbackRate
+      )
+    );
+    if (!take.isTimelineSelected) {
+      await adoptVideoTake(
+        {
+          storyId: input.storyId,
+          stableShotId: shot.stableShotId,
+          takeId: take.id,
+          plannedDurationSec: durationMs / 1_000,
+        },
+        input.userId
+      );
+    }
+    item.plannedDurationMs = durationMs;
+    item.primaryVideoEdit = {
+      takeId: take.id,
+      sourceStartSec,
+      sourceEndSec,
+      effects,
+    };
+  }
+
+  await updateStoryTimeline({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedVersion: input.timelineVersion,
+    items: working.map((item, position) => ({ ...item, position })),
+  });
+  return {
+    handled: true,
+    reply: `已把 ${displayShotCode(shot)} 的当前视频改为：${parsed.labels.join("、")}。修改已进入时间线。`,
+    appliedCount: 1,
+  };
+}
 
 function buildSystemPrompt(entries: string[]): string {
   return [
@@ -440,6 +740,17 @@ export async function runTimelineEditCommand(params: {
     (left, right) => left.position - right.position
   );
   if (items.length === 0) return { handled: false };
+
+  const selectedVideoResult = await applySelectedVideoEdit({
+    storyId: params.storyId,
+    userId: params.userId,
+    instruction,
+    selectionContext: params.selectionContext,
+    items,
+    shotsByIdentity: byIdentity,
+    timelineVersion: material.timeline.version,
+  });
+  if (selectedVideoResult) return selectedVideoResult;
 
   const describe = (item: StoryTimelineItem, index: number): string => {
     const shot = byIdentity.get(item.stableShotId);

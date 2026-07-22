@@ -1,47 +1,12 @@
 /**
  * AuthEntryPanel - 可嵌入欢迎页的登录面板。
- * 复用原有 Google OAuth + 邮箱验证码逻辑，只去掉独立登录页的重复品牌头。
+ * 内测期以邀请码控制首次注册；老用户只需邮箱验证码。
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
-function GoogleIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 18 18"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"
-        fill="#4285F4"
-      />
-      <path
-        d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z"
-        fill="#34A853"
-      />
-      <path
-        d="M3.964 10.707A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"
-        fill="#FBBC05"
-      />
-      <path
-        d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"
-        fill="#EA4335"
-      />
-    </svg>
-  );
-}
-
 type EmailStep = "input" | "code";
-type GoogleAuthConfig = {
-  configured: boolean;
-  redirectUri: string;
-};
-
 type AuthEntryPanelProps = {
   autofocus?: boolean;
 };
@@ -54,30 +19,11 @@ export default function AuthEntryPanel({
 
   const [emailStep, setEmailStep] = useState<EmailStep>("input");
   const [email, setEmail] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [code, setCode] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
-  const [googleConfig, setGoogleConfig] = useState<GoogleAuthConfig | null>(
-    null
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/auth/google/config")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: GoogleAuthConfig | null) => {
-        if (!cancelled && data?.redirectUri) {
-          setGoogleConfig(data);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setGoogleConfig(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  const betaWechatId = import.meta.env.VITE_BETA_WECHAT_ID?.trim();
   const params = new URLSearchParams(window.location.search);
   const oauthError = params.get("error");
 
@@ -89,13 +35,17 @@ export default function AuthEntryPanel({
       const res = await fetch("/api/auth/email/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, inviteCode }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setEmailError(
-          data.error === "invalid_email" ? "请输入有效的邮箱地址" : "发送失败，请重试"
-        );
+        const messageByError: Record<string, string> = {
+          invalid_email: "请输入有效的邮箱地址",
+          invite_required: "第一次登录需要邀请码",
+          invalid_invite: "邀请码无效、已过期或已被使用",
+          email_not_configured: "邮件验证码还没配置好，请联系邀请人",
+        };
+        setEmailError(messageByError[data.error] ?? "发送失败，请重试");
         return;
       }
       setEmailStep("code");
@@ -114,10 +64,17 @@ export default function AuthEntryPanel({
       const res = await fetch("/api/auth/email/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email, code, inviteCode }),
       });
       if (!res.ok) {
-        setEmailError("验证码错误或已过期，请重试");
+        const data = await res.json().catch(() => ({}));
+        setEmailError(
+          data.error === "invite_required"
+            ? "第一次登录需要邀请码"
+            : data.error === "invalid_invite"
+              ? "邀请码无效、已过期或已被使用"
+              : "验证码错误或已过期，请重试"
+        );
         return;
       }
       await refresh();
@@ -145,10 +102,10 @@ export default function AuthEntryPanel({
       >
         <div className="monitor-panel-header justify-center text-center">
           <span className="status-dot" />
-          登录后继续
+          登录聊会儿
         </div>
 
-        <div className="monitor-panel-body flex flex-col gap-4 p-5 sm:p-6">
+        <div className="monitor-panel-body flex flex-col gap-3.5 p-5">
           {oauthError && (
             <div
               className="rounded-md px-3 py-2 text-center text-xs"
@@ -157,66 +114,38 @@ export default function AuthEntryPanel({
                 color: "oklch(0.7 0.15 25)",
               }}
             >
-              {oauthError === "oauth_failed" ? "登录失败，请重试" : "登录出错，请重试"}
+              {oauthError === "invite_required"
+                ? "这个账号还没有内测权限"
+                : oauthError === "oauth_failed"
+                  ? "登录失败，请重试"
+                  : "登录出错，请重试"}
             </div>
           )}
-
-          <a
-            href="/api/auth/google"
-            className="flex w-full items-center justify-center gap-3 rounded-lg border px-4 py-2.5 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{
-              background: "var(--background)",
-              borderColor: "var(--nayin-border)",
-              color: "var(--foreground)",
-            }}
-          >
-            <GoogleIcon />
-            用 Google 帐号继续
-          </a>
-
-          <div
-            className="rounded-lg border px-3 py-2 text-[10px] leading-relaxed text-muted-foreground"
-            style={{
-              background: "var(--background)",
-              borderColor: "var(--nayin-border)",
-            }}
-          >
-            <div className="mb-1 font-mono uppercase tracking-widest text-foreground/70">
-              Google OAuth 回调地址
-            </div>
-            <div className="break-all font-mono">
-              {googleConfig?.redirectUri ?? "读取中…"}
-            </div>
-            <div className="mt-1">
-              如果 Google 显示 redirect_uri_mismatch，请把上面这行完整加入 Google
-              Cloud Console 的“已获授权的重定向 URI”。
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div
-              className="h-px flex-1"
-              style={{ background: "var(--nayin-border)" }}
-            />
-            <span className="text-[10px] font-mono text-muted-foreground">
-              或
-            </span>
-            <div
-              className="h-px flex-1"
-              style={{ background: "var(--nayin-border)" }}
-            />
-          </div>
 
           {emailStep === "input" ? (
             <form onSubmit={handleEmailRequest} className="flex flex-col gap-3">
               <input
                 type="email"
-                placeholder="your@email.com"
+                placeholder="邮箱"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoFocus={autofocus}
+                autoComplete="email"
                 className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-1"
+                style={{
+                  borderColor: "var(--nayin-border)",
+                  color: "var(--foreground)",
+                }}
+              />
+              <input
+                type="text"
+                placeholder="邀请码（第一次登录需要）"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                autoComplete="off"
+                autoCapitalize="characters"
+                className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm uppercase outline-none focus:ring-1"
                 style={{
                   borderColor: "var(--nayin-border)",
                   color: "var(--foreground)",
@@ -240,7 +169,7 @@ export default function AuthEntryPanel({
                   border: "1px solid var(--nayin-border)",
                 }}
               >
-                {emailLoading ? "发送中…" : "发送验证码"}
+                {emailLoading ? "发送中…" : "发送邮箱验证码"}
               </button>
             </form>
           ) : (
@@ -258,6 +187,7 @@ export default function AuthEntryPanel({
                 }
                 required
                 autoFocus
+                autoComplete="one-time-code"
                 className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-center font-mono text-sm tracking-[0.5em] outline-none"
                 style={{
                   borderColor: "var(--nayin-border)",
@@ -299,9 +229,11 @@ export default function AuthEntryPanel({
           )}
 
           <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-            登录即表示你同意我们存储你的创作数据。
+            第一次来需要邀请码，回来时只填邮箱。
             <br />
-            数据仅用于本平台服务。
+            {betaWechatId
+              ? `申请内测微信：${betaWechatId}`
+              : "还没有邀请码，请联系邀请你来测试的人。"}
           </p>
         </div>
       </div>

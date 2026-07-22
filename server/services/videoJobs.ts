@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  clearVideoTimelineSelection,
   createVideoTake,
   findVideoTakeByIdempotencyKey,
+  getStoryVideoTimelineSelections,
   getStoryById,
   getVideoTakeById,
   setVideoTimelineSelection,
@@ -35,6 +37,11 @@ import {
   mjSafeVideoPrompt,
   type VideoPromptDirectorResult,
 } from "./videoPromptDirector";
+import {
+  compileVideoPromptEngineering,
+  finalizeVideoPromptEngineering,
+  VIDEO_PROMPT_ENGINEERING_VERSION,
+} from "./videoPromptEngineering";
 import { storyVideoContext } from "./videoShotContext";
 import {
   isStartEndShotVideoTake,
@@ -84,6 +91,111 @@ function parameterSnapshotRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function isMjVideoTake(take: VideoTake): boolean {
+  if (take.model === "mj-video") return true;
+  const parameters = parameterSnapshotRecord(take.parameterSnapshot);
+  return parameters.submitPath === "/mj/submit/video";
+}
+
+async function materializeMjVideoVariants(input: {
+  take: VideoTake;
+  candidateVideoUrls: readonly string[];
+  previewVideoUrl?: string;
+  userId: number;
+}): Promise<VideoTake> {
+  const { take, userId } = input;
+  const candidateVideoUrls = Array.from(new Set(input.candidateVideoUrls));
+  const parentSnapshot = parameterSnapshotRecord(take.parameterSnapshot);
+  const candidateTakeIds: number[] = [];
+
+  for (let index = 0; index < candidateVideoUrls.length; index += 1) {
+    const providerVideoUrl = candidateVideoUrls[index];
+    const idempotencyKey = hashParts(
+      "mj-video-variant",
+      take.storyId,
+      take.id,
+      index,
+      providerVideoUrl
+    );
+    let candidate = await findVideoTakeByIdempotencyKey(
+      take.storyId,
+      userId,
+      idempotencyKey
+    );
+    if (!candidate) {
+      candidate = await createVideoTake({
+        storyId: take.storyId,
+        userId,
+        stableShotId: take.stableShotId,
+        sourceImageId: take.sourceImageId,
+        promptCompilationId: take.promptCompilationId,
+        status: "processing",
+        taskId: null,
+        provider: take.provider,
+        model: take.model,
+        prompt: take.prompt,
+        subtitle: take.subtitle,
+        durationSec: take.durationSec,
+        aspectRatio: take.aspectRatio,
+        videoUrl: null,
+        videoKey: null,
+        errorMessage: null,
+        parameterSnapshot: {
+          ...parentSnapshot,
+          sourceTakeId: take.id,
+          providerTaskId: take.taskId,
+          providerVideoUrl,
+          mjVideoVariantIndex: index,
+          mjVideoVariantLabel: `V${index + 1}`,
+          mjVideoVariantCount: candidateVideoUrls.length,
+          resultSelectionRule: "user-select-variant",
+        },
+        idempotencyKey,
+        extractionCapability: "unavailable",
+      });
+    }
+
+    if (candidate.status !== "available" || !candidate.videoUrl) {
+      const managed = await materializeVideoUrl(providerVideoUrl, candidate.id);
+      candidate =
+        (await updateVideoTake(candidate.id, userId, {
+          status: "available",
+          videoUrl:
+            managed.status === "ok" ? managed.videoUrl : providerVideoUrl,
+          videoKey: managed.status === "ok" ? managed.videoKey : null,
+          extractionCapability:
+            managed.status === "ok" ? "available" : "unavailable",
+          errorMessage: null,
+        })) ?? candidate;
+    }
+    candidateTakeIds.push(candidate.id);
+  }
+
+  const selections = await getStoryVideoTimelineSelections(
+    take.storyId,
+    userId
+  );
+  if (selections.some(selection => selection.takeId === take.id)) {
+    await clearVideoTimelineSelection(take.storyId, userId, take.stableShotId);
+  }
+
+  return (
+    (await updateVideoTake(take.id, userId, {
+      status: "unfollowable",
+      videoUrl: input.previewVideoUrl ?? take.videoUrl,
+      errorMessage: "四宫格仅供比较，请从 V1-V4 中选择一个版本。",
+      parameterSnapshot: {
+        ...parentSnapshot,
+        previewVideoUrl: input.previewVideoUrl ?? take.videoUrl,
+        candidateTakeIds,
+        candidateVideoCount: candidateVideoUrls.length,
+        resultSelectionRule: "user-select-variant",
+        candidatesMaterializedAt: new Date().toISOString(),
+      },
+    })) ?? take
+  );
+}
+
 function videoReferenceAsset(
   assets: readonly ImageAsset[],
   imageId: number | null | undefined,
@@ -126,17 +238,17 @@ function videoReferenceLabel(asset: ImageAsset): string {
  * 台词和负面词一并提交，会增加 MJ 参数校验和内容审核误判的概率。
  */
 export function sanitizeVideoPrompt(raw: string): string {
-  const motionLabels = new Set([
-    "核心视频提示",
-    "动作",
-    "表演",
-    "环境变化",
-    "相机运动",
-    "主体运动路径",
-    "起始画面",
-    "结束状态",
-    "接上一镜",
-    "接下一镜",
+  const motionLabelPriority = new Map([
+    ["动作", 0],
+    ["表演", 1],
+    ["环境变化", 2],
+    ["相机运动", 3],
+    ["主体运动路径", 4],
+    ["起始画面", 5],
+    ["结束状态", 6],
+    ["接上一镜", 7],
+    ["接下一镜", 8],
+    ["核心视频提示", 9],
   ]);
   const motionLines = raw
     .split(/\r?\n/)
@@ -144,10 +256,16 @@ export function sanitizeVideoPrompt(raw: string): string {
     .filter(Boolean)
     .flatMap(line => {
       const match = line.match(/^([^：:]{1,20})[：:]\s*(.+)$/);
-      if (!match || !motionLabels.has(match[1].trim())) return [];
-      return [match[2].trim()];
-    });
-  const source = motionLines.length > 0 ? motionLines.join(", ") : raw;
+      const label = match?.[1].trim() ?? "";
+      const priority = motionLabelPriority.get(label);
+      if (!match || priority == null) return [];
+      return [{ value: match[2].trim(), priority }];
+    })
+    .sort((left, right) => left.priority - right.priority);
+  const source =
+    motionLines.length > 0
+      ? motionLines.map(line => line.value).join(", ")
+      : raw;
   let prompt = source
     .replace(/连续性参考[：:].*/g, "") // 去掉连续性参考指令行
     .replace(/前一镜参考图[：:].*/g, "") // 去掉前一镜参考
@@ -184,6 +302,12 @@ export function explainVideoProviderError(message: string): string {
     return "302/MJ 未通过视频提示词或首帧审核。请简化动作描述；若仍失败，请更换当前主图后重试。";
   }
   return message;
+}
+
+export function isUnknownVideoSubmissionFailure(message: string): boolean {
+  return /timeout|timed out|fetch failed|network|aborted|socket|econnreset/i.test(
+    message.trim()
+  );
 }
 
 function promptWithVideoReferences(params: {
@@ -260,6 +384,7 @@ function snapshot(input: {
       source: input.promptDirector.source,
       model: input.promptDirector.model,
       analysis: input.promptDirector.analysis,
+      engineering: input.promptDirector.engineering,
       fallbackReason: input.promptDirector.fallbackReason,
     },
     taskId: input.taskId ?? undefined,
@@ -405,13 +530,39 @@ export async function startShotVideoJob(
         prompt: input.prompt,
         previousReference,
         nextReference,
-        forMjVideo: isMjVideo,
-      });
+          forMjVideo: isMjVideo,
+        });
+  const baseEngineering = compileVideoPromptEngineering({
+    fallbackPrompt: deterministicPrompt,
+    shotNo: input.shotNo,
+    cueCode: context.cueCode,
+    draftPrompt: input.prompt,
+    subtitle: input.subtitle,
+    previousReferenceNote:
+      !isMjVideo && previousReference
+        ? `前一镜参考图：${videoReferenceLabel(previousReference)}`
+        : undefined,
+    nextReferenceNote:
+      !isMjVideo && nextReference
+        ? `后一镜参考图：${videoReferenceLabel(nextReference)}`
+        : undefined,
+    currentShot: context.currentShot,
+    previousShot: context.previousShot,
+    nextShot: context.nextShot,
+  });
+  const preparedEngineering = input.directorPromptApproved
+    ? finalizeVideoPromptEngineering(
+        baseEngineering,
+        deterministicPrompt,
+        "editor-approved"
+      )
+    : baseEngineering;
   const idempotencyKey = hashParts(
     input.storyId,
     stableShotId,
     input.imageId,
-    deterministicPrompt,
+    preparedEngineering.fingerprint,
+    VIDEO_PROMPT_ENGINEERING_VERSION,
     input.subtitle,
     durationSec,
     aspectRatio,
@@ -441,6 +592,7 @@ export async function startShotVideoJob(
           source: "editor-approved",
           model: "",
           analysis: null,
+          engineering: preparedEngineering,
           fallbackReason: "用户已在故事版确认并应用导演方案",
         }
       : isMjVideo
@@ -454,10 +606,11 @@ export async function startShotVideoJob(
             ...context,
           })
         : {
-            prompt: deterministicPrompt,
+            prompt: preparedEngineering.finalPrompt,
             source: "deterministic-fallback",
             model: "",
             analysis: null,
+            engineering: preparedEngineering,
             fallbackReason: "当前视频供应商不是 MJ-Video",
           };
   const videoPrompt = promptDirector.prompt;
@@ -500,12 +653,18 @@ export async function startShotVideoJob(
 
   if (submitted.status !== "ok") {
     const error = explainVideoProviderError(submitted.message);
+    const unknownSubmission = isUnknownVideoSubmissionFailure(
+      submitted.message
+    );
+    const errorMessage = unknownSubmission
+      ? `${error}；付费提交结果未知，为避免重复扣费，请不要直接重试。`
+      : error;
     const failed = await updateVideoTake(take.id, userId, {
-      status: "failed",
-      errorMessage: error,
+      status: unknownSubmission ? "unfollowable" : "failed",
+      errorMessage,
       taskId: submitted.taskId ?? null,
     });
-    return { status: "error", error, take: failed ?? take };
+    return { status: "error", error: errorMessage, take: failed ?? take };
   }
 
   const managed = submitted.videoUrl
@@ -570,6 +729,28 @@ export async function refreshVideoTakeStatus(
     ? await refreshRunwayVideoExpandTask(take.taskId)
     : await refreshShotVideoTask(take.taskId);
   if (refreshed.status === "available") {
+    const mjCandidateVideoUrls =
+      "candidateVideoUrls" in refreshed &&
+      Array.isArray(refreshed.candidateVideoUrls)
+        ? refreshed.candidateVideoUrls
+        : undefined;
+    if (
+      isMjVideoTake(take) &&
+      mjCandidateVideoUrls &&
+      mjCandidateVideoUrls.length > 1
+    ) {
+      const parent = await materializeMjVideoVariants({
+        take,
+        candidateVideoUrls: mjCandidateVideoUrls,
+        previewVideoUrl:
+          "previewVideoUrl" in refreshed &&
+          typeof refreshed.previewVideoUrl === "string"
+            ? refreshed.previewVideoUrl
+            : undefined,
+        userId,
+      });
+      return { status: "ok", take: parent };
+    }
     const managed = await materializeVideoUrl(refreshed.videoUrl, take.id);
     let finalVideo =
       managed.status === "ok"

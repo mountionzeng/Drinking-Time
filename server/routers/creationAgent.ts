@@ -1155,6 +1155,43 @@ export const creationAgentRouter = router({
               .nullable()
               .optional(),
             shotNo: z.number().int().positive().nullable().optional(),
+            sourceType: z
+              .enum([
+                "card",
+                "script-scene",
+                "script-meta",
+                "shot",
+                "storyboard-image",
+                "animatic-video",
+                "timeline-range",
+                "chat",
+              ])
+              .optional(),
+            sourceId: z.string().max(200).optional(),
+            videoTakeId: z.number().int().positive().nullable().optional(),
+            rangeId: z.number().int().positive().nullable().optional(),
+            selection: z
+              .discriminatedUnion("kind", [
+                z.object({
+                  kind: z.literal("time"),
+                  startSec: z.number().min(0),
+                  endSec: z.number().min(0),
+                }),
+                z.object({
+                  kind: z.literal("text"),
+                  start: z.number().int().min(0),
+                  end: z.number().int().min(0),
+                }),
+                z.object({
+                  kind: z.literal("rect"),
+                  x: z.number(),
+                  y: z.number(),
+                  width: z.number(),
+                  height: z.number(),
+                }),
+              ])
+              .nullable()
+              .optional(),
           })
           .optional(),
       })
@@ -1373,6 +1410,19 @@ export const creationAgentRouter = router({
               panX: z.number().min(-1).max(1),
               panY: z.number().min(-1).max(1),
             }),
+            primaryVideoEdit: z
+              .object({
+                takeId: z.number().int().positive(),
+                sourceStartSec: z.number().min(0),
+                sourceEndSec: z.number().positive(),
+                effects: z.object({
+                  playbackRate: z.number().min(0.25).max(4),
+                  reverse: z.boolean(),
+                  volume: z.number().min(0).max(2),
+                  muted: z.boolean(),
+                }),
+              })
+              .optional(),
             visualClips: z
               .array(
                 z.object({
@@ -1386,6 +1436,25 @@ export const creationAgentRouter = router({
                   sourceEndSec: z.number().min(0),
                   offsetMs: z.number().min(0),
                   durationMs: z.number().min(1),
+                  effects: z
+                    .object({
+                      playbackRate: z.number().min(0.25).max(4),
+                      reverse: z.boolean(),
+                      volume: z.number().min(0).max(2),
+                      muted: z.boolean(),
+                    })
+                    .optional(),
+                  transform: z
+                    .object({
+                      cropX: z.number().min(0).max(1),
+                      cropY: z.number().min(0).max(1),
+                      cropWidth: z.number().min(0.01).max(1),
+                      cropHeight: z.number().min(0.01).max(1),
+                      zoom: z.number().min(1).max(8),
+                      panX: z.number().min(-1).max(1),
+                      panY: z.number().min(-1).max(1),
+                    })
+                    .optional(),
                 })
               )
               .optional(),

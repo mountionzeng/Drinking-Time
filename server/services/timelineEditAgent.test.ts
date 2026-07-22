@@ -164,7 +164,11 @@ describe("runTimelineEditCommand", () => {
           stableShotId: "shot-a",
           shotNo: 14,
           currentVideo: currentVideo(1260, 5.2),
-          currentImage: currentImage(101, "https://example.com/old-a.png", "旧图"),
+          currentImage: currentImage(
+            101,
+            "https://example.com/old-a.png",
+            "旧图"
+          ),
         },
         {
           stableShotId: "shot-b",
@@ -407,5 +411,125 @@ describe("runTimelineEditCommand", () => {
     if (!result.handled) return;
     expect(result.appliedCount).toBe(0);
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
+  });
+
+  it("选中主视频后直接执行倍速和倒放，不调用通用 JSON agent", async () => {
+    const take = {
+      ...currentVideo(51, 4),
+      isTimelineSelected: true,
+      stableShotId: "shot-a",
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [item("shot-a", 0)] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: take,
+          videoTakes: [take],
+          currentImage: null,
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把选中的视频改成 0.5 倍并倒放",
+      selectionContext: {
+        sourceType: "animatic-video",
+        sourceId: "51",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 51,
+        rangeId: null,
+        selection: { kind: "time", startSec: 0, endSec: 4 },
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 1 });
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items[0];
+    expect(saved.plannedDurationMs).toBe(8_000);
+    expect(saved.primaryVideoEdit).toMatchObject({
+      takeId: 51,
+      sourceStartSec: 0,
+      sourceEndSec: 4,
+      effects: { playbackRate: 0.5, reverse: true },
+    });
+  });
+
+  it("选中时间线切片后只修改该切片并向后波纹移动", async () => {
+    const timelineItem = {
+      ...item("shot-a", 0),
+      plannedDurationMs: 4_000,
+      visualClipsReplacePrimary: true,
+      visualClips: [
+        {
+          id: "clip-a",
+          takeId: 61,
+          rangeId: 1,
+          sourceStableShotId: "shot-a",
+          videoUrl: "/api/videos/61",
+          label: "前段",
+          sourceStartSec: 0,
+          sourceEndSec: 2,
+          offsetMs: 0,
+          durationMs: 2_000,
+        },
+        {
+          id: "clip-b",
+          takeId: 61,
+          rangeId: 2,
+          sourceStableShotId: "shot-a",
+          videoUrl: "/api/videos/61",
+          label: "后段",
+          sourceStartSec: 2,
+          sourceEndSec: 4,
+          offsetMs: 2_000,
+          durationMs: 2_000,
+        },
+      ],
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [timelineItem] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: null,
+          videoTakes: [],
+          currentImage: null,
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "这段改成 2 倍速并静音",
+      selectionContext: {
+        sourceType: "timeline-range",
+        sourceId: "clip-a",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 61,
+        rangeId: 1,
+        selection: { kind: "time", startSec: 0, endSec: 2 },
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 1 });
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items[0];
+    expect(saved.plannedDurationMs).toBe(3_000);
+    expect(saved.visualClips).toMatchObject([
+      {
+        id: "clip-a",
+        durationMs: 1_000,
+        effects: { playbackRate: 2, muted: true },
+      },
+      { id: "clip-b", offsetMs: 1_000, durationMs: 2_000 },
+    ]);
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
   });
 });

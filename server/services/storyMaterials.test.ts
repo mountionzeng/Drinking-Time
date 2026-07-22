@@ -143,6 +143,13 @@ describe("normalizeTimelineItems", () => {
               sourceEndSec: 1.2,
               offsetMs: 0,
               durationMs: 1_200,
+              effects: {
+                playbackRate: 8,
+                reverse: true,
+                volume: -1,
+                muted: true,
+              },
+              transform: { zoom: 3, panX: 0.4 },
             },
             {
               id: "missing-video",
@@ -165,7 +172,17 @@ describe("normalizeTimelineItems", () => {
       stableShotId: "shot-a",
       visualClipsReplacePrimary: true,
       visualClips: [
-        { id: "left", offsetMs: 0 },
+        {
+          id: "left",
+          offsetMs: 0,
+          effects: {
+            playbackRate: 4,
+            reverse: true,
+            volume: 0,
+            muted: true,
+          },
+          transform: { zoom: 3, panX: 0.4 },
+        },
         { id: "right", offsetMs: 1_200 },
       ],
     });

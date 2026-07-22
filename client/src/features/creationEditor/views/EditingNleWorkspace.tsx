@@ -28,7 +28,11 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { displayShotCode } from "@shared/shotIdentity";
-import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
+import type {
+  StoryTimelineVisualClip,
+  TimelineTransform,
+  TimelineVideoEffects,
+} from "@shared/storyMaterial";
 
 import {
   ResizableHandle,
@@ -62,7 +66,22 @@ import {
   stepTimelinePlayheadByFrames,
   timelineMsFromClientX,
 } from "../timelinePlayhead";
-import { videoTakeAffordance } from "../videoAssetViewModel";
+import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
+import {
+  editedTimelineDurationMs,
+  videoClipEditorTargetForTake,
+  videoClipEditorTargetForVisualClip,
+  type VideoClipEditDraft,
+  type VideoClipEditorTarget,
+} from "../videoClipEditorModel";
+import {
+  imageClipEditorTargetForShot,
+  timelineTransformStyle,
+  type ImageClipEditDraft,
+  type ImageClipEditorTarget,
+} from "../imageClipEditorModel";
+import ImageClipEditorPanel from "./ImageClipEditorPanel";
+import VideoClipEditorPanel from "./VideoClipEditorPanel";
 
 const MIN_TIMELINE_SCALE = 8;
 const MAX_TIMELINE_SCALE = 42;
@@ -173,7 +192,48 @@ export type TimelineVideoSource = {
   durationMs: number;
   existingClipId: string | null;
   label: string;
+  effects: TimelineVideoEffects;
+  transform: TimelineTransform;
 };
+
+const VIDEO_END_HOLD_EPSILON_SECONDS = 1 / 120;
+
+export function timelineVideoPlaybackRate(
+  source: Pick<
+    TimelineVideoSource,
+    "sourceStartSec" | "sourceEndSec" | "durationMs"
+  > & { effects?: TimelineVideoEffects }
+): number {
+  if (source.effects) return source.effects.playbackRate;
+  const sourceDurationSec = Math.max(
+    0,
+    source.sourceEndSec - source.sourceStartSec
+  );
+  const timelineDurationSec = Math.max(0, source.durationMs / 1_000);
+  if (sourceDurationSec <= 0 || timelineDurationSec <= 0) return 1;
+  return Math.min(4, Math.max(0.25, sourceDurationSec / timelineDurationSec));
+}
+
+export function timelineVideoShouldHoldLastFrame(input: {
+  targetTimeSec: number;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  reverse?: boolean;
+}): boolean {
+  if (input.sourceEndSec <= input.sourceStartSec) return false;
+  return input.reverse
+    ? input.targetTimeSec <=
+        input.sourceStartSec + VIDEO_END_HOLD_EPSILON_SECONDS
+    : input.targetTimeSec >=
+        input.sourceEndSec - VIDEO_END_HOLD_EPSILON_SECONDS;
+}
+
+export function timelineVideoSourceForSelectedShot(
+  source: TimelineVideoSource | null | undefined,
+  selectedShotNo: number | null | undefined
+): TimelineVideoSource | null {
+  return source && source.shotNo === selectedShotNo ? source : null;
+}
 
 export function timelineVisualClipFrameUrl(
   clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
@@ -208,10 +268,24 @@ export function resolveTimelineVideoSource(
     );
   if (visualClip) {
     const clipOffsetMs = localMs - visualClip.offsetMs;
-    const sourceDurationSec = Math.max(
-      0,
-      visualClip.sourceEndSec - visualClip.sourceStartSec
+    const editorTarget = videoClipEditorTargetForVisualClip({
+      stableShotId,
+      shotNo: shot.shotNo,
+      cueCode: shot.cueCode,
+      label: visualClip.label,
+      clip: visualClip,
+      timelineItem: shot.timelineItem,
+      mediaDurationSec: shot.videoTakes?.find(
+        take => take.id === visualClip.takeId
+      )?.durationSec,
+    });
+    const progress = Math.min(
+      1,
+      Math.max(0, clipOffsetMs / visualClip.durationMs)
     );
+    const directedProgress = editorTarget.effects.reverse
+      ? 1 - progress
+      : progress;
     return {
       shotNo: shot.shotNo,
       stableShotId,
@@ -223,12 +297,14 @@ export function resolveTimelineVideoSource(
       sourceEndSec: visualClip.sourceEndSec,
       sourceTimeSec:
         visualClip.sourceStartSec +
-        sourceDurationSec *
-          Math.min(1, Math.max(0, clipOffsetMs / visualClip.durationMs)),
+        (visualClip.sourceEndSec - visualClip.sourceStartSec) *
+          directedProgress,
       offsetMs: visualClip.offsetMs,
       durationMs: visualClip.durationMs,
       existingClipId: visualClip.id,
       label: visualClip.label,
+      effects: editorTarget.effects,
+      transform: editorTarget.transform,
     };
   }
   if (shot.timelineItem?.visualClipsReplacePrimary) return null;
@@ -239,30 +315,38 @@ export function resolveTimelineVideoSource(
       item => Boolean(item.videoUrl) && videoTakeAffordance(item.status).canPlay
     );
   if (!take?.videoUrl) return null;
-  const selectedRange =
-    take.selectedSelectionType === "range" && take.selectedRangeId != null
-      ? take.ranges.find(range => range.id === take.selectedRangeId)
-      : null;
-  const sourceStartSec = Math.max(0, selectedRange?.startSec ?? 0);
-  const sourceEndSec = Math.max(
-    sourceStartSec,
-    selectedRange?.endSec ?? take.durationSec ?? timing.durationMs / 1000
-  );
+  const editorTarget = videoClipEditorTargetForTake({
+    stableShotId,
+    shotNo: shot.shotNo,
+    cueCode: shot.cueCode,
+    label: shotLabel(shot),
+    take,
+    timelineItem: shot.timelineItem,
+  });
+  if (!editorTarget) return null;
+  const sourceStartSec = editorTarget.sourceStartSec;
+  const sourceEndSec = editorTarget.sourceEndSec;
   const progress = Math.min(1, Math.max(0, localMs / timing.durationMs));
+  const directedProgress = editorTarget.effects.reverse
+    ? 1 - progress
+    : progress;
   return {
     shotNo: shot.shotNo,
     stableShotId,
     takeStableShotId: stableShotId,
     takeId: take.id,
-    rangeId: selectedRange?.id ?? null,
+    rangeId: editorTarget.rangeId,
     videoUrl: take.videoUrl,
     sourceStartSec,
     sourceEndSec,
-    sourceTimeSec: sourceStartSec + (sourceEndSec - sourceStartSec) * progress,
+    sourceTimeSec:
+      sourceStartSec + (sourceEndSec - sourceStartSec) * directedProgress,
     offsetMs: 0,
     durationMs: timing.durationMs,
     existingClipId: null,
     label: shotLabel(shot),
+    effects: editorTarget.effects,
+    transform: editorTarget.transform,
   };
 }
 
@@ -329,11 +413,15 @@ function EditingStoryboardPanel({
   relinkProgress,
   onAttachXml,
   attachProgress,
+  onEditVideo,
+  onEditImage,
 }: {
   onRelink: (files: File[]) => Promise<void>;
   relinkProgress: string | null;
   onAttachXml: (file: File) => Promise<void>;
   attachProgress: string | null;
+  onEditVideo: (target: VideoClipEditorTarget) => void;
+  onEditImage: (target: ImageClipEditorTarget) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
@@ -369,6 +457,8 @@ function EditingStoryboardPanel({
         <StoryboardPanel
           defaultViewMode="full"
           embeddedEditorMode
+          onEditVideo={onEditVideo}
+          onEditImage={onEditImage}
           headerAction={
             <div className="flex items-center gap-1">
               <button
@@ -468,6 +558,27 @@ function ShotPreview({
         ? Math.min(timelineOffsetMs, sourceDurationMs)
         : timelineOffsetMs)) /
       1000;
+  const sourceStartSeconds =
+    timelineVideoSource?.sourceStartSec ?? sourceInMs / 1_000;
+  const sourceEndSeconds =
+    timelineVideoSource?.sourceEndSec ??
+    (sourceClip?.sourceOutMs ?? sourceInMs) / 1_000;
+  const playbackRate = timelineVideoPlaybackRate({
+    sourceStartSec: sourceStartSeconds,
+    sourceEndSec: sourceEndSeconds,
+    durationMs: timelineVideoSource?.durationMs ?? timing?.durationMs ?? 0,
+    effects: timelineVideoSource?.effects,
+  });
+  const reverse = timelineVideoSource?.effects.reverse ?? false;
+  const sourceVolume = timelineVideoSource?.effects.volume ?? 1;
+  const sourceMuted = timelineVideoSource?.effects.muted ?? false;
+  const videoTransform = timelineVideoSource?.transform;
+  const shouldHoldLastFrame = timelineVideoShouldHoldLastFrame({
+    targetTimeSec: targetVideoTimeSeconds,
+    sourceStartSec: sourceStartSeconds,
+    sourceEndSec: sourceEndSeconds,
+    reverse,
+  });
   const subtitleText = timelineSubtitleText(format, playheadMs, shot?.dialogue);
 
   useEffect(() => {
@@ -495,10 +606,24 @@ function ShotPreview({
     const video = videoRef.current;
     if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
     const maximumTime = Math.max(0, video.duration - 0.001);
-    const targetTime = Math.min(targetVideoTimeSeconds, maximumTime);
+    const lastFrameTime = Math.min(
+      maximumTime,
+      Math.max(
+        sourceStartSeconds,
+        sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+      )
+    );
+    const targetTime = Math.min(
+      shouldHoldLastFrame ? lastFrameTime : targetVideoTimeSeconds,
+      maximumTime
+    );
     const drift = Math.abs(video.currentTime - targetTime);
+    video.defaultPlaybackRate = playbackRate;
+    video.playbackRate = playbackRate;
+    video.volume = sourceVolume;
+    video.muted = sourceMuted;
 
-    if (!timelinePlaying) {
+    if (!timelinePlaying || shouldHoldLastFrame || reverse) {
       if (!video.paused) {
         ignoreNextVideoPauseRef.current = true;
         video.pause();
@@ -509,7 +634,18 @@ function ShotPreview({
 
     if (drift > 0.35) video.currentTime = targetTime;
     if (video.paused) void video.play().catch(() => undefined);
-  }, [targetVideoTimeSeconds, timelinePlaying, videoUrl]);
+  }, [
+    playbackRate,
+    reverse,
+    shouldHoldLastFrame,
+    sourceEndSeconds,
+    sourceStartSeconds,
+    targetVideoTimeSeconds,
+    timelinePlaying,
+    videoUrl,
+    sourceMuted,
+    sourceVolume,
+  ]);
 
   return (
     <section
@@ -581,30 +717,46 @@ function ShotPreview({
                     0,
                     event.currentTarget.duration - 0.001
                   );
+                  event.currentTarget.defaultPlaybackRate = playbackRate;
+                  event.currentTarget.playbackRate = playbackRate;
+                  event.currentTarget.volume = sourceVolume;
+                  event.currentTarget.muted = sourceMuted;
+                  const targetTime = shouldHoldLastFrame
+                    ? Math.max(
+                        sourceStartSeconds,
+                        sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+                      )
+                    : targetVideoTimeSeconds;
                   event.currentTarget.currentTime = Math.min(
-                    targetVideoTimeSeconds,
+                    targetTime,
                     maximumTime
                   );
-                  if (timelinePlaying) {
+                  if (timelinePlaying && !shouldHoldLastFrame && !reverse) {
                     void event.currentTarget.play().catch(() => undefined);
                   }
                 }}
                 onPlay={event => {
                   previewControlInteractionAtRef.current = null;
-                  const startSeconds =
-                    timelineVideoSource?.sourceStartSec ??
-                    (sourceClip?.sourceInMs ?? 0) / 1000;
-                  const endSeconds =
-                    timelineVideoSource?.sourceEndSec ??
-                    (sourceClip?.sourceOutMs ?? 0) / 1000;
+                  const startSeconds = sourceStartSeconds;
+                  const endSeconds = sourceEndSeconds;
+                  event.currentTarget.defaultPlaybackRate = playbackRate;
+                  event.currentTarget.playbackRate = playbackRate;
+                  event.currentTarget.volume = sourceVolume;
+                  event.currentTarget.muted = sourceMuted;
                   if (
                     event.currentTarget.currentTime < startSeconds ||
                     (endSeconds > startSeconds &&
                       event.currentTarget.currentTime >= endSeconds - 0.03)
                   ) {
-                    event.currentTarget.currentTime = startSeconds;
+                    event.currentTarget.currentTime = reverse
+                      ? Math.max(startSeconds, endSeconds - 1 / 120)
+                      : startSeconds;
                   }
                   if (!timelinePlaying) onRequestTimelinePlaying(true);
+                  if (reverse) {
+                    ignoreNextVideoPauseRef.current = true;
+                    event.currentTarget.pause();
+                  }
                 }}
                 onPause={event => {
                   const ignoreNextPause = ignoreNextVideoPauseRef.current;
@@ -627,18 +779,26 @@ function ShotPreview({
                   }
                 }}
                 onTimeUpdate={event => {
-                  const endSeconds =
-                    timelineVideoSource?.sourceEndSec ??
-                    (sourceClip?.sourceOutMs ?? 0) / 1000;
+                  const endSeconds = sourceEndSeconds;
                   if (
+                    !reverse &&
                     endSeconds > 0 &&
                     event.currentTarget.currentTime >= endSeconds
                   ) {
                     ignoreNextVideoPauseRef.current = true;
                     event.currentTarget.pause();
+                    event.currentTarget.currentTime = Math.max(
+                      sourceStartSeconds,
+                      endSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+                    );
                   }
                 }}
                 className="h-full w-full object-cover"
+                style={
+                  videoTransform
+                    ? timelineTransformStyle(videoTransform)
+                    : undefined
+                }
                 aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
               />
             ) : imageUrl ? (
@@ -647,6 +807,9 @@ function ShotPreview({
                   src={imageUrl}
                   alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
                   className="h-full w-full object-cover"
+                  style={timelineTransformStyle(
+                    shot?.timelineItem?.transform
+                  )}
                 />
                 <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
                   静态首帧占位 · 尚未采用视频
@@ -697,6 +860,8 @@ type TimelineLane = {
     imageUrl?: string | null;
     stableShotId?: string;
     visualClip?: StoryTimelineVisualClip;
+    videoEditTarget?: VideoClipEditorTarget;
+    imageEditTarget?: ImageClipEditorTarget;
   }>;
 };
 
@@ -829,19 +994,67 @@ function buildTimelineLanes(
         shotNo: timing.shotNo,
         imageUrl: shot ? shotImageUrl(shot) : null,
         stableShotId: timing.stableShotId,
+        videoEditTarget: shot
+          ? (() => {
+              const take =
+                shot.selectedVideoTake ??
+                shot.videoTakes?.find(
+                  item =>
+                    Boolean(item.videoUrl) &&
+                    videoTakeAffordance(item.status).canPlay
+                );
+              return take
+                ? (videoClipEditorTargetForTake({
+                    stableShotId: timing.stableShotId,
+                    shotNo: shot.shotNo,
+                    cueCode: shot.cueCode,
+                    label: `${shotLabel(shot)} · Take ${take.id}`,
+                    take,
+                    timelineItem: shot.timelineItem,
+                    posterUrl: videoTakeFrameUrl(take, "start"),
+                  }) ?? undefined)
+                : undefined;
+            })()
+          : undefined,
+        imageEditTarget:
+          shot?.imageId && shotImageUrl(shot)
+            ? imageClipEditorTargetForShot({
+                shot,
+                stableShotId: timing.stableShotId,
+                imageId: shot.imageId,
+                imageUrl: shotImageUrl(shot) ?? "",
+                label: `${shotLabel(shot)} · 图片 #${shot.imageId}`,
+              })
+            : undefined,
       };
       const visualClips = shot?.timelineItem?.visualClips ?? [];
-      const derivedClips = visualClips.map(clip => ({
-        id: clip.id,
-        label: clip.label,
-        title: `${shot ? shotLabel(shot) : timing.stableShotId} · ${clip.label}`,
-        startMs: timing.startMs + clip.offsetMs,
-        endMs: timing.startMs + clip.offsetMs + clip.durationMs,
-        shotNo: timing.shotNo,
-        imageUrl: timelineVisualClipFrameUrl(clip),
-        stableShotId: timing.stableShotId,
-        visualClip: clip,
-      }));
+      const derivedClips = visualClips.map(clip => {
+        const take = shot?.videoTakes?.find(item => item.id === clip.takeId);
+        const posterUrl = timelineVisualClipFrameUrl(clip);
+        return {
+          id: clip.id,
+          label: clip.label,
+          title: `${shot ? shotLabel(shot) : timing.stableShotId} · ${clip.label}`,
+          startMs: timing.startMs + clip.offsetMs,
+          endMs: timing.startMs + clip.offsetMs + clip.durationMs,
+          shotNo: timing.shotNo,
+          imageUrl: posterUrl,
+          stableShotId: timing.stableShotId,
+          visualClip: clip,
+          videoEditTarget: shot
+            ? videoClipEditorTargetForVisualClip({
+                stableShotId: timing.stableShotId,
+                shotNo: shot.shotNo,
+                cueCode: shot.cueCode,
+                label: `${shotLabel(shot)} · ${clip.label}`,
+                clip,
+                timelineItem: shot.timelineItem,
+                mediaDurationSec: take?.durationSec,
+                posterUrl,
+              })
+            : undefined,
+        };
+      });
       return shot?.timelineItem?.visualClipsReplacePrimary
         ? derivedClips
         : [baseClip, ...derivedClips];
@@ -1022,6 +1235,8 @@ function MultiTrackTimeline({
   onSplitAtPlayhead,
   onExtractFrameAtPlayhead,
   onMoveTimelineClip,
+  onEditVideo,
+  onEditImage,
 }: {
   visible: boolean;
   shots: CreationEditorShot[];
@@ -1039,6 +1254,8 @@ function MultiTrackTimeline({
     targetStableShotId: string;
     targetOffsetMs: number;
   }) => Promise<void>;
+  onEditVideo: (target: VideoClipEditorTarget) => void;
+  onEditImage: (target: ImageClipEditorTarget) => void;
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
@@ -1266,7 +1483,7 @@ function MultiTrackTimeline({
           toast.success("已在当前帧切割视频，片段可直接拖动");
         } else {
           await onExtractFrameAtPlayhead(playheadMsRef.current);
-          toast.success("当前帧已加入该镜头的首尾画面");
+          toast.success("当前帧已加入该镜头的画面");
         }
       } catch (error) {
         toast.error(
@@ -1527,6 +1744,22 @@ function MultiTrackTimeline({
                           playing: false,
                         });
                       }}
+                      onDoubleClick={event => {
+                        if (!clip.videoEditTarget && !clip.imageEditTarget)
+                          return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setPlaybackRunning(false);
+                        commitPlayhead(clip.startMs, {
+                          selectShot: true,
+                          playing: false,
+                        });
+                        if (clip.videoEditTarget) {
+                          onEditVideo(clip.videoEditTarget);
+                        } else if (clip.imageEditTarget) {
+                          onEditImage(clip.imageEditTarget);
+                        }
+                      }}
                       onDragStart={event => {
                         if (!clip.visualClip || !clip.stableShotId) {
                           event.preventDefault();
@@ -1549,7 +1782,13 @@ function MultiTrackTimeline({
                         lane.tone
                       )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
                       style={{ left, width }}
-                      title={clip.title}
+                      title={
+                        clip.videoEditTarget
+                          ? `${clip.title} · 双击编辑视频`
+                          : clip.imageEditTarget
+                            ? `${clip.title} · 双击编辑图片`
+                            : clip.title
+                      }
                       aria-label={clip.title}
                     >
                       {clip.imageUrl ? (
@@ -1557,6 +1796,10 @@ function MultiTrackTimeline({
                           src={clip.imageUrl}
                           alt=""
                           className="absolute inset-0 h-full w-full object-cover opacity-45"
+                          style={timelineTransformStyle(
+                            clip.videoEditTarget?.transform ??
+                              clip.imageEditTarget?.transform
+                          )}
                         />
                       ) : lane.icon === "music" ? (
                         <span
@@ -1688,11 +1931,19 @@ export default function EditingNleWorkspace({
     adoptVideoTake,
     splitTimelineVideoClip,
     moveTimelineVideoClip,
+    updateTimelineVideoEdit,
+    updateTimelineImageTransform,
     attachChatCutXml,
     isLoading,
   } = useCreationEditor();
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
+  const [videoEditorTarget, setVideoEditorTarget] =
+    useState<VideoClipEditorTarget | null>(null);
+  const [savingVideoEdit, setSavingVideoEdit] = useState(false);
+  const [imageEditorTarget, setImageEditorTarget] =
+    useState<ImageClipEditorTarget | null>(null);
+  const [savingImageEdit, setSavingImageEdit] = useState(false);
   const [timelinePlayback, setTimelinePlayback] =
     useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
   const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
@@ -1773,6 +2024,143 @@ export default function EditingNleWorkspace({
       });
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
+  );
+
+  const openVideoEditor = useCallback(
+    (target: VideoClipEditorTarget) => {
+      setSelectedShotNo(target.shotNo);
+      setTimelinePlayback(current => ({ ...current, isPlaying: false }));
+      setTimelinePlaybackRequest(current => ({
+        id: current.id + 1,
+        isPlaying: false,
+      }));
+      setImageEditorTarget(null);
+      setVideoEditorTarget(target);
+      setActiveSelection({
+        sourceType: target.clipId ? "timeline-range" : "animatic-video",
+        sourceId: target.clipId ?? String(target.takeId),
+        selectedText: `${target.label} · ${target.sourceStartSec.toFixed(2)}–${target.sourceEndSec.toFixed(2)} 秒`,
+        fullText: `${target.label}，Take ${target.takeId}，素材范围 ${target.sourceStartSec.toFixed(2)} 到 ${target.sourceEndSec.toFixed(2)} 秒`,
+        storyId: activeStoryId,
+        stableShotId: target.stableShotId,
+        shotNo: target.shotNo,
+        cueCode: target.cueCode ?? null,
+        videoTakeId: target.takeId,
+        rangeId: target.rangeId,
+        selection: {
+          kind: "time",
+          startSec: target.sourceStartSec,
+          endSec: target.sourceEndSec,
+        },
+        objectVersion: target.clipId
+          ? `timeline-clip:${target.clipId}`
+          : `video-take:${target.takeId}`,
+        materialStatus: target.clipId
+          ? "timeline-range"
+          : target.isTimelineSelected
+            ? "current-video"
+            : "unadopted-video",
+      });
+    },
+    [activeStoryId, setActiveSelection, setSelectedShotNo]
+  );
+
+  const openImageEditor = useCallback(
+    (target: ImageClipEditorTarget) => {
+      setSelectedShotNo(target.shotNo);
+      setTimelinePlayback(current => ({ ...current, isPlaying: false }));
+      setTimelinePlaybackRequest(current => ({
+        id: current.id + 1,
+        isPlaying: false,
+      }));
+      setVideoEditorTarget(null);
+      setImageEditorTarget(target);
+      setActiveSelection({
+        sourceType: "storyboard-image",
+        sourceId: String(target.imageId),
+        selectedText: `${target.label} · 图片构图调整`,
+        fullText: `${target.label}，旋转、缩放与位置调整`,
+        storyId: activeStoryId,
+        stableShotId: target.stableShotId,
+        shotNo: target.shotNo,
+        cueCode: target.cueCode ?? null,
+        imageId: target.imageId,
+        objectVersion: `image:${target.imageId}`,
+        materialStatus: "current-image",
+      });
+    },
+    [activeStoryId, setActiveSelection, setSelectedShotNo]
+  );
+
+  const applyImageEdit = useCallback(
+    async (draft: ImageClipEditDraft) => {
+      const target = imageEditorTarget;
+      if (!target) return;
+      setSavingImageEdit(true);
+      try {
+        await updateTimelineImageTransform({
+          stableShotId: target.stableShotId,
+          transform: draft,
+        });
+        const nextTarget = { ...target, transform: draft };
+        setImageEditorTarget(nextTarget);
+        toast.success(`${target.label} 构图已保存`);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "图片编辑保存失败"
+        );
+      } finally {
+        setSavingImageEdit(false);
+      }
+    },
+    [imageEditorTarget, updateTimelineImageTransform]
+  );
+
+  const applyVideoEdit = useCallback(
+    async (draft: VideoClipEditDraft) => {
+      const target = videoEditorTarget;
+      if (!target) return;
+      setSavingVideoEdit(true);
+      try {
+        const plannedDurationSec = editedTimelineDurationMs(draft) / 1_000;
+        if (!target.clipId && !target.isTimelineSelected) {
+          await adoptVideoTake({
+            stableShotId: target.stableShotId,
+            takeId: target.takeId,
+            plannedDurationSec,
+          });
+        }
+        await updateTimelineVideoEdit({
+          stableShotId: target.stableShotId,
+          takeId: target.takeId,
+          clipId: target.clipId,
+          sourceStartSec: draft.sourceStartSec,
+          sourceEndSec: draft.sourceEndSec,
+          effects: draft.effects,
+          transform: draft.transform,
+        });
+        const nextTarget = {
+          ...target,
+          ...draft,
+          isTimelineSelected: true,
+        };
+        setVideoEditorTarget(nextTarget);
+        openVideoEditor(nextTarget);
+        toast.success(`${target.label} 已更新到时间线`);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "视频编辑保存失败"
+        );
+      } finally {
+        setSavingVideoEdit(false);
+      }
+    },
+    [
+      adoptVideoTake,
+      openVideoEditor,
+      updateTimelineVideoEdit,
+      videoEditorTarget,
+    ]
   );
 
   // 小酌生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
@@ -1893,6 +2281,9 @@ export default function EditingNleWorkspace({
           (source.sourceTimeSec - source.sourceStartSec) / sourceDurationSec
         )
       );
+      const timelineProgress = source.effects.reverse
+        ? 1 - sourceProgress
+        : sourceProgress;
       await splitTimelineVideoClip({
         stableShotId: source.stableShotId,
         takeStableShotId: source.takeStableShotId,
@@ -1904,8 +2295,10 @@ export default function EditingNleWorkspace({
         splitSourceSec: source.sourceTimeSec,
         offsetMs: source.offsetMs,
         durationMs: source.durationMs,
-        splitOffsetMs: source.offsetMs + source.durationMs * sourceProgress,
+        splitOffsetMs: source.offsetMs + source.durationMs * timelineProgress,
         label: source.label,
+        effects: source.effects,
+        transform: source.transform,
       });
     },
     [shots, splitTimelineVideoClip, timelineShotIds]
@@ -1970,7 +2363,7 @@ export default function EditingNleWorkspace({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col"
+      className="relative flex h-full min-h-0 flex-col"
       data-testid="editing-nle-workspace"
     >
       <ResizablePanelGroup
@@ -1992,6 +2385,8 @@ export default function EditingNleWorkspace({
             relinkProgress={relinkProgress}
             onAttachXml={attachXml}
             attachProgress={attachProgress}
+            onEditVideo={openVideoEditor}
+            onEditImage={openImageEditor}
           />
         </ResizablePanel>
         <ResizableHandle
@@ -2013,12 +2408,10 @@ export default function EditingNleWorkspace({
               selectedShot ? timingByShotNo.get(selectedShot.shotNo) : undefined
             }
             sourceClip={selectedSourceClip}
-            timelineVideoSource={
-              activeTimelineVideoSource?.existingClipId &&
-              activeTimelineVideoSource.shotNo === selectedShot?.shotNo
-                ? activeTimelineVideoSource
-                : null
-            }
+            timelineVideoSource={timelineVideoSourceForSelectedShot(
+              activeTimelineVideoSource,
+              selectedShot?.shotNo
+            )}
             suppressDefaultVideo={Boolean(
               selectedShot?.timelineItem?.visualClipsReplacePrimary
             )}
@@ -2046,7 +2439,25 @@ export default function EditingNleWorkspace({
         onSplitAtPlayhead={splitAtPlayhead}
         onExtractFrameAtPlayhead={extractFrameAtPlayhead}
         onMoveTimelineClip={moveTimelineVideoClip}
+        onEditVideo={openVideoEditor}
+        onEditImage={openImageEditor}
       />
+      {videoEditorTarget ? (
+        <VideoClipEditorPanel
+          target={videoEditorTarget}
+          saving={savingVideoEdit}
+          onClose={() => setVideoEditorTarget(null)}
+          onApply={applyVideoEdit}
+        />
+      ) : null}
+      {imageEditorTarget ? (
+        <ImageClipEditorPanel
+          target={imageEditorTarget}
+          saving={savingImageEdit}
+          onClose={() => setImageEditorTarget(null)}
+          onApply={applyImageEdit}
+        />
+      ) : null}
     </div>
   );
 }

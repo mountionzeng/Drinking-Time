@@ -2,10 +2,15 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 
 import type { VideoTake } from "../../drizzle/schema";
-import type { ImageAsset } from "../../shared/imageAsset";
 import {
+  canonicalizeShotNo,
+  type ImageAsset,
+} from "../../shared/imageAsset";
+import {
+  START_END_NEIGHBOR_FRAME_POLICY_VERSION,
   isStartEndVideoTakeSnapshot,
   parseStartEndVideoConfig,
+  type StartEndFrameSource,
   type StartEndShotVideoEstimate,
 } from "../../shared/startEndVideo";
 import { displayShotCode } from "../../shared/shotIdentity";
@@ -20,14 +25,19 @@ import {
   createVideoTakeIdempotently,
   findVideoTakeByIdempotencyKey,
   getStoryById,
+  getStoryVideoTakes,
   getVideoTakeById,
   updateVideoTake,
 } from "../db";
 import { prepareStoryImagePairForVidu } from "./editingTransitionWorkflow";
-import { getStoryImageAssets } from "./imageAssets";
+import {
+  getStoryImageAssets,
+  materializeImageInput,
+} from "./imageAssets";
 import { localVideoDir, materializeVideoUrl } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
 import { directVideoPrompt } from "./videoPromptDirector";
+import { VIDEO_PROMPT_ENGINEERING_VERSION } from "./videoPromptEngineering";
 import { storyVideoContext } from "./videoShotContext";
 import { createLocalMotionVideoTake } from "./localMotionVideo";
 import {
@@ -52,7 +62,16 @@ type ResolvedStartEndShot = {
   config: NonNullable<ReturnType<typeof parseStartEndVideoConfig>>;
   firstFrame: ImageAsset;
   lastFrame: ImageAsset;
+  referenceFrame: ImageAsset | null;
+  firstFrameOrigin: ResolvedFrameOrigin;
+  lastFrameOrigin: ResolvedFrameOrigin;
   renderDecision: VideoRenderDecision;
+};
+
+type ResolvedFrameOrigin = {
+  source: StartEndFrameSource;
+  stableShotId: string;
+  cueCode: string;
 };
 
 function record(value: unknown): RecordValue {
@@ -76,6 +95,96 @@ function text(value: unknown): string {
     : "";
 }
 
+function generationParams(value: unknown): RecordValue {
+  if (typeof value !== "string") return record(value);
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  try {
+    return record(JSON.parse(trimmed));
+  } catch {
+    return {};
+  }
+}
+
+function positiveImageId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function positiveImageIds(value: unknown): number[] {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value.map(positiveImageId).filter((id): id is number => id != null)
+        )
+      )
+    : [];
+}
+
+function configuredFrameId(shot: RecordValue, boundary: "first" | "last") {
+  const params = generationParams(shot.generationParams);
+  const roles = record(params.storyboardFrameRoles);
+  return positiveImageId(
+    boundary === "first"
+      ? (roles.firstImageId ?? params.firstFrameImageId)
+      : (roles.lastImageId ?? params.lastFrameImageId)
+  );
+}
+
+function frameReferenceIds(shot: RecordValue): number[] {
+  const params = generationParams(shot.generationParams);
+  const roles = record(params.storyboardFrameRoles);
+  return positiveImageIds(
+    roles.referenceImageIds ?? params.referenceFrameImageIds
+  );
+}
+
+function expectsStartEndFramePair(shot: RecordValue): boolean {
+  const params = generationParams(shot.generationParams);
+  return (
+    params.frameMode === "start_end" ||
+    params.providerIntent === "vidu-start-end" ||
+    Boolean(params.firstFrameFile) ||
+    Boolean(params.lastFrameFile)
+  );
+}
+
+export function composeStartEndShotEditorDraft(shot: RecordValue): string {
+  const directorEntries = [
+    ["用户当前画面动作（最高优先级）", text(shot.action)],
+    ["当前表演", text(shot.performance)],
+    ["当前环境变化", text(shot.environmentMotion)],
+    ["当前相机运动", text(shot.cameraMove)],
+    ["当前相机路径", text(shot.cameraPath)],
+    ["当前主体路径", text(shot.subjectPath)],
+    ["当前开始画面", text(shot.videoStart)],
+    ["当前结束画面", text(shot.videoEnd)],
+    ["承接上一镜", text(shot.transitionIn)],
+    ["进入下一镜", text(shot.transitionOut)],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  const lines = directorEntries.map(
+    ([label, value]) => `${label}：${value}`
+  );
+  if (text(shot.action)) {
+    lines.splice(
+      1,
+      0,
+      "冲突处理：若其他字段与画面动作冲突，必须以画面动作为准。"
+    );
+  }
+  const dialogue = text(shot.dialogue);
+  if (dialogue) lines.push(`旁白语义：${dialogue}`);
+  const existingPrompt = text(shot.videoPrompt);
+  if (existingPrompt && directorEntries.length === 0) {
+    lines.push(`既有视频方案：${existingPrompt}`);
+  }
+  if (lines.length === 0) return "";
+  const negativePrompt = text(shot.negativePrompt);
+  if (negativePrompt) lines.push(`避免：${negativePrompt}`);
+  return lines.join("\n").slice(0, 5_000);
+}
+
 function stableShotIdOf(shot: RecordValue): string {
   return (
     text(shot.stableShotId) || text(shot.shotIdentity) || text(shot.shotKey)
@@ -84,6 +193,37 @@ function stableShotIdOf(shot: RecordValue): string {
 
 function snapshot(take: VideoTake): RecordValue {
   return record(take.parameterSnapshot);
+}
+
+export function findMatchingStartEndFrameTake(
+  takes: readonly Pick<
+    VideoTake,
+    "id" | "stableShotId" | "status" | "parameterSnapshot"
+  >[],
+  input: {
+    stableShotId: string;
+    firstFrameImageId: number;
+    lastFrameImageId: number;
+  }
+) {
+  return (
+    takes.find(take => {
+      if (
+        take.stableShotId !== input.stableShotId ||
+        take.status === "failed" ||
+        take.status === "timeout" ||
+        take.status === "unfollowable"
+      ) {
+        return false;
+      }
+      const params = record(take.parameterSnapshot);
+      return (
+        isStartEndVideoTakeSnapshot(params) &&
+        params.firstFrameImageId === input.firstFrameImageId &&
+        params.lastFrameImageId === input.lastFrameImageId
+      );
+    }) ?? null
+  );
 }
 
 function hashParts(...parts: Array<string | number | null | undefined>) {
@@ -95,12 +235,66 @@ function hashParts(...parts: Array<string | number | null | undefined>) {
   return hash.digest("hex").slice(0, 32);
 }
 
-function assetBelongsToShot(asset: ImageAsset, stableShotId: string) {
+function assetBelongsToShot(
+  asset: ImageAsset,
+  stableShotId: string,
+  shot?: RecordValue
+) {
+  if (asset.assignment !== "shot" || asset.availability === "missing") {
+    return false;
+  }
+  if (asset.shotIdentity) return asset.shotIdentity === stableShotId;
+  const canonicalShotNo = shot
+    ? canonicalizeShotNo(text(shot.cueCode ?? shot.shotNo ?? shot.shotKey))
+    : null;
+  return canonicalShotNo
+    ? asset.canonicalShotNo === canonicalShotNo
+    : Boolean(stableShotId);
+}
+
+function frameForShotBoundary(
+  shot: RecordValue | undefined,
+  stableShotId: string,
+  boundary: "first" | "last",
+  assets: readonly ImageAsset[]
+): ImageAsset | null {
+  if (!shot || !stableShotId) return null;
+  const candidates = assets
+    .filter(asset => assetBelongsToShot(asset, stableShotId, shot))
+    .sort((left, right) => left.id - right.id);
+  const configuredId = configuredFrameId(shot, boundary);
   return (
-    asset.assignment === "shot" &&
-    asset.availability !== "missing" &&
-    (!asset.shotIdentity || asset.shotIdentity === stableShotId)
+    candidates.find(asset => asset.id === configuredId) ??
+    (boundary === "first" ? candidates[0] : candidates.at(-1)) ??
+    null
   );
+}
+
+function frameOrigin(
+  asset: ImageAsset,
+  current: ResolvedFrameOrigin,
+  currentAssetIds: ReadonlySet<number>,
+  inherited: ResolvedFrameOrigin,
+  inheritedAsset: ImageAsset | null,
+  hasReferenceFrame: boolean
+): ResolvedFrameOrigin | null {
+  if (currentAssetIds.has(asset.id)) return current;
+  if (hasReferenceFrame && inheritedAsset?.id === asset.id) return inherited;
+  return null;
+}
+
+function frameLabel(
+  boundary: "first" | "last",
+  asset: ImageAsset,
+  origin: ResolvedFrameOrigin
+): string {
+  if (origin.source === "previous-last") {
+    return `借用上一镜 ${origin.cueCode} 尾帧 · image #${asset.id}`;
+  }
+  if (origin.source === "next-first") {
+    return `借用下一镜 ${origin.cueCode} 首帧 · image #${asset.id}`;
+  }
+  return `${boundary === "first" ? "首帧" : "尾帧"} · image #${asset.id}`;
 }
 
 function sameVisualSource(first: ImageAsset, last: ImageAsset): boolean {
@@ -134,10 +328,76 @@ async function resolveStartEndShot(
     typeof shot.durationMs === "number" && Number.isFinite(shot.durationMs)
       ? shot.durationMs / 1_000
       : 5;
-  const config = parseStartEndVideoConfig(
+  const cueCode = text(shot.cueCode) || displayShotCode(shot);
+  const previousShot = shots[shotIndex - 1];
+  const nextShot = shots[shotIndex + 1];
+  const previousStableShotId = previousShot
+    ? stableShotIdOf(previousShot)
+    : "";
+  const nextStableShotId = nextShot ? stableShotIdOf(nextShot) : "";
+  const previousLastFrame = frameForShotBoundary(
+    previousShot,
+    previousStableShotId,
+    "last",
+    assets
+  );
+  const nextFirstFrame = frameForShotBoundary(
+    nextShot,
+    nextStableShotId,
+    "first",
+    assets
+  );
+  const currentAssets = assets.filter(asset =>
+    assetBelongsToShot(asset, stableShotId, shot)
+  );
+  const currentAssetIds = new Set(currentAssets.map(asset => asset.id));
+  const referenceFrame = frameReferenceIds(shot)
+    .map(imageId => currentAssets.find(asset => asset.id === imageId) ?? null)
+    .find((asset): asset is ImageAsset => Boolean(asset)) ?? null;
+  const currentOrigin: ResolvedFrameOrigin = {
+    source: "current",
+    stableShotId,
+    cueCode,
+  };
+  const previousOrigin: ResolvedFrameOrigin = {
+    source: "previous-last",
+    stableShotId: previousStableShotId,
+    cueCode: previousShot
+      ? text(previousShot.cueCode) || displayShotCode(previousShot)
+      : "上一镜",
+  };
+  const nextOrigin: ResolvedFrameOrigin = {
+    source: "next-first",
+    stableShotId: nextStableShotId,
+    cueCode: nextShot
+      ? text(nextShot.cueCode) || displayShotCode(nextShot)
+      : "下一镜",
+  };
+
+  let config = parseStartEndVideoConfig(
     shot.generationParams,
     fallbackDurationSec
   );
+  if (!config && expectsStartEndFramePair(shot) && referenceFrame) {
+    const missingBoundaries = [
+      !previousLastFrame ? "上一镜尾帧" : "",
+      !nextFirstFrame ? "下一镜首帧" : "",
+    ].filter(Boolean);
+    if (missingBoundaries.length > 0) {
+      throw new Error(
+        `当前镜头只有中间参考图，但${missingBoundaries.join("和")}不可用，无法自动组成连续首尾帧`
+      );
+    }
+    config = parseStartEndVideoConfig(
+      {
+        ...generationParams(shot.generationParams),
+        frameMode: "start_end",
+        firstFrameImageId: previousLastFrame?.id,
+        lastFrameImageId: nextFirstFrame?.id,
+      },
+      fallbackDurationSec
+    );
+  }
   if (!config) {
     throw new Error("当前镜头还没有有效的首帧、尾帧生成配置");
   }
@@ -145,21 +405,34 @@ async function resolveStartEndShot(
     asset => asset.id === config.firstFrameImageId
   );
   const lastFrame = assets.find(asset => asset.id === config.lastFrameImageId);
-  if (
-    !firstFrame ||
-    !lastFrame ||
-    !assetBelongsToShot(firstFrame, stableShotId) ||
-    !assetBelongsToShot(lastFrame, stableShotId)
-  ) {
-    throw new Error("首帧或尾帧不存在，或不属于当前镜头");
+  if (!firstFrame || !lastFrame) {
+    throw new Error("首帧或尾帧文件不存在");
   }
-  const basePrompt = text(shot.videoPrompt);
-  if (!basePrompt) throw new Error("请先填写这一镜的视频提示词");
-  const negativePrompt = text(shot.negativePrompt);
-  const prompt = [basePrompt, negativePrompt ? `避免：${negativePrompt}` : ""]
-    .filter(Boolean)
-    .join("\n")
-    .slice(0, 5_000);
+  const firstFrameOrigin = frameOrigin(
+    firstFrame,
+    currentOrigin,
+    currentAssetIds,
+    previousOrigin,
+    previousLastFrame,
+    Boolean(referenceFrame)
+  );
+  const lastFrameOrigin = frameOrigin(
+    lastFrame,
+    currentOrigin,
+    currentAssetIds,
+    nextOrigin,
+    nextFirstFrame,
+    Boolean(referenceFrame)
+  );
+  if (!firstFrameOrigin || !lastFrameOrigin) {
+    throw new Error(
+      referenceFrame
+        ? "自动继承的首尾帧与相邻镜头不一致，请刷新故事版后重试"
+        : "首帧或尾帧不存在，或不属于当前镜头"
+    );
+  }
+  const prompt = composeStartEndShotEditorDraft(shot);
+  if (!prompt) throw new Error("请先填写这一镜的动作或运镜");
   const requestedDecision = decideVideoRenderStrategy({
     action: text(shot.action),
     performance: text(shot.performance),
@@ -169,7 +442,7 @@ async function resolveStartEndShot(
     subjectPath: text(shot.subjectPath),
     videoStart: text(shot.videoStart),
     videoEnd: text(shot.videoEnd),
-    videoPrompt: basePrompt,
+    videoPrompt: prompt,
   });
   const renderDecision: VideoRenderDecision =
     requestedDecision.strategy === "local-transform" &&
@@ -185,7 +458,7 @@ async function resolveStartEndShot(
     storyId,
     stableShotId,
     shotNo,
-    cueCode: text(shot.cueCode) || displayShotCode(shot),
+    cueCode,
     prompt,
     subtitle: text(shot.dialogue) || null,
     storyTitle: story.title,
@@ -193,12 +466,16 @@ async function resolveStartEndShot(
     config,
     firstFrame,
     lastFrame,
+    referenceFrame,
+    firstFrameOrigin,
+    lastFrameOrigin,
     renderDecision,
   };
 }
 
 function estimateForResolved(
-  resolved: ResolvedStartEndShot
+  resolved: ResolvedStartEndShot,
+  matchingFrameTakeId?: number
 ): StartEndShotVideoEstimate {
   const cost = estimateViduQ2TransitionCny({
     durationSec: resolved.config.durationSec,
@@ -221,16 +498,36 @@ function estimateForResolved(
     model: resolved.config.model,
     renderStrategy: resolved.renderDecision.strategy,
     renderReason: resolved.renderDecision.reason,
+    ...(matchingFrameTakeId
+      ? {
+          matchingFrameTakeId,
+          frameConstraintWarning: `本次仍锁定与 Take #${matchingFrameTakeId} 相同的首尾帧。文字只能改变两帧之间的动作与速度，不能重画首帧或尾帧；若新意图改变开场或结尾画面，请先更换对应帧。`,
+        }
+      : {}),
     localMotion: resolved.renderDecision.localMotion,
     firstFrame: {
       imageId: resolved.firstFrame.id,
       imageUrl: resolved.firstFrame.imageUrl,
-      label: `首帧 · image #${resolved.firstFrame.id}`,
+      label: frameLabel(
+        "first",
+        resolved.firstFrame,
+        resolved.firstFrameOrigin
+      ),
+      source: resolved.firstFrameOrigin.source,
+      sourceStableShotId: resolved.firstFrameOrigin.stableShotId,
+      sourceCueCode: resolved.firstFrameOrigin.cueCode,
     },
     lastFrame: {
       imageId: resolved.lastFrame.id,
       imageUrl: resolved.lastFrame.imageUrl,
-      label: `尾帧 · image #${resolved.lastFrame.id}`,
+      label: frameLabel(
+        "last",
+        resolved.lastFrame,
+        resolved.lastFrameOrigin
+      ),
+      source: resolved.lastFrameOrigin.source,
+      sourceStableShotId: resolved.lastFrameOrigin.stableShotId,
+      sourceCueCode: resolved.lastFrameOrigin.cueCode,
     },
   };
 }
@@ -239,9 +536,16 @@ export async function estimateStartEndShotVideo(
   input: { storyId: number; stableShotId: string },
   userId: number
 ): Promise<StartEndShotVideoEstimate> {
-  return estimateForResolved(
-    await resolveStartEndShot(input.storyId, input.stableShotId, userId)
-  );
+  const [resolved, takes] = await Promise.all([
+    resolveStartEndShot(input.storyId, input.stableShotId, userId),
+    getStoryVideoTakes(input.storyId, userId),
+  ]);
+  const matching = findMatchingStartEndFrameTake(takes, {
+    stableShotId: resolved.stableShotId,
+    firstFrameImageId: resolved.firstFrame.id,
+    lastFrameImageId: resolved.lastFrame.id,
+  });
+  return estimateForResolved(resolved, matching?.id);
 }
 
 async function patchTake(
@@ -271,10 +575,15 @@ function idempotencyKey(
 ) {
   return `shot-start-end:${hashParts(
     VIDEO_VISUAL_FIDELITY_POLICY_VERSION,
+    VIDEO_PROMPT_ENGINEERING_VERSION,
+    START_END_NEIGHBOR_FRAME_POLICY_VERSION,
     resolved.storyId,
     resolved.stableShotId,
     resolved.config.firstFrameImageId,
     resolved.config.lastFrameImageId,
+    resolved.referenceFrame?.id,
+    resolved.firstFrameOrigin.source,
+    resolved.lastFrameOrigin.source,
     resolved.prompt,
     resolved.config.durationSec,
     resolved.config.resolution,
@@ -372,6 +681,12 @@ export async function startEndShotVideoJob(
         frameMode: resolved.config.frameMode,
         firstFrameImageId: resolved.firstFrame.id,
         lastFrameImageId: resolved.lastFrame.id,
+        referenceFrameImageId: resolved.referenceFrame?.id ?? null,
+        frameSources: {
+          policyVersion: START_END_NEIGHBOR_FRAME_POLICY_VERSION,
+          first: resolved.firstFrameOrigin,
+          last: resolved.lastFrameOrigin,
+        },
         requestedDurationSec: resolved.config.requestedDurationSec,
         durationSec: resolved.config.durationSec,
         resolution: resolved.config.resolution,
@@ -380,6 +695,7 @@ export async function startEndShotVideoJob(
         rerenderRequestId: input.rerenderRequestId,
         estimatedCny: estimate.estimatedCny,
         visualFidelityPolicyVersion: VIDEO_VISUAL_FIDELITY_POLICY_VERSION,
+        promptEngineeringVersion: VIDEO_PROMPT_ENGINEERING_VERSION,
         submissionState: "not_started",
         appliedToTimeline: false,
       },
@@ -441,10 +757,14 @@ export async function startEndShotVideoJob(
       resolved.stableShotId,
       resolved.shotNo
     );
+    const middleImageInput = resolved.referenceFrame
+      ? await materializeImageInput(resolved.referenceFrame.imageUrl)
+      : undefined;
     const [promptDirector, firstImageUrl, lastImageUrl] = await Promise.all([
       directVideoPrompt({
         imageInput: frameDataUrl(frames.firstFrame.bytes),
         endImageInput: frameDataUrl(frames.lastFrame.bytes),
+        middleImageInput,
         fallbackPrompt: safeguardedPrompt,
         shotNo: resolved.shotNo,
         cueCode: resolved.cueCode,
@@ -468,6 +788,7 @@ export async function startEndShotVideoJob(
           source: promptDirector.source,
           model: promptDirector.model,
           analysis: promptDirector.analysis,
+          engineering: promptDirector.engineering,
           fallbackReason: promptDirector.fallbackReason,
         },
       }

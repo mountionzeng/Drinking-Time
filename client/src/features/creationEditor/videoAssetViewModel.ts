@@ -16,8 +16,38 @@ export type VideoTakeProgress = {
   label: string;
 };
 
+function takeParameters(
+  take: { parameterSnapshot?: VideoTakeAsset["parameterSnapshot"] }
+): Record<string, unknown> {
+  return take.parameterSnapshot &&
+    typeof take.parameterSnapshot === "object" &&
+    !Array.isArray(take.parameterSnapshot)
+    ? take.parameterSnapshot
+    : {};
+}
+
+export function mjVideoVariantLabel(
+  take: { parameterSnapshot?: VideoTakeAsset["parameterSnapshot"] }
+): string | null {
+  const value = takeParameters(take).mjVideoVariantLabel;
+  return typeof value === "string" && /^V[1-4]$/.test(value) ? value : null;
+}
+
+export function isLegacyMjVideoPreview(
+  take: Pick<VideoTakeAsset, "status"> &
+    Partial<Pick<VideoTakeAsset, "taskId" | "model" | "parameterSnapshot">>
+): boolean {
+  if (take.status !== "available" || !take.taskId) return false;
+  const parameters = takeParameters(take);
+  return (
+    take.model === "mj-video" &&
+    parameters.resultSelectionRule === "first-valid-url"
+  );
+}
+
 export function videoTakeProgress(
-  take: Pick<VideoTakeAsset, "status" | "isTimelineSelected">
+  take: Pick<VideoTakeAsset, "status" | "isTimelineSelected"> &
+    Partial<Pick<VideoTakeAsset, "errorMessage">>
 ): VideoTakeProgress {
   if (take.status === "available") {
     return take.isTimelineSelected
@@ -34,14 +64,36 @@ export function videoTakeProgress(
     return { stage: "failed", label: "生成超时" };
   }
   if (take.status === "failed") {
+    if (isUnknownVideoSubmissionError(take.errorMessage)) {
+      return { stage: "failed", label: "提交未知" };
+    }
     return { stage: "failed", label: "生成失败" };
+  }
+  if (
+    take.status === "unfollowable" &&
+    isUnknownVideoSubmissionError(take.errorMessage)
+  ) {
+    return { stage: "failed", label: "提交未知" };
   }
   return { stage: "removed", label: "已移除" };
 }
 
+function isUnknownVideoSubmissionError(
+  message: string | null | undefined
+): boolean {
+  return /付费提交结果未知|video generation timeout|fetch failed|network|aborted|socket|econnreset/i.test(
+    message?.trim() ?? ""
+  );
+}
+
 export function videoTakeIdsToRefresh(
   shots: ReadonlyArray<{
-    videoTakes?: ReadonlyArray<Pick<VideoTakeAsset, "id" | "status">>;
+    videoTakes?: ReadonlyArray<
+      Pick<VideoTakeAsset, "id" | "status"> &
+        Partial<
+          Pick<VideoTakeAsset, "taskId" | "model" | "parameterSnapshot">
+        >
+    >;
   }>,
   recentTakeIds: readonly number[] = []
 ): number[] {
@@ -50,10 +102,25 @@ export function videoTakeIdsToRefresh(
     for (const take of shot.videoTakes ?? []) {
       if (take.status === "submitted" || take.status === "processing") {
         ids.add(take.id);
+      } else if (isLegacyMjVideoPreview(take)) {
+        ids.add(take.id);
       }
     }
   }
   return Array.from(ids).sort((left, right) => left - right);
+}
+
+export function videoTakeCandidateToAdopt<
+  T extends Pick<VideoTakeAsset, "id" | "isTimelineSelected" | "videoUrl">,
+>(takes: readonly T[], explicitlySelectedTakeId?: number): T | null {
+  const candidates = takes.filter(
+    take => !take.isTimelineSelected && Boolean(take.videoUrl)
+  );
+  const explicitlySelected = candidates.find(
+    take => take.id === explicitlySelectedTakeId
+  );
+  if (explicitlySelected) return explicitlySelected;
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function videoTakeAffordance(

@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
+import { timelineTransformStyle } from "@/features/creationEditor/imageClipEditorModel";
+import type { TimelineTransform } from "@shared/storyMaterial";
 import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";
 
 export type StoryboardMediaPreview =
@@ -8,6 +10,7 @@ export type StoryboardMediaPreview =
       kind: "image";
       url: string;
       label: string;
+      transform?: TimelineTransform | null;
     }
   | {
       kind: "video";
@@ -131,6 +134,7 @@ export function StoryboardMediaPreviewDialog({
             src={preview.url}
             alt={preview.label}
             className="max-h-[80vh] max-w-[80vw] object-contain"
+            style={timelineTransformStyle(preview.transform)}
           />
         )}
       </div>

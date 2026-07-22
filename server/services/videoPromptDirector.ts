@@ -6,6 +6,11 @@ import type {
 } from "../../shared/shotDirector";
 import { promptShotCode } from "../../shared/shotIdentity";
 import { withVideoVisualFidelity } from "../../shared/videoMotionPolicy";
+import {
+  compileVideoPromptEngineering,
+  finalizeVideoPromptEngineering,
+  type VideoPromptEngineering,
+} from "./videoPromptEngineering";
 
 export type VideoPromptShotContext = {
   shotType?: string;
@@ -44,12 +49,14 @@ export type VideoPromptDirectorResult = {
   source: "302-vision" | "deterministic-fallback";
   model: string;
   analysis: VideoPromptAnalysis | null;
+  engineering: VideoPromptEngineering;
   fallbackReason?: string;
 };
 
 export type DirectVideoPromptInput = {
   imageInput: string;
   endImageInput?: string;
+  middleImageInput?: string;
   previousImageInput?: string;
   nextImageInput?: string;
   fallbackPrompt: string;
@@ -236,13 +243,15 @@ function normalizeRisks(value: unknown): ShotContinuityRisk[] {
 
 function fallback(
   input: DirectVideoPromptInput,
-  reason: string
+  reason: string,
+  engineering = compileVideoPromptEngineering(input)
 ): VideoPromptDirectorResult {
   return {
-    prompt: input.fallbackPrompt,
+    prompt: engineering.finalPrompt,
     source: "deterministic-fallback",
     model: ENV.videoPrompt302Model,
     analysis: null,
+    engineering,
     fallbackReason: reason.slice(0, 500),
   };
 }
@@ -253,7 +262,10 @@ function systemPrompt(): string {
     "先逐项盘点画面里实际存在的人物、物体、背景结构、光线、色彩、材质、纹理和笔触，再理解叙事任务，最后设计可拍、可剪、可由图生视频模型执行的运动。",
     "当前首帧与目标尾帧是视觉事实。除非镜头文字明确要求具体变化，否则人物身份、脸、发型、身体、服装，物体数量与位置、空间几何、构图、光线、色彩、材质、表面纹理和笔触都必须保持，不得新增、删除、复制、替换、融化或凭空显露内容。",
     "当前镜头有目标尾帧时，分析从首帧到尾帧真正发生了什么；不要把两帧之间没有证据的变化编出来。",
-    "editorDraft 中的动作、表演、环境变化、相机运动、主体运动路径、起始画面、结束状态和衔接是用户确认的硬约束；finalPrompt 必须保留这些要求，不得省略、反转或替换为通用运镜。",
+    "若提供当前镜头中间参考帧，它只负责约束中段应保持的人物、物体、构图、材质和动作意图；首帧与尾帧仍是必须抵达的时间边界，不得把中间参考帧误写成新的开场或结尾。",
+    "editorDraft 中标为“用户当前”或“当前”的动作、表演、环境变化、相机运动、主体运动路径、起始画面、结束状态和衔接是用户确认的硬约束；它们高于“既有视频方案”。若两者冲突，以用户当前要求为准。finalPrompt 必须保留这些要求，不得省略、反转或替换为通用运镜。",
+    "promptEngineering 是系统在调用你之前已经生成的镜头工程。它规定叙事节拍、用户硬约束、进入关系、三拍因果动作、摄影机路径和退出关系；你只能结合参考帧把它具体化，不能绕过、弱化或改写用户硬约束。",
+    "动作因果顺序必须是：眼神或注意力触发，呼吸与身体重心启动，肢体接触或发力，之后道具或环境才回应；摄影机由人物或道具动作驱动，并在为下一镜准备好的出口状态收稳。",
     "只设计画面中已有主体可以自然完成的动作、环境运动和相机运动，动作必须遵守重力、关节和空间连续性。",
     "必须选择合适的摄影机承载方式：锁定三脚架、云台摇移、短滑轨/车、稳定器跟拍、肩扛或受控手持。手持不是默认装饰；只有叙事需要身体临场感时才使用，并说明晃动幅度、频率、水平线漂移和何时收稳。",
     "把时长拆成起势、中段、收束三个运动节拍，说明人物先做什么、摄影机何时响应、两者是否同向或反向、在什么画面状态停住以便接下一镜。避免全程匀速放大、缩小、漂移或无目的环绕。",
@@ -268,7 +280,10 @@ function systemPrompt(): string {
   ].join("\n");
 }
 
-function userContext(input: DirectVideoPromptInput): string {
+function userContext(
+  input: DirectVideoPromptInput,
+  engineering: VideoPromptEngineering
+): string {
   return JSON.stringify({
     storyTitle: input.storyTitle ?? "",
     shotNo: promptShotCode(input),
@@ -277,17 +292,19 @@ function userContext(input: DirectVideoPromptInput): string {
     previousShot: input.previousShot ?? {},
     nextShot: input.nextShot ?? {},
     editorDraft: input.draftPrompt.slice(0, 1200),
+    promptEngineering: engineering,
   });
 }
 
 export async function directVideoPrompt(
   input: DirectVideoPromptInput
 ): Promise<VideoPromptDirectorResult> {
+  const engineering = compileVideoPromptEngineering(input);
   if (!ENV.videoPrompt302Model.trim()) {
-    return fallback(input, "VIDEO_PROMPT_302_MODEL 未配置");
+    return fallback(input, "VIDEO_PROMPT_302_MODEL 未配置", engineering);
   }
   if (!ENV.api302Key) {
-    return fallback(input, "API302_KEY 未配置");
+    return fallback(input, "API302_KEY 未配置", engineering);
   }
 
   const url = `${normalizeBaseUrl(ENV.api302BaseUrl)}/v1/chat/completions`;
@@ -304,7 +321,7 @@ export async function directVideoPrompt(
     > = [
       {
         type: "text",
-        text: `请分析当前首帧并生成视频提示词。上下文：${userContext(input)}`,
+        text: `请分析当前首帧并生成视频提示词。上下文：${userContext(input, engineering)}`,
       },
       {
         type: "image_url",
@@ -317,6 +334,15 @@ export async function directVideoPrompt(
         {
           type: "image_url",
           image_url: { url: input.endImageInput, detail: "high" },
+        }
+      );
+    }
+    if (input.middleImageInput) {
+      visualContent.push(
+        { type: "text", text: "当前镜头中间参考帧（约束中段，不是首尾帧）：" },
+        {
+          type: "image_url",
+          image_url: { url: input.middleImageInput, detail: "high" },
         }
       );
     }
@@ -348,7 +374,8 @@ export async function directVideoPrompt(
       body: JSON.stringify({
         model: ENV.videoPrompt302Model,
         stream: false,
-        max_completion_tokens: 700,
+        max_completion_tokens: 1400,
+        reasoning_effort: "low",
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt() },
@@ -365,7 +392,8 @@ export async function directVideoPrompt(
       const body = await response.text().catch(() => "");
       return fallback(
         input,
-        `302 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`
+        `302 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
+        engineering
       );
     }
 
@@ -373,19 +401,30 @@ export async function directVideoPrompt(
     const raw = parseJsonLoose<DirectorPayload>(completionText(data));
     const prompt = compileDirectedPrompt(raw);
     if (!prompt) {
-      return fallback(input, "302 视频提示词分析未返回有效英文 finalPrompt");
+      return fallback(
+        input,
+        "302 视频提示词分析未返回有效英文 finalPrompt",
+        engineering
+      );
     }
+    const directedEngineering = finalizeVideoPromptEngineering(
+      engineering,
+      prompt,
+      "vision-directed"
+    );
 
     return {
-      prompt,
+      prompt: directedEngineering.finalPrompt,
       source: "302-vision",
       model: data.model || ENV.videoPrompt302Model,
       analysis: normalizeAnalysis(raw),
+      engineering: directedEngineering,
     };
   } catch (error) {
     return fallback(
       input,
-      error instanceof Error ? error.message : "302 视频提示词分析失败"
+      error instanceof Error ? error.message : "302 视频提示词分析失败",
+      engineering
     );
   } finally {
     clearTimeout(timeout);

@@ -100,4 +100,5 @@ export const ENV = {
   // ── Email OTP（Resend）──
   resendApiKey: process.env.RESEND_API_KEY ?? "",                // Resend API Key（用于发送 OTP 邮件）
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "noreply@drinking-time.com", // 发件人地址
+  betaInviteRequired: process.env.BETA_INVITE_REQUIRED !== "false", // 内测期默认要求邀请码；设为 false 才开放自由注册
 };

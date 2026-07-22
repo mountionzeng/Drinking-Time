@@ -30,7 +30,7 @@ export default function WelcomePreviewPage({
     }
     authSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
-      block: 'center',
+      block: 'end',
     });
   }
 
@@ -39,7 +39,7 @@ export default function WelcomePreviewPage({
     const timer = window.setTimeout(() => {
       authSectionRef.current?.scrollIntoView({
         behavior: 'smooth',
-        block: 'center',
+        block: 'end',
       });
     }, 120);
     return () => window.clearTimeout(timer);
@@ -61,6 +61,8 @@ export default function WelcomePreviewPage({
               </div>
             ) : null
           }
+          hideEntryCards
+          accessLayout={shouldShowAuthPanel}
         />
       </main>
     </div>

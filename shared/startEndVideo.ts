@@ -10,6 +10,14 @@ export const START_END_VIDEO_MOVEMENT_AMPLITUDES = [
   "large",
 ] as const;
 
+export const START_END_NEIGHBOR_FRAME_POLICY_VERSION =
+  "neighbor-boundary-frames/v1" as const;
+
+export type StartEndFrameSource =
+  | "current"
+  | "previous-last"
+  | "next-first";
+
 export type StartEndVideoMovementAmplitude =
   (typeof START_END_VIDEO_MOVEMENT_AMPLITUDES)[number];
 
@@ -37,16 +45,24 @@ export type StartEndShotVideoEstimate = {
   model: "viduq2-turbo";
   renderStrategy: VideoRenderDecision["strategy"];
   renderReason: string;
+  matchingFrameTakeId?: number;
+  frameConstraintWarning?: string;
   localMotion: LocalCameraMotion | null;
   firstFrame: {
     imageId: number;
     imageUrl: string;
     label: string;
+    source?: StartEndFrameSource;
+    sourceStableShotId?: string;
+    sourceCueCode?: string;
   };
   lastFrame: {
     imageId: number;
     imageUrl: string;
     label: string;
+    source?: StartEndFrameSource;
+    sourceStableShotId?: string;
+    sourceCueCode?: string;
   };
 };
 
@@ -107,11 +123,16 @@ export function parseStartEndVideoConfig(
   )
     ? (params.resolution as StartEndVideoResolution)
     : "1080p";
-  const explicitAmplitude = START_END_VIDEO_MOVEMENT_AMPLITUDES.includes(
+  const configuredAmplitude = START_END_VIDEO_MOVEMENT_AMPLITUDES.includes(
     params.movementAmplitude as StartEndVideoMovementAmplitude
   )
     ? (params.movementAmplitude as StartEndVideoMovementAmplitude)
     : null;
+  const explicitAmplitude =
+    configuredAmplitude === "auto" &&
+    (params.motion === "high" || params.motion === "low")
+      ? null
+      : configuredAmplitude;
   const movementAmplitude =
     explicitAmplitude ??
     (params.motion === "high"

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   currentVideoTakeForEditing,
+  isLegacyMjVideoPreview,
+  mjVideoVariantLabel,
   playableVideoTake,
   selectedVideoSegmentDurationMs,
   shotTimelineDurationMs,
   videoTakeAffordance,
+  videoTakeCandidateToAdopt,
   videoTakeErrorMessage,
   videoTakeIdsToRefresh,
   videoTakeProgress,
@@ -43,6 +46,21 @@ describe("videoAssetViewModel", () => {
     expect(
       videoTakeProgress({ status: "failed", isTimelineSelected: false })
     ).toMatchObject({ stage: "failed", label: "生成失败" });
+    expect(
+      videoTakeProgress({
+        status: "failed",
+        isTimelineSelected: false,
+        errorMessage: "video generation timeout",
+      })
+    ).toMatchObject({ stage: "failed", label: "提交未知" });
+    expect(
+      videoTakeProgress({
+        status: "unfollowable",
+        isTimelineSelected: false,
+        errorMessage:
+          "video generation timeout；付费提交结果未知，为避免重复扣费，请不要直接重试。",
+      })
+    ).toMatchObject({ stage: "failed", label: "提交未知" });
   });
 
   it("keeps a just-submitted take under observation before queries catch up", () => {
@@ -59,6 +77,36 @@ describe("videoAssetViewModel", () => {
         [11]
       )
     ).toEqual([7, 11]);
+  });
+
+  it("refreshes legacy MJ contact-sheet takes and labels materialized variants", () => {
+    const legacyPreview = {
+      id: 18,
+      status: "available" as const,
+      taskId: "mj-task-four",
+      model: "mj-video",
+      parameterSnapshot: { resultSelectionRule: "first-valid-url" },
+    };
+    expect(isLegacyMjVideoPreview(legacyPreview)).toBe(true);
+    expect(
+      videoTakeIdsToRefresh([{ videoTakes: [legacyPreview] }])
+    ).toEqual([18]);
+    expect(
+      mjVideoVariantLabel({
+        parameterSnapshot: { mjVideoVariantLabel: "V3" },
+      })
+    ).toBe("V3");
+  });
+
+  it("requires an explicit choice when a render has multiple video variants", () => {
+    const variants = [1, 2, 3, 4].map(id => ({
+      id,
+      isTimelineSelected: false,
+      videoUrl: `/videos/v${id}.mp4`,
+    }));
+    expect(videoTakeCandidateToAdopt(variants)).toBeNull();
+    expect(videoTakeCandidateToAdopt(variants, 3)).toEqual(variants[2]);
+    expect(videoTakeCandidateToAdopt([variants[0]])).toEqual(variants[0]);
   });
 
   it("uses explicit range duration only when the timeline selection points at that range", () => {

@@ -72,6 +72,7 @@ describe("directVideoPrompt", () => {
     const result = await directVideoPrompt({
       imageInput: "data:image/png;base64,AAAA",
       endImageInput: "data:image/png;base64,END",
+      middleImageInput: "data:image/png;base64,MIDDLE",
       previousImageInput: "data:image/png;base64,PREVIOUS",
       nextImageInput: "data:image/png;base64,NEXT",
       fallbackPrompt: "subtle natural motion, stable camera",
@@ -93,7 +94,10 @@ describe("directVideoPrompt", () => {
     expect(result.prompt).toContain("Treat the supplied source frames");
     expect(result.prompt).toContain("warm window light");
     expect(result.prompt).toContain("object count and placement");
-    expect(result.prompt.split(/\s+/).length).toBeLessThanOrEqual(220);
+    expect(result.prompt).toContain("身体微微前倾，手搭在膝盖上");
+    expect(result.engineering.source).toBe("vision-directed");
+    expect(result.engineering.continuityOut).toContain("房间随时间变暗");
+    expect(result.prompt.split(/\s+/).length).toBeLessThanOrEqual(260);
     expect(result.analysis?.narrativeIntent).toContain("平静陈述");
     expect(result.analysis?.subjectPosition).toContain("右侧三分之一");
     expect(result.analysis?.cameraRig).toContain("短滑轨");
@@ -107,6 +111,8 @@ describe("directVideoPrompt", () => {
     expect(init.headers.Authorization).toBe("Bearer test-302-key");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("gpt-5.4-nano-2026-03-17");
+    expect(body.max_completion_tokens).toBe(1400);
+    expect(body.reasoning_effort).toBe("low");
     expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.messages[1].content[1]).toEqual({
       type: "image_url",
@@ -116,9 +122,12 @@ describe("directVideoPrompt", () => {
       },
     });
     expect(body.messages[1].content[3].image_url.url).toContain("END");
-    expect(body.messages[1].content[5].image_url.url).toContain("PREVIOUS");
-    expect(body.messages[1].content[7].image_url.url).toContain("NEXT");
+    expect(body.messages[1].content[4].text).toContain("中间参考帧");
+    expect(body.messages[1].content[5].image_url.url).toContain("MIDDLE");
+    expect(body.messages[1].content[7].image_url.url).toContain("PREVIOUS");
+    expect(body.messages[1].content[9].image_url.url).toContain("NEXT");
     expect(body.messages[0].content).toContain("手持不是默认装饰");
+    expect(body.messages[0].content).toContain("高于“既有视频方案”");
     expect(body.messages[1].content[0].text).toContain("动作：坐在沙发边缘");
     expect(body.messages[1].content[0].text).toContain(
       "身体微微前倾，手搭在膝盖上"
@@ -194,9 +203,12 @@ describe("directVideoPrompt", () => {
 
     expect(result).toMatchObject({
       source: "deterministic-fallback",
-      prompt: "subtle natural motion, stable camera",
       model: "gpt-5.4-nano-2026-03-17",
     });
+    expect(result.prompt).toContain("Editor hard constraints");
+    expect(result.prompt).toContain("轻轻呼吸");
+    expect(result.engineering.source).toBe("deterministic");
+    expect(result.prompt).not.toBe("subtle natural motion, stable camera");
     expect(result.fallbackReason).toContain("503");
   });
 
@@ -213,6 +225,8 @@ describe("directVideoPrompt", () => {
     });
 
     expect(result.source).toBe("deterministic-fallback");
+    expect(result.prompt).toContain("Editor hard constraints");
+    expect(result.engineering.version).toBe("video-prompt-engineering/v1");
     expect(result.fallbackReason).toBe("VIDEO_PROMPT_302_MODEL 未配置");
     expect(fetch).not.toHaveBeenCalled();
   });

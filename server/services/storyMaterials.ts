@@ -2,11 +2,14 @@ import type { Story } from "../../drizzle/schema";
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  DEFAULT_TIMELINE_VIDEO_EFFECTS,
   type StoryMaterialState,
+  type StoryTimelinePrimaryVideoEdit,
   type StoryTimelineItem,
   type StoryTimelineVisualClip,
   type TimelineDocument,
   type TimelineTransform,
+  type TimelineVideoEffects,
 } from "../../shared/storyMaterial";
 import {
   normalizeShotIdentity,
@@ -95,19 +98,89 @@ function transform(value: unknown): TimelineTransform {
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
-  const clamp = (key: keyof TimelineTransform, min: number, max: number) =>
+  const clamp = (
+    key:
+      | "cropX"
+      | "cropY"
+      | "cropWidth"
+      | "cropHeight"
+      | "zoom"
+      | "panX"
+      | "panY"
+      | "rotationDeg",
+    min: number,
+    max: number
+  ) =>
     Math.min(
       max,
-      Math.max(min, finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key]))
+      Math.max(
+        min,
+        finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key] ?? 0)
+      )
     );
   return {
     cropX: clamp("cropX", 0, 1),
     cropY: clamp("cropY", 0, 1),
     cropWidth: clamp("cropWidth", 0.01, 1),
     cropHeight: clamp("cropHeight", 0.01, 1),
-    zoom: clamp("zoom", 1, 8),
+    zoom: clamp("zoom", 0.25, 8),
     panX: clamp("panX", -1, 1),
     panY: clamp("panY", -1, 1),
+    rotationDeg: clamp("rotationDeg", -180, 180),
+    flipX: record.flipX === true,
+    flipY: record.flipY === true,
+  };
+}
+
+function videoEffects(value: unknown): TimelineVideoEffects {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    playbackRate: Math.min(
+      4,
+      Math.max(
+        0.25,
+        finite(record.playbackRate, DEFAULT_TIMELINE_VIDEO_EFFECTS.playbackRate)
+      )
+    ),
+    reverse: record.reverse === true,
+    volume: Math.min(
+      2,
+      Math.max(0, finite(record.volume, DEFAULT_TIMELINE_VIDEO_EFFECTS.volume))
+    ),
+    muted: record.muted === true,
+  };
+}
+
+function optionalVideoEffects(
+  value: unknown
+): TimelineVideoEffects | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? videoEffects(value)
+    : undefined;
+}
+
+function primaryVideoEdit(
+  value: unknown
+): StoryTimelinePrimaryVideoEdit | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const takeId = finite(record.takeId, 0);
+  const sourceStartSec = Math.max(0, finite(record.sourceStartSec, 0));
+  const sourceEndSec = Math.max(
+    sourceStartSec,
+    finite(record.sourceEndSec, sourceStartSec)
+  );
+  if (takeId <= 0 || sourceEndSec <= sourceStartSec) return undefined;
+  return {
+    takeId,
+    sourceStartSec,
+    sourceEndSec,
+    effects: videoEffects(record.effects),
   };
 }
 
@@ -157,6 +230,13 @@ function visualClips(value: unknown): StoryTimelineVisualClip[] {
       sourceEndSec,
       offsetMs: Math.max(0, finite(clip.offsetMs, 0)),
       durationMs,
+      effects: optionalVideoEffects(clip.effects),
+      transform:
+        clip.transform &&
+        typeof clip.transform === "object" &&
+        !Array.isArray(clip.transform)
+          ? transform(clip.transform)
+          : undefined,
     });
   }
   return normalized.sort(
@@ -189,6 +269,7 @@ export function normalizeTimelineItems(
         finite(item.plannedDurationMs, fact.plannedDurationMs)
       ),
       transform: transform(item.transform),
+      primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),
       visualClips: visualClips(item.visualClips),
       visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
     });

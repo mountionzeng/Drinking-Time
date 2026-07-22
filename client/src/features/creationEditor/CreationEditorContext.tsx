@@ -51,6 +51,8 @@ import {
   DEFAULT_TIMELINE_TRANSFORM,
   type StoryMaterialState,
   type StoryTimelineItem,
+  type TimelineTransform,
+  type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type {
@@ -369,6 +371,8 @@ type CreationEditorContextValue = {
     durationMs: number;
     splitOffsetMs: number;
     label: string;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
   }) => Promise<void>;
   moveTimelineVideoClip: (input: {
     clipId: string;
@@ -379,6 +383,19 @@ type CreationEditorContextValue = {
   removeTimelineVideoClip: (input: {
     stableShotId: string;
     clipId: string;
+  }) => Promise<void>;
+  updateTimelineVideoEdit: (input: {
+    stableShotId: string;
+    takeId: number;
+    clipId?: string | null;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
+  }) => Promise<void>;
+  updateTimelineImageTransform: (input: {
+    stableShotId: string;
+    transform: TimelineTransform;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
     stableShotId: string;
@@ -2442,6 +2459,8 @@ export function CreationEditorProvider({
     durationMs: number;
     splitOffsetMs: number;
     label: string;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法切割视频");
     const sourceStartSec = Math.max(0, input.sourceStartSec);
@@ -2485,9 +2504,21 @@ export function CreationEditorProvider({
       }
       return result.range;
     };
+    const leftSourceStartSec = input.effects.reverse
+      ? splitSourceSec
+      : sourceStartSec;
+    const leftSourceEndSec = input.effects.reverse
+      ? sourceEndSec
+      : splitSourceSec;
+    const rightSourceStartSec = input.effects.reverse
+      ? sourceStartSec
+      : splitSourceSec;
+    const rightSourceEndSec = input.effects.reverse
+      ? splitSourceSec
+      : sourceEndSec;
     const [leftRange, rightRange] = await Promise.all([
-      createRange(sourceStartSec, splitSourceSec, "前段"),
-      createRange(splitSourceSec, sourceEndSec, "后段"),
+      createRange(leftSourceStartSec, leftSourceEndSec, "前段"),
+      createRange(rightSourceStartSec, rightSourceEndSec, "后段"),
     ]);
     const currentItem = timelineItems.find(
       item => item.stableShotId === input.stableShotId
@@ -2506,10 +2537,12 @@ export function CreationEditorProvider({
         sourceStableShotId: input.takeStableShotId,
         videoUrl: input.videoUrl,
         label: `${input.label} · 前段`,
-        sourceStartSec,
-        sourceEndSec: splitSourceSec,
+        sourceStartSec: leftSourceStartSec,
+        sourceEndSec: leftSourceEndSec,
         offsetMs: clipStartMs,
         durationMs: splitOffsetMs - clipStartMs,
+        effects: input.effects,
+        transform: input.transform,
       },
       {
         id: `split-${splitId}-right`,
@@ -2518,10 +2551,12 @@ export function CreationEditorProvider({
         sourceStableShotId: input.takeStableShotId,
         videoUrl: input.videoUrl,
         label: `${input.label} · 后段`,
-        sourceStartSec: splitSourceSec,
-        sourceEndSec,
+        sourceStartSec: rightSourceStartSec,
+        sourceEndSec: rightSourceEndSec,
         offsetMs: splitOffsetMs,
         durationMs: clipEndMs - splitOffsetMs,
+        effects: input.effects,
+        transform: input.transform,
       },
     ].sort((left, right) => left.offsetMs - right.offsetMs);
 
@@ -2625,6 +2660,113 @@ export function CreationEditorProvider({
             visualClips.length > 0 && item.visualClipsReplacePrimary,
         };
       }),
+      { throwOnError: true }
+    );
+  };
+
+  const updateTimelineVideoEdit = async (input: {
+    stableShotId: string;
+    takeId: number;
+    clipId?: string | null;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
+  }) => {
+    const sourceStartSec = Math.max(0, input.sourceStartSec);
+    const sourceEndSec = Math.max(sourceStartSec + 1 / 30, input.sourceEndSec);
+    const effects: TimelineVideoEffects = {
+      playbackRate: Math.min(4, Math.max(0.25, input.effects.playbackRate)),
+      reverse: Boolean(input.effects.reverse),
+      volume: Math.min(2, Math.max(0, input.effects.volume)),
+      muted: Boolean(input.effects.muted),
+    };
+    const durationMs = Math.max(
+      100,
+      Math.round(
+        ((sourceEndSec - sourceStartSec) * 1_000) / effects.playbackRate
+      )
+    );
+    const currentItem = timelineItems.find(
+      item => item.stableShotId === input.stableShotId
+    );
+    if (!currentItem) throw new Error("当前镜头不在时间线上");
+
+    const nextItems = timelineItems.map(item => {
+      if (item.stableShotId !== input.stableShotId) return item;
+      if (!input.clipId) {
+        return {
+          ...item,
+          plannedDurationMs: durationMs,
+          transform: input.transform,
+          primaryVideoEdit: {
+            takeId: input.takeId,
+            sourceStartSec,
+            sourceEndSec,
+            effects,
+          },
+        };
+      }
+
+      const sourceClips = item.visualClips ?? [];
+      const sourceClip = sourceClips.find(clip => clip.id === input.clipId);
+      if (!sourceClip || sourceClip.takeId !== input.takeId) {
+        throw new Error("找不到要编辑的视频片段");
+      }
+      const previousEndMs = sourceClip.offsetMs + sourceClip.durationMs;
+      const deltaMs = durationMs - sourceClip.durationMs;
+      const visualClips = sourceClips
+        .map(clip => {
+          if (clip.id === input.clipId) {
+            return {
+              ...clip,
+              sourceStartSec,
+              sourceEndSec,
+              durationMs,
+              effects,
+              transform: input.transform,
+            };
+          }
+          if (
+            item.visualClipsReplacePrimary &&
+            clip.offsetMs >= previousEndMs - 1
+          ) {
+            return { ...clip, offsetMs: Math.max(0, clip.offsetMs + deltaMs) };
+          }
+          return clip;
+        })
+        .sort((left, right) => left.offsetMs - right.offsetMs);
+      const clipEndMs = visualClips.reduce(
+        (maximum, clip) => Math.max(maximum, clip.offsetMs + clip.durationMs),
+        0
+      );
+      return {
+        ...item,
+        plannedDurationMs: item.visualClipsReplacePrimary
+          ? Math.max(100, clipEndMs)
+          : Math.max(item.plannedDurationMs, clipEndMs),
+        visualClips,
+      };
+    });
+
+    await saveTimelineItems(nextItems, { throwOnError: true });
+  };
+
+  const updateTimelineImageTransform = async (input: {
+    stableShotId: string;
+    transform: TimelineTransform;
+  }) => {
+    if (
+      !timelineItems.some(item => item.stableShotId === input.stableShotId)
+    ) {
+      throw new Error("当前镜头不在时间线上");
+    }
+    await saveTimelineItems(
+      timelineItems.map(item =>
+        item.stableShotId === input.stableShotId
+          ? { ...item, transform: input.transform }
+          : item
+      ),
       { throwOnError: true }
     );
   };
@@ -2832,6 +2974,8 @@ export function CreationEditorProvider({
       splitTimelineVideoClip,
       moveTimelineVideoClip,
       removeTimelineVideoClip,
+      updateTimelineVideoEdit,
+      updateTimelineImageTransform,
       selectVideoTimelineSegment,
       clearVideoTimelineSegment,
       createDerivedShotDraft,

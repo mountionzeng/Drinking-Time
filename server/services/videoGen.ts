@@ -48,6 +48,8 @@ export type ShotVideoTaskRefreshResult =
   | {
       status: "available";
       videoUrl: string;
+      candidateVideoUrls?: string[];
+      previewVideoUrl?: string;
       taskId: string;
     }
   | {
@@ -160,13 +162,49 @@ async function withTimeout<T>(
   }
 }
 
-function videoUrlFromJson(json: unknown): string {
+function directVideoUrlFromJson(json: unknown): string {
   if (!json || typeof json !== "object") return "";
   const obj = json as Record<string, unknown>;
   for (const key of ["videoUrl", "video_url", "url", "output"]) {
     const value = obj[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
+  return "";
+}
+
+function uniqueUrls(urls: readonly string[]): string[] {
+  return Array.from(new Set(urls.map(url => url.trim()).filter(Boolean)));
+}
+
+/**
+ * MJ-Video returns a contact-sheet preview in `videoUrl` and the four usable
+ * variants in `videoUrls`. Keep the variants separate so the editor can ask
+ * the user which motion take should enter the timeline.
+ */
+export function candidateVideoUrlsFromJson(json: unknown): string[] {
+  if (!json || typeof json !== "object") return [];
+  const obj = json as Record<string, unknown>;
+  const urls: string[] = [];
+  for (const key of ["videoUrls", "video_urls", "urls", "videos"]) {
+    const value = obj[key];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (typeof item === "string") {
+        urls.push(item);
+        continue;
+      }
+      const url = directVideoUrlFromJson(item);
+      if (url) urls.push(url);
+    }
+  }
+  return uniqueUrls(urls);
+}
+
+function videoUrlFromJson(json: unknown): string {
+  if (!json || typeof json !== "object") return "";
+  const obj = json as Record<string, unknown>;
+  const directUrl = directVideoUrlFromJson(obj);
+  if (directUrl) return directUrl;
   const data = obj.data;
   if (Array.isArray(data)) {
     for (const item of data) {
@@ -174,22 +212,8 @@ function videoUrlFromJson(json: unknown): string {
       if (url) return url;
     }
   }
-  const videos = obj.videos;
-  if (Array.isArray(videos)) {
-    for (const item of videos) {
-      const url = videoUrlFromJson(item);
-      if (url) return url;
-    }
-  }
-  for (const key of ["videoUrls", "video_urls", "urls"]) {
-    const value = obj[key];
-    if (!Array.isArray(value)) continue;
-    for (const item of value) {
-      if (typeof item === "string" && item.trim()) return item.trim();
-      const url = videoUrlFromJson(item);
-      if (url) return url;
-    }
-  }
+  const candidates = candidateVideoUrlsFromJson(obj);
+  if (candidates.length > 0) return candidates[0];
   return "";
 }
 
@@ -463,8 +487,19 @@ export async function refreshShotVideoTask(
         ),
       };
     }
-    const videoUrl = videoUrlFromJson(json);
-    if (videoUrl) return { status: "available", videoUrl, taskId };
+    const previewVideoUrl = directVideoUrlFromJson(json);
+    const candidateVideoUrls = candidateVideoUrlsFromJson(json);
+    const videoUrl = candidateVideoUrls[0] || previewVideoUrl;
+    if (videoUrl) {
+      return {
+        status: "available",
+        videoUrl,
+        taskId,
+        candidateVideoUrls:
+          candidateVideoUrls.length > 1 ? candidateVideoUrls : undefined,
+        previewVideoUrl: previewVideoUrl || undefined,
+      };
+    }
 
     const rawStatus =
       typeof (json as Record<string, unknown>).status === "string"

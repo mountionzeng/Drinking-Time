@@ -28,6 +28,7 @@ import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
+import type { SelectionContext } from "@shared/selectionContext";
 
 function ExportButton({ storyId }: { storyId: number }) {
   const { shots } = useCreationEditor();
@@ -196,10 +197,16 @@ export default function EditingStudioPage() {
   const runEditingCommand = useCallback(
     async (
       instruction: string,
-      selectionContext?: {
-        stableShotId?: string | null;
-        shotNo?: number | null;
-      }
+      selectionContext?: Pick<
+        SelectionContext,
+        | "sourceType"
+        | "sourceId"
+        | "stableShotId"
+        | "shotNo"
+        | "videoTakeId"
+        | "rangeId"
+        | "selection"
+      >
     ) => {
       const storyId = storySpineStore.getState().activeStoryId;
       if (storyId == null) return null;

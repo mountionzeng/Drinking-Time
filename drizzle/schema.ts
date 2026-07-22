@@ -1097,3 +1097,36 @@ export const emailOtps = mysqlTable("email_otps", {
 
 export type EmailOtp = typeof emailOtps.$inferSelect;
 export type InsertEmailOtp = typeof emailOtps.$inferInsert;
+
+/**
+ * InviteCodes — 内测邀请码。
+ *
+ * 数据库只保存 SHA-256 哈希，不保存可直接使用的原始邀请码。邀请码首次成功
+ * 登录时绑定邮箱；同一邮箱后续可继续用邮箱验证码登录。
+ */
+export const inviteCodes = mysqlTable(
+  "invite_codes",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    codeHash: varchar("codeHash", { length: 64 }).notNull(),
+    label: varchar("label", { length: 255 }),
+    redeemedByEmail: varchar("redeemedByEmail", { length: 320 }),
+    redeemedByUserId: int("redeemedByUserId").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expiresAt"),
+    redeemedAt: timestamp("redeemedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    codeHashUnique: uniqueIndex("invite_codes_code_hash_unique").on(
+      table.codeHash
+    ),
+    redeemedEmailIndex: index("invite_codes_redeemed_email_index").on(
+      table.redeemedByEmail
+    ),
+  })
+);
+
+export type InviteCode = typeof inviteCodes.$inferSelect;
+export type InsertInviteCode = typeof inviteCodes.$inferInsert;

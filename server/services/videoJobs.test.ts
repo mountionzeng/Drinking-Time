@@ -4,10 +4,14 @@ import {
   createImageSignal,
   createGeneratedImage,
   createStory,
+  createVideoTake,
+  getStoryVideoTakes,
   resetMemoryStateForTesting,
 } from "../db";
 import {
   explainVideoProviderError,
+  isUnknownVideoSubmissionFailure,
+  refreshVideoTakeStatus,
   sanitizeVideoPrompt,
   startShotVideoJob,
 } from "./videoJobs";
@@ -234,12 +238,22 @@ describe("videoJobs", () => {
       previousReferenceShotNo: "SH05",
       nextReferenceImageId: nextImage.id,
       nextReferenceShotNo: "SH07",
+      promptDirector: {
+        engineering: {
+          version: "video-prompt-engineering/v1",
+          editorHardConstraints: expect.stringContaining("转身"),
+          continuityIn: expect.stringContaining("前一镜参考图：SH05"),
+          continuityOut: expect.stringContaining("后一镜参考图：SH07"),
+          finalPrompt: expect.stringContaining("Editor hard constraints"),
+        },
+      },
     });
     const requestBody = JSON.parse(
       String((globalThis.fetch as any).mock.calls[0][1].body)
     );
     expect(requestBody.image_url).toBe("data:image/png;base64,AAAA");
-    expect(requestBody.prompt).toContain("gentle camera move");
+    expect(requestBody.prompt).toContain("Editor hard constraints");
+    expect(requestBody.prompt).toContain("转身");
     expect(requestBody.prompt).toContain("前一镜参考图：SH05");
     expect(requestBody.prompt).toContain("后一镜参考图：SH07");
     expect(requestBody.prompt).toContain("previous selected frame");
@@ -451,10 +465,12 @@ describe("videoJobs", () => {
       String((globalThis.fetch as any).mock.calls[0][1].body)
     );
     expect(requestBody).toMatchObject({
-      prompt: "gentle camera move",
       motion: "low",
       image: "data:image/png;base64,BBBB",
     });
+    expect(requestBody.prompt).toContain("Editor hard constraints");
+    expect(requestBody.prompt).toContain("gentle camera move");
+    expect(requestBody.prompt.length).toBeLessThanOrEqual(500);
     expect(requestBody.prompt).not.toContain("前一镜参考图");
     expect(requestBody.prompt).not.toContain("后一镜参考图");
     expect(requestBody.prompt).not.toContain("storage.example");
@@ -492,6 +508,27 @@ Negative: no floating objects, characters obey physics.
     expect(prompt).not.toContain("昏昏欲睡");
     expect(prompt).not.toContain("Negative");
     expect(prompt.length).toBeLessThanOrEqual(320);
+  });
+
+  it("puts current action before a stale core prompt when preparing MJ motion", () => {
+    const prompt = sanitizeVideoPrompt(`
+核心视频提示：旧方案要求人物不动并缓慢推进，后面还有大量旧镜头说明占据提示词长度。
+动作：女主在黑暗中快速撑开一个自己的空间。
+相机运动：相机快速后撤，跟随双臂向两侧打开。
+    `);
+
+    expect(prompt).toMatch(/^女主在黑暗中快速撑开/);
+    expect(prompt.indexOf("相机快速后撤")).toBeLessThan(
+      prompt.indexOf("旧方案要求人物不动")
+    );
+  });
+
+  it("treats a submit timeout as an unknown paid result", () => {
+    expect(isUnknownVideoSubmissionFailure("video generation timeout")).toBe(
+      true
+    );
+    expect(isUnknownVideoSubmissionFailure("fetch failed")).toBe(true);
+    expect(isUnknownVideoSubmissionFailure("HTTP 400")).toBe(false);
   });
 
   it("submits again when the matching prior take failed", async () => {
@@ -762,5 +799,84 @@ Negative: no floating objects, characters obey physics.
         source: "editor-approved",
       },
     });
+  });
+
+  it("turns an MJ contact-sheet result into four selectable video takes", async () => {
+    ENV.video302Model = "";
+    ENV.video302SubmitPath = "/mj/submit/video";
+    ENV.video302PollPath = "/mj/task/{taskId}/fetch";
+    ENV.video302ImageField = "";
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "四版本选择",
+      body: { shots: [{ stableShotId: "shot-01", shotNo: 1 }] },
+    });
+    const parent = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-01",
+      sourceImageId: null,
+      status: "available",
+      taskId: "mj-task-four",
+      provider: "302",
+      model: "mj-video",
+      prompt: "a motivated camera move",
+      durationSec: 5,
+      aspectRatio: "1:1",
+      videoUrl: "/api/videos/contact-sheet.mp4",
+      parameterSnapshot: { resultSelectionRule: "first-valid-url" },
+      extractionCapability: "available",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "SUCCESS",
+          videoUrl: "https://file.302.ai/contact-sheet.mp4",
+          videoUrls: [
+            { url: "https://file.302.ai/v1.mp4" },
+            { url: "https://file.302.ai/v2.mp4" },
+            { url: "https://file.302.ai/v3.mp4" },
+            { url: "https://file.302.ai/v4.mp4" },
+          ],
+        }),
+      }))
+    );
+
+    const refreshed = await refreshVideoTakeStatus(parent.id, 1);
+
+    expect(refreshed.status).toBe("ok");
+    if (refreshed.status !== "ok") return;
+    expect(refreshed.take.status).toBe("unfollowable");
+    expect(refreshed.take.parameterSnapshot).toMatchObject({
+      resultSelectionRule: "user-select-variant",
+      candidateVideoCount: 4,
+      candidateTakeIds: expect.arrayContaining([
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      ]),
+    });
+    const takes = await getStoryVideoTakes(story.id, 1);
+    const variants = takes.filter(take => take.id !== parent.id);
+    expect(variants).toHaveLength(4);
+    expect(variants.map(take => take.status)).toEqual([
+      "available",
+      "available",
+      "available",
+      "available",
+    ]);
+    expect(
+      variants
+        .map(take =>
+          (take.parameterSnapshot as Record<string, unknown>)
+            .mjVideoVariantLabel
+        )
+        .sort()
+    ).toEqual(["V1", "V2", "V3", "V4"]);
   });
 });

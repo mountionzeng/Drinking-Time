@@ -58,19 +58,55 @@ describe("buildExportPlan", () => {
           { stableShotId: "d", shotNo: 4, currentVideo: video(14) },
         ],
         items: [
-          { stableShotId: "b", included: true, position: 0, plannedDurationMs: 10_000, transform },
-          { stableShotId: "a", included: true, position: 1, plannedDurationMs: 2_000, transform },
-          { stableShotId: "c", included: true, position: 2, plannedDurationMs: 3_000, transform },
-          { stableShotId: "d", included: false, position: 3, plannedDurationMs: 3_000, transform },
+          {
+            stableShotId: "b",
+            included: true,
+            position: 0,
+            plannedDurationMs: 10_000,
+            transform,
+          },
+          {
+            stableShotId: "a",
+            included: true,
+            position: 1,
+            plannedDurationMs: 2_000,
+            transform,
+          },
+          {
+            stableShotId: "c",
+            included: true,
+            position: 2,
+            plannedDurationMs: 3_000,
+            transform,
+          },
+          {
+            stableShotId: "d",
+            included: false,
+            position: 3,
+            plannedDurationMs: 3_000,
+            transform,
+          },
         ],
       })
     );
 
-    expect(plan.segments).toEqual([
+    expect(plan.segments).toMatchObject([
       // range 2..5s → 实际 3s（计划 10s 被素材范围封顶）
-      { shotNo: 2, stableShotId: "b", file: "take-12.mp4", startSec: 2, durationSec: 3 },
+      {
+        shotNo: 2,
+        stableShotId: "b",
+        file: "take-12.mp4",
+        startSec: 2,
+        durationSec: 3,
+      },
       // 计划 2s < 素材 8s → 取 2s
-      { shotNo: 1, stableShotId: "a", file: "take-11.mp4", startSec: 0, durationSec: 2 },
+      {
+        shotNo: 1,
+        stableShotId: "a",
+        file: "take-11.mp4",
+        startSec: 0,
+        durationSec: 2,
+      },
     ]);
     expect(plan.skipped).toEqual([
       { shotNo: 3, reason: "没有可用的当前视频" },
@@ -91,7 +127,13 @@ describe("buildExportPlan", () => {
       },
     ];
     const items = [
-      { stableShotId: "a", included: true, position: 0, plannedDurationMs: 2_000, transform },
+      {
+        stableShotId: "a",
+        included: true,
+        position: 0,
+        plannedDurationMs: 2_000,
+        transform,
+      },
     ];
 
     const strict = buildExportPlan(material({ shots, items }));
@@ -101,8 +143,14 @@ describe("buildExportPlan", () => {
       fallbackToLatestTake: true,
     });
     // 已被时间轴选择的 take（20）优先于更新的 take（21）
-    expect(relaxed.segments).toEqual([
-      { shotNo: 1, stableShotId: "a", file: "take-20.mp4", startSec: 0, durationSec: 2 },
+    expect(relaxed.segments).toMatchObject([
+      {
+        shotNo: 1,
+        stableShotId: "a",
+        file: "take-20.mp4",
+        startSec: 0,
+        durationSec: 2,
+      },
     ]);
   });
 
@@ -117,11 +165,126 @@ describe("buildExportPlan", () => {
           },
         ],
         items: [
-          { stableShotId: "a", included: true, position: 0, plannedDurationMs: 2_000, transform },
+          {
+            stableShotId: "a",
+            included: true,
+            position: 0,
+            plannedDurationMs: 2_000,
+            transform,
+          },
         ],
       })
     );
     expect(plan.segments).toHaveLength(0);
     expect(plan.skipped[0].reason).toBe("视频缺少本地文件");
+  });
+
+  it("把主镜头的裁切、倍速、倒放、音量和构图写入导出计划", () => {
+    const plan = buildExportPlan(
+      material({
+        shots: [{ stableShotId: "a", shotNo: 1, currentVideo: video(31) }],
+        items: [
+          {
+            stableShotId: "a",
+            included: true,
+            position: 0,
+            plannedDurationMs: 2_000,
+            transform: { ...transform, zoom: 2, panX: 0.5 },
+            primaryVideoEdit: {
+              takeId: 31,
+              sourceStartSec: 1,
+              sourceEndSec: 5,
+              effects: {
+                playbackRate: 2,
+                reverse: true,
+                volume: 0.4,
+                muted: false,
+              },
+            },
+          },
+        ],
+      })
+    );
+
+    expect(plan.segments).toEqual([
+      {
+        shotNo: 1,
+        stableShotId: "a",
+        file: "take-31.mp4",
+        startSec: 1,
+        sourceDurationSec: 4,
+        durationSec: 2,
+        effects: {
+          playbackRate: 2,
+          reverse: true,
+          volume: 0.4,
+          muted: false,
+        },
+        transform: { ...transform, zoom: 2, panX: 0.5 },
+      },
+    ]);
+  });
+
+  it("按时间顺序导出替代主镜头的视频切片", () => {
+    const plan = buildExportPlan(
+      material({
+        shots: [
+          {
+            stableShotId: "a",
+            shotNo: 1,
+            currentVideo: null,
+            videoTakes: [video(41), video(42)],
+          },
+        ],
+        items: [
+          {
+            stableShotId: "a",
+            included: true,
+            position: 0,
+            plannedDurationMs: 3_000,
+            transform,
+            visualClipsReplacePrimary: true,
+            visualClips: [
+              {
+                id: "later",
+                takeId: 42,
+                rangeId: 2,
+                sourceStableShotId: "a",
+                videoUrl: "/api/videos/take-42.mp4",
+                label: "后段",
+                sourceStartSec: 3,
+                sourceEndSec: 5,
+                offsetMs: 1_000,
+                durationMs: 2_000,
+              },
+              {
+                id: "first",
+                takeId: 41,
+                rangeId: 1,
+                sourceStableShotId: "a",
+                videoUrl: "/api/videos/take-41.mp4",
+                label: "前段",
+                sourceStartSec: 0,
+                sourceEndSec: 2,
+                offsetMs: 0,
+                durationMs: 1_000,
+                effects: {
+                  playbackRate: 2,
+                  reverse: false,
+                  volume: 1,
+                  muted: false,
+                },
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(plan.segments.map(segment => segment.file)).toEqual([
+      "take-41.mp4",
+      "take-42.mp4",
+    ]);
+    expect(plan.segments.map(segment => segment.durationSec)).toEqual([1, 2]);
   });
 });

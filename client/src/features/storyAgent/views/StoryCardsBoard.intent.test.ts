@@ -15,6 +15,7 @@ import {
   StoryboardVideoThumbnail,
   STORYBOARD_MATRIX_ROWS,
   quickShotVideoRenderPlan,
+  storyboardRenderShotWithDraft,
   storyboardVideoIntentPatch,
   storyboardFrameParamsAfterDelete,
   storyboardFrameOrderGenerationParams,
@@ -22,7 +23,9 @@ import {
   storyboardFrameRoleForImage,
   storyboardFrameRoleGenerationParams,
   storyboardShotFrameImages,
+  storyboardInheritedStartEndGenerationParams,
   storyboardStartEndGenerationParams,
+  storyboardStartEndFrameIssue,
   storyShotInsertIdentity,
   storyboardDragScrollSpeedMultiplier,
   storyboardMatrixTextareaHeight,
@@ -232,6 +235,95 @@ describe("StoryCardsBoard intent entry", () => {
     ).toEqual([41, 42, 43]);
   });
 
+  it("blocks a paid rerender when a start-end shot only has a middle reference", () => {
+    expect(
+      storyboardStartEndFrameIssue(
+        JSON.stringify({
+          providerIntent: "vidu-start-end",
+          storyboardFrameRoles: { referenceImageIds: [1365] },
+          referenceFrameImageIds: [1365],
+        }),
+        [{ id: 1365, imageUrl: "/frames/reference.webp" }]
+      )
+    ).toContain("只有中间参考图，缺少首帧和尾帧");
+
+    expect(
+      storyboardStartEndFrameIssue(
+        JSON.stringify({ motion: "high" }),
+        [{ id: 1365, imageUrl: "/frames/first.webp" }]
+      )
+    ).toBeNull();
+  });
+
+  it("borrows the previous tail and next head when the current shot only has a middle reference", () => {
+    const currentImages = [
+      { id: 1365, imageUrl: "/frames/current-middle.webp" },
+    ];
+    const generationParams = storyboardInheritedStartEndGenerationParams(
+      JSON.stringify({
+        providerIntent: "vidu-start-end",
+        storyboardFrameRoles: { referenceImageIds: [1365] },
+        referenceFrameImageIds: [1365],
+      }),
+      currentImages,
+      {
+        generationParams: JSON.stringify({
+          storyboardFrameRoles: {
+            firstImageId: 1201,
+            lastImageId: 1202,
+            referenceImageIds: [],
+          },
+        }),
+        images: [
+          { id: 1201, imageUrl: "/frames/previous-first.webp" },
+          { id: 1202, imageUrl: "/frames/previous-last.webp" },
+        ],
+        stableShotId: "shot-0200",
+        cueCode: "0200",
+      },
+      {
+        generationParams: JSON.stringify({
+          storyboardFrameRoles: {
+            firstImageId: 1401,
+            lastImageId: 1402,
+            referenceImageIds: [],
+          },
+        }),
+        images: [
+          { id: 1401, imageUrl: "/frames/next-first.webp" },
+          { id: 1402, imageUrl: "/frames/next-last.webp" },
+        ],
+        stableShotId: "shot-0202",
+        cueCode: "0202",
+      },
+      4_600
+    );
+
+    expect(JSON.parse(generationParams ?? "{}")).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 1202,
+      lastFrameImageId: 1401,
+      referenceFrameImageIds: [1365],
+      durationSec: 5,
+      startEndFrameSources: {
+        policyVersion: "neighbor-boundary-frames/v1",
+        first: {
+          source: "previous-last",
+          imageId: 1202,
+          stableShotId: "shot-0200",
+        },
+        last: {
+          source: "next-first",
+          imageId: 1401,
+          stableShotId: "shot-0202",
+        },
+      },
+    });
+    expect(
+      storyboardStartEndFrameIssue(generationParams, currentImages)
+    ).toBeNull();
+  });
+
   it("persists explicit first, last, and reference roles for storyboard frames", () => {
     const images = [
       { id: 41, imageUrl: "/frames/a.webp" },
@@ -376,7 +468,7 @@ describe("StoryCardsBoard intent entry", () => {
     expect(plan.missing).toEqual([]);
     expect(plan.prompt).toContain("女主快速撑开属于自己的空间");
     expect(plan.prompt).toContain("稳定器从中景贴近");
-    expect(plan.prompt).toContain("空间变化必须和人物撑开的动作同步");
+    expect(plan.prompt).not.toContain("空间变化必须和人物撑开的动作同步");
   });
 
   it("routes a simple scale and position change to the free local renderer", () => {
@@ -435,6 +527,31 @@ describe("StoryCardsBoard intent entry", () => {
       negativePrompt: "不要新增人物",
       generationParams: '{"frameMode":"start_end"}',
     });
+  });
+
+  it("uses the live matrix draft when rerender is clicked before blur save finishes", () => {
+    const effective = storyboardRenderShotWithDraft(
+      {
+        shotNo: 9,
+        stableShotId: "manual-sh03",
+        action: "旧动作",
+        cameraMove: "旧运镜",
+        videoPrompt: "保留既有视频提示",
+      } as unknown as CreationEditorShot,
+      {
+        shotNo: 9,
+        stableShotId: "manual-sh03",
+        action: "已保存但尚未同步到生成镜头的动作",
+        cameraMove: "当前表格里的运镜",
+      } as unknown as StoryShot,
+      {
+        action: "女主在黑暗中撑出自己的区域，相机运动加快",
+      }
+    );
+
+    expect(effective.action).toBe("女主在黑暗中撑出自己的区域，相机运动加快");
+    expect(effective.cameraMove).toBe("当前表格里的运镜");
+    expect(effective.videoPrompt).toBe("保留既有视频提示");
   });
 
   it("prefers the adopted playable video take for storyboard previews", () => {
@@ -695,6 +812,10 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("writeStoryboardImageDragPayload");
     expect(boardSource).toContain("readStoryboardImageDragPayload");
     expect(boardSource).toContain("onMoveStoryImage");
+    expect(boardSource).toContain("onEditImage");
+    expect(boardSource).toContain("imageClipEditorTargetForShot");
+    expect(boardSource).toContain("双击编辑图片");
+    expect(panelSource).toContain("onEditImage={onEditImage}");
     expect(boardSource).toContain("StoryboardMediaDropOverlay");
     expect(boardSource).toContain("data-storyboard-media-drop-target");
     expect(boardSource).toContain("视频已进入动态分镜");
@@ -712,10 +833,12 @@ describe("StoryCardsBoard intent entry", () => {
     );
     expect(boardSource).toContain('data-storyboard-media-height="fixed"');
     expect(boardSource).toContain("data-storyboard-frame-role");
-    expect(boardSource).toContain("首尾画面");
+    expect(boardSource).toContain("画面");
+    expect(boardSource).toContain("h-[75px]");
+    expect(boardSource).toContain("h-[59px] w-[59px]");
     expect(boardSource).toContain("storyboard-video-menu-clip-");
     expect(boardSource).toContain("storyboard-video-menu-take-");
-    expect(boardSource).toContain("从首尾画面移除");
+    expect(boardSource).toContain("从画面移除");
     expect(boardSource).toContain("onRemoveTimelineVideoClip");
     expect(panelSource).toContain(
       "onRemoveTimelineVideoClip={removeTimelineVideoClip}"

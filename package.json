@@ -19,6 +19,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "invite:setup": "tsx scripts/setup-invite-access.ts",
+    "invite:create": "tsx scripts/create-invite-code.ts",
     "monitor": "DATABASE_URL=mysql://x knip"
   },
   "dependencies": {

@@ -4,6 +4,9 @@ import {
   fitProjectCanvas,
   resolveTimelineVideoSource,
   shouldForwardPreviewPause,
+  timelineVideoPlaybackRate,
+  timelineVideoShouldHoldLastFrame,
+  timelineVideoSourceForSelectedShot,
   timelineAudioTargetSeconds,
   timelineAudioVolume,
   timelineSubtitleText,
@@ -106,6 +109,49 @@ describe("editing workspace project canvas", () => {
     expect(shouldForwardPreviewPause({ ...directPause, nowMs: 3_000 })).toBe(
       false
     );
+  });
+
+  it("matches video playback speed to the stretched timeline duration", () => {
+    const source = {
+      sourceStartSec: 0,
+      sourceEndSec: 2.2,
+      durationMs: 3_133,
+    };
+
+    expect(timelineVideoPlaybackRate(source)).toBeCloseTo(2.2 / 3.133, 5);
+    expect(
+      timelineVideoPlaybackRate({
+        sourceStartSec: 1,
+        sourceEndSec: 3,
+        durationMs: 2_000,
+      })
+    ).toBe(1);
+  });
+
+  it("holds the last source frame instead of restarting a stretched clip", () => {
+    expect(
+      timelineVideoShouldHoldLastFrame({
+        targetTimeSec: 2.2,
+        sourceStartSec: 0,
+        sourceEndSec: 2.2,
+      })
+    ).toBe(true);
+    expect(
+      timelineVideoShouldHoldLastFrame({
+        targetTimeSec: 2.1,
+        sourceStartSec: 0,
+        sourceEndSec: 2.2,
+      })
+    ).toBe(false);
+  });
+
+  it("uses the active selected take even when it is the primary clip", () => {
+    const source = {
+      shotNo: 9,
+      existingClipId: null,
+    } as never;
+    expect(timelineVideoSourceForSelectedShot(source, 9)).toBe(source);
+    expect(timelineVideoSourceForSelectedShot(source, 10)).toBeNull();
   });
 
   it("shows the script cue that is actually speaking at the playhead", () => {

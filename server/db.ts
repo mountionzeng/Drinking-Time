@@ -87,6 +87,9 @@ import {
   promptOperationReceipts,
   emailOtps,
   EmailOtp,
+  inviteCodes,
+  InviteCode,
+  InsertInviteCode,
 } from "../drizzle/schema";
 export type { EditSnapshot, SemanticAnnotation, GeneratedImage };
 import { ENV } from "./_core/env";
@@ -119,6 +122,7 @@ type MemoryState = {
   storyTimelines: StoryTimeline[];
   shotDerivationDrafts: ShotDerivationDraft[];
   storyOperations: StoryOperation[];
+  inviteCodes: InviteCode[];
   promptLineage: PromptLineageLocalState;
   nextIds: {
     user: number;
@@ -138,6 +142,7 @@ type MemoryState = {
     storyTimeline: number;
     shotDerivationDraft: number;
     storyOperation: number;
+    inviteCode: number;
   };
 };
 
@@ -159,6 +164,7 @@ const memoryState: MemoryState = {
   storyTimelines: [],
   shotDerivationDrafts: [],
   storyOperations: [],
+  inviteCodes: [],
   promptLineage: createEmptyPromptLineageLocalState(),
   nextIds: {
     user: 1,
@@ -178,6 +184,7 @@ const memoryState: MemoryState = {
     storyTimeline: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
+    inviteCode: 1,
   },
 };
 
@@ -258,6 +265,9 @@ let memoryLoaded = false;
 let memoryLoadPromise: Promise<void> | null = null;
 let memoryPersistQueue: Promise<void> = Promise.resolve();
 let memoryVideoTakeSubmissionClaimQueue: Promise<void> = Promise.resolve();
+let memoryInviteClaimQueue: Promise<void> = Promise.resolve();
+let memoryEmailOtps: EmailOtp[] = [];
+let nextMemoryEmailOtpId = 1;
 let promptLineageLoaded = false;
 let promptLineageLoadFallback:
   | Partial<PromptLineageLocalState>
@@ -399,6 +409,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     createdAt: toDate(item.createdAt),
     updatedAt: toDate(item.updatedAt),
   })) as StoryOperation[];
+  memoryState.inviteCodes = (raw.inviteCodes ?? []).map(item => ({
+    ...item,
+    expiresAt: item.expiresAt ? toDate(item.expiresAt) : null,
+    redeemedAt: item.redeemedAt ? toDate(item.redeemedAt) : null,
+    createdAt: toDate(item.createdAt),
+  })) as InviteCode[];
   memoryState.promptLineage = normalizePromptLineageLocalState(
     raw.promptLineage
   );
@@ -465,6 +481,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     storyOperation: Math.max(
       raw.nextIds?.storyOperation ?? 0,
       nextIdFromRows(memoryState.storyOperations)
+    ),
+    inviteCode: Math.max(
+      raw.nextIds?.inviteCode ?? 0,
+      nextIdFromRows(memoryState.inviteCodes)
     ),
   };
 }
@@ -3304,9 +3324,7 @@ export async function createVideoTakeIdempotently(
     const [story] = await tx
       .select({ id: stories.id })
       .from(stories)
-      .where(
-        and(eq(stories.id, data.storyId), eq(stories.userId, data.userId))
-      )
+      .where(and(eq(stories.id, data.storyId), eq(stories.userId, data.userId)))
       .for("update")
       .limit(1);
     if (!story) throw new Error("故事不存在或无权操作");
@@ -4118,7 +4136,9 @@ export async function insertTransitionShotAtomic(input: {
     await tx
       .update(stories)
       .set({ body: input.nextStoryBody as StoryBody })
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)));
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      );
 
     let timelineId: number;
     if (timeline) {
@@ -4141,11 +4161,7 @@ export async function insertTransitionShotAtomic(input: {
     }
 
     const [[savedStory], [savedTimeline]] = await Promise.all([
-      tx
-        .select()
-        .from(stories)
-        .where(eq(stories.id, input.storyId))
-        .limit(1),
+      tx.select().from(stories).where(eq(stories.id, input.storyId)).limit(1),
       tx
         .select()
         .from(storyTimelines)
@@ -4889,6 +4905,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.storyTimelines = [];
   memoryState.shotDerivationDrafts = [];
   memoryState.storyOperations = [];
+  memoryState.inviteCodes = [];
   memoryState.promptLineage = createEmptyPromptLineageLocalState();
   promptLineageLoaded = true;
   promptLineageLoadFallback = undefined;
@@ -4912,9 +4929,13 @@ export function resetMemoryStateForTesting(): void {
     storyTimeline: 1,
     shotDerivationDraft: 1,
     storyOperation: 1,
+    inviteCode: 1,
   };
   defaultProjectLocks.clear();
   memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
+  memoryInviteClaimQueue = Promise.resolve();
+  memoryEmailOtps = [];
+  nextMemoryEmailOtpId = 1;
   // Mark as loaded so subsequent calls don't reload stale data from disk.
   memoryLoaded = true;
   memoryLoadPromise = null;
@@ -4930,8 +4951,14 @@ export async function createEmailOtp(
 ): Promise<void> {
   const db = await getDb();
   if (!db) {
-    // 内存模式：仅打印日志，不持久化 OTP
-    console.log(`[EmailOTP-memory] ${email}: ${code}`);
+    memoryEmailOtps.push({
+      id: nextMemoryEmailOtpId++,
+      email,
+      code,
+      expiresAt,
+      usedAt: null,
+      createdAt: new Date(),
+    });
     return;
   }
   await db.insert(emailOtps).values({ email, code, expiresAt });
@@ -4943,7 +4970,20 @@ export async function findValidEmailOtp(
   code: string
 ): Promise<EmailOtp | null> {
   const db = await getDb();
-  if (!db) return null; // 内存模式不支持 OTP 验证
+  if (!db) {
+    const current = Date.now();
+    return (
+      [...memoryEmailOtps]
+        .reverse()
+        .find(
+          otp =>
+            otp.email === email &&
+            otp.code === code &&
+            otp.expiresAt.getTime() >= current &&
+            !otp.usedAt
+        ) ?? null
+    );
+  }
   const [otp] = await db
     .select()
     .from(emailOtps)
@@ -4962,9 +5002,190 @@ export async function findValidEmailOtp(
 /** 标记 OTP 已使用 */
 export async function markEmailOtpUsed(id: number): Promise<void> {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    const otp = memoryEmailOtps.find(item => item.id === id);
+    if (otp) otp.usedAt = new Date();
+    return;
+  }
   await db
     .update(emailOtps)
     .set({ usedAt: new Date() })
     .where(eq(emailOtps.id, id));
+}
+
+// ── 内测邀请码相关函数 ──────────────────────────────────────────────
+
+export async function createInviteCode(
+  data: Pick<InsertInviteCode, "codeHash" | "label" | "expiresAt">
+): Promise<{ id: number }> {
+  const db = await getDb();
+  if (!db) {
+    const row: InviteCode = {
+      id: nextMemoryId("inviteCode"),
+      codeHash: data.codeHash,
+      label: data.label ?? null,
+      redeemedByEmail: null,
+      redeemedByUserId: null,
+      expiresAt: data.expiresAt ?? null,
+      redeemedAt: null,
+      createdAt: new Date(),
+    };
+    memoryState.inviteCodes.push(row);
+    await persistMemoryState();
+    return { id: row.id };
+  }
+
+  const result = await db.insert(inviteCodes).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function findAvailableInviteCode(
+  codeHash: string
+): Promise<InviteCode | null> {
+  const db = await getDb();
+  const current = new Date();
+  if (!db) {
+    return (
+      memoryState.inviteCodes.find(
+        item =>
+          item.codeHash === codeHash &&
+          !item.redeemedAt &&
+          (!item.expiresAt || item.expiresAt >= current)
+      ) ?? null
+    );
+  }
+
+  const [invite] = await db
+    .select()
+    .from(inviteCodes)
+    .where(
+      and(
+        eq(inviteCodes.codeHash, codeHash),
+        isNull(inviteCodes.redeemedAt),
+        or(isNull(inviteCodes.expiresAt), gte(inviteCodes.expiresAt, current))
+      )
+    )
+    .limit(1);
+  return invite ?? null;
+}
+
+export async function hasRedeemedInviteForEmail(
+  email: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    return memoryState.inviteCodes.some(
+      item => item.redeemedByEmail === email && Boolean(item.redeemedAt)
+    );
+  }
+
+  const [invite] = await db
+    .select({ id: inviteCodes.id })
+    .from(inviteCodes)
+    .where(
+      and(
+        eq(inviteCodes.redeemedByEmail, email),
+        isNotNull(inviteCodes.redeemedAt)
+      )
+    )
+    .limit(1);
+  return Boolean(invite);
+}
+
+/**
+ * 将邀请码原子绑定到邮箱。相同邮箱重试同一邀请码视为成功，方便外部服务失败后重试。
+ */
+export async function redeemInviteForEmail(
+  codeHash: string,
+  email: string
+): Promise<InviteCode | null> {
+  const db = await getDb();
+  const current = new Date();
+  if (!db) {
+    let claimed: InviteCode | null = null;
+    const operation = memoryInviteClaimQueue.then(async () => {
+      const invite = memoryState.inviteCodes.find(
+        item => item.codeHash === codeHash
+      );
+      if (!invite) return;
+      if (invite.redeemedAt) {
+        if (invite.redeemedByEmail === email) claimed = { ...invite };
+        return;
+      }
+      if (invite.expiresAt && invite.expiresAt < current) return;
+
+      invite.redeemedByEmail = email;
+      invite.redeemedAt = current;
+      claimed = { ...invite };
+      await persistMemoryState();
+    });
+    memoryInviteClaimQueue = operation.catch(() => {});
+    await operation;
+    return claimed;
+  }
+
+  const [existing] = await db
+    .select()
+    .from(inviteCodes)
+    .where(eq(inviteCodes.codeHash, codeHash))
+    .limit(1);
+  if (!existing) return null;
+  if (existing.redeemedAt) {
+    return existing.redeemedByEmail === email ? existing : null;
+  }
+  if (existing.expiresAt && existing.expiresAt < current) return null;
+
+  const result = await db
+    .update(inviteCodes)
+    .set({
+      redeemedByEmail: email,
+      redeemedAt: current,
+    })
+    .where(
+      and(
+        eq(inviteCodes.id, existing.id),
+        isNull(inviteCodes.redeemedAt),
+        or(isNull(inviteCodes.expiresAt), gte(inviteCodes.expiresAt, current))
+      )
+    );
+  if (result[0].affectedRows !== 1) {
+    const [claimed] = await db
+      .select()
+      .from(inviteCodes)
+      .where(eq(inviteCodes.id, existing.id))
+      .limit(1);
+    return claimed?.redeemedByEmail === email ? claimed : null;
+  }
+
+  return {
+    ...existing,
+    redeemedByEmail: email,
+    redeemedAt: current,
+  };
+}
+
+export async function bindRedeemedInviteToUser(
+  email: string,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    const invite = memoryState.inviteCodes.find(
+      item => item.redeemedByEmail === email && Boolean(item.redeemedAt)
+    );
+    if (!invite || invite.redeemedByUserId === userId) return;
+    invite.redeemedByUserId = userId;
+    await persistMemoryState();
+    return;
+  }
+
+  await db
+    .update(inviteCodes)
+    .set({ redeemedByUserId: userId })
+    .where(
+      and(
+        eq(inviteCodes.redeemedByEmail, email),
+        isNotNull(inviteCodes.redeemedAt)
+      )
+    );
 }

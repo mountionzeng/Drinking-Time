@@ -70,12 +70,24 @@ import {
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
 import {
+  mjVideoVariantLabel,
+  videoTakeCandidateToAdopt,
   videoTakeAffordance,
   videoTakeErrorMessage,
   videoTakeFrameUrl,
   videoTakeProgress,
 } from "@/features/creationEditor/videoAssetViewModel";
 import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
+import {
+  videoClipEditorTargetForTake,
+  videoClipEditorTargetForVisualClip,
+  type VideoClipEditorTarget,
+} from "@/features/creationEditor/videoClipEditorModel";
+import {
+  imageClipEditorTargetForShot,
+  timelineTransformStyle,
+  type ImageClipEditorTarget,
+} from "@/features/creationEditor/imageClipEditorModel";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
 import {
   estimateShotVideoCost,
@@ -83,6 +95,7 @@ import {
   type ShotDirectorResult,
 } from "@shared/shotDirector";
 import {
+  START_END_NEIGHBOR_FRAME_POLICY_VERSION,
   parseStartEndVideoConfig,
   type StartEndShotVideoEstimate,
 } from "@shared/startEndVideo";
@@ -275,6 +288,40 @@ export function storyboardVideoIntentPatch(
     negativePrompt: shot.negativePrompt ?? "",
     ...(generationParams ? { generationParams } : {}),
   };
+}
+
+export function storyboardRenderShotWithDraft(
+  creationShot: CreationEditorShot,
+  storyboardShot: StoryShot,
+  pendingDraft: Partial<Record<StoryboardMatrixField, string>> = {}
+): CreationEditorShot {
+  const displayedValues = STORYBOARD_MATRIX_ROWS.reduce<
+    Partial<Record<StoryboardMatrixField, string>>
+  >((patch, row) => {
+    const value = storyboardShot[row.field];
+    if (typeof value === "string") patch[row.field] = value;
+    return patch;
+  }, {});
+  return {
+    ...creationShot,
+    ...displayedValues,
+    ...pendingDraft,
+  };
+}
+
+export function storyboardRenderIntentSummary(
+  shot: Pick<CreationEditorShot, "action" | "cameraMove" | "cameraPath">
+): string {
+  const compact = (value: string | null | undefined) =>
+    (value ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+  return [
+    compact(shot.action) ? `画面动作：${compact(shot.action)}` : "",
+    compact(shot.cameraPath || shot.cameraMove)
+      ? `运镜：${compact(shot.cameraPath || shot.cameraMove)}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function quickShotVideoRenderPlan(
@@ -767,6 +814,183 @@ export function storyboardStartEndGenerationParams(
   });
 }
 
+type StoryboardNeighborFrameSource = {
+  generationParams?: string | null;
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[];
+  stableShotId?: string | null;
+  cueCode?: string | null;
+};
+
+function storyboardBoundaryImage(
+  source: StoryboardNeighborFrameSource | null | undefined,
+  boundary: "first" | "last"
+) {
+  if (!source) return null;
+  const ordered = Array.from(
+    new Map(
+      source.images
+        .filter(image => image.id > 0 && Boolean(image.imageUrl))
+        .map(image => [image.id, image])
+    ).values()
+  ).sort((left, right) => left.id - right.id);
+  if (ordered.length === 0) return null;
+  const configured = storyboardFrameRoleConfig(
+    source.generationParams,
+    ordered
+  );
+  const configuredId =
+    boundary === "first"
+      ? configured.firstImageId
+      : configured.lastImageId;
+  return (
+    ordered.find(image => image.id === configuredId) ??
+    (boundary === "first" ? ordered[0] : ordered.at(-1)) ??
+    null
+  );
+}
+
+export function storyboardInheritedStartEndGenerationParams(
+  generationParams: string | null | undefined,
+  currentImages: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
+  previousShot: StoryboardNeighborFrameSource | null | undefined,
+  nextShot: StoryboardNeighborFrameSource | null | undefined,
+  durationMs = 5_000
+): string | null {
+  const current = generationParamsRecord(generationParams);
+  const expectsStartEnd =
+    current.frameMode === "start_end" ||
+    current.providerIntent === "vidu-start-end" ||
+    Boolean(current.firstFrameFile) ||
+    Boolean(current.lastFrameFile);
+  if (!expectsStartEnd) return null;
+
+  const currentRoles = storyboardFrameRoleConfig(
+    generationParams,
+    currentImages
+  );
+  if (
+    currentRoles.firstImageId != null ||
+    currentRoles.lastImageId != null ||
+    currentRoles.referenceImageIds.length === 0
+  ) {
+    return null;
+  }
+
+  const previousLast = storyboardBoundaryImage(previousShot, "last");
+  const nextFirst = storyboardBoundaryImage(nextShot, "first");
+  if (!previousLast || !nextFirst || previousLast.id === nextFirst.id) {
+    return null;
+  }
+
+  const durationSec =
+    typeof current.durationSec === "number" &&
+    Number.isFinite(current.durationSec) &&
+    current.durationSec > 0
+      ? current.durationSec
+      : Math.max(1, Math.min(8, Math.round(durationMs / 1_000)));
+  const resolution = ["540p", "720p", "1080p"].includes(
+    String(current.resolution)
+  )
+    ? current.resolution
+    : "1080p";
+  const movementAmplitude = ["auto", "small", "medium", "large"].includes(
+    String(current.movementAmplitude)
+  )
+    ? current.movementAmplitude
+    : "auto";
+
+  return JSON.stringify({
+    ...current,
+    frameMode: "start_end",
+    firstFrameImageId: previousLast.id,
+    lastFrameImageId: nextFirst.id,
+    referenceFrameImageIds: currentRoles.referenceImageIds,
+    durationSec,
+    resolution,
+    movementAmplitude,
+    startEndFrameSources: {
+      policyVersion: START_END_NEIGHBOR_FRAME_POLICY_VERSION,
+      first: {
+        source: "previous-last",
+        imageId: previousLast.id,
+        stableShotId: previousShot?.stableShotId ?? null,
+        cueCode: previousShot?.cueCode ?? null,
+      },
+      last: {
+        source: "next-first",
+        imageId: nextFirst.id,
+        stableShotId: nextShot?.stableShotId ?? null,
+        cueCode: nextShot?.cueCode ?? null,
+      },
+    },
+  });
+}
+
+export function storyboardStartEndFrameIssue(
+  generationParams: string | null | undefined,
+  images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[]
+): string | null {
+  const current = generationParamsRecord(generationParams);
+  const expectsStartEnd =
+    current.frameMode === "start_end" ||
+    current.providerIntent === "vidu-start-end" ||
+    Boolean(current.firstFrameFile) ||
+    Boolean(current.lastFrameFile);
+  if (!expectsStartEnd) return null;
+
+  const inheritedSources =
+    current.startEndFrameSources &&
+    typeof current.startEndFrameSources === "object" &&
+    !Array.isArray(current.startEndFrameSources)
+      ? (current.startEndFrameSources as Record<string, unknown>)
+      : null;
+  const inheritedFirst =
+    inheritedSources?.first &&
+    typeof inheritedSources.first === "object" &&
+    !Array.isArray(inheritedSources.first)
+      ? (inheritedSources.first as Record<string, unknown>)
+      : null;
+  const inheritedLast =
+    inheritedSources?.last &&
+    typeof inheritedSources.last === "object" &&
+    !Array.isArray(inheritedSources.last)
+      ? (inheritedSources.last as Record<string, unknown>)
+      : null;
+  const parsedInheritedConfig = parseStartEndVideoConfig(current);
+  if (
+    parsedInheritedConfig &&
+    inheritedSources?.policyVersion ===
+      START_END_NEIGHBOR_FRAME_POLICY_VERSION &&
+    inheritedFirst?.source === "previous-last" &&
+    inheritedLast?.source === "next-first" &&
+    inheritedFirst.imageId === parsedInheritedConfig.firstFrameImageId &&
+    inheritedLast.imageId === parsedInheritedConfig.lastFrameImageId
+  ) {
+    return null;
+  }
+
+  const configured = storyboardFrameRoleConfig(generationParams, images);
+  const missingFirst = configured.firstImageId == null;
+  const missingLast = configured.lastImageId == null;
+  if (
+    !missingFirst &&
+    !missingLast &&
+    configured.firstImageId !== configured.lastImageId
+  ) {
+    return null;
+  }
+
+  const missingLabel =
+    missingFirst && missingLast
+      ? configured.referenceImageIds.length > 0
+        ? "只有中间参考图，缺少首帧和尾帧"
+        : "缺少首帧和尾帧"
+      : missingFirst
+        ? "缺少首帧"
+        : "缺少尾帧";
+  return `当前镜头${missingLabel}。请在“画面”里右键图片设置角色，或拖入新的首帧/尾帧后再生成；本次不会提交付费任务。`;
+}
+
 export function storyboardFrameOrderGenerationParams(
   generationParams: string | null | undefined,
   images: readonly Pick<CreationEditorImage, "id" | "imageUrl">[],
@@ -933,6 +1157,8 @@ export function StoryboardReviewBoard({
   onAdoptVideoTake,
   onMarkVideoTakeUnusable,
   onRemoveTimelineVideoClip,
+  onEditVideo,
+  onEditImage,
   onImportStoryMaterial,
   onUpdateShotFields,
   shotVideoProviderStatus = null,
@@ -997,6 +1223,8 @@ export function StoryboardReviewBoard({
     stableShotId: string;
     clipId: string;
   }) => Promise<void>;
+  onEditVideo?: (target: VideoClipEditorTarget) => void;
+  onEditImage?: (target: ImageClipEditorTarget) => void;
   onMoveStoryImage?: (input: {
     imageId: number;
     targetStableShotId: string;
@@ -1076,6 +1304,9 @@ export function StoryboardReviewBoard({
   const [adoptingVideoTakeId, setAdoptingVideoTakeId] = useState<number | null>(
     null
   );
+  const [previewVideoTakeByShot, setPreviewVideoTakeByShot] = useState<
+    Record<string, number>
+  >({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(
     null
@@ -1088,7 +1319,32 @@ export function StoryboardReviewBoard({
     targetIndex: number;
     field: StoryboardMatrixField;
   } | null>(null);
+  const matrixDraftsRef = useRef(
+    new Map<string, Partial<Record<StoryboardMatrixField, string>>>()
+  );
+  const videoSingleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   useEffect(() => setViewMode(defaultViewMode), [defaultViewMode]);
+  const cancelDeferredVideoSingleClick = useCallback(() => {
+    if (videoSingleClickTimerRef.current === null) return;
+    clearTimeout(videoSingleClickTimerRef.current);
+    videoSingleClickTimerRef.current = null;
+  }, []);
+  const deferVideoSingleClick = useCallback(
+    (action: () => void) => {
+      cancelDeferredVideoSingleClick();
+      videoSingleClickTimerRef.current = setTimeout(() => {
+        videoSingleClickTimerRef.current = null;
+        action();
+      }, 220);
+    },
+    [cancelDeferredVideoSingleClick]
+  );
+  useEffect(
+    () => () => cancelDeferredVideoSingleClick(),
+    [cancelDeferredVideoSingleClick]
+  );
   const boardRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const dragScrollFrameRef = useRef<number | null>(null);
@@ -1653,14 +1909,60 @@ export function StoryboardReviewBoard({
     }
     const stableShotId =
       creationShot.stableShotId ?? creationShot.shotIdentity ?? null;
+    const shotIndex = shots.findIndex(candidate => candidate === shot);
+    const draftKey =
+      (shotIndex >= 0 ? storyShotInsertIdentity(shot, shotIndex) : null) ??
+      stableShotId;
+    const effectiveShot = storyboardRenderShotWithDraft(
+      creationShot,
+      shot,
+      draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
+    );
+    const intentSummary = storyboardRenderIntentSummary(effectiveShot);
     setRerenderingShotNo(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
-      const derivedGenerationParams = storyboardStartEndGenerationParams(
-        creationShot.generationParams,
-        storyboardShotFrameImages(creationShot),
-        creationShot.durationMs
-      );
+      const currentFrameImages = storyboardShotFrameImages(effectiveShot);
+      const creationShotIndex = creationShots.findIndex(candidate => {
+        const candidateStableShotId =
+          candidate.stableShotId ?? candidate.shotIdentity ?? null;
+        return stableShotId
+          ? candidateStableShotId === stableShotId
+          : candidate === creationShot;
+      });
+      const neighborFrameSource = (
+        candidate: CreationEditorShot | undefined
+      ): StoryboardNeighborFrameSource | null =>
+        candidate
+          ? {
+              generationParams: candidate.generationParams,
+              images: storyboardShotFrameImages(candidate),
+              stableShotId:
+                candidate.stableShotId ?? candidate.shotIdentity ?? null,
+              cueCode: displayShotCode(candidate),
+            }
+          : null;
+      const derivedGenerationParams =
+        storyboardStartEndGenerationParams(
+          effectiveShot.generationParams,
+          currentFrameImages,
+          effectiveShot.durationMs
+        ) ??
+        storyboardInheritedStartEndGenerationParams(
+          effectiveShot.generationParams,
+          currentFrameImages,
+          neighborFrameSource(
+            creationShotIndex >= 0
+              ? creationShots[creationShotIndex - 1]
+              : undefined
+          ),
+          neighborFrameSource(
+            creationShotIndex >= 0
+              ? creationShots[creationShotIndex + 1]
+              : undefined
+          ),
+          effectiveShot.durationMs
+        );
       if (onUpdateShotFields && !stableShotId) {
         throw new Error(`${label} 缺少稳定镜头编号，无法先保存再重新渲染`);
       }
@@ -1668,16 +1970,16 @@ export function StoryboardReviewBoard({
         await onUpdateShotFields(
           stableShotId,
           storyboardVideoIntentPatch(
-            creationShot,
+            effectiveShot,
             derivedGenerationParams ?? undefined
           )
         );
       }
       const effectiveGenerationParams =
-        derivedGenerationParams ?? creationShot.generationParams;
+        derivedGenerationParams ?? effectiveShot.generationParams;
       const startEndConfig = parseStartEndVideoConfig(
         effectiveGenerationParams,
-        Math.max(0.1, (creationShot.durationMs ?? 5_000) / 1_000)
+        Math.max(0.1, (effectiveShot.durationMs ?? 5_000) / 1_000)
       );
       if (startEndConfig) {
         if (
@@ -1690,16 +1992,19 @@ export function StoryboardReviewBoard({
         const estimate = await onEstimateStartEndShotVideo(stableShotId);
         const usesLocalTransform =
           estimate.renderStrategy === "local-transform";
+        const frameConstraintNotice = estimate.frameConstraintWarning
+          ? `\n\n注意：${estimate.frameConstraintWarning}`
+          : "";
         const confirmed = window.confirm(
           usesLocalTransform
             ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，将使用当前动作、表演、运镜、衔接，以及首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
         );
         if (!confirmed) return;
         const result = (await onGenerateStartEndShotVideo({
-          shotNo: creationShot.shotNo,
+          shotNo: effectiveShot.shotNo,
           stableShotId,
-          rerenderRequestId: storyboardRerenderRequestId(creationShot.shotNo),
+          rerenderRequestId: storyboardRerenderRequestId(effectiveShot.shotNo),
           costConfirmation: {
             accepted: true,
             estimatedCny: estimate.estimatedCny,
@@ -1717,15 +2022,21 @@ export function StoryboardReviewBoard({
         return;
       }
 
+      const startEndFrameIssue = storyboardStartEndFrameIssue(
+        effectiveGenerationParams,
+        currentFrameImages
+      );
+      if (startEndFrameIssue) throw new Error(startEndFrameIssue);
+
       if (!onGenerateShotVideo) {
         throw new Error("视频生成链路尚未连接");
       }
-      if (creationShot.imageId == null || !creationShot.imageUrl) {
+      if (effectiveShot.imageId == null || !effectiveShot.imageUrl) {
         throw new Error(`${label} 需要先选择一张当前主图`);
       }
       const plan = quickShotVideoRenderPlan(
-        creationShot,
-        previousCreationShotsByNo.get(creationShot.shotNo) ?? []
+        effectiveShot,
+        previousCreationShotsByNo.get(effectiveShot.shotNo) ?? []
       );
       if (plan.missing.length > 0) {
         throw new Error(`${label} 还缺少：${plan.missing.join("、")}`);
@@ -1744,19 +2055,19 @@ export function StoryboardReviewBoard({
       const confirmed = window.confirm(
         plan.renderDecision.strategy === "local-transform"
           ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-          : `${label} 已先保存本镜文字。视频模型将使用当前的画面动作、表演、运镜、衔接和首尾画面重新渲染。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+          : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
       );
       if (!confirmed) return;
       const result = (await onGenerateShotVideo({
-        shotNo: creationShot.shotNo,
-        imageId: creationShot.imageId,
+        shotNo: effectiveShot.shotNo,
+        imageId: effectiveShot.imageId,
         prompt: plan.prompt,
-        subtitle: creationShot.dialogue || undefined,
+        subtitle: effectiveShot.dialogue || undefined,
         durationSec: plan.durationSec,
         motion: plan.motion,
         aspectRatio: plan.aspectRatio,
         directorPromptApproved: false,
-        rerenderRequestId: storyboardRerenderRequestId(creationShot.shotNo),
+        rerenderRequestId: storyboardRerenderRequestId(effectiveShot.shotNo),
         costConfirmation: {
           accepted: true,
           estimatedCny: plan.estimatedCny,
@@ -1914,6 +2225,7 @@ export function StoryboardReviewBoard({
               const videoPreviewTake = storyboardPreviewVideoTake(creationShot);
               const previewImageUrl =
                 image?.imageUrl ?? creationShot?.imageUrl ?? null;
+              const previewImageId = creationShot?.imageId ?? image?.id ?? null;
               const videoPosterUrl = videoPreviewTake
                 ? videoTakeFrameUrl(videoPreviewTake, "start")
                 : null;
@@ -2017,9 +2329,62 @@ export function StoryboardReviewBoard({
                     }}
                     onClick={event => {
                       event.stopPropagation();
+                      if (
+                        (videoPreviewTake && onEditVideo) ||
+                        (previewImageUrl && previewImageId && onEditImage)
+                      ) {
+                        deferVideoSingleClick(() =>
+                          openShotEditor(shot.shotNo)
+                        );
+                        return;
+                      }
                       openShotEditor(shot.shotNo);
                     }}
+                    onDoubleClick={event => {
+                      cancelDeferredVideoSingleClick();
+                      if (!insertStableShotId) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (videoPreviewTake && onEditVideo) {
+                        const target = videoClipEditorTargetForTake({
+                          stableShotId: insertStableShotId,
+                          shotNo: shot.shotNo,
+                          cueCode: shot.cueCode,
+                          label: `${displayShotCode(shot)} · Take ${videoPreviewTake.id}`,
+                          take: videoPreviewTake,
+                          timelineItem: creationShot?.timelineItem,
+                          posterUrl: videoPosterUrl,
+                        });
+                        if (target) onEditVideo(target);
+                        return;
+                      }
+                      if (
+                        creationShot &&
+                        previewImageId &&
+                        previewImageUrl &&
+                        onEditImage
+                      ) {
+                        onEditImage(
+                          imageClipEditorTargetForShot({
+                            shot: creationShot,
+                            stableShotId: insertStableShotId,
+                            imageId: previewImageId,
+                            imageUrl: previewImageUrl,
+                            label: `${displayShotCode(shot)} · 图片 #${previewImageId}`,
+                          })
+                        );
+                      }
+                    }}
                     aria-label={`编辑 ${displayShotCode(shot)}`}
+                    title={
+                      videoPreviewTake
+                        ? `${displayShotCode(shot)} · 双击编辑视频`
+                        : previewImageUrl && onEditImage
+                          ? `${displayShotCode(shot)} · 双击编辑图片`
+                          : `编辑 ${displayShotCode(shot)}`
+                    }
                   >
                     {videoPreviewTake?.videoUrl ? (
                       <StoryboardVideoThumbnail
@@ -2035,6 +2400,9 @@ export function StoryboardReviewBoard({
                         alt={`${displayShotCode(shot)} ${title}`}
                         draggable={false}
                         className="h-full w-full object-cover"
+                        style={timelineTransformStyle(
+                          creationShot?.timelineItem?.transform
+                        )}
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground">
@@ -2299,7 +2667,7 @@ export function StoryboardReviewBoard({
                     background: "var(--background)",
                   }}
                 >
-                  首尾画面
+                  画面
                 </div>
                 {shots.map((shot, index) => {
                   const image = frameByShotNo.get(shot.shotNo);
@@ -2338,8 +2706,12 @@ export function StoryboardReviewBoard({
                         take.status !== "unfollowable"
                     )
                     .slice(0, 3);
-                  const readyCandidate = playableTakes.find(
-                    take => !take.isTimelineSelected
+                  const explicitlySelectedTakeId = insertStableShotId
+                    ? previewVideoTakeByShot[insertStableShotId]
+                    : undefined;
+                  const readyCandidate = videoTakeCandidateToAdopt(
+                    playableTakes,
+                    explicitlySelectedTakeId
                   );
                   const isSubmittingVideo =
                     rerenderingShotNo === shot.shotNo ||
@@ -2379,7 +2751,7 @@ export function StoryboardReviewBoard({
                       )}
                       aria-busy={isImportingMedia}
                       data-storyboard-media-drop-target={displayShotCode(shot)}
-                      className="relative h-14 min-w-0 border-b border-r p-1.5"
+                      className="relative h-[75px] min-w-0 border-b border-r p-2"
                       style={{
                         borderColor:
                           "color-mix(in srgb, var(--panel-border) 62%, transparent)",
@@ -2403,13 +2775,13 @@ export function StoryboardReviewBoard({
                         />
                       ) : null}
                       <div
-                        className="flex h-11 items-center gap-1 overflow-x-auto overflow-y-hidden custom-scrollbar"
+                        className="flex h-[59px] items-center gap-1 overflow-x-auto overflow-y-hidden custom-scrollbar"
                         data-storyboard-media-layout="start-end-strip"
                         data-storyboard-media-height="fixed"
                       >
                         {isSubmittingVideo && statusTakes.length === 0 ? (
                           <div
-                            className="flex h-11 w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300"
+                            className="flex h-[59px] w-[72px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300"
                             data-video-take-stage="submitting"
                             title="正在保存镜头信息并提交视频任务"
                           >
@@ -2459,7 +2831,7 @@ export function StoryboardReviewBoard({
                                     )
                                   );
                               }}
-                              className={`flex h-11 w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm px-1 text-center ${
+                              className={`flex h-[59px] w-[72px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm px-1 text-center ${
                                 failed
                                   ? "bg-destructive/10 text-destructive"
                                   : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
@@ -2529,7 +2901,7 @@ export function StoryboardReviewBoard({
                                     insertStableShotId && onMoveStoryImage
                                   )}
                                   data-storyboard-frame-role={frameRole}
-                                  className={`relative order-3 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                  className={`relative order-3 h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
                                     movingImageId === frame.id || isUpdating
                                       ? "opacity-45"
                                       : ""
@@ -2556,22 +2928,51 @@ export function StoryboardReviewBoard({
                                     stopStoryboardDragScroll();
                                     setImageFrameDropTargetId(null);
                                   }}
-                                  onClick={() => {
-                                    onSelectShot?.(shot.shotNo);
-                                    setPreviewMedia({
-                                      kind: "image",
-                                      url: frame.imageUrl,
-                                      label: `${displayShotCode(shot)} ${frameRole}`,
-                                    });
+                                  onClick={() =>
+                                    deferVideoSingleClick(() => {
+                                      onSelectShot?.(shot.shotNo);
+                                      setPreviewMedia({
+                                        kind: "image",
+                                        url: frame.imageUrl,
+                                        label: `${displayShotCode(shot)} ${frameRole}`,
+                                        transform:
+                                          creationShot?.timelineItem
+                                            ?.transform,
+                                      });
+                                    })
+                                  }
+                                  onDoubleClick={event => {
+                                    cancelDeferredVideoSingleClick();
+                                    if (
+                                      !onEditImage ||
+                                      !creationShot ||
+                                      !insertStableShotId
+                                    ) {
+                                      return;
+                                    }
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onEditImage(
+                                      imageClipEditorTargetForShot({
+                                        shot: creationShot,
+                                        stableShotId: insertStableShotId,
+                                        imageId: frame.id,
+                                        imageUrl: frame.imageUrl,
+                                        label: `${displayShotCode(shot)} · ${frameRole}`,
+                                      })
+                                    );
                                   }}
                                   aria-label={`查看 ${displayShotCode(shot)} ${frameRole}`}
-                                  title={`${frameRole} · 图片 #${frame.id} · 可右键设置角色，可拖到其他镜头`}
+                                  title={`${frameRole} · 图片 #${frame.id} · 双击编辑 · 可右键设置角色，可拖到其他镜头`}
                                 >
                                   <img
                                     src={frame.imageUrl}
                                     alt={`${displayShotCode(shot)} ${frameRole}`}
                                     draggable={false}
                                     className="h-full w-full object-cover"
+                                    style={timelineTransformStyle(
+                                      creationShot?.timelineItem?.transform
+                                    )}
                                   />
                                   {isUpdating ? (
                                     <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
@@ -2681,20 +3082,46 @@ export function StoryboardReviewBoard({
                               <ContextMenu.Trigger asChild>
                                 <button
                                   type="button"
-                                  className={`relative order-4 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                  className={`relative order-4 h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
                                     isRemoving ? "opacity-45" : ""
                                   }`}
-                                  onClick={() => {
-                                    onSelectShot?.(shot.shotNo);
-                                    setPreviewMedia({
-                                      kind: "video",
-                                      url: clip.videoUrl,
-                                      poster,
-                                      label: `${displayShotCode(shot)} ${clip.label}`,
-                                    });
+                                  onClick={() =>
+                                    deferVideoSingleClick(() => {
+                                      onSelectShot?.(shot.shotNo);
+                                      setPreviewMedia({
+                                        kind: "video",
+                                        url: clip.videoUrl,
+                                        poster,
+                                        label: `${displayShotCode(shot)} ${clip.label}`,
+                                      });
+                                    })
+                                  }
+                                  onDoubleClick={event => {
+                                    cancelDeferredVideoSingleClick();
+                                    if (!onEditVideo || !insertStableShotId) {
+                                      return;
+                                    }
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const take = creationShot?.videoTakes?.find(
+                                      item => item.id === clip.takeId
+                                    );
+                                    onEditVideo(
+                                      videoClipEditorTargetForVisualClip({
+                                        stableShotId: insertStableShotId,
+                                        shotNo: shot.shotNo,
+                                        cueCode: shot.cueCode,
+                                        label: `${displayShotCode(shot)} · ${clip.label}`,
+                                        clip,
+                                        timelineItem:
+                                          creationShot?.timelineItem,
+                                        mediaDurationSec: take?.durationSec,
+                                        posterUrl: poster,
+                                      })
+                                    );
                                   }}
                                   aria-label={`播放 ${displayShotCode(shot)} ${clip.label}`}
-                                  title={`${clip.label} · 时间线切片 ${clipIndex + 1} · 右键可移除`}
+                                  title={`${clip.label} · 双击编辑 · 右键可移除`}
                                 >
                                   <img
                                     src={poster}
@@ -2763,7 +3190,7 @@ export function StoryboardReviewBoard({
                                     className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
-                                    从首尾画面移除
+                                    从画面移除
                                   </ContextMenu.Item>
                                 </ContextMenu.Content>
                               </ContextMenu.Portal>
@@ -2772,6 +3199,12 @@ export function StoryboardReviewBoard({
                         })}
                         {playableTakes.map(take => {
                           if (!take.videoUrl) return null;
+                          const variantLabel = mjVideoVariantLabel(take);
+                          const previewSelected = Boolean(
+                            insertStableShotId &&
+                              previewVideoTakeByShot[insertStableShotId] ===
+                                take.id
+                          );
                           const selectedTake = Boolean(
                             take.isTimelineSelected ||
                               creationShot?.selectedVideoTake?.id === take.id
@@ -2788,7 +3221,7 @@ export function StoryboardReviewBoard({
                                   draggable={Boolean(
                                     insertStableShotId && onMoveVideoTake
                                   )}
-                                  className={`relative order-1 h-11 w-11 shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                  className={`relative order-1 h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
                                     movingVideoTakeId === take.id || isRemoving
                                       ? "opacity-45"
                                       : ""
@@ -2815,24 +3248,56 @@ export function StoryboardReviewBoard({
                                     stopStoryboardDragScroll();
                                     setVideoTakeDropTargetId(null);
                                   }}
-                                  onClick={() => {
-                                    onSelectShot?.(shot.shotNo);
-                                    setPreviewMedia({
-                                      kind: "video",
-                                      url: take.videoUrl ?? "",
-                                      poster,
-                                      label: `${displayShotCode(shot)} Take ${take.id}`,
-                                    });
+                                  onClick={() =>
+                                    deferVideoSingleClick(() => {
+                                      onSelectShot?.(shot.shotNo);
+                                      if (insertStableShotId) {
+                                        setPreviewVideoTakeByShot(current => ({
+                                          ...current,
+                                          [insertStableShotId]: take.id,
+                                        }));
+                                      }
+                                      setPreviewMedia({
+                                        kind: "video",
+                                        url: take.videoUrl ?? "",
+                                        poster,
+                                        label: `${displayShotCode(shot)} Take ${take.id}`,
+                                      });
+                                    })
+                                  }
+                                  onDoubleClick={event => {
+                                    cancelDeferredVideoSingleClick();
+                                    if (!onEditVideo || !insertStableShotId) {
+                                      return;
+                                    }
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const target = videoClipEditorTargetForTake(
+                                      {
+                                        stableShotId: insertStableShotId,
+                                        shotNo: shot.shotNo,
+                                        cueCode: shot.cueCode,
+                                        label: `${displayShotCode(shot)} · Take ${take.id}`,
+                                        take,
+                                        timelineItem:
+                                          creationShot?.timelineItem,
+                                        posterUrl: poster,
+                                      }
+                                    );
+                                    if (target) onEditVideo(target);
                                   }}
                                   aria-label={`播放 ${displayShotCode(shot)} Take ${take.id}`}
-                                  title={`${progress.label} · Take ${take.id} · 可拖到其他镜头，右键可移除`}
+                                  title={`${progress.label} · Take ${take.id} · 双击编辑 · 可拖动`}
                                   data-video-take-stage={progress.stage}
                                   data-video-take-id={take.id}
                                 >
                                   <StoryboardVideoThumbnail
                                     src={take.videoUrl}
                                     poster={poster}
-                                    active={selected && selectedTake}
+                                    active={
+                                      selected &&
+                                      (selectedTake || previewSelected)
+                                    }
                                     label={`${displayShotCode(shot)} Take ${take.id}`}
                                     className="h-full w-full object-cover"
                                   />
@@ -2842,7 +3307,7 @@ export function StoryboardReviewBoard({
                                     </span>
                                   ) : null}
                                   <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                    {progress.label}
+                                    {variantLabel ?? progress.label}
                                   </span>
                                 </button>
                               </ContextMenu.Trigger>
@@ -2888,7 +3353,7 @@ export function StoryboardReviewBoard({
                                     className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs text-destructive outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-destructive/10 data-[disabled]:opacity-45"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
-                                    从首尾画面移除
+                                    从画面移除
                                   </ContextMenu.Item>
                                 </ContextMenu.Content>
                               </ContextMenu.Portal>
@@ -2932,9 +3397,9 @@ export function StoryboardReviewBoard({
                                   )
                                 );
                             }}
-                            className="order-2 flex h-11 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-50 dark:text-emerald-300"
+                            className="order-2 flex h-[59px] w-9 shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-50 dark:text-emerald-300"
                             aria-label={`采用 ${displayShotCode(shot)} Take ${readyCandidate.id}`}
-                            title={`采用 Take ${readyCandidate.id} 进入时间线`}
+                            title={`采用 ${mjVideoVariantLabel(readyCandidate) ?? `Take ${readyCandidate.id}`} 进入时间线`}
                           >
                             {adoptingVideoTakeId === readyCandidate.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2949,7 +3414,7 @@ export function StoryboardReviewBoard({
                         {frameImages.length === 0 &&
                         timelineVisualClips.length === 0 &&
                         playableTakes.length === 0 ? (
-                          <div className="flex h-11 min-w-0 flex-1 items-center gap-1.5 px-1 text-[8px] text-muted-foreground">
+                          <div className="flex h-[59px] min-w-0 flex-1 items-center gap-1.5 px-1 text-[8px] text-muted-foreground">
                             {isGeneratingScript ? (
                               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                             ) : (
@@ -3001,9 +3466,35 @@ export function StoryboardReviewBoard({
                           dropTarget={dropTarget}
                           editable={Boolean(onUpdateShotField)}
                           onFocus={() => onSelectShot?.(shot.shotNo)}
-                          onCommit={value =>
-                            onUpdateShotField?.(index, row.field, value)
-                          }
+                          onInputValue={value => {
+                            const key = storyShotInsertIdentity(shot, index);
+                            if (!key) return;
+                            const current =
+                              matrixDraftsRef.current.get(key) ?? {};
+                            const next = { ...current, [row.field]: value };
+                            matrixDraftsRef.current.set(key, next);
+                          }}
+                          onCommit={async value => {
+                            const key = storyShotInsertIdentity(shot, index);
+                            try {
+                              await onUpdateShotField?.(
+                                index,
+                                row.field,
+                                value
+                              );
+                            } finally {
+                              if (!key) return;
+                              const current = matrixDraftsRef.current.get(key);
+                              if (current?.[row.field] !== value) return;
+                              const next = { ...current };
+                              delete next[row.field];
+                              if (Object.keys(next).length === 0) {
+                                matrixDraftsRef.current.delete(key);
+                              } else {
+                                matrixDraftsRef.current.set(key, next);
+                              }
+                            }
+                          }}
                           onDragStart={event => {
                             setDraggedMatrixCell({
                               sourceIndex: index,

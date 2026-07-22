@@ -12,10 +12,10 @@ import {
   useMemo,
   useRef,
   type ReactNode,
-} from 'react';
-import { toast } from 'sonner';
+} from "react";
+import { toast } from "sonner";
 // normalizeImageProvider / ImageProvider 的使用已随出图渠道助手搬到 ./storyAgentImageProvider。
-import { trpc } from '@/lib/trpc';
+import { trpc } from "@/lib/trpc";
 import {
   // OPENING_MESSAGE 现仅被 ./storyAgentPersistence 的 emptyState 使用，本文件不再直接引用。
   buildReturningGreeting,
@@ -28,24 +28,29 @@ import {
   type StoryShot,
   type SelectionState,
   type VisualCanvasItem,
-} from './types';
-import { buildStoryChatSummary } from './chatStoryContext';
-import type { GeneratedImageItem } from '@/features/mobileChat/types';
+} from "./types";
+import { buildStoryChatSummary } from "./chatStoryContext";
+import type { GeneratedImageItem } from "@/features/mobileChat/types";
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
-import { getSimilarCards } from './storyCardSimilarity';
-import { removeStoryCardFromSnapshot } from './storyCardDeletion';
-import { newId, cardTitle, normalizeVisualCanvasItem, fileToBase64 } from './storyAgentUtils';
-import { generateStoryboardDraftFrames } from './storyboardDrafts';
+import { getSimilarCards } from "./storyCardSimilarity";
+import { removeStoryCardFromSnapshot } from "./storyCardDeletion";
+import {
+  newId,
+  cardTitle,
+  normalizeVisualCanvasItem,
+  fileToBase64,
+} from "./storyAgentUtils";
+import { generateStoryboardDraftFrames } from "./storyboardDrafts";
 import {
   buildCardPhotoMap,
   buildInheritedPhotoReference,
   reconcileInheritedPhotos,
-} from './inheritedPhoto';
+} from "./inheritedPhoto";
 import {
   type ImageProviderSelection,
   normalizeImageProviderSelection,
   imageProviderForRequest,
-} from './storyAgentImageProvider';
+} from "./storyAgentImageProvider";
 import {
   type PersistedState,
   storageKey,
@@ -55,25 +60,25 @@ import {
   hasStoryWork,
   activeStoryIdFrom,
   hasLiveStoryWork,
-} from './storyAgentPersistence';
+} from "./storyAgentPersistence";
 import {
   defaultArtRecipe,
   emptyStoryArtDirection,
   normalizeStoryArtDirection,
   type StoryArtDirection,
-} from '@shared/artDirection';
-import { buildStoryArtReferences } from './storyArtReferences';
-import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
+} from "@shared/artDirection";
+import { buildStoryArtReferences } from "./storyArtReferences";
+import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
 import {
   storySpineStore,
   useStorySpine,
   type StoryListItem,
   type StorySaveStatus,
-} from './spine/storySpine';
-import { createActionFacade } from './spine/actionFacade';
-import { selectPromptPool } from './spine/selectors';
-import { resolveSelectionPromptTarget } from './selectionPromptCandidate';
-import { mergeStoryConversationMessages } from './storyConversationStore';
+} from "./spine/storySpine";
+import { createActionFacade } from "./spine/actionFacade";
+import { selectPromptPool } from "./spine/selectors";
+import { resolveSelectionPromptTarget } from "./selectionPromptCandidate";
+import { mergeStoryConversationMessages } from "./storyConversationStore";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -94,7 +99,7 @@ export type GenerationProfileArg = {
   } | null;
   artStyle?: {
     id?: string;
-    source?: 'preset' | 'library';
+    source?: "preset" | "library";
     title?: string;
     description?: string | null;
     libraryVersionId?: number | null;
@@ -116,11 +121,17 @@ export type GenerationProfileArg = {
 
 export type StoryChatIntentArg = Pick<
   StoryIntent,
-  'purpose' | 'audience' | 'platform' | 'tone' | 'desiredEffect' | 'targetRole' | 'channel'
+  | "purpose"
+  | "audience"
+  | "platform"
+  | "tone"
+  | "desiredEffect"
+  | "targetRole"
+  | "channel"
 >;
 
 export function buildChatIntentPayload(
-  confirmedIntent: StoryIntent | null | undefined,
+  confirmedIntent: StoryIntent | null | undefined
 ): StoryChatIntentArg | undefined {
   if (!confirmedIntent) return undefined;
   return {
@@ -136,26 +147,27 @@ export function buildChatIntentPayload(
 
 export function resolveScriptIntent(
   overrideIntent: ScriptIntentArg | null | undefined,
-  confirmedIntent: StoryIntent | null,
+  confirmedIntent: StoryIntent | null
 ): StoryIntent | undefined {
   return overrideIntent ?? confirmedIntent ?? undefined;
 }
 
-type StoryCardConfirmationInput = Pick<StoryCard, 'id' | 'content'>;
+type StoryCardConfirmationInput = Pick<StoryCard, "id" | "content">;
 
 export function fictionStoryCardSignature(
-  cards: ReadonlyArray<StoryCardConfirmationInput>,
+  cards: ReadonlyArray<StoryCardConfirmationInput>
 ): string {
   return cards
-    .map((card) => `${card.id}:${card.content.trim().replace(/\s+/g, ' ')}`)
-    .join('|');
+    .map(card => `${card.id}:${card.content.trim().replace(/\s+/g, " ")}`)
+    .join("|");
 }
 
 export function isFictionStoryCardConfirmed(
   intent: StoryIntent | null | undefined,
-  cards: ReadonlyArray<StoryCardConfirmationInput>,
+  cards: ReadonlyArray<StoryCardConfirmationInput>
 ): boolean {
-  if (!intent || intent.purpose !== 'fiction' || cards.length === 0) return false;
+  if (!intent || intent.purpose !== "fiction" || cards.length === 0)
+    return false;
   return (
     intent.fictionStoryCardConfirmed === true &&
     intent.fictionStoryCardSignature === fictionStoryCardSignature(cards)
@@ -164,9 +176,9 @@ export function isFictionStoryCardConfirmed(
 
 export function confirmFictionStoryCardsForIntent(
   intent: StoryIntent,
-  cards: ReadonlyArray<StoryCardConfirmationInput>,
+  cards: ReadonlyArray<StoryCardConfirmationInput>
 ): StoryIntent {
-  if (intent.purpose !== 'fiction') return intent;
+  if (intent.purpose !== "fiction") return intent;
   return {
     ...intent,
     fictionStoryCardConfirmed: true,
@@ -174,17 +186,24 @@ export function confirmFictionStoryCardsForIntent(
   };
 }
 
-export function clearFictionStoryCardConfirmation(intent: StoryIntent | null): StoryIntent | null {
-  if (!intent || intent.purpose !== 'fiction') return intent;
-  if (!intent.fictionStoryCardConfirmed && !intent.fictionStoryCardSignature) return intent;
-  const { fictionStoryCardConfirmed, fictionStoryCardSignature, ...rest } = intent;
+export function clearFictionStoryCardConfirmation(
+  intent: StoryIntent | null
+): StoryIntent | null {
+  if (!intent || intent.purpose !== "fiction") return intent;
+  if (!intent.fictionStoryCardConfirmed && !intent.fictionStoryCardSignature)
+    return intent;
+  const { fictionStoryCardConfirmed, fictionStoryCardSignature, ...rest } =
+    intent;
   void fictionStoryCardConfirmed;
   void fictionStoryCardSignature;
   return rest;
 }
 
 export const SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD = 0.6;
-const SOFT_CONFIRM_INTENT_PURPOSES = new Set(['linkedin_job_search', 'fiction']);
+const SOFT_CONFIRM_INTENT_PURPOSES = new Set([
+  "linkedin_job_search",
+  "fiction",
+]);
 
 export function shouldTriggerIntentRecognition({
   messages,
@@ -197,25 +216,31 @@ export function shouldTriggerIntentRecognition({
 }): boolean {
   if (confirmedIntent || pendingIntentDraft) return false;
   return !messages.some(
-    (message) => message.role === 'user' && (message.content.trim() || message.photoUrl),
+    message =>
+      message.role === "user" && (message.content.trim() || message.photoUrl)
   );
 }
 
-export function recognitionToPendingIntent(intent: StoryIntent): StoryIntent | null {
+export function recognitionToPendingIntent(
+  intent: StoryIntent
+): StoryIntent | null {
   if (!SOFT_CONFIRM_INTENT_PURPOSES.has(intent.purpose)) return null;
-  if ((intent.confidence ?? 0) < SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD) return null;
+  if ((intent.confidence ?? 0) < SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD)
+    return null;
   return intent;
 }
 
-export function recognitionToPendingJobIntent(intent: StoryIntent): StoryIntent | null {
+export function recognitionToPendingJobIntent(
+  intent: StoryIntent
+): StoryIntent | null {
   const pending = recognitionToPendingIntent(intent);
-  return pending?.purpose === 'linkedin_job_search' ? pending : null;
+  return pending?.purpose === "linkedin_job_search" ? pending : null;
 }
 
 export function warnIntentRecognitionError(error: unknown) {
   console.warn(
-    '[storyAgent.intent] recognizeIntent failed:',
-    error instanceof Error ? error.message : error,
+    "[storyAgent.intent] recognizeIntent failed:",
+    error instanceof Error ? error.message : error
   );
 }
 
@@ -227,14 +252,14 @@ export function resolvePersistedStoryId(
 
 export function storyScopeMatches(
   expectedStoryId: number | null,
-  currentStoryId: number | null,
+  currentStoryId: number | null
 ): boolean {
   return expectedStoryId === currentStoryId;
 }
 
 export function canPersistStoryToActiveScope(
   persistedStoryId: number | null | undefined,
-  activeStoryId: number | null,
+  activeStoryId: number | null
 ): boolean {
   if (activeStoryId === null) return false;
   if (persistedStoryId == null) return activeStoryId < 0;
@@ -242,52 +267,52 @@ export function canPersistStoryToActiveScope(
 }
 
 export type StoryShotEditableField =
-  | 'cueCode'
-  | 'actNo'
-  | 'subject'
-  | 'action'
-  | 'performance'
-  | 'environmentMotion'
-  | 'dialogue'
-  | 'emotion'
-  | 'intent'
-  | 'rationale'
-  | 'beat'
-  | 'shotType'
-  | 'cameraAngle'
-  | 'cameraMove'
-  | 'cameraHeight'
-  | 'lens'
-  | 'cameraPath'
-  | 'subjectPath'
-  | 'location'
-  | 'timeLight'
-  | 'lighting'
-  | 'colorPalette'
-  | 'materialTexture'
-  | 'mood'
-  | 'sound'
-  | 'soundBridge'
-  | 'styleRef'
-  | 'note'
-  | 'videoStart'
-  | 'videoEnd'
-  | 'transitionIn'
-  | 'transitionOut'
-  | 'transitionIntent'
-  | 'videoPrompt'
-  | 'emotionCharge'
-  | 'emotionDelta'
-  | 'visualAnchorText'
-  | 'promptDraft'
-  | 'negativePrompt'
-  | 'characterReference'
-  | 'wardrobeReference'
-  | 'hairReference'
-  | 'sceneReference'
-  | 'textureReference'
-  | 'generationModel'
-  | 'generationParams';
+  | "cueCode"
+  | "actNo"
+  | "subject"
+  | "action"
+  | "performance"
+  | "environmentMotion"
+  | "dialogue"
+  | "emotion"
+  | "intent"
+  | "rationale"
+  | "beat"
+  | "shotType"
+  | "cameraAngle"
+  | "cameraMove"
+  | "cameraHeight"
+  | "lens"
+  | "cameraPath"
+  | "subjectPath"
+  | "location"
+  | "timeLight"
+  | "lighting"
+  | "colorPalette"
+  | "materialTexture"
+  | "mood"
+  | "sound"
+  | "soundBridge"
+  | "styleRef"
+  | "note"
+  | "videoStart"
+  | "videoEnd"
+  | "transitionIn"
+  | "transitionOut"
+  | "transitionIntent"
+  | "videoPrompt"
+  | "emotionCharge"
+  | "emotionDelta"
+  | "visualAnchorText"
+  | "promptDraft"
+  | "negativePrompt"
+  | "characterReference"
+  | "wardrobeReference"
+  | "hairReference"
+  | "sceneReference"
+  | "textureReference"
+  | "generationModel"
+  | "generationParams";
 
 interface StoryAgentContextValue {
   messages: ChatMessage[];
@@ -306,30 +331,44 @@ interface StoryAgentContextValue {
   confirmPendingIntent: () => void;
   dismissPendingIntent: () => void;
   confirmFictionStoryCards: () => void;
-  sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
+  sendMessage: (
+    text: string,
+    photoBase64?: string,
+    photoMimeType?: string
+  ) => Promise<void>;
   reorderCards: (newOrder: StoryCard[]) => void;
   removeCard: (id: string) => void;
   /** Inline-edit a single card's content; persists locally + to the server. */
   updateCardContent: (id: string, content: string) => void;
   /** Inline-edit the latest script's title / logline / arc; persists. */
-  updateScriptMeta: (field: 'title' | 'logline' | 'arcSummary', value: string) => void;
+  updateScriptMeta: (
+    field: "title" | "logline" | "arcSummary",
+    value: string
+  ) => void;
   /** Inline-edit one scene of the latest script; persists. */
-  updateScriptScene: (sceneIndex: number, field: 'visual' | 'emotion', value: string) => void;
+  updateScriptScene: (
+    sceneIndex: number,
+    field: "visual" | "emotion",
+    value: string
+  ) => void;
   /** Inline-edit a single shot's script field (subject/action/dialogue); persists. */
   updateStoryShotField: (
     index: number,
     field: StoryShotEditableField,
-    value: string,
+    value: string
   ) => void;
   insertStoryShotAfter: (
     shotNo: number,
-    stableShotId?: string | null,
+    stableShotId?: string | null
   ) => Promise<number | null>;
   updateAllStoryShotField: (
     field: StoryShotEditableField,
-    value: string,
+    value: string
   ) => void;
-  generateScript: (intent?: ScriptIntentArg, profile?: GenerationProfileArg) => Promise<void>;
+  generateScript: (
+    intent?: ScriptIntentArg,
+    profile?: GenerationProfileArg
+  ) => Promise<void>;
   resetConversation: () => void;
   /** Story list management */
   activeStoryId: number | null;
@@ -362,9 +401,18 @@ interface StoryAgentContextValue {
   artDirection: StoryArtDirection;
   setImageProvider: (provider: ImageProviderSelection) => void;
   isArtWorking: boolean;
-  addVisualReference: (file: File, instruction?: string, cardId?: string) => Promise<void>;
+  addVisualReference: (
+    file: File,
+    instruction?: string,
+    cardId?: string
+  ) => Promise<void>;
   refineVisualItem: (id: string, instruction: string) => Promise<void>;
-  updateVisualCanvasItem: (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => void;
+  updateVisualCanvasItem: (
+    id: string,
+    patch: Partial<
+      Pick<VisualCanvasItem, "x" | "y" | "width" | "height" | "title">
+    >
+  ) => void;
   removeVisualCanvasItem: (id: string) => void;
   setCharacterReferenceByUrl: (imageUrl: string, label?: string) => void;
   /** Inline selection edit */
@@ -377,7 +425,7 @@ interface StoryAgentContextValue {
   confirmEditingTransitionCandidate: (messageId: string) => Promise<void>;
   rejectEditingTransitionCandidate: (messageId: string) => Promise<void>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
-  promptPool: import('./promptPool').PromptFragment[];
+  promptPool: import("./promptPool").PromptFragment[];
   /** 更新某镜引用的片段 ID 列表 */
   updateShotFragmentRefs: (shotIndex: number, fragmentIds: string[]) => void;
 }
@@ -385,84 +433,87 @@ interface StoryAgentContextValue {
 const StoryAgentContext = createContext<StoryAgentContextValue | null>(null);
 
 type StoryAgentActionKey =
-  | 'setConfirmedIntent'
-  | 'clearIntent'
-  | 'confirmPendingIntent'
-  | 'dismissPendingIntent'
-  | 'confirmFictionStoryCards'
-  | 'sendMessage'
-  | 'reorderCards'
-  | 'removeCard'
-  | 'updateCardContent'
-  | 'updateScriptMeta'
-  | 'updateScriptScene'
-  | 'updateStoryShotField'
-  | 'insertStoryShotAfter'
-  | 'updateAllStoryShotField'
-  | 'generateScript'
-  | 'resetConversation'
-  | 'loadStory'
-  | 'createNewStory'
-  | 'backToList'
-  | 'deleteStory'
-  | 'refreshStoryList'
-  | 'setImageProvider'
-  | 'addVisualReference'
-  | 'refineVisualItem'
-  | 'updateVisualCanvasItem'
-  | 'removeVisualCanvasItem'
-  | 'setCharacterReferenceByUrl'
-  | 'setActiveSelection'
-  | 'clearSelection'
-  | 'sendSelectionEdit'
-  | 'confirmSelectionCandidate'
-  | 'rejectSelectionCandidate'
-  | 'confirmEditingTransitionCandidate'
-  | 'rejectEditingTransitionCandidate'
-  | 'addStoryImage'
-  | 'removeStoryImage'
-  | 'updateShotFragmentRefs';
+  | "setConfirmedIntent"
+  | "clearIntent"
+  | "confirmPendingIntent"
+  | "dismissPendingIntent"
+  | "confirmFictionStoryCards"
+  | "sendMessage"
+  | "reorderCards"
+  | "removeCard"
+  | "updateCardContent"
+  | "updateScriptMeta"
+  | "updateScriptScene"
+  | "updateStoryShotField"
+  | "insertStoryShotAfter"
+  | "updateAllStoryShotField"
+  | "generateScript"
+  | "resetConversation"
+  | "loadStory"
+  | "createNewStory"
+  | "backToList"
+  | "deleteStory"
+  | "refreshStoryList"
+  | "setImageProvider"
+  | "addVisualReference"
+  | "refineVisualItem"
+  | "updateVisualCanvasItem"
+  | "removeVisualCanvasItem"
+  | "setCharacterReferenceByUrl"
+  | "setActiveSelection"
+  | "clearSelection"
+  | "sendSelectionEdit"
+  | "confirmSelectionCandidate"
+  | "rejectSelectionCandidate"
+  | "confirmEditingTransitionCandidate"
+  | "rejectEditingTransitionCandidate"
+  | "addStoryImage"
+  | "removeStoryImage"
+  | "updateShotFragmentRefs";
 
-export type StoryAgentActions = Pick<StoryAgentContextValue, StoryAgentActionKey>;
+export type StoryAgentActions = Pick<
+  StoryAgentContextValue,
+  StoryAgentActionKey
+>;
 
 const storyAgentActionKeys = [
-  'setConfirmedIntent',
-  'clearIntent',
-  'confirmPendingIntent',
-  'dismissPendingIntent',
-  'confirmFictionStoryCards',
-  'sendMessage',
-  'reorderCards',
-  'removeCard',
-  'updateCardContent',
-  'updateScriptMeta',
-  'updateScriptScene',
-  'updateStoryShotField',
-  'insertStoryShotAfter',
-  'updateAllStoryShotField',
-  'generateScript',
-  'resetConversation',
-  'loadStory',
-  'createNewStory',
-  'backToList',
-  'deleteStory',
-  'refreshStoryList',
-  'setImageProvider',
-  'addVisualReference',
-  'refineVisualItem',
-  'updateVisualCanvasItem',
-  'removeVisualCanvasItem',
-  'setCharacterReferenceByUrl',
-  'setActiveSelection',
-  'clearSelection',
-  'sendSelectionEdit',
-  'confirmSelectionCandidate',
-  'rejectSelectionCandidate',
-  'confirmEditingTransitionCandidate',
-  'rejectEditingTransitionCandidate',
-  'addStoryImage',
-  'removeStoryImage',
-  'updateShotFragmentRefs',
+  "setConfirmedIntent",
+  "clearIntent",
+  "confirmPendingIntent",
+  "dismissPendingIntent",
+  "confirmFictionStoryCards",
+  "sendMessage",
+  "reorderCards",
+  "removeCard",
+  "updateCardContent",
+  "updateScriptMeta",
+  "updateScriptScene",
+  "updateStoryShotField",
+  "insertStoryShotAfter",
+  "updateAllStoryShotField",
+  "generateScript",
+  "resetConversation",
+  "loadStory",
+  "createNewStory",
+  "backToList",
+  "deleteStory",
+  "refreshStoryList",
+  "setImageProvider",
+  "addVisualReference",
+  "refineVisualItem",
+  "updateVisualCanvasItem",
+  "removeVisualCanvasItem",
+  "setCharacterReferenceByUrl",
+  "setActiveSelection",
+  "clearSelection",
+  "sendSelectionEdit",
+  "confirmSelectionCandidate",
+  "rejectSelectionCandidate",
+  "confirmEditingTransitionCandidate",
+  "rejectEditingTransitionCandidate",
+  "addStoryImage",
+  "removeStoryImage",
+  "updateShotFragmentRefs",
 ] as const satisfies readonly StoryAgentActionKey[];
 
 const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
@@ -481,8 +532,8 @@ type StoryAgentClassifyResult =
       arc?: string;
       logline?: string;
       theme?: string;
-      variants?: GeneratedScript['variants'];
-      boringCheck?: GeneratedScript['boringCheck'];
+      variants?: GeneratedScript["variants"];
+      boringCheck?: GeneratedScript["boringCheck"];
       shots?: unknown[];
       configured?: boolean;
       modelLabel?: string;
@@ -501,69 +552,79 @@ type StoryAgentClassifyResult =
 // 以上均见顶部 import，逻辑完全不变。
 
 function normalizeCard(raw: unknown): StoryCard | null {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   const content =
-    typeof obj.content === 'string'
+    typeof obj.content === "string"
       ? obj.content.trim()
-      : typeof obj.title === 'string'
+      : typeof obj.title === "string"
         ? obj.title.trim()
-        : '';
+        : "";
   if (!content) return null;
   const card: StoryCard = {
-    id: typeof obj.id === 'string' ? obj.id : newId('card'),
-    title: typeof obj.title === 'string' ? obj.title : '',
+    id: typeof obj.id === "string" ? obj.id : newId("card"),
+    title: typeof obj.title === "string" ? obj.title : "",
     content,
-    rawText: typeof obj.rawText === 'string' ? obj.rawText : undefined,
-    sourceQuote: typeof obj.sourceQuote === 'string' ? obj.sourceQuote : undefined,
-    emotion: typeof obj.emotion === 'string' ? obj.emotion : '未标',
+    rawText: typeof obj.rawText === "string" ? obj.rawText : undefined,
+    sourceQuote:
+      typeof obj.sourceQuote === "string" ? obj.sourceQuote : undefined,
+    emotion: typeof obj.emotion === "string" ? obj.emotion : "未标",
     emotionOptions: Array.isArray(obj.emotionOptions)
-      ? obj.emotionOptions.filter((v): v is string => typeof v === 'string')
+      ? obj.emotionOptions.filter((v): v is string => typeof v === "string")
       : undefined,
     emotionBlend: Array.isArray(obj.emotionBlend)
-      ? obj.emotionBlend.filter((v): v is string => typeof v === 'string')
+      ? obj.emotionBlend.filter((v): v is string => typeof v === "string")
       : undefined,
     sensoryDetails: Array.isArray(obj.sensoryDetails)
-      ? obj.sensoryDetails.filter((v): v is string => typeof v === 'string')
+      ? obj.sensoryDetails.filter((v): v is string => typeof v === "string")
       : [],
-    intensity: typeof obj.intensity === 'number' ? obj.intensity : undefined,
-    direction: typeof obj.direction === 'string' ? obj.direction : undefined,
-    complexity: typeof obj.complexity === 'string' ? obj.complexity : undefined,
-    trigger: typeof obj.trigger === 'string' ? obj.trigger : undefined,
+    intensity: typeof obj.intensity === "number" ? obj.intensity : undefined,
+    direction: typeof obj.direction === "string" ? obj.direction : undefined,
+    complexity: typeof obj.complexity === "string" ? obj.complexity : undefined,
+    trigger: typeof obj.trigger === "string" ? obj.trigger : undefined,
     dramaticFunction:
-      typeof obj.dramaticFunction === 'string' ? obj.dramaticFunction : undefined,
-    personalTrace: typeof obj.personalTrace === 'string' ? obj.personalTrace : undefined,
-    retrievalQuery: typeof obj.retrievalQuery === 'string' ? obj.retrievalQuery : undefined,
+      typeof obj.dramaticFunction === "string"
+        ? obj.dramaticFunction
+        : undefined,
+    personalTrace:
+      typeof obj.personalTrace === "string" ? obj.personalTrace : undefined,
+    retrievalQuery:
+      typeof obj.retrievalQuery === "string" ? obj.retrievalQuery : undefined,
     themeHints: Array.isArray(obj.themeHints)
-      ? obj.themeHints.filter((v): v is string => typeof v === 'string')
+      ? obj.themeHints.filter((v): v is string => typeof v === "string")
       : undefined,
-    outlierSignal: typeof obj.outlierSignal === 'string' ? obj.outlierSignal : undefined,
+    outlierSignal:
+      typeof obj.outlierSignal === "string" ? obj.outlierSignal : undefined,
     softMembership: Array.isArray(obj.softMembership)
-      ? obj.softMembership.filter((v): v is string => typeof v === 'string')
+      ? obj.softMembership.filter((v): v is string => typeof v === "string")
       : undefined,
-    createdAt: typeof obj.createdAt === 'number' ? obj.createdAt : Date.now(),
+    createdAt: typeof obj.createdAt === "number" ? obj.createdAt : Date.now(),
   };
   return { ...card, title: card.title || cardTitle(card) };
 }
 
 function normalizeShot(raw: unknown, index: number): StoryShot | null {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
-  const str = (v: unknown) => (typeof v === 'string' ? v : '');
-  const nullableStr = (v: unknown) => (typeof v === 'string' ? v : null);
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const nullableStr = (v: unknown) => (typeof v === "string" ? v : null);
   const promptRun =
-    obj.promptRun && typeof obj.promptRun === 'object' && !Array.isArray(obj.promptRun)
-      ? obj.promptRun as StoryShot['promptRun']
+    obj.promptRun &&
+    typeof obj.promptRun === "object" &&
+    !Array.isArray(obj.promptRun)
+      ? (obj.promptRun as StoryShot["promptRun"])
       : undefined;
   const narrativeJob =
-    obj.narrativeJob && typeof obj.narrativeJob === 'object' && !Array.isArray(obj.narrativeJob)
-      ? obj.narrativeJob as StoryShot['narrativeJob']
+    obj.narrativeJob &&
+    typeof obj.narrativeJob === "object" &&
+    !Array.isArray(obj.narrativeJob)
+      ? (obj.narrativeJob as StoryShot["narrativeJob"])
       : undefined;
   const action = str(obj.action);
   const identity =
-    typeof obj.stableShotId === 'string' && obj.stableShotId
+    typeof obj.stableShotId === "string" && obj.stableShotId
       ? obj.stableShotId
-      : typeof obj.shotIdentity === 'string' && obj.shotIdentity
+      : typeof obj.shotIdentity === "string" && obj.shotIdentity
         ? obj.shotIdentity
         : undefined;
   // 手动插入的空镜头 action 为空但有身份，必须保留——曾因这里直接丢弃，
@@ -576,7 +637,7 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     // 客户端手里的旧身份全部作废，添加/移动/编辑镜头随机报「镜头不存在」。
     stableShotId: identity,
     shotIdentity: identity,
-    shotNo: typeof obj.shotNo === 'number' ? obj.shotNo : index + 1,
+    shotNo: typeof obj.shotNo === "number" ? obj.shotNo : index + 1,
     cueCode: str(obj.cueCode),
     actNo: str(obj.actNo),
     subject: str(obj.subject),
@@ -584,8 +645,8 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     performance: str(obj.performance),
     environmentMotion: str(obj.environmentMotion),
     dialogue: str(obj.dialogue),
-    shotType: str(obj.shotType) || '中',
-    beat: str(obj.beat) || (index === 0 ? '开场' : '起势'),
+    shotType: str(obj.shotType) || "中",
+    beat: str(obj.beat) || (index === 0 ? "开场" : "起势"),
     cameraAngle: str(obj.cameraAngle),
     cameraMove: str(obj.cameraMove),
     cameraHeight: str(obj.cameraHeight),
@@ -602,7 +663,7 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     soundBridge: str(obj.soundBridge),
     styleRef: str(obj.styleRef),
     note: str(obj.note),
-    emotion: str(obj.emotion) || '未标',
+    emotion: str(obj.emotion) || "未标",
     sourceCardContent: str(obj.sourceCardContent),
     intent: nullableStr(obj.intent),
     rationale: nullableStr(obj.rationale),
@@ -626,14 +687,14 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     generationParams: str(obj.generationParams),
     chatCutMapping:
       obj.chatCutMapping &&
-      typeof obj.chatCutMapping === 'object' &&
+      typeof obj.chatCutMapping === "object" &&
       !Array.isArray(obj.chatCutMapping)
-        ? (obj.chatCutMapping as StoryShot['chatCutMapping'])
+        ? (obj.chatCutMapping as StoryShot["chatCutMapping"])
         : undefined,
     narrativeJob,
     promptRun,
     fragmentRefs: Array.isArray(obj.fragmentRefs)
-      ? obj.fragmentRefs.filter((v): v is string => typeof v === 'string')
+      ? obj.fragmentRefs.filter((v): v is string => typeof v === "string")
       : undefined,
   };
 }
@@ -649,29 +710,35 @@ function scriptFromStory(params: {
   arc?: string;
   shots: StoryShot[];
   cards: StoryCard[];
-  variants?: GeneratedScript['variants'];
-  boringCheck?: GeneratedScript['boringCheck'];
+  variants?: GeneratedScript["variants"];
+  boringCheck?: GeneratedScript["boringCheck"];
   createdAt?: number;
 }): GeneratedScript | null {
   if (!params.shots.length && !params.logline && !params.arc) return null;
   return {
-    id: newId('script'),
-    title: params.title || '故事镜头草案',
-    logline: params.logline || params.shots[0]?.action || '这一组素材还在成形',
+    id: newId("script"),
+    title: params.title || "故事镜头草案",
+    logline: params.logline || params.shots[0]?.action || "这一组素材还在成形",
     theme: params.theme,
-    scenes: params.shots.map((shot) => ({
-      sceneNo: shot.sceneNo || `S${String(shot.shotNo).padStart(2, '0')}`,
+    scenes: params.shots.map(shot => ({
+      sceneNo: shot.sceneNo || `S${String(shot.shotNo).padStart(2, "0")}`,
       fromCardId:
-        params.cards.find((card) => card.content === shot.sourceCardContent)?.id || '',
-      visual: [shot.sceneTitle, shot.subject, shot.action, shot.dialogue ? `「${shot.dialogue}」` : '']
+        params.cards.find(card => card.content === shot.sourceCardContent)
+          ?.id || "",
+      visual: [
+        shot.sceneTitle,
+        shot.subject,
+        shot.action,
+        shot.dialogue ? `「${shot.dialogue}」` : "",
+      ]
         .filter(Boolean)
-        .join(' · '),
-      emotion: shot.emotion || shot.beat || '未标',
+        .join(" · "),
+      emotion: shot.emotion || shot.beat || "未标",
     })),
-    arcSummary: params.arc || '',
+    arcSummary: params.arc || "",
     variants: params.variants,
     boringCheck: params.boringCheck,
-    cardOrder: params.cards.map((c) => c.id),
+    cardOrder: params.cards.map(c => c.id),
     createdAt: params.createdAt ?? Date.now(),
   };
 }
@@ -681,17 +748,17 @@ function scriptFromStory(params: {
 
 function archiveMessagesFrom(
   sourceMessages: ChatMessage[],
-  sourceCards: StoryCard[],
+  sourceCards: StoryCard[]
 ) {
-  return sourceMessages.map((message) => {
+  return sourceMessages.map(message => {
     const spawnedCard = message.spawnedCardId
-      ? sourceCards.find((card) => card.id === message.spawnedCardId)
+      ? sourceCards.find(card => card.id === message.spawnedCardId)
       : undefined;
     return {
       id: message.id,
       timestamp: message.timestamp,
-      who: message.role === 'user' ? 'u' : 's',
-      name: message.role === 'user' ? '你' : '小酌',
+      who: message.role === "user" ? "u" : "s",
+      name: message.role === "user" ? "你" : "小酌",
       text: message.content,
       photoUrl: message.photoUrl,
       selectionQuote: message.selectionQuote,
@@ -699,7 +766,7 @@ function archiveMessagesFrom(
       editingTransitionCandidate: message.editingTransitionCandidate,
       pendingCard: spawnedCard
         ? {
-            status: 'kept',
+            status: "kept",
             cardId: spawnedCard.id,
             content: spawnedCard.content,
             emotion: spawnedCard.emotion,
@@ -722,14 +789,16 @@ function archiveMessagesFrom(
  */
 function reconcileRestoredVisualItems(
   visualCanvasItems: VisualCanvasItem[],
-  cards: ReadonlyArray<Pick<StoryCard, 'id'>>,
-  messages: ReadonlyArray<Pick<ChatMessage, 'role' | 'photoUrl' | 'spawnedCardId'>>,
+  cards: ReadonlyArray<Pick<StoryCard, "id">>,
+  messages: ReadonlyArray<
+    Pick<ChatMessage, "role" | "photoUrl" | "spawnedCardId">
+  >
 ): VisualCanvasItem[] {
   return reconcileInheritedPhotos({
     visualCanvasItems,
     cards,
     cardPhotoMap: buildCardPhotoMap(messages),
-    makeId: () => newId('visual'),
+    makeId: () => newId("visual"),
     now: Date.now(),
   });
 }
@@ -739,32 +808,37 @@ function artTargetFrom(cards: StoryCard[], shots: StoryShot[]): string {
     const leftScore =
       left.content.length +
       (left.sourceQuote?.length ?? 0) +
-      left.sensoryDetails.join('').length;
+      left.sensoryDetails.join("").length;
     const rightScore =
       right.content.length +
       (right.sourceQuote?.length ?? 0) +
-      right.sensoryDetails.join('').length;
+      right.sensoryDetails.join("").length;
     return rightScore - leftScore;
   })[0];
   if (richestCard) {
     return [
       richestCard.content,
-      richestCard.sourceQuote ? `原话：${richestCard.sourceQuote}` : '',
+      richestCard.sourceQuote ? `原话：${richestCard.sourceQuote}` : "",
       richestCard.sensoryDetails.length
-        ? `感官细节：${richestCard.sensoryDetails.join('、')}`
-        : '',
+        ? `感官细节：${richestCard.sensoryDetails.join("、")}`
+        : "",
     ]
       .filter(Boolean)
-      .join('；')
+      .join("；")
       .slice(0, 360);
   }
   const firstShot = shots[0];
   return firstShot
-    ? [firstShot.subject, firstShot.action, firstShot.location, firstShot.timeLight]
+    ? [
+        firstShot.subject,
+        firstShot.action,
+        firstShot.location,
+        firstShot.timeLight,
+      ]
         .filter(Boolean)
-        .join('；')
+        .join("；")
         .slice(0, 360)
-    : '';
+    : "";
 }
 
 export function StoryAgentProvider({
@@ -784,13 +858,22 @@ export function StoryAgentProvider({
    */
   editingCommandRunner?: (
     instruction: string,
-    selectionContext?: Pick<SelectionState, 'stableShotId' | 'shotNo'>,
+    selectionContext?: Pick<
+      SelectionState,
+      | "sourceType"
+      | "sourceId"
+      | "stableShotId"
+      | "shotNo"
+      | "videoTakeId"
+      | "rangeId"
+      | "selection"
+    >
   ) => Promise<{
     handled: boolean;
     reply: string;
     transitionCandidate?: Omit<
       EditingTransitionCandidateReference,
-      'status' | 'error'
+      "status" | "error"
     >;
   } | null>;
   children: ReactNode;
@@ -812,82 +895,96 @@ export function StoryAgentProvider({
   const appendConversationTurnMut =
     trpc.storyConversation.appendTurn.useMutation();
 
-  const messages = useStorySpine((state) => state.messages);
-  const cards = useStorySpine((state) => state.cards);
-  const scripts = useStorySpine((state) => state.scripts);
-  const storyShots = useStorySpine((state) => state.storyShots);
-  const characters = useStorySpine((state) => state.characters);
-  const remoteStoryId = useStorySpine((state) => state.remoteStoryId);
-  const storyTitle = useStorySpine((state) => state.storyTitle);
-  const storyLogline = useStorySpine((state) => state.storyLogline);
-  const storyTheme = useStorySpine((state) => state.storyTheme);
-  const storyArc = useStorySpine((state) => state.storyArc);
-  const visualCanvasItems = useStorySpine((state) => state.visualCanvasItems);
-  const visualPreference = useStorySpine((state) => state.visualPreference);
-  const storyImages = useStorySpine((state) => state.storyImages);
-  const imageProvider = useStorySpine((state) => state.imageProvider);
-  const artDirection = useStorySpine((state) => state.artDirection);
-  const isArtWorking = useStorySpine((state) => state.isArtWorking);
-  const isReplying = useStorySpine((state) => state.isReplying);
-  const isGeneratingScript = useStorySpine((state) => state.isGeneratingScript);
-  const confirmedIntent = useStorySpine((state) => state.confirmedIntent);
-  const pendingIntentDraft = useStorySpine((state) => state.pendingIntentDraft);
-  const activeStoryId = useStorySpine((state) => state.activeStoryId);
-  const saveStatus = useStorySpine((state) => state.saveStatus);
-  const lastSavedAt = useStorySpine((state) => state.lastSavedAt);
-  const serverRevision = useStorySpine((state) => state.serverRevision);
-  const isLoadingStories = useStorySpine((state) => state.isLoadingStories);
-  const storyList = useStorySpine((state) => state.storyList);
-  const returningGreeting = useStorySpine((state) => state.returningGreeting);
-  const activeSelection = useStorySpine((state) => state.activeSelection);
-  const hydratedFor = useStorySpine((state) => state.hydratedFor);
+  const messages = useStorySpine(state => state.messages);
+  const cards = useStorySpine(state => state.cards);
+  const scripts = useStorySpine(state => state.scripts);
+  const storyShots = useStorySpine(state => state.storyShots);
+  const characters = useStorySpine(state => state.characters);
+  const remoteStoryId = useStorySpine(state => state.remoteStoryId);
+  const storyTitle = useStorySpine(state => state.storyTitle);
+  const storyLogline = useStorySpine(state => state.storyLogline);
+  const storyTheme = useStorySpine(state => state.storyTheme);
+  const storyArc = useStorySpine(state => state.storyArc);
+  const visualCanvasItems = useStorySpine(state => state.visualCanvasItems);
+  const visualPreference = useStorySpine(state => state.visualPreference);
+  const storyImages = useStorySpine(state => state.storyImages);
+  const imageProvider = useStorySpine(state => state.imageProvider);
+  const artDirection = useStorySpine(state => state.artDirection);
+  const isArtWorking = useStorySpine(state => state.isArtWorking);
+  const isReplying = useStorySpine(state => state.isReplying);
+  const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
+  const confirmedIntent = useStorySpine(state => state.confirmedIntent);
+  const pendingIntentDraft = useStorySpine(state => state.pendingIntentDraft);
+  const activeStoryId = useStorySpine(state => state.activeStoryId);
+  const saveStatus = useStorySpine(state => state.saveStatus);
+  const lastSavedAt = useStorySpine(state => state.lastSavedAt);
+  const serverRevision = useStorySpine(state => state.serverRevision);
+  const isLoadingStories = useStorySpine(state => state.isLoadingStories);
+  const storyList = useStorySpine(state => state.storyList);
+  const returningGreeting = useStorySpine(state => state.returningGreeting);
+  const activeSelection = useStorySpine(state => state.activeSelection);
+  const hydratedFor = useStorySpine(state => state.hydratedFor);
 
-  const setMessages = useStorySpine((state) => state.setMessages);
-  const setCards = useStorySpine((state) => state.setCards);
-  const setScripts = useStorySpine((state) => state.setScripts);
-  const setStoryShots = useStorySpine((state) => state.setStoryShots);
-  const setCharacters = useStorySpine((state) => state.setCharacters);
-  const setRemoteStoryId = useStorySpine((state) => state.setRemoteStoryId);
-  const setStoryTitle = useStorySpine((state) => state.setStoryTitle);
-  const setStoryLogline = useStorySpine((state) => state.setStoryLogline);
-  const setStoryTheme = useStorySpine((state) => state.setStoryTheme);
-  const setStoryArc = useStorySpine((state) => state.setStoryArc);
-  const setVisualCanvasItems = useStorySpine((state) => state.setVisualCanvasItems);
-  const setVisualPreference = useStorySpine((state) => state.setVisualPreference);
-  const setStoryImages = useStorySpine((state) => state.setStoryImages);
-  const setImageProvider = useStorySpine((state) => state.setImageProvider);
-  const setArtDirection = useStorySpine((state) => state.setArtDirection);
-  const setIsArtWorking = useStorySpine((state) => state.setIsArtWorking);
-  const setIsReplying = useStorySpine((state) => state.setIsReplying);
-  const setIsGeneratingScript = useStorySpine((state) => state.setIsGeneratingScript);
-  const setConfirmedIntent = useStorySpine((state) => state.setConfirmedIntent);
-  const setPendingIntentDraft = useStorySpine((state) => state.setPendingIntentDraft);
-  const setActiveStoryId = useStorySpine((state) => state.setActiveStoryId);
-  const setSaveStatus = useStorySpine((state) => state.setSaveStatus);
-  const setLastSavedAt = useStorySpine((state) => state.setLastSavedAt);
-  const setServerRevision = useStorySpine((state) => state.setServerRevision);
-  const setIsLoadingStories = useStorySpine((state) => state.setIsLoadingStories);
-  const setStoryList = useStorySpine((state) => state.setStoryList);
-  const setReturningGreeting = useStorySpine((state) => state.setReturningGreeting);
-  const setActiveSelection = useStorySpine((state) => state.setActiveSelection);
-  const setHydratedFor = useStorySpine((state) => state.setHydratedFor);
-  const setLastSnapshotHash = useStorySpine((state) => state.setLastSnapshotHash);
-  const setLastArchiveSaveHash = useStorySpine((state) => state.setLastArchiveSaveHash);
-  const setLastStateChangeTime = useStorySpine((state) => state.setLastStateChangeTime);
-  const setLastSnapshotId = useStorySpine((state) => state.setLastSnapshotId);
+  const setMessages = useStorySpine(state => state.setMessages);
+  const setCards = useStorySpine(state => state.setCards);
+  const setScripts = useStorySpine(state => state.setScripts);
+  const setStoryShots = useStorySpine(state => state.setStoryShots);
+  const setCharacters = useStorySpine(state => state.setCharacters);
+  const setRemoteStoryId = useStorySpine(state => state.setRemoteStoryId);
+  const setStoryTitle = useStorySpine(state => state.setStoryTitle);
+  const setStoryLogline = useStorySpine(state => state.setStoryLogline);
+  const setStoryTheme = useStorySpine(state => state.setStoryTheme);
+  const setStoryArc = useStorySpine(state => state.setStoryArc);
+  const setVisualCanvasItems = useStorySpine(
+    state => state.setVisualCanvasItems
+  );
+  const setVisualPreference = useStorySpine(state => state.setVisualPreference);
+  const setStoryImages = useStorySpine(state => state.setStoryImages);
+  const setImageProvider = useStorySpine(state => state.setImageProvider);
+  const setArtDirection = useStorySpine(state => state.setArtDirection);
+  const setIsArtWorking = useStorySpine(state => state.setIsArtWorking);
+  const setIsReplying = useStorySpine(state => state.setIsReplying);
+  const setIsGeneratingScript = useStorySpine(
+    state => state.setIsGeneratingScript
+  );
+  const setConfirmedIntent = useStorySpine(state => state.setConfirmedIntent);
+  const setPendingIntentDraft = useStorySpine(
+    state => state.setPendingIntentDraft
+  );
+  const setActiveStoryId = useStorySpine(state => state.setActiveStoryId);
+  const setSaveStatus = useStorySpine(state => state.setSaveStatus);
+  const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
+  const setServerRevision = useStorySpine(state => state.setServerRevision);
+  const setIsLoadingStories = useStorySpine(state => state.setIsLoadingStories);
+  const setStoryList = useStorySpine(state => state.setStoryList);
+  const setReturningGreeting = useStorySpine(
+    state => state.setReturningGreeting
+  );
+  const setActiveSelection = useStorySpine(state => state.setActiveSelection);
+  const setHydratedFor = useStorySpine(state => state.setHydratedFor);
+  const setLastSnapshotHash = useStorySpine(state => state.setLastSnapshotHash);
+  const setLastArchiveSaveHash = useStorySpine(
+    state => state.setLastArchiveSaveHash
+  );
+  const setLastStateChangeTime = useStorySpine(
+    state => state.setLastStateChangeTime
+  );
+  const setLastSnapshotId = useStorySpine(state => state.setLastSnapshotId);
   const storyConversationQuery = trpc.storyConversation.list.useQuery(
     { storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : 1 },
     {
       enabled: Boolean(activeStoryId && activeStoryId > 0),
       refetchOnWindowFocus: false,
-    },
+    }
   );
 
   // 向上同步当前故事到共享真相源（U4）。仅同步"真实故事 id"（>0）；新故事草稿(-1)/无故事(null)
   // 对 Creation 侧无意义，归一为 null，让 Shot Table 落空状态而非查无效 id。
   useEffect(() => {
     if (!onActiveStoryChange) return;
-    onActiveStoryChange(activeStoryId && activeStoryId > 0 ? activeStoryId : null);
+    onActiveStoryChange(
+      activeStoryId && activeStoryId > 0 ? activeStoryId : null
+    );
   }, [activeStoryId, onActiveStoryChange]);
   const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -904,7 +1001,7 @@ export function StoryAgentProvider({
       const orphan = findOrphanStory(projectId);
       if (orphan) {
         persisted = orphan;
-        toast.success('已从本地备份恢复上次的故事');
+        toast.success("已从本地备份恢复上次的故事");
       }
     }
     setMessages(persisted.messages);
@@ -924,12 +1021,12 @@ export function StoryAgentProvider({
       reconcileRestoredVisualItems(
         persisted.visualCanvasItems ?? [],
         persisted.cards,
-        persisted.messages,
-      ),
+        persisted.messages
+      )
     );
-    setVisualPreference(persisted.visualPreference ?? '');
+    setVisualPreference(persisted.visualPreference ?? "");
     setStoryImages(persisted.mobileImages ?? []);
-    setImageProvider(persisted.imageProvider ?? 'default');
+    setImageProvider(persisted.imageProvider ?? "default");
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
     setConfirmedIntent(persisted.confirmedIntent ?? null);
     setPendingIntentDraft(null);
@@ -941,7 +1038,7 @@ export function StoryAgentProvider({
     const isUnsavedNewDraft =
       persisted.remoteStoryId == null && hasStoryWork(persisted);
     setActiveStoryId(isUnsavedNewDraft ? restored : null);
-    setSaveStatus(persisted.remoteStoryId ? 'saved' : 'idle');
+    setSaveStatus(persisted.remoteStoryId ? "saved" : "idle");
     setLastSavedAt(persisted.savedAt);
     const restoredRevision = persisted.serverRevision ?? 0;
     setServerRevision(restoredRevision);
@@ -986,7 +1083,7 @@ export function StoryAgentProvider({
         messages: projection.messages,
         references: projection.references,
         candidates: projection.candidates,
-      }),
+      })
     );
   }, [activeStoryId, setMessages, storyConversationQuery.data]);
 
@@ -1070,11 +1167,11 @@ export function StoryAgentProvider({
 
       // Lightweight hash: card/script/shot IDs + card count
       const currentHash = JSON.stringify({
-        cardIds: current.cards.map((c) => c.id),
-        scriptIds: current.scripts.map((s) => s.id),
-        shotNos: current.storyShots.map((s) => s.shotNo),
-        cardContents: current.cards.map((c) => c.content),
-        visualIds: current.visualCanvasItems.map((item) => item.id),
+        cardIds: current.cards.map(c => c.id),
+        scriptIds: current.scripts.map(s => s.id),
+        shotNos: current.storyShots.map(s => s.shotNo),
+        cardContents: current.cards.map(c => c.content),
+        visualIds: current.visualCanvasItems.map(item => item.id),
         visualPreference: current.visualPreference,
         artDirection: current.artDirection,
       });
@@ -1083,7 +1180,8 @@ export function StoryAgentProvider({
       if (currentHash === current.lastSnapshotHash) return;
 
       // Skip if the user has been active within the last 2 seconds
-      if (Date.now() - current.lastStateChangeTime < INACTIVITY_THRESHOLD_MS) return;
+      if (Date.now() - current.lastStateChangeTime < INACTIVITY_THRESHOLD_MS)
+        return;
 
       current.setLastSnapshotHash(currentHash);
 
@@ -1095,19 +1193,28 @@ export function StoryAgentProvider({
             cards: current.cards as unknown as Record<string, unknown>[],
             script: current.scripts as unknown as Record<string, unknown>[],
             shots: current.storyShots as unknown as Record<string, unknown>[],
-            visualCanvasItems: current.visualCanvasItems as unknown as Record<string, unknown>[],
+            visualCanvasItems: current.visualCanvasItems as unknown as Record<
+              string,
+              unknown
+            >[],
             visualPreference: current.visualPreference,
-            artDirection: current.artDirection as unknown as Record<string, unknown>,
+            artDirection: current.artDirection as unknown as Record<
+              string,
+              unknown
+            >,
           },
           autoSave: true,
         },
         {
-          onError: (err) => {
-            console.warn('[autoSave] snapshot failed, will retry next interval:', err);
+          onError: err => {
+            console.warn(
+              "[autoSave] snapshot failed, will retry next interval:",
+              err
+            );
             // Revert hash so the next timer tick retries
-            storySpineStore.getState().setLastSnapshotHash('');
+            storySpineStore.getState().setLastSnapshotHash("");
           },
-        },
+        }
       );
     }, AUTO_SAVE_INTERVAL_MS);
 
@@ -1144,28 +1251,28 @@ export function StoryAgentProvider({
         current.storyTitle ||
         latest?.title ||
         snapshot.cards[0]?.title ||
-        '未命名故事';
-      const logline = snapshot.logline ?? current.storyLogline ?? latest?.logline ?? '';
-      const theme = snapshot.theme ?? current.storyTheme ?? latest?.theme ?? '';
-      const arc = snapshot.arc ?? current.storyArc ?? latest?.arcSummary ?? '';
-      const canvasItems = snapshot.visualCanvasItems ?? current.visualCanvasItems;
+        "未命名故事";
+      const logline =
+        snapshot.logline ?? current.storyLogline ?? latest?.logline ?? "";
+      const theme = snapshot.theme ?? current.storyTheme ?? latest?.theme ?? "";
+      const arc = snapshot.arc ?? current.storyArc ?? latest?.arcSummary ?? "";
+      const canvasItems =
+        snapshot.visualCanvasItems ?? current.visualCanvasItems;
       const preference = snapshot.visualPreference ?? current.visualPreference;
       const selectedProvider = snapshot.imageProvider ?? current.imageProvider;
-      const selectedArtDirection = snapshot.artDirection ?? current.artDirection;
+      const selectedArtDirection =
+        snapshot.artDirection ?? current.artDirection;
 
       const save = async () => {
         try {
           const latestState = storySpineStore.getState();
           const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
           if (
-            !canPersistStoryToActiveScope(
-              storyId,
-              latestState.activeStoryId,
-            )
+            !canPersistStoryToActiveScope(storyId, latestState.activeStoryId)
           ) {
             return undefined;
           }
-          setSaveStatus('saving');
+          setSaveStatus("saving");
           const saved = await storyUpsertMut.mutateAsync({
             id: storyId,
             // The body and revision must come from the same snapshot. Reading the
@@ -1177,7 +1284,7 @@ export function StoryAgentProvider({
             logline,
             theme,
             arc,
-            summary: snapshot.summary ?? '',
+            summary: snapshot.summary ?? "",
             body: {
               cards: snapshot.cards,
               characters: snapshot.characters,
@@ -1185,7 +1292,7 @@ export function StoryAgentProvider({
               visualCanvasItems: canvasItems,
               visualPreference: preference,
               mobileImages: latestState.storyImages.filter(
-                image => storyId == null || image.storyId === storyId,
+                image => storyId == null || image.storyId === storyId
               ),
               imageProvider: selectedProvider,
               artDirection: selectedArtDirection,
@@ -1195,28 +1302,28 @@ export function StoryAgentProvider({
               messages: archiveMessagesFrom(snapshot.messages, snapshot.cards),
             },
           });
-          if (saved && typeof saved.id === 'number') {
+          if (saved && typeof saved.id === "number") {
             setRemoteStoryId(saved.id);
             // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
             // 若用户正停在选择屏 (activeStoryId === null)，后台自动保存绝不能把人弹进故事——
             // 否则进门时 hydrate 灌入内容触发的一次后台保存，会让选择屏「闪一下」就跳进上次那篇
             // （Option A 实测 bug：#1 闪一下就结束）。
-            setActiveStoryId((current) => (current === null ? null : saved.id));
-            setSaveStatus('saved');
+            setActiveStoryId(current => (current === null ? null : saved.id));
+            setSaveStatus("saved");
             setLastSavedAt(Date.now());
-            if (!saved.syncConflict && typeof saved.revision === 'number') {
+            if (!saved.syncConflict && typeof saved.revision === "number") {
               setServerRevision(saved.revision);
             }
             // 美术工作台等调用方需要拿到保存后的故事 id（新故事 -1 → 真 id）
             return saved.id;
           }
         } catch (error) {
-          console.warn('save archive story failed', error);
+          console.warn("save archive story failed", error);
           // 保留远端 ID 原样重试。失败就清 id 会让下一次保存把整篇故事另存成
           // 新副本（服务端对查不到的 id 会降级新建）——服务器重启抖动时曾一小时
           // 复制出十几篇。故事真不存在时服务端新建后返回新 id，上面会正常认领。
-          setSaveStatus('error');
-          toast.error('云端保存失败，本机仍有临时备份，会继续重试');
+          setSaveStatus("error");
+          toast.error("云端保存失败，本机仍有临时备份，会继续重试");
         }
         return undefined;
       };
@@ -1235,7 +1342,7 @@ export function StoryAgentProvider({
       setSaveStatus,
       setServerRevision,
       storyUpsertMut,
-    ],
+    ]
   );
 
   useEffect(() => {
@@ -1262,7 +1369,7 @@ export function StoryAgentProvider({
     if (!hasLiveStoryWork(snapshot)) return;
 
     const currentHash = JSON.stringify({
-      messages: messages.map((message) => ({
+      messages: messages.map(message => ({
         id: message.id,
         role: message.role,
         content: message.content,
@@ -1279,7 +1386,7 @@ export function StoryAgentProvider({
       arc: storyArc,
       visualCanvasItems,
       visualPreference,
-      mobileImageIds: storyImages.map((image) => image.id),
+      mobileImageIds: storyImages.map(image => image.id),
       imageProvider,
       artDirection,
     });
@@ -1321,34 +1428,39 @@ export function StoryAgentProvider({
       try {
         const result = await recognizeIntentMut.mutateAsync({
           history: history
-            .filter((message) => message.content.trim())
-            .map((message) => ({
-              role: message.role as 'user' | 'assistant',
+            .filter(message => message.content.trim())
+            .map(message => ({
+              role: message.role as "user" | "assistant",
               content: message.content,
             })),
         });
         if (
           !storyScopeMatches(
             requestStoryId,
-            storySpineStore.getState().activeStoryId,
+            storySpineStore.getState().activeStoryId
           )
         ) {
           return;
         }
         const pending = recognitionToPendingIntent(result as StoryIntent);
         if (!pending) return;
-        const { confirmedIntent, pendingIntentDraft } = storySpineStore.getState();
+        const { confirmedIntent, pendingIntentDraft } =
+          storySpineStore.getState();
         if (confirmedIntent || pendingIntentDraft) return;
         setPendingIntentDraft(pending);
       } catch (error) {
         warnIntentRecognitionError(error);
       }
     },
-    [recognizeIntentMut, setPendingIntentDraft],
+    [recognizeIntentMut, setPendingIntentDraft]
   );
 
   const sendMessage = useCallback(
-    async (text: string, photoBase64?: string, photoMimeType = "image/jpeg") => {
+    async (
+      text: string,
+      photoBase64?: string,
+      photoMimeType = "image/jpeg"
+    ) => {
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
       const requestStoryId = activeStoryId;
@@ -1358,7 +1470,7 @@ export function StoryAgentProvider({
         pendingIntentDraft,
       });
       if (
-        confirmedIntent?.purpose === 'linkedin_job_search' &&
+        confirmedIntent?.purpose === "linkedin_job_search" &&
         !confirmedIntent.jobMaterialsPrompted &&
         confirmedIntent.targetRole !== undefined &&
         confirmedIntent.channel !== undefined
@@ -1389,7 +1501,9 @@ export function StoryAgentProvider({
               // storedUrl 只在「storage 上传成功」那条分支里才有；fallback 分支没有，
               // 拿不到托管 URL 时就退回 data URL，保证至少能显示出来。
               const stored =
-                "storedUrl" in uploadResult ? uploadResult.storedUrl : undefined;
+                "storedUrl" in uploadResult
+                  ? uploadResult.storedUrl
+                  : undefined;
               photoUrlForStore = stored ?? uploadResult.url;
             }
           } catch (err) {
@@ -1399,7 +1513,7 @@ export function StoryAgentProvider({
         if (
           !storyScopeMatches(
             requestStoryId,
-            storySpineStore.getState().activeStoryId,
+            storySpineStore.getState().activeStoryId
           )
         ) {
           return;
@@ -1407,8 +1521,8 @@ export function StoryAgentProvider({
 
         const userContent = trimmed || "帮我看看这张照片";
         const userMsg: ChatMessage = {
-          id: newId('msg'),
-          role: 'user',
+          id: newId("msg"),
+          role: "user",
           content: userContent,
           timestamp: Date.now(),
           photoUrl: photoUrlForStore, // 聊天气泡 / 落库都用托管 URL，不存 base64
@@ -1424,26 +1538,23 @@ export function StoryAgentProvider({
               if (
                 storyScopeMatches(
                   requestStoryId,
-                  storySpineStore.getState().activeStoryId,
+                  storySpineStore.getState().activeStoryId
                 )
               ) {
                 const replyMsg: ChatMessage = {
-                  id: newId('msg'),
-                  role: 'assistant',
+                  id: newId("msg"),
+                  role: "assistant",
                   content: outcome.reply,
                   timestamp: Date.now(),
                   editingTransitionCandidate: outcome.transitionCandidate
-                    ? { ...outcome.transitionCandidate, status: 'pending' }
+                    ? { ...outcome.transitionCandidate, status: "pending" }
                     : undefined,
                 };
-                const finalMessages = [
-                  ...nextMessages,
-                  replyMsg,
-                ];
+                const finalMessages = [...nextMessages, replyMsg];
                 setMessages(finalMessages);
                 const conversationStoryId = resolvePersistedStoryId(
                   activeStoryId,
-                  remoteStoryId,
+                  remoteStoryId
                 );
                 if (conversationStoryId != null) {
                   try {
@@ -1461,8 +1572,8 @@ export function StoryAgentProvider({
                     });
                   } catch (error) {
                     console.warn(
-                      '[storyConversation] persist editing turn failed:',
-                      error,
+                      "[storyConversation] persist editing turn failed:",
+                      error
                     );
                   }
                 }
@@ -1482,7 +1593,7 @@ export function StoryAgentProvider({
               return;
             }
           } catch (err) {
-            console.warn('[sendMessage] 剪辑指令通道失败，回落普通聊天:', err);
+            console.warn("[sendMessage] 剪辑指令通道失败，回落普通聊天:", err);
           }
         }
 
@@ -1497,31 +1608,42 @@ export function StoryAgentProvider({
                 cards: cards as unknown as Record<string, unknown>[],
                 script: scripts as unknown as Record<string, unknown>[],
                 shots: storyShots as unknown as Record<string, unknown>[],
-                visualCanvasItems: visualCanvasItems as unknown as Record<string, unknown>[],
+                visualCanvasItems: visualCanvasItems as unknown as Record<
+                  string,
+                  unknown
+                >[],
                 visualPreference,
-                artDirection: artDirection as unknown as Record<string, unknown>,
+                artDirection: artDirection as unknown as Record<
+                  string,
+                  unknown
+                >,
               },
             });
             setLastSnapshotId(snapshotResult.snapshotId);
             // Sync hash so the auto-save timer doesn't duplicate this snapshot
-            setLastSnapshotHash(JSON.stringify({
-              cardIds: cards.map((c) => c.id),
-              scriptIds: scripts.map((s) => s.id),
-              shotNos: storyShots.map((s) => s.shotNo),
-              cardContents: cards.map((c) => c.content),
-              visualIds: visualCanvasItems.map((item) => item.id),
-              visualPreference,
-              artDirection,
-            }));
+            setLastSnapshotHash(
+              JSON.stringify({
+                cardIds: cards.map(c => c.id),
+                scriptIds: scripts.map(s => s.id),
+                shotNos: storyShots.map(s => s.shotNo),
+                cardContents: cards.map(c => c.content),
+                visualIds: visualCanvasItems.map(item => item.id),
+                visualPreference,
+                artDirection,
+              })
+            );
           } catch (err) {
-            console.warn('[snapshot] captureSnapshot failed, proceeding without context:', err);
+            console.warn(
+              "[snapshot] captureSnapshot failed, proceeding without context:",
+              err
+            );
           }
         }
 
-        const result = await chatMut.mutateAsync({
+        const result = (await chatMut.mutateAsync({
           message: userContent,
-          history: messages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
+          history: messages.map(m => ({
+            role: m.role as "user" | "assistant",
             content: m.content,
           })),
           existingCardCount: cards.length,
@@ -1532,7 +1654,7 @@ export function StoryAgentProvider({
             arc: storyArc,
             shots: storyShots,
           }),
-          currentShots: storyShots.map((shot) => ({
+          currentShots: storyShots.map(shot => ({
             shotNo: shot.shotNo,
             stableShotId: shot.stableShotId ?? shot.shotIdentity,
             cueCode: shot.cueCode,
@@ -1555,7 +1677,7 @@ export function StoryAgentProvider({
             transitionOut: shot.transitionOut,
             videoPrompt: shot.videoPrompt,
           })),
-          storyCards: cards.map((card) => ({
+          storyCards: cards.map(card => ({
             title: card.title,
             content: card.content,
             sourceQuote: card.sourceQuote,
@@ -1577,11 +1699,11 @@ export function StoryAgentProvider({
           projectId: projectId ?? undefined,
           photoUrl: photoUrlForLLM, // 传给 LLM 做多模态理解（data URL 最稳）
           confirmedIntent: buildChatIntentPayload(confirmedIntent),
-        }) as StoryAgentChatResult;
+        })) as StoryAgentChatResult;
         if (
           !storyScopeMatches(
             requestStoryId,
-            storySpineStore.getState().activeStoryId,
+            storySpineStore.getState().activeStoryId
           )
         ) {
           return;
@@ -1592,7 +1714,7 @@ export function StoryAgentProvider({
         if (result.card) {
           const normalized = normalizeCard({
             ...result.card,
-            id: newId('card'),
+            id: newId("card"),
             title: result.card.title || cardTitle(result.card),
             createdAt: Date.now(),
           });
@@ -1605,7 +1727,7 @@ export function StoryAgentProvider({
         }
 
         if (result.configured === false) {
-          toast.error('旧 Agent 接口还没配置模型 API');
+          toast.error("旧 Agent 接口还没配置模型 API");
         }
 
         // ── 让卡片「继承」对话里发来的照片 ──
@@ -1617,7 +1739,7 @@ export function StoryAgentProvider({
           photoUrlForStore,
           spawnedCardId,
           existingCount: visualCanvasItems.length,
-          id: newId('visual'),
+          id: newId("visual"),
           createdAt: Date.now(),
         });
         let nextVisualItems = visualCanvasItems;
@@ -1627,9 +1749,9 @@ export function StoryAgentProvider({
         }
 
         const replyMsg: ChatMessage = {
-          id: newId('msg'),
-          role: 'assistant',
-          content: result.reply || '我在。你可以再多说一点那个感觉。',
+          id: newId("msg"),
+          role: "assistant",
+          content: result.reply || "我在。你可以再多说一点那个感觉。",
           timestamp: Date.now(),
           spawnedCardId,
         };
@@ -1655,7 +1777,7 @@ export function StoryAgentProvider({
         const conversationStoryId = resolvePersistedStoryId(
           activeStoryId,
           remoteStoryId,
-          savedStoryId,
+          savedStoryId
         );
         if (conversationStoryId != null) {
           try {
@@ -1673,14 +1795,14 @@ export function StoryAgentProvider({
             });
           } catch (error) {
             console.warn(
-              '[storyConversation] persist chat turn failed:',
-              error,
+              "[storyConversation] persist chat turn failed:",
+              error
             );
           }
         }
       } catch (err) {
-        console.error('storyAgent.chat failed', err);
-        toast.error('Agent 暂时没接上，再试一次？');
+        console.error("storyAgent.chat failed", err);
+        toast.error("Agent 暂时没接上，再试一次？");
       } finally {
         setIsReplying(false);
       }
@@ -1709,7 +1831,7 @@ export function StoryAgentProvider({
       uploadPhotoMut,
       recognizeIntentFromHistory,
       editingCommandRunner,
-    ],
+    ]
   );
 
   const clearFictionConfirmationIfNeeded = useCallback(() => {
@@ -1747,7 +1869,7 @@ export function StoryAgentProvider({
       storyArc,
       clearFictionConfirmationIfNeeded,
       saveArchiveStory,
-    ],
+    ]
   );
 
   const removeCard = useCallback(
@@ -1759,7 +1881,7 @@ export function StoryAgentProvider({
         removedCard,
       } = removeStoryCardFromSnapshot(
         { cards, storyShots, visualCanvasItems },
-        id,
+        id
       );
       if (!removedCard) return;
       clearFictionConfirmationIfNeeded();
@@ -1795,7 +1917,7 @@ export function StoryAgentProvider({
       setVisualCanvasItems,
       clearFictionConfirmationIfNeeded,
       saveArchiveStory,
-    ],
+    ]
   );
 
   // Inline edit of a single card's content. Mirrors removeCard's persistence:
@@ -1803,8 +1925,8 @@ export function StoryAgentProvider({
   // saveArchiveStory pushes the durable server copy.
   const updateCardContent = useCallback(
     (id: string, content: string) => {
-      const nextCards = cards.map((card) =>
-        card.id === id ? { ...card, content } : card,
+      const nextCards = cards.map(card =>
+        card.id === id ? { ...card, content } : card
       );
       clearFictionConfirmationIfNeeded();
       setCards(nextCards);
@@ -1834,7 +1956,7 @@ export function StoryAgentProvider({
       storyArc,
       clearFictionConfirmationIfNeeded,
       saveArchiveStory,
-    ],
+    ]
   );
 
   // Replace the latest script with an edited copy. Same persistence path as
@@ -1866,36 +1988,36 @@ export function StoryAgentProvider({
       storyTheme,
       storyArc,
       saveArchiveStory,
-    ],
+    ]
   );
 
   const updateScriptMeta = useCallback(
-    (field: 'title' | 'logline' | 'arcSummary', value: string) => {
+    (field: "title" | "logline" | "arcSummary", value: string) => {
       const idx = scripts.length - 1;
       if (idx < 0) return;
       const nextScripts = scripts.map((s, i) =>
-        i === idx ? { ...s, [field]: value } : s,
+        i === idx ? { ...s, [field]: value } : s
       );
       commitScripts(nextScripts);
     },
-    [scripts, commitScripts],
+    [scripts, commitScripts]
   );
 
   const updateScriptScene = useCallback(
-    (sceneIndex: number, field: 'visual' | 'emotion', value: string) => {
+    (sceneIndex: number, field: "visual" | "emotion", value: string) => {
       const idx = scripts.length - 1;
       if (idx < 0) return;
       const last = scripts[idx];
       if (!last || sceneIndex < 0 || sceneIndex >= last.scenes.length) return;
       const nextScenes = last.scenes.map((sc, i) =>
-        i === sceneIndex ? { ...sc, [field]: value } : sc,
+        i === sceneIndex ? { ...sc, [field]: value } : sc
       );
       const nextScripts = scripts.map((s, i) =>
-        i === idx ? { ...s, scenes: nextScenes } : s,
+        i === idx ? { ...s, scenes: nextScenes } : s
       );
       commitScripts(nextScripts);
     },
-    [scripts, commitScripts],
+    [scripts, commitScripts]
   );
 
   const commitStoryShots = useCallback(
@@ -1925,7 +2047,7 @@ export function StoryAgentProvider({
       storyTheme,
       storyArc,
       saveArchiveStory,
-    ],
+    ]
   );
 
   const updateStoryShotField = useCallback(
@@ -1933,11 +2055,11 @@ export function StoryAgentProvider({
       const currentShots = storySpineStore.getState().storyShots;
       if (index < 0 || index >= currentShots.length) return;
       const nextStoryShots = currentShots.map((shot, i) =>
-        i === index ? { ...shot, [field]: value } : shot,
+        i === index ? { ...shot, [field]: value } : shot
       );
       commitStoryShots(nextStoryShots);
     },
-    [commitStoryShots],
+    [commitStoryShots]
   );
 
   const insertStoryShotAfter = useCallback(
@@ -1947,10 +2069,14 @@ export function StoryAgentProvider({
 
       const result = await insertShotMut.mutateAsync({
         storyId: id,
-        stableShotId: stableShotId ?? '',
+        stableShotId: stableShotId ?? "",
       });
-      if (result.status !== 'ok' || !result.story) {
-        throw new Error(result.status === 'error' ? (result as { error: string }).error : '添加镜头失败');
+      if (result.status !== "ok" || !result.story) {
+        throw new Error(
+          result.status === "error"
+            ? (result as { error: string }).error
+            : "添加镜头失败"
+        );
       }
 
       const body = result.story.body as Record<string, unknown> | undefined;
@@ -1958,229 +2084,244 @@ export function StoryAgentProvider({
         ? (body.shots as StoryShot[])
         : storySpineStore.getState().storyShots;
       setStoryShots(restoredShots);
-      setSaveStatus('saved');
+      setSaveStatus("saved");
       setLastSavedAt(Date.now());
-      if (typeof result.story.revision === 'number') {
+      if (typeof result.story.revision === "number") {
         setServerRevision(result.story.revision);
       }
 
       return result.insertedShotNo;
     },
-    [remoteStoryId, insertShotMut, setStoryShots],
+    [remoteStoryId, insertShotMut, setStoryShots]
   );
 
   const updateAllStoryShotField = useCallback(
     (field: StoryShotEditableField, value: string) => {
       const currentShots = storySpineStore.getState().storyShots;
       if (currentShots.length === 0) return;
-      const nextStoryShots = currentShots.map((shot) => ({ ...shot, [field]: value }));
+      const nextStoryShots = currentShots.map(shot => ({
+        ...shot,
+        [field]: value,
+      }));
       commitStoryShots(nextStoryShots);
     },
-    [commitStoryShots],
+    [commitStoryShots]
   );
 
-  const generateScript = useCallback(async (
-    intent?: ScriptIntentArg,
-    profile?: GenerationProfileArg,
-  ) => {
-    if (cards.length === 0) {
-      toast.error('先生成卡片再合成剧本');
-      return;
-    }
-    const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
-    if (
-      effectiveIntent?.purpose === 'fiction' &&
-      !isFictionStoryCardConfirmed(effectiveIntent, cards)
-    ) {
-      toast.error('先确认虚构故事卡，再生成 3-5 镜短片');
-      return;
-    }
-    if (isGeneratingScript) return;
-    setIsGeneratingScript(true);
-
-    try {
-      const result = await classifyMut.mutateAsync({
-        cards: cards.map((card) => ({
-          title: card.title,
-          content: card.content,
-          rawText: card.rawText,
-          sourceQuote: card.sourceQuote,
-          emotion: card.emotion,
-          emotionOptions: card.emotionOptions,
-          emotionBlend: card.emotionBlend,
-          intensity: card.intensity,
-          direction: card.direction,
-          complexity: card.complexity,
-          trigger: card.trigger,
-          dramaticFunction: card.dramaticFunction,
-          personalTrace: card.personalTrace,
-          retrievalQuery: card.retrievalQuery,
-          themeHints: card.themeHints,
-          outlierSignal: card.outlierSignal,
-          softMembership: card.softMembership,
-        })),
-        characterHint: characters[0]?.name ?? '',
-        // 合成出的镜头按 storyId 归属（U3）：写到当前打开的故事名下。
-        // 只传真实 id(>0)——新故事草稿是 -1，`-1 ?? undefined` 不归一会让服务端
-        // getStoryById(-1) 返 null 静默不写镜头（评审 P1）。草稿先不带 storyId。
-        storyId: activeStoryId && activeStoryId > 0 ? activeStoryId : undefined,
-        visualAnchors: visualCanvasItems.map((item) => ({
-          title: item.title,
-          imageUrl: item.imageUrl,
-          objective: item.analysis.objective,
-          aesthetic: item.analysis.aesthetic,
-          prompt: item.prompt,
-          visualStyle: item.analysis.visualStyle,
-          mood: item.analysis.mood,
-          colorPalette: item.analysis.colorPalette,
-        })),
-        projectId: projectId ?? undefined,
-        // 意图确认关确认过的意图（缺省时与接入前完全一致）。
-        confirmedIntent: effectiveIntent
-          ? {
-              purpose: effectiveIntent.purpose,
-              audience: effectiveIntent.audience,
-              platform: effectiveIntent.platform,
-              tone: effectiveIntent.tone ?? '',
-              desiredEffect: effectiveIntent.desiredEffect ?? '',
-              targetRole: effectiveIntent.targetRole,
-              channel: effectiveIntent.channel,
-            }
-          : undefined,
-        generationProfile: profile ?? undefined,
-      }) as StoryAgentClassifyResult;
-      if ('error' in result) {
-        toast.error(result.error);
+  const generateScript = useCallback(
+    async (intent?: ScriptIntentArg, profile?: GenerationProfileArg) => {
+      if (cards.length === 0) {
+        toast.error("先生成卡片再合成剧本");
         return;
       }
-
-      const generatedShots = Array.isArray(result.shots)
-        ? result.shots.map(normalizeShot).filter((s): s is StoryShot => Boolean(s))
-        : [];
-      const nextShots = generatedShots;
-      if (!nextShots.length) {
-        toast.error('模型没有返回有效镜头');
+      const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
+      if (
+        effectiveIntent?.purpose === "fiction" &&
+        !isFictionStoryCardConfirmed(effectiveIntent, cards)
+      ) {
+        toast.error("先确认虚构故事卡，再生成 3-5 镜短片");
         return;
       }
+      if (isGeneratingScript) return;
+      setIsGeneratingScript(true);
 
-      const nextCharacters = Array.isArray(result.characters)
-        ? result.characters
-            .filter((c) => c && typeof c.name === 'string')
-            .map((c) => ({
-              name: c.name,
-              role: typeof c.role === 'string' ? c.role : '',
-              oneLiner: typeof c.oneLiner === 'string' ? c.oneLiner : '',
-            }))
-        : [];
-      const nextTitle = storyTitle || result.logline || '故事镜头草案';
-      const script = scriptFromStory({
-        title: nextTitle,
-        logline: result.logline,
-        theme: result.theme,
-        arc: result.arc,
-        shots: nextShots,
-        cards,
-        variants: result.variants,
-        boringCheck: result.boringCheck,
-      });
-      if (!script) {
-        toast.error('剧本生成失败：结果为空');
-        return;
-      }
+      try {
+        const result = (await classifyMut.mutateAsync({
+          cards: cards.map(card => ({
+            title: card.title,
+            content: card.content,
+            rawText: card.rawText,
+            sourceQuote: card.sourceQuote,
+            emotion: card.emotion,
+            emotionOptions: card.emotionOptions,
+            emotionBlend: card.emotionBlend,
+            intensity: card.intensity,
+            direction: card.direction,
+            complexity: card.complexity,
+            trigger: card.trigger,
+            dramaticFunction: card.dramaticFunction,
+            personalTrace: card.personalTrace,
+            retrievalQuery: card.retrievalQuery,
+            themeHints: card.themeHints,
+            outlierSignal: card.outlierSignal,
+            softMembership: card.softMembership,
+          })),
+          characterHint: characters[0]?.name ?? "",
+          // 合成出的镜头按 storyId 归属（U3）：写到当前打开的故事名下。
+          // 只传真实 id(>0)——新故事草稿是 -1，`-1 ?? undefined` 不归一会让服务端
+          // getStoryById(-1) 返 null 静默不写镜头（评审 P1）。草稿先不带 storyId。
+          storyId:
+            activeStoryId && activeStoryId > 0 ? activeStoryId : undefined,
+          visualAnchors: visualCanvasItems.map(item => ({
+            title: item.title,
+            imageUrl: item.imageUrl,
+            objective: item.analysis.objective,
+            aesthetic: item.analysis.aesthetic,
+            prompt: item.prompt,
+            visualStyle: item.analysis.visualStyle,
+            mood: item.analysis.mood,
+            colorPalette: item.analysis.colorPalette,
+          })),
+          projectId: projectId ?? undefined,
+          // 意图确认关确认过的意图（缺省时与接入前完全一致）。
+          confirmedIntent: effectiveIntent
+            ? {
+                purpose: effectiveIntent.purpose,
+                audience: effectiveIntent.audience,
+                platform: effectiveIntent.platform,
+                tone: effectiveIntent.tone ?? "",
+                desiredEffect: effectiveIntent.desiredEffect ?? "",
+                targetRole: effectiveIntent.targetRole,
+                channel: effectiveIntent.channel,
+              }
+            : undefined,
+          generationProfile: profile ?? undefined,
+        })) as StoryAgentClassifyResult;
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
 
-      const nextScripts = [...scripts, script];
-      setStoryTitle(nextTitle);
-      setStoryLogline(result.logline);
-      setStoryTheme(result.theme);
-      setStoryArc(result.arc);
-      setStoryShots(nextShots);
-      setCharacters(nextCharacters);
-      setScripts(nextScripts);
+        const generatedShots = Array.isArray(result.shots)
+          ? result.shots
+              .map(normalizeShot)
+              .filter((s): s is StoryShot => Boolean(s))
+          : [];
+        const nextShots = generatedShots;
+        if (!nextShots.length) {
+          toast.error("模型没有返回有效镜头");
+          return;
+        }
 
-      const savedStoryId = await saveArchiveStory({
-        messages,
-        cards,
-        scripts: nextScripts,
-        storyShots: nextShots,
-        characters: nextCharacters,
-        remoteStoryId,
-        title: nextTitle,
-        logline: result.logline,
-        theme: result.theme,
-        arc: result.arc,
-      });
-      const storyboardStoryId =
-        activeStoryId && activeStoryId > 0 ? activeStoryId : savedStoryId;
-      if (storyboardStoryId) {
-        void (async () => {
-          const draftResult = await generateStoryboardDraftFrames({
-            storyId: storyboardStoryId,
-            shots: nextShots,
-            generate: input => storyboardImageMut.mutateAsync(input),
-          });
-          const generatedDrafts = draftResult.images;
-          if (generatedDrafts.length > 0) {
-            setStoryImages((prev) => {
-              const byId = new Map(prev.map((image) => [image.id, image]));
-              for (const image of generatedDrafts) byId.set(image.id, image);
-              return Array.from(byId.values());
-            });
-            await utils.storyAgent.storyImages.invalidate({ storyId: storyboardStoryId });
-            toast.success(`关键帧草稿已补齐：${draftResult.generatedCount} 张`);
-          }
-          if (draftResult.failedCount > 0) {
-            toast.error(`${draftResult.failedCount} 张关键帧草稿没画成，剧本和提示词已保留`);
-          }
-        })().catch(error => {
-          console.warn('storyboard draft generation failed', error);
-          toast.error('关键帧草稿生成失败，剧本和提示词已保留');
+        const nextCharacters = Array.isArray(result.characters)
+          ? result.characters
+              .filter(c => c && typeof c.name === "string")
+              .map(c => ({
+                name: c.name,
+                role: typeof c.role === "string" ? c.role : "",
+                oneLiner: typeof c.oneLiner === "string" ? c.oneLiner : "",
+              }))
+          : [];
+        const nextTitle = storyTitle || result.logline || "故事镜头草案";
+        const script = scriptFromStory({
+          title: nextTitle,
+          logline: result.logline,
+          theme: result.theme,
+          arc: result.arc,
+          shots: nextShots,
+          cards,
+          variants: result.variants,
+          boringCheck: result.boringCheck,
         });
+        if (!script) {
+          toast.error("剧本生成失败：结果为空");
+          return;
+        }
+
+        const nextScripts = [...scripts, script];
+        setStoryTitle(nextTitle);
+        setStoryLogline(result.logline);
+        setStoryTheme(result.theme);
+        setStoryArc(result.arc);
+        setStoryShots(nextShots);
+        setCharacters(nextCharacters);
+        setScripts(nextScripts);
+
+        const savedStoryId = await saveArchiveStory({
+          messages,
+          cards,
+          scripts: nextScripts,
+          storyShots: nextShots,
+          characters: nextCharacters,
+          remoteStoryId,
+          title: nextTitle,
+          logline: result.logline,
+          theme: result.theme,
+          arc: result.arc,
+        });
+        const storyboardStoryId =
+          activeStoryId && activeStoryId > 0 ? activeStoryId : savedStoryId;
+        if (storyboardStoryId) {
+          void (async () => {
+            const draftResult = await generateStoryboardDraftFrames({
+              storyId: storyboardStoryId,
+              shots: nextShots,
+              generate: input => storyboardImageMut.mutateAsync(input),
+            });
+            const generatedDrafts = draftResult.images;
+            if (generatedDrafts.length > 0) {
+              setStoryImages(prev => {
+                const byId = new Map(prev.map(image => [image.id, image]));
+                for (const image of generatedDrafts) byId.set(image.id, image);
+                return Array.from(byId.values());
+              });
+              await utils.storyAgent.storyImages.invalidate({
+                storyId: storyboardStoryId,
+              });
+              toast.success(
+                `关键帧草稿已补齐：${draftResult.generatedCount} 张`
+              );
+            }
+            if (draftResult.failedCount > 0) {
+              toast.error(
+                `${draftResult.failedCount} 张关键帧草稿没画成，剧本和提示词已保留`
+              );
+            }
+          })().catch(error => {
+            console.warn("storyboard draft generation failed", error);
+            toast.error("关键帧草稿生成失败，剧本和提示词已保留");
+          });
+        }
+        if (projectId !== null) {
+          await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
+        }
+        toast.success(
+          storyboardStoryId
+            ? `故事版已生成：${script.title} · 关键帧草稿后台生成中`
+            : `故事版已生成：${script.title}`
+        );
+        // Auto-open animatic & storyboard panels so the user sees the result.
+        const currentPanels = storySpineStore.getState().visibleStoryPanels;
+        const panelsToAdd: Array<
+          "materialWarehouse" | "animatic" | "storyboard"
+        > = [];
+        if (!currentPanels.includes("materialWarehouse"))
+          panelsToAdd.push("materialWarehouse");
+        if (!currentPanels.includes("animatic")) panelsToAdd.push("animatic");
+        if (!currentPanels.includes("storyboard"))
+          panelsToAdd.push("storyboard");
+        if (panelsToAdd.length > 0) {
+          storySpineStore
+            .getState()
+            .setVisibleStoryPanels([...currentPanels, ...panelsToAdd]);
+        }
+      } catch (err) {
+        console.error("storyAgent.generateScript failed", err);
+        toast.error("剧本生成失败");
+      } finally {
+        setIsGeneratingScript(false);
       }
-      if (projectId !== null) {
-        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
-      }
-      toast.success(
-        storyboardStoryId
-          ? `故事版已生成：${script.title} · 关键帧草稿后台生成中`
-          : `故事版已生成：${script.title}`,
-      );
-      // Auto-open animatic & storyboard panels so the user sees the result.
-      const currentPanels = storySpineStore.getState().visibleStoryPanels;
-      const panelsToAdd: Array<'materialWarehouse' | 'animatic' | 'storyboard'> = [];
-      if (!currentPanels.includes('materialWarehouse')) panelsToAdd.push('materialWarehouse');
-      if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
-      if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
-      if (panelsToAdd.length > 0) {
-        storySpineStore.getState().setVisibleStoryPanels([
-          ...currentPanels,
-          ...panelsToAdd,
-        ]);
-      }
-    } catch (err) {
-      console.error('storyAgent.generateScript failed', err);
-      toast.error('剧本生成失败');
-    } finally {
-      setIsGeneratingScript(false);
-    }
-  }, [
-    cards,
-    characters,
-    classifyMut,
-    confirmedIntent,
-    isGeneratingScript,
-    messages,
-    projectId,
-    scripts,
-    activeStoryId,
-    remoteStoryId,
-    storyTitle,
-    storyboardImageMut,
-    setStoryImages,
-    utils.storyAgent.storyImages,
-    utils.shot.list,
-    visualCanvasItems,
-    saveArchiveStory,
-  ]);
+    },
+    [
+      cards,
+      characters,
+      classifyMut,
+      confirmedIntent,
+      isGeneratingScript,
+      messages,
+      projectId,
+      scripts,
+      activeStoryId,
+      remoteStoryId,
+      storyTitle,
+      storyboardImageMut,
+      setStoryImages,
+      utils.storyAgent.storyImages,
+      utils.shot.list,
+      visualCanvasItems,
+      saveArchiveStory,
+    ]
+  );
 
   const resetConversation = useCallback(() => {
     const fresh = emptyState();
@@ -2195,24 +2336,24 @@ export function StoryAgentProvider({
     setStoryTheme(undefined);
     setStoryArc(undefined);
     setVisualCanvasItems([]);
-    setVisualPreference('');
+    setVisualPreference("");
     setStoryImages([]);
     setArtDirection(emptyStoryArtDirection());
     setActiveStoryId(-1);
-    setSaveStatus('idle');
+    setSaveStatus("idle");
     setLastSavedAt(undefined);
     setServerRevision(0);
     setReturningGreeting(null);
     setConfirmedIntent(null);
     setPendingIntentDraft(null);
-    toast.success('已开始新故事，旧故事仍保留在云端故事库');
+    toast.success("已开始新故事，旧故事仍保留在云端故事库");
   }, []);
 
   const refreshStoryList = useCallback(async () => {
     setIsLoadingStories(true);
     try {
       const data = await utils.storyAgent.storyList.fetch();
-      const items: StoryListItem[] = (data.stories ?? []).map((s) => ({
+      const items: StoryListItem[] = (data.stories ?? []).map(s => ({
         id: s.id,
         title: s.title,
         logline: s.logline,
@@ -2224,16 +2365,16 @@ export function StoryAgentProvider({
       // Clear stale remoteStoryId if it no longer exists on the server
       // (e.g. after server restart wiped in-memory state). This ensures the
       // next save attempt creates a new story rather than failing silently.
-      setRemoteStoryId((prev) => {
-        if (prev !== undefined && !items.some((s) => s.id === prev)) {
-          setActiveStoryId((current) => (current === prev ? -1 : current));
+      setRemoteStoryId(prev => {
+        if (prev !== undefined && !items.some(s => s.id === prev)) {
+          setActiveStoryId(current => (current === prev ? -1 : current));
           setServerRevision(0);
           return undefined;
         }
         return prev;
       });
     } catch (error) {
-      console.warn('refreshStoryList failed', error);
+      console.warn("refreshStoryList failed", error);
     } finally {
       setIsLoadingStories(false);
     }
@@ -2259,11 +2400,11 @@ export function StoryAgentProvider({
     setStoryTheme(undefined);
     setStoryArc(undefined);
     setVisualCanvasItems([]);
-    setVisualPreference('');
+    setVisualPreference("");
     setStoryImages([]);
-    setImageProvider('default');
+    setImageProvider("default");
     setArtDirection(emptyStoryArtDirection());
-    setSaveStatus('idle');
+    setSaveStatus("idle");
     setLastSavedAt(undefined);
     setServerRevision(0);
     setReturningGreeting(null);
@@ -2271,167 +2412,188 @@ export function StoryAgentProvider({
     setPendingIntentDraft(null);
   }, []);
 
-  const loadStory = useCallback(async (
-    id: number,
-    options?: { silent?: boolean },
-  ) => {
-    try {
-      // staleTime:0 强制从服务器重拉最新 —— 否则命中缓存会显示旧快照，
-      // 看不到另一端（手机）刚加的消息/卡片/图（跨端同步的关键）。
-      const row = await utils.storyAgent.storyGet.fetch({ id }, { staleTime: 0 });
-      if (!row) {
-        toast.error('故事不存在');
-        return;
-      }
-      const body = row.body && typeof row.body === 'object'
-        ? (row.body as Record<string, unknown>)
-        : {};
-      const restoredCards = Array.isArray(body.cards)
-        ? body.cards.map(normalizeCard).filter((c): c is StoryCard => Boolean(c))
-        : [];
-      const restoredShots = Array.isArray(body.shots)
-        ? body.shots.map(normalizeShot).filter((s): s is StoryShot => Boolean(s))
-        : [];
-      const restoredMessages = normalizeMessages(body.messages);
-      const restoredCharacters = Array.isArray(body.characters)
-        ? body.characters
-            .filter((c): c is { name: string; role: string; oneLiner: string } =>
-              Boolean(c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string'),
-            )
-            .map((c) => ({
-              name: c.name,
-              role: typeof c.role === 'string' ? c.role : '',
-              oneLiner: typeof c.oneLiner === 'string' ? c.oneLiner : '',
-            }))
-        : [];
-      const restoredVisualCanvasItems = Array.isArray(body.visualCanvasItems)
-        ? body.visualCanvasItems
-            .map(normalizeVisualCanvasItem)
-            .filter((item): item is VisualCanvasItem => Boolean(item))
-        : [];
-      const restoredVisualPreference =
-        typeof body.visualPreference === 'string' ? body.visualPreference : '';
-      const restoredMobileImages = Array.isArray(body.mobileImages)
-        ? (body.mobileImages as GeneratedImageItem[]).filter(
-            image => image?.storyId === id && Boolean(image.imageUrl),
-          )
-        : [];
-      const restoredImageProvider = normalizeImageProviderSelection(body.imageProvider);
-      const restoredArtDirection = normalizeStoryArtDirection(body.artDirection);
-      const restoredConfirmedIntent = normalizeStoryIntent(body.confirmedIntent);
-
-      setRemoteStoryId(id);
-      setStoryTitle(row.title || undefined);
-      setStoryLogline(row.logline || undefined);
-      setStoryTheme(row.theme || undefined);
-      setStoryArc(row.arc || undefined);
-      setCards(restoredCards);
-      setStoryShots(restoredShots);
-      setCharacters(restoredCharacters);
-      setMessages(restoredMessages);
-      // 老卡兜底(云端 loadStory 路):云端早存 / 功能上线前生成的卡名下没有继承图视觉锚,
-      // 这里和刷新时的 hydrate 走同一个 reconcileRestoredVisualItems 补挂,不再各写各的。
-      setVisualCanvasItems(
-        reconcileRestoredVisualItems(
-          restoredVisualCanvasItems,
-          restoredCards,
-          restoredMessages,
-        ),
-      );
-      setVisualPreference(restoredVisualPreference);
-      setStoryImages(restoredMobileImages);
-      setImageProvider(restoredImageProvider);
-      setArtDirection(restoredArtDirection);
-      setConfirmedIntent(restoredConfirmedIntent);
-      setPendingIntentDraft(null);
-
-      const remoteScript = scriptFromStory({
-        title: row.title || undefined,
-        logline: row.logline || undefined,
-        theme: row.theme || undefined,
-        arc: row.arc || undefined,
-        shots: restoredShots,
-        cards: restoredCards,
-        variants: Array.isArray(body.variants)
-          ? (body.variants as GeneratedScript['variants'])
-          : undefined,
-        boringCheck:
-          body.boringCheck && typeof body.boringCheck === 'object'
-            ? (body.boringCheck as GeneratedScript['boringCheck'])
-            : undefined,
-      });
-      setScripts(remoteScript ? [remoteScript] : []);
-      setActiveStoryId(id);
-      setSaveStatus('saved');
-      setLastSavedAt(row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now());
-      const loadedRevision = typeof row.revision === 'number' ? row.revision : 0;
-      setServerRevision(loadedRevision);
-
-      // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
-      // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
-      const lastCard = restoredCards[restoredCards.length - 1];
-      if (!options?.silent) {
-        setReturningGreeting(
-          buildReturningGreeting({
-            hasPriorUserMessages:
-              shouldShowReturningGreeting(restoredMessages),
-            logline: row.logline,
-            lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
-            title: row.title,
-          }),
+  const loadStory = useCallback(
+    async (id: number, options?: { silent?: boolean }) => {
+      try {
+        // staleTime:0 强制从服务器重拉最新 —— 否则命中缓存会显示旧快照，
+        // 看不到另一端（手机）刚加的消息/卡片/图（跨端同步的关键）。
+        const row = await utils.storyAgent.storyGet.fetch(
+          { id },
+          { staleTime: 0 }
         );
-      }
-
-      // Auto-open panels if the loaded story has shots (previously generated storyboard).
-      if (restoredShots.length > 0) {
-        const currentPanels = storySpineStore.getState().visibleStoryPanels;
-        const panelsToAdd: Array<'materialWarehouse' | 'animatic' | 'storyboard'> = [];
-        if (!currentPanels.includes('materialWarehouse')) panelsToAdd.push('materialWarehouse');
-        if (!currentPanels.includes('storyboard')) panelsToAdd.push('storyboard');
-        if (!currentPanels.includes('animatic')) panelsToAdd.push('animatic');
-        if (panelsToAdd.length > 0) {
-          storySpineStore.getState().setVisibleStoryPanels([
-            ...currentPanels,
-            ...panelsToAdd,
-          ]);
+        if (!row) {
+          toast.error("故事不存在");
+          return;
         }
+        const body =
+          row.body && typeof row.body === "object"
+            ? (row.body as Record<string, unknown>)
+            : {};
+        const restoredCards = Array.isArray(body.cards)
+          ? body.cards
+              .map(normalizeCard)
+              .filter((c): c is StoryCard => Boolean(c))
+          : [];
+        const restoredShots = Array.isArray(body.shots)
+          ? body.shots
+              .map(normalizeShot)
+              .filter((s): s is StoryShot => Boolean(s))
+          : [];
+        const restoredMessages = normalizeMessages(body.messages);
+        const restoredCharacters = Array.isArray(body.characters)
+          ? body.characters
+              .filter(
+                (c): c is { name: string; role: string; oneLiner: string } =>
+                  Boolean(
+                    c &&
+                      typeof c === "object" &&
+                      typeof (c as { name?: unknown }).name === "string"
+                  )
+              )
+              .map(c => ({
+                name: c.name,
+                role: typeof c.role === "string" ? c.role : "",
+                oneLiner: typeof c.oneLiner === "string" ? c.oneLiner : "",
+              }))
+          : [];
+        const restoredVisualCanvasItems = Array.isArray(body.visualCanvasItems)
+          ? body.visualCanvasItems
+              .map(normalizeVisualCanvasItem)
+              .filter((item): item is VisualCanvasItem => Boolean(item))
+          : [];
+        const restoredVisualPreference =
+          typeof body.visualPreference === "string"
+            ? body.visualPreference
+            : "";
+        const restoredMobileImages = Array.isArray(body.mobileImages)
+          ? (body.mobileImages as GeneratedImageItem[]).filter(
+              image => image?.storyId === id && Boolean(image.imageUrl)
+            )
+          : [];
+        const restoredImageProvider = normalizeImageProviderSelection(
+          body.imageProvider
+        );
+        const restoredArtDirection = normalizeStoryArtDirection(
+          body.artDirection
+        );
+        const restoredConfirmedIntent = normalizeStoryIntent(
+          body.confirmedIntent
+        );
+
+        setRemoteStoryId(id);
+        setStoryTitle(row.title || undefined);
+        setStoryLogline(row.logline || undefined);
+        setStoryTheme(row.theme || undefined);
+        setStoryArc(row.arc || undefined);
+        setCards(restoredCards);
+        setStoryShots(restoredShots);
+        setCharacters(restoredCharacters);
+        setMessages(restoredMessages);
+        // 老卡兜底(云端 loadStory 路):云端早存 / 功能上线前生成的卡名下没有继承图视觉锚,
+        // 这里和刷新时的 hydrate 走同一个 reconcileRestoredVisualItems 补挂,不再各写各的。
+        setVisualCanvasItems(
+          reconcileRestoredVisualItems(
+            restoredVisualCanvasItems,
+            restoredCards,
+            restoredMessages
+          )
+        );
+        setVisualPreference(restoredVisualPreference);
+        setStoryImages(restoredMobileImages);
+        setImageProvider(restoredImageProvider);
+        setArtDirection(restoredArtDirection);
+        setConfirmedIntent(restoredConfirmedIntent);
+        setPendingIntentDraft(null);
+
+        const remoteScript = scriptFromStory({
+          title: row.title || undefined,
+          logline: row.logline || undefined,
+          theme: row.theme || undefined,
+          arc: row.arc || undefined,
+          shots: restoredShots,
+          cards: restoredCards,
+          variants: Array.isArray(body.variants)
+            ? (body.variants as GeneratedScript["variants"])
+            : undefined,
+          boringCheck:
+            body.boringCheck && typeof body.boringCheck === "object"
+              ? (body.boringCheck as GeneratedScript["boringCheck"])
+              : undefined,
+        });
+        setScripts(remoteScript ? [remoteScript] : []);
+        setActiveStoryId(id);
+        setSaveStatus("saved");
+        setLastSavedAt(
+          row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now()
+        );
+        const loadedRevision =
+          typeof row.revision === "number" ? row.revision : 0;
+        setServerRevision(loadedRevision);
+
+        // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
+        // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
+        const lastCard = restoredCards[restoredCards.length - 1];
+        if (!options?.silent) {
+          setReturningGreeting(
+            buildReturningGreeting({
+              hasPriorUserMessages:
+                shouldShowReturningGreeting(restoredMessages),
+              logline: row.logline,
+              lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
+              title: row.title,
+            })
+          );
+        }
+
+        // Auto-open panels if the loaded story has shots (previously generated storyboard).
+        if (restoredShots.length > 0) {
+          const currentPanels = storySpineStore.getState().visibleStoryPanels;
+          const panelsToAdd: Array<
+            "materialWarehouse" | "animatic" | "storyboard"
+          > = [];
+          if (!currentPanels.includes("materialWarehouse"))
+            panelsToAdd.push("materialWarehouse");
+          if (!currentPanels.includes("storyboard"))
+            panelsToAdd.push("storyboard");
+          if (!currentPanels.includes("animatic")) panelsToAdd.push("animatic");
+          if (panelsToAdd.length > 0) {
+            storySpineStore
+              .getState()
+              .setVisibleStoryPanels([...currentPanels, ...panelsToAdd]);
+          }
+        }
+      } catch (error) {
+        console.error("loadStory failed", error);
+        toast.error("加载故事失败");
       }
-    } catch (error) {
-      console.error('loadStory failed', error);
-      toast.error('加载故事失败');
-    }
-  }, [utils.storyAgent.storyGet]);
+    },
+    [utils.storyAgent.storyGet]
+  );
 
   useEffect(() => {
     if (!activeStoryId || activeStoryId < 1) return;
 
     const syncActiveStory = () => {
       if (
-        document.visibilityState !== 'visible' ||
+        document.visibilityState !== "visible" ||
         isReplying ||
         isGeneratingScript ||
-        saveStatus === 'saving'
+        saveStatus === "saving"
       ) {
         return;
       }
       void storySaveQueue.current.then(() =>
-        loadStory(activeStoryId, { silent: true }),
+        loadStory(activeStoryId, { silent: true })
       );
     };
 
-    window.addEventListener('focus', syncActiveStory);
-    document.addEventListener('visibilitychange', syncActiveStory);
+    window.addEventListener("focus", syncActiveStory);
+    document.addEventListener("visibilitychange", syncActiveStory);
     return () => {
-      window.removeEventListener('focus', syncActiveStory);
-      document.removeEventListener('visibilitychange', syncActiveStory);
+      window.removeEventListener("focus", syncActiveStory);
+      document.removeEventListener("visibilitychange", syncActiveStory);
     };
-  }, [
-    activeStoryId,
-    isGeneratingScript,
-    isReplying,
-    loadStory,
-    saveStatus,
-  ]);
+  }, [activeStoryId, isGeneratingScript, isReplying, loadStory, saveStatus]);
 
   // 不再自动加载最近一篇：老用户进门先看「继续 vs 开新」选择屏（StoryListView），
   // 由 loadStory() / createNewStory() 显式进入对话。（Option A：开头直接问）
@@ -2451,20 +2613,23 @@ export function StoryAgentProvider({
     refreshStoryList();
   }, [refreshStoryList]);
 
-  const handleDeleteStory = useCallback(async (id: number) => {
-    try {
-      await storyDeleteMut.mutateAsync({ id });
-      if (activeStoryId === id) {
-        clearCurrentStory();
-        setActiveStoryId(null);
+  const handleDeleteStory = useCallback(
+    async (id: number) => {
+      try {
+        await storyDeleteMut.mutateAsync({ id });
+        if (activeStoryId === id) {
+          clearCurrentStory();
+          setActiveStoryId(null);
+        }
+        await refreshStoryList();
+        toast.success("故事已删除");
+      } catch (error) {
+        console.error("deleteStory failed", error);
+        toast.error("删除失败");
       }
-      await refreshStoryList();
-      toast.success('故事已删除');
-    } catch (error) {
-      console.error('deleteStory failed', error);
-      toast.error('删除失败');
-    }
-  }, [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList]);
+    },
+    [storyDeleteMut, activeStoryId, clearCurrentStory, refreshStoryList]
+  );
 
   const persistVisualCanvas = useCallback(
     (nextItems: VisualCanvasItem[], nextPreference = visualPreference) => {
@@ -2500,14 +2665,14 @@ export function StoryAgentProvider({
       storyArc,
       imageProvider,
       saveArchiveStory,
-    ],
+    ]
   );
 
   const addVisualReference = useCallback(
     async (file: File, instruction?: string, cardId?: string) => {
       if (isArtWorking) return;
-      if (!file.type.startsWith('image/')) {
-        toast.error('美术 Agent 现在只接图片。');
+      if (!file.type.startsWith("image/")) {
+        toast.error("美术 Agent 现在只接图片。");
         return;
       }
       setIsArtWorking(true);
@@ -2515,17 +2680,19 @@ export function StoryAgentProvider({
         const imageBase64 = await fileToBase64(file);
         const result = await analyzeReferenceMut.mutateAsync({
           imageBase64,
-          mimeType: file.type || 'image/jpeg',
+          mimeType: file.type || "image/jpeg",
           fileName: file.name,
           instruction,
         });
         const offset = visualCanvasItems.length * 18;
         const item: VisualCanvasItem = {
-          id: newId('visual'),
-          title: file.name.replace(/\.[^.]+$/, '') || `视觉锚 ${visualCanvasItems.length + 1}`,
+          id: newId("visual"),
+          title:
+            file.name.replace(/\.[^.]+$/, "") ||
+            `视觉锚 ${visualCanvasItems.length + 1}`,
           imageUrl: result.originalImageUrl,
           originalImageUrl: result.originalImageUrl,
-          source: 'reference',
+          source: "reference",
           cardId,
           x: 18 + offset,
           y: 18 + offset,
@@ -2538,11 +2705,11 @@ export function StoryAgentProvider({
         };
         const nextItems = [...visualCanvasItems, item];
         persistVisualCanvas(nextItems);
-        if (artDirection.phase !== 'empty') {
+        if (artDirection.phase !== "empty") {
           const targetContent =
             artDirection.targetContent || artTargetFrom(cards, storyShots);
           const existing = new Map(
-            artDirection.references.map(reference => [reference.id, reference]),
+            artDirection.references.map(reference => [reference.id, reference])
           );
           const references = buildStoryArtReferences({
             messages,
@@ -2561,16 +2728,20 @@ export function StoryAgentProvider({
           });
           setArtDirection(current => ({
             ...current,
-            phase: current.phase === 'locked' ? 'locked' : 'references',
+            phase: current.phase === "locked" ? "locked" : "references",
             targetContent,
             references,
             updatedAt: Date.now(),
           }));
         }
-        toast.success(cardId ? '参考图已分析并加入这张卡' : '参考图已分析并加入材料');
+        toast.success(
+          cardId ? "参考图已分析并加入这张卡" : "参考图已分析并加入材料"
+        );
       } catch (error) {
-        console.error('artAgent.analyzeReference failed', error);
-        toast.error(error instanceof Error ? error.message : '美术 Agent 暂时没接上');
+        console.error("artAgent.analyzeReference failed", error);
+        toast.error(
+          error instanceof Error ? error.message : "美术 Agent 暂时没接上"
+        );
       } finally {
         setIsArtWorking(false);
       }
@@ -2584,17 +2755,17 @@ export function StoryAgentProvider({
       cards,
       storyShots,
       messages,
-    ],
+    ]
   );
 
   const refineVisualItem = useCallback(
     async (id: string, instruction: string) => {
       const trimmed = instruction.trim();
       if (!trimmed) {
-        toast.error('先说一句你想怎么改');
+        toast.error("先说一句你想怎么改");
         return;
       }
-      const item = visualCanvasItems.find((entry) => entry.id === id);
+      const item = visualCanvasItems.find(entry => entry.id === id);
       if (!item || isArtWorking) return;
       setIsArtWorking(true);
       try {
@@ -2608,11 +2779,11 @@ export function StoryAgentProvider({
         });
         const nextItem: VisualCanvasItem = {
           ...item,
-          id: newId('visual'),
+          id: newId("visual"),
           title: `${item.title} · riff`,
           imageUrl: result.imageUrl,
           originalImageUrl: item.originalImageUrl ?? item.imageUrl,
-          source: 'riff',
+          source: "riff",
           parentId: item.id,
           x: item.x + 24,
           y: item.y + 24,
@@ -2621,11 +2792,16 @@ export function StoryAgentProvider({
           analysis: result.analysis,
           createdAt: Date.now(),
         };
-        persistVisualCanvas([...visualCanvasItems, nextItem], result.preferenceUpdate || visualPreference);
-        toast.success('已按你的口味再 riff 一版');
+        persistVisualCanvas(
+          [...visualCanvasItems, nextItem],
+          result.preferenceUpdate || visualPreference
+        );
+        toast.success("已按你的口味再 riff 一版");
       } catch (error) {
-        console.error('artAgent.refine failed', error);
-        toast.error(error instanceof Error ? error.message : '改图失败，再试一次');
+        console.error("artAgent.refine failed", error);
+        toast.error(
+          error instanceof Error ? error.message : "改图失败，再试一次"
+        );
       } finally {
         setIsArtWorking(false);
       }
@@ -2637,85 +2813,97 @@ export function StoryAgentProvider({
       visualPreference,
       imageProvider,
       persistVisualCanvas,
-    ],
+    ]
   );
 
   const updateVisualCanvasItem = useCallback(
-    (id: string, patch: Partial<Pick<VisualCanvasItem, 'x' | 'y' | 'width' | 'height' | 'title'>>) => {
-      const nextItems = visualCanvasItems.map((item) =>
-        item.id === id ? { ...item, ...patch } : item,
+    (
+      id: string,
+      patch: Partial<
+        Pick<VisualCanvasItem, "x" | "y" | "width" | "height" | "title">
+      >
+    ) => {
+      const nextItems = visualCanvasItems.map(item =>
+        item.id === id ? { ...item, ...patch } : item
       );
       persistVisualCanvas(nextItems);
     },
-    [visualCanvasItems, persistVisualCanvas],
+    [visualCanvasItems, persistVisualCanvas]
   );
 
   const removeVisualCanvasItem = useCallback(
     (id: string) => {
-      persistVisualCanvas(visualCanvasItems.filter((item) => item.id !== id));
+      persistVisualCanvas(visualCanvasItems.filter(item => item.id !== id));
     },
-    [visualCanvasItems, persistVisualCanvas],
+    [visualCanvasItems, persistVisualCanvas]
   );
 
   // 把某张参考图设为「主角参照」（单选）—— 跨镜头锁人物长相的依据。
   // 桥接：镜头照片(visualCanvasItems)的 imageUrl 若已在 references 则升级它、否则新建一条，
   // 并清掉其他主角标记。后端 characterReferenceOf 读取 role:'character' 注入 MJ --cref。
-  const setCharacterReferenceByUrl = useCallback((imageUrl: string, label?: string) => {
-    setArtDirection(current => {
-      const cleared = current.references.map(reference =>
-        reference.role === 'character' && reference.imageUrl !== imageUrl
-          ? { ...reference, role: undefined }
-          : reference,
-      );
-      const existingIdx = cleared.findIndex(reference => reference.imageUrl === imageUrl);
-      const references =
-        existingIdx >= 0
-          ? cleared.map((reference, i) =>
-              i === existingIdx
-                ? {
-                    ...reference,
-                    role: 'character' as const,
-                    selected: true,
-                    purpose:
-                      reference.purpose === 'aesthetic' ? ('both' as const) : reference.purpose,
-                  }
-                : reference,
-            )
-          : [
-              {
-                id: newId('charref'),
-                label: label || '主角参照',
-                source: 'visual-anchor' as const,
-                purpose: 'fact' as const,
-                selected: true,
-                role: 'character' as const,
-                imageUrl,
-              },
-              ...cleared,
-            ];
-      // 首次设主角时自动锁定美术风格——后续所有出图（正式版、重渲）都用同一个 recipe，
-      // 不再每次 pickStyle 随机选流派，确保跨镜头风格一致。
-      const needsLock = current.phase !== 'locked';
-      const recipe = needsLock
-        ? {
-            ...defaultArtRecipe(),
-            version: 1,
-            sourceCandidateIds: [],
-            updatedAt: Date.now(),
-          }
-        : current.recipe;
-      return {
-        ...current,
-        phase: needsLock ? 'locked' : current.phase,
-        references,
-        recipe,
-        recipeVersions: needsLock
-          ? [...current.recipeVersions, recipe!]
-          : current.recipeVersions,
-        updatedAt: Date.now(),
-      };
-    });
-  }, []);
+  const setCharacterReferenceByUrl = useCallback(
+    (imageUrl: string, label?: string) => {
+      setArtDirection(current => {
+        const cleared = current.references.map(reference =>
+          reference.role === "character" && reference.imageUrl !== imageUrl
+            ? { ...reference, role: undefined }
+            : reference
+        );
+        const existingIdx = cleared.findIndex(
+          reference => reference.imageUrl === imageUrl
+        );
+        const references =
+          existingIdx >= 0
+            ? cleared.map((reference, i) =>
+                i === existingIdx
+                  ? {
+                      ...reference,
+                      role: "character" as const,
+                      selected: true,
+                      purpose:
+                        reference.purpose === "aesthetic"
+                          ? ("both" as const)
+                          : reference.purpose,
+                    }
+                  : reference
+              )
+            : [
+                {
+                  id: newId("charref"),
+                  label: label || "主角参照",
+                  source: "visual-anchor" as const,
+                  purpose: "fact" as const,
+                  selected: true,
+                  role: "character" as const,
+                  imageUrl,
+                },
+                ...cleared,
+              ];
+        // 首次设主角时自动锁定美术风格——后续所有出图（正式版、重渲）都用同一个 recipe，
+        // 不再每次 pickStyle 随机选流派，确保跨镜头风格一致。
+        const needsLock = current.phase !== "locked";
+        const recipe = needsLock
+          ? {
+              ...defaultArtRecipe(),
+              version: 1,
+              sourceCandidateIds: [],
+              updatedAt: Date.now(),
+            }
+          : current.recipe;
+        return {
+          ...current,
+          phase: needsLock ? "locked" : current.phase,
+          references,
+          recipe,
+          recipeVersions: needsLock
+            ? [...current.recipeVersions, recipe!]
+            : current.recipeVersions,
+          updatedAt: Date.now(),
+        };
+      });
+    },
+    []
+  );
 
   const clearSelection = useCallback(() => setActiveSelection(null), []);
 
@@ -2747,8 +2935,8 @@ export function StoryAgentProvider({
       };
 
       const userMsg: ChatMessage = {
-        id: newId('msg'),
-        role: 'user',
+        id: newId("msg"),
+        role: "user",
         content: instruction,
         timestamp: Date.now(),
         selectionQuote,
@@ -2763,25 +2951,30 @@ export function StoryAgentProvider({
         // 剪辑意图下接管；普通文字润色仍继续走下面原有 selectionEdit。
         if (editingCommandRunner) {
           const outcome = await editingCommandRunner(instruction, {
+            sourceType: activeSelection.sourceType,
+            sourceId: activeSelection.sourceId,
             stableShotId: activeSelection.stableShotId,
             shotNo: activeSelection.shotNo,
+            videoTakeId: activeSelection.videoTakeId,
+            rangeId: activeSelection.rangeId,
+            selection: activeSelection.selection,
           });
           if (outcome?.handled) {
             if (
               !storyScopeMatches(
                 requestStoryId,
-                storySpineStore.getState().activeStoryId,
+                storySpineStore.getState().activeStoryId
               )
             ) {
               return;
             }
             const replyMsg: ChatMessage = {
-              id: newId('msg'),
-              role: 'assistant',
+              id: newId("msg"),
+              role: "assistant",
               content: outcome.reply,
               timestamp: Date.now(),
               editingTransitionCandidate: outcome.transitionCandidate
-                ? { ...outcome.transitionCandidate, status: 'pending' }
+                ? { ...outcome.transitionCandidate, status: "pending" }
                 : undefined,
             };
             const finalMessages = [...nextMessages, replyMsg];
@@ -2790,7 +2983,7 @@ export function StoryAgentProvider({
             const storyId = resolvePersistedStoryId(
               activeSelection.storyId,
               activeStoryId,
-              remoteStoryId,
+              remoteStoryId
             );
             if (storyId != null) {
               try {
@@ -2808,8 +3001,8 @@ export function StoryAgentProvider({
                 });
               } catch (error) {
                 console.warn(
-                  '[storyConversation] persist editing selection turn failed:',
-                  error,
+                  "[storyConversation] persist editing selection turn failed:",
+                  error
                 );
               }
             }
@@ -2835,15 +3028,15 @@ export function StoryAgentProvider({
           instruction,
           selectionContext: activeSelection,
           projectId: projectId ?? undefined,
-          history: nextMessages.slice(-8).map((m) => ({
-            role: m.role as 'user' | 'assistant',
+          history: nextMessages.slice(-8).map(m => ({
+            role: m.role as "user" | "assistant",
             content: m.content,
           })),
         });
         if (
           !storyScopeMatches(
             requestStoryId,
-            storySpineStore.getState().activeStoryId,
+            storySpineStore.getState().activeStoryId
           )
         ) {
           return;
@@ -2852,10 +3045,10 @@ export function StoryAgentProvider({
         const storyId = resolvePersistedStoryId(
           activeSelection.storyId,
           activeStoryId,
-          remoteStoryId,
+          remoteStoryId
         );
-        let promptCandidate: ChatMessage['promptCandidate'];
-        let reply = result.reply || '我看过了。';
+        let promptCandidate: ChatMessage["promptCandidate"];
+        let reply = result.reply || "我看过了。";
         if (
           !result.isApprovalOnly &&
           result.modifiedFullText !== fullText &&
@@ -2864,7 +3057,7 @@ export function StoryAgentProvider({
           const loaded = await utils.promptLineage.getStoryProjection.fetch({
             storyId,
           });
-          if (loaded.mode === 'lineage') {
+          if (loaded.mode === "lineage") {
             const target = resolveSelectionPromptTarget({
               selection: activeSelection,
               shots: storyShots,
@@ -2877,7 +3070,7 @@ export function StoryAgentProvider({
                 targetStableShotId: target.stableShotId,
                 content: result.modifiedFullText,
                 reason: `xiaozhuo-selection:${sourceType}:${sourceId}`,
-                authorType: 'agent',
+                authorType: "agent",
                 expectedVersion: loaded.projection.state.version,
               });
               promptCandidate = {
@@ -2885,7 +3078,7 @@ export function StoryAgentProvider({
                 nodeId: created.candidate.nodeId,
                 expectedVersion: created.version,
                 label: target.label,
-                status: 'pending',
+                status: "pending",
               };
               reply = `${reply}\n\n我把修改放成了候选版本。你确认后才会更新正式提示词，也不会自动触发出图。`;
             } else {
@@ -2895,8 +3088,8 @@ export function StoryAgentProvider({
         }
 
         const replyMsg: ChatMessage = {
-          id: newId('msg'),
-          role: 'assistant',
+          id: newId("msg"),
+          role: "assistant",
           content: reply,
           timestamp: Date.now(),
           promptCandidate,
@@ -2923,8 +3116,8 @@ export function StoryAgentProvider({
             });
           } catch (error) {
             console.warn(
-              '[storyConversation] persist selection turn failed:',
-              error,
+              "[storyConversation] persist selection turn failed:",
+              error
             );
           }
         }
@@ -2942,26 +3135,41 @@ export function StoryAgentProvider({
           arc: storyArc,
         });
       } catch (err) {
-        console.error('selectionEdit failed', err);
-        toast.error('修改失败，再试一次？');
+        console.error("selectionEdit failed", err);
+        toast.error("修改失败，再试一次？");
         // Don't clear selection on failure so user can retry
       } finally {
         setIsReplying(false);
       }
     },
     [
-      activeSelection, isReplying, messages, projectId, cards, scripts,
-      storyShots, characters, remoteStoryId, storyTitle, storyLogline,
-      storyTheme, storyArc, saveArchiveStory, selectionEditMut, activeStoryId,
-      utils.promptLineage.getStoryProjection, promptCandidateMut,
-      appendConversationTurnMut, editingCommandRunner,
-    ],
+      activeSelection,
+      isReplying,
+      messages,
+      projectId,
+      cards,
+      scripts,
+      storyShots,
+      characters,
+      remoteStoryId,
+      storyTitle,
+      storyLogline,
+      storyTheme,
+      storyArc,
+      saveArchiveStory,
+      selectionEditMut,
+      activeStoryId,
+      utils.promptLineage.getStoryProjection,
+      promptCandidateMut,
+      appendConversationTurnMut,
+      editingCommandRunner,
+    ]
   );
 
   const updateSelectionCandidateStatus = useCallback(
     (
       messageId: string,
-      status: NonNullable<ChatMessage['promptCandidate']>['status'],
+      status: NonNullable<ChatMessage["promptCandidate"]>["status"]
     ) => {
       setMessages(previous =>
         previous.map(message =>
@@ -2970,11 +3178,11 @@ export function StoryAgentProvider({
                 ...message,
                 promptCandidate: { ...message.promptCandidate, status },
               }
-            : message,
-        ),
+            : message
+        )
       );
     },
-    [],
+    []
   );
 
   const confirmSelectionCandidate = useCallback(
@@ -2982,24 +3190,25 @@ export function StoryAgentProvider({
       const message = messages.find(item => item.id === messageId);
       const candidate = message?.promptCandidate;
       const storyId = resolvePersistedStoryId(activeStoryId, remoteStoryId);
-      if (!candidate || candidate.status !== 'pending' || storyId == null) return;
+      if (!candidate || candidate.status !== "pending" || storyId == null)
+        return;
       try {
         await confirmPromptCandidateMut.mutateAsync({
           storyId,
           candidateRevisionId: candidate.revisionId,
           expectedVersion: candidate.expectedVersion,
         });
-        updateSelectionCandidateStatus(messageId, 'confirmed');
+        updateSelectionCandidateStatus(messageId, "confirmed");
         await Promise.all([
           utils.promptLineage.getStoryProjection.invalidate({ storyId }),
           utils.storyAgent.storyMaterialState.invalidate({ storyId }),
         ]);
-        toast.success('候选提示词已确认，重渲仍由你决定。');
+        toast.success("候选提示词已确认，重渲仍由你决定。");
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
-            : '确认失败，请刷新后重新预览。',
+            : "确认失败，请刷新后重新预览。"
         );
       }
     },
@@ -3010,7 +3219,7 @@ export function StoryAgentProvider({
       remoteStoryId,
       updateSelectionCandidateStatus,
       utils,
-    ],
+    ]
   );
 
   const rejectSelectionCandidate = useCallback(
@@ -3018,20 +3227,21 @@ export function StoryAgentProvider({
       const message = messages.find(item => item.id === messageId);
       const candidate = message?.promptCandidate;
       const storyId = resolvePersistedStoryId(activeStoryId, remoteStoryId);
-      if (!candidate || candidate.status !== 'pending' || storyId == null) return;
+      if (!candidate || candidate.status !== "pending" || storyId == null)
+        return;
       try {
         await rejectPromptCandidateMut.mutateAsync({
           storyId,
           candidateRevisionId: candidate.revisionId,
           expectedVersion: candidate.expectedVersion,
         });
-        updateSelectionCandidateStatus(messageId, 'rejected');
+        updateSelectionCandidateStatus(messageId, "rejected");
         await utils.promptLineage.getStoryProjection.invalidate({ storyId });
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
-            : '拒绝候选失败，请刷新后重试。',
+            : "拒绝候选失败，请刷新后重试。"
         );
       }
     },
@@ -3042,21 +3252,18 @@ export function StoryAgentProvider({
       remoteStoryId,
       updateSelectionCandidateStatus,
       utils.promptLineage.getStoryProjection,
-    ],
+    ]
   );
 
   const patchEditingTransitionCandidate = useCallback(
     (
       messageId: string,
       patch: Partial<EditingTransitionCandidateReference>,
-      replySuffix?: string,
+      replySuffix?: string
     ) => {
       setMessages(previous =>
         previous.map(message => {
-          if (
-            message.id !== messageId ||
-            !message.editingTransitionCandidate
-          ) {
+          if (message.id !== messageId || !message.editingTransitionCandidate) {
             return message;
           }
           const suffix = replySuffix?.trim();
@@ -3071,10 +3278,10 @@ export function StoryAgentProvider({
               ...patch,
             },
           };
-        }),
+        })
       );
     },
-    [setMessages],
+    [setMessages]
   );
 
   const persistCurrentEditingState = useCallback(async () => {
@@ -3105,11 +3312,11 @@ export function StoryAgentProvider({
       const candidate = message?.editingTransitionCandidate;
       if (
         !candidate ||
-        (candidate.status !== 'pending' && candidate.status !== 'failed') ||
+        (candidate.status !== "pending" && candidate.status !== "failed") ||
         candidate.retryable === false ||
         !storyScopeMatches(
           candidate.storyId,
-          storySpineStore.getState().activeStoryId,
+          storySpineStore.getState().activeStoryId
         )
       ) {
         return;
@@ -3117,10 +3324,14 @@ export function StoryAgentProvider({
       const stillOnCandidateStory = () =>
         storyScopeMatches(
           candidate.storyId,
-          storySpineStore.getState().activeStoryId,
+          storySpineStore.getState().activeStoryId
         );
-      const { status: _status, error: _error, retryable: _retryable, ...payload } =
-        candidate;
+      const {
+        status: _status,
+        error: _error,
+        retryable: _retryable,
+        ...payload
+      } = candidate;
       const { imageUrl: _sourceImageUrl, ...source } = payload.source;
       const { imageUrl: _targetImageUrl, ...target } = payload.target;
       void _status;
@@ -3129,7 +3340,7 @@ export function StoryAgentProvider({
       void _sourceImageUrl;
       void _targetImageUrl;
       patchEditingTransitionCandidate(messageId, {
-        status: 'generating',
+        status: "generating",
         error: undefined,
       });
       try {
@@ -3137,26 +3348,26 @@ export function StoryAgentProvider({
           candidate: { ...payload, source, target },
         });
         if (!stillOnCandidateStory()) return;
-        if (result.status === 'applied') {
+        if (result.status === "applied") {
           const nextShots = result.storyShots as unknown as StoryShot[];
           setServerRevision(result.storyRevision);
           setStoryShots(nextShots);
           const inserted = nextShots.find(
             shot =>
               (shot.stableShotId ?? shot.shotIdentity) ===
-              result.insertedStableShotId,
+              result.insertedStableShotId
           );
           patchEditingTransitionCandidate(
             messageId,
-            { status: 'applied', error: undefined, retryable: false },
-            result.reply,
+            { status: "applied", error: undefined, retryable: false },
+            result.reply
           );
           if (inserted) {
             setActiveSelection({
-              sourceType: 'animatic-video',
+              sourceType: "animatic-video",
               sourceId: String(result.takeId),
-              selectedText: inserted.action || '生成的衔接镜头',
-              fullText: inserted.action || '生成的衔接镜头',
+              selectedText: inserted.action || "生成的衔接镜头",
+              fullText: inserted.action || "生成的衔接镜头",
               storyId: candidate.storyId,
               stableShotId: result.insertedStableShotId,
               shotNo: inserted.shotNo,
@@ -3164,7 +3375,7 @@ export function StoryAgentProvider({
               videoTakeId: result.takeId,
               rangeId: null,
               objectVersion: `video-take:${result.takeId}`,
-              materialStatus: 'current-video',
+              materialStatus: "current-video",
             });
           }
           await Promise.all([
@@ -3175,20 +3386,20 @@ export function StoryAgentProvider({
               storyId: candidate.storyId,
             }),
           ]);
-          toast.success('衔接视频已插入两镜之间');
-        } else if (result.status === 'processing') {
+          toast.success("衔接视频已插入两镜之间");
+        } else if (result.status === "processing") {
           patchEditingTransitionCandidate(
             messageId,
             {
-              status: 'failed',
+              status: "failed",
               error: result.reply,
               retryable: true,
             },
-            result.reply,
+            result.reply
           );
         } else {
           patchEditingTransitionCandidate(messageId, {
-            status: 'failed',
+            status: "failed",
             error: result.error,
             retryable: result.retryable,
           });
@@ -3197,10 +3408,10 @@ export function StoryAgentProvider({
       } catch (error) {
         if (!stillOnCandidateStory()) return;
         const message =
-          error instanceof Error ? error.message : '衔接视频生成失败';
+          error instanceof Error ? error.message : "衔接视频生成失败";
         // 服务端以 candidateId + take 幂等；网络中断后点继续只会续查同一任务。
         patchEditingTransitionCandidate(messageId, {
-          status: 'failed',
+          status: "failed",
           error: message,
           retryable: true,
         });
@@ -3220,57 +3431,60 @@ export function StoryAgentProvider({
       setStoryShots,
       utils.storyAgent.storyMaterialState,
       utils.storyAgent.storyVideoAssets,
-    ],
+    ]
   );
 
   const rejectEditingTransitionCandidate = useCallback(
     async (messageId: string) => {
       const candidate = storySpineStore
         .getState()
-        .messages.find(item => item.id === messageId)
-        ?.editingTransitionCandidate;
-      if (!candidate || candidate.status === 'generating') return;
+        .messages.find(
+          item => item.id === messageId
+        )?.editingTransitionCandidate;
+      if (!candidate || candidate.status === "generating") return;
       patchEditingTransitionCandidate(messageId, {
-        status: 'rejected',
+        status: "rejected",
         error: undefined,
         retryable: false,
       });
       await persistCurrentEditingState();
-    }, [patchEditingTransitionCandidate, persistCurrentEditingState]);
+    },
+    [patchEditingTransitionCandidate, persistCurrentEditingState]
+  );
 
   // ── 提示词片段池（从 visualCanvasItems 派生） ──
   const promptPool = selectPromptPool(storySpineStore.getState());
 
   const updateShotFragmentRefs = useCallback(
     (shotIndex: number, fragmentIds: string[]) => {
-      setStoryShots((prev) => {
+      setStoryShots(prev => {
         if (shotIndex < 0 || shotIndex >= prev.length) return prev;
         const next = [...prev];
         next[shotIndex] = { ...next[shotIndex], fragmentRefs: fragmentIds };
         return next;
       });
     },
-    [],
+    []
   );
 
   // 收下一张故事画面：去重追加（同 id 覆盖）。state 变更经 autosave 落 body.mobileImages，
   // 故事版 / Story Cards 直接读 context.storyImages，即时可见。
   const addStoryImage = useCallback((image: GeneratedImageItem) => {
-    setStoryImages((prev) => {
-      const without = prev.filter((item) => item.id !== image.id);
+    setStoryImages(prev => {
+      const without = prev.filter(item => item.id !== image.id);
       return [...without, image];
     });
   }, []);
 
   const removeStoryImage = useCallback((imageId: number) => {
-    setStoryImages((prev) => prev.filter((item) => item.id !== imageId));
+    setStoryImages(prev => prev.filter(item => item.id !== imageId));
   }, []);
 
   const confirmFictionStoryCards = useCallback(() => {
     const currentIntent = storySpineStore.getState().confirmedIntent;
-    if (!currentIntent || currentIntent.purpose !== 'fiction') return;
+    if (!currentIntent || currentIntent.purpose !== "fiction") return;
     if (cards.length === 0) {
-      toast.error('先生成虚构故事卡，再确认方向');
+      toast.error("先生成虚构故事卡，再确认方向");
       return;
     }
     const nextIntent = confirmFictionStoryCardsForIntent(currentIntent, cards);
@@ -3287,7 +3501,7 @@ export function StoryAgentProvider({
       theme: storyTheme,
       arc: storyArc,
     });
-    toast.success('故事卡已确认，可以生成 3-5 镜短片');
+    toast.success("故事卡已确认，可以生成 3-5 镜短片");
   }, [
     cards,
     characters,
@@ -3441,7 +3655,7 @@ export function StoryAgentProvider({
       rejectEditingTransitionCandidate,
       promptPool,
       updateShotFragmentRefs,
-    ],
+    ]
   );
 
   const currentActions: StoryAgentActions = {
@@ -3486,8 +3700,9 @@ export function StoryAgentProvider({
   const actionsRef = useRef<StoryAgentActions | null>(currentActions);
   actionsRef.current = currentActions;
   const stableActions = useMemo(
-    () => createActionFacade<StoryAgentActions>(actionsRef, storyAgentActionKeys),
-    [],
+    () =>
+      createActionFacade<StoryAgentActions>(actionsRef, storyAgentActionKeys),
+    []
   );
 
   return (
@@ -3501,12 +3716,16 @@ export function StoryAgentProvider({
 
 export function useStoryAgent() {
   const ctx = useContext(StoryAgentContext);
-  if (!ctx) throw new Error('useStoryAgent must be used within StoryAgentProvider');
+  if (!ctx)
+    throw new Error("useStoryAgent must be used within StoryAgentProvider");
   return ctx;
 }
 
 export function useStoryAgentActions() {
   const ctx = useContext(StoryAgentActionsContext);
-  if (!ctx) throw new Error('useStoryAgentActions must be used within StoryAgentProvider');
+  if (!ctx)
+    throw new Error(
+      "useStoryAgentActions must be used within StoryAgentProvider"
+    );
   return ctx;
 }

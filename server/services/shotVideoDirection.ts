@@ -24,6 +24,7 @@ import {
   type VideoPromptDirectorResult,
   type VideoPromptShotContext,
 } from "./videoPromptDirector";
+import { compileVideoPromptEngineering } from "./videoPromptEngineering";
 import { getShotVideoProviderStatus } from "./videoGen";
 import { sanitizeVideoPrompt } from "./videoJobs";
 import { storyVideoContext } from "./videoShotContext";
@@ -373,13 +374,24 @@ export async function analyzeShotVideoDirection(
     next: context.nextShot,
   });
   const fallbackPrompt = sanitizeVideoPrompt(input.draftPrompt);
+  const fallbackEngineering = compileVideoPromptEngineering({
+    fallbackPrompt,
+    shotNo: input.shotNo,
+    cueCode: context.cueCode,
+    draftPrompt: input.draftPrompt,
+    subtitle: input.subtitle,
+    currentShot: context.currentShot,
+    previousShot: context.previousShot,
+    nextShot: context.nextShot,
+  });
   const provider = getShotVideoProviderStatus();
 
   let directed: VideoPromptDirectorResult = {
-    prompt: fallbackPrompt,
+    prompt: fallbackEngineering.finalPrompt,
     source: "deterministic-fallback" as const,
     model: provider.promptDirectorModel,
     analysis: null as VideoPromptAnalysis | null,
+    engineering: fallbackEngineering,
     fallbackReason: "当前镜头没有可分析的首帧或已采用视频",
   };
   const [currentImageInput, endImageInput, previousImageInput, nextImageInput] =
