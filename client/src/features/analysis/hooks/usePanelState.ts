@@ -17,9 +17,8 @@ export function usePanelState() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [selectedStage, setSelectedStage] = useState<ShotStage>('idea_pool');
   const [activeInputTab, setActiveInputTab] = useState<InputTab>(
-    () => readLocalStorage<InputTab>('dt:activeInputTab', 'material'),
+    () => readLocalStorage<InputTab>('dt:activeInputTab', 'story'),
   );
-  const [workspaceStageSticky, setWorkspaceStageSticky] = useState(false);
 
   // Persist activeInputTab
   useEffect(() => {
@@ -43,7 +42,5 @@ export function usePanelState() {
     setSelectedStage,
     activeInputTab,
     setActiveInputTab,
-    workspaceStageSticky,
-    setWorkspaceStageSticky,
   };
 }

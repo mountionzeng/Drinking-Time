@@ -1,6 +1,6 @@
 /**
  * AnalysisWorkspace — Main analysis page view.
- * Composes: BeverageAmbience + TopBar + (GuidedLanding | WorkspaceLayout)
+ * Composes: BeverageAmbience + TopBar + WorkspaceLayout
  * Mounts StoryAgentProvider with projectId from hook.
  */
 import TopBar from '@/app/shell/TopBar';
@@ -36,8 +36,6 @@ export default function AnalysisWorkspace() {
             currentProjectId={projectData.currentProjectId}
             activeInputTab={panel.activeInputTab}
             setActiveInputTab={panel.setActiveInputTab}
-            workspaceStageSticky={panel.workspaceStageSticky}
-            setWorkspaceStageSticky={panel.setWorkspaceStageSticky}
             analysisActive={analysis.analysisActive}
             analysisQuery={analysis.analysisQuery}
             analysisRunMut={analysis.analysisRunMut}
