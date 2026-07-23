@@ -17,12 +17,12 @@ export function usePanelState() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [selectedStage, setSelectedStage] = useState<ShotStage>('idea_pool');
   const [activeInputTab, setActiveInputTab] = useState<InputTab>(
-    () => readLocalStorage<InputTab>('dt:activeInputTab', 'story'),
+    () => readLocalStorage<InputTab>('dt:activeInputTab:v2', 'story'),
   );
 
   // Persist activeInputTab
   useEffect(() => {
-    localStorage.setItem('dt:activeInputTab', JSON.stringify(activeInputTab));
+    localStorage.setItem('dt:activeInputTab:v2', JSON.stringify(activeInputTab));
   }, [activeInputTab]);
 
   // Escape key closes timeline
