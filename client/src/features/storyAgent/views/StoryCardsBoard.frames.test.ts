@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { latestStoryboardFrames } from "./StoryboardReviewBoard";
+import { latestStoryboardFrames } from "./storyboardReviewModel";
 
 describe("latestStoryboardFrames", () => {
   it("follows stable shot identity after a derived shot changes display numbers", () => {

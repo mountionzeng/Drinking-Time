@@ -36,7 +36,7 @@ import {
   storyboardStartEndFrameIssue,
   storyboardVideoIntentPatch,
   storyShotInsertIdentity,
-} from "./StoryboardReviewBoard";
+} from "./storyboardReviewModel";
 import {
   shotVideoDirectorInputSignature,
   shotVideoWorkflowLabel,
@@ -820,7 +820,14 @@ describe("StoryCardsBoard intent entry", () => {
       ),
       "utf8"
     );
-    const boardSource = `${cardBoardSource}\n${reviewSource}`;
+    const reviewModelSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/storyboardReviewModel.ts"
+      ),
+      "utf8"
+    );
+    const boardSource = `${cardBoardSource}\n${reviewSource}\n${reviewModelSource}`;
     const panelSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
@@ -835,6 +842,8 @@ describe("StoryCardsBoard intent entry", () => {
 
     expect(reviewSource).toContain("故事版看板");
     expect(reviewSource).toContain("export function StoryboardReviewBoard");
+    expect(reviewSource).toContain('from "./storyboardReviewModel"');
+    expect(reviewModelSource).not.toContain("function StoryboardReviewBoard");
     expect(cardBoardSource).not.toContain("StoryboardReviewBoard");
     expect(panelSource).toContain("<StoryboardReviewBoard");
     expect(panelSource).toContain("整理好求职优势后");
