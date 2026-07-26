@@ -8,18 +8,22 @@ import type {
   CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
 import {
+  StoryboardVideoThumbnail,
+  STORYBOARD_MATRIX_ROWS,
+  storyboardMatrixSwapPlan,
+  storyboardMatrixTextareaHeight,
+  storyboardPreviewVideoTake,
+} from "./StoryCardsBoard";
+import {
   autoScrollElementAtPoint,
   autoScrollElementHorizontallyAtPoint,
   hasStoryboardScrollableDragPayload,
-  scrollElementHorizontallyIntoView,
-  StoryboardVideoThumbnail,
-  STORYBOARD_MATRIX_ROWS,
   quickShotVideoRenderPlan,
+  scrollElementHorizontallyIntoView,
   storyboardCharacterContinuityGenerationParams,
   storyboardCharacterContinuityReference,
+  storyboardDragScrollSpeedMultiplier,
   storyboardExplicitImageInstruction,
-  storyboardRenderShotWithDraft,
-  storyboardVideoIntentPatch,
   storyboardFrameParamsAfterDelete,
   storyboardFrameOrderGenerationParams,
   storyboardFrameOrdersAfterMove,
@@ -27,14 +31,12 @@ import {
   storyboardFrameRoleGenerationParams,
   storyboardShotFrameImages,
   storyboardInheritedStartEndGenerationParams,
+  storyboardRenderShotWithDraft,
   storyboardStartEndGenerationParams,
   storyboardStartEndFrameIssue,
+  storyboardVideoIntentPatch,
   storyShotInsertIdentity,
-  storyboardDragScrollSpeedMultiplier,
-  storyboardMatrixTextareaHeight,
-  storyboardMatrixSwapPlan,
-  storyboardPreviewVideoTake,
-} from "./StoryCardsBoard";
+} from "./StoryboardReviewBoard";
 import {
   shotVideoDirectorInputSignature,
   shotVideoWorkflowLabel,
@@ -739,7 +741,10 @@ describe("StoryCardsBoard intent entry", () => {
 
   it("keeps manual shot insertion available in both storyboard views", () => {
     const boardSource = readFileSync(
-      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ),
       "utf8"
     );
 
@@ -751,7 +756,10 @@ describe("StoryCardsBoard intent entry", () => {
 
   it("shows video rendering, failure, candidate and adoption states in the storyboard", () => {
     const boardSource = readFileSync(
-      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ),
       "utf8"
     );
 
@@ -764,7 +772,10 @@ describe("StoryCardsBoard intent entry", () => {
 
   it("keeps manual shot deletion available in both storyboard views", () => {
     const boardSource = readFileSync(
-      resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ),
       "utf8"
     );
     const panelSource = readFileSync(
@@ -798,10 +809,18 @@ describe("StoryCardsBoard intent entry", () => {
   });
 
   it("keeps the storyboard review board in the right-side storyboard panel", () => {
-    const boardSource = readFileSync(
+    const cardBoardSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryCardsBoard.tsx"),
       "utf8"
     );
+    const reviewSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ),
+      "utf8"
+    );
+    const boardSource = `${cardBoardSource}\n${reviewSource}`;
     const panelSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
@@ -814,9 +833,9 @@ describe("StoryCardsBoard intent entry", () => {
       "utf8"
     );
 
-    expect(boardSource).toContain("故事版看板");
-    expect(boardSource).toContain("StoryboardReviewBoard");
-    expect(boardSource).not.toContain("<StoryboardReviewBoard");
+    expect(reviewSource).toContain("故事版看板");
+    expect(reviewSource).toContain("export function StoryboardReviewBoard");
+    expect(cardBoardSource).not.toContain("StoryboardReviewBoard");
     expect(panelSource).toContain("<StoryboardReviewBoard");
     expect(panelSource).toContain("整理好求职优势后");
     expect(boardSource).toContain("GenerationSettingsPanel");

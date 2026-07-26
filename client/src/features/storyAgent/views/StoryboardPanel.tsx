@@ -2,7 +2,7 @@ import { Clapperboard, ImagePlus, Loader2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { StoryboardReviewBoard } from "./StoryCardsBoard";
+import { StoryboardReviewBoard } from "./StoryboardReviewBoard";
 import {
   useStoryboardPanelArtSlice,
   useStoryCardsBoardSlice,
