@@ -740,13 +740,21 @@ describe("StoryCardsBoard intent entry", () => {
   });
 
   it("keeps manual shot insertion available in both storyboard views", () => {
-    const boardSource = readFileSync(
+    const reviewSource = readFileSync(
       resolve(
         root,
         "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
       ),
       "utf8"
     );
+    const simpleSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/SimpleStoryboardBoard.tsx"
+      ),
+      "utf8"
+    );
+    const boardSource = `${reviewSource}\n${simpleSource}`;
 
     expect((boardSource.match(/<AddShotButton/g) ?? []).length).toBe(2);
     expect(boardSource).toContain("labelForShotNo(shotNo)");
@@ -771,13 +779,21 @@ describe("StoryCardsBoard intent entry", () => {
   });
 
   it("keeps manual shot deletion available in both storyboard views", () => {
-    const boardSource = readFileSync(
+    const reviewSource = readFileSync(
       resolve(
         root,
         "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
       ),
       "utf8"
     );
+    const simpleSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/SimpleStoryboardBoard.tsx"
+      ),
+      "utf8"
+    );
+    const boardSource = `${reviewSource}\n${simpleSource}`;
     const panelSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
@@ -827,7 +843,14 @@ describe("StoryCardsBoard intent entry", () => {
       ),
       "utf8"
     );
-    const boardSource = `${cardBoardSource}\n${reviewSource}\n${reviewModelSource}`;
+    const simpleSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/SimpleStoryboardBoard.tsx"
+      ),
+      "utf8"
+    );
+    const boardSource = `${cardBoardSource}\n${reviewSource}\n${reviewModelSource}\n${simpleSource}`;
     const panelSource = readFileSync(
       resolve(root, "client/src/features/storyAgent/views/StoryboardPanel.tsx"),
       "utf8"
@@ -843,6 +866,9 @@ describe("StoryCardsBoard intent entry", () => {
     expect(reviewSource).toContain("故事版看板");
     expect(reviewSource).toContain("export function StoryboardReviewBoard");
     expect(reviewSource).toContain('from "./storyboardReviewModel"');
+    expect(reviewSource).toContain("<SimpleStoryboardBoard");
+    expect(simpleSource).toContain("export function SimpleStoryboardBoard");
+    expect(simpleSource).not.toContain("function StoryboardReviewBoard");
     expect(reviewModelSource).not.toContain("function StoryboardReviewBoard");
     expect(cardBoardSource).not.toContain("StoryboardReviewBoard");
     expect(panelSource).toContain("<StoryboardReviewBoard");
