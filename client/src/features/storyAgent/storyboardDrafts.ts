@@ -1,7 +1,6 @@
 import type { StoryShot } from './types';
 import type { GeneratedImageItem } from '@/features/mobileChat/types';
 import { defaultArtRecipe, type ArtRecipeDNA } from '@shared/artDirection';
-import { SINGLE_FRAME_HARD_CONSTRAINT } from '@shared/singleFramePrompt';
 import {
   type PromptContext,
   type PromptPreviousShot,

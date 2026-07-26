@@ -7,7 +7,6 @@ import {
   createEditSnapshot,
   getLatestEditSnapshot,
   getRecentSemanticAnnotations,
-  type EditSnapshot,
   type SemanticAnnotation,
 } from '../db';
 import { computeDiff, isDiffEmpty, type ProjectState } from '../_core/editDiff';

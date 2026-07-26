@@ -11,7 +11,6 @@ import { CreationEditorProvider } from "@/features/creationEditor/CreationEditor
 import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
-import type { AnalysisData } from "@/features/analysis/types";
 import { STORY_PANELS, type StoryPanel } from "@/features/analysis/storyPanels";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import {
@@ -32,45 +31,10 @@ export type InputTab = "material" | "story";
 
 interface WorkspaceLayoutProps {
   activeInputTab: InputTab;
-  onTabChange: (tab: InputTab) => void;
-  /** DropZone props */
-  projectId: number | null;
-  onAnalysisComplete: () => void;
-  onRunAnalysis: () => Promise<void>;
-  isAnalyzing: boolean;
-  onUploadFile: (data: {
-    projectId: number;
-    fileName: string;
-    mimeType: string;
-    fileBase64: string;
-    sourceType:
-      | "image"
-      | "video"
-      | "script"
-      | "storyboard"
-      | "brief"
-      | "note"
-      | "pdf";
-  }) => Promise<void>;
-  onRefreshRefs: (projectId: number) => void;
-  /** TemplateDraft props */
-  analysisActive: boolean;
-  analysis: AnalysisData | null;
-  refsCount: number;
 }
 
 export default function WorkspaceLayout({
   activeInputTab,
-  onTabChange,
-  projectId,
-  onAnalysisComplete,
-  onRunAnalysis,
-  isAnalyzing,
-  onUploadFile,
-  onRefreshRefs,
-  analysisActive,
-  analysis,
-  refsCount,
 }: WorkspaceLayoutProps) {
   const activeStoryId = useActiveStoryId();
   const visibleStoryPanels = useVisibleStoryPanels();

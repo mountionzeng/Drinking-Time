@@ -155,7 +155,6 @@ import {
   hasStoryboardImageDragPayload,
   importStoryboardMediaFiles,
   readStoryboardImageDragPayload,
-  storyboardMediaKind,
   writeStoryboardImageDragPayload,
 } from "../storyboardLocalMedia";
 import {

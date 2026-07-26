@@ -4,7 +4,7 @@ import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { applyShotPromptComposition } from "../services/shotPromptComposer";
 import { annotateScriptShotReasons } from "../services/scriptAgent";
-import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, StoryCardPayload, VisualAnchorPayload } from "./storyAgent.types";
+import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, VisualAnchorPayload } from "./storyAgent.types";
 import type { ArtRecipeDNA } from "../../shared/artDirection";
 
 const VALID_SHOT_TYPES = ["远", "全", "中", "近", "特", "大特"];
@@ -400,7 +400,7 @@ function inferJobStrength(card: ShotListCardInput, targetRole: string, index: nu
   return cardTitle(card, index);
 }
 
-function jobRoleConcern(targetRole: string, strength: string): string {
+function jobRoleConcern(targetRole: string): string {
   if (/AIGC|产品|PM/i.test(targetRole)) {
     return `${targetRole} 关心候选人能否把技术可能性、用户需求和商业落点转成可验证的产品判断`;
   }
@@ -452,7 +452,7 @@ function buildJobSearchFallbackShotList(
   const shots: ShotEntry[] = cards.map((card, index) => {
     const strength = inferJobStrength(card, targetRole, index);
     const evidence = cardEvidence(card);
-    const roleConcern = jobRoleConcern(targetRole, strength);
+    const roleConcern = jobRoleConcern(targetRole);
     const isFirst = index === 0;
     const isLast = index === total - 1;
     const beat: ShotBeat = isFirst ? "开场" : isLast ? "收束" : index === 1 ? "转折" : "起势";
@@ -562,11 +562,6 @@ function buildFictionFallbackShotList(
     cleanText(last?.dramaticFunction) ||
     cleanText(first?.complexity) ||
     "这个世界里突然出现的阻碍";
-  const worldRule =
-    cleanText(first?.trigger) ||
-    cleanText(first?.retrievalQuery) ||
-    cleanText(first?.content).slice(0, 36) ||
-    "世界规则开始显形";
   const visualTone = fictionVisualTone(cards, confirmedIntent);
   const sourceFor = (index: number) => cards[Math.min(index, Math.max(cards.length - 1, 0))]?.content ?? "";
   const desiredCount = Math.min(5, Math.max(4, cards.length + 2));

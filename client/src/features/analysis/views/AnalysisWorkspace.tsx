@@ -49,13 +49,6 @@ export default function AnalysisWorkspace() {
             setActiveInputTab={panel.setActiveInputTab}
             workspaceStageSticky={panel.workspaceStageSticky}
             setWorkspaceStageSticky={panel.setWorkspaceStageSticky}
-            analysisActive={analysis.analysisActive}
-            analysisQuery={analysis.analysisQuery}
-            analysisRunMut={analysis.analysisRunMut}
-            handleAnalysisComplete={analysis.handleAnalysisComplete}
-            handleRunAnalysis={analysis.handleRunAnalysis}
-            onUploadFile={projectData.handleUploadFile}
-            onRefreshRefs={projectData.refreshRefs}
           />
         </StoryAgentProvider>
       </div>
@@ -63,7 +56,6 @@ export default function AnalysisWorkspace() {
       <AnalysisTimelineDrawer
         open={panel.timelineOpen}
         onOpenChange={panel.setTimelineOpen}
-        projectId={projectData.currentProjectId}
         references={projectData.references}
         isActive={analysis.analysisActive || projectData.references.length > 0}
         onPin={projectData.handlePinRef}

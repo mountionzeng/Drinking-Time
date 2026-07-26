@@ -7,7 +7,6 @@ interface AnalysisTimelineDrawerProps {
   isActive: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projectId: number | null;
   references: BackendReference[];
   onPin: (ref: BackendReference) => Promise<void>;
   onExclude: (ref: BackendReference) => Promise<void>;
@@ -17,7 +16,6 @@ export default function AnalysisTimelineDrawer({
   isActive,
   open,
   onOpenChange,
-  projectId,
   references,
   onPin,
   onExclude,
@@ -124,7 +122,6 @@ export default function AnalysisTimelineDrawer({
               </div>
               <div className="flex-1 min-h-0 px-3 pb-4">
                 <Timeline
-                  projectId={projectId}
                   references={references}
                   isActive={isActive}
                   onPin={onPin}

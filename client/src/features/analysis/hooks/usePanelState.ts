@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ShotStage } from '../views/ShotStageIllustration';
 import type { InputTab } from '../views/WorkspaceLayout';
-import { ANALYSIS_STAGE_SEQUENCE } from '../config/stageCopy';
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   try {

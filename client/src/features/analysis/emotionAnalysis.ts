@@ -244,10 +244,7 @@ const ELEMENT_ANTHRO_LENS: Record<TodayNayin["element"], string> = {
     "人类学上，可以给今天一个安放仪式：整理包、备餐、归档，让生活重新有容器。",
 };
 
-function historicalLens(
-  today: TodayNayin,
-  almanac: AlmanacDay | null | undefined
-) {
+function historicalLens(almanac: AlmanacDay | null | undefined) {
   const yi =
     almanac && (almanac.status === "ok" || almanac.status === "partial")
       ? almanac.yi.slice(0, 2)
@@ -319,7 +316,7 @@ export function buildEmotionAnalysisProfile(
     lenses: [
       { label: "社会学", detail: ELEMENT_SOCIAL_LENS[today.element] },
       { label: "人类学", detail: ELEMENT_ANTHRO_LENS[today.element] },
-      { label: "历史参照", detail: historicalLens(today, almanac) },
+      { label: "历史参照", detail: historicalLens(almanac) },
     ],
     avoid: "不适合在疲惫时做重大关系结论，也不适合把一时情绪当成完整的自己。",
     note: [

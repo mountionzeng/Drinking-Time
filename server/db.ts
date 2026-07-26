@@ -65,7 +65,6 @@ import {
   InsertVideoTimelineSelection,
   videoTimelineSelections,
   VideoTimelineSelection,
-  InsertStoryTimeline,
   storyTimelines,
   StoryTimeline,
   InsertShotDerivationDraft,

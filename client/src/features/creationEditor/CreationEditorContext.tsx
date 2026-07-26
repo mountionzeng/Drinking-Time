@@ -459,9 +459,6 @@ const CreationEditorContext = createContext<CreationEditorContextValue | null>(
   null
 );
 const EMPTY_STORY_SHOTS: readonly StoryShot[] = [];
-const CURRENT_STORY_FRAME_TYPES = new Set<
-  CreationEditorImage["generationType"]
->(["generate", "initial", "inpaint"]);
 
 const SHOT_STORY_IDENTITY_FIELDS = [
   "shotNo",
@@ -671,14 +668,6 @@ function isPromptRunStaleForShot(
   const renderedSource = promptSourceMarker(promptRun.finalPrompt);
   return Boolean(
     expectedSource && renderedSource && expectedSource !== renderedSource
-  );
-}
-
-function isCurrentStoryFrame(image: CreationEditorImage): boolean {
-  return (
-    image.status === "pending" &&
-    image.isCurrent === true &&
-    CURRENT_STORY_FRAME_TYPES.has(image.generationType)
   );
 }
 
@@ -1541,7 +1530,7 @@ export function CreationEditorProvider({
         normalizeShotIdentity(stableShotId) ??
         shots
           .map(creationTimelineShotId)
-          .find((id, index) => shots[index]?.shotNo === shotNo);
+          .find((_, index) => shots[index]?.shotNo === shotNo);
       if (!shotId) return;
       void saveTimelineItems(
         timelineItems.map(item =>

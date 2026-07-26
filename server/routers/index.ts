@@ -833,7 +833,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             .optional(),
         })
       )
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ input }) => {
         try {
           const result = await saveSnapshot({
             projectId: input.projectId,

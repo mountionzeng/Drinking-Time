@@ -357,10 +357,6 @@ interface StoryAgentContextValue {
     field: StoryShotEditableField,
     value: string
   ) => void;
-  insertStoryShotAfter: (
-    shotNo: number,
-    stableShotId?: string | null
-  ) => Promise<number | null>;
   updateAllStoryShotField: (
     field: StoryShotEditableField,
     value: string
@@ -445,7 +441,6 @@ type StoryAgentActionKey =
   | "updateScriptMeta"
   | "updateScriptScene"
   | "updateStoryShotField"
-  | "insertStoryShotAfter"
   | "updateAllStoryShotField"
   | "generateScript"
   | "resetConversation"
@@ -489,7 +484,6 @@ const storyAgentActionKeys = [
   "updateScriptMeta",
   "updateScriptScene",
   "updateStoryShotField",
-  "insertStoryShotAfter",
   "updateAllStoryShotField",
   "generateScript",
   "resetConversation",
@@ -888,7 +882,6 @@ export function StoryAgentProvider({
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
-  const insertShotMut = trpc.storyAgent.insertStoryShotAfter.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
@@ -2061,39 +2054,6 @@ export function StoryAgentProvider({
       commitStoryShots(nextStoryShots);
     },
     [commitStoryShots]
-  );
-
-  const insertStoryShotAfter = useCallback(
-    async (shotNo: number, stableShotId?: string | null) => {
-      const id = remoteStoryId;
-      if (!id) return null;
-
-      const result = await insertShotMut.mutateAsync({
-        storyId: id,
-        stableShotId: stableShotId ?? "",
-      });
-      if (result.status !== "ok" || !result.story) {
-        throw new Error(
-          result.status === "error"
-            ? (result as { error: string }).error
-            : "添加镜头失败"
-        );
-      }
-
-      const body = result.story.body as Record<string, unknown> | undefined;
-      const restoredShots = Array.isArray(body?.shots)
-        ? (body.shots as StoryShot[])
-        : storySpineStore.getState().storyShots;
-      setStoryShots(restoredShots);
-      setSaveStatus("saved");
-      setLastSavedAt(Date.now());
-      if (typeof result.story.revision === "number") {
-        setServerRevision(result.story.revision);
-      }
-
-      return result.insertedShotNo;
-    },
-    [remoteStoryId, insertShotMut, setStoryShots]
   );
 
   const updateAllStoryShotField = useCallback(
@@ -3556,7 +3516,6 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
-      insertStoryShotAfter,
       updateAllStoryShotField,
       generateScript,
       resetConversation,
@@ -3618,7 +3577,6 @@ export function StoryAgentProvider({
       updateScriptMeta,
       updateScriptScene,
       updateStoryShotField,
-      insertStoryShotAfter,
       updateAllStoryShotField,
       generateScript,
       resetConversation,
@@ -3673,7 +3631,6 @@ export function StoryAgentProvider({
     updateScriptMeta,
     updateScriptScene,
     updateStoryShotField,
-    insertStoryShotAfter,
     updateAllStoryShotField,
     generateScript,
     resetConversation,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { VideoTakeAsset } from "@shared/videoAsset";
 
-import { videoTakeFrameUrl } from "../videoAssetViewModel";
+import { videoTakeFrameUrl } from "./videoAssetViewModel";
 
 function take(patch: Partial<VideoTakeAsset> = {}): VideoTakeAsset {
   return {

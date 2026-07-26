@@ -12,26 +12,15 @@ import {
 import GuidedLanding from "./GuidedLanding";
 import WorkspaceLayout from "./WorkspaceLayout";
 import type { InputTab } from "./WorkspaceLayout";
-import type { useAnalysisOrchestration } from "@/features/analysis/hooks/useAnalysisOrchestration";
-import type { useProjectData } from "@/features/analysis/hooks/useProjectData";
-
-type AnalysisReturn = ReturnType<typeof useAnalysisOrchestration>;
-type ProjectReturn = ReturnType<typeof useProjectData>;
+import type { BackendReference } from "@/features/analysis/types";
 
 interface Props {
-  references: ProjectReturn["references"];
-  currentProjectId: ProjectReturn["currentProjectId"];
+  references: BackendReference[];
+  currentProjectId: number | null;
   activeInputTab: InputTab;
   setActiveInputTab: (tab: InputTab) => void;
   workspaceStageSticky: boolean;
   setWorkspaceStageSticky: (sticky: boolean) => void;
-  analysisActive: AnalysisReturn["analysisActive"];
-  analysisQuery: AnalysisReturn["analysisQuery"];
-  analysisRunMut: AnalysisReturn["analysisRunMut"];
-  handleAnalysisComplete: AnalysisReturn["handleAnalysisComplete"];
-  handleRunAnalysis: AnalysisReturn["handleRunAnalysis"];
-  onUploadFile: ProjectReturn["handleUploadFile"];
-  onRefreshRefs: ProjectReturn["refreshRefs"];
 }
 
 export default function WorkspaceStageRouter(props: Props) {
@@ -119,18 +108,6 @@ export default function WorkspaceStageRouter(props: Props) {
   }
 
   return (
-    <WorkspaceLayout
-      activeInputTab={props.activeInputTab}
-      onTabChange={props.setActiveInputTab}
-      projectId={props.currentProjectId}
-      onAnalysisComplete={props.handleAnalysisComplete}
-      onRunAnalysis={props.handleRunAnalysis}
-      isAnalyzing={props.analysisRunMut.isPending}
-      onUploadFile={props.onUploadFile}
-      onRefreshRefs={props.onRefreshRefs}
-      analysisActive={props.analysisActive}
-      analysis={props.analysisQuery.data ?? null}
-      refsCount={props.references.length}
-    />
+    <WorkspaceLayout activeInputTab={props.activeInputTab} />
   );
 }

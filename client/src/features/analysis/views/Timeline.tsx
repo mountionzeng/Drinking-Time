@@ -57,7 +57,6 @@ function EmptyTimeline() {
 
 interface TimelineProps {
   isActive: boolean;
-  projectId: number | null;
   references: BackendReference[];
   onPin: (ref: BackendReference) => Promise<void>;
   onExclude: (ref: BackendReference) => Promise<void>;
@@ -190,7 +189,7 @@ function FragmentCard({ fragment, onPin, onExclude, onPreview }: {
   );
 }
 
-export default function Timeline({ isActive, projectId, references, onPin, onExclude }: TimelineProps) {
+export default function Timeline({ isActive, references, onPin, onExclude }: TimelineProps) {
   const buckets = useMemo(() => {
     const map = new Map<string, BackendReference[]>();
     references.forEach((f) => {

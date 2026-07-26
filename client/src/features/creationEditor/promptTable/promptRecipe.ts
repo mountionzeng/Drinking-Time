@@ -1,6 +1,5 @@
 import type { CreationEditorShot } from "../CreationEditorContext";
 import type { PromptRow, PromptRunRecord } from "./types";
-import { SINGLE_FRAME_HARD_CONSTRAINT } from "@shared/singleFramePrompt";
 import {
   type PromptContext,
   type PromptPreviousShot,
