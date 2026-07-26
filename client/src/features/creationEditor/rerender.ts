@@ -13,6 +13,11 @@ export type GenerateForMobileInput = {
   storyId: number;
   shotNo: number;
   prompt: string;
+  explicitInstruction?: string;
+  costConfirmation?: {
+    accepted: true;
+    estimatedCny: number;
+  };
   styleHint?: string;
   autoSelect?: boolean;
   referenceImageUrl?: string;
@@ -71,11 +76,18 @@ export function createGenerateForMobileInput(params: {
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
   reference?: RerenderReference;
+  explicitInstruction?: string;
+  costConfirmation?: {
+    accepted: true;
+    estimatedCny: number;
+  };
 }): GenerateForMobileInput {
   return {
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
     prompt: buildRerenderPrompt({ shot: params.shot, rows: params.rows }),
+    explicitInstruction: params.explicitInstruction?.trim() || undefined,
+    costConfirmation: params.costConfirmation,
     styleHint: params.shot.styleRef || undefined,
     autoSelect: true,
     referenceImageUrl: safeReferenceUrl(params.reference?.imageUrl),
@@ -88,6 +100,11 @@ export async function rerenderShotImage(params: {
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
   reference?: RerenderReference;
+  explicitInstruction?: string;
+  costConfirmation?: {
+    accepted: true;
+    estimatedCny: number;
+  };
   generate: (input: GenerateForMobileInput) => Promise<GenerateForMobileResult>;
 }): Promise<GenerateForMobileResult> {
   const input = createGenerateForMobileInput(params);

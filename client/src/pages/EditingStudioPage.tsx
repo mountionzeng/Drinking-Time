@@ -20,6 +20,11 @@ import {
 } from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
+import { parseLocalEditingChatCommand } from "@/features/creationEditor/editingChatCommands";
+import {
+  executeTimelineUndo,
+  recordTimelineUndoSnapshot,
+} from "@/features/creationEditor/timelineUndoStore";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
@@ -29,6 +34,7 @@ import StoryListView from "@/features/storyAgent/views/StoryListView";
 import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
+import { editingCapabilityReply } from "@shared/editingActionCapabilities";
 
 function ExportButton({ storyId }: { storyId: number }) {
   const { shots } = useCreationEditor();
@@ -203,6 +209,7 @@ export default function EditingStudioPage() {
         | "sourceId"
         | "stableShotId"
         | "shotNo"
+        | "imageId"
         | "videoTakeId"
         | "rangeId"
         | "selection"
@@ -210,6 +217,25 @@ export default function EditingStudioPage() {
     ) => {
       const storyId = storySpineStore.getState().activeStoryId;
       if (storyId == null) return null;
+      const localCommand = parseLocalEditingChatCommand(instruction);
+      if (localCommand?.type === "capabilities") {
+        return {
+          handled: true as const,
+          reply: editingCapabilityReply(),
+        };
+      }
+      if (localCommand?.type === "undo") {
+        const status = await executeTimelineUndo(storyId);
+        return {
+          handled: true as const,
+          reply:
+            status === "undone"
+              ? "已撤销上一步剪辑，时间线和预览都恢复了。"
+              : status === "empty"
+                ? "当前会话里没有可以撤销的剪辑。"
+                : "剪辑台还没有载入完成，暂时不能撤销。请等右侧时间线出现后再试。",
+        };
+      }
       const result = await timelineEditMut.mutateAsync({
         storyId,
         instruction,
@@ -217,6 +243,9 @@ export default function EditingStudioPage() {
       });
       if (!result.handled) return null;
       if (result.appliedCount > 0) {
+        if ("undoSnapshot" in result && result.undoSnapshot) {
+          recordTimelineUndoSnapshot(storyId, result.undoSnapshot);
+        }
         await Promise.all([
           utils.storyAgent.storyMaterialState.invalidate({ storyId }),
           utils.storyAgent.storyVideoAssets.invalidate({ storyId }),

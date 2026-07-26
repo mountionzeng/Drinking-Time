@@ -61,4 +61,13 @@ describe("imageClipEditorModel", () => {
       "rotate(-90deg) scale(0.75)"
     );
   });
+
+  it("renders a missing legacy rotation as upright", () => {
+    expect(
+      timelineTransformStyle({
+        ...DEFAULT_TIMELINE_TRANSFORM,
+        rotationDeg: undefined,
+      })?.transform
+    ).toContain("rotate(0deg)");
+  });
 });

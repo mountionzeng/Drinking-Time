@@ -68,6 +68,11 @@ import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
 import type { ShotDirectorResult, ShotVideoMotion } from "@shared/shotDirector";
 import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
+import {
+  recordTimelineUndoSnapshot,
+  registerTimelineUndoExecutor,
+  takeTimelineUndoSnapshot,
+} from "./timelineUndoStore";
 
 export type CreationEditorStory = {
   id: number;
@@ -231,7 +236,14 @@ type CreationEditorContextValue = {
   rerenderShot: (
     shotNo: number,
     rows: PromptRow[],
-    reference?: RerenderReference
+    reference?: RerenderReference,
+    options?: {
+      explicitInstruction?: string;
+      costConfirmation?: {
+        accepted: true;
+        estimatedCny: number;
+      };
+    }
   ) => Promise<void>;
   promoteFrameCrop: (input: {
     shotNo: number;
@@ -274,6 +286,7 @@ type CreationEditorContextValue = {
   generateShotVideo: (input: {
     shotNo: number;
     imageId: number;
+    characterReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -329,6 +342,11 @@ type CreationEditorContextValue = {
   }) => Promise<VideoConformBatchResult>;
   analyzeShotConsistency: (input: {
     anchorImageUrl?: string | null;
+    targetImage?: {
+      imageId: number;
+      imageUrl: string;
+      shotNo?: string | null;
+    };
     maxShots?: number;
   }) => Promise<ShotConsistencyAnalysis>;
   refreshShotVideoStatus: (takeId: number) => Promise<void>;
@@ -349,7 +367,17 @@ type CreationEditorContextValue = {
     sourceTakeId: number;
     targetStableShotId: string;
     plannedDurationSec: number;
+  }) => Promise<{ takeId: number }>;
+  appendTimelineVideoClip: (input: {
+    sourceTakeId: number;
+    targetStableShotId: string;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
+    targetOffsetMs?: number;
   }) => Promise<void>;
+  undoTimeline: () => Promise<boolean>;
   createVideoTakeRange: (input: {
     stableShotId: string;
     takeId: number;
@@ -1283,6 +1311,8 @@ export function CreationEditorProvider({
   const moveVideoTakeMut = trpc.creationAgent.moveVideoTake.useMutation();
   const adoptVideoTakeMut = trpc.creationAgent.adoptVideoTake.useMutation();
   const reuseVideoTakeMut = trpc.creationAgent.reuseVideoTake.useMutation();
+  const appendVideoTakeToTimelineMut =
+    trpc.creationAgent.appendVideoTakeToTimeline.useMutation();
   const updateStoryTimelineMut =
     trpc.creationAgent.updateStoryTimeline.useMutation();
   const createDerivationDraftMut =
@@ -1463,10 +1493,11 @@ export function CreationEditorProvider({
   const saveTimelineItems = useCallback(
     async (
       items: StoryTimelineItem[],
-      options: { throwOnError?: boolean } = {}
+      options: { throwOnError?: boolean; recordUndo?: boolean } = {}
     ) => {
       if (activeId == null) return;
       const previousIds = timelineShotIds;
+      const previousItems = timelineItems;
       const normalized = items.map((item, position) => ({
         ...item,
         position,
@@ -1481,6 +1512,12 @@ export function CreationEditorProvider({
           items: normalized,
         });
         if (result.status !== "ok") throw new Error(result.error);
+        if (
+          options.recordUndo !== false &&
+          JSON.stringify(previousItems) !== JSON.stringify(normalized)
+        ) {
+          recordTimelineUndoSnapshot(activeId, previousItems);
+        }
         await storyMaterialQuery.refetch();
       } catch (error) {
         setTimelineShotIds(previousIds);
@@ -1489,7 +1526,13 @@ export function CreationEditorProvider({
         if (options.throwOnError) throw error;
       }
     },
-    [activeId, storyMaterialQuery, timelineShotIds, updateStoryTimelineMut]
+    [
+      activeId,
+      storyMaterialQuery,
+      timelineItems,
+      timelineShotIds,
+      updateStoryTimelineMut,
+    ]
   );
 
   const addShotToTimeline = useCallback(
@@ -1867,7 +1910,14 @@ export function CreationEditorProvider({
   const rerenderShot = async (
     shotNo: number,
     rows: PromptRow[],
-    reference?: RerenderReference
+    reference?: RerenderReference,
+    options?: {
+      explicitInstruction?: string;
+      costConfirmation?: {
+        accepted: true;
+        estimatedCny: number;
+      };
+    }
   ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法重渲");
     const shot = shots.find(item => item.shotNo === shotNo);
@@ -1880,6 +1930,8 @@ export function CreationEditorProvider({
         shot,
         rows,
         reference,
+        explicitInstruction: options?.explicitInstruction,
+        costConfirmation: options?.costConfirmation,
         generate: input => generateForMobileMut.mutateAsync(input),
       });
       if (promptLineageQuery.data?.mode !== "lineage") {
@@ -2123,6 +2175,7 @@ export function CreationEditorProvider({
   const generateShotVideo = async (input: {
     shotNo: number;
     imageId: number;
+    characterReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -2276,12 +2329,18 @@ export function CreationEditorProvider({
 
   const analyzeShotConsistency = async (input: {
     anchorImageUrl?: string | null;
+    targetImage?: {
+      imageId: number;
+      imageUrl: string;
+      shotNo?: string | null;
+    };
     maxShots?: number;
   }): Promise<ShotConsistencyAnalysis> => {
     if (activeId == null) throw new Error("故事尚未加载，无法做一致性识别");
     return analyzeShotConsistencyMut.mutateAsync({
       storyId: activeId,
       anchorImageUrl: input.anchorImageUrl ?? undefined,
+      targetImage: input.targetImage,
       maxShots: input.maxShots,
     });
   };
@@ -2351,7 +2410,7 @@ export function CreationEditorProvider({
     sourceTakeId: number;
     targetStableShotId: string;
     plannedDurationSec: number;
-  }) => {
+  }): Promise<{ takeId: number }> => {
     if (activeId == null) throw new Error("故事尚未加载，无法复用视频");
     const result = await reuseVideoTakeMut.mutateAsync({
       storyId: activeId,
@@ -2366,7 +2425,56 @@ export function CreationEditorProvider({
       utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
       utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
     ]);
+    return { takeId: result.take.id };
   };
+
+  const appendTimelineVideoClip = async (input: {
+    sourceTakeId: number;
+    targetStableShotId: string;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
+    targetOffsetMs?: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法追加视频片段");
+    const result = await appendVideoTakeToTimelineMut.mutateAsync({
+      storyId: activeId,
+      expectedTimelineVersion: storyMaterialQuery.data?.timeline.version ?? 0,
+      ...input,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "视频片段追加失败");
+    }
+    recordTimelineUndoSnapshot(activeId, result.beforeItems);
+    await Promise.all([
+      storyVideoAssetsQuery.refetch(),
+      storyMaterialQuery.refetch(),
+      utils.storyAgent.storyVideoAssets.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+    ]);
+  };
+
+  const undoTimeline = useCallback(async (): Promise<boolean> => {
+    if (activeId == null) return false;
+    const snapshot = takeTimelineUndoSnapshot(activeId);
+    if (!snapshot) return false;
+    try {
+      await saveTimelineItems(snapshot, {
+        throwOnError: true,
+        recordUndo: false,
+      });
+      return true;
+    } catch (error) {
+      recordTimelineUndoSnapshot(activeId, snapshot);
+      throw error;
+    }
+  }, [activeId, saveTimelineItems]);
+
+  useEffect(() => {
+    if (activeId == null) return;
+    return registerTimelineUndoExecutor(activeId, undoTimeline);
+  }, [activeId, undoTimeline]);
 
   useEffect(() => {
     if (activeId == null || processingVideoTakeIds.length === 0) return;
@@ -2756,9 +2864,7 @@ export function CreationEditorProvider({
     stableShotId: string;
     transform: TimelineTransform;
   }) => {
-    if (
-      !timelineItems.some(item => item.stableShotId === input.stableShotId)
-    ) {
+    if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
       throw new Error("当前镜头不在时间线上");
     }
     await saveTimelineItems(
@@ -2970,6 +3076,8 @@ export function CreationEditorProvider({
       moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
       reuseVideoTake: reuseVideoTakeForShot,
+      appendTimelineVideoClip,
+      undoTimeline,
       createVideoTakeRange,
       splitTimelineVideoClip,
       moveTimelineVideoClip,

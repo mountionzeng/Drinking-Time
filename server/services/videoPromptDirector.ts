@@ -57,6 +57,8 @@ export type DirectVideoPromptInput = {
   imageInput: string;
   endImageInput?: string;
   middleImageInput?: string;
+  /** 人物身份基准，只约束脸、发型和服饰，不替换当前镜头构图。 */
+  identityImageInput?: string;
   previousImageInput?: string;
   nextImageInput?: string;
   fallbackPrompt: string;
@@ -261,6 +263,7 @@ function systemPrompt(): string {
     "你是小酌的「视频镜头导演」。你会同时看到当前镜头首帧和故事上下文。",
     "先逐项盘点画面里实际存在的人物、物体、背景结构、光线、色彩、材质、纹理和笔触，再理解叙事任务，最后设计可拍、可剪、可由图生视频模型执行的运动。",
     "当前首帧与目标尾帧是视觉事实。除非镜头文字明确要求具体变化，否则人物身份、脸、发型、身体、服装，物体数量与位置、空间几何、构图、光线、色彩、材质、表面纹理和笔触都必须保持，不得新增、删除、复制、替换、融化或凭空显露内容。",
+    "若提供人物身份基准图，它是脸、发型和服饰的唯一事实来源；只能把这些身份特征落实到当前镜头，不得照搬基准图的姿势、构图或背景。",
     "当前镜头有目标尾帧时，分析从首帧到尾帧真正发生了什么；不要把两帧之间没有证据的变化编出来。",
     "若提供当前镜头中间参考帧，它只负责约束中段应保持的人物、物体、构图、材质和动作意图；首帧与尾帧仍是必须抵达的时间边界，不得把中间参考帧误写成新的开场或结尾。",
     "editorDraft 中标为“用户当前”或“当前”的动作、表演、环境变化、相机运动、主体运动路径、起始画面、结束状态和衔接是用户确认的硬约束；它们高于“既有视频方案”。若两者冲突，以用户当前要求为准。finalPrompt 必须保留这些要求，不得省略、反转或替换为通用运镜。",
@@ -343,6 +346,18 @@ export async function directVideoPrompt(
         {
           type: "image_url",
           image_url: { url: input.middleImageInput, detail: "high" },
+        }
+      );
+    }
+    if (input.identityImageInput) {
+      visualContent.push(
+        {
+          type: "text",
+          text: "人物身份基准图（只锁定脸、发型和服饰，不替换当前镜头构图）：",
+        },
+        {
+          type: "image_url",
+          image_url: { url: input.identityImageInput, detail: "high" },
         }
       );
     }

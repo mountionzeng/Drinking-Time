@@ -125,6 +125,72 @@ describe("analyzeStoryShotConsistency", () => {
     expect(result.findings[0].verdict).toBe("inconsistent");
   });
 
+  it("传入单镜头目标时只检查这一张，不扫描整部故事", async () => {
+    visionMocks.invokeVisionJson.mockResolvedValue({
+      text: JSON.stringify({
+        verdict: "inconsistent",
+        mismatches: [
+          { dimension: "face", note: "脸型和人物基准不同" },
+          { dimension: "hairstyle", note: "短发轮廓发生变化" },
+        ],
+      }),
+      modelLabel: "vision-test",
+    });
+
+    const result = await analyzeStoryShotConsistency({
+      storyId: 7,
+      userId: 1,
+      anchorImageUrl: "https://img.example/anchor.png",
+      targetImage: {
+        imageId: 88,
+        imageUrl: "https://img.example/current.png",
+        shotNo: "0107",
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(assetMocks.getStoryImageAssets).not.toHaveBeenCalled();
+    expect(visionMocks.invokeVisionJson).toHaveBeenCalledTimes(1);
+    expect(visionMocks.invokeVisionJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxTokens: 1_200,
+        timeoutMs: 15_000,
+      })
+    );
+    expect(result.findings).toEqual([
+      {
+        imageId: 88,
+        shotNo: "0107",
+        imageUrl: "https://img.example/current.png",
+        verdict: "inconsistent",
+        mismatches: [
+          { dimension: "face", note: "脸型和人物基准不同" },
+          { dimension: "hairstyle", note: "短发轮廓发生变化" },
+        ],
+      },
+    ]);
+  });
+
+  it("目标图就是人物基准时直接判一致，不调用视觉模型", async () => {
+    const result = await analyzeStoryShotConsistency({
+      storyId: 7,
+      userId: 1,
+      anchorImageUrl: "https://img.example/anchor.png",
+      targetImage: {
+        imageId: 99,
+        imageUrl: "https://img.example/anchor.png",
+        shotNo: "0201",
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.modelLabel).toBe("same-image");
+    expect(result.findings[0]?.verdict).toBe("consistent");
+    expect(visionMocks.invokeVisionJson).not.toHaveBeenCalled();
+  });
+
   it("单个镜头分析失败只降级该镜头为 unknown，不影响其余", async () => {
     assetMocks.getStoryImageAssets.mockResolvedValue([
       makeAsset({ id: 31, imageUrl: "https://img.example/sh01.png" }),

@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createStory,
   createVideoTake,
+  getStoryTimeline,
   getStoryVideoTakeRanges,
   getStoryVideoTimelineSelections,
   getVideoTakeById,
   resetMemoryStateForTesting,
 } from "../db";
 import {
+  appendVideoTakeToTimeline,
+  adoptVideoTake,
   clearVideoTimelineSegment,
   createUsableVideoRange,
   markVideoTakeUnusable,
@@ -220,6 +223,70 @@ describe("videoTimeline", () => {
         stableShotId: "shot-07",
         takeId: reused.take.id,
       }),
+    ]);
+  });
+
+  it("keeps the current video and appends another segment in the same shot", async () => {
+    const { story, take } = await seedStory();
+    await adoptVideoTake(
+      {
+        storyId: story.id,
+        stableShotId: "shot-06",
+        takeId: take.id,
+        plannedDurationSec: 2,
+      },
+      1
+    );
+
+    const result = await appendVideoTakeToTimeline(
+      {
+        storyId: story.id,
+        sourceTakeId: take.id,
+        targetStableShotId: "shot-06",
+        sourceStartSec: 2,
+        sourceEndSec: 3,
+        effects: {
+          playbackRate: 1,
+          reverse: false,
+          volume: 1,
+          muted: false,
+        },
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+          rotationDeg: 0,
+          flipX: false,
+          flipY: false,
+        },
+        expectedTimelineVersion: 0,
+      },
+      1
+    );
+
+    expect(result.beforeItems[0].visualClips).toBeUndefined();
+    const saved = await getStoryTimeline(story.id, 1);
+    const savedItem = (
+      saved?.items as Array<{
+        plannedDurationMs: number;
+        visualClipsReplacePrimary: boolean;
+        visualClips: Array<{
+          sourceStartSec: number;
+          sourceEndSec: number;
+          offsetMs: number;
+        }>;
+      }>
+    )[0];
+    expect(savedItem.visualClipsReplacePrimary).toBe(true);
+    expect(savedItem.plannedDurationMs).toBe(4_000);
+    expect(savedItem.visualClips).toHaveLength(2);
+    expect(savedItem.visualClips).toMatchObject([
+      { sourceStartSec: 0, sourceEndSec: 2, offsetMs: 0 },
+      { sourceStartSec: 2, sourceEndSec: 3, offsetMs: 3_000 },
     ]);
   });
 

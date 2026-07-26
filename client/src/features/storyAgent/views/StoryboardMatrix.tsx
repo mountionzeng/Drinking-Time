@@ -1,5 +1,11 @@
 import { GripVertical } from "lucide-react";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 
 import type { StoryShot } from "@/features/storyAgent/types";
 
@@ -13,6 +19,7 @@ export type StoryboardMatrixField =
   | "videoEnd"
   | "sound"
   | "transitionOut"
+  | "promptDraft"
   | "videoPrompt";
 
 export type StoryboardMatrixRow = {
@@ -58,6 +65,18 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
     label: "衔接",
     placeholder: "如何自然进入下一镜",
     rows: 3,
+  },
+  {
+    field: "promptDraft",
+    label: "图片要求",
+    placeholder: "直接写必须怎样改；未提及的画面内容会保持不变",
+    rows: 4,
+  },
+  {
+    field: "videoPrompt",
+    label: "视频要求",
+    placeholder: "写清人物、环境与摄影机分别怎样运动",
+    rows: 4,
   },
 ];
 
@@ -112,6 +131,7 @@ export function StoryboardMatrixFieldCell({
   onDragOver,
   onDragLeave,
   onDrop,
+  action,
 }: {
   value?: string | null;
   row: StoryboardMatrixRow;
@@ -127,6 +147,7 @@ export function StoryboardMatrixFieldCell({
   onDragOver: (event: DragEvent<HTMLDivElement>) => void;
   onDragLeave: () => void;
   onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  action?: ReactNode;
 }) {
   const currentValue = value ?? "";
   const [draftValue, setDraftValue] = useState(currentValue);
@@ -214,6 +235,11 @@ export function StoryboardMatrixFieldCell({
         }}
         aria-label={`${shotLabel} ${row.label}`}
       />
+      {action ? (
+        <div className="mt-1 flex min-h-7 items-center border-t border-border/45 pt-1">
+          {action}
+        </div>
+      ) : null}
     </div>
   );
 }

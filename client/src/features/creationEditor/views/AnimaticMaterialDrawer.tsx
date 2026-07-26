@@ -33,7 +33,7 @@ type Props = {
     sourceTakeId: number;
     targetStableShotId: string;
     plannedDurationSec: number;
-  }) => Promise<void>;
+  }) => Promise<unknown>;
   onMarkVideoTakeUnusable?: (
     takeId: number,
     sourceStoryId?: number | null
@@ -78,7 +78,7 @@ export default function AnimaticMaterialDrawer({
 
   if (!open) return null;
 
-  const run = async (key: string, action: () => Promise<void>) => {
+  const run = async (key: string, action: () => Promise<unknown>) => {
     setSavingKey(key);
     try {
       await action();
@@ -223,8 +223,7 @@ export default function AnimaticMaterialDrawer({
                         stableShotId: shot.stableShotId,
                         takeId: take.id,
                         plannedDurationSec:
-                          (shot.timelineItem?.plannedDurationMs ?? 3000) /
-                          1000,
+                          (shot.timelineItem?.plannedDurationMs ?? 3000) / 1000,
                       });
                     }
                     if (!onReuseVideo) {

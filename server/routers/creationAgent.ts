@@ -93,6 +93,7 @@ import {
   markVideoTakeUnusable,
   moveVideoTakeToShot,
   reuseVideoTakeForShot,
+  appendVideoTakeToTimeline,
 } from "../services/videoTimeline";
 import { defaultArtRecipe } from "../../shared/artDirection";
 import {
@@ -973,6 +974,7 @@ export const creationAgentRouter = router({
         stableShotId: z.string().optional(),
         promptCompilationId: z.number().int().positive().nullable().optional(),
         imageId: z.number(),
+        characterReferenceImageUrl: z.string().trim().min(1).optional(),
         previousReferenceImageId: z.number().optional(),
         nextReferenceImageId: z.number().optional(),
         prompt: z.string().min(1),
@@ -1024,6 +1026,7 @@ export const creationAgentRouter = router({
           stableShotId: input.stableShotId ?? null,
           promptCompilationId: input.promptCompilationId ?? null,
           imageId: input.imageId,
+          characterReferenceImageUrl: input.characterReferenceImageUrl,
           previousReferenceImageId: input.previousReferenceImageId,
           nextReferenceImageId: input.nextReferenceImageId,
           prompt: input.prompt,
@@ -1168,6 +1171,7 @@ export const creationAgentRouter = router({
               ])
               .optional(),
             sourceId: z.string().max(200).optional(),
+            imageId: z.number().int().positive().nullable().optional(),
             videoTakeId: z.number().int().positive().nullable().optional(),
             rangeId: z.number().int().positive().nullable().optional(),
             selection: z
@@ -1234,6 +1238,13 @@ export const creationAgentRouter = router({
       z.object({
         storyId: z.number(),
         anchorImageUrl: z.string().trim().min(1).nullable().optional(),
+        targetImage: z
+          .object({
+            imageId: z.number().int().positive(),
+            imageUrl: z.string().trim().min(1),
+            shotNo: z.string().trim().min(1).nullable().optional(),
+          })
+          .optional(),
         maxShots: z.number().int().min(1).max(24).optional(),
       })
     )
@@ -1242,6 +1253,7 @@ export const creationAgentRouter = router({
         storyId: input.storyId,
         userId: ctx.user.id,
         anchorImageUrl: input.anchorImageUrl ?? undefined,
+        targetImage: input.targetImage,
         maxShots: input.maxShots,
       });
     }),
@@ -1370,6 +1382,48 @@ export const creationAgentRouter = router({
       }
     }),
 
+  appendVideoTakeToTimeline: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        sourceTakeId: z.number().int().positive(),
+        targetStableShotId: z.string().min(1),
+        sourceStartSec: z.number().min(0),
+        sourceEndSec: z.number().positive(),
+        targetOffsetMs: z.number().min(0).optional(),
+        expectedTimelineVersion: z.number().int().min(0),
+        effects: z.object({
+          playbackRate: z.number().min(0.25).max(4),
+          reverse: z.boolean(),
+          volume: z.number().min(0).max(2),
+          muted: z.boolean(),
+        }),
+        transform: z.object({
+          cropX: z.number().min(0).max(1),
+          cropY: z.number().min(0).max(1),
+          cropWidth: z.number().min(0.01).max(1),
+          cropHeight: z.number().min(0.01).max(1),
+          zoom: z.number().min(1).max(8),
+          panX: z.number().min(-1).max(1),
+          panY: z.number().min(-1).max(1),
+          rotationDeg: z.number().min(-180).max(180).optional(),
+          flipX: z.boolean().optional(),
+          flipY: z.boolean().optional(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await appendVideoTakeToTimeline(input, ctx.user.id);
+        return { status: "ok" as const, ...result };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "视频片段追加失败",
+        };
+      }
+    }),
+
   moveVideoTake: protectedProcedure
     .input(
       z.object({
@@ -1409,6 +1463,9 @@ export const creationAgentRouter = router({
               zoom: z.number().min(1).max(8),
               panX: z.number().min(-1).max(1),
               panY: z.number().min(-1).max(1),
+              rotationDeg: z.number().min(-180).max(180).optional(),
+              flipX: z.boolean().optional(),
+              flipY: z.boolean().optional(),
             }),
             primaryVideoEdit: z
               .object({
@@ -1453,6 +1510,9 @@ export const creationAgentRouter = router({
                       zoom: z.number().min(1).max(8),
                       panX: z.number().min(-1).max(1),
                       panY: z.number().min(-1).max(1),
+                      rotationDeg: z.number().min(-180).max(180).optional(),
+                      flipX: z.boolean().optional(),
+                      flipY: z.boolean().optional(),
                     })
                     .optional(),
                 })

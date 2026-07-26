@@ -63,6 +63,7 @@ type ResolvedStartEndShot = {
   firstFrame: ImageAsset;
   lastFrame: ImageAsset;
   referenceFrame: ImageAsset | null;
+  characterReferenceImageUrl: string | null;
   firstFrameOrigin: ResolvedFrameOrigin;
   lastFrameOrigin: ResolvedFrameOrigin;
   renderDecision: VideoRenderDecision;
@@ -93,6 +94,10 @@ function text(value: unknown): string {
   return typeof value === "string" || typeof value === "number"
     ? String(value).trim()
     : "";
+}
+
+function snapshotReferenceUrl(value: string | null): string | null {
+  return value?.startsWith("data:") ? "inline-image" : value;
 }
 
 function generationParams(value: unknown): RecordValue {
@@ -138,6 +143,13 @@ function frameReferenceIds(shot: RecordValue): number[] {
   return positiveImageIds(
     roles.referenceImageIds ?? params.referenceFrameImageIds
   );
+}
+
+function characterReferenceImageUrl(shot: RecordValue): string | null {
+  const continuity = record(
+    generationParams(shot.generationParams).characterContinuity
+  );
+  return text(continuity.imageUrl) || null;
 }
 
 function expectsStartEndFramePair(shot: RecordValue): boolean {
@@ -467,6 +479,7 @@ async function resolveStartEndShot(
     firstFrame,
     lastFrame,
     referenceFrame,
+    characterReferenceImageUrl: characterReferenceImageUrl(shot),
     firstFrameOrigin,
     lastFrameOrigin,
     renderDecision,
@@ -582,6 +595,7 @@ function idempotencyKey(
     resolved.config.firstFrameImageId,
     resolved.config.lastFrameImageId,
     resolved.referenceFrame?.id,
+    resolved.characterReferenceImageUrl,
     resolved.firstFrameOrigin.source,
     resolved.lastFrameOrigin.source,
     resolved.prompt,
@@ -682,6 +696,9 @@ export async function startEndShotVideoJob(
         firstFrameImageId: resolved.firstFrame.id,
         lastFrameImageId: resolved.lastFrame.id,
         referenceFrameImageId: resolved.referenceFrame?.id ?? null,
+        characterReferenceImageUrl: snapshotReferenceUrl(
+          resolved.characterReferenceImageUrl
+        ),
         frameSources: {
           policyVersion: START_END_NEIGHBOR_FRAME_POLICY_VERSION,
           first: resolved.firstFrameOrigin,
@@ -760,11 +777,15 @@ export async function startEndShotVideoJob(
     const middleImageInput = resolved.referenceFrame
       ? await materializeImageInput(resolved.referenceFrame.imageUrl)
       : undefined;
+    const identityImageInput = resolved.characterReferenceImageUrl
+      ? await materializeImageInput(resolved.characterReferenceImageUrl)
+      : undefined;
     const [promptDirector, firstImageUrl, lastImageUrl] = await Promise.all([
       directVideoPrompt({
         imageInput: frameDataUrl(frames.firstFrame.bytes),
         endImageInput: frameDataUrl(frames.lastFrame.bytes),
         middleImageInput,
+        identityImageInput,
         fallbackPrompt: safeguardedPrompt,
         shotNo: resolved.shotNo,
         cueCode: resolved.cueCode,

@@ -15,9 +15,13 @@ import { getStoryById, updateStoryTimeline } from "../db";
 import type {
   ShotMaterialState,
   StoryTimelineItem,
+  TimelineTransform,
   TimelineVideoEffects,
 } from "../../shared/storyMaterial";
-import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "../../shared/storyMaterial";
+import {
+  DEFAULT_TIMELINE_TRANSFORM,
+  DEFAULT_TIMELINE_VIDEO_EFFECTS,
+} from "../../shared/storyMaterial";
 import { runJsonAgent } from "./agentRuntime";
 import { getStoryMaterialState } from "./storyMaterials";
 import {
@@ -25,13 +29,14 @@ import {
   transitionVideoWindow,
 } from "./videoEndpointFrames";
 import { displayShotCode, promptShotCode } from "../../shared/shotIdentity";
-import { adoptVideoTake } from "./videoTimeline";
+import { adoptVideoTake, appendVideoTakeToTimeline } from "./videoTimeline";
 
 export type TimelineEditSelectionContext = {
   stableShotId?: string | null;
   shotNo?: number | null;
   sourceType?: string;
   sourceId?: string;
+  imageId?: number | null;
   videoTakeId?: number | null;
   rangeId?: number | null;
   selection?:
@@ -84,6 +89,7 @@ export type TimelineEditResult =
       handled: true;
       reply: string;
       appliedCount: number;
+      undoSnapshot?: StoryTimelineItem[];
       proposal?: undefined;
     }
   | {
@@ -122,16 +128,156 @@ const SCENE_CUT_KEYWORDS = /(?:场景|画面|人物|镜头).{0,6}(?:切换到|�
 const DIRECT_TIMELINE_OPERATION_KEYWORDS =
   /(?:挪|移动|移到|放到|重排|删掉|移除|恢复|时长|前面|后面|第\s*\d+\s*位|\d+(?:\.\d+)?\s*秒)/;
 const PREVIOUS_SHOT_KEYWORDS = /(?:上一(?:个)?镜头?|前一(?:个)?镜头?|和前面)/;
+const SELECTED_VIDEO_APPEND_KEYWORDS =
+  /(?:(?:追加|添加|加上|再加|多加|添上|多添|插入|放进|塞进).{0,10}(?:视频|片段)|(?:视频|片段).{0,10}(?:追加|添加|加到|添到|插入|放进|塞进|放到))/;
 
 type SelectedVideoEdit = {
   effects: Partial<TimelineVideoEffects>;
+  transform?: Partial<TimelineTransform>;
   sourceStartSec?: number;
   sourceEndSec?: number;
   labels: string[];
 };
 
+type SelectedVisualTransform = {
+  transform: Partial<TimelineTransform>;
+  labels: string[];
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeRotation(value: number): number {
+  const normalized = ((value % 360) + 360) % 360;
+  return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function normalizedTimelineTransform(
+  base: TimelineTransform | undefined,
+  patch: Partial<TimelineTransform>,
+  minimumZoom: number
+): TimelineTransform {
+  const merged = {
+    ...DEFAULT_TIMELINE_TRANSFORM,
+    ...base,
+    ...patch,
+  };
+  return {
+    cropX: clamp(merged.cropX, 0, 1),
+    cropY: clamp(merged.cropY, 0, 1),
+    cropWidth: clamp(merged.cropWidth, 0.01, 1),
+    cropHeight: clamp(merged.cropHeight, 0.01, 1),
+    zoom: clamp(merged.zoom, minimumZoom, 8),
+    panX: clamp(merged.panX, -1, 1),
+    panY: clamp(merged.panY, -1, 1),
+    rotationDeg: normalizeRotation(merged.rotationDeg ?? 0),
+    flipX: Boolean(merged.flipX),
+    flipY: Boolean(merged.flipY),
+  };
+}
+
+function parseSelectedVisualTransform(
+  instruction: string
+): SelectedVisualTransform | null {
+  const transform: Partial<TimelineTransform> = {};
+  const labels: string[] = [];
+
+  if (
+    /(?:(?:还原|重置|恢复)(?:画面|构图)|(?:画面|构图)(?:还原|重置|恢复默认))/.test(
+      instruction
+    )
+  ) {
+    Object.assign(transform, DEFAULT_TIMELINE_TRANSFORM);
+    labels.push("恢复默认构图");
+    return { transform, labels };
+  }
+
+  const rotationMatch = instruction.match(
+    /(?:向左|左转|逆时针)\s*(?:旋转)?\s*(\d+(?:\.\d+)?)\s*(?:度|°)|(?:向右|右转|顺时针)\s*(?:旋转)?\s*(\d+(?:\.\d+)?)\s*(?:度|°)|(?:旋转|转到|转成|转为)\s*(-?\d+(?:\.\d+)?)\s*(?:度|°)/
+  );
+  if (rotationMatch) {
+    const degrees = rotationMatch[1]
+      ? -Number(rotationMatch[1])
+      : Number(rotationMatch[2] ?? rotationMatch[3]);
+    transform.rotationDeg = normalizeRotation(degrees);
+    labels.push(`旋转 ${transform.rotationDeg}°`);
+  } else if (/(?:取消旋转|恢复正向|画面转正|转回正向)/.test(instruction)) {
+    transform.rotationDeg = 0;
+    labels.push("恢复正向");
+  } else if (/(?:上下颠倒|倒过来显示)/.test(instruction)) {
+    transform.rotationDeg = 180;
+    labels.push("旋转 180°");
+  }
+
+  if (/(?:取消|关闭|去掉)(?:水平翻转|左右镜像|水平镜像)/.test(instruction)) {
+    transform.flipX = false;
+    labels.push("取消水平镜像");
+  } else if (/(?:水平翻转|左右镜像|水平镜像)/.test(instruction)) {
+    transform.flipX = true;
+    labels.push("水平镜像");
+  }
+
+  if (/(?:取消|关闭|去掉)(?:垂直翻转|上下镜像|垂直镜像)/.test(instruction)) {
+    transform.flipY = false;
+    labels.push("取消垂直镜像");
+  } else if (/(?:垂直翻转|上下镜像|垂直镜像)/.test(instruction)) {
+    transform.flipY = true;
+    labels.push("垂直镜像");
+  }
+
+  const zoomPercentMatch = instruction.match(
+    /(?:画面|构图)?\s*(?:缩放|放大|缩小)(?:到|至|为|成)?\s*(\d+(?:\.\d+)?)\s*%/
+  );
+  const zoomRatioMatch = instruction.match(
+    /(?:画面|构图)?\s*(?:缩放|放大|缩小)(?:到|至|为|成)?\s*(\d+(?:\.\d+)?)\s*(?:倍|x)/i
+  );
+  if (zoomPercentMatch || zoomRatioMatch) {
+    const zoom = zoomPercentMatch
+      ? Number(zoomPercentMatch[1]) / 100
+      : Number(zoomRatioMatch![1]);
+    transform.zoom = clamp(zoom, 0.25, 8);
+    labels.push(`画面缩放 ${transform.zoom.toFixed(2)}x`);
+  }
+
+  if (
+    /(?:画面|构图)?(?:回到|恢复|保持)?(?:正中|居中|中心位置)/.test(instruction)
+  ) {
+    transform.panX = 0;
+    transform.panY = 0;
+    labels.push("画面居中");
+  }
+
+  const horizontalMatch = instruction.match(
+    /(?:水平|横向|X)\s*(?:位置)?\s*(?:到|至|为|成|移动到)?\s*(-?\d+(?:\.\d+)?)\s*%/i
+  );
+  if (horizontalMatch) {
+    transform.panX = clamp(Number(horizontalMatch[1]) / 100, -1, 1);
+    labels.push(`水平位置 ${Math.round(transform.panX * 100)}%`);
+  }
+  const verticalMatch = instruction.match(
+    /(?:垂直|纵向|Y)\s*(?:位置)?\s*(?:到|至|为|成|移动到)?\s*(-?\d+(?:\.\d+)?)\s*%/i
+  );
+  if (verticalMatch) {
+    transform.panY = clamp(Number(verticalMatch[1]) / 100, -1, 1);
+    labels.push(`垂直位置 ${Math.round(transform.panY * 100)}%`);
+  }
+
+  const directionMatch = instruction.match(
+    /(?:向|往)(左|右|上|下)(?:移动|平移|挪动|挪)?\s*(\d+(?:\.\d+)?)\s*%/
+  );
+  if (directionMatch) {
+    const amount = clamp(Number(directionMatch[2]) / 100, 0, 1);
+    if (directionMatch[1] === "左" || directionMatch[1] === "右") {
+      transform.panX = directionMatch[1] === "左" ? -amount : amount;
+      labels.push(`向${directionMatch[1]}移动 ${Math.round(amount * 100)}%`);
+    } else {
+      transform.panY = directionMatch[1] === "上" ? -amount : amount;
+      labels.push(`向${directionMatch[1]}移动 ${Math.round(amount * 100)}%`);
+    }
+  }
+
+  return labels.length > 0 ? { transform, labels } : null;
 }
 
 function parseSelectedVideoEdit(
@@ -147,11 +293,13 @@ function parseSelectedVideoEdit(
   }
   const effects: Partial<TimelineVideoEffects> = {};
   const labels: string[] = [];
+  const visualTransform = parseSelectedVisualTransform(instruction);
   const speedMatch = instruction.match(
     /(?:播放速度|速度|倍速|调成|调到|改成|设为|用)?\s*(\d+(?:\.\d+)?)\s*(?:倍速?|x)/i
   );
   if (
     speedMatch &&
+    visualTransform?.transform.zoom == null &&
     !/(?:画面|构图|镜头).{0,6}(?:放大|缩放)/.test(instruction)
   ) {
     const playbackRate = clamp(Number(speedMatch[1]), 0.25, 4);
@@ -197,8 +345,15 @@ function parseSelectedVideoEdit(
     labels.push(`截取 ${sourceStartSec}–${sourceEndSec} 秒`);
   }
 
+  if (visualTransform) labels.push(...visualTransform.labels);
   if (labels.length === 0) return null;
-  return { effects, sourceStartSec, sourceEndSec, labels };
+  return {
+    effects,
+    transform: visualTransform?.transform,
+    sourceStartSec,
+    sourceEndSec,
+    labels,
+  };
 }
 
 function inferredVideoEffects(input: {
@@ -219,6 +374,148 @@ function inferredVideoEffects(input: {
       0.25,
       4
     ),
+  };
+}
+
+function shotTargetFromInstruction(input: {
+  instruction: string;
+  selectionContext?: TimelineEditSelectionContext;
+  shotsByIdentity: Map<string, ShotMaterialState>;
+}): ShotMaterialState | null {
+  const shots = Array.from(input.shotsByIdentity.values());
+  const cueTarget = shots
+    .filter(shot => shot.cueCode?.trim())
+    .sort(
+      (left, right) =>
+        (right.cueCode?.length ?? 0) - (left.cueCode?.length ?? 0)
+    )
+    .find(shot => input.instruction.includes(shot.cueCode!.trim()));
+  const explicitShotNo = explicitShotNos(input.instruction)[0];
+  const numberedTarget =
+    explicitShotNo == null
+      ? null
+      : shots.find(shot => shot.shotNo === explicitShotNo);
+  const selectedTarget = input.selectionContext?.stableShotId
+    ? input.shotsByIdentity.get(input.selectionContext.stableShotId)
+    : shots.find(shot => shot.shotNo === input.selectionContext?.shotNo);
+  return cueTarget ?? numberedTarget ?? selectedTarget ?? null;
+}
+
+async function applySelectedVideoAppend(input: {
+  storyId: number;
+  userId: number;
+  instruction: string;
+  selectionContext?: TimelineEditSelectionContext;
+  items: StoryTimelineItem[];
+  shotsByIdentity: Map<string, ShotMaterialState>;
+  timelineVersion: number;
+}): Promise<TimelineEditResult | null> {
+  const selection = input.selectionContext;
+  if (
+    !selection?.videoTakeId ||
+    (selection.sourceType !== "animatic-video" &&
+      selection.sourceType !== "timeline-range") ||
+    !SELECTED_VIDEO_APPEND_KEYWORDS.test(input.instruction)
+  ) {
+    return null;
+  }
+  const selectedShot = selection.stableShotId
+    ? input.shotsByIdentity.get(selection.stableShotId)
+    : Array.from(input.shotsByIdentity.values()).find(
+        shot => shot.shotNo === selection.shotNo
+      );
+  if (!selectedShot) {
+    return {
+      handled: true,
+      reply: "当前选中的视频已经失效，请重新选中后再追加。",
+      appliedCount: 0,
+    };
+  }
+
+  const targetShot =
+    shotTargetFromInstruction({
+      instruction: input.instruction,
+      selectionContext: input.selectionContext,
+      shotsByIdentity: input.shotsByIdentity,
+    }) ?? selectedShot;
+  const sourceItem = input.items.find(
+    item => item.stableShotId === selectedShot.stableShotId
+  );
+  const selectedClip =
+    selection.sourceType === "timeline-range" && sourceItem
+      ? sourceItem.visualClips?.find(clip => clip.id === selection.sourceId)
+      : null;
+  const sourceTake = Array.from(input.shotsByIdentity.values())
+    .flatMap(shot => shot.videoTakes ?? [])
+    .find(take => take.id === selection.videoTakeId);
+  const selectedRange =
+    sourceTake?.selectedSelectionType === "range" &&
+    sourceTake.selectedRangeId != null
+      ? sourceTake.ranges.find(range => range.id === sourceTake.selectedRangeId)
+      : null;
+  const primaryEdit =
+    sourceItem?.primaryVideoEdit?.takeId === selection.videoTakeId
+      ? sourceItem.primaryVideoEdit
+      : null;
+  const sourceStartSec = Math.max(
+    0,
+    selectedClip?.sourceStartSec ??
+      primaryEdit?.sourceStartSec ??
+      (selection.selection?.kind === "time"
+        ? selection.selection.startSec
+        : (selectedRange?.startSec ?? 0))
+  );
+  const sourceEndSec = Math.max(
+    sourceStartSec + 1 / 30,
+    selectedClip?.sourceEndSec ??
+      primaryEdit?.sourceEndSec ??
+      (selection.selection?.kind === "time"
+        ? selection.selection.endSec
+        : (selectedRange?.endSec ??
+          sourceTake?.durationSec ??
+          sourceStartSec + 3))
+  );
+  const sourceEffects = inferredVideoEffects({
+    sourceStartSec,
+    sourceEndSec,
+    durationMs:
+      selectedClip?.durationMs ??
+      sourceItem?.plannedDurationMs ??
+      Math.round((sourceEndSec - sourceStartSec) * 1_000),
+    effects: selectedClip?.effects ?? primaryEdit?.effects,
+  });
+  const result = await appendVideoTakeToTimeline(
+    {
+      storyId: input.storyId,
+      sourceTakeId: selection.videoTakeId,
+      targetStableShotId: targetShot.stableShotId,
+      sourceStartSec,
+      sourceEndSec,
+      effects: sourceEffects,
+      transform: {
+        ...(selectedClip?.transform ??
+          sourceItem?.transform ?? {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          }),
+      },
+      targetOffsetMs: /(?:开头|最前面|最前方|前面)/.test(input.instruction)
+        ? 0
+        : undefined,
+      expectedTimelineVersion: input.timelineVersion,
+    },
+    input.userId
+  );
+  return {
+    handled: true,
+    reply: `已把选中的视频作为新片段${/(?:开头|最前面|最前方|前面)/.test(input.instruction) ? "插到" : "接到"} ${displayShotCode(targetShot)} ${/(?:开头|最前面|最前方|前面)/.test(input.instruction) ? "开头" : "末尾"}，原视频仍然保留。`,
+    appliedCount: 1,
+    undoSnapshot: result.beforeItems,
   };
 }
 
@@ -263,7 +560,18 @@ async function applySelectedVideoEdit(input: {
 
   const working = input.items.map(item => ({
     ...item,
-    visualClips: item.visualClips?.map(clip => ({ ...clip })),
+    transform: { ...item.transform },
+    primaryVideoEdit: item.primaryVideoEdit
+      ? {
+          ...item.primaryVideoEdit,
+          effects: { ...item.primaryVideoEdit.effects },
+        }
+      : undefined,
+    visualClips: item.visualClips?.map(clip => ({
+      ...clip,
+      effects: clip.effects ? { ...clip.effects } : undefined,
+      transform: clip.transform ? { ...clip.transform } : undefined,
+    })),
   }));
   const item = working[itemIndex];
   const clipId =
@@ -290,6 +598,13 @@ async function applySelectedVideoEdit(input: {
       }),
       ...parsed.effects,
     };
+    const transform = parsed.transform
+      ? normalizedTimelineTransform(
+          clip.transform ?? item.transform,
+          parsed.transform,
+          1
+        )
+      : clip.transform;
     const durationMs = Math.max(
       100,
       Math.round(
@@ -307,6 +622,7 @@ async function applySelectedVideoEdit(input: {
             sourceEndSec,
             durationMs,
             effects,
+            transform,
           };
         }
         if (
@@ -393,6 +709,13 @@ async function applySelectedVideoEdit(input: {
       );
     }
     item.plannedDurationMs = durationMs;
+    if (parsed.transform) {
+      item.transform = normalizedTimelineTransform(
+        item.transform,
+        parsed.transform,
+        1
+      );
+    }
     item.primaryVideoEdit = {
       takeId: take.id,
       sourceStartSec,
@@ -411,6 +734,148 @@ async function applySelectedVideoEdit(input: {
     handled: true,
     reply: `已把 ${displayShotCode(shot)} 的当前视频改为：${parsed.labels.join("、")}。修改已进入时间线。`,
     appliedCount: 1,
+    undoSnapshot: input.items,
+  };
+}
+
+async function applySelectedImageEdit(input: {
+  storyId: number;
+  userId: number;
+  instruction: string;
+  selectionContext?: TimelineEditSelectionContext;
+  items: StoryTimelineItem[];
+  shotsByIdentity: Map<string, ShotMaterialState>;
+  timelineVersion: number;
+}): Promise<TimelineEditResult | null> {
+  const selection = input.selectionContext;
+  if (selection?.sourceType !== "storyboard-image") return null;
+  const parsed = parseSelectedVisualTransform(input.instruction);
+  if (!parsed) return null;
+  const shot = selection.stableShotId
+    ? input.shotsByIdentity.get(selection.stableShotId)
+    : Array.from(input.shotsByIdentity.values()).find(
+        candidate => candidate.shotNo === selection.shotNo
+      );
+  if (!shot) {
+    return {
+      handled: true,
+      reply: "当前选中的图片已经失效，请重新选中后再调整。",
+      appliedCount: 0,
+    };
+  }
+  if (
+    selection.imageId != null &&
+    shot.currentImage?.id !== selection.imageId
+  ) {
+    return {
+      handled: true,
+      reply: `${displayShotCode(shot)} 当前使用的已经不是这张图片。请先选中正在使用的图片，再调整构图。`,
+      appliedCount: 0,
+    };
+  }
+  const itemIndex = input.items.findIndex(
+    item => item.stableShotId === shot.stableShotId
+  );
+  if (itemIndex < 0) {
+    return {
+      handled: true,
+      reply: `${displayShotCode(shot)} 不在当前时间线上，暂时没有修改。`,
+      appliedCount: 0,
+    };
+  }
+  const working = input.items.map((item, index) =>
+    index === itemIndex
+      ? {
+          ...item,
+          transform: normalizedTimelineTransform(
+            item.transform,
+            parsed.transform,
+            0.25
+          ),
+        }
+      : item
+  );
+  await updateStoryTimeline({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedVersion: input.timelineVersion,
+    items: working.map((item, position) => ({ ...item, position })),
+  });
+  return {
+    handled: true,
+    reply: `已把 ${displayShotCode(shot)} 的当前图片改为：${parsed.labels.join("、")}。修改已进入时间线。`,
+    appliedCount: 1,
+    undoSnapshot: input.items,
+  };
+}
+
+async function applyShotVisualTransform(input: {
+  storyId: number;
+  userId: number;
+  instruction: string;
+  selectionContext?: TimelineEditSelectionContext;
+  items: StoryTimelineItem[];
+  shotsByIdentity: Map<string, ShotMaterialState>;
+  timelineVersion: number;
+}): Promise<TimelineEditResult | null> {
+  const parsed = parseSelectedVisualTransform(input.instruction);
+  if (!parsed) return null;
+  const shot = shotTargetFromInstruction({
+    instruction: input.instruction,
+    selectionContext: input.selectionContext,
+    shotsByIdentity: input.shotsByIdentity,
+  });
+  if (!shot) {
+    return {
+      handled: true,
+      reply:
+        "我认出了构图修改，但还不知道要改哪一镜。请先选中画面，或直接说镜头号，例如“把 0102 旋转 180 度”。",
+      appliedCount: 0,
+    };
+  }
+  const itemIndex = input.items.findIndex(
+    item => item.stableShotId === shot.stableShotId
+  );
+  if (itemIndex < 0) {
+    return {
+      handled: true,
+      reply: `${displayShotCode(shot)} 不在当前时间线上，暂时没有修改。`,
+      appliedCount: 0,
+    };
+  }
+  const working = input.items.map((item, index) => {
+    if (index !== itemIndex) return item;
+    const containsVideo =
+      Boolean(shot.currentVideo) || Boolean(item.visualClips?.length);
+    const transform = normalizedTimelineTransform(
+      item.transform,
+      parsed.transform,
+      containsVideo ? 1 : 0.25
+    );
+    return {
+      ...item,
+      transform,
+      visualClips: item.visualClips?.map(clip => ({
+        ...clip,
+        transform: normalizedTimelineTransform(
+          clip.transform ?? item.transform,
+          parsed.transform,
+          1
+        ),
+      })),
+    };
+  });
+  await updateStoryTimeline({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedVersion: input.timelineVersion,
+    items: working.map((item, position) => ({ ...item, position })),
+  });
+  return {
+    handled: true,
+    reply: `已把 ${displayShotCode(shot)} 的整镜画面改为：${parsed.labels.join("、")}。修改已进入时间线。`,
+    appliedCount: 1,
+    undoSnapshot: input.items,
   };
 }
 
@@ -741,6 +1206,17 @@ export async function runTimelineEditCommand(params: {
   );
   if (items.length === 0) return { handled: false };
 
+  const selectedVideoAppendResult = await applySelectedVideoAppend({
+    storyId: params.storyId,
+    userId: params.userId,
+    instruction,
+    selectionContext: params.selectionContext,
+    items,
+    shotsByIdentity: byIdentity,
+    timelineVersion: material.timeline.version,
+  });
+  if (selectedVideoAppendResult) return selectedVideoAppendResult;
+
   const selectedVideoResult = await applySelectedVideoEdit({
     storyId: params.storyId,
     userId: params.userId,
@@ -751,6 +1227,28 @@ export async function runTimelineEditCommand(params: {
     timelineVersion: material.timeline.version,
   });
   if (selectedVideoResult) return selectedVideoResult;
+
+  const selectedImageResult = await applySelectedImageEdit({
+    storyId: params.storyId,
+    userId: params.userId,
+    instruction,
+    selectionContext: params.selectionContext,
+    items,
+    shotsByIdentity: byIdentity,
+    timelineVersion: material.timeline.version,
+  });
+  if (selectedImageResult) return selectedImageResult;
+
+  const shotTransformResult = await applyShotVisualTransform({
+    storyId: params.storyId,
+    userId: params.userId,
+    instruction,
+    selectionContext: params.selectionContext,
+    items,
+    shotsByIdentity: byIdentity,
+    timelineVersion: material.timeline.version,
+  });
+  if (shotTransformResult) return shotTransformResult;
 
   const describe = (item: StoryTimelineItem, index: number): string => {
     const shot = byIdentity.get(item.stableShotId);
@@ -937,5 +1435,10 @@ export async function runTimelineEditCommand(params: {
   }
 
   const suffix = skipped.length > 0 ? `（${skipped.join("；")}）` : "";
-  return { handled: true, reply: `${reply}${suffix}`, appliedCount };
+  return {
+    handled: true,
+    reply: `${reply}${suffix}`,
+    appliedCount,
+    undoSnapshot: appliedCount > 0 ? material.timeline.items : undefined,
+  };
 }

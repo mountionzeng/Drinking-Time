@@ -864,6 +864,7 @@ export function StoryAgentProvider({
       | "sourceId"
       | "stableShotId"
       | "shotNo"
+      | "imageId"
       | "videoTakeId"
       | "rangeId"
       | "selection"
@@ -2955,6 +2956,7 @@ export function StoryAgentProvider({
             sourceId: activeSelection.sourceId,
             stableShotId: activeSelection.stableShotId,
             shotNo: activeSelection.shotNo,
+            imageId: activeSelection.imageId,
             videoTakeId: activeSelection.videoTakeId,
             rangeId: activeSelection.rangeId,
             selection: activeSelection.selection,

@@ -1,5 +1,7 @@
 import {
   Captions,
+  ClipboardPaste,
+  Copy,
   FileUp,
   ImagePlus,
   Loader2,
@@ -69,8 +71,11 @@ import {
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
   editedTimelineDurationMs,
+  videoClipboardPayloadFromTarget,
+  videoClipboardPlannedDurationSec,
   videoClipEditorTargetForTake,
   videoClipEditorTargetForVisualClip,
+  type VideoClipboardPayload,
   type VideoClipEditDraft,
   type VideoClipEditorTarget,
 } from "../videoClipEditorModel";
@@ -415,6 +420,9 @@ function EditingStoryboardPanel({
   attachProgress,
   onEditVideo,
   onEditImage,
+  onCopyVideo,
+  onPasteVideo,
+  videoClipboardLabel,
 }: {
   onRelink: (files: File[]) => Promise<void>;
   relinkProgress: string | null;
@@ -422,6 +430,14 @@ function EditingStoryboardPanel({
   attachProgress: string | null;
   onEditVideo: (target: VideoClipEditorTarget) => void;
   onEditImage: (target: ImageClipEditorTarget) => void;
+  onCopyVideo: (target: VideoClipEditorTarget) => void;
+  onPasteVideo: (input: {
+    stableShotId: string;
+    shotNo: number;
+    mode?: "replace" | "append";
+    targetOffsetMs?: number;
+  }) => Promise<void>;
+  videoClipboardLabel: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const xmlInputRef = useRef<HTMLInputElement | null>(null);
@@ -459,6 +475,9 @@ function EditingStoryboardPanel({
           embeddedEditorMode
           onEditVideo={onEditVideo}
           onEditImage={onEditImage}
+          onCopyVideo={onCopyVideo}
+          onPasteVideo={onPasteVideo}
+          videoClipboardLabel={videoClipboardLabel}
           headerAction={
             <div className="flex items-center gap-1">
               <button
@@ -807,9 +826,7 @@ function ShotPreview({
                   src={imageUrl}
                   alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
                   className="h-full w-full object-cover"
-                  style={timelineTransformStyle(
-                    shot?.timelineItem?.transform
-                  )}
+                  style={timelineTransformStyle(shot?.timelineItem?.transform)}
                 />
                 <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
                   静态首帧占位 · 尚未采用视频
@@ -1237,6 +1254,9 @@ function MultiTrackTimeline({
   onMoveTimelineClip,
   onEditVideo,
   onEditImage,
+  onCopyVideo,
+  onPasteVideo,
+  videoClipboardLabel,
 }: {
   visible: boolean;
   shots: CreationEditorShot[];
@@ -1256,6 +1276,14 @@ function MultiTrackTimeline({
   }) => Promise<void>;
   onEditVideo: (target: VideoClipEditorTarget) => void;
   onEditImage: (target: ImageClipEditorTarget) => void;
+  onCopyVideo: (target: VideoClipEditorTarget) => void;
+  onPasteVideo: (input: {
+    stableShotId: string;
+    shotNo: number;
+    mode?: "replace" | "append";
+    targetOffsetMs?: number;
+  }) => Promise<void>;
+  videoClipboardLabel: string | null;
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
@@ -1276,11 +1304,16 @@ function MultiTrackTimeline({
   const [playheadMs, setPlayheadMs] = useState(initialPlayheadMs);
   const [isPlaying, setIsPlaying] = useState(false);
   const [pendingAction, setPendingAction] = useState<
-    "split" | "extract" | "move" | null
+    "split" | "extract" | "move" | "paste" | null
   >(null);
   const [draggedVisualClip, setDraggedVisualClip] = useState<{
     clipId: string;
     sourceStableShotId: string;
+  } | null>(null);
+  const [timelinePasteTarget, setTimelinePasteTarget] = useState<{
+    stableShotId: string;
+    shotNo: number;
+    targetOffsetMs: number;
   } | null>(null);
   const playheadMsRef = useRef(initialPlayheadMs);
   const isPlayingRef = useRef(false);
@@ -1396,6 +1429,7 @@ function MultiTrackTimeline({
 
   const seekFromPointer = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
       const target = event.target as HTMLElement;
       if (target.closest("[data-timeline-clip]")) return;
       const timeline = timelineContentRef.current;
@@ -1548,6 +1582,62 @@ function MultiTrackTimeline({
       scale,
       timings,
       totalMs,
+    ]
+  );
+
+  const rememberTimelinePasteTarget = useCallback(
+    (clientX: number) => {
+      const timeline = timelineContentRef.current;
+      if (!timeline) return;
+      const targetMs = timelineMsFromClientX(
+        clientX,
+        timeline.getBoundingClientRect().left,
+        scale,
+        totalMs
+      );
+      const lastTiming = timings.at(-1);
+      const lookupMs = Math.min(
+        targetMs,
+        Math.max(0, (lastTiming?.endMs ?? totalMs) - 1)
+      );
+      const timing = timings.find(
+        item => lookupMs >= item.startMs && lookupMs < item.endMs
+      );
+      setTimelinePasteTarget(
+        timing
+          ? {
+              stableShotId: timing.stableShotId,
+              shotNo: timing.shotNo,
+              targetOffsetMs: Math.max(0, targetMs - timing.startMs),
+            }
+          : null
+      );
+    },
+    [scale, timings, totalMs]
+  );
+
+  const pasteVideoIntoTimeline = useCallback(
+    async (mode: "replace" | "append") => {
+      if (!timelinePasteTarget || !videoClipboardLabel || pendingAction) return;
+      setPlaybackRunning(false);
+      setPendingAction("paste");
+      try {
+        await onPasteVideo({
+          ...timelinePasteTarget,
+          mode,
+        });
+        onSelectShot(timelinePasteTarget.shotNo);
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      onPasteVideo,
+      onSelectShot,
+      pendingAction,
+      setPlaybackRunning,
+      timelinePasteTarget,
+      videoClipboardLabel,
     ]
   );
 
@@ -1725,6 +1815,73 @@ function MultiTrackTimeline({
                 }}
                 aria-label={`${lane.label} 轨道`}
               >
+                {lane.id === "primary-video" ? (
+                  <ContextMenu.Root>
+                    <ContextMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
+                        aria-label="主视频轨空白区"
+                        title={
+                          videoClipboardLabel
+                            ? `右键粘贴 ${videoClipboardLabel}`
+                            : "右键可粘贴已复制的视频"
+                        }
+                        onContextMenu={event =>
+                          rememberTimelinePasteTarget(event.clientX)
+                        }
+                      />
+                    </ContextMenu.Trigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.Content
+                        className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                        data-testid="timeline-video-paste-menu"
+                      >
+                        <ContextMenu.Item
+                          disabled={
+                            !videoClipboardLabel ||
+                            !timelinePasteTarget ||
+                            pendingAction != null
+                          }
+                          onSelect={() =>
+                            void pasteVideoIntoTimeline("replace")
+                          }
+                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                        >
+                          {pendingAction === "paste" ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ClipboardPaste className="h-3.5 w-3.5" />
+                          )}
+                          <span className="min-w-0 flex-1 truncate">
+                            {videoClipboardLabel
+                              ? "替换主视频"
+                              : "剪贴板没有视频"}
+                          </span>
+                        </ContextMenu.Item>
+                        <ContextMenu.Item
+                          disabled={
+                            !videoClipboardLabel ||
+                            !timelinePasteTarget ||
+                            pendingAction != null
+                          }
+                          onSelect={() => void pasteVideoIntoTimeline("append")}
+                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                        >
+                          <ClipboardPaste className="h-3.5 w-3.5" />
+                          <span className="min-w-0 flex-1 truncate">
+                            插入为新片段
+                          </span>
+                        </ContextMenu.Item>
+                        {videoClipboardLabel ? (
+                          <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
+                            {videoClipboardLabel}
+                          </ContextMenu.Label>
+                        ) : null}
+                      </ContextMenu.Content>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Root>
+                ) : null}
                 {lane.clips.map(clip => {
                   const left = (clip.startMs / 1000) * scale;
                   const width = Math.max(
@@ -1732,7 +1889,7 @@ function MultiTrackTimeline({
                     ((clip.endMs - clip.startMs) / 1000) * scale
                   );
                   const selected = clip.shotNo === selectedShotNo;
-                  return (
+                  const clipButton = (
                     <button
                       key={`${lane.id}-${clip.id}`}
                       type="button"
@@ -1777,8 +1934,11 @@ function MultiTrackTimeline({
                         );
                       }}
                       onDragEnd={() => setDraggedVisualClip(null)}
+                      onContextMenu={event => {
+                        if (clip.videoEditTarget) event.stopPropagation();
+                      }}
                       data-timeline-clip="true"
-                      className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
+                      className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
                         lane.tone
                       )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
                       style={{ left, width }}
@@ -1814,6 +1974,70 @@ function MultiTrackTimeline({
                         {clip.label}
                       </span>
                     </button>
+                  );
+                  if (!clip.videoEditTarget) return clipButton;
+                  return (
+                    <ContextMenu.Root key={`${lane.id}-${clip.id}-menu`}>
+                      <ContextMenu.Trigger asChild>
+                        {clipButton}
+                      </ContextMenu.Trigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.Content
+                          className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                          data-testid={`timeline-video-copy-${clip.id}`}
+                        >
+                          <ContextMenu.Item
+                            onSelect={() => onCopyVideo(clip.videoEditTarget!)}
+                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[highlighted]:bg-accent"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            复制视频
+                          </ContextMenu.Item>
+                          <ContextMenu.Separator className="my-1 h-px bg-border" />
+                          <ContextMenu.Item
+                            disabled={
+                              !videoClipboardLabel ||
+                              !clip.stableShotId ||
+                              clip.shotNo == null ||
+                              pendingAction != null
+                            }
+                            onSelect={() => {
+                              if (!clip.stableShotId || clip.shotNo == null)
+                                return;
+                              const shotNo = clip.shotNo;
+                              const timing = timings.find(
+                                candidate =>
+                                  candidate.stableShotId === clip.stableShotId
+                              );
+                              setPlaybackRunning(false);
+                              setPendingAction("paste");
+                              void onPasteVideo({
+                                stableShotId: clip.stableShotId,
+                                shotNo,
+                                mode: "append",
+                                targetOffsetMs: Math.max(
+                                  0,
+                                  clip.endMs - (timing?.startMs ?? clip.startMs)
+                                ),
+                              })
+                                .then(() => onSelectShot(shotNo))
+                                .catch(error => {
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "视频片段插入失败"
+                                  );
+                                })
+                                .finally(() => setPendingAction(null));
+                            }}
+                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                          >
+                            <ClipboardPaste className="h-3.5 w-3.5" />
+                            插入复制的视频到此片段后
+                          </ContextMenu.Item>
+                        </ContextMenu.Content>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Root>
                   );
                 })}
               </div>
@@ -1929,6 +2153,9 @@ export default function EditingNleWorkspace({
     chatCutTimeline,
     importStoryMaterial,
     adoptVideoTake,
+    reuseVideoTake,
+    appendTimelineVideoClip,
+    undoTimeline,
     splitTimelineVideoClip,
     moveTimelineVideoClip,
     updateTimelineVideoEdit,
@@ -1940,6 +2167,8 @@ export default function EditingNleWorkspace({
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
   const [videoEditorTarget, setVideoEditorTarget] =
     useState<VideoClipEditorTarget | null>(null);
+  const [videoClipboard, setVideoClipboard] =
+    useState<VideoClipboardPayload | null>(null);
   const [savingVideoEdit, setSavingVideoEdit] = useState(false);
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
@@ -2025,6 +2254,108 @@ export default function EditingNleWorkspace({
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo, shots]
   );
+
+  const copyVideo = useCallback((target: VideoClipEditorTarget) => {
+    const payload = videoClipboardPayloadFromTarget(target);
+    setVideoClipboard(payload);
+    toast.success(`已复制 ${target.label}`);
+  }, []);
+
+  const pasteVideo = useCallback(
+    async (input: {
+      stableShotId: string;
+      shotNo: number;
+      mode?: "replace" | "append";
+      targetOffsetMs?: number;
+    }) => {
+      if (!videoClipboard) throw new Error("请先复制一个视频");
+      if (input.mode === "append") {
+        await appendTimelineVideoClip({
+          sourceTakeId: videoClipboard.sourceTakeId,
+          targetStableShotId: input.stableShotId,
+          sourceStartSec: videoClipboard.sourceStartSec,
+          sourceEndSec: videoClipboard.sourceEndSec,
+          effects: videoClipboard.effects,
+          transform: videoClipboard.transform,
+          targetOffsetMs: input.targetOffsetMs,
+        });
+        const targetShot = shots.find(
+          shot =>
+            (shot.stableShotId ?? shot.shotIdentity) === input.stableShotId
+        );
+        selectShot(input.shotNo);
+        toast.success(
+          `已将 ${videoClipboard.label} 作为新片段加入 ${targetShot ? shotLabel(targetShot) : `镜头 ${input.shotNo}`}`
+        );
+        return;
+      }
+      const plannedDurationSec =
+        videoClipboardPlannedDurationSec(videoClipboard);
+      const reused = await reuseVideoTake({
+        sourceTakeId: videoClipboard.sourceTakeId,
+        targetStableShotId: input.stableShotId,
+        plannedDurationSec,
+      });
+      const targetShot = shots.find(
+        shot => (shot.stableShotId ?? shot.shotIdentity) === input.stableShotId
+      );
+      if (targetShot?.timelineItem) {
+        await updateTimelineVideoEdit({
+          stableShotId: input.stableShotId,
+          takeId: reused.takeId,
+          sourceStartSec: videoClipboard.sourceStartSec,
+          sourceEndSec: videoClipboard.sourceEndSec,
+          effects: videoClipboard.effects,
+          transform: videoClipboard.transform,
+        });
+      }
+      selectShot(input.shotNo);
+      toast.success(
+        `已将 ${videoClipboard.label} 粘贴到 ${targetShot ? shotLabel(targetShot) : `镜头 ${input.shotNo}`}`
+      );
+    },
+    [
+      appendTimelineVideoClip,
+      reuseVideoTake,
+      selectShot,
+      shots,
+      updateTimelineVideoEdit,
+      videoClipboard,
+    ]
+  );
+
+  useEffect(() => {
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.shiftKey ||
+        event.altKey ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== "z"
+      ) {
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target?.closest(
+          'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void undoTimeline()
+        .then(undone => {
+          if (undone) toast.success("已撤销上一步剪辑");
+          else toast.info("当前没有可撤销的剪辑");
+        })
+        .catch(error => {
+          toast.error(error instanceof Error ? error.message : "撤销失败");
+        });
+    };
+    window.addEventListener("keydown", handleUndoShortcut);
+    return () => window.removeEventListener("keydown", handleUndoShortcut);
+  }, [undoTimeline]);
 
   const openVideoEditor = useCallback(
     (target: VideoClipEditorTarget) => {
@@ -2387,6 +2718,9 @@ export default function EditingNleWorkspace({
             attachProgress={attachProgress}
             onEditVideo={openVideoEditor}
             onEditImage={openImageEditor}
+            onCopyVideo={copyVideo}
+            onPasteVideo={pasteVideo}
+            videoClipboardLabel={videoClipboard?.label ?? null}
           />
         </ResizablePanel>
         <ResizableHandle
@@ -2441,6 +2775,9 @@ export default function EditingNleWorkspace({
         onMoveTimelineClip={moveTimelineVideoClip}
         onEditVideo={openVideoEditor}
         onEditImage={openImageEditor}
+        onCopyVideo={copyVideo}
+        onPasteVideo={pasteVideo}
+        videoClipboardLabel={videoClipboard?.label ?? null}
       />
       {videoEditorTarget ? (
         <VideoClipEditorPanel

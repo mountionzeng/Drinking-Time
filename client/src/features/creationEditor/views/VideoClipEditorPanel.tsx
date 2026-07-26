@@ -6,7 +6,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,6 +16,7 @@ import {
   type VideoClipEditorTarget,
 } from "../videoClipEditorModel";
 import { timelineTransformStyle } from "../imageClipEditorModel";
+import VisualTransformControls from "./VisualTransformControls";
 
 function NumberField({
   label,
@@ -279,35 +280,12 @@ export default function VideoClipEditorPanel({
 
         <section className="px-3 py-3">
           <h2 className="mb-3 text-[11px] font-semibold">画面</h2>
-          <div className="grid gap-3">
-            <RangeRow
-              label="缩放"
-              value={draft.transform.zoom}
-              min={1}
-              max={4}
-              step={0.01}
-              display={`${draft.transform.zoom.toFixed(2)}x`}
-              onChange={zoom => updateTransform({ zoom })}
-            />
-            <RangeRow
-              label="水平位置"
-              value={draft.transform.panX}
-              min={-1}
-              max={1}
-              step={0.01}
-              display={`${Math.round(draft.transform.panX * 100)}`}
-              onChange={panX => updateTransform({ panX })}
-            />
-            <RangeRow
-              label="垂直位置"
-              value={draft.transform.panY}
-              min={-1}
-              max={1}
-              step={0.01}
-              display={`${Math.round(draft.transform.panY * 100)}`}
-              onChange={panY => updateTransform({ panY })}
-            />
-          </div>
+          <VisualTransformControls
+            transform={normalized.transform}
+            minZoom={1}
+            maxZoom={8}
+            onChange={updateTransform}
+          />
         </section>
       </div>
 

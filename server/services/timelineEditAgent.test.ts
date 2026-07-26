@@ -19,6 +19,13 @@ const agentMocks = vi.hoisted(() => ({
 
 vi.mock("./agentRuntime", () => agentMocks);
 
+const videoTimelineMocks = vi.hoisted(() => ({
+  adoptVideoTake: vi.fn(),
+  appendVideoTakeToTimeline: vi.fn(),
+}));
+
+vi.mock("./videoTimeline", () => videoTimelineMocks);
+
 import { runTimelineEditCommand } from "./timelineEditAgent";
 
 function item(stableShotId: string, position: number) {
@@ -70,6 +77,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   dbMocks.getStoryById.mockResolvedValue({ id: 7 });
   dbMocks.updateStoryTimeline.mockResolvedValue({});
+  videoTimelineMocks.adoptVideoTake.mockResolvedValue({});
+  videoTimelineMocks.appendVideoTakeToTimeline.mockResolvedValue({
+    beforeItems: [item("shot-a", 0), item("shot-b", 1), item("shot-c", 2)],
+    timeline: { version: 4, items: [] },
+    clip: { id: "append-1" },
+  });
   materialMocks.getStoryMaterialState.mockResolvedValue({
     timeline: {
       version: 3,
@@ -459,6 +472,75 @@ describe("runTimelineEditCommand", () => {
     });
   });
 
+  it("选中视频后可直接追加到指定 cue 镜头并保留撤销快照", async () => {
+    const take = {
+      ...currentVideo(71, 4),
+      stableShotId: "shot-a",
+      isTimelineSelected: true,
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 3,
+        items: [item("shot-a", 0), item("shot-b", 1)],
+      },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          cueCode: "0101",
+          currentVideo: take,
+          videoTakes: [take],
+          currentImage: null,
+        },
+        {
+          stableShotId: "shot-b",
+          shotNo: 2,
+          cueCode: "0201",
+          currentVideo: null,
+          videoTakes: [],
+          currentImage: null,
+        },
+      ],
+    });
+    videoTimelineMocks.appendVideoTakeToTimeline.mockResolvedValueOnce({
+      beforeItems: [item("shot-a", 0), item("shot-b", 1)],
+      timeline: { version: 4, items: [] },
+      clip: { id: "append-71" },
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把这个视频多添到0201后面",
+      selectionContext: {
+        sourceType: "animatic-video",
+        sourceId: "71",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 71,
+        selection: { kind: "time", startSec: 0.5, endSec: 2.5 },
+      },
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      appliedCount: 1,
+      undoSnapshot: [{ stableShotId: "shot-a" }, { stableShotId: "shot-b" }],
+    });
+    expect(videoTimelineMocks.appendVideoTakeToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId: 7,
+        sourceTakeId: 71,
+        targetStableShotId: "shot-b",
+        sourceStartSec: 0.5,
+        sourceEndSec: 2.5,
+        expectedTimelineVersion: 3,
+      }),
+      1
+    );
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
   it("选中时间线切片后只修改该切片并向后波纹移动", async () => {
     const timelineItem = {
       ...item("shot-a", 0),
@@ -530,6 +612,174 @@ describe("runTimelineEditCommand", () => {
       },
       { id: "clip-b", offsetMs: 1_000, durationMs: 2_000 },
     ]);
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("选中视频后可用聊天修改右侧面板未提供的旋转与镜像", async () => {
+    const take = {
+      ...currentVideo(81, 4),
+      isTimelineSelected: true,
+      stableShotId: "shot-a",
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [item("shot-a", 0)] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: take,
+          videoTakes: [take],
+          currentImage: null,
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction:
+        "把选中的视频旋转 180 度，水平翻转，放大到 120%，向右移动 10%",
+      selectionContext: {
+        sourceType: "animatic-video",
+        sourceId: "81",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 81,
+      },
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      appliedCount: 1,
+      undoSnapshot: [{ stableShotId: "shot-a" }],
+    });
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items[0];
+    expect(saved.transform).toMatchObject({
+      rotationDeg: 180,
+      flipX: true,
+      zoom: 1.2,
+      panX: 0.1,
+    });
+    expect(saved.primaryVideoEdit.effects.playbackRate).toBeCloseTo(4 / 3);
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("选中当前图片后可用聊天修改构图并保留撤销快照", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [item("shot-a", 0)] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: null,
+          videoTakes: [],
+          currentImage: currentImage(
+            101,
+            "https://example.com/a.png",
+            "女人回头"
+          ),
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把这张图向左旋转 90 度，垂直位置到 -20%",
+      selectionContext: {
+        sourceType: "storyboard-image",
+        sourceId: "101",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        imageId: 101,
+      },
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      appliedCount: 1,
+      undoSnapshot: [{ stableShotId: "shot-a" }],
+    });
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items[0];
+    expect(saved.transform).toMatchObject({
+      rotationDeg: -90,
+      panY: -0.2,
+    });
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("候选图片已不是当前主图时不误改时间线", async () => {
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把这张图水平翻转",
+      selectionContext: {
+        sourceType: "storyboard-image",
+        sourceId: "999",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        imageId: 999,
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 0 });
+    if (result.handled) expect(result.reply).toContain("已经不是这张图片");
+    expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("不选素材也可以直接按 cue 镜头号修改整镜构图", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 3,
+        items: [item("shot-a", 0), item("shot-b", 1)],
+      },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          cueCode: "0101",
+          currentVideo: null,
+          videoTakes: [],
+          currentImage: currentImage(101, "/a.png", "A"),
+        },
+        {
+          stableShotId: "shot-b",
+          shotNo: 2,
+          cueCode: "0102",
+          currentVideo: null,
+          videoTakes: [],
+          currentImage: currentImage(102, "/b.png", "B"),
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把 0102 旋转 180 度并放大到 125%",
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 1 });
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items;
+    expect(saved[0].transform.rotationDeg).toBeUndefined();
+    expect(saved[1].transform).toMatchObject({
+      rotationDeg: 180,
+      zoom: 1.25,
+    });
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("未指明镜头的构图命令会要求定位而不猜测", async () => {
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "把画面旋转 90 度",
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 0 });
+    if (result.handled) expect(result.reply).toContain("还不知道要改哪一镜");
+    expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
     expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
   });
 });

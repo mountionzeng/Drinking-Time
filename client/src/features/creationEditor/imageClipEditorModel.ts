@@ -69,7 +69,7 @@ export function timelineTransformStyle(
   const zoom = clamp(transform.zoom, 0.25, 8);
   const panX = clamp(transform.panX, -1, 1);
   const panY = clamp(transform.panY, -1, 1);
-  const rotationDeg = clamp(transform.rotationDeg, -180, 180);
+  const rotationDeg = clamp(transform.rotationDeg ?? 0, -180, 180);
   const flipX = transform.flipX ? -1 : 1;
   const flipY = transform.flipY ? -1 : 1;
   return {

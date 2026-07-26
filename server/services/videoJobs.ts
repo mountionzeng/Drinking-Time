@@ -355,6 +355,7 @@ function snapshot(input: {
   submitUrl?: string;
   submittedParameters?: Record<string, unknown>;
   sourceImageId: number;
+  characterReferenceImageUrl?: string;
   previousReference?: ImageAsset | null;
   nextReference?: ImageAsset | null;
   durationSec: number;
@@ -365,12 +366,18 @@ function snapshot(input: {
   promptDirector: VideoSubmissionPromptDirectorResult;
 }) {
   const providerStatus = getShotVideoProviderStatus();
+  const characterReferenceImageUrl = input.characterReferenceImageUrl?.startsWith(
+    "data:"
+  )
+    ? "inline-image"
+    : input.characterReferenceImageUrl;
   return {
     provider: "302",
     model: providerStatus.model,
     durationSec: input.durationSec,
     aspectRatio: input.aspectRatio,
     sourceImageId: input.sourceImageId,
+    characterReferenceImageUrl,
     previousReferenceImageId: input.previousReference?.id,
     previousReferenceShotNo: input.previousReference?.canonicalShotNo,
     nextReferenceImageId: input.nextReference?.id,
@@ -409,6 +416,7 @@ export type StartShotVideoJobInput = {
   stableShotId?: string | null;
   promptCompilationId?: number | null;
   imageId: number;
+  characterReferenceImageUrl?: string;
   previousReferenceImageId?: number | null;
   nextReferenceImageId?: number | null;
   prompt: string;
@@ -524,14 +532,17 @@ export async function startShotVideoJob(
     input.imageId
   );
   const isMjVideo = /\/mj\/submit\/video/.test(providerStatus.submitPath);
+  const identityImageInput = input.characterReferenceImageUrl
+    ? await materializeImageInput(input.characterReferenceImageUrl)
+    : undefined;
   const deterministicPrompt = input.directorPromptApproved
     ? sanitizeApprovedVideoPrompt(input.prompt)
     : promptWithVideoReferences({
         prompt: input.prompt,
         previousReference,
         nextReference,
-          forMjVideo: isMjVideo,
-        });
+        forMjVideo: isMjVideo,
+      });
   const baseEngineering = compileVideoPromptEngineering({
     fallbackPrompt: deterministicPrompt,
     shotNo: input.shotNo,
@@ -573,6 +584,7 @@ export async function startShotVideoJob(
     ENV.videoPrompt302Model,
     previousReference?.id,
     nextReference?.id,
+    input.characterReferenceImageUrl,
     input.rerenderRequestId
   );
   const existing = await findVideoTakeByIdempotencyKey(
@@ -598,6 +610,7 @@ export async function startShotVideoJob(
       : isMjVideo
         ? await directVideoPrompt({
             imageInput: sourceImage,
+            identityImageInput,
             fallbackPrompt: deterministicPrompt,
             shotNo: input.shotNo,
             draftPrompt: input.prompt,
@@ -632,6 +645,7 @@ export async function startShotVideoJob(
       sourceImageId: input.imageId,
       previousReference,
       nextReference,
+      characterReferenceImageUrl: input.characterReferenceImageUrl,
       durationSec,
       aspectRatio,
       motion,
@@ -691,6 +705,7 @@ export async function startShotVideoJob(
       sourceImageId: input.imageId,
       previousReference,
       nextReference,
+      characterReferenceImageUrl: input.characterReferenceImageUrl,
       durationSec,
       aspectRatio,
       motion,

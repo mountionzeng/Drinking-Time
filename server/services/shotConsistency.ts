@@ -23,6 +23,13 @@ import { invokeVisionJson, visionChannelConfigured } from "./visionChannel";
 const MAX_SHOTS_DEFAULT = 12;
 const CONCURRENCY = 2;
 
+type ShotConsistencyTarget = {
+  id: number;
+  imageUrl: string;
+  canonicalShotNo: string | null;
+  rawShotNo: string | null;
+};
+
 const SYSTEM_PROMPT = [
   "你是影视素材一致性质检员。用户会给你两张图：",
   "第一张是这个故事的人物锚点参考图（角色的标准长相、发型、服饰和整体画风）。",
@@ -104,6 +111,12 @@ export async function analyzeStoryShotConsistency(params: {
   userId: number;
   /** 用户在界面上选定的锚点图；缺省用故事美术方向里的人物锚点 */
   anchorImageUrl?: string | null;
+  /** 单镜头生成前的轻量检查；传入后不再扫描整部故事。 */
+  targetImage?: {
+    imageId: number;
+    imageUrl: string;
+    shotNo?: string | null;
+  };
   maxShots?: number;
 }): Promise<ShotConsistencyAnalysis> {
   if (!visionChannelConfigured()) {
@@ -134,15 +147,29 @@ export async function analyzeStoryShotConsistency(params: {
     };
   }
 
-  const assets = await getStoryImageAssets(params.storyId, params.userId);
-  const shotImages = assets
-    .filter(asset => asset.kind === "story_frame")
-    .filter(asset => asset.assignment === "shot")
-    .filter(asset => asset.isPrimary)
-    .filter(asset => asset.status !== "rejected")
-    .filter(asset => asset.availability !== "missing")
-    .filter(asset => Boolean(asset.imageUrl))
-    .slice(0, params.maxShots ?? MAX_SHOTS_DEFAULT);
+  const shotImages: ShotConsistencyTarget[] = params.targetImage
+    ? [
+        {
+          id: params.targetImage.imageId,
+          imageUrl: params.targetImage.imageUrl,
+          canonicalShotNo: params.targetImage.shotNo ?? null,
+          rawShotNo: params.targetImage.shotNo ?? null,
+        },
+      ]
+    : (await getStoryImageAssets(params.storyId, params.userId))
+        .filter(asset => asset.kind === "story_frame")
+        .filter(asset => asset.assignment === "shot")
+        .filter(asset => asset.isPrimary)
+        .filter(asset => asset.status !== "rejected")
+        .filter(asset => asset.availability !== "missing")
+        .filter(asset => Boolean(asset.imageUrl))
+        .slice(0, params.maxShots ?? MAX_SHOTS_DEFAULT)
+        .map(asset => ({
+          id: asset.id,
+          imageUrl: asset.imageUrl as string,
+          canonicalShotNo: asset.canonicalShotNo ?? null,
+          rawShotNo: asset.rawShotNo ?? null,
+        }));
 
   if (shotImages.length === 0) {
     return {
@@ -170,14 +197,24 @@ export async function analyzeStoryShotConsistency(params: {
       const base = {
         imageId: asset.id,
         shotNo,
-        imageUrl: asset.imageUrl as string,
+        imageUrl: asset.imageUrl,
       };
+      if (asset.imageUrl === anchorImageUrl) {
+        modelLabel = modelLabel || "same-image";
+        return {
+          ...base,
+          verdict: "consistent",
+          mismatches: [],
+        };
+      }
       try {
-        const shotInput = await materializeImageInput(asset.imageUrl as string);
+        const shotInput = await materializeImageInput(asset.imageUrl);
         const { text, modelLabel: label } = await invokeVisionJson({
           system: SYSTEM_PROMPT,
           userText: `第一张是人物锚点参考图，第二张是镜头 ${shotNo ?? "?"} 的当前画面。请按规则对比并返回 JSON。`,
           imageUrls: [anchorInput, shotInput],
+          maxTokens: params.targetImage ? 1_200 : undefined,
+          timeoutMs: params.targetImage ? 15_000 : undefined,
         });
         modelLabel = modelLabel || label;
         const parsed = parseJsonLoose<RawVerdictPayload>(text);

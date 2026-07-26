@@ -1069,6 +1069,60 @@ describe("storyAgent tRPC router", () => {
     ]);
   });
 
+  it("故事版原文改图必须先确认人民币费用，并原样送入最终提示词", async () => {
+    const caller = appRouter.createCaller(createAuthContext(302));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "故事版原文改图",
+      projectId: 7302,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const explicitInstruction = "只把背景调亮，人物、发型和物体都不要变。";
+
+    const missingConfirmation = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "既有电影画面和全片风格",
+      explicitInstruction,
+    });
+    expect(missingConfirmation).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("¥0.68"),
+    });
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+
+    const staleConfirmation = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "既有电影画面和全片风格",
+      explicitInstruction,
+      costConfirmation: { accepted: true, estimatedCny: 0.01 },
+    });
+    expect(staleConfirmation).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("¥0.68"),
+    });
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+
+    const approved = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "既有电影画面和全片风格",
+      explicitInstruction,
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+    });
+    expect(approved).toMatchObject({ status: "ok" });
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.stringContaining(explicitInstruction),
+      expect.any(Object)
+    );
+    expect(imageGenMocks.generateImage.mock.calls[0][0]).toContain(
+      "HIGHEST PRIORITY"
+    );
+    expect(imageGenMocks.generateImage.mock.calls[0][0]).toContain(
+      "not a weighted suggestion"
+    );
+  });
+
   it("generateForMobile draft 文生图走旧版 flux 草稿快轨", async () => {
     imageGenMocks.generateDraftImage.mockResolvedValueOnce({
       status: "ok",

@@ -34,13 +34,14 @@ import {
   CheckCircle2,
   ListPlus,
   PlusCircle,
-  RotateCcw,
   Upload,
   Video,
   Check,
   Focus,
   SkipBack,
   SkipForward,
+  Copy,
+  ClipboardPaste,
 } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
@@ -77,7 +78,13 @@ import {
   videoTakeFrameUrl,
   videoTakeProgress,
 } from "@/features/creationEditor/videoAssetViewModel";
-import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
+import {
+  cropFrameQuadrant,
+  FRAME_QUADRANTS,
+  type FrameQuadrant,
+} from "@/features/creationEditor/video/frameCrop";
+import { isFrameCandidateSheet } from "@/features/creationEditor/frameCandidate";
+import type { PromptRow } from "@/features/creationEditor/promptTable/types";
 import {
   videoClipEditorTargetForTake,
   videoClipEditorTargetForVisualClip,
@@ -89,6 +96,11 @@ import {
   type ImageClipEditorTarget,
 } from "@/features/creationEditor/imageClipEditorModel";
 import type { ShotVideoProviderStatus } from "@shared/videoAsset";
+import type {
+  ShotConsistencyAnalysis,
+  ShotConsistencyMismatch,
+} from "@shared/shotConsistency";
+import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
 import {
   estimateShotVideoCost,
   SHOT_VIDEO_ASPECT_RATIO,
@@ -146,6 +158,12 @@ import {
   storyboardMediaKind,
   writeStoryboardImageDragPayload,
 } from "../storyboardLocalMedia";
+import {
+  characterContinuityMismatches,
+  storyboardContinuityOptions,
+  StoryboardContinuityDialog,
+  type StoryboardContinuityOption,
+} from "./StoryboardContinuityDialog";
 
 export {
   STORYBOARD_MATRIX_ROWS,
@@ -306,6 +324,27 @@ export function storyboardRenderShotWithDraft(
     ...creationShot,
     ...displayedValues,
     ...pendingDraft,
+  };
+}
+
+export function storyboardExplicitImageInstruction(
+  shot: Pick<StoryShot, "promptDraft">,
+  pendingDraft?: string
+): string {
+  return (pendingDraft ?? shot.promptDraft ?? "").trim();
+}
+
+function storyboardCandidateImageStyle(
+  quadrant: FrameQuadrant
+): React.CSSProperties {
+  const right = quadrant === "top-right" || quadrant === "bottom-right";
+  const bottom = quadrant === "bottom-left" || quadrant === "bottom-right";
+  return {
+    width: "200%",
+    height: "200%",
+    maxWidth: "none",
+    left: right ? "-100%" : "0",
+    top: bottom ? "-100%" : "0",
   };
 }
 
@@ -546,6 +585,44 @@ function generationParamsRecord(
   } catch {
     return {};
   }
+}
+
+export function storyboardCharacterContinuityGenerationParams(
+  generationParams: string | null | undefined,
+  option: StoryboardContinuityOption
+): string {
+  const current = generationParamsRecord(generationParams);
+  current.characterContinuity = {
+    source: option.kind,
+    label: option.label,
+    imageUrl: option.imageUrl,
+    ...(option.imageId != null ? { imageId: option.imageId } : {}),
+    selectedAt: new Date().toISOString(),
+  };
+  return JSON.stringify(current);
+}
+
+export function storyboardCharacterContinuityReference(
+  generationParams: string | null | undefined
+): { label: string; imageUrl: string } | null {
+  const continuity = generationParamsRecord(generationParams)
+    .characterContinuity;
+  if (
+    !continuity ||
+    typeof continuity !== "object" ||
+    Array.isArray(continuity)
+  ) {
+    return null;
+  }
+  const record = continuity as Record<string, unknown>;
+  const imageUrl =
+    typeof record.imageUrl === "string" ? record.imageUrl.trim() : "";
+  if (!imageUrl) return null;
+  const label =
+    typeof record.label === "string" && record.label.trim()
+      ? record.label.trim()
+      : "上次确认的人物版本";
+  return { label, imageUrl };
 }
 
 export type StoryboardFrameRole = "first" | "last" | "reference";
@@ -839,9 +916,7 @@ function storyboardBoundaryImage(
     ordered
   );
   const configuredId =
-    boundary === "first"
-      ? configured.firstImageId
-      : configured.lastImageId;
+    boundary === "first" ? configured.firstImageId : configured.lastImageId;
   return (
     ordered.find(image => image.id === configuredId) ??
     (boundary === "first" ? ordered[0] : ordered.at(-1)) ??
@@ -1146,6 +1221,10 @@ export function StoryboardReviewBoard({
   onAddShotToTimeline,
   onInsertShotAfter,
   onDeleteShot,
+  generatingImageShotNo = null,
+  onGenerateShotImages,
+  continuityAnchor = null,
+  onAnalyzeShotConsistency,
   generatingVideoShotNo = null,
   onGenerateShotVideo,
   onEstimateStartEndShotVideo,
@@ -1159,8 +1238,13 @@ export function StoryboardReviewBoard({
   onRemoveTimelineVideoClip,
   onEditVideo,
   onEditImage,
+  onCopyVideo,
+  onPasteVideo,
+  videoClipboardLabel = null,
+  onPromoteFrameCrop,
   onImportStoryMaterial,
   onUpdateShotFields,
+  promotingFrameCropShotNo = null,
   shotVideoProviderStatus = null,
   defaultViewMode = "simple",
   embeddedEditorMode = false,
@@ -1189,10 +1273,38 @@ export function StoryboardReviewBoard({
     shotNo: number,
     stableShotId?: string | null
   ) => number | null | void | Promise<number | null | void>;
+  generatingImageShotNo?: number | null;
+  onGenerateShotImages?: (input: {
+    shotNo: number;
+    rows: PromptRow[];
+    explicitInstruction: string;
+    reference?: {
+      imageUrl?: string;
+      identityImageUrl?: string;
+    };
+    costConfirmation: {
+      accepted: true;
+      estimatedCny: number;
+    };
+  }) => Promise<void>;
+  continuityAnchor?: {
+    label: string;
+    imageUrl: string;
+  } | null;
+  onAnalyzeShotConsistency?: (input: {
+    anchorImageUrl?: string | null;
+    targetImage?: {
+      imageId: number;
+      imageUrl: string;
+      shotNo?: string | null;
+    };
+    maxShots?: number;
+  }) => Promise<ShotConsistencyAnalysis>;
   generatingVideoShotNo?: number | null;
   onGenerateShotVideo?: (input: {
     shotNo: number;
     imageId: number;
+    characterReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -1225,6 +1337,14 @@ export function StoryboardReviewBoard({
   }) => Promise<void>;
   onEditVideo?: (target: VideoClipEditorTarget) => void;
   onEditImage?: (target: ImageClipEditorTarget) => void;
+  onCopyVideo?: (target: VideoClipEditorTarget) => void;
+  onPasteVideo?: (input: {
+    stableShotId: string;
+    shotNo: number;
+    mode?: "replace" | "append";
+    targetOffsetMs?: number;
+  }) => Promise<void>;
+  videoClipboardLabel?: string | null;
   onMoveStoryImage?: (input: {
     imageId: number;
     targetStableShotId: string;
@@ -1274,6 +1394,15 @@ export function StoryboardReviewBoard({
 }) {
   const [previewMedia, setPreviewMedia] =
     useState<StoryboardMediaPreview | null>(null);
+  const [continuityDialog, setContinuityDialog] = useState<{
+    shotLabel: string;
+    renderKind: "image" | "video";
+    options: StoryboardContinuityOption[];
+    mismatches: ShotConsistencyMismatch[];
+  } | null>(null);
+  const continuityChoiceResolverRef = useRef<
+    ((option: StoryboardContinuityOption | null) => void) | null
+  >(null);
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
   const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<
     number | null
@@ -1304,6 +1433,9 @@ export function StoryboardReviewBoard({
   const [adoptingVideoTakeId, setAdoptingVideoTakeId] = useState<number | null>(
     null
   );
+  const [pastingVideoShotId, setPastingVideoShotId] = useState<string | null>(
+    null
+  );
   const [previewVideoTakeByShot, setPreviewVideoTakeByShot] = useState<
     Record<string, number>
   >({});
@@ -1311,6 +1443,10 @@ export function StoryboardReviewBoard({
   const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(
     null
   );
+  const [continuityChecking, setContinuityChecking] = useState<{
+    shotNo: number;
+    renderKind: "image" | "video";
+  } | null>(null);
   const [draggedMatrixCell, setDraggedMatrixCell] = useState<{
     sourceIndex: number;
     field: StoryboardMatrixField;
@@ -1324,6 +1460,31 @@ export function StoryboardReviewBoard({
   );
   const videoSingleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
+  );
+  const settleContinuityChoice = useCallback(
+    (option: StoryboardContinuityOption | null) => {
+      const resolve = continuityChoiceResolverRef.current;
+      continuityChoiceResolverRef.current = null;
+      setContinuityDialog(null);
+      resolve?.(option);
+    },
+    []
+  );
+  const requestContinuityChoice = useCallback(
+    (request: NonNullable<typeof continuityDialog>) =>
+      new Promise<StoryboardContinuityOption | null>(resolve => {
+        continuityChoiceResolverRef.current?.(null);
+        continuityChoiceResolverRef.current = resolve;
+        setContinuityDialog(request);
+      }),
+    []
+  );
+  useEffect(
+    () => () => {
+      continuityChoiceResolverRef.current?.(null);
+      continuityChoiceResolverRef.current = null;
+    },
+    []
   );
   useEffect(() => setViewMode(defaultViewMode), [defaultViewMode]);
   const cancelDeferredVideoSingleClick = useCallback(() => {
@@ -1344,6 +1505,24 @@ export function StoryboardReviewBoard({
   useEffect(
     () => () => cancelDeferredVideoSingleClick(),
     [cancelDeferredVideoSingleClick]
+  );
+  const pasteVideoIntoShot = useCallback(
+    async (
+      stableShotId: string,
+      shotNo: number,
+      mode: "replace" | "append"
+    ) => {
+      if (!onPasteVideo || !videoClipboardLabel) return;
+      setPastingVideoShotId(stableShotId);
+      try {
+        await onPasteVideo({ stableShotId, shotNo, mode });
+      } finally {
+        setPastingVideoShotId(current =>
+          current === stableShotId ? null : current
+        );
+      }
+    },
+    [onPasteVideo, videoClipboardLabel]
   );
   const boardRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1492,6 +1671,97 @@ export function StoryboardReviewBoard({
   const openShotEditor = (shotNo: number) => {
     onSelectShot?.(shotNo);
     setViewMode("full");
+  };
+
+  const resolveGenerationContinuity = async (input: {
+    shot: StoryShot;
+    creationShot: CreationEditorShot;
+    renderKind: "image" | "video";
+  }): Promise<StoryboardContinuityOption | null | undefined> => {
+    const persistedReference = storyboardCharacterContinuityReference(
+      input.creationShot.generationParams
+    );
+    const creationShotIdentity =
+      input.creationShot.stableShotId ??
+      input.creationShot.shotIdentity ??
+      null;
+    const currentIndex = creationShots.findIndex(candidate => {
+      const candidateIdentity =
+        candidate.stableShotId ?? candidate.shotIdentity ?? null;
+      return creationShotIdentity
+        ? candidateIdentity === creationShotIdentity
+        : candidate === input.creationShot;
+    });
+    const previousShotWithImage =
+      currentIndex > 0
+        ? [...creationShots.slice(0, currentIndex)]
+            .reverse()
+            .find(candidate => Boolean(candidate.imageUrl))
+        : undefined;
+    const usingPreviousShotFallback =
+      !persistedReference &&
+      !continuityAnchor &&
+      Boolean(previousShotWithImage?.imageUrl);
+    const referenceAnchor =
+      persistedReference ??
+      continuityAnchor ??
+      (previousShotWithImage?.imageUrl
+        ? {
+            label: `${displayShotCode(previousShotWithImage)} 人物版本`,
+            imageUrl: previousShotWithImage.imageUrl,
+          }
+        : null);
+    if (!referenceAnchor?.imageUrl) return undefined;
+    const frameImages = storyboardShotFrameImages(input.creationShot);
+    const options = storyboardContinuityOptions({
+      anchor: referenceAnchor,
+      frames: frameImages,
+      currentImageId: input.creationShot.imageId,
+    });
+    const anchorOption = options.find(option => option.kind === "anchor");
+    if (!anchorOption) return undefined;
+    if (
+      input.creationShot.imageId == null ||
+      !input.creationShot.imageUrl ||
+      input.creationShot.imageUrl === referenceAnchor.imageUrl
+    ) {
+      return anchorOption;
+    }
+    if (!onAnalyzeShotConsistency) return anchorOption;
+
+    try {
+      const analysis = await onAnalyzeShotConsistency({
+        anchorImageUrl: referenceAnchor.imageUrl,
+        targetImage: {
+          imageId: input.creationShot.imageId,
+          imageUrl: input.creationShot.imageUrl,
+          shotNo: displayShotCode(input.shot),
+        },
+      });
+      if (analysis.status !== "ok") {
+        toast.info("人物一致性暂时无法自动判断，本次仍按人物基准约束");
+        return anchorOption;
+      }
+      const finding =
+        analysis.findings.find(
+          candidate => candidate.imageId === input.creationShot.imageId
+        ) ?? analysis.findings[0];
+      if (finding?.verdict === "unknown" && usingPreviousShotFallback) {
+        return undefined;
+      }
+      const mismatches = characterContinuityMismatches(finding);
+      if (mismatches.length === 0) return anchorOption;
+      return requestContinuityChoice({
+        shotLabel: displayShotCode(input.shot),
+        renderKind: input.renderKind,
+        options,
+        mismatches,
+      });
+    } catch (error) {
+      console.warn("[storyboard-continuity] preflight failed", error);
+      toast.info("人物一致性检查未完成，本次仍按人物基准约束");
+      return anchorOption;
+    }
   };
 
   const insertShotAfter = async (
@@ -1894,6 +2164,139 @@ export function StoryboardReviewBoard({
 
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
 
+  const renderShotImageCandidates = async (
+    shot: StoryShot,
+    creationShot: CreationEditorShot | undefined,
+    shotIndex: number
+  ) => {
+    const label = displayShotCode(shot);
+    if (!creationShot || !onGenerateShotImages) {
+      toast.error(`${label} 还没有可渲染的镜头记录`);
+      return;
+    }
+    if (
+      generatingImageShotNo != null ||
+      continuityChecking != null ||
+      rerenderingShotNo != null ||
+      generatingVideoShotNo != null
+    ) {
+      toast.info("已有渲染或人物检查正在进行，请稍候");
+      return;
+    }
+    const stableShotId = storyShotInsertIdentity(shot, shotIndex);
+    const pendingInstruction = stableShotId
+      ? matrixDraftsRef.current.get(stableShotId)?.promptDraft
+      : undefined;
+    const explicitInstruction = storyboardExplicitImageInstruction(
+      shot,
+      pendingInstruction
+    );
+    if (!explicitInstruction) {
+      toast.error(`请先在 ${label} 的“图片要求”中写清楚要怎样生成或修改`);
+      return;
+    }
+
+    setContinuityChecking({ shotNo: shot.shotNo, renderKind: "image" });
+    let continuityChoice: StoryboardContinuityOption | null | undefined;
+    try {
+      continuityChoice = await resolveGenerationContinuity({
+        shot,
+        creationShot,
+        renderKind: "image",
+      });
+    } finally {
+      setContinuityChecking(null);
+    }
+    if (continuityChoice === null) return;
+
+    const imageEstimate = estimateStoryboardImageCost();
+    const confirmed = window.confirm(
+      `${label} 将按下面这段原文硬指令生成 ${imageEstimate.candidateCount} 张同风格候选图：\n\n${explicitInstruction}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。未提及的人物、物体、材质和全片风格会尽量保持不变。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`
+    );
+    if (!confirmed) return;
+
+    onSelectShot?.(shot.shotNo);
+    try {
+      if (
+        onUpdateShotField &&
+        explicitInstruction !== (shot.promptDraft ?? "").trim()
+      ) {
+        await onUpdateShotField(shotIndex, "promptDraft", explicitInstruction);
+      }
+      if (continuityChoice && stableShotId && onUpdateShotFields) {
+        await onUpdateShotFields(stableShotId, {
+          generationParams: storyboardCharacterContinuityGenerationParams(
+            creationShot.generationParams,
+            continuityChoice
+          ),
+        });
+      }
+      const effectiveShot = storyboardRenderShotWithDraft(creationShot, shot, {
+        promptDraft: explicitInstruction,
+      });
+      const creationShotIdentity =
+        creationShot.stableShotId ?? creationShot.shotIdentity ?? null;
+      const creationShotIndex = creationShots.findIndex(
+        candidate =>
+          candidate === creationShot ||
+          (creationShotIdentity != null &&
+            (candidate.stableShotId ?? candidate.shotIdentity) ===
+              creationShotIdentity)
+      );
+      const rows = buildPromptTable(effectiveShot, {
+        previousShots:
+          creationShotIndex > 0
+            ? creationShots.slice(0, creationShotIndex)
+            : [],
+      });
+      await onGenerateShotImages({
+        shotNo: shot.shotNo,
+        rows,
+        explicitInstruction,
+        reference: continuityChoice
+          ? {
+              imageUrl: creationShot.imageUrl ?? continuityChoice.imageUrl,
+              identityImageUrl: continuityChoice.imageUrl,
+            }
+          : undefined,
+        costConfirmation: {
+          accepted: true,
+          estimatedCny: imageEstimate.estimatedCny,
+        },
+      });
+      toast.success(`${label} 已生成四张候选图，请在“画面”行选择一张`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : `${label} 图片生成失败`
+      );
+    }
+  };
+
+  const promoteStoryboardFrameCandidate = async (input: {
+    shot: StoryShot;
+    imageId: number;
+    imageUrl: string;
+    quadrant: FrameQuadrant;
+  }) => {
+    if (!onPromoteFrameCrop) return;
+    onSelectShot?.(input.shot.shotNo);
+    try {
+      const cropped = await cropFrameQuadrant(input.imageUrl, input.quadrant);
+      await onPromoteFrameCrop({
+        shotNo: input.shot.shotNo,
+        imageBase64: cropped.imageBase64,
+        mimeType: cropped.mimeType,
+        parentImageId: input.imageId,
+        quadrant: input.quadrant,
+      });
+      toast.success(
+        `${displayShotCode(input.shot)} 已采用${FRAME_QUADRANTS.find(item => item.value === input.quadrant)?.label ?? ""}候选`
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "候选图片保存失败");
+    }
+  };
+
   const rerenderShotVideo = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined
@@ -1903,8 +2306,12 @@ export function StoryboardReviewBoard({
       toast.error(`${label} 还没有可渲染的镜头记录`);
       return;
     }
-    if (rerenderingShotNo != null || generatingVideoShotNo != null) {
-      toast.info("已有视频任务正在提交，请稍候");
+    if (
+      continuityChecking != null ||
+      rerenderingShotNo != null ||
+      generatingVideoShotNo != null
+    ) {
+      toast.info("已有视频任务或人物检查正在进行，请稍候");
       return;
     }
     const stableShotId =
@@ -1913,15 +2320,36 @@ export function StoryboardReviewBoard({
     const draftKey =
       (shotIndex >= 0 ? storyShotInsertIdentity(shot, shotIndex) : null) ??
       stableShotId;
-    const effectiveShot = storyboardRenderShotWithDraft(
+    let effectiveShot = storyboardRenderShotWithDraft(
       creationShot,
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
     );
-    const intentSummary = storyboardRenderIntentSummary(effectiveShot);
     setRerenderingShotNo(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
+      setContinuityChecking({ shotNo: shot.shotNo, renderKind: "video" });
+      let continuityChoice: StoryboardContinuityOption | null | undefined;
+      try {
+        continuityChoice = await resolveGenerationContinuity({
+          shot,
+          creationShot: effectiveShot,
+          renderKind: "video",
+        });
+      } finally {
+        setContinuityChecking(null);
+      }
+      if (continuityChoice === null) return;
+      if (continuityChoice) {
+        effectiveShot = {
+          ...effectiveShot,
+          generationParams: storyboardCharacterContinuityGenerationParams(
+            effectiveShot.generationParams,
+            continuityChoice
+          ),
+        };
+      }
+      const intentSummary = storyboardRenderIntentSummary(effectiveShot);
       const currentFrameImages = storyboardShotFrameImages(effectiveShot);
       const creationShotIndex = creationShots.findIndex(candidate => {
         const candidateStableShotId =
@@ -1971,7 +2399,9 @@ export function StoryboardReviewBoard({
           stableShotId,
           storyboardVideoIntentPatch(
             effectiveShot,
-            derivedGenerationParams ?? undefined
+            derivedGenerationParams ??
+              effectiveShot.generationParams ??
+              undefined
           )
         );
       }
@@ -1998,7 +2428,7 @@ export function StoryboardReviewBoard({
         const confirmed = window.confirm(
           usesLocalTransform
             ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
         );
         if (!confirmed) return;
         const result = (await onGenerateStartEndShotVideo({
@@ -2055,12 +2485,13 @@ export function StoryboardReviewBoard({
       const confirmed = window.confirm(
         plan.renderDecision.strategy === "local-transform"
           ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-          : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+          : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
       );
       if (!confirmed) return;
       const result = (await onGenerateShotVideo({
         shotNo: effectiveShot.shotNo,
         imageId: effectiveShot.imageId,
+        characterReferenceImageUrl: continuityChoice?.imageUrl,
         prompt: plan.prompt,
         subtitle: effectiveShot.dialogue || undefined,
         durationSec: plan.durationSec,
@@ -2627,32 +3058,6 @@ export function StoryboardReviewBoard({
                             }}
                           />
                         ) : null}
-                        {creationShot &&
-                        (onGenerateShotVideo ||
-                          (onEstimateStartEndShotVideo &&
-                            onGenerateStartEndShotVideo)) ? (
-                          <button
-                            type="button"
-                            disabled={
-                              rerenderingShotNo != null ||
-                              generatingVideoShotNo != null
-                            }
-                            onClick={event => {
-                              event.stopPropagation();
-                              void rerenderShotVideo(shot, creationShot);
-                            }}
-                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-muted/45 text-muted-foreground transition hover:bg-[var(--nayin-glow)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-60"
-                            aria-label={`重新渲染 ${shotLabel} 视频`}
-                            title="重新渲染视频（先确认人民币费用）"
-                          >
-                            {rerenderingShotNo === shot.shotNo ||
-                            generatingVideoShotNo === shot.shotNo ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <RotateCcw className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        ) : null}
                       </div>
                     </div>
                   );
@@ -2716,6 +3121,9 @@ export function StoryboardReviewBoard({
                   const isSubmittingVideo =
                     rerenderingShotNo === shot.shotNo ||
                     generatingVideoShotNo === shot.shotNo;
+                  const isCheckingVideoContinuity =
+                    continuityChecking?.shotNo === shot.shotNo &&
+                    continuityChecking.renderKind === "video";
                   const timelineVisualClips =
                     creationShot?.timelineItem?.visualClips ?? [];
                   const shotFrameImages = creationShot
@@ -2732,6 +3140,10 @@ export function StoryboardReviewBoard({
                             },
                           ]
                         : [];
+                  const latestCandidateSheetId = frameImages
+                    .filter(isFrameCandidateSheet)
+                    .sort((left, right) => left.id - right.id)
+                    .at(-1)?.id;
                   return (
                     <div
                       key={
@@ -2783,11 +3195,17 @@ export function StoryboardReviewBoard({
                           <div
                             className="flex h-[59px] w-[72px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300"
                             data-video-take-stage="submitting"
-                            title="正在保存镜头信息并提交视频任务"
+                            title={
+                              isCheckingVideoContinuity
+                                ? "正在比较脸、发型和服饰"
+                                : "正在保存镜头信息并提交视频任务"
+                            }
                           >
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             <span className="text-[7px] font-semibold">
-                              正在提交
+                              {isCheckingVideoContinuity
+                                ? "检查人物"
+                                : "正在提交"}
                             </span>
                           </div>
                         ) : null}
@@ -2859,6 +3277,60 @@ export function StoryboardReviewBoard({
                           );
                         })}
                         {frameImages.map((frame, frameIndex) => {
+                          if (
+                            frame.id === latestCandidateSheetId &&
+                            onPromoteFrameCrop
+                          ) {
+                            const promoting =
+                              promotingFrameCropShotNo === shot.shotNo;
+                            return (
+                              <div
+                                key={`frame-candidates-${frame.id}`}
+                                className="order-2 flex h-[59px] shrink-0 gap-1"
+                                role="group"
+                                aria-label={`${displayShotCode(shot)} 四张图片候选`}
+                              >
+                                {FRAME_QUADRANTS.map(
+                                  (candidate, candidateIndex) => (
+                                    <button
+                                      key={candidate.value}
+                                      type="button"
+                                      disabled={promoting}
+                                      onClick={() =>
+                                        void promoteStoryboardFrameCandidate({
+                                          shot,
+                                          imageId: frame.id,
+                                          imageUrl: frame.imageUrl,
+                                          quadrant: candidate.value,
+                                        })
+                                      }
+                                      className="relative h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm border border-[var(--nayin-accent)]/40 bg-muted text-left transition hover:border-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                      aria-label={`采用 ${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                      title={`${candidate.label}候选 · 点击设为当前主图`}
+                                    >
+                                      <img
+                                        src={frame.imageUrl}
+                                        alt={`${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                        draggable={false}
+                                        className="absolute object-fill"
+                                        style={storyboardCandidateImageStyle(
+                                          candidate.value
+                                        )}
+                                      />
+                                      <span className="absolute inset-x-0 bottom-0 bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
+                                        候选 {candidateIndex + 1}
+                                      </span>
+                                      {promoting ? (
+                                        <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        </span>
+                                      ) : null}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            );
+                          }
                           const role = creationShot
                             ? storyboardFrameRoleForImage(
                                 creationShot.generationParams,
@@ -2936,8 +3408,7 @@ export function StoryboardReviewBoard({
                                         url: frame.imageUrl,
                                         label: `${displayShotCode(shot)} ${frameRole}`,
                                         transform:
-                                          creationShot?.timelineItem
-                                            ?.transform,
+                                          creationShot?.timelineItem?.transform,
                                       });
                                     })
                                   }
@@ -3145,6 +3616,38 @@ export function StoryboardReviewBoard({
                                 >
                                   <ContextMenu.Item
                                     disabled={
+                                      !onCopyVideo || !insertStableShotId
+                                    }
+                                    onSelect={() => {
+                                      if (!onCopyVideo || !insertStableShotId) {
+                                        return;
+                                      }
+                                      const take =
+                                        creationShot?.videoTakes?.find(
+                                          item => item.id === clip.takeId
+                                        );
+                                      onCopyVideo(
+                                        videoClipEditorTargetForVisualClip({
+                                          stableShotId: insertStableShotId,
+                                          shotNo: shot.shotNo,
+                                          cueCode: shot.cueCode,
+                                          label: `${displayShotCode(shot)} · ${clip.label}`,
+                                          clip,
+                                          timelineItem:
+                                            creationShot?.timelineItem,
+                                          mediaDurationSec: take?.durationSec,
+                                          posterUrl: poster,
+                                        })
+                                      );
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                    复制视频
+                                  </ContextMenu.Item>
+                                  <ContextMenu.Separator className="my-1 h-px bg-border" />
+                                  <ContextMenu.Item
+                                    disabled={
                                       !insertStableShotId ||
                                       !onRemoveTimelineVideoClip ||
                                       isRemoving
@@ -3318,6 +3821,33 @@ export function StoryboardReviewBoard({
                                 >
                                   <ContextMenu.Item
                                     disabled={
+                                      !onCopyVideo || !insertStableShotId
+                                    }
+                                    onSelect={() => {
+                                      if (!onCopyVideo || !insertStableShotId) {
+                                        return;
+                                      }
+                                      const target =
+                                        videoClipEditorTargetForTake({
+                                          stableShotId: insertStableShotId,
+                                          shotNo: shot.shotNo,
+                                          cueCode: shot.cueCode,
+                                          label: `${displayShotCode(shot)} · Take ${take.id}`,
+                                          take,
+                                          timelineItem:
+                                            creationShot?.timelineItem,
+                                          posterUrl: poster,
+                                        });
+                                      if (target) onCopyVideo(target);
+                                    }}
+                                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                    复制视频
+                                  </ContextMenu.Item>
+                                  <ContextMenu.Separator className="my-1 h-px bg-border" />
+                                  <ContextMenu.Item
+                                    disabled={
                                       !onMarkVideoTakeUnusable || isRemoving
                                     }
                                     onSelect={() => {
@@ -3411,18 +3941,103 @@ export function StoryboardReviewBoard({
                             </span>
                           </button>
                         ) : null}
-                        {frameImages.length === 0 &&
-                        timelineVisualClips.length === 0 &&
-                        playableTakes.length === 0 ? (
-                          <div className="flex h-[59px] min-w-0 flex-1 items-center gap-1.5 px-1 text-[8px] text-muted-foreground">
-                            {isGeneratingScript ? (
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                            ) : (
-                              <ImagePlus className="h-3.5 w-3.5 shrink-0" />
-                            )}
-                            <span className="truncate">拖入图片或视频</span>
-                          </div>
-                        ) : null}
+                        <ContextMenu.Root>
+                          <ContextMenu.Trigger asChild>
+                            <button
+                              type="button"
+                              className={`h-[59px] min-w-8 flex-1 text-left text-[8px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                frameImages.length === 0 &&
+                                timelineVisualClips.length === 0 &&
+                                playableTakes.length === 0
+                                  ? "flex items-center gap-1.5 px-1"
+                                  : ""
+                              }`}
+                              aria-label={`${displayShotCode(shot)} 媒体空白区`}
+                              title={
+                                videoClipboardLabel
+                                  ? `右键粘贴 ${videoClipboardLabel}`
+                                  : "右键可粘贴已复制的视频"
+                              }
+                            >
+                              {frameImages.length === 0 &&
+                              timelineVisualClips.length === 0 &&
+                              playableTakes.length === 0 ? (
+                                <>
+                                  {isGeneratingScript ? (
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                                  ) : (
+                                    <ImagePlus className="h-3.5 w-3.5 shrink-0" />
+                                  )}
+                                  <span className="truncate">
+                                    拖入图片或视频
+                                  </span>
+                                </>
+                              ) : null}
+                            </button>
+                          </ContextMenu.Trigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.Content
+                              className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                              data-testid={`storyboard-video-paste-${insertStableShotId ?? shot.shotNo}`}
+                            >
+                              <ContextMenu.Item
+                                disabled={
+                                  !insertStableShotId ||
+                                  !onPasteVideo ||
+                                  !videoClipboardLabel ||
+                                  pastingVideoShotId != null
+                                }
+                                onSelect={() => {
+                                  if (!insertStableShotId) return;
+                                  void pasteVideoIntoShot(
+                                    insertStableShotId,
+                                    shot.shotNo,
+                                    "replace"
+                                  );
+                                }}
+                                className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                              >
+                                {pastingVideoShotId === insertStableShotId ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <ClipboardPaste className="h-3.5 w-3.5" />
+                                )}
+                                <span className="min-w-0 flex-1 truncate">
+                                  {videoClipboardLabel
+                                    ? "替换主视频"
+                                    : "剪贴板没有视频"}
+                                </span>
+                              </ContextMenu.Item>
+                              <ContextMenu.Item
+                                disabled={
+                                  !insertStableShotId ||
+                                  !onPasteVideo ||
+                                  !videoClipboardLabel ||
+                                  pastingVideoShotId != null
+                                }
+                                onSelect={() => {
+                                  if (!insertStableShotId) return;
+                                  void pasteVideoIntoShot(
+                                    insertStableShotId,
+                                    shot.shotNo,
+                                    "append"
+                                  );
+                                }}
+                                className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
+                              >
+                                <ClipboardPaste className="h-3.5 w-3.5" />
+                                <span className="min-w-0 flex-1 truncate">
+                                  追加为新片段
+                                </span>
+                              </ContextMenu.Item>
+                              {videoClipboardLabel ? (
+                                <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
+                                  {videoClipboardLabel}
+                                </ContextMenu.Label>
+                              ) : null}
+                            </ContextMenu.Content>
+                          </ContextMenu.Portal>
+                        </ContextMenu.Root>
                       </div>
                     </div>
                   );
@@ -3443,6 +4058,7 @@ export function StoryboardReviewBoard({
                     </div>
                     {shots.map((shot, index) => {
                       const selected = selectedShotNo === shot.shotNo;
+                      const creationShot = creationShotByNo.get(shot.shotNo);
                       const dropTarget =
                         matrixDropTarget?.targetIndex === index &&
                         matrixDropTarget.field === row.field;
@@ -3540,6 +4156,81 @@ export function StoryboardReviewBoard({
                             );
                           }}
                           onDrop={event => dropMatrixCell(index, row, event)}
+                          action={
+                            row.field === "promptDraft" &&
+                            onGenerateShotImages ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  !creationShot ||
+                                  generatingImageShotNo != null ||
+                                  continuityChecking != null ||
+                                  rerenderingShotNo != null ||
+                                  generatingVideoShotNo != null
+                                }
+                                onPointerDown={event => event.stopPropagation()}
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void renderShotImageCandidates(
+                                    shot,
+                                    creationShot,
+                                    index
+                                  );
+                                }}
+                                className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                aria-label={`按图片要求渲染 ${shotLabel} 的四张候选图`}
+                                title="原文要求优先，生成四张同风格候选图"
+                              >
+                                {generatingImageShotNo === shot.shotNo ||
+                                (continuityChecking?.shotNo === shot.shotNo &&
+                                  continuityChecking.renderKind === "image") ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <ImagePlus className="h-3 w-3" />
+                                )}
+                                {continuityChecking?.shotNo === shot.shotNo &&
+                                continuityChecking.renderKind === "image"
+                                  ? "检查人物"
+                                  : "渲染 4 张"}
+                              </button>
+                            ) : row.field === "videoPrompt" &&
+                              creationShot &&
+                              (onGenerateShotVideo ||
+                                (onEstimateStartEndShotVideo &&
+                                  onGenerateStartEndShotVideo)) ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  generatingImageShotNo != null ||
+                                  continuityChecking != null ||
+                                  rerenderingShotNo != null ||
+                                  generatingVideoShotNo != null
+                                }
+                                onPointerDown={event => event.stopPropagation()}
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  void rerenderShotVideo(shot, creationShot);
+                                }}
+                                className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
+                                aria-label={`按视频要求渲染 ${shotLabel} 视频`}
+                                title="先保存本镜文字并确认人民币费用，再生成候选 Take"
+                              >
+                                {continuityChecking?.shotNo === shot.shotNo &&
+                                continuityChecking.renderKind === "video" ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : rerenderingShotNo === shot.shotNo ||
+                                generatingVideoShotNo === shot.shotNo ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Video className="h-3 w-3" />
+                                )}
+                                {continuityChecking?.shotNo === shot.shotNo &&
+                                continuityChecking.renderKind === "video"
+                                  ? "检查人物"
+                                  : "渲染视频"}
+                              </button>
+                            ) : null
+                          }
                         />
                       );
                     })}
@@ -3567,6 +4258,15 @@ export function StoryboardReviewBoard({
       <StoryboardMediaPreviewDialog
         preview={previewMedia}
         onClose={() => setPreviewMedia(null)}
+      />
+      <StoryboardContinuityDialog
+        open={continuityDialog != null}
+        shotLabel={continuityDialog?.shotLabel ?? ""}
+        renderKind={continuityDialog?.renderKind ?? "image"}
+        options={continuityDialog?.options ?? []}
+        mismatches={continuityDialog?.mismatches ?? []}
+        onChoose={settleContinuityChoice}
+        onCancel={() => settleContinuityChoice(null)}
       />
     </section>
   );

@@ -697,6 +697,7 @@ Negative: no floating objects, characters obey physics.
         shotNo: 2,
         stableShotId: "shot-02",
         imageId: image.id,
+        characterReferenceImageUrl: "data:image/png;base64,IDENTITY",
         prompt: "动作：坐在沙发边缘\n相机运动：缓慢推进",
         subtitle: "我最近一直都在昏昏欲睡的状态",
         durationSec: 5,
@@ -710,12 +711,20 @@ Negative: no floating objects, characters obey physics.
     expect(fetch.mock.calls[0][0]).toBe(
       "https://api.302.ai/v1/chat/completions"
     );
+    const directorBody = JSON.parse(String(fetch.mock.calls[0][1].body));
+    expect(directorBody.messages[1].content[2].text).toContain(
+      "人物身份基准"
+    );
+    expect(directorBody.messages[1].content[3].image_url.url).toContain(
+      "IDENTITY"
+    );
     expect(fetch.mock.calls[1][0]).toBe("https://api.302.ai/mj/submit/video");
     const mjBody = JSON.parse(String(fetch.mock.calls[1][1].body));
     expect(mjBody.prompt).toContain("breathes slowly");
     expect(mjBody.prompt).not.toContain("昏昏欲睡");
     expect(result.take.prompt).toBe(mjBody.prompt);
     expect(result.take.parameterSnapshot).toMatchObject({
+      characterReferenceImageUrl: "inline-image",
       promptDirector: {
         source: "302-vision",
         model: "gpt-5.4-nano-2026-03-17",

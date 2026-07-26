@@ -74,6 +74,8 @@ describe('creation editor rerender', () => {
         imageUrl: "data:image/png;base64,full-frame",
         identityImageUrl: "data:image/png;base64,identity-crop",
       },
+      explicitInstruction: '背景变亮，人物和物体不变。',
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
       generate,
     });
 
@@ -85,6 +87,8 @@ describe('creation editor rerender', () => {
       autoSelect: true,
       referenceImageUrl: "data:image/png;base64,full-frame",
       referenceIdentityImageUrl: "data:image/png;base64,identity-crop",
+      explicitInstruction: '背景变亮，人物和物体不变。',
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
     }));
     expect(generate.mock.calls[0][0].prompt).toContain('水彩');
   });

@@ -1,8 +1,5 @@
 import {
-  FlipHorizontal2,
-  FlipVertical2,
   RotateCcw,
-  RotateCw,
   Save,
   SlidersHorizontal,
   X,
@@ -15,42 +12,7 @@ import {
   type ImageClipEditDraft,
   type ImageClipEditorTarget,
 } from "../imageClipEditorModel";
-
-function RangeRow({
-  label,
-  value,
-  min,
-  max,
-  step,
-  display,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  display: string;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="grid grid-cols-[68px_minmax(0,1fr)_48px] items-center gap-2 text-[10px]">
-      <span className="text-muted-foreground">{label}</span>
-      <input
-        type="range"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onChange={event => onChange(Number(event.currentTarget.value))}
-        className="w-full accent-[var(--primary)]"
-      />
-      <span className="text-right font-mono tabular-nums text-foreground">
-        {display}
-      </span>
-    </label>
-  );
-}
+import VisualTransformControls from "./VisualTransformControls";
 
 export default function ImageClipEditorPanel({
   target,
@@ -81,13 +43,6 @@ export default function ImageClipEditorPanel({
   const normalized = normalizeImageClipEditDraft(draft);
   const updateDraft = (patch: Partial<ImageClipEditDraft>) =>
     setDraft(current => ({ ...current, ...patch }));
-  const rotateBy = (degrees: number) =>
-    updateDraft({
-      rotationDeg: Math.max(
-        -180,
-        Math.min(180, (draft.rotationDeg ?? 0) + degrees)
-      ),
-    });
 
   return (
     <aside
@@ -125,88 +80,13 @@ export default function ImageClipEditorPanel({
           />
         </div>
 
-        <section className="border-b border-border px-3 py-3">
-          <h2 className="mb-3 text-[11px] font-semibold">构图</h2>
-          <div className="grid gap-3">
-            <RangeRow
-              label="缩放"
-              value={normalized.zoom}
-              min={0.25}
-              max={4}
-              step={0.01}
-              display={`${normalized.zoom.toFixed(2)}x`}
-              onChange={zoom => updateDraft({ zoom })}
-            />
-            <RangeRow
-              label="水平位置"
-              value={normalized.panX}
-              min={-1}
-              max={1}
-              step={0.01}
-              display={`${Math.round(normalized.panX * 100)}`}
-              onChange={panX => updateDraft({ panX })}
-            />
-            <RangeRow
-              label="垂直位置"
-              value={normalized.panY}
-              min={-1}
-              max={1}
-              step={0.01}
-              display={`${Math.round(normalized.panY * 100)}`}
-              onChange={panY => updateDraft({ panY })}
-            />
-          </div>
-        </section>
-
         <section className="px-3 py-3">
-          <h2 className="mb-3 text-[11px] font-semibold">旋转与翻转</h2>
-          <RangeRow
-            label="旋转"
-            value={normalized.rotationDeg ?? 0}
-            min={-180}
-            max={180}
-            step={1}
-            display={`${Math.round(normalized.rotationDeg ?? 0)}°`}
-            onChange={rotationDeg => updateDraft({ rotationDeg })}
+          <h2 className="mb-3 text-[11px] font-semibold">构图</h2>
+          <VisualTransformControls
+            transform={normalized}
+            minZoom={0.25}
+            onChange={updateDraft}
           />
-          <div className="mt-3 grid grid-cols-4 gap-1">
-            <button
-              type="button"
-              onClick={() => rotateBy(-90)}
-              className="flex h-8 items-center justify-center rounded-sm border border-border hover:bg-muted"
-              aria-label="向左旋转九十度"
-              title="左转 90°"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => rotateBy(90)}
-              className="flex h-8 items-center justify-center rounded-sm border border-border hover:bg-muted"
-              aria-label="向右旋转九十度"
-              title="右转 90°"
-            >
-              <RotateCw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => updateDraft({ flipX: !normalized.flipX })}
-              className={`flex h-8 items-center justify-center rounded-sm border ${normalized.flipX ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted"}`}
-              aria-label="水平翻转"
-              title="水平翻转"
-            >
-              <FlipHorizontal2 className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => updateDraft({ flipY: !normalized.flipY })}
-              className={`flex h-8 items-center justify-center rounded-sm border ${normalized.flipY ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-muted"}`}
-              aria-label="垂直翻转"
-              title="垂直翻转"
-            >
-              <FlipVertical2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
         </section>
       </div>
 

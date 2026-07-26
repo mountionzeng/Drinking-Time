@@ -3,7 +3,10 @@ import { useMemo, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { StoryboardReviewBoard } from "./StoryCardsBoard";
-import { useStoryCardsBoardSlice } from "@/features/storyAgent/spine/selectors";
+import {
+  useStoryboardPanelArtSlice,
+  useStoryCardsBoardSlice,
+} from "@/features/storyAgent/spine/selectors";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import {
   useCreationEditor,
@@ -41,15 +44,27 @@ export default function StoryboardPanel({
   headerAction,
   onEditVideo,
   onEditImage,
+  onCopyVideo,
+  onPasteVideo,
+  videoClipboardLabel = null,
 }: {
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
   onEditVideo?: (target: VideoClipEditorTarget) => void;
   onEditImage?: (target: ImageClipEditorTarget) => void;
+  onCopyVideo?: (target: VideoClipEditorTarget) => void;
+  onPasteVideo?: (input: {
+    stableShotId: string;
+    shotNo: number;
+    mode?: "replace" | "append";
+    targetOffsetMs?: number;
+  }) => Promise<void>;
+  videoClipboardLabel?: string | null;
 }) {
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
+  const { artDirection } = useStoryboardPanelArtSlice();
   const { loadStory, setActiveSelection } = useStoryAgentActions();
   const setStoryShots = useStorySpine(state => state.setStoryShots);
   const setSaveStatus = useStorySpine(state => state.setSaveStatus);
@@ -64,6 +79,8 @@ export default function StoryboardPanel({
     updatePersistedShotField,
     updatePersistedShotFields,
     insertPersistedShotAfter,
+    rerenderShot,
+    rerenderingShotNo,
     generateShotVideo,
     estimateStartEndShotVideo,
     generateStartEndShotVideo,
@@ -78,10 +95,25 @@ export default function StoryboardPanel({
     promoteFrameCrop,
     importStoryMaterial,
     analyzeShotVideoDirection,
+    analyzeShotConsistency,
     deletePersistedShot,
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
   } = useCreationEditor();
+  const continuityAnchor = useMemo(() => {
+    const reference = artDirection.references.find(
+      item =>
+        item.selected !== false &&
+        item.role === "character" &&
+        Boolean(item.imageUrl)
+    );
+    return reference?.imageUrl
+      ? {
+          label: reference.label || "人物基准",
+          imageUrl: reference.imageUrl,
+        }
+      : null;
+  }, [artDirection.references]);
   const mergedCreationShots = useMemo(() => {
     if (creationShots.length === 0 || storyShots.length === 0) {
       return creationShots;
@@ -237,6 +269,13 @@ export default function StoryboardPanel({
         setSelectedShotNo(nextSelectedShotNo);
         return nextSelectedShotNo;
       }}
+      generatingImageShotNo={rerenderingShotNo}
+      onGenerateShotImages={input =>
+        rerenderShot(input.shotNo, input.rows, input.reference, {
+          explicitInstruction: input.explicitInstruction,
+          costConfirmation: input.costConfirmation,
+        })
+      }
       generatingVideoShotNo={generatingVideoShotNo}
       onGenerateShotVideo={generateShotVideo}
       onEstimateStartEndShotVideo={estimateStartEndShotVideo}
@@ -246,6 +285,9 @@ export default function StoryboardPanel({
       onRemoveTimelineVideoClip={removeTimelineVideoClip}
       onEditVideo={onEditVideo}
       onEditImage={onEditImage}
+      onCopyVideo={onCopyVideo}
+      onPasteVideo={onPasteVideo}
+      videoClipboardLabel={videoClipboardLabel}
       onMoveStoryImage={assignStoryImageToShot}
       onDeleteStoryImage={deleteStoryImage}
       onMoveVideoTake={moveVideoTake}
@@ -253,6 +295,8 @@ export default function StoryboardPanel({
       onPromoteFrameCrop={promoteFrameCrop}
       onImportStoryMaterial={importStoryMaterial}
       onAnalyzeShotVideoDirection={analyzeShotVideoDirection}
+      onAnalyzeShotConsistency={analyzeShotConsistency}
+      continuityAnchor={continuityAnchor}
       onUpdateShotFields={updatePersistedShotFields}
       promotingFrameCropShotNo={promotingFrameCropShotNo}
       shotVideoProviderStatus={shotVideoProviderStatus}

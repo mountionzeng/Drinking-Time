@@ -15,6 +15,9 @@ import {
   StoryboardVideoThumbnail,
   STORYBOARD_MATRIX_ROWS,
   quickShotVideoRenderPlan,
+  storyboardCharacterContinuityGenerationParams,
+  storyboardCharacterContinuityReference,
+  storyboardExplicitImageInstruction,
   storyboardRenderShotWithDraft,
   storyboardVideoIntentPatch,
   storyboardFrameParamsAfterDelete,
@@ -73,6 +76,32 @@ describe("StoryCardsBoard intent entry", () => {
         hasProcessingTake: true,
       })
     ).toBe("refresh");
+  });
+
+  it("persists the user-confirmed character version for later image and video renders", () => {
+    const generationParams = storyboardCharacterContinuityGenerationParams(
+      JSON.stringify({ durationSec: 5 }),
+      {
+        key: "anchor",
+        label: "SheSelf 人物基准",
+        detail: "故事人物基准",
+        imageUrl: "https://img.example/hero.webp",
+        kind: "anchor",
+      }
+    );
+
+    expect(JSON.parse(generationParams)).toMatchObject({
+      durationSec: 5,
+      characterContinuity: {
+        source: "anchor",
+        label: "SheSelf 人物基准",
+        imageUrl: "https://img.example/hero.webp",
+      },
+    });
+    expect(storyboardCharacterContinuityReference(generationParams)).toEqual({
+      label: "SheSelf 人物基准",
+      imageUrl: "https://img.example/hero.webp",
+    });
   });
 
   it("invalidates a director plan when the shot intent changes, but not for a final prompt edit", () => {
@@ -200,7 +229,21 @@ describe("StoryCardsBoard intent entry", () => {
       "cameraMove",
       "sound",
       "transitionOut",
+      "promptDraft",
+      "videoPrompt",
     ]);
+  });
+
+  it("uses the storyboard image requirement as an exact generation instruction", () => {
+    expect(
+      storyboardExplicitImageInstruction(
+        { promptDraft: "旧要求" },
+        "把背景调亮，人物、发型和物体都不要变。"
+      )
+    ).toBe("把背景调亮，人物、发型和物体都不要变。");
+    expect(
+      storyboardExplicitImageInstruction({ promptDraft: "  保持全片质感  " })
+    ).toBe("保持全片质感");
   });
 
   it("uses the first and last storyboard images as the locked video frames", () => {
@@ -248,10 +291,9 @@ describe("StoryCardsBoard intent entry", () => {
     ).toContain("只有中间参考图，缺少首帧和尾帧");
 
     expect(
-      storyboardStartEndFrameIssue(
-        JSON.stringify({ motion: "high" }),
-        [{ id: 1365, imageUrl: "/frames/first.webp" }]
-      )
+      storyboardStartEndFrameIssue(JSON.stringify({ motion: "high" }), [
+        { id: 1365, imageUrl: "/frames/first.webp" },
+      ])
     ).toBeNull();
   });
 
@@ -848,7 +890,9 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).not.toContain('gridColumn: "2 / -1"');
     expect(boardSource).not.toContain('displayMode="matrix"');
     expect(boardSource).not.toContain("视频制作表格行");
-    expect(boardSource).toContain("重新渲染视频");
+    expect(boardSource).toContain("渲染 4 张");
+    expect(boardSource).toContain("渲染视频");
+    expect(boardSource).toContain("explicitInstruction");
     expect(boardSource).toContain("quickShotVideoRenderPlan");
     expect(boardSource).toContain("estimateShotVideoCost");
     expect(boardSource).toContain("parseStartEndVideoConfig");

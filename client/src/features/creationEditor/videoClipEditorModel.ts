@@ -31,6 +31,19 @@ export type VideoClipEditDraft = Pick<
   "sourceStartSec" | "sourceEndSec" | "effects" | "transform"
 >;
 
+export type VideoClipboardPayload = {
+  sourceTakeId: number;
+  sourceStableShotId: string;
+  sourceShotNo: number;
+  sourceCueCode?: string | null;
+  label: string;
+  videoUrl: string;
+  sourceStartSec: number;
+  sourceEndSec: number;
+  effects: TimelineVideoEffects;
+  transform: TimelineTransform;
+};
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 
@@ -62,6 +75,9 @@ export function normalizeVideoClipEditDraft(
       zoom: clamp(value.transform.zoom, 1, 8),
       panX: clamp(value.transform.panX, -1, 1),
       panY: clamp(value.transform.panY, -1, 1),
+      rotationDeg: clamp(value.transform.rotationDeg ?? 0, -180, 180),
+      flipX: Boolean(value.transform.flipX),
+      flipY: Boolean(value.transform.flipY),
     },
   };
 }
@@ -76,6 +92,32 @@ export function editedTimelineDurationMs(
         clamp(draft.effects.playbackRate, 0.25, 4)
     )
   );
+}
+
+export function videoClipboardPayloadFromTarget(
+  target: VideoClipEditorTarget
+): VideoClipboardPayload {
+  return {
+    sourceTakeId: target.takeId,
+    sourceStableShotId: target.stableShotId,
+    sourceShotNo: target.shotNo,
+    sourceCueCode: target.cueCode,
+    label: target.label,
+    videoUrl: target.videoUrl,
+    sourceStartSec: target.sourceStartSec,
+    sourceEndSec: target.sourceEndSec,
+    effects: { ...target.effects },
+    transform: { ...target.transform },
+  };
+}
+
+export function videoClipboardPlannedDurationSec(
+  payload: Pick<
+    VideoClipboardPayload,
+    "sourceStartSec" | "sourceEndSec" | "effects"
+  >
+): number {
+  return Math.min(30, Math.max(0.1, editedTimelineDurationMs(payload) / 1_000));
 }
 
 function inferredEffects(input: {

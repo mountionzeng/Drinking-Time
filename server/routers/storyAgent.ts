@@ -48,6 +48,7 @@ import { withCharacterContinuityPrompt } from "../services/characterContinuity";
 import { deriveInjection } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
+import { applyExplicitImageRenderInstruction } from "../services/imageRenderInstruction";
 import {
   normalizeStoryArtDirection,
   characterReferenceOf,
@@ -66,6 +67,7 @@ import {
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
 import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
+import { estimateStoryboardImageCost } from "../../shared/imageRenderCost";
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
@@ -1047,6 +1049,13 @@ export const storyAgentRouter = router({
     .input(
       z.object({
         prompt: z.string().optional(), // 可选：缺失时由服务端从对话现编（手动「画出来」）
+        explicitInstruction: z.string().trim().min(1).max(2_000).optional(),
+        costConfirmation: z
+          .object({
+            accepted: z.literal(true),
+            estimatedCny: z.number().nonnegative(),
+          })
+          .optional(),
         storyId: z.number(),
         shotNo: z.number().optional(),
         originalImageUrl: z.string().optional(), // 用户照片 URL，用于 image-to-image
@@ -1086,6 +1095,25 @@ export const storyAgentRouter = router({
             status: "error" as const,
             error: "找不到故事，无法保存图片",
           };
+        }
+        if (input.explicitInstruction) {
+          const estimate = estimateStoryboardImageCost();
+          if (!input.costConfirmation?.accepted) {
+            return {
+              status: "error" as const,
+              error: `请先确认预计人民币 ¥${estimate.estimatedCny.toFixed(2)}`,
+            };
+          }
+          if (
+            Math.abs(
+              input.costConfirmation.estimatedCny - estimate.estimatedCny
+            ) > 0.001
+          ) {
+            return {
+              status: "error" as const,
+              error: `费用预估已变化，请重新确认预计人民币 ¥${estimate.estimatedCny.toFixed(2)}`,
+            };
+          }
         }
 
         const storyBody =
@@ -1403,8 +1431,11 @@ export const storyAgentRouter = router({
         if (input.mode === "draft") {
           let renderedDraftPrompt = prompt;
           const draft = await renderViaGate(gateContext, renderedPrompt => {
-            renderedDraftPrompt = renderedPrompt;
-            return generateDraftImage(renderedPrompt);
+            renderedDraftPrompt = applyExplicitImageRenderInstruction(
+              renderedPrompt,
+              input.explicitInstruction
+            );
+            return generateDraftImage(renderedDraftPrompt);
           });
           if (draft.status === "ok" && draft.imageUrl) {
             const image = await createGeneratedImage({
@@ -1441,9 +1472,12 @@ export const storyAgentRouter = router({
         // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
         let renderedFinalPrompt = prompt;
         const result = await renderViaGate(gateContext, renderedPrompt => {
-          renderedFinalPrompt = renderedPrompt;
+          renderedFinalPrompt = applyExplicitImageRenderInstruction(
+            renderedPrompt,
+            input.explicitInstruction
+          );
           console.log(
-            `[generateForMobile] final prompt after gate: ${renderedPrompt.length} chars`
+            `[generateForMobile] final prompt after gate: ${renderedFinalPrompt.length} chars`
           );
           console.log(
             `[generateForMobile] reference image: ${
@@ -1455,14 +1489,14 @@ export const storyAgentRouter = router({
             }`
           );
           return referenceImage
-            ? editMobileImage(referenceImage, renderedPrompt, {
+            ? editMobileImage(referenceImage, renderedFinalPrompt, {
                 provider: input.imageProvider,
                 ...injection,
                 imageWeight,
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,
               })
-            : generateMobileImage(renderedPrompt, {
+            : generateMobileImage(renderedFinalPrompt, {
                 provider: input.imageProvider,
                 ...injection,
                 referenceImageUrl: input.referenceImageUrl,

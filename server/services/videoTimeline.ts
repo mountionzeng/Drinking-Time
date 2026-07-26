@@ -5,6 +5,14 @@ import type {
 } from "../../drizzle/schema";
 import { normalizeShotIdentity } from "../../shared/shotIdentity";
 import {
+  DEFAULT_TIMELINE_VIDEO_EFFECTS,
+  type StoryTimelineItem,
+  type StoryTimelineVisualClip,
+  type TimelineTransform,
+  type TimelineVideoEffects,
+} from "../../shared/storyMaterial";
+import { insertTimelineVisualClip } from "../../shared/timelineVisualClips";
+import {
   clearVideoTimelineSelection,
   createVideoTake,
   createVideoTakeRange,
@@ -13,9 +21,11 @@ import {
   getVideoTakeById,
   getVideoTakeRangeById,
   setVideoTimelineSelection,
+  updateStoryTimeline,
   updateVideoTake,
   updateVideoTakeRangesShotIdentity,
 } from "../db";
+import { getStoryMaterialState } from "./storyMaterials";
 
 function finiteSecond(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
@@ -332,6 +342,257 @@ export async function reuseVideoTakeForShot(
   );
 
   return { take, range: result.range, selection: result.selection };
+}
+
+function inferredClipEffects(input: {
+  sourceStartSec: number;
+  sourceEndSec: number;
+  durationMs: number;
+  effects?: TimelineVideoEffects;
+}): TimelineVideoEffects {
+  if (input.effects) return { ...input.effects };
+  const sourceDurationSec = Math.max(
+    1 / 30,
+    input.sourceEndSec - input.sourceStartSec
+  );
+  return {
+    ...DEFAULT_TIMELINE_VIDEO_EFFECTS,
+    playbackRate: Math.min(
+      4,
+      Math.max(0.25, sourceDurationSec / Math.max(0.1, input.durationMs / 1000))
+    ),
+  };
+}
+
+async function cloneTakeIntoStory(input: {
+  storyId: number;
+  targetStableShotId: string;
+  sourceTake: VideoTake;
+  userId: number;
+}): Promise<VideoTake> {
+  const snapshot =
+    input.sourceTake.parameterSnapshot &&
+    typeof input.sourceTake.parameterSnapshot === "object" &&
+    !Array.isArray(input.sourceTake.parameterSnapshot)
+      ? (input.sourceTake.parameterSnapshot as Record<string, unknown>)
+      : {};
+  return createVideoTake({
+    storyId: input.storyId,
+    userId: input.userId,
+    stableShotId: input.targetStableShotId,
+    sourceImageId: null,
+    promptCompilationId: null,
+    status: "available",
+    taskId: null,
+    provider: input.sourceTake.provider,
+    model: input.sourceTake.model,
+    prompt: input.sourceTake.prompt,
+    subtitle: input.sourceTake.subtitle,
+    durationSec: input.sourceTake.durationSec,
+    aspectRatio: input.sourceTake.aspectRatio,
+    videoKey: input.sourceTake.videoKey,
+    videoUrl: input.sourceTake.videoUrl,
+    errorMessage: null,
+    parameterSnapshot: {
+      ...snapshot,
+      reusedFromTakeId: input.sourceTake.id,
+      reusedFromStoryId: input.sourceTake.storyId,
+      reusedFromStableShotId: input.sourceTake.stableShotId,
+      reusedAt: new Date().toISOString(),
+      reuseMode: "timeline_clip",
+    },
+    extractionCapability: input.sourceTake.extractionCapability,
+  });
+}
+
+export async function appendVideoTakeToTimeline(
+  input: {
+    storyId: number;
+    sourceTakeId: number;
+    targetStableShotId: string;
+    sourceStartSec: number;
+    sourceEndSec: number;
+    effects: TimelineVideoEffects;
+    transform: TimelineTransform;
+    targetOffsetMs?: number;
+    expectedTimelineVersion: number;
+  },
+  userId: number
+): Promise<{
+  timeline: Awaited<ReturnType<typeof updateStoryTimeline>>;
+  beforeItems: StoryTimelineItem[];
+  clip: StoryTimelineVisualClip;
+}> {
+  await assertStory(input.storyId, userId);
+  const targetStableShotId = normalizeShotIdentity(input.targetStableShotId);
+  if (!targetStableShotId) throw new Error("目标镜头缺少稳定身份");
+  const material = await getStoryMaterialState(input.storyId, userId);
+  if (!material) throw new Error("故事素材尚未加载");
+  if (material.timeline.version !== input.expectedTimelineVersion) {
+    throw new Error("时间轴已经更新，请重新追加视频");
+  }
+  const targetShot = material.shots.find(
+    shot => shot.stableShotId === targetStableShotId
+  );
+  const targetItem = material.timeline.items.find(
+    item => item.stableShotId === targetStableShotId
+  );
+  if (!targetShot || !targetItem) throw new Error("目标镜头不在当前时间线上");
+
+  const originalSourceTake = await getVideoTakeById(input.sourceTakeId, userId);
+  if (
+    !originalSourceTake ||
+    originalSourceTake.userId !== userId ||
+    originalSourceTake.status !== "available" ||
+    !originalSourceTake.videoUrl
+  ) {
+    throw new Error("只有可播放的视频才能追加到镜头");
+  }
+  let sourceTake = originalSourceTake;
+  if (sourceTake.storyId !== input.storyId) {
+    sourceTake = await cloneTakeIntoStory({
+      storyId: input.storyId,
+      targetStableShotId,
+      sourceTake,
+      userId,
+    });
+  }
+  if (!sourceTake.videoUrl) {
+    throw new Error("复用后的视频文件不可播放");
+  }
+  const sourceVideoUrl = sourceTake.videoUrl;
+  const sourceStartSec = Math.max(0, input.sourceStartSec);
+  const sourceEndSec = Math.max(sourceStartSec + 1 / 30, input.sourceEndSec);
+  if (
+    typeof sourceTake.durationSec === "number" &&
+    sourceEndSec > sourceTake.durationSec + 0.001
+  ) {
+    throw new Error("追加片段的出点超过了视频时长");
+  }
+  const sourceRange = await createUsableVideoRange(
+    {
+      storyId: input.storyId,
+      stableShotId: sourceTake.stableShotId,
+      takeId: sourceTake.id,
+      startSec: sourceStartSec,
+      endSec: sourceEndSec,
+      label: "时间线追加片段",
+      useOnTimeline: false,
+    },
+    userId
+  );
+  const clipDurationMs = Math.max(
+    100,
+    Math.round(
+      ((sourceEndSec - sourceStartSec) * 1_000) /
+        Math.min(4, Math.max(0.25, input.effects.playbackRate))
+    )
+  );
+  const clip: StoryTimelineVisualClip = {
+    id: `append-${sourceRange.range.id}-${Date.now()}`,
+    takeId: sourceTake.id,
+    rangeId: sourceRange.range.id,
+    sourceStableShotId: sourceTake.stableShotId,
+    videoUrl: sourceVideoUrl,
+    label: originalSourceTake.subtitle?.trim() || `Take ${sourceTake.id}`,
+    sourceStartSec,
+    sourceEndSec,
+    offsetMs: 0,
+    durationMs: clipDurationMs,
+    effects: { ...input.effects },
+    transform: { ...input.transform },
+  };
+
+  let primaryClip: StoryTimelineVisualClip | null = null;
+  const primaryVideo = targetShot.currentVideo;
+  if (
+    !targetItem.visualClipsReplacePrimary &&
+    primaryVideo?.videoUrl &&
+    primaryVideo.status === "available"
+  ) {
+    const selectedRange =
+      primaryVideo.selectedSelectionType === "range" &&
+      primaryVideo.selectedRangeId != null
+        ? primaryVideo.ranges.find(
+            range => range.id === primaryVideo.selectedRangeId
+          )
+        : null;
+    const edit =
+      targetItem.primaryVideoEdit?.takeId === primaryVideo.id
+        ? targetItem.primaryVideoEdit
+        : null;
+    const primaryStartSec = Math.max(
+      0,
+      edit?.sourceStartSec ?? selectedRange?.startSec ?? 0
+    );
+    const primaryEndSec = Math.max(
+      primaryStartSec + 1 / 30,
+      edit?.sourceEndSec ??
+        selectedRange?.endSec ??
+        primaryVideo.durationSec ??
+        primaryStartSec + targetItem.plannedDurationMs / 1_000
+    );
+    const primaryEffects = inferredClipEffects({
+      sourceStartSec: primaryStartSec,
+      sourceEndSec: primaryEndSec,
+      durationMs: targetItem.plannedDurationMs,
+      effects: edit?.effects,
+    });
+    const primaryRange = await createUsableVideoRange(
+      {
+        storyId: input.storyId,
+        stableShotId: targetStableShotId,
+        takeId: primaryVideo.id,
+        startSec: primaryStartSec,
+        endSec: primaryEndSec,
+        label: "原主视频片段",
+        useOnTimeline: false,
+      },
+      userId
+    );
+    primaryClip = {
+      id: `primary-${primaryRange.range.id}`,
+      takeId: primaryVideo.id,
+      rangeId: primaryRange.range.id,
+      sourceStableShotId: targetStableShotId,
+      videoUrl: primaryVideo.videoUrl,
+      label: primaryVideo.subtitle?.trim() || `Take ${primaryVideo.id}`,
+      sourceStartSec: primaryStartSec,
+      sourceEndSec: primaryEndSec,
+      offsetMs: 0,
+      durationMs: Math.max(
+        100,
+        Math.round(
+          ((primaryEndSec - primaryStartSec) * 1_000) /
+            primaryEffects.playbackRate
+        )
+      ),
+      effects: primaryEffects,
+      transform: { ...targetItem.transform },
+    };
+  }
+
+  const nextTargetItem = insertTimelineVisualClip({
+    item: targetItem,
+    clip,
+    primaryClip,
+    targetOffsetMs: input.targetOffsetMs,
+  });
+  const beforeItems = material.timeline.items.map(item => ({
+    ...item,
+    transform: { ...item.transform },
+    visualClips: item.visualClips?.map(existing => ({ ...existing })),
+  }));
+  const timeline = await updateStoryTimeline({
+    storyId: input.storyId,
+    userId,
+    expectedVersion: material.timeline.version,
+    items: material.timeline.items.map((item, position) => ({
+      ...(item.stableShotId === targetStableShotId ? nextTargetItem : item),
+      position,
+    })),
+  });
+  return { timeline, beforeItems, clip };
 }
 
 export async function moveVideoTakeToShot(

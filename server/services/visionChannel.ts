@@ -34,6 +34,7 @@ export async function invokeVisionJson(params: {
   userText: string;
   imageUrls: string[];
   maxTokens?: number;
+  timeoutMs?: number;
 }): Promise<{ text: string; modelLabel: string }> {
   const apiUrl = resolveVisionUrl();
   if (!apiUrl || !visionChannelConfigured()) {
@@ -47,6 +48,7 @@ export async function invokeVisionJson(params: {
 
   const response = await fetch(apiUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(params.timeoutMs ?? 45_000),
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${ENV.vision302ApiKey}`,
