@@ -189,10 +189,40 @@ export function storyboardRenderShotWithDraft(
 }
 
 export function storyboardExplicitImageInstruction(
-  shot: Pick<StoryShot, "promptDraft">,
-  pendingDraft?: string
+  shot: Partial<
+    Pick<
+      StoryShot,
+      "promptDraft" | "action" | "performance" | "cameraMove" | "transitionOut"
+    >
+  >,
+  pendingDraft: Partial<
+    Record<
+      "promptDraft" | "action" | "performance" | "cameraMove" | "transitionOut",
+      string
+    >
+  > = {}
 ): string {
-  return (pendingDraft ?? shot.promptDraft ?? "").trim();
+  const value = (
+    field:
+      | "promptDraft"
+      | "action"
+      | "performance"
+      | "cameraMove"
+      | "transitionOut"
+  ) => (pendingDraft[field] ?? shot[field] ?? "").trim();
+  return [
+    value("promptDraft")
+      ? `图片要求（最高优先级）：${value("promptDraft")}`
+      : "",
+    value("action") ? `画面动作：${value("action")}` : "",
+    value("performance") ? `表演：${value("performance")}` : "",
+    value("cameraMove") ? `运镜构图：${value("cameraMove")}` : "",
+    value("transitionOut")
+      ? `衔接下一镜：${value("transitionOut")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function storyboardCandidateImageStyle(
@@ -316,7 +346,11 @@ function generationParamsRecord(
 
 export function storyboardCharacterContinuityGenerationParams(
   generationParams: string | null | undefined,
-  option: StoryboardContinuityOption
+  option: StoryboardContinuityOption,
+  target?: {
+    imageId: number | null | undefined;
+    imageUrl: string | null | undefined;
+  }
 ): string {
   const current = generationParamsRecord(generationParams);
   current.characterContinuity = {
@@ -324,9 +358,50 @@ export function storyboardCharacterContinuityGenerationParams(
     label: option.label,
     imageUrl: option.imageUrl,
     ...(option.imageId != null ? { imageId: option.imageId } : {}),
+    ...(target?.imageId != null && target.imageUrl
+      ? {
+          validatedTarget: {
+            imageId: target.imageId,
+            imageUrl: target.imageUrl,
+          },
+        }
+      : {}),
     selectedAt: new Date().toISOString(),
   };
   return JSON.stringify(current);
+}
+
+export function storyboardCharacterContinuityMatchesTarget(
+  generationParams: string | null | undefined,
+  target: {
+    imageId: number | null | undefined;
+    imageUrl: string | null | undefined;
+  }
+): boolean {
+  if (target.imageId == null || !target.imageUrl) return false;
+  const continuity =
+    generationParamsRecord(generationParams).characterContinuity;
+  if (
+    !continuity ||
+    typeof continuity !== "object" ||
+    Array.isArray(continuity)
+  ) {
+    return false;
+  }
+  const validatedTarget = (continuity as Record<string, unknown>)
+    .validatedTarget;
+  if (
+    !validatedTarget ||
+    typeof validatedTarget !== "object" ||
+    Array.isArray(validatedTarget)
+  ) {
+    return false;
+  }
+  const record = validatedTarget as Record<string, unknown>;
+  return (
+    record.imageId === target.imageId &&
+    record.imageUrl === target.imageUrl
+  );
 }
 
 export function storyboardCharacterContinuityReference(
@@ -537,6 +612,53 @@ export function storyboardFrameParamsAfterDelete(
 ): string {
   const remaining = images.filter(image => image.id !== imageId);
   const remainingIds = remaining.map(image => image.id);
+  const current = generationParamsRecord(generationParams);
+  const sources =
+    current.startEndFrameSources &&
+    typeof current.startEndFrameSources === "object" &&
+    !Array.isArray(current.startEndFrameSources)
+      ? (current.startEndFrameSources as Record<string, unknown>)
+      : null;
+  const first =
+    sources?.first &&
+    typeof sources.first === "object" &&
+    !Array.isArray(sources.first)
+      ? (sources.first as Record<string, unknown>)
+      : null;
+  const last =
+    sources?.last &&
+    typeof sources.last === "object" &&
+    !Array.isArray(sources.last)
+      ? (sources.last as Record<string, unknown>)
+      : null;
+  const inheritedFirstImageId = positiveImageId(first?.imageId);
+  const inheritedLastImageId = positiveImageId(last?.imageId);
+  if (
+    sources?.policyVersion === START_END_NEIGHBOR_FRAME_POLICY_VERSION &&
+    first?.source === "previous-last" &&
+    last?.source === "next-first" &&
+    inheritedFirstImageId != null &&
+    inheritedLastImageId != null &&
+    imageId !== inheritedFirstImageId &&
+    imageId !== inheritedLastImageId
+  ) {
+    const remainingReferenceIds = positiveImageIds(
+      (
+        current.storyboardFrameRoles as
+          | Record<string, unknown>
+          | null
+          | undefined
+      )?.referenceImageIds ?? current.referenceFrameImageIds
+    ).filter(id => id !== imageId && remainingIds.includes(id));
+    current.storyboardFrameRoles = {
+      referenceImageIds: remainingReferenceIds,
+    };
+    current.referenceFrameImageIds = remainingReferenceIds;
+    current.frameMode = "start_end";
+    current.firstFrameImageId = inheritedFirstImageId;
+    current.lastFrameImageId = inheritedLastImageId;
+    return JSON.stringify(current);
+  }
   const configured = storyboardFrameRoleConfig(generationParams, images);
   let firstImageId =
     configured.firstImageId === imageId ? null : configured.firstImageId;
@@ -883,6 +1005,190 @@ export function storyboardShotFrameImages(
     ...unique.filter(image => !used.has(image.id)),
     ...(last ? [last] : []),
   ];
+}
+
+export type StoryboardImageGenerationFrameReference = {
+  imageUrl: string;
+  source: "current" | "previous-last" | "next-first";
+  cueCode: string | null;
+  shotNo: number;
+};
+
+export type StoryboardImageGenerationReferences = {
+  primary: StoryboardImageGenerationFrameReference;
+  context: StoryboardImageGenerationFrameReference[];
+};
+
+function trustedStoryboardBoundaryImage(
+  shot: CreationEditorShot,
+  boundary: "first" | "last"
+): CreationEditorImage | null {
+  const images = storyboardShotFrameImages(shot);
+  if (images.length === 0) return null;
+
+  const configured = storyboardFrameRoleConfig(shot.generationParams, images);
+  const configuredId =
+    boundary === "first" ? configured.firstImageId : configured.lastImageId;
+  const configuredImage = images.find(image => image.id === configuredId);
+  if (configuredImage) return configuredImage;
+
+  const currentImage =
+    images.find(image => image.id === shot.imageId) ??
+    images.find(image => image.imageUrl === shot.imageUrl);
+  if (currentImage) return currentImage;
+
+  const trusted = images.filter(
+    image =>
+      image.isCurrent ||
+      image.isPrimary ||
+      image.status === "selected" ||
+      image.selectionSource === "explicit"
+  );
+  return (boundary === "first" ? trusted[0] : trusted.at(-1)) ?? null;
+}
+
+function shotGenerationFrameReference(
+  shot: CreationEditorShot,
+  source: StoryboardImageGenerationFrameReference["source"],
+  boundary: "first" | "last"
+): StoryboardImageGenerationFrameReference | null {
+  const frame = trustedStoryboardBoundaryImage(shot, boundary);
+  if (!frame?.imageUrl) return null;
+  return {
+    imageUrl: frame.imageUrl,
+    source,
+    cueCode: shot.cueCode?.trim() || null,
+    shotNo: shot.shotNo,
+  };
+}
+
+function exactShotFrameReference(
+  shot: CreationEditorShot,
+  imageId: number,
+  source: StoryboardImageGenerationFrameReference["source"]
+): StoryboardImageGenerationFrameReference | null {
+  const frame = storyboardShotFrameImages(shot).find(
+    image => image.id === imageId
+  );
+  if (!frame?.imageUrl) return null;
+  return {
+    imageUrl: frame.imageUrl,
+    source,
+    cueCode: shot.cueCode?.trim() || null,
+    shotNo: shot.shotNo,
+  };
+}
+
+function persistedNeighborBoundaryReferences(
+  currentShot: CreationEditorShot,
+  shots: readonly CreationEditorShot[],
+  currentIndex: number
+): StoryboardImageGenerationReferences | null {
+  const params = generationParamsRecord(currentShot.generationParams);
+  const config = parseStartEndVideoConfig(params);
+  const sources =
+    params.startEndFrameSources &&
+    typeof params.startEndFrameSources === "object" &&
+    !Array.isArray(params.startEndFrameSources)
+      ? (params.startEndFrameSources as Record<string, unknown>)
+      : null;
+  const first =
+    sources?.first &&
+    typeof sources.first === "object" &&
+    !Array.isArray(sources.first)
+      ? (sources.first as Record<string, unknown>)
+      : null;
+  const last =
+    sources?.last &&
+    typeof sources.last === "object" &&
+    !Array.isArray(sources.last)
+      ? (sources.last as Record<string, unknown>)
+      : null;
+  const firstFrameImageId =
+    (Number.isInteger(first?.imageId) ? Number(first?.imageId) : null) ??
+    config?.firstFrameImageId;
+  const lastFrameImageId =
+    (Number.isInteger(last?.imageId) ? Number(last?.imageId) : null) ??
+    config?.lastFrameImageId;
+  if (
+    firstFrameImageId == null ||
+    lastFrameImageId == null ||
+    sources?.policyVersion !== START_END_NEIGHBOR_FRAME_POLICY_VERSION ||
+    first?.source !== "previous-last" ||
+    last?.source !== "next-first"
+  ) {
+    return null;
+  }
+
+  const previous = [...shots.slice(0, currentIndex)]
+    .reverse()
+    .map(shot =>
+      exactShotFrameReference(
+        shot,
+        firstFrameImageId,
+        "previous-last"
+      )
+    )
+    .find(
+      (reference): reference is StoryboardImageGenerationFrameReference =>
+        reference != null
+    );
+  const next = shots
+    .slice(currentIndex + 1)
+    .map(shot =>
+      exactShotFrameReference(shot, lastFrameImageId, "next-first")
+    )
+    .find(
+      (reference): reference is StoryboardImageGenerationFrameReference =>
+        reference != null
+    );
+  return next && previous ? { primary: next, context: [previous] } : null;
+}
+
+export function storyboardImageGenerationReferences(
+  currentShot: CreationEditorShot,
+  shots: readonly CreationEditorShot[]
+): StoryboardImageGenerationReferences | null {
+  const currentIdentity = shotIdentityFromShot(currentShot);
+  const currentIndex = shots.findIndex(
+    shot =>
+      shot === currentShot ||
+      (currentIdentity != null &&
+        shotIdentityFromShot(shot) === currentIdentity)
+  );
+  if (currentIndex < 0) return null;
+
+  const persistedNeighborReferences = persistedNeighborBoundaryReferences(
+    currentShot,
+    shots,
+    currentIndex
+  );
+  if (persistedNeighborReferences) return persistedNeighborReferences;
+
+  const current = shotGenerationFrameReference(currentShot, "current", "first");
+  const previous = [...shots.slice(0, currentIndex)]
+    .reverse()
+    .map(shot => shotGenerationFrameReference(shot, "previous-last", "last"))
+    .find(
+      (reference): reference is StoryboardImageGenerationFrameReference =>
+        reference != null
+    );
+  const next = shots
+    .slice(currentIndex + 1)
+    .map(shot => shotGenerationFrameReference(shot, "next-first", "first"))
+    .find(
+      (reference): reference is StoryboardImageGenerationFrameReference =>
+        reference != null
+    );
+  const ordered = [current, previous, next].filter(
+    (reference): reference is StoryboardImageGenerationFrameReference =>
+      reference != null
+  );
+  const unique = Array.from(
+    new Map(ordered.map(reference => [reference.imageUrl, reference])).values()
+  );
+  const primary = unique[0];
+  return primary ? { primary, context: unique.slice(1) } : null;
 }
 
 export function shortText(

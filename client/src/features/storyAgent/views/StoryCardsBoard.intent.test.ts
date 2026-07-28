@@ -21,6 +21,7 @@ import {
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
   storyboardCharacterContinuityGenerationParams,
+  storyboardCharacterContinuityMatchesTarget,
   storyboardCharacterContinuityReference,
   storyboardDragScrollSpeedMultiplier,
   storyboardExplicitImageInstruction,
@@ -31,6 +32,7 @@ import {
   storyboardFrameRoleGenerationParams,
   storyboardShotFrameImages,
   storyboardInheritedStartEndGenerationParams,
+  storyboardImageGenerationReferences,
   storyboardRenderShotWithDraft,
   storyboardStartEndGenerationParams,
   storyboardStartEndFrameIssue,
@@ -89,6 +91,10 @@ describe("StoryCardsBoard intent entry", () => {
         detail: "故事人物基准",
         imageUrl: "https://img.example/hero.webp",
         kind: "anchor",
+      },
+      {
+        imageId: 307,
+        imageUrl: "https://img.example/0307.webp",
       }
     );
 
@@ -98,12 +104,28 @@ describe("StoryCardsBoard intent entry", () => {
         source: "anchor",
         label: "SheSelf 人物基准",
         imageUrl: "https://img.example/hero.webp",
+        validatedTarget: {
+          imageId: 307,
+          imageUrl: "https://img.example/0307.webp",
+        },
       },
     });
     expect(storyboardCharacterContinuityReference(generationParams)).toEqual({
       label: "SheSelf 人物基准",
       imageUrl: "https://img.example/hero.webp",
     });
+    expect(
+      storyboardCharacterContinuityMatchesTarget(generationParams, {
+        imageId: 307,
+        imageUrl: "https://img.example/0307.webp",
+      })
+    ).toBe(true);
+    expect(
+      storyboardCharacterContinuityMatchesTarget(generationParams, {
+        imageId: 308,
+        imageUrl: "https://img.example/0308.webp",
+      })
+    ).toBe(false);
   });
 
   it("invalidates a director plan when the shot intent changes, but not for a final prompt edit", () => {
@@ -237,15 +259,52 @@ describe("StoryCardsBoard intent entry", () => {
   });
 
   it("uses the storyboard image requirement as an exact generation instruction", () => {
-    expect(
-      storyboardExplicitImageInstruction(
-        { promptDraft: "旧要求" },
-        "把背景调亮，人物、发型和物体都不要变。"
-      )
-    ).toBe("把背景调亮，人物、发型和物体都不要变。");
-    expect(
-      storyboardExplicitImageInstruction({ promptDraft: "  保持全片质感  " })
-    ).toBe("保持全片质感");
+    const instruction = storyboardExplicitImageInstruction(
+      {
+        promptDraft: "旧要求",
+        action: "女主撑开空间",
+        performance: "双臂真实发力",
+        cameraMove: "摄影机沿中轴后撤",
+        transitionOut: "接到下一镜的第一帧",
+      },
+      {
+        promptDraft: "把背景调亮，人物、发型和物体都不要变。",
+      }
+    );
+
+    expect(instruction).toContain(
+      "图片要求（最高优先级）：把背景调亮，人物、发型和物体都不要变。"
+    );
+    expect(instruction).toContain("画面动作：女主撑开空间");
+    expect(instruction).toContain("表演：双臂真实发力");
+    expect(instruction).toContain("运镜构图：摄影机沿中轴后撤");
+    expect(instruction).toContain("衔接下一镜：接到下一镜的第一帧");
+  });
+
+  it("changes the image instruction when any actionable storyboard field changes", () => {
+    const base = {
+      promptDraft: "保持人物与材质",
+      action: "动作 A",
+      performance: "表演 A",
+      cameraMove: "运镜 A",
+      transitionOut: "衔接 A",
+    };
+    const baseline = storyboardExplicitImageInstruction(base);
+
+    for (const field of [
+      "action",
+      "performance",
+      "cameraMove",
+      "transitionOut",
+      "promptDraft",
+    ] as const) {
+      expect(
+        storyboardExplicitImageInstruction({
+          ...base,
+          [field]: `${field} 已修改`,
+        })
+      ).not.toBe(baseline);
+    }
   });
 
   it("uses the first and last storyboard images as the locked video frames", () => {
@@ -278,6 +337,194 @@ describe("StoryCardsBoard intent entry", () => {
         ],
       } as unknown as CreationEditorShot).map(image => image.id)
     ).toEqual([41, 42, 43]);
+  });
+
+  it("uses established storyboard frames instead of unselected generated candidates", () => {
+    const references = storyboardImageGenerationReferences(
+      {
+        shotNo: 1,
+        cueCode: "0101",
+        stableShotId: "shot-0101",
+        shotKey: "story-1165:0101",
+        imageVersions: [
+          {
+            id: 1381,
+            shotNo: 1,
+            imageUrl: "/generated/unrelated-grid.webp",
+            generationType: "initial",
+            status: "pending",
+          },
+        ],
+      } as CreationEditorShot,
+      [
+        {
+          shotNo: 1,
+          cueCode: "0101",
+          stableShotId: "shot-0101",
+          shotKey: "story-1165:0101",
+          imageVersions: [
+            {
+              id: 1381,
+              shotNo: 1,
+              imageUrl: "/generated/unrelated-grid.webp",
+              generationType: "initial",
+              status: "pending",
+            },
+          ],
+        },
+        {
+          shotNo: 2,
+          cueCode: "0102",
+          stableShotId: "shot-0102",
+          shotKey: "story-1165:0102",
+          imageId: 1202,
+          imageUrl: "/story/0102-selected.webp",
+          imageVersions: [
+            {
+              id: 1202,
+              shotNo: 2,
+              imageUrl: "/story/0102-selected.webp",
+              status: "selected",
+              isCurrent: true,
+            },
+          ],
+        },
+      ] as CreationEditorShot[]
+    );
+
+    expect(references?.primary).toMatchObject({
+      imageUrl: "/story/0102-selected.webp",
+      source: "next-first",
+      cueCode: "0102",
+    });
+    expect(references?.context).toEqual([]);
+  });
+
+  it("keeps current, previous-tail, and next-head story frames in generation context", () => {
+    const shots = [
+      {
+        shotNo: 1,
+        cueCode: "0101",
+        stableShotId: "shot-0101",
+        shotKey: "story-1165:0101",
+        imageId: 101,
+        imageUrl: "/story/previous.webp",
+      },
+      {
+        shotNo: 2,
+        cueCode: "0102",
+        stableShotId: "shot-0102",
+        shotKey: "story-1165:0102",
+        imageId: 102,
+        imageUrl: "/story/current.webp",
+      },
+      {
+        shotNo: 3,
+        cueCode: "0103",
+        stableShotId: "shot-0103",
+        shotKey: "story-1165:0103",
+        imageId: 103,
+        imageUrl: "/story/next.webp",
+      },
+    ] as CreationEditorShot[];
+
+    const references = storyboardImageGenerationReferences(shots[1], shots);
+
+    expect(references?.primary).toMatchObject({
+      imageUrl: "/story/current.webp",
+      source: "current",
+    });
+    expect(references?.context.map(reference => reference.source)).toEqual([
+      "previous-last",
+      "next-first",
+    ]);
+  });
+
+  it("uses persisted neighboring boundary sources even when legacy data omitted top-level frame ids", () => {
+    const shots = [
+      {
+        shotNo: 8,
+        cueCode: "0108",
+        stableShotId: "shot-0108",
+        shotKey: "story-1165:0108",
+        imageVersions: [
+          {
+            id: 1327,
+            shotNo: 8,
+            imageUrl: "/story/0108-tail.webp",
+            status: "selected",
+            isCurrent: true,
+          },
+        ],
+      },
+      {
+        shotNo: 9,
+        cueCode: "0201",
+        stableShotId: "shot-0201",
+        shotKey: "story-1165:0201",
+        imageId: 1365,
+        imageUrl: "/story/0201-middle.webp",
+        imageVersions: [
+          {
+            id: 1365,
+            shotNo: 9,
+            imageUrl: "/story/0201-middle.webp",
+            status: "selected",
+            isCurrent: true,
+          },
+        ],
+        generationParams: JSON.stringify({
+          providerIntent: "vidu-start-end",
+          firstFrameImageId: 999,
+          lastFrameImageId: 998,
+          startEndFrameSources: {
+            policyVersion: "neighbor-boundary-frames/v1",
+            first: {
+              source: "previous-last",
+              imageId: 1327,
+              stableShotId: "shot-0108",
+              cueCode: "0108",
+            },
+            last: {
+              source: "next-first",
+              imageId: 1369,
+              stableShotId: "shot-0202",
+              cueCode: "0202",
+            },
+          },
+        }),
+      },
+      {
+        shotNo: 10,
+        cueCode: "0202",
+        stableShotId: "shot-0202",
+        shotKey: "story-1165:0202",
+        imageVersions: [
+          {
+            id: 1369,
+            shotNo: 10,
+            imageUrl: "/story/0202-first.webp",
+            status: "selected",
+            isCurrent: true,
+          },
+        ],
+      },
+    ] as CreationEditorShot[];
+
+    const references = storyboardImageGenerationReferences(shots[1], shots);
+
+    expect(references?.primary).toMatchObject({
+      imageUrl: "/story/0202-first.webp",
+      source: "next-first",
+      cueCode: "0202",
+    });
+    expect(references?.context).toEqual([
+      expect.objectContaining({
+        imageUrl: "/story/0108-tail.webp",
+        source: "previous-last",
+        cueCode: "0108",
+      }),
+    ]);
   });
 
   it("blocks a paid rerender when a start-end shot only has a middle reference", () => {
@@ -434,6 +681,48 @@ describe("StoryCardsBoard intent entry", () => {
         firstImageId: 41,
         lastImageId: 43,
       },
+    });
+  });
+
+  it("preserves neighboring boundary locks when deleting a local candidate", () => {
+    const generationParams = JSON.stringify({
+      frameMode: "start_end",
+      firstFrameImageId: 1405,
+      lastFrameImageId: 1369,
+      storyboardFrameRoles: { referenceImageIds: [1410, 1411] },
+      referenceFrameImageIds: [1410, 1411],
+      startEndFrameSources: {
+        policyVersion: "neighbor-boundary-frames/v1",
+        first: {
+          source: "previous-last",
+          imageId: 1405,
+          stableShotId: "shot-0108",
+        },
+        last: {
+          source: "next-first",
+          imageId: 1369,
+          stableShotId: "shot-0202",
+        },
+      },
+    });
+    const afterDelete = JSON.parse(
+      storyboardFrameParamsAfterDelete(
+        generationParams,
+        [
+          { id: 1388, imageUrl: "/frames/current.webp" },
+          { id: 1410, imageUrl: "/frames/candidate-a.webp" },
+          { id: 1411, imageUrl: "/frames/candidate-b.webp" },
+        ],
+        1410
+      )
+    );
+
+    expect(afterDelete).toMatchObject({
+      frameMode: "start_end",
+      firstFrameImageId: 1405,
+      lastFrameImageId: 1369,
+      storyboardFrameRoles: { referenceImageIds: [1411] },
+      referenceFrameImageIds: [1411],
     });
   });
 
@@ -778,6 +1067,22 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("进入时间线");
   });
 
+  it("keeps a direct left-click delete action on storyboard frame thumbnails", () => {
+    const boardSource = readFileSync(
+      resolve(
+        root,
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(boardSource).toContain(
+      "aria-label={`删除 ${displayShotCode(shot)} 图片 #${frame.id}`}"
+    );
+    expect(boardSource).toContain("void deleteStoryboardFrame(manageInput)");
+    expect(boardSource).toContain("可右键设置角色");
+  });
+
   it("keeps manual shot deletion available in both storyboard views", () => {
     const reviewSource = readFileSync(
       resolve(
@@ -911,6 +1216,14 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("onEditImage");
     expect(boardSource).toContain("imageClipEditorTargetForShot");
     expect(boardSource).toContain("双击编辑图片");
+    expect(reviewSource).not.toContain("storyboard-edit-image-");
+    expect(reviewSource).not.toContain("storyboard-edit-video-clip-");
+    expect(reviewSource).not.toContain("storyboard-edit-video-take-");
+    expect(simpleSource).not.toContain("simple-storyboard-edit-media-");
+    expect(reviewSource).toContain("storyboard-header-generate-image-");
+    expect(reviewSource).toContain("storyboard-header-generate-video-");
+    expect(reviewSource).toContain("根据前后画面和图片要求重新生成");
+    expect(reviewSource).toContain("根据前后画面和视频要求生成");
     expect(panelSource).toContain("onEditImage={onEditImage}");
     expect(boardSource).toContain("StoryboardMediaDropOverlay");
     expect(boardSource).toContain("data-storyboard-media-drop-target");
@@ -934,6 +1247,10 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("h-[59px] w-[59px]");
     expect(boardSource).toContain("storyboard-video-menu-clip-");
     expect(boardSource).toContain("storyboard-video-menu-take-");
+    expect(boardSource).toContain("storyboard-candidate-menu-");
+    expect(boardSource).toContain("删除这组候选");
+    expect(boardSource).toContain('data-storyboard-hover-preview="image"');
+    expect(boardSource).toContain("showImageHoverPreview");
     expect(boardSource).toContain("从画面移除");
     expect(boardSource).toContain("onRemoveTimelineVideoClip");
     expect(panelSource).toContain(
