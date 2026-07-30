@@ -951,6 +951,16 @@ export type AccessOverviewRow = {
   }>;
 };
 
+function isMissingVideoTakesTable(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; sqlMessage?: unknown };
+  return (
+    candidate.code === "ER_NO_SUCH_TABLE" &&
+    typeof candidate.sqlMessage === "string" &&
+    candidate.sqlMessage.includes("video_takes")
+  );
+}
+
 export async function recordAccessHeartbeat(input: {
   userId: number;
   visitId: string;
@@ -1085,8 +1095,9 @@ export async function getAccessOverview(
         .from(generatedImages)
         .where(isNotNull(generatedImages.userId))
         .groupBy(generatedImages.userId);
-  const videoUsage = !db
-    ? Array.from(
+  let videoUsage: Array<{ userId: number; count: number; seconds: number }>;
+  if (!db) {
+    videoUsage = Array.from(
         memoryState.videoTakes.reduce((usage, video) => {
           if (video.status !== "available") return usage;
           const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
@@ -1095,8 +1106,10 @@ export async function getAccessOverview(
           usage.set(video.userId, current);
           return usage;
         }, new Map<number, { count: number; seconds: number }>())
-      ).map(([userId, value]) => ({ userId, ...value }))
-    : await db
+      ).map(([userId, value]) => ({ userId, ...value }));
+  } else {
+    try {
+      videoUsage = await db
         .select({
           userId: videoTakes.userId,
           count: sql<number>`count(*)`,
@@ -1105,6 +1118,14 @@ export async function getAccessOverview(
         .from(videoTakes)
         .where(eq(videoTakes.status, "available"))
         .groupBy(videoTakes.userId);
+    } catch (error) {
+      if (!isMissingVideoTakesTable(error)) throw error;
+      console.warn(
+        "[AccessAnalytics] video_takes table is not available; reporting zero video usage"
+      );
+      videoUsage = [];
+    }
+  }
   const emailUsers = allUsers.filter(user => Boolean(user.email));
   const usersById = new Map(emailUsers.map(user => [user.id, user]));
   const overview = new Map<number, AccessOverviewRow>();
