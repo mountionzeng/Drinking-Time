@@ -952,13 +952,24 @@ export type AccessOverviewRow = {
 };
 
 function isMissingVideoTakesTable(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; sqlMessage?: unknown };
-  return (
-    candidate.code === "ER_NO_SUCH_TABLE" &&
-    typeof candidate.sqlMessage === "string" &&
-    candidate.sqlMessage.includes("video_takes")
-  );
+  let current = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== "object") return false;
+    const candidate = current as {
+      code?: unknown;
+      sqlMessage?: unknown;
+      cause?: unknown;
+    };
+    if (
+      candidate.code === "ER_NO_SUCH_TABLE" &&
+      typeof candidate.sqlMessage === "string" &&
+      candidate.sqlMessage.includes("video_takes")
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
 }
 
 export async function recordAccessHeartbeat(input: {
