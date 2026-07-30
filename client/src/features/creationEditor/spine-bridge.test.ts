@@ -65,6 +65,11 @@ describe("creation editor spine boundary", () => {
     );
     expect(editingPage).toContain("<StoryAgentChat showHeader={false} />");
     expect(editingPage).toContain("<MaterialWarehousePanel />");
+    expect(editingPage).toContain('aria-label="切换或新建故事"');
+    expect(editingPage).toContain("回到以前的故事");
+    expect(editingPage).toContain("开启新故事");
+    expect(editingPage).toContain("backToList();");
+    expect(editingPage).toContain("createNewStory();");
     expect(editingPage).toContain(
       'data-story-panel="editing-material-warehouse"'
     );

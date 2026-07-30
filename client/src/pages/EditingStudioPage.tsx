@@ -8,13 +8,20 @@ import {
   BookOpen,
   Clapperboard,
   Info,
+  LibraryBig,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
@@ -28,7 +35,10 @@ import {
   recordTimelineUndoSnapshot,
 } from "@/features/creationEditor/timelineUndoStore";
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
-import { StoryAgentProvider } from "@/features/storyAgent/StoryAgentContext";
+import {
+  StoryAgentProvider,
+  useStoryAgentActions,
+} from "@/features/storyAgent/StoryAgentContext";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { useActiveStoryId } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
@@ -141,7 +151,9 @@ function EditingStudioBody({
   materialWarehouseVisible: boolean;
 }) {
   const activeStoryId = useActiveStoryId();
+  const { backToList, createNewStory } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [storyMenuOpen, setStoryMenuOpen] = useState(false);
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
@@ -154,19 +166,69 @@ function EditingStudioBody({
             borderColor: "var(--nayin-border)",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setChatCollapsed(value => !value)}
-            className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
-            aria-label={chatCollapsed ? "展开小酌" : "折叠小酌"}
-            title={chatCollapsed ? "展开小酌" : "折叠小酌"}
-          >
-            {chatCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </button>
+          <div className="absolute right-2 top-2 z-20 flex flex-col gap-2">
+            <Popover open={storyMenuOpen} onOpenChange={setStoryMenuOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                  aria-label="切换或新建故事"
+                  title="切换或新建故事"
+                >
+                  <LibraryBig className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="start"
+                sideOffset={10}
+                className="w-48 p-1.5"
+                style={{
+                  background: "var(--panel-bg)",
+                  borderColor: "var(--nayin-border)",
+                }}
+              >
+                <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Stories
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStoryMenuOpen(false);
+                    backToList();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                >
+                  <BookOpen className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
+                  回到以前的故事
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStoryMenuOpen(false);
+                    createNewStory();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                >
+                  <Plus className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
+                  开启新故事
+                </button>
+              </PopoverContent>
+            </Popover>
+            <button
+              type="button"
+              onClick={() => setChatCollapsed(value => !value)}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+              aria-label={chatCollapsed ? "展开小酌" : "折叠小酌"}
+              title={chatCollapsed ? "展开小酌" : "折叠小酌"}
+            >
+              {chatCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </div>
           <div
             className={`h-full ${
               chatCollapsed ? "invisible pointer-events-none" : ""
