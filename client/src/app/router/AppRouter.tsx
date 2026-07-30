@@ -82,10 +82,13 @@ export default function AppRouter() {
       <Route path="/editing">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><EditingStudioPage /></AuthGuard>}
       </Route>
-      <Route path="/admin/visits">
+      <Route path="/admin/users">
         <AdminGuard>
           <AdminVisitsPage />
         </AdminGuard>
+      </Route>
+      <Route path="/admin/visits">
+        <Redirect to="/admin/users" />
       </Route>
       {/* 手机端路由 */}
       <Route path="/m/welcome" component={MobileWelcomePage} />

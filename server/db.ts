@@ -934,10 +934,21 @@ export type AccessOverviewRow = {
   name: string | null;
   email: string | null;
   role: User["role"];
+  createdAt: Date;
+  lastSignedIn: Date;
   firstSeenAt: Date;
   lastSeenAt: Date;
+  hasAccessHistory: boolean;
   visitCount: number;
   durationSeconds: number;
+  imageGenerations: number;
+  videoGenerations: number;
+  videoSeconds: number;
+  recentSessions: Array<{
+    startedAt: Date;
+    lastSeenAt: Date;
+    durationSeconds: number;
+  }>;
 };
 
 export async function recordAccessHeartbeat(input: {
@@ -1045,6 +1056,9 @@ export async function getAccessOverview(
   siteHost: string
 ): Promise<AccessOverviewRow[]> {
   const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+  }
   const sessions = !db
     ? memoryState.accessSessions.filter(
         session => session.siteHost === siteHost
@@ -1054,25 +1068,75 @@ export async function getAccessOverview(
         .from(accessSessions)
         .where(eq(accessSessions.siteHost, siteHost));
   const allUsers = !db ? memoryState.users : await db.select().from(users);
-  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  const imageUsage = !db
+    ? Array.from(
+        memoryState.generatedImages.reduce((counts, image) => {
+          if (image.userId != null) {
+            counts.set(image.userId, (counts.get(image.userId) ?? 0) + 1);
+          }
+          return counts;
+        }, new Map<number, number>())
+      ).map(([userId, count]) => ({ userId, count }))
+    : await db
+        .select({
+          userId: generatedImages.userId,
+          count: sql<number>`count(*)`,
+        })
+        .from(generatedImages)
+        .where(isNotNull(generatedImages.userId))
+        .groupBy(generatedImages.userId);
+  const videoUsage = !db
+    ? Array.from(
+        memoryState.videoTakes.reduce((usage, video) => {
+          if (video.status !== "available") return usage;
+          const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
+          current.count += 1;
+          current.seconds += video.durationSec ?? 0;
+          usage.set(video.userId, current);
+          return usage;
+        }, new Map<number, { count: number; seconds: number }>())
+      ).map(([userId, value]) => ({ userId, ...value }))
+    : await db
+        .select({
+          userId: videoTakes.userId,
+          count: sql<number>`count(*)`,
+          seconds: sql<number>`coalesce(sum(${videoTakes.durationSec}), 0)`,
+        })
+        .from(videoTakes)
+        .where(eq(videoTakes.status, "available"))
+        .groupBy(videoTakes.userId);
+  const emailUsers = allUsers.filter(user => Boolean(user.email));
+  const usersById = new Map(emailUsers.map(user => [user.id, user]));
   const overview = new Map<number, AccessOverviewRow>();
+
+  for (const user of emailUsers) {
+    overview.set(user.id, {
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      lastSignedIn: user.lastSignedIn,
+      firstSeenAt: user.createdAt,
+      lastSeenAt: user.lastSignedIn,
+      hasAccessHistory: false,
+      visitCount: 0,
+      durationSeconds: 0,
+      imageGenerations: 0,
+      videoGenerations: 0,
+      videoSeconds: 0,
+      recentSessions: [],
+    });
+  }
 
   for (const session of sessions) {
     const user = usersById.get(session.userId);
     if (!user) continue;
-    const current = overview.get(session.userId);
-    if (!current) {
-      overview.set(session.userId, {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        firstSeenAt: session.startedAt,
-        lastSeenAt: session.lastSeenAt,
-        visitCount: 1,
-        durationSeconds: session.durationSeconds,
-      });
-      continue;
+    const current = overview.get(session.userId)!;
+    if (!current.hasAccessHistory) {
+      current.firstSeenAt = session.startedAt;
+      current.lastSeenAt = session.lastSeenAt;
+      current.hasAccessHistory = true;
     }
     current.firstSeenAt =
       session.startedAt < current.firstSeenAt
@@ -1084,6 +1148,30 @@ export async function getAccessOverview(
         : current.lastSeenAt;
     current.visitCount += 1;
     current.durationSeconds += session.durationSeconds;
+    current.recentSessions.push({
+      startedAt: session.startedAt,
+      lastSeenAt: session.lastSeenAt,
+      durationSeconds: session.durationSeconds,
+    });
+  }
+
+  for (const image of imageUsage) {
+    if (image.userId == null) continue;
+    const current = overview.get(image.userId);
+    if (current) current.imageGenerations = Number(image.count);
+  }
+  for (const video of videoUsage) {
+    const current = overview.get(video.userId);
+    if (!current) continue;
+    current.videoGenerations = Number(video.count);
+    current.videoSeconds = Number(video.seconds);
+  }
+  for (const current of Array.from(overview.values())) {
+    current.recentSessions = current.recentSessions
+      .sort(
+        (left, right) => right.startedAt.getTime() - left.startedAt.getTime()
+      )
+      .slice(0, 3);
   }
 
   return Array.from(overview.values()).sort(

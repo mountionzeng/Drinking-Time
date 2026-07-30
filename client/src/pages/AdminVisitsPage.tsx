@@ -35,6 +35,22 @@ function formatRelativeTime(value: Date, now: Date) {
   return `${Math.floor(hours / 24)} 天前`;
 }
 
+function formatSessionPeriod(startedAt: Date, lastSeenAt: Date) {
+  const sameDay =
+    startedAt.getFullYear() === lastSeenAt.getFullYear() &&
+    startedAt.getMonth() === lastSeenAt.getMonth() &&
+    startedAt.getDate() === lastSeenAt.getDate();
+  const time = (value: Date) =>
+    new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(value);
+  return sameDay
+    ? `${formatTime(startedAt).split(" ")[0]} ${time(startedAt)}–${time(lastSeenAt)}`
+    : `${formatTime(startedAt)}–${formatTime(lastSeenAt)}`;
+}
+
 export default function AdminVisitsPage() {
   const siteHost =
     typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
@@ -50,10 +66,11 @@ export default function AdminVisitsPage() {
   const users = overview.data?.users ?? [];
   const activeUsers = users.filter(
     user =>
+      user.hasAccessHistory &&
       generatedAt.getTime() - user.lastSeenAt.getTime() <= ACTIVE_WINDOW_MS
   ).length;
-  const totalVisits = users.reduce(
-    (total, user) => total + user.visitCount,
+  const totalComputeTasks = users.reduce(
+    (total, user) => total + user.imageGenerations + user.videoGenerations,
     0
   );
 
@@ -76,9 +93,9 @@ export default function AdminVisitsPage() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold">访问情况</h1>
+            <h1 className="text-lg font-semibold">用户管理</h1>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {siteHost} · 仅统计登录后的活跃时间
+              {siteHost} · 登录活跃与生成算力概览
             </p>
           </div>
           <button
@@ -103,9 +120,9 @@ export default function AdminVisitsPage() {
           style={{ borderColor: "var(--nayin-border)" }}
         >
           {[
-            ["登录用户", users.length],
+            ["邮箱用户", users.length],
             ["当前在线", activeUsers],
-            ["访问次数", totalVisits],
+            ["生成任务", totalComputeTasks],
           ].map(([label, value]) => (
             <div key={label} className="bg-background px-3 py-5">
               <div className="text-xl font-semibold tabular-nums">{value}</div>
@@ -127,26 +144,30 @@ export default function AdminVisitsPage() {
             还没有记录到登录后的访问。
           </p>
         ) : (
-          <section className="mt-8 overflow-x-auto" aria-label="登录用户列表">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <section className="mt-8 overflow-x-auto" aria-label="邮箱用户列表">
+            <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
               <thead>
                 <tr
                   className="border-b text-xs text-muted-foreground"
                   style={{ borderColor: "var(--nayin-border)" }}
                 >
                   <th className="px-3 py-3 font-medium">用户</th>
-                  <th className="px-3 py-3 font-medium">首次看到</th>
+                  <th className="px-3 py-3 font-medium">加入时间</th>
                   <th className="px-3 py-3 font-medium">最近在线</th>
+                  <th className="px-3 py-3 font-medium">近期使用时段</th>
                   <th className="px-3 py-3 text-right font-medium">访问次数</th>
                   <th className="px-3 py-3 text-right font-medium">累计停留</th>
+                  <th className="px-3 py-3 text-right font-medium">算力消耗</th>
                   <th className="px-3 py-3 text-right font-medium">状态</th>
                 </tr>
               </thead>
               <tbody>
                 {users.map(user => {
-                  const isActive =
-                    generatedAt.getTime() - user.lastSeenAt.getTime() <=
-                    ACTIVE_WINDOW_MS;
+                  const isActive = Boolean(
+                    user.hasAccessHistory &&
+                      generatedAt.getTime() - user.lastSeenAt.getTime() <=
+                        ACTIVE_WINDOW_MS
+                  );
                   return (
                     <tr
                       key={user.userId}
@@ -164,19 +185,50 @@ export default function AdminVisitsPage() {
                         ) : null}
                       </td>
                       <td className="px-3 py-4 text-muted-foreground">
-                        {formatTime(user.firstSeenAt)}
+                        {formatTime(user.createdAt)}
                       </td>
                       <td
                         className="px-3 py-4 text-muted-foreground"
-                        title={formatTime(user.lastSeenAt)}
+                        title={
+                          user.hasAccessHistory
+                            ? formatTime(user.lastSeenAt)
+                            : formatTime(user.lastSignedIn)
+                        }
                       >
-                        {formatRelativeTime(user.lastSeenAt, generatedAt)}
+                        {user.hasAccessHistory
+                          ? formatRelativeTime(user.lastSeenAt, generatedAt)
+                          : "尚无访问记录"}
+                      </td>
+                      <td className="px-3 py-4 text-xs text-muted-foreground">
+                        {user.recentSessions.length ? (
+                          <div className="space-y-1">
+                            {user.recentSessions.map((session, index) => (
+                              <div
+                                key={`${session.startedAt.toISOString()}-${index}`}
+                              >
+                                {formatSessionPeriod(
+                                  session.startedAt,
+                                  session.lastSeenAt
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-3 py-4 text-right tabular-nums">
                         {user.visitCount}
                       </td>
                       <td className="px-3 py-4 text-right tabular-nums">
                         {formatDuration(user.durationSeconds)}
+                      </td>
+                      <td className="px-3 py-4 text-right text-xs tabular-nums">
+                        <div>图片 {user.imageGenerations} 次</div>
+                        <div className="mt-1 text-muted-foreground">
+                          视频 {user.videoGenerations} 次 /{" "}
+                          {Math.round(user.videoSeconds)} 秒
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-right">
                         <span
@@ -188,7 +240,9 @@ export default function AdminVisitsPage() {
                         >
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${
-                              isActive ? "bg-emerald-500" : "bg-muted-foreground/40"
+                              isActive
+                                ? "bg-emerald-500"
+                                : "bg-muted-foreground/40"
                             }`}
                           />
                           {isActive ? "在线" : "离线"}
@@ -204,8 +258,9 @@ export default function AdminVisitsPage() {
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
           停留时间按页面可见时的轻量报到估算，最多会有约 30 秒误差；连续 30
-          分钟没有活动后，再回来会记为新的一次访问。这里不保存 IP、设备指纹、
-          浏览内容或故事数据。
+          分钟没有活动后，再回来会记为新的一次访问。算力数据按已落库的图片和
+          视频生成结果统计，不等同于供应商最终账单。这里不保存 IP、设备指纹或
+          浏览内容。
         </p>
       </div>
     </main>

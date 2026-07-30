@@ -306,11 +306,11 @@ export default function TopBar({
                       className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
                       onClick={() => {
                         setUserOpen(false);
-                        window.location.href = "/admin/visits";
+                        window.location.href = "/admin/users";
                       }}
                     >
                       <BarChart3 className="h-3.5 w-3.5" />
-                      访问情况
+                      用户管理
                     </button>
                   ) : null}
                   <button
