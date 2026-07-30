@@ -450,7 +450,8 @@ function EditingStoryboardPanel({
   return (
     <aside
       className="flex h-full min-h-0 min-w-0 flex-col bg-background"
-      aria-label="剪辑故事版看板"
+      aria-label="Storyboard"
+      data-editing-surface="storyboard"
     >
       <input
         ref={fileInputRef}
@@ -712,11 +713,13 @@ function ShotPreview({
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
-      aria-label="预览页面"
+      aria-label="Preview"
     >
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="min-w-0">
-          <span className="text-xs font-semibold">预览页面</span>
+          <span className="font-chat-brand text-[13px] font-bold text-[var(--nayin-accent)]">
+            Preview
+          </span>
           {shot ? (
             <span className="ml-2 font-mono text-[10px] text-primary">
               {shotLabel(shot)}
@@ -2800,8 +2803,8 @@ export default function EditingNleWorkspace({
         <ResizableHandle
           withHandle
           className="creation-board-resize-handle !w-2 after:!w-2"
-          aria-label="调整故事版与预览页面宽度"
-          title="拖动调整故事版与预览页面宽度"
+          aria-label="Resize Storyboard and Preview"
+          title="Resize Storyboard and Preview"
         />
         <ResizablePanel
           id="editing-preview"

@@ -106,33 +106,39 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("故事版看板");
   });
 
-  it("supports independent material warehouse and timeline toggles", () => {
+  it("supports English editing toggles and an action after Timeline", () => {
     const html = renderToStaticMarkup(
       <TopBar
         showStoryPanelNav={false}
         panelToggles={[
           {
-            label: "素材仓库",
+            label: "Materials",
             active: false,
             controls: "editing-material-warehouse",
             testId: "topbar-material-warehouse-toggle",
             onToggle: vi.fn(),
           },
           {
-            label: "时间线",
+            label: "Timeline",
             active: true,
             testId: "topbar-timeline-toggle",
             onToggle: vi.fn(),
           },
         ]}
+        panelActions={<button type="button">导出成片</button>}
       />
     );
 
     expect(html).toContain('data-testid="topbar-material-warehouse-toggle"');
-    expect(html).toContain('aria-label="显示素材仓库"');
+    expect(html).toContain('aria-label="显示Materials"');
     expect(html).toContain('aria-controls="editing-material-warehouse"');
     expect(html).toContain('data-testid="topbar-timeline-toggle"');
-    expect(html).toContain('aria-label="隐藏时间线"');
+    expect(html).toContain('aria-label="隐藏Timeline"');
     expect(html.match(/aria-pressed=/g)).toHaveLength(2);
+    expect(html).toContain("Materials");
+    expect(html).toContain("Timeline");
+    expect(html.indexOf("Timeline")).toBeLessThan(html.indexOf("导出成片"));
+    expect(html).toContain("font-chat-brand");
+    expect(html).toContain("font-bold");
   });
 });

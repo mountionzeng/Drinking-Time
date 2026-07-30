@@ -18,6 +18,18 @@
   letter-spacing: 0;
 }
 
+[data-editing-surface="storyboard"] .creation-board-panel-title-text {
+  color: var(--nayin-accent);
+  font-family: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
+  font-size: 0;
+  font-weight: 700;
+}
+
+[data-editing-surface="storyboard"] .creation-board-panel-title-text::after {
+  content: "Storyboard";
+  font-size: 13px;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

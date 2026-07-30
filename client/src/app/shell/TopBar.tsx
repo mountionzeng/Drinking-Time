@@ -6,7 +6,7 @@ import { useNayin } from "@/features/nayin/NayinContext";
 import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import { STORY_PANELS } from "@/features/analysis/storyPanels";
 import { useStoryPanelVisibility } from "@/features/storyAgent/spine/selectors";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Popover,
   PopoverContent,
@@ -28,6 +28,7 @@ interface TopBarProps {
   showStoryPanelNav?: boolean;
   panelToggle?: TopBarPanelToggle;
   panelToggles?: TopBarPanelToggle[];
+  panelActions?: ReactNode;
 }
 
 export default function TopBar({
@@ -35,6 +36,7 @@ export default function TopBar({
   showStoryPanelNav = true,
   panelToggle,
   panelToggles,
+  panelActions,
 }: TopBarProps) {
   const { allThemes, setPreviewElement, previewElement, element, today } =
     useNayin();
@@ -208,7 +210,7 @@ export default function TopBar({
             ) : editingPanelToggles.length > 0 ? (
               <nav
                 aria-label="剪辑面板切换"
-                className="grid min-w-0 flex-1 grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:items-center"
+                className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
               >
                 {editingPanelToggles.map((toggle, index) => (
                   <button
@@ -225,23 +227,29 @@ export default function TopBar({
                     aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                     title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                     onClick={toggle.onToggle}
-                    className={`min-h-[32px] rounded-sm px-2.5 text-[11px] font-mono transition-colors sm:min-w-[92px] ${
-                      toggle.active
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:text-foreground/80"
+                    className={`font-chat-brand min-h-[32px] rounded-sm px-2.5 text-[13px] font-bold transition-colors sm:min-w-[92px] ${
+                      toggle.active ? "" : "hover:brightness-110"
                     }`}
                     style={
                       toggle.active
                         ? {
+                            color: "var(--nayin-accent)",
                             background: "var(--nayin-surface)",
                             boxShadow: "inset 0 -2px 0 var(--nayin-accent)",
                           }
-                        : undefined
+                        : {
+                            color: "var(--nayin-accent-dim)",
+                          }
                     }
                   >
                     {toggle.label}
                   </button>
                 ))}
+                {panelActions ? (
+                  <div className="ml-1 flex shrink-0 items-center">
+                    {panelActions}
+                  </div>
+                ) : null}
               </nav>
             ) : (
               <div className="min-w-0 flex-1" aria-hidden="true" />

@@ -63,16 +63,22 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain(
       "<EditingNleWorkspace timelineVisible={timelineVisible} />"
     );
+    expect(editingPage).toContain("<StoryAgentChat showHeader={false} />");
     expect(editingPage).toContain("<MaterialWarehousePanel />");
     expect(editingPage).toContain(
       'data-story-panel="editing-material-warehouse"'
     );
-    expect(editingPage).toContain('label: "素材仓库"');
+    expect(editingPage).toContain('label: "Materials"');
     expect(editingPage).toContain(
       "setMaterialWarehouseVisible(value => !value)"
     );
-    expect(editingPage).toContain('label: "时间线"');
+    expect(editingPage).toContain('label: "Timeline"');
     expect(editingPage).toContain("setTimelineVisible(value => !value)");
+    expect(editingPage).toContain(
+      "const [timelineVisible, setTimelineVisible] = useState(false)"
+    );
+    expect(editingPage).toContain("<ExportButton storyId={activeStoryId} />");
+    expect(editingPage).not.toContain("剪辑工作台");
     expect(editingPage).toContain("<DailyLetterWelcome");
     expect(editingPage).toContain("forceOpen={dailyLetterOpen}");
     expect(editingPage).not.toContain("{dailyLetterOpen ? (");
@@ -85,9 +91,12 @@ describe("creation editor spine boundary", () => {
       'autoSaveId="editing-storyboard-preview-widths-v2"'
     );
     expect(editingWorkspace).toContain('defaultViewMode="full"');
-    expect(editingWorkspace).toContain('aria-label="调整故事版与预览页面宽度"');
-    expect(editingWorkspace).toContain('aria-label="预览页面"');
-    expect(editingWorkspace).toContain(">预览页面</span>");
+    expect(editingWorkspace).toContain(
+      'aria-label="Resize Storyboard and Preview"'
+    );
+    expect(editingWorkspace).toContain('aria-label="Preview"');
+    expect(editingWorkspace).toContain("font-chat-brand");
+    expect(editingWorkspace).toContain("Preview");
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");
     expect(editingWorkspace).toContain(
       "onPreviewChange={setVideoEditorPreviewDraft}"

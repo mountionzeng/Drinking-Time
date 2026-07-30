@@ -12,14 +12,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
-import {
-  CreationEditorProvider,
-  useCreationEditor,
-} from "@/features/creationEditor/CreationEditorContext";
+import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
 import {
@@ -82,7 +79,6 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
 }
 
 function ExportButton({ storyId }: { storyId: number }) {
-  const { shots } = useCreationEditor();
   const exportMut = trpc.creationAgent.exportTimeline.useMutation();
   const [exporting, setExporting] = useState(false);
 
@@ -94,12 +90,13 @@ function ExportButton({ storyId }: { storyId: number }) {
         fallbackToLatestTake: true,
       });
       if (result.status === "ok") {
+        const storyShots = storySpineStore.getState().storyShots;
         const skipped =
           result.skipped.length > 0
             ? `（跳过 ${result.skipped.length} 镜：${result.skipped
                 .map(s =>
                   displayShotCode(
-                    shots.find(shot => shot.shotNo === s.shotNo) ?? s
+                    storyShots.find(shot => shot.shotNo === s.shotNo) ?? s
                   )
                 )
                 .join("、")}）`
@@ -123,7 +120,8 @@ function ExportButton({ storyId }: { storyId: number }) {
       type="button"
       onClick={() => void runExport()}
       disabled={exporting}
-      className="inline-flex h-8 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex h-9 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-primary-foreground shadow-[0_6px_14px_-8px_var(--nayin-accent)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-60"
+      style={{ background: "var(--nayin-accent)" }}
     >
       {exporting ? (
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -144,12 +142,6 @@ function EditingStudioBody({
 }) {
   const activeStoryId = useActiveStoryId();
   const [chatCollapsed, setChatCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (activeStoryId !== null && window.innerWidth < 1280) {
-      setChatCollapsed(true);
-    }
-  }, [activeStoryId]);
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
@@ -181,7 +173,11 @@ function EditingStudioBody({
             }`}
             aria-hidden={chatCollapsed}
           >
-            {activeStoryId !== null ? <StoryAgentChat /> : <StoryListView />}
+            {activeStoryId !== null ? (
+              <StoryAgentChat showHeader={false} />
+            ) : (
+              <StoryListView />
+            )}
           </div>
         </div>
 
@@ -191,21 +187,8 @@ function EditingStudioBody({
             <div
               className="flex h-full min-h-0 flex-col overflow-hidden"
               data-story-panel="editing-nle"
-              aria-label="剪辑工作台"
+              aria-label="Editing workspace"
             >
-              <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 backdrop-blur">
-                <div className="min-w-0">
-                  <h1 className="truncate text-xs font-semibold text-foreground">
-                    剪辑工作台
-                  </h1>
-                  <p className="mt-0.5 text-[9px] text-muted-foreground">
-                    {timelineVisible
-                      ? "故事版 · 动态预览 · 多轨时间线"
-                      : "故事版 · 动态预览"}
-                  </p>
-                </div>
-                <ExportButton storyId={activeStoryId} />
-              </div>
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 <EditingNleWorkspace timelineVisible={timelineVisible} />
                 {materialWarehouseVisible ? (
@@ -237,9 +220,10 @@ function EditingStudioBody({
 
 export default function EditingStudioPage() {
   const { currentProjectId } = useProjectData();
+  const activeStoryId = useActiveStoryId();
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
-  const [timelineVisible, setTimelineVisible] = useState(true);
+  const [timelineVisible, setTimelineVisible] = useState(false);
   const [materialWarehouseVisible, setMaterialWarehouseVisible] =
     useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
@@ -322,19 +306,24 @@ export default function EditingStudioPage() {
         showStoryPanelNav={false}
         panelToggles={[
           {
-            label: "素材仓库",
+            label: "Materials",
             active: materialWarehouseVisible,
             controls: "editing-material-warehouse",
             testId: "topbar-material-warehouse-toggle",
             onToggle: () => setMaterialWarehouseVisible(value => !value),
           },
           {
-            label: "时间线",
+            label: "Timeline",
             active: timelineVisible,
             testId: "topbar-timeline-toggle",
             onToggle: () => setTimelineVisible(value => !value),
           },
         ]}
+        panelActions={
+          activeStoryId !== null ? (
+            <ExportButton storyId={activeStoryId} />
+          ) : null
+        }
       />
       <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
       <DailyLetterWelcome

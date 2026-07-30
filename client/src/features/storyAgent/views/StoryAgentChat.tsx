@@ -189,7 +189,11 @@ function intentLabel(intent: StoryIntent | null): string {
   return "创作故事";
 }
 
-export default function StoryAgentChat() {
+export default function StoryAgentChat({
+  showHeader = true,
+}: {
+  showHeader?: boolean;
+}) {
   const {
     messages,
     cardRefs,
@@ -730,7 +734,10 @@ export default function StoryAgentChat() {
           </div>
         </div>
       ) : null}
-      <div className="monitor-panel-header">
+      <div
+        className={showHeader ? "monitor-panel-header" : "hidden"}
+        aria-hidden={!showHeader}
+      >
         <button
           type="button"
           onClick={backToList}
