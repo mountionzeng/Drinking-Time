@@ -87,6 +87,10 @@ export const ENV = {
   imagePrompt302TimeoutMs:
     process.env.IMAGE_PROMPT_302_TIMEOUT_MS ?? "30000",
 
+  // ── 302.ai 今日回信（复用 API302_KEY；黄历事实仍由天行数据提供）──
+  emotion302Model: process.env.EMOTION_302_MODEL ?? "deepseek-v3.2",
+  emotion302TimeoutMs: process.env.EMOTION_302_TIMEOUT_MS ?? "30000",
+
   // ── 302.ai 视觉分析（不填模型或 Key 时回退原视觉通道）──
   vision302ApiKey: process.env.VISION_302_API_KEY ?? process.env.API302_KEY ?? "", // 302.ai 视觉模型 API Key
   vision302BaseUrl: process.env.VISION_302_BASE_URL ?? process.env.API302_BASE_URL ?? "https://api.302.ai", // 302.ai 视觉网关地址

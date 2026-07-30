@@ -1,13 +1,19 @@
 import GuidedLanding from '@/features/analysis/views/GuidedLanding';
 import AuthEntryPanel from '@/features/auth/views/AuthEntryPanel';
+import {
+  getOrCreateLocalEmotionGuestId,
+  normalizeEmotionAnalysisProfile,
+  type SaveEmotionAnalysisProfileInput,
+} from '@/features/analysis/emotionAnalysis';
 import BeverageAmbience from '@/features/nayin/views/BeverageAmbience';
 import WuxingParticles from '@/features/nayin/views/WuxingParticles';
 import { useAuth } from '@/_core/hooks/useAuth';
-import { useEffect, useRef } from 'react';
+import { trpc } from '@/lib/trpc';
+import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 
 export function resolveWelcomeEntryPath(isAuthenticated: boolean) {
-  return isAuthenticated ? '/analysis' : '/login';
+  return isAuthenticated ? '/editing' : '/login';
 }
 
 type WelcomePreviewPageProps = {
@@ -22,6 +28,22 @@ export default function WelcomePreviewPage({
   const nextPath = resolveWelcomeEntryPath(isAuthenticated);
   const authSectionRef = useRef<HTMLDivElement | null>(null);
   const shouldShowAuthPanel = autoFocusAuth || !isAuthenticated;
+  const guestReplyMut = trpc.emotionAnalysis.guestReply.useMutation();
+  const saveGuestProfile = useCallback(
+    async (input: SaveEmotionAnalysisProfileInput) => {
+      const saved = await guestReplyMut.mutateAsync({
+        ...input,
+        guestId: getOrCreateLocalEmotionGuestId(),
+      });
+      return (
+        normalizeEmotionAnalysisProfile(
+          { ...saved, source: 'local' },
+          'local'
+        ) ?? undefined
+      );
+    },
+    [guestReplyMut]
+  );
 
   function openAuthPanel() {
     if (isAuthenticated && !autoFocusAuth) {
@@ -63,6 +85,8 @@ export default function WelcomePreviewPage({
           }
           hideEntryCards
           accessLayout={shouldShowAuthPanel}
+          onSaveEmotionProfile={saveGuestProfile}
+          emotionProfileLoading={guestReplyMut.isPending}
         />
       </main>
     </div>

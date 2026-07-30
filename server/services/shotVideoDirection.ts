@@ -391,6 +391,7 @@ export async function analyzeShotVideoDirection(
     source: "deterministic-fallback" as const,
     model: provider.promptDirectorModel,
     analysis: null as VideoPromptAnalysis | null,
+    materialProfile: null,
     engineering: fallbackEngineering,
     fallbackReason: "当前镜头没有可分析的首帧或已采用视频",
   };
@@ -473,6 +474,9 @@ export async function analyzeShotVideoDirection(
       videoPrompt: directed.prompt,
       negativePrompt: [
         string(currentShot.negativePrompt),
+        directed.materialProfile?.prohibitedDrift
+          ? `Material drift forbidden: ${directed.materialProfile.prohibitedDrift}.`
+          : "",
         VIDEO_VISUAL_FIDELITY_CLAUSE_EN,
       ]
         .filter(Boolean)

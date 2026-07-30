@@ -29,7 +29,7 @@ vi.mock("@/features/nayin/views/WuxingDrinkIcon", () => ({
 
 vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { name: "Li", email: "li@example.com" },
+    user: { name: "Li", email: "li@example.com", role: "admin" },
     logout: vi.fn(),
   }),
 }));
@@ -72,6 +72,7 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("Script");
     expect(html).not.toContain("默认分析项目");
     expect(html).not.toContain("DRINKING TIME");
+    expect(html).toContain("访问情况");
   });
 
   it("can hide story panel buttons on the welcome page", () => {

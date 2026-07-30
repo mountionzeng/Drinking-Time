@@ -32,10 +32,16 @@ describe("VideoClipEditorPanel", () => {
         saving: false,
         onClose: () => undefined,
         onApply: async () => undefined,
+        onPreviewChange: () => undefined,
       })
     );
 
     expect(markup).toContain('data-testid="video-clip-editor"');
+    expect(markup).toContain(
+      'data-preview-target="editing-preview-stage"'
+    );
+    expect(markup).toContain("实时预览");
+    expect(markup).not.toContain("<video");
     expect(markup).toContain("裁切");
     expect(markup).toContain("速度与方向");
     expect(markup).toContain("原声");

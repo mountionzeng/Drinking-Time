@@ -25,6 +25,8 @@ import {
   InsertUser,
   users,
   User,
+  accessSessions,
+  AccessSession,
   InsertProject,
   projects,
   Project,
@@ -40,6 +42,9 @@ import {
   InsertEmotionAnalysisProfile,
   emotionAnalysisProfiles,
   EmotionAnalysisProfile,
+  InsertEmotionDailyLetter,
+  emotionDailyLetters,
+  EmotionDailyLetter,
   InsertStory,
   stories,
   Story,
@@ -105,11 +110,13 @@ const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 type MemoryState = {
   users: User[];
+  accessSessions: AccessSession[];
   projects: Project[];
   references: Reference[];
   shots: Shot[];
   analysisResults: AnalysisResult[];
   emotionAnalysisProfiles: EmotionAnalysisProfile[];
+  emotionDailyLetters: EmotionDailyLetter[];
   stories: Story[];
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
@@ -125,11 +132,13 @@ type MemoryState = {
   promptLineage: PromptLineageLocalState;
   nextIds: {
     user: number;
+    accessSession: number;
     project: number;
     reference: number;
     shot: number;
     analysisResult: number;
     emotionAnalysisProfile: number;
+    emotionDailyLetter: number;
     story: number;
     editSnapshot: number;
     semanticAnnotation: number;
@@ -147,11 +156,13 @@ type MemoryState = {
 
 const memoryState: MemoryState = {
   users: [],
+  accessSessions: [],
   projects: [],
   references: [],
   shots: [],
   analysisResults: [],
   emotionAnalysisProfiles: [],
+  emotionDailyLetters: [],
   stories: [],
   editSnapshots: [],
   semanticAnnotations: [],
@@ -167,11 +178,13 @@ const memoryState: MemoryState = {
   promptLineage: createEmptyPromptLineageLocalState(),
   nextIds: {
     user: 1,
+    accessSession: 1,
     project: 1,
     reference: 1,
     shot: 1,
     analysisResult: 1,
     emotionAnalysisProfile: 1,
+    emotionDailyLetter: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -305,6 +318,12 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     lastSignedIn: toDate(item.lastSignedIn),
   })) as User[];
 
+  memoryState.accessSessions = (raw.accessSessions ?? []).map(item => ({
+    ...item,
+    startedAt: toDate(item.startedAt),
+    lastSeenAt: toDate(item.lastSeenAt),
+  })) as AccessSession[];
+
   memoryState.projects = (raw.projects ?? []).map(item => ({
     ...item,
     createdAt: toDate(item.createdAt),
@@ -338,6 +357,20 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       updatedAt: toDate(item.updatedAt),
     })
   ) as EmotionAnalysisProfile[];
+
+  memoryState.emotionDailyLetters = (raw.emotionDailyLetters ?? []).map(
+    item => ({
+      ...item,
+      userMessageSaidAt: item.userMessageSaidAt
+        ? toDate(item.userMessageSaidAt)
+        : null,
+      userMessageEditedAt: item.userMessageEditedAt
+        ? toDate(item.userMessageEditedAt)
+        : null,
+      createdAt: toDate(item.createdAt),
+      updatedAt: toDate(item.updatedAt),
+    })
+  ) as EmotionDailyLetter[];
 
   memoryState.stories = (raw.stories ?? []).map(item => ({
     ...item,
@@ -420,6 +453,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
 
   memoryState.nextIds = {
     user: Math.max(raw.nextIds?.user ?? 0, nextIdFromRows(memoryState.users)),
+    accessSession: Math.max(
+      raw.nextIds?.accessSession ?? 0,
+      nextIdFromRows(memoryState.accessSessions)
+    ),
     project: Math.max(
       raw.nextIds?.project ?? 0,
       nextIdFromRows(memoryState.projects)
@@ -436,6 +473,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     emotionAnalysisProfile: Math.max(
       raw.nextIds?.emotionAnalysisProfile ?? 0,
       nextIdFromRows(memoryState.emotionAnalysisProfiles)
+    ),
+    emotionDailyLetter: Math.max(
+      raw.nextIds?.emotionDailyLetter ?? 0,
+      nextIdFromRows(memoryState.emotionDailyLetters)
     ),
     story: Math.max(
       raw.nextIds?.story ?? 0,
@@ -884,6 +925,170 @@ export async function getUserById(id: number) {
 
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result[0] ?? undefined;
+}
+
+const MAX_ACCESS_HEARTBEAT_GAP_SECONDS = 90;
+
+export type AccessOverviewRow = {
+  userId: number;
+  name: string | null;
+  email: string | null;
+  role: User["role"];
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+  visitCount: number;
+  durationSeconds: number;
+};
+
+export async function recordAccessHeartbeat(input: {
+  userId: number;
+  visitId: string;
+  siteHost: string;
+  occurredAt?: Date;
+}): Promise<AccessSession> {
+  const occurredAt = input.occurredAt ?? now();
+  const db = await getDb();
+
+  if (!db) {
+    await ensureMemoryLoaded();
+    const existing = memoryState.accessSessions.find(
+      session =>
+        session.userId === input.userId &&
+        session.visitId === input.visitId &&
+        session.siteHost === input.siteHost
+    );
+    if (existing) {
+      const elapsedSeconds = Math.max(
+        0,
+        Math.floor(
+          (occurredAt.getTime() - existing.lastSeenAt.getTime()) / 1000
+        )
+      );
+      existing.durationSeconds += Math.min(
+        elapsedSeconds,
+        MAX_ACCESS_HEARTBEAT_GAP_SECONDS
+      );
+      existing.lastSeenAt = occurredAt;
+      await persistMemoryState();
+      return existing;
+    }
+
+    const row: AccessSession = {
+      id: nextMemoryId("accessSession"),
+      userId: input.userId,
+      visitId: input.visitId,
+      siteHost: input.siteHost,
+      startedAt: occurredAt,
+      lastSeenAt: occurredAt,
+      durationSeconds: 0,
+    };
+    memoryState.accessSessions.push(row);
+    await persistMemoryState();
+    return row;
+  }
+
+  const [existing] = await db
+    .select()
+    .from(accessSessions)
+    .where(
+      and(
+        eq(accessSessions.userId, input.userId),
+        eq(accessSessions.visitId, input.visitId),
+        eq(accessSessions.siteHost, input.siteHost)
+      )
+    )
+    .limit(1);
+
+  if (!existing) {
+    await db.insert(accessSessions).values({
+      userId: input.userId,
+      visitId: input.visitId,
+      siteHost: input.siteHost,
+      startedAt: occurredAt,
+      lastSeenAt: occurredAt,
+      durationSeconds: 0,
+    });
+  } else {
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((occurredAt.getTime() - existing.lastSeenAt.getTime()) / 1000)
+    );
+    await db
+      .update(accessSessions)
+      .set({
+        lastSeenAt: occurredAt,
+        durationSeconds:
+          existing.durationSeconds +
+          Math.min(elapsedSeconds, MAX_ACCESS_HEARTBEAT_GAP_SECONDS),
+      })
+      .where(eq(accessSessions.id, existing.id));
+  }
+
+  const [saved] = await db
+    .select()
+    .from(accessSessions)
+    .where(
+      and(
+        eq(accessSessions.userId, input.userId),
+        eq(accessSessions.visitId, input.visitId),
+        eq(accessSessions.siteHost, input.siteHost)
+      )
+    )
+    .limit(1);
+  if (!saved) {
+    throw new Error("访问会话保存失败");
+  }
+  return saved;
+}
+
+export async function getAccessOverview(
+  siteHost: string
+): Promise<AccessOverviewRow[]> {
+  const db = await getDb();
+  const sessions = !db
+    ? memoryState.accessSessions.filter(
+        session => session.siteHost === siteHost
+      )
+    : await db
+        .select()
+        .from(accessSessions)
+        .where(eq(accessSessions.siteHost, siteHost));
+  const allUsers = !db ? memoryState.users : await db.select().from(users);
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  const overview = new Map<number, AccessOverviewRow>();
+
+  for (const session of sessions) {
+    const user = usersById.get(session.userId);
+    if (!user) continue;
+    const current = overview.get(session.userId);
+    if (!current) {
+      overview.set(session.userId, {
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        firstSeenAt: session.startedAt,
+        lastSeenAt: session.lastSeenAt,
+        visitCount: 1,
+        durationSeconds: session.durationSeconds,
+      });
+      continue;
+    }
+    current.firstSeenAt =
+      session.startedAt < current.firstSeenAt
+        ? session.startedAt
+        : current.firstSeenAt;
+    current.lastSeenAt =
+      session.lastSeenAt > current.lastSeenAt
+        ? session.lastSeenAt
+        : current.lastSeenAt;
+    current.visitCount += 1;
+    current.durationSeconds += session.durationSeconds;
+  }
+
+  return Array.from(overview.values()).sort(
+    (left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime()
+  );
 }
 
 // ─── Project ─────────────────────────────────────────────────────────────
@@ -1394,6 +1599,168 @@ export async function upsertEmotionAnalysisProfile(
     .where(eq(emotionAnalysisProfiles.id, result[0].insertId))
     .limit(1);
   return inserted[0];
+}
+
+// ─── Emotion Daily Letters ─────────────────────────────────────────────
+
+export async function getEmotionDailyLetter(
+  userId: number,
+  letterDate: string
+): Promise<EmotionDailyLetter | null> {
+  const db = await getDb();
+  if (!db) {
+    return (
+      memoryState.emotionDailyLetters.find(
+        item => item.userId === userId && item.letterDate === letterDate
+      ) ?? null
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(emotionDailyLetters)
+    .where(
+      and(
+        eq(emotionDailyLetters.userId, userId),
+        eq(emotionDailyLetters.letterDate, letterDate)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listEmotionDailyLetters(
+  userId: number,
+  limit = 90
+): Promise<EmotionDailyLetter[]> {
+  const safeLimit = Math.max(1, Math.min(365, Math.floor(limit)));
+  const db = await getDb();
+  if (!db) {
+    return memoryState.emotionDailyLetters
+      .filter(item => item.userId === userId)
+      .sort((a, b) => b.letterDate.localeCompare(a.letterDate))
+      .slice(0, safeLimit);
+  }
+  return db
+    .select()
+    .from(emotionDailyLetters)
+    .where(eq(emotionDailyLetters.userId, userId))
+    .orderBy(desc(emotionDailyLetters.letterDate))
+    .limit(safeLimit);
+}
+
+export async function ensureEmotionDailyLetter(
+  data: InsertEmotionDailyLetter
+): Promise<EmotionDailyLetter> {
+  const existing = await getEmotionDailyLetter(data.userId, data.letterDate);
+  if (existing) return existing;
+
+  const db = await getDb();
+  if (!db) {
+    return upsertEmotionDailyLetter(data);
+  }
+  await db
+    .insert(emotionDailyLetters)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: { letterDate: data.letterDate },
+    });
+  return (await getEmotionDailyLetter(data.userId, data.letterDate))!;
+}
+
+export async function upsertEmotionDailyLetter(
+  data: InsertEmotionDailyLetter
+): Promise<EmotionDailyLetter> {
+  const db = await getDb();
+  if (!db) {
+    const current = now();
+    const existing = memoryState.emotionDailyLetters.find(
+      item => item.userId === data.userId && item.letterDate === data.letterDate
+    );
+    if (existing) {
+      applyDefinedValues(
+        existing as unknown as Record<string, unknown>,
+        data as unknown as Record<string, unknown>
+      );
+      existing.updatedAt = current;
+      await persistMemoryState();
+      return existing;
+    }
+
+    const row: EmotionDailyLetter = {
+      id: nextMemoryId("emotionDailyLetter"),
+      userId: data.userId,
+      letterDate: data.letterDate,
+      userMessage: data.userMessage ?? null,
+      userMessageSaidAt: data.userMessageSaidAt ?? null,
+      userMessageEditedAt: data.userMessageEditedAt ?? null,
+      dailyReference: data.dailyReference,
+      analysisSeed: data.analysisSeed,
+      revision: data.revision ?? 1,
+      createdAt: current,
+      updatedAt: current,
+    };
+    memoryState.emotionDailyLetters.push(row);
+    await persistMemoryState();
+    return row;
+  }
+
+  await db
+    .insert(emotionDailyLetters)
+    .values(data)
+    .onDuplicateKeyUpdate({
+      set: {
+        userMessage: data.userMessage ?? null,
+        userMessageSaidAt: data.userMessageSaidAt ?? null,
+        userMessageEditedAt: data.userMessageEditedAt ?? null,
+        dailyReference: data.dailyReference,
+        analysisSeed: data.analysisSeed,
+        revision: data.revision ?? 1,
+        updatedAt: new Date(),
+      },
+    });
+  return (await getEmotionDailyLetter(data.userId, data.letterDate))!;
+}
+
+export async function updateEmotionDailyLetterIfRevision(
+  data: InsertEmotionDailyLetter,
+  expectedRevision: number
+): Promise<EmotionDailyLetter | null> {
+  const db = await getDb();
+  if (!db) {
+    const existing = memoryState.emotionDailyLetters.find(
+      item => item.userId === data.userId && item.letterDate === data.letterDate
+    );
+    if (!existing || existing.revision !== expectedRevision) return null;
+    applyDefinedValues(
+      existing as unknown as Record<string, unknown>,
+      data as unknown as Record<string, unknown>
+    );
+    existing.revision = expectedRevision + 1;
+    existing.updatedAt = now();
+    await persistMemoryState();
+    return existing;
+  }
+
+  const result = await db
+    .update(emotionDailyLetters)
+    .set({
+      userMessage: data.userMessage ?? null,
+      userMessageSaidAt: data.userMessageSaidAt ?? null,
+      userMessageEditedAt: data.userMessageEditedAt ?? null,
+      dailyReference: data.dailyReference,
+      analysisSeed: data.analysisSeed,
+      revision: expectedRevision + 1,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(emotionDailyLetters.userId, data.userId),
+        eq(emotionDailyLetters.letterDate, data.letterDate),
+        eq(emotionDailyLetters.revision, expectedRevision)
+      )
+    );
+  if (result[0].affectedRows !== 1) return null;
+  return getEmotionDailyLetter(data.userId, data.letterDate);
 }
 
 // ─── Story ──────────────────────────────────────────────────────────────
@@ -4888,11 +5255,13 @@ export async function undoDerivedShotAtomic(
  */
 export function resetMemoryStateForTesting(): void {
   memoryState.users = [];
+  memoryState.accessSessions = [];
   memoryState.projects = [];
   memoryState.references = [];
   memoryState.shots = [];
   memoryState.analysisResults = [];
   memoryState.emotionAnalysisProfiles = [];
+  memoryState.emotionDailyLetters = [];
   memoryState.stories = [];
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
@@ -4912,11 +5281,13 @@ export function resetMemoryStateForTesting(): void {
   editSnapshotsLoadFallback = undefined;
   memoryState.nextIds = {
     user: 1,
+    accessSession: 1,
     project: 1,
     reference: 1,
     shot: 1,
     analysisResult: 1,
     emotionAnalysisProfile: 1,
+    emotionDailyLetter: 1,
     story: 1,
     editSnapshot: 1,
     semanticAnnotation: 1,
@@ -5066,6 +5437,38 @@ export async function findAvailableInviteCode(
     )
     .limit(1);
   return invite ?? null;
+}
+
+/**
+ * 校验邀请码是否可以由指定邮箱使用。未核销邀请码可用于首次登录；
+ * 已核销邀请码只允许继续服务它最初绑定的邮箱。
+ */
+export async function findInviteCodeForEmailAccess(
+  codeHash: string,
+  email: string
+): Promise<InviteCode | null> {
+  const db = await getDb();
+  const current = new Date();
+  if (!db) {
+    const invite =
+      memoryState.inviteCodes.find(item => item.codeHash === codeHash) ?? null;
+    if (!invite) return null;
+    if (invite.redeemedAt) {
+      return invite.redeemedByEmail === email ? invite : null;
+    }
+    return !invite.expiresAt || invite.expiresAt >= current ? invite : null;
+  }
+
+  const [invite] = await db
+    .select()
+    .from(inviteCodes)
+    .where(eq(inviteCodes.codeHash, codeHash))
+    .limit(1);
+  if (!invite) return null;
+  if (invite.redeemedAt) {
+    return invite.redeemedByEmail === email ? invite : null;
+  }
+  return !invite.expiresAt || invite.expiresAt >= current ? invite : null;
 }
 
 export async function hasRedeemedInviteForEmail(

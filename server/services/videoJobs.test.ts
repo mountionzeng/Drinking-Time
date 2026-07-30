@@ -240,7 +240,7 @@ describe("videoJobs", () => {
       nextReferenceShotNo: "SH07",
       promptDirector: {
         engineering: {
-          version: "video-prompt-engineering/v1",
+          version: "video-prompt-engineering/v2",
           editorHardConstraints: expect.stringContaining("转身"),
           continuityIn: expect.stringContaining("前一镜参考图：SH05"),
           continuityOut: expect.stringContaining("后一镜参考图：SH07"),
@@ -468,7 +468,7 @@ describe("videoJobs", () => {
       motion: "low",
       image: "data:image/png;base64,BBBB",
     });
-    expect(requestBody.prompt).toContain("Editor hard constraints");
+    expect(requestBody.prompt).toContain("USER REQUIREMENT");
     expect(requestBody.prompt).toContain("gentle camera move");
     expect(requestBody.prompt.length).toBeLessThanOrEqual(500);
     expect(requestBody.prompt).not.toContain("前一镜参考图");
@@ -634,6 +634,7 @@ Negative: no floating objects, characters obey physics.
             intent: "记录身体正在流失能量的瞬间",
             action: "坐在沙发边缘，身体微微前倾",
             cameraMove: "缓慢推进",
+            videoPrompt: "用户最新要求：人物先屏息，再抬眼，相机随后响应",
           },
           {
             stableShotId: "shot-03",
@@ -712,6 +713,9 @@ Negative: no floating objects, characters obey physics.
       "https://api.302.ai/v1/chat/completions"
     );
     const directorBody = JSON.parse(String(fetch.mock.calls[0][1].body));
+    expect(directorBody.messages[1].content[0].text).toContain(
+      "用户最新要求：人物先屏息，再抬眼，相机随后响应"
+    );
     expect(directorBody.messages[1].content[2].text).toContain(
       "人物身份基准"
     );
@@ -721,6 +725,9 @@ Negative: no floating objects, characters obey physics.
     expect(fetch.mock.calls[1][0]).toBe("https://api.302.ai/mj/submit/video");
     const mjBody = JSON.parse(String(fetch.mock.calls[1][1].body));
     expect(mjBody.prompt).toContain("breathes slowly");
+    expect(mjBody.prompt).toContain(
+      "用户最新要求：人物先屏息，再抬眼，相机随后响应"
+    );
     expect(mjBody.prompt).not.toContain("昏昏欲睡");
     expect(result.take.prompt).toBe(mjBody.prompt);
     expect(result.take.parameterSnapshot).toMatchObject({
@@ -728,6 +735,10 @@ Negative: no floating objects, characters obey physics.
       promptDirector: {
         source: "302-vision",
         model: "gpt-5.4-nano-2026-03-17",
+        engineering: {
+          userRequirement:
+            "用户最新要求：人物先屏息，再抬眼，相机随后响应",
+        },
         analysis: {
           visualSummary: "男子坐在沙发边缘。",
           recommendedMotion: "low",

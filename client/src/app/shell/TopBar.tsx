@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { BarChart3 } from "lucide-react";
 
 interface TopBarPanelToggle {
   label: string;
@@ -292,6 +293,18 @@ export default function TopBar({
                   </div>
                 </div>
                 <div className="p-1.5">
+                  {user?.role === "admin" ? (
+                    <button
+                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-[var(--muted)] hover:text-foreground"
+                      onClick={() => {
+                        setUserOpen(false);
+                        window.location.href = "/admin/visits";
+                      }}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      访问情况
+                    </button>
+                  ) : null}
                   <button
                     className="w-full text-left text-xs px-2.5 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-[var(--muted)] transition-colors"
                     onClick={async () => {

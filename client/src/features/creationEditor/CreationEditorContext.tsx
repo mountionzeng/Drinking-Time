@@ -23,7 +23,11 @@ import {
   shotIdentityMatchKeys,
   shotIdentityFromShot,
 } from "@shared/shotIdentity";
-import { rerenderShotImage, type RerenderReference } from "./rerender";
+import {
+  rerenderShotImage,
+  rerenderShotImageCandidates,
+  type RerenderReference,
+} from "./rerender";
 import {
   writePromptOverride,
   writePromptRun,
@@ -73,6 +77,10 @@ import {
   registerTimelineUndoExecutor,
   takeTimelineUndoSnapshot,
 } from "./timelineUndoStore";
+import {
+  addShotToRenderSlots,
+  removeShotFromRenderSlots,
+} from "./renderSlots";
 
 export type CreationEditorStory = {
   id: number;
@@ -199,10 +207,10 @@ type CreationEditorContextValue = {
   isLoading: boolean;
   error: CreationEditorError | null;
   isSaving: boolean;
-  rerenderingShotNo: number | null;
+  rerenderingShotNos: readonly number[];
   rerenderError: string | null;
   promotingFrameCropShotNo: number | null;
-  generatingVideoShotNo: number | null;
+  generatingVideoShotNos: readonly number[];
   updateShotDuration: (shotNo: number, durationMs: number) => Promise<void>;
   updatePersistedShotField: (
     stableShotId: string,
@@ -239,12 +247,13 @@ type CreationEditorContextValue = {
     reference?: RerenderReference,
     options?: {
       explicitInstruction?: string;
+      candidateCount?: 4;
       costConfirmation?: {
         accepted: true;
         estimatedCny: number;
       };
     }
-  ) => Promise<void>;
+  ) => Promise<{ generatedCount: number; failedCount: number }>;
   promoteFrameCrop: (input: {
     shotNo: number;
     imageBase64: string;
@@ -1237,16 +1246,14 @@ export function CreationEditorProvider({
     null
   );
   const [selectedShotNo, setSelectedShotNo] = useState<number | null>(null);
-  const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(
-    null
-  );
+  const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
   const [rerenderError, setRerenderError] = useState<string | null>(null);
   const [promotingFrameCropShotNo, setPromotingFrameCropShotNo] = useState<
     number | null
   >(null);
-  const [generatingVideoShotNo, setGeneratingVideoShotNo] = useState<
-    number | null
-  >(null);
+  const [generatingVideoShotNos, setGeneratingVideoShotNos] = useState<
+    number[]
+  >([]);
   const [recentVideoTakeIds, setRecentVideoTakeIds] = useState<number[]>([]);
   const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
@@ -1902,6 +1909,7 @@ export function CreationEditorProvider({
     reference?: RerenderReference,
     options?: {
       explicitInstruction?: string;
+      candidateCount?: 4;
       costConfirmation?: {
         accepted: true;
         estimatedCny: number;
@@ -1912,17 +1920,47 @@ export function CreationEditorProvider({
     const shot = shots.find(item => item.shotNo === shotNo);
     if (!shot) throw new Error(`找不到镜头 ${shotNo}`);
     setRerenderError(null);
-    setRerenderingShotNo(shotNo);
+    setRerenderingShotNos(current =>
+      addShotToRenderSlots(current, shotNo)
+    );
     try {
-      const result = await rerenderShotImage({
-        storyId: activeId,
-        shot,
-        rows,
-        reference,
-        explicitInstruction: options?.explicitInstruction,
-        costConfirmation: options?.costConfirmation,
-        generate: input => generateForMobileMut.mutateAsync(input),
-      });
+      let batch;
+      if (options?.candidateCount === 4) {
+        if (!options.explicitInstruction) {
+          throw new Error("四张候选图缺少图片要求");
+        }
+        if (!options.costConfirmation) {
+          throw new Error("四张候选图尚未确认费用");
+        }
+        batch = await rerenderShotImageCandidates({
+          storyId: activeId,
+          shot,
+          rows,
+          reference,
+          explicitInstruction: options.explicitInstruction,
+          candidateCount: options.candidateCount,
+          costConfirmation: options.costConfirmation,
+          generate: input => generateForMobileMut.mutateAsync(input),
+        });
+      } else {
+        batch = {
+          results: [
+            await rerenderShotImage({
+              storyId: activeId,
+              shot,
+              rows,
+              reference,
+              explicitInstruction: options?.explicitInstruction,
+              costConfirmation: options?.costConfirmation,
+              generate: input => generateForMobileMut.mutateAsync(input),
+            }),
+          ],
+          generatedCount: 1,
+          failedCount: 0,
+        };
+      }
+      const result = batch.results.at(-1);
+      if (!result) throw new Error("图片生成没有返回候选结果");
       if (promptLineageQuery.data?.mode !== "lineage") {
         const compiled = compilePromptRecipe({ shot, rows });
         const bodyWithShotContent = writeShotContentSnapshot(
@@ -1973,12 +2011,18 @@ export function CreationEditorProvider({
         utils.storyAgent.storyImages.invalidate({ storyId: activeId }),
         utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
       ]);
+      return {
+        generatedCount: batch.generatedCount,
+        failedCount: batch.failedCount,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "图片生成失败";
       setRerenderError(message);
       throw error;
     } finally {
-      setRerenderingShotNo(null);
+      setRerenderingShotNos(current =>
+        removeShotFromRenderSlots(current, shotNo)
+      );
     }
   };
 
@@ -2178,7 +2222,9 @@ export function CreationEditorProvider({
     };
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
-    setGeneratingVideoShotNo(input.shotNo);
+    setGeneratingVideoShotNos(current =>
+      addShotToRenderSlots(current, input.shotNo)
+    );
     try {
       const result = await generateShotVideoMut.mutateAsync({
         storyId: activeId,
@@ -2203,7 +2249,9 @@ export function CreationEditorProvider({
         estimatedCny: result.estimatedCny,
       };
     } finally {
-      setGeneratingVideoShotNo(null);
+      setGeneratingVideoShotNos(current =>
+        removeShotFromRenderSlots(current, input.shotNo)
+      );
     }
   };
 
@@ -2231,7 +2279,9 @@ export function CreationEditorProvider({
     };
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法生成视频");
-    setGeneratingVideoShotNo(input.shotNo);
+    setGeneratingVideoShotNos(current =>
+      addShotToRenderSlots(current, input.shotNo)
+    );
     try {
       const result = await submitStartEndShotVideoMut.mutateAsync({
         storyId: activeId,
@@ -2258,7 +2308,9 @@ export function CreationEditorProvider({
         estimatedCny: result.estimatedCny,
       };
     } finally {
-      setGeneratingVideoShotNo(null);
+      setGeneratingVideoShotNos(current =>
+        removeShotFromRenderSlots(current, input.shotNo)
+      );
     }
   };
 
@@ -3033,10 +3085,10 @@ export function CreationEditorProvider({
         shotVideoProviderStatusQuery.isLoading,
       error,
       isSaving: storyUpsertMut.isPending,
-      rerenderingShotNo,
+      rerenderingShotNos,
       rerenderError,
       promotingFrameCropShotNo,
-      generatingVideoShotNo,
+      generatingVideoShotNos,
       updateShotDuration,
       updatePersistedShotField,
       updatePersistedShotFields,
@@ -3098,9 +3150,9 @@ export function CreationEditorProvider({
       selectedShotNo,
       setActiveStoryId,
       promotingFrameCropShotNo,
-      generatingVideoShotNo,
+      generatingVideoShotNos,
       rerenderError,
-      rerenderingShotNo,
+      rerenderingShotNos,
       shots,
       stories,
       timelineShotIds,

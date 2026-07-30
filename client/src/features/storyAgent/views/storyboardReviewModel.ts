@@ -153,6 +153,8 @@ export function storyboardVideoIntentPatch(
   generationParams?: string
 ): Partial<Record<StoryShotEditableField, string>> {
   return {
+    dialogue: shot.dialogue ?? "",
+    intent: shot.intent ?? "",
     action: shot.action ?? "",
     performance: shot.performance ?? "",
     environmentMotion: shot.environmentMotion ?? "",
@@ -165,6 +167,9 @@ export function storyboardVideoIntentPatch(
     transitionOut: shot.transitionOut ?? "",
     videoPrompt: shot.videoPrompt ?? "",
     negativePrompt: shot.negativePrompt ?? "",
+    sound: shot.sound ?? "",
+    soundBridge: shot.soundBridge ?? "",
+    materialTexture: shot.materialTexture ?? "",
     ...(generationParams ? { generationParams } : {}),
   };
 }
@@ -240,7 +245,10 @@ export function storyboardCandidateImageStyle(
 }
 
 export function storyboardRenderIntentSummary(
-  shot: Pick<CreationEditorShot, "action" | "cameraMove" | "cameraPath">
+  shot: Pick<
+    CreationEditorShot,
+    "action" | "cameraMove" | "cameraPath" | "videoPrompt"
+  >
 ): string {
   const compact = (value: string | null | undefined) =>
     (value ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
@@ -248,6 +256,9 @@ export function storyboardRenderIntentSummary(
     compact(shot.action) ? `画面动作：${compact(shot.action)}` : "",
     compact(shot.cameraPath || shot.cameraMove)
       ? `运镜：${compact(shot.cameraPath || shot.cameraMove)}`
+      : "",
+    compact(shot.videoPrompt)
+      ? `视频要求：${compact(shot.videoPrompt)}`
       : "",
   ]
     .filter(Boolean)

@@ -13,10 +13,7 @@ import {
   type FrameCandidateSource,
 } from "../frameCandidate";
 import type { PromptOverride } from "../promptTable/types";
-import {
-  readableRerenderError,
-  type RerenderReference,
-} from "../rerender";
+import { readableRerenderError, type RerenderReference } from "../rerender";
 import {
   buildPromptLineageRevisionPreview,
   buildPromptLineageShotView,
@@ -56,7 +53,7 @@ export default function PromptTablePanel() {
     isLoading,
     error,
     isSaving,
-    rerenderingShotNo,
+    rerenderingShotNos,
     rerenderError,
     updatePromptOverride,
     rerenderShot,
@@ -83,7 +80,10 @@ export default function PromptTablePanel() {
   const [candidateCompareOpen, setCandidateCompareOpen] = useState(false);
   const [referenceShotNo, setReferenceShotNo] = useState<number | null>(null);
   const [extractingFrame, setExtractingFrame] = useState(false);
-  const [localVideoRef, setLocalVideoRef] = useState<{ file: File; preview: string } | null>(null);
+  const [localVideoRef, setLocalVideoRef] = useState<{
+    file: File;
+    preview: string;
+  } | null>(null);
   const [localVideoDragOver, setLocalVideoDragOver] = useState(false);
 
   const selectedShotMaterial = useMemo(() => {
@@ -108,8 +108,12 @@ export default function PromptTablePanel() {
         ms?.currentImage?.imageUrl ||
           s.imageUrl ||
           ms?.currentVideo?.videoUrl ||
-          ms?.videoTakes.some(take => take.status === "available" && take.videoUrl) ||
-          s.videoTakes?.some(take => take.status === "available" && take.videoUrl)
+          ms?.videoTakes.some(
+            take => take.status === "available" && take.videoUrl
+          ) ||
+          s.videoTakes?.some(
+            take => take.status === "available" && take.videoUrl
+          )
       );
     });
   }, [shots, selectedShotNo, materialState]);
@@ -139,11 +143,13 @@ export default function PromptTablePanel() {
     );
     return (
       material?.currentVideo?.videoUrl ||
-      material?.videoTakes.find(take => take.status === "available" && take.videoUrl)
-        ?.videoUrl ||
+      material?.videoTakes.find(
+        take => take.status === "available" && take.videoUrl
+      )?.videoUrl ||
       refShot.selectedVideoTake?.videoUrl ||
-      refShot.videoTakes?.find(take => take.status === "available" && take.videoUrl)
-        ?.videoUrl ||
+      refShot.videoTakes?.find(
+        take => take.status === "available" && take.videoUrl
+      )?.videoUrl ||
       undefined
     );
   }, [referenceShotNo, shots, materialState]);
@@ -172,14 +178,22 @@ export default function PromptTablePanel() {
   }, [selectedShot?.stableShotId, selectedShot?.shotNo]);
 
   useEffect(() => {
-    if (rerenderingShotNo !== selectedShot?.shotNo) return;
+    if (
+      selectedShot?.shotNo == null ||
+      !rerenderingShotNos.includes(selectedShot.shotNo)
+    ) {
+      return;
+    }
     setInspectedCandidate(null);
     setCandidateCompareOpen(false);
-  }, [rerenderingShotNo, selectedShot?.shotNo]);
+  }, [rerenderingShotNos, selectedShot?.shotNo]);
 
   const latestMaterialCandidate = useMemo(() => {
-    return latestFrameCandidateSheet(selectedShotMaterial?.imageVersions ?? []);
-  }, [selectedShotMaterial]);
+    return latestFrameCandidateSheet(
+      selectedShotMaterial?.imageVersions ?? [],
+      selectedShot?.promptRun?.imageId
+    );
+  }, [selectedShot?.promptRun?.imageId, selectedShotMaterial]);
 
   const frameCandidate =
     inspectedCandidate ?? latestMaterialCandidate ?? undefined;
@@ -431,7 +445,10 @@ export default function PromptTablePanel() {
           identityImageUrl: captured.identityCropUrl,
         };
       } catch (error) {
-        console.warn("[PromptTablePanel] reference frame extraction failed", error);
+        console.warn(
+          "[PromptTablePanel] reference frame extraction failed",
+          error
+        );
         setPanelError(
           `${messageOf(error, "参考视频取帧失败")}；已改用当前提示词继续重渲。`
         );
@@ -445,13 +462,18 @@ export default function PromptTablePanel() {
     if (localVideoRef) {
       setExtractingFrame(true);
       try {
-        const captured = await captureReferenceFrameFromFile(localVideoRef.file);
+        const captured = await captureReferenceFrameFromFile(
+          localVideoRef.file
+        );
         return {
           imageUrl: captured.frameUrl,
           identityImageUrl: captured.identityCropUrl,
         };
       } catch (error) {
-        console.warn("[PromptTablePanel] local reference frame extraction failed", error);
+        console.warn(
+          "[PromptTablePanel] local reference frame extraction failed",
+          error
+        );
         setPanelError(
           `${messageOf(error, "本地参考视频取帧失败")}；已改用当前提示词继续重渲。`
         );
@@ -470,23 +492,19 @@ export default function PromptTablePanel() {
       return captureVideoReference(currentShotVideoUrl);
     }
     return undefined;
-  }, [currentShotVideoUrl, localVideoRef, referenceImageUrl, referenceVideoUrl]);
+  }, [
+    currentShotVideoUrl,
+    localVideoRef,
+    referenceImageUrl,
+    referenceVideoUrl,
+  ]);
 
   const rerenderConfirmedLineageShot = useCallback(async () => {
     if (!selectedShotNo || !lineageView) return;
     setPanelError(null);
     const reference = await resolveReferenceForRerender();
-    await rerenderShot(
-      selectedShotNo,
-      lineageView.rows,
-      reference
-    );
-  }, [
-    lineageView,
-    rerenderShot,
-    resolveReferenceForRerender,
-    selectedShotNo,
-  ]);
+    await rerenderShot(selectedShotNo, lineageView.rows, reference);
+  }, [lineageView, rerenderShot, resolveReferenceForRerender, selectedShotNo]);
 
   return (
     <aside
@@ -526,7 +544,10 @@ export default function PromptTablePanel() {
                   f.type.startsWith("video/")
                 );
                 if (file) {
-                  setLocalVideoRef({ file, preview: URL.createObjectURL(file) });
+                  setLocalVideoRef({
+                    file,
+                    preview: URL.createObjectURL(file),
+                  });
                   setReferenceShotNo(null);
                 }
               }}
@@ -571,7 +592,9 @@ export default function PromptTablePanel() {
                       ? item.stableShotId === s.stableShotId
                       : item.shotNo === s.shotNo
                   );
-                  const hasImage = Boolean(ms?.currentImage?.imageUrl || s.imageUrl);
+                  const hasImage = Boolean(
+                    ms?.currentImage?.imageUrl || s.imageUrl
+                  );
                   const hasVideo = Boolean(
                     ms?.currentVideo?.videoUrl ||
                       ms?.videoTakes.some(
@@ -585,7 +608,8 @@ export default function PromptTablePanel() {
                   const tag = hasVideo ? " 🎬" : hasImage ? " 🖼️" : "";
                   return (
                     <option key={s.shotNo} value={s.shotNo}>
-                      {shotLabel(s)}{tag}
+                      {shotLabel(s)}
+                      {tag}
                     </option>
                   );
                 })}
@@ -667,7 +691,10 @@ export default function PromptTablePanel() {
                 candidate={frameCandidate}
                 compareOpen={candidateCompareOpen}
                 onCompareOpenChange={setCandidateCompareOpen}
-                disabled={isSaving || rerenderingShotNo === selectedShot.shotNo}
+                disabled={
+                  isSaving ||
+                  rerenderingShotNos.includes(selectedShot.shotNo)
+                }
                 onPromote={promoteFrameCrop}
               />
             ) : null}
@@ -746,7 +773,8 @@ export default function PromptTablePanel() {
                   disabled={isSaving}
                   rerendering={
                     selectedShotNo != null &&
-                    rerenderingShotNo === selectedShotNo
+                    selectedShotNo != null &&
+                    rerenderingShotNos.includes(selectedShotNo)
                   }
                   applyLabel={
                     promptLineageMode === "lineage" ? "预览影响" : "应用"
@@ -789,7 +817,8 @@ export default function PromptTablePanel() {
                     disabled={isSaving}
                     rerendering={
                       selectedShotNo != null &&
-                      rerenderingShotNo === selectedShotNo
+                      selectedShotNo != null &&
+                      rerenderingShotNos.includes(selectedShotNo)
                     }
                     historyNodeId={historyRow?.nodeId ?? null}
                     historyItems={historyQuery.data?.items ?? []}

@@ -7,19 +7,49 @@ export type FrameCandidateSource = {
 export type FrameCandidateAsset = {
   id: number;
   imageUrl: string;
+  prompt?: string | null;
   generationType?: "generate" | "initial" | "inpaint";
   parentImageId?: number | null;
 };
 
-export function isFrameCandidateSheet(image: FrameCandidateAsset): boolean {
-  return image.generationType === "initial" && image.parentImageId == null;
+function hasGeneratedCandidatePrompt(image: FrameCandidateAsset): boolean {
+  const prompt = image.prompt ?? "";
+  return (
+    prompt.includes("USER DIRECT EDIT INSTRUCTION") ||
+    prompt.includes("Single-frame rule:")
+  );
+}
+
+export function isFrameCandidateSheet(
+  image: FrameCandidateAsset,
+  promptRunImageId?: number
+): boolean {
+  if (image.parentImageId != null) return false;
+
+  const generatedSheet =
+    image.generationType === "initial" || image.generationType === "inpaint";
+  if (!generatedSheet) return false;
+
+  // The prompt run is authoritative. Storyboard-reference MJ renders are
+  // persisted as inpaint even though the provider returns one four-up sheet.
+  if (image.id === promptRunImageId) return true;
+
+  if (
+    image.prompt?.includes(
+      "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH"
+    )
+  ) {
+    return false;
+  }
+  return hasGeneratedCandidatePrompt(image);
 }
 
 export function latestFrameCandidateSheet(
-  images: readonly FrameCandidateAsset[]
+  images: readonly FrameCandidateAsset[],
+  promptRunImageId?: number
 ): FrameCandidateSource | null {
   const sheets = images
-    .filter(isFrameCandidateSheet)
+    .filter(image => isFrameCandidateSheet(image, promptRunImageId))
     .sort((left, right) => left.id - right.id);
   const latest = sheets.at(-1);
   if (!latest) return null;

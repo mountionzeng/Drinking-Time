@@ -73,6 +73,10 @@ export interface ImageGenOptions {
   referenceImageUrl?: string;
   /** 人物身份锚点图：通常是视频帧的人脸/下半张脸裁切，仅用于五官脸型提取 */
   referenceIdentityImageUrl?: string;
+  /** 相邻镜头参考图：MJ 图生图时与主参考一起传入，建立色彩与空间连续性 */
+  referenceContextImageUrls?: string[];
+  /** 主参考绝对锁定：相邻帧只供导演分析，不作为 MJ 等权垫图，避免人物、服装和主色被稀释 */
+  primaryReferenceLock?: boolean;
 }
 
 // ── 常量 ──
@@ -203,7 +207,7 @@ function completionText(data: ChatCompletionResponse): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content
-    .map(part => (part.type === "text" ? part.text ?? "" : ""))
+    .map(part => (part.type === "text" ? (part.text ?? "") : ""))
     .filter(Boolean)
     .join("\n")
     .trim();
@@ -292,7 +296,10 @@ function resolve302VisionUrl(): string {
   ).toString();
 }
 
-function referenceIdentityVisionConfig(): { apiKey: string; model: string } | null {
+function referenceIdentityVisionConfig(): {
+  apiKey: string;
+  model: string;
+} | null {
   const apiKey = (ENV.vision302ApiKey || ENV.api302Key).trim();
   const model = (ENV.vision302Model || ENV.imagePrompt302Model).trim();
   if (!apiKey || !model) return null;
@@ -327,8 +334,7 @@ async function describeReferenceIdentity(
               content: [
                 {
                   type: "text",
-                  text:
-                    "Extract the human subject's visible identity lock from this reference frame. Be precise about the chin and mouth. If the subject has a narrow, tapered, small, soft, pointed, or rounded chin, say exactly that; if not, say the actual shape. Do the same for lip thickness and mouth shape. Ignore any eye-shaped prop or painting in the scene.",
+                  text: "Extract the human subject's visible identity lock from this reference frame. Be precise about the chin and mouth. If the subject has a narrow, tapered, small, soft, pointed, or rounded chin, say exactly that; if not, say the actual shape. Do the same for lip thickness and mouth shape. Ignore any eye-shaped prop or painting in the scene.",
                 },
                 {
                   type: "image_url",
@@ -350,7 +356,9 @@ async function describeReferenceIdentity(
       return undefined;
     }
 
-    const text = completionText((await response.json()) as ChatCompletionResponse);
+    const text = completionText(
+      (await response.json()) as ChatCompletionResponse
+    );
     return text ? compactForPrompt(text, 700) : undefined;
   } catch (error) {
     console.warn(
@@ -773,9 +781,16 @@ export async function generateImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const requested = normalizeImageProvider(
+    options.provider ?? ENV.imageProviderDefault
+  );
 
   // FLUX Kontext：有参考图时优先走 Kontext 保角色/场景一致性
-  if (options.referenceImageUrl && ENV.api302Key) {
+  if (
+    options.provider !== "midjourney" &&
+    options.referenceImageUrl &&
+    ENV.api302Key
+  ) {
     console.log(
       `[imageGen] using flux-kontext-pro reference=${
         options.referenceImageUrl.startsWith("data:") ? "data-url" : "url"
@@ -789,9 +804,6 @@ export async function generateImage(
     );
   }
 
-  const requested = normalizeImageProvider(
-    options.provider ?? ENV.imageProviderDefault
-  );
   // 凭手上的凭据兜底：本机没配 fal key、却配了 302 key 时，把本会掉到 fal 的请求
   // 自动改走 302 gpt-image。这样「只有 302」的机器开箱即用，不用特意去下拉里选模型
   // （否则默认 provider 会 resolve 成 fal → 没 key → fal.ai 401）。
@@ -1167,11 +1179,18 @@ export async function editImage(
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  const provider = normalizeImageProvider(
+    options.provider ?? ENV.imageProviderDefault
+  );
 
   // When the user explicitly picks a reference shot/video, that reference is the
   // stronger instruction than the current main image. Otherwise rerendering a
   // shot that already has a main image keeps drifting from the stale main image.
-  if (options.referenceImageUrl && ENV.api302Key) {
+  if (
+    options.provider !== "midjourney" &&
+    options.referenceImageUrl &&
+    ENV.api302Key
+  ) {
     console.log(
       `[imageGen] using flux-kontext-pro reference=${
         options.referenceImageUrl.startsWith("data:") ? "data-url" : "url"
@@ -1187,17 +1206,25 @@ export async function editImage(
 
   // 默认 provider = midjourney 时，图生图也走 MJ：把用户照片作为 image prompt 放进 base64Array。
   // （账户里 gpt-image 不可用、MJ 可用时，这条让「带照片的画出来」也能出图。）
-  const provider = normalizeImageProvider(
-    options.provider ?? ENV.imageProviderDefault
-  );
-
   // MJ 模式（产品主力、也是当前账户唯一可用的）：图生图 → 文生图 → 完。
   // 不再瞎试账户里没有的 gpt-image / Forge —— 那只会每次失败白等 30 秒超时 + 500。
   if (provider === "midjourney" && ENV.api302Key) {
     // ① 先试图生图：把用户照片作为 image prompt 放进 base64Array
-    const mjEdit = await generate302MidjourneyImage(prompt, options, fetcher, [
-      imageUrl,
-    ]);
+    const contextImageUrls = options.primaryReferenceLock
+      ? []
+      : (options.referenceContextImageUrls ?? []).filter(Boolean);
+    const inputImageUrls = Array.from(
+      new Set([imageUrl, ...contextImageUrls])
+    ).slice(0, 3);
+    const mjEdit = await generate302MidjourneyImage(
+      [
+        "PRIMARY REFERENCE LOCK: image 1 exclusively controls character identity, exact wardrobe silhouette and length, dominant hue family, lighting, and material. Never shorten a floor-length gown. Never borrow a blue, cyan, or teal cast from continuity context when those hues are absent from image 1. Neighboring frames have already been translated into transition text and must not replace image 1's person or visual identity.",
+        prompt,
+      ].join("\n\n"),
+      options,
+      fetcher,
+      inputImageUrls
+    );
     if (mjEdit.status === "ok") return mjEdit;
     if (options.requireInputImage) {
       return {
@@ -1416,7 +1443,9 @@ async function generate302MidjourneyImage(
     console.warn(
       "[302 MJ] 出图请求异常:",
       error instanceof Error ? error.message : error,
-      error instanceof Error && error.cause ? `cause: ${String(error.cause)}` : ""
+      error instanceof Error && error.cause
+        ? `cause: ${String(error.cause)}`
+        : ""
     );
     const message =
       error instanceof Error

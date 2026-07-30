@@ -38,6 +38,7 @@ import {
   type VideoPromptDirectorResult,
 } from "./videoPromptDirector";
 import {
+  compileMjVideoProviderPrompt,
   compileVideoPromptEngineering,
   finalizeVideoPromptEngineering,
   VIDEO_PROMPT_ENGINEERING_VERSION,
@@ -391,6 +392,7 @@ function snapshot(input: {
       source: input.promptDirector.source,
       model: input.promptDirector.model,
       analysis: input.promptDirector.analysis,
+      materialProfile: input.promptDirector.materialProfile,
       engineering: input.promptDirector.engineering,
       fallbackReason: input.promptDirector.fallbackReason,
     },
@@ -604,6 +606,7 @@ export async function startShotVideoJob(
           source: "editor-approved",
           model: "",
           analysis: null,
+          materialProfile: null,
           engineering: preparedEngineering,
           fallbackReason: "用户已在故事版确认并应用导演方案",
         }
@@ -623,10 +626,14 @@ export async function startShotVideoJob(
             source: "deterministic-fallback",
             model: "",
             analysis: null,
+            materialProfile: null,
             engineering: preparedEngineering,
             fallbackReason: "当前视频供应商不是 MJ-Video",
           };
-  const videoPrompt = promptDirector.prompt;
+  const videoPrompt =
+    isMjVideo && !input.directorPromptApproved
+      ? compileMjVideoProviderPrompt(promptDirector.engineering)
+      : promptDirector.prompt;
 
   const take = await createVideoTake({
     storyId: input.storyId,

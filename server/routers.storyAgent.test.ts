@@ -140,6 +140,9 @@ describe("storyAgent tRPC router", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    imageGenMocks.toPublicImageUrl.mockImplementation(
+      async (url?: string) => url
+    );
     imagePromptDirectorMocks.directImagePrompt.mockImplementation(
       async input => ({
         prompt: input.fallbackPrompt,
@@ -867,6 +870,129 @@ describe("storyAgent tRPC router", () => {
         styleRef: anchorUrl,
       })
     );
+  });
+
+  it("故事版参考图不会绕过人物和场景连续性锚点", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/storyboard-locked.png",
+      imageKey: "generated/storyboard-locked.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(396));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "故事版连续性故事",
+      projectId: 7396,
+      body: {
+        cards: [],
+        characters: [
+          {
+            name: "SheSelf",
+            role: "主角",
+            oneLiner: "短黑发、白色及地长裙",
+          },
+        ],
+        shots: [
+          {
+            shotNo: 1,
+            cueCode: "0201",
+            subject: "SheSelf",
+            action: "在黑暗中撑开自己的空间",
+          },
+        ],
+      },
+    });
+
+    await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "SheSelf 在红黑空间中双臂发力",
+      imageProvider: "midjourney",
+      referenceImageUrl: "https://file.302.ai/red-black-scene.webp",
+      referenceIdentityImageUrl: "https://file.302.ai/hero-white-gown.webp",
+      referenceContextImageUrls: ["https://file.302.ai/previous-frame.webp"],
+    });
+
+    expect(imageGenMocks.toPublicImageUrl).toHaveBeenCalledWith(
+      "https://file.302.ai/hero-white-gown.webp"
+    );
+    expect(imageGenMocks.toPublicImageUrl).toHaveBeenCalledWith(
+      "https://file.302.ai/red-black-scene.webp"
+    );
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "https://file.302.ai/red-black-scene.webp",
+      expect.stringContaining("EXACT CHARACTER AND WARDROBE LOCK"),
+      expect.objectContaining({
+        characterRef: "https://file.302.ai/hero-white-gown.webp",
+        characterWeight: 100,
+        styleRef: "https://file.302.ai/red-black-scene.webp",
+        imageWeight: 2,
+        primaryReferenceLock: true,
+      })
+    );
+  });
+
+  it("故事版图片可直接读取时，公网锚点失败也继续使用原图生成", async () => {
+    imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(createAuthContext(397));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "连续性保护故事",
+      projectId: 7397,
+      body: {
+        cards: [],
+        characters: [{ name: "主角", role: "主角" }],
+        shots: [{ shotNo: 1, cueCode: "0101", subject: "主角" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角站在原有场景中",
+      imageProvider: "midjourney",
+      referenceImageUrl: "data:image/webp;base64,UklGRg==",
+      referenceIdentityImageUrl: "data:image/webp;base64,UklGRg==",
+    });
+
+    expect(result.status).toBe("ok");
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "data:image/webp;base64,UklGRg==",
+      expect.any(String),
+      expect.objectContaining({
+        primaryReferenceLock: true,
+        requireInputImage: true,
+      })
+    );
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it("故事版本地参考图已经丢失时停止，不提交付费生成", async () => {
+    imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(createAuthContext(398));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "连续性参考已丢失",
+      projectId: 7398,
+      body: {
+        cards: [],
+        characters: [{ name: "主角", role: "主角" }],
+        shots: [{ shotNo: 1, cueCode: "0205", subject: "主角" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角保持原有服装站在原有场景中",
+      imageProvider: "midjourney",
+      referenceImageUrl: "/api/images/definitely-missing-frame.webp",
+      referenceIdentityImageUrl: "/api/images/definitely-missing-frame.webp",
+    });
+
+    expect(result).toEqual({
+      status: "error",
+      error: expect.stringContaining("本次未提交付费生成"),
+    });
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
   });
 
   it("creationAgent.chat 的 setCharacterAnchor toolCall 会经 U6 持久化人物锚点", async () => {

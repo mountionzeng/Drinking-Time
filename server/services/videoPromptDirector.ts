@@ -11,6 +11,11 @@ import {
   finalizeVideoPromptEngineering,
   type VideoPromptEngineering,
 } from "./videoPromptEngineering";
+import {
+  compileVideoMaterialLock,
+  normalizeVideoMaterialProfile,
+  type VideoMaterialProfile,
+} from "./videoMaterialProfile";
 
 export type VideoPromptShotContext = {
   shotType?: string;
@@ -49,6 +54,7 @@ export type VideoPromptDirectorResult = {
   source: "302-vision" | "deterministic-fallback";
   model: string;
   analysis: VideoPromptAnalysis | null;
+  materialProfile: VideoMaterialProfile | null;
   engineering: VideoPromptEngineering;
   fallbackReason?: string;
 };
@@ -90,6 +96,7 @@ type DirectorPayload = {
   motionTimeline?: unknown;
   cameraSubjectCoordination?: unknown;
   preservationConstraints?: unknown;
+  materialProfile?: unknown;
   continuity?: unknown;
   subjectPosition?: unknown;
   facingGazeDirection?: unknown;
@@ -175,14 +182,24 @@ export function mjSafeVideoPrompt(value: string): string {
     .trim();
 }
 
-function compileDirectedPrompt(raw: DirectorPayload): string {
+function compileDirectedPrompt(
+  raw: DirectorPayload,
+  materialProfile: VideoMaterialProfile | null,
+  materialTexture?: string
+): string {
   const authoredPrompt = compactPrompt(raw.finalPrompt);
   const subjectMotion = englishClause(raw.subjectMotion, 34);
   const cameraMotion = englishClause(raw.cameraMotion, 28);
   const motionPrompt =
     authoredPrompt || [subjectMotion, cameraMotion].filter(Boolean).join(" ");
   if (!motionPrompt) return "";
-  return withVideoVisualFidelity(mjSafeVideoPrompt(motionPrompt));
+  const materialLock = compileVideoMaterialLock({
+    profile: materialProfile,
+    materialTexture,
+  });
+  return withVideoVisualFidelity(
+    [materialLock, `MOTION: ${mjSafeVideoPrompt(motionPrompt)}`].join("\n")
+  );
 }
 
 function completionText(data: CompletionResponse): string {
@@ -196,8 +213,25 @@ function completionText(data: CompletionResponse): string {
     .trim();
 }
 
-function normalizeAnalysis(raw: DirectorPayload): VideoPromptAnalysis {
+function normalizeAnalysis(
+  raw: DirectorPayload,
+  materialProfile: VideoMaterialProfile | null
+): VideoPromptAnalysis {
   const confidence = Number(raw.confidence);
+  const materialProfileSummary = materialProfile
+    ? [
+        `识别媒介：${materialProfile.medium}`,
+        materialProfile.support ? `承载面：${materialProfile.support}` : "",
+        materialProfile.markMaking
+          ? `笔触/制痕：${materialProfile.markMaking}`
+          : "",
+        materialProfile.pigmentBehavior
+          ? `颜料/颗粒：${materialProfile.pigmentBehavior}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("；")
+    : "";
   return {
     visualSummary: text(raw.visualSummary),
     narrativeIntent: text(raw.narrativeIntent),
@@ -211,7 +245,9 @@ function normalizeAnalysis(raw: DirectorPayload): VideoPromptAnalysis {
     subjectPosition: text(raw.subjectPosition),
     facingGazeDirection: text(raw.facingGazeDirection),
     shotScaleChange: text(raw.shotScaleChange),
-    lightColorMaterial: text(raw.lightColorMaterial),
+    lightColorMaterial: [text(raw.lightColorMaterial), materialProfileSummary]
+      .filter(Boolean)
+      .join("；"),
     actionContinuity: text(raw.actionContinuity),
     transitionStrategy: text(raw.transitionStrategy),
     risks: normalizeRisks(raw.risks),
@@ -253,6 +289,7 @@ function fallback(
     source: "deterministic-fallback",
     model: ENV.videoPrompt302Model,
     analysis: null,
+    materialProfile: null,
     engineering,
     fallbackReason: reason.slice(0, 500),
   };
@@ -262,6 +299,8 @@ function systemPrompt(): string {
   return [
     "你是小酌的「视频镜头导演」。你会同时看到当前镜头首帧和故事上下文。",
     "先逐项盘点画面里实际存在的人物、物体、背景结构、光线、色彩、材质、纹理和笔触，再理解叙事任务，最后设计可拍、可剪、可由图生视频模型执行的运动。",
+    "先判断视觉媒介，再讨论运动。必须把当前首帧归类为 oil-painting、watercolor、gouache、ink-wash、printmaking、pastel、charcoal、pencil-drawing、collage、digital-painting、photographic、mixed-media 或 other，并提取承载面、笔触/制痕、颜料或颗粒行为、边缘特征。不要只写 cinematic、painterly 或 textured 这类空泛风格词。",
+    "材质连续性是逐帧硬约束：运动过程中必须保留同一种画布或纸张纹理、笔触方向与尺度、颜料厚度/透明度/颗粒沉积和手绘边缘。油画不得变成摄影、塑料感或平滑 CGI；水彩不得变成油画厚涂、空气刷渐变或数字磨皮；版画不得丢失刻线、套色错位和纸张压痕。",
     "当前首帧与目标尾帧是视觉事实。除非镜头文字明确要求具体变化，否则人物身份、脸、发型、身体、服装，物体数量与位置、空间几何、构图、光线、色彩、材质、表面纹理和笔触都必须保持，不得新增、删除、复制、替换、融化或凭空显露内容。",
     "若提供人物身份基准图，它是脸、发型和服饰的唯一事实来源；只能把这些身份特征落实到当前镜头，不得照搬基准图的姿势、构图或背景。",
     "当前镜头有目标尾帧时，分析从首帧到尾帧真正发生了什么；不要把两帧之间没有证据的变化编出来。",
@@ -279,7 +318,7 @@ function systemPrompt(): string {
     "cameraRig、motionTimeline、cameraSubjectCoordination、preservationConstraints 用中文，具体且可执行。",
     "finalPrompt 必须是英文，70-140 个词，依次写人物与环境动作节拍、摄影机承载与路径、人物和摄影机配合、结束状态；不要只写 push-in、zoom 或 pan 这种空模板。",
     "必须返回严格 JSON，不要 markdown，不要解释。",
-    'JSON: {"visualSummary":"中文","narrativeIntent":"中文","subjectPosition":"中文","facingGazeDirection":"中文","shotScaleChange":"中文","lightColorMaterial":"中文","actionContinuity":"中文","continuity":"中文","transitionStrategy":"中文","cameraRig":"中文","motionTimeline":"中文","cameraSubjectCoordination":"中文","preservationConstraints":"中文","risks":[{"kind":"jump-cut|axis|space|action|look|none","detail":"中文"}],"subjectMotion":"English","cameraMotion":"English","recommendedMotion":"low|high","finalPrompt":"English","confidence":0.0}',
+    'JSON: {"visualSummary":"中文","narrativeIntent":"中文","subjectPosition":"中文","facingGazeDirection":"中文","shotScaleChange":"中文","lightColorMaterial":"中文","materialProfile":{"medium":"oil-painting|watercolor|gouache|ink-wash|printmaking|pastel|charcoal|pencil-drawing|collage|digital-painting|photographic|mixed-media|other","support":"English","markMaking":"English","pigmentBehavior":"English","temporalRules":"English","prohibitedDrift":"English","confidence":0.0},"actionContinuity":"中文","continuity":"中文","transitionStrategy":"中文","cameraRig":"中文","motionTimeline":"中文","cameraSubjectCoordination":"中文","preservationConstraints":"中文","risks":[{"kind":"jump-cut|axis|space|action|look|none","detail":"中文"}],"subjectMotion":"English","cameraMotion":"English","recommendedMotion":"low|high","finalPrompt":"English motion only","confidence":0.0}',
   ].join("\n");
 }
 
@@ -414,7 +453,12 @@ export async function directVideoPrompt(
 
     const data = (await response.json()) as CompletionResponse;
     const raw = parseJsonLoose<DirectorPayload>(completionText(data));
-    const prompt = compileDirectedPrompt(raw);
+    const materialProfile = normalizeVideoMaterialProfile(raw.materialProfile);
+    const prompt = compileDirectedPrompt(
+      raw,
+      materialProfile,
+      input.currentShot?.materialTexture
+    );
     if (!prompt) {
       return fallback(
         input,
@@ -432,7 +476,8 @@ export async function directVideoPrompt(
       prompt: directedEngineering.finalPrompt,
       source: "302-vision",
       model: data.model || ENV.videoPrompt302Model,
-      analysis: normalizeAnalysis(raw),
+      analysis: normalizeAnalysis(raw, materialProfile),
+      materialProfile,
       engineering: directedEngineering,
     };
   } catch (error) {

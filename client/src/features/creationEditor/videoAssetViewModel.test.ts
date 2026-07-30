@@ -9,6 +9,7 @@ import {
   videoTakeAffordance,
   videoTakeCandidateToAdopt,
   videoTakeErrorMessage,
+  videoTakeFailureLabel,
   videoTakeIdsToRefresh,
   videoTakeProgress,
 } from "./videoAssetViewModel";
@@ -296,5 +297,19 @@ describe("videoAssetViewModel", () => {
     expect(
       videoTakeErrorMessage("Prompt parameter error or image not approved")
     ).toBe("MJ 未通过提示词或首帧审核。请简化动作描述，或更换主图后重试。");
+  });
+
+  it("uses concise visible labels for MJ review and execution failures", () => {
+    expect(
+      videoTakeFailureLabel(
+        "302/MJ 未通过视频提示词或首帧审核。请简化动作描述。"
+      )
+    ).toBe("审核未通过");
+    expect(
+      videoTakeFailureLabel(
+        "[error] Midjourney API execution error, please try again later."
+      )
+    ).toBe("模型执行失败");
+    expect(videoTakeFailureLabel("unknown provider failure")).toBeNull();
   });
 });

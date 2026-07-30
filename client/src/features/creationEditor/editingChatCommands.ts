@@ -2,6 +2,18 @@ export type LocalEditingChatCommand =
   | { type: "undo" }
   | { type: "capabilities" };
 
+export function shouldDeferStoryboardImageCommand(input: {
+  sourceType?: string;
+  appliedCount: number;
+  hasProposal: boolean;
+}): boolean {
+  return (
+    input.sourceType === "storyboard-image" &&
+    input.appliedCount === 0 &&
+    !input.hasProposal
+  );
+}
+
 function compactInstruction(instruction: string): string {
   return instruction
     .trim()

@@ -71,6 +71,7 @@ import {
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
   editedTimelineDurationMs,
+  normalizeVideoClipEditDraft,
   videoClipboardPayloadFromTarget,
   videoClipboardPlannedDurationSec,
   videoClipEditorTargetForTake,
@@ -93,6 +94,11 @@ const MAX_TIMELINE_SCALE = 42;
 const DEFAULT_STORYBOARD_PANEL_SIZE = 45;
 const DEFAULT_PREVIEW_PANEL_SIZE = 55;
 const PREVIEW_CANVAS_INSET_PX = 12;
+
+type VideoEditorPreview = {
+  target: VideoClipEditorTarget;
+  draft: VideoClipEditDraft;
+};
 
 export function fitProjectCanvas(input: {
   stageWidth: number;
@@ -525,6 +531,7 @@ function ShotPreview({
   timing,
   sourceClip,
   timelineVideoSource,
+  editorPreview,
   suppressDefaultVideo,
   playheadMs,
   timelinePlaying,
@@ -535,6 +542,7 @@ function ShotPreview({
   timing?: { startMs: number; endMs: number; durationMs: number };
   sourceClip?: ChatCutTimelineClip | null;
   timelineVideoSource?: TimelineVideoSource | null;
+  editorPreview?: VideoEditorPreview | null;
   suppressDefaultVideo?: boolean;
   playheadMs: number;
   timelinePlaying: boolean;
@@ -549,10 +557,17 @@ function ShotPreview({
     width: 0,
     height: 0,
   });
+  const normalizedEditorDraft = editorPreview
+    ? normalizeVideoClipEditDraft(
+        editorPreview.draft,
+        editorPreview.target.mediaDurationSec
+      )
+    : null;
   const videoUrl =
+    editorPreview?.target.videoUrl ??
     timelineVideoSource?.videoUrl ??
     (suppressDefaultVideo ? null : playableVideoUrl(shot));
-  const imageUrl = shotImageUrl(shot);
+  const imageUrl = editorPreview?.target.posterUrl ?? shotImageUrl(shot);
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
   const formatLabel = format ? `${format.width}×${format.height}` : "1080×1080";
   const canvasSize = fitProjectCanvas({
@@ -570,28 +585,56 @@ function ShotPreview({
     0,
     (sourceClip?.sourceOutMs ?? sourceInMs) - sourceInMs
   );
-  const targetVideoTimeSeconds =
-    timelineVideoSource?.sourceTimeSec ??
-    (sourceInMs +
-      (sourceDurationMs > 0
-        ? Math.min(timelineOffsetMs, sourceDurationMs)
-        : timelineOffsetMs)) /
-      1000;
   const sourceStartSeconds =
-    timelineVideoSource?.sourceStartSec ?? sourceInMs / 1_000;
+    normalizedEditorDraft?.sourceStartSec ??
+    timelineVideoSource?.sourceStartSec ??
+    sourceInMs / 1_000;
   const sourceEndSeconds =
+    normalizedEditorDraft?.sourceEndSec ??
     timelineVideoSource?.sourceEndSec ??
     (sourceClip?.sourceOutMs ?? sourceInMs) / 1_000;
-  const playbackRate = timelineVideoPlaybackRate({
-    sourceStartSec: sourceStartSeconds,
-    sourceEndSec: sourceEndSeconds,
-    durationMs: timelineVideoSource?.durationMs ?? timing?.durationMs ?? 0,
-    effects: timelineVideoSource?.effects,
-  });
-  const reverse = timelineVideoSource?.effects.reverse ?? false;
-  const sourceVolume = timelineVideoSource?.effects.volume ?? 1;
-  const sourceMuted = timelineVideoSource?.effects.muted ?? false;
-  const videoTransform = timelineVideoSource?.transform;
+  const playbackRate =
+    normalizedEditorDraft?.effects.playbackRate ??
+    timelineVideoPlaybackRate({
+      sourceStartSec: sourceStartSeconds,
+      sourceEndSec: sourceEndSeconds,
+      durationMs: timelineVideoSource?.durationMs ?? timing?.durationMs ?? 0,
+      effects: timelineVideoSource?.effects,
+    });
+  const reverse =
+    normalizedEditorDraft?.effects.reverse ??
+    timelineVideoSource?.effects.reverse ??
+    false;
+  const sourceVolume =
+    normalizedEditorDraft?.effects.volume ??
+    timelineVideoSource?.effects.volume ??
+    1;
+  const sourceMuted =
+    normalizedEditorDraft?.effects.muted ??
+    timelineVideoSource?.effects.muted ??
+    false;
+  const videoTransform =
+    normalizedEditorDraft?.transform ?? timelineVideoSource?.transform;
+  const editorSourceOffsetSeconds = Math.min(
+    Math.max(0, sourceEndSeconds - sourceStartSeconds),
+    (timelineOffsetMs / 1_000) * playbackRate
+  );
+  const targetVideoTimeSeconds = normalizedEditorDraft
+    ? reverse
+      ? Math.max(
+          sourceStartSeconds,
+          sourceEndSeconds - editorSourceOffsetSeconds
+        )
+      : Math.min(
+          sourceEndSeconds,
+          sourceStartSeconds + editorSourceOffsetSeconds
+        )
+    : (timelineVideoSource?.sourceTimeSec ??
+      (sourceInMs +
+        (sourceDurationMs > 0
+          ? Math.min(timelineOffsetMs, sourceDurationMs)
+          : timelineOffsetMs)) /
+        1000);
   const shouldHoldLastFrame = timelineVideoShouldHoldLastFrame({
     targetTimeSec: targetVideoTimeSeconds,
     sourceStartSec: sourceStartSeconds,
@@ -669,11 +712,11 @@ function ShotPreview({
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
-      aria-label="动态分镜预览"
+      aria-label="预览页面"
     >
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="min-w-0">
-          <span className="text-xs font-semibold">动态分镜</span>
+          <span className="text-xs font-semibold">预览页面</span>
           {shot ? (
             <span className="ml-2 font-mono text-[10px] text-primary">
               {shotLabel(shot)}
@@ -685,6 +728,14 @@ function ShotPreview({
           >
             {formatLabel}
           </span>
+          {editorPreview ? (
+            <span
+              className="ml-2 rounded-sm bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary"
+              data-testid="editing-preview-live-draft"
+            >
+              参数预览
+            </span>
+          ) : null}
         </div>
         <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
           {timing
@@ -711,7 +762,11 @@ function ShotPreview({
           >
             {videoUrl ? (
               <video
-                key={videoUrl}
+                key={
+                  editorPreview
+                    ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
+                    : videoUrl
+                }
                 ref={videoRef}
                 src={videoUrl}
                 poster={imageUrl ?? undefined}
@@ -2167,6 +2222,8 @@ export default function EditingNleWorkspace({
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
   const [videoEditorTarget, setVideoEditorTarget] =
     useState<VideoClipEditorTarget | null>(null);
+  const [videoEditorPreviewDraft, setVideoEditorPreviewDraft] =
+    useState<VideoClipEditDraft | null>(null);
   const [videoClipboard, setVideoClipboard] =
     useState<VideoClipboardPayload | null>(null);
   const [savingVideoEdit, setSavingVideoEdit] = useState(false);
@@ -2367,6 +2424,17 @@ export default function EditingNleWorkspace({
       }));
       setImageEditorTarget(null);
       setVideoEditorTarget(target);
+      setVideoEditorPreviewDraft(
+        normalizeVideoClipEditDraft(
+          {
+            sourceStartSec: target.sourceStartSec,
+            sourceEndSec: target.sourceEndSec,
+            effects: { ...target.effects },
+            transform: { ...target.transform },
+          },
+          target.mediaDurationSec
+        )
+      );
       setActiveSelection({
         sourceType: target.clipId ? "timeline-range" : "animatic-video",
         sourceId: target.clipId ?? String(target.takeId),
@@ -2405,6 +2473,7 @@ export default function EditingNleWorkspace({
         isPlaying: false,
       }));
       setVideoEditorTarget(null);
+      setVideoEditorPreviewDraft(null);
       setImageEditorTarget(target);
       setActiveSelection({
         sourceType: "storyboard-image",
@@ -2493,6 +2562,11 @@ export default function EditingNleWorkspace({
       videoEditorTarget,
     ]
   );
+
+  const closeVideoEditor = useCallback(() => {
+    setVideoEditorTarget(null);
+    setVideoEditorPreviewDraft(null);
+  }, []);
 
   // 小酌生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
   // 定位，而不是依赖会因插入而变化的 SH 序号。
@@ -2726,8 +2800,8 @@ export default function EditingNleWorkspace({
         <ResizableHandle
           withHandle
           className="creation-board-resize-handle !w-2 after:!w-2"
-          aria-label="调整故事版与动态分镜宽度"
-          title="拖动调整故事版与动态分镜宽度"
+          aria-label="调整故事版与预览页面宽度"
+          title="拖动调整故事版与预览页面宽度"
         />
         <ResizablePanel
           id="editing-preview"
@@ -2746,6 +2820,14 @@ export default function EditingNleWorkspace({
               activeTimelineVideoSource,
               selectedShot?.shotNo
             )}
+            editorPreview={
+              videoEditorTarget && videoEditorPreviewDraft
+                ? {
+                    target: videoEditorTarget,
+                    draft: videoEditorPreviewDraft,
+                  }
+                : null
+            }
             suppressDefaultVideo={Boolean(
               selectedShot?.timelineItem?.visualClipsReplacePrimary
             )}
@@ -2783,8 +2865,9 @@ export default function EditingNleWorkspace({
         <VideoClipEditorPanel
           target={videoEditorTarget}
           saving={savingVideoEdit}
-          onClose={() => setVideoEditorTarget(null)}
+          onClose={closeVideoEditor}
           onApply={applyVideoEdit}
+          onPreviewChange={setVideoEditorPreviewDraft}
         />
       ) : null}
       {imageEditorTarget ? (

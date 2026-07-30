@@ -45,10 +45,17 @@ import { getStoryMaterialState } from "../services/storyMaterials";
 import { buildScriptResonanceContextForUser } from "../services/scriptAgent";
 import { composeScenePrompt } from "../services/composeScenePrompt";
 import { withCharacterContinuityPrompt } from "../services/characterContinuity";
-import { deriveInjection } from "../services/imageInjection";
+import {
+  deriveInjection,
+  deriveStoryboardReferenceInjection,
+} from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
-import { applyExplicitImageRenderInstruction } from "../services/imageRenderInstruction";
+import {
+  applyExplicitImageRenderInstruction,
+  applyStoryFrameVisualTruth,
+} from "../services/imageRenderInstruction";
+import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import {
   normalizeStoryArtDirection,
   characterReferenceOf,
@@ -217,6 +224,7 @@ export const storyAgentRouter = router({
         fullText: z.string().min(1),
         selectedText: z.string().min(1),
         instruction: z.string().min(1),
+        promptRewrite: z.boolean().optional(),
         selectionContext: selectionContextSchema.optional(),
         projectId: z.number().optional(),
         history: z
@@ -234,6 +242,7 @@ export const storyAgentRouter = router({
         fullText: input.fullText,
         selectedText: input.selectedText,
         instruction: input.instruction,
+        promptRewrite: input.promptRewrite,
         selectionContext: input.selectionContext,
         projectId: input.projectId,
         history: input.history,
@@ -1085,6 +1094,7 @@ export const storyAgentRouter = router({
         imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(), // 图片生成器选择，透传给 generateImage/editImage
         referenceImageUrl: z.string().optional(), // FLUX Kontext 参考图 URL，跨镜头保角色/场景一致
         referenceIdentityImageUrl: z.string().optional(), // 人物身份锚点图，优先用来提取五官/脸型
+        referenceContextImageUrls: z.array(z.string()).max(3).optional(), // 当前故事的相邻镜头画面，仅用于视觉连续性
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1301,7 +1311,9 @@ export const storyAgentRouter = router({
                     : undefined,
               },
               artDirection: {
-                recipe: artDirection.recipe ?? undefined,
+                recipe: input.referenceImageUrl
+                  ? undefined
+                  : (artDirection.recipe ?? undefined),
               },
               characters,
               freeTextPrompt: prompt,
@@ -1356,29 +1368,57 @@ export const storyAgentRouter = router({
 
         // 出图统一经美术网关
         const storyReferences = storyArtReferenceImages(story);
-        const direction = normalizeStoryArtDirection(storyBody.artDirection);
-        const rawCharacterRef = characterReferenceOf(direction);
+        const rawCharacterRef = characterReferenceOf(artDirection);
+        const referencePlan = planImageGenerationReferences({
+          shotReferenceImageUrl: input.referenceImageUrl,
+          shotContextImageUrls: input.referenceContextImageUrls,
+          originalImageUrl: input.originalImageUrl,
+          characterReferenceImageUrl: rawCharacterRef,
+          storyReferenceImageUrls: storyReferences,
+        });
         prompt = withCharacterContinuityPrompt(prompt, storyBody, {
-          hasCharacterReference: Boolean(rawCharacterRef),
+          hasCharacterReference: Boolean(
+            referencePlan.usesStoryboardFrames
+              ? (input.referenceIdentityImageUrl ?? referencePlan.primaryImage)
+              : rawCharacterRef
+          ),
           sceneAnalysis: input.sceneAnalysis,
         });
-        const injection = await deriveInjection(story, input.sceneAnalysis);
-        // 垫图基底（场景一致）：优先主角图原图（readImageInput 可直读本地），其次用户照片/故事参考。
-        const referenceImage =
-          input.originalImageUrl || rawCharacterRef || storyReferences[0];
+        const referenceImage = referencePlan.primaryImage;
+        let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
-            const referencePurpose = input.originalImageUrl
-              ? "current-frame"
-              : rawCharacterRef
-                ? "character"
-                : "scene-style";
-            const imageInput = await materializeImageInput(referenceImage);
+            referenceImageInput =
+              await materializeImageInput(referenceImage);
+          } catch (error) {
+            if (referencePlan.usesStoryboardFrames) {
+              return {
+                status: "error" as const,
+                error:
+                  "当前镜头或相邻镜头的连续性参考图已经丢失或无法读取，本次未提交付费生成。请重新拖入参考画面后再试。",
+              };
+            }
+            console.warn(
+              "[generateForMobile] reference image unavailable, using existing prompt:",
+              error instanceof Error ? error.message : error
+            );
+          }
+        }
+        const injection = referencePlan.usesStoryboardFrames
+          ? await deriveStoryboardReferenceInjection(story, {
+              identityImageUrl:
+                input.referenceIdentityImageUrl ?? referencePlan.primaryImage,
+              sceneImageUrl: referencePlan.primaryImage,
+              analysis: input.sceneAnalysis,
+            })
+          : await deriveInjection(story, input.sceneAnalysis);
+        if (referenceImageInput) {
+          try {
             const directed = await directImagePrompt({
-              imageInput,
+              imageInput: referenceImageInput,
               fallbackPrompt: prompt,
               narrativePrompt: prompt,
-              referencePurpose,
+              referencePurpose: referencePlan.referencePurpose,
               shotNo: input.shotNo,
               cueCode:
                 typeof storyShot?.cueCode === "string"
@@ -1400,20 +1440,21 @@ export const storyAgentRouter = router({
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
         const gateContext = {
           prompt,
-          referenceImages: referenceImage
-            ? Array.from(new Set([referenceImage, ...storyReferences]))
-            : undefined,
+          referenceImages: referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
           storyId: story.id,
-          artDirection: storyArtRecipe(story) ?? explicitStyleRecipe,
+          artDirection: referencePlan.usesStoryboardFrames
+            ? explicitStyleRecipe
+            : (storyArtRecipe(story) ?? explicitStyleRecipe),
           styleIndex:
             typeof storyBody.styleIndex === "number"
               ? (storyBody.styleIndex as number)
               : undefined,
         };
 
-        const imageWeight = input.sceneWeight ?? 0.5;
+        const imageWeight =
+          input.sceneWeight ?? (referencePlan.usesStoryboardFrames ? 2 : 0.5);
         const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
         const promptCompilationId = await resolveStoryImageCompilationId({
           story,
@@ -1435,6 +1476,10 @@ export const storyAgentRouter = router({
               renderedPrompt,
               input.explicitInstruction
             );
+            if (referencePlan.usesStoryboardFrames) {
+              renderedDraftPrompt =
+                applyStoryFrameVisualTruth(renderedDraftPrompt);
+            }
             return generateDraftImage(renderedDraftPrompt);
           });
           if (draft.status === "ok" && draft.imageUrl) {
@@ -1476,6 +1521,10 @@ export const storyAgentRouter = router({
             renderedPrompt,
             input.explicitInstruction
           );
+          if (referencePlan.usesStoryboardFrames) {
+            renderedFinalPrompt =
+              applyStoryFrameVisualTruth(renderedFinalPrompt);
+          }
           console.log(
             `[generateForMobile] final prompt after gate: ${renderedFinalPrompt.length} chars`
           );
@@ -1490,17 +1539,21 @@ export const storyAgentRouter = router({
           );
           return referenceImage
             ? editMobileImage(referenceImage, renderedFinalPrompt, {
-                provider: input.imageProvider,
+                provider: input.imageProvider ?? "midjourney",
                 ...injection,
                 imageWeight,
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,
+                referenceContextImageUrls: input.referenceContextImageUrls,
+                primaryReferenceLock: referencePlan.usesStoryboardFrames,
+                requireInputImage: referencePlan.usesStoryboardFrames,
               })
             : generateMobileImage(renderedFinalPrompt, {
-                provider: input.imageProvider,
+                provider: input.imageProvider ?? "midjourney",
                 ...injection,
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,
+                referenceContextImageUrls: input.referenceContextImageUrls,
               });
         });
         if (result.status === "error" || !result.imageUrl) {
@@ -1520,7 +1573,9 @@ export const storyAgentRouter = router({
           imageUrl: result.imageUrl,
           prompt: renderedFinalPrompt,
           promptCompilationId,
-          generationType: "initial",
+          generationType: referencePlan.usesStoryboardFrames
+            ? "inpaint"
+            : "initial",
           parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
           isCurrent: false,
         });

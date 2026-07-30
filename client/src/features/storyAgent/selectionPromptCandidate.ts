@@ -27,7 +27,31 @@ export type SelectionPromptTarget = {
   stableShotId: string;
   dimension: string;
   label: string;
+  currentContent: string | null;
 };
+
+export function resolveSelectionEditText(input: {
+  selection: Pick<
+    SelectionContext,
+    "sourceType" | "selectedText" | "fullText"
+  >;
+  target: SelectionPromptTarget | null;
+}): { fullText: string; selectedText: string } {
+  const currentContent = input.target?.currentContent?.trim();
+  if (
+    input.selection.sourceType === "storyboard-image" &&
+    currentContent
+  ) {
+    return {
+      fullText: currentContent,
+      selectedText: currentContent,
+    };
+  }
+  return {
+    fullText: input.selection.fullText,
+    selectedText: input.selection.selectedText,
+  };
+}
 
 function shotIdentity(shot: StoryShot | undefined): string | null {
   return shot?.stableShotId?.trim() || shot?.shotIdentity?.trim() || null;
@@ -38,13 +62,23 @@ export function resolveSelectionPromptTarget(input: {
   shots: readonly StoryShot[];
   aggregate: StoryPromptAggregate;
 }): SelectionPromptTarget | null {
-  if (input.selection.sourceType !== "shot") return null;
+  const isStoryboardImage =
+    input.selection.sourceType === "storyboard-image";
+  if (input.selection.sourceType !== "shot" && !isStoryboardImage) return null;
+
   const [rawIndex, field] = input.selection.sourceId.split(":");
-  const index = Number(rawIndex);
-  const dimension = SHOT_FIELD_DIMENSIONS[field];
+  const index = input.selection.sourceType === "shot" ? Number(rawIndex) : -1;
+  const dimension = isStoryboardImage
+    ? "image_prompt"
+    : SHOT_FIELD_DIMENSIONS[field];
   if (!dimension) return null;
+  const shotByNumber =
+    input.selection.shotNo == null
+      ? undefined
+      : input.shots.find(shot => shot.shotNo === input.selection.shotNo);
   const stableShotId =
     input.selection.stableShotId?.trim() ||
+    shotIdentity(shotByNumber) ||
     shotIdentity(Number.isInteger(index) ? input.shots[index] : undefined);
   if (!stableShotId) return null;
 
@@ -61,15 +95,22 @@ export function resolveSelectionPromptTarget(input: {
     });
   const node = candidates[0];
   if (!node) return null;
+  const currentRevision =
+    node.currentRevisionId == null
+      ? undefined
+      : input.aggregate.revisions.find(
+          revision => revision.id === node.currentRevisionId,
+        );
   return {
     nodeId: node.id,
     stableShotId,
     dimension,
+    currentContent: currentRevision?.content ?? null,
     label: `${displayShotCode({
       cueCode:
         input.selection.cueCode ??
         (Number.isInteger(index) ? input.shots[index]?.cueCode : null),
       shotNo: input.selection.shotNo ?? index + 1,
-    })} · ${field}`,
+    })} · ${isStoryboardImage ? "图片要求" : field}`,
   };
 }

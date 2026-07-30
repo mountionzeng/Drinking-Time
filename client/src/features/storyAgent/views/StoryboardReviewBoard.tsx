@@ -30,7 +30,11 @@ import {
   ClipboardPaste,
 } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
+import type {
+  StoryboardImageRerenderResult,
+  StoryboardImageRerenderRunner,
+  StoryShotEditableField,
+} from "@/features/storyAgent/StoryAgentContext";
 import { toast } from "sonner";
 import type { GeneratedScript, StoryShot } from "@/features/storyAgent/types";
 import {
@@ -39,6 +43,13 @@ import {
   type CreationEditorShot,
   type ImportedStoryMaterialResult,
 } from "@/features/creationEditor/CreationEditorContext";
+import {
+  MAX_CONCURRENT_STORYBOARD_RENDERS,
+  addShotToRenderSlots,
+  canStartShotRender,
+  mergeActiveRenderShotNos,
+  removeShotFromRenderSlots,
+} from "@/features/creationEditor/renderSlots";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import {
   mjVideoVariantLabel,
@@ -66,7 +77,10 @@ import {
   timelineTransformStyle,
   type ImageClipEditorTarget,
 } from "@/features/creationEditor/imageClipEditorModel";
-import type { ShotVideoProviderStatus } from "@shared/videoAsset";
+import {
+  isVideoTakeTerminal,
+  type ShotVideoProviderStatus,
+} from "@shared/videoAsset";
 import type {
   ShotConsistencyAnalysis,
   ShotConsistencyMismatch,
@@ -155,6 +169,7 @@ export function StoryboardReviewBoard({
   shots,
   latestScript,
   isGeneratingScript,
+  onRegisterImageRerenderRunner,
   selectedShotNo = null,
   onSelectShot,
   onUpdateShotField,
@@ -163,11 +178,11 @@ export function StoryboardReviewBoard({
   onAddShotToTimeline,
   onInsertShotAfter,
   onDeleteShot,
-  generatingImageShotNo = null,
+  generatingImageShotNos = [],
   onGenerateShotImages,
   continuityAnchor = null,
   onAnalyzeShotConsistency,
-  generatingVideoShotNo = null,
+  generatingVideoShotNos = [],
   onGenerateShotVideo,
   onEstimateStartEndShotVideo,
   onGenerateStartEndShotVideo,
@@ -197,6 +212,9 @@ export function StoryboardReviewBoard({
   shots: StoryShot[];
   latestScript: GeneratedScript | null;
   isGeneratingScript: boolean;
+  onRegisterImageRerenderRunner?: (
+    runner: StoryboardImageRerenderRunner
+  ) => () => void;
   selectedShotNo?: number | null;
   onSelectShot?: (shotNo: number) => void;
   onUpdateShotField?: (
@@ -215,7 +233,7 @@ export function StoryboardReviewBoard({
     shotNo: number,
     stableShotId?: string | null
   ) => number | null | void | Promise<number | null | void>;
-  generatingImageShotNo?: number | null;
+  generatingImageShotNos?: readonly number[];
   onGenerateShotImages?: (input: {
     shotNo: number;
     rows: PromptRow[];
@@ -244,7 +262,7 @@ export function StoryboardReviewBoard({
     };
     maxShots?: number;
   }) => Promise<ShotConsistencyAnalysis>;
-  generatingVideoShotNo?: number | null;
+  generatingVideoShotNos?: readonly number[];
   onGenerateShotVideo?: (input: {
     shotNo: number;
     imageId: number;
@@ -394,13 +412,79 @@ export function StoryboardReviewBoard({
     Record<string, number>
   >({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
-  const [rerenderingShotNo, setRerenderingShotNo] = useState<number | null>(
-    null
+  const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
+  const [continuityCheckingByShot, setContinuityCheckingByShot] = useState<
+    Record<number, "image" | "video">
+  >({});
+  const continuityCheckingShotNos = useMemo(
+    () => Object.keys(continuityCheckingByShot).map(Number),
+    [continuityCheckingByShot]
   );
-  const [continuityChecking, setContinuityChecking] = useState<{
-    shotNo: number;
-    renderKind: "image" | "video";
-  } | null>(null);
+  const backgroundVideoRenderShotNos = useMemo(
+    () =>
+      creationShots
+        .filter(shot =>
+          shot.videoTakes?.some(take => !isVideoTakeTerminal(take.status))
+        )
+        .map(shot => shot.shotNo),
+    [creationShots]
+  );
+  const activeRenderShotNos = useMemo(
+    () =>
+      mergeActiveRenderShotNos(
+        generatingImageShotNos,
+        generatingVideoShotNos,
+        rerenderingShotNos,
+        continuityCheckingShotNos,
+        backgroundVideoRenderShotNos
+      ),
+    [
+      backgroundVideoRenderShotNos,
+      continuityCheckingShotNos,
+      generatingImageShotNos,
+      generatingVideoShotNos,
+      rerenderingShotNos,
+    ]
+  );
+  const continuityWorkflowLocked =
+    continuityCheckingShotNos.length > 0 || continuityDialog != null;
+  const isShotRenderActive = useCallback(
+    (shotNo: number) => activeRenderShotNos.includes(shotNo),
+    [activeRenderShotNos]
+  );
+  const canStartRenderForShot = useCallback(
+    (shotNo: number) =>
+      !continuityWorkflowLocked &&
+      canStartShotRender({
+        shotNo,
+        activeShotNos: activeRenderShotNos,
+      }),
+    [activeRenderShotNos, continuityWorkflowLocked]
+  );
+  const beginShotRender = useCallback((shotNo: number) => {
+    setRerenderingShotNos(current => addShotToRenderSlots(current, shotNo));
+  }, []);
+  const finishShotRender = useCallback((shotNo: number) => {
+    setRerenderingShotNos(current =>
+      removeShotFromRenderSlots(current, shotNo)
+    );
+  }, []);
+  const beginContinuityCheck = useCallback(
+    (shotNo: number, renderKind: "image" | "video") => {
+      setContinuityCheckingByShot(current => ({
+        ...current,
+        [shotNo]: renderKind,
+      }));
+    },
+    []
+  );
+  const finishContinuityCheck = useCallback((shotNo: number) => {
+    setContinuityCheckingByShot(current => {
+      const next = { ...current };
+      delete next[shotNo];
+      return next;
+    });
+  }, []);
   const [draggedMatrixCell, setDraggedMatrixCell] = useState<{
     sourceIndex: number;
     field: StoryboardMatrixField;
@@ -1405,20 +1489,21 @@ export function StoryboardReviewBoard({
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
     shotIndex: number
-  ) => {
+  ): Promise<StoryboardImageRerenderResult> => {
     const label = displayShotCode(shot);
     if (!creationShot || !onGenerateShotImages) {
-      toast.error(`${label} 还没有可渲染的镜头记录`);
-      return;
+      const message = `${label} 还没有可渲染的镜头记录`;
+      toast.error(message);
+      return { status: "error", message };
     }
-    if (
-      generatingImageShotNo != null ||
-      continuityChecking != null ||
-      rerenderingShotNo != null ||
-      generatingVideoShotNo != null
-    ) {
-      toast.info("已有渲染或人物检查正在进行，请稍候");
-      return;
+    if (!canStartRenderForShot(shot.shotNo)) {
+      const message = isShotRenderActive(shot.shotNo)
+          ? `${label} 已在渲染线上`
+          : continuityWorkflowLocked
+            ? "正在确认人物连续性，确认后即可使用另一条渲染线"
+            : `两条渲染线都在使用，请等待其中一条完成`;
+      toast.info(message);
+      return { status: "cancelled", message };
     }
     const stableShotId = storyShotInsertIdentity(shot, shotIndex);
     const pendingDrafts = stableShotId
@@ -1430,8 +1515,9 @@ export function StoryboardReviewBoard({
       ""
     ).trim();
     if (!imageRequirement) {
-      toast.error(`请先在 ${label} 的“图片要求”中写清楚要怎样生成或修改`);
-      return;
+      const message = `请先在 ${label} 的“图片要求”中写清楚要怎样生成或修改`;
+      toast.error(message);
+      return { status: "error", message };
     }
     const effectiveShot = storyboardRenderShotWithDraft(
       creationShot,
@@ -1444,10 +1530,9 @@ export function StoryboardReviewBoard({
       (await resolvePersistedNeighborImageReferences(creationShot)) ??
       storyboardImageGenerationReferences(creationShot, creationShots);
     if (!imageReferences) {
-      toast.error(
-        `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`
-      );
-      return;
+      const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
+      toast.error(message);
+      return { status: "error", message };
     }
     const sourceLabel = (reference: (typeof imageReferences)["primary"]) => {
       const cue = reference.cueCode ?? String(reference.shotNo);
@@ -1461,8 +1546,14 @@ export function StoryboardReviewBoard({
     const confirmed = window.confirm(
       `${label} 将以 ${sourceLabel(imageReferences.primary)} 为视觉基底${contextLabel ? `，并参考 ${contextLabel}` : ""}，按下面这段原文硬指令生成 ${imageEstimate.candidateCount} 张候选图：\n\n${explicitInstruction}\n\n人物、服装、场景、物体、材质和画面风格以这些现有故事画面为准；不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`
     );
-    if (!confirmed) return;
+    if (!confirmed) {
+      return {
+        status: "cancelled",
+        message: `${label} 已取消，本次未提交付费生成`,
+      };
+    }
 
+    beginShotRender(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
       if (onUpdateShotField && pendingDrafts) {
@@ -1515,18 +1606,65 @@ export function StoryboardReviewBoard({
         },
       });
       if (generation.failedCount > 0) {
-        toast.warning(
-          `${label} 已生成 ${generation.generatedCount} 张候选，另有 ${generation.failedCount} 张失败；现有结果已放入“画面”行`
-        );
+        const message = `${label} 已生成 ${generation.generatedCount} 张候选，另有 ${generation.failedCount} 张失败；现有结果已放入“画面”行`;
+        toast.warning(message);
+        return { status: "success", message };
       } else {
-        toast.success(`${label} 已生成四张候选图，请在“画面”行选择一张`);
+        const message = `${label} 已生成四张候选图，请在“画面”行选择一张`;
+        toast.success(message);
+        return { status: "success", message };
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : `${label} 图片生成失败`
-      );
+      const message =
+        error instanceof Error ? error.message : `${label} 图片生成失败`;
+      toast.error(message);
+      return { status: "error", message };
+    } finally {
+      finishShotRender(shot.shotNo);
     }
   };
+
+  useEffect(() => {
+    if (!onRegisterImageRerenderRunner) return;
+    const runner: StoryboardImageRerenderRunner = async request => {
+      const shotIndex = shots.findIndex((candidate, index) => {
+        const stableShotId = storyShotInsertIdentity(candidate, index);
+        if (
+          request.stableShotId &&
+          stableShotId === request.stableShotId
+        ) {
+          return true;
+        }
+        if (request.cueCode && candidate.cueCode === request.cueCode) {
+          return true;
+        }
+        return candidate.shotNo === request.shotNo;
+      });
+      const shot = shots[shotIndex];
+      if (!shot) {
+        const message = "这个镜头已经不在当前故事中，请刷新后再试";
+        toast.error(message);
+        return { status: "error", message };
+      }
+      const stableShotId = storyShotInsertIdentity(shot, shotIndex);
+      const creationShot = creationShots.find(candidate => {
+        const candidateStableShotId =
+          candidate.stableShotId ?? candidate.shotIdentity ?? null;
+        return (
+          (stableShotId != null &&
+            candidateStableShotId === stableShotId) ||
+          candidate.shotNo === shot.shotNo
+        );
+      });
+      return renderShotImageCandidates(shot, creationShot, shotIndex);
+    };
+    return onRegisterImageRerenderRunner(runner);
+  }, [
+    creationShots,
+    onRegisterImageRerenderRunner,
+    renderShotImageCandidates,
+    shots,
+  ]);
 
   const promoteStoryboardFrameCandidate = async (input: {
     shot: StoryShot;
@@ -1562,12 +1700,14 @@ export function StoryboardReviewBoard({
       toast.error(`${label} 还没有可渲染的镜头记录`);
       return;
     }
-    if (
-      continuityChecking != null ||
-      rerenderingShotNo != null ||
-      generatingVideoShotNo != null
-    ) {
-      toast.info("已有视频任务或人物检查正在进行，请稍候");
+    if (!canStartRenderForShot(shot.shotNo)) {
+      toast.info(
+        isShotRenderActive(shot.shotNo)
+          ? `${label} 已在渲染线上`
+          : continuityWorkflowLocked
+            ? "正在确认人物连续性，确认后即可使用另一条渲染线"
+            : "两条渲染线都在使用，请等待其中一条完成"
+      );
       return;
     }
     const stableShotId =
@@ -1581,10 +1721,10 @@ export function StoryboardReviewBoard({
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
     );
-    setRerenderingShotNo(shot.shotNo);
+    beginShotRender(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
-      setContinuityChecking({ shotNo: shot.shotNo, renderKind: "video" });
+      beginContinuityCheck(shot.shotNo, "video");
       let continuityChoice: StoryboardContinuityOption | null | undefined;
       try {
         continuityChoice = await resolveGenerationContinuity({
@@ -1593,7 +1733,7 @@ export function StoryboardReviewBoard({
           renderKind: "video",
         });
       } finally {
-        setContinuityChecking(null);
+        finishContinuityCheck(shot.shotNo);
       }
       if (continuityChoice === null) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
@@ -1787,7 +1927,7 @@ export function StoryboardReviewBoard({
         error instanceof Error ? error.message : `${label} 视频提交失败`
       );
     } finally {
-      setRerenderingShotNo(null);
+      finishShotRender(shot.shotNo);
     }
   };
 
@@ -1865,6 +2005,15 @@ export function StoryboardReviewBoard({
                 : storyboardTimelineDurationMs > 0
                   ? `${shots.length} 镜 · ${(storyboardTimelineDurationMs / 1000).toFixed(1)}s · ${frames.length} 图`
                   : `${shots.length} 镜 · ${frames.length} 图`}
+            </span>
+          ) : null}
+          {activeRenderShotNos.length > 0 ? (
+            <span
+              className="creation-board-panel-status"
+              aria-label="渲染线状态"
+            >
+              渲染线 {activeRenderShotNos.length}/
+              {MAX_CONCURRENT_STORYBOARD_RENDERS}
             </span>
           ) : null}
           {shots.length > 0 ? (
@@ -2090,10 +2239,7 @@ export function StoryboardReviewBoard({
                             data-testid={`storyboard-header-generate-image-${insertStableShotId}`}
                             disabled={
                               !creationShot ||
-                              generatingImageShotNo != null ||
-                              continuityChecking != null ||
-                              rerenderingShotNo != null ||
-                              generatingVideoShotNo != null
+                              !canStartRenderForShot(shot.shotNo)
                             }
                             onClick={event => {
                               event.stopPropagation();
@@ -2107,9 +2253,9 @@ export function StoryboardReviewBoard({
                             aria-label={`根据前后画面和图片要求重新生成 ${shotLabel} 图片`}
                             title="根据前后画面和图片要求重新生成图片"
                           >
-                            {generatingImageShotNo === shot.shotNo ||
-                            (continuityChecking?.shotNo === shot.shotNo &&
-                              continuityChecking.renderKind === "image") ? (
+                            {generatingImageShotNos.includes(shot.shotNo) ||
+                            continuityCheckingByShot[shot.shotNo] ===
+                              "image" ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <ImagePlus className="h-3 w-3" />
@@ -2124,10 +2270,7 @@ export function StoryboardReviewBoard({
                             type="button"
                             data-testid={`storyboard-header-generate-video-${insertStableShotId}`}
                             disabled={
-                              generatingImageShotNo != null ||
-                              continuityChecking != null ||
-                              rerenderingShotNo != null ||
-                              generatingVideoShotNo != null
+                              !canStartRenderForShot(shot.shotNo)
                             }
                             onClick={event => {
                               event.stopPropagation();
@@ -2137,10 +2280,10 @@ export function StoryboardReviewBoard({
                             aria-label={`根据前后画面和视频要求生成 ${shotLabel} 视频`}
                             title="根据前后画面和视频要求生成视频"
                           >
-                            {(continuityChecking?.shotNo === shot.shotNo &&
-                              continuityChecking.renderKind === "video") ||
-                            rerenderingShotNo === shot.shotNo ||
-                            generatingVideoShotNo === shot.shotNo ? (
+                            {continuityCheckingByShot[shot.shotNo] ===
+                              "video" ||
+                            rerenderingShotNos.includes(shot.shotNo) ||
+                            generatingVideoShotNos.includes(shot.shotNo) ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Video className="h-3 w-3" />
@@ -2208,11 +2351,10 @@ export function StoryboardReviewBoard({
                     explicitlySelectedTakeId
                   );
                   const isSubmittingVideo =
-                    rerenderingShotNo === shot.shotNo ||
-                    generatingVideoShotNo === shot.shotNo;
+                    rerenderingShotNos.includes(shot.shotNo) ||
+                    generatingVideoShotNos.includes(shot.shotNo);
                   const isCheckingVideoContinuity =
-                    continuityChecking?.shotNo === shot.shotNo &&
-                    continuityChecking.renderKind === "video";
+                    continuityCheckingByShot[shot.shotNo] === "video";
                   const isAwaitingVideoContinuityChoice =
                     continuityDialog?.renderKind === "video" &&
                     continuityDialog.shotLabel === displayShotCode(shot);
@@ -3418,10 +3560,7 @@ export function StoryboardReviewBoard({
                                 type="button"
                                 disabled={
                                   !creationShot ||
-                                  generatingImageShotNo != null ||
-                                  continuityChecking != null ||
-                                  rerenderingShotNo != null ||
-                                  generatingVideoShotNo != null
+                                  !canStartRenderForShot(shot.shotNo)
                                 }
                                 onPointerDown={event => event.stopPropagation()}
                                 onClick={event => {
@@ -3436,15 +3575,15 @@ export function StoryboardReviewBoard({
                                 aria-label={`按图片要求渲染 ${shotLabel} 的四张候选图`}
                                 title="原文要求优先，生成四张同风格候选图"
                               >
-                                {generatingImageShotNo === shot.shotNo ||
-                                (continuityChecking?.shotNo === shot.shotNo &&
-                                  continuityChecking.renderKind === "image") ? (
+                                {generatingImageShotNos.includes(shot.shotNo) ||
+                                continuityCheckingByShot[shot.shotNo] ===
+                                  "image" ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
                                   <ImagePlus className="h-3 w-3" />
                                 )}
-                                {continuityChecking?.shotNo === shot.shotNo &&
-                                continuityChecking.renderKind === "image"
+                                {continuityCheckingByShot[shot.shotNo] ===
+                                "image"
                                   ? "检查人物"
                                   : "渲染 4 张"}
                               </button>
@@ -3456,10 +3595,7 @@ export function StoryboardReviewBoard({
                               <button
                                 type="button"
                                 disabled={
-                                  generatingImageShotNo != null ||
-                                  continuityChecking != null ||
-                                  rerenderingShotNo != null ||
-                                  generatingVideoShotNo != null
+                                  !canStartRenderForShot(shot.shotNo)
                                 }
                                 onPointerDown={event => event.stopPropagation()}
                                 onClick={event => {
@@ -3470,17 +3606,19 @@ export function StoryboardReviewBoard({
                                 aria-label={`按视频要求渲染 ${shotLabel} 视频`}
                                 title="先保存本镜文字并确认人民币费用，再生成候选 Take"
                               >
-                                {continuityChecking?.shotNo === shot.shotNo &&
-                                continuityChecking.renderKind === "video" ? (
+                                {continuityCheckingByShot[shot.shotNo] ===
+                                "video" ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : rerenderingShotNo === shot.shotNo ||
-                                  generatingVideoShotNo === shot.shotNo ? (
+                                ) : rerenderingShotNos.includes(shot.shotNo) ||
+                                  generatingVideoShotNos.includes(
+                                    shot.shotNo
+                                  ) ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
                                   <Video className="h-3 w-3" />
                                 )}
-                                {continuityChecking?.shotNo === shot.shotNo &&
-                                continuityChecking.renderKind === "video"
+                                {continuityCheckingByShot[shot.shotNo] ===
+                                "video"
                                   ? "检查人物"
                                   : "渲染视频"}
                               </button>

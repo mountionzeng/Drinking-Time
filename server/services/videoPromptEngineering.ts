@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 
-import { withVideoVisualFidelity } from "../../shared/videoMotionPolicy";
+import {
+  VIDEO_VISUAL_FIDELITY_CLAUSE_EN,
+  withVideoVisualFidelity,
+} from "../../shared/videoMotionPolicy";
+import {
+  compileVideoMaterialLock,
+  splitVideoMaterialLock,
+} from "./videoMaterialProfile";
 
 export const VIDEO_PROMPT_ENGINEERING_VERSION =
-  "video-prompt-engineering/v1" as const;
+  "video-prompt-engineering/v2" as const;
 
 export type VideoPromptEngineeringShot = Partial<{
   shotType: string;
@@ -26,11 +33,19 @@ export type VideoPromptEngineeringShot = Partial<{
   transitionIntent: string;
   videoPrompt: string;
   negativePrompt: string;
+  materialTexture: string;
+  mood: string;
+  timeLight: string;
+  lighting: string;
+  colorPalette: string;
+  sound: string;
+  soundBridge: string;
 }>;
 
 export type VideoPromptEngineering = {
   version: typeof VIDEO_PROMPT_ENGINEERING_VERSION;
   cueCode: string;
+  userRequirement: string;
   narrativeBeat: string;
   editorHardConstraints: string;
   continuityIn: string;
@@ -38,6 +53,9 @@ export type VideoPromptEngineering = {
   cameraPlan: string;
   continuityOut: string;
   preservationPlan: string;
+  materialLock: string;
+  visualContinuity: string;
+  soundRhythm: string;
   negativeConstraints: string;
   deterministicPrompt: string;
   finalPrompt: string;
@@ -118,47 +136,58 @@ function fingerprint(finalPrompt: string): string {
   return createHash("sha256").update(finalPrompt).digest("hex").slice(0, 24);
 }
 
+function labeled(label: string, value: unknown): string {
+  const resolved = clean(value);
+  return resolved ? `${label}：${resolved}` : "";
+}
+
+function clipAtBoundary(value: string, max: number): string {
+  const normalized = clean(value, Math.max(max * 2, 600));
+  if (normalized.length <= max) return normalized;
+  const head = normalized.slice(0, max);
+  const punctuationBoundary = Math.max(
+    head.lastIndexOf("；"),
+    head.lastIndexOf(";"),
+    head.lastIndexOf("，"),
+    head.lastIndexOf(","),
+    head.lastIndexOf(".")
+  );
+  const boundary =
+    punctuationBoundary >= Math.floor(max * 0.62)
+      ? punctuationBoundary
+      : head.lastIndexOf(" ");
+  return (boundary >= Math.floor(max * 0.62) ? head.slice(0, boundary) : head)
+    .trim()
+    .replace(/[,;:\s.]+$/g, "");
+}
+
 export function compileVideoPromptEngineering(
   input: VideoPromptEngineeringInput
 ): VideoPromptEngineering {
   const current = input.currentShot ?? {};
   const previous = input.previousShot ?? {};
   const next = input.nextShot ?? {};
-  const currentDirection = values(
-    current.action,
-    current.performance,
-    current.environmentMotion,
-    current.cameraMove,
-    current.cameraPath,
-    current.subjectPath,
-    current.videoStart,
-    current.videoEnd,
-    current.transitionIn,
-    current.transitionOut
+  const fallbackDirection = first(
+    [input.draftPrompt, input.fallbackPrompt],
+    "保持锁定画面，只做自然呼吸和一次有动机的摄影机响应"
   );
-  const editorIntent =
-    currentDirection.length > 0
-      ? join(
-          [
-            current.action,
-            current.performance,
-            current.environmentMotion,
-            current.subjectPath,
-            current.cameraMove,
-            current.cameraPath,
-            current.videoEnd,
-          ],
-          clean(input.draftPrompt) || clean(input.fallbackPrompt)
-        )
-      : join(
-          [
-            first(
-              [current.videoPrompt, input.draftPrompt, input.fallbackPrompt],
-              ""
-            ),
-          ],
-          "保持锁定画面，只做自然呼吸和一次有动机的摄影机响应"
-        );
+  const userRequirement = clean(current.videoPrompt, 1_200) || fallbackDirection;
+  const editorIntent = join(
+    [
+      labeled("用户视频要求（最高优先级）", current.videoPrompt),
+      labeled("画面动作", current.action),
+      labeled("表演", current.performance),
+      labeled("环境变化", current.environmentMotion),
+      labeled("主体运动路径", current.subjectPath),
+      labeled("运镜", current.cameraMove),
+      labeled("摄影机路径", current.cameraPath),
+      labeled("开始画面", current.videoStart),
+      labeled("结束画面", current.videoEnd),
+      labeled("进入关系", current.transitionIn),
+      labeled("退出关系", current.transitionOut),
+    ],
+    fallbackDirection
+  );
   const narrativeBeat = join(
     [current.intent, input.subtitle, current.dialogue],
     "让这一镜的动作服务当前叙事节拍，不把台词直接画进画面"
@@ -213,6 +242,26 @@ export function compileVideoPromptEngineering(
     : `${rig}；人物动作先发生，摄影机稍后响应，并与人物同时收稳`;
   const preservationPlan =
     "锁定首尾帧中的人物、脸、发型、服装、道具数量和位置、空间几何、构图、光线、色彩、材质、纹理、笔触与边缘；未被用户明确要求的内容不得变化";
+  const materialLock = compileVideoMaterialLock({
+    materialTexture: clean(current.materialTexture),
+  });
+  const visualContinuity = join(
+    [
+      labeled("情绪", current.mood),
+      labeled("时间与基础光线", current.timeLight),
+      labeled("灯光", current.lighting),
+      labeled("色彩", current.colorPalette),
+      labeled("材质", current.materialTexture),
+    ],
+    "以首帧和尾帧为视觉事实，逐帧保持明暗、色温、饱和度、材质和笔触连续"
+  );
+  const soundRhythm = join(
+    [
+      labeled("声音", current.sound),
+      labeled("声音桥", current.soundBridge),
+    ],
+    "不生成可视化声音元素；仅按画面动作的因果节拍控制速度"
+  );
   const negativeConstraints = join(
     [current.negativePrompt],
     "不新增、删除、复制或替换人物和物体；不生成字幕、可读文字、UI、水印；不做无因果的漂移、缩放或肢体变形"
@@ -220,12 +269,16 @@ export function compileVideoPromptEngineering(
   const cueCode = clean(input.cueCode) || `SH${String(input.shotNo).padStart(2, "0")}`;
   const deterministicPrompt = withVideoVisualFidelity(
     [
+      materialLock,
+      `Latest user video requirement: ${userRequirement}`,
       `Editor hard constraints: ${editorIntent}`,
       `Preservation: ${preservationPlan}`,
+      `Visual continuity: ${visualContinuity}`,
       `Causal three-beat motion: ${threeBeatMotion}`,
       `Camera plan: ${cameraPlan}`,
       `Continuity in: ${continuityIn}`,
       `Continuity out: ${continuityOut}`,
+      `Sound/pacing cue only; do not visualize sound: ${soundRhythm}`,
       `Negative constraints: ${negativeConstraints}`,
       `Shot ${cueCode}. Narrative beat: ${narrativeBeat}`,
     ].join("\n")
@@ -233,6 +286,7 @@ export function compileVideoPromptEngineering(
   return {
     version: VIDEO_PROMPT_ENGINEERING_VERSION,
     cueCode,
+    userRequirement,
     narrativeBeat,
     editorHardConstraints: editorIntent,
     continuityIn,
@@ -240,6 +294,9 @@ export function compileVideoPromptEngineering(
     cameraPlan,
     continuityOut,
     preservationPlan,
+    materialLock,
+    visualContinuity,
+    soundRhythm,
     negativeConstraints,
     deterministicPrompt,
     finalPrompt: deterministicPrompt,
@@ -253,24 +310,71 @@ export function finalizeVideoPromptEngineering(
   directedPrompt: string,
   source: VideoPromptEngineering["source"]
 ): VideoPromptEngineering {
-  const authored = clean(directedPrompt, 2_400);
+  const prioritized = splitVideoMaterialLock(directedPrompt);
+  const authored = clean(prioritized.remainder, 2_400);
+  const materialLock =
+    clean(prioritized.materialLock, 600) || engineering.materialLock;
   const finalPrompt =
     source === "editor-approved"
-      ? authored || engineering.deterministicPrompt
+      ? withVideoVisualFidelity(
+          [materialLock, authored || engineering.deterministicPrompt]
+            .filter(Boolean)
+            .join("\n")
+        )
       : authored
-    ? withVideoVisualFidelity(
-        [
-          `Editor hard constraints that must remain: ${engineering.editorHardConstraints}`,
-          `Preserve the locked source-frame identity, objects, composition, color, material and texture; add nothing unless explicitly requested.`,
-          authored,
-          `Continuity exit that must remain: ${engineering.continuityOut}`,
-        ].join("\n")
-      )
-    : engineering.deterministicPrompt;
+        ? withVideoVisualFidelity(
+            [
+              materialLock,
+              `Latest user video requirement: ${engineering.userRequirement}`,
+              authored,
+              `Editor hard constraints that must remain: ${engineering.editorHardConstraints}`,
+              `Continuity exit that must remain: ${engineering.continuityOut}`,
+            ].join("\n")
+          )
+        : engineering.deterministicPrompt;
   return {
     ...engineering,
+    materialLock,
     finalPrompt,
     source,
     fingerprint: fingerprint(finalPrompt),
   };
+}
+
+export function compileMjVideoProviderPrompt(
+  engineering: VideoPromptEngineering,
+  maxLength = 500
+): string {
+  const prioritized = splitVideoMaterialLock(engineering.finalPrompt);
+  const motion = prioritized.remainder
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(
+      line =>
+        Boolean(line) &&
+        line !== VIDEO_VISUAL_FIDELITY_CLAUSE_EN &&
+        !/^Latest user video requirement:/i.test(line) &&
+        !/^Editor hard constraints/i.test(line) &&
+        !/^Continuity exit/i.test(line)
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const material = clipAtBoundary(
+    prioritized.materialLock || engineering.materialLock,
+    165
+  );
+  const requirement = clipAtBoundary(engineering.userRequirement, 125);
+  const directedMotion = clipAtBoundary(motion, 160);
+  const parts = [
+    material,
+    requirement ? `USER REQUIREMENT: ${requirement}` : "",
+    directedMotion ? `MOTION: ${directedMotion}` : "",
+  ].filter(Boolean);
+  let prompt = parts.join("\n");
+  const exit = clipAtBoundary(engineering.continuityOut, 72);
+  if (exit && prompt.length + exit.length + 7 <= maxLength) {
+    prompt += `\nEXIT: ${exit}`;
+  }
+  return clipAtBoundary(prompt, maxLength);
 }

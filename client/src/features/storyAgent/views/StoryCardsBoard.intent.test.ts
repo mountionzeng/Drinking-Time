@@ -33,6 +33,7 @@ import {
   storyboardShotFrameImages,
   storyboardInheritedStartEndGenerationParams,
   storyboardImageGenerationReferences,
+  storyboardRenderIntentSummary,
   storyboardRenderShotWithDraft,
   storyboardStartEndGenerationParams,
   storyboardStartEndFrameIssue,
@@ -830,6 +831,8 @@ describe("StoryCardsBoard intent entry", () => {
     expect(
       storyboardVideoIntentPatch(
         {
+          dialogue: "他们会用虚无的标准，把我吞掉。",
+          intent: "从第一幕推入第二幕",
           action: "女主抬头，眼睛在画面上方出现",
           performance: "先屏息，再缓慢抬眼",
           environmentMotion: "背景保持不动",
@@ -842,10 +845,15 @@ describe("StoryCardsBoard intent entry", () => {
           transitionOut: "眼睛构图匹配下一镜",
           videoPrompt: "相机跟随视线抬升后推进",
           negativePrompt: "不要新增人物",
+          sound: "呼吸声压低，末尾进入低频声音桥",
+          soundBridge: "低频延续到下一镜",
+          materialTexture: "红黑厚涂油画",
         } as unknown as CreationEditorShot,
         '{"frameMode":"start_end"}'
       )
     ).toEqual({
+      dialogue: "他们会用虚无的标准，把我吞掉。",
+      intent: "从第一幕推入第二幕",
       action: "女主抬头，眼睛在画面上方出现",
       performance: "先屏息，再缓慢抬眼",
       environmentMotion: "背景保持不动",
@@ -858,6 +866,9 @@ describe("StoryCardsBoard intent entry", () => {
       transitionOut: "眼睛构图匹配下一镜",
       videoPrompt: "相机跟随视线抬升后推进",
       negativePrompt: "不要新增人物",
+      sound: "呼吸声压低，末尾进入低频声音桥",
+      soundBridge: "低频延续到下一镜",
+      materialTexture: "红黑厚涂油画",
       generationParams: '{"frameMode":"start_end"}',
     });
   });
@@ -879,12 +890,16 @@ describe("StoryCardsBoard intent entry", () => {
       } as unknown as StoryShot,
       {
         action: "女主在黑暗中撑出自己的区域，相机运动加快",
+        videoPrompt: "空间瞬间撑开，摄影机立刻后撤",
       }
     );
 
     expect(effective.action).toBe("女主在黑暗中撑出自己的区域，相机运动加快");
     expect(effective.cameraMove).toBe("当前表格里的运镜");
-    expect(effective.videoPrompt).toBe("保留既有视频提示");
+    expect(effective.videoPrompt).toBe("空间瞬间撑开，摄影机立刻后撤");
+    expect(storyboardRenderIntentSummary(effective)).toContain(
+      "视频要求：空间瞬间撑开，摄影机立刻后撤"
+    );
   });
 
   it("prefers the adopted playable video take for storyboard previews", () => {

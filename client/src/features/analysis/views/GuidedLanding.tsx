@@ -4,7 +4,7 @@
  */
 import { motion } from "framer-motion";
 import { Upload, MessageCircle } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import { hasAuthorityBackedDetails } from "@/features/nayin/almanac";
@@ -67,6 +67,9 @@ export default function GuidedLanding({
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const almanac = almanacQuery.data ?? null;
   const hasAlmanacDetails = hasAuthorityBackedDetails(almanac);
+  const [emotionPreview, setEmotionPreview] =
+    useState<EmotionAnalysisProfile | null>(null);
+  const personalizedReference = emotionPreview?.dailyReference;
 
   if (accessLayout && authPanel) {
     return (
@@ -80,32 +83,16 @@ export default function GuidedLanding({
             aria-label="今日标识"
           >
             <DailyDrinkHero today={today} compact />
-            {!almanacQuery.isLoading && !hasAlmanacDetails ? (
-              <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
-                真实老黄历信息暂时不可用；农历与纳音仍可正常显示。
-              </p>
-            ) : null}
           </motion.div>
 
-          <div className="grid w-full items-start gap-6 lg:grid-cols-[minmax(336px,0.72fr)_minmax(0,1.28fr)] lg:gap-6">
-            <motion.section
-              className="flex min-w-0 justify-center"
-              initial={{ opacity: 0, x: -18 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.06, duration: 0.55, ease: easing }}
-              aria-label="登录"
-            >
-              <div className="flex w-full max-w-xl justify-center lg:max-w-[336px]">
-                {authPanel}
-              </div>
-            </motion.section>
-
+          <div className="flex w-full max-w-5xl flex-col items-center gap-7">
             <motion.aside
-              className="min-w-0 overflow-hidden"
-              initial={{ opacity: 0, x: 18 }}
-              animate={{ opacity: 1, x: 0 }}
+              className="w-full min-w-0 overflow-hidden border-y"
+              style={{ borderColor: "var(--nayin-border)" }}
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.55, ease: easing }}
-              aria-label="今日农历与个人信息"
+              aria-label="今日农历与登录说明"
             >
               {hasAlmanacDetails ? (
                 <>
@@ -115,6 +102,8 @@ export default function GuidedLanding({
                     loading={almanacQuery.isLoading}
                     embedded
                     compact
+                    personalizedYi={personalizedReference?.personalizedYi}
+                    personalizedJi={personalizedReference?.personalizedJi}
                   />
                   <div
                     className="border-t"
@@ -125,13 +114,32 @@ export default function GuidedLanding({
               <EmotionAnalysisInvitePanel
                 today={today}
                 almanac={almanac}
-                profile={emotionProfile}
-                profileLoading={emotionProfileLoading}
+                profile={
+                  emotionProfile?.source === "local" ? emotionProfile : null
+                }
+                profileLoading={
+                  emotionProfileLoading || almanacQuery.isLoading
+                }
                 onSaveProfile={onSaveEmotionProfile}
+                onPreviewChange={setEmotionPreview}
                 embedded
                 compactEntry
+                persistLocalProfile
+                guestMode
               />
             </motion.aside>
+
+            <motion.section
+              className="flex w-full justify-center pb-6"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.16, duration: 0.55, ease: easing }}
+              aria-label="登录"
+            >
+              <div className="flex w-full max-w-[336px] justify-center">
+                {authPanel}
+              </div>
+            </motion.section>
           </div>
         </div>
       </div>
@@ -260,6 +268,8 @@ export default function GuidedLanding({
             almanac={almanac}
             loading={almanacQuery.isLoading}
             embedded
+            personalizedYi={personalizedReference?.personalizedYi}
+            personalizedJi={personalizedReference?.personalizedJi}
           />
           <div
             className="border-t"
@@ -272,6 +282,7 @@ export default function GuidedLanding({
             profileLoading={emotionProfileLoading}
             onSaveProfile={onSaveEmotionProfile}
             embedded
+            onPreviewChange={setEmotionPreview}
           />
         </motion.section>
 

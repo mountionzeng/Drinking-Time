@@ -6,7 +6,7 @@ import {
 } from "./imageRenderCost";
 
 describe("estimateStoryboardImageCost", () => {
-  it("quotes one four-candidate Midjourney task in人民币", () => {
+  it("quotes one four-candidate Midjourney grid task in人民币", () => {
     expect(estimateStoryboardImageCost()).toEqual({
       currency: "CNY",
       estimatedCny: 0.68,

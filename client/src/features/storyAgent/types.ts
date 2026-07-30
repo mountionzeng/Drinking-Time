@@ -60,6 +60,13 @@ export type EditingTransitionCandidateReference = {
   retryable?: boolean;
 };
 
+export type StoryboardImageRerenderActionReference = {
+  storyId: number | null;
+  stableShotId: string | null;
+  shotNo: number;
+  cueCode: string | null;
+};
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -73,6 +80,8 @@ export interface ChatMessage {
   selectionQuote?: SelectionQuote;
   /** Agent edits are proposals until the user explicitly confirms them. */
   promptCandidate?: PromptCandidateReference;
+  /** 对当前镜头图片要求完成确认后，直接回到既有四图重渲链路。 */
+  imageRerenderAction?: StoryboardImageRerenderActionReference;
   /** 小酌提出的付费镜头衔接；只有卡片上的确认按钮会提交 302。 */
   editingTransitionCandidate?: EditingTransitionCandidateReference;
 }
@@ -483,6 +492,22 @@ export function normalizeChatMessages(
             expectedVersion: candidate.expectedVersion,
             label: candidate.label,
             status: candidate.status,
+          };
+        }
+      }
+      if (obj.imageRerenderAction && typeof obj.imageRerenderAction === "object") {
+        const action = obj.imageRerenderAction as Record<string, unknown>;
+        if (typeof action.shotNo === "number") {
+          message.imageRerenderAction = {
+            storyId:
+              typeof action.storyId === "number" ? action.storyId : null,
+            stableShotId:
+              typeof action.stableShotId === "string"
+                ? action.stableShotId
+                : null,
+            shotNo: action.shotNo,
+            cueCode:
+              typeof action.cueCode === "string" ? action.cueCode : null,
           };
         }
       }

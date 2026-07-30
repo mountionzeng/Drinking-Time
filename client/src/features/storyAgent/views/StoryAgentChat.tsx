@@ -36,8 +36,12 @@ import {
   useOptionalCreationEditor,
   type StoryImageMaterialAdvice,
 } from "@/features/creationEditor/CreationEditorContext";
-import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import {
+  useStoryAgentActions,
+  type StoryboardImageRerenderResult,
+} from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
+import type { StoryboardImageRerenderActionReference } from "@/features/storyAgent/types";
 import { useNayin } from "@/features/nayin/NayinContext";
 import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
@@ -212,9 +216,16 @@ export default function StoryAgentChat() {
     sendSelectionEdit,
     confirmSelectionCandidate,
     rejectSelectionCandidate,
+    rerenderSelectionImage,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
   } = useStoryAgentActions();
+  const [rerenderingMessageId, setRerenderingMessageId] = useState<
+    string | null
+  >(null);
+  const [rerenderResultByMessageId, setRerenderResultByMessageId] = useState<
+    Record<string, StoryboardImageRerenderResult>
+  >({});
   const creationEditor = useOptionalCreationEditor();
   const labelForShot = (
     shotNo: number | null | undefined,
@@ -229,6 +240,39 @@ export default function StoryAgentChat() {
           shot.shotNo === shotNo
       ) ?? { shotNo }
     );
+  const handleImageRerender = useCallback(
+    async (
+      messageId: string,
+      request: StoryboardImageRerenderActionReference
+    ) => {
+      if (rerenderingMessageId) return;
+      setRerenderingMessageId(messageId);
+      setRerenderResultByMessageId(current => {
+        const next = { ...current };
+        delete next[messageId];
+        return next;
+      });
+      try {
+        const result = await rerenderSelectionImage(request);
+        setRerenderResultByMessageId(current => ({
+          ...current,
+          [messageId]: result,
+        }));
+      } catch (error) {
+        setRerenderResultByMessageId(current => ({
+          ...current,
+          [messageId]: {
+            status: "error",
+            message:
+              error instanceof Error ? error.message : "图片生成失败",
+          },
+        }));
+      } finally {
+        setRerenderingMessageId(null);
+      }
+    },
+    [rerenderSelectionImage, rerenderingMessageId]
+  );
   const { element } = useNayin();
   const [input, setInput] = useState("");
   const [pendingMedia, setPendingMedia] = useState<PendingChatMedia[]>([]);
@@ -889,6 +933,56 @@ export default function StoryAgentChat() {
                           不采用
                         </button>
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {m.imageRerenderAction &&
+                m.promptCandidate?.status !== "rejected" ? (
+                  <div className="mt-2 border-t border-border/60 pt-2">
+                    <button
+                      type="button"
+                      disabled={
+                        m.promptCandidate?.status === "pending" ||
+                        rerenderingMessageId != null
+                      }
+                      onClick={() =>
+                        void handleImageRerender(
+                          m.id,
+                          m.imageRerenderAction!
+                        )
+                      }
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-2.5 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {rerenderingMessageId === m.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                      )}
+                      {m.promptCandidate?.status === "pending"
+                        ? "确认修改后可重渲"
+                        : `重新渲染 ${
+                            m.imageRerenderAction.cueCode ??
+                            String(
+                              m.imageRerenderAction.shotNo
+                            ).padStart(4, "0")
+                          }`}
+                    </button>
+                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      点击后先核对参考帧和预计人民币费用；确认后才提交，旧候选会保留。
+                    </p>
+                    {rerenderResultByMessageId[m.id] ? (
+                      <p
+                        className={`mt-1 text-[10px] leading-relaxed ${
+                          rerenderResultByMessageId[m.id].status === "error"
+                            ? "text-destructive"
+                            : rerenderResultByMessageId[m.id].status ===
+                                "success"
+                              ? "text-emerald-700"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {rerenderResultByMessageId[m.id].message}
+                      </p>
                     ) : null}
                   </div>
                 ) : null}

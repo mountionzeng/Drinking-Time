@@ -235,6 +235,40 @@ export function SimpleStoryboardBoard({
         const detail =
           [shot.subject, shot.cameraMove].filter(Boolean).join(" · ") ||
           "镜头内容待补充";
+        const videoEditTarget =
+          insertStableShotId && videoPreviewTake
+            ? videoClipEditorTargetForTake({
+                stableShotId: insertStableShotId,
+                shotNo: shot.shotNo,
+                cueCode: shot.cueCode,
+                label: `${displayShotCode(shot)} · Take ${videoPreviewTake.id}`,
+                take: videoPreviewTake,
+                timelineItem: creationShot?.timelineItem,
+                posterUrl: videoPosterUrl,
+              })
+            : null;
+        const imageEditTarget =
+          insertStableShotId &&
+          creationShot &&
+          previewImageId &&
+          previewImageUrl
+            ? imageClipEditorTargetForShot({
+                shot: creationShot,
+                stableShotId: insertStableShotId,
+                imageId: previewImageId,
+                imageUrl: previewImageUrl,
+                label: `${displayShotCode(shot)} · 图片 #${previewImageId}`,
+              })
+            : null;
+        const openMediaEditor = () => {
+          if (videoEditTarget && onEditVideo) {
+            onEditVideo(videoEditTarget);
+            return;
+          }
+          if (imageEditTarget && onEditImage) {
+            onEditImage(imageEditTarget);
+          }
+        };
 
         return (
           <article
@@ -317,35 +351,7 @@ export function SimpleStoryboardBoard({
                 if (!insertStableShotId) return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (videoPreviewTake && onEditVideo) {
-                  const target = videoClipEditorTargetForTake({
-                    stableShotId: insertStableShotId,
-                    shotNo: shot.shotNo,
-                    cueCode: shot.cueCode,
-                    label: `${displayShotCode(shot)} · Take ${videoPreviewTake.id}`,
-                    take: videoPreviewTake,
-                    timelineItem: creationShot?.timelineItem,
-                    posterUrl: videoPosterUrl,
-                  });
-                  if (target) onEditVideo(target);
-                  return;
-                }
-                if (
-                  creationShot &&
-                  previewImageId &&
-                  previewImageUrl &&
-                  onEditImage
-                ) {
-                  onEditImage(
-                    imageClipEditorTargetForShot({
-                      shot: creationShot,
-                      stableShotId: insertStableShotId,
-                      imageId: previewImageId,
-                      imageUrl: previewImageUrl,
-                      label: `${displayShotCode(shot)} · 图片 #${previewImageId}`,
-                    })
-                  );
-                }
+                openMediaEditor();
               }}
               aria-label={`编辑 ${displayShotCode(shot)}`}
               title={

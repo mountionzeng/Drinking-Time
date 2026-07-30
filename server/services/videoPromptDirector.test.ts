@@ -53,6 +53,19 @@ describe("directVideoPrompt", () => {
                 facingGazeDirection: "身体朝左，视线向下。",
                 shotScaleChange: "中景进入近景，再接远景。",
                 lightColorMaterial: "右侧暖光、低饱和布料质感保持一致。",
+                materialProfile: {
+                  medium: "oil-painting",
+                  support: "woven linen canvas",
+                  markMaking:
+                    "layered impasto brushstrokes with dry-brush edges",
+                  pigmentBehavior:
+                    "opaque mineral pigment with visible paint thickness",
+                  temporalRules:
+                    "keep the same canvas tooth, paint thickness, brush direction and hand-painted edge behavior in every frame",
+                  prohibitedDrift:
+                    "photorealistic conversion, CGI smoothing, plastic skin, texture flicker, changing brushwork",
+                  confidence: 0.94,
+                },
                 actionContinuity: "承接前镜低头动作，在呼吸后停住。",
                 transitionStrategy: "用视线匹配接到下一镜。",
                 risks: [{ kind: "look", detail: "下一镜视线方向需要保持。" }],
@@ -92,6 +105,12 @@ describe("directVideoPrompt", () => {
     expect(result.source).toBe("302-vision");
     expect(result.model).toBe("gpt-5.4-nano-2026-03-17");
     expect(result.prompt).toContain("a short dolly");
+    expect(result.prompt).toMatch(/^MATERIAL LOCK:/);
+    expect(result.prompt).toContain("oil-painting");
+    expect(result.prompt).toContain("woven linen canvas");
+    expect(result.prompt).toContain("layered impasto brushstrokes");
+    expect(result.prompt).toContain("texture flicker");
+    expect(result.prompt.split("\n")[0].length).toBeLessThanOrEqual(360);
     expect(result.prompt).toContain("Treat the supplied source frames");
     expect(result.prompt).toContain("warm window light");
     expect(result.prompt).toContain("object count and placement");
@@ -105,6 +124,11 @@ describe("directVideoPrompt", () => {
     expect(result.analysis?.motionTimeline).toContain("最后 25%");
     expect(result.analysis?.risks[0]?.kind).toBe("look");
     expect(result.analysis?.recommendedMotion).toBe("low");
+    expect(result.materialProfile).toMatchObject({
+      medium: "oil-painting",
+      support: "woven linen canvas",
+      confidence: 0.94,
+    });
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
@@ -132,10 +156,72 @@ describe("directVideoPrompt", () => {
     expect(body.messages[0].content).toContain("手持不是默认装饰");
     expect(body.messages[0].content).toContain("脸、发型和服饰的唯一事实来源");
     expect(body.messages[0].content).toContain("高于“既有视频方案”");
+    expect(body.messages[0].content).toContain("先判断视觉媒介");
+    expect(body.messages[0].content).toContain("materialProfile");
     expect(body.messages[1].content[0].text).toContain("动作：坐在沙发边缘");
     expect(body.messages[1].content[0].text).toContain(
       "身体微微前倾，手搭在膝盖上"
     );
+  });
+
+  it("builds a watercolor-specific temporal lock instead of a generic style phrase", async () => {
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "gpt-5.4-nano-2026-03-17",
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                visualSummary: "水彩纸上的人物与森林。",
+                narrativeIntent: "让人物缓慢回头。",
+                subjectMotion:
+                  "The woman slowly turns her head and settles her gaze.",
+                cameraMotion:
+                  "The locked camera makes one restrained lateral drift.",
+                lightColorMaterial:
+                  "透明水彩、冷压纸纹、湿画法晕染和色素沉积必须保持。",
+                materialProfile: {
+                  medium: "watercolor",
+                  support: "cold-pressed watercolor paper",
+                  markMaking:
+                    "transparent washes, wet-on-wet blooms and dry-brush accents",
+                  pigmentBehavior:
+                    "granulating pigment with darker pooling at wash edges",
+                  temporalRules:
+                    "preserve paper tooth, wash transparency, bloom boundaries and pigment granulation in every frame",
+                  prohibitedDrift:
+                    "oil-paint impasto, photorealism, airbrushed gradients, digital smoothing, texture flicker",
+                  confidence: 0.92,
+                },
+                finalPrompt:
+                  "The woman slowly turns her head before the camera answers with one restrained lateral drift, then both settle into the original composition.",
+                recommendedMotion: "low",
+                confidence: 0.9,
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await directVideoPrompt({
+      imageInput: "data:image/png;base64,WATERCOLOR",
+      fallbackPrompt: "subtle motion",
+      shotNo: 5,
+      draftPrompt: "人物慢慢回头，相机轻微侧移",
+    });
+
+    expect(result.materialProfile?.medium).toBe("watercolor");
+    expect(result.prompt).toMatch(/^MATERIAL LOCK:/);
+    expect(result.prompt).toContain("cold-pressed watercolor paper");
+    expect(result.prompt).toContain("wet-on-wet blooms");
+    expect(result.prompt).toContain("granulating pigment");
+    expect(result.prompt).toContain("oil-paint impasto");
+    expect(result.prompt.split("\n")[0].length).toBeLessThanOrEqual(360);
   });
 
   it("rewrites MJ-sensitive cooking vocabulary before submission", async () => {
@@ -230,7 +316,7 @@ describe("directVideoPrompt", () => {
 
     expect(result.source).toBe("deterministic-fallback");
     expect(result.prompt).toContain("Editor hard constraints");
-    expect(result.engineering.version).toBe("video-prompt-engineering/v1");
+    expect(result.engineering.version).toBe("video-prompt-engineering/v2");
     expect(result.fallbackReason).toBe("VIDEO_PROMPT_302_MODEL 未配置");
     expect(fetch).not.toHaveBeenCalled();
   });

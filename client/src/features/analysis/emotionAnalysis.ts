@@ -5,10 +5,17 @@ import {
   getDailyClothingAdvice,
 } from "@/features/nayin/dailyPresentation";
 import type { TodayNayin } from "@/features/nayin/nayin";
+import {
+  currentChinaShichen,
+  shichenFromTime,
+  shichenGuidance,
+} from "@shared/shichen";
 
 export const EMOTION_ANALYSIS_LOCAL_KEY = "dt:emotionAnalysisProfile";
+export const EMOTION_ANALYSIS_GUEST_ID_KEY = "dt:emotionAnalysisGuestId";
 export const EMOTION_ANALYSIS_CONSENT_TEXT =
   "你愿意留下的资料和这段话，只用来生成今日回信、接住之后的对话；随时可以修改，也不会替你做诊断或决定。";
+export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v8";
 
 export interface EmotionScheduleBlock {
   label: string;
@@ -19,6 +26,13 @@ export interface EmotionScheduleBlock {
 export interface EmotionLensBlock {
   label: string;
   detail: string;
+}
+
+export interface EmotionMessageEntry {
+  id: string;
+  text: string;
+  saidAt: string;
+  editedAt?: string;
 }
 
 export interface EmotionDailyReference extends Record<string, unknown> {
@@ -32,13 +46,36 @@ export interface EmotionDailyReference extends Record<string, unknown> {
   lenses: EmotionLensBlock[];
   avoid: string;
   note: string;
+  mindset?: string;
+  personalizedYi?: string[];
+  personalizedJi?: string[];
+  birthShichen?: string;
+  currentShichen?: string;
+  letterVersion?:
+    | "daily-letter-v1"
+    | "daily-letter-v2"
+    | "daily-letter-v3"
+    | "daily-letter-v4"
+    | "daily-letter-v5"
+    | "daily-letter-v6"
+    | "daily-letter-v7"
+    | "daily-letter-v8";
+  factSource?: string;
+  interpretationSource?: "302-deepseek" | "local-template";
+  interpretationModel?: string;
+  interpretationGeneratedAt?: string;
 }
 
 export interface EmotionAnalysisSeed extends Record<string, unknown> {
   birthDate: string;
+  birthTime?: string;
+  birthShichen?: string;
+  birthBazi?: string;
   birthPlace?: string;
   currentLocation?: string;
   userMessage?: string;
+  messageHistory?: EmotionMessageEntry[];
+  conversationMode?: EmotionConversationMode;
   age: number | null;
   lifeStage: string;
   birthSeason: string;
@@ -56,6 +93,19 @@ export interface EmotionAnalysisProfile {
   source: "server" | "local";
 }
 
+export interface EmotionDailyLetterRecord {
+  id: number;
+  letterDate: string;
+  userMessage: string;
+  userMessageSaidAt: string | null;
+  userMessageEditedAt: string | null;
+  dailyReference: EmotionDailyReference;
+  analysisSeed: EmotionAnalysisSeed;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SaveEmotionAnalysisProfileInput {
   birthDate: string;
   dailyReference: EmotionDailyReference;
@@ -66,10 +116,15 @@ export interface SaveEmotionAnalysisProfileInput {
 
 export interface EmotionAnalysisBuildInput {
   birthDate: string;
+  birthTime?: string;
   birthPlace?: string;
   currentLocation?: string;
   userMessage?: string;
+  messageHistory?: EmotionMessageEntry[];
+  conversationMode?: EmotionConversationMode;
 }
+
+export type EmotionConversationMode = "today" | "history";
 
 type BirthParts = {
   year: number;
@@ -233,6 +288,16 @@ const ELEMENT_SOCIAL_LENS: Record<TodayNayin["element"], string> = {
   earth: "社会学上，今天适合把抽象感受落回资源、时间和照顾责任的分配。",
 };
 
+const ELEMENT_LETTER_CONTEXT: Record<TodayNayin["element"], string> = {
+  metal:
+    "你说的事也许还牵着边界、责任和期待；哪些该由谁承担，不必一下全算在自己身上。",
+  wood: "你说的事也许仍在变化，关系和计划都不必立刻被固定成一种样子。",
+  water:
+    "情绪会跟着工作节奏、群聊和亲近的人流动，今天的感受不必被当成全部的你。",
+  fire: "想被看见，又不想总向别人证明自己，这两种心情可以同时存在。",
+  earth: "抽象的感受背后，也可能连着时间、资源和照顾责任这些很具体的东西。",
+};
+
 const ELEMENT_ANTHRO_LENS: Record<TodayNayin["element"], string> = {
   metal:
     "人类学上，可以给今天一个小型断舍离仪式：删一条草稿、清一个角落、结束一个悬而未决。",
@@ -258,6 +323,33 @@ function cleanOptionalText(value: string | undefined, maxLength: number) {
   return cleaned.slice(0, maxLength);
 }
 
+function currentWordsFromMessage(value: string) {
+  const continued = value.match(
+    /^接着\d{1,2}月\d{1,2}日说的“[\s\S]*?”，我现在想说[：:]\s*([\s\S]+)$/
+  );
+  return continued?.[1]?.trim() || value;
+}
+
+function normalizeMessageHistory(value: unknown): EmotionMessageEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isObject)
+    .map(item => ({
+      id: String(item.id ?? "").trim(),
+      text: currentWordsFromMessage(
+        cleanOptionalText(typeof item.text === "string" ? item.text : "", 800)
+      ),
+      saidAt: String(item.saidAt ?? "").trim(),
+      ...(typeof item.editedAt === "string" && item.editedAt.trim()
+        ? { editedAt: item.editedAt.trim() }
+        : {}),
+    }))
+    .filter(
+      item => item.id && item.text && !Number.isNaN(Date.parse(item.saidAt))
+    )
+    .slice(-30);
+}
+
 function withoutTerminalPunctuation(value: string) {
   return value.replace(/[。；，、,.!?！？…]+$/g, "");
 }
@@ -270,6 +362,64 @@ function quoteUserMessage(value: string) {
     : "";
 }
 
+function uniqueAdvice(items: Array<string | undefined>) {
+  return Array.from(
+    new Set(items.filter((item): item is string => Boolean(item)))
+  )
+    .map(item => item.slice(0, 8))
+    .slice(0, 5);
+}
+
+function messageAdvice(message: string) {
+  if (/焦虑|担心|害怕|紧张/.test(message)) {
+    return { yi: "拆小一件事", ji: "反复预演" };
+  }
+  if (/累|疲惫|睡不着|失眠/.test(message)) {
+    return { yi: "留出休息", ji: "硬撑加码" };
+  }
+  if (/工作|收入|钱|职业|项目/.test(message)) {
+    return { yi: "理清轻重", ji: "同时开太多" };
+  }
+  if (/关系|朋友|家人|喜欢|分手|争吵/.test(message)) {
+    return { yi: "说清需要", ji: "替人下结论" };
+  }
+  return { yi: "先做一件事", ji: "急着定论" };
+}
+
+function localDailyLetter({
+  userMessage,
+  lifeStage,
+  previousMessage,
+  letterContext,
+  yi,
+  currentShichen,
+  currentTimeAdvice,
+}: {
+  userMessage: string;
+  lifeStage: string;
+  previousMessage: string;
+  letterContext: string;
+  yi: string;
+  currentShichen: string;
+  currentTimeAdvice: string;
+}) {
+  const opening = userMessage
+    ? `${quoteUserMessage(userMessage)}，我记下了。先让这句话保持它原来的样子，不急着把它解释成别的。`
+    : `${lifeStage}。今天还没有新的话，也没关系，我先替你把这一天留在这里。`;
+  const continuity = previousMessage
+    ? `你前一次还写过${quoteUserMessage(previousMessage)}。把两句话放在一起，能不能看见变化，现在还不用急着回答；至少，它们都没有被漏掉。`
+    : letterContext;
+  const gentleAction = userMessage
+    ? `如果今天想给这句话一个很小的落点，可以先${yi}。不想马上做什么也可以，记录本身已经让它有了位置。`
+    : "等你想说的时候，从一句最小、最具体的话开始就好；今天不需要先准备一个完整的答案。";
+  return [
+    opening,
+    previousMessage ? continuity : letterContext,
+    gentleAction,
+    `现在是${currentShichen}，${currentTimeAdvice} 问题被好好看见，答案会慢慢浮出来。`,
+  ].join("\n\n");
+}
+
 export function buildEmotionAnalysisProfile(
   input: string | EmotionAnalysisBuildInput,
   today: TodayNayin,
@@ -277,9 +427,19 @@ export function buildEmotionAnalysisProfile(
 ): EmotionAnalysisProfile | null {
   const values = typeof input === "string" ? { birthDate: input } : input;
   const birthDate = values.birthDate;
+  const birthTime = cleanOptionalText(values.birthTime, 5);
+  const birthShichen = birthTime ? shichenFromTime(birthTime) : null;
+  const currentShichen = currentChinaShichen();
   const birthPlace = cleanOptionalText(values.birthPlace, 80);
   const currentLocation = cleanOptionalText(values.currentLocation, 80);
-  const userMessage = cleanOptionalText(values.userMessage, 800);
+  const userMessage = currentWordsFromMessage(
+    cleanOptionalText(values.userMessage, 800)
+  );
+  const messageHistory = normalizeMessageHistory(values.messageHistory);
+  const previousMessage =
+    [...messageHistory]
+      .reverse()
+      .find(item => item.text && item.text !== userMessage)?.text ?? "";
   const birth = parseBirthDate(birthDate);
   if (!birth || !isValidBirthDate(birthDate, today)) return null;
 
@@ -290,12 +450,50 @@ export function buildEmotionAnalysisProfile(
   const clothing = getDailyClothingAdvice(today);
   const activity = getDailyActivityAdvice(today, almanac);
   const lunarLabel = formatLunarDate(today);
+  const personalMessageAdvice = messageAdvice(userMessage);
+  const currentTimeAdvice = shichenGuidance(currentShichen);
+  const canonicalYi =
+    almanac && (almanac.status === "ok" || almanac.status === "partial")
+      ? almanac.yi
+      : [];
+  const canonicalJi =
+    almanac && (almanac.status === "ok" || almanac.status === "partial")
+      ? almanac.ji
+      : [];
+  const personalizedYi = uniqueAdvice([
+    personalMessageAdvice.yi,
+    currentTimeAdvice.recommended,
+    birthShichen ? "按自己节奏" : undefined,
+    currentLocation ? "预留路上时间" : undefined,
+    canonicalYi[0],
+  ]);
+  const personalizedJi = uniqueAdvice([
+    personalMessageAdvice.ji,
+    currentTimeAdvice.avoid,
+    birthShichen ? "勉强赶节奏" : undefined,
+    currentLocation ? "行程排太紧" : undefined,
+    canonicalJi[0],
+  ]);
+  const summary = localDailyLetter({
+    userMessage,
+    lifeStage,
+    previousMessage,
+    letterContext: ELEMENT_LETTER_CONTEXT[today.element],
+    yi: personalMessageAdvice.yi,
+    currentShichen,
+    currentTimeAdvice: currentTimeAdvice.letterAdvice,
+  });
 
   const analysisSeed: EmotionAnalysisSeed = {
     birthDate,
+    ...(birthTime && birthShichen ? { birthTime, birthShichen } : {}),
     ...(birthPlace ? { birthPlace } : {}),
     ...(currentLocation ? { currentLocation } : {}),
     ...(userMessage ? { userMessage } : {}),
+    ...(messageHistory.length ? { messageHistory } : {}),
+    ...(values.conversationMode
+      ? { conversationMode: values.conversationMode }
+      : {}),
     age,
     lifeStage,
     birthSeason,
@@ -306,10 +504,8 @@ export function buildEmotionAnalysisProfile(
   const dailyReference: EmotionDailyReference = {
     todayDate: today.cstDateStr,
     lunarLabel,
-    title: "聊会儿的今日回信",
-    summary: userMessage
-      ? `你说：${quoteUserMessage(userMessage)}。这句话先放在今天这里，不急着解释完，也不急着替你下结论。`
-      : `${lifeStage}。今天先把感受落成一个小动作，不必急着给自己下判断。`,
+    title: "聊会儿写给你的信",
+    summary,
     clothing: clothing.title,
     activity: activity.short,
     schedule: ELEMENT_SCHEDULE[today.element],
@@ -319,13 +515,16 @@ export function buildEmotionAnalysisProfile(
       { label: "历史参照", detail: historicalLens(almanac) },
     ],
     avoid: "不适合在疲惫时做重大关系结论，也不适合把一时情绪当成完整的自己。",
-    note: [
-      birthSeason,
-      cohort,
-      "这份回信会留作之后聊天的背景，你随时可以改",
-    ]
-      .filter(Boolean)
-      .join("；") + "。",
+    note:
+      [birthSeason, cohort, "这份回信会留作之后聊天的背景，你随时可以改"]
+        .filter(Boolean)
+        .join("；") + "。",
+    mindset: `今天可以先${personalMessageAdvice.yi}；${currentTimeAdvice.mindset}。`,
+    personalizedYi,
+    personalizedJi,
+    ...(birthShichen ? { birthShichen } : {}),
+    currentShichen,
+    letterVersion: EMOTION_DAILY_LETTER_VERSION,
   };
 
   return {
@@ -364,6 +563,20 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
         }))
         .filter(item => item.label && item.detail)
     : [];
+  const personalizedYi = Array.isArray(value.personalizedYi)
+    ? value.personalizedYi
+        .filter((item): item is string => typeof item === "string")
+        .map(item => item.trim())
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
+  const personalizedJi = Array.isArray(value.personalizedJi)
+    ? value.personalizedJi
+        .filter((item): item is string => typeof item === "string")
+        .map(item => item.trim())
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
 
   if (!value.todayDate || !value.title || !value.summary) return null;
   return {
@@ -382,6 +595,40 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
         ""
       )
       .replace(/^；|；(?=。|$)/g, ""),
+    ...(personalizedYi.length ? { personalizedYi } : {}),
+    ...(personalizedJi.length ? { personalizedJi } : {}),
+    ...(typeof value.birthShichen === "string"
+      ? { birthShichen: value.birthShichen }
+      : {}),
+    ...(typeof value.currentShichen === "string"
+      ? { currentShichen: value.currentShichen }
+      : {}),
+    ...(typeof value.mindset === "string" && value.mindset.trim()
+      ? { mindset: value.mindset.trim() }
+      : {}),
+    ...(value.letterVersion === "daily-letter-v1" ||
+    value.letterVersion === "daily-letter-v2" ||
+    value.letterVersion === "daily-letter-v3" ||
+    value.letterVersion === "daily-letter-v4" ||
+    value.letterVersion === "daily-letter-v5" ||
+    value.letterVersion === "daily-letter-v6" ||
+    value.letterVersion === "daily-letter-v7" ||
+    value.letterVersion === "daily-letter-v8"
+      ? { letterVersion: value.letterVersion }
+      : {}),
+    ...(typeof value.factSource === "string"
+      ? { factSource: value.factSource }
+      : {}),
+    ...(value.interpretationSource === "302-deepseek" ||
+    value.interpretationSource === "local-template"
+      ? { interpretationSource: value.interpretationSource }
+      : {}),
+    ...(typeof value.interpretationModel === "string"
+      ? { interpretationModel: value.interpretationModel }
+      : {}),
+    ...(typeof value.interpretationGeneratedAt === "string"
+      ? { interpretationGeneratedAt: value.interpretationGeneratedAt }
+      : {}),
   };
 }
 
@@ -389,6 +636,15 @@ function normalizeAnalysisSeed(value: unknown): EmotionAnalysisSeed | null {
   if (!isObject(value) || typeof value.birthDate !== "string") return null;
   return {
     birthDate: value.birthDate,
+    ...(typeof value.birthTime === "string" && value.birthTime.trim()
+      ? { birthTime: value.birthTime.trim() }
+      : {}),
+    ...(typeof value.birthShichen === "string" && value.birthShichen.trim()
+      ? { birthShichen: value.birthShichen.trim() }
+      : {}),
+    ...(typeof value.birthBazi === "string" && value.birthBazi.trim()
+      ? { birthBazi: value.birthBazi.trim() }
+      : {}),
     ...(typeof value.birthPlace === "string" && value.birthPlace.trim()
       ? { birthPlace: value.birthPlace.trim() }
       : {}),
@@ -398,6 +654,13 @@ function normalizeAnalysisSeed(value: unknown): EmotionAnalysisSeed | null {
       : {}),
     ...(typeof value.userMessage === "string" && value.userMessage.trim()
       ? { userMessage: value.userMessage.trim() }
+      : {}),
+    ...(normalizeMessageHistory(value.messageHistory).length
+      ? { messageHistory: normalizeMessageHistory(value.messageHistory) }
+      : {}),
+    ...(value.conversationMode === "today" ||
+    value.conversationMode === "history"
+      ? { conversationMode: value.conversationMode }
       : {}),
     age: typeof value.age === "number" ? value.age : null,
     lifeStage: String(value.lifeStage ?? ""),
@@ -426,10 +689,24 @@ export function normalizeEmotionAnalysisProfile(
           ? value.savedAt
           : new Date().toISOString();
 
+  const compatibleAnalysisSeed =
+    analysisSeed.messageHistory?.length || !analysisSeed.userMessage
+      ? analysisSeed
+      : {
+          ...analysisSeed,
+          messageHistory: [
+            {
+              id: `legacy-${savedAt}`,
+              text: analysisSeed.userMessage,
+              saidAt: savedAt,
+            },
+          ],
+        };
+
   return {
     birthDate: value.birthDate,
     dailyReference,
-    analysisSeed,
+    analysisSeed: compatibleAnalysisSeed,
     consentVersion: String(value.consentVersion ?? "emotion-analysis-v1"),
     consentText: String(value.consentText ?? EMOTION_ANALYSIS_CONSENT_TEXT),
     savedAt,
@@ -437,16 +714,69 @@ export function normalizeEmotionAnalysisProfile(
   };
 }
 
+function normalizeIsoDate(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+export function normalizeEmotionDailyLetter(
+  value: unknown
+): EmotionDailyLetterRecord | null {
+  if (!isObject(value)) return null;
+  const letterDate =
+    typeof value.letterDate === "string" ? value.letterDate : "";
+  const dailyReference = normalizeDailyReference(value.dailyReference);
+  const analysisSeed = normalizeAnalysisSeed(value.analysisSeed);
+  const createdAt = normalizeIsoDate(value.createdAt);
+  const updatedAt = normalizeIsoDate(value.updatedAt);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(letterDate) ||
+    !dailyReference ||
+    !analysisSeed ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null;
+  }
+  return {
+    id: typeof value.id === "number" ? value.id : 0,
+    letterDate,
+    userMessage:
+      typeof value.userMessage === "string" ? value.userMessage.trim() : "",
+    userMessageSaidAt: normalizeIsoDate(value.userMessageSaidAt),
+    userMessageEditedAt: normalizeIsoDate(value.userMessageEditedAt),
+    dailyReference,
+    analysisSeed,
+    revision:
+      typeof value.revision === "number" && value.revision > 0
+        ? Math.floor(value.revision)
+        : 1,
+    createdAt,
+    updatedAt,
+  };
+}
+
 export function loadLocalEmotionAnalysisProfile() {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(EMOTION_ANALYSIS_LOCAL_KEY);
-    return raw
-      ? normalizeEmotionAnalysisProfile(JSON.parse(raw), "local")
-      : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const source =
+      isObject(parsed) && parsed.source === "server" ? "server" : "local";
+    return normalizeEmotionAnalysisProfile(parsed, source);
   } catch {
     return null;
   }
+}
+
+export function loadLocalGuestEmotionAnalysisProfile() {
+  const profile = loadLocalEmotionAnalysisProfile();
+  return profile?.source === "local" ? profile : null;
 }
 
 export function saveLocalEmotionAnalysisProfile(
@@ -460,5 +790,36 @@ export function saveLocalEmotionAnalysisProfile(
     );
   } catch {
     // localStorage 不可用时跳过，服务端保存仍然可以工作。
+  }
+}
+
+export function clearLocalGuestEmotionAnalysisProfile() {
+  if (typeof window === "undefined") return;
+  try {
+    const profile = loadLocalEmotionAnalysisProfile();
+    if (profile?.source === "local") {
+      window.localStorage.removeItem(EMOTION_ANALYSIS_LOCAL_KEY);
+    }
+  } catch {
+    // 本地存储不可用时无需阻断账号登录。
+  }
+}
+
+export function getOrCreateLocalEmotionGuestId() {
+  if (typeof window === "undefined") return "guest-server-render";
+  try {
+    const existing = window.localStorage
+      .getItem(EMOTION_ANALYSIS_GUEST_ID_KEY)
+      ?.trim();
+    if (existing) return existing;
+    const randomPart =
+      typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const guestId = `guest-${randomPart}`;
+    window.localStorage.setItem(EMOTION_ANALYSIS_GUEST_ID_KEY, guestId);
+    return guestId;
+  } catch {
+    return `guest-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 }

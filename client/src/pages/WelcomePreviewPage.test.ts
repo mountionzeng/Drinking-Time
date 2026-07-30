@@ -15,7 +15,12 @@ const guidedLandingProps = vi.hoisted(() => ({
     authPanelFirst?: boolean;
     hideEntryCards?: boolean;
     accessLayout?: boolean;
+    hasGuestReply?: boolean;
   },
+}));
+const guestReplyState = vi.hoisted(() => ({
+  mutateAsync: vi.fn(),
+  isPending: false,
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({
@@ -28,22 +33,35 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/", vi.fn()],
 }));
 
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    emotionAnalysis: {
+      guestReply: {
+        useMutation: () => guestReplyState,
+      },
+    },
+  },
+}));
+
 vi.mock("@/features/analysis/views/GuidedLanding", () => ({
   default: ({
     authPanel,
     authPanelFirst,
     hideEntryCards,
     accessLayout,
+    onSaveEmotionProfile,
   }: {
     authPanel?: React.ReactNode;
     authPanelFirst?: boolean;
     hideEntryCards?: boolean;
     accessLayout?: boolean;
+    onSaveEmotionProfile?: unknown;
   }) => {
     guidedLandingProps.last = {
       authPanelFirst,
       hideEntryCards,
       accessLayout,
+      hasGuestReply: typeof onSaveEmotionProfile === "function",
     };
     return React.createElement(
       "main",
@@ -72,7 +90,7 @@ describe("resolveWelcomeEntryPath", () => {
   });
 
   it("已登录时把欢迎页入口导向工作台", () => {
-    expect(resolveWelcomeEntryPath(true)).toBe("/analysis");
+    expect(resolveWelcomeEntryPath(true)).toBe("/editing");
   });
 });
 
@@ -89,6 +107,7 @@ describe("WelcomePreviewPage", () => {
     expect(html).not.toContain("进入工作台");
     expect(guidedLandingProps.last?.hideEntryCards).toBe(true);
     expect(guidedLandingProps.last?.accessLayout).toBe(true);
+    expect(guidedLandingProps.last?.hasGuestReply).toBe(true);
   });
 
   it("已登录时不再渲染登录面板", () => {

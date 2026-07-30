@@ -33,6 +33,7 @@ import {
   FRAME_QUADRANTS,
   type FrameQuadrant,
 } from "@/features/creationEditor/video/frameCrop";
+import { latestFrameCandidateSheet } from "@/features/creationEditor/frameCandidate";
 import {
   videoTakeAffordance,
   videoTakeErrorMessage,
@@ -372,10 +373,15 @@ export default function ShotMaterialBasket({
   const providerMissing = shotVideoProviderStatus?.missing ?? [];
   const providerWarnings = shotVideoProviderStatus?.warnings ?? [];
   const providerReady = shotVideoProviderStatus?.ready ?? false;
+  const frameCandidate = latestFrameCandidateSheet(
+    shot.imageVersions ?? [],
+    shot.promptRun?.imageId
+  );
   const candidateFrameUrl = hasSelectedKeyframe
     ? ""
-    : shot.imageUrl || shot.promptRun?.imageUrl || recipe.sourceImageUrl || "";
-  const candidateFrameId = shot.imageId ?? shot.promptRun?.imageId ?? undefined;
+    : frameCandidate?.imageUrl || shot.promptRun?.imageUrl || "";
+  const candidateFrameId =
+    frameCandidate?.imageId ?? shot.promptRun?.imageId ?? undefined;
   const canPickFrameCandidate =
     Boolean(onPromoteFrameCrop && candidateFrameUrl) && !hasSelectedKeyframe;
   const canGenerate =

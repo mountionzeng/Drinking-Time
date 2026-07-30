@@ -73,6 +73,9 @@ describe("creation editor spine boundary", () => {
     );
     expect(editingPage).toContain('label: "时间线"');
     expect(editingPage).toContain("setTimelineVisible(value => !value)");
+    expect(editingPage).toContain("<DailyLetterWelcome");
+    expect(editingPage).toContain("forceOpen={dailyLetterOpen}");
+    expect(editingPage).not.toContain("{dailyLetterOpen ? (");
     expect(editingWorkspace).toContain("<StoryboardPanel");
     expect(editingWorkspace).toContain("embeddedEditorMode");
     expect(editingWorkspace).toContain("selectShot: true");
@@ -82,13 +85,19 @@ describe("creation editor spine boundary", () => {
       'autoSaveId="editing-storyboard-preview-widths-v2"'
     );
     expect(editingWorkspace).toContain('defaultViewMode="full"');
-    expect(editingWorkspace).toContain('aria-label="调整故事版与动态分镜宽度"');
+    expect(editingWorkspace).toContain('aria-label="调整故事版与预览页面宽度"');
+    expect(editingWorkspace).toContain('aria-label="预览页面"');
+    expect(editingWorkspace).toContain(">预览页面</span>");
+    expect(editingWorkspace).toContain("videoEditorPreviewDraft");
+    expect(editingWorkspace).toContain(
+      "onPreviewChange={setVideoEditorPreviewDraft}"
+    );
     expect(editingWorkspace).toContain("DEFAULT_STORYBOARD_PANEL_SIZE = 45");
     expect(editingWorkspace).toContain("DEFAULT_PREVIEW_PANEL_SIZE = 55");
     expect(editingWorkspace).not.toContain("DEFAULT_DIRECTOR_PANEL_SIZE");
     expect(editingWorkspace).not.toContain("<ShotDirectorPanel");
     expect(editingWorkspace).not.toContain(
-      'aria-label="调整动态分镜与导演面板宽度"'
+      'aria-label="调整预览页面与导演面板宽度"'
     );
     expect(editingWorkspace).toContain(
       'className="h-full w-full object-cover"'

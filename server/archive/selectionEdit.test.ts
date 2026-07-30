@@ -73,4 +73,44 @@ describe("handleSelectionEdit", () => {
       reply: "这块区域适合作为人物反应镜头的参考。",
     });
   });
+
+  it("rewrites the persisted image prompt when the client resolves a prompt target", async () => {
+    agentMocks.invokeAgent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        isApprovalOnly: false,
+        modifiedFullText:
+          "同一位短黑发女主，穿白色露背及地长裙，站在红黑空间中央；保持既有场景、色彩和材质不变。",
+        reply: "已把服装约束改成与其他镜头一致的白色及地长裙。",
+      }),
+    });
+
+    const result = await handleSelectionEdit({
+      fullText:
+        "同一位短黑发女主，穿白色短裙，站在红黑空间中央；保持既有场景、色彩和材质不变。",
+      selectedText:
+        "同一位短黑发女主，穿白色短裙，站在红黑空间中央；保持既有场景、色彩和材质不变。",
+      instruction:
+        "请把女主的裙子改成和其他镜头一致的白色及地长裙，其余约束保持不变。",
+      promptRewrite: true,
+      selectionContext: {
+        sourceType: "storyboard-image",
+        sourceId: "shot-0201:first-frame",
+        selectedText: "0201 · 首帧 · 图片构图调整",
+        fullText: "0201 · 首帧 · 图片构图调整",
+        objectVersion: "image:1417",
+        selection: { kind: "rect", x: 0, y: 0, width: 1, height: 1 },
+        materialStatus: "current-image",
+        storyId: 1165,
+        stableShotId: "manual-sh03-mrd2a2mg-8tibci",
+        shotNo: 9,
+      },
+    });
+
+    expect(result).toEqual({
+      isApprovalOnly: false,
+      modifiedFullText:
+        "同一位短黑发女主，穿白色露背及地长裙，站在红黑空间中央；保持既有场景、色彩和材质不变。",
+      reply: "已把服装约束改成与其他镜头一致的白色及地长裙。",
+    });
+  });
 });

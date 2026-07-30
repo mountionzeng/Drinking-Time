@@ -64,7 +64,7 @@ describe("邮箱邀请码登录", () => {
     expect(await response.json()).toEqual({ error: "invite_required" });
   });
 
-  it("新邮箱用邀请码完成登录后，后续不再需要邀请码", async () => {
+  it("邀请码绑定邮箱后，后续登录仍必须提交同一邀请码", async () => {
     const email = "tester@example.com";
     const inviteCode = "LH-AB12-CD34";
     const codeHash = hashInviteCode(inviteCode);
@@ -98,8 +98,49 @@ describe("邮箱邀请码登录", () => {
     expect(await hasRedeemedInviteForEmail(email)).toBe(true);
     expect(await findAvailableInviteCode(codeHash)).toBeNull();
 
-    const returningResponse = await post("/api/auth/email/request", { email });
+    const missingInviteResponse = await post("/api/auth/email/request", {
+      email,
+    });
+    expect(missingInviteResponse.status).toBe(403);
+    expect(await missingInviteResponse.json()).toEqual({
+      error: "invite_required",
+    });
+
+    await createEmailOtp(
+      email,
+      "222222",
+      new Date(Date.now() + 60_000)
+    );
+    const missingInviteVerify = await post("/api/auth/email/verify", {
+      email,
+      code: "222222",
+    });
+    expect(missingInviteVerify.status).toBe(403);
+    expect(await missingInviteVerify.json()).toEqual({
+      error: "invite_required",
+    });
+
+    const returningVerify = await post("/api/auth/email/verify", {
+      email,
+      inviteCode,
+      code: "222222",
+    });
+    expect(returningVerify.status).toBe(200);
+
+    const returningResponse = await post("/api/auth/email/request", {
+      email,
+      inviteCode,
+    });
     expect(returningResponse.status).toBe(200);
+  });
+
+  it("内测期禁用 Google 登录直达，不能绕过邀请码", async () => {
+    const response = await fetch(`${baseUrl}/api/auth/google`, {
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "invite_required" });
   });
 
   it("已经绑定的邀请不能给另一个邮箱使用", async () => {

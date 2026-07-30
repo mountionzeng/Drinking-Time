@@ -1,5 +1,4 @@
 import { Route, Switch, Redirect } from 'wouter';
-import AnalysisPage from '@/pages/AnalysisPage';
 import CreationPage from '@/pages/CreationPage';
 import EditingStudioPage from '@/pages/EditingStudioPage';
 import LoginPage from '@/pages/LoginPage';
@@ -7,6 +6,7 @@ import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
 import MobilePage from '@/pages/MobilePage';
 import MobileWelcomePage from '@/pages/MobileWelcomePage';
 import NotFound from '@/pages/NotFound';
+import AdminVisitsPage from '@/pages/AdminVisitsPage';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { useState, type ReactNode } from 'react';
 
@@ -14,6 +14,21 @@ function AuthGuard({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return null;
   if (!isAuthenticated) return <Redirect to="/login" />;
+  return <>{children}</>;
+}
+
+function LoginEntry() {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return null;
+  if (isAuthenticated) return <Redirect to="/editing" />;
+  return <LoginPage />;
+}
+
+function AdminGuard({ children }: { children: ReactNode }) {
+  const { user, isAuthenticated, loading } = useAuth();
+  if (loading) return null;
+  if (!isAuthenticated) return <Redirect to="/login" />;
+  if (user?.role !== "admin") return <Redirect to="/editing" />;
   return <>{children}</>;
 }
 
@@ -48,17 +63,17 @@ export default function AppRouter() {
   return (
     <Switch>
       <Route path="/login">
-        <LoginPage />
+        <LoginEntry />
       </Route>
       <Route path="/welcome">
         <WelcomePreviewPage />
       </Route>
-      {/* 站点首页：桌面端直接进故事编辑；触屏设备（iPad/手机）自动转入消费端 /m */}
+      {/* 站点首页：桌面端直接进剪辑工作室；触屏设备（iPad/手机）自动转入消费端 /m */}
       <Route path="/">
-        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><AnalysisPage /></AuthGuard>}
+        {prefersMobile ? <Redirect to="/m" /> : <Redirect to="/editing" />}
       </Route>
       <Route path="/analysis">
-        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><AnalysisPage /></AuthGuard>}
+        {prefersMobile ? <Redirect to="/m" /> : <Redirect to="/editing" />}
       </Route>
       <Route path="/creation">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationPage /></AuthGuard>}
@@ -66,6 +81,11 @@ export default function AppRouter() {
       {/* 剪辑工作室：聊天驱动剪辑（小酌对话 + 预览播放器 + 时间轴） */}
       <Route path="/editing">
         {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><EditingStudioPage /></AuthGuard>}
+      </Route>
+      <Route path="/admin/visits">
+        <AdminGuard>
+          <AdminVisitsPage />
+        </AdminGuard>
       </Route>
       {/* 手机端路由 */}
       <Route path="/m/welcome" component={MobileWelcomePage} />

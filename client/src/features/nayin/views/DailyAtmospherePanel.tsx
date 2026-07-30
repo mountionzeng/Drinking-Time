@@ -28,6 +28,8 @@ interface DailyAtmospherePanelProps {
   loading?: boolean;
   embedded?: boolean;
   compact?: boolean;
+  personalizedYi?: string[];
+  personalizedJi?: string[];
 }
 
 function ChipList({
@@ -121,6 +123,8 @@ export default function DailyAtmospherePanel({
   loading = false,
   embedded = false,
   compact = false,
+  personalizedYi,
+  personalizedJi,
 }: DailyAtmospherePanelProps) {
   const line = loading
     ? "今日气息正在路上，先从纳音和饮品开场。"
@@ -129,30 +133,32 @@ export default function DailyAtmospherePanel({
   const lunarLabel = formatLunarDate(today);
   const clothingAdvice = getDailyClothingAdvice(today);
   const activityAdvice = getDailyActivityAdvice(today, almanac);
+  const shownYi = personalizedYi?.length ? personalizedYi : almanac?.yi ?? [];
+  const shownJi = personalizedJi?.length ? personalizedJi : almanac?.ji ?? [];
+  const isPersonalized = Boolean(
+    personalizedYi?.length || personalizedJi?.length
+  );
+  const hasShownDetails = shownYi.length > 0 || shownJi.length > 0;
 
   if (compact) {
+    if (!hasShownDetails) return null;
+
     const compactContent = (
       <div className="px-5 py-5 sm:px-6 sm:py-6">
-        {hasDetails ? (
-          <div className="-mx-1 flex flex-nowrap items-center gap-6 overflow-x-auto px-1 pb-1">
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
-                宜
-              </div>
-              <ChipList items={almanac?.yi ?? []} tone="yi" nowrap />
+        <div className="-mx-1 flex flex-nowrap items-center gap-6 overflow-x-auto px-1 pb-1">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
+              {isPersonalized ? "你的宜" : "宜"}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
-                忌
-              </div>
-              <ChipList items={almanac?.ji ?? []} tone="ji" nowrap />
-            </div>
+            <ChipList items={shownYi} tone="yi" nowrap />
           </div>
-        ) : (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            真实老黄历信息暂时不可用；农历与纳音仍可正常显示。
-          </p>
-        )}
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
+              {isPersonalized ? "你的忌" : "忌"}
+            </div>
+            <ChipList items={shownJi} tone="ji" nowrap />
+          </div>
+        </div>
       </div>
     );
 
@@ -294,11 +300,7 @@ export default function DailyAtmospherePanel({
                   <ChipList items={almanac?.ji ?? []} tone="ji" />
                 </div>
               </div>
-            ) : (
-              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                真实老黄历信息暂时不可用；本地纳音与农历仍可正常显示。
-              </p>
-            )}
+            ) : null}
           </section>
 
           <section className="mt-4 space-y-4">

@@ -573,7 +573,7 @@ describe("editImage", () => {
     expect(form.get("image")).toBeTruthy();
   });
 
-  it("有 referenceImageUrl 时优先用 FLUX Kontext，不再拿旧主图做编辑", async () => {
+  it("未显式选择 MJ 时 referenceImageUrl 优先用 FLUX Kontext", async () => {
     const b64 = Buffer.from("kontext-image").toString("base64");
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
@@ -584,10 +584,9 @@ describe("editImage", () => {
       "跟随视频参考的画风重绘",
       {
         fetcher,
-        provider: "midjourney",
+        provider: "gpt-image",
         referenceImageUrl: "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l",
-        referenceIdentityImageUrl:
-          "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
+        referenceIdentityImageUrl: "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
       }
     );
 
@@ -596,9 +595,7 @@ describe("editImage", () => {
     expect(fetcher.mock.calls[0][0]).toContain("/v1/images/generations");
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(body.model).toBe("flux-kontext-pro");
-    expect(body.input_image).toBe(
-      "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l"
-    );
+    expect(body.input_image).toBe("data:image/png;base64,cmVmZXJlbmNlLWZyYW1l");
     expect(body.prompt).toContain("Reference identity lock");
     expect(body.prompt).toContain("face outline and proportions");
     expect(body.prompt).toContain("Lower-face continuity is critical");
@@ -607,7 +604,7 @@ describe("editImage", () => {
     expect(body.prompt).toContain("跟随视频参考的画风重绘");
   });
 
-  it("配置视觉模型时先提取参考帧五官脸型，再送进 FLUX Kontext", async () => {
+  it("FLUX 参考图编辑先提取五官脸型再生成", async () => {
     ENV.vision302ApiKey = "test-vision-key";
     ENV.vision302Model = "gemini-3-pro-preview";
     const b64 = Buffer.from("kontext-image").toString("base64");
@@ -629,10 +626,9 @@ describe("editImage", () => {
       "保持画廊里的蒙眼女人，冷绿色光线",
       {
         fetcher,
-        provider: "midjourney",
+        provider: "gpt-image",
         referenceImageUrl: "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l",
-        referenceIdentityImageUrl:
-          "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
+        referenceIdentityImageUrl: "data:image/png;base64,aWRlbnRpdHktY3JvcA==",
       }
     );
 
@@ -659,9 +655,7 @@ describe("editImage", () => {
     expect(fetcher.mock.calls[1][0]).toContain("/v1/images/generations");
     const body = JSON.parse(fetcher.mock.calls[1][1].body);
     expect(body.model).toBe("flux-kontext-pro");
-    expect(body.input_image).toBe(
-      "data:image/png;base64,cmVmZXJlbmNlLWZyYW1l"
-    );
+    expect(body.input_image).toBe("data:image/png;base64,cmVmZXJlbmNlLWZyYW1l");
     expect(body.prompt).toContain("Extracted visible identity traits");
     expect(body.prompt).toContain(identityText);
     expect(body.prompt).toContain("Do not recast the face");
@@ -736,6 +730,47 @@ describe("editImage", () => {
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.base64Array).toHaveLength(1); // 照片进了 base64Array（MJ image prompt）
     expect(submitBody.base64Array[0]).toContain("base64,");
+  });
+
+  it("故事版 MJ 生成锁定主参考，不让相邻镜头稀释服装与主色", async () => {
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-context" } },
+      {
+        ok: true,
+        status: 200,
+        json: {
+          status: "SUCCESS",
+          imageUrl: "https://file.302.ai/mj-grid.png",
+        },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,cHJpbWFyeQ==",
+      "保持人物、服装和红黑色彩，生成四宫格粗选",
+      {
+        fetcher,
+        provider: "midjourney",
+        referenceImageUrl: "data:image/png;base64,cHJpbWFyeQ==",
+        referenceContextImageUrls: ["data:image/png;base64,bmVpZ2hib3I="],
+        primaryReferenceLock: true,
+        requireInputImage: true,
+        mjPollIntervalMs: 1,
+        mjTimeoutMs: 100,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toContain("/mj/submit/imagine");
+    expect(fetcher.mock.calls[0][0]).not.toContain("/v1/images/generations");
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(submitBody.base64Array).toHaveLength(1);
+    expect(submitBody.prompt).toContain(
+      "image 1 exclusively controls character identity"
+    );
+    expect(submitBody.prompt).toContain("Never shorten a floor-length gown");
+    expect(submitBody.prompt).toContain("blue, cyan, or teal cast");
   });
 
   it("requireInputImage=true 时 MJ 图生图失败不会回落纯文生图", async () => {
@@ -939,7 +974,9 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect(submitBody.prompt).toMatch(/deformed hands|extra fingers/);
     const noSection = submitBody.prompt.split("--no")[1] ?? "";
     expect(noSection).toMatch(/collage|thumbnails|panels/);
-    expect(noSection).not.toMatch(/multi-panel|side-by-side|contact sheet|poster board|水印/);
+    expect(noSection).not.toMatch(
+      /multi-panel|side-by-side|contact sheet|poster board|水印/
+    );
   });
 
   it("已显式带 --no 时不重复追加默认负面词", async () => {

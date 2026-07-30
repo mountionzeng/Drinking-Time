@@ -110,6 +110,42 @@ describe("generateShotVideo", () => {
     });
   });
 
+  it("keeps the classified material lock when MJ trims a long video prompt", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302.ai";
+    ENV.video302Model = "";
+    ENV.video302SubmitPath = "";
+    ENV.video302PollPath = "";
+    ENV.video302ImageField = "";
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        code: 1,
+        description: "提交成功",
+        result: "material-lock-task",
+      }),
+    })) as unknown as typeof fetch;
+    const materialLock =
+      "MATERIAL LOCK: watercolor on cold-pressed paper; preserve paper tooth, transparent washes, wet-on-wet blooms, pigment granulation and pooled wash edges in every frame; avoid oil impasto, photorealism, digital smoothing and texture flicker.";
+    const motion =
+      "MOTION: The woman turns her head first, then the camera makes one restrained lateral move and settles.";
+
+    await submitShotVideo(
+      {
+        prompt: `${materialLock}\n${motion}\n${"continuity detail ".repeat(80)}`,
+        sourceImage: "https://file.302ai.cn/gpt/imgs/frame.png",
+      },
+      { fetcher }
+    );
+
+    const body = JSON.parse(String((fetcher as any).mock.calls[0][1].body));
+    expect(body.prompt).toMatch(/^MATERIAL LOCK:/);
+    expect(body.prompt).toContain("cold-pressed paper");
+    expect(body.prompt).toContain("texture flicker");
+    expect(body.prompt).toContain("The woman turns her head first");
+    expect(body.prompt.length).toBeLessThanOrEqual(500);
+  });
+
   it("fails clearly before a generic model is configured", async () => {
     ENV.api302Key = "test-302-key";
     ENV.video302Model = "";

@@ -5,7 +5,9 @@
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
 import {
+  BookOpen,
   Clapperboard,
+  Info,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -20,7 +22,10 @@ import {
 } from "@/features/creationEditor/CreationEditorContext";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
-import { parseLocalEditingChatCommand } from "@/features/creationEditor/editingChatCommands";
+import {
+  parseLocalEditingChatCommand,
+  shouldDeferStoryboardImageCommand,
+} from "@/features/creationEditor/editingChatCommands";
 import {
   executeTimelineUndo,
   recordTimelineUndoSnapshot,
@@ -35,6 +40,46 @@ import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
 import { editingCapabilityReply } from "@shared/editingActionCapabilities";
+import { normalizeEmotionAnalysisProfile } from "@/features/analysis/emotionAnalysis";
+import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
+
+function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
+  const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
+    retry: false,
+  });
+  const profile = normalizeEmotionAnalysisProfile(profileQuery.data, "server");
+  if (!profile) return null;
+
+  const attention =
+    profile.dailyReference.avoid || profile.dailyReference.summary;
+  if (!attention) return null;
+
+  return (
+    <div
+      className="relative z-10 flex h-9 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-4 text-xs backdrop-blur"
+      aria-label="今天留意"
+    >
+      <Info className="h-3.5 w-3.5 shrink-0 text-nayin" />
+      <span className="font-chat-brand shrink-0 text-sm text-foreground">
+        今天留意
+      </span>
+      <span
+        className="min-w-0 truncate text-muted-foreground"
+        title={attention}
+      >
+        {attention}
+      </span>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <BookOpen className="h-3.5 w-3.5" />
+        回信
+      </button>
+    </div>
+  );
+}
 
 function ExportButton({ storyId }: { storyId: number }) {
   const { shots } = useCreationEditor();
@@ -197,6 +242,7 @@ export default function EditingStudioPage() {
   const [timelineVisible, setTimelineVisible] = useState(true);
   const [materialWarehouseVisible, setMaterialWarehouseVisible] =
     useState(false);
+  const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
@@ -242,6 +288,15 @@ export default function EditingStudioPage() {
         selectionContext,
       });
       if (!result.handled) return null;
+      if (
+        shouldDeferStoryboardImageCommand({
+          sourceType: selectionContext?.sourceType,
+          appliedCount: result.appliedCount,
+          hasProposal: Boolean(result.proposal),
+        })
+      ) {
+        return null;
+      }
       if (result.appliedCount > 0) {
         if ("undoSnapshot" in result && result.undoSnapshot) {
           recordTimelineUndoSnapshot(storyId, result.undoSnapshot);
@@ -280,6 +335,11 @@ export default function EditingStudioPage() {
             onToggle: () => setTimelineVisible(value => !value),
           },
         ]}
+      />
+      <DailyAttentionBar onOpen={() => setDailyLetterOpen(true)} />
+      <DailyLetterWelcome
+        forceOpen={dailyLetterOpen}
+        onRequestClose={() => setDailyLetterOpen(false)}
       />
       <div className="relative z-10 min-h-0 flex-1">
         <StoryAgentProvider

@@ -1,6 +1,6 @@
 /**
  * AuthEntryPanel - 可嵌入欢迎页的登录面板。
- * 内测期以邀请码控制首次注册；老用户只需邮箱验证码。
+ * 内测期每次登录都由邮箱、专属邀请码和邮箱验证码共同确认。
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -11,6 +11,16 @@ type AuthEntryPanelProps = {
   autofocus?: boolean;
 };
 
+const REMEMBERED_EMAIL_KEY = "dt:rememberedLoginEmail";
+
+function loadRememberedEmail() {
+  try {
+    return window.localStorage?.getItem(REMEMBERED_EMAIL_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export default function AuthEntryPanel({
   autofocus = false,
 }: AuthEntryPanelProps) {
@@ -18,7 +28,8 @@ export default function AuthEntryPanel({
   const [, navigate] = useLocation();
 
   const [emailStep, setEmailStep] = useState<EmailStep>("input");
-  const [email, setEmail] = useState("");
+  const [rememberedEmail, setRememberedEmail] = useState(loadRememberedEmail);
+  const [email, setEmail] = useState(loadRememberedEmail);
   const [inviteCode, setInviteCode] = useState("");
   const [code, setCode] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
@@ -41,8 +52,8 @@ export default function AuthEntryPanel({
         const data = await res.json().catch(() => ({}));
         const messageByError: Record<string, string> = {
           invalid_email: "请输入有效的邮箱地址",
-          invite_required: "第一次登录需要邀请码",
-          invalid_invite: "邀请码无效、已过期或已被使用",
+          invite_required: "请输入邀请人发给你的邀请码",
+          invalid_invite: "邀请码无效，或不属于这个邮箱",
           email_not_configured: "邮件验证码还没配置好，请联系邀请人",
         };
         setEmailError(messageByError[data.error] ?? "发送失败，请重试");
@@ -70,15 +81,22 @@ export default function AuthEntryPanel({
         const data = await res.json().catch(() => ({}));
         setEmailError(
           data.error === "invite_required"
-            ? "第一次登录需要邀请码"
+            ? "请输入邀请人发给你的邀请码"
             : data.error === "invalid_invite"
-              ? "邀请码无效、已过期或已被使用"
+              ? "邀请码无效，或不属于这个邮箱"
               : "验证码错误或已过期，请重试"
         );
         return;
       }
       await refresh();
-      navigate("/analysis");
+      const normalizedEmail = email.trim().toLowerCase();
+      try {
+        window.localStorage?.setItem(REMEMBERED_EMAIL_KEY, normalizedEmail);
+      } catch {
+        // 浏览器禁止本地存储时仍保持正常登录。
+      }
+      setRememberedEmail(normalizedEmail);
+      navigate("/editing");
     } catch {
       setEmailError("网络错误，请重试");
     } finally {
@@ -130,6 +148,7 @@ export default function AuthEntryPanel({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                readOnly={Boolean(rememberedEmail)}
                 autoFocus={autofocus}
                 autoComplete="email"
                 className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-1"
@@ -138,11 +157,30 @@ export default function AuthEntryPanel({
                   color: "var(--foreground)",
                 }}
               />
+              {rememberedEmail ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      window.localStorage?.removeItem(REMEMBERED_EMAIL_KEY);
+                    } catch {
+                      // 浏览器禁止本地存储时只清理当前页面状态。
+                    }
+                    setRememberedEmail("");
+                    setEmail("");
+                    setInviteCode("");
+                  }}
+                  className="self-end text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  换一个邮箱
+                </button>
+              ) : null}
               <input
                 type="text"
-                placeholder="邀请码（第一次登录需要）"
+                placeholder="邀请码"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                required
                 autoComplete="off"
                 autoCapitalize="characters"
                 className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm uppercase outline-none focus:ring-1"
@@ -229,7 +267,7 @@ export default function AuthEntryPanel({
           )}
 
           <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-            第一次来需要邀请码，回来时只填邮箱。
+            每次登录都需要邮箱、专属邀请码和邮件验证码。
             <br />
             {betaWechatId
               ? `申请内测微信：${betaWechatId}`

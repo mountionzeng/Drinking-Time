@@ -5,6 +5,7 @@ import {
   createEmailOtp,
   createInviteCode,
   findAvailableInviteCode,
+  findInviteCodeForEmailAccess,
   findValidEmailOtp,
   hasRedeemedInviteForEmail,
   markEmailOtpUsed,
@@ -32,6 +33,12 @@ describe("邀请码与本地邮箱验证码", () => {
     expect(await redeemInviteForEmail(codeHash, "a@example.com")).not.toBeNull();
     expect(await redeemInviteForEmail(codeHash, "a@example.com")).not.toBeNull();
     expect(await redeemInviteForEmail(codeHash, "b@example.com")).toBeNull();
+    expect(
+      await findInviteCodeForEmailAccess(codeHash, "a@example.com")
+    ).not.toBeNull();
+    expect(
+      await findInviteCodeForEmailAccess(codeHash, "b@example.com")
+    ).toBeNull();
     expect(await hasRedeemedInviteForEmail("a@example.com")).toBe(true);
     expect(await findAvailableInviteCode(codeHash)).toBeNull();
   });

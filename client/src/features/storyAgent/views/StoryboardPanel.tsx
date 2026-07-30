@@ -65,7 +65,11 @@ export default function StoryboardPanel({
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
-  const { loadStory, setActiveSelection } = useStoryAgentActions();
+  const {
+    loadStory,
+    setActiveSelection,
+    registerImageRerenderRunner,
+  } = useStoryAgentActions();
   const setStoryShots = useStorySpine(state => state.setStoryShots);
   const setSaveStatus = useStorySpine(state => state.setSaveStatus);
   const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
@@ -80,11 +84,11 @@ export default function StoryboardPanel({
     updatePersistedShotFields,
     insertPersistedShotAfter,
     rerenderShot,
-    rerenderingShotNo,
+    rerenderingShotNos,
     generateShotVideo,
     estimateStartEndShotVideo,
     generateStartEndShotVideo,
-    generatingVideoShotNo,
+    generatingVideoShotNos,
     refreshShotVideoStatus,
     markVideoTakeUnusable,
     assignStoryImageToShot,
@@ -181,6 +185,7 @@ export default function StoryboardPanel({
       shots={displayShots}
       latestScript={latestScript}
       isGeneratingScript={isGeneratingScript}
+      onRegisterImageRerenderRunner={registerImageRerenderRunner}
       selectedShotNo={selectedShotNo}
       onSelectShot={shotNo => {
         setSelectedShotNo(shotNo);
@@ -269,14 +274,15 @@ export default function StoryboardPanel({
         setSelectedShotNo(nextSelectedShotNo);
         return nextSelectedShotNo;
       }}
-      generatingImageShotNo={rerenderingShotNo}
+      generatingImageShotNos={rerenderingShotNos}
       onGenerateShotImages={input =>
         rerenderShot(input.shotNo, input.rows, input.reference, {
           explicitInstruction: input.explicitInstruction,
+          candidateCount: input.candidateCount,
           costConfirmation: input.costConfirmation,
         })
       }
-      generatingVideoShotNo={generatingVideoShotNo}
+      generatingVideoShotNos={generatingVideoShotNos}
       onGenerateShotVideo={generateShotVideo}
       onEstimateStartEndShotVideo={estimateStartEndShotVideo}
       onGenerateStartEndShotVideo={generateStartEndShotVideo}

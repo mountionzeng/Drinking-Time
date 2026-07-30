@@ -15,7 +15,6 @@ import {
   type VideoClipEditDraft,
   type VideoClipEditorTarget,
 } from "../videoClipEditorModel";
-import { timelineTransformStyle } from "../imageClipEditorModel";
 import VisualTransformControls from "./VisualTransformControls";
 
 function NumberField({
@@ -95,11 +94,13 @@ export default function VideoClipEditorPanel({
   saving,
   onClose,
   onApply,
+  onPreviewChange,
 }: {
   target: VideoClipEditorTarget;
   saving: boolean;
   onClose: () => void;
   onApply: (draft: VideoClipEditDraft) => Promise<void>;
+  onPreviewChange: (draft: VideoClipEditDraft) => void;
 }) {
   const initialDraft = useMemo<VideoClipEditDraft>(
     () => ({
@@ -125,6 +126,11 @@ export default function VideoClipEditorPanel({
     draft,
     target.mediaDurationSec
   );
+  const previewFingerprint = JSON.stringify(normalized);
+  useEffect(() => {
+    onPreviewChange(normalized);
+  }, [onPreviewChange, previewFingerprint]);
+
   const outputDurationMs = editedTimelineDurationMs(normalized);
   const updateEffects = (patch: Partial<VideoClipEditDraft["effects"]>) =>
     setDraft(current => ({
@@ -142,7 +148,8 @@ export default function VideoClipEditorPanel({
       role="dialog"
       aria-label={`${target.label} 视频编辑`}
       data-testid="video-clip-editor"
-      className="absolute bottom-0 right-0 top-0 z-50 flex w-[344px] max-w-[44vw] flex-col border-l border-border bg-background shadow-xl"
+      data-preview-target="editing-preview-stage"
+      className="absolute bottom-0 left-0 top-0 z-50 flex w-[360px] max-w-[42vw] flex-col border-r border-border bg-background shadow-xl"
     >
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
         <SlidersHorizontal className="h-4 w-4 text-primary" />
@@ -153,6 +160,9 @@ export default function VideoClipEditorPanel({
             {target.clipId ? ` · ${target.clipId}` : " · 主镜头"}
           </p>
         </div>
+        <span className="shrink-0 rounded-sm bg-primary/10 px-1.5 py-1 text-[9px] font-medium text-primary">
+          实时预览
+        </span>
         <button
           type="button"
           onClick={onClose}
@@ -165,18 +175,6 @@ export default function VideoClipEditorPanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar">
-        <div className="aspect-square w-full overflow-hidden bg-black">
-          <video
-            key={`${target.takeId}-${target.clipId ?? "primary"}`}
-            src={target.videoUrl}
-            poster={target.posterUrl ?? undefined}
-            controls
-            preload="metadata"
-            className="h-full w-full object-cover"
-            style={timelineTransformStyle(normalized.transform)}
-          />
-        </div>
-
         <section className="border-b border-border px-3 py-3">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[11px] font-semibold">裁切</h2>

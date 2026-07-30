@@ -31,6 +31,43 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
+ * AccessSessions — 已登录用户的轻量访问时长记录。
+ *
+ * 只记录访问起止和累计活跃秒数，不保存 IP、设备指纹、访问内容或故事数据。
+ */
+export const accessSessions = mysqlTable(
+  "access_sessions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visitId: varchar("visitId", { length: 64 }).notNull(),
+    siteHost: varchar("siteHost", { length: 255 }).notNull(),
+    startedAt: timestamp("startedAt").defaultNow().notNull(),
+    lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+    durationSeconds: int("durationSeconds").default(0).notNull(),
+  },
+  table => ({
+    visitUnique: uniqueIndex("access_sessions_visit_unique").on(
+      table.userId,
+      table.visitId,
+      table.siteHost
+    ),
+    userHostIndex: index("access_sessions_user_host_index").on(
+      table.userId,
+      table.siteHost
+    ),
+    lastSeenIndex: index("access_sessions_last_seen_index").on(
+      table.lastSeenAt
+    ),
+  })
+);
+
+export type AccessSession = typeof accessSessions.$inferSelect;
+export type InsertAccessSession = typeof accessSessions.$inferInsert;
+
+/**
  * Projects — each analysis session is a project
  */
 export const projects = mysqlTable("projects", {
@@ -187,6 +224,44 @@ export type EmotionAnalysisProfile =
   typeof emotionAnalysisProfiles.$inferSelect;
 export type InsertEmotionAnalysisProfile =
   typeof emotionAnalysisProfiles.$inferInsert;
+
+/**
+ * EmotionDailyLetters — 每位用户按日期保存的一封回信。
+ *
+ * 长期画像继续保留“今天”的快照供旧链路读取；这里保存可回看、可修改的历史，
+ * 让修改某天的原话只重写当天回信，不覆盖其他日期。
+ */
+export const emotionDailyLetters = mysqlTable(
+  "emotion_daily_letters",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    letterDate: varchar("letterDate", { length: 10 }).notNull(),
+    userMessage: text("userMessage"),
+    userMessageSaidAt: timestamp("userMessageSaidAt"),
+    userMessageEditedAt: timestamp("userMessageEditedAt"),
+    dailyReference: json("dailyReference").notNull(),
+    analysisSeed: json("analysisSeed").notNull(),
+    revision: int("revision").default(1).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    userDateUnique: uniqueIndex("emotion_daily_letters_user_date_unique").on(
+      table.userId,
+      table.letterDate
+    ),
+    userDateIndex: index("emotion_daily_letters_user_date_index").on(
+      table.userId,
+      table.letterDate
+    ),
+  })
+);
+
+export type EmotionDailyLetter = typeof emotionDailyLetters.$inferSelect;
+export type InsertEmotionDailyLetter = typeof emotionDailyLetters.$inferInsert;
 
 /**
  * Stories — drinking-time 工坊的剧本/镜头表。
@@ -354,9 +429,9 @@ export const storyPromptStates = mysqlTable(
   table => ({
     storyOwner: uniqueIndex("story_prompt_states_story_owner_unique").on(
       table.storyId,
-      table.userId,
+      table.userId
     ),
-  }),
+  })
 );
 
 export type StoryPromptState = typeof storyPromptStates.$inferSelect;
@@ -394,14 +469,14 @@ export const promptNodes = mysqlTable(
       table.stableShotId,
       table.scope,
       table.modality,
-      table.dimension,
+      table.dimension
     ),
     storyLookup: index("prompt_nodes_story_lookup").on(
       table.storyId,
       table.userId,
-      table.stableShotId,
+      table.stableShotId
     ),
-  }),
+  })
 );
 
 export type PromptNode = typeof promptNodes.$inferSelect;
@@ -441,14 +516,14 @@ export const promptRevisions = mysqlTable(
   table => ({
     nodeHistory: index("prompt_revisions_node_history").on(
       table.nodeId,
-      table.id,
+      table.id
     ),
     storyCandidates: index("prompt_revisions_story_candidates").on(
       table.storyId,
       table.userId,
-      table.status,
+      table.status
     ),
-  }),
+  })
 );
 
 export type PromptRevision = typeof promptRevisions.$inferSelect;
@@ -485,16 +560,16 @@ export const promptNodeBindings = mysqlTable(
       table.userId,
       table.nodeId,
       table.stableShotId,
-      table.modality,
+      table.modality
     ),
     shotOrder: index("prompt_node_bindings_shot_order").on(
       table.storyId,
       table.userId,
       table.stableShotId,
       table.modality,
-      table.sortOrder,
+      table.sortOrder
     ),
-  }),
+  })
 );
 
 export type PromptNodeBinding = typeof promptNodeBindings.$inferSelect;
@@ -522,9 +597,9 @@ export const promptCompilations = mysqlTable(
       table.userId,
       table.stableShotId,
       table.modality,
-      table.id,
+      table.id
     ),
-  }),
+  })
 );
 
 export type PromptCompilation = typeof promptCompilations.$inferSelect;
@@ -545,9 +620,9 @@ export const promptCompilationInputs = mysqlTable(
   table => ({
     orderedInput: uniqueIndex("prompt_compilation_inputs_order_unique").on(
       table.compilationId,
-      table.position,
+      table.position
     ),
-  }),
+  })
 );
 
 export type PromptCompilationInput =
@@ -577,13 +652,12 @@ export const promptCompilationHeads = mysqlTable(
       table.storyId,
       table.userId,
       table.stableShotId,
-      table.modality,
+      table.modality
     ),
-  }),
+  })
 );
 
-export type PromptCompilationHead =
-  typeof promptCompilationHeads.$inferSelect;
+export type PromptCompilationHead = typeof promptCompilationHeads.$inferSelect;
 export type InsertPromptCompilationHead =
   typeof promptCompilationHeads.$inferInsert;
 
@@ -603,9 +677,9 @@ export const storyConversations = mysqlTable(
   table => ({
     storyOwner: uniqueIndex("story_conversations_story_owner_unique").on(
       table.storyId,
-      table.userId,
+      table.userId
     ),
-  }),
+  })
 );
 
 export type StoryConversation = typeof storyConversations.$inferSelect;
@@ -630,19 +704,20 @@ export const storyConversationMessages = mysqlTable(
     clientMessageId: varchar("clientMessageId", { length: 128 }),
     candidateRevisionId: int("candidateRevisionId").references(
       () => promptRevisions.id,
-      { onDelete: "set null" },
+      { onDelete: "set null" }
     ),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
     conversationOrder: index("story_conversation_messages_order").on(
       table.conversationId,
-      table.id,
+      table.id
     ),
-    clientMessage: uniqueIndex(
-      "story_conversation_messages_client_unique",
-    ).on(table.conversationId, table.clientMessageId),
-  }),
+    clientMessage: uniqueIndex("story_conversation_messages_client_unique").on(
+      table.conversationId,
+      table.clientMessageId
+    ),
+  })
 );
 
 export type StoryConversationMessage =
@@ -671,13 +746,12 @@ export const storyMessageReferences = mysqlTable(
   },
   table => ({
     messageLookup: index("story_message_references_message").on(
-      table.messageId,
+      table.messageId
     ),
-  }),
+  })
 );
 
-export type StoryMessageReference =
-  typeof storyMessageReferences.$inferSelect;
+export type StoryMessageReference = typeof storyMessageReferences.$inferSelect;
 export type InsertStoryMessageReference =
   typeof storyMessageReferences.$inferInsert;
 
@@ -697,9 +771,9 @@ export const artPromptLibraries = mysqlTable(
   table => ({
     ownerName: index("art_prompt_libraries_owner_name").on(
       table.ownerUserId,
-      table.name,
+      table.name
     ),
-  }),
+  })
 );
 
 export type ArtPromptLibrary = typeof artPromptLibraries.$inferSelect;
@@ -724,13 +798,14 @@ export const artPromptLibraryVersions = mysqlTable(
     publishedAt: timestamp("publishedAt"),
   },
   table => ({
-    libraryVersion: uniqueIndex(
-      "art_prompt_library_versions_number_unique",
-    ).on(table.libraryId, table.version),
+    libraryVersion: uniqueIndex("art_prompt_library_versions_number_unique").on(
+      table.libraryId,
+      table.version
+    ),
     libraryFingerprint: uniqueIndex(
-      "art_prompt_library_versions_fingerprint_unique",
+      "art_prompt_library_versions_fingerprint_unique"
     ).on(table.libraryId, table.contentFingerprint),
-  }),
+  })
 );
 
 export type ArtPromptLibraryVersion =
@@ -750,20 +825,19 @@ export const artPromptLibraryItems = mysqlTable(
     negativeContent: text("negativeContent"),
     sourceRevisionId: int("sourceRevisionId").references(
       () => promptRevisions.id,
-      { onDelete: "set null" },
+      { onDelete: "set null" }
     ),
     sortOrder: int("sortOrder").default(0).notNull(),
   },
   table => ({
     versionOrder: index("art_prompt_library_items_version_order").on(
       table.libraryVersionId,
-      table.sortOrder,
+      table.sortOrder
     ),
-  }),
+  })
 );
 
-export type ArtPromptLibraryItem =
-  typeof artPromptLibraryItems.$inferSelect;
+export type ArtPromptLibraryItem = typeof artPromptLibraryItems.$inferSelect;
 export type InsertArtPromptLibraryItem =
   typeof artPromptLibraryItems.$inferInsert;
 
@@ -788,13 +862,12 @@ export const storyArtPromptBindings = mysqlTable(
   table => ({
     storyOwner: uniqueIndex("story_art_prompt_bindings_story_unique").on(
       table.storyId,
-      table.userId,
+      table.userId
     ),
-  }),
+  })
 );
 
-export type StoryArtPromptBinding =
-  typeof storyArtPromptBindings.$inferSelect;
+export type StoryArtPromptBinding = typeof storyArtPromptBindings.$inferSelect;
 export type InsertStoryArtPromptBinding =
   typeof storyArtPromptBindings.$inferInsert;
 
@@ -815,9 +888,9 @@ export const promptOperationReceipts = mysqlTable(
   },
   table => ({
     ownerOperation: uniqueIndex(
-      "prompt_operation_receipts_owner_operation_unique",
+      "prompt_operation_receipts_owner_operation_unique"
     ).on(table.storyId, table.userId, table.operationKey),
-  }),
+  })
 );
 
 export type PromptOperationReceipt =
@@ -848,7 +921,7 @@ export const generatedImages = mysqlTable("generated_images", {
   prompt: text("prompt"),
   promptCompilationId: int("promptCompilationId").references(
     () => promptCompilations.id,
-    { onDelete: "set null" },
+    { onDelete: "set null" }
   ),
   generationType: mysqlEnum("generationType", [
     "generate",
@@ -878,7 +951,7 @@ export const videoTakes = mysqlTable("video_takes", {
   sourceImageId: int("sourceImageId"),
   promptCompilationId: int("promptCompilationId").references(
     () => promptCompilations.id,
-    { onDelete: "set null" },
+    { onDelete: "set null" }
   ),
   status: mysqlEnum("status", [
     "submitted",
@@ -1102,7 +1175,7 @@ export type InsertEmailOtp = typeof emailOtps.$inferInsert;
  * InviteCodes — 内测邀请码。
  *
  * 数据库只保存 SHA-256 哈希，不保存可直接使用的原始邀请码。邀请码首次成功
- * 登录时绑定邮箱；同一邮箱后续可继续用邮箱验证码登录。
+ * 登录时绑定邮箱；此后每次登录仍需提交同一邀请码，且只能由绑定邮箱使用。
  */
 export const inviteCodes = mysqlTable(
   "invite_codes",

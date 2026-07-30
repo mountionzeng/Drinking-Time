@@ -77,7 +77,10 @@ import {
 } from "./spine/storySpine";
 import { createActionFacade } from "./spine/actionFacade";
 import { selectPromptPool } from "./spine/selectors";
-import { resolveSelectionPromptTarget } from "./selectionPromptCandidate";
+import {
+  resolveSelectionEditText,
+  resolveSelectionPromptTarget,
+} from "./selectionPromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
@@ -314,6 +317,15 @@ export type StoryShotEditableField =
   | "generationModel"
   | "generationParams";
 
+export type StoryboardImageRerenderResult = {
+  status: "success" | "cancelled" | "error";
+  message: string;
+};
+
+export type StoryboardImageRerenderRunner = (
+  request: NonNullable<ChatMessage["imageRerenderAction"]>
+) => Promise<StoryboardImageRerenderResult>;
+
 interface StoryAgentContextValue {
   messages: ChatMessage[];
   cards: StoryCard[];
@@ -418,6 +430,12 @@ interface StoryAgentContextValue {
   sendSelectionEdit: (instruction: string) => Promise<void>;
   confirmSelectionCandidate: (messageId: string) => Promise<void>;
   rejectSelectionCandidate: (messageId: string) => Promise<void>;
+  rerenderSelectionImage: (
+    request: NonNullable<ChatMessage["imageRerenderAction"]>
+  ) => Promise<StoryboardImageRerenderResult>;
+  registerImageRerenderRunner: (
+    runner: StoryboardImageRerenderRunner
+  ) => () => void;
   confirmEditingTransitionCandidate: (messageId: string) => Promise<void>;
   rejectEditingTransitionCandidate: (messageId: string) => Promise<void>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
@@ -460,6 +478,8 @@ type StoryAgentActionKey =
   | "sendSelectionEdit"
   | "confirmSelectionCandidate"
   | "rejectSelectionCandidate"
+  | "rerenderSelectionImage"
+  | "registerImageRerenderRunner"
   | "confirmEditingTransitionCandidate"
   | "rejectEditingTransitionCandidate"
   | "addStoryImage"
@@ -503,6 +523,8 @@ const storyAgentActionKeys = [
   "sendSelectionEdit",
   "confirmSelectionCandidate",
   "rejectSelectionCandidate",
+  "rerenderSelectionImage",
+  "registerImageRerenderRunner",
   "confirmEditingTransitionCandidate",
   "rejectEditingTransitionCandidate",
   "addStoryImage",
@@ -757,6 +779,7 @@ function archiveMessagesFrom(
       photoUrl: message.photoUrl,
       selectionQuote: message.selectionQuote,
       promptCandidate: message.promptCandidate,
+      imageRerenderAction: message.imageRerenderAction,
       editingTransitionCandidate: message.editingTransitionCandidate,
       pendingCard: spawnedCard
         ? {
@@ -1369,6 +1392,7 @@ export function StoryAgentProvider({
         content: message.content,
         photoUrl: message.photoUrl,
         spawnedCardId: message.spawnedCardId,
+        imageRerenderAction: message.imageRerenderAction,
       })),
       cards,
       scripts,
@@ -2874,6 +2898,44 @@ export function StoryAgentProvider({
     trpc.promptLineage.confirmCandidate.useMutation();
   const rejectPromptCandidateMut =
     trpc.promptLineage.rejectCandidate.useMutation();
+  const imageRerenderRunnerRef =
+    useRef<StoryboardImageRerenderRunner | null>(null);
+
+  const registerImageRerenderRunner = useCallback(
+    (runner: StoryboardImageRerenderRunner) => {
+      imageRerenderRunnerRef.current = runner;
+      return () => {
+        if (imageRerenderRunnerRef.current === runner) {
+          imageRerenderRunnerRef.current = null;
+        }
+      };
+    },
+    []
+  );
+
+  const rerenderSelectionImage = useCallback(
+    async (
+      request: NonNullable<ChatMessage["imageRerenderAction"]>
+    ): Promise<StoryboardImageRerenderResult> => {
+      if (
+        request.storyId != null &&
+        activeStoryId != null &&
+        request.storyId !== activeStoryId
+      ) {
+        const message = "这条重渲操作属于另一个故事，请先切回对应故事";
+        toast.error(message);
+        return { status: "error", message };
+      }
+      const runner = imageRerenderRunnerRef.current;
+      if (!runner) {
+        const message = "故事版看板还没有准备好，请稍后再点一次";
+        toast.error(message);
+        return { status: "error", message };
+      }
+      return runner(request);
+    },
+    [activeStoryId]
+  );
 
   const sendSelectionEdit = useCallback(
     async (instruction: string) => {
@@ -2984,10 +3046,37 @@ export function StoryAgentProvider({
           }
         }
 
+        const storyId = resolvePersistedStoryId(
+          activeSelection.storyId,
+          activeStoryId,
+          remoteStoryId
+        );
+        let editText = { fullText, selectedText };
+        let promptRewrite = false;
+        if (sourceType === "storyboard-image" && storyId != null) {
+          const loadedForEdit =
+            await utils.promptLineage.getStoryProjection.fetch({
+              storyId,
+            });
+          if (loadedForEdit.mode === "lineage") {
+            const target = resolveSelectionPromptTarget({
+              selection: activeSelection,
+              shots: storyShots,
+              aggregate: loadedForEdit.projection,
+            });
+            editText = resolveSelectionEditText({
+              selection: activeSelection,
+              target,
+            });
+            promptRewrite = Boolean(target?.currentContent?.trim());
+          }
+        }
+
         const result = await selectionEditMut.mutateAsync({
-          fullText,
-          selectedText,
+          fullText: editText.fullText,
+          selectedText: editText.selectedText,
           instruction,
+          promptRewrite,
           selectionContext: activeSelection,
           projectId: projectId ?? undefined,
           history: nextMessages.slice(-8).map(m => ({
@@ -3004,16 +3093,11 @@ export function StoryAgentProvider({
           return;
         }
 
-        const storyId = resolvePersistedStoryId(
-          activeSelection.storyId,
-          activeStoryId,
-          remoteStoryId
-        );
         let promptCandidate: ChatMessage["promptCandidate"];
         let reply = result.reply || "我看过了。";
         if (
           !result.isApprovalOnly &&
-          result.modifiedFullText !== fullText &&
+          result.modifiedFullText !== editText.fullText &&
           storyId != null
         ) {
           const loaded = await utils.promptLineage.getStoryProjection.fetch({
@@ -3055,6 +3139,16 @@ export function StoryAgentProvider({
           content: reply,
           timestamp: Date.now(),
           promptCandidate,
+          imageRerenderAction:
+            sourceType === "storyboard-image" &&
+            activeSelection.shotNo != null
+              ? {
+                  storyId,
+                  stableShotId: activeSelection.stableShotId ?? null,
+                  shotNo: activeSelection.shotNo,
+                  cueCode: activeSelection.cueCode ?? null,
+                }
+              : undefined,
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
@@ -3551,6 +3645,8 @@ export function StoryAgentProvider({
       sendSelectionEdit,
       confirmSelectionCandidate,
       rejectSelectionCandidate,
+      rerenderSelectionImage,
+      registerImageRerenderRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       promptPool,
@@ -3611,6 +3707,8 @@ export function StoryAgentProvider({
       sendSelectionEdit,
       confirmSelectionCandidate,
       rejectSelectionCandidate,
+      rerenderSelectionImage,
+      registerImageRerenderRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       promptPool,
@@ -3650,6 +3748,8 @@ export function StoryAgentProvider({
     sendSelectionEdit,
     confirmSelectionCandidate,
     rejectSelectionCandidate,
+    rerenderSelectionImage,
+    registerImageRerenderRunner,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
     addStoryImage,

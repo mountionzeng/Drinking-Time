@@ -1,9 +1,15 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { systemRouter } from "../_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import {
+  adminProcedure,
+  publicProcedure,
+  protectedProcedure,
+  router,
+} from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -23,9 +29,25 @@ import {
   getProjectAnalysis,
   getEmotionAnalysisProfile,
   upsertEmotionAnalysisProfile,
+  listEmotionDailyLetters,
+  getAccessOverview,
+  recordAccessHeartbeat,
 } from "../db";
 import { saveSnapshot, getRecentAnnotations } from "../services/editContext";
 import { getAlmanacDay } from "../services/almanac";
+import {
+  chinaDateString,
+  personalizeEmotionDailyReference302,
+} from "../services/emotionDailyReference302";
+import { getFreshEmotionAnalysisProfile } from "../services/emotionProfileDailyRefresh";
+import {
+  EmotionDailyLetterConflictError,
+  EmotionDailyLetterNotFoundError,
+  rewriteEmotionDailyLetter,
+  saveDailyLetterFromProfile,
+} from "../services/emotionDailyLetters";
+import { calculateBirthPillarsLabel } from "@shared/bazi";
+import { consumeGuestEmotionAllowance } from "../services/guestEmotionRateLimit";
 import type { ProjectState } from "../_core/editDiff";
 import { nanoid } from "nanoid";
 import { transcribeAudioBytes } from "../_core/voiceTranscription";
@@ -122,6 +144,95 @@ function calcNayinByGanzhiIndex(ganzhiIndex: number): NayinElement {
 
 const birthDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const emotionAnalysisPayloadSchema = z.record(z.string(), z.unknown());
+const emotionProfileTransferSchema = z.object({
+  guestId: z.string().regex(/^guest-[a-zA-Z0-9-]{8,80}$/),
+  birthDate: birthDateSchema,
+  dailyReference: emotionAnalysisPayloadSchema,
+  analysisSeed: emotionAnalysisPayloadSchema,
+  consentAccepted: z.literal(true),
+  consentText: z.string().max(1000),
+});
+
+type EmotionPayload = Record<string, unknown>;
+
+function emotionPayload(value: unknown): EmotionPayload {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as EmotionPayload)
+    : {};
+}
+
+function mergeEmotionMessageHistory(
+  accountSeed: EmotionPayload,
+  guestSeed: EmotionPayload
+) {
+  const rows = [
+    ...(Array.isArray(accountSeed.messageHistory)
+      ? accountSeed.messageHistory
+      : []),
+    ...(Array.isArray(guestSeed.messageHistory)
+      ? guestSeed.messageHistory
+      : []),
+  ];
+  const seen = new Set<string>();
+  return rows
+    .filter(
+      row =>
+        row &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        typeof (row as EmotionPayload).text === "string" &&
+        typeof (row as EmotionPayload).saidAt === "string"
+    )
+    .filter(row => {
+      const item = row as EmotionPayload;
+      const key = `${String(item.saidAt)}:${String(item.text)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(-30);
+}
+
+function mergeGuestAnalysisSeed({
+  accountSeed,
+  guestSeed,
+  sameBirthDate,
+}: {
+  accountSeed: EmotionPayload;
+  guestSeed: EmotionPayload;
+  sameBirthDate: boolean;
+}) {
+  const messageHistory = mergeEmotionMessageHistory(accountSeed, guestSeed);
+  const guestMessage =
+    typeof guestSeed.userMessage === "string"
+      ? guestSeed.userMessage.trim().slice(0, 800)
+      : "";
+  const birthTime =
+    typeof accountSeed.birthTime === "string" && accountSeed.birthTime.trim()
+      ? accountSeed.birthTime
+      : sameBirthDate && typeof guestSeed.birthTime === "string"
+        ? guestSeed.birthTime
+        : undefined;
+  return {
+    ...accountSeed,
+    ...(!accountSeed.birthPlace && sameBirthDate && guestSeed.birthPlace
+      ? { birthPlace: guestSeed.birthPlace }
+      : {}),
+    ...(!accountSeed.currentLocation && guestSeed.currentLocation
+      ? { currentLocation: guestSeed.currentLocation }
+      : {}),
+    ...(birthTime ? { birthTime } : {}),
+    ...(messageHistory.length ? { messageHistory } : {}),
+    ...(guestMessage
+      ? {
+          userMessage: guestMessage,
+          conversationMode:
+            guestSeed.conversationMode === "history" ? "history" : "today",
+        }
+      : {}),
+    importedFromLocalAt: new Date().toISOString(),
+  };
+}
 // ─── Router ──────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -134,6 +245,37 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  accessAnalytics: router({
+    heartbeat: protectedProcedure
+      .input(
+        z.object({
+          visitId: z.string().min(8).max(64),
+          siteHost: z.string().min(1).max(255),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const session = await recordAccessHeartbeat({
+          userId: ctx.user.id,
+          visitId: input.visitId,
+          siteHost: input.siteHost.trim().toLowerCase(),
+        });
+        return {
+          lastSeenAt: session.lastSeenAt,
+          durationSeconds: session.durationSeconds,
+        };
+      }),
+    overview: adminProcedure
+      .input(
+        z.object({
+          siteHost: z.string().min(1).max(255),
+        })
+      )
+      .query(async ({ input }) => ({
+        generatedAt: new Date(),
+        users: await getAccessOverview(input.siteHost.trim().toLowerCase()),
+      })),
   }),
 
   promptLineage: promptLineageRouter,
@@ -695,9 +837,156 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
 
   // ─── Emotion Analysis（长期情绪画像底盘）───────────────────────────────
   emotionAnalysis: router({
+    guestReply: publicProcedure
+      .input(emotionProfileTransferSchema)
+      .mutation(async ({ ctx, input }) => {
+        const allowance = consumeGuestEmotionAllowance({
+          ip: ctx.req.ip || ctx.req.socket?.remoteAddress || "unknown",
+          guestId: input.guestId,
+        });
+        if (!allowance.allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `今天先聊到这里，约 ${Math.ceil(
+              allowance.retryAfterSeconds / 60
+            )} 分钟后可以继续。`,
+          });
+        }
+
+        const today = chinaDateString();
+        const almanac = await getAlmanacDay(today);
+        const birthTime =
+          typeof input.analysisSeed.birthTime === "string"
+            ? input.analysisSeed.birthTime.trim()
+            : "";
+        const birthBazi = calculateBirthPillarsLabel(
+          input.birthDate,
+          birthTime
+        );
+        const analysisSeed = {
+          ...input.analysisSeed,
+          birthDate: input.birthDate,
+          ...(birthBazi ? { birthBazi } : {}),
+        };
+        const personalized = await personalizeEmotionDailyReference302({
+          date: today,
+          almanac,
+          baseDailyReference: input.dailyReference,
+          analysisSeed,
+          generationIntent: "conversation-reply",
+        });
+
+        // 访客回信只返回浏览器；这里不写画像表，也不写每日信件表。
+        return {
+          birthDate: input.birthDate,
+          dailyReference: personalized.dailyReference,
+          analysisSeed,
+          consentVersion: "emotion-analysis-v1",
+          consentText: input.consentText,
+          savedAt: new Date().toISOString(),
+          source: "local" as const,
+        };
+      }),
+
     getProfile: protectedProcedure.query(async ({ ctx }) => {
-      return getEmotionAnalysisProfile(ctx.user.id);
+      return getFreshEmotionAnalysisProfile(ctx.user.id);
     }),
+
+    listDailyLetters: protectedProcedure
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(365).default(90),
+          })
+          .default({ limit: 90 })
+      )
+      .query(async ({ ctx, input }) => {
+        return listEmotionDailyLetters(ctx.user.id, input.limit);
+      }),
+
+    rewriteDailyLetter: protectedProcedure
+      .input(
+        z.object({
+          letterDate: birthDateSchema,
+          userMessage: z.string().max(800),
+          expectedRevision: z.number().int().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await rewriteEmotionDailyLetter({
+            userId: ctx.user.id,
+            letterDate: input.letterDate,
+            userMessage: input.userMessage,
+            expectedRevision: input.expectedRevision,
+          });
+        } catch (error) {
+          if (error instanceof EmotionDailyLetterNotFoundError) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: error.message,
+            });
+          }
+          if (error instanceof EmotionDailyLetterConflictError) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: error.message,
+            });
+          }
+          throw error;
+        }
+      }),
+
+    importGuestProfile: protectedProcedure
+      .input(emotionProfileTransferSchema)
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getEmotionAnalysisProfile(ctx.user.id);
+        const guestSeed = emotionPayload(input.analysisSeed);
+        const accountSeed = emotionPayload(existing?.analysisSeed);
+        const birthDate = existing?.birthDate ?? input.birthDate;
+        const sameBirthDate = birthDate === input.birthDate;
+        const mergedSeed = existing
+          ? mergeGuestAnalysisSeed({
+              accountSeed,
+              guestSeed,
+              sameBirthDate,
+            })
+          : guestSeed;
+        const birthTime =
+          typeof mergedSeed.birthTime === "string"
+            ? mergedSeed.birthTime.trim()
+            : "";
+        const birthBazi = calculateBirthPillarsLabel(birthDate, birthTime);
+        const analysisSeed = {
+          ...mergedSeed,
+          birthDate,
+          ...(birthBazi ? { birthBazi } : {}),
+        };
+        const today = chinaDateString();
+        const almanac = await getAlmanacDay(today);
+        const personalized = await personalizeEmotionDailyReference302({
+          date: today,
+          almanac,
+          baseDailyReference:
+            existing?.dailyReference &&
+            typeof existing.dailyReference === "object"
+              ? emotionPayload(existing.dailyReference)
+              : input.dailyReference,
+          analysisSeed,
+          generationIntent: "conversation-reply",
+        });
+        const saved = await upsertEmotionAnalysisProfile({
+          userId: ctx.user.id,
+          projectId: existing?.projectId ?? null,
+          birthDate,
+          consentVersion: "emotion-analysis-v1",
+          consentText: input.consentText,
+          dailyReference: personalized.dailyReference,
+          analysisSeed,
+        });
+        await saveDailyLetterFromProfile(saved);
+        return saved;
+      }),
 
     saveBirthProfile: protectedProcedure
       .input(
@@ -711,15 +1000,37 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
         })
       )
       .mutation(async ({ ctx, input }) => {
-        return upsertEmotionAnalysisProfile({
+        const today = chinaDateString();
+        const almanac = await getAlmanacDay(today);
+        const birthTime =
+          typeof input.analysisSeed.birthTime === "string"
+            ? input.analysisSeed.birthTime.trim()
+            : "";
+        const birthBazi = calculateBirthPillarsLabel(
+          input.birthDate,
+          birthTime
+        );
+        const analysisSeed = birthBazi
+          ? { ...input.analysisSeed, birthBazi }
+          : input.analysisSeed;
+        const personalized = await personalizeEmotionDailyReference302({
+          date: today,
+          almanac,
+          baseDailyReference: input.dailyReference,
+          analysisSeed,
+          generationIntent: "conversation-reply",
+        });
+        const saved = await upsertEmotionAnalysisProfile({
           userId: ctx.user.id,
           projectId: input.projectId ?? null,
           birthDate: input.birthDate,
           consentVersion: "emotion-analysis-v1",
           consentText: input.consentText,
-          dailyReference: input.dailyReference,
-          analysisSeed: input.analysisSeed,
+          dailyReference: personalized.dailyReference,
+          analysisSeed,
         });
+        await saveDailyLetterFromProfile(saved);
+        return saved;
       }),
   }),
 

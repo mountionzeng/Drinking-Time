@@ -62,14 +62,6 @@ function getInviteCode(req: Request): string {
     : "";
 }
 
-async function emailAlreadyHasAccess(email: string): Promise<boolean> {
-  const [user, redeemedInvite] = await Promise.all([
-    db.getUserByOpenId(`email:${email}`),
-    db.hasRedeemedInviteForEmail(email),
-  ]);
-  return Boolean(user || redeemedInvite);
-}
-
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/auth/google/config", (req: Request, res: Response) => {
     const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
@@ -82,6 +74,10 @@ export function registerOAuthRoutes(app: Express) {
 
   // ── Google OAuth ────────────────────────────────────────────────────
   app.get("/api/auth/google", (req: Request, res: Response) => {
+    if (ENV.betaInviteRequired) {
+      res.status(403).json({ error: "invite_required" });
+      return;
+    }
     if (!ENV.googleClientId) {
       res.status(503).json({ error: "Google OAuth not configured. Set GOOGLE_CLIENT_ID." });
       return;
@@ -166,13 +162,14 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
     try {
-      if (ENV.betaInviteRequired && !(await emailAlreadyHasAccess(email))) {
+      if (ENV.betaInviteRequired) {
         if (!inviteCode) {
           res.status(403).json({ error: "invite_required" });
           return;
         }
-        const invite = await db.findAvailableInviteCode(
-          hashInviteCode(inviteCode)
+        const invite = await db.findInviteCodeForEmailAccess(
+          hashInviteCode(inviteCode),
+          email
         );
         if (!invite) {
           res.status(403).json({ error: "invalid_invite" });
@@ -211,7 +208,7 @@ export function registerOAuthRoutes(app: Express) {
       }
 
       const openId = `email:${email}`;
-      if (ENV.betaInviteRequired && !(await emailAlreadyHasAccess(email))) {
+      if (ENV.betaInviteRequired) {
         if (!inviteCode) {
           res.status(403).json({ error: "invite_required" });
           return;

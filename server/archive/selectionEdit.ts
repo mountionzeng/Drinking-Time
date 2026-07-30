@@ -11,6 +11,7 @@ export async function handleSelectionEdit(params: {
   fullText: string;
   selectedText: string;
   instruction: string;
+  promptRewrite?: boolean;
   selectionContext?: SelectionContext;
   projectId?: number;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -18,9 +19,23 @@ export async function handleSelectionEdit(params: {
   const isTextSelection =
     !params.selectionContext?.selection ||
     params.selectionContext.selection.kind === "text";
+  const isPromptRewrite = params.promptRewrite === true;
+  const canRewrite = isTextSelection || isPromptRewrite;
   const selectionSummary = describeSelectionContext(params.selectionContext);
-  const systemPrompt = isTextSelection
-    ? `你是一位文字编辑助手。用户会给你一段完整文本和其中被选中的片段，以及一条编辑指令。
+  const systemPrompt = isPromptRewrite
+    ? `你是一位影视图片提示词编辑助手。用户已经选中一个镜头画面，完整文本是这个镜头当前正式使用的图片生成提示词。
+用户的自然语言要求需要落实到提示词正文，而不是只给建议。
+
+要求：
+1. 只修改用户明确要求变化的内容；人物身份、脸、发型、服装中未被要求的部分、场景、构图、光线、色彩、材质和风格约束必须保留
+2. 不要增加用户没有要求的新人物、新物体、新场景或新风格
+3. 用户要求改变服装时，把要求写成明确、可执行且不矛盾的生成约束
+4. 不要声称已经生成或修改了图片；这里只更新图片生成提示词
+5. 如果指令只是确认/赞同，不做修改，isApprovalOnly 设为 true
+6. 返回完整的修改后提示词，不得只返回新增的一句话
+7. 返回 JSON 格式：{"isApprovalOnly":false,"modifiedFullText":"修改后的完整提示词","reply":"简短说明更新了哪项图片要求"}`
+    : isTextSelection
+      ? `你是一位文字编辑助手。用户会给你一段完整文本和其中被选中的片段，以及一条编辑指令。
 请只修改选中的部分，保持其余文字不变，返回修改后的完整文本。
 
 要求：
@@ -28,7 +43,7 @@ export async function handleSelectionEdit(params: {
 2. 遵循用户的编辑指令
 3. 如果指令是确认/赞同性质的（如"好的"、"不错"），不做修改，isApprovalOnly 设为 true
 4. 返回 JSON 格式：{"isApprovalOnly":false,"modifiedFullText":"修改后的完整文本","reply":"简短说明做了什么改动"}`
-    : `你是小酌，一位会听用户说话、帮用户把故事做成画面和短片的创作伙伴。
+      : `你是小酌，一位会听用户说话、帮用户把故事做成画面和短片的创作伙伴。
 用户现在不是在要求你改一段文字，而是在动态分镜/故事画面里框选了图片区域或视频时间段。
 
 你会收到：
@@ -67,7 +82,7 @@ ${selectionSummary ? `选区上下文：\n---\n${selectionSummary}\n---\n\n` : "
   const result = await invokeAgent(messages, 2048);
   const parsed = parseJsonLoose<{ isApprovalOnly: boolean; modifiedFullText: string; reply: string }>(result.text);
   if (parsed && typeof parsed.modifiedFullText === "string") {
-    if (!isTextSelection) {
+    if (!canRewrite) {
       return {
         isApprovalOnly: true,
         modifiedFullText: params.fullText,
@@ -78,9 +93,9 @@ ${selectionSummary ? `选区上下文：\n---\n${selectionSummary}\n---\n\n` : "
   }
   // 解析失败时回退：直接返回原文
   return {
-    isApprovalOnly: !isTextSelection,
+    isApprovalOnly: !canRewrite,
     modifiedFullText: params.fullText,
-    reply: isTextSelection
+    reply: canRewrite
       ? "未能解析 AI 返回结果，保留原文"
       : "我收到这个选区了，但这次没有整理出稳定建议。你可以换一种说法再问我。",
   };

@@ -288,6 +288,19 @@ export function videoTakeErrorMessage(message: string): string {
   return message;
 }
 
+export function videoTakeFailureLabel(
+  message: string | null | undefined
+): string | null {
+  const normalized = message?.trim().toLowerCase() ?? "";
+  if (/审核|not approved|prompt parameter error/.test(normalized)) {
+    return "审核未通过";
+  }
+  if (/midjourney api execution error/.test(normalized)) {
+    return "模型执行失败";
+  }
+  return null;
+}
+
 export function shotTimelineDurationMs(shot: CreationEditorShot): number {
   const selectedTake = shot.videoTakes?.find(
     take =>
