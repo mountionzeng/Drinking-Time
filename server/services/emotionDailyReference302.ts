@@ -5,6 +5,7 @@ import {
   currentChinaShichenGuidance,
   type ShichenGuidance,
 } from "../../shared/shichen";
+import { EMOTION_DAILY_LETTER_VERSION } from "../../shared/emotionDailyLetter";
 
 type PayloadRecord = Record<string, unknown>;
 
@@ -69,7 +70,7 @@ export interface PersonalizeEmotionDailyReferenceResult {
   fallbackReason?: string;
 }
 
-export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v10";
+export { EMOTION_DAILY_LETTER_VERSION } from "../../shared/emotionDailyLetter";
 
 const LENS_LABELS = ["社会学", "人类学", "历史参照"] as const;
 const GAN_WUXING: Record<string, string> = {

@@ -10,12 +10,17 @@ import {
   shichenFromTime,
   shichenGuidance,
 } from "@shared/shichen";
+import {
+  EMOTION_DAILY_LETTER_VERSION,
+  isEmotionDailyLetterVersion,
+  type EmotionDailyLetterVersion,
+} from "@shared/emotionDailyLetter";
 
 export const EMOTION_ANALYSIS_LOCAL_KEY = "dt:emotionAnalysisProfile";
 export const EMOTION_ANALYSIS_GUEST_ID_KEY = "dt:emotionAnalysisGuestId";
 export const EMOTION_ANALYSIS_CONSENT_TEXT =
   "你愿意留下的资料和这段话，只用来生成今日回信、接住之后的对话；随时可以修改，也不会替你做诊断或决定。";
-export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v9";
+export { EMOTION_DAILY_LETTER_VERSION };
 
 export interface EmotionScheduleBlock {
   label: string;
@@ -51,16 +56,7 @@ export interface EmotionDailyReference extends Record<string, unknown> {
   personalizedJi?: string[];
   birthShichen?: string;
   currentShichen?: string;
-  letterVersion?:
-    | "daily-letter-v1"
-    | "daily-letter-v2"
-    | "daily-letter-v3"
-    | "daily-letter-v4"
-    | "daily-letter-v5"
-    | "daily-letter-v6"
-    | "daily-letter-v7"
-    | "daily-letter-v8"
-    | "daily-letter-v9";
+  letterVersion?: EmotionDailyLetterVersion;
   factSource?: string;
   interpretationSource?: "302-deepseek" | "local-template";
   interpretationModel?: string;
@@ -607,15 +603,7 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
     ...(typeof value.mindset === "string" && value.mindset.trim()
       ? { mindset: value.mindset.trim() }
       : {}),
-    ...(value.letterVersion === "daily-letter-v1" ||
-    value.letterVersion === "daily-letter-v2" ||
-    value.letterVersion === "daily-letter-v3" ||
-    value.letterVersion === "daily-letter-v4" ||
-    value.letterVersion === "daily-letter-v5" ||
-    value.letterVersion === "daily-letter-v6" ||
-    value.letterVersion === "daily-letter-v7" ||
-    value.letterVersion === "daily-letter-v8" ||
-    value.letterVersion === "daily-letter-v9"
+    ...(isEmotionDailyLetterVersion(value.letterVersion)
       ? { letterVersion: value.letterVersion }
       : {}),
     ...(typeof value.factSource === "string"

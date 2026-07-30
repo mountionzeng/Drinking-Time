@@ -184,7 +184,7 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.dailyReference.mindset).toContain("不急着");
     expect(result.dailyReference.currentShichen).toBe("巳时");
     expect(result.dailyReference.summary).toContain("现在是巳时");
-    expect(result.dailyReference.letterVersion).toBe("daily-letter-v9");
+    expect(result.dailyReference.letterVersion).toBe("daily-letter-v10");
     expect(
       String(result.dailyReference.summary).split("\n\n").length
     ).toBeGreaterThanOrEqual(3);
