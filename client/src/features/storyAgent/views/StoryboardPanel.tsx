@@ -280,6 +280,7 @@ export default function StoryboardPanel({
           explicitInstruction: input.explicitInstruction,
           candidateCount: input.candidateCount,
           costConfirmation: input.costConfirmation,
+          imageProvider: input.imageProvider,
         })
       }
       generatingVideoShotNos={generatingVideoShotNos}

@@ -3147,6 +3147,8 @@ export function StoryAgentProvider({
                   stableShotId: activeSelection.stableShotId ?? null,
                   shotNo: activeSelection.shotNo,
                   cueCode: activeSelection.cueCode ?? null,
+                  imageId: activeSelection.imageId ?? null,
+                  instruction,
                 }
               : undefined,
         };

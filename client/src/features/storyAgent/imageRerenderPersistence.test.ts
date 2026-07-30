@@ -13,10 +13,39 @@ describe("storyboard image rerender chat action", () => {
         stableShotId: "story-1165-shot-0201",
         shotNo: 201,
         cueCode: "0201",
+        imageId: 1418,
+        instruction: "只把女主的裙子改为白色及地长裙，其余画面不变。",
       },
     };
 
     expect(normalizeChatMessages([message], [])).toEqual([message]);
+  });
+
+  it("keeps older rerender actions compatible when no exact image was saved", () => {
+    const [message] = normalizeChatMessages(
+      [
+        {
+          id: "assistant-rerender-legacy",
+          role: "assistant",
+          content: "可以重新渲染。",
+          timestamp: 10,
+          imageRerenderAction: {
+            storyId: 1165,
+            stableShotId: "story-1165-shot-0201",
+            shotNo: 201,
+            cueCode: "0201",
+          },
+        },
+      ],
+      []
+    );
+
+    expect(message?.imageRerenderAction).toEqual({
+      storyId: 1165,
+      stableShotId: "story-1165-shot-0201",
+      shotNo: 201,
+      cueCode: "0201",
+    });
   });
 
   it("drops malformed rerender metadata without dropping the reply", () => {

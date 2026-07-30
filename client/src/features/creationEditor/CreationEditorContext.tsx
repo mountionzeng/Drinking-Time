@@ -59,6 +59,7 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
+import type { ImageProvider } from "@shared/imageProvider";
 import type {
   VideoCropPath,
   VideoConformMode,
@@ -252,8 +253,14 @@ type CreationEditorContextValue = {
         accepted: true;
         estimatedCny: number;
       };
+      imageProvider?: ImageProvider;
     }
-  ) => Promise<{ generatedCount: number; failedCount: number }>;
+  ) => Promise<{
+    generatedCount: number;
+    failedCount: number;
+    imageId?: number;
+    imageUrl?: string;
+  }>;
   promoteFrameCrop: (input: {
     shotNo: number;
     imageBase64: string;
@@ -1914,6 +1921,7 @@ export function CreationEditorProvider({
         accepted: true;
         estimatedCny: number;
       };
+      imageProvider?: ImageProvider;
     }
   ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法重渲");
@@ -1952,6 +1960,7 @@ export function CreationEditorProvider({
               reference,
               explicitInstruction: options?.explicitInstruction,
               costConfirmation: options?.costConfirmation,
+              imageProvider: options?.imageProvider,
               generate: input => generateForMobileMut.mutateAsync(input),
             }),
           ],
@@ -2014,6 +2023,8 @@ export function CreationEditorProvider({
       return {
         generatedCount: batch.generatedCount,
         failedCount: batch.failedCount,
+        imageId: result.imageId,
+        imageUrl: result.imageUrl,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "图片生成失败";

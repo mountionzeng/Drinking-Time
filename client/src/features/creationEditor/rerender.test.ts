@@ -105,6 +105,41 @@ describe("creation editor rerender", () => {
     expect(generate.mock.calls[0][0].prompt).toContain("水彩");
   });
 
+  it("uses the 302 reference-image editor for an exact selected-frame edit", async () => {
+    const generate = vi.fn(async () => ({
+      status: "ok" as const,
+      imageUrl: "/api/images/0201-tail-long-dress.png",
+      imageId: 1419,
+    }));
+
+    const result = await rerenderShotImage({
+      storyId: 1165,
+      shot,
+      rows: [row({ value: "红黑版画与油画", weight: 0.9 })],
+      reference: {
+        imageUrl: "/api/images/0201-tail.png",
+        identityImageUrl: "/api/images/0201-tail.png",
+      },
+      imageProvider: "gpt-image",
+      explicitInstruction:
+        "只把女主的裙子改为白色及地长裙，人物、发型、动作、构图、场景、颜色和材质完全不变。",
+      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+      generate,
+    });
+
+    expect(result.imageId).toBe(1419);
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageProvider: "gpt-image",
+        referenceImageUrl: "/api/images/0201-tail.png",
+        referenceIdentityImageUrl: "/api/images/0201-tail.png",
+        referenceContextImageUrls: undefined,
+        explicitInstruction:
+          "只把女主的裙子改为白色及地长裙，人物、发型、动作、构图、场景、颜色和材质完全不变。",
+      })
+    );
+  });
+
   it("submits one Midjourney grid task for four storyboard candidates", async () => {
     const generate = vi.fn(async () => ({
       status: "ok" as const,

@@ -36,7 +36,11 @@ import type {
   StoryShotEditableField,
 } from "@/features/storyAgent/StoryAgentContext";
 import { toast } from "sonner";
-import type { GeneratedScript, StoryShot } from "@/features/storyAgent/types";
+import type {
+  ChatMessage,
+  GeneratedScript,
+  StoryShot,
+} from "@/features/storyAgent/types";
 import {
   creationTimelineShotId,
   type CreationEditorImage,
@@ -93,6 +97,7 @@ import {
 } from "@shared/startEndVideo";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { ImageProvider } from "@shared/imageProvider";
 import {
   hasVideoTakeDragPayload,
   readVideoTakeDragPayload,
@@ -238,7 +243,8 @@ export function StoryboardReviewBoard({
     shotNo: number;
     rows: PromptRow[];
     explicitInstruction: string;
-    candidateCount: 4;
+    candidateCount?: 4;
+    imageProvider?: ImageProvider;
     reference?: {
       imageUrl?: string;
       identityImageUrl?: string;
@@ -248,7 +254,12 @@ export function StoryboardReviewBoard({
       accepted: true;
       estimatedCny: number;
     };
-  }) => Promise<{ generatedCount: number; failedCount: number }>;
+  }) => Promise<{
+    generatedCount: number;
+    failedCount: number;
+    imageId?: number;
+    imageUrl?: string;
+  }>;
   continuityAnchor?: {
     label: string;
     imageUrl: string;
@@ -1488,7 +1499,8 @@ export function StoryboardReviewBoard({
   const renderShotImageCandidates = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
-    shotIndex: number
+    shotIndex: number,
+    request?: NonNullable<ChatMessage["imageRerenderAction"]>
   ): Promise<StoryboardImageRerenderResult> => {
     const label = displayShotCode(shot);
     if (!creationShot || !onGenerateShotImages) {
@@ -1524,11 +1536,45 @@ export function StoryboardReviewBoard({
       shot,
       pendingDrafts
     );
-    const explicitInstruction =
+    const selectedFrames = storyboardShotFrameImages(creationShot);
+    const selectedFrame =
+      request?.imageId != null
+        ? selectedFrames.find(frame => frame.id === request.imageId)
+        : undefined;
+    const selectedFrameRole = selectedFrame
+      ? storyboardFrameRoleForImage(
+          creationShot.generationParams,
+          selectedFrames,
+          selectedFrame.id
+        )
+      : null;
+    const exactEditInstruction = request?.instruction?.trim();
+    const isExactFrameEdit = Boolean(selectedFrame && exactEditInstruction);
+    const boardInstruction =
       storyboardExplicitImageInstruction(effectiveShot);
-    const imageReferences =
-      (await resolvePersistedNeighborImageReferences(creationShot)) ??
-      storyboardImageGenerationReferences(creationShot, creationShots);
+    const explicitInstruction = [
+      exactEditInstruction
+        ? `本次对话修改（最高优先级，必须实际应用）：${exactEditInstruction}`
+        : "",
+      boardInstruction,
+      isExactFrameEdit
+        ? "精确编辑约束：只修改用户明确点名的内容；人物身份、发型、姿态、构图、场景、光线、色彩、物体和原图材质全部保持不变。"
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const imageReferences = selectedFrame
+      ? {
+          primary: {
+            imageUrl: selectedFrame.imageUrl,
+            source: "current" as const,
+            cueCode: creationShot.cueCode ?? null,
+            shotNo: creationShot.shotNo,
+          },
+          context: [],
+        }
+      : ((await resolvePersistedNeighborImageReferences(creationShot)) ??
+        storyboardImageGenerationReferences(creationShot, creationShots));
     if (!imageReferences) {
       const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
       toast.error(message);
@@ -1543,8 +1589,16 @@ export function StoryboardReviewBoard({
     const contextLabel = imageReferences.context.map(sourceLabel).join("、");
 
     const imageEstimate = estimateStoryboardImageCost();
+    const editRoleLabel =
+      selectedFrameRole === "first"
+        ? "首帧"
+        : selectedFrameRole === "last"
+          ? "尾帧"
+          : "中间参考";
     const confirmed = window.confirm(
-      `${label} 将以 ${sourceLabel(imageReferences.primary)} 为视觉基底${contextLabel ? `，并参考 ${contextLabel}` : ""}，按下面这段原文硬指令生成 ${imageEstimate.candidateCount} 张候选图：\n\n${explicitInstruction}\n\n人物、服装、场景、物体、材质和画面风格以这些现有故事画面为准；不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`
+      isExactFrameEdit
+        ? `${label} 将精确修改当前选中的${editRoleLabel}（图片 #${selectedFrame!.id}），只执行下面这条要求，不重构其他画面：\n\n${exactEditInstruction}\n\n生成完成后会把新图放回${editRoleLabel}，旧图仍然保留。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交 302 参考图编辑？`
+        : `${label} 将以 ${sourceLabel(imageReferences.primary)} 为视觉基底${contextLabel ? `，并参考 ${contextLabel}` : ""}，按下面这段原文硬指令生成 ${imageEstimate.candidateCount} 张候选图：\n\n${explicitInstruction}\n\n人物、服装、场景、物体、材质和画面风格以这些现有故事画面为准；不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`
     );
     if (!confirmed) {
       return {
@@ -1592,7 +1646,10 @@ export function StoryboardReviewBoard({
         shotNo: shot.shotNo,
         rows,
         explicitInstruction,
-        candidateCount: imageEstimate.candidateCount,
+        candidateCount: isExactFrameEdit
+          ? undefined
+          : imageEstimate.candidateCount,
+        imageProvider: isExactFrameEdit ? "gpt-image" : "midjourney",
         reference: {
           imageUrl: imageReferences.primary.imageUrl,
           identityImageUrl: imageReferences.primary.imageUrl,
@@ -1605,6 +1662,36 @@ export function StoryboardReviewBoard({
           estimatedCny: imageEstimate.estimatedCny,
         },
       });
+      if (
+        isExactFrameEdit &&
+        selectedFrameRole &&
+        generation.imageId != null &&
+        generation.imageUrl &&
+        stableShotId &&
+        onUpdateShotFields
+      ) {
+        const nextFrames = [
+          ...selectedFrames.filter(frame => frame.id !== generation.imageId),
+          {
+            id: generation.imageId,
+            imageUrl: generation.imageUrl,
+          },
+        ];
+        await onUpdateShotFields(stableShotId, {
+          generationParams: storyboardFrameRoleGenerationParams(
+            creationShot.generationParams,
+            nextFrames,
+            generation.imageId,
+            selectedFrameRole,
+            creationShot.durationMs ?? 5_000
+          ),
+        });
+      }
+      if (isExactFrameEdit) {
+        const message = `${label} 的${editRoleLabel}已生成新版本并放回“画面”行，旧图仍然保留`;
+        toast.success(message);
+        return { status: "success", message };
+      }
       if (generation.failedCount > 0) {
         const message = `${label} 已生成 ${generation.generatedCount} 张候选，另有 ${generation.failedCount} 张失败；现有结果已放入“画面”行`;
         toast.warning(message);
@@ -1626,7 +1713,7 @@ export function StoryboardReviewBoard({
 
   useEffect(() => {
     if (!onRegisterImageRerenderRunner) return;
-    const runner: StoryboardImageRerenderRunner = async request => {
+      const runner: StoryboardImageRerenderRunner = async request => {
       const shotIndex = shots.findIndex((candidate, index) => {
         const stableShotId = storyShotInsertIdentity(candidate, index);
         if (
@@ -1656,8 +1743,13 @@ export function StoryboardReviewBoard({
           candidate.shotNo === shot.shotNo
         );
       });
-      return renderShotImageCandidates(shot, creationShot, shotIndex);
-    };
+        return renderShotImageCandidates(
+          shot,
+          creationShot,
+          shotIndex,
+          request
+        );
+      };
     return onRegisterImageRerenderRunner(runner);
   }, [
     creationShots,

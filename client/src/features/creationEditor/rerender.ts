@@ -5,6 +5,7 @@ import {
   estimateStoryboardImageCost,
   STORYBOARD_IMAGE_CANDIDATE_COUNT,
 } from "@shared/imageRenderCost";
+import type { ImageProvider } from "@shared/imageProvider";
 
 export type RerenderReference = {
   /** Full frame sent to FLUX Kontext as the visual/style reference. */
@@ -19,7 +20,7 @@ export type GenerateForMobileInput = {
   storyId: number;
   shotNo: number;
   prompt: string;
-  imageProvider?: "midjourney";
+  imageProvider?: ImageProvider;
   explicitInstruction?: string;
   costConfirmation?: {
     accepted: true;
@@ -89,6 +90,7 @@ export function createGenerateForMobileInput(params: {
     accepted: true;
     estimatedCny: number;
   };
+  imageProvider?: ImageProvider;
 }): GenerateForMobileInput {
   const basePrompt = buildRerenderPrompt({
     shot: params.shot,
@@ -97,7 +99,7 @@ export function createGenerateForMobileInput(params: {
   return {
     storyId: params.storyId,
     shotNo: params.shot.shotNo,
-    imageProvider: "midjourney",
+    imageProvider: params.imageProvider ?? "midjourney",
     prompt: basePrompt,
     explicitInstruction: params.explicitInstruction?.trim() || undefined,
     costConfirmation: params.costConfirmation,
@@ -123,6 +125,7 @@ export async function rerenderShotImage(params: {
     accepted: true;
     estimatedCny: number;
   };
+  imageProvider?: ImageProvider;
   generate: (input: GenerateForMobileInput) => Promise<GenerateForMobileResult>;
 }): Promise<GenerateForMobileResult> {
   const input = createGenerateForMobileInput(params);

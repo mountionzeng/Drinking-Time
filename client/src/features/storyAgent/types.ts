@@ -65,6 +65,10 @@ export type StoryboardImageRerenderActionReference = {
   stableShotId: string | null;
   shotNo: number;
   cueCode: string | null;
+  /** Exact storyboard image selected when the edit was requested. */
+  imageId?: number | null;
+  /** Original user wording; this must reach the image model unchanged. */
+  instruction?: string | null;
 };
 
 export interface ChatMessage {
@@ -508,6 +512,12 @@ export function normalizeChatMessages(
             shotNo: action.shotNo,
             cueCode:
               typeof action.cueCode === "string" ? action.cueCode : null,
+            ...(typeof action.imageId === "number"
+              ? { imageId: action.imageId }
+              : {}),
+            ...(typeof action.instruction === "string"
+              ? { instruction: action.instruction }
+              : {}),
           };
         }
       }
