@@ -143,6 +143,28 @@ describe("StoryAgentContext background intent recognition", () => {
     expect(recognitionToPendingJobIntent(fixtures.fictionIntent)).toBeNull();
   });
 
+  it("soft-confirms the other three top-level intent lanes", async () => {
+    const { recognitionToPendingIntent } = await import(
+      "./StoryAgentContext"
+    );
+
+    for (const purpose of [
+      "personal_memory",
+      "gift",
+      "social_post",
+      "portfolio",
+    ]) {
+      expect(
+        recognitionToPendingIntent({
+          purpose,
+          audience: purpose === "personal_memory" ? "self" : "public",
+          platform: "presentation",
+          confidence: 0.8,
+        })
+      ).toMatchObject({ purpose });
+    }
+  });
+
   it("stays quiet for low-confidence or unsupported recognition", async () => {
     const { recognitionToPendingIntent } = await import("./StoryAgentContext");
 

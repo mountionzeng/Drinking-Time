@@ -103,6 +103,9 @@ describe("creation editor spine boundary", () => {
     );
     expect(editingWorkspace).toContain("DEFAULT_STORYBOARD_PANEL_SIZE = 50");
     expect(editingWorkspace).toContain("DEFAULT_PREVIEW_PANEL_SIZE = 50");
+    expect(editingWorkspace).toContain("直接生成 Storyboard 表格");
+    expect(editingWorkspace).toContain("不再要求先生成 Story Card");
+    expect(editingWorkspace).toContain("onClick={() => void generateScript()}");
     expect(editingWorkspace).not.toContain("DEFAULT_DIRECTOR_PANEL_SIZE");
     expect(editingWorkspace).not.toContain("<ShotDirectorPanel");
     expect(editingWorkspace).not.toContain(

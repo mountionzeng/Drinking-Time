@@ -114,6 +114,15 @@ function localIntentFallback(text: string): StoryIntentPayload {
     normalized.includes("fantasy") ||
     normalized.includes("sci-fi") ||
     normalized.includes("story world");
+  const hasParentChildStory =
+    /父母|爸爸|妈妈|家长|亲子/.test(text) &&
+    /孩子|小孩|小朋友|儿童|睡前|讲故事/.test(text);
+  const hasSocialAudience =
+    /社交平台|小红书|抖音|视频号|朋友圈|公开发布|陌生人|公开观众/.test(text);
+  const hasPersonalStory =
+    /介绍自己|自我介绍|我的经历|个人经历|成长经历|职业经历|我的故事/.test(text);
+  const hasPersonalRecord =
+    /记录|留念|保存|回看|回忆|纪念/.test(text);
 
   if (hasLinkedIn) {
     return {
@@ -138,6 +147,62 @@ function localIntentFallback(text: string): StoryIntentPayload {
       confidence: 0.72,
       evidence: ["文本里出现了虚构故事 / 另一个世界 / 世界观等信号"],
       missingQuestion: "这个世界里最先打动你的，是一个人物、一个场景，还是一个冲突？",
+    };
+  }
+
+  if (hasParentChildStory) {
+    return {
+      purpose: "gift",
+      audience: "specific_person",
+      platform: "private_archive",
+      desiredEffect: "让父母把一个完整、适合聆听的故事讲给孩子",
+      tone: "清楚、温暖、有想象力，适合亲子讲述",
+      confidence: 0.72,
+      evidence: ["文本里出现了父母 / 孩子 / 亲子讲述等信号"],
+      missingQuestion: "这个故事想让孩子记住一个道理，还是感受一种情绪？",
+    };
+  }
+
+  if (hasSocialAudience) {
+    return {
+      purpose: "social_post",
+      audience: "public",
+      platform: text.includes("小红书")
+        ? "xiaohongshu"
+        : text.includes("抖音")
+          ? "douyin"
+          : "wechat",
+      desiredEffect: "让社交平台上的陌生观众快速理解并愿意看完",
+      tone: "清楚、有分享感、对陌生观众友好",
+      confidence: 0.72,
+      evidence: ["文本里出现了社交平台 / 陌生观众 / 公开发布等信号"],
+      missingQuestion: "你希望陌生观众看完后记住哪一句话？",
+    };
+  }
+
+  if (hasPersonalStory) {
+    return {
+      purpose: "portfolio",
+      audience: "public",
+      platform: "presentation",
+      desiredEffect: "把自己的真实经历整理成一个别人能理解的个人故事",
+      tone: "真实、清楚、有个人视角",
+      confidence: 0.72,
+      evidence: ["文本里出现了介绍自己 / 个人经历 / 我的故事等信号"],
+      missingQuestion: "这段经历里最能代表你的选择或变化是什么？",
+    };
+  }
+
+  if (hasPersonalRecord) {
+    return {
+      purpose: "personal_memory",
+      audience: "self",
+      platform: "private_archive",
+      desiredEffect: "把这段经历保存成给自己回看的记录",
+      tone: "私人、柔和、忠于感受",
+      confidence: 0.72,
+      evidence: ["文本里出现了记录 / 留念 / 回看等信号"],
+      missingQuestion: "这段记录里最不想忘记的具体瞬间是什么？",
     };
   }
 
@@ -209,16 +274,17 @@ function buildIntentPrompt(params: {
     "只根据用户明确说过的内容、最近对话、已有故事卡片判断；不要为了显得聪明而脑补商业目的。",
     "如果目的还不清楚，purpose 用 exploration，并给出一个最值得问的 missingQuestion。",
     "",
-    "可选 purpose：",
-    "- personal_memory：给自己留念、整理记忆",
-    "- social_post：发朋友圈、小红书、抖音、视频号等社交平台",
-    "- linkedin_job_search：放 LinkedIn / 领英上找工作、展示职业能力、吸引招聘者",
-    "- portfolio：作品集、个人主页、创作者展示",
-    "- gift：送给某个人",
-    "- relationship_record：记录一段关系或一个重要的人",
-    "- fiction：讲别人的故事 / 虚构叙事（不是你的真实经历，而是编一个故事或人物）",
-    "- product_intro：介绍自己的产品（展示 / 打动；面向客户、投资人、大众等，由 audience 区分）",
-    "- creative_expression：纯表达、情绪短片、审美实验",
+    "当前只按四个一级方向识别；两个中间方向各有两个细分用途：",
+    "1. 记录",
+    "- personal_memory：给自己留念、整理记忆（保持原记录逻辑）",
+    "2. 给别人讲个故事",
+    "- gift：父母给孩子讲故事",
+    "- social_post：发社交平台给陌生观众",
+    "3. 生成一个自己的故事",
+    "- linkedin_job_search：生成求职视频，展示职业能力、吸引招聘者",
+    "- portfolio：介绍自己的真实经历，不等同于求职",
+    "4. 创造另一个世界",
+    "- fiction：虚构叙事、人物或故事世界（保持原虚构逻辑）",
     "- exploration：还不确定，正在探索",
     "",
     "LinkedIn / 求职 特别规则：",
@@ -240,7 +306,7 @@ function buildIntentPrompt(params: {
       : "",
     "返回严格 JSON，不要 markdown，不要解释：",
     "{",
-    '  "purpose": "personal_memory | social_post | linkedin_job_search | portfolio | gift | relationship_record | fiction | product_intro | creative_expression | exploration",',
+    '  "purpose": "personal_memory | gift | social_post | linkedin_job_search | portfolio | fiction | exploration",',
     '  "audience": "self | specific_person | friends | public | recruiters | clients | investors | teammates | unknown",',
     '  "platform": "unknown | wechat | xiaohongshu | douyin | bilibili | linkedin | portfolio_site | presentation | private_archive",',
     '  "desiredEffect": "用户希望短片对观众产生的效果，≤40字",',

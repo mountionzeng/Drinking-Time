@@ -1,4 +1,11 @@
-import { Briefcase, Gift, Heart, Images, Share2, Sparkles } from 'lucide-react';
+import {
+  Briefcase,
+  Heart,
+  MessageCircleHeart,
+  Share2,
+  Sparkles,
+  UserRound,
+} from 'lucide-react';
 import { useStoryAgentActions } from '@/features/storyAgent/StoryAgentContext';
 import type { ChatMessage } from '@/features/storyAgent/types';
 import { PURPOSE_LABELS, type StoryIntent } from '../intentTypes';
@@ -25,27 +32,27 @@ export const CAPABILITY_OPTIONS: Array<{
   },
   {
     id: 'social_post',
-    label: PURPOSE_LABELS.social_post,
-    description: '适合朋友圈或社交平台',
+    label: '发社交平台给陌生人',
+    description: '把故事讲给公开平台上的观众',
     icon: Share2,
   },
   {
     id: 'linkedin_job_search',
-    label: '求职 · 给招聘者看',
+    label: '生成求职视频',
     description: '突出职业能力与可信度',
     icon: Briefcase,
   },
   {
     id: 'gift',
-    label: PURPOSE_LABELS.gift,
-    description: '做成一份给 TA 的短片',
-    icon: Gift,
+    label: '父母给孩子讲故事',
+    description: '把一个故事讲给自己的孩子',
+    icon: MessageCircleHeart,
   },
   {
     id: 'portfolio',
-    label: PURPOSE_LABELS.portfolio,
-    description: '整理成对外展示作品',
-    icon: Images,
+    label: '介绍自己的经历',
+    description: '把真实经历整理成自己的故事',
+    icon: UserRound,
   },
   {
     id: 'fiction',
@@ -53,6 +60,19 @@ export const CAPABILITY_OPTIONS: Array<{
     description: '一句话生成虚构短片故事',
     icon: Sparkles,
   },
+];
+
+export const CAPABILITY_GROUPS: Array<{
+  label: string;
+  options: StoryCapabilityId[];
+}> = [
+  { label: '记录', options: ['personal_memory'] },
+  { label: '给别人讲个故事', options: ['gift', 'social_post'] },
+  {
+    label: '生成一个自己的故事',
+    options: ['linkedin_job_search', 'portfolio'],
+  },
+  { label: '创造另一个世界', options: ['fiction'] },
 ];
 
 export function buildCapabilityIntent(capabilityId: StoryCapabilityId): StoryIntent {
@@ -84,8 +104,8 @@ export function buildCapabilityIntent(capabilityId: StoryCapabilityId): StoryInt
         purpose: 'gift',
         audience: 'specific_person',
         platform: 'private_archive',
-        desiredEffect: '把这段经历做成给某个人的表达',
-        tone: '真诚、克制、有温度',
+        desiredEffect: '让父母把一个完整、适合聆听的故事讲给孩子',
+        tone: '清楚、温暖、有想象力，适合亲子讲述',
         confidence: 1,
         missingQuestion: '',
         configured: true,
@@ -93,10 +113,10 @@ export function buildCapabilityIntent(capabilityId: StoryCapabilityId): StoryInt
     case 'portfolio':
       return {
         purpose: 'portfolio',
-        audience: 'clients',
-        platform: 'portfolio_site',
-        desiredEffect: '整理成对外展示的个人作品',
-        tone: '清楚、精致、可展示',
+        audience: 'public',
+        platform: 'presentation',
+        desiredEffect: '把自己的真实经历整理成一个别人能理解的个人故事',
+        tone: '真实、清楚、有个人视角',
         confidence: 1,
         missingQuestion: '',
         configured: true,
@@ -172,33 +192,48 @@ export default function StoryCapabilityMenu() {
         <div className="mb-2 text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
           小酌可以帮你把一段经历或灵感做成
         </div>
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-1.5">
-          {CAPABILITY_OPTIONS.map((option) => {
-            const Icon = option.icon;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => chooseCapability(option.id, setConfirmedIntent)}
-                className="group flex min-h-[82px] flex-col items-start justify-between gap-2 rounded-md border px-2 py-2 text-left transition-colors hover:bg-background/50 focus:outline-none focus:ring-1"
-                style={{
-                  borderColor: 'var(--panel-border)',
-                  // @ts-expect-error custom prop for tailwind ring color via inline style
-                  '--tw-ring-color': 'var(--nayin-accent)',
-                }}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0 text-nayin-bright" />
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-medium leading-tight text-foreground">
-                    {option.label}
-                  </span>
-                  <span className="mt-1 block text-[9.5px] leading-snug text-muted-foreground">
-                    {option.description}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-1.5">
+          {CAPABILITY_GROUPS.map(group => (
+            <section
+              key={group.label}
+              className="rounded-md border p-2"
+              style={{ borderColor: 'var(--panel-border)' }}
+            >
+              <h3 className="mb-1.5 text-[11px] font-semibold leading-tight text-foreground">
+                {group.label}
+              </h3>
+              <div className="flex flex-col gap-1">
+                {group.options.map(capabilityId => {
+                  const option = CAPABILITY_OPTIONS.find(item => item.id === capabilityId);
+                  if (!option) return null;
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => chooseCapability(option.id, setConfirmedIntent)}
+                      className="group flex min-h-[48px] items-start gap-2 rounded-sm border px-2 py-1.5 text-left transition-colors hover:bg-background/50 focus:outline-none focus:ring-1"
+                      style={{
+                        borderColor: 'var(--panel-border)',
+                        // @ts-expect-error custom prop for tailwind ring color via inline style
+                        '--tw-ring-color': 'var(--nayin-accent)',
+                      }}
+                    >
+                      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-nayin-bright" />
+                      <span className="min-w-0">
+                        <span className="block text-[10.5px] font-medium leading-tight text-foreground">
+                          {option.label}
+                        </span>
+                        <span className="mt-0.5 block text-[9px] leading-snug text-muted-foreground">
+                          {option.description}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
         <p className="mt-2 text-[10px] text-muted-foreground">
           也可以直接说你的事，小酌会自己判断要往哪条路走。

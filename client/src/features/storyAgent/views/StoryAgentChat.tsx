@@ -165,17 +165,38 @@ function materialAdviceLabel(verdict: MaterialAdvice["verdict"]): string {
 }
 
 function getPendingIntentCopy(intent: StoryIntent) {
-  if (intent.purpose === "fiction") {
-    return {
-      body: "听起来你是想创造一个虚构故事世界，对吗？",
-      confirmLabel: "对，创造另一个世界",
-    };
+  switch (intent.purpose) {
+    case "personal_memory":
+      return {
+        body: "听起来你是想记录这段经历，留给自己回看，对吗？",
+        confirmLabel: "对，先记录下来",
+      };
+    case "gift":
+      return {
+        body: "听起来你是想把它讲成一个父母可以讲给孩子听的故事，对吗？",
+        confirmLabel: "对，讲给孩子听",
+      };
+    case "social_post":
+      return {
+        body: "听起来你是想把它讲给社交平台上的陌生观众，对吗？",
+        confirmLabel: "对，发给公开观众",
+      };
+    case "portfolio":
+      return {
+        body: "听起来你是想把自己的真实经历讲成一个个人故事，对吗？",
+        confirmLabel: "对，介绍我的经历",
+      };
+    case "fiction":
+      return {
+        body: "听起来你是想创造一个虚构故事世界，对吗？",
+        confirmLabel: "对，创造另一个世界",
+      };
+    default:
+      return {
+        body: "听起来你是想做求职片，给招聘者看，对吗？",
+        confirmLabel: "对，按求职片来",
+      };
   }
-
-  return {
-    body: "听起来你是想做求职片，给招聘者看，对吗？",
-    confirmLabel: "对，按求职片来",
-  };
 }
 
 function intentLabel(intent: StoryIntent | null): string {
@@ -184,8 +205,8 @@ function intentLabel(intent: StoryIntent | null): string {
   if (intent.purpose === "linkedin_job_search") return "求职短片";
   if (intent.purpose === "personal_memory") return "个人记忆";
   if (intent.purpose === "social_post") return "社交发布";
-  if (intent.purpose === "gift") return "送给某个人";
-  if (intent.purpose === "portfolio") return "作品集";
+  if (intent.purpose === "gift") return "讲给孩子";
+  if (intent.purpose === "portfolio") return "个人经历";
   return "创作故事";
 }
 
@@ -306,6 +327,8 @@ export default function StoryAgentChat({
     storyLogline?.trim() ||
     (storyShotsCount > 0
       ? `${storyShotsCount} 个镜头正在同步`
+      : currentIntent
+        ? "等待从对话直接生成 Storyboard 表格"
       : cardRefs.length > 0
         ? `${cardRefs.length} 张故事卡正在同步`
         : "等待整理成故事卡");

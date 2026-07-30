@@ -155,6 +155,36 @@ export function resolveScriptIntent(
   return overrideIntent ?? confirmedIntent ?? undefined;
 }
 
+export function storyboardSourcesFromConversation(
+  cards: readonly StoryCard[],
+  messages: readonly ChatMessage[],
+  directToStoryboard = false
+): StoryCard[] {
+  const conversationSources = messages
+    .filter(message => message.role === "user" && message.content.trim())
+    .slice(-12)
+    .map((message, index) => ({
+      id: `conversation-source-${index + 1}`,
+      title: `对话素材 ${index + 1}`,
+      content: message.content.trim(),
+      rawText: message.content.trim(),
+      sourceQuote: message.content.trim().slice(0, 80),
+      emotion: "",
+      sensoryDetails: [],
+      createdAt: message.timestamp,
+    }));
+  if (directToStoryboard && conversationSources.length > 0) {
+    return conversationSources;
+  }
+  return cards.length > 0 ? [...cards] : conversationSources;
+}
+
+export function shouldStoreStoryCard(
+  confirmedIntent: StoryIntent | null | undefined
+): boolean {
+  return !confirmedIntent;
+}
+
 type StoryCardConfirmationInput = Pick<StoryCard, "id" | "content">;
 
 export function fictionStoryCardSignature(
@@ -204,7 +234,11 @@ export function clearFictionStoryCardConfirmation(
 
 export const SOFT_CONFIRM_INTENT_CONFIDENCE_THRESHOLD = 0.6;
 const SOFT_CONFIRM_INTENT_PURPOSES = new Set([
+  "personal_memory",
+  "social_post",
   "linkedin_job_search",
+  "portfolio",
+  "gift",
   "fiction",
 ]);
 
@@ -1729,7 +1763,7 @@ export function StoryAgentProvider({
         let nextCards = cards;
         let spawnedCardId: string | undefined;
 
-        if (result.card) {
+        if (result.card && shouldStoreStoryCard(confirmedIntent)) {
           const normalized = normalizeCard({
             ...result.card,
             id: newId("card"),
@@ -2095,13 +2129,19 @@ export function StoryAgentProvider({
 
   const generateScript = useCallback(
     async (intent?: ScriptIntentArg, profile?: GenerationProfileArg) => {
-      if (cards.length === 0) {
-        toast.error("先生成卡片再合成剧本");
+      const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
+      const storyboardSources = storyboardSourcesFromConversation(
+        cards,
+        messages,
+        Boolean(effectiveIntent)
+      );
+      if (storyboardSources.length === 0) {
+        toast.error("先在对话里说出要讲的内容，再生成故事版");
         return;
       }
-      const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
       if (
         effectiveIntent?.purpose === "fiction" &&
+        cards.length > 0 &&
         !isFictionStoryCardConfirmed(effectiveIntent, cards)
       ) {
         toast.error("先确认虚构故事卡，再生成 3-5 镜短片");
@@ -2112,7 +2152,7 @@ export function StoryAgentProvider({
 
       try {
         const result = (await classifyMut.mutateAsync({
-          cards: cards.map(card => ({
+          cards: storyboardSources.map(card => ({
             title: card.title,
             content: card.content,
             rawText: card.rawText,

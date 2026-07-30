@@ -29,11 +29,14 @@ describe('StoryCapabilityMenu', () => {
     const html = renderToStaticMarkup(<StoryCapabilityMenu />);
 
     expect(html).toContain('经历或灵感');
+    expect(html).toContain('记录');
     expect(html).toContain('给自己留念');
-    expect(html).toContain('发社交平台');
-    expect(html).toContain('求职 · 给招聘者看');
-    expect(html).toContain('送给某个人');
-    expect(html).toContain('作品集');
+    expect(html).toContain('给别人讲个故事');
+    expect(html).toContain('父母给孩子讲故事');
+    expect(html).toContain('发社交平台给陌生人');
+    expect(html).toContain('生成一个自己的故事');
+    expect(html).toContain('生成求职视频');
+    expect(html).toContain('介绍自己的经历');
     expect(html).toContain('创造另一个世界');
     expect(html).toContain('虚构短片故事');
     expect(html).toContain('直接说你的事');
@@ -65,6 +68,30 @@ describe('StoryCapabilityMenu', () => {
     expect(intent.purpose).toBe('social_post');
     expect(intent.purpose).not.toBe('linkedin_job_search');
     expect(setConfirmedIntent).toHaveBeenCalledWith(intent);
+  });
+
+  it('maps the parent-to-child lane to a private specific-person story', async () => {
+    const { chooseCapability } = await import('./StoryCapabilityMenu');
+    const intent = chooseCapability('gift', vi.fn());
+
+    expect(intent).toMatchObject({
+      purpose: 'gift',
+      audience: 'specific_person',
+      platform: 'private_archive',
+      desiredEffect: expect.stringContaining('父母'),
+    });
+  });
+
+  it('maps the personal-experience lane to a public story about the user', async () => {
+    const { chooseCapability } = await import('./StoryCapabilityMenu');
+    const intent = chooseCapability('portfolio', vi.fn());
+
+    expect(intent).toMatchObject({
+      purpose: 'portfolio',
+      audience: 'public',
+      platform: 'presentation',
+      desiredEffect: expect.stringContaining('真实经历'),
+    });
   });
 
   it('selecting fiction confirms a world-building story intent without entering the job lane', async () => {

@@ -1,5 +1,6 @@
 import {
   Captions,
+  Clapperboard,
   ClipboardPaste,
   Copy,
   FileUp,
@@ -2198,8 +2199,15 @@ export default function EditingNleWorkspace({
 }: {
   timelineVisible?: boolean;
 }) {
-  const { setActiveSelection } = useStoryAgentActions();
+  const { generateScript, setActiveSelection } = useStoryAgentActions();
   const activeSelection = useStorySpine(state => state.activeSelection);
+  const confirmedIntent = useStorySpine(state => state.confirmedIntent);
+  const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
+  const hasConversationSource = useStorySpine(state =>
+    state.messages.some(
+      message => message.role === "user" && Boolean(message.content.trim())
+    )
+  );
   const {
     activeStoryId,
     shots,
@@ -2761,9 +2769,49 @@ export default function EditingNleWorkspace({
 
   if (shots.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        当前故事还没有镜头。
-      </div>
+      <section
+        className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
+        aria-label="Storyboard empty state"
+      >
+        {isGeneratingScript ? (
+          <Loader2 className="h-5 w-5 animate-spin text-[var(--nayin-accent)]" />
+        ) : (
+          <Clapperboard className="h-5 w-5 text-[var(--nayin-accent)]" />
+        )}
+        <div>
+          <p className="text-sm font-medium text-foreground">
+            {isGeneratingScript
+              ? "正在生成 Storyboard 表格…"
+              : "当前故事还没有 Storyboard 表格"}
+          </p>
+          <p className="mt-1 max-w-[24rem] text-xs leading-relaxed text-muted-foreground">
+            {!confirmedIntent
+              ? "先在左侧确认这次要记录、讲给别人、介绍自己，还是创造另一个世界。"
+              : !hasConversationSource
+                ? "意图已经确认。请先在左侧说出要讲的内容，再直接生成表格。"
+                : "直接使用对话原文生成镜头表，不再要求先生成 Story Card。"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void generateScript()}
+          disabled={
+            !confirmedIntent || !hasConversationSource || isGeneratingScript
+          }
+          className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+          style={{
+            background: "var(--nayin-accent)",
+            color: "var(--background)",
+          }}
+        >
+          {isGeneratingScript ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Clapperboard className="h-3.5 w-3.5" />
+          )}
+          直接生成 Storyboard 表格
+        </button>
+      </section>
     );
   }
 

@@ -115,6 +115,93 @@ describe('StoryAgentContext intent state', () => {
     expect(resolveScriptIntent(undefined, jobIntent)).toEqual(jobIntent);
   });
 
+  it('uses user conversation as direct storyboard material when no cards exist', async () => {
+    const { storyboardSourcesFromConversation } = await import('./StoryAgentContext');
+
+    const sources = storyboardSourcesFromConversation([], [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: '想讲什么？',
+        timestamp: 1,
+      },
+      {
+        id: 'user-1',
+        role: 'user',
+        content: '  我从客服转岗做产品，第一次上线就遇到投诉。  ',
+        timestamp: 2,
+      },
+    ]);
+
+    expect(sources).toEqual([
+      expect.objectContaining({
+        id: 'conversation-source-1',
+        title: '对话素材 1',
+        content: '我从客服转岗做产品，第一次上线就遇到投诉。',
+        rawText: '我从客服转岗做产品，第一次上线就遇到投诉。',
+      }),
+    ]);
+  });
+
+  it('keeps existing cards as the preferred storyboard material', async () => {
+    const { storyboardSourcesFromConversation } = await import('./StoryAgentContext');
+    const cards = [
+      {
+        id: 'card-1',
+        title: '转岗',
+        content: '一次真实转岗经历',
+        emotion: '紧张',
+        sensoryDetails: [],
+        createdAt: 1,
+      },
+    ];
+
+    expect(
+      storyboardSourcesFromConversation(cards, [
+        { id: 'user-1', role: 'user', content: '另一句话', timestamp: 2 },
+      ]),
+    ).toEqual(cards);
+  });
+
+  it('prefers conversation over legacy cards after intent confirmation', async () => {
+    const { storyboardSourcesFromConversation } = await import('./StoryAgentContext');
+    const cards = [
+      {
+        id: 'card-1',
+        title: '旧卡片',
+        content: '旧的中间产物',
+        emotion: '',
+        sensoryDetails: [],
+        createdAt: 1,
+      },
+    ];
+
+    const sources = storyboardSourcesFromConversation(
+      cards,
+      [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: '这是直接进入镜头表的原话',
+          timestamp: 2,
+        },
+      ],
+      true,
+    );
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0].content).toBe('这是直接进入镜头表的原话');
+    expect(sources[0].id).toBe('conversation-source-1');
+  });
+
+  it('stops creating Story Cards once an intent is confirmed', async () => {
+    const { shouldStoreStoryCard } = await import('./StoryAgentContext');
+
+    expect(shouldStoreStoryCard(null)).toBe(true);
+    expect(shouldStoreStoryCard(jobIntent)).toBe(false);
+    expect(shouldStoreStoryCard(fictionIntent)).toBe(false);
+  });
+
   it('builds the chat payload that carries confirmed job intent into storyAgent.chat', async () => {
     const { buildChatIntentPayload } = await import('./StoryAgentContext');
 

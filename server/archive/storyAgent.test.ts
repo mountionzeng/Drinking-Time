@@ -927,7 +927,9 @@ describe('storyAgent 求职意图聊天触发', () => {
     expect(replySystem).toContain('必须接住并请他贴简历');
     expect(replySystem).toContain('招聘者为什么相信你');
     expect(replySystem).toContain('已知目标岗位/方向：产品经理');
-    expect(replySystem).toContain('不要把 4-5 张卡当成上限');
+    expect(replySystem).toContain('对话原话会直接作为 Storyboard 表格来源');
+    expect(replySystem).toContain('不要向用户提“故事卡”');
+    expect(replySystem).toContain('直接生成 Storyboard 表格');
   });
 
   it('求职模式的后台抽取把简历/JD/项目证据当作 card 素材', async () => {
@@ -968,7 +970,7 @@ describe('storyAgent 虚构意图聊天触发', () => {
     mockInvokeLLM.mockReset();
   });
 
-  it('把 confirmed fiction intent 注入回话 prompt，并要求先生成完整故事卡', async () => {
+  it('把 confirmed fiction intent 注入回话 prompt，并直接准备 Storyboard 来源', async () => {
     mockInvokeLLM
       .mockResolvedValueOnce(makeAgentResponse('我会先把这个世界收成一张故事卡。'))
       .mockResolvedValueOnce(makeAgentResponse());
@@ -998,12 +1000,14 @@ describe('storyAgent 虚构意图聊天触发', () => {
     )?.content as string;
 
     expect(replySystem).toContain('当前创作模式：创造另一个世界 / 虚构短片');
-    expect(replySystem).toContain('一句虚构灵感发展成一套能拍的短片故事卡');
+    expect(replySystem).toContain('一句虚构灵感发展成一套能直接生成 Storyboard 表格的短片故事');
     expect(replySystem).toContain('故事核心、主角或视点、冲突/阻碍、视觉风格');
     expect(replySystem).toContain('当前虚构故事卡上下文');
     expect(replySystem).toContain('月亮掉进菜市场');
     expect(replySystem).toContain('不要每轮重开一个新世界');
-    expect(replySystem).toContain('本层只负责聊天回应和故事卡沉淀');
+    expect(replySystem).toContain('本层只负责聊天回应和补齐 Storyboard 来源信息');
+    expect(replySystem).toContain('不要向用户提“故事卡”');
+    expect(replySystem).toContain('直接生成 Storyboard 表格');
     expect(replySystem).not.toContain('必须接住并请他贴简历');
     expect(replySystem).not.toContain('招聘者为什么相信你');
   });

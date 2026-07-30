@@ -76,6 +76,9 @@ describe("recognizeStoryIntent", () => {
     );
     expect(String(system?.content)).toContain("linkedin_job_search");
     expect(String(system?.content)).toContain("招聘者");
+    expect(String(system?.content)).toContain("四个一级方向");
+    expect(String(system?.content)).toContain("父母给孩子讲故事");
+    expect(String(system?.content)).toContain("介绍自己的真实经历");
     expect(String(system?.content)).toContain("创造另一个世界");
     expect(String(system?.content)).toContain("这里只做用途识别");
   });
@@ -175,5 +178,39 @@ describe("recognizeStoryIntent", () => {
     expect(result.configured).toBe(false);
     expect(result.modelLabel).toBe("未配置 API");
     expect(result.purpose).toBe("linkedin_job_search");
+  });
+
+  it.each([
+    {
+      message: "我想记录这段旅行，以后留给自己回看",
+      purpose: "personal_memory",
+      audience: "self",
+    },
+    {
+      message: "我是妈妈，想把这件事编成睡前故事讲给孩子",
+      purpose: "gift",
+      audience: "specific_person",
+    },
+    {
+      message: "我想发到社交平台，讲给陌生人看",
+      purpose: "social_post",
+      audience: "public",
+    },
+    {
+      message: "我想介绍自己的经历，讲讲我是怎么转行的",
+      purpose: "portfolio",
+      audience: "public",
+    },
+  ])("未配置 API 时把四方向细分识别为 $purpose", async ({
+    message,
+    purpose,
+    audience,
+  }) => {
+    envMock.ENV.forgeApiKey = undefined;
+
+    const result = await recognizeStoryIntent({ message });
+
+    expect(result.purpose).toBe(purpose);
+    expect(result.audience).toBe(audience);
   });
 });
