@@ -1,8 +1,17 @@
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
+import * as dbModule from "../db";
 import {
   createEmailOtp,
   createInviteCode,
@@ -64,7 +73,7 @@ describe("邮箱邀请码登录", () => {
     expect(await response.json()).toEqual({ error: "invite_required" });
   });
 
-  it("邀请码绑定邮箱后，后续登录仍必须提交同一邀请码", async () => {
+  it("邀请码绑定邮箱后直接建立登录态，后续仍必须提交同一邀请码", async () => {
     const email = "tester@example.com";
     const inviteCode = "LH-AB12-CD34";
     const codeHash = hashInviteCode(inviteCode);
@@ -74,31 +83,17 @@ describe("邮箱邀请码登录", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
 
-    const requestResponse = await post("/api/auth/email/request", {
+    const loginResponse = await post("/api/auth/email/invite-login", {
       email,
       inviteCode,
     });
-    expect(requestResponse.status).toBe(200);
-    expect(await findAvailableInviteCode(codeHash)).not.toBeNull();
-
-    await createEmailOtp(
-      email,
-      "123456",
-      new Date(Date.now() + 60_000)
-    );
-    const verifyResponse = await post("/api/auth/email/verify", {
-      email,
-      inviteCode,
-      code: "123456",
-    });
-
-    expect(verifyResponse.status).toBe(200);
-    expect(verifyResponse.headers.get("set-cookie")).toContain("app_session_id");
+    expect(loginResponse.status).toBe(200);
+    expect(loginResponse.headers.get("set-cookie")).toContain("app_session_id");
     expect(await getUserByOpenId(`email:${email}`)).toBeDefined();
     expect(await hasRedeemedInviteForEmail(email)).toBe(true);
     expect(await findAvailableInviteCode(codeHash)).toBeNull();
 
-    const missingInviteResponse = await post("/api/auth/email/request", {
+    const missingInviteResponse = await post("/api/auth/email/invite-login", {
       email,
     });
     expect(missingInviteResponse.status).toBe(403);
@@ -106,32 +101,11 @@ describe("邮箱邀请码登录", () => {
       error: "invite_required",
     });
 
-    await createEmailOtp(
-      email,
-      "222222",
-      new Date(Date.now() + 60_000)
-    );
-    const missingInviteVerify = await post("/api/auth/email/verify", {
-      email,
-      code: "222222",
-    });
-    expect(missingInviteVerify.status).toBe(403);
-    expect(await missingInviteVerify.json()).toEqual({
-      error: "invite_required",
-    });
-
-    const returningVerify = await post("/api/auth/email/verify", {
-      email,
-      inviteCode,
-      code: "222222",
-    });
-    expect(returningVerify.status).toBe(200);
-
-    const returningResponse = await post("/api/auth/email/request", {
+    const returningLogin = await post("/api/auth/email/invite-login", {
       email,
       inviteCode,
     });
-    expect(returningResponse.status).toBe(200);
+    expect(returningLogin.status).toBe(200);
   });
 
   it("内测期禁用 Google 登录直达，不能绕过邀请码", async () => {
@@ -143,22 +117,43 @@ describe("邮箱邀请码登录", () => {
     expect(await response.json()).toEqual({ error: "invite_required" });
   });
 
+  it("OTP 标记失败时不建立 session cookie", async () => {
+    const email = "otp-failure@example.com";
+    const inviteCode = "LH-OTP1-FAIL";
+    await createInviteCode({
+      codeHash: hashInviteCode(inviteCode),
+      label: null,
+      expiresAt: null,
+    });
+    await createEmailOtp(email, "123456", new Date(Date.now() + 60_000));
+    const markUsed = vi
+      .spyOn(dbModule, "markEmailOtpUsed")
+      .mockRejectedValueOnce(new Error("mark failed"));
+
+    try {
+      const response = await post("/api/auth/email/verify", {
+        email,
+        inviteCode,
+        code: "123456",
+      });
+
+      expect(response.status).toBe(500);
+      expect(response.headers.get("set-cookie")).toBeNull();
+    } finally {
+      markUsed.mockRestore();
+    }
+  });
+
   it("已经绑定的邀请不能给另一个邮箱使用", async () => {
     const inviteCode = "LH-EF56-GH78";
     const codeHash = hashInviteCode(inviteCode);
     await createInviteCode({ codeHash, label: null, expiresAt: null });
-    await createEmailOtp(
-      "first@example.com",
-      "654321",
-      new Date(Date.now() + 60_000)
-    );
-    await post("/api/auth/email/verify", {
+    await post("/api/auth/email/invite-login", {
       email: "first@example.com",
       inviteCode,
-      code: "654321",
     });
 
-    const response = await post("/api/auth/email/request", {
+    const response = await post("/api/auth/email/invite-login", {
       email: "second@example.com",
       inviteCode,
     });

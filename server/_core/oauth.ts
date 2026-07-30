@@ -62,6 +62,35 @@ function getInviteCode(req: Request): string {
     : "";
 }
 
+async function establishEmailSession(
+  req: Request,
+  res: Response,
+  email: string
+): Promise<void> {
+  const openId = `email:${email}`;
+  await db.upsertUser({
+    openId,
+    email,
+    loginMethod: "email",
+    lastSignedIn: new Date(),
+  });
+  const user = await db.getUserByOpenId(openId);
+  if (!user) {
+    throw new Error("邮箱用户创建后无法读取");
+  }
+  await db.bindRedeemedInviteToUser(email, user.id);
+
+  const sessionToken = await sdk.createSessionToken(openId, {
+    name: email.split("@")[0],
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(req);
+  res.cookie(COOKIE_NAME, sessionToken, {
+    ...cookieOptions,
+    maxAge: ONE_YEAR_MS,
+  });
+}
+
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/auth/google/config", (req: Request, res: Response) => {
     const redirectUri = `${getOrigin(req)}/api/auth/google/callback`;
@@ -152,6 +181,38 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
+  // ── 专属邀请码直接登录 ─────────────────────────────────────────────
+  app.post(
+    "/api/auth/email/invite-login",
+    async (req: Request, res: Response) => {
+      const email = getEmail(req);
+      const inviteCode = getInviteCode(req);
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ error: "invalid_email" });
+        return;
+      }
+      if (!inviteCode) {
+        res.status(403).json({ error: "invite_required" });
+        return;
+      }
+
+      try {
+        const claimedInvite = await db.redeemInviteForEmail(
+          hashInviteCode(inviteCode),
+          email
+        );
+        if (!claimedInvite) {
+          res.status(403).json({ error: "invalid_invite" });
+          return;
+        }
+        await establishEmailSession(req, res, email);
+        res.json({ ok: true });
+      } catch (error) {
+        console.error("[InviteLogin] login failed", error);
+        res.status(500).json({ error: "login_failed" });
+      }
+    }
+  );
 
   // ── Email OTP ────────────────────────────────────────────────────────
   app.post("/api/auth/email/request", async (req: Request, res: Response) => {
@@ -207,7 +268,6 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
-      const openId = `email:${email}`;
       if (ENV.betaInviteRequired) {
         if (!inviteCode) {
           res.status(403).json({ error: "invite_required" });
@@ -223,25 +283,8 @@ export function registerOAuthRoutes(app: Express) {
         }
       }
 
-      await db.upsertUser({
-        openId,
-        email,
-        loginMethod: "email",
-        lastSignedIn: new Date(),
-      });
-      const user = await db.getUserByOpenId(openId);
-      if (!user) {
-        throw new Error("邮箱用户创建后无法读取");
-      }
-      await db.bindRedeemedInviteToUser(email, user.id);
       await db.markEmailOtpUsed(otp.id);
-
-      const sessionToken = await sdk.createSessionToken(openId, {
-        name: email.split("@")[0],
-        expiresInMs: ONE_YEAR_MS,
-      });
-      const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      await establishEmailSession(req, res, email);
       res.json({ ok: true });
     } catch (error) {
       console.error("[EmailOTP] verify failed", error);

@@ -1,12 +1,11 @@
 /**
  * AuthEntryPanel - 可嵌入欢迎页的登录面板。
- * 内测期每次登录都由邮箱、专属邀请码和邮箱验证码共同确认。
+ * 内测期由邮箱和专属邀请码直接建立登录态。
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
-type EmailStep = "input" | "code";
 type AuthEntryPanelProps = {
   autofocus?: boolean;
 };
@@ -26,69 +25,51 @@ export default function AuthEntryPanel({
 }: AuthEntryPanelProps) {
   const { refresh } = useAuth();
   const [, navigate] = useLocation();
+  const mountedRef = useRef(true);
+  const latestRequestRef = useRef(0);
 
-  const [emailStep, setEmailStep] = useState<EmailStep>("input");
   const [rememberedEmail, setRememberedEmail] = useState(loadRememberedEmail);
   const [email, setEmail] = useState(loadRememberedEmail);
   const [inviteCode, setInviteCode] = useState("");
-  const [code, setCode] = useState("");
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
   const betaWechatId = import.meta.env.VITE_BETA_WECHAT_ID?.trim();
   const params = new URLSearchParams(window.location.search);
   const oauthError = params.get("error");
 
-  async function handleEmailRequest(e: React.FormEvent) {
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      latestRequestRef.current += 1;
+    };
+  }, []);
+
+  async function handleInviteLogin(e: React.FormEvent) {
     e.preventDefault();
+    const requestId = ++latestRequestRef.current;
+    const isCurrentRequest = () =>
+      mountedRef.current && latestRequestRef.current === requestId;
     setEmailError("");
     setEmailLoading(true);
     try {
-      const res = await fetch("/api/auth/email/request", {
+      const res = await fetch("/api/auth/email/invite-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, inviteCode }),
       });
+      if (!isCurrentRequest()) return;
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const messageByError: Record<string, string> = {
           invalid_email: "请输入有效的邮箱地址",
           invite_required: "请输入邀请人发给你的邀请码",
           invalid_invite: "邀请码无效，或不属于这个邮箱",
-          email_not_configured: "邮件验证码还没配置好，请联系邀请人",
         };
-        setEmailError(messageByError[data.error] ?? "发送失败，请重试");
-        return;
-      }
-      setEmailStep("code");
-    } catch {
-      setEmailError("网络错误，请重试");
-    } finally {
-      setEmailLoading(false);
-    }
-  }
-
-  async function handleEmailVerify(e: React.FormEvent) {
-    e.preventDefault();
-    setEmailError("");
-    setEmailLoading(true);
-    try {
-      const res = await fetch("/api/auth/email/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code, inviteCode }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setEmailError(
-          data.error === "invite_required"
-            ? "请输入邀请人发给你的邀请码"
-            : data.error === "invalid_invite"
-              ? "邀请码无效，或不属于这个邮箱"
-              : "验证码错误或已过期，请重试"
-        );
+        setEmailError(messageByError[data.error] ?? "登录失败，请重试");
         return;
       }
       await refresh();
+      if (!isCurrentRequest()) return;
       const normalizedEmail = email.trim().toLowerCase();
       try {
         window.localStorage?.setItem(REMEMBERED_EMAIL_KEY, normalizedEmail);
@@ -98,9 +79,9 @@ export default function AuthEntryPanel({
       setRememberedEmail(normalizedEmail);
       navigate("/editing");
     } catch {
-      setEmailError("网络错误，请重试");
+      if (isCurrentRequest()) setEmailError("网络错误，请重试");
     } finally {
-      setEmailLoading(false);
+      if (isCurrentRequest()) setEmailLoading(false);
     }
   }
 
@@ -140,134 +121,78 @@ export default function AuthEntryPanel({
             </div>
           )}
 
-          {emailStep === "input" ? (
-            <form onSubmit={handleEmailRequest} className="flex flex-col gap-3">
-              <input
-                type="email"
-                placeholder="邮箱"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                readOnly={Boolean(rememberedEmail)}
-                autoFocus={autofocus}
-                autoComplete="email"
-                className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-1"
-                style={{
-                  borderColor: "var(--nayin-border)",
-                  color: "var(--foreground)",
-                }}
-              />
-              {rememberedEmail ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    try {
-                      window.localStorage?.removeItem(REMEMBERED_EMAIL_KEY);
-                    } catch {
-                      // 浏览器禁止本地存储时只清理当前页面状态。
-                    }
-                    setRememberedEmail("");
-                    setEmail("");
-                    setInviteCode("");
-                  }}
-                  className="self-end text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  换一个邮箱
-                </button>
-              ) : null}
-              <input
-                type="text"
-                placeholder="邀请码"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                required
-                autoComplete="off"
-                autoCapitalize="characters"
-                className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm uppercase outline-none focus:ring-1"
-                style={{
-                  borderColor: "var(--nayin-border)",
-                  color: "var(--foreground)",
-                }}
-              />
-              {emailError && (
-                <p
-                  className="text-center text-xs"
-                  style={{ color: "oklch(0.7 0.15 25)" }}
-                >
-                  {emailError}
-                </p>
-              )}
-              <button
-                type="submit"
-                disabled={emailLoading}
-                className="w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-                style={{
-                  background: "var(--nayin-surface)",
-                  color: "var(--foreground)",
-                  border: "1px solid var(--nayin-border)",
-                }}
-              >
-                {emailLoading ? "发送中…" : "发送邮箱验证码"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleEmailVerify} className="flex flex-col gap-3">
-              <p className="text-center text-xs text-muted-foreground">
-                验证码已发送至 <span className="text-foreground">{email}</span>
-              </p>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="6位验证码"
-                value={code}
-                onChange={(e) =>
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                required
-                autoFocus
-                autoComplete="one-time-code"
-                className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-center font-mono text-sm tracking-[0.5em] outline-none"
-                style={{
-                  borderColor: "var(--nayin-border)",
-                  color: "var(--foreground)",
-                }}
-              />
-              {emailError && (
-                <p
-                  className="text-center text-xs"
-                  style={{ color: "oklch(0.7 0.15 25)" }}
-                >
-                  {emailError}
-                </p>
-              )}
-              <button
-                type="submit"
-                disabled={emailLoading || code.length < 6}
-                className="w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-                style={{
-                  background: "var(--nayin-surface)",
-                  color: "var(--foreground)",
-                  border: "1px solid var(--nayin-border)",
-                }}
-              >
-                {emailLoading ? "验证中…" : "确认登录"}
-              </button>
+          <form onSubmit={handleInviteLogin} className="flex flex-col gap-3">
+            <input
+              type="email"
+              placeholder="邮箱"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              readOnly={Boolean(rememberedEmail)}
+              autoFocus={autofocus}
+              autoComplete="email"
+              className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-1"
+              style={{
+                borderColor: "var(--nayin-border)",
+                color: "var(--foreground)",
+              }}
+            />
+            {rememberedEmail ? (
               <button
                 type="button"
                 onClick={() => {
-                  setEmailStep("input");
-                  setCode("");
-                  setEmailError("");
+                  try {
+                    window.localStorage?.removeItem(REMEMBERED_EMAIL_KEY);
+                  } catch {
+                    // 浏览器禁止本地存储时只清理当前页面状态。
+                  }
+                  setRememberedEmail("");
+                  setEmail("");
+                  setInviteCode("");
                 }}
-                className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                className="self-end text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                重新输入邮箱
+                换一个邮箱
               </button>
-            </form>
-          )}
+            ) : null}
+            <input
+              type="text"
+              placeholder="邀请码"
+              value={inviteCode}
+              onChange={e => setInviteCode(e.target.value.toUpperCase())}
+              required
+              autoComplete="off"
+              autoCapitalize="characters"
+              className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm uppercase outline-none focus:ring-1"
+              style={{
+                borderColor: "var(--nayin-border)",
+                color: "var(--foreground)",
+              }}
+            />
+            {emailError && (
+              <p
+                className="text-center text-xs"
+                style={{ color: "oklch(0.7 0.15 25)" }}
+              >
+                {emailError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={emailLoading}
+              className="w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+              style={{
+                background: "var(--nayin-surface)",
+                color: "var(--foreground)",
+                border: "1px solid var(--nayin-border)",
+              }}
+            >
+              {emailLoading ? "登录中…" : "使用邀请码登录"}
+            </button>
+          </form>
 
           <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-            每次登录都需要邮箱、专属邀请码和邮件验证码。
+            使用邮箱和专属邀请码直接登录。
             <br />
             {betaWechatId
               ? `申请内测微信：${betaWechatId}`
