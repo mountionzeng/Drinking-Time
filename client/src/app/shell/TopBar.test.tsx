@@ -138,7 +138,8 @@ describe("TopBar story panel controls", () => {
     expect(html).toContain("Materials");
     expect(html).toContain("Timeline");
     expect(html.indexOf("Timeline")).toBeLessThan(html.indexOf("导出成片"));
-    expect(html).toContain("font-chat-brand");
+    expect(html).toContain("font-sans");
+    expect(html).toContain("tracking-[0.08em]");
     expect(html).toContain("font-bold");
   });
 });

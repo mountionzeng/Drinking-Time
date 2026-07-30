@@ -227,7 +227,7 @@ export default function TopBar({
                     aria-label={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                     title={`${toggle.active ? "隐藏" : "显示"}${toggle.label}`}
                     onClick={toggle.onToggle}
-                    className={`font-chat-brand min-h-[32px] rounded-sm px-2.5 text-[13px] font-bold transition-colors sm:min-w-[92px] ${
+                    className={`min-h-[32px] rounded-sm px-2.5 font-sans text-[12px] font-bold uppercase tracking-[0.08em] transition-colors sm:min-w-[92px] ${
                       toggle.active ? "" : "hover:brightness-110"
                     }`}
                     style={

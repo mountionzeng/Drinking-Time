@@ -88,21 +88,21 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).toContain("onSelectShot(nextShotNo)");
     expect(editingWorkspace).toContain("ResizablePanelGroup");
     expect(editingWorkspace).toContain(
-      'autoSaveId="editing-storyboard-preview-widths-v2"'
+      'autoSaveId="editing-storyboard-preview-widths-v3"'
     );
     expect(editingWorkspace).toContain('defaultViewMode="full"');
     expect(editingWorkspace).toContain(
       'aria-label="Resize Storyboard and Preview"'
     );
     expect(editingWorkspace).toContain('aria-label="Preview"');
-    expect(editingWorkspace).toContain("font-chat-brand");
+    expect(editingWorkspace).toContain("editing-panel-heading");
     expect(editingWorkspace).toContain("Preview");
     expect(editingWorkspace).toContain("videoEditorPreviewDraft");
     expect(editingWorkspace).toContain(
       "onPreviewChange={setVideoEditorPreviewDraft}"
     );
-    expect(editingWorkspace).toContain("DEFAULT_STORYBOARD_PANEL_SIZE = 45");
-    expect(editingWorkspace).toContain("DEFAULT_PREVIEW_PANEL_SIZE = 55");
+    expect(editingWorkspace).toContain("DEFAULT_STORYBOARD_PANEL_SIZE = 50");
+    expect(editingWorkspace).toContain("DEFAULT_PREVIEW_PANEL_SIZE = 50");
     expect(editingWorkspace).not.toContain("DEFAULT_DIRECTOR_PANEL_SIZE");
     expect(editingWorkspace).not.toContain("<ShotDirectorPanel");
     expect(editingWorkspace).not.toContain(

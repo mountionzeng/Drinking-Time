@@ -91,8 +91,8 @@ import VideoClipEditorPanel from "./VideoClipEditorPanel";
 
 const MIN_TIMELINE_SCALE = 8;
 const MAX_TIMELINE_SCALE = 42;
-const DEFAULT_STORYBOARD_PANEL_SIZE = 45;
-const DEFAULT_PREVIEW_PANEL_SIZE = 55;
+const DEFAULT_STORYBOARD_PANEL_SIZE = 50;
+const DEFAULT_PREVIEW_PANEL_SIZE = 50;
 const PREVIEW_CANVAS_INSET_PX = 12;
 
 type VideoEditorPreview = {
@@ -717,9 +717,7 @@ function ShotPreview({
     >
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="min-w-0">
-          <span className="font-chat-brand text-[13px] font-bold text-[var(--nayin-accent)]">
-            Preview
-          </span>
+          <span className="editing-panel-heading">Preview</span>
           {shot ? (
             <span className="ml-2 font-mono text-[10px] text-primary">
               {shotLabel(shot)}
@@ -2776,7 +2774,7 @@ export default function EditingNleWorkspace({
     >
       <ResizablePanelGroup
         direction="horizontal"
-        autoSaveId="editing-storyboard-preview-widths-v2"
+        autoSaveId="editing-storyboard-preview-widths-v3"
         className="min-h-0 flex-1 overflow-hidden"
         data-testid="editing-storyboard-preview-split"
       >

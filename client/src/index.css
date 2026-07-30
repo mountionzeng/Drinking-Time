@@ -18,16 +18,43 @@
   letter-spacing: 0;
 }
 
+.editing-panel-heading,
 [data-editing-surface="storyboard"] .creation-board-panel-title-text {
   color: var(--nayin-accent);
-  font-family: "Honglei Zhuoshu", "Noto Serif SC", "Songti SC", serif;
-  font-size: 0;
+  font-family: "Space Grotesk", "PingFang SC", system-ui, sans-serif;
   font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.editing-panel-heading {
+  font-size: 12px;
+}
+
+[data-editing-surface="storyboard"] .creation-board-panel-header {
+  height: 2.5rem;
+  min-height: 2.5rem;
+  padding-inline: 0.75rem;
+}
+
+[data-editing-surface="storyboard"] .creation-board-panel-title {
+  gap: 0;
+}
+
+[data-editing-surface="storyboard"] .creation-board-panel-icon {
+  display: none;
+}
+
+[data-editing-surface="storyboard"] .creation-board-panel-title-text {
+  font-size: 0;
 }
 
 [data-editing-surface="storyboard"] .creation-board-panel-title-text::after {
   content: "Storyboard";
-  font-size: 13px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  line-height: 1rem;
 }
 
 @custom-variant dark (&:is(.dark *));
