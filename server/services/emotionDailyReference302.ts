@@ -69,7 +69,7 @@ export interface PersonalizeEmotionDailyReferenceResult {
   fallbackReason?: string;
 }
 
-export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v8";
+export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v10";
 
 const LENS_LABELS = ["社会学", "人类学", "历史参照"] as const;
 const GAN_WUXING: Record<string, string> = {
@@ -107,6 +107,8 @@ const WUXING_COLORS: Record<string, string[]> = {
 };
 const REPORT_TONE_PATTERN =
   /社会学上|人类学上|历史参照上|按传统时间文化的排法|日主.{0,3}属[金木水火土]|[金木水火土](?:生|克)[金木水火土]/;
+const INTERPRETIVE_OVERREACH_PATTERN =
+  /你(?:真正|其实)(?:想要|需要|害怕|讨厌|在意)的是|你(?:想要|需要|害怕|讨厌|在意)的不是.{0,36}(?:而是|只是|是这种|是因为|是为了)|这说明你(?:真正|其实)?|本质上你/;
 
 function cleanText(value: unknown, max = 800) {
   if (typeof value !== "string") return "";
@@ -163,12 +165,30 @@ function cleanLetter(value: unknown, max = 1_200) {
   return paragraphs.join("\n\n");
 }
 
-function completeLetter(summary: string) {
+function letterQualityIssue(summary: string) {
   const paragraphs = summary
     .split(/\n{2,}/)
     .map(item => item.trim())
     .filter(Boolean);
-  return summary.length >= 260 && summary.length <= 600 && paragraphs.length >= 3;
+  if (REPORT_TONE_PATTERN.test(summary)) {
+    return "仍带有分析报告腔";
+  }
+  if (
+    summary.length < 380 ||
+    summary.length > 700 ||
+    paragraphs.length < 4 ||
+    paragraphs.length > 5
+  ) {
+    return "篇幅或结构不完整";
+  }
+  if (INTERPRETIVE_OVERREACH_PATTERN.test(summary)) {
+    return "替用户解释内心，把一种推测写成了结论";
+  }
+  return "";
+}
+
+function completeLetter(summary: string) {
+  return !letterQualityIssue(summary);
 }
 
 function normalizeAdvice(value: unknown, fallback: unknown) {
@@ -309,18 +329,38 @@ function factualActivity(almanac: AlmanacDay, fallback: unknown) {
   return cleanText(fallback, 160);
 }
 
+function safeLocalLetter(
+  input: PersonalizeEmotionDailyReferenceInput,
+  guidance: ShichenGuidance
+) {
+  const currentWords = currentWordsFromMessage(input.analysisSeed.userMessage);
+  const quotedWords = currentWords
+    ? `你写下：“${currentWords.slice(0, 320)}”`
+    : "今天你还没有留下新的话";
+  return [
+    `${quotedWords}。我先让这句话保持原来的样子，不把其中的情绪换成一个更容易解释的词，也不急着替你判断它最终意味着什么。`,
+    "现在能确定的，只是这句话已经值得被认真留下。它可能还连着别的感受，也可能只是此刻最响亮的那一部分；那些没有说出来的地方，先不由聊会儿替你补上。",
+    "如果这件事牵涉到空间、时间、钱、照顾或与别人共同承担的日常，可以等你愿意时再一项项说清。现实里的重量被看见以后，感受不必独自承担全部解释。",
+    `现在是${guidance.name}（${guidance.range}），${guidance.letterAdvice} 这不是为问题作答，只是先给此刻留一点可以呼吸和观察的距离。`,
+    "等你下次再说起它，我们再看原来的词有没有变化，旁边有没有多出另一句话。问题被好好看见，答案会慢慢浮出来。",
+  ].join("\n\n");
+}
+
 function localFallback(
   input: PersonalizeEmotionDailyReferenceInput,
   reason: string
 ): PersonalizeEmotionDailyReferenceResult {
   const guidance = currentTimeContext(input);
+  const storedSummary = cleanLetter(input.baseDailyReference.summary);
+  const summary =
+    REPORT_TONE_PATTERN.test(storedSummary) ||
+    INTERPRETIVE_OVERREACH_PATTERN.test(storedSummary)
+      ? safeLocalLetter(input, guidance)
+      : includeCurrentTimeAdvice(storedSummary, guidance);
   return {
     dailyReference: {
       ...input.baseDailyReference,
-      summary: includeCurrentTimeAdvice(
-        cleanLetter(input.baseDailyReference.summary),
-        guidance
-      ),
+      summary,
       activity: factualActivity(
         input.almanac,
         input.baseDailyReference.activity
@@ -352,7 +392,7 @@ function systemPrompt() {
   return [
     "你是「聊会儿」的回信人。你认真听用户自愿留下的话，替他们保存其中具体、真实的部分，再把当下和过去之间能确认的变化轻轻指出来。你不是老师、咨询师或算命先生，不提供医疗或心理诊断。",
     "核心规则：问题被好好看见，答案会慢慢浮出来。只呈现用户原话里真实可见的线索、重复、变化和现实背景，不替用户制造一个答案。",
-    "不得写“答案是”“你真正想要的是”“你应该”或“你必须”；不得替用户选择、劝导、定性，也不得把推测包装成结论。用户没有说出的答案，宁可留白。",
+    "不得写“答案是”“你真正想要的是”“你应该”或“你必须”；也不得写“你不是……而是……”“你讨厌的不是……而是……”或“这说明你……”来替换用户自己的感受。不得替用户选择、劝导、定性，也不得把推测包装成结论。用户没有说出的答案，宁可留白。",
     "输入中的 almanacFacts 是唯一可引用的黄历事实；不得补写、改写或猜测未提供的宜忌、吉时、方位、节气、生肖、冲煞。",
     "birthBazi 是历法库按用户自愿填写的公历出生日期和标准时钟时间换算的四柱，只能作为传统时间文化参照；不得据此推断命运、人格定论、健康状况、财运、婚姻或身份属性。",
     "traditionalTimeContext 是服务器根据 birthBazi 与天行当日干支做出的可复核计算，不得自行更改其中的日主、五行、生克关系或颜色集合。",
@@ -364,7 +404,8 @@ function systemPrompt() {
     "先在内部比较 currentWords 与 previousWords：判断它更像过去感受的延续、变化、新出现的关注，还是证据还不够。只有文字本身有清楚证据时，才把这个判断自然写进回信；不得贴心理标签，也不得猜测用户没有说出的动机。",
     "generationIntent 为 daily-letter 时，这是新一天首次登录看到的信：没有当日新话时，可以从最近的 previousWords 里选一条真正相关的旧话继续回应，但必须标明日期，不能假装用户今天刚说过。",
     "generationIntent 为 conversation-reply 时，以 currentWords 为主，最多联系两条确实相关的 previousWords，并用“你在M月D日写过”标明来源；不要翻旧账，不要为了显得懂用户而牵强关联。",
-    "summary 是页面唯一展示的主回信。写成 3 到 4 个自然段、260 到 480 个汉字：第一段接住一句最具体的原话；第二段只在有证据时写出它和过去之间的延续或变化；第三段可以把现实处境轻轻放进来；最后留一点未完成的空间。每封信至少保留用户原话里的一个具体名词或动作，不要把“拼豆、面试、某个人”等具体内容概括成空泛的“责任、资源、关系位置”。",
+    "summary 是页面唯一展示的主回信。写成 4 到 5 个自然段、380 到 650 个汉字：第一段接住一句最具体的原话，不改写它的情绪；第二段只在有证据时写出它和过去之间的延续或变化；第三段把现实生活里的空间、时间、劳动、钱、关系角色等具体处境轻轻放进来；第四段结合当下时辰给一个很小、可选择的动作；最后留一点未完成的空间。每封信至少保留用户原话里的一个具体名词或动作，不要把“拼豆、面试、猫、某个人”等具体内容概括成空泛的“责任、资源、关系位置”。",
+    "面对同一句话可能有不止一种理解时，把两种或三种仍有依据的可能并排放着，并清楚区分“能确定的”和“还不能确定的”。这不是为了罗列选项，而是避免用一个漂亮解释盖住用户复杂、矛盾或尚未说完的感受。",
     "summary 不要标题、列表、编号，也不要按上午/下午/晚上报日程。严禁出现“社会学上”“人类学上”“历史参照上”“按传统时间文化的排法”、日主五行生克公式或字段名；这些只用于你在内部理解，不能直接倒给用户。不要写成分析报告、客服话术或免责声明。",
     "社会结构、人类学日常经验、历史处境与传统时间参照，只有确实能照亮用户这句具体的话时，才能自然融入一句；不要逐项展示知识，不要为了显得专业而堆术语。",
     "避免每封信重复“这不是……”“不拿它……”“这只是一封……”“你可以拿走有用的部分”等自我说明。结尾不要宣布结论，可以停在一个仍值得留意的变化、动作或开放问题上。",
@@ -613,7 +654,8 @@ export async function personalizeEmotionDailyReference302(
     let data = (await response.json()) as CompletionResponse;
     let raw = parseJsonLoose<DeepSeekPayload>(completionText(data));
     const firstSummary = cleanLetter(raw.summary);
-    if (!completeLetter(firstSummary)) {
+    const firstQualityIssue = letterQualityIssue(firstSummary);
+    if (firstQualityIssue) {
       const retryResponse = await fetcher(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
@@ -639,8 +681,7 @@ export async function personalizeEmotionDailyReference302(
             },
             {
               role: "user",
-              content:
-                "第一次回信过短。请保留用户原话、事实边界和其他 JSON 字段，把 summary 重写为 3 到 4 个自然段、260 到 480 个汉字；不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。",
+              content: `第一次回信${firstQualityIssue}。请保留用户原话、事实边界和其他 JSON 字段，把 summary 重写为 4 到 5 个自然段、380 到 650 个汉字。不要用“你不是……而是……”“你真正……”或“这说明你……”替用户解释内心；有证据的多种可能要并排保留，并区分能确定与还不能确定的部分。不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。`,
             },
           ],
         }),
@@ -652,19 +693,18 @@ export async function personalizeEmotionDailyReference302(
           completionText(retryData)
         );
         const retrySummary = cleanLetter(retryRaw.summary);
-        if (
-          completeLetter(retrySummary) ||
-          retrySummary.length > firstSummary.length
-        ) {
+        if (completeLetter(retrySummary)) {
           data = retryData;
           raw = retryRaw;
         }
       }
     }
-    const summary = includeCurrentTimeAdvice(
-      cleanLetter(raw.summary),
-      guidance
-    );
+    const selectedSummary = cleanLetter(raw.summary);
+    const remainingQualityIssue = letterQualityIssue(selectedSummary);
+    if (remainingQualityIssue) {
+      return localFallback(input, `302 DeepSeek 回信${remainingQualityIssue}`);
+    }
+    const summary = includeCurrentTimeAdvice(selectedSummary, guidance);
     const clothing = cleanText(raw.clothing, 180);
     const mindset = cleanText(raw.mindset, 220);
     const avoid = cleanText(raw.avoid, 300);

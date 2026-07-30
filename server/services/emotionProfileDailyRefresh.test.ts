@@ -17,7 +17,7 @@ function profile(todayDate: string): EmotionAnalysisProfile {
       title: "聊会儿写给你的信",
       summary: "旧摘要",
       activity: "旧建议",
-      letterVersion: "daily-letter-v8",
+      letterVersion: "daily-letter-v9",
       interpretationSource: "302-deepseek",
     },
     analysisSeed: {
@@ -210,7 +210,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
       dailyReference: {
         ...input.baseDailyReference,
         summary: "升级后的完整回信",
-        letterVersion: "daily-letter-v8",
+        letterVersion: "daily-letter-v9",
       },
     }));
 
@@ -235,7 +235,7 @@ describe("getFreshEmotionAnalysisProfile", () => {
         }),
         dailyReference: expect.objectContaining({
           summary: "升级后的完整回信",
-          letterVersion: "daily-letter-v8",
+          letterVersion: "daily-letter-v9",
         }),
       })
     );

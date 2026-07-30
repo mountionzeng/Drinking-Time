@@ -89,7 +89,7 @@ describe("emotion analysis profile", () => {
     expect(profile?.dailyReference.summary.split("\n\n")).toHaveLength(4);
     expect(profile?.dailyReference.summary).not.toContain("社会学上");
     expect(profile?.dailyReference.summary).not.toContain("你刚才说");
-    expect(profile?.dailyReference.letterVersion).toBe("daily-letter-v8");
+    expect(profile?.dailyReference.letterVersion).toBe("daily-letter-v9");
     expect(profile?.analysisSeed.currentLocation).toBe("上海");
     expect(profile?.analysisSeed.userMessage).toBe(
       "最近工作很多，但我又不太想让别人失望。"

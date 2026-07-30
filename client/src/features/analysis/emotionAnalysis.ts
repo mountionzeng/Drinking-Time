@@ -15,7 +15,7 @@ export const EMOTION_ANALYSIS_LOCAL_KEY = "dt:emotionAnalysisProfile";
 export const EMOTION_ANALYSIS_GUEST_ID_KEY = "dt:emotionAnalysisGuestId";
 export const EMOTION_ANALYSIS_CONSENT_TEXT =
   "你愿意留下的资料和这段话，只用来生成今日回信、接住之后的对话；随时可以修改，也不会替你做诊断或决定。";
-export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v8";
+export const EMOTION_DAILY_LETTER_VERSION = "daily-letter-v9";
 
 export interface EmotionScheduleBlock {
   label: string;
@@ -59,7 +59,8 @@ export interface EmotionDailyReference extends Record<string, unknown> {
     | "daily-letter-v5"
     | "daily-letter-v6"
     | "daily-letter-v7"
-    | "daily-letter-v8";
+    | "daily-letter-v8"
+    | "daily-letter-v9";
   factSource?: string;
   interpretationSource?: "302-deepseek" | "local-template";
   interpretationModel?: string;
@@ -613,7 +614,8 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
     value.letterVersion === "daily-letter-v5" ||
     value.letterVersion === "daily-letter-v6" ||
     value.letterVersion === "daily-letter-v7" ||
-    value.letterVersion === "daily-letter-v8"
+    value.letterVersion === "daily-letter-v8" ||
+    value.letterVersion === "daily-letter-v9"
       ? { letterVersion: value.letterVersion }
       : {}),
     ...(typeof value.factSource === "string"

@@ -112,7 +112,7 @@ describe("personalizeEmotionDailyReference302", () => {
             message: {
               content: JSON.stringify({
                 summary:
-                  "你说最近对收入有些焦虑，我记下了。收入这两个字落在生活里，常常不只是一笔数字，也会碰到对工作的把握和对下一步的想象。\n\n你在7月26日写过“最近工作不稳定”。今天的焦虑和那句话挨得很近，但它们是不是同一件事，现在还不必急着下结论。至少可以看见，这份不确定已经连续出现了两天。\n\n先让这两句话都留在这里。等你下次回来，我们再看看：让你不安的究竟是收入本身，还是那种暂时抓不住节奏的感觉。",
+                  "你说最近对收入有些焦虑，我先把“收入”这两个字原样放在这里。它可能是一笔很具体的钱，也可能连着工作的稳定、可以自由安排的时间，以及你对下一步还没有把握的那部分；现在还不需要把这些线索压成一个答案。\n\n你在7月26日写过“最近工作不稳定”。今天的焦虑和那句话挨得很近，能确定的是，不确定感已经连续出现；还不能确定的是，你此刻更在意收入数字、工作的去留，还是许多事情一起悬着时那种抓不住节奏的感觉。\n\n把它放回日常里，选择多不一定意味着余地大，有时也意味着每个选择都要自己承担解释、等待和后果。身边人的建议、同龄人的进度和生活开销，也可能让同一个问题在不同日子里显得更重，但哪些真的落在你身上，还要慢慢分清。\n\n现在是巳时，可以先只确认一件眼前的小事，比如一笔账、一个回复日期，或者一条还没有问清的信息。这个动作不是为了消除焦虑，只是给它划出一个暂时能看见的边界，让身体不用同时托住所有可能。\n\n先让今天和昨天的两句话一起留在这里。等你下次回来，我们再看焦虑有没有换一种形状；如果它仍然没有变化，那份没有变化本身，也会告诉我们一些东西。",
                 clothing: "穿透气短袖，按实时天气增减外层。",
                 mindset: "先照顾能确认的部分，不急着替未来下结论。",
                 schedule: [
@@ -184,8 +184,7 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.dailyReference.mindset).toContain("不急着");
     expect(result.dailyReference.currentShichen).toBe("巳时");
     expect(result.dailyReference.summary).toContain("现在是巳时");
-    expect(result.dailyReference.summary).toContain("频繁切换可以晚一点");
-    expect(result.dailyReference.letterVersion).toBe("daily-letter-v8");
+    expect(result.dailyReference.letterVersion).toBe("daily-letter-v9");
     expect(
       String(result.dailyReference.summary).split("\n\n").length
     ).toBeGreaterThanOrEqual(3);
@@ -198,7 +197,11 @@ describe("personalizeEmotionDailyReference302", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("deepseek-v3.2");
     expect(body.max_tokens).toBe(1800);
-    expect(body.messages[0].content).toContain("3 到 4 个自然段");
+    expect(body.messages[0].content).toContain("4 到 5 个自然段");
+    expect(body.messages[0].content).toContain(
+      "你讨厌的不是……而是……"
+    );
+    expect(body.messages[0].content).toContain("两种或三种仍有依据的可能");
     expect(body.messages[0].content).toContain("不要按上午/下午/晚上报日程");
     expect(body.messages[1].content).toContain("会友");
     expect(body.messages[1].content).toContain("最近对收入有些焦虑");
@@ -252,7 +255,7 @@ describe("personalizeEmotionDailyReference302", () => {
       "翠色",
     ]);
     expect(body.messages[0].content).toContain(
-      "不要把“拼豆、面试、某个人”等具体内容概括"
+      "不要把“拼豆、面试、猫、某个人”等具体内容概括"
     );
     expect(body.messages[0].content).toContain("日主五行生克公式");
     expect(body.messages[0].content).toContain("延续、变化、新出现");
@@ -282,6 +285,7 @@ describe("personalizeEmotionDailyReference302", () => {
       "你说最近对收入有些焦虑，我先把“收入”这两个字原样放在这里。它落进日常时，可能同时碰到工作的稳定、可以自由安排的时间，以及你对下一步还没有把握的那部分；这些线索现在不必被压成一个结论。",
       "你在7月26日写过“最近工作不稳定”。两句话隔了一天又靠得很近，能确定的是，不确定感已经连续出现；还不能确定的是，你此刻最在意的究竟是一笔具体的收入、工作的去留，还是被许多建议拉扯后失去自己的节奏。",
       "把它放回现实里看，选择多并不总等于余地大，有时也意味着每个选择都要自己承担解释和后果。今天可以先从一件可控的小事开始，比如只写下眼前最需要确认的数字或消息，让问题先有一个可以被看见的边界。",
+      "现在是巳时，可以先把要确认的事情缩成一条消息或一个数字，再给自己留一点不继续追问的时间。这个动作不是解决问题，只是让此刻不必同时承担工作的去留、收入的变化和别人给出的所有建议。",
       "现在不用急着找到最终答案。等这件小事做完，再看看焦虑有没有换一种形状；如果它还在，我们就接着从它没有变化的地方聊，如果它松了一点，也把那一点变化记下来。",
     ].join("\n\n");
     const fetcher = vi
@@ -337,8 +341,148 @@ describe("personalizeEmotionDailyReference302", () => {
       String(result.dailyReference.summary).split("\n\n").length
     ).toBeGreaterThanOrEqual(3);
     const retryBody = JSON.parse(String(fetcher.mock.calls[1][1].body));
-    expect(retryBody.messages.at(-1).content).toContain("第一次回信过短");
-    expect(retryBody.messages.at(-1).content).toContain("260 到 480 个汉字");
+    expect(retryBody.messages.at(-1).content).toContain(
+      "第一次回信篇幅或结构不完整"
+    );
+    expect(retryBody.messages.at(-1).content).toContain("380 到 650 个汉字");
+  });
+
+  it("模型替用户解释内心时要求重写并保留不止一种可能", async () => {
+    const responseFields = {
+      clothing: "穿一件柔软、方便活动的旧衣服。",
+      mindset: "先承认此刻的厌烦，不急着把它变成一个决定。",
+      schedule: baseInput.baseDailyReference.schedule,
+      lenses: baseInput.baseDailyReference.lenses,
+      personalizedYi: ["留出安静", "记下触发点", "晚点决定"],
+      personalizedJi: ["替感受定性", "情绪顶点决定", "强迫自己喜欢"],
+      avoid: "不要在情绪最满的时候决定长期去留。",
+      note: "问题被好好看见，答案会慢慢浮出来。",
+    };
+    const overreachingSummary = [
+      "你说最近收留的猫很吵，还咬你。你讨厌的不是猫，而是这种被侵扰、无法好好休息的感觉。现在已经可以看见，这件事真正碰到的是你的边界。",
+      "收留它也许来自善意，但共同生活让善意变成了消耗。你从想帮助它走到想躲开它，这说明你真正需要的是一个不被打扰的房间。",
+      "可以先把猫放进另一个房间，给自己留出安静。猫叫、抓咬和反复收拾都在消耗耐心，也会让原本平常的一天不断被打断。等情绪退下去，再决定它是不是还适合留下。",
+      "现在是巳时，先把手边事情做完，不必马上处理所有细节。明天再看，也许答案就会更清楚，到时再选择继续收留、寻找领养，或者调整相处空间。",
+    ].join("\n\n");
+    const rewrittenSummary = [
+      "你写下“猫很吵，还咬我”，也写下“我好讨厌它”。这两句话都很直接：叫声、疼痛和被打断的日常是真的，厌烦也是真的。我先不把“讨厌”换成别的词，因为它此刻就是你用来描述这段相处的词。",
+      "你之前还留下过“我收留了它”这件事。收留和讨厌放在一起，里面可能有善意被消耗后的疲惫，也可能只是连续被抓咬后的愤怒；还可能有别的部分，你现在没有说，我们也不替你补上。能确定的只是，这段共同生活已经让你很难安静下来。",
+      "照顾一只动物不只有喜欢，还包含空间、睡眠、钱和反复收拾的劳动。谁来承担这些具体事情，会改变一段关系的重量。把这些现实一项项看清，未必是在为去留找理由，也可以只是让你的感受不用独自背着全部责任。",
+      "现在是巳时，先给你和猫留一点物理距离，让身体从刚才的吵闹或疼痛里缓下来。等不那么顶着的时候，可以记下：今天最难受的是哪一刻，什么变化会让相处稍微可承受一点。",
+      "至于你是不是还愿意继续收留它，今天不必替未来的自己回答。先让“我讨厌它”完整地待在这里；等下一次你再提到猫，我们再看这句话有没有变，或者它旁边是不是出现了另一句话。",
+    ].join("\n\n");
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "deepseek-v3.2",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...responseFields,
+                  summary: overreachingSummary,
+                }),
+              },
+            },
+          ],
+        }),
+        text: async () => "",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "deepseek-v3.2",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...responseFields,
+                  summary: rewrittenSummary,
+                }),
+              },
+            },
+          ],
+        }),
+        text: async () => "",
+      });
+
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      analysisSeed: {
+        ...baseInput.analysisSeed,
+        userMessage: "我好讨厌我最近收留的猫。它很吵，还咬我。",
+      },
+      fetcher,
+      now: new Date("2026-07-27T02:30:00.000Z"),
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.dailyReference.summary).toBe(rewrittenSummary);
+    expect(result.dailyReference.summary).not.toContain("你讨厌的不是猫");
+    expect(result.dailyReference.summary).toContain("可能");
+    expect(result.dailyReference.summary).toContain("还可能");
+    const retryBody = JSON.parse(String(fetcher.mock.calls[1][1].body));
+    expect(retryBody.messages.at(-1).content).toContain("替用户解释内心");
+  });
+
+  it("模型两次越界时不把旧的片面回信重新标成新版", async () => {
+    const overreachingSummary = [
+      "你写下最近收留的猫很吵，还会咬你。你讨厌的不是猫，是这种被侵扰的感觉，所以这件事真正碰到的是你的边界和休息。",
+      "你从想帮助它走到想躲开它，这说明你真正需要的是一个不被打扰的房间。收留时的善意已经变成了每天都要承担的消耗。",
+      "猫叫、抓咬和反复收拾都在消耗耐心，也会让原本平常的一天不断被打断。可以先把猫放进另一个房间，再决定它是不是还适合留下。",
+      "现在是巳时，先把手边事情做完，不必马上处理所有细节。等情绪退下去，也许答案就会更清楚，到时再选择继续收留或者寻找领养。",
+    ].join("\n\n");
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: overreachingSummary,
+                clothing: "穿一件舒服的旧衣服。",
+                mindset: "先缓一缓。",
+                schedule: baseInput.baseDailyReference.schedule,
+                lenses: baseInput.baseDailyReference.lenses,
+                personalizedYi: ["留出安静", "晚点决定", "记下触发点"],
+                personalizedJi: ["替感受定性", "情绪顶点决定", "强迫自己"],
+                avoid: "不要在情绪顶点做长期决定。",
+                note: "问题被好好看见，答案会慢慢浮出来。",
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      baseDailyReference: {
+        ...baseInput.baseDailyReference,
+        summary: overreachingSummary,
+        letterVersion: "daily-letter-v9",
+      },
+      analysisSeed: {
+        ...baseInput.analysisSeed,
+        userMessage: "我好讨厌我最近收留的猫。它很吵，还咬我。",
+      },
+      fetcher,
+      now: new Date("2026-07-27T02:30:00.000Z"),
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.source).toBe("local-template");
+    expect(result.dailyReference.summary).not.toContain("你讨厌的不是猫");
+    expect(result.dailyReference.summary).toContain(
+      "我好讨厌我最近收留的猫"
+    );
   });
 
   it("没有 302 key 时保留本地模板且不发请求", async () => {
