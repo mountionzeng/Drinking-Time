@@ -10,7 +10,7 @@ describe("SDKServer guest sessions", () => {
 
     await expect(sdk.verifySession(token)).resolves.toEqual({
       openId: "guest:test-browser",
-      appId: "",
+      appId: "drinking-time",
       name: "Guest",
     });
   });
