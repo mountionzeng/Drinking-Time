@@ -22,6 +22,7 @@ export default defineConfig({
       "client/src/**/*.test.tsx",
       "scripts/**/*.test.ts",
       "shared/**/*.test.ts",
+      "evals/**/*.test.ts",
     ],
   },
 });

@@ -1,0 +1,30 @@
+{
+  "generatedAt": "2026-08-01T16:09:34.136Z",
+  "corpus": {
+    "stories": 9,
+    "shots": 83,
+    "samples": 249
+  },
+  "scores": {
+    "hygiene": {
+      "score": 0.4016,
+      "passed": 100,
+      "total": 249
+    },
+    "coverage": {
+      "score": 0.8072,
+      "passed": 1407,
+      "total": 1743
+    },
+    "continuity": {
+      "score": 0.3133,
+      "passed": 26,
+      "total": 83
+    },
+    "budget": {
+      "score": 0.9398,
+      "passed": 234,
+      "total": 249
+    }
+  }
+}
