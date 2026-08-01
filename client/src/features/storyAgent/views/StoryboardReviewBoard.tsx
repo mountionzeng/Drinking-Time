@@ -33,20 +33,20 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import type {
   StoryboardImageRerenderResult,
   StoryboardImageRerenderRunner,
-  StoryShotEditableField,
 } from "@/features/storyAgent/StoryAgentContext";
+import type { StoryShotEditableField } from "@shared/shotDirector";
 import { toast } from "sonner";
 import type {
   ChatMessage,
   GeneratedScript,
   StoryShot,
 } from "@/features/storyAgent/types";
-import {
-  creationTimelineShotId,
-  type CreationEditorImage,
-  type CreationEditorShot,
-  type ImportedStoryMaterialResult,
-} from "@/features/creationEditor/CreationEditorContext";
+import { creationTimelineShotId } from "@/features/creationEditor/CreationEditorContext";
+import type {
+  CreationEditorImage,
+  CreationEditorShot,
+  ImportedStoryMaterialResult,
+} from "@/features/creationEditor/types";
 import {
   MAX_CONCURRENT_STORYBOARD_RENDERS,
   addShotToRenderSlots,
@@ -89,7 +89,6 @@ import type {
   ShotConsistencyAnalysis,
   ShotConsistencyMismatch,
 } from "@shared/shotConsistency";
-import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
 import type { ShotDirectorResult } from "@shared/shotDirector";
 import {
   parseStartEndVideoConfig,
@@ -97,7 +96,15 @@ import {
 } from "@shared/startEndVideo";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
-import type { ImageProvider } from "@shared/imageProvider";
+import type {
+  ImageProvider,
+  ImageProviderStatus,
+} from "@shared/imageProvider";
+import {
+  createStoryboardEditMaskDataUrl,
+  requiresStoryboardExactEditMask,
+  storyboardExactEditMaskPlan,
+} from "@/features/creationEditor/editMask";
 import {
   hasVideoTakeDragPayload,
   readVideoTakeDragPayload,
@@ -158,10 +165,17 @@ import {
   storyboardStartEndFrameIssue,
   storyboardStartEndGenerationParams,
   storyboardVideoIntentPatch,
+  storyboardVideoRenderBlockReason,
+  storyboardVideoSourceFrame,
+  shouldUseSingleImageFallback,
   storyShotInsertIdentity,
   type StoryboardFrameRole,
   type StoryboardNeighborFrameSource,
 } from "./storyboardReviewModel";
+import {
+  buildStoryboardImageRenderPlan,
+  storyboardImageRenderBlockReason,
+} from "./storyboardImageRenderPlan";
 import {
   AddShotButton,
   DeleteShotButton,
@@ -208,6 +222,7 @@ export function StoryboardReviewBoard({
   onUpdateShotFields,
   promotingFrameCropShotNo = null,
   shotVideoProviderStatus = null,
+  imageProviderStatus = null,
   defaultViewMode = "simple",
   embeddedEditorMode = false,
   headerAction,
@@ -245,6 +260,7 @@ export function StoryboardReviewBoard({
     explicitInstruction: string;
     candidateCount?: 4;
     imageProvider?: ImageProvider;
+    editMaskImageUrl?: string;
     reference?: {
       imageUrl?: string;
       identityImageUrl?: string;
@@ -360,6 +376,7 @@ export function StoryboardReviewBoard({
   ) => Promise<void>;
   promotingFrameCropShotNo?: number | null;
   shotVideoProviderStatus?: ShotVideoProviderStatus | null;
+  imageProviderStatus?: ImageProviderStatus | null;
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
@@ -507,6 +524,7 @@ export function StoryboardReviewBoard({
   const matrixDraftsRef = useRef(
     new Map<string, Partial<Record<StoryboardMatrixField, string>>>()
   );
+  const [, refreshMatrixDraftGuards] = useState(0);
   const videoSingleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -1550,13 +1568,49 @@ export function StoryboardReviewBoard({
       : null;
     const exactEditInstruction = request?.instruction?.trim();
     const isExactFrameEdit = Boolean(selectedFrame && exactEditInstruction);
+    const editMaskPlan =
+      isExactFrameEdit && exactEditInstruction
+        ? storyboardExactEditMaskPlan(exactEditInstruction, {
+            cueCode: label,
+            frameRole: selectedFrameRole,
+          })
+        : undefined;
+    if (
+      isExactFrameEdit &&
+      exactEditInstruction &&
+      requiresStoryboardExactEditMask(exactEditInstruction, label) &&
+      !editMaskPlan
+    ) {
+      const message = `${label} 裙摆局部重绘只允许选择已标记的首帧或尾帧；本次未提交付费生成`;
+      toast.error(message);
+      return { status: "error", message };
+    }
+    let editMaskImageUrl: string | undefined;
+    if (selectedFrame && editMaskPlan) {
+      try {
+        editMaskImageUrl = await createStoryboardEditMaskDataUrl(
+          selectedFrame.imageUrl,
+          editMaskPlan
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "裙子区域遮罩创建失败";
+        toast.error(message);
+        return { status: "error", message };
+      }
+    }
     const boardInstruction =
       storyboardExplicitImageInstruction(effectiveShot);
+    const useSingleImageFallback =
+      !isExactFrameEdit && shouldUseSingleImageFallback(imageProviderStatus);
     const explicitInstruction = [
       exactEditInstruction
         ? `本次对话修改（最高优先级，必须实际应用）：${exactEditInstruction}`
         : "",
       boardInstruction,
+      useSingleImageFallback
+        ? "单帧参考编辑保护：只生成一张完整的电影静帧；禁止四宫格、分屏、拼贴、漫画格和联系表。"
+        : "",
       isExactFrameEdit
         ? "精确编辑约束：只修改用户明确点名的内容；人物身份、发型、姿态、构图、场景、光线、色彩、物体和原图材质全部保持不变。"
         : "",
@@ -1580,26 +1634,27 @@ export function StoryboardReviewBoard({
       toast.error(message);
       return { status: "error", message };
     }
-    const sourceLabel = (reference: (typeof imageReferences)["primary"]) => {
-      const cue = reference.cueCode ?? String(reference.shotNo);
-      if (reference.source === "current") return `当前镜头 ${cue}`;
-      if (reference.source === "previous-last") return `上一镜 ${cue} 尾帧`;
-      return `下一镜 ${cue} 首帧`;
-    };
-    const contextLabel = imageReferences.context.map(sourceLabel).join("、");
-
-    const imageEstimate = estimateStoryboardImageCost();
-    const editRoleLabel =
-      selectedFrameRole === "first"
-        ? "首帧"
-        : selectedFrameRole === "last"
-          ? "尾帧"
-          : "中间参考";
-    const confirmed = window.confirm(
-      isExactFrameEdit
-        ? `${label} 将精确修改当前选中的${editRoleLabel}（图片 #${selectedFrame!.id}），只执行下面这条要求，不重构其他画面：\n\n${exactEditInstruction}\n\n生成完成后会把新图放回${editRoleLabel}，旧图仍然保留。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交 302 参考图编辑？`
-        : `${label} 将以 ${sourceLabel(imageReferences.primary)} 为视觉基底${contextLabel ? `，并参考 ${contextLabel}` : ""}，按下面这段原文硬指令生成 ${imageEstimate.candidateCount} 张候选图：\n\n${explicitInstruction}\n\n人物、服装、场景、物体、材质和画面风格以这些现有故事画面为准；不会引用与镜头画面冲突的场景美术库。预计人民币 ¥${imageEstimate.estimatedCny.toFixed(2)}，确认提交正式图片生成？`
-    );
+    const providerBlockReason =
+      storyboardImageRenderBlockReason(imageProviderStatus);
+    if (providerBlockReason) {
+      const message = `图片生成当前不可提交：${providerBlockReason}`;
+      toast.error(message);
+      return { status: "error", message };
+    }
+    const imageRenderPlan = buildStoryboardImageRenderPlan({
+      label,
+      isExactFrameEdit,
+      exactEditInstruction,
+      selectedFrameId: selectedFrame?.id ?? null,
+      selectedFrameRole,
+      editMaskPlan,
+      editMaskImageUrl,
+      useSingleImageFallback,
+      imageReferences,
+      explicitInstruction,
+    });
+    const { editRoleLabel, estimate: imageEstimate } = imageRenderPlan;
+    const confirmed = window.confirm(imageRenderPlan.confirmation);
     if (!confirmed) {
       return {
         status: "cancelled",
@@ -1646,10 +1701,12 @@ export function StoryboardReviewBoard({
         shotNo: shot.shotNo,
         rows,
         explicitInstruction,
-        candidateCount: isExactFrameEdit
-          ? undefined
-          : imageEstimate.candidateCount,
-        imageProvider: isExactFrameEdit ? "gpt-image" : "midjourney",
+        candidateCount: imageRenderPlan.candidateCount,
+        imageProvider:
+          isExactFrameEdit || useSingleImageFallback
+            ? "gpt-image"
+            : "midjourney",
+        editMaskImageUrl,
         reference: {
           imageUrl: imageReferences.primary.imageUrl,
           identityImageUrl: imageReferences.primary.imageUrl,
@@ -1813,6 +1870,28 @@ export function StoryboardReviewBoard({
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
     );
+    const videoSourceFrame = storyboardVideoSourceFrame(effectiveShot);
+    if (
+      videoSourceFrame &&
+      (effectiveShot.imageId !== videoSourceFrame.id ||
+        effectiveShot.imageUrl !== videoSourceFrame.imageUrl)
+    ) {
+      effectiveShot = {
+        ...effectiveShot,
+        imageId: videoSourceFrame.id,
+        imageUrl: videoSourceFrame.imageUrl,
+      };
+    }
+    const videoBlockReason = storyboardVideoRenderBlockReason(effectiveShot, {
+      ready: Boolean(shotVideoProviderStatus?.ready),
+      reason:
+        shotVideoProviderStatus?.missing.filter(Boolean).join("、") ||
+        "视频模型状态尚未就绪",
+    });
+    if (videoBlockReason) {
+      toast.error(`${label} ${videoBlockReason}`);
+      return;
+    }
     beginShotRender(shot.shotNo);
     onSelectShot?.(shot.shotNo);
     try {
@@ -2152,6 +2231,20 @@ export function StoryboardReviewBoard({
         </div>
       </div>
 
+      {!imageProviderStatus?.ready ? (
+        <div
+          className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-900 dark:text-amber-200"
+          role="status"
+          data-testid="storyboard-image-provider-blocked"
+        >
+          图片付费生成已暂停：
+          {imageProviderStatus?.reason ?? "正在确认图片供应商状态"}
+          {imageProviderStatus?.retryAt
+            ? `；系统将在 ${new Date(imageProviderStatus.retryAt).toLocaleTimeString()} 后自动重试状态`
+            : ""}
+        </div>
+      ) : null}
+
       <div
         ref={viewMode === "simple" ? boardScrollRef : undefined}
         className={`creation-board-panel-body min-h-0 flex-1 custom-scrollbar ${
@@ -2237,6 +2330,15 @@ export function StoryboardReviewBoard({
                     index
                   );
                   const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
+                  const headerVideoBlockReason = creationShot
+                    ? storyboardVideoRenderBlockReason(creationShot, {
+                        ready: Boolean(shotVideoProviderStatus?.ready),
+                        reason:
+                          shotVideoProviderStatus?.missing
+                            .filter(Boolean)
+                            .join("、") || "视频模型状态尚未就绪",
+                      })
+                    : "还没有可渲染的镜头记录";
                   return (
                     <div
                       key={
@@ -2331,6 +2433,7 @@ export function StoryboardReviewBoard({
                             data-testid={`storyboard-header-generate-image-${insertStableShotId}`}
                             disabled={
                               !creationShot ||
+                              !imageProviderStatus?.ready ||
                               !canStartRenderForShot(shot.shotNo)
                             }
                             onClick={event => {
@@ -2343,7 +2446,12 @@ export function StoryboardReviewBoard({
                             }}
                             className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-45"
                             aria-label={`根据前后画面和图片要求重新生成 ${shotLabel} 图片`}
-                            title="根据前后画面和图片要求重新生成图片"
+                            title={
+                              imageProviderStatus?.ready
+                                ? "根据前后画面和图片要求重新生成图片"
+                                : imageProviderStatus?.reason ??
+                                  "正在确认图片供应商状态"
+                            }
                           >
                             {generatingImageShotNos.includes(shot.shotNo) ||
                             continuityCheckingByShot[shot.shotNo] ===
@@ -2362,6 +2470,7 @@ export function StoryboardReviewBoard({
                             type="button"
                             data-testid={`storyboard-header-generate-video-${insertStableShotId}`}
                             disabled={
+                              Boolean(headerVideoBlockReason) ||
                               !canStartRenderForShot(shot.shotNo)
                             }
                             onClick={event => {
@@ -2370,7 +2479,10 @@ export function StoryboardReviewBoard({
                             }}
                             className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-45"
                             aria-label={`根据前后画面和视频要求生成 ${shotLabel} 视频`}
-                            title="根据前后画面和视频要求生成视频"
+                            title={
+                              headerVideoBlockReason ??
+                              "根据前后画面和视频要求生成视频"
+                            }
                           >
                             {continuityCheckingByShot[shot.shotNo] ===
                               "video" ||
@@ -2466,15 +2578,16 @@ export function StoryboardReviewBoard({
                             },
                           ]
                         : [];
-                  const latestCandidateSheetId = frameImages
-                    .filter(frame =>
-                      isFrameCandidateSheet(
-                        frame,
-                        creationShot?.promptRun?.imageId
+                  const candidateSheetIds = new Set(
+                    frameImages
+                      .filter(frame =>
+                        isFrameCandidateSheet(
+                          frame,
+                          creationShot?.promptRun?.imageId
+                        )
                       )
-                    )
-                    .sort((left, right) => left.id - right.id)
-                    .at(-1)?.id;
+                      .map(frame => frame.id)
+                  );
                   return (
                     <div
                       key={
@@ -2619,7 +2732,7 @@ export function StoryboardReviewBoard({
                         })}
                         {frameImages.map((frame, frameIndex) => {
                           if (
-                            frame.id === latestCandidateSheetId &&
+                            candidateSheetIds.has(frame.id) &&
                             onPromoteFrameCrop
                           ) {
                             const promoting =
@@ -3552,6 +3665,25 @@ export function StoryboardReviewBoard({
                         matrixDropTarget?.targetIndex === index &&
                         matrixDropTarget.field === row.field;
                       const shotLabel = displayShotCode(shot);
+                      const matrixVideoBlockReason = creationShot
+                        ? storyboardVideoRenderBlockReason(
+                            storyboardRenderShotWithDraft(
+                              creationShot,
+                              shot,
+                              matrixDraftsRef.current.get(
+                                storyShotInsertIdentity(shot, index) ?? ""
+                              )
+                            ),
+                            {
+                              ready: Boolean(shotVideoProviderStatus?.ready),
+                              reason:
+                                shotVideoProviderStatus?.missing
+                                  .filter(Boolean)
+                                  .join("、") ||
+                                "视频模型状态尚未就绪",
+                            }
+                          )
+                        : "还没有可渲染的镜头记录";
                       return (
                         <StoryboardMatrixFieldCell
                           key={
@@ -3578,6 +3710,7 @@ export function StoryboardReviewBoard({
                               matrixDraftsRef.current.get(key) ?? {};
                             const next = { ...current, [row.field]: value };
                             matrixDraftsRef.current.set(key, next);
+                            refreshMatrixDraftGuards(current => current + 1);
                           }}
                           onCommit={async value => {
                             const key = storyShotInsertIdentity(shot, index);
@@ -3652,6 +3785,7 @@ export function StoryboardReviewBoard({
                                 type="button"
                                 disabled={
                                   !creationShot ||
+                                  !imageProviderStatus?.ready ||
                                   !canStartRenderForShot(shot.shotNo)
                                 }
                                 onPointerDown={event => event.stopPropagation()}
@@ -3665,7 +3799,12 @@ export function StoryboardReviewBoard({
                                 }}
                                 className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
                                 aria-label={`按图片要求渲染 ${shotLabel} 的四张候选图`}
-                                title="原文要求优先，生成四张同风格候选图"
+                                title={
+                                  imageProviderStatus?.ready
+                                    ? "原文要求优先，生成四张同风格候选图"
+                                    : imageProviderStatus?.reason ??
+                                      "正在确认图片供应商状态"
+                                }
                               >
                                 {generatingImageShotNos.includes(shot.shotNo) ||
                                 continuityCheckingByShot[shot.shotNo] ===
@@ -3687,6 +3826,7 @@ export function StoryboardReviewBoard({
                               <button
                                 type="button"
                                 disabled={
+                                  Boolean(matrixVideoBlockReason) ||
                                   !canStartRenderForShot(shot.shotNo)
                                 }
                                 onPointerDown={event => event.stopPropagation()}
@@ -3696,7 +3836,10 @@ export function StoryboardReviewBoard({
                                 }}
                                 className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
                                 aria-label={`按视频要求渲染 ${shotLabel} 视频`}
-                                title="先保存本镜文字并确认人民币费用，再生成候选 Take"
+                                title={
+                                  matrixVideoBlockReason ??
+                                  "先保存本镜文字并确认人民币费用，再生成候选 Take"
+                                }
                               >
                                 {continuityCheckingByShot[shot.shotNo] ===
                                 "video" ? (

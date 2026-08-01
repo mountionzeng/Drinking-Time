@@ -54,6 +54,7 @@ import {
 } from "../services/directorAdvice";
 import {
   editImage as editMobileImage,
+  getImageProviderStatus,
   inpaintImage,
   storeImageBytes,
 } from "../services/imageGen";
@@ -250,6 +251,10 @@ function resolveStoryShotTarget(
 }
 
 export const creationAgentRouter = router({
+  imageProviderStatus: protectedProcedure.query(() =>
+    getImageProviderStatus()
+  ),
+
   shotVideoProviderStatus: protectedProcedure.query(() =>
     getShotVideoProviderStatus()
   ),

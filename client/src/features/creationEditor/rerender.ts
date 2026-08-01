@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import { compilePromptRecipe } from "./promptTable/promptRecipe";
 import type { PromptRow } from "./promptTable/types";
 import {
@@ -31,6 +31,8 @@ export type GenerateForMobileInput = {
   referenceImageUrl?: string;
   referenceIdentityImageUrl?: string;
   referenceContextImageUrls?: string[];
+  /** Transparent pixels identify the only region GPT-image may edit. */
+  editMaskImageUrl?: string;
 };
 
 export type GenerateForMobileResult = {
@@ -91,6 +93,7 @@ export function createGenerateForMobileInput(params: {
     estimatedCny: number;
   };
   imageProvider?: ImageProvider;
+  editMaskImageUrl?: string;
 }): GenerateForMobileInput {
   const basePrompt = buildRerenderPrompt({
     shot: params.shot,
@@ -112,6 +115,7 @@ export function createGenerateForMobileInput(params: {
     referenceContextImageUrls: params.reference?.contextImageUrls
       ?.map(safeReferenceUrl)
       .filter((url): url is string => Boolean(url)),
+    editMaskImageUrl: safeReferenceUrl(params.editMaskImageUrl),
   };
 }
 
@@ -126,6 +130,7 @@ export async function rerenderShotImage(params: {
     estimatedCny: number;
   };
   imageProvider?: ImageProvider;
+  editMaskImageUrl?: string;
   generate: (input: GenerateForMobileInput) => Promise<GenerateForMobileResult>;
 }): Promise<GenerateForMobileResult> {
   const input = createGenerateForMobileInput(params);

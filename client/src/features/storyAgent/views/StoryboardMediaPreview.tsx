@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
-import type { CreationEditorShot } from "@/features/creationEditor/CreationEditorContext";
+import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { timelineTransformStyle } from "@/features/creationEditor/imageClipEditorModel";
 import type { TimelineTransform } from "@shared/storyMaterial";
 import { videoTakeAffordance } from "@/features/creationEditor/videoAssetViewModel";

@@ -12,7 +12,7 @@ import {
   timelineSubtitleText,
   timelineVoiceLaneLabel,
 } from "./views/EditingNleWorkspace";
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
 
 describe("editing workspace project canvas", () => {

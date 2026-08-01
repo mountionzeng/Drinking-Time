@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import {
   advancePlayback,
   enteredShotNo,

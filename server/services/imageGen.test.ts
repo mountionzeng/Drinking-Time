@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import sharp from "sharp";
 import {
   editImage,
   generateDraftImage,
   generateImage,
+  getImageProviderStatus,
   inpaintImage,
   isCircuitOpen,
   resetCircuitBreaker,
@@ -44,6 +46,19 @@ function makeFetcher(
       text: () => Promise.resolve(resp.text ?? ""),
     });
   });
+}
+
+async function makeSolidPng(
+  red: number,
+  green: number,
+  blue: number,
+  alpha = 255
+): Promise<Buffer> {
+  return sharp(Buffer.from([red, green, blue, alpha]), {
+    raw: { width: 1, height: 1, channels: 4 },
+  })
+    .png()
+    .toBuffer();
 }
 
 describe("generateImage", () => {
@@ -177,7 +192,7 @@ describe("generateImage", () => {
     const result = await generateImage("d", { fetcher: freshFetcher });
 
     expect(result.status).toBe("error");
-    expect(result.message).toBe("circuit breaker open");
+    expect(result.message).toContain("暂时停用");
     expect(freshFetcher).not.toHaveBeenCalled();
   });
 
@@ -492,6 +507,23 @@ describe("generateImage", () => {
 
     expect(result.status).toBe("error");
     expect(result.message).toContain("timeout");
+    expect(isCircuitOpen()).toBe(true);
+    expect(getImageProviderStatus()).toMatchObject({
+      ready: false,
+      lastFailure: {
+        provider: "midjourney",
+        message: "302 Midjourney task timeout",
+      },
+    });
+
+    const blockedFetcher = vi.fn();
+    const blocked = await generateImage("another paid request", {
+      fetcher: blockedFetcher,
+      provider: "midjourney",
+    });
+    expect(blocked.status).toBe("error");
+    expect(blocked.message).toContain("暂时停用");
+    expect(blockedFetcher).not.toHaveBeenCalled();
   });
 });
 
@@ -602,6 +634,147 @@ describe("editImage", () => {
     expect(body.prompt).toContain("do not round, widen, square off");
     expect(body.prompt).toContain("decorative eye motifs");
     expect(body.prompt).toContain("跟随视频参考的画风重绘");
+  });
+
+  it("有透明遮罩时优先走 302 GPT-image edits，并把 mask 作为 multipart 上传", async () => {
+    const source = await makeSolidPng(255, 0, 0);
+    const generated = await makeSolidPng(0, 0, 255);
+    const mask = await makeSolidPng(0, 0, 0, 0);
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: { data: [{ b64_json: generated.toString("base64") }] },
+      },
+    ]);
+
+    const result = await editImage(
+      `data:image/png;base64,${source.toString("base64")}`,
+      "只把白色短裙延长为裙摆触地的白色及地长裙",
+      {
+        fetcher,
+        provider: "gpt-image",
+        referenceImageUrl: `data:image/png;base64,${source.toString("base64")}`,
+        editMaskImageUrl: `data:image/png;base64,${mask.toString("base64")}`,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    expect(form.get("model")).toBe("gpt-image-1.5");
+    expect(form.get("size")).toBe("1024x1024");
+    expect(form.get("quality")).toBe("high");
+    expect(form.get("image")).toBeTruthy();
+    expect(form.get("mask")).toBeTruthy();
+    expect(form.get("prompt")).toBe(
+      "只把白色短裙延长为裙摆触地的白色及地长裙"
+    );
+  });
+
+  it("遮罩编辑保存结果时强制保留遮罩外的原图像素", async () => {
+    const source = await sharp(
+      Buffer.from([
+        255, 0, 0, 255, // editable red pixel
+        0, 255, 0, 255, // protected green pixel
+      ]),
+      { raw: { width: 2, height: 1, channels: 4 } }
+    )
+      .png()
+      .toBuffer();
+    const generated = await sharp(
+      Buffer.from([
+        0, 0, 255, 255, // edited blue pixel
+        255, 255, 0, 255, // unwanted yellow change outside the mask
+      ]),
+      { raw: { width: 2, height: 1, channels: 4 } }
+    )
+      .png()
+      .toBuffer();
+    const mask = await sharp(
+      Buffer.from([
+        0, 0, 0, 0, // transparent = editable
+        0, 0, 0, 255, // opaque = protected
+      ]),
+      { raw: { width: 2, height: 1, channels: 4 } }
+    )
+      .png()
+      .toBuffer();
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: { data: [{ b64_json: generated.toString("base64") }] },
+      },
+    ]);
+    vi.mocked(storagePut).mockClear();
+
+    const result = await editImage(
+      `data:image/png;base64,${source.toString("base64")}`,
+      "只修改透明遮罩内的像素",
+      {
+        fetcher,
+        provider: "gpt-image",
+        editMaskImageUrl: `data:image/png;base64,${mask.toString("base64")}`,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    const storedBytes = vi.mocked(storagePut).mock.calls.at(-1)?.[1];
+    expect(storedBytes).toBeTruthy();
+    const pixels = await sharp(Buffer.from(storedBytes!))
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    expect([...pixels]).toEqual([
+      0, 0, 255, 255, // generated pixel inside the editable mask
+      0, 255, 0, 255, // original pixel outside the editable mask
+    ]);
+  });
+
+  it("遮罩编辑允许 GPT-image 响应超过通用 30 秒上限", async () => {
+    vi.useFakeTimers();
+    try {
+      const source = await makeSolidPng(255, 0, 0);
+      const generated = await makeSolidPng(0, 0, 255);
+      const mask = await makeSolidPng(0, 0, 0, 0);
+      const fetcher = vi.fn().mockImplementation(
+        () =>
+          new Promise(resolve => {
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: () =>
+                    Promise.resolve({
+                      data: [
+                        { b64_json: generated.toString("base64") },
+                      ],
+                    }),
+                  arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+                }),
+              31_000
+            );
+          })
+      );
+
+      const resultPromise = editImage(
+        `data:image/png;base64,${source.toString("base64")}`,
+        "只把白色短裙延长为裙摆触地的白色及地长裙",
+        {
+          fetcher,
+          provider: "gpt-image",
+          editMaskImageUrl: `data:image/png;base64,${mask.toString("base64")}`,
+        }
+      );
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      await expect(resultPromise).resolves.toMatchObject({ status: "ok" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("FLUX 参考图编辑先提取五官脸型再生成", async () => {

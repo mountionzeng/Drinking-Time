@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from '../CreationEditorContext';
+import type { CreationEditorShot } from '../types';
 import type { PromptOverride, PromptOverrides, PromptRow } from './types';
 import {
   displayShotCode,

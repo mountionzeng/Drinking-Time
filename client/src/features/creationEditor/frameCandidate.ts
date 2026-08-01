@@ -26,9 +26,16 @@ export function isFrameCandidateSheet(
 ): boolean {
   if (image.parentImageId != null) return false;
 
+  const legacyFinalMjSheet =
+    image.generationType === "generate" &&
+    image.prompt?.includes("Rerender only") &&
+    image.prompt.includes("Create exactly one single cinematic still frame");
   const generatedSheet =
-    image.generationType === "initial" || image.generationType === "inpaint";
+    image.generationType === "initial" ||
+    image.generationType === "inpaint" ||
+    legacyFinalMjSheet;
   if (!generatedSheet) return false;
+  if (legacyFinalMjSheet) return true;
 
   // The prompt run is authoritative. Storyboard-reference MJ renders are
   // persisted as inpaint even though the provider returns one four-up sheet.
@@ -39,7 +46,11 @@ export function isFrameCandidateSheet(
       "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH"
     )
   ) {
-    return false;
+    return (
+      image.prompt.includes("图片要求（最高优先级）") &&
+      !image.prompt.includes("本次对话修改（最高优先级") &&
+      !image.prompt.includes("单帧参考编辑保护")
+    );
   }
   return hasGeneratedCandidatePrompt(image);
 }

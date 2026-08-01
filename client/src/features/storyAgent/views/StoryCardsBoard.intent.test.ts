@@ -38,6 +38,8 @@ import {
   storyboardStartEndGenerationParams,
   storyboardStartEndFrameIssue,
   storyboardVideoIntentPatch,
+  storyboardVideoRenderBlockReason,
+  shouldUseSingleImageFallback,
   storyShotInsertIdentity,
 } from "./storyboardReviewModel";
 import {
@@ -49,6 +51,33 @@ import {
 const root = process.cwd();
 
 describe("StoryCardsBoard intent entry", () => {
+  it("switches future storyboard renders to one reference-edited frame after Midjourney failure", () => {
+    expect(
+      shouldUseSingleImageFallback({
+        ready: false,
+        reason: "timeout",
+        retryAt: "2026-07-30T14:35:29.000Z",
+        lastFailure: {
+          provider: "midjourney",
+          message: "timeout",
+          failedAt: "2026-07-30T14:25:29.000Z",
+        },
+      })
+    ).toBe(true);
+    expect(
+      shouldUseSingleImageFallback({
+        ready: true,
+        reason: null,
+        retryAt: null,
+        lastFailure: {
+          provider: "gpt-image",
+          message: "timeout",
+          failedAt: "2026-07-30T14:25:29.000Z",
+        },
+      })
+    ).toBe(false);
+  });
+
   it("makes video generation an explicit analyze, apply, then submit workflow", () => {
     expect(
       shotVideoWorkflowStep({
@@ -401,6 +430,56 @@ describe("StoryCardsBoard intent entry", () => {
     expect(references?.context).toEqual([]);
   });
 
+  it("does not reuse an assigned four-up sheet as the next paid render reference", () => {
+    const shots = [
+      {
+        shotNo: 1,
+        shotKey: "SH01",
+        imageId: 63,
+        imageUrl: "/story/01.webp",
+        imageVersions: [
+          {
+            id: 63,
+            imageUrl: "/story/01.webp",
+            status: "selected",
+            isCurrent: true,
+          },
+        ],
+      },
+      {
+        shotNo: 2,
+        shotKey: "SH02",
+        imageId: 1426,
+        imageUrl: "/generated/bad-grid.webp",
+        imageVersions: [
+          {
+            id: 1426,
+            imageUrl: "/generated/bad-grid.webp",
+            status: "selected",
+            isCurrent: true,
+            generationType: "inpaint",
+            prompt:
+              "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH\n图片要求（最高优先级）：夜市中景",
+          },
+        ],
+      },
+    ] as CreationEditorShot[];
+
+    expect(storyboardImageGenerationReferences(shots[1], shots)).toEqual({
+      primary: expect.objectContaining({
+        imageUrl: "/story/01.webp",
+        source: "previous-last",
+      }),
+      context: [],
+    });
+    expect(
+      storyboardVideoRenderBlockReason(
+        { ...shots[1], videoPrompt: "人物回头" },
+        { ready: true }
+      )
+    ).toBe("需要先选择当前主图");
+  });
+
   it("keeps current, previous-tail, and next-head story frames in generation context", () => {
     const shots = [
       {
@@ -439,6 +518,40 @@ describe("StoryCardsBoard intent entry", () => {
       "previous-last",
       "next-first",
     ]);
+  });
+
+  it("uses the next established character frame before an establishing previous shot when current is missing", () => {
+    const shots = [
+      {
+        shotNo: 1,
+        shotKey: "SH01",
+        imageId: 63,
+        imageUrl: "/story/establishing.webp",
+      },
+      {
+        shotNo: 2,
+        shotKey: "SH02",
+      },
+      {
+        shotNo: 3,
+        shotKey: "SH03",
+        imageId: 1428,
+        imageUrl: "/story/character.webp",
+      },
+    ] as CreationEditorShot[];
+
+    expect(storyboardImageGenerationReferences(shots[1], shots)).toEqual({
+      primary: expect.objectContaining({
+        imageUrl: "/story/character.webp",
+        source: "next-first",
+      }),
+      context: [
+        expect.objectContaining({
+          imageUrl: "/story/establishing.webp",
+          source: "previous-last",
+        }),
+      ],
+    });
   });
 
   it("uses persisted neighboring boundary sources even when legacy data omitted top-level frame ids", () => {
@@ -900,6 +1013,63 @@ describe("StoryCardsBoard intent entry", () => {
     expect(storyboardRenderIntentSummary(effective)).toContain(
       "视频要求：空间瞬间撑开，摄影机立刻后撤"
     );
+  });
+
+  it("blocks video submission before confirmation when required input is missing", () => {
+    expect(
+      storyboardVideoRenderBlockReason(
+        {
+          shotNo: 2,
+          imageId: null,
+          imageUrl: null,
+          videoPrompt: "",
+        } as unknown as CreationEditorShot,
+        { ready: true }
+      )
+    ).toBe("需要先选择当前主图");
+
+    expect(
+      storyboardVideoRenderBlockReason(
+        {
+          shotNo: 2,
+          imageId: 63,
+          imageUrl: "/api/images/63",
+          videoPrompt: "",
+        } as unknown as CreationEditorShot,
+        { ready: true }
+      )
+    ).toBe("请先填写视频要求");
+
+    expect(
+      storyboardVideoRenderBlockReason(
+        {
+          shotNo: 2,
+          imageId: null,
+          imageUrl: null,
+          imageVersions: [
+            {
+              id: 63,
+              imageUrl: "/api/images/63",
+              status: "selected",
+            },
+          ],
+          videoPrompt: "人物回头，镜头缓慢推进",
+        } as unknown as CreationEditorShot,
+        { ready: true }
+      )
+    ).toBeNull();
+
+    expect(
+      storyboardVideoRenderBlockReason(
+        {
+          shotNo: 2,
+          imageId: 63,
+          imageUrl: "/api/images/63",
+          videoPrompt: "人物回头，镜头缓慢推进",
+        } as unknown as CreationEditorShot,
+        { ready: false, reason: "302 当前无可用模型" }
+      )
+    ).toBe("302 当前无可用模型");
   });
 
   it("prefers the adopted playable video take for storyboard previews", () => {

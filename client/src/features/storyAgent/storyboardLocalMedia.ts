@@ -1,4 +1,4 @@
-import type { ImportedStoryMaterialResult } from "@/features/creationEditor/CreationEditorContext";
+import type { ImportedStoryMaterialResult } from "@/features/creationEditor/types";
 
 export const STORYBOARD_MEDIA_ACCEPT =
   "image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime";

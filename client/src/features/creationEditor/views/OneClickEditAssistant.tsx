@@ -38,7 +38,7 @@ import {
 import type {
   CreationEditorShot,
   VideoConformBatchResult,
-} from "../CreationEditorContext";
+} from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
   ONE_CLICK_TARGET_ASPECT_RATIOS,

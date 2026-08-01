@@ -1,7 +1,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 import AnimaticPlayer from "./AnimaticPlayer";
 

@@ -3,10 +3,8 @@ import { Database, Focus, LayoutGrid, ListFilter, Share2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import {
-  useCreationEditor,
-  type CreationEditorShot,
-} from "../CreationEditorContext";
+import { useCreationEditor } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
   latestFrameCandidateSheet,

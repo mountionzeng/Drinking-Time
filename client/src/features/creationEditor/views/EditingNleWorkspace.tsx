@@ -61,8 +61,8 @@ import {
   creationTimelineShotId,
   resolveTimelineShots,
   useCreationEditor,
-  type CreationEditorShot,
 } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,

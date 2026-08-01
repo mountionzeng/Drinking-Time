@@ -10,6 +10,18 @@ export type StoryboardImageCostEstimate = {
   candidateCount: typeof STORYBOARD_IMAGE_CANDIDATE_COUNT;
 };
 
+export type StoryboardMaskedEditCostEstimate = {
+  currency: "CNY";
+  estimatedCny: number;
+  candidateCount: 1;
+};
+
+export const STORYBOARD_MASKED_EDIT_PROFILE = {
+  model: "gpt-image-1.5",
+  size: "1024x1024",
+  quality: "high",
+} as const;
+
 export function estimateStoryboardImageCost(): StoryboardImageCostEstimate {
   return {
     currency: "CNY",
@@ -17,5 +29,28 @@ export function estimateStoryboardImageCost(): StoryboardImageCostEstimate {
       Math.ceil((MJ_TURBO_TASK_PTC * REFERENCE_CNY * 100) / REFERENCE_PTC) /
       100,
     candidateCount: STORYBOARD_IMAGE_CANDIDATE_COUNT,
+  };
+}
+
+/**
+ * 302 GPT-image 1.5 masked edit, 1024²/high.
+ * The quote follows 302's documented sample token usage and the existing
+ * PTC→CNY conversion used by storyboard image estimates. Actual billing is
+ * token based, so the confirmation UI presents this as an estimate.
+ */
+export function estimateStoryboardMaskedEditCost(): StoryboardMaskedEditCostEstimate {
+  const inputImageTokens = 10_917;
+  const outputImageTokens = 4_160;
+  const inputPtcPerMillionTokens = 8;
+  const outputPtcPerMillionTokens = 32;
+  const ptcToCny = REFERENCE_CNY / REFERENCE_PTC;
+  const estimatedPtc =
+    (inputImageTokens * inputPtcPerMillionTokens +
+      outputImageTokens * outputPtcPerMillionTokens) /
+    1_000_000;
+  return {
+    currency: "CNY",
+    estimatedCny: Math.ceil(estimatedPtc * ptcToCny * 100) / 100,
+    candidateCount: 1,
   };
 }

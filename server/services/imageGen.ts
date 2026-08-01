@@ -10,6 +10,21 @@ import {
   singleFrameNegativeTermsForPrompt,
   withSingleFramePromptConstraint,
 } from "@shared/singleFramePrompt";
+import { STORYBOARD_MASKED_EDIT_PROFILE } from "@shared/imageRenderCost";
+import { compositeMaskedEditPixels } from "./imageMaskComposite";
+import {
+  circuitBreakerMessage,
+  isCircuitOpen,
+  recordFailure,
+  recordProviderFailure,
+  recordSuccess,
+} from "./imageProviderHealth";
+
+export {
+  getImageProviderStatus,
+  isCircuitOpen,
+  resetCircuitBreaker,
+} from "./imageProviderHealth";
 
 // ── 类型 ──
 
@@ -77,6 +92,8 @@ export interface ImageGenOptions {
   referenceContextImageUrls?: string[];
   /** 主参考绝对锁定：相邻帧只供导演分析，不作为 MJ 等权垫图，避免人物、服装和主色被稀释 */
   primaryReferenceLock?: boolean;
+  /** GPT-image transparent mask; alpha=0 is the only editable region. */
+  editMaskImageUrl?: string;
 }
 
 // ── 常量 ──
@@ -85,8 +102,7 @@ const GENERATE_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1-ultra";
 const INPAINT_URL = "https://queue.fal.run/fal-ai/flux-pro/v1/fill";
 const FORGE_IMAGE_PATH = "images.v1.ImageService/GenerateImage";
 const TIMEOUT_MS = 30_000;
-const CIRCUIT_BREAKER_THRESHOLD = 3;
-const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000;
+const GPT_MASKED_EDIT_TIMEOUT_MS = 120_000;
 const MIDJOURNEY_ANATOMY_NEGATIVE_TERMS = [
   "deformed hands",
   "extra fingers",
@@ -96,42 +112,6 @@ const MIDJOURNEY_ANATOMY_NEGATIVE_TERMS = [
   "extra limbs",
   "bad anatomy",
 ];
-
-// ── 熔断状态 ──
-
-let consecutiveFailures = 0;
-let circuitBreakerOpenUntil: number | null = null;
-
-export function isCircuitOpen(): boolean {
-  if (circuitBreakerOpenUntil === null) return false;
-  if (Date.now() >= circuitBreakerOpenUntil) {
-    circuitBreakerOpenUntil = null;
-    consecutiveFailures = 0;
-    return false;
-  }
-  return true;
-}
-
-function recordSuccess(): void {
-  consecutiveFailures = 0;
-  circuitBreakerOpenUntil = null;
-}
-
-function recordFailure(): void {
-  consecutiveFailures += 1;
-  if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-    circuitBreakerOpenUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
-    console.warn(
-      `[imageGen] Circuit breaker opened after ${consecutiveFailures} consecutive failures`
-    );
-  }
-}
-
-/** 重置熔断器，仅供测试使用。 */
-export function resetCircuitBreaker(): void {
-  consecutiveFailures = 0;
-  circuitBreakerOpenUntil = null;
-}
 
 // ── 工具函数 ──
 
@@ -707,6 +687,23 @@ async function storeImageFromOpenAIJson(
   return { status: "error", message: emptyMessage };
 }
 
+async function readImageBytesFromOpenAIJson(
+  json: unknown,
+  fetcher: Fetcher
+): Promise<Uint8Array | null> {
+  const payload = json as {
+    data?: Array<{ b64_json?: string; url?: string }>;
+  };
+  const image = payload.data?.[0];
+  if (image?.b64_json) {
+    return new Uint8Array(Buffer.from(image.b64_json, "base64"));
+  }
+  if (image?.url) {
+    return (await readImageInput(image.url, fetcher)).bytes;
+  }
+  return null;
+}
+
 /**
  * 秒级草稿图（双轨出图的「快轨」）：302 的 flux-schnell 专用端点，5-10 秒出一张。
  *
@@ -777,7 +774,7 @@ export async function generateImage(
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
   if (isCircuitOpen()) {
-    return { status: "error", message: "circuit breaker open" };
+    return { status: "error", message: circuitBreakerMessage() };
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
@@ -924,10 +921,11 @@ async function generate302GptImage(
     );
 
     if (!response.ok) {
-      recordFailure();
+      const message = `302 GPT-image 暂时不可用（HTTP ${response.status}）。`;
+      recordProviderFailure("gpt-image", message);
       return {
         status: "error",
-        message: `302 GPT-image 暂时不可用（HTTP ${response.status}）。`,
+        message,
       };
     }
 
@@ -945,10 +943,11 @@ async function generate302GptImage(
     recordSuccess();
     return stored;
   } catch (error) {
-    recordFailure();
+    const message = `302 GPT-image 生成失败：${readableError(error, "未知错误")}`;
+    recordProviderFailure("gpt-image", message);
     return {
       status: "error",
-      message: `302 GPT-image 生成失败：${readableError(error, "未知错误")}`,
+      message,
     };
   }
 }
@@ -1005,10 +1004,11 @@ async function generate302FluxKontext(
     );
 
     if (!response.ok) {
-      recordFailure();
+      const message = `FLUX Kontext 暂时不可用（HTTP ${response.status}）。`;
+      recordProviderFailure("gpt-image", message);
       return {
         status: "error",
-        message: `FLUX Kontext 暂时不可用（HTTP ${response.status}）。`,
+        message,
       };
     }
 
@@ -1026,10 +1026,11 @@ async function generate302FluxKontext(
     recordSuccess();
     return stored;
   } catch (error) {
-    recordFailure();
+    const message = `FLUX Kontext 生成失败：${readableError(error, "未知错误")}`;
+    recordProviderFailure("gpt-image", message);
     return {
       status: "error",
-      message: `FLUX Kontext 生成失败：${readableError(error, "未知错误")}`,
+      message,
     };
   }
 }
@@ -1042,6 +1043,9 @@ async function generate302GptImageEdit(
 ): Promise<ImageGenResult> {
   try {
     const source = await readImageInput(imageUrl, fetcher);
+    const mask = options.editMaskImageUrl
+      ? await readImageInput(options.editMaskImageUrl, fetcher)
+      : null;
     const endpoint = new URL(
       "/v1/images/edits",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
@@ -1050,17 +1054,37 @@ async function generate302GptImageEdit(
     endpoint.searchParams.set("async", "false");
 
     const form = new FormData();
-    form.append("model", ENV.image302GptModel);
+    form.append(
+      "model",
+      mask ? STORYBOARD_MASKED_EDIT_PROFILE.model : ENV.image302GptModel
+    );
     form.append("prompt", prompt);
-    form.append("size", gptImageSizeFor(options.aspectRatio));
+    form.append(
+      "size",
+      mask
+        ? STORYBOARD_MASKED_EDIT_PROFILE.size
+        : gptImageSizeFor(options.aspectRatio)
+    );
     form.append("n", "1");
-    form.append("quality", gptQualityFor(options.fidelity));
+    form.append(
+      "quality",
+      mask
+        ? STORYBOARD_MASKED_EDIT_PROFILE.quality
+        : gptQualityFor(options.fidelity)
+    );
     form.append("output_format", "png");
     form.append(
       "image",
       new Blob([source.bytes as any], { type: source.mimeType }),
       source.filename
     );
+    if (mask) {
+      form.append(
+        "mask",
+        new Blob([mask.bytes as any], { type: "image/png" }),
+        "mask.png"
+      );
+    }
 
     const response = await withTimeout(
       fetcher(endpoint.toString(), {
@@ -1068,22 +1092,43 @@ async function generate302GptImageEdit(
         headers: build302MultipartHeaders(),
         body: form,
       }),
-      TIMEOUT_MS
+      mask ? GPT_MASKED_EDIT_TIMEOUT_MS : TIMEOUT_MS
     );
 
     if (!response.ok) {
-      recordFailure();
+      const message = `302 图生图暂时不可用（HTTP ${response.status}）。`;
+      recordProviderFailure("gpt-image", message);
       return {
         status: "error",
-        message: `302 图生图暂时不可用（HTTP ${response.status}）。`,
+        message,
       };
     }
 
-    const stored = await storeImageFromOpenAIJson(
-      await response.json(),
-      fetcher,
-      "302 图生图没有返回图片。"
-    );
+    const responseJson = await response.json();
+    const stored = mask
+      ? await (async () => {
+          const generatedBytes = await readImageBytesFromOpenAIJson(
+            responseJson,
+            fetcher
+          );
+          if (!generatedBytes) {
+            return {
+              status: "error",
+              message: "302 图生图没有返回图片。",
+            } satisfies ImageGenResult;
+          }
+          const composited = await compositeMaskedEditPixels(
+            source.bytes,
+            generatedBytes,
+            mask.bytes
+          );
+          return storeImageBytes(composited, "image/png");
+        })()
+      : await storeImageFromOpenAIJson(
+          responseJson,
+          fetcher,
+          "302 图生图没有返回图片。"
+        );
     if (stored.status !== "ok") {
       recordFailure();
       return stored;
@@ -1092,10 +1137,11 @@ async function generate302GptImageEdit(
     recordSuccess();
     return stored;
   } catch (error) {
-    recordFailure();
+    const message = `302 图生图失败：${readableError(error, "未知错误")}`;
+    recordProviderFailure("gpt-image", message);
     return {
       status: "error",
-      message: `302 图生图失败：${readableError(error, "未知错误")}`,
+      message,
     };
   }
 }
@@ -1175,13 +1221,26 @@ export async function editImage(
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
   if (isCircuitOpen()) {
-    return { status: "error", message: "circuit breaker open" };
+    return { status: "error", message: circuitBreakerMessage() };
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
   const provider = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
   );
+
+  // Masked local edits must use the 302 GPT-image edits endpoint. Do not route
+  // through FLUX Kontext and never fall back to an unmasked full-frame redraw.
+  if (options.editMaskImageUrl) {
+    if (!ENV.api302Key) {
+      return {
+        status: "error",
+        message: "遮罩局部重绘需要 302 GPT-image，当前未配置 302 API Key。",
+      };
+    }
+    console.log("[imageGen] using gpt-image masked edit");
+    return generate302GptImageEdit(imageUrl, prompt, options, fetcher);
+  }
 
   // When the user explicitly picks a reference shot/video, that reference is the
   // stronger instruction than the current main image. Otherwise rerendering a
@@ -1368,10 +1427,12 @@ async function generate302MidjourneyImage(
     const accepted = submitJson.code === 1 || submitJson.code === 22;
     const taskId = submitJson.result ? String(submitJson.result) : "";
     if (!accepted || !taskId) {
-      recordFailure();
+      const message =
+        submitJson.description || "302 Midjourney submit failed";
+      recordProviderFailure("midjourney", message);
       return {
         status: "error",
-        message: submitJson.description || "302 Midjourney submit failed",
+        message,
       };
     }
 
@@ -1427,18 +1488,20 @@ async function generate302MidjourneyImage(
       }
 
       if (status === "FAILURE") {
-        recordFailure();
+        const message =
+          taskJson.failReason || "302 Midjourney task failed";
+        recordProviderFailure("midjourney", message);
         return {
           status: "error",
-          message: taskJson.failReason || "302 Midjourney task failed",
+          message,
         };
       }
     }
 
-    recordFailure();
-    return { status: "error", message: "302 Midjourney task timeout" };
+    const message = "302 Midjourney task timeout";
+    recordProviderFailure("midjourney", message);
+    return { status: "error", message };
   } catch (error) {
-    recordFailure();
     // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
     console.warn(
       "[302 MJ] 出图请求异常:",
@@ -1451,6 +1514,7 @@ async function generate302MidjourneyImage(
       error instanceof Error
         ? error.message
         : "302 Midjourney generation failed";
+    recordProviderFailure("midjourney", message);
     return { status: "error", message };
   }
 }
@@ -1473,7 +1537,7 @@ export async function inpaintImage(
   }
 
   if (isCircuitOpen()) {
-    return { status: "error", message: "circuit breaker open" };
+    return { status: "error", message: circuitBreakerMessage() };
   }
 
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;

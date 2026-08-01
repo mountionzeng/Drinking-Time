@@ -32,10 +32,8 @@ import {
   Link2,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  useOptionalCreationEditor,
-  type StoryImageMaterialAdvice,
-} from "@/features/creationEditor/CreationEditorContext";
+import { useOptionalCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import type { StoryImageMaterialAdvice } from "@/features/creationEditor/types";
 import {
   useStoryAgentActions,
   type StoryboardImageRerenderResult,

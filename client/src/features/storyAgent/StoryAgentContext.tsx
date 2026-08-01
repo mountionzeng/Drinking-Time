@@ -67,6 +67,7 @@ import {
   normalizeStoryArtDirection,
   type StoryArtDirection,
 } from "@shared/artDirection";
+import type { StoryShotEditableField } from "@shared/shotDirector";
 import { buildStoryArtReferences } from "./storyArtReferences";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
 import {
@@ -303,53 +304,7 @@ export function canPersistStoryToActiveScope(
   return activeStoryId === persistedStoryId;
 }
 
-export type StoryShotEditableField =
-  | "cueCode"
-  | "actNo"
-  | "subject"
-  | "action"
-  | "performance"
-  | "environmentMotion"
-  | "dialogue"
-  | "emotion"
-  | "intent"
-  | "rationale"
-  | "beat"
-  | "shotType"
-  | "cameraAngle"
-  | "cameraMove"
-  | "cameraHeight"
-  | "lens"
-  | "cameraPath"
-  | "subjectPath"
-  | "location"
-  | "timeLight"
-  | "lighting"
-  | "colorPalette"
-  | "materialTexture"
-  | "mood"
-  | "sound"
-  | "soundBridge"
-  | "styleRef"
-  | "note"
-  | "videoStart"
-  | "videoEnd"
-  | "transitionIn"
-  | "transitionOut"
-  | "transitionIntent"
-  | "videoPrompt"
-  | "emotionCharge"
-  | "emotionDelta"
-  | "visualAnchorText"
-  | "promptDraft"
-  | "negativePrompt"
-  | "characterReference"
-  | "wardrobeReference"
-  | "hairReference"
-  | "sceneReference"
-  | "textureReference"
-  | "generationModel"
-  | "generationParams";
+export type { StoryShotEditableField } from "@shared/shotDirector";
 
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";

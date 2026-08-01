@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import type { FrameCandidateSource } from "../frameCandidate";
 import { displayShotCode } from "@shared/shotIdentity";
 import {

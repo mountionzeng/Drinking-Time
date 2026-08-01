@@ -7,7 +7,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import {
   MAX_SHOT_DURATION_MS,
   MIN_SHOT_DURATION_MS,

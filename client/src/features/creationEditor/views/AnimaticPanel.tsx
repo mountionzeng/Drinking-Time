@@ -4,8 +4,8 @@ import {
   creationTimelineShotId,
   resolveTimelineShots,
   useCreationEditor,
-  type CreationEditorShot,
 } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import AnimaticPlayer from "./AnimaticPlayer";
 import Timeline, { type TimelinePlaybackMode } from "./Timeline";
 import AnimaticMaterialDrawer from "./AnimaticMaterialDrawer";

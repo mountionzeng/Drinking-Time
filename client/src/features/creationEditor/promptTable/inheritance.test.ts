@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CreationEditorShot } from '../CreationEditorContext';
+import type { CreationEditorShot } from '../types';
 import { buildPromptTable } from './buildPromptTable';
 
 function shot(

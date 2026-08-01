@@ -14,7 +14,6 @@ import type {
   StoryCard,
   StoryShot,
 } from "@/features/storyAgent/types";
-import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
@@ -59,7 +58,10 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
-import type { ImageProvider } from "@shared/imageProvider";
+import type {
+  ImageProvider,
+  ImageProviderStatus,
+} from "@shared/imageProvider";
 import type {
   VideoCropPath,
   VideoConformMode,
@@ -70,7 +72,11 @@ import {
   type ChatCutTimelineManifest,
 } from "./chatCutTimeline";
 import type { ShotConsistencyAnalysis } from "@shared/shotConsistency";
-import type { ShotDirectorResult, ShotVideoMotion } from "@shared/shotDirector";
+import type {
+  ShotDirectorResult,
+  ShotVideoMotion,
+  StoryShotEditableField,
+} from "@shared/shotDirector";
 import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
@@ -82,110 +88,27 @@ import {
   addShotToRenderSlots,
   removeShotFromRenderSlots,
 } from "./renderSlots";
+import type {
+  CreationEditorError,
+  CreationEditorImage,
+  CreationEditorShot,
+  CreationEditorStory,
+  ImportedStoryMaterialResult,
+  StoryImageAdviceResult,
+  StoryImageMaterialAdvice,
+  VideoConformBatchResult,
+} from "./types";
 
-export type CreationEditorStory = {
-  id: number;
-  title: string;
-  logline?: string | null;
-};
-
-export type CreationEditorImage = {
-  id: number;
-  shotNo: number | null;
-  shotIdentity?: string | null;
-  imageUrl: string;
-  prompt?: string | null;
-  status?: "selected" | "pending" | "rejected";
-  isCurrent?: boolean;
-  isPrimary?: boolean;
-  generationType?: "generate" | "initial" | "inpaint";
-  selectionSource?: "explicit" | "legacy" | "none";
-};
-
-export type CreationEditorShot = StoryShot & {
-  shotKey: string;
-  imageId?: number;
-  imageUrl?: string;
-  imagePrompt?: string | null;
-  imageSelectionSource?: CreationEditorImage["selectionSource"];
-  imageIsPrimary?: boolean;
-  imageVersions?: CreationEditorImage[];
-  videoTakes?: VideoTakeAsset[];
-  selectedVideoTake?: VideoTakeAsset;
-  timelineItem?: StoryTimelineItem | null;
-  durationMs?: number;
-  narrativeJob?: NarrativeJob;
-  promptOverrides?: PromptOverrides;
-  promptRun?: PromptRunRecord;
-  downstreamStale?: boolean;
-};
-
-export type CreationEditorError = {
-  message: string;
-};
-
-export type ImportedStoryMaterialResult =
-  | {
-      kind: "image";
-      imageId: number;
-      imageUrl: string;
-    }
-  | {
-      kind: "video";
-      takeId: number;
-      videoUrl: string;
-      stableShotId: string;
-      plannedDurationSec: number;
-    };
-
-export type StoryImageMaterialAdvice = {
-  imageId: number;
-  imageUrl: string;
-  verdict: "use" | "maybe" | "skip";
-  reason: string;
-  targetShotNo: number | null;
-  targetStableShotId: string | null;
-  videoDirection: {
-    videoPrompt: string;
-    cameraMove: string;
-    durationSec: number;
-    motion: "low" | "high";
-    emotionalTone: string;
-  } | null;
-  note?: string;
-};
-
-export type StoryImageAdviceResult =
-  | {
-      status: "ok";
-      advices: StoryImageMaterialAdvice[];
-      modelLabel: string;
-    }
-  | { status: "not_configured" | "error"; message: string };
-
-export type VideoConformBatchResult = {
-  status: "ok" | "partial" | "error";
-  acceptedCount: number;
-  completedCount: number;
-  availableCount: number;
-  processingCount: number;
-  failedCount: number;
-  results: Array<
-    | {
-        status: "ok";
-        sourceTakeId: number;
-        stableShotId: string;
-        takeId: number;
-        videoStatus: VideoTakeStatus;
-      }
-    | {
-        status: "error";
-        sourceTakeId: number;
-        stableShotId: string;
-        error: string;
-      }
-  >;
-};
+export type {
+  CreationEditorError,
+  CreationEditorImage,
+  CreationEditorShot,
+  CreationEditorStory,
+  ImportedStoryMaterialResult,
+  StoryImageAdviceResult,
+  StoryImageMaterialAdvice,
+  VideoConformBatchResult,
+} from "./types";
 
 type CreationEditorContextValue = {
   stories: CreationEditorStory[];
@@ -254,6 +177,7 @@ type CreationEditorContextValue = {
         estimatedCny: number;
       };
       imageProvider?: ImageProvider;
+      editMaskImageUrl?: string;
     }
   ) => Promise<{
     generatedCount: number;
@@ -468,6 +392,7 @@ type CreationEditorContextValue = {
   ) => Promise<number>;
   undoStoryOperation: (operationId: number) => Promise<void>;
   shotVideoProviderStatus: ShotVideoProviderStatus | null;
+  imageProviderStatus: ImageProviderStatus | null;
   refetch: () => void;
 };
 
@@ -1389,6 +1314,11 @@ export function CreationEditorProvider({
     trpc.creationAgent.shotVideoProviderStatus.useQuery(undefined, {
       refetchOnWindowFocus: false,
     });
+  const imageProviderStatusQuery =
+    trpc.creationAgent.imageProviderStatus.useQuery(undefined, {
+      refetchInterval: 10_000,
+      refetchOnWindowFocus: true,
+    });
 
   useEffect(() => {
     if (isControlled || localActiveStoryId != null) return;
@@ -1922,6 +1852,7 @@ export function CreationEditorProvider({
         estimatedCny: number;
       };
       imageProvider?: ImageProvider;
+      editMaskImageUrl?: string;
     }
   ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法重渲");
@@ -1961,6 +1892,7 @@ export function CreationEditorProvider({
               explicitInstruction: options?.explicitInstruction,
               costConfirmation: options?.costConfirmation,
               imageProvider: options?.imageProvider,
+              editMaskImageUrl: options?.editMaskImageUrl,
               generate: input => generateForMobileMut.mutateAsync(input),
             }),
           ],
@@ -2029,6 +1961,7 @@ export function CreationEditorProvider({
     } catch (error) {
       const message = error instanceof Error ? error.message : "图片生成失败";
       setRerenderError(message);
+      await imageProviderStatusQuery.refetch();
       throw error;
     } finally {
       setRerenderingShotNos(current =>
@@ -3059,6 +2992,7 @@ export function CreationEditorProvider({
     storyMaterialQuery.error ??
     promptLineageQuery.error ??
     shotVideoProviderStatusQuery.error ??
+    imageProviderStatusQuery.error ??
     null;
   const error = rawError ? { message: rawError.message } : null;
 
@@ -3093,7 +3027,8 @@ export function CreationEditorProvider({
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
         promptLineageQuery.isLoading ||
-        shotVideoProviderStatusQuery.isLoading,
+        shotVideoProviderStatusQuery.isLoading ||
+        imageProviderStatusQuery.isLoading,
       error,
       isSaving: storyUpsertMut.isPending,
       rerenderingShotNos,
@@ -3142,6 +3077,7 @@ export function CreationEditorProvider({
       confirmDerivedShot: confirmDerivedShotFromDraft,
       undoStoryOperation,
       shotVideoProviderStatus: shotVideoProviderStatusQuery.data ?? null,
+      imageProviderStatus: imageProviderStatusQuery.data ?? null,
       refetch: () => {
         void storyListQuery.refetch();
         void storyQuery.refetch();
@@ -3150,6 +3086,7 @@ export function CreationEditorProvider({
         void storyMaterialQuery.refetch();
         void promptLineageQuery.refetch();
         void shotVideoProviderStatusQuery.refetch();
+        void imageProviderStatusQuery.refetch();
       },
     }),
     [
@@ -3188,6 +3125,7 @@ export function CreationEditorProvider({
       storyMaterialQuery,
       promptLineageQuery,
       shotVideoProviderStatusQuery,
+      imageProviderStatusQuery,
       storyListQuery,
       storyQuery,
     ]
