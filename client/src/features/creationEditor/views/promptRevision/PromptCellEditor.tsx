@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { PromptOverride, PromptRow } from '../promptTable/types';
+import type { PromptOverride, PromptRow } from '../../promptTable/types';
 
 type PromptCellEditorProps = {
   row: PromptRow;

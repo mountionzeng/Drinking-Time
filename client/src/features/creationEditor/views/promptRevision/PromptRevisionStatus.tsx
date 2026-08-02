@@ -1,7 +1,7 @@
 import * as React from "react";
 import { CheckCircle2, History, Loader2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
-import type { PromptLineageRowView } from "../promptLineage/viewModel";
+import type { PromptLineageRowView } from "../../promptLineage/viewModel";
 
 type Props = {
   row: PromptLineageRowView | null;

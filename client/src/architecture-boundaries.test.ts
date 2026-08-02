@@ -99,19 +99,4 @@ describe("frontend architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps analysis display views free of direct tRPC imports", async () => {
-    const viewFiles = [
-      path.join(srcRoot, "features", "analysis", "views", "Timeline.tsx"),
-    ];
-    const violations: string[] = [];
-
-    for (const file of viewFiles) {
-      const content = await fs.readFile(file, "utf8");
-      if (/from\s+["']@\/lib\/trpc["']/.test(content)) {
-        violations.push(toRepoPath(file));
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
 });

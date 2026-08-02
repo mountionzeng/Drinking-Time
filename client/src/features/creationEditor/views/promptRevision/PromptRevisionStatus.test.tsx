@@ -2,7 +2,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { PromptRevision } from "@shared/promptLineage";
-import type { PromptLineageRowView } from "../promptLineage/viewModel";
+import type { PromptLineageRowView } from "../../promptLineage/viewModel";
 import PromptRevisionStatus from "./PromptRevisionStatus";
 
 describe("PromptRevisionStatus", () => {

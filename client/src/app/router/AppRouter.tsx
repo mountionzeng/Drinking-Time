@@ -1,5 +1,4 @@
 import { Route, Switch, Redirect } from 'wouter';
-import CreationPage from '@/pages/CreationPage';
 import EditingStudioPage from '@/pages/EditingStudioPage';
 import LoginPage from '@/pages/LoginPage';
 import WelcomePreviewPage from '@/pages/WelcomePreviewPage';
@@ -75,8 +74,11 @@ export default function AppRouter() {
       <Route path="/analysis">
         {prefersMobile ? <Redirect to="/m" /> : <Redirect to="/editing" />}
       </Route>
+      {/* /creation 的镜头表工作台已由 /editing 的故事板取代（一次四张候选 + 象限采用 +
+          局部重绘 + 视频 Take 是旧「收下/再来一张」单图循环的超集）。保留重定向，
+          让历史书签和直链仍能落到工作室，而不是 404。 */}
       <Route path="/creation">
-        {prefersMobile ? <Redirect to="/m" /> : <AuthGuard><CreationPage /></AuthGuard>}
+        {prefersMobile ? <Redirect to="/m" /> : <Redirect to="/editing" />}
       </Route>
       {/* 剪辑工作室：聊天驱动剪辑（小酌对话 + 预览播放器 + 时间轴） */}
       <Route path="/editing">
