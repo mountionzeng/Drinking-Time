@@ -81,6 +81,7 @@ import {
   resolveSelectionEditText,
   resolveSelectionPromptTarget,
 } from "./selectionPromptCandidate";
+import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
 import {
   buildPromptAttribution,
@@ -578,6 +579,13 @@ type StoryAgentChatResult = {
   read?: unknown;
   configured?: boolean;
   modelLabel?: string;
+  /** 阶段 C：小酌判断某镜头某维度出现了新信息时提议的候选（server 已按白名单+镜头存在性过滤）。 */
+  toolCalls?: Array<{
+    name: string;
+    shotNo?: number;
+    dimension?: string;
+    content?: string;
+  }>;
 };
 
 type StoryAgentClassifyResult =
@@ -1786,6 +1794,54 @@ export function StoryAgentProvider({
           toast.error("旧 Agent 接口还没配置模型 API");
         }
 
+        // ── 阶段 C：把小酌在这轮聊天里提议的 proposePromptRevision 落成候选 ──
+        // 非致命：整段包在 try/catch 里，任何一步失败都不影响这一轮对话本身，
+        // 跟下面 appendConversationTurnMut / detectVisualCorrection 是同一套原则。
+        // 只创建候选、不改正文（R8/R9）：用户需要在故事板确认后才会真正生效。
+        if (result.toolCalls?.length && activeStoryId != null) {
+          try {
+            const loadedForCandidate =
+              await utils.promptLineage.getStoryProjection.fetch({
+                storyId: activeStoryId,
+              });
+            if (loadedForCandidate.mode === "lineage") {
+              const plans = resolveUtteranceCandidatePlans({
+                toolCalls: result.toolCalls,
+                shots: storyShots,
+                aggregate: loadedForCandidate.projection,
+                messageId: userMsg.id,
+                excerpt: userMsg.content,
+              });
+              let expectedVersion = loadedForCandidate.projection.state.version;
+              for (const plan of plans) {
+                if (plan.supersedesRevisionId != null) {
+                  const rejected = await rejectPromptCandidateMut.mutateAsync({
+                    storyId: activeStoryId,
+                    candidateRevisionId: plan.supersedesRevisionId,
+                    expectedVersion,
+                  });
+                  expectedVersion = rejected.version;
+                }
+                const created = await promptCandidateMut.mutateAsync({
+                  storyId: activeStoryId,
+                  nodeId: plan.nodeId,
+                  targetStableShotId: plan.stableShotId,
+                  content: plan.content,
+                  reason: plan.reason,
+                  authorType: "agent",
+                  expectedVersion,
+                });
+                expectedVersion = created.version;
+              }
+            }
+          } catch (error) {
+            console.warn(
+              "[storyAgent] 阶段C 候选提议落库失败（不影响本轮对话）：",
+              error
+            );
+          }
+        }
+
         // ── 让卡片「继承」对话里发来的照片 ──
         // 只有「这一轮带了照片」且「真的生成了卡片」时，才把原图作为视觉锚挂到该卡片上。
         // 具体构造逻辑抽到了 ./inheritedPhoto（纯函数，便于单测）；返回 null 表示这一轮不挂图。
@@ -1887,6 +1943,11 @@ export function StoryAgentProvider({
       uploadPhotoMut,
       recognizeIntentFromHistory,
       editingCommandRunner,
+      utils.promptLineage.getStoryProjection,
+      // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
+      // 它们在组件里比 sendMessage 声明得晚，放进去会在渲染时触发 TDZ
+      // （同一处理法见上面「持久化避开 TDZ」的注释）。两者都来自
+      // useMutation()，跨渲染引用稳定，body 内直接引用即可，不影响正确性。
     ]
   );
 

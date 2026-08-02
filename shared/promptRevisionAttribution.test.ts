@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  UTTERANCE_ELIGIBLE_DIMENSIONS,
   buildPromptAttribution,
   decodeAttributionReason,
   describeAttribution,
   encodeAttributionReason,
+  mergeAttributionEvidence,
 } from "./promptRevisionAttribution";
+import { isKnownDimension } from "./promptDimensions";
 
 describe("buildPromptAttribution", () => {
   it("把维度归一到规范 id", () => {
@@ -125,5 +128,67 @@ describe("describeAttribution", () => {
 
   it("空证据数组时给出兜底文案而不是空字符串", () => {
     expect(describeAttribution({ dimension: "mood", evidence: [] })).toBe("无证据记录");
+  });
+});
+
+describe("UTTERANCE_ELIGIBLE_DIMENSIONS", () => {
+  it("全部是词表里已知的规范维度", () => {
+    for (const dimension of UTTERANCE_ELIGIBLE_DIMENSIONS) {
+      expect(isKnownDimension(dimension)).toBe(true);
+    }
+  });
+
+  it("不包含运镜/负面提示/美术配方这类不该被聊天随口改的维度", () => {
+    const excluded = ["camera_motion", "negative_prompt", "art_style_recipe", "shot_type"];
+    for (const dimension of excluded) {
+      expect(UTTERANCE_ELIGIBLE_DIMENSIONS).not.toContain(dimension);
+    }
+  });
+});
+
+describe("mergeAttributionEvidence", () => {
+  it("previous 为 null 时直接返回 next", () => {
+    const next = buildPromptAttribution({ dimension: "mood", kind: "utterance" });
+    expect(mergeAttributionEvidence(null, next)).toEqual(next);
+  });
+
+  it("维度相同时拼接证据，保留旧证据在前", () => {
+    const previous = buildPromptAttribution({
+      dimension: "mood",
+      kind: "utterance",
+      messageId: "msg-1",
+    });
+    const next = buildPromptAttribution({
+      dimension: "mood",
+      kind: "utterance",
+      messageId: "msg-2",
+    });
+    const merged = mergeAttributionEvidence(previous, next);
+    expect(merged.dimension).toBe("mood");
+    expect(merged.evidence.map(e => e.messageId)).toEqual(["msg-1", "msg-2"]);
+  });
+
+  it("维度不同时不强行合并，直接返回 next", () => {
+    const previous = buildPromptAttribution({ dimension: "mood", kind: "utterance" });
+    const next = buildPromptAttribution({ dimension: "subject", kind: "utterance" });
+    expect(mergeAttributionEvidence(previous, next)).toEqual(next);
+  });
+
+  it("证据数超过上限时只保留最近的条目", () => {
+    let attribution = buildPromptAttribution({
+      dimension: "mood",
+      kind: "utterance",
+      messageId: "msg-0",
+    });
+    for (let i = 1; i <= 10; i += 1) {
+      attribution = mergeAttributionEvidence(
+        attribution,
+        buildPromptAttribution({ dimension: "mood", kind: "utterance", messageId: `msg-${i}` }),
+      );
+    }
+    expect(attribution.evidence.length).toBe(8);
+    expect(attribution.evidence.map(e => e.messageId)).toEqual([
+      "msg-3", "msg-4", "msg-5", "msg-6", "msg-7", "msg-8", "msg-9", "msg-10",
+    ]);
   });
 });

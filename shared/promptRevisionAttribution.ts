@@ -28,6 +28,22 @@ import { canonicalDimension } from "./promptDimensions";
 
 const ATTRIBUTION_PREFIX = "prompt-attribution/v1:";
 
+/**
+ * 阶段 C（普通聊天消息触发候选）里，小酌被允许提议修改的维度——刻意收窄到
+ * 叙事内容类，不包含运镜/负面提示/美术配方这类需要专门界面操作的维度。
+ * 聊天里随口一句话就能改变镜头的机位角度，用户体验上会很奇怪；这些维度
+ * 仍然可以通过划词编辑（selection）或提示词数据库手改（manual）触达。
+ */
+export const UTTERANCE_ELIGIBLE_DIMENSIONS: readonly string[] = [
+  "subject",
+  "action",
+  "dialogue",
+  "location",
+  "mood",
+  "style_reference",
+  "time_light",
+];
+
 /** 证据来源类型；不同类型对应不同的产生路径。 */
 export type PromptAttributionKind =
   /** 阶段 C：普通聊天消息（没有划词/选中对象）触发的候选 */
@@ -103,6 +119,24 @@ export function buildPromptAttribution(input: {
       },
     ],
   };
+}
+
+/** 累积证据的上限——避免同一个候选被反复覆盖时证据数组无节制增长。 */
+const MAX_EVIDENCE_ITEMS = 8;
+
+/**
+ * 把新证据合并进已有归因（同一维度时），用于"同一维度的候选不重复开新的，
+ * 而是在已有候选上累积证据"。维度不同时说明目标变了，直接返回新归因，
+ * 不强行合并两件不相关的事。证据数超过上限时只保留最近的
+ * {@link MAX_EVIDENCE_ITEMS} 条——最新的证据最能说明"为什么现在还成立"。
+ */
+export function mergeAttributionEvidence(
+  previous: PromptRevisionAttribution | null,
+  next: PromptRevisionAttribution,
+): PromptRevisionAttribution {
+  if (!previous || previous.dimension !== next.dimension) return next;
+  const evidence = [...previous.evidence, ...next.evidence].slice(-MAX_EVIDENCE_ITEMS);
+  return { dimension: next.dimension, evidence };
 }
 
 /** 编码成可以存进 `promptRevisions.reason`（text 列）的字符串。 */

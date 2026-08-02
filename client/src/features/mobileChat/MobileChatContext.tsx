@@ -477,14 +477,21 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
         }
 
         // 处理 assistant 回复
+        // toolCalls 现在可能混入 proposePromptRevision（桌面故事聊天用的类型）——
+        // 手机端出图目前不会真的收到它（没传 currentShots，服务端也就不会提议），
+        // 但类型是共享的，这里显式按 name 找 generateImage，不再盲取第一条。
+        const imageToolCall = result.toolCalls?.find(
+          (tc): tc is Extract<(typeof result.toolCalls)[number], { name: "generateImage" }> =>
+            tc.name === "generateImage",
+        );
         const assistantMsg: MobileChatMessage = {
           id: newId("a"),
           role: "assistant",
           content: result.reply || "嗯。",
           timestamp: Date.now(),
           suggestImage: result.suggestImage,
-          imagePrompt: result.toolCalls?.[0]?.prompt,
-          imageShotNo: result.toolCalls?.[0]?.shotNo,
+          imagePrompt: imageToolCall?.prompt,
+          imageShotNo: imageToolCall?.shotNo,
         };
 
         const finalMsgs = [...newMsgs, assistantMsg];

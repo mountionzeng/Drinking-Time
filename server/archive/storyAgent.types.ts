@@ -89,7 +89,19 @@ export type GenerateImageToolCall = {
   shotNo?: number;      // 绑定到第几镜
 };
 
-export type ToolCall = GenerateImageToolCall;
+/**
+ * 小酌判断"这一轮用户的话给某个镜头的某个维度带来了新信息"时提议的修改。
+ * 只是提议——server 端不解析提示词谱系（没有故事的 lineage 聚合），落成候选
+ * 修订这一步在客户端做（跟已有 generateImage 一样，server 只负责判断+吐结构）。
+ */
+export type ProposePromptRevisionToolCall = {
+  name: "proposePromptRevision";
+  shotNo: number;        // 目标镜头（必须在 currentShots 里存在）
+  dimension: string;     // 维度（UTTERANCE_ELIGIBLE_DIMENSIONS 之一，宽松写法都行，客户端会归一）
+  content: string;       // 新内容
+};
+
+export type ToolCall = GenerateImageToolCall | ProposePromptRevisionToolCall;
 
 export type StoryAgentChatResult = {
   reply: string;

@@ -5,8 +5,10 @@ import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import { createImageSignal } from "../db";
 import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
-import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt } from "./storyAgent.prompts";
+import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt, buildShotDimensionDigest } from "./storyAgent.prompts";
 import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardContextPayload, StoryCardPayload, StoryChatIntentPayload, ToolCall } from "./storyAgent.types";
+import { canonicalDimension } from "@shared/promptDimensions";
+import { UTTERANCE_ELIGIBLE_DIMENSIONS } from "@shared/promptRevisionAttribution";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
   "defensive",
@@ -208,6 +210,12 @@ export async function replyFromStoryAgent(params: {
   // 给抽取单独更高的预算，让「推理 + 完整卡」都装得下；回话那步短，仍用 2048 即可。
   const EXTRACTION_MAX_TOKENS = 4096;
 
+  // 阶段 C：镜头维度速览，喂给抽取器判断「这一轮是否给某个维度带来了新信息」。
+  // 空故事（还没有镜头）时返回空串，buildCardExtractionPrompt 据此不生成
+  // proposePromptRevision 的工具说明——没有镜头就没有可以提议修改的目标。
+  const shotDimensionDigest = buildShotDimensionDigest(currentShots);
+  const hasProposeTool = Boolean(shotDimensionDigest);
+
   const extractionMessages: Message[] = [
     {
       role: "system",
@@ -217,6 +225,7 @@ export async function replyFromStoryAgent(params: {
         params.enableImageGen,
         Boolean(params.photoUrl),
         params.confirmedIntent,
+        shotDimensionDigest,
       ),
     },
     ...turns,
@@ -225,7 +234,7 @@ export async function replyFromStoryAgent(params: {
       role: "user",
       content:
         "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card" +
-        (params.enableImageGen ? ", toolCalls" : "") +
+        (params.enableImageGen || hasProposeTool ? ", toolCalls" : "") +
         " }。）",
     },
   ];
@@ -276,7 +285,13 @@ export async function replyFromStoryAgent(params: {
     const parsed = parseJsonLoose<{
       card?: Record<string, unknown> | null;
       read?: { trait?: unknown; note?: unknown } | null;
-      toolCalls?: Array<{ name?: string; prompt?: string; shotNo?: number }> | null;
+      toolCalls?: Array<{
+        name?: string;
+        prompt?: string;
+        shotNo?: number;
+        dimension?: string;
+        content?: string;
+      }> | null;
     }>(extractionText);
 
     // 校验 card 形状：只强制 content
@@ -325,15 +340,46 @@ export async function replyFromStoryAgent(params: {
       }
     }
 
-    // 解析 toolCalls（仅在手机端出图模式下有意义）
-    if (params.enableImageGen && Array.isArray(parsed.toolCalls)) {
-      for (const tc of parsed.toolCalls) {
-        if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
+    if (Array.isArray(parsed.toolCalls)) {
+      // generateImage：仅在手机端出图模式下有意义
+      if (params.enableImageGen) {
+        for (const tc of parsed.toolCalls) {
+          if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
+            toolCalls.push({
+              name: "generateImage",
+              prompt: tc.prompt.trim(),
+              shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+            });
+          }
+        }
+      }
+
+      // proposePromptRevision（阶段 C）：模型只是提议，这里做三层防御——
+      // shotNo 必须对应真实存在的镜头（防幻觉镜头号）、dimension 必须落在
+      // UTTERANCE_ELIGIBLE_DIMENSIONS 白名单内（防止绕开白名单去提议运镜/负面
+      // 提示词这类不该被聊天随口改的维度）、每轮最多 2 条（防止模型不听指挥、
+      // 一轮吐一长串导致候选洪水——落成真正的候选修订这一步在客户端做，这里
+      // 只是把「值得提议」的信号收窄到可信范围）。
+      if (hasProposeTool) {
+        const validShotNos = new Set(currentShots.map(shot => shot.shotNo));
+        let proposed = 0;
+        const MAX_PROPOSE_PER_TURN = 2;
+        for (const tc of parsed.toolCalls) {
+          if (proposed >= MAX_PROPOSE_PER_TURN) break;
+          if (tc.name !== "proposePromptRevision") continue;
+          if (typeof tc.shotNo !== "number" || !validShotNos.has(tc.shotNo)) continue;
+          const dimension =
+            typeof tc.dimension === "string" ? canonicalDimension(tc.dimension.trim()) : "";
+          if (!UTTERANCE_ELIGIBLE_DIMENSIONS.includes(dimension)) continue;
+          const content = typeof tc.content === "string" ? tc.content.trim().slice(0, 300) : "";
+          if (!content) continue;
           toolCalls.push({
-            name: "generateImage",
-            prompt: tc.prompt.trim(),
-            shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+            name: "proposePromptRevision",
+            shotNo: tc.shotNo,
+            dimension,
+            content,
           });
+          proposed += 1;
         }
       }
     }

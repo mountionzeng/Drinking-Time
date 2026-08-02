@@ -1,5 +1,9 @@
 export { asEmotionOptions } from "./storyAgent.parsing";
-export { FIRST_QUESTION } from "./storyAgent.prompts";
+export {
+  FIRST_QUESTION,
+  buildCardExtractionPrompt,
+  buildShotDimensionDigest,
+} from "./storyAgent.prompts";
 export { replyFromStoryAgent, deriveMobileImagePrompt } from "./storyReply";
 export { synthesizeShotList } from "./shotSynthesis";
 export { summarizeHistory } from "./summary";
@@ -10,6 +14,7 @@ export type {
   GenerateImageToolCall,
   HumanityRead,
   HumanityTrait,
+  ProposePromptRevisionToolCall,
   SimilarStoryCardPayload,
   StoryIntentAudience,
   StoryIntentPayload,

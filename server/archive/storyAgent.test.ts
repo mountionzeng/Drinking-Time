@@ -34,7 +34,14 @@ vi.mock('../_core/env', () => ({
 
 import { getRecentAnnotations } from '../services/editContext';
 import { invokeLLM } from '../_core/llm';
-import { replyFromStoryAgent, asEmotionOptions, synthesizeShotList } from './storyAgent';
+import {
+  replyFromStoryAgent,
+  asEmotionOptions,
+  synthesizeShotList,
+  buildCardExtractionPrompt,
+  buildShotDimensionDigest,
+} from './storyAgent';
+import type { ShotDraft } from './storyAgent';
 import type { SemanticAnnotation } from '../db';
 
 const mockGetRecentAnnotations = vi.mocked(getRecentAnnotations);
@@ -1395,5 +1402,265 @@ describe('synthesizeShotList 兜底韧性 (shots 缺失/坏 JSON → 兜底分�
     expect(fiction.shots[0].intent).toContain('虚构短片');
     expect(fiction.shots[0].rationale).not.toContain('招聘者');
     expect(fiction.shots[0].rationale).not.toContain('个人优势');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 阶段 C：普通聊天消息（不划词）触发 proposePromptRevision 候选提议
+// 复用「回话/出卡解耦」的两次调用模式：mock 的两次 invokeLLM 分别对应
+// 回话（纯文本）与后台抽取（严格 JSON，这次多了 toolCalls）。
+// ─────────────────────────────────────────────────────────────────────────────
+function makeShot(overrides: Partial<ShotDraft> & { shotNo: number }): ShotDraft {
+  return {
+    subject: '',
+    action: '',
+    dialogue: '',
+    shotType: '',
+    cameraAngle: '',
+    cameraMove: '',
+    location: '',
+    timeLight: '',
+    mood: '',
+    sound: '',
+    styleRef: '',
+    ...overrides,
+  };
+}
+
+describe('buildShotDimensionDigest', () => {
+  it('空镜头列表返回空串', () => {
+    expect(buildShotDimensionDigest([])).toBe('');
+  });
+
+  it('列出 UTTERANCE_ELIGIBLE_DIMENSIONS 涉及的字段，空字段显示为（空）', () => {
+    const digest = buildShotDimensionDigest([
+      makeShot({ shotNo: 3, cueCode: 'SH03', subject: '少年在阳台', mood: '平静' }),
+    ]);
+    expect(digest).toContain('第 3 镜（SH03）');
+    expect(digest).toContain('主体「少年在阳台」');
+    expect(digest).toContain('情绪「平静」');
+    expect(digest).toContain('字幕/旁白「（空）」');
+    expect(digest).toContain('风格参考「（空）」');
+  });
+
+  it('超过 20 镜时只列前 20 个并注明剩余数量', () => {
+    const shots = Array.from({ length: 25 }, (_, i) => makeShot({ shotNo: i + 1 }));
+    const digest = buildShotDimensionDigest(shots);
+    expect(digest).toContain('第 1 镜');
+    expect(digest).toContain('第 20 镜');
+    expect(digest).not.toContain('第 21 镜');
+    expect(digest).toContain('还有 5 镜未列出');
+  });
+});
+
+describe('buildCardExtractionPrompt · toolCalls 字段随 digest 出现', () => {
+  it('没有 digest 也没开手机出图时，返回结构不提 toolCalls', () => {
+    const prompt = buildCardExtractionPrompt(0, 1);
+    expect(prompt).not.toContain('"toolCalls"');
+    expect(prompt).not.toContain('proposePromptRevision');
+  });
+
+  it('传入非空 digest 时，返回结构包含 toolCalls 且带 proposePromptRevision 说明', () => {
+    const digest = buildShotDimensionDigest([makeShot({ shotNo: 1 })]);
+    const prompt = buildCardExtractionPrompt(0, 1, undefined, undefined, undefined, digest);
+    expect(prompt).toContain('"toolCalls"');
+    expect(prompt).toContain('proposePromptRevision');
+    expect(prompt).toContain('第 1 镜');
+  });
+});
+
+describe('storyAgent 阶段C · proposePromptRevision 提议候选', () => {
+  function makeRawResponse(rawContent: string) {
+    return {
+      id: 'mock',
+      created: 0,
+      model: 'mock',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant' as const, content: rawContent },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+  }
+
+  function makeExtractionResponse(payload: Record<string, unknown> = {}) {
+    return makeRawResponse(JSON.stringify({ card: null, read: null, ...payload }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvokeLLM.mockReset();
+  });
+
+  it('镜头某维度为空、用户这轮补上了具体内容 → 解析出一条候选提议', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好，我记下了：他在阳台上抽烟。'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 3, dimension: 'subject', content: '少年在阳台上抽烟' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '他在阳台上抽烟',
+      currentShots: [makeShot({ shotNo: 3, cueCode: 'SH03' })],
+    });
+
+    expect(result.toolCalls).toEqual([
+      { name: 'proposePromptRevision', shotNo: 3, dimension: 'subject', content: '少年在阳台上抽烟' },
+    ]);
+  });
+
+  it('dimension 用别名写法（camelCase）也能归一到规范 id', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 3, dimension: 'styleRef', content: '冷色调纪实感' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '风格想要冷色调纪实感',
+      currentShots: [makeShot({ shotNo: 3 })],
+    });
+
+    expect(result.toolCalls).toEqual([
+      { name: 'proposePromptRevision', shotNo: 3, dimension: 'style_reference', content: '冷色调纪实感' },
+    ]);
+  });
+
+  it('shotNo 不存在于 currentShots 时丢弃（防幻觉镜头号）', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 99, dimension: 'subject', content: '不存在的镜头' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '随便说说',
+      currentShots: [makeShot({ shotNo: 3 })],
+    });
+
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('dimension 不在白名单内时丢弃（防绕开白名单改运镜/负面提示）', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 3, dimension: 'negative_prompt', content: '不要出现文字' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '不要出现文字',
+      currentShots: [makeShot({ shotNo: 3 })],
+    });
+
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('content 为空字符串时丢弃', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [{ name: 'proposePromptRevision', shotNo: 3, dimension: 'subject', content: '   ' }],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '嗯',
+      currentShots: [makeShot({ shotNo: 3 })],
+    });
+
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('一轮最多保留 2 条，超出的丢弃', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 1, dimension: 'subject', content: 'A' },
+            { name: 'proposePromptRevision', shotNo: 2, dimension: 'action', content: 'B' },
+            { name: 'proposePromptRevision', shotNo: 3, dimension: 'mood', content: 'C' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '一次说三件事',
+      currentShots: [makeShot({ shotNo: 1 }), makeShot({ shotNo: 2 }), makeShot({ shotNo: 3 })],
+    });
+
+    expect(result.toolCalls.length).toBe(2);
+  });
+
+  it('没有 currentShots 时不生成 proposePromptRevision 说明，模型给了也不会解析出来', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'proposePromptRevision', shotNo: 1, dimension: 'subject', content: '幻觉出来的镜头' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({ message: '随便聊聊' });
+
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('只读请求不触发后台抽取，即使有 currentShots 也不会生成提议', async () => {
+    mockInvokeLLM.mockResolvedValueOnce(makeRawResponse('这是只读回答。'));
+
+    const result = await replyFromStoryAgent({
+      message: '先不要修改，只告诉我这一镜是什么',
+      currentShots: [makeShot({ shotNo: 3, subject: '' })],
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(1);
+    expect(result.toolCalls).toEqual([]);
+  });
+
+  it('generateImage 与 proposePromptRevision 可以同一轮共存', async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeRawResponse('好的，我画一张，也记下这个细节。'))
+      .mockResolvedValueOnce(
+        makeExtractionResponse({
+          toolCalls: [
+            { name: 'generateImage', prompt: 'a boy smoking on a balcony at dusk', shotNo: 3 },
+            { name: 'proposePromptRevision', shotNo: 3, dimension: 'subject', content: '少年在阳台上抽烟' },
+          ],
+        }),
+      );
+
+    const result = await replyFromStoryAgent({
+      message: '他在阳台上抽烟，帮我画一张',
+      currentShots: [makeShot({ shotNo: 3 })],
+      enableImageGen: true,
+    });
+
+    expect(result.toolCalls).toEqual([
+      { name: 'generateImage', prompt: 'a boy smoking on a balcony at dusk', shotNo: 3 },
+      { name: 'proposePromptRevision', shotNo: 3, dimension: 'subject', content: '少年在阳台上抽烟' },
+    ]);
   });
 });

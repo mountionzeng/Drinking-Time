@@ -5,6 +5,8 @@ import type {
   StoryCardContextPayload,
   StoryChatIntentPayload,
 } from "./storyAgent.types";
+import { UTTERANCE_ELIGIBLE_DIMENSIONS } from "@shared/promptRevisionAttribution";
+import { promptDimensionLabel } from "@shared/promptDimensions";
 
 export const FIRST_QUESTION =
   "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
@@ -58,6 +60,55 @@ function formatShotDraft(shots: ShotDraft[]): string {
     "- 用户明确要求修改时，简短复述你理解的目标；可执行通道会返回真实结果。没有收到执行结果前不要谎称已经改好。",
     "- 素材不足时，先用现有画面给出最小可行剪法，再指出只缺哪一个关键镜头或声音；一次不要抛一串问卷。",
   );
+  return lines.join("\n") + "\n";
+}
+
+// 阶段 C：把 UTTERANCE_ELIGIBLE_DIMENSIONS（规范维度 id）映射回 ShotDraft 的
+// 字段名——这张镜头草稿走的还是历史上的 camelCase 字段，不是提示词谱系节点。
+const UTTERANCE_DIMENSION_SHOT_FIELDS: Partial<Record<string, keyof ShotDraft>> = {
+  subject: "subject",
+  action: "action",
+  dialogue: "dialogue",
+  location: "location",
+  mood: "mood",
+  style_reference: "styleRef",
+  time_light: "timeLight",
+};
+
+// 镜头数量上限——超过这个数只列前面这些，避免故事镜头很多时把抽取步骤的
+// token 预算吃满（这一步本来就要给「推理 + 完整卡」留够余量，见下方注释）。
+const MAX_DIGEST_SHOTS = 20;
+
+/**
+ * 给后台抽取器看的镜头维度速览——只列 UTTERANCE_ELIGIBLE_DIMENSIONS 涉及的
+ * 几个字段，让模型能判断「这一轮的话是不是给某个还空着、或者跟现在不一样
+ * 的维度带来了新内容」，而不是盲猜。跟 formatShotDraft（给回话步骤看的完整
+ * 镜头表 + 对话规矩）刻意分开：抽取步骤 token 预算紧，不需要那些对话规矩。
+ */
+export function buildShotDimensionDigest(shots: ShotDraft[]): string {
+  if (!Array.isArray(shots) || shots.length === 0) return "";
+  const safe = (v: string | undefined) => (v && v.trim() ? v.trim() : "（空）");
+  const included = shots.slice(0, MAX_DIGEST_SHOTS);
+  const lines: string[] = [
+    "【当前镜头 · 判断这一轮是否带来了新信息】",
+    "只有当用户这句话，对下面某一镜头列出的某个维度提供了「目前是（空）」或者「跟现在写的不一样」的具体新内容时，才算带来新信息。",
+  ];
+  for (const shot of included) {
+    const fields = UTTERANCE_ELIGIBLE_DIMENSIONS.map(dimension => {
+      const key = UTTERANCE_DIMENSION_SHOT_FIELDS[dimension];
+      const label = promptDimensionLabel(dimension) ?? dimension;
+      const value = key ? (shot[key] as string | undefined) : undefined;
+      return `${label}「${safe(value)}」`;
+    }).join(" / ");
+    lines.push(
+      `第 ${shot.shotNo} 镜${shot.cueCode ? `（${shot.cueCode}）` : ""}：${fields}`,
+    );
+  }
+  if (shots.length > included.length) {
+    lines.push(
+      `（还有 ${shots.length - included.length} 镜未列出，只判断已列出的镜头。）`,
+    );
+  }
   return lines.join("\n") + "\n";
 }
 
@@ -603,9 +654,12 @@ export function buildCardExtractionPrompt(
   enableImageGen?: boolean,
   photoShared?: boolean,
   confirmedIntent?: StoryChatIntentPayload,
+  shotDimensionDigest?: string,
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
   const isFiction = confirmedIntent?.purpose === "fiction";
+  const digest = shotDimensionDigest?.trim();
+  const hasProposeTool = Boolean(digest);
   return [
     "你是 Drinking Time 的后台分析器。你不和任何人对话、不扮演任何人设——你只做一件事：",
     "读下面这段对话（重点是对方【最后一轮】说的话），把这一轮值得沉淀的信号抽成结构化数据。",
@@ -657,7 +711,9 @@ export function buildCardExtractionPrompt(
     "护栏 3（真实性）：绝不替用户补重大事实、创伤、疾病、死亡、暴力、背叛；用户没说就不能写成事实。",
     "",
     "【返回格式：严格 JSON 对象，不要附加任何额外文字、不要包 markdown 代码块、不要带注释】",
-    "顶层结构是 { \"read\": {…}, \"card\": {…}" + (enableImageGen ? ", \"toolCalls\": […]" : "") + " }。",
+    "顶层结构是 { \"read\": {…}, \"card\": {…}" +
+      (enableImageGen || hasProposeTool ? ", \"toolCalls\": […]" : "") +
+      " }。",
     "★默认就要给出【完整的 card 对象】（下面 16 个字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
     "",
     'read 对象：{ "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',
@@ -686,6 +742,15 @@ export function buildCardExtractionPrompt(
       "",
       "toolCalls：出现以下任一情况就加一条 generateImage：①对方【直接要求】出图（如「你生一张图」「画出来」「照我的照片画」）；②小酌在回应里真的提议了出图；③对方描述了一个足够具体、情绪到位的场景。都不满足才给空数组 []。",
       '每条形如 { "name": "generateImage", "prompt": "英文出图描述，含场景/光线/氛围/人物动作", "shotNo": 数字 }；prompt 用英文，shotNo 按故事时间线给编号。',
+    ] : []),
+    ...(hasProposeTool ? [
+      "",
+      digest!,
+      "toolCalls 还可以加 proposePromptRevision：只有当对方这一轮的话，对上面镜头列表里某个维度带来了具体的新内容时才加——要么那个维度目前是（空），要么对方明确要求把现有内容改成别的。",
+      "不要为以下情况加 proposePromptRevision：对方只是在闲聊、在问问题、在确认已有内容、或者说的内容跟已经写的没有实质差别。拿不准就不加，宁可漏掉也不要瞎猜。",
+      `dimension 必须原样使用下面这几个英文 id 之一：${UTTERANCE_ELIGIBLE_DIMENSIONS.join(" / ")}（对应上面镜头列表里的：${UTTERANCE_ELIGIBLE_DIMENSIONS.map(d => `${d}=${promptDimensionLabel(d) ?? d}`).join("、")}）。`,
+      '每条形如 { "name": "proposePromptRevision", "shotNo": 数字, "dimension": "上面 id 之一", "content": "新内容，简体中文" }。',
+      "一轮最多提 2 条 proposePromptRevision，不要为同一镜头同一维度重复提。都不满足时 toolCalls 里就不放这个工具的条目（不影响 generateImage 条目）。",
     ] : []),
     "",
     `（参考：目前已收下 ${existingCardCount} 份素材，对方说了 ${userTurnNumber} 轮。）content / note 等中文字段请用简体中文填写。`,

@@ -57,6 +57,45 @@ function shotIdentity(shot: StoryShot | undefined): string | null {
   return shot?.stableShotId?.trim() || shot?.shotIdentity?.trim() || null;
 }
 
+export type FoundPromptLineageNode = {
+  nodeId: number;
+  currentContent: string | null;
+};
+
+/**
+ * 按（维度, stableShotId）在故事的提示词聚合里找目标节点：优先镜头局部节点，
+ * 其次故事级共享节点（同层内 id 越大越靠前，即越晚创建的候选优先）。
+ *
+ * 从 resolveSelectionPromptTarget 里提出来，供阶段 C（聊天触发候选）复用——
+ * 避免第三次重写同一段"故事 vs 镜头作用域"匹配逻辑。
+ */
+export function findPromptLineageNode(input: {
+  aggregate: StoryPromptAggregate;
+  dimension: string;
+  stableShotId: string;
+}): FoundPromptLineageNode | null {
+  const candidates = input.aggregate.nodes
+    .filter(
+      node =>
+        node.dimension === input.dimension &&
+        (node.stableShotId === input.stableShotId || node.scope === "story"),
+    )
+    .sort((left, right) => {
+      const leftLocal = left.stableShotId === input.stableShotId ? 1 : 0;
+      const rightLocal = right.stableShotId === input.stableShotId ? 1 : 0;
+      return rightLocal - leftLocal || right.id - left.id;
+    });
+  const node = candidates[0];
+  if (!node) return null;
+  const currentRevision =
+    node.currentRevisionId == null
+      ? undefined
+      : input.aggregate.revisions.find(
+          revision => revision.id === node.currentRevisionId,
+        );
+  return { nodeId: node.id, currentContent: currentRevision?.content ?? null };
+}
+
 export function resolveSelectionPromptTarget(input: {
   selection: SelectionContext;
   shots: readonly StoryShot[];
@@ -82,30 +121,13 @@ export function resolveSelectionPromptTarget(input: {
     shotIdentity(Number.isInteger(index) ? input.shots[index] : undefined);
   if (!stableShotId) return null;
 
-  const candidates = input.aggregate.nodes
-    .filter(
-      node =>
-        node.dimension === dimension &&
-        (node.stableShotId === stableShotId || node.scope === "story"),
-    )
-    .sort((left, right) => {
-      const leftLocal = left.stableShotId === stableShotId ? 1 : 0;
-      const rightLocal = right.stableShotId === stableShotId ? 1 : 0;
-      return rightLocal - leftLocal || right.id - left.id;
-    });
-  const node = candidates[0];
-  if (!node) return null;
-  const currentRevision =
-    node.currentRevisionId == null
-      ? undefined
-      : input.aggregate.revisions.find(
-          revision => revision.id === node.currentRevisionId,
-        );
+  const found = findPromptLineageNode({ aggregate: input.aggregate, dimension, stableShotId });
+  if (!found) return null;
   return {
-    nodeId: node.id,
+    nodeId: found.nodeId,
     stableShotId,
     dimension,
-    currentContent: currentRevision?.content ?? null,
+    currentContent: found.currentContent,
     label: `${displayShotCode({
       cueCode:
         input.selection.cueCode ??
