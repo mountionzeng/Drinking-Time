@@ -4,7 +4,14 @@ import {
   displayShotCode,
   type ShotDisplayLike,
 } from '@shared/shotIdentity';
+import {
+  canonicalDimension,
+  promptDimensionLabel,
+} from '@shared/promptDimensions';
 
+// 这是实际匹配用的数据键集合（camelCase，对应 PromptRow.dimension 的字面量），
+// 不是展示文案——保持原样不变。是否要把它扩到 art 库产出的 visual_style 等
+// canonical 维度（继承目前对那些维度失效）是一个单独的产品决策，不在这一步。
 const INHERITABLE_DIMENSIONS = new Set([
   'subject',
   'styleRef',
@@ -14,13 +21,18 @@ const INHERITABLE_DIMENSIONS = new Set([
   'palette',
 ]);
 
+/** 标签统一从 shared/promptDimensions.ts 派生；查不到时退回原字面量。 */
+function dimLabel(dimension: string, fallback: string): string {
+  return promptDimensionLabel(canonicalDimension(dimension)) ?? fallback;
+}
+
 const INHERITABLE_LABELS: Record<string, string> = {
-  subject: '主体',
-  styleRef: '风格参考',
-  genre: '流派',
-  tone: '色调',
-  composition: '构图',
-  palette: '配色',
+  subject: dimLabel('subject', '主体'),
+  styleRef: dimLabel('styleRef', '风格参考'),
+  genre: dimLabel('genre', '流派'),
+  tone: dimLabel('tone', '色调'),
+  composition: dimLabel('composition', '构图'),
+  palette: dimLabel('palette', '配色'),
 };
 
 export function isInheritableDimension(dimension: string): boolean {

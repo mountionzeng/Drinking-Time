@@ -1,50 +1,29 @@
+/**
+ * 维度权重查表。
+ *
+ * 数值不再在这里手写——统一由 `shared/promptDimensions.ts` 的规范词表派生，
+ * 那里同时登记了别名（camelCase / 镜头字段名）与「别处硬编码但未生效」的数值。
+ *
+ * 行为与手写表时期一致：
+ *   - 原先 38 个键返回同样的数值（`promptDimensions.test.ts` 逐个钉住）
+ *   - 未登记的名字仍然落到 `DEFAULT_PROMPT_WEIGHT`
+ * 生产代码里 `promptDimensionWeight()` 的三处调用点（migration / art 库 /
+ * lineage store）传入的 dimension 参数一律已是规范 snake_case，因此别名解析
+ * 不会改变任何现有调用的返回值——它只是让别名查询不再需要单独维护。
+ */
+import { PROMPT_DIMENSIONS, promptDimension } from "./promptDimensions";
+
 const DEFAULT_PROMPT_WEIGHT = 0.3;
 
-const PROMPT_DIMENSION_WEIGHTS: Record<string, number> = {
-  title: 0.18,
-  theme: 0.26,
-  story_arc: 0.26,
-  visual_style: 0.36,
-  color_palette: 0.28,
-  composition: 0.24,
-  lighting: 0.24,
-  material: 0.24,
-  character_reference: 0.52,
-  scene_reference: 0.42,
-  art_style_recipe: 0.4,
-  subject: 0.42,
-  action: 0.38,
-  sceneTitle: 0.34,
-  sceneArtBrief: 0.4,
-  dialogue: 0.34,
-  location: 0.32,
-  time_light: 0.24,
-  mood: 0.3,
-  style_reference: 0.26,
-  beat: 0.28,
-  intent: 0.5,
-  rationale: 0.46,
-  image_prompt: 0.5,
-  negative_prompt: 0.22,
-  camera_motion: 0.36,
-  video_prompt: 0.5,
-  sound: 0.32,
-  narrativeClaim: 0.54,
-  roleConcern: 0.5,
-  visualTranslation: 0.48,
-  causalExplanation: 0.46,
-  narrativeEvidence: 0.44,
-  externalValue: 0.42,
-  storyContext: 0.36,
-  avoidMisread: 0.3,
-  recommendationStatus: 0.26,
-  intentSummary: 0.22,
-};
+/** 按规范 id 索引的权重表。别名解析走 {@link promptDimensionWeight}。 */
+const PROMPT_DIMENSION_WEIGHTS: Record<string, number> = Object.fromEntries(
+  PROMPT_DIMENSIONS.map(def => [def.id, def.weight]),
+);
 
 export { DEFAULT_PROMPT_WEIGHT, PROMPT_DIMENSION_WEIGHTS };
 
 export function promptDimensionWeight(dimension: string): number {
-  return PROMPT_DIMENSION_WEIGHTS[dimension] ?? DEFAULT_PROMPT_WEIGHT;
+  return promptDimension(dimension)?.weight ?? DEFAULT_PROMPT_WEIGHT;
 }
 
 export function normalizePromptWeight(
