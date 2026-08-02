@@ -149,7 +149,7 @@ export const PROMPT_DIMENSIONS: readonly PromptDimensionDef[] = [
   { id: "character_reference", label: "角色参考", category: "visual", weight: 0.52 },
   { id: "scene_reference", label: "场景参考", category: "visual", weight: 0.42 },
   { id: "art_style_recipe", label: "美术配方", category: "visual", weight: 0.4 },
-  { id: "negative_prompt", label: "负面提示", category: "visual", weight: 0.22 },
+  { id: "negative_prompt", aliases: ["negativePrompt"], label: "负面提示", category: "visual", weight: 0.22 },
   { id: "image_prompt", aliases: ["promptDraft"], label: "图片提示词", category: "visual", weight: 0.5 },
 
   // ── 视频 ──

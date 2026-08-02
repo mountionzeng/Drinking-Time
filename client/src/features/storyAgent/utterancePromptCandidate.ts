@@ -4,7 +4,7 @@
  * （createCandidate / rejectCandidate）由调用方（StoryAgentContext）执行，
  * 这里只负责判断目标节点、要不要顶掉已有的同类候选、以及归因怎么合并。
  */
-import type { StoryPromptAggregate, PromptRevision } from "@shared/promptLineage";
+import type { StoryPromptAggregate } from "@shared/promptLineage";
 import { canonicalDimension } from "@shared/promptDimensions";
 import {
   buildPromptAttribution,
@@ -14,6 +14,7 @@ import {
 } from "@shared/promptRevisionAttribution";
 import type { StoryShot } from "./types";
 import { findPromptLineageNode } from "./selectionPromptCandidate";
+import { findSupersedableCandidate } from "./promptCandidateSupersede";
 
 /** 小酌吐出来的提议——形状和 server 的 ProposePromptRevisionToolCall 对齐，独立声明避免跨 server/client 边界导入类型。 */
 export type ProposePromptRevisionLike = {
@@ -36,25 +37,6 @@ export type UtteranceCandidatePlan = {
 
 function shotIdentity(shot: StoryShot | undefined): string | null {
   return shot?.stableShotId?.trim() || shot?.shotIdentity?.trim() || null;
-}
-
-/**
- * 在这个节点上找"本模块之前留下的、还没被确认/拒绝的候选"——只认
- * authorType=agent 且 kind=utterance 的，不会误顶掉用户手改（manual）或
- * 划词编辑（selection）产生的候选，那些是另一路信号，不该被聊天悄悄覆盖。
- */
-function findSupersedableCandidate(
-  revisions: readonly PromptRevision[],
-  nodeId: number,
-): PromptRevision | null {
-  for (const revision of revisions) {
-    if (revision.nodeId !== nodeId) continue;
-    if (revision.status !== "candidate") continue;
-    if (revision.authorType !== "agent") continue;
-    const attribution = decodeAttributionReason(revision.reason);
-    if (attribution?.evidence.some(e => e.kind === "utterance")) return revision;
-  }
-  return null;
 }
 
 /**
@@ -87,7 +69,11 @@ export function resolveUtteranceCandidatePlans(input: {
     });
     if (!found) continue;
 
-    const supersedes = findSupersedableCandidate(input.aggregate.revisions, found.nodeId);
+    const supersedes = findSupersedableCandidate(
+      input.aggregate.revisions,
+      found.nodeId,
+      "utterance",
+    );
     const previousAttribution = supersedes ? decodeAttributionReason(supersedes.reason) : null;
     const nextAttribution = buildPromptAttribution({
       dimension,
