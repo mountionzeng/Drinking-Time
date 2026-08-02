@@ -107,11 +107,18 @@ export default function ShotCandidateBadge({
   candidates,
   onConfirm,
   onReject,
+  compact = false,
 }: {
   shotLabel: string;
   candidates: ShotPendingCandidate[];
   onConfirm: (candidate: ShotPendingCandidate) => Promise<void>;
   onReject: (candidate: ShotPendingCandidate) => Promise<void>;
+  /**
+   * 完整视图的镜头列只有 196px、动作行还挤着 5 个按钮——带文字的徽章会折行
+   * 撑破 h-6 的行高。跟同一行的 AddShotButton / DeleteShotButton 一样，
+   * compact 只显示图标 + 数字，完整措辞留在 aria-label 和 title 里。
+   */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pendingRevisionId, setPendingRevisionId] = useState<number | null>(
@@ -140,12 +147,14 @@ export default function ShotCandidateBadge({
           event.stopPropagation();
           setOpen(true);
         }}
-        className="inline-flex h-6 items-center gap-1 rounded-full bg-[var(--nayin-accent)]/15 px-2 text-[10px] font-semibold text-[var(--nayin-bright)] transition hover:bg-[var(--nayin-accent)]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+        className={`inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-[var(--nayin-accent)]/15 font-semibold text-[var(--nayin-bright)] transition hover:bg-[var(--nayin-accent)]/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+          compact ? "px-1.5 text-[9px]" : "px-2 text-[10px]"
+        }`}
         aria-label={`${shotLabel} 有 ${candidates.length} 条待确认候选`}
         title={`${candidates.length} 条待确认候选`}
       >
-        <Sparkles className="h-3 w-3" />
-        {candidates.length} 待确认
+        <Sparkles className="h-3 w-3 shrink-0" />
+        {compact ? candidates.length : `${candidates.length} 待确认`}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>

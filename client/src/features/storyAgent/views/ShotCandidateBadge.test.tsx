@@ -39,6 +39,36 @@ describe("ShotCandidateBadge", () => {
     expect(html).toContain("2 待确认");
     expect(html).toContain("SH03 有 2 条待确认候选");
   });
+
+  // 完整视图的镜头列只有 196px，带文字的徽章会折行撑破 h-6 动作行。
+  it("compact 模式只渲染数字，不渲染「待确认」文字", () => {
+    const html = renderToStaticMarkup(
+      <ShotCandidateBadge
+        compact
+        shotLabel="SH03"
+        candidates={[candidate, { ...candidate, revisionId: 302 }]}
+        onConfirm={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    expect(html).not.toContain("2 待确认");
+    expect(html).toContain("whitespace-nowrap");
+    // 完整措辞仍然留给读屏软件和 hover 提示
+    expect(html).toContain("SH03 有 2 条待确认候选");
+  });
+
+  it("compact 模式没有候选时同样什么都不渲染", () => {
+    const html = renderToStaticMarkup(
+      <ShotCandidateBadge
+        compact
+        shotLabel="SH03"
+        candidates={[]}
+        onConfirm={vi.fn()}
+        onReject={vi.fn()}
+      />
+    );
+    expect(html).toBe("");
+  });
 });
 
 describe("ShotCandidateList", () => {

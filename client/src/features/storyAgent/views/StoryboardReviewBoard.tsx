@@ -97,6 +97,7 @@ import {
 } from "@shared/startEndVideo";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { ShotPendingCandidate } from "../shotCandidateSummary";
+import ShotCandidateBadge from "./ShotCandidateBadge";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import type { ImageProvider } from "@shared/imageProvider";
 import {
@@ -2287,6 +2288,19 @@ export function StoryboardReviewBoard({
                         className="mt-1 flex h-6 items-center gap-1"
                         data-storyboard-shot-actions="true"
                       >
+                        {onConfirmCandidate && onRejectCandidate ? (
+                          <ShotCandidateBadge
+                            compact
+                            shotLabel={shotLabel}
+                            candidates={
+                              (insertStableShotId &&
+                                candidatesByShot?.get(insertStableShotId)) ||
+                              []
+                            }
+                            onConfirm={onConfirmCandidate}
+                            onReject={onRejectCandidate}
+                          />
+                        ) : null}
                         {onAddShotToTimeline && !isOnTimeline ? (
                           <button
                             type="button"
