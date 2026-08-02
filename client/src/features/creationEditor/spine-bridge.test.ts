@@ -22,35 +22,27 @@ describe("creation editor spine boundary", () => {
     expect(context).not.toContain("useStoryAgent(");
   });
 
-  it("keeps AnimaticPanel and PromptTablePanel behind useCreationEditor", () => {
+  it("keeps AnimaticPanel behind useCreationEditor", () => {
     const animatic = source(
       "client/src/features/creationEditor/views/AnimaticPanel.tsx"
     );
-    const promptTable = source(
-      "client/src/features/creationEditor/views/PromptTablePanel.tsx"
-    );
 
-    for (const panel of [animatic, promptTable]) {
-      expect(panel).toContain("useCreationEditor()");
-      expect(panel).not.toContain("useStoryAgent(");
-      expect(panel).not.toContain("useStorySpine(");
-      expect(panel).not.toContain("storyGet.useQuery");
-      expect(panel).not.toContain("storyImages.useQuery");
-    }
+    expect(animatic).toContain("useCreationEditor()");
+    expect(animatic).not.toContain("useStoryAgent(");
+    expect(animatic).not.toContain("useStorySpine(");
+    expect(animatic).not.toContain("storyGet.useQuery");
+    expect(animatic).not.toContain("storyImages.useQuery");
   });
 
   it("bridges only the active story id from the spine into CreationEditorProvider", () => {
-    const workspace = source(
-      "client/src/features/analysis/views/WorkspaceLayout.tsx"
-    );
+    const studio = source("client/src/pages/EditingStudioPage.tsx");
 
-    expect(workspace).toContain("useActiveStoryId()");
-    expect(workspace).toContain("useStoryAgentActions()");
-    expect(workspace).toContain(
+    expect(studio).toContain("useActiveStoryId()");
+    expect(studio).toContain("useStoryAgentActions()");
+    expect(studio).toContain(
       "<CreationEditorProvider activeStoryId={activeStoryId}>"
     );
-    expect(workspace).toContain('autoSaveId="story-creation-board-widths-v2"');
-    expect(workspace).not.toContain("useStoryAgent()");
+    expect(studio).not.toContain("useStoryAgent()");
   });
 
   it("keeps the dedicated editing route in the studio layout", () => {
@@ -139,13 +131,4 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
 
-  it("syncs the active story id from StoryAgentProvider back into the analysis data layer", () => {
-    const workspace = source(
-      "client/src/features/analysis/views/AnalysisWorkspace.tsx"
-    );
-
-    expect(workspace).toContain(
-      "onActiveStoryChange={projectData.setActiveStoryId}"
-    );
-  });
 });

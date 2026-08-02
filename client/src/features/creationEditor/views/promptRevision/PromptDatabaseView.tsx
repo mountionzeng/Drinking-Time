@@ -1,7 +1,7 @@
 import { History, Loader2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
-import type { PromptOverride } from "../promptTable/types";
-import type { PromptLineageRowView } from "../promptLineage/viewModel";
+import type { PromptOverride } from "../../promptTable/types";
+import type { PromptLineageRowView } from "../../promptLineage/viewModel";
 import PromptCellEditor from "./PromptCellEditor";
 
 type Props = {

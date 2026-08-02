@@ -15,7 +15,7 @@ import {
 import type {
   PromptLineageRevisionPreview,
   PromptLineageRowView,
-} from "../promptLineage/viewModel";
+} from "../../promptLineage/viewModel";
 
 type CandidateState = {
   kind: "candidate";
