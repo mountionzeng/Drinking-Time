@@ -5,7 +5,27 @@ import {
   decodeAttributionReason,
   encodeAttributionReason,
 } from "@shared/promptRevisionAttribution";
-import { resolveEditCandidatePlans, type ShotFieldChange } from "./editPromptCandidate";
+import {
+  lineageWillAutoResync,
+  resolveEditCandidatePlans,
+  type ShotFieldChange,
+} from "./editPromptCandidate";
+
+/**
+ * 阶段 D 只在谱系"冻结"之后才提议候选——冻结的标志是谱系里已经有过
+ * user/agent 修订（见 editPromptCandidate.ts 顶部注释）。测试夹具默认带上
+ * 这样一条修订，代表"这个故事已经被人工改过提示词"这个前置条件；
+ * 不带它的情况由 lineageWillAutoResync 那组用例单独覆盖。
+ */
+function frozenMarkerRevision(): PromptRevision {
+  return baseRevision({
+    id: 999,
+    nodeId: 30,
+    content: "此前的人工修改",
+    authorType: "user",
+    status: "confirmed",
+  });
+}
 
 function baseRevision(overrides: Partial<PromptRevision> & { id: number; nodeId: number }): PromptRevision {
   return {
@@ -51,7 +71,10 @@ function aggregate(overrides: Partial<StoryPromptAggregate> = {}): StoryPromptAg
         updatedAt: "2026-06-30T00:00:00.000Z",
       },
     ],
-    revisions: [baseRevision({ id: 300, nodeId: 30, content: "少年" })],
+    revisions: [
+      baseRevision({ id: 300, nodeId: 30, content: "少年" }),
+      frozenMarkerRevision(),
+    ],
     bindings: [],
     compilations: [],
     compilationInputs: [],
@@ -105,7 +128,10 @@ describe("resolveEditCandidatePlans", () => {
           updatedAt: "2026-06-30T00:00:00.000Z",
         },
       ],
-      revisions: [baseRevision({ id: 310, nodeId: 31, content: "暖色调" })],
+      revisions: [
+        baseRevision({ id: 310, nodeId: 31, content: "暖色调" }),
+        frozenMarkerRevision(),
+      ],
     });
     const plans = resolveEditCandidatePlans({
       changes: [change({ field: "styleRef", previousValue: "暖色调", nextValue: "冷色调纪实感" })],
@@ -193,6 +219,7 @@ describe("resolveEditCandidatePlans", () => {
       revisions: [
         baseRevision({ id: 300, nodeId: 30, content: "少年" }),
         baseRevision({ id: 310, nodeId: 31, content: "" }),
+        frozenMarkerRevision(),
       ],
     });
     const plans = resolveEditCandidatePlans({
@@ -253,5 +280,61 @@ describe("resolveEditCandidatePlans", () => {
       aggregate: agg,
     });
     expect(plans[0]?.supersedesRevisionId).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 谱系自动重建 vs 冻结——浏览器实测暴露出来的设计前提。
+// 服务端 maybeResetStaleMigration：body 变了且谱系里没有任何 user/agent 修订
+// 时，整个清空重建谱系。这种情况下提候选既多余（内容会和新基线一致）又会
+// 撞上节点重建（createCandidate 报 "Prompt node N is unavailable"）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe("lineageWillAutoResync", () => {
+  it("只有 migration 修订时为 true——服务端会自己重建，不该提候选", () => {
+    const agg = aggregate({
+      revisions: [baseRevision({ id: 300, nodeId: 30, content: "少年" })],
+    });
+    expect(lineageWillAutoResync(agg)).toBe(true);
+  });
+
+  it("有 user 修订时为 false——谱系已冻结", () => {
+    const agg = aggregate({
+      revisions: [
+        baseRevision({ id: 300, nodeId: 30, content: "少年" }),
+        baseRevision({ id: 301, nodeId: 30, content: "x", authorType: "user" }),
+      ],
+    });
+    expect(lineageWillAutoResync(agg)).toBe(false);
+  });
+
+  it("有 agent 修订时为 false——谱系已冻结", () => {
+    const agg = aggregate({
+      revisions: [
+        baseRevision({ id: 300, nodeId: 30, content: "少年" }),
+        baseRevision({ id: 301, nodeId: 30, content: "x", authorType: "agent" }),
+      ],
+    });
+    expect(lineageWillAutoResync(agg)).toBe(false);
+  });
+
+  it("system 修订不算人工修改，仍会自动重建", () => {
+    const agg = aggregate({
+      revisions: [
+        baseRevision({ id: 300, nodeId: 30, content: "少年" }),
+        baseRevision({ id: 301, nodeId: 30, content: "x", authorType: "system" }),
+      ],
+    });
+    expect(lineageWillAutoResync(agg)).toBe(true);
+  });
+
+  it("谱系会自动重建时 resolveEditCandidatePlans 直接返回空——即便改动本身完全合法", () => {
+    const agg = aggregate({
+      revisions: [baseRevision({ id: 300, nodeId: 30, content: "少年" })],
+    });
+    const plans = resolveEditCandidatePlans({
+      changes: [change()],
+      aggregate: agg,
+    });
+    expect(plans).toEqual([]);
   });
 });

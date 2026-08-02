@@ -1694,19 +1694,21 @@ export function CreationEditorProvider({
   // 的镜头编辑通道，走的是不同的持久化路径（这里是 updateStoryShotFieldsMut
   // + stories.body，那边是 saveArchiveStory）。候选提议接在这里才对真实
   // UI 生效。
-  const proposeEditPromptCandidates = async (changes: ShotFieldChange[]) => {
+  // `aggregate` 必须是编辑落库之前取到的快照——不能在这里现取。
+  // 原因（浏览器实测才抓到的真实 bug，不是假设）：getStoryProjection 会先跑
+  // maybeResetStaleMigration，一旦发现 stories.body 变了、又没有人工候选记录，
+  // 就整体重新迁移谱系，把最新的 body 值当成新基线吸收掉。如果编辑落库*之后*
+  // 才现取聚合，读到的"当前确认内容"已经被这次编辑污染成新基线，
+  // currentContent === nextValue 永远成立，候选永远提不出来。
+  const proposeEditPromptCandidates = async (
+    changes: ShotFieldChange[],
+    aggregate: StoryPromptAggregate,
+  ) => {
     const storyId = activeId;
     if (storyId == null || changes.length === 0) return;
     try {
-      const loaded = await utils.promptLineage.getStoryProjection.fetch({
-        storyId,
-      });
-      if (loaded.mode !== "lineage") return;
-      const plans = resolveEditCandidatePlans({
-        changes,
-        aggregate: loaded.projection,
-      });
-      let expectedVersion = loaded.projection.state.version;
+      const plans = resolveEditCandidatePlans({ changes, aggregate });
+      let expectedVersion = aggregate.state.version;
       for (const plan of plans) {
         if (plan.supersedesRevisionId != null) {
           const rejected = await rejectPromptCandidateMut.mutateAsync({
@@ -1746,6 +1748,13 @@ export function CreationEditorProvider({
     const previousShot = canonicalStoryShots.find(
       (shot, index) => shotIdentityFromShot(shot, index) === stableShotId
     ) as Record<string, unknown> | undefined;
+    // 必须在 updateStoryShotFieldsMut 落库之前发起——见 proposeEditPromptCandidates
+    // 上面的注释：晚一步取就会取到被这次编辑污染过的谱系基线。这里只发起请求，
+    // 不 await，跟保存请求并发进行，不多花时间；哪怕这次编辑最终没有可提议的
+    // 候选，这个快照请求本身也无害。
+    const preEditProjection = utils.promptLineage.getStoryProjection
+      .fetch({ storyId })
+      .catch(() => null);
     const save = async () => {
       const result = await updateStoryShotFieldsMut.mutateAsync({
         storyId,
@@ -1786,23 +1795,27 @@ export function CreationEditorProvider({
         utils.storyAgent.storyMaterialState.invalidate({ storyId }),
       ]);
       await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-      void proposeEditPromptCandidates(
-        Object.entries(patch).flatMap(([field, value]) =>
-          value == null
-            ? []
-            : [
-                {
-                  stableShotId,
-                  previousValue:
-                    previousShot != null
-                      ? String(previousShot[field] ?? "")
-                      : undefined,
-                  nextValue: value,
-                  field,
-                },
-              ]
-        )
-      );
+      const loaded = await preEditProjection;
+      if (loaded?.mode === "lineage") {
+        void proposeEditPromptCandidates(
+          Object.entries(patch).flatMap(([field, value]) =>
+            value == null
+              ? []
+              : [
+                  {
+                    stableShotId,
+                    previousValue:
+                      previousShot != null
+                        ? String(previousShot[field] ?? "")
+                        : undefined,
+                    nextValue: value,
+                    field,
+                  },
+                ]
+          ),
+          loaded.projection
+        );
+      }
     };
     const queued = shotFieldSaveQueueRef.current.then(save, save);
     shotFieldSaveQueueRef.current = queued.then(
