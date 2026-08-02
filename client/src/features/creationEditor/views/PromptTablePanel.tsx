@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Database, Focus, LayoutGrid, ListFilter, Share2 } from "lucide-react";
 import type { PromptRevision } from "@shared/promptLineage";
+import {
+  buildPromptAttribution,
+  encodeAttributionReason,
+} from "@shared/promptRevisionAttribution";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import {
@@ -285,7 +289,12 @@ export default function PromptTablePanel() {
           editScope === "shot" ? (selectedShot?.stableShotId ?? null) : null,
         content: nextValue,
         weight: nextWeight,
-        reason: `creation-editor:${row.dimension}`,
+        reason: encodeAttributionReason(
+          buildPromptAttribution({
+            dimension: row.dimension,
+            kind: "manual",
+          }),
+        ),
         expectedVersion: promptProjection.state.version,
       });
       if (!created.projection) {

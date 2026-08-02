@@ -82,6 +82,10 @@ import {
   resolveSelectionPromptTarget,
 } from "./selectionPromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
+import {
+  buildPromptAttribution,
+  encodeAttributionReason,
+} from "@shared/promptRevisionAttribution";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -3155,7 +3159,16 @@ export function StoryAgentProvider({
                 nodeId: target.nodeId,
                 targetStableShotId: target.stableShotId,
                 content: result.modifiedFullText,
-                reason: `xiaozhuo-selection:${sourceType}:${sourceId}`,
+                reason: encodeAttributionReason(
+                  buildPromptAttribution({
+                    dimension: target.dimension,
+                    kind: "selection",
+                    messageId: userMsg.id,
+                    sourceType,
+                    sourceId,
+                    excerpt: instruction,
+                  }),
+                ),
                 authorType: "agent",
                 expectedVersion: loaded.projection.state.version,
               });
