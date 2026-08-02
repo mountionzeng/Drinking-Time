@@ -15,6 +15,7 @@ import {
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
+import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
 
@@ -103,7 +104,14 @@ export default function StoryboardPanel({
     deletePersistedShot,
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
+    promptProjection,
+    confirmPromptCandidate,
+    rejectPromptCandidate,
   } = useCreationEditor();
+  const candidatesByShot = useMemo(
+    () => summarizeShotCandidates(promptProjection),
+    [promptProjection]
+  );
   const continuityAnchor = useMemo(() => {
     const reference = artDirection.references.find(
       item =>
@@ -311,6 +319,25 @@ export default function StoryboardPanel({
       embeddedEditorMode={embeddedEditorMode}
       headerAction={headerAction}
       className="h-full min-h-[280px] overflow-auto"
+      candidatesByShot={candidatesByShot}
+      onConfirmCandidate={async candidate => {
+        try {
+          await confirmPromptCandidate(candidate.revisionId);
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? `确认失败：${error.message}` : "确认失败"
+          );
+        }
+      }}
+      onRejectCandidate={async candidate => {
+        try {
+          await rejectPromptCandidate(candidate.revisionId);
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? `放弃失败：${error.message}` : "放弃失败"
+          );
+        }
+      }}
     />
   );
 }

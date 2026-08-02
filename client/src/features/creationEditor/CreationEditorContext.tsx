@@ -226,6 +226,9 @@ type CreationEditorContextValue = {
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
   ) => Promise<void>;
+  /** 阶段 E：确认/放弃一条候选修订（划词编辑 / 聊天提议 / 直接编辑 / 手改产生的都走这里）。 */
+  confirmPromptCandidate: (candidateRevisionId: number) => Promise<void>;
+  rejectPromptCandidate: (candidateRevisionId: number) => Promise<void>;
   insertPersistedShotAfter: (
     stableShotId: string,
     dialogue?: string
@@ -1392,6 +1395,8 @@ export function CreationEditorProvider({
   const promptCandidateMut = trpc.promptLineage.createCandidate.useMutation();
   const rejectPromptCandidateMut =
     trpc.promptLineage.rejectCandidate.useMutation();
+  const confirmPromptCandidateMut =
+    trpc.promptLineage.confirmCandidate.useMutation();
   const shotVideoProviderStatusQuery =
     trpc.creationAgent.shotVideoProviderStatus.useQuery(undefined, {
       refetchOnWindowFocus: false,
@@ -1812,6 +1817,37 @@ export function CreationEditorProvider({
     field: StoryShotEditableField,
     value: string
   ) => updatePersistedShotFields(stableShotId, { [field]: value });
+
+  // ── 阶段 E：确认/放弃候选 ──
+  // 用 promptLineageQuery.data 里已经订阅好的版本号，不额外发一次 fetch——
+  // 跟阶段 D 的 proposeEditPromptCandidates 不同，这两个是用户主动点按钮
+  // 触发的操作，一旦并发冲突（expectedVersion 不匹配）应该让用户看见真实
+  // 错误，而不是静默吞掉重试。
+  const confirmPromptCandidate = async (candidateRevisionId: number) => {
+    const storyId = activeId;
+    if (storyId == null || promptLineageQuery.data?.mode !== "lineage") {
+      throw new Error("故事提示词尚未初始化，无法确认候选");
+    }
+    await confirmPromptCandidateMut.mutateAsync({
+      storyId,
+      candidateRevisionId,
+      expectedVersion: promptLineageQuery.data.projection.state.version,
+    });
+    await promptLineageQuery.refetch();
+  };
+
+  const rejectPromptCandidate = async (candidateRevisionId: number) => {
+    const storyId = activeId;
+    if (storyId == null || promptLineageQuery.data?.mode !== "lineage") {
+      throw new Error("故事提示词尚未初始化，无法放弃候选");
+    }
+    await rejectPromptCandidateMut.mutateAsync({
+      storyId,
+      candidateRevisionId,
+      expectedVersion: promptLineageQuery.data.projection.state.version,
+    });
+    await promptLineageQuery.refetch();
+  };
 
   const insertPersistedShotAfter = async (
     stableShotId: string,
@@ -3183,6 +3219,8 @@ export function CreationEditorProvider({
       updateShotDuration,
       updatePersistedShotField,
       updatePersistedShotFields,
+      confirmPromptCandidate,
+      rejectPromptCandidate,
       updatePromptOverride,
       ensurePromptShot,
       recordPromptRun,

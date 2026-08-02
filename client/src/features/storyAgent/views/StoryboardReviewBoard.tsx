@@ -96,6 +96,7 @@ import {
   type StartEndShotVideoEstimate,
 } from "@shared/startEndVideo";
 import { displayShotCode } from "@shared/shotIdentity";
+import type { ShotPendingCandidate } from "../shotCandidateSummary";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import type { ImageProvider } from "@shared/imageProvider";
 import {
@@ -212,6 +213,9 @@ export function StoryboardReviewBoard({
   embeddedEditorMode = false,
   headerAction,
   className = "",
+  candidatesByShot,
+  onConfirmCandidate,
+  onRejectCandidate,
 }: {
   images: GeneratedImageItem[];
   shots: StoryShot[];
@@ -364,6 +368,10 @@ export function StoryboardReviewBoard({
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
   className?: string;
+  /** 阶段 E：每个镜头（按 stableShotId）待确认候选；缺省当作没有候选。 */
+  candidatesByShot?: Map<string, ShotPendingCandidate[]>;
+  onConfirmCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
+  onRejectCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
 }) {
   const [previewMedia, setPreviewMedia] =
     useState<StoryboardMediaPreview | null>(null);
@@ -2187,6 +2195,9 @@ export function StoryboardReviewBoard({
             onEditImage={onEditImage}
             deferSingleClick={deferVideoSingleClick}
             cancelDeferredSingleClick={cancelDeferredVideoSingleClick}
+            candidatesByShot={candidatesByShot}
+            onConfirmCandidate={onConfirmCandidate}
+            onRejectCandidate={onRejectCandidate}
           />
         ) : shots.length > 0 ? (
           <div className="flex h-full min-h-0 flex-col">

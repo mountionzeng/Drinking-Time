@@ -33,6 +33,8 @@ import {
 } from "./StoryboardMediaPreview";
 import { writeStoryboardImageDragPayload } from "../storyboardLocalMedia";
 import { writeVideoTakeDragPayload } from "./videoTakeDrag";
+import type { ShotPendingCandidate } from "../shotCandidateSummary";
+import ShotCandidateBadge from "./ShotCandidateBadge";
 
 export function AddShotButton({
   shotLabel,
@@ -165,6 +167,9 @@ export function SimpleStoryboardBoard({
   onEditImage,
   deferSingleClick,
   cancelDeferredSingleClick,
+  candidatesByShot,
+  onConfirmCandidate,
+  onRejectCandidate,
 }: {
   shots: StoryShot[];
   frameByShotNo: Map<number, GeneratedImageItem>;
@@ -195,6 +200,10 @@ export function SimpleStoryboardBoard({
   onEditImage?: (target: ImageClipEditorTarget) => void;
   deferSingleClick: (action: () => void) => void;
   cancelDeferredSingleClick: () => void;
+  /** 阶段 E：每个镜头（按 stableShotId）待确认候选；缺省当作没有候选。 */
+  candidatesByShot?: Map<string, ShotPendingCandidate[]>;
+  onConfirmCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
+  onRejectCandidate?: (candidate: ShotPendingCandidate) => Promise<void>;
 }) {
   return (
     <div className="grid snap-y snap-mandatory gap-1 pb-2 pr-1">
@@ -411,6 +420,18 @@ export function SimpleStoryboardBoard({
                 </p>
               </button>
               <div className="mt-auto flex items-center gap-1 pt-1">
+                {onConfirmCandidate && onRejectCandidate ? (
+                  <ShotCandidateBadge
+                    shotLabel={displayShotCode(shot)}
+                    candidates={
+                      (insertStableShotId &&
+                        candidatesByShot?.get(insertStableShotId)) ||
+                      []
+                    }
+                    onConfirm={onConfirmCandidate}
+                    onReject={onRejectCandidate}
+                  />
+                ) : null}
                 {onAddShotToTimeline && !isOnTimeline ? (
                   <button
                     type="button"
