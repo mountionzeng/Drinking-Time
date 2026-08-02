@@ -82,10 +82,6 @@ import {
   resolveSelectionPromptTarget,
 } from "./selectionPromptCandidate";
 import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
-import {
-  resolveEditCandidatePlans,
-  type ShotFieldChange,
-} from "./editPromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
 import {
   buildPromptAttribution,
@@ -2171,83 +2167,16 @@ export function StoryAgentProvider({
     ]
   );
 
-  // ── 阶段 D：镜头表字段直接编辑 → 额外提议一条提示词候选 ──
-  // 刻意不改变 updateStoryShotField / updateAllStoryShotField 本身的行为：
-  // 镜头表照常立即生效、立即持久化（commitStoryShots 同步调用，不等这个）。
-  // 这只是叠加的信号，失败绝不影响镜头表编辑本身——跟 sendMessage 里那段
-  // proposePromptRevision 落库是同一套非致命原则。
-  const proposeEditPromptCandidates = useCallback(
-    async (changes: ShotFieldChange[]) => {
-      const storyId = storySpineStore.getState().activeStoryId;
-      if (storyId == null || changes.length === 0) return;
-      try {
-        const loaded = await utils.promptLineage.getStoryProjection.fetch({
-          storyId,
-        });
-        if (loaded.mode !== "lineage") return;
-        const plans = resolveEditCandidatePlans({
-          changes,
-          aggregate: loaded.projection,
-        });
-        let expectedVersion = loaded.projection.state.version;
-        for (const plan of plans) {
-          if (plan.supersedesRevisionId != null) {
-            const rejected = await rejectPromptCandidateMut.mutateAsync({
-              storyId,
-              candidateRevisionId: plan.supersedesRevisionId,
-              expectedVersion,
-            });
-            expectedVersion = rejected.version;
-          }
-          const created = await promptCandidateMut.mutateAsync({
-            storyId,
-            nodeId: plan.nodeId,
-            targetStableShotId: plan.stableShotId,
-            content: plan.content,
-            reason: plan.reason,
-            // 用户直接打字改的字段，不是 agent 推断——跟 PromptTablePanel
-            // 手改提示词表一样，都是用户自己的动作。
-            authorType: "user",
-            expectedVersion,
-          });
-          expectedVersion = created.version;
-        }
-      } catch (error) {
-        console.warn(
-          "[storyAgent] 阶段D 候选提议落库失败（不影响镜头表本身）：",
-          error
-        );
-      }
-    },
-    [
-      utils.promptLineage.getStoryProjection,
-      // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
-      // 声明得比这个回调晚，放进去会在渲染时触发 TDZ（同一处理法见上面
-      // sendMessage 依赖数组的注释）。两者都来自 useMutation()，跨渲染
-      // 引用稳定，body 内直接引用即可，不影响正确性。
-    ]
-  );
-
   const updateStoryShotField = useCallback(
     (index: number, field: StoryShotEditableField, value: string) => {
       const currentShots = storySpineStore.getState().storyShots;
       if (index < 0 || index >= currentShots.length) return;
-      const previousShot = currentShots[index];
       const nextStoryShots = currentShots.map((shot, i) =>
         i === index ? { ...shot, [field]: value } : shot
       );
       commitStoryShots(nextStoryShots);
-      void proposeEditPromptCandidates([
-        {
-          stableShotId:
-            previousShot?.stableShotId ?? previousShot?.shotIdentity,
-          previousValue: String(previousShot?.[field] ?? ""),
-          nextValue: value,
-          field,
-        },
-      ]);
     },
-    [commitStoryShots, proposeEditPromptCandidates]
+    [commitStoryShots]
   );
 
   const updateAllStoryShotField = useCallback(
@@ -2259,16 +2188,8 @@ export function StoryAgentProvider({
         [field]: value,
       }));
       commitStoryShots(nextStoryShots);
-      void proposeEditPromptCandidates(
-        currentShots.map(shot => ({
-          stableShotId: shot.stableShotId ?? shot.shotIdentity,
-          previousValue: String(shot[field] ?? ""),
-          nextValue: value,
-          field,
-        }))
-      );
     },
-    [commitStoryShots, proposeEditPromptCandidates]
+    [commitStoryShots]
   );
 
   const generateScript = useCallback(

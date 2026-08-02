@@ -15,6 +15,10 @@ import type {
   StoryShot,
 } from "@/features/storyAgent/types";
 import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
+import {
+  resolveEditCandidatePlans,
+  type ShotFieldChange,
+} from "@/features/storyAgent/editPromptCandidate";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
@@ -1385,6 +1389,9 @@ export function CreationEditorProvider({
       refetchOnWindowFocus: false,
     }
   );
+  const promptCandidateMut = trpc.promptLineage.createCandidate.useMutation();
+  const rejectPromptCandidateMut =
+    trpc.promptLineage.rejectCandidate.useMutation();
   const shotVideoProviderStatusQuery =
     trpc.creationAgent.shotVideoProviderStatus.useQuery(undefined, {
       refetchOnWindowFocus: false,
@@ -1672,12 +1679,68 @@ export function CreationEditorProvider({
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
   };
 
+  // ── 阶段 D：镜头表字段直接编辑 → 额外提议一条提示词候选 ──
+  // 刻意不改变 updatePersistedShotFields 本身的行为：镜头表照常立即生效、
+  // 立即持久化，这只是叠加在保存成功之后的信号，失败绝不影响镜头表编辑
+  // 本身——跟 storyAgent 聊天路径落候选的非致命原则一致。
+  //
+  // 这是故事版看板（StoryboardPanel → StoryboardReviewBoard）实际调用的
+  // 保存函数——它跟 StoryAgentContext 的 updateStoryShotField 是两套并行
+  // 的镜头编辑通道，走的是不同的持久化路径（这里是 updateStoryShotFieldsMut
+  // + stories.body，那边是 saveArchiveStory）。候选提议接在这里才对真实
+  // UI 生效。
+  const proposeEditPromptCandidates = async (changes: ShotFieldChange[]) => {
+    const storyId = activeId;
+    if (storyId == null || changes.length === 0) return;
+    try {
+      const loaded = await utils.promptLineage.getStoryProjection.fetch({
+        storyId,
+      });
+      if (loaded.mode !== "lineage") return;
+      const plans = resolveEditCandidatePlans({
+        changes,
+        aggregate: loaded.projection,
+      });
+      let expectedVersion = loaded.projection.state.version;
+      for (const plan of plans) {
+        if (plan.supersedesRevisionId != null) {
+          const rejected = await rejectPromptCandidateMut.mutateAsync({
+            storyId,
+            candidateRevisionId: plan.supersedesRevisionId,
+            expectedVersion,
+          });
+          expectedVersion = rejected.version;
+        }
+        const created = await promptCandidateMut.mutateAsync({
+          storyId,
+          nodeId: plan.nodeId,
+          targetStableShotId: plan.stableShotId,
+          content: plan.content,
+          reason: plan.reason,
+          // 用户直接打字改的字段，不是 agent 推断。
+          authorType: "user",
+          expectedVersion,
+        });
+        expectedVersion = created.version;
+      }
+      void promptLineageQuery.refetch();
+    } catch (error) {
+      console.warn(
+        "[creationEditor] 阶段D 候选提议落库失败（不影响镜头表本身）：",
+        error
+      );
+    }
+  };
+
   const updatePersistedShotFields = async (
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
   ) => {
     const storyId = activeId;
     if (storyId == null) throw new Error("故事尚未加载，无法保存镜头");
+    const previousShot = canonicalStoryShots.find(
+      (shot, index) => shotIdentityFromShot(shot, index) === stableShotId
+    ) as Record<string, unknown> | undefined;
     const save = async () => {
       const result = await updateStoryShotFieldsMut.mutateAsync({
         storyId,
@@ -1718,6 +1781,23 @@ export function CreationEditorProvider({
         utils.storyAgent.storyMaterialState.invalidate({ storyId }),
       ]);
       await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+      void proposeEditPromptCandidates(
+        Object.entries(patch).flatMap(([field, value]) =>
+          value == null
+            ? []
+            : [
+                {
+                  stableShotId,
+                  previousValue:
+                    previousShot != null
+                      ? String(previousShot[field] ?? "")
+                      : undefined,
+                  nextValue: value,
+                  field,
+                },
+              ]
+        )
+      );
     };
     const queued = shotFieldSaveQueueRef.current.then(save, save);
     shotFieldSaveQueueRef.current = queued.then(
