@@ -157,6 +157,8 @@ export async function getFreshEmotionAnalysisProfile(
     ...dailyReference,
     todayDate: today,
     lunarLabel: currentLunarLabel(almanac, dailyReference.lunarLabel),
+    personalizedYi: [],
+    personalizedJi: [],
   };
   const refreshed = await personalize({
     date: today,

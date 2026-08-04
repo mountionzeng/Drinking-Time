@@ -107,7 +107,7 @@ const WUXING_COLORS: Record<string, string[]> = {
   土: ["黄色", "棕色", "米色"],
 };
 const REPORT_TONE_PATTERN =
-  /社会学上|人类学上|历史参照上|按传统时间文化的排法|日主.{0,3}属[金木水火土]|[金木水火土](?:生|克)[金木水火土]/;
+  /社会学上|人类学上|历史参照上|按传统时间文化的排法|日主.{0,3}(?:属|生|克)[金木水火土今]|今日天干[金木水火土]|[金木水火土](?:生|克)[金木水火土]/;
 const INTERPRETIVE_OVERREACH_PATTERN =
   /你(?:真正|其实)(?:想要|需要|害怕|讨厌|在意)的是|你(?:想要|需要|害怕|讨厌|在意)的不是.{0,36}(?:而是|只是|是这种|是因为|是为了)|这说明你(?:真正|其实)?|本质上你/;
 
@@ -166,6 +166,14 @@ function cleanLetter(value: unknown, max = 1_200) {
   return paragraphs.join("\n\n");
 }
 
+export function softenTraditionalExposition(summary: string) {
+  return summary
+    .replace(/今天是[^。！？]*日主[^。！？]*?，适合/g, "今天适合")
+    .replace(/日主[^。！？]*[。！？]?/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function letterQualityIssue(summary: string) {
   const paragraphs = summary
     .split(/\n{2,}/)
@@ -175,15 +183,29 @@ function letterQualityIssue(summary: string) {
     return "仍带有分析报告腔";
   }
   if (
-    summary.length < 380 ||
+    summary.length < 220 ||
     summary.length > 700 ||
-    paragraphs.length < 4 ||
+    paragraphs.length < 3 ||
     paragraphs.length > 5
   ) {
     return "篇幅或结构不完整";
   }
   if (INTERPRETIVE_OVERREACH_PATTERN.test(summary)) {
     return "替用户解释内心，把一种推测写成了结论";
+  }
+  return "";
+}
+
+function dailyLetterCoverageIssue(
+  input: PersonalizeEmotionDailyReferenceInput,
+  summary: string
+) {
+  if (input.generationIntent !== "daily-letter") return "";
+  if (!/穿|衣|外套|鞋|颜色|面料/.test(summary)) {
+    return "缺少自然、可执行的穿衣建议";
+  }
+  if (!/自己|力气|节奏|休息|余量|慢一点|安排/.test(summary)) {
+    return "缺少今天怎样和自己相处的建议";
   }
   return "";
 }
@@ -219,10 +241,7 @@ function currentTimeContext(
   return currentChinaShichenGuidance(input.now);
 }
 
-function includeCurrentTimeAdvice(
-  summary: string,
-  guidance: ShichenGuidance
-) {
+function includeCurrentTimeAdvice(summary: string, guidance: ShichenGuidance) {
   if (summary.includes(guidance.name)) return summary;
   const paragraphs = summary
     .split(/\n{2,}/)
@@ -335,16 +354,63 @@ function safeLocalLetter(
   guidance: ShichenGuidance
 ) {
   const currentWords = currentWordsFromMessage(input.analysisSeed.userMessage);
-  const quotedWords = currentWords
-    ? `你写下：“${currentWords.slice(0, 320)}”`
-    : "今天你还没有留下新的话";
+  const month = Number(input.date.slice(5, 7));
+  const season =
+    month >= 3 && month <= 5
+      ? "春天"
+      : month >= 6 && month <= 8
+        ? "夏天"
+        : month >= 9 && month <= 11
+          ? "秋天"
+          : "冬天";
+  const solarTerm = cleanText(input.almanac.meta.solarTerm, 12);
+  const traditional = buildTraditionalTimeContext(
+    input.almanac,
+    input.analysisSeed
+  );
+  const color = traditional.supportiveColors[0];
+  const opening = currentWords
+    ? `你今天写下的“${currentWords.slice(0, 160)}”，先按它原来的样子留在这里。`
+    : `今天还没有新的话，也没关系。${solarTerm ? `眼下正逢${solarTerm}，` : ""}${season}的节奏在变，先把注意力放回今天真正要做的事。`;
   return [
-    `${quotedWords}。我先让这句话保持原来的样子，不把其中的情绪换成一个更容易解释的词，也不急着替你判断它最终意味着什么。`,
-    "现在能确定的，只是这句话已经值得被认真留下。它可能还连着别的感受，也可能只是此刻最响亮的那一部分；那些没有说出来的地方，先不由聊会儿替你补上。",
-    "如果这件事牵涉到空间、时间、钱、照顾或与别人共同承担的日常，可以等你愿意时再一项项说清。现实里的重量被看见以后，感受不必独自承担全部解释。",
-    `现在是${guidance.name}（${guidance.range}），${guidance.letterAdvice} 这不是为问题作答，只是先给此刻留一点可以呼吸和观察的距离。`,
-    "等你下次再说起它，我们再看原来的词有没有变化，旁边有没有多出另一句话。问题被好好看见，答案会慢慢浮出来。",
+    `${opening} 今天不必一次想完所有事，先把最重要的一件做小，做到可以开始就够了。`,
+    `穿衣以${season === "夏天" ? "轻薄、透气、方便活动" : season === "冬天" ? "保暖、方便增减" : "柔软、方便增减"}为先${color ? `，想加一点颜色，可以选${color}` : ""}。这里不替你猜天气，出门前再按体感添减一层。`,
+    `现在是${guidance.name}（${guidance.range}），${guidance.letterAdvice} 今天和自己相处时，少催一次、留一点余量，做完一段再决定下一段。`,
   ].join("\n\n");
+}
+
+function recalculatedDailyAdvice(
+  input: PersonalizeEmotionDailyReferenceInput,
+  guidance: ShichenGuidance
+) {
+  const traditional = buildTraditionalTimeContext(
+    input.almanac,
+    input.analysisSeed
+  );
+  const relation = traditional.relation;
+  const relationAdvice = relation.includes("克日主")
+    ? ["先稳住节奏", "仓促定论"]
+    : relation.includes("日主") && relation.includes("生今日")
+      ? ["留出余量", "透支精力"]
+      : relation.includes("日主") && relation.includes("克今日")
+        ? ["分清轻重", "用力过满"]
+        : relation
+          ? ["推进要事", "同时开太多"]
+          : ["先做要事", "一次排太满"];
+  return {
+    yi: normalizeAdvice(
+      [
+        relationAdvice[0],
+        guidance.recommended,
+        ...input.almanac.yi.slice(0, 2),
+      ],
+      []
+    ),
+    ji: normalizeAdvice(
+      [relationAdvice[1], guidance.avoid, ...input.almanac.ji.slice(0, 2)],
+      []
+    ),
+  };
 }
 
 function localFallback(
@@ -352,8 +418,11 @@ function localFallback(
   reason: string
 ): PersonalizeEmotionDailyReferenceResult {
   const guidance = currentTimeContext(input);
+  const currentWords = currentWordsFromMessage(input.analysisSeed.userMessage);
   const storedSummary = cleanLetter(input.baseDailyReference.summary);
+  const dailyAdvice = recalculatedDailyAdvice(input, guidance);
   const summary =
+    (input.generationIntent === "daily-letter" && !currentWords) ||
     REPORT_TONE_PATTERN.test(storedSummary) ||
     INTERPRETIVE_OVERREACH_PATTERN.test(storedSummary)
       ? safeLocalLetter(input, guidance)
@@ -372,14 +441,20 @@ function localFallback(
       interpretationSource: "local-template",
       mindset:
         cleanText(input.baseDailyReference.mindset, 220) || guidance.mindset,
-      personalizedYi: mergeAdvice(
-        input.baseDailyReference.personalizedYi,
-        guidance.recommended
-      ),
-      personalizedJi: mergeAdvice(
-        input.baseDailyReference.personalizedJi,
-        guidance.avoid
-      ),
+      personalizedYi:
+        input.generationIntent === "daily-letter"
+          ? dailyAdvice.yi
+          : mergeAdvice(
+              input.baseDailyReference.personalizedYi,
+              guidance.recommended
+            ),
+      personalizedJi:
+        input.generationIntent === "daily-letter"
+          ? dailyAdvice.ji
+          : mergeAdvice(
+              input.baseDailyReference.personalizedJi,
+              guidance.avoid
+            ),
       currentShichen: guidance.name,
       letterVersion: EMOTION_DAILY_LETTER_VERSION,
     },
@@ -398,14 +473,15 @@ function systemPrompt() {
     "birthBazi 是历法库按用户自愿填写的公历出生日期和标准时钟时间换算的四柱，只能作为传统时间文化参照；不得据此推断命运、人格定论、健康状况、财运、婚姻或身份属性。",
     "traditionalTimeContext 是服务器根据 birthBazi 与天行当日干支做出的可复核计算，不得自行更改其中的日主、五行、生克关系或颜色集合。",
     "currentShichenContext 是服务器按中国标准时间确定的当下时辰、时间范围和日常节奏参照。它只说明此刻更适合怎样安排动作，不表示吉凶，也不能覆盖用户的现实处境。",
-    "生日、出生地、当前所在地和用户留言只用于理解生活阶段、社会角色、关系网络与日常节奏。",
+    "生日、出生地、当前所在地、年龄、八字和用户留言只用于内部理解生活阶段与日常节奏。除非 currentWords 当天主动提到且确有必要，summary 不得直接写出用户年龄、出生地或当前所在地，尤其不得写成“你住在……，你……岁”。",
     "文字要温和、具体、克制，承认不确定性，不夸大转折，不替用户下结论。",
     "currentWords 是用户在目标日期写下的原话；previousWords 只包含这一天之前由同一用户留下的文字。两者必须严格区分，旧话不能写成今天刚说的话。",
     "currentWords 已去掉产品自动添加的“接着某天说的……我现在想说”导航句。回信只引用用户真正新写的内容；需要联系旧话时，从 previousWords 取，并标明日期。",
     "先在内部比较 currentWords 与 previousWords：判断它更像过去感受的延续、变化、新出现的关注，还是证据还不够。只有文字本身有清楚证据时，才把这个判断自然写进回信；不得贴心理标签，也不得猜测用户没有说出的动机。",
-    "generationIntent 为 daily-letter 时，这是新一天首次登录看到的信：没有当日新话时，可以从最近的 previousWords 里选一条真正相关的旧话继续回应，但必须标明日期，不能假装用户今天刚说过。",
+    "generationIntent 为 daily-letter 时，这是新一天首次打开页面看到的信。结合 previousWords 中长期、重复出现的生活节奏与偏好来理解用户，但不得复述、引用或追问某一次旧事件，也不得把旧情绪写成用户今天的状态；existingReference.summary 只用于避免重复。",
     "generationIntent 为 conversation-reply 时，以 currentWords 为主，最多联系两条确实相关的 previousWords，并用“你在M月D日写过”标明来源；不要翻旧账，不要为了显得懂用户而牵强关联。",
-    "summary 是页面唯一展示的主回信。写成 4 到 5 个自然段、380 到 650 个汉字：第一段接住一句最具体的原话，不改写它的情绪；第二段只在有证据时写出它和过去之间的延续或变化；第三段把现实生活里的空间、时间、劳动、钱、关系角色等具体处境轻轻放进来；第四段结合当下时辰给一个很小、可选择的动作；最后留一点未完成的空间。每封信至少保留用户原话里的一个具体名词或动作，不要把“拼豆、面试、猫、某个人”等具体内容概括成空泛的“责任、资源、关系位置”。",
+    "summary 是页面唯一展示的主回信。写成 3 到 4 个自然段、220 到 420 个汉字，语气像熟悉用户、但尊重边界的人在早晨说话：亲切、准确，不写报告腔。正文自然说清三件事：今天最值得留意什么；结合节气、季节和 supportiveColors 给一条不假装知道实时天气的穿衣建议；今天怎样安排力气、怎样和自己相处。有 currentWords 时先接住一个具体词或动作；没有 currentWords 时只借长期信息理解生活节奏，不复述任何旧事件。",
+    "有 currentWords 时，不要把“拼豆、面试、猫、某个人”等具体内容概括成空泛的“责任、资源、关系位置”；保留用户真正写下的词。",
     "面对同一句话可能有不止一种理解时，把两种或三种仍有依据的可能并排放着，并清楚区分“能确定的”和“还不能确定的”。这不是为了罗列选项，而是避免用一个漂亮解释盖住用户复杂、矛盾或尚未说完的感受。",
     "summary 不要标题、列表、编号，也不要按上午/下午/晚上报日程。严禁出现“社会学上”“人类学上”“历史参照上”“按传统时间文化的排法”、日主五行生克公式或字段名；这些只用于你在内部理解，不能直接倒给用户。不要写成分析报告、客服话术或免责声明。",
     "社会结构、人类学日常经验、历史处境与传统时间参照，只有确实能照亮用户这句具体的话时，才能自然融入一句；不要逐项展示知识，不要为了显得专业而堆术语。",
@@ -415,7 +491,7 @@ function systemPrompt() {
     "clothing 写一句朴素、可执行的穿衣建议，可以参考季节与传统时间参照，但不能假装知道实时天气，也不能声称颜色或衣服可以改运。",
     "mindset 写一句今天可以保持的心态，必须是允许选择的建议，不写命令和吉凶。",
     "schedule 仍必须正好三项，仅供内部结构化参考，label 依次为上午、下午、晚上；lenses 必须正好三项，label 依次为社会学、人类学、历史参照。",
-    "personalizedYi 和 personalizedJi 各写 3 到 5 个不超过 8 个汉字的行动建议。它们是个人今日建议，不是黄历事实；可参考出生时辰、当前时辰和用户留言，但不得宣称命定、吉凶或时辰决定人格。",
+    "personalizedYi 和 personalizedJi 每天必须从零重算，各写 3 到 5 个不超过 8 个汉字的行动建议。必须同时参考 almanacFacts 中当天节气与干支、traditionalTimeContext 中用户八字与当日五行关系、currentShichenContext；不得照抄 existingReference，也不得宣称命定、吉凶或时辰决定人格。",
     "历史参照只谈普遍的时代经验和生活结构，不虚构具体史实、人物、年份或出处。",
     "只返回严格 JSON，不要 markdown，不要解释。",
     'JSON: {"summary":"中文","clothing":"中文","mindset":"中文","schedule":[{"label":"上午","title":"中文","detail":"中文"},{"label":"下午","title":"中文","detail":"中文"},{"label":"晚上","title":"中文","detail":"中文"}],"lenses":[{"label":"社会学","detail":"中文"},{"label":"人类学","detail":"中文"},{"label":"历史参照","detail":"中文"}],"personalizedYi":["中文"],"personalizedJi":["中文"],"avoid":"中文","note":"中文"}',
@@ -426,6 +502,8 @@ function userContext(input: PersonalizeEmotionDailyReferenceInput) {
   const { almanac, analysisSeed, baseDailyReference } = input;
   const guidance = currentTimeContext(input);
   const currentMessage = currentWordsFromMessage(analysisSeed.userMessage);
+  const blankDailyLetter =
+    input.generationIntent === "daily-letter" && !currentMessage;
   const previousWords = Array.isArray(analysisSeed.messageHistory)
     ? analysisSeed.messageHistory
         .filter(
@@ -495,7 +573,9 @@ function userContext(input: PersonalizeEmotionDailyReferenceInput) {
     currentShichenContext: guidance,
     traditionalTimeContext: buildTraditionalTimeContext(almanac, analysisSeed),
     existingReference: {
-      summary: cleanText(baseDailyReference.summary, 500),
+      summary: blankDailyLetter
+        ? ""
+        : cleanText(baseDailyReference.summary, 500),
       clothing: cleanText(baseDailyReference.clothing, 160),
       activity: factualActivity(almanac, baseDailyReference.activity),
       schedule: baseDailyReference.schedule,
@@ -654,8 +734,10 @@ export async function personalizeEmotionDailyReference302(
 
     let data = (await response.json()) as CompletionResponse;
     let raw = parseJsonLoose<DeepSeekPayload>(completionText(data));
-    const firstSummary = cleanLetter(raw.summary);
-    const firstQualityIssue = letterQualityIssue(firstSummary);
+    const firstSummary = softenTraditionalExposition(cleanLetter(raw.summary));
+    const firstQualityIssue =
+      letterQualityIssue(firstSummary) ||
+      dailyLetterCoverageIssue(input, firstSummary);
     if (firstQualityIssue) {
       const retryResponse = await fetcher(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
@@ -682,7 +764,7 @@ export async function personalizeEmotionDailyReference302(
             },
             {
               role: "user",
-              content: `第一次回信${firstQualityIssue}。请保留用户原话、事实边界和其他 JSON 字段，把 summary 重写为 4 到 5 个自然段、380 到 650 个汉字。不要用“你不是……而是……”“你真正……”或“这说明你……”替用户解释内心；有证据的多种可能要并排保留，并区分能确定与还不能确定的部分。不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。`,
+              content: `第一次回信${firstQualityIssue}。请保留事实边界和其他 JSON 字段，把 summary 重写为 3 到 4 个自然段、220 到 420 个汉字，并自然包含今天的注意事项、穿衣建议和与自己相处的方式。没有 currentWords 时可以借 previousWords 理解长期节奏，但不得复述旧事件、旧情绪或直接写出年龄地点。不要用“你不是……而是……”“你真正……”或“这说明你……”替用户解释内心；有证据的多种可能要并排保留，并区分能确定与还不能确定的部分。不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。`,
             },
           ],
         }),
@@ -693,15 +775,24 @@ export async function personalizeEmotionDailyReference302(
         const retryRaw = parseJsonLoose<DeepSeekPayload>(
           completionText(retryData)
         );
-        const retrySummary = cleanLetter(retryRaw.summary);
-        if (completeLetter(retrySummary)) {
+        const retrySummary = softenTraditionalExposition(
+          cleanLetter(retryRaw.summary)
+        );
+        if (
+          completeLetter(retrySummary) &&
+          !dailyLetterCoverageIssue(input, retrySummary)
+        ) {
           data = retryData;
           raw = retryRaw;
         }
       }
     }
-    const selectedSummary = cleanLetter(raw.summary);
-    const remainingQualityIssue = letterQualityIssue(selectedSummary);
+    const selectedSummary = softenTraditionalExposition(
+      cleanLetter(raw.summary)
+    );
+    const remainingQualityIssue =
+      letterQualityIssue(selectedSummary) ||
+      dailyLetterCoverageIssue(input, selectedSummary);
     if (remainingQualityIssue) {
       return localFallback(input, `302 DeepSeek 回信${remainingQualityIssue}`);
     }
