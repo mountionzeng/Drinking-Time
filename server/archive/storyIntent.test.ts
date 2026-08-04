@@ -45,16 +45,18 @@ describe("recognizeStoryIntent", () => {
 
   it("识别 LinkedIn 求职用途，并保留招聘者/领英语义", async () => {
     llmMocks.invokeLLM.mockResolvedValueOnce(
-      makeLLMResponse(JSON.stringify({
-        purpose: "linkedin_job_search",
-        audience: "recruiters",
-        platform: "linkedin",
-        desiredEffect: "让招聘者快速理解我的能力和判断力",
-        tone: "专业、清晰、有个人温度",
-        confidence: 0.86,
-        evidence: ["用户说想放 LinkedIn 上找工作"],
-        missingQuestion: "你最想让招聘者记住哪一种能力？",
-      })),
+      makeLLMResponse(
+        JSON.stringify({
+          purpose: "linkedin_job_search",
+          audience: "recruiters",
+          platform: "linkedin",
+          desiredEffect: "让招聘者快速理解我的能力和判断力",
+          tone: "专业、清晰、有个人温度",
+          confidence: 0.86,
+          evidence: ["用户说想放 LinkedIn 上找工作"],
+          missingQuestion: "你最想让招聘者记住哪一种能力？",
+        })
+      )
     );
 
     const result = await recognizeStoryIntent({
@@ -72,19 +74,24 @@ describe("recognizeStoryIntent", () => {
     expect(result.confidence).toBe(0.86);
 
     const system = llmMocks.invokeLLM.mock.calls[0][0].messages.find(
-      (message) => message.role === "system",
+      message => message.role === "system"
     );
     expect(String(system?.content)).toContain("linkedin_job_search");
     expect(String(system?.content)).toContain("招聘者");
     expect(String(system?.content)).toContain("四个一级方向");
-    expect(String(system?.content)).toContain("父母给孩子讲故事");
-    expect(String(system?.content)).toContain("介绍自己的真实经历");
-    expect(String(system?.content)).toContain("创造另一个世界");
+    expect(String(system?.content)).toContain("给亲友的礼物");
+    expect(String(system?.content)).toContain("介绍自己");
+    expect(String(system?.content)).toContain("发在社交平台上");
+    expect(String(system?.content)).toContain("给自己讲");
+    expect(String(system?.content)).toContain("记录再说");
+    expect(String(system?.content)).toContain("创造另外一个世界");
     expect(String(system?.content)).toContain("这里只做用途识别");
   });
 
   it("模型返回坏 JSON 时，本地兜底仍能识别领英找工作", async () => {
-    llmMocks.invokeLLM.mockResolvedValueOnce(makeLLMResponse("我觉得这是求职用途"));
+    llmMocks.invokeLLM.mockResolvedValueOnce(
+      makeLLMResponse("我觉得这是求职用途")
+    );
 
     const result = await recognizeStoryIntent({
       message: "这个片子主要想发到领英上找工作，给招聘的人看",
@@ -100,16 +107,18 @@ describe("recognizeStoryIntent", () => {
 
   it("模型给出未知枚举时会归一化成安全默认值", async () => {
     llmMocks.invokeLLM.mockResolvedValueOnce(
-      makeLLMResponse(JSON.stringify({
-        purpose: "go_viral",
-        audience: "everyone",
-        platform: "myspace",
-        desiredEffect: "",
-        tone: "",
-        confidence: 9,
-        evidence: ["随便写的"],
-        missingQuestion: "",
-      })),
+      makeLLMResponse(
+        JSON.stringify({
+          purpose: "go_viral",
+          audience: "everyone",
+          platform: "myspace",
+          desiredEffect: "",
+          tone: "",
+          confidence: 9,
+          evidence: ["随便写的"],
+          missingQuestion: "",
+        })
+      )
     );
 
     const result = await recognizeStoryIntent({
@@ -143,16 +152,18 @@ describe("recognizeStoryIntent", () => {
 
   it("模型误判时也把“写一个……故事”的入口守回 fiction", async () => {
     llmMocks.invokeLLM.mockResolvedValueOnce(
-      makeLLMResponse(JSON.stringify({
-        purpose: "exploration",
-        audience: "unknown",
-        platform: "unknown",
-        desiredEffect: "继续追问用户想给谁看",
-        tone: "开放追问",
-        confidence: 0.91,
-        evidence: ["模型误判为不确定"],
-        missingQuestion: "这个短片最后主要给谁看？",
-      })),
+      makeLLMResponse(
+        JSON.stringify({
+          purpose: "exploration",
+          audience: "unknown",
+          platform: "unknown",
+          desiredEffect: "继续追问用户想给谁看",
+          tone: "开放追问",
+          confidence: 0.91,
+          evidence: ["模型误判为不确定"],
+          missingQuestion: "这个短片最后主要给谁看？",
+        })
+      )
     );
 
     const result = await recognizeStoryIntent({
@@ -183,11 +194,21 @@ describe("recognizeStoryIntent", () => {
   it.each([
     {
       message: "我想记录这段旅行，以后留给自己回看",
-      purpose: "personal_memory",
+      purpose: "raw_record",
+      audience: "self",
+    },
+    {
+      message: "我想把这段经历讲给自己，看看自己的选择怎么变了",
+      purpose: "self_reflection",
       audience: "self",
     },
     {
       message: "我是妈妈，想把这件事编成睡前故事讲给孩子",
+      purpose: "gift",
+      audience: "specific_person",
+    },
+    {
+      message: "我想把这段故事做成礼物送给我的朋友",
       purpose: "gift",
       audience: "specific_person",
     },
@@ -201,16 +222,15 @@ describe("recognizeStoryIntent", () => {
       purpose: "portfolio",
       audience: "public",
     },
-  ])("未配置 API 时把四方向细分识别为 $purpose", async ({
-    message,
-    purpose,
-    audience,
-  }) => {
-    envMock.ENV.forgeApiKey = undefined;
+  ])(
+    "未配置 API 时把四种讲述方向细分识别为 $purpose",
+    async ({ message, purpose, audience }) => {
+      envMock.ENV.forgeApiKey = undefined;
 
-    const result = await recognizeStoryIntent({ message });
+      const result = await recognizeStoryIntent({ message });
 
-    expect(result.purpose).toBe(purpose);
-    expect(result.audience).toBe(audience);
-  });
+      expect(result.purpose).toBe(purpose);
+      expect(result.audience).toBe(audience);
+    }
+  );
 });

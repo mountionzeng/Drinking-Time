@@ -120,8 +120,39 @@ export function buildConfirmedIntentLine(
           "不要使用求职、简历、JD、招聘者或个人优势证明话术",
         ]
       : [];
+  const reflectionDetails =
+    confirmedIntent.purpose === "self_reflection"
+      ? [
+          "剧本服务用户理解自己，不按外部观众的说服效率包装",
+          "优先保留选择、变化、矛盾和还没想明白的部分，允许开放结尾",
+        ]
+      : [];
+  const recordDetails =
+    confirmedIntent.purpose === "raw_record"
+      ? [
+          "先忠实保存事实、原话、动作、时间顺序和感官细节",
+          "不要强行制造冲突、人物弧线、意义升华或完整结论",
+        ]
+      : [];
+  const otherAudienceDetails =
+    confirmedIntent.purpose === "portfolio"
+      ? [
+          "这是介绍自己：用真实经历让观众理解这个人是谁、在意什么、做过什么",
+          "不要写成履历朗读，也不要默认是求职片",
+        ]
+      : confirmedIntent.purpose === "gift"
+        ? [
+            "这是给亲友的礼物：保留双方关系里的专属称呼、事件和私人细节",
+            "情感要真诚克制，不要写成面向大众的泛化鸡汤",
+          ]
+        : confirmedIntent.purpose === "social_post"
+          ? [
+              "这是社交平台发布：开头尽快建立观看理由，表达清楚、适合公开传播",
+              "保留个人痕迹，但避免只有当事人才懂的上下文",
+            ]
+          : [];
 
-  return `【用户已确认意图】用途=${confirmedIntent.purpose}；给谁看=${confirmedIntent.audience}；平台=${confirmedIntent.platform}；调性=${cleanIntentText(confirmedIntent.tone)}${desiredEffect ? `；想要的效果=${desiredEffect}` : ""}${jobDetails.length ? `；${jobDetails.join("；")}` : ""}${fictionDetails.length ? `；${fictionDetails.join("；")}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`;
+  return `【用户已确认意图】用途=${confirmedIntent.purpose}；给谁看=${confirmedIntent.audience}；平台=${confirmedIntent.platform}；调性=${cleanIntentText(confirmedIntent.tone)}${desiredEffect ? `；想要的效果=${desiredEffect}` : ""}${jobDetails.length ? `；${jobDetails.join("；")}` : ""}${fictionDetails.length ? `；${fictionDetails.join("；")}` : ""}${reflectionDetails.length ? `；${reflectionDetails.join("；")}` : ""}${recordDetails.length ? `；${recordDetails.join("；")}` : ""}${otherAudienceDetails.length ? `；${otherAudienceDetails.join("；")}` : ""}。剧本的叙事方式、节奏、精致度都严格贴合这个意图。`;
 }
 
 function mobileShotNo(value: string | null): number | undefined {
@@ -356,7 +387,11 @@ export function storyShotToDbRow(params: {
     userId,
     sceneNo,
     shotNo,
-    sourceSummary: [shot.sceneTitle, shot.beat, shot.sourceCardContent || shot.subject]
+    sourceSummary: [
+      shot.sceneTitle,
+      shot.beat,
+      shot.sourceCardContent || shot.subject,
+    ]
       .filter(Boolean)
       .join(" · "),
     intentType: "director_note" as const,
@@ -380,8 +415,7 @@ export function storyShotToDbRow(params: {
     colorPalette:
       [shot.sceneArtBrief, shot.styleRef, shot.visualAnchorText]
         .filter(Boolean)
-        .join(" / ") ||
-      null,
+        .join(" / ") || null,
     promptDraft:
       shot.promptDraft ||
       [
