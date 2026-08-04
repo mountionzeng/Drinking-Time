@@ -88,7 +88,7 @@ export default function MobileStoryboard() {
           <div>
             <p className="text-[15px] font-semibold">还没有故事</p>
             <p className="mt-1 text-[13px] leading-relaxed text-[var(--muted-foreground)]">
-              先和小酌聊聊你的回忆，故事会慢慢浮现。
+              先和聊聊说说你的回忆，故事会慢慢浮现。
             </p>
           </div>
           <button

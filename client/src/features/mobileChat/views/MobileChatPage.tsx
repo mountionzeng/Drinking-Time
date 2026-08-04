@@ -125,7 +125,7 @@ export default function MobileChatPage() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="dtm-title-row">
-            小酌
+            聊聊
             <span className="dtm-kicker">· DRINKING&nbsp;TIME</span>
           </div>
           <div className="dtm-subline">
@@ -187,12 +187,12 @@ export default function MobileChatPage() {
               </button>
             </div>
             <span className="text-[12px] leading-relaxed text-[var(--muted-foreground)]">
-              {photoInfo ?? "照片已添加"}，发送后小酌会基于它生成画面
+              {photoInfo ?? "照片已添加"}，发送后聊聊会基于它生成画面
             </span>
           </div>
         )}
 
-        {/* 常驻「画出来」：不等小酌主动提议，随时把当前这段对话变成一张图 */}
+        {/* 常驻「画出来」：不等聊聊主动提议，随时把当前这段对话变成一张图 */}
         {messages.some((m) => m.role === "user") && (
           <button
             type="button"

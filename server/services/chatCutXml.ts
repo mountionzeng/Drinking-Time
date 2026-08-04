@@ -826,7 +826,7 @@ export async function importChatCutXmlStory(input: {
     title,
     logline: `从 ChatCut XML 导入：${durationSec} 秒，${plan.width}×${plan.height}@${plan.fps}fps，${summary.primaryClipCount} 个主轨镜头。`,
     theme: "ChatCut XML 导入",
-    arc: "保留原工程时间轴，可在小酌继续剪辑",
+    arc: "保留原工程时间轴，可在聊聊继续剪辑",
     summary: `多轨、入出点、缩放、裁剪、变速和音频清单已保留；${summary.mediaFileCount} 个素材文件待重新关联。`,
     body: payload.body,
   });

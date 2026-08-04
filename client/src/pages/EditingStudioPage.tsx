@@ -1,6 +1,6 @@
 /**
  * EditingStudioPage — 剪辑工作室（聊天驱动剪辑，ChatCut 式交互）。
- * 左：小酌创作对话（StoryAgentChat；未打开故事时显示故事列表）
+ * 左：聊聊创作对话（StoryAgentChat；未打开故事时显示故事列表）
  * 右：故事版镜头 + 动态预览 + 多轨时间轴（共享同一套镜头数据）
  * 复用工作区同一套 Provider 栈与面板组件，只是一个专注剪辑的组合视图。
  */
@@ -48,27 +48,31 @@ import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
 import { editingCapabilityReply } from "@shared/editingActionCapabilities";
 import { normalizeEmotionAnalysisProfile } from "@/features/analysis/emotionAnalysis";
+import { publicDailyLetterForDate } from "@/features/analysis/publicDailyLetter";
 import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useNayin } from "@/features/nayin/NayinContext";
 
 function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
+  const { user } = useAuth();
+  const { today } = useNayin();
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
+    enabled: Boolean(user?.id),
     retry: false,
   });
   const profile = normalizeEmotionAnalysisProfile(profileQuery.data, "server");
-  if (!profile) return null;
-
-  const attention =
-    profile.dailyReference.avoid || profile.dailyReference.summary;
+  const publicLetter = publicDailyLetterForDate(today.cstDateStr);
+  const attention = profile?.dailyReference.mindset || publicLetter.attention;
   if (!attention) return null;
 
   return (
     <div
       className="relative z-10 flex h-9 shrink-0 items-center gap-2 border-b border-border/70 bg-background/90 px-4 text-xs backdrop-blur"
-      aria-label="今天留意"
+      aria-label="今日来信"
     >
       <Info className="h-3.5 w-3.5 shrink-0 text-nayin" />
       <span className="font-chat-brand shrink-0 text-sm text-foreground">
-        今天留意
+        今日来信
       </span>
       <span
         className="min-w-0 truncate text-muted-foreground"
@@ -82,7 +86,7 @@ function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
         className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-[11px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <BookOpen className="h-3.5 w-3.5" />
-        回信
+        读信
       </button>
     </div>
   );
@@ -158,7 +162,7 @@ function EditingStudioBody({
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
       <div className="flex h-full min-h-0">
-        {/* 左：小酌创作对话（与工作区同一折叠交互） */}
+        {/* 左：聊聊创作对话（与工作区同一折叠交互） */}
         <div
           className="relative h-full shrink-0 overflow-hidden border-r transition-[width] duration-200"
           style={{
@@ -219,8 +223,8 @@ function EditingStudioBody({
               type="button"
               onClick={() => setChatCollapsed(value => !value)}
               className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-              aria-label={chatCollapsed ? "展开小酌" : "折叠小酌"}
-              title={chatCollapsed ? "展开小酌" : "折叠小酌"}
+              aria-label={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
+              title={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
             >
               {chatCollapsed ? (
                 <PanelLeftOpen className="h-4 w-4" />
@@ -271,7 +275,7 @@ function EditingStudioBody({
               aria-label="未选择故事"
             >
               从左侧打开一个故事，预览播放器和时间轴会显示在这里；
-              直接在对话里说想怎么剪，小酌会帮你动手。
+              直接在对话里说想怎么剪，聊聊会帮你动手。
             </div>
           )}
         </div>
@@ -291,7 +295,7 @@ export default function EditingStudioPage() {
   const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
-  // 没接住（不是剪辑意图）返回 null，小酌照常聊故事。
+  // 没接住（不是剪辑意图）返回 null，聊聊照常聊故事。
   const runEditingCommand = useCallback(
     async (
       instruction: string,

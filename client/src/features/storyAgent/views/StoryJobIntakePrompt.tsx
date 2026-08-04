@@ -193,7 +193,7 @@ export default function StoryJobIntakePrompt() {
         ) : (
           <div className="flex flex-col gap-2">
             <p>
-              接下来你可以直接把 JD 或简历贴过来。小酌会先站在招聘者视角看：岗位要什么、你简历里哪些经历能证明、还缺哪几个关键问题。
+              接下来你可以直接把 JD 或简历贴过来。聊聊会先站在招聘者视角看：岗位要什么、你简历里哪些经历能证明、还缺哪几个关键问题。
             </p>
             <div className="flex flex-wrap gap-1.5">
               <button

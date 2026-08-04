@@ -360,7 +360,7 @@ describe("replyFromCreationAgent image actions", () => {
     );
   });
 
-  it("分析焦点图片并由小酌汇总可执行的视觉信息", async () => {
+  it("分析焦点图片并由聊聊汇总可执行的视觉信息", async () => {
     mocks.runJsonAgent.mockResolvedValue({
       parsed: {
         reply: "我先看一下这张图。",

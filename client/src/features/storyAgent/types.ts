@@ -86,7 +86,7 @@ export interface ChatMessage {
   promptCandidate?: PromptCandidateReference;
   /** 对当前镜头图片要求完成确认后，直接回到既有四图重渲链路。 */
   imageRerenderAction?: StoryboardImageRerenderActionReference;
-  /** 小酌提出的付费镜头衔接；只有卡片上的确认按钮会提交 302。 */
+  /** 聊聊提出的付费镜头衔接；只有卡片上的确认按钮会提交 302。 */
   editingTransitionCandidate?: EditingTransitionCandidateReference;
 }
 
@@ -534,13 +534,20 @@ export function normalizeChatMessages(
 export const FIRST_QUESTION =
   "今天有没有一件很小的事，在你心里留下了一点感觉？不用重要，随便说。";
 
+export const ASSISTANT_DISPLAY_NAME = "聊聊";
+const LEGACY_ASSISTANT_NAME = "小酌";
+
+export function displayAssistantName(content: string): string {
+  return content.split(LEGACY_ASSISTANT_NAME).join(ASSISTANT_DISPLAY_NAME);
+}
+
 // 桌面端开场「报到 + 人格 + 定位」preamble（U4 / D4：前缀策略，不改 FIRST_QUESTION 文本）。
 // 一句话点到「朋友 + 助手」身份，落点交给 FIRST_QUESTION 的邀请。
 // 精简自原三句版：删掉与 FIRST_QUESTION 重复的「随口说 / 不用大事」，收到约 1/3，避免开场啰嗦（AE1 实测反馈）。
-// 硬约束：保留「你好，我是小酌 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
+// 硬约束：保留「你好，我是聊聊 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
 // 不含「收集 / 采样」字样；不含「永久 / 永远记得 / 都会记住」式永久记忆承诺（R6/R13）。
 export const OPENING_PREAMBLE =
-  "你好，我是小酌——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。";
+  `你好，我是${ASSISTANT_DISPLAY_NAME}——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。`;
 
 // emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
 export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;
@@ -556,7 +563,8 @@ export function isOpeningChatMessage(
   return (
     message.id === "first-question" ||
     content === compactMessageText(OPENING_MESSAGE) ||
-    (content.includes("你好，我是小酌") &&
+    ((content.includes(`你好，我是${ASSISTANT_DISPLAY_NAME}`) ||
+      content.includes(`你好，我是${LEGACY_ASSISTANT_NAME}`)) &&
       content.includes("今天有没有一件很小的事"))
   );
 }
@@ -609,7 +617,7 @@ export function shouldShowReturningGreeting(
 }
 
 // ── 第二步：召回 + 记忆承诺 ──
-// 老用户从「入口选择屏」点回一篇旧故事时，小酌说的「我还记得上次……」再问候。
+// 老用户从「入口选择屏」点回一篇旧故事时，聊聊说的「我还记得上次……」再问候。
 // 这是「记忆承诺」体验的核心一句：用真实留存的内容（logline / 最近一张卡片 / 标题）
 // 证明「我记着」，把人温柔地接回这篇，邀请往下说。
 //

@@ -76,9 +76,9 @@ describe("AnimaticPlayer selection actions", () => {
       />
     );
 
-    expect(html).toContain("框选问小酌");
+    expect(html).toContain("框选问聊聊");
     expect(html).toContain("拖动入点/出点框选一段");
-    expect(html).toContain("发送给小酌");
+    expect(html).toContain("发送给聊聊");
   });
 
   it("keeps the image region entry enabled for legacy URL-only current frames", () => {
@@ -112,7 +112,7 @@ describe("AnimaticPlayer selection actions", () => {
       />
     );
 
-    expect(buttonHtmlAround(html, "框选问小酌")).not.toMatch(
+    expect(buttonHtmlAround(html, "框选问聊聊")).not.toMatch(
       /\sdisabled(=|\s|>)/
     );
   });

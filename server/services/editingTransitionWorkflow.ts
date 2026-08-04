@@ -184,7 +184,7 @@ function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
     candidate.cutAtSec !== 1.4 ||
     candidate.estimatedCredits !== 10
   ) {
-    throw new Error("衔接参数已经变化，请让小酌重新生成确认卡");
+    throw new Error("衔接参数已经变化，请让聊聊重新生成确认卡");
   }
   if (
     !candidate.candidateId.startsWith("transition-") ||
@@ -259,7 +259,7 @@ async function validateBeforePaidSubmission(
   const material = await getStoryMaterialState(candidate.storyId, userId);
   if (!material) throw new Error("故事不存在或无权操作");
   if (material.timeline.version !== candidate.expectedTimelineVersion) {
-    throw new Error("时间轴已经更新，请让小酌重新确认衔接位置");
+    throw new Error("时间轴已经更新，请让聊聊重新确认衔接位置");
   }
   if (
     !adjacentIncludedPair(
@@ -320,7 +320,7 @@ async function validateBeforePaidSubmission(
     !endpointStillCurrent(candidate.source, canonicalSource) ||
     !endpointStillCurrent(candidate.target, canonicalTarget)
   ) {
-    throw new Error("首帧或尾帧已经更换，请让小酌重新生成确认卡");
+    throw new Error("首帧或尾帧已经更换，请让聊聊重新生成确认卡");
   }
   return {
     ...candidate,
@@ -735,7 +735,7 @@ function insertedTransitionShot(params: {
     mood: inherited("mood"),
     sound: inherited("sound"),
     styleRef: inherited("styleRef"),
-    note: "由小酌创作对话确认后生成并插入",
+    note: "由聊聊创作对话确认后生成并插入",
     emotion: inherited("emotion"),
     sourceCardContent: inherited("sourceCardContent"),
     intent: "连接相邻镜头，同时保持人物、场景和画风连续",

@@ -10,7 +10,7 @@ export type EditingActionCapability = {
  * 剪辑工作台的聊天能力契约。
  *
  * 右侧新增可编辑动作时，应在这里登记，并为聊天执行层补上同等能力。
- * 这份清单同时用于对话里的能力说明，避免小酌声称自己做了尚未接通的操作。
+ * 这份清单同时用于对话里的能力说明，避免聊聊声称自己做了尚未接通的操作。
  */
 export const EDITING_ACTION_CAPABILITIES = [
   {

@@ -478,7 +478,7 @@ export const creationAgentRouter = router({
         }
       }
 
-      // buildShotList：小酌请求铺整张镜头表 → 用现成 synthesizeShotList 合成、
+      // buildShotList：聊聊请求铺整张镜头表 → 用现成 synthesizeShotList 合成、
       // 按 goal 注入求职等目标、写到当前故事（按 storyId 归属，story 已验归属）。
       let builtShotCount = 0;
       if (result.shotBuild && story && input.storyId) {
@@ -1146,7 +1146,7 @@ export const creationAgentRouter = router({
 
   /**
    * 剪辑指令（对话驱动剪辑）：自然语言 → 时间轴操作（移动/删除/恢复/时长/重排）。
-   * 不是剪辑意图时返回 handled=false，由调用方放行回普通小酌聊天。
+   * 不是剪辑意图时返回 handled=false，由调用方放行回普通聊聊聊天。
    */
   timelineEditCommand: protectedProcedure
     .input(

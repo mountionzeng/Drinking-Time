@@ -92,7 +92,7 @@ interface MobileChatContextValue {
   sendMessage: (text: string, photoBase64?: string, photoMimeType?: string) => Promise<void>;
   // 用户确认出图
   confirmGenerate: (messageId: string) => Promise<void>;
-  // 手动「画出来」：不依赖小酌主动提议，把当前这段对话现编 prompt 生成一张图
+  // 手动「画出来」：不依赖聊聊主动提议，把当前这段对话现编 prompt 生成一张图
   generateNow: () => Promise<void>;
   /** 确认草稿小样 → MJ 出正式版替换 */
   confirmFinal: (imageId: number) => Promise<void>;
@@ -617,7 +617,7 @@ export function MobileChatProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  // 手动「画出来」：不依赖小酌主动提议，用户随时把当前这段对话变成一张图。
+  // 手动「画出来」：不依赖聊聊主动提议，用户随时把当前这段对话变成一张图。
   // 没有 agent 给的 imagePrompt，让服务端从最近对话现编（generateForMobile 不传 prompt）。
   const generateNow = useCallback(async () => {
     if (isGenerating || isReplying) return;

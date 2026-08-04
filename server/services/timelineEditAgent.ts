@@ -8,7 +8,7 @@
  * - 能落库的操作仍只有四类：move / remove / restore / setDuration（+整轴 reorder）。
  * - 两个相邻镜头的衔接/转场先返回带首尾帧的确认提案，不在这里调用视频模型，
  *   也不提前修改时间轴；付费生成和插入由调用方在用户确认后执行。
- * - 指令不是剪辑意图时返回 handled=false，调用方放行回普通小酌聊天。
+ * - 指令不是剪辑意图时返回 handled=false，调用方放行回普通聊聊聊天。
  */
 import { createHash } from "node:crypto";
 import { getStoryById, updateStoryTimeline } from "../db";

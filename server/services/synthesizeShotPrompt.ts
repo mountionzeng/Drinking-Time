@@ -43,7 +43,7 @@ export async function synthesizeShotPrompt(input: SynthesizeInput): Promise<stri
 
   // 构建 system prompt：引导 LLM 理解镜头意图
   const systemParts: string[] = [
-    "你是小酌的「画面翻译师」。你的任务是理解一个镜头的叙事意图，然后把它写成一条英文出图 prompt。",
+    "你是聊聊的「画面翻译师」。你的任务是理解一个镜头的叙事意图，然后把它写成一条英文出图 prompt。",
     "",
     "你不是在拼凑字段。你是在理解：",
     "- 这个镜头在故事里要交代什么？（情节节点、角色状态、情绪转折）",

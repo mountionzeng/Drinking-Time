@@ -378,7 +378,7 @@ export default function ShotImageWorkspace({
                           <TooltipContent>设为镜头主图</TooltipContent>
                         </Tooltip>
                       ) : null}
-                      {/* 改这张（R6/F2）：在已收下的关键帧上整图微调，走小酌对话的 reviseImage 路径 */}
+                      {/* 改这张（R6/F2）：在已收下的关键帧上整图微调，走聊聊对话的 reviseImage 路径 */}
                       {previewAsset.isPrimary && previewAsset.availability !== 'missing' ? (
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -461,7 +461,7 @@ export default function ShotImageWorkspace({
                   onClick={() => window.dispatchEvent(new Event('dt:open-creation-chat'))}
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  让小酌生成
+                  让聊聊生成
                 </Button>
               )}
             </div>

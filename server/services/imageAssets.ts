@@ -321,7 +321,7 @@ export async function getProjectImageAssets(
 }
 
 // 按当前故事取图片资产（故事为唯一单位）：每个故事的图片独立，故事间不共享。
-// 显示层（Creation 镜头图片工作区 / 小酌看到的图片）用这个；带 userId 验归属。
+// 显示层（Creation 镜头图片工作区 / 聊聊看到的图片）用这个；带 userId 验归属。
 export async function getStoryImageAssets(
   storyId: number,
   userId: number

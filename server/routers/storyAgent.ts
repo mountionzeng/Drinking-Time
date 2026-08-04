@@ -513,7 +513,7 @@ export const storyAgentRouter = router({
     }),
 
   /**
-   * ChatCut XML → 独立小酌故事。主剪辑轨转换为线性镜头时间轴，
+   * ChatCut XML → 独立聊聊故事。主剪辑轨转换为线性镜头时间轴，
    * 多轨、音频、入出点、变换与变速保存在故事导入清单里，供后续重关联。
    */
   importChatCutXml: protectedProcedure

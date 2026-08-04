@@ -3,8 +3,8 @@
  */
 export type { ImageAsset } from '@shared/imageAsset';
 
-// 创作页开场：小酌同人格，但不含粘性开场（报到/回归问候只属于故事页）。
-// 简洁邀请，不冒出「你好，我是小酌」「我还记得上次……」。
+// 创作页开场：聊聊同人格，但不含粘性开场（报到/回归问候只属于故事页）。
+// 简洁邀请，不冒出「你好，我是聊聊」「我还记得上次……」。
 export const CREATION_GREETING =
   "选个镜头聊聊画面，或者直接告诉我你想从哪里开始。";
 
@@ -20,7 +20,7 @@ export type ChatMessage = {
     shotNo: string;
     imageId: number;
   } | null;
-  /** 小酌建议的提示词修改 */
+  /** 聊聊建议的提示词修改 */
   promptUpdate?: {
     shotNo: string;
     promptDraft: string;

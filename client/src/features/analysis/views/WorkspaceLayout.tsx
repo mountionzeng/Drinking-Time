@@ -101,8 +101,8 @@ export default function WorkspaceLayout({
                 type="button"
                 onClick={() => setChatCollapsed(value => !value)}
                 className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:text-foreground"
-                aria-label={chatCollapsed ? "展开小酌" : "折叠小酌"}
-                title={chatCollapsed ? "展开小酌" : "折叠小酌"}
+                aria-label={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
+                title={chatCollapsed ? "展开聊聊" : "折叠聊聊"}
               >
                 {chatCollapsed ? (
                   <PanelLeftOpen className="h-4 w-4" />
