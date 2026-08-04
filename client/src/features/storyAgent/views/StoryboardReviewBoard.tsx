@@ -113,7 +113,7 @@ import {
 import { buildStoryboardTimingRows } from "../storyboardTiming";
 import {
   StoryboardMatrixFieldCell,
-  STORYBOARD_MATRIX_ROWS,
+  STORYBOARD_MATRIX_VISIBLE_ROWS,
   storyboardMatrixSwapPlan,
   type StoryboardMatrixField,
   type StoryboardMatrixRow,
@@ -3645,7 +3645,7 @@ export function StoryboardReviewBoard({
                   );
                 })}
 
-                {STORYBOARD_MATRIX_ROWS.map(row => (
+                {STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => (
                   <Fragment key={row.field}>
                     <div
                       role="rowheader"
@@ -3656,7 +3656,12 @@ export function StoryboardReviewBoard({
                         background: "var(--background)",
                       }}
                     >
-                      {row.label}
+                      <span className="block">{row.label}</span>
+                      {row.description ? (
+                        <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
+                          {row.description}
+                        </span>
+                      ) : null}
                     </div>
                     {shots.map((shot, index) => {
                       const selected = selectedShotNo === shot.shotNo;

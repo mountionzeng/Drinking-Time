@@ -10,6 +10,7 @@ import type {
 import {
   StoryboardVideoThumbnail,
   STORYBOARD_MATRIX_ROWS,
+  STORYBOARD_MATRIX_VISIBLE_ROWS,
   storyboardMatrixSwapPlan,
   storyboardMatrixTextareaHeight,
   storyboardPreviewVideoTake,
@@ -285,6 +286,14 @@ describe("StoryCardsBoard intent entry", () => {
       "transitionOut",
       "promptDraft",
       "videoPrompt",
+    ]);
+    expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.field)).toEqual([
+      "promptDraft",
+      "videoPrompt",
+    ]);
+    expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.description)).toEqual([
+      "主体 · 画面动作 · 构图",
+      "旁白 · 表演 · 运镜 · 声音 · 衔接",
     ]);
   });
 
@@ -1441,7 +1450,7 @@ describe("StoryCardsBoard intent entry", () => {
     expect(panelSource).toContain(
       "onRemoveTimelineVideoClip={removeTimelineVideoClip}"
     );
-    expect(boardSource).toContain("STORYBOARD_MATRIX_ROWS");
+    expect(boardSource).toContain("STORYBOARD_MATRIX_VISIBLE_ROWS");
     expect(boardSource).toContain("gridTemplateColumns");
     expect(boardSource).not.toContain('gridColumn: "2 / -1"');
     expect(boardSource).not.toContain('displayMode="matrix"');
