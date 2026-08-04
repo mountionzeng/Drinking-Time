@@ -1,6 +1,11 @@
 # Drinking Time 阿里云 ECS 初始部署 Runbook
 
-这份手册给岱岱在服务器上执行。Codex 不登录 ECS、不代填密钥、不替你跑 root 命令。
+授权边界（2026-08-05 起）：**常规代码更新**（拉最新 `main`、构建、`pm2 restart`）可以由 agent 直接在 ECS 上执行，不需要岱岱每次在场跑命令。这条边界收窄到：
+
+- **agent 可以做**：`git pull`、装依赖、构建、`pm2 restart`/`reload` 已有应用、只读排查。
+- **仍然需要岱岱本人**：改安全组、动密钥/`.env` 里的密钥字段、数据库结构变更（迁移、建表）、域名/ICP 切换、新增 swap 或改系统级资源配置、任何 `rm -rf`/删数据类操作。这几类出错代价和"重新部署一次"不是一个量级，出错前必须有人确认。
+
+如果 agent 在排查中判断需要动上面第二类操作，要先停下来跟岱岱说清楚"为什么需要"，不能自己决定做。
 
 目标分两段：
 
@@ -73,7 +78,60 @@ git push origin main
 
 如果你已经手动完成，就跳过。部署脚本只会在服务器上拉 `main`。
 
-## 2. 阿里云安全组
+## 2. 常规更新部署（agent 可直接执行；无数据库结构变更时用这条）
+
+前提：`main` 已经推送到 GitHub，且这次改动不涉及数据库结构、密钥、安全组、域名。
+
+```bash
+ssh root@8.160.186.193
+cd /opt/Drinking-Time
+git fetch origin main
+git checkout main
+git pull --ff-only origin main
+```
+
+如果服务器内存充足（`free -h` 里 available 明显大于 1GB），可以直接在服务器上构建：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run build
+pm2 restart drinking-time --update-env
+```
+
+**这台 ECS 只有 1.8GB 内存、没有 swap**，`vite build` 处理 2000+ 模块时经常被 OOM killer 杀掉（`exit code 137`）。遇到这个信号，不要在服务器上加 swap 或改内存配置去硬扛——那属于系统级资源变更，需要岱岱本人决定。改用本地构建、只传构建产物这条路：
+
+```bash
+# 本地（不是服务器）：checkout 到跟服务器完全相同的 commit 再构建
+cd /path/to/drinking-time-local
+git fetch origin main && git checkout main && git pull --ff-only origin main
+# 构建前核对一次：本地 .env 里的 VITE_ 开头变量要跟服务器 .env 一致（否则会把错的公开配置打进客户端包）
+grep -E "^VITE_" .env
+ssh root@8.160.186.193 'cd /opt/Drinking-Time && grep -E "^VITE_" .env'
+NODE_ENV=production pnpm run build
+
+# 传到服务器的临时目录，不要直接覆盖正在跑的 dist/
+rsync -az --delete dist/ root@8.160.186.193:/opt/Drinking-Time/dist.new/
+
+# 服务器上原子切换 + 重启
+ssh root@8.160.186.193 '
+  cd /opt/Drinking-Time &&
+  mv dist "dist.bak-$(date +%Y%m%d-%H%M%S)" &&
+  mv dist.new dist &&
+  pm2 restart drinking-time --update-env
+'
+```
+
+部署后验收（两条路径都要做）：
+
+```bash
+curl -fsS http://127.0.0.1:3000/healthz
+pm2 logs drinking-time --lines 30 --nostream
+curl -fsS http://8.160.186.193/login | head -c 200   # 或已切到 HTTPS 后用 https://www.drinkingtime.top/login
+```
+
+`dist.bak-*` 留着，确认线上没问题后再手动清理，不要在部署脚本里自动删——保留一次立即可用的回滚点。
+
+## 3. 阿里云安全组
 
 安全组放行：
 
@@ -82,7 +140,7 @@ git push origin main
 
 不要把 `3000` 放给公网。Node 只监听给 nginx 反代用，公网入口是 `80`，备案后是 `443`。
 
-## 3. 第一次上传 / 拉取部署脚本
+## 4. 第一次上传 / 拉取部署脚本
 
 如果服务器还没有仓库，先用下面任一方式让服务器拿到脚本。
 
@@ -104,7 +162,7 @@ sudo git checkout main
 sudo git pull --ff-only origin main
 ```
 
-## 4. 先演练初始部署
+## 5. 先演练初始部署
 
 演练模式不会安装包、不会写 nginx、不会启动 PM2、不会改数据库。
 
@@ -115,7 +173,7 @@ sudo DRY_RUN=1 bash scripts/deploy-initial-aliyun.sh
 
 看输出是否符合预期：目录是 `/opt/Drinking-Time`，端口是 `3000`，nginx 配置是 `/etc/nginx/conf.d/drinking-time.conf`，PM2 应用名是 `drinking-time`。
 
-## 5. 生成 .env 模板
+## 6. 生成 .env 模板
 
 真实部署脚本会自动创建 `/opt/Drinking-Time/.env` 模板。如果还没创建，先真实跑一次脚本，它会装基础依赖、拉代码、创建模板，然后在 `.env` 未填完整处停下：
 
@@ -171,7 +229,7 @@ HUANGLI_API_KEY=
 - 备案前 `APP_ORIGIN` 和 `OAUTH_SERVER_URL` 都用 `http://8.160.186.193`。
 - 登录隔离还没准备好时，保持 `DISABLE_AUTH=true`。
 
-## 6. 正式跑初始部署
+## 7. 正式跑初始部署
 
 如果 MySQL root 没有密码：
 
@@ -200,7 +258,7 @@ sudo -E MYSQL_ROOT_PASSWORD='<只在你的终端里输入，不要贴给 agent>'
 9. 写入 IP HTTP 版 nginx 配置。
 10. 检查 `/healthz`。
 
-## 7. 可选：导入旧 local-persist 数据
+## 8. 可选：导入旧 local-persist 数据
 
 如果要把本地 `.webdev/local-persist.json` 搬到生产 MySQL：
 
@@ -235,7 +293,7 @@ cd /opt/Drinking-Time
 sudo -E IMPORT_LOCAL_PERSIST=1 LOCAL_PERSIST_PATH=/opt/Drinking-Time/.webdev/local-persist.json bash scripts/deploy-initial-aliyun.sh
 ```
 
-## 8. 初始部署验收
+## 9. 初始部署验收
 
 在服务器上：
 
@@ -253,7 +311,7 @@ nginx -t
 http://8.160.186.193/
 ```
 
-## 9. MySQL 备份
+## 10. MySQL 备份
 
 手动跑一次备份：
 
@@ -282,7 +340,7 @@ sudo crontab -e
 0 3 * * * cd /opt/Drinking-Time && bash scripts/backup-mysql.sh >> /opt/Drinking-Time/backups/backup.log 2>&1
 ```
 
-## 10. ICP 备案通过后的域名切换
+## 11. ICP 备案通过后的域名切换
 
 前置：
 
@@ -312,7 +370,7 @@ cd /opt/Drinking-Time
 sudo ENABLE_AUTH=1 bash scripts/switch-www-drinkingtime-after-icp.sh
 ```
 
-## 11. 回滚
+## 12. 回滚
 
 ### 回滚应用代码
 
@@ -376,7 +434,7 @@ sudo ls -lh /opt/Drinking-Time/backups
 
 恢复前请先另存当前库；不要直接覆盖生产数据。需要恢复时，把具体备份文件和当前情况交给复核 agent 再操作。
 
-## 12. 常见问题
+## 13. 常见问题
 
 ### 脚本停在 `.env 还没填完整`
 
