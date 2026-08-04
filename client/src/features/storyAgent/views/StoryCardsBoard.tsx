@@ -42,7 +42,7 @@ import {
   buildMobileStoryboardScenes,
   parseShotNo,
   type GeneratedImageItem,
-} from "@/features/mobileChat/types";
+} from "@/features/storyAgent/storyTypes";
 import StoryCardsGraph from "./StoryCardsGraph";
 import {
   artChoiceKey,

@@ -30,7 +30,7 @@ import {
   type VisualCanvasItem,
 } from "./types";
 import { buildStoryChatSummary } from "./chatStoryContext";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 // 拆「大脑」：以下逻辑已搬到独立文件，这里改为引入（逻辑完全不变）。
 import { getSimilarCards } from "./storyCardSimilarity";
 import { removeStoryCardFromSnapshot } from "./storyCardDeletion";

@@ -23,7 +23,7 @@ import {
   normalizeStoryArtDirection,
   type StoryArtDirection,
 } from '@shared/artDirection';
-import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import type { GeneratedImageItem } from '@/features/storyAgent/storyTypes';
 import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
 
 // 一个故事在 localStorage 里持久化的完整形状。

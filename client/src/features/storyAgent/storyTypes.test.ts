@@ -11,7 +11,7 @@ import {
   serializeMobileMessages,
   type GeneratedImageItem,
   type MobileChatMessage,
-} from "./types";
+} from "./storyTypes";
 
 describe("mobileChat story body helpers", () => {
   it("序列化消息时保留桌面端可读取的 role/content/timestamp", () => {

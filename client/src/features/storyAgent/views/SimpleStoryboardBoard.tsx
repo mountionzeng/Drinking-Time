@@ -23,7 +23,7 @@ import {
 } from "@/features/creationEditor/videoClipEditorModel";
 import { videoTakeFrameUrl } from "@/features/creationEditor/videoAssetViewModel";
 import type { StoryShot } from "@/features/storyAgent/types";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import { displayShotCode } from "@shared/shotIdentity";
 
 import { shortText, storyShotInsertIdentity } from "./storyboardReviewModel";

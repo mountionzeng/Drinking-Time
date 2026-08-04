@@ -3,7 +3,7 @@ import { ImagePlus, Loader2, Star, Trash2 } from "lucide-react";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useCardReferenceDockSlice } from "@/features/storyAgent/spine/selectors";
 import type { VisualCanvasItem } from "@/features/storyAgent/types";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import { StoryboardMediaPreviewDialog } from "./StoryboardMediaPreview";
 
 export function CardReferenceDock({

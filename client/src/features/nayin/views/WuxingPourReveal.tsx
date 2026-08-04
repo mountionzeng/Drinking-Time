@@ -452,7 +452,9 @@ type PourTriggerProps = {
   element: NayinElement;
   open: boolean;
   onToggle: () => void;
-  size: number;
+  /** 不传就撑满外层容器，交给父级用百分比控制，便于随视口缩放 */
+  size?: number;
+  className?: string;
   contentId: string;
 };
 
@@ -465,6 +467,7 @@ export function WuxingPourTrigger({
   open,
   onToggle,
   size,
+  className = "",
   contentId,
 }: PourTriggerProps) {
   const reduceMotion = useReducedMotion();
@@ -478,8 +481,8 @@ export function WuxingPourTrigger({
       aria-expanded={open}
       aria-controls={contentId}
       aria-label={open ? "收起介绍" : OPEN_VERB[element]}
-      className="group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      style={{ width: size, height: size }}
+      className={`group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+      style={size ? { width: size, height: size } : undefined}
     >
       <Art open={open} still={still} />
     </button>

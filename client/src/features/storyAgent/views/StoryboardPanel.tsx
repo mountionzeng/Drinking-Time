@@ -11,7 +11,7 @@ import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
 import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";

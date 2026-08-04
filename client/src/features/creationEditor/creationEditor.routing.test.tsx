@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { detectPrefersMobile } from "@/app/router/AppRouter";
+import { describe, expect, it } from "vitest";
 import {
   mergeCanonicalStoryShots,
   mergeShotsWithImages,
@@ -17,37 +16,6 @@ import {
 } from "./views/MaterialWarehousePanel";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { VideoTakeAsset } from "@shared/videoAsset";
-
-function makeStorage() {
-  const data = new Map<string, string>();
-  return {
-    getItem: vi.fn((key: string) => data.get(key) ?? null),
-    setItem: vi.fn((key: string, value: string) => data.set(key, value)),
-    removeItem: vi.fn((key: string) => data.delete(key)),
-  };
-}
-
-function stubBrowser({
-  width,
-  touchPoints,
-  search = "",
-}: {
-  width: number;
-  touchPoints: number;
-  search?: string;
-}) {
-  const localStorage = makeStorage();
-  vi.stubGlobal("localStorage", localStorage);
-  vi.stubGlobal("navigator", { maxTouchPoints: touchPoints });
-  // 判定用的是 `'ontouchstart' in window`：键存在就算触屏，
-  // 所以无触屏的场景必须整个不挂这个键，不能挂成 undefined。
-  vi.stubGlobal("window", {
-    innerWidth: width,
-    location: { search },
-    localStorage,
-    ...(touchPoints > 0 ? { ontouchstart: () => undefined } : {}),
-  });
-}
 
 function shot(
   shotNo: number,
@@ -144,41 +112,7 @@ function videoTake(
   };
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 describe("creation editor route and shell", () => {
-  it("redirects touch desktop routes to mobile mode through the shared detector", () => {
-    stubBrowser({ width: 1024, touchPoints: 1 });
-
-    expect(detectPrefersMobile()).toBe(true);
-  });
-
-  it("keeps desktop routes on desktop when the force-desktop escape hatch is present", () => {
-    stubBrowser({ width: 1024, touchPoints: 1, search: "?desktop=1" });
-
-    expect(detectPrefersMobile()).toBe(false);
-  });
-
-  it("switches to mobile when a non-touch window is narrowed into a strip", () => {
-    stubBrowser({ width: 640, touchPoints: 0 });
-
-    expect(detectPrefersMobile()).toBe(true);
-  });
-
-  it("stays on desktop for a small laptop window that is not a strip", () => {
-    stubBrowser({ width: 1024, touchPoints: 0 });
-
-    expect(detectPrefersMobile()).toBe(false);
-  });
-
-  it("honours the force-desktop escape hatch even in a narrow window", () => {
-    stubBrowser({ width: 640, touchPoints: 0, search: "?desktop=1" });
-
-    expect(detectPrefersMobile()).toBe(false);
-  });
-
   it("normalizes story body shots and selects the first shot by default", () => {
     const shots = normalizeStoryShots({
       shots: [

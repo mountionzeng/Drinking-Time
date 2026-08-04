@@ -1,5 +1,5 @@
 import type { StoryShot } from './types';
-import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import type { GeneratedImageItem } from '@/features/storyAgent/storyTypes';
 import { defaultArtRecipe, type ArtRecipeDNA } from '@shared/artDirection';
 import {
   type PromptContext,

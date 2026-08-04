@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import type {
   ChatMessage,
   GeneratedScript,

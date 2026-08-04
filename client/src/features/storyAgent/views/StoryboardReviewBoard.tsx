@@ -97,7 +97,7 @@ import {
 import { displayShotCode } from "@shared/shotIdentity";
 import type { ShotPendingCandidate } from "../shotCandidateSummary";
 import ShotCandidateBadge from "./ShotCandidateBadge";
-import type { GeneratedImageItem } from "@/features/mobileChat/types";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import type {
   ImageProvider,
   ImageProviderStatus,

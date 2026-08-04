@@ -1,6 +1,6 @@
 import { trpc } from '@/lib/trpc';
-import { parseShotNo } from '@/features/mobileChat/types';
-import type { GeneratedImageItem } from '@/features/mobileChat/types';
+import { parseShotNo } from '@/features/storyAgent/storyTypes';
+import type { GeneratedImageItem } from '@/features/storyAgent/storyTypes';
 import { useStoryGeneratedImagesSlice } from '../spine/selectors';
 
 type StoryImageAssetProjection = {

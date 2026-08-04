@@ -26,7 +26,7 @@ import { shotIdentityFromShot } from "@shared/shotIdentity";
 import {
   parseShotNo,
   type GeneratedImageItem,
-} from "@/features/mobileChat/types";
+} from "@/features/storyAgent/storyTypes";
 import { hasVideoTakeDragPayload } from "./videoTakeDrag";
 import {
   STORYBOARD_MATRIX_ROWS,

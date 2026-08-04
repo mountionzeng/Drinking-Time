@@ -46,7 +46,7 @@ export default function DailyDrinkHero({
       <div
         className={`relative flex items-center justify-center ${
           pour
-            ? "h-96 w-96 -mb-14"
+            ? "h-[17rem] w-[17rem] -mb-10 sm:h-96 sm:w-96 sm:-mb-14"
             : compact
               ? "h-24 w-24 sm:h-28 sm:w-28"
               : "h-36 w-36 sm:h-44 sm:w-44"
@@ -144,7 +144,7 @@ export default function DailyDrinkHero({
           </svg>
         ) : null}
         <motion.div
-          className={`absolute rounded-full ${pour ? "inset-[76px]" : "inset-2"}`}
+          className={`absolute rounded-full ${pour ? "inset-[19.8%]" : "inset-2"}`}
           style={{
             background:
               "radial-gradient(circle, var(--nayin-glow) 0%, transparent 68%)",
@@ -165,7 +165,11 @@ export default function DailyDrinkHero({
           />
         )}
         <motion.div
-          className="relative"
+          className={
+            pour
+              ? "absolute inset-0 flex items-center justify-center"
+              : "relative"
+          }
           style={{ willChange: "transform" }}
           animate={{ y: pour?.open ? 0 : [0, -4, 0] }}
           transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
@@ -176,7 +180,7 @@ export default function DailyDrinkHero({
               open={pour.open}
               onToggle={pour.onToggle}
               contentId={pour.contentId}
-              size={156}
+              className="h-[40.6%] w-[40.6%]"
             />
           ) : (
             <WuxingDrinkIcon
