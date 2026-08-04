@@ -256,7 +256,7 @@ export default function BirthMomentDial({
           style={{ boxShadow: "0 24px 80px -32px rgba(40, 28, 18, 0.45)" }}
         >
           <DialogHeader className="pr-8 text-left">
-            <DialogTitle className="font-chat-brand text-xl font-normal">
+            <DialogTitle className="text-xl font-medium">
               {mode === "date" ? "你的生日" : "出生时辰"}
             </DialogTitle>
             <DialogDescription className="text-xs leading-5">
@@ -293,11 +293,11 @@ export default function BirthMomentDial({
                         event.currentTarget.blur();
                       }
                     }}
-                    className="font-chat-brand h-9 w-[74px] rounded-full border bg-transparent px-2 text-center text-lg font-normal outline-none transition focus:ring-2 focus:ring-ring"
+                    className="h-9 w-[74px] rounded-full border bg-transparent px-2 text-center text-lg font-normal outline-none transition focus:ring-2 focus:ring-ring"
                     style={{ borderColor: "var(--nayin-border)" }}
                     aria-label="输入出生年份"
                   />
-                  <span className="font-chat-brand text-lg">年</span>
+                  <span className="text-lg">年</span>
                 </label>
                 <button
                   type="button"

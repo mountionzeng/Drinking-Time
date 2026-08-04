@@ -6,10 +6,12 @@ import { motion } from "framer-motion";
 import { Upload, MessageCircle } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNayin } from "@/features/nayin/NayinContext";
+import { formatTodayIdentity } from "@/features/nayin/dailyPresentation";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import { hasAuthorityBackedDetails } from "@/features/nayin/almanac";
 import DailyDrinkHero from "@/features/nayin/views/DailyDrinkHero";
 import DailyAtmospherePanel from "@/features/nayin/views/DailyAtmospherePanel";
+import { WuxingPourContent } from "@/features/nayin/views/WuxingPourReveal";
 import EmotionAnalysisInvitePanel from "@/features/analysis/views/EmotionAnalysisInvitePanel";
 import type { NayinElement } from "@/features/nayin/nayin";
 import type {
@@ -50,6 +52,7 @@ interface GuidedLandingProps {
 }
 
 const easing = [0.22, 1, 0.36, 1] as const;
+const ABOUT_CONTENT_ID = "about-liaoliao";
 
 export default function GuidedLanding({
   onSelectMaterial,
@@ -69,6 +72,7 @@ export default function GuidedLanding({
   const hasAlmanacDetails = hasAuthorityBackedDetails(almanac);
   const [emotionPreview, setEmotionPreview] =
     useState<EmotionAnalysisProfile | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const personalizedReference = emotionPreview?.dailyReference;
 
   if (accessLayout && authPanel) {
@@ -82,12 +86,62 @@ export default function GuidedLanding({
             transition={{ duration: 0.55, ease: easing }}
             aria-label="今日标识"
           >
-            <DailyDrinkHero today={today} compact />
+            {/* 杯子本身就是「这是什么」的开关：倒出来 / 收回去 */}
+            <DailyDrinkHero
+              today={today}
+              compact
+              pour={{
+                open: aboutOpen,
+                onToggle: () => setAboutOpen(open => !open),
+                contentId: ABOUT_CONTENT_ID,
+              }}
+            />
           </motion.div>
 
+          <WuxingPourContent
+            element={today.element}
+            open={aboutOpen}
+            contentId={ABOUT_CONTENT_ID}
+          >
+            <div className="space-y-3 text-left">
+              <p className="text-sm leading-relaxed text-foreground">
+                聊一件小事，聊聊把它变成一段只给自己看的画面。
+              </p>
+              <ul className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+                <li>不用会画，也不用会写提示词。你说人话就行。</li>
+                <li>
+                  出来的不是好看的图，是有情绪的画面。同样一句「我搬家了」，它给的是黄昏的空房间、地上拉长的影子。
+                </li>
+                <li>
+                  留得住。那些说不出口又舍不得忘的瞬间，有个地方放，回头还能再看。
+                </li>
+              </ul>
+            </div>
+          </WuxingPourContent>
+
           <div className="flex w-full max-w-5xl flex-col items-center gap-7">
+            {/* 今日横线：干支嵌在线里，兼作下方内容的上边界 */}
+            <motion.div
+              className="flex w-full items-center gap-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.06, duration: 0.5 }}
+            >
+              <span
+                className="h-px flex-1"
+                style={{ background: "var(--nayin-border)" }}
+              />
+              <span className="whitespace-nowrap font-mono text-[11px] text-muted-foreground/80">
+                {formatTodayIdentity(today)}
+              </span>
+              <span
+                className="h-px flex-1"
+                style={{ background: "var(--nayin-border)" }}
+              />
+            </motion.div>
+
             <motion.aside
-              className="w-full min-w-0 overflow-hidden border-y"
+              className="w-full min-w-0 overflow-hidden border-b"
               style={{ borderColor: "var(--nayin-border)" }}
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
@@ -117,9 +171,7 @@ export default function GuidedLanding({
                 profile={
                   emotionProfile?.source === "local" ? emotionProfile : null
                 }
-                profileLoading={
-                  emotionProfileLoading || almanacQuery.isLoading
-                }
+                profileLoading={emotionProfileLoading || almanacQuery.isLoading}
                 onSaveProfile={onSaveEmotionProfile}
                 onPreviewChange={setEmotionPreview}
                 embedded

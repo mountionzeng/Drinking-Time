@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import {
   getTodayNayin,
   getAllThemes,
@@ -6,8 +14,8 @@ import {
   type NayinElement,
   type BeverageTheme,
   type TodayNayin,
-} from './nayin';
-import { setNayinFavicon } from './favicon';
+} from "./nayin";
+import { setNayinFavicon } from "./favicon";
 
 interface NayinContextValue {
   element: NayinElement;
@@ -28,12 +36,38 @@ interface NayinContextValue {
 
 const NayinContext = createContext<NayinContextValue | null>(null);
 
+/**
+ * 仅开发环境：VITE_FORCE_DRINK 或 ?drink= 可强制当天五行，用来核对五套饮品动画与配色。
+ * 走的是 today 本身，所以主题、图标、文案会整体跟着换，不会出现「蓝椰子配金底色」。
+ * 生产构建里 import.meta.env.DEV 为 false，整段会被摇掉。
+ */
+function forcedElement(): NayinElement | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") return null;
+  const fromEnv = import.meta.env.VITE_FORCE_DRINK as NayinElement | undefined;
+  const fromQuery = new URLSearchParams(window.location.search).get(
+    "drink"
+  ) as NayinElement | null;
+  return fromEnv || fromQuery || null;
+}
+
+function todayWithOverride(): TodayNayin {
+  const base = getTodayNayin();
+  const forced = forcedElement();
+  return forced ? { ...base, element: forced } : base;
+}
+
 export function NayinProvider({ children }: { children: ReactNode }) {
-  const [today, setToday] = useState<TodayNayin>(() => getTodayNayin());
-  const [previewElement, setPreviewElementRaw] = useState<NayinElement | null>(null);
+  const [today, setToday] = useState<TodayNayin>(() => todayWithOverride());
+  const [previewElement, setPreviewElementRaw] = useState<NayinElement | null>(
+    null
+  );
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [transitionTheme, setTransitionTheme] = useState<BeverageTheme | null>(null);
-  const [pendingElement, setPendingElement] = useState<NayinElement | null | undefined>(undefined);
+  const [transitionTheme, setTransitionTheme] = useState<BeverageTheme | null>(
+    null
+  );
+  const [pendingElement, setPendingElement] = useState<
+    NayinElement | null | undefined
+  >(undefined);
 
   // ─── Daily refresh at CST midnight ─────────────────────────────
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,7 +75,7 @@ export function NayinProvider({ children }: { children: ReactNode }) {
     const schedule = () => {
       const delay = msUntilNextCstMidnight();
       timerRef.current = setTimeout(() => {
-        setToday(getTodayNayin());
+        setToday(todayWithOverride());
         schedule();
       }, delay);
     };
@@ -49,15 +83,17 @@ export function NayinProvider({ children }: { children: ReactNode }) {
 
     // Also refresh when the tab regains focus — covers the case where the
     // laptop was asleep across midnight and the setTimeout missed.
-    const onFocus = () => setToday(getTodayNayin());
-    const onVisible = () => { if (document.visibilityState === 'visible') setToday(getTodayNayin()); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisible);
+    const onFocus = () => setToday(todayWithOverride());
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setToday(todayWithOverride());
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
@@ -65,18 +101,23 @@ export function NayinProvider({ children }: { children: ReactNode }) {
   const activeTheme = getAllThemes().find(t => t.element === activeElement)!;
 
   // Wrap setPreviewElement to trigger transition animation
-  const setPreviewElement = useCallback((el: NayinElement | null) => {
-    const targetElement = el || today.element;
-    const targetTheme = getAllThemes().find(t => t.element === targetElement)!;
+  const setPreviewElement = useCallback(
+    (el: NayinElement | null) => {
+      const targetElement = el || today.element;
+      const targetTheme = getAllThemes().find(
+        t => t.element === targetElement
+      )!;
 
-    // Don't transition if same element
-    if (targetElement === activeElement) return;
+      // Don't transition if same element
+      if (targetElement === activeElement) return;
 
-    // Start transition
-    setTransitionTheme(targetTheme);
-    setIsTransitioning(true);
-    setPendingElement(el);
-  }, [activeElement, today.element]);
+      // Start transition
+      setTransitionTheme(targetTheme);
+      setIsTransitioning(true);
+      setPendingElement(el);
+    },
+    [activeElement, today.element]
+  );
 
   const onTransitionComplete = useCallback(() => {
     if (pendingElement !== undefined) {
@@ -89,9 +130,9 @@ export function NayinProvider({ children }: { children: ReactNode }) {
 
   // Apply data-nayin attribute to html element for CSS variable overrides
   useEffect(() => {
-    document.documentElement.setAttribute('data-nayin', activeElement);
+    document.documentElement.setAttribute("data-nayin", activeElement);
     return () => {
-      document.documentElement.removeAttribute('data-nayin');
+      document.documentElement.removeAttribute("data-nayin");
     };
   }, [activeElement]);
 
@@ -123,6 +164,6 @@ export function NayinProvider({ children }: { children: ReactNode }) {
 
 export function useNayin() {
   const ctx = useContext(NayinContext);
-  if (!ctx) throw new Error('useNayin must be used within NayinProvider');
+  if (!ctx) throw new Error("useNayin must be used within NayinProvider");
   return ctx;
 }

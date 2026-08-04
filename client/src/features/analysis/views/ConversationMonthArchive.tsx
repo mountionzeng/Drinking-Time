@@ -148,7 +148,7 @@ export default function ConversationMonthArchive({
         style={{ boxShadow: "0 24px 80px -32px rgba(40, 28, 18, 0.45)" }}
       >
         <DialogHeader className="pr-8 text-left">
-          <DialogTitle className="font-chat-brand text-xl font-normal">
+          <DialogTitle className="text-xl font-medium">
             和以前的自己聊聊
           </DialogTitle>
           <DialogDescription className="text-xs leading-5">
@@ -176,7 +176,7 @@ export default function ConversationMonthArchive({
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <span className="font-chat-brand text-lg text-foreground">
+              <span className="text-lg text-foreground">
                 {formatConversationMonth(selectedMonth)}
               </span>
               <button

@@ -133,8 +133,8 @@ export default function DailyAtmospherePanel({
   const lunarLabel = formatLunarDate(today);
   const clothingAdvice = getDailyClothingAdvice(today);
   const activityAdvice = getDailyActivityAdvice(today, almanac);
-  const shownYi = personalizedYi?.length ? personalizedYi : almanac?.yi ?? [];
-  const shownJi = personalizedJi?.length ? personalizedJi : almanac?.ji ?? [];
+  const shownYi = personalizedYi?.length ? personalizedYi : (almanac?.yi ?? []);
+  const shownJi = personalizedJi?.length ? personalizedJi : (almanac?.ji ?? []);
   const isPersonalized = Boolean(
     personalizedYi?.length || personalizedJi?.length
   );
@@ -147,13 +147,13 @@ export default function DailyAtmospherePanel({
       <div className="px-5 py-5 sm:px-6 sm:py-6">
         <div className="-mx-1 flex flex-nowrap items-center gap-6 overflow-x-auto px-1 pb-1">
           <div className="flex shrink-0 items-center gap-2">
-            <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
+            <div className="shrink-0 text-base font-medium leading-none text-foreground">
               {isPersonalized ? "你的宜" : "宜"}
             </div>
             <ChipList items={shownYi} tone="yi" nowrap />
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="font-chat-brand shrink-0 text-base font-normal leading-none text-foreground">
+            <div className="shrink-0 text-base font-medium leading-none text-foreground">
               {isPersonalized ? "你的忌" : "忌"}
             </div>
             <ChipList items={shownJi} tone="ji" nowrap />

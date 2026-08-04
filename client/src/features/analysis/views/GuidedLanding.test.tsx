@@ -137,16 +137,19 @@ describe("GuidedLanding", () => {
     expect(html).toContain("忌");
     expect(html).toContain("flex-nowrap");
     expect(html).toContain("overflow-x-auto");
-    expect(html).toContain("font-chat-brand");
+    // 品牌手写体的字体文件只含「会儿小聊酌」五个字，贴在整句标题上会让
+    // 句子里这几个字变手写、其余落 fallback。手写体只留给 hero 的品牌标记。
+    expect(html).not.toContain("font-chat-brand");
     expect(html).toContain("先在这台设备聊会儿");
     expect(html).toContain("你的生日");
     expect(html).toContain('aria-label="设置生日"');
     expect(html).toContain('aria-label="设置出生时间"');
     expect(html).toContain("今天想说什么");
     expect(html).toContain("和以前的自己聊聊");
-    expect(html).toContain("听听聊会儿怎么说");
-    expect(html).toContain("服务器不保存");
-    expect(html).toContain("登录后，也会先问你是否带进账号");
+    expect(html).toContain("拆开看看");
+    // 未登录态不再显示数据去向的告知文案（登录态仍显示 EMOTION_ANALYSIS_CONSENT_TEXT）
+    expect(html).not.toContain("服务器不保存");
+    expect(html).not.toContain("登录后，也会先问你是否带进账号");
     expect(html).not.toContain("社会学上，今天适合");
     expect(html).not.toContain("完善个人信息");
     expect(html).not.toContain("长期情绪分析底盘");

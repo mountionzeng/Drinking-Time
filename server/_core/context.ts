@@ -17,6 +17,9 @@ const GUEST_OPEN_ID_PREFIX = "guest:";
 const LEGACY_GUEST_OPEN_ID = "local-guest";
 
 function authDisabled() {
+  // DISABLE_AUTH=false 显式打开真实鉴权：本地开发默认发访客身份，
+  // 登录页因此永远跳走，改这个页面时需要一个不必起生产构建的预览口子。
+  if (process.env.DISABLE_AUTH === "false") return false;
   return (
     process.env.DISABLE_AUTH === "true" ||
     process.env.NODE_ENV !== "production"

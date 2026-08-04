@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarHeart,
   CheckCircle2,
@@ -199,6 +199,26 @@ export default function EmotionAnalysisInvitePanel({
     !activeProfile || needsRealGuestReply
   );
   const [historyArchiveOpen, setHistoryArchiveOpen] = useState(false);
+  const [birthPrompted, setBirthPrompted] = useState(false);
+  const birthFieldRef = useRef<HTMLDivElement | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function requestBirthDate() {
+    setBirthPrompted(true);
+    birthFieldRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    birthFieldRef.current?.querySelector("button")?.focus();
+  }
+
+  // 输入框随内容长高，封顶后再内部滚动，写长一点不会被 3 行的框压回去。
+  useEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [userMessage, entryOpen, editing]);
 
   useEffect(() => {
     if (!profile) return;
@@ -269,7 +289,13 @@ export default function EmotionAnalysisInvitePanel({
   }, [onPreviewChange, shownProfile]);
 
   const handleSave = async () => {
-    if (!preview || saving) return;
+    if (saving) return;
+    // 生日是回信的必要条件，但不该表现为一个灰着的死按钮：
+    // 点下去就把人带回生日那一行，并说明为什么需要它。
+    if (!preview) {
+      requestBirthDate();
+      return;
+    }
     setSaving(true);
     const nextMessageHistory = updateMessageHistory({
       history: messageHistory,
@@ -368,7 +394,7 @@ export default function EmotionAnalysisInvitePanel({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-chat-brand text-xl font-normal leading-none text-foreground">
+                <h2 className="text-xl font-medium leading-none text-foreground">
                   聊会儿写给你的信
                 </h2>
                 {profileLoading && (
@@ -395,25 +421,45 @@ export default function EmotionAnalysisInvitePanel({
         {(!activeProfile || entryOpen) && (
           <div className="space-y-5">
             <div>
-              <div className="font-chat-brand flex items-center gap-2 text-base font-normal text-foreground">
+              <div className="flex items-center gap-2 text-base font-medium text-foreground">
                 <CalendarHeart className="h-3.5 w-3.5 text-nayin" />
                 {guestMode ? "先在这台设备聊会儿" : "关于你"}
               </div>
               <div className="mt-3 space-y-3">
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div
+                  ref={birthFieldRef}
+                  className={`rounded-md transition ${
+                    birthPrompted && !isBirthDateValid
+                      ? "ring-2 ring-ring/40 ring-offset-4 ring-offset-background"
+                      : ""
+                  }`}
+                >
+                  <div className="grid gap-3 sm:grid-cols-[6.5rem_minmax(0,1fr)] sm:items-center">
                     <span className="whitespace-nowrap text-[11px] text-muted-foreground">
                       你的生日
                     </span>
-                    <BirthDatePillarsLine pillars={birthDatePillars} />
+                    <div className="min-w-0">
+                      <BirthMomentDial
+                        birthDate={birthDate}
+                        birthTime={birthTime}
+                        maxDate={today.cstDateStr}
+                        onBirthDateChange={setBirthDate}
+                        onBirthTimeChange={setBirthTime}
+                      />
+                      <BirthDatePillarsLine
+                        pillars={birthDatePillars}
+                        className="mt-2"
+                      />
+                      {birthPrompted && !isBirthDateValid && (
+                        <p
+                          className="mt-2 text-[11px] leading-relaxed"
+                          style={{ color: "var(--nayin-accent-dim)" }}
+                        >
+                          要按你的生日推今天的干支，先留一个再点。
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <BirthMomentDial
-                    birthDate={birthDate}
-                    birthTime={birthTime}
-                    maxDate={today.cstDateStr}
-                    onBirthDateChange={setBirthDate}
-                    onBirthTimeChange={setBirthTime}
-                  />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="grid items-center gap-3 sm:grid-cols-[6.5rem_minmax(0,1fr)]">
@@ -463,7 +509,7 @@ export default function EmotionAnalysisInvitePanel({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label
                   htmlFor="emotion-user-message"
-                  className="font-chat-brand flex items-center gap-2 text-base font-normal text-foreground"
+                  className="flex items-center gap-2 text-base font-medium text-foreground"
                 >
                   <MessageCircle className="h-3.5 w-3.5 text-nayin" />
                   今天想说什么
@@ -472,7 +518,7 @@ export default function EmotionAnalysisInvitePanel({
                   type="button"
                   onClick={() => setHistoryArchiveOpen(true)}
                   disabled={messageHistory.length === 0}
-                  className="font-chat-brand flex items-center gap-2 text-base font-normal text-foreground transition hover:text-nayin focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
+                  className="flex items-center gap-2 text-base font-medium text-foreground transition hover:text-nayin focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35"
                   title={
                     messageHistory.length > 0
                       ? "按月份看看以前说过的话"
@@ -494,11 +540,17 @@ export default function EmotionAnalysisInvitePanel({
                       ? "可以说“接着上次那件事”，也可以直接写今天的新感受。"
                       : "今天发生了什么，或者此刻是什么感受？"
                 }
+                ref={messageInputRef}
                 rows={3}
                 maxLength={800}
-                className="mt-3 w-full resize-none rounded-md border bg-background px-3 py-2.5 text-sm leading-relaxed text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
-                style={{ borderColor: "var(--nayin-border)" }}
+                className="mt-3 w-full resize-none overflow-y-auto rounded-md border bg-background px-3 py-2.5 text-sm leading-relaxed text-foreground outline-none transition placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
+                style={{ borderColor: "var(--nayin-border)", maxHeight: 320 }}
               />
+              {userMessage.length > 640 && (
+                <p className="mt-1 text-right text-[11px] text-muted-foreground">
+                  {userMessage.length} / 800
+                </p>
+              )}
               <ConversationMonthArchive
                 open={historyArchiveOpen}
                 onOpenChange={setHistoryArchiveOpen}
@@ -526,7 +578,7 @@ export default function EmotionAnalysisInvitePanel({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!isBirthDateValid || saving}
+                disabled={saving}
                 className="inline-flex h-10 items-center gap-2 rounded-md px-4 text-xs font-medium text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ background: "var(--nayin-accent)" }}
               >
@@ -535,8 +587,13 @@ export default function EmotionAnalysisInvitePanel({
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
-                听听聊会儿怎么说
+                拆开看看
               </button>
+              {saving && (
+                <span className="text-[11px] text-muted-foreground">
+                  正在写今天的回信，通常要十几秒。
+                </span>
+              )}
               {activeProfile && (
                 <button
                   type="button"
@@ -564,11 +621,11 @@ export default function EmotionAnalysisInvitePanel({
                 </button>
               )}
             </div>
-            <p className="text-[10px] leading-relaxed text-muted-foreground/80">
-              {guestMode
-                ? "资料和旧话只留在这台设备；写回信时会临时发送给聊会儿和 302，服务器不保存。登录后，也会先问你是否带进账号。"
-                : EMOTION_ANALYSIS_CONSENT_TEXT}
-            </p>
+            {!guestMode && (
+              <p className="text-[10px] leading-relaxed text-muted-foreground/80">
+                {EMOTION_ANALYSIS_CONSENT_TEXT}
+              </p>
+            )}
           </div>
         )}
 
@@ -670,7 +727,7 @@ export default function EmotionAnalysisInvitePanel({
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!isBirthDateValid || saving}
+                disabled={saving}
                 className="inline-flex h-9 items-center gap-2 rounded-md px-3 text-xs font-medium text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   background: "var(--nayin-accent)",

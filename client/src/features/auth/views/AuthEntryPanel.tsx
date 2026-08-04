@@ -99,7 +99,7 @@ export default function AuthEntryPanel({
           backdropFilter: "blur(10px)",
         }}
       >
-        <div className="monitor-panel-header justify-center text-center">
+        <div className="monitor-panel-header justify-center text-center text-base font-medium normal-case tracking-normal text-foreground">
           <span className="status-dot" />
           登录聊会儿
         </div>
@@ -131,7 +131,7 @@ export default function AuthEntryPanel({
               readOnly={Boolean(rememberedEmail)}
               autoFocus={autofocus}
               autoComplete="email"
-              className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none focus:ring-1"
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none transition placeholder:text-muted-foreground/55 focus:border-ring focus:ring-2 focus:ring-ring/25"
               style={{
                 borderColor: "var(--nayin-border)",
                 color: "var(--foreground)",
@@ -163,7 +163,7 @@ export default function AuthEntryPanel({
               required
               autoComplete="off"
               autoCapitalize="characters"
-              className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm uppercase outline-none focus:ring-1"
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm uppercase outline-none transition placeholder:text-muted-foreground/55 placeholder:normal-case focus:border-ring focus:ring-2 focus:ring-ring/25"
               style={{
                 borderColor: "var(--nayin-border)",
                 color: "var(--foreground)",
@@ -180,11 +180,11 @@ export default function AuthEntryPanel({
             <button
               type="submit"
               disabled={emailLoading}
-              className="w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+              className="h-10 w-full rounded-md border text-sm font-medium transition-all hover:bg-foreground/[0.04] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background: "var(--nayin-surface)",
                 color: "var(--foreground)",
-                border: "1px solid var(--nayin-border)",
+                borderColor: "var(--nayin-border)",
               }}
             >
               {emailLoading ? "登录中…" : "使用邀请码登录"}
