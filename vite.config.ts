@@ -13,10 +13,56 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 const PROJECT_ROOT = import.meta.dirname;
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
+const VISION_PAGE_PATH = path.join(
+  PROJECT_ROOT,
+  "drinking-time-vision",
+  "index.html"
+);
+const VISION_ROUTE = "/drinking-time-vision";
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
 
 type LogSource = "browserConsole" | "networkRequests" | "sessionReplay";
+
+function vitePluginVisionPage(): Plugin {
+  return {
+    name: "drinking-time-vision-page",
+
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url ?? "/", "http://drinkingtime.local")
+          .pathname;
+
+        if (pathname === VISION_ROUTE) {
+          res.statusCode = 308;
+          res.setHeader("Location", `${VISION_ROUTE}/`);
+          res.end();
+          return;
+        }
+
+        if (
+          pathname !== `${VISION_ROUTE}/` &&
+          pathname !== `${VISION_ROUTE}/index.html`
+        ) {
+          next();
+          return;
+        }
+
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end(fs.readFileSync(VISION_PAGE_PATH));
+      });
+    },
+
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "drinking-time-vision/index.html",
+        source: fs.readFileSync(VISION_PAGE_PATH),
+      });
+    },
+  };
+}
 
 function ensureLogDir() {
   if (!fs.existsSync(LOG_DIR)) {
@@ -150,7 +196,14 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginVisionPage(),
+  vitePluginManusDebugCollector(),
+];
 
 export default defineConfig({
   plugins,
