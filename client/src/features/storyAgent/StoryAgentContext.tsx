@@ -67,6 +67,7 @@ import {
   normalizeStoryArtDirection,
   type StoryArtDirection,
 } from "@shared/artDirection";
+import type { StoryShotEditableField } from "@shared/shotDirector";
 import { buildStoryArtReferences } from "./storyArtReferences";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
 import {
@@ -308,53 +309,7 @@ export function canPersistStoryToActiveScope(
   return activeStoryId === persistedStoryId;
 }
 
-export type StoryShotEditableField =
-  | "cueCode"
-  | "actNo"
-  | "subject"
-  | "action"
-  | "performance"
-  | "environmentMotion"
-  | "dialogue"
-  | "emotion"
-  | "intent"
-  | "rationale"
-  | "beat"
-  | "shotType"
-  | "cameraAngle"
-  | "cameraMove"
-  | "cameraHeight"
-  | "lens"
-  | "cameraPath"
-  | "subjectPath"
-  | "location"
-  | "timeLight"
-  | "lighting"
-  | "colorPalette"
-  | "materialTexture"
-  | "mood"
-  | "sound"
-  | "soundBridge"
-  | "styleRef"
-  | "note"
-  | "videoStart"
-  | "videoEnd"
-  | "transitionIn"
-  | "transitionOut"
-  | "transitionIntent"
-  | "videoPrompt"
-  | "emotionCharge"
-  | "emotionDelta"
-  | "visualAnchorText"
-  | "promptDraft"
-  | "negativePrompt"
-  | "characterReference"
-  | "wardrobeReference"
-  | "hairReference"
-  | "sceneReference"
-  | "textureReference"
-  | "generationModel"
-  | "generationParams";
+export type { StoryShotEditableField } from "@shared/shotDirector";
 
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";
@@ -430,7 +385,7 @@ interface StoryAgentContextValue {
   deleteStory: (id: number) => Promise<void>;
   refreshStoryList: () => void;
   /**
-   * 老用户点回旧故事时，小酌的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
+   * 老用户点回旧故事时，聊聊的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
    * 仅活在内存里：永不进 messages、永不落库，所以反复点回不会堆叠、也不会污染历史。
    * 用户一旦再开口 / 返回列表 / 开新故事就清空。
    */
@@ -820,7 +775,7 @@ function archiveMessagesFrom(
       id: message.id,
       timestamp: message.timestamp,
       who: message.role === "user" ? "u" : "s",
-      name: message.role === "user" ? "你" : "小酌",
+      name: message.role === "user" ? "你" : "聊聊",
       text: message.content,
       photoUrl: message.photoUrl,
       selectionQuote: message.selectionQuote,
@@ -917,7 +872,7 @@ export function StoryAgentProvider({
   /**
    * 对话驱动剪辑的指令通道（剪辑工作室注入）：sendMessage 先把这句话交给它，
    * handled=true 时直接用它的 reply 作为助手消息，不再进故事聊天流程。
-   * 返回 null / handled=false / 抛错 → 一律回落普通小酌聊天。
+   * 返回 null / handled=false / 抛错 → 一律回落普通聊聊聊天。
    */
   editingCommandRunner?: (
     instruction: string,
@@ -2620,7 +2575,7 @@ export function StoryAgentProvider({
           typeof row.revision === "number" ? row.revision : 0;
         setServerRevision(loadedRevision);
 
-        // 第二步：用这篇真实留存的内容，让小酌说一句「我还记得上次……」把人接回来。
+        // 第二步：用这篇真实留存的内容，让聊聊说一句「我还记得上次……」把人接回来。
         // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
         const lastCard = restoredCards[restoredCards.length - 1];
         if (!options?.silent) {

@@ -93,7 +93,7 @@ function adviceVerdictLabel(verdict: DirectorAdviceItem["verdict"]) {
 }
 
 /**
- * 导演顾问区：把仓库里待安排的图片交给小酌（导演视角）逐图判断——
+ * 导演顾问区：把仓库里待安排的图片交给聊聊（导演视角）逐图判断——
  * 服务哪一镜、为什么、怎么渲染成视频；采纳后图进故事版看板成为首帧，
  * 渲染参数写进镜头设计表。
  */
@@ -189,7 +189,7 @@ function DirectorAdviceSection({
           <div className="text-sm font-semibold">导演顾问</div>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {unassignedCount > 0
-              ? `${unassignedCount} 张图片还没安排——让小酌以导演视角判断它们怎么为故事服务`
+              ? `${unassignedCount} 张图片还没安排——让聊聊以导演视角判断它们怎么为故事服务`
               : "建议已生成，逐条裁决"}
           </div>
         </div>

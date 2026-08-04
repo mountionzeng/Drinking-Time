@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import { shotDurationMs } from "./playback";
 import type { VideoTakeAsset, VideoTakeStatus } from "@shared/videoAsset";
 

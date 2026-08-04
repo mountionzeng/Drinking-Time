@@ -74,7 +74,10 @@ import {
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
 import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
-import { estimateStoryboardImageCost } from "../../shared/imageRenderCost";
+import {
+  estimateStoryboardImageCost,
+  estimateStoryboardMaskedEditCost,
+} from "../../shared/imageRenderCost";
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
@@ -510,7 +513,7 @@ export const storyAgentRouter = router({
     }),
 
   /**
-   * ChatCut XML → 独立小酌故事。主剪辑轨转换为线性镜头时间轴，
+   * ChatCut XML → 独立聊聊故事。主剪辑轨转换为线性镜头时间轴，
    * 多轨、音频、入出点、变换与变速保存在故事导入清单里，供后续重关联。
    */
   importChatCutXml: protectedProcedure
@@ -1095,6 +1098,11 @@ export const storyAgentRouter = router({
         referenceImageUrl: z.string().optional(), // FLUX Kontext 参考图 URL，跨镜头保角色/场景一致
         referenceIdentityImageUrl: z.string().optional(), // 人物身份锚点图，优先用来提取五官/脸型
         referenceContextImageUrls: z.array(z.string()).max(3).optional(), // 当前故事的相邻镜头画面，仅用于视觉连续性
+        editMaskImageUrl: z
+          .string()
+          .startsWith("data:image/png;base64,")
+          .max(2_500_000)
+          .optional(), // GPT-image 透明遮罩：alpha=0 是唯一允许修改的区域
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1106,8 +1114,28 @@ export const storyAgentRouter = router({
             error: "找不到故事，无法保存图片",
           };
         }
-        if (input.explicitInstruction) {
-          const estimate = estimateStoryboardImageCost();
+        if (input.editMaskImageUrl && !input.explicitInstruction?.trim()) {
+          return {
+            status: "error" as const,
+            error: "遮罩局部重绘必须包含用户的原始修改要求",
+          };
+        }
+        if (input.editMaskImageUrl && !input.referenceImageUrl?.trim()) {
+          return {
+            status: "error" as const,
+            error: "遮罩局部重绘必须包含当前选中图片作为视觉基底",
+          };
+        }
+        if (input.editMaskImageUrl && input.mode === "draft") {
+          return {
+            status: "error" as const,
+            error: "遮罩局部重绘只允许使用已确认费用的正式编辑链路",
+          };
+        }
+        if (input.explicitInstruction || input.editMaskImageUrl) {
+          const estimate = input.editMaskImageUrl
+            ? estimateStoryboardMaskedEditCost()
+            : estimateStoryboardImageCost();
           if (!input.costConfirmation?.accepted) {
             return {
               status: "error" as const,
@@ -1545,6 +1573,7 @@ export const storyAgentRouter = router({
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,
                 referenceContextImageUrls: input.referenceContextImageUrls,
+                editMaskImageUrl: input.editMaskImageUrl,
                 primaryReferenceLock: referencePlan.usesStoryboardFrames,
                 requireInputImage: referencePlan.usesStoryboardFrames,
               })

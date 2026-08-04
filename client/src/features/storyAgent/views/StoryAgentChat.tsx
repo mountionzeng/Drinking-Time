@@ -32,16 +32,17 @@ import {
   Link2,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  useOptionalCreationEditor,
-  type StoryImageMaterialAdvice,
-} from "@/features/creationEditor/CreationEditorContext";
+import { useOptionalCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import type { StoryImageMaterialAdvice } from "@/features/creationEditor/types";
 import {
   useStoryAgentActions,
   type StoryboardImageRerenderResult,
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
-import type { StoryboardImageRerenderActionReference } from "@/features/storyAgent/types";
+import {
+  displayAssistantName,
+  type StoryboardImageRerenderActionReference,
+} from "@/features/storyAgent/types";
 import { useNayin } from "@/features/nayin/NayinContext";
 import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
@@ -173,18 +174,18 @@ function getPendingIntentCopy(intent: StoryIntent) {
       };
     case "gift":
       return {
-        body: "听起来你是想把它讲成一个父母可以讲给孩子听的故事，对吗？",
-        confirmLabel: "对，讲给孩子听",
+        body: "听起来你是想把这段故事做成送给一位亲友的礼物，对吗？",
+        confirmLabel: "对，送给亲友",
       };
     case "social_post":
       return {
-        body: "听起来你是想把它讲给社交平台上的陌生观众，对吗？",
-        confirmLabel: "对，发给公开观众",
+        body: "听起来你是想把这段故事发在社交平台上，对吗？",
+        confirmLabel: "对，发在社交平台上",
       };
     case "portfolio":
       return {
-        body: "听起来你是想把自己的真实经历讲成一个个人故事，对吗？",
-        confirmLabel: "对，介绍我的经历",
+        body: "听起来你是想用真实经历介绍自己，让别人更懂你，对吗？",
+        confirmLabel: "对，介绍自己",
       };
     case "fiction":
       return {
@@ -204,9 +205,11 @@ function intentLabel(intent: StoryIntent | null): string {
   if (intent.purpose === "fiction") return "虚构故事";
   if (intent.purpose === "linkedin_job_search") return "求职短片";
   if (intent.purpose === "personal_memory") return "个人记忆";
+  if (intent.purpose === "self_reflection") return "给自己讲";
+  if (intent.purpose === "raw_record") return "记录再说";
   if (intent.purpose === "social_post") return "社交发布";
-  if (intent.purpose === "gift") return "讲给孩子";
-  if (intent.purpose === "portfolio") return "个人经历";
+  if (intent.purpose === "gift") return "亲友礼物";
+  if (intent.purpose === "portfolio") return "介绍自己";
   return "创作故事";
 }
 
@@ -288,8 +291,7 @@ export default function StoryAgentChat({
           ...current,
           [messageId]: {
             status: "error",
-            message:
-              error instanceof Error ? error.message : "图片生成失败",
+            message: error instanceof Error ? error.message : "图片生成失败",
           },
         }));
       } finally {
@@ -329,11 +331,11 @@ export default function StoryAgentChat({
       ? `${storyShotsCount} 个镜头正在同步`
       : currentIntent
         ? "等待从对话直接生成 Storyboard 表格"
-      : cardRefs.length > 0
-        ? `${cardRefs.length} 张故事卡正在同步`
-        : "等待整理成故事卡");
+        : cardRefs.length > 0
+          ? `${cardRefs.length} 张故事卡正在同步`
+          : "等待整理成故事卡");
   const inputPlaceholder = activeSelection
-    ? "告诉小酌这处想怎么改…"
+    ? "告诉聊聊这处想怎么改…"
     : pendingMedia.length > 0
       ? "补一句你希望怎么用这些素材…"
       : "说说这一版哪里需要推进…";
@@ -562,6 +564,12 @@ export default function StoryAgentChat({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const isPristineStoryStart =
+      showCapabilityMenu && !messages.some(message => message.role === "user");
+    if (isPristineStoryStart) {
+      el.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [
     messages,
@@ -601,7 +609,7 @@ export default function StoryAgentChat({
 
     const storyId = creationEditor?.activeStoryId;
     if (!creationEditor || storyId == null || storyId <= 0) {
-      toast.error("先打开并保存一个故事，再把素材交给小酌");
+      toast.error("先打开并保存一个故事，再把素材交给聊聊");
       return;
     }
 
@@ -617,7 +625,7 @@ export default function StoryAgentChat({
       creationEditor.shots[0] ??
       null;
     const targetStableShotId = targetShot
-      ? targetShot.stableShotId ?? targetShot.shotIdentity ?? null
+      ? (targetShot.stableShotId ?? targetShot.shotIdentity ?? null)
       : null;
     const attachments = [...pendingMedia];
     const imported: Array<
@@ -644,8 +652,8 @@ export default function StoryAgentChat({
             note:
               text ||
               (attachment.kind === "video"
-                ? "从小酌对话导入，等待继续剪辑"
-                : "从小酌对话导入，等待导演归类"),
+                ? "从聊聊对话导入，等待继续剪辑"
+                : "从聊聊对话导入，等待导演归类"),
           });
           imported.push({
             attachment,
@@ -653,9 +661,9 @@ export default function StoryAgentChat({
             fileName: attachment.file.name,
             assetId: result.kind === "image" ? result.imageId : result.takeId,
             targetShotNo:
-              result.kind === "video" ? targetShot?.shotNo ?? null : null,
+              result.kind === "video" ? (targetShot?.shotNo ?? null) : null,
             targetCueCode:
-              result.kind === "video" ? targetShot?.cueCode ?? null : null,
+              result.kind === "video" ? (targetShot?.cueCode ?? null) : null,
           });
           removePendingMedia(attachment.id);
         } catch (error) {
@@ -674,7 +682,7 @@ export default function StoryAgentChat({
       if (imported.length === 0) return;
 
       setInput("");
-      setMediaProgress("小酌正在看片并整理归属…");
+      setMediaProgress("聊聊正在看片并整理归属…");
       let visionPreview: ChatVisionPreview | null = null;
       try {
         visionPreview = await prepareChatVisionPreview(imported[0].attachment);
@@ -725,8 +733,8 @@ export default function StoryAgentChat({
     }
   };
 
-  // 小酌头像的情绪回应：消息凝出过卡片就用卡片上识别到的情绪摆姿势。
-  // 只让最新一条小酌消息动起来，历史消息保留姿势但不做动画。
+  // 聊聊头像的情绪回应：消息凝出过卡片就用卡片上识别到的情绪摆姿势。
+  // 只让最新一条聊聊消息动起来，历史消息保留姿势但不做动画。
   const lastAssistantId = [...messages]
     .reverse()
     .find(m => m.role === "assistant")?.id;
@@ -753,7 +761,7 @@ export default function StoryAgentChat({
         >
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <UploadCloud className="h-5 w-5 text-nayin-bright" />
-            放入小酌素材篮
+            放入聊聊素材篮
           </div>
         </div>
       ) : null}
@@ -770,7 +778,7 @@ export default function StoryAgentChat({
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
         <div className="status-dot" />
-        <span>小酌 · 创作对话</span>
+        <span>聊聊 · 创作对话</span>
         <span className="ml-auto flex items-center gap-2">
           {cardRefs.length > 0 && (
             <span
@@ -824,7 +832,7 @@ export default function StoryAgentChat({
               ? "var(--nayin-glow)"
               : "var(--panel-header)",
           }}
-          aria-label="小酌当前上下文"
+          aria-label="聊聊当前上下文"
         >
           <div className="flex items-start gap-2">
             <span className="mt-0.5 shrink-0 text-nayin-bright">
@@ -848,7 +856,7 @@ export default function StoryAgentChat({
             <div className="mt-2">
               <SelectionContextCard selection={activeSelection} compact />
               <p className="mt-1.5 text-[10px] text-muted-foreground">
-                下一条消息会带着这个选区交给小酌。
+                下一条消息会带着这个选区交给聊聊。
               </p>
             </div>
           ) : null}
@@ -895,7 +903,7 @@ export default function StoryAgentChat({
                       animated={m.id === lastAssistantId}
                     />
                     <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                      小酌
+                      聊聊
                     </span>
                   </div>
                 )}
@@ -921,7 +929,11 @@ export default function StoryAgentChat({
                     className="whitespace-pre-wrap"
                     data-selection-source={`chat:${m.id}`}
                   >
-                    {tokenizeChatMessageText(m.content).map((segment, index) =>
+                    {tokenizeChatMessageText(
+                      m.role === "assistant"
+                        ? displayAssistantName(m.content)
+                        : m.content
+                    ).map((segment, index) =>
                       segment.emphasis ? (
                         <strong
                           key={`${m.id}:emphasis:${index}`}
@@ -931,7 +943,7 @@ export default function StoryAgentChat({
                         </strong>
                       ) : (
                         segment.text
-                      ),
+                      )
                     )}
                   </p>
                 )}
@@ -976,10 +988,7 @@ export default function StoryAgentChat({
                         rerenderingMessageId != null
                       }
                       onClick={() =>
-                        void handleImageRerender(
-                          m.id,
-                          m.imageRerenderAction!
-                        )
+                        void handleImageRerender(m.id, m.imageRerenderAction!)
                       }
                       className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-2.5 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-45"
                     >
@@ -992,9 +1001,10 @@ export default function StoryAgentChat({
                         ? "确认修改后可重渲"
                         : `重新渲染 ${
                             m.imageRerenderAction.cueCode ??
-                            String(
-                              m.imageRerenderAction.shotNo
-                            ).padStart(4, "0")
+                            String(m.imageRerenderAction.shotNo).padStart(
+                              4,
+                              "0"
+                            )
                           }`}
                     </button>
                     <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
@@ -1030,24 +1040,18 @@ export default function StoryAgentChat({
                           m.editingTransitionCandidate.source.imageUrl,
                         lastImageUrl:
                           m.editingTransitionCandidate.target.imageUrl,
-                        instruction:
-                          m.editingTransitionCandidate.instruction,
+                        instruction: m.editingTransitionCandidate.instruction,
                         prompt: m.editingTransitionCandidate.prompt,
-                        durationSec:
-                          m.editingTransitionCandidate.durationSec,
-                        resolution:
-                          m.editingTransitionCandidate.resolution,
+                        durationSec: m.editingTransitionCandidate.durationSec,
+                        resolution: m.editingTransitionCandidate.resolution,
                         estimatedCredits:
                           m.editingTransitionCandidate.estimatedCredits,
-                        estimatedCny:
-                          m.editingTransitionCandidate.estimatedCny,
+                        estimatedCny: m.editingTransitionCandidate.estimatedCny,
                         status: m.editingTransitionCandidate.status,
                         error: m.editingTransitionCandidate.error,
                         retryable: m.editingTransitionCandidate.retryable,
                       }}
-                      onConfirm={() =>
-                        confirmEditingTransitionCandidate(m.id)
-                      }
+                      onConfirm={() => confirmEditingTransitionCandidate(m.id)}
                       onReject={() =>
                         void rejectEditingTransitionCandidate(m.id)
                       }
@@ -1055,7 +1059,7 @@ export default function StoryAgentChat({
                         setInput(m.editingTransitionCandidate!.instruction);
                         void rejectEditingTransitionCandidate(m.id);
                         window.requestAnimationFrame(() =>
-                          inputRef.current?.focus(),
+                          inputRef.current?.focus()
                         );
                       }}
                     />
@@ -1085,7 +1089,7 @@ export default function StoryAgentChat({
             <section
               className="w-[96%] overflow-hidden rounded-lg border bg-card text-foreground"
               style={{ borderColor: "var(--panel-border)" }}
-              aria-label="小酌素材归类建议"
+              aria-label="聊聊素材归类建议"
             >
               <header className="flex items-center gap-1.5 px-2.5 py-2">
                 <EmotiveWuxingIcon
@@ -1199,7 +1203,7 @@ export default function StoryAgentChat({
                   mood="thinking"
                 />
                 <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                  小酌
+                  聊聊
                 </span>
               </div>
               <p className="whitespace-pre-wrap">{pendingIntentCopy?.body}</p>
@@ -1230,8 +1234,8 @@ export default function StoryAgentChat({
           </motion.div>
         )}
 
-        {/* 第二步：老用户点回旧故事时，小酌「我还记得上次……」的再问候。
-            轻染色背景 + 「接着上次聊」分隔线，读起来是「小酌此刻刚说的」，区别于上面恢复的历史。
+        {/* 第二步：老用户点回旧故事时，聊聊「我还记得上次……」的再问候。
+            轻染色背景 + 「接着上次聊」分隔线，读起来是「聊聊此刻刚说的」，区别于上面恢复的历史。
             这条只活在内存里，不进 messages、不落库（见 StoryAgentContext）。 */}
         {returningGreeting && !isReplying && (
           <motion.div
@@ -1265,7 +1269,7 @@ export default function StoryAgentChat({
                   {/* 再见面的问候，用「开心」姿势打招呼 */}
                   <EmotiveWuxingIcon element={element} size={26} mood="joy" />
                   <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                    小酌
+                    聊聊
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap">{returningGreeting}</p>

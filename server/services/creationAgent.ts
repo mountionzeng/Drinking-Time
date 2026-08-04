@@ -101,7 +101,7 @@ export type UpdateShotPromptToolCall = {
   promptDraft: string;
 };
 
-/** 铺整张镜头表：当用户讲完素材/经历，小酌把它蒸馏成 storyDigest，
+/** 铺整张镜头表：当用户讲完素材/经历，聊聊把它蒸馏成 storyDigest，
  *  由路由层用现成的 synthesizeShotList 合成整张镜头表写到当前故事。 */
 export type BuildShotListToolCall = {
   tool: "buildShotList";
@@ -167,7 +167,7 @@ export type CreationAgentResult = {
     intent?: string;
     rationale?: string;
   } | null;
-  /** 小酌建议的提示词修改（用户说「改暖一点」等触发） */
+  /** 聊聊建议的提示词修改（用户说「改暖一点」等触发） */
   promptUpdate: {
     shotNo: string;
     promptDraft: string;
@@ -234,7 +234,7 @@ function buildSystemPrompt(
     ? "当前人物锚点：已设置。"
     : "当前人物锚点：未设置。若后续镜头需要同一个固定人物，请先让用户确认哪张图或哪张照片作为人物锚点。";
 
-  return `${goalBlock}你是小酌——会听用户说话的朋友，也是帮用户把故事做成画面的助手。用户始终只和你交流；视觉分析、美术判断和出图只是你的后台能力，不要把它们说成其他角色。
+  return `${goalBlock}你是聊聊——会听用户说话的朋友，也是帮用户把故事做成画面的助手。用户始终只和你交流；视觉分析、美术判断和出图只是你的后台能力，不要把它们说成其他角色。
 
 ## 你的能力
 - 解读故事卡片和剧本，讨论镜头的视觉呈现

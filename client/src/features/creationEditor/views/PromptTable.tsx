@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Eye, Filter, ListFilter, Video } from 'lucide-react';
-import type { CreationEditorShot } from '../CreationEditorContext';
+import type { CreationEditorShot } from '../types';
 import { buildPromptTable } from '../promptTable/buildPromptTable';
 import { compilePromptRecipe, promptRunUsesDimension } from '../promptTable/promptRecipe';
 import { compileVideoShotRecipe } from '../promptTable/videoRecipe';

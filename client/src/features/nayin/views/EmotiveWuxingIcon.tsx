@@ -4,7 +4,7 @@
  * 在 WuxingDrinkIcon 的手绘饮品线稿上叠一层「简笔生命」：
  * 几条线的手脚 + 眉/眼/嘴，按情绪大类摆出不同的肢体姿势和面部表情。
  * 情绪识别捕捉到用户情绪时（故事卡片的 emotion 字段），
- * 小酌的 Logo 用 resolveEmotionMood 归类到 9 大情绪之一并做出回应；
+ * 聊聊的 Logo 用 resolveEmotionMood 归类到 9 大情绪之一并做出回应；
  * 另有 neutral（待机呼吸）和 thinking（回复中）两个系统姿势。
  */
 import { motion, useReducedMotion, type TargetAndTransition } from 'framer-motion';
@@ -558,7 +558,7 @@ export default function EmotiveWuxingIcon({
       initial={false}
       animate={shouldAnimate ? MOOD_MOTION[resolved] : undefined}
       role="img"
-      aria-label={title ?? `小酌 · ${MOOD_LABEL[resolved]}`}
+      aria-label={title ?? `聊聊 · ${MOOD_LABEL[resolved]}`}
     >
       {/* 单一 SVG 根：饮品线稿作为嵌套 svg 占满整个 viewBox，
           手脚和五官画在同一坐标系里，不会因 letterbox 而错位。 */}

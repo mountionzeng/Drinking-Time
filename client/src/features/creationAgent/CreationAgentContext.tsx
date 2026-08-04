@@ -110,7 +110,7 @@ interface CreationAgentContextValue {
   generateError: { shotNo: string; message: string } | null;
   /** 画出来 / 再来一张：确定性单图出图。rejectImageId 存在=先淘汰当前再出下一张 */
   generateNextImage: (args: { shotNo: string; prompt: string; rejectImageId?: number }) => Promise<void>;
-  /** 最近一次小酌建议的提示词修改（用户需确认/可撤销） */
+  /** 最近一次聊聊建议的提示词修改（用户需确认/可撤销） */
   pendingPromptUpdate: { shotNo: string; promptDraft: string } | null;
   clearPendingPromptUpdate: () => void;
   sendMessage: (text: string, shots?: ShotContext[], cards?: Array<{ content: string; emotion?: string }>, currentScript?: string) => Promise<void>;
@@ -248,7 +248,7 @@ export function CreationAgentProvider({
         setPendingPromptUpdate(result.promptUpdate);
       }
 
-      // buildShotList：小酌铺了整张镜头表 → 刷新镜头表查询，让 Shot Table 立即显示
+      // buildShotList：聊聊铺了整张镜头表 → 刷新镜头表查询，让 Shot Table 立即显示
       if (result.builtShotCount && result.builtShotCount > 0) {
         utils.shot.list.invalidate();
         toast.success(`已根据你说的铺了 ${result.builtShotCount} 个镜头到镜头表`);

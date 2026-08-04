@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import type { PromptRow } from "./types";
 import { promptShotCode } from "@shared/shotIdentity";
 import {

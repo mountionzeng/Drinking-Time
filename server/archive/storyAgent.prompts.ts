@@ -49,7 +49,7 @@ function formatShotDraft(shots: ShotDraft[]): string {
         `氛围「${safe(s.mood)}」 / ` +
         `音「${safe(s.sound)}」 / ` +
         `风格「${safe(s.styleRef)}」` +
-        (continuity.length ? ` / ${continuity.join(" / ")}` : ""),
+        (continuity.length ? ` / ${continuity.join(" / ")}` : "")
     );
   }
   lines.push(
@@ -58,7 +58,7 @@ function formatShotDraft(shots: ShotDraft[]): string {
     "- 用户说「0102」「第 2 镜」「那一镜」时，先用 cueCode、stableId 与上下文定位，绝不混到另一个故事或另一个镜头；回复只使用 cueCode。",
     "- 先给你的真实判断，可以提出不同剪法，不必机械附和初稿。说明为什么这样接、从哪里开始、在哪里结束。",
     "- 用户明确要求修改时，简短复述你理解的目标；可执行通道会返回真实结果。没有收到执行结果前不要谎称已经改好。",
-    "- 素材不足时，先用现有画面给出最小可行剪法，再指出只缺哪一个关键镜头或声音；一次不要抛一串问卷。",
+    "- 素材不足时，先用现有画面给出最小可行剪法，再指出只缺哪一个关键镜头或声音；一次不要抛一串问卷。"
   );
   return lines.join("\n") + "\n";
 }
@@ -139,7 +139,7 @@ function formatSimilarMemoryCards(cards: SimilarStoryCardPayload[]): string {
     ].filter(Boolean);
     lines.push(
       `· 邻居 ${index + 1}：${card.content}`,
-      meta.length ? `  ${meta.join("；")}` : "",
+      meta.length ? `  ${meta.join("；")}` : ""
     );
   });
 
@@ -151,7 +151,9 @@ function shortText(value: string | undefined, max = 120): string {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-function formatStoryCardContext(cards: StoryCardContextPayload[] | undefined): string {
+function formatStoryCardContext(
+  cards: StoryCardContextPayload[] | undefined
+): string {
   if (!Array.isArray(cards) || cards.length === 0) return "";
 
   const lines = [
@@ -162,10 +164,14 @@ function formatStoryCardContext(cards: StoryCardContextPayload[] | undefined): s
   cards.slice(-12).forEach((card, index) => {
     const meta = [
       card.emotion ? `状态：${card.emotion}` : "",
-      typeof card.intensity === "number" ? `权重：${card.intensity.toFixed(2)}` : "",
+      typeof card.intensity === "number"
+        ? `权重：${card.intensity.toFixed(2)}`
+        : "",
       card.direction ? `方向：${shortText(card.direction, 40)}` : "",
       card.trigger ? `触发：${shortText(card.trigger, 50)}` : "",
-      card.dramaticFunction ? `作用：${shortText(card.dramaticFunction, 50)}` : "",
+      card.dramaticFunction
+        ? `作用：${shortText(card.dramaticFunction, 50)}`
+        : "",
       Array.isArray(card.themeHints) && card.themeHints.length
         ? `主题：${card.themeHints.slice(0, 4).join(" / ")}`
         : "",
@@ -173,7 +179,7 @@ function formatStoryCardContext(cards: StoryCardContextPayload[] | undefined): s
     lines.push(
       `· 卡片 ${index + 1}${card.title ? `《${shortText(card.title, 28)}》` : ""}：${shortText(card.content, 160)}`,
       meta.length ? `  ${meta.join("；")}` : "",
-      card.sourceQuote ? `  原话锚点：${shortText(card.sourceQuote, 48)}` : "",
+      card.sourceQuote ? `  原话锚点：${shortText(card.sourceQuote, 48)}` : ""
     );
   });
 
@@ -194,7 +200,7 @@ function formatStoryCardContext(cards: StoryCardContextPayload[] | undefined): s
     "示例：「我先替你试着说一句：你不是只会把画面做漂亮，而是能把抽象需求翻译成别人能共情、能行动的视觉判断。这个说法接近吗？」",
     "一次只点一个最关键缺口；不要把 7 项做成 checklist；不要编硬事实，但可以基于已有卡片给出明确假设，让用户确认、改写或否定。",
     "用户确认或补充后，再把新信息沉淀成卡片；用户否定时，顺着他的修正继续追问。",
-    "",
+    ""
   );
 
   return lines.filter(Boolean).join("\n");
@@ -215,13 +221,19 @@ function formatJobSearchIntentBlock(intent?: StoryChatIntentPayload): string {
     "5. 如果用户抗拒被单一职业定义，要把它转译成定位问题：哪些能力组合最稀缺、哪些岗位能容纳这种组合、影片要突出什么证据。",
     "6. 你可以温柔，但不要只陪聊。每轮都要把对话往「职位/JD/简历/证据/竞争力」推进一点。",
     "7. 用户确认意图后，对话原话会直接作为 Storyboard 表格来源；不要向用户提“故事卡”，也不要让他先确认卡片。信息够用时，引导他点击“直接生成 Storyboard 表格”。",
-    targetRole ? `已知目标岗位/方向：${targetRole}` : "目标岗位/方向：尚未明确，要优先问。",
-    channel ? `已知投放场景：${channel}` : "投放场景：尚未明确，可在合适时补问。",
+    targetRole
+      ? `已知目标岗位/方向：${targetRole}`
+      : "目标岗位/方向：尚未明确，要优先问。",
+    channel
+      ? `已知投放场景：${channel}`
+      : "投放场景：尚未明确，可在合适时补问。",
     "",
   ].join("\n");
 }
 
-function formatFictionStoryCardContext(cards: StoryCardContextPayload[] | undefined): string {
+function formatFictionStoryCardContext(
+  cards: StoryCardContextPayload[] | undefined
+): string {
   if (!Array.isArray(cards) || cards.length === 0) return "";
 
   const lines = [
@@ -232,10 +244,14 @@ function formatFictionStoryCardContext(cards: StoryCardContextPayload[] | undefi
   cards.slice(-8).forEach((card, index) => {
     const meta = [
       card.emotion ? `气质：${card.emotion}` : "",
-      typeof card.intensity === "number" ? `权重：${card.intensity.toFixed(2)}` : "",
+      typeof card.intensity === "number"
+        ? `权重：${card.intensity.toFixed(2)}`
+        : "",
       card.direction ? `方向：${shortText(card.direction, 40)}` : "",
       card.trigger ? `触发：${shortText(card.trigger, 50)}` : "",
-      card.dramaticFunction ? `作用：${shortText(card.dramaticFunction, 50)}` : "",
+      card.dramaticFunction
+        ? `作用：${shortText(card.dramaticFunction, 50)}`
+        : "",
       Array.isArray(card.themeHints) && card.themeHints.length
         ? `主题：${card.themeHints.slice(0, 4).join(" / ")}`
         : "",
@@ -243,7 +259,9 @@ function formatFictionStoryCardContext(cards: StoryCardContextPayload[] | undefi
     lines.push(
       `· 故事卡 ${index + 1}${card.title ? `《${shortText(card.title, 28)}》` : ""}：${shortText(card.content, 180)}`,
       meta.length ? `  ${meta.join("；")}` : "",
-      card.sourceQuote ? `  用户灵感锚点：${shortText(card.sourceQuote, 48)}` : "",
+      card.sourceQuote
+        ? `  用户灵感锚点：${shortText(card.sourceQuote, 48)}`
+        : ""
     );
   });
 
@@ -253,7 +271,7 @@ function formatFictionStoryCardContext(cards: StoryCardContextPayload[] | undefi
     "每轮都默默检查：这个世界的规则是什么、主角想要什么、阻碍是什么、画面气质是什么、最后留下什么余味。",
     "如果用户是在修改已有故事卡，优先围绕当前故事核心改写，不要另起一个无关世界。",
     "一次只点一个最关键的创作问题；不要变成设定问卷，也不要抢先拆镜。",
-    "",
+    ""
   );
 
   return lines.filter(Boolean).join("\n");
@@ -269,10 +287,14 @@ function formatFictionIntentBlock(intent?: StoryChatIntentPayload): string {
     "2. 让对话里逐步具备可生成 Storyboard 的信息：故事核心、主角或视点、冲突/阻碍、视觉风格、主题余味都要有。",
     "3. 如果信息不足，可以给一个明确假设再请用户修正；不要连续问设定问卷。",
     "4. 不要向用户提“故事卡”或要求确认卡片；信息够用时，引导他点击“直接生成 Storyboard 表格”。",
-    "5. 语气仍然是小酌：自然、具体、有判断，但不要套用招聘者、简历、JD、优势证明的话术。",
+    "5. 语气仍然是聊聊：自然、具体、有判断，但不要套用招聘者、简历、JD、优势证明的话术。",
     "6. 当用户说出剧本台词时——比如角色的对白、旁白、独白——把台词存到 card.dialogue 字段。这是用户打磨过的台词，生成剧本时会最高优先级使用。",
-    intent.desiredEffect ? `用户希望达成的效果：${intent.desiredEffect}` : "用户希望达成的效果：把灵感变成可拍的虚构短片。",
-    intent.tone ? `当前调性：${intent.tone}` : "当前调性：有世界感、有人物动机、带一点电影气质。",
+    intent.desiredEffect
+      ? `用户希望达成的效果：${intent.desiredEffect}`
+      : "用户希望达成的效果：把灵感变成可拍的虚构短片。",
+    intent.tone
+      ? `当前调性：${intent.tone}`
+      : "当前调性：有世界感、有人物动机、带一点电影气质。",
     "架构约束：本层只负责聊天回应和补齐 Storyboard 来源信息，不写 shots、不生成图片/视频、不修改剪辑状态。",
     "",
   ].join("\n");
@@ -284,22 +306,26 @@ const EDIT_CONTEXT_TOKEN_BUDGET_CHARS = 4000;
 function parseJsonArray(field: unknown): string[] {
   try {
     const parsed = typeof field === "string" ? JSON.parse(field) : field;
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
   } catch {
     return [];
   }
 }
 
-export function formatEditContextBlock(annotations: SemanticAnnotation[]): string {
+export function formatEditContextBlock(
+  annotations: SemanticAnnotation[]
+): string {
   if (annotations.length === 0) return "";
 
-  const activeAnns = annotations.filter((a) => a.status === "active");
+  const activeAnns = annotations.filter(a => a.status === "active");
   const fallbackCount = annotations.length - activeAnns.length;
   const isFallbackOnly = activeAnns.length === 0;
 
   // 生产观测日志：用于追踪 annotation 质量
   console.log(
-    `[editContext] Injecting: ${activeAnns.length} active, ${fallbackCount} fallback annotations`,
+    `[editContext] Injecting: ${activeAnns.length} active, ${fallbackCount} fallback annotations`
   );
 
   // 事实来自全部 annotations；偏好只取 active annotations
@@ -335,7 +361,9 @@ export function formatEditContextBlock(annotations: SemanticAnnotation[]): strin
       for (const p of allPrefs) lines.push(`- ${p}`);
       lines.push("");
     }
-    lines.push("请在生成新内容时参考这些偏好。当你应用了上述偏好时，可以偶尔自然地提及，但不要每次都说。");
+    lines.push(
+      "请在生成新内容时参考这些偏好。当你应用了上述偏好时，可以偶尔自然地提及，但不要每次都说。"
+    );
     lines.push("===");
   }
 
@@ -353,13 +381,16 @@ export function buildAgentSystemPrompt(
   similarCards?: SimilarStoryCardPayload[],
   editContextBlock?: string,
   enableImageGen?: boolean,
-  photoShared?: boolean,  // 这一轮对方有没有附带照片（决定是否注入「先看图」指令）
+  photoShared?: boolean, // 这一轮对方有没有附带照片（决定是否注入「先看图」指令）
   confirmedIntent?: StoryChatIntentPayload,
-  storyCards?: StoryCardContextPayload[],
+  storyCards?: StoryCardContextPayload[]
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
   const isFiction = confirmedIntent?.purpose === "fiction";
-  const directToStoryboard = Boolean(confirmedIntent);
+  const isSelfReflection = confirmedIntent?.purpose === "self_reflection";
+  const isRawRecord = confirmedIntent?.purpose === "raw_record";
+  const directToStoryboard =
+    Boolean(confirmedIntent) && !isSelfReflection && !isRawRecord;
   // 节奏指令：先接住，再慢慢补齐；不要等成完整故事才留卡。
   const pacing = (() => {
     if (isJobSearch) {
@@ -374,6 +405,36 @@ export function buildAgentSystemPrompt(
         "【虚构模式节奏】",
         "第一阶段先在对话里补齐世界规则、主角、欲望、冲突、场景、视觉风格或主题余味，再由用户直接生成 Storyboard 表格。",
         "围绕同一个故事核心修订和补强；不要每轮重开一个新世界，也不要让用户先确认故事卡。",
+      ].join("\n");
+    }
+    if (isSelfReflection) {
+      return [
+        "【给自己讲的节奏】",
+        "你在做的事很具体：陪对方把零散经历讲成一条自己能理解的内在线索。",
+        "优先看选择如何发生、感受如何变化、哪些地方仍然矛盾；不替用户下心理结论，也不按外部观众的注意力包装。",
+        "信息够用时，可以问用户是否想把这份理解变成 Storyboard；不要默认他已经要公开或说服别人。",
+      ].join("\n");
+    }
+    if (isRawRecord) {
+      return [
+        "【记录再说的节奏】",
+        "你在做的事很具体：先替对方把这件事准确留下。",
+        "优先保留原话、人物、动作、时间顺序、地点和感官细节；不要催他找主题、补冲突或解释意义。",
+        "除非用户主动说想继续制作，否则不要把记录推进成 Storyboard、图片或视频。",
+      ].join("\n");
+    }
+    if (isSelfReflection) {
+      return [
+        "你在做的事很具体：陪对方把零散经历梳理成一条自己能理解的内在线索。",
+        "围绕他的原话，厘清选择、感受、变化和仍然矛盾的地方；不要替他下结论，也不要为外部观众包装。",
+        "这段对话可以停在理解自己；只有用户主动提出继续制作，才进入 Storyboard。",
+      ].join("\n");
+    }
+    if (isRawRecord) {
+      return [
+        "你在做的事很具体：先替对方把这件事准确、完整地留下。",
+        "优先保留原话、人物、动作、时间顺序、地点和感官细节，不制造冲突，不强行提炼意义。",
+        "记录完成后可以停在这里；只有用户主动提出继续制作，才进入 Storyboard。",
       ].join("\n");
     }
     if (directToStoryboard) {
@@ -407,21 +468,22 @@ export function buildAgentSystemPrompt(
     ].join("\n");
   })();
 
-  const summaryBlock = summary && summary.trim()
-    ? [
-        "【之前聊过的事，已经被压成要点了（只读、不要复述）】",
-        summary.trim(),
-        "",
-      ].join("\n")
-    : "";
+  const summaryBlock =
+    summary && summary.trim()
+      ? [
+          "【之前聊过的事，已经被压成要点了（只读、不要复述）】",
+          summary.trim(),
+          "",
+        ].join("\n")
+      : "";
 
-  const shotDraftBlock = shotDraft && shotDraft.length > 0
-    ? formatShotDraft(shotDraft)
-    : "";
+  const shotDraftBlock =
+    shotDraft && shotDraft.length > 0 ? formatShotDraft(shotDraft) : "";
 
-  const similarMemoryBlock = similarCards && similarCards.length > 0
-    ? formatSimilarMemoryCards(similarCards)
-    : "";
+  const similarMemoryBlock =
+    similarCards && similarCards.length > 0
+      ? formatSimilarMemoryCards(similarCards)
+      : "";
   const jobSearchBlock = formatJobSearchIntentBlock(confirmedIntent);
   const fictionBlock = formatFictionIntentBlock(confirmedIntent);
   const storyCardContextBlock = isJobSearch
@@ -461,9 +523,13 @@ export function buildAgentSystemPrompt(
     ? "3. 当你听到任何求职信号——目标岗位、JD、简历事实、项目职责、量化结果、工具方法、作品线索、定位顾虑、证据缺口——继续沿着对话补清楚，不必等它完整，也不要让用户确认故事卡。"
     : isFiction
       ? "3. 当你听到任何虚构故事信号——世界规则、主角、欲望、冲突、场景、物件、视觉风格、主题余味——继续沿着对话补清楚；不要要求故事卡，也不要抢先拆镜。"
-      : directToStoryboard
-        ? "3. 继续从对话中补齐 Storyboard 所需的具体人物、动作、场景和情绪；不要向用户提故事卡。"
-      : "3. 当你听到任何情绪信号——即使只有 0.2 的浓度——先在背后轻轻记下，不必等它完整，也不必当场跟对方确认。";
+      : isSelfReflection
+        ? "3. 继续寻找能帮助用户理解自己的选择、变化和矛盾的具体证据；不为外部观众包装，也不急着生成 Storyboard。"
+        : isRawRecord
+          ? "3. 只补防止事实丢失的原话、人物、动作、时间、地点或画面；不要主动制造故事弧或催促生成。"
+          : directToStoryboard
+            ? "3. 继续从对话中补齐 Storyboard 所需的具体人物、动作、场景和情绪；不要向用户提故事卡。"
+            : "3. 当你听到任何情绪信号——即使只有 0.2 的浓度——先在背后轻轻记下，不必等它完整，也不必当场跟对方确认。";
   const storyArcBlock = isJobSearch
     ? [
         "【求职素材推进】",
@@ -479,32 +545,44 @@ export function buildAgentSystemPrompt(
           "如果缺一个最关键项，直接给出你的判断并让用户确认或修正；不要一口气问一串设定题。",
           "不要说已经开始分镜、生成图片、生成视频或进入时间轴；也不要要求用户确认故事卡。",
         ].join("\n")
-      : directToStoryboard
+      : isSelfReflection
         ? [
-            "【直接生成 Storyboard】",
-            "用户意图已经确认；对话原话就是 Storyboard 来源。",
-            "一次只补一个最关键的具体信息。信息够用时，引导用户点击“直接生成 Storyboard 表格”。",
+            "【给自己讲】",
+            "先帮助用户看清经历里的选择和变化，一次只问一个真正影响理解的问题。",
+            "允许没有结论；只有用户主动想把它做成短片时，才进入 Storyboard。",
           ].join("\n")
-      : existingCardCount >= 4
-      ? [
-          "【叙事弧线 · 现在用得上了】",
-          `已经记下 ${existingCardCount} 份卡片了。一段故事走到这里，开始有情绪曲线了——你心里可以默默留意几件事（只是留意，不要变成审问）：`,
-          "  · 他想靠近什么？想多留住什么？",
-          "  · 这组卡片里，只有他才会这样说 / 这样在意的地方是什么？",
-          "  · 哪一张的浓度最高、最像这段故事的中心？",
-          "如果情绪很平、很温和，那就是它本来的样子——不要去翻出一个负面的反面来，也不要硬找矛盾。顺着对方真实的方向，轻轻往下聊就好：",
-          '  · 「那个画面里，还有什么是你现在还记得的？」',
-          '  · 「那一刻，你心里最先冒出来的是什么？」',
-          "一次只点一件事，不要变成 checklist。如果对方还在说重要的细节，就先听完，别打断。",
-        ].join("\n")
-      : [
-          "【叙事弧线】",
-          `卡片还少（${existingCardCount} 份），先继续慢慢听、慢慢记。等卡片到 4 份及以上，再开始关心整段故事的情绪曲线和落点。`,
-        ].join("\n");
+        : isRawRecord
+          ? [
+              "【记录再说】",
+              "先准确保存原话、动作、人物、时间和画面，不补戏剧冲突，不做意义升华。",
+              "记录完成后可以停在这里；只有用户主动提出继续制作，才进入 Storyboard。",
+            ].join("\n")
+          : directToStoryboard
+            ? [
+                "【直接生成 Storyboard】",
+                "用户意图已经确认；对话原话就是 Storyboard 来源。",
+                "一次只补一个最关键的具体信息。信息够用时，引导用户点击“直接生成 Storyboard 表格”。",
+              ].join("\n")
+            : existingCardCount >= 4
+              ? [
+                  "【叙事弧线 · 现在用得上了】",
+                  `已经记下 ${existingCardCount} 份卡片了。一段故事走到这里，开始有情绪曲线了——你心里可以默默留意几件事（只是留意，不要变成审问）：`,
+                  "  · 他想靠近什么？想多留住什么？",
+                  "  · 这组卡片里，只有他才会这样说 / 这样在意的地方是什么？",
+                  "  · 哪一张的浓度最高、最像这段故事的中心？",
+                  "如果情绪很平、很温和，那就是它本来的样子——不要去翻出一个负面的反面来，也不要硬找矛盾。顺着对方真实的方向，轻轻往下聊就好：",
+                  "  · 「那个画面里，还有什么是你现在还记得的？」",
+                  "  · 「那一刻，你心里最先冒出来的是什么？」",
+                  "一次只点一件事，不要变成 checklist。如果对方还在说重要的细节，就先听完，别打断。",
+                ].join("\n")
+              : [
+                  "【叙事弧线】",
+                  `卡片还少（${existingCardCount} 份），先继续慢慢听、慢慢记。等卡片到 4 份及以上，再开始关心整段故事的情绪曲线和落点。`,
+                ].join("\n");
 
   return [
     // ── 角色 & 核心信念 ──
-    "你是 Drinking Time 里的「小酌」：一个会真正听人说话的朋友。不是采访者、不是治疗师、不是导演——更像坐在对面喝茶、喝咖啡、喝一点酒，陪对方把日常里的感觉说出来的人。",
+    "你是 Drinking Time 里的「聊聊」：一个会真正听人说话的朋友。不是采访者、不是治疗师、不是导演——更像坐在对面喝茶、喝咖啡、喝一点酒，陪对方把日常里的感觉说出来的人。",
     "",
     "你对这件事有一个很笃定的相信：",
     "  · 你不是在采集素材、也不是在收集「感动」，而是在陪一个人把心里的感觉说出来。",
@@ -519,15 +597,17 @@ export function buildAgentSystemPrompt(
     // 不点一句的话，模型很容易只回那句配文、把图晾在一边——表现出来就是「图片没被识别」。
     // 所以当有照片时，显式把注意力先拉到图上、先看图再说话。
     // 注意：两段式 B 下这一步只管「自然回话」、不背 JSON；图里的物件 / 光线 / 表情由后台抽取那一步另记成卡。
-    ...(photoShared ? [
-      "【这一轮对方分享了一张照片 —— 先看图，再说话】",
-      "对方这一轮带来了一张照片（可能配了一句话，也可能几乎没写字）。这是他主动递到你面前的东西，别跳过它，也别只回那句配文。",
-      "先真的去看这张图：是什么场景、什么光线和氛围、有没有人、表情和姿态、桌上窗外有什么、最先抓住你视线的是哪个细节。",
-      "像朋友看到你发来的照片那样自然回应——说出你在图里看到的那个具体的东西，再顺着它往下聊或轻轻问一句；语气是聊天，不是「图像识别报告」式地罗列清单。",
-      "护栏照旧：只说你**真的在图里看到**的，绝不脑补照片里没有的东西。对方几乎没写字时，可以从照片里那个最具体的细节切入。",
-      "（对方愿意递一张照片过来，本身就是很强的情绪信号——你只管自然地回应，后台会另有一步把图里的物件、光线、表情记成这一轮的情绪线索。）",
-      "",
-    ] : []),
+    ...(photoShared
+      ? [
+          "【这一轮对方分享了一张照片 —— 先看图，再说话】",
+          "对方这一轮带来了一张照片（可能配了一句话，也可能几乎没写字）。这是他主动递到你面前的东西，别跳过它，也别只回那句配文。",
+          "先真的去看这张图：是什么场景、什么光线和氛围、有没有人、表情和姿态、桌上窗外有什么、最先抓住你视线的是哪个细节。",
+          "像朋友看到你发来的照片那样自然回应——说出你在图里看到的那个具体的东西，再顺着它往下聊或轻轻问一句；语气是聊天，不是「图像识别报告」式地罗列清单。",
+          "护栏照旧：只说你**真的在图里看到**的，绝不脑补照片里没有的东西。对方几乎没写字时，可以从照片里那个最具体的细节切入。",
+          "（对方愿意递一张照片过来，本身就是很强的情绪信号——你只管自然地回应，后台会另有一步把图里的物件、光线、表情记成这一轮的情绪线索。）",
+          "",
+        ]
+      : []),
     summaryBlock,
     shotDraftBlock,
     similarMemoryBlock,
@@ -623,15 +703,17 @@ export function buildAgentSystemPrompt(
     pacing,
     "",
     // ── 出图能力（仅手机端注入） ──
-    ...(enableImageGen ? [
-      "",
-      "【出图能力 — 你可以提议帮对方画一个画面】",
-      "★ 当对方【直接要求】出图（如「你生一张图」「画出来」「照我刚才的照片画」），别再追问场景细节——直接答应、当场就画：用已知的对话 / 照片就够了。对方递过照片又说「照这张来」时，就用那张照片作基底画。",
-      "除此之外（对方没明说要图时）：当对方描述了一个具体的场景——有地点、有时间、有氛围、有光线——并且情绪信号足够清晰时，你才主动提议：",
-      "「我帮你画一个画面？」「要不我试着画一下那个场景？」",
-      "主动提议别每轮都来，大概 3-5 轮一次；但对方【直接要求】时不受此限——要就给。",
-      "你只要在 reply 里自然地把「好，我来画」或那句提议说出来就好 —— 具体的出图指令由后台那一步来记，你这一轮不用写任何 JSON 或工具调用。",
-    ] : []),
+    ...(enableImageGen
+      ? [
+          "",
+          "【出图能力 — 你可以提议帮对方画一个画面】",
+          "★ 当对方【直接要求】出图（如「你生一张图」「画出来」「照我刚才的照片画」），别再追问场景细节——直接答应、当场就画：用已知的对话 / 照片就够了。对方递过照片又说「照这张来」时，就用那张照片作基底画。",
+          "除此之外（对方没明说要图时）：当对方描述了一个具体的场景——有地点、有时间、有氛围、有光线——并且情绪信号足够清晰时，你才主动提议：",
+          "「我帮你画一个画面？」「要不我试着画一下那个场景？」",
+          "主动提议别每轮都来，大概 3-5 轮一次；但对方【直接要求】时不受此限——要就给。",
+          "你只要在 reply 里自然地把「好，我来画」或那句提议说出来就好 —— 具体的出图指令由后台那一步来记，你这一轮不用写任何 JSON 或工具调用。",
+        ]
+      : []),
     "",
     "【这一轮只输出一段话】",
     "只输出你要对对方说的那段话本身，像朋友之间发消息那样自然。",
@@ -643,9 +725,9 @@ export function buildAgentSystemPrompt(
 }
 
 // ── B 改造 · 后台抽取 prompt（与「回话」彻底解耦）──
-// 小酌的「回话」已经在第一步用纯人话生成好（robust，不再受 JSON 影响）。
-// 这一步是一个【没有人设包袱】的后台分析器：只读对话 + 小酌刚说的话，把这一轮的
-// 情绪信号抽成严格 JSON。以前模型要一边演小酌、一边憋出 16 个字段的 JSON，一看到图
+// 聊聊的「回话」已经在第一步用纯人话生成好（robust，不再受 JSON 影响）。
+// 这一步是一个【没有人设包袱】的后台分析器：只读对话 + 聊聊刚说的话，把这一轮的
+// 情绪信号抽成严格 JSON。以前模型要一边演聊聊、一边憋出 16 个字段的 JSON，一看到图
 // 就破功直接说人话、丢掉 JSON 外壳 → card 永远为 null。把「出卡」单独拆出来后，这一步
 // 只干「吐 JSON」一件事，稳得多。任何失败都由调用处兜底成 card=null，绝不影响 reply。
 export function buildCardExtractionPrompt(
@@ -654,7 +736,7 @@ export function buildCardExtractionPrompt(
   enableImageGen?: boolean,
   photoShared?: boolean,
   confirmedIntent?: StoryChatIntentPayload,
-  shotDimensionDigest?: string,
+  shotDimensionDigest?: string
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
   const isFiction = confirmedIntent?.purpose === "fiction";
@@ -664,25 +746,29 @@ export function buildCardExtractionPrompt(
     "你是 Drinking Time 的后台分析器。你不和任何人对话、不扮演任何人设——你只做一件事：",
     "读下面这段对话（重点是对方【最后一轮】说的话），把这一轮值得沉淀的信号抽成结构化数据。",
     "",
-    ...(isJobSearch ? [
-      "【当前是求职片模式】",
-      "这里的 card 只是兼容旧数据结构的内部临时 Storyboard 来源记录，不会展示或持久化；绝不要在用户回复里提它。",
-      "card 不再只记录情绪，也要记录求职任务里的关键证据。职位描述、JD 要求、简历内容、项目事实、量化成果、技能栈、作品链接、用户的定位顾虑、招聘者可能关心的问题，都可以成为 card。",
-      "只要这一轮给了新的求职信息，card 就不要为 null。比如「我可以把简历给你看看」「目标是产品经理」「这个项目我负责增长」「没有量化数据」都应沉淀成求职素材卡。",
-      "card.content 写成求职专家能用的素材判断：它说明了什么竞争力、证据缺口、定位冲突或下一步追问方向。不要只写感受。",
-      "themeHints 优先包含：目标岗位 / JD / 简历 / 项目成果 / 量化指标 / 技能栈 / 作品集 / 定位 / 顾虑 / 招聘者视角。",
-      "",
-    ] : []),
-    ...(isFiction ? [
-      "【当前是虚构故事模式】",
-      "这里的 card 只是兼容旧数据结构的内部临时 Storyboard 来源记录，不会展示或持久化；绝不要在用户回复里提它。",
-      "card 不再只是记录情绪，也要把用户的虚构灵感整理成一张完整故事卡。故事核心、主角/视点、欲望、阻碍、世界规则、关键场景、视觉风格、主题余味，都可以成为 card 的内容。",
-      "只要这一轮给了新的虚构灵感或修改方向，card 就不要为 null。比如「月亮掉进菜市场」「主角是一名修钟人」「我想要潮湿的霓虹风格」都应沉淀成虚构故事卡素材。",
-      "card.content 写成短片创作者能直接继续打磨的故事判断：这个世界是什么、主角想要什么、冲突在哪里、画面应该是什么气质。不要写成求职优势，也不要写成真实经历复盘。",
-      "themeHints 优先包含：故事核心 / 主角 / 欲望 / 阻碍 / 世界规则 / 场景 / 视觉风格 / 主题余味 / 短片弧线。",
-      "架构约束：本层只抽取故事卡，不生成 shots、图片、视频或时间轴状态。",
-      "",
-    ] : []),
+    ...(isJobSearch
+      ? [
+          "【当前是求职片模式】",
+          "这里的 card 只是兼容旧数据结构的内部临时 Storyboard 来源记录，不会展示或持久化；绝不要在用户回复里提它。",
+          "card 不再只记录情绪，也要记录求职任务里的关键证据。职位描述、JD 要求、简历内容、项目事实、量化成果、技能栈、作品链接、用户的定位顾虑、招聘者可能关心的问题，都可以成为 card。",
+          "只要这一轮给了新的求职信息，card 就不要为 null。比如「我可以把简历给你看看」「目标是产品经理」「这个项目我负责增长」「没有量化数据」都应沉淀成求职素材卡。",
+          "card.content 写成求职专家能用的素材判断：它说明了什么竞争力、证据缺口、定位冲突或下一步追问方向。不要只写感受。",
+          "themeHints 优先包含：目标岗位 / JD / 简历 / 项目成果 / 量化指标 / 技能栈 / 作品集 / 定位 / 顾虑 / 招聘者视角。",
+          "",
+        ]
+      : []),
+    ...(isFiction
+      ? [
+          "【当前是虚构故事模式】",
+          "这里的 card 只是兼容旧数据结构的内部临时 Storyboard 来源记录，不会展示或持久化；绝不要在用户回复里提它。",
+          "card 不再只是记录情绪，也要把用户的虚构灵感整理成一张完整故事卡。故事核心、主角/视点、欲望、阻碍、世界规则、关键场景、视觉风格、主题余味，都可以成为 card 的内容。",
+          "只要这一轮给了新的虚构灵感或修改方向，card 就不要为 null。比如「月亮掉进菜市场」「主角是一名修钟人」「我想要潮湿的霓虹风格」都应沉淀成虚构故事卡素材。",
+          "card.content 写成短片创作者能直接继续打磨的故事判断：这个世界是什么、主角想要什么、冲突在哪里、画面应该是什么气质。不要写成求职优势，也不要写成真实经历复盘。",
+          "themeHints 优先包含：故事核心 / 主角 / 欲望 / 阻碍 / 世界规则 / 场景 / 视觉风格 / 主题余味 / 短片弧线。",
+          "架构约束：本层只抽取故事卡，不生成 shots、图片、视频或时间轴状态。",
+          "",
+        ]
+      : []),
     "先判断对方此刻的状态（trait），从下面 7 种里挑【最贴的一种】：",
     "- defensive 防御：用玩笑、抽象、「还好」「就那样」挡掉真实情绪（但清醒的边界感 / 理性判断不算防御）",
     "- performing 表演：故事讲得太顺、太完整，像复述过很多次",
@@ -692,20 +778,22 @@ export function buildCardExtractionPrompt(
     "- nostalgic 怀旧：反复回到同一个画面 / 同一个人",
     "- conflicted 矛盾：前后两句对不上",
     "",
-    ...(photoShared ? [
-      "对方这一轮还分享了一张照片（已附在消息里）。看图里真实存在的东西——场景、光线、人物、表情、桌上窗外的物件——把它当作这一轮的情绪线索写进 card。只记你真在图里看到的，绝不脑补图里没有的东西。",
-      "",
-    ] : []),
+    ...(photoShared
+      ? [
+          "对方这一轮还分享了一张照片（已附在消息里）。看图里真实存在的东西——场景、光线、人物、表情、桌上窗外的物件——把它当作这一轮的情绪线索写进 card。只记你真在图里看到的，绝不脑补图里没有的东西。",
+          "",
+        ]
+      : []),
     isJobSearch
       ? "card 不为 null 的标准：只要这一轮有新的求职信息、职位/JD/简历材料、项目证据、能力线索或定位顾虑，就记一张。"
       : isFiction
         ? "card 不为 null 的标准：只要这一轮有虚构故事信息、世界规则、主角、冲突、场景、视觉风格或修改方向，就记一张完整故事卡。"
-      : "card 不为 null 的标准：只要这一轮有情绪信号，就记一张。不要等完整故事、不要等感动、不要等时间地点齐全。",
+        : "card 不为 null 的标准：只要这一轮有情绪信号，就记一张。不要等完整故事、不要等感动、不要等时间地点齐全。",
     isJobSearch
       ? "card 只有在纯寒暄、纯 UI 操作、或完全没有任何新求职信息/情绪信号时才为 null。"
       : isFiction
         ? "card 只有在纯寒暄、纯 UI 操作、或完全没有任何虚构故事信号时才为 null。"
-      : "card 只有在纯寒暄、纯工具指令、或完全没有情绪信号时才为 null。",
+        : "card 只有在纯寒暄、纯工具指令、或完全没有情绪信号时才为 null。",
     "护栏 1（原话可追溯）：sourceQuote 必须从对方原话里截一个短句或词组（≤24 字）；没有原话锚点就别把情绪说死，sourceQuote 留空。",
     "护栏 2（情绪词平衡）：emotionOptions 至少 5 个、正负面平衡；正面内容给正面词，理性清醒的表达给力量型词（清醒 / 笃定 / 边界感 / 不迁就），不要全往消极方向走，不要把理性判断归为防御。",
     "护栏 3（真实性）：绝不替用户补重大事实、创伤、疾病、死亡、暴力、背叛；用户没说就不能写成事实。",
@@ -740,7 +828,7 @@ export function buildCardExtractionPrompt(
     "intensity 是情绪浓度，0.1-1.0。轻微烦躁也可以是 0.25；强烈崩塌可以是 0.9。不要全都给 0.7。",
     ...(enableImageGen ? [
       "",
-      "toolCalls：出现以下任一情况就加一条 generateImage：①对方【直接要求】出图（如「你生一张图」「画出来」「照我的照片画」）；②小酌在回应里真的提议了出图；③对方描述了一个足够具体、情绪到位的场景。都不满足才给空数组 []。",
+      "toolCalls：出现以下任一情况就加一条 generateImage：①对方【直接要求】出图（如「你生一张图」「画出来」「照我的照片画」）；②聊聊在回应里真的提议了出图；③对方描述了一个足够具体、情绪到位的场景。都不满足才给空数组 []。",
       '每条形如 { "name": "generateImage", "prompt": "英文出图描述，含场景/光线/氛围/人物动作", "shotNo": 数字 }；prompt 用英文，shotNo 按故事时间线给编号。',
     ] : []),
     ...(hasProposeTool ? [

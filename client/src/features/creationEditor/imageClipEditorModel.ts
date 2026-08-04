@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   type TimelineTransform,

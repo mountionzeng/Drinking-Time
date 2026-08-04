@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from '../CreationEditorContext';
+import type { CreationEditorShot } from '../types';
 import type { ArtDimension } from './types';
 
 export type StructuredPromptResult = {

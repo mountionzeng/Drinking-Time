@@ -16,16 +16,16 @@ export interface StoryIntent {
 }
 
 function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
   if (
-    typeof obj.purpose !== 'string' ||
-    typeof obj.audience !== 'string' ||
-    typeof obj.platform !== 'string'
+    typeof obj.purpose !== "string" ||
+    typeof obj.audience !== "string" ||
+    typeof obj.platform !== "string"
   ) {
     return null;
   }
@@ -35,18 +35,21 @@ export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
     platform: obj.platform,
     desiredEffect: optionalString(obj.desiredEffect),
     tone: optionalString(obj.tone),
-    confidence: typeof obj.confidence === 'number' ? obj.confidence : undefined,
+    confidence: typeof obj.confidence === "number" ? obj.confidence : undefined,
     missingQuestion: optionalString(obj.missingQuestion),
     evidence: Array.isArray(obj.evidence)
-      ? obj.evidence.filter((item): item is string => typeof item === 'string')
+      ? obj.evidence.filter((item): item is string => typeof item === "string")
       : undefined,
-    configured: typeof obj.configured === 'boolean' ? obj.configured : undefined,
+    configured:
+      typeof obj.configured === "boolean" ? obj.configured : undefined,
     targetRole: optionalString(obj.targetRole),
     channel: optionalString(obj.channel),
     jobMaterialsPrompted:
-      typeof obj.jobMaterialsPrompted === 'boolean' ? obj.jobMaterialsPrompted : undefined,
+      typeof obj.jobMaterialsPrompted === "boolean"
+        ? obj.jobMaterialsPrompted
+        : undefined,
     fictionStoryCardConfirmed:
-      typeof obj.fictionStoryCardConfirmed === 'boolean'
+      typeof obj.fictionStoryCardConfirmed === "boolean"
         ? obj.fictionStoryCardConfirmed
         : undefined,
     fictionStoryCardSignature: optionalString(obj.fictionStoryCardSignature),
@@ -54,33 +57,35 @@ export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
 }
 
 export const PURPOSE_LABELS: Record<string, string> = {
-  personal_memory: '给自己留念',
-  social_post: '发社交平台',
-  linkedin_job_search: '求职 / 领英',
-  portfolio: '作品集',
-  gift: '送给某个人',
-  relationship_record: '记录一段关系',
-  fiction: '创造另一个世界',
-  product_intro: '介绍自己的产品',
-  creative_expression: '纯表达 / 情绪短片',
-  exploration: '还在探索',
+  self_reflection: "给自己讲",
+  raw_record: "记录再说",
+  personal_memory: "给自己留念",
+  social_post: "发社交平台",
+  linkedin_job_search: "求职 / 领英",
+  portfolio: "介绍自己",
+  gift: "给亲友的礼物",
+  relationship_record: "记录一段关系",
+  fiction: "创造另一个世界",
+  product_intro: "介绍自己的产品",
+  creative_expression: "纯表达 / 情绪短片",
+  exploration: "还在探索",
 };
 
 export const AUDIENCE_LABELS: Record<string, string> = {
-  self: '自己',
-  specific_person: '某个人',
-  friends: '朋友',
-  public: '大众',
-  recruiters: '招聘者',
-  clients: '客户',
-  investors: '投资人',
-  teammates: '团队',
-  unknown: '待定',
+  self: "自己",
+  specific_person: "某个人",
+  friends: "朋友",
+  public: "大众",
+  recruiters: "招聘者",
+  clients: "客户",
+  investors: "投资人",
+  teammates: "团队",
+  unknown: "待定",
 };
 
 export const JOB_CHANNEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'linkedin', label: 'LinkedIn / 领英' },
-  { value: 'wechat_video', label: '视频号' },
-  { value: 'resume_attachment', label: '简历附件' },
-  { value: 'referral', label: '内推' },
+  { value: "linkedin", label: "LinkedIn / 领英" },
+  { value: "wechat_video", label: "视频号" },
+  { value: "resume_attachment", label: "简历附件" },
+  { value: "referral", label: "内推" },
 ];

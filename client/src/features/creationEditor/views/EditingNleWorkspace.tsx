@@ -61,8 +61,8 @@ import {
   creationTimelineShotId,
   resolveTimelineShots,
   useCreationEditor,
-  type CreationEditorShot,
 } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import {
   advanceTimelinePlayhead,
   clampTimelinePlayheadMs,
@@ -2577,7 +2577,7 @@ export default function EditingNleWorkspace({
     setVideoEditorPreviewDraft(null);
   }, []);
 
-  // 小酌生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
+  // 聊聊生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
   // 定位，而不是依赖会因插入而变化的 SH 序号。
   useEffect(() => {
     const stableShotId = activeSelection?.stableShotId;
@@ -2770,27 +2770,52 @@ export default function EditingNleWorkspace({
   if (shots.length === 0) {
     return (
       <section
-        className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
+        className="flex h-full flex-col items-center justify-center px-6 text-center"
         aria-label="Storyboard empty state"
       >
-        {isGeneratingScript ? (
-          <Loader2 className="h-5 w-5 animate-spin text-[var(--nayin-accent)]" />
-        ) : (
-          <Clapperboard className="h-5 w-5 text-[var(--nayin-accent)]" />
-        )}
-        <div>
-          <p className="text-sm font-medium text-foreground">
+        <div className="w-full max-w-[31rem]">
+          <div
+            className="mx-auto flex h-11 w-11 items-center justify-center rounded-full"
+            style={{ background: "var(--nayin-glow)" }}
+          >
+            {isGeneratingScript ? (
+              <Loader2 className="h-5 w-5 animate-spin text-[var(--nayin-accent)]" />
+            ) : (
+              <Clapperboard className="h-5 w-5 text-[var(--nayin-accent)]" />
+            )}
+          </div>
+          <p className="mt-4 text-base font-semibold tracking-tight text-foreground">
             {isGeneratingScript
               ? "正在生成 Storyboard 表格…"
-              : "当前故事还没有 Storyboard 表格"}
+              : "先从左边，讲一句你的故事"}
           </p>
-          <p className="mt-1 max-w-[24rem] text-xs leading-relaxed text-muted-foreground">
+          <p className="mx-auto mt-1.5 max-w-[26rem] text-xs leading-relaxed text-muted-foreground">
             {!confirmedIntent
-              ? "先在左侧确认这次要记录、讲给别人、介绍自己，还是创造另一个世界。"
+              ? "选择这次想做成什么，或直接说出脑海里的第一句话。这里随后会长出镜头和时间线。"
               : !hasConversationSource
                 ? "意图已经确认。请先在左侧说出要讲的内容，再直接生成表格。"
                 : "直接使用对话原文生成镜头表，不再要求先生成 Story Card。"}
           </p>
+          {!confirmedIntent ? (
+            <ol className="mt-6 grid grid-cols-3 gap-2 text-left" aria-label="新故事步骤">
+              {[
+                ["01", "选一个方向"],
+                ["02", "说出故事"],
+                ["03", "生成镜头"],
+              ].map(([step, label]) => (
+                <li
+                  key={step}
+                  className="border-t pt-2"
+                  style={{ borderColor: "var(--panel-border)" }}
+                >
+                  <span className="font-mono text-[9px] text-nayin-bright">{step}</span>
+                  <span className="mt-1 block text-[10.5px] font-medium text-foreground">
+                    {label}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </div>
         <button
           type="button"
@@ -2798,7 +2823,7 @@ export default function EditingNleWorkspace({
           disabled={
             !confirmedIntent || !hasConversationSource || isGeneratingScript
           }
-          className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-5 inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
           style={{
             background: "var(--nayin-accent)",
             color: "var(--background)",

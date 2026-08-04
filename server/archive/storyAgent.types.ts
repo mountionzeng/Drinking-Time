@@ -85,8 +85,8 @@ export type HumanityRead = {
 // ── 工具调用类型（手机端出图用） ──
 export type GenerateImageToolCall = {
   name: "generateImage";
-  prompt: string;       // 图片生成 prompt
-  shotNo?: number;      // 绑定到第几镜
+  prompt: string; // 图片生成 prompt
+  shotNo?: number; // 绑定到第几镜
 };
 
 /**
@@ -109,8 +109,8 @@ export type StoryAgentChatResult = {
   read: HumanityRead | null;
   configured: boolean;
   modelLabel: string;
-  toolCalls: ToolCall[];           // 手机端出图工具调用
-  suggestImage: boolean;           // 是否建议生成图片
+  toolCalls: ToolCall[]; // 手机端出图工具调用
+  suggestImage: boolean; // 是否建议生成图片
 };
 
 export type StoryChatIntentPayload = {
@@ -149,23 +149,23 @@ export type ShotEntry = {
   /** 该幕的美术参考标准，后续图片 / 视频渲染会作为场景库提示。 */
   sceneArtBrief?: string;
   // ── 主线（默认可见）──
-  subject: string;     // 主体：谁/什么在画面里
-  action: string;      // 主体的动作 / 发生的事件
-  dialogue: string;    // 台词原话
-  shotType: string;    // 景别：远 / 全 / 中 / 近 / 特 / 大特
-  beat: ShotBeat;      // 这一镜在故事弧线上的位置（开场/起势/转折/收束）
+  subject: string; // 主体：谁/什么在画面里
+  action: string; // 主体的动作 / 发生的事件
+  dialogue: string; // 台词原话
+  shotType: string; // 景别：远 / 全 / 中 / 近 / 特 / 大特
+  beat: ShotBeat; // 这一镜在故事弧线上的位置（开场/起势/转折/收束）
   // ── 技术细节（默认折叠）──
   cameraAngle: string; // 机位：平视 / 俯 / 仰 / 过肩 / 顶视
-  cameraMove: string;  // 运镜：静止 / 推 / 拉 / 摇 / 移 / 跟 / 升降 / 手持
-  location: string;    // 场景 / 地点
-  timeLight: string;   // 时间 · 光：清晨/黄昏/夜；柔光/侧逆/顶光
-  mood: string;        // 氛围 · 色调：暖/冷/灰雾/高饱
-  sound: string;       // 环境声 / 音效
-  styleRef: string;    // 风格参考：王家卫/纪录片/35mm 胶片 等
+  cameraMove: string; // 运镜：静止 / 推 / 拉 / 摇 / 移 / 跟 / 升降 / 手持
+  location: string; // 场景 / 地点
+  timeLight: string; // 时间 · 光：清晨/黄昏/夜；柔光/侧逆/顶光
+  mood: string; // 氛围 · 色调：暖/冷/灰雾/高饱
+  sound: string; // 环境声 / 音效
+  styleRef: string; // 风格参考：王家卫/纪录片/35mm 胶片 等
   // ── 内部 / 不展示给用户的列 ──
-  note: string;             // 技术备注
-  emotion: string;          // 情感词（1-3 字）
-  intent?: string | null;    // 当前镜头承担的用户/叙事意图
+  note: string; // 技术备注
+  emotion: string; // 情感词（1-3 字）
+  intent?: string | null; // 当前镜头承担的用户/叙事意图
   rationale?: string | null; // 当前镜头为什么这样画（只保留当前理由，不做历史账本）
   // 回溯到原素材；模型自己加的连接镜（establishing / 反应镜 / coda）此字段为空字符串。
   sourceCardContent: string;
@@ -173,9 +173,9 @@ export type ShotEntry = {
 
 export type ShotListPayload = {
   characters: ShotCharacter[];
-  arc: string;       // 一句话情感弧线（≤30 字）—— 偏感受
-  logline: string;   // 一句话故事 pitch（≤30 字）—— 偏剧情
-  theme: string;     // 故事底下没说出口的意思（≤25 字）—— 偏意义
+  arc: string; // 一句话情感弧线（≤30 字）—— 偏感受
+  logline: string; // 一句话故事 pitch（≤30 字）—— 偏剧情
+  theme: string; // 故事底下没说出口的意思（≤25 字）—— 偏意义
   variants: Array<{
     mode: "克制版" | "戏剧版" | "诗意版";
     logline: string;
@@ -228,14 +228,16 @@ export type SummaryPayload = {
 };
 
 export type StoryIntentPurpose =
+  | "self_reflection"
+  | "raw_record"
   | "personal_memory"
   | "social_post"
   | "linkedin_job_search"
   | "portfolio"
   | "gift"
   | "relationship_record"
-  | "fiction"        // 讲别人的故事 / 虚构叙事（编故事，不是挖真实回忆——会改变小酌聊法）
-  | "product_intro"  // 介绍自己的产品（收拢原 brand_promo + pitch；投资人/客户由 audience 区分）
+  | "fiction" // 讲别人的故事 / 虚构叙事（编故事，不是挖真实回忆——会改变聊聊聊法）
+  | "product_intro" // 介绍自己的产品（收拢原 brand_promo + pitch；投资人/客户由 audience 区分）
   | "creative_expression"
   | "exploration";
 

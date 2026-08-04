@@ -25,7 +25,7 @@ import {
 import type {
   CreationEditorShot,
   ImportedStoryMaterialResult,
-} from "@/features/creationEditor/CreationEditorContext";
+} from "@/features/creationEditor/types";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
 import {
@@ -39,7 +39,7 @@ import {
   videoTakeErrorMessage,
   videoTakeFrameUrl,
 } from "@/features/creationEditor/videoAssetViewModel";
-import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
+import type { StoryShotEditableField } from "@shared/shotDirector";
 import { toast } from "sonner";
 import type {
   ShotVideoProviderStatus,

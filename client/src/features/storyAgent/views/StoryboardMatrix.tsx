@@ -25,6 +25,7 @@ export type StoryboardMatrixField =
 export type StoryboardMatrixRow = {
   field: StoryboardMatrixField;
   label: string;
+  description?: string;
   placeholder: string;
   rows: number;
 };
@@ -69,16 +70,23 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
   {
     field: "promptDraft",
     label: "图片要求",
-    placeholder: "直接写必须怎样改；未提及的画面内容会保持不变",
+    description: "主体 · 画面动作 · 构图",
+    placeholder: "写清主体、动作、构图和必须保持的内容",
     rows: 4,
   },
   {
     field: "videoPrompt",
     label: "视频要求",
-    placeholder: "写清人物、环境与摄影机分别怎样运动",
+    description: "旁白 · 表演 · 运镜 · 声音 · 衔接",
+    placeholder: "写清表演、运镜、声音与镜头衔接",
     rows: 4,
   },
 ];
+
+export const STORYBOARD_MATRIX_VISIBLE_ROWS: readonly StoryboardMatrixRow[] =
+  STORYBOARD_MATRIX_ROWS.filter(
+    row => row.field === "promptDraft" || row.field === "videoPrompt"
+  );
 
 export function storyboardMatrixTextareaHeight(
   scrollHeight: number,

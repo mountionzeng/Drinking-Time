@@ -107,6 +107,55 @@ describe("latestFrameCandidateSheet", () => {
     ).toBeNull();
   });
 
+  it("recognizes a newly assigned storyboard-reference MJ sheet when lineage mode omitted promptRun", () => {
+    expect(
+      latestFrameCandidateSheet([
+        {
+          id: 50,
+          imageUrl: "/api/images/story-reference-grid.png",
+          prompt:
+            "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH — HIGHEST PRIORITY:\nUSER DIRECT EDIT INSTRUCTION — HIGHEST PRIORITY:\n图片要求（最高优先级）：夜市中景",
+          generationType: "inpaint",
+          parentImageId: null,
+        },
+      ])
+    ).toEqual({
+      imageId: 50,
+      imageUrl: "/api/images/story-reference-grid.png",
+      label: "候选版本 V1",
+    });
+  });
+
+  it("does not split an exact single-frame edit into quadrants", () => {
+    expect(
+      latestFrameCandidateSheet([
+        {
+          id: 51,
+          imageUrl: "/api/images/exact-edit.png",
+          prompt:
+            "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH — HIGHEST PRIORITY:\n本次对话修改（最高优先级，必须实际应用）：延长裙摆",
+          generationType: "inpaint",
+          parentImageId: null,
+        },
+      ])
+    ).toBeNull();
+  });
+
+  it("does not split the single-image fallback result into quadrants", () => {
+    expect(
+      latestFrameCandidateSheet([
+        {
+          id: 53,
+          imageUrl: "/api/images/reference-edit.png",
+          prompt:
+            "SUPPLIED STORYBOARD FRAMES ARE THE VISUAL SOURCE OF TRUTH — HIGHEST PRIORITY:\n图片要求（最高优先级）：夜市中景\n单帧参考编辑保护：只生成一张完整的电影静帧",
+          generationType: "inpaint",
+          parentImageId: null,
+        },
+      ])
+    ).toBeNull();
+  });
+
   it("recognizes a generated candidate sheet when the prompt run was not persisted", () => {
     expect(
       latestFrameCandidateSheet([
@@ -122,6 +171,25 @@ describe("latestFrameCandidateSheet", () => {
     ).toEqual({
       imageId: 47,
       imageUrl: "/api/images/generated-grid.png",
+      label: "候选版本 V1",
+    });
+  });
+
+  it("recognizes legacy final MJ sheets stored as generationType generate", () => {
+    expect(
+      latestFrameCandidateSheet([
+        {
+          id: 52,
+          imageUrl: "/api/images/legacy-final-grid.png",
+          prompt:
+            "Rerender only SH05. Create exactly one single cinematic still frame.",
+          generationType: "generate",
+          parentImageId: null,
+        },
+      ])
+    ).toEqual({
+      imageId: 52,
+      imageUrl: "/api/images/legacy-final-grid.png",
       label: "候选版本 V1",
     });
   });

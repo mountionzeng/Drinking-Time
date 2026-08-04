@@ -135,7 +135,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.sendFile(full);
   });
-  // 小酌衔接确认卡：从用户有权访问的当前 Take 中抽取精确端点帧。
+  // 聊聊衔接确认卡：从用户有权访问的当前 Take 中抽取精确端点帧。
   // URL 里的时间只用于预览；真正付费提交前会按当前时间轴重新推导并校验。
   app.get("/api/video-frames/:takeId", async (req, res) => {
     const takeId = Number(req.params.takeId);

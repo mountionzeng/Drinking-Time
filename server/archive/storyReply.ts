@@ -55,7 +55,7 @@ async function detectVisualCorrection(
   try {
     const recentContext = history
       .slice(-4)
-      .map((t) => `${t.role === "user" ? "用户" : "小酌"}：${t.content}`)
+      .map((t) => `${t.role === "user" ? "用户" : "聊聊"}：${t.content}`)
       .join("\n");
 
     const { text } = await invokeAgent(
@@ -255,7 +255,7 @@ export async function replyFromStoryAgent(params: {
   } catch (err) {
     // 通道层已对临时性错误自动重试；走到这里说明仍然没接上。
     // 不向上抛错——否则前端只会弹一句吞掉真实原因的「Agent 暂时没接上」并断掉对话。
-    // 改为优雅兜底：用小酌的口吻说一句「刚刚没接住」，对话不中断；真实原因记进服务端日志供排查。
+    // 改为优雅兜底：用聊聊的口吻说一句「刚刚没接住」，对话不中断；真实原因记进服务端日志供排查。
     console.error("[storyAgent] invokeAgent failed after retries:", err);
     return {
       configured: true,
@@ -272,7 +272,7 @@ export async function replyFromStoryAgent(params: {
   const reply = extractReplyText(text);
 
   // ── B 改造 · 第二步：后台抽取（非致命）──
-  // 把同一段对话 + 小酌刚说的回话，交给无人设的「后台分析器」抽出 read / card / toolCalls。
+  // 把同一段对话 + 聊聊刚说的回话，交给无人设的「后台分析器」抽出 read / card / toolCalls。
   // 任何失败（调用失败 / 不是合法 JSON）都【不致命】：card=null、read=null、toolCalls=[]，
   // 绝不回头影响上面已经拿到的 reply —— 这正是把「出卡」从「回话」里解耦出来的全部意义。
   let card: StoryCardPayload | null = null;
@@ -391,7 +391,7 @@ export async function replyFromStoryAgent(params: {
     );
   }
 
-  // 如果有 generateImage toolCall，说明小酌建议出图
+  // 如果有 generateImage toolCall，说明聊聊建议出图
   const suggestImage = toolCalls.some(tc => tc.name === "generateImage");
 
   // 矫正循环：检测用户消息中的视觉修正，写入 image_signals 供出图网关消费
@@ -440,7 +440,7 @@ export async function replyFromStoryAgent(params: {
 /**
  * 从最近对话现编一条英文出图 prompt —— 供手机端「画出来」按钮手动出图用。
  *
- * 背景：正常出图依赖小酌主动在 toolCalls 里吐 generateImage（带英文 prompt）。
+ * 背景：正常出图依赖聊聊主动在 toolCalls 里吐 generateImage（带英文 prompt）。
  * 手动「画出来」时没有这个 prompt，这里复用同一个 LLM 通道，把对话里最值得画的
  * 那个瞬间现编成一行英文 prompt。任何失败都返回空串（调用处据此报错降级，绝不抛）。
  */
@@ -455,7 +455,7 @@ export async function deriveMobileImagePrompt(params: {
   if (recent.length === 0 && !params.cardHint?.trim()) return "";
 
   const contextLines: string[] = [
-    "你是小酌的「出图描述师」。从给你的这段对话里，挑出最值得定格成一帧画面的那个瞬间，",
+    "你是聊聊的「出图描述师」。从给你的这段对话里，挑出最值得定格成一帧画面的那个瞬间，",
     "把它写成 ONE 行英文出图 prompt，必须包含：场景、光线、氛围、人物动作或神态。",
     "风格偏电影感、温暖、写实的情绪影像。",
   ];

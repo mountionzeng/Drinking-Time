@@ -72,7 +72,7 @@ describe("TopBar story panel controls", () => {
     expect(html).not.toContain("Script");
     expect(html).not.toContain("默认分析项目");
     expect(html).not.toContain("DRINKING TIME");
-    expect(html).toContain("访问情况");
+    expect(html).toContain("用户管理");
   });
 
   it("can hide story panel buttons on the welcome page", () => {

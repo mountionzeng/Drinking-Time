@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import {
   buildRerenderPrompt,
   createGenerateForMobileInput,
@@ -121,9 +121,10 @@ describe("creation editor rerender", () => {
         identityImageUrl: "/api/images/0201-tail.png",
       },
       imageProvider: "gpt-image",
+      editMaskImageUrl: "data:image/png;base64,c2tpcnQtbWFzaw==",
       explicitInstruction:
         "只把女主的裙子改为白色及地长裙，人物、发型、动作、构图、场景、颜色和材质完全不变。",
-      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
       generate,
     });
 
@@ -131,6 +132,7 @@ describe("creation editor rerender", () => {
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         imageProvider: "gpt-image",
+        editMaskImageUrl: "data:image/png;base64,c2tpcnQtbWFzaw==",
         referenceImageUrl: "/api/images/0201-tail.png",
         referenceIdentityImageUrl: "/api/images/0201-tail.png",
         referenceContextImageUrls: undefined,

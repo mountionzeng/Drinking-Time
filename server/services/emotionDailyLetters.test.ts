@@ -134,6 +134,11 @@ describe("重写每日回信", () => {
     expect(personalize).toHaveBeenCalledWith(
       expect.objectContaining({
         date: "2026-07-26",
+        generationIntent: "daily-letter",
+        baseDailyReference: expect.objectContaining({
+          personalizedYi: [],
+          personalizedJi: [],
+        }),
         analysisSeed: expect.objectContaining({
           userMessage: "后来我想换一种说法",
           conversationMode: "history",

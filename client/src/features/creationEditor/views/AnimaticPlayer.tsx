@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import {
   advancePlayback,
   enteredShotNo,
@@ -454,8 +454,8 @@ export default function AnimaticPlayer({
       currentShot.intent ? `原镜头任务：${currentShot.intent}` : "",
       currentShot.dialogue ? `原台词/声音：${currentShot.dialogue}` : "",
       deriveInstruction.trim()
-        ? `我想让小酌做：${deriveInstruction.trim()}`
-        : "我想让小酌做：以这个局部为基础，判断能不能图生图派生新镜头。",
+        ? `我想让聊聊做：${deriveInstruction.trim()}`
+        : "我想让聊聊做：以这个局部为基础，判断能不能图生图派生新镜头。",
     ]
       .filter(Boolean)
       .join("\n");
@@ -1005,14 +1005,14 @@ export default function AnimaticPlayer({
                   disabled={!deriveSourceUrl}
                   title={
                     deriveSourceType === "image"
-                      ? "框选当前主图区域并发送给小酌"
+                      ? "框选当前主图区域并发送给聊聊"
                       : canPersistDerivedFrame
-                        ? "框选视频帧区域，可先问小酌，也可继续派生新镜头"
-                        : "可以框选并询问小酌；当前视频尚未完成同源托管，暂时不能生成派生候选"
+                        ? "框选视频帧区域，可先问聊聊，也可继续派生新镜头"
+                        : "可以框选并询问聊聊；当前视频尚未完成同源托管，暂时不能生成派生候选"
                   }
                 >
                   <ScanLine className="h-4 w-4" />
-                  框选问小酌
+                  框选问聊聊
                 </Button>
                 {canRefreshVideo ? (
                   <Button
@@ -1166,7 +1166,7 @@ export default function AnimaticPlayer({
                   <div className="space-y-2">
                     <p className="text-[10px] text-muted-foreground">
                       当前视频 {currentTakeDurationSec.toFixed(1)}
-                      s，拖动入点/出点框选一段；可以先发给小酌判断，也可以保存到时间轴。
+                      s，拖动入点/出点框选一段；可以先发给聊聊判断，也可以保存到时间轴。
                       {playbackSpeed !== 1.0
                         ? ` 以 ${playbackSpeed}x 速度播放，时间轴时长约 ${((rangeDraft.endSec - rangeDraft.startSec) / playbackSpeed).toFixed(1)}s。`
                         : ` 时间轴时长 ${(rangeDraft.endSec - rangeDraft.startSec).toFixed(1)}s。`}
@@ -1226,7 +1226,7 @@ export default function AnimaticPlayer({
                         onClick={openRangeInChat}
                       >
                         <MessageCircle className="h-4 w-4" />
-                        发送给小酌
+                        发送给聊聊
                       </Button>
                     </div>
                   </div>
@@ -1287,7 +1287,7 @@ export default function AnimaticPlayer({
                     : "派生新镜头"}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs">
-                  先选帧和画面局部，再发送给小酌判断；派生候选生成是单独的下一步。
+                  先选帧和画面局部，再发送给聊聊判断；派生候选生成是单独的下一步。
                 </DialogDescription>
               </div>
             </div>
@@ -1366,7 +1366,7 @@ export default function AnimaticPlayer({
                     </div>
                     <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground shadow-sm">
                       <ScanLine className="h-3.5 w-3.5 text-primary" />
-                      拖拽框选，右侧发送给小酌
+                      拖拽框选，右侧发送给聊聊
                     </div>
                   </>
                 ) : (
@@ -1502,7 +1502,7 @@ export default function AnimaticPlayer({
               </div>
 
               <label className="block text-xs font-semibold text-foreground">
-                告诉小酌怎么派生
+                告诉聊聊怎么派生
                 <Textarea
                   value={deriveInstruction}
                   onChange={event => setDeriveInstruction(event.target.value)}
@@ -1513,7 +1513,7 @@ export default function AnimaticPlayer({
 
               <div className="min-h-[150px] rounded-md border border-border bg-muted/20 p-3">
                 <div className="mb-2 text-xs font-semibold text-foreground">
-                  给小酌的上下文
+                  给聊聊的上下文
                 </div>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[11px] leading-5 text-muted-foreground">
                   {deriveContextMessage}
@@ -1523,7 +1523,7 @@ export default function AnimaticPlayer({
               {deriveResult ? (
                 <div className="rounded-md border border-border bg-muted/20 p-3">
                   <div className="text-xs font-semibold text-foreground">
-                    小酌建议
+                    聊聊建议
                   </div>
                   <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                     {String(
@@ -1575,7 +1575,7 @@ export default function AnimaticPlayer({
                     disabled={!canOpenSelectionInChat}
                   >
                     <MessageCircle className="h-4 w-4" />
-                    发送给小酌
+                    发送给聊聊
                   </Button>
                 ) : null}
                 <Button

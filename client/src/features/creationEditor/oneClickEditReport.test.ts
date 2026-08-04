@@ -5,7 +5,7 @@ import type {
 } from "@shared/storyMaterial";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { VideoTakeAsset } from "@shared/videoAsset";
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import {
   aspectRatioMatches,
   buildOneClickEditReport,

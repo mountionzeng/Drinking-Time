@@ -1,13 +1,9 @@
 import {
   CalendarDays,
   Check,
-  Heart,
-  ListChecks,
   Loader2,
   MessageCircle,
   Pencil,
-  Shirt,
-  Sparkles,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,12 +18,14 @@ import {
   type SaveEmotionAnalysisProfileInput,
 } from "@/features/analysis/emotionAnalysis";
 import EmotionAnalysisInvitePanel from "@/features/analysis/views/EmotionAnalysisInvitePanel";
+import { publicDailyLetterForDate } from "@/features/analysis/publicDailyLetter";
 import { useNayin } from "@/features/nayin/NayinContext";
 import { useDailyAlmanac } from "@/features/nayin/hooks/useDailyAlmanac";
 import DailyAtmospherePanel from "@/features/nayin/views/DailyAtmospherePanel";
 import { trpc } from "@/lib/trpc";
 
 const DAILY_LETTER_SEEN_PREFIX = "dt:dailyLetterSeen";
+const PUBLIC_DAILY_LETTER_SEEN_KEY = "dt:publicDailyLetterSeen";
 
 export function dailyLetterSeenKey(userId: number) {
   return `${DAILY_LETTER_SEEN_PREFIX}:${userId}`;
@@ -77,15 +75,34 @@ function writeSeenDate(userId: number, date: string) {
   }
 }
 
-function adviceText(items: string[] | undefined, fallback: string) {
-  const text = items?.slice(0, 3).join("、").trim();
-  return text || fallback;
+function readPublicSeenDate() {
+  try {
+    return window.localStorage.getItem(PUBLIC_DAILY_LETTER_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writePublicSeenDate(date: string) {
+  try {
+    window.localStorage.setItem(PUBLIC_DAILY_LETTER_SEEN_KEY, date);
+  } catch {
+    // 浏览器禁用本地存储时，只影响“当天只展示一次”。
+  }
 }
 
 function dateLabel(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
   return `${Number(match[2])}月${Number(match[3])}日`;
+}
+
+export function dailyLetterGreeting(hour: number) {
+  if (hour < 5) return "夜深了，先让自己慢一点";
+  if (hour < 11) return "早上好，今天也从容一点";
+  if (hour < 14) return "中午好，先照顾好自己";
+  if (hour < 19) return "下午好，给自己留点余地";
+  return "晚上好，今天辛苦了";
 }
 
 function timestampLabel(value: string | null) {
@@ -119,6 +136,7 @@ export default function DailyLetterWelcome({
   const { today } = useNayin();
   const almanacQuery = useDailyAlmanac(today.cstDateStr);
   const profileQuery = trpc.emotionAnalysis.getProfile.useQuery(undefined, {
+    enabled: Boolean(user?.id),
     retry: false,
   });
   const lettersQuery = trpc.emotionAnalysis.listDailyLetters.useQuery(
@@ -148,6 +166,10 @@ export default function DailyLetterWelcome({
   const profile = useMemo(
     () => normalizeEmotionAnalysisProfile(profileQuery.data, "server"),
     [profileQuery.data]
+  );
+  const publicLetter = useMemo(
+    () => publicDailyLetterForDate(today.cstDateStr),
+    [today.cstDateStr]
   );
   const saveInitialProfile = useCallback(
     async (input: SaveEmotionAnalysisProfileInput) => {
@@ -248,10 +270,11 @@ export default function DailyLetterWelcome({
       : null);
   const editedAt = selectedLetter?.userMessageEditedAt ?? null;
   const userId = user?.id;
-  const seenDate = userId ? readSeenDate(userId) : null;
-  const autoVisible =
-    Boolean(userId && profile) &&
-    shouldShowDailyLetter(profileDate, seenDate, closedDate);
+  const seenDate = userId ? readSeenDate(userId) : readPublicSeenDate();
+  const autoVisible = userId
+    ? Boolean(profile) &&
+      shouldShowDailyLetter(profileDate, seenDate, closedDate)
+    : shouldShowDailyLetter(publicLetter.date, seenDate, closedDate);
   const visible = forceOpen || autoVisible;
 
   useEffect(() => {
@@ -262,10 +285,13 @@ export default function DailyLetterWelcome({
     if (userId && shouldMarkDailyLetterSeen(selectedDate, profileDate)) {
       writeSeenDate(userId, profileDate);
       setClosedDate(profileDate);
+    } else if (!userId) {
+      writePublicSeenDate(publicLetter.date);
+      setClosedDate(publicLetter.date);
     }
     setEditingMessage(false);
     onRequestClose?.();
-  }, [onRequestClose, profileDate, selectedDate, userId]);
+  }, [onRequestClose, profileDate, publicLetter.date, selectedDate, userId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -334,6 +360,67 @@ export default function DailyLetterWelcome({
       toast.error(error instanceof Error ? error.message : "回信暂时没有改好");
     }
   };
+
+  if (!userId) {
+    if (!visible) return null;
+    return (
+      <div
+        className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label="今日来信"
+      >
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          className="mx-auto flex min-h-full w-full max-w-2xl items-center outline-none"
+        >
+          <div className="w-full border-y py-8">
+            <header className="flex items-start justify-between gap-5">
+              <div>
+                <p className="text-[10px] text-muted-foreground">
+                  {publicLetter.date} · 写给今天打开页面的你
+                </p>
+                <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
+                  {dailyLetterGreeting(new Date().getHours())}
+                </h1>
+              </div>
+              <button
+                type="button"
+                onClick={closeLetter}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="收起今日来信"
+                title="收起今日来信"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+
+            <div className="mt-7 space-y-4 border-t pt-6">
+              {publicLetter.paragraphs.map(paragraph => (
+                <p
+                  key={paragraph}
+                  className="text-sm leading-7 text-foreground"
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+
+            <div className="mt-7 flex justify-end border-t pt-4">
+              <button
+                type="button"
+                onClick={closeLetter}
+                className="px-2 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                把信收好，开始今天
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   if (profileQuery.isSuccess && guestProfile && !guestImportDismissed) {
     const localMessageCount =
@@ -444,22 +531,6 @@ export default function DailyLetterWelcome({
 
   if (!visible || !profile || !selectedReference || !selectedSeed) return null;
 
-  const birthContext =
-    typeof selectedSeed.birthBazi === "string" && selectedSeed.birthBazi
-      ? `${selectedSeed.birthBazi}。这里只把四柱当作传统时间文化参照。`
-      : selectedSeed.birthShichen
-        ? `出生时间落在${selectedSeed.birthShichen}。这里只把时辰当作传统时间文化参照。`
-        : "还没有出生时间，因此这封信不补猜时柱。";
-  const activity = adviceText(
-    selectedReference.personalizedYi,
-    selectedReference.activity || "把最重要的一件事先做小"
-  );
-  const mindset =
-    selectedReference.mindset ||
-    adviceText(
-      selectedReference.personalizedJi,
-      selectedReference.avoid || "不急着下结论"
-    );
   const messageChanged = messageDraft.trim() !== selectedMessage.trim();
 
   return (
@@ -484,7 +555,7 @@ export default function DailyLetterWelcome({
             </p>
             <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
               {selectedDate === profileDate
-                ? "今天，也给你留了一封信"
+                ? dailyLetterGreeting(new Date().getHours())
                 : `${dateLabel(selectedDate)}的回信`}
             </h1>
           </div>
@@ -540,56 +611,6 @@ export default function DailyLetterWelcome({
           personalizedYi={selectedReference.personalizedYi}
           personalizedJi={selectedReference.personalizedJi}
         />
-
-        <div
-          className="grid gap-x-8 gap-y-4 border-b py-5 sm:grid-cols-2"
-          style={{ borderColor: "var(--nayin-border)" }}
-        >
-          <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-nayin" />
-            <div>
-              <h2 className="text-xs font-medium text-foreground">
-                旧历里，今天这样写
-              </h2>
-              <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                {birthContext}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Shirt className="mt-0.5 h-4 w-4 shrink-0 text-nayin" />
-            <div>
-              <h2 className="text-xs font-medium text-foreground">
-                今天穿什么
-              </h2>
-              <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                {selectedReference.clothing || "以舒服、方便活动为先。"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-nayin" />
-            <div>
-              <h2 className="text-xs font-medium text-foreground">
-                今天可以做什么
-              </h2>
-              <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                {activity}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Heart className="mt-0.5 h-4 w-4 shrink-0 text-nayin" />
-            <div>
-              <h2 className="text-xs font-medium text-foreground">
-                今天，怎么和自己相处
-              </h2>
-              <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                {mindset}
-              </p>
-            </div>
-          </div>
-        </div>
 
         <section
           className="border-b py-5"
@@ -659,7 +680,7 @@ export default function DailyLetterWelcome({
             <>
               <p className="mt-3 text-sm leading-7 text-foreground">
                 {selectedMessage ||
-                  "这一天还没有写下新话，回信会接着你此前留下的内容往下写。"}
+                  "这一天还没有写下新话，所以来信不会翻出以前的具体事情。"}
               </p>
               {(saidAt || editedAt) && (
                 <p className="mt-1 text-[9px] text-muted-foreground/65">
@@ -671,15 +692,12 @@ export default function DailyLetterWelcome({
             </>
           )}
           <p className="mt-3 text-[10px] leading-5 text-muted-foreground/70">
-            聊会儿会一起读你以前留下的话，但会分清哪一句属于哪一天。
+            只有你今天写下新话时，聊会儿才会在确有关系的地方参考以前的文字。
           </p>
         </section>
 
         <section className="py-6" aria-label="聊会儿的回信">
-          <h2 className="font-chat-brand text-xl font-normal text-foreground">
-            聊会儿写给你的
-          </h2>
-          <div className="mt-4 space-y-4">
+          <div className="space-y-4">
             {letterParagraphs(selectedReference.summary).map(paragraph => (
               <p key={paragraph} className="text-sm leading-7 text-foreground">
                 {paragraph}

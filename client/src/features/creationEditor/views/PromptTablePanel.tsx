@@ -7,10 +7,8 @@ import {
 } from "@shared/promptRevisionAttribution";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
-import {
-  useCreationEditor,
-  type CreationEditorShot,
-} from "../CreationEditorContext";
+import { useCreationEditor } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
   latestFrameCandidateSheet,

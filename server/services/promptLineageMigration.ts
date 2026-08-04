@@ -371,7 +371,7 @@ function collectMessages(body: LegacyRecord): LegacyMessage[] {
       const content = text(message.content) || text(message.text);
       const roleText = (text(message.role) || text(message.who)).toLowerCase();
       const isOpeningGreeting =
-        content.includes("你好，我是小酌") &&
+        content.includes("你好，我是聊聊") &&
         content.includes("今天有没有一件很小的事");
       if (
         !content ||

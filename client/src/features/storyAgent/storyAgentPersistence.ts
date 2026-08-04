@@ -55,7 +55,7 @@ export interface PersistedState {
 export const storageKey = (projectId: number | null) =>
   projectId ? `dt:storyAgent:${projectId}` : null;
 
-// 全新空状态：只放一条小酌的开场白，其余清空。
+// 全新空状态：只放一条聊聊的开场白，其余清空。
 export function emptyState(): PersistedState {
   return {
     messages: [

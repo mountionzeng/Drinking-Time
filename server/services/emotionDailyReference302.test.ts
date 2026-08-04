@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 import type { AlmanacDay } from "./almanac";
-import { personalizeEmotionDailyReference302 } from "./emotionDailyReference302";
+import {
+  personalizeEmotionDailyReference302,
+  softenTraditionalExposition,
+} from "./emotionDailyReference302";
 
 const saved = {
   api302Key: ENV.api302Key,
@@ -25,6 +28,7 @@ const almanac: AlmanacDay = {
     ganzhiYear: "丙午",
     ganzhiMonth: "乙未",
     ganzhiDay: "壬寅日",
+    solarTerm: "大暑",
   },
   fetchedAt: "2026-07-27T00:00:00.000Z",
 };
@@ -101,6 +105,104 @@ afterEach(() => {
 });
 
 describe("personalizeEmotionDailyReference302", () => {
+  it("把内部五行计算术语软化成自然提醒", () => {
+    expect(
+      softenTraditionalExposition(
+        "今天是农历六月廿二，庚戌日，日主土生今日天干金，适合把注意力收在一件要紧的事上。"
+      )
+    ).toBe("今天适合把注意力收在一件要紧的事上。");
+  });
+
+  it("新一天没有新话时只把旧话当背景，不让正文复述旧事件", async () => {
+    const safeSummary = [
+      "今天还没有新的话，也没有关系。一天刚开始时，不需要立刻替它找到主题，可以先让眼前的光线、声音和手边的事情慢慢落到各自的位置。",
+      "如果事情很多，先挑一件最小的：倒一杯水、收好桌面，或者写下今天最想完成的一步。穿一件轻薄、方便活动的衣服，出门前再按体感增减一层。",
+      "现在是巳时，可以把注意力留给一段完整、不被打断的时间。做完以后停一下，给自己一点余量，再决定下一段要交给什么。",
+      "没有完成的部分可以继续留着。今天不必装下所有答案，只要比刚打开页面时多看清一个小地方，就已经足够。",
+    ].join("\n\n");
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: safeSummary,
+                clothing: "穿一件舒服、方便活动的衣服。",
+                mindset: "先照顾眼前能完成的一小步。",
+                schedule: baseInput.baseDailyReference.schedule,
+                lenses: baseInput.baseDailyReference.lenses,
+                personalizedYi: ["做小一步", "留点空白", "按时吃饭"],
+                personalizedJi: ["一次排满", "替今天定性", "急着总结"],
+                avoid: "不要一次把整天排满。",
+                note: "今天只需要从一个小动作开始。",
+              }),
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      generationIntent: "daily-letter",
+      analysisSeed: {
+        ...baseInput.analysisSeed,
+        userMessage: "",
+        messageHistory: [
+          {
+            dailyLetterDate: "2026-07-26",
+            text: "最近收留的猫很吵。",
+          },
+        ],
+      },
+      fetcher,
+      now: new Date("2026-07-27T02:30:00.000Z"),
+    });
+
+    const body = JSON.parse(String(fetcher.mock.calls[0][1].body));
+    const prompt = String(body.messages[1].content);
+    expect(prompt).toContain("猫");
+    expect(prompt).toContain("北京通州");
+    expect(prompt).toContain('"age":31');
+    expect(prompt).toContain("甲戌年");
+    expect(prompt).toContain("大暑");
+    expect(result.dailyReference.summary).not.toContain("猫");
+    expect(result.dailyReference.summary).not.toContain("北京通州");
+    expect(result.dailyReference.summary).not.toContain("31岁");
+    expect(body.messages[0].content).toContain(
+      "不得复述、引用或追问某一次旧事件"
+    );
+    expect(body.messages[0].content).toContain("每天必须从零重算");
+  });
+
+  it("无模型可用且当天没有新话时不会复用旧摘要", async () => {
+    ENV.api302Key = "";
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      generationIntent: "daily-letter",
+      baseDailyReference: {
+        ...baseInput.baseDailyReference,
+        summary: "昨天关于猫的旧回信。",
+      },
+      analysisSeed: {
+        ...baseInput.analysisSeed,
+        userMessage: "",
+      },
+      now: new Date("2026-07-27T02:30:00.000Z"),
+    });
+
+    expect(result.source).toBe("local-template");
+    expect(result.dailyReference.summary).not.toContain("猫");
+    expect(result.dailyReference.summary).toContain("今天还没有新的话");
+    expect(result.dailyReference.summary).toContain("穿衣以");
+    expect(result.dailyReference.personalizedYi).not.toContain("理清轻重");
+    expect(result.dailyReference.personalizedJi).not.toContain("情绪化回应");
+  });
+
   it("只让 DeepSeek 写解读，并保留天行黄历事实", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,
@@ -184,7 +286,7 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.dailyReference.mindset).toContain("不急着");
     expect(result.dailyReference.currentShichen).toBe("巳时");
     expect(result.dailyReference.summary).toContain("现在是巳时");
-    expect(result.dailyReference.letterVersion).toBe("daily-letter-v10");
+    expect(result.dailyReference.letterVersion).toBe("daily-letter-v12");
     expect(
       String(result.dailyReference.summary).split("\n\n").length
     ).toBeGreaterThanOrEqual(3);
@@ -197,10 +299,8 @@ describe("personalizeEmotionDailyReference302", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("deepseek-v3.2");
     expect(body.max_tokens).toBe(1800);
-    expect(body.messages[0].content).toContain("4 到 5 个自然段");
-    expect(body.messages[0].content).toContain(
-      "你讨厌的不是……而是……"
-    );
+    expect(body.messages[0].content).toContain("3 到 4 个自然段");
+    expect(body.messages[0].content).toContain("你讨厌的不是……而是……");
     expect(body.messages[0].content).toContain("两种或三种仍有依据的可能");
     expect(body.messages[0].content).toContain("不要按上午/下午/晚上报日程");
     expect(body.messages[1].content).toContain("会友");
@@ -344,7 +444,7 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(retryBody.messages.at(-1).content).toContain(
       "第一次回信篇幅或结构不完整"
     );
-    expect(retryBody.messages.at(-1).content).toContain("380 到 650 个汉字");
+    expect(retryBody.messages.at(-1).content).toContain("220 到 420 个汉字");
   });
 
   it("模型替用户解释内心时要求重写并保留不止一种可能", async () => {
@@ -480,9 +580,7 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(result.source).toBe("local-template");
     expect(result.dailyReference.summary).not.toContain("你讨厌的不是猫");
-    expect(result.dailyReference.summary).toContain(
-      "我好讨厌我最近收留的猫"
-    );
+    expect(result.dailyReference.summary).toContain("我好讨厌我最近收留的猫");
   });
 
   it("没有 302 key 时保留本地模板且不发请求", async () => {

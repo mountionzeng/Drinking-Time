@@ -9,13 +9,15 @@ export const EMOTION_DAILY_LETTER_VERSIONS = [
   "daily-letter-v8",
   "daily-letter-v9",
   "daily-letter-v10",
+  "daily-letter-v11",
+  "daily-letter-v12",
 ] as const;
 
 export type EmotionDailyLetterVersion =
   (typeof EMOTION_DAILY_LETTER_VERSIONS)[number];
 
 export const EMOTION_DAILY_LETTER_VERSION: EmotionDailyLetterVersion =
-  "daily-letter-v10";
+  "daily-letter-v12";
 
 export function isEmotionDailyLetterVersion(
   value: unknown

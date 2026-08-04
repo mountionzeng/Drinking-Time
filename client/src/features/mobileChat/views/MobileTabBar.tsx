@@ -13,7 +13,7 @@ const TABS: Array<{
   path: string;
   icon: typeof MessageCircle;
 }> = [
-  { key: "chat", label: "小酌", subLabel: "CHAT", path: "/m", icon: MessageCircle },
+  { key: "chat", label: "聊聊", subLabel: "CHAT", path: "/m", icon: MessageCircle },
   {
     key: "storyboard",
     label: "故事版",

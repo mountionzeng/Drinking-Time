@@ -2,6 +2,17 @@ export const IMAGE_PROVIDER_VALUES = ["fal", "gpt-image", "midjourney"] as const
 
 export type ImageProvider = (typeof IMAGE_PROVIDER_VALUES)[number];
 
+export type ImageProviderStatus = {
+  ready: boolean;
+  reason: string | null;
+  retryAt: string | null;
+  lastFailure: {
+    provider: ImageProvider;
+    message: string;
+    failedAt: string;
+  } | null;
+};
+
 export const IMAGE_PROVIDER_LABELS: Record<ImageProvider, string> = {
   fal: "fal",
   "gpt-image": "GPT-image",

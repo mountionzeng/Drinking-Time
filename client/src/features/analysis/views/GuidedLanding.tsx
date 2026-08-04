@@ -26,11 +26,11 @@ const MATERIAL_COPY: Record<NayinElement, string> = {
 };
 
 const STORY_COPY: Record<NayinElement, string> = {
-  metal: "举杯碰一个，跟小酌聊聊灵感",
-  wood: "端起茶杯，跟小酌说说你的故事",
-  water: "椰汁配故事，跟小酌聊一段回忆",
-  fire: "茶香里慢慢说，让小酌帮你找到那个画面",
-  earth: "咖啡伴灵感，跟小酌讲讲你的想法",
+  metal: "举杯碰一个，和聊聊说说灵感",
+  wood: "端起茶杯，跟聊聊说说你的故事",
+  water: "椰汁配故事，和聊聊说说一段回忆",
+  fire: "茶香里慢慢说，让聊聊帮你找到那个画面",
+  earth: "咖啡伴灵感，跟聊聊讲讲你的想法",
 };
 
 interface GuidedLandingProps {
@@ -294,7 +294,7 @@ export default function GuidedLanding({
             transition={{ delay: 0.4, duration: 0.5 }}
           >
             {storyOnly
-              ? "跟小酌聊一段，画面会慢慢长出来"
+              ? "和聊聊说一段，画面会慢慢长出来"
               : "两条路径最终都会汇聚到镜头表，你也可以两个都用"}
           </motion.p>
         ) : null}

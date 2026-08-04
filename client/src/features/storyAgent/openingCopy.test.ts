@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { FIRST_QUESTION, OPENING_PREAMBLE, OPENING_MESSAGE } from './types';
+import {
+  displayAssistantName,
+  FIRST_QUESTION,
+  isOpeningChatMessage,
+  OPENING_PREAMBLE,
+  OPENING_MESSAGE,
+} from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // U4：桌面开场「报到 + 人格 + 定位」文案契约（R4, R5, R6, R13）
@@ -9,7 +15,7 @@ import { FIRST_QUESTION, OPENING_PREAMBLE, OPENING_MESSAGE } from './types';
 describe('storyAgent 桌面开场文案 (U4：报到 + 人格 + 定位)', () => {
   it('开场消息有报到 + 朋友/助手身份，落点是邀请说一件小事 (AE1, R4)', () => {
     // 报到：一进门点名自己是谁
-    expect(OPENING_MESSAGE).toContain('你好，我是小酌');
+    expect(OPENING_MESSAGE).toContain('你好，我是聊聊');
     // 人格：朋友 + 助手双重身份点明（参照「记得你的调酒师」气质）
     expect(OPENING_MESSAGE).toContain('朋友');
     expect(OPENING_MESSAGE).toContain('助手');
@@ -40,5 +46,15 @@ describe('storyAgent 桌面开场文案 (U4：报到 + 人格 + 定位)', () => 
     // D4 前缀策略：preamble 只做前缀，FIRST_QUESTION 原文一字不动地收尾
     expect(OPENING_MESSAGE.endsWith(FIRST_QUESTION)).toBe(true);
     expect(OPENING_MESSAGE.startsWith(OPENING_PREAMBLE)).toBe(true);
+  });
+
+  it('旧故事中的旧名称仍会被识别，并只以新名称展示', () => {
+    const legacyOpening = `你好，我是小酌——会听你说话的朋友。\n\n${FIRST_QUESTION}`;
+
+    expect(
+      isOpeningChatMessage({ id: 'legacy-opening', content: legacyOpening }),
+    ).toBe(true);
+    expect(displayAssistantName(legacyOpening)).toContain('你好，我是聊聊');
+    expect(displayAssistantName(legacyOpening)).not.toContain('小酌');
   });
 });

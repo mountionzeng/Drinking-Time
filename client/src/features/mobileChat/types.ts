@@ -13,7 +13,7 @@ export type MobileChatMessage = {
   // 用户附带的照片 URL（上传后的远程地址）
   photoUrl?: string;
   // 图片相关字段（assistant 消息才有）
-  suggestImage?: boolean;           // 小酌是否建议出图
+  suggestImage?: boolean;           // 聊聊是否建议出图
   imagePrompt?: string;             // 图片生成 prompt
   imageShotNo?: number;             // 对应的镜头编号
 };

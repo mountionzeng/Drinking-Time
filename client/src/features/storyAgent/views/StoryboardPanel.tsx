@@ -8,10 +8,8 @@ import {
   useStoryCardsBoardSlice,
 } from "@/features/storyAgent/spine/selectors";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
-import {
-  useCreationEditor,
-  type CreationEditorShot,
-} from "@/features/creationEditor/CreationEditorContext";
+import { useCreationEditor } from "@/features/creationEditor/CreationEditorContext";
+import type { CreationEditorShot } from "@/features/creationEditor/types";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import type { GeneratedImageItem } from "@/features/mobileChat/types";
 import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
@@ -107,6 +105,7 @@ export default function StoryboardPanel({
     promptProjection,
     confirmPromptCandidate,
     rejectPromptCandidate,
+    imageProviderStatus,
   } = useCreationEditor();
   const candidatesByShot = useMemo(
     () => summarizeShotCandidates(promptProjection),
@@ -289,6 +288,7 @@ export default function StoryboardPanel({
           candidateCount: input.candidateCount,
           costConfirmation: input.costConfirmation,
           imageProvider: input.imageProvider,
+          editMaskImageUrl: input.editMaskImageUrl,
         })
       }
       generatingVideoShotNos={generatingVideoShotNos}
@@ -315,6 +315,7 @@ export default function StoryboardPanel({
       onUpdateShotFields={updatePersistedShotFields}
       promotingFrameCropShotNo={promotingFrameCropShotNo}
       shotVideoProviderStatus={shotVideoProviderStatus}
+      imageProviderStatus={imageProviderStatus}
       defaultViewMode={defaultViewMode}
       embeddedEditorMode={embeddedEditorMode}
       headerAction={headerAction}

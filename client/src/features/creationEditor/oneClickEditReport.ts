@@ -4,7 +4,7 @@ import {
   VIDEO_TARGET_ASPECT_RATIOS,
   type VideoTargetAspectRatio,
 } from "@shared/videoConform";
-import type { CreationEditorShot } from "./CreationEditorContext";
+import type { CreationEditorShot } from "./types";
 import { displayShotCode } from "@shared/shotIdentity";
 
 export const ONE_CLICK_TARGET_ASPECT_RATIOS = VIDEO_TARGET_ASPECT_RATIOS;

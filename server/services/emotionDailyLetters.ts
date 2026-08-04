@@ -96,8 +96,7 @@ export function buildPriorMessageHistory({
   const byKey = new Map<string, PayloadRecord>();
 
   for (const item of messageHistory(seed)) {
-    const text =
-      typeof item.text === "string" ? cleanMessage(item.text) : "";
+    const text = typeof item.text === "string" ? cleanMessage(item.text) : "";
     if (!text) continue;
     const date = messageDate(item);
     if (date && date >= beforeDate) continue;
@@ -318,9 +317,11 @@ export async function rewriteEmotionDailyLetter(
       todayDate: letterDate,
       lunarLabel:
         almanac.meta.lunarDate?.trim() || dailyReference.lunarLabel || "",
+      personalizedYi: [],
+      personalizedJi: [],
     },
     analysisSeed: nextSeed,
-    generationIntent: "conversation-reply",
+    generationIntent: "daily-letter",
   });
   const saved = await updateLetter(
     {

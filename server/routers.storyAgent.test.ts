@@ -1249,6 +1249,119 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("故事版遮罩改图使用独立费用确认，并把透明遮罩送入 editImage", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/masked-dress.png",
+      imageKey: "generated/masked-dress.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(312));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "故事版遮罩改图",
+      projectId: 7312,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const explicitInstruction = "只把白色短裙延长为裙摆触地的及地长裙。";
+    const maskImageUrl = "data:image/png;base64,bWFzaw==";
+    const referenceImageUrl = "data:image/png;base64,b3JpZ2luYWw=";
+
+    const missingConfirmation = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保持原图不变",
+      explicitInstruction,
+      referenceImageUrl,
+      editMaskImageUrl: maskImageUrl,
+      imageProvider: "gpt-image",
+    });
+    expect(missingConfirmation).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("¥1.49"),
+    });
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+
+    const approved = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保持原图不变",
+      explicitInstruction,
+      referenceImageUrl,
+      editMaskImageUrl: maskImageUrl,
+      imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+    });
+
+    expect(approved).toMatchObject({ status: "ok" });
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      referenceImageUrl,
+      expect.stringContaining(explicitInstruction),
+      expect.objectContaining({
+        provider: "gpt-image",
+        editMaskImageUrl: maskImageUrl,
+      })
+    );
+  });
+
+  it("遮罩改图缺少原始指令或基底图时在付费调用前失败", async () => {
+    const caller = appRouter.createCaller(createAuthContext(313));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "遮罩改图失败保护",
+      projectId: 7313,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const maskImageUrl = "data:image/png;base64,bWFzaw==";
+    const referenceImageUrl = "data:image/png;base64,b3JpZ2luYWw=";
+
+    const missingInstruction = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保持原图不变",
+      referenceImageUrl,
+      editMaskImageUrl: maskImageUrl,
+      imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+    });
+    expect(missingInstruction).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("原始修改要求"),
+    });
+
+    const missingReference = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保持原图不变",
+      explicitInstruction: "只把短裙改成及地长裙",
+      editMaskImageUrl: maskImageUrl,
+      imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+    });
+    expect(missingReference).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("视觉基底"),
+    });
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+
+    const draftMask = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "保持原图不变",
+      explicitInstruction: "只把短裙改成及地长裙",
+      referenceImageUrl,
+      editMaskImageUrl: maskImageUrl,
+      imageProvider: "gpt-image",
+      mode: "draft",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+    });
+    expect(draftMask).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("正式编辑链路"),
+    });
+    expect(imageGenMocks.generateDraftImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+  });
+
   it("generateForMobile draft 文生图走旧版 flux 草稿快轨", async () => {
     imageGenMocks.generateDraftImage.mockResolvedValueOnce({
       status: "ok",

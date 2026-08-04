@@ -55,6 +55,7 @@ import { CardReferenceDock } from "./CardReferenceDock";
 
 export {
   STORYBOARD_MATRIX_ROWS,
+  STORYBOARD_MATRIX_VISIBLE_ROWS,
   storyboardMatrixSwapPlan,
   storyboardMatrixTextareaHeight,
 } from "./StoryboardMatrix";
@@ -68,11 +69,11 @@ export type {
 } from "./StoryboardMatrix";
 
 const EMPTY_HINT: Record<NayinElement, string> = {
-  metal: "先开瓶啤酒，跟小酌聊聊一句让你记住的话",
+  metal: "先开瓶啤酒，和聊聊说说一句让你记住的话",
   wood: "泡上一壶龙井，慢慢回忆那个让你停下来的瞬间",
-  water: "剥一颗椰子，把那个画面跟小酌讲讲",
-  fire: "冲一泡大红袍，让小酌带你回到那一刻",
-  earth: "研一杯咖啡，跟小酌聊一段你忘不掉的事",
+  water: "剥一颗椰子，把那个画面讲给聊聊",
+  fire: "冲一泡大红袍，让聊聊带你回到那一刻",
+  earth: "研一杯咖啡，和聊聊说一段你忘不掉的事",
 };
 
 function emotionAccent(emotion: string): string {
@@ -612,7 +613,7 @@ export default function StoryCardsBoard() {
               {EMPTY_HINT[element]}
             </p>
             <p className="text-[10px] text-muted-foreground/70 max-w-[16rem]">
-              小酌会在你描述出{" "}
+              聊聊会在你描述出{" "}
               <span className="text-nayin-bright">
                 具体场景 + 情感 + 感官细节
               </span>{" "}
@@ -723,7 +724,7 @@ export default function StoryCardsBoard() {
                       </p>
                       <p className="mt-0.5 text-muted-foreground">
                         {hasPendingFictionIntent
-                          ? "小酌已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。"
+                          ? "聊聊已经判断这是虚构短片；确认意图后，故事卡会按世界、人物和冲突继续生长。"
                           : fictionCardsConfirmed
                             ? "现在可以生成 3-5 镜短片；如果改卡片，需要重新确认。"
                             : "确认后再进入拆镜，避免还没定故事方向就生成镜头。"}

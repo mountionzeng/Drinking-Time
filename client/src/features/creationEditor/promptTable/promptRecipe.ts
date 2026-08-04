@@ -1,4 +1,4 @@
-import type { CreationEditorShot } from "../CreationEditorContext";
+import type { CreationEditorShot } from "../types";
 import type { PromptRow, PromptRunRecord } from "./types";
 import {
   type PromptContext,

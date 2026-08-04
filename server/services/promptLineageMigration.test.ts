@@ -28,7 +28,7 @@ describe("migrateLegacyPromptLineage", () => {
           {
             id: "first-question",
             role: "assistant",
-            content: "你好，我是小酌",
+            content: "你好，我是聊聊",
             timestamp: 1,
           },
           {
@@ -108,13 +108,13 @@ describe("migrateLegacyPromptLineage", () => {
           {
             id: "opening-1",
             who: "s",
-            text: "你好，我是小酌——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
+            text: "你好，我是聊聊——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
             timestamp: 1,
           },
           {
             id: "opening-2",
             who: "u",
-            text: "你好，我是小酌——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
+            text: "你好，我是聊聊——会听你说话的朋友。\n\n今天有没有一件很小的事，在你心里留下了一点感觉？",
             timestamp: 1,
           },
           {

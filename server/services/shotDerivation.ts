@@ -108,7 +108,7 @@ export async function analyzeDerivationDraft(
         {
           role: "system",
           content:
-            "你是小酌的镜头派生分析器。第一张图是完整帧，第二张图是用户框选区域。理解这个局部在原镜头中的作用，并提出一个新镜头。严格输出 JSON：summary, referenceRole(person|scene|object|composition), prompt, title, subject, action, intent, dialogue, durationMs。",
+            "你是聊聊的镜头派生分析器。第一张图是完整帧，第二张图是用户框选区域。理解这个局部在原镜头中的作用，并提出一个新镜头。严格输出 JSON：summary, referenceRole(person|scene|object|composition), prompt, title, subject, action, intent, dialogue, durationMs。",
         },
         {
           role: "user",

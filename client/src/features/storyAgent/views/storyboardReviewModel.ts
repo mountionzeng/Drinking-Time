@@ -1,11 +1,12 @@
 /** Pure rules for the storyboard review workspace. */
 import type { CSSProperties } from "react";
-import type { StoryShotEditableField } from "@/features/storyAgent/StoryAgentContext";
+import type { StoryShotEditableField } from "@shared/shotDirector";
 import type { StoryShot } from "@/features/storyAgent/types";
 import type {
   CreationEditorImage,
   CreationEditorShot,
-} from "@/features/creationEditor/CreationEditorContext";
+} from "@/features/creationEditor/types";
+import type { ImageProviderStatus } from "@shared/imageProvider";
 import { buildPromptTable } from "@/features/creationEditor/promptTable/buildPromptTable";
 import { compileVideoShotRecipe } from "@/features/creationEditor/promptTable/videoRecipe";
 import type { FrameQuadrant } from "@/features/creationEditor/video/frameCrop";
@@ -33,6 +34,18 @@ import {
 } from "./StoryboardMatrix";
 import { hasStoryboardImageDragPayload } from "../storyboardLocalMedia";
 import type { StoryboardContinuityOption } from "./StoryboardContinuityDialog";
+
+export function shouldUseSingleImageFallback(
+  status: ImageProviderStatus | null | undefined
+): boolean {
+  return Boolean(
+    status?.lastFailure?.provider === "midjourney" &&
+      /timeout|超时|no available models|当前无可用模型|HTTP (?:429|5\d\d)/i.test(
+        status.lastFailure.message
+      )
+  );
+}
+import { isFrameCandidateSheet } from "@/features/creationEditor/frameCandidate";
 
 const STORYBOARD_DRAG_SCROLL_ZONE_PX = 160;
 const STORYBOARD_DRAG_SCROLL_MAX_PX = 36;
@@ -307,6 +320,36 @@ export function quickShotVideoRenderPlan(
       renderDecision.strategy === "local-transform" ? 0 : estimate.estimatedCny,
     renderDecision,
   };
+}
+
+export function storyboardVideoRenderBlockReason(
+  shot: CreationEditorShot,
+  providerStatus: { ready: boolean; reason?: string | null }
+): string | null {
+  if (!storyboardVideoSourceFrame(shot)) {
+    return "需要先选择当前主图";
+  }
+  if (!(shot.videoPrompt ?? "").trim()) {
+    return "请先填写视频要求";
+  }
+  if (!providerStatus.ready) {
+    return providerStatus.reason?.trim() || "视频模型状态尚未就绪";
+  }
+  return null;
+}
+
+export function storyboardVideoSourceFrame(
+  shot: CreationEditorShot
+): CreationEditorImage | null {
+  const frames = storyboardShotFrameImages(shot).filter(
+    frame => !isFrameCandidateSheet(frame, shot.promptRun?.imageId)
+  );
+  return (
+    frames.find(frame => frame.id === shot.imageId) ??
+    frames.find(frame => frame.imageUrl === shot.imageUrl) ??
+    frames[0] ??
+    null
+  );
 }
 
 export function storyboardRerenderRequestId(shotNo: number): string {
@@ -1034,7 +1077,9 @@ function trustedStoryboardBoundaryImage(
   shot: CreationEditorShot,
   boundary: "first" | "last"
 ): CreationEditorImage | null {
-  const images = storyboardShotFrameImages(shot);
+  const images = storyboardShotFrameImages(shot).filter(
+    image => !isFrameCandidateSheet(image, shot.promptRun?.imageId)
+  );
   if (images.length === 0) return null;
 
   const configured = storyboardFrameRoleConfig(shot.generationParams, images);
@@ -1191,7 +1236,10 @@ export function storyboardImageGenerationReferences(
       (reference): reference is StoryboardImageGenerationFrameReference =>
         reference != null
     );
-  const ordered = [current, previous, next].filter(
+  const ordered = (current
+    ? [current, previous, next]
+    : [next, previous]
+  ).filter(
     (reference): reference is StoryboardImageGenerationFrameReference =>
       reference != null
   );

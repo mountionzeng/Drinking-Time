@@ -10,7 +10,7 @@ const fixtures = vi.hoisted(() => {
   const openingMessage: ChatMessage = {
     id: "first-question",
     role: "assistant",
-    content: "你好，我是小酌。",
+    content: "你好，我是聊聊。",
     timestamp: 1,
   };
   const jobIntent: StoryIntent = {
@@ -306,7 +306,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).toContain("虚构故事");
     expect(html).toContain("月亮掉进菜市场");
     expect(html).toContain("01 · 镜头意图");
-    expect(html).toContain("下一条消息会带着这个选区交给小酌");
-    expect(html).toContain("告诉小酌这处想怎么改");
+    expect(html).toContain("下一条消息会带着这个选区交给聊聊");
+    expect(html).toContain("告诉聊聊这处想怎么改");
   });
 });

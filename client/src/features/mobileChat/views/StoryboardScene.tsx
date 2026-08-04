@@ -113,7 +113,7 @@ export default function StoryboardSceneCard({
         ) : (
           <div className="dtm-placeholder-art dtm-placeholder-art--muted flex flex-col items-center justify-center gap-2">
             <ImageIcon className="h-8 w-8 text-[var(--muted-foreground)] opacity-50" />
-            <span className="text-xs text-[var(--muted-foreground)]">和小酌聊聊这个场景</span>
+            <span className="text-xs text-[var(--muted-foreground)]">和聊聊说说这个场景</span>
           </div>
         )}
 

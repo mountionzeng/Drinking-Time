@@ -10,8 +10,8 @@ import {
 
 import {
   creationTimelineShotId,
-  type CreationEditorShot,
 } from "@/features/creationEditor/CreationEditorContext";
+import type { CreationEditorShot } from "@/features/creationEditor/types";
 import {
   imageClipEditorTargetForShot,
   timelineTransformStyle,
