@@ -16,6 +16,18 @@ export type StoryboardMaskedEditCostEstimate = {
   candidateCount: 1;
 };
 
+export type PublishingCoverCostEstimate = {
+  currency: "CNY";
+  estimatedCny: number;
+  candidateCount: typeof STORYBOARD_IMAGE_CANDIDATE_COUNT;
+};
+
+export const PUBLISHING_COVER_PROFILE = {
+  provider: "midjourney",
+  aspectRatio: "3:4",
+  candidateCount: STORYBOARD_IMAGE_CANDIDATE_COUNT,
+} as const;
+
 export const STORYBOARD_MASKED_EDIT_PROFILE = {
   model: "gpt-image-1.5",
   size: "1024x1024",
@@ -29,6 +41,15 @@ export function estimateStoryboardImageCost(): StoryboardImageCostEstimate {
       Math.ceil((MJ_TURBO_TASK_PTC * REFERENCE_CNY * 100) / REFERENCE_PTC) /
       100,
     candidateCount: STORYBOARD_IMAGE_CANDIDATE_COUNT,
+  };
+}
+
+export function estimatePublishingCoverCost(): PublishingCoverCostEstimate {
+  const storyboardEstimate = estimateStoryboardImageCost();
+  return {
+    currency: "CNY",
+    estimatedCny: storyboardEstimate.estimatedCny,
+    candidateCount: PUBLISHING_COVER_PROFILE.candidateCount,
   };
 }
 

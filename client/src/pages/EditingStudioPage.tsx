@@ -18,14 +18,25 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useProjectData } from "@/features/analysis/hooks/useProjectData";
+import type { StoryPanel } from "@/features/analysis/storyPanels";
 import { CreationEditorProvider } from "@/features/creationEditor/CreationEditorContext";
+import AnimaticPanel from "@/features/creationEditor/views/AnimaticPanel";
 import EditingNleWorkspace from "@/features/creationEditor/views/EditingNleWorkspace";
 import MaterialWarehousePanel from "@/features/creationEditor/views/MaterialWarehousePanel";
+import PromptTablePanel from "@/features/creationEditor/views/PromptTablePanel";
 import {
   parseLocalEditingChatCommand,
   shouldDeferStoryboardImageCommand,
@@ -37,12 +48,18 @@ import {
 import BeverageAmbience from "@/features/nayin/views/BeverageAmbience";
 import {
   StoryAgentProvider,
+  useStoryAgent,
   useStoryAgentActions,
 } from "@/features/storyAgent/StoryAgentContext";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
-import { useActiveStoryId } from "@/features/storyAgent/spine/selectors";
+import {
+  useActiveStoryId,
+  useConfirmedIntent,
+} from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
+import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
+import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
@@ -52,6 +69,16 @@ import { publicDailyLetterForDate } from "@/features/analysis/publicDailyLetter"
 import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
+import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraftWorkspace";
+import PublishingVideoHandoffBanner from "@/features/publishingDraft/PublishingVideoHandoffBanner";
+import {
+  STUDIO_WORKSPACE_OPTIONS,
+  isStoryPanelWorkspace,
+  resolveStudioInteractionMode,
+  shouldShowPublishingHandoff,
+  type StudioInteractionMode,
+  type StudioWorkspace,
+} from "./editingStudioWorkspace";
 
 function DailyAttentionBar({ onOpen }: { onOpen: () => void }) {
   const { user } = useAuth();
@@ -147,17 +174,73 @@ function ExportButton({ storyId }: { storyId: number }) {
   );
 }
 
+function StoryPanelWorkspace({ workspace }: { workspace: StoryPanel }) {
+  switch (workspace) {
+    case "materialWarehouse":
+      return <MaterialWarehousePanel />;
+    case "storyboard":
+      return <StoryboardPanel />;
+    case "animatic":
+      return <AnimaticPanel />;
+    case "promptTable":
+      return <PromptTablePanel />;
+    case "storyCards":
+      return <StoryCardsBoard />;
+  }
+}
+
 function EditingStudioBody({
+  workspace,
+  interactionMode,
+  onWorkspaceChange,
   timelineVisible,
-  materialWarehouseVisible,
 }: {
+  workspace: StudioWorkspace;
+  interactionMode: StudioInteractionMode;
+  onWorkspaceChange: (workspace: StudioWorkspace) => void;
   timelineVisible: boolean;
-  materialWarehouseVisible: boolean;
 }) {
   const activeStoryId = useActiveStoryId();
-  const { backToList, createNewStory } = useStoryAgentActions();
+  const { publishingBuffers } = useStoryAgent();
+  const { backToList, createNewStory, discardPublishingBuffer } =
+    useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [storyMenuOpen, setStoryMenuOpen] = useState(false);
+  const [pendingStoryAction, setPendingStoryAction] = useState<
+    "back" | "new" | null
+  >(null);
+  const dirtyBuffers = Object.values(publishingBuffers).filter(
+    buffer => buffer.storyId === activeStoryId
+  );
+
+  const runStoryAction = (action: "back" | "new") => {
+    if (action === "back") backToList();
+    else createNewStory();
+  };
+
+  const requestStoryAction = (action: "back" | "new") => {
+    setStoryMenuOpen(false);
+    if (dirtyBuffers.length > 0) {
+      setPendingStoryAction(action);
+      return;
+    }
+    runStoryAction(action);
+  };
+
+  const leaveWithDrafts = () => {
+    if (!pendingStoryAction) return;
+    const action = pendingStoryAction;
+    setPendingStoryAction(null);
+    runStoryAction(action);
+  };
+
+  const discardAndLeave = () => {
+    if (!pendingStoryAction || activeStoryId == null) return;
+    for (const buffer of dirtyBuffers) {
+      discardPublishingBuffer(activeStoryId, buffer.platform);
+    }
+    leaveWithDrafts();
+  };
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
@@ -198,8 +281,7 @@ function EditingStudioBody({
                 <button
                   type="button"
                   onClick={() => {
-                    setStoryMenuOpen(false);
-                    backToList();
+                    requestStoryAction("back");
                   }}
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 >
@@ -209,8 +291,7 @@ function EditingStudioBody({
                 <button
                   type="button"
                   onClick={() => {
-                    setStoryMenuOpen(false);
-                    createNewStory();
+                    requestStoryAction("new");
                   }}
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 >
@@ -240,32 +321,48 @@ function EditingStudioBody({
             aria-hidden={chatCollapsed}
           >
             {activeStoryId !== null ? (
-              <StoryAgentChat showHeader={false} />
+              <StoryAgentChat
+                showHeader={false}
+                interactionMode={interactionMode}
+              />
             ) : (
               <StoryListView />
             )}
           </div>
         </div>
 
-        {/* 右：剪辑台 */}
+        {/* 右：发布稿、五个故事面板与剪辑台共享同一 Story。 */}
         <div className="relative min-w-0 flex-1 overflow-hidden">
-          {activeStoryId !== null ? (
+          {workspace === "publishing" ? (
+            <div id="publishing-draft-workspace" className="h-full">
+              <PublishingDraftWorkspace
+                onContinueToVideo={() => onWorkspaceChange("editing")}
+              />
+            </div>
+          ) : activeStoryId !== null ? (
             <div
+              id={
+                workspace === "editing"
+                  ? "editing-nle-workspace"
+                  : `studio-${workspace}-workspace`
+              }
               className="flex h-full min-h-0 flex-col overflow-hidden"
-              data-story-panel="editing-nle"
-              aria-label="Editing workspace"
+              data-story-panel={
+                workspace === "editing" ? "editing-nle" : workspace
+              }
+              aria-label={
+                STUDIO_WORKSPACE_OPTIONS.find(option => option.id === workspace)
+                  ?.label
+              }
             >
+              {shouldShowPublishingHandoff(workspace) ? (
+                <PublishingVideoHandoffBanner />
+              ) : null}
               <div className="relative min-h-0 flex-1 overflow-hidden">
-                <EditingNleWorkspace timelineVisible={timelineVisible} />
-                {materialWarehouseVisible ? (
-                  <div
-                    id="editing-material-warehouse"
-                    className="absolute inset-0 z-30 overflow-hidden bg-background"
-                    data-story-panel="editing-material-warehouse"
-                    aria-label="剪辑素材仓库"
-                  >
-                    <MaterialWarehousePanel />
-                  </div>
+                {workspace === "editing" ? (
+                  <EditingNleWorkspace timelineVisible={timelineVisible} />
+                ) : isStoryPanelWorkspace(workspace) ? (
+                  <StoryPanelWorkspace workspace={workspace} />
                 ) : null}
               </div>
             </div>
@@ -280,6 +377,47 @@ function EditingStudioBody({
           )}
         </div>
       </div>
+      <Dialog
+        open={pendingStoryAction !== null}
+        onOpenChange={open => !open && setPendingStoryAction(null)}
+      >
+        <DialogContent showCloseButton>
+          <DialogHeader>
+            <DialogTitle>这篇发布稿还有未应用修改</DialogTitle>
+            <DialogDescription>
+              你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个
+              Story。
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-xs leading-5 text-muted-foreground">
+            回到发布稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。
+          </p>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setPendingStoryAction(null)}
+              className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground"
+            >
+              留在这里
+            </button>
+            <button
+              type="button"
+              onClick={discardAndLeave}
+              className="h-9 rounded-md border px-3 text-xs text-rose-700"
+            >
+              丢弃修改并离开
+            </button>
+            <button
+              type="button"
+              onClick={leaveWithDrafts}
+              className="h-9 rounded-md px-3 text-xs font-medium text-background"
+              style={{ background: "var(--nayin-accent)" }}
+            >
+              保留修改，稍后应用
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </CreationEditorProvider>
   );
 }
@@ -287,12 +425,16 @@ function EditingStudioBody({
 export default function EditingStudioPage() {
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
+  const confirmedIntent = useConfirmedIntent();
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
-  const [materialWarehouseVisible, setMaterialWarehouseVisible] =
-    useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
+  const [workspace, setWorkspace] = useState<StudioWorkspace>("publishing");
+  const interactionMode = resolveStudioInteractionMode(
+    workspace,
+    confirmedIntent
+  );
 
   // 对话驱动剪辑：这句话先交给剪辑代理；接住就执行时间轴操作并刷新剪辑台，
   // 没接住（不是剪辑意图）返回 null，聊聊照常聊故事。
@@ -370,24 +512,32 @@ export default function EditingStudioPage() {
       <BeverageAmbience />
       <TopBar
         showStoryPanelNav={false}
-        panelToggles={[
-          {
-            label: "Materials",
-            active: materialWarehouseVisible,
-            controls: "editing-material-warehouse",
-            testId: "topbar-material-warehouse-toggle",
-            onToggle: () => setMaterialWarehouseVisible(value => !value),
-          },
-          {
-            label: "Timeline",
-            active: timelineVisible,
-            testId: "topbar-timeline-toggle",
-            onToggle: () => setTimelineVisible(value => !value),
-          },
-        ]}
+        panelToggles={STUDIO_WORKSPACE_OPTIONS.map(option => ({
+          label: option.label,
+          active: workspace === option.id,
+          controls:
+            option.id === "publishing"
+              ? "publishing-draft-workspace"
+              : option.id === "editing"
+                ? "editing-nle-workspace"
+                : `studio-${option.id}-workspace`,
+          testId: `topbar-${option.id}-workspace-toggle`,
+          onToggle: () => setWorkspace(option.id),
+        }))}
         panelActions={
-          activeStoryId !== null ? (
-            <ExportButton storyId={activeStoryId} />
+          workspace === "editing" && activeStoryId !== null ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                aria-pressed={timelineVisible}
+                onClick={() => setTimelineVisible(value => !value)}
+                className="inline-flex h-9 items-center rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                Timeline
+              </button>
+              <ExportButton storyId={activeStoryId} />
+            </div>
           ) : null
         }
       />
@@ -400,10 +550,13 @@ export default function EditingStudioPage() {
         <StoryAgentProvider
           projectId={currentProjectId}
           editingCommandRunner={runEditingCommand}
+          interactionMode={interactionMode}
         >
           <EditingStudioBody
+            workspace={workspace}
+            interactionMode={interactionMode}
+            onWorkspaceChange={setWorkspace}
             timelineVisible={timelineVisible}
-            materialWarehouseVisible={materialWarehouseVisible}
           />
         </StoryAgentProvider>
       </div>

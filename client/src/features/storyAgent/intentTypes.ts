@@ -60,7 +60,7 @@ export const PURPOSE_LABELS: Record<string, string> = {
   self_reflection: "给自己讲",
   raw_record: "记录再说",
   personal_memory: "给自己留念",
-  social_post: "发社交平台",
+  social_post: "发社交文案",
   linkedin_job_search: "求职 / 领英",
   portfolio: "介绍自己",
   gift: "给亲友的礼物",

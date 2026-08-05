@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   estimateStoryboardMaskedEditCost,
   estimateStoryboardImageCost,
+  estimatePublishingCoverCost,
+  PUBLISHING_COVER_PROFILE,
   STORYBOARD_IMAGE_CANDIDATE_COUNT,
   STORYBOARD_MASKED_EDIT_PROFILE,
 } from "./imageRenderCost";
@@ -26,6 +28,19 @@ describe("estimateStoryboardImageCost", () => {
       currency: "CNY",
       estimatedCny: 1.49,
       candidateCount: 1,
+    });
+  });
+
+  it("quotes one native 3:4 Midjourney four-candidate publishing round in人民币", () => {
+    expect(PUBLISHING_COVER_PROFILE).toEqual({
+      provider: "midjourney",
+      aspectRatio: "3:4",
+      candidateCount: 4,
+    });
+    expect(estimatePublishingCoverCost()).toEqual({
+      currency: "CNY",
+      estimatedCny: 0.68,
+      candidateCount: 4,
     });
   });
 });

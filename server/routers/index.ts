@@ -59,6 +59,7 @@ import {
 } from "./promptLineage";
 import { storyAgentRouter } from "./storyAgent";
 import { creationAgentRouter } from "./creationAgent";
+import { publishingDraftRouter } from "./publishingDraft";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -1038,6 +1039,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // Wraps archive/storyAgent functions as tRPC procedures.
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: storyAgentRouter,
+  publishingDraft: publishingDraftRouter,
 
   // ─── Shot management ────────────────────────────────────────────────
   shot: router({

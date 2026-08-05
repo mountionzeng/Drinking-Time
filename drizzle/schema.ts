@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/mysql-core";
+import type { PublishingDraftState } from "../shared/publishingDraft";
 
 /**
  * Core user table backing auth flow.
@@ -400,6 +401,8 @@ export type StoryBody = {
     createdAt: number;
   }>;
   visualPreference?: string;
+  /** Server-owned social publishing state; written through publishing operations. */
+  publishing?: PublishingDraftState;
   // 未来扩展点：连接镜的 connectorPolicy、风格全局参数等都可以塞进来
   [key: string]: unknown;
 };

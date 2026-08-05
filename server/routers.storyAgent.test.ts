@@ -180,6 +180,27 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("passes publishing interaction mode through to the one-call chat path", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+
+    await caller.storyAgent.chat({
+      message: "这是我真正想说的话",
+      interactionMode: "publishing",
+      confirmedIntent: {
+        purpose: "social_post",
+        audience: "public",
+        platform: "x",
+      },
+    });
+
+    expect(storyAgentMocks.replyFromStoryAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interactionMode: "publishing",
+        confirmedIntent: expect.objectContaining({ platform: "x" }),
+      })
+    );
+  });
+
   it("wraps classification and summary procedures", async () => {
     const caller = appRouter.createCaller(createAuthContext());
 

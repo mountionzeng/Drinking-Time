@@ -53,6 +53,7 @@ import {
 } from "./storyAgentImageProvider";
 import {
   type PersistedState,
+  type PublishingDraftBuffer,
   storageKey,
   emptyState,
   loadState,
@@ -60,6 +61,9 @@ import {
   hasStoryWork,
   activeStoryIdFrom,
   hasLiveStoryWork,
+  remapPublishingBuffers,
+  setPublishingBuffer as putPublishingBuffer,
+  removePublishingBuffer,
 } from "./storyAgentPersistence";
 import {
   defaultArtRecipe,
@@ -67,6 +71,13 @@ import {
   normalizeStoryArtDirection,
   type StoryArtDirection,
 } from "@shared/artDirection";
+import {
+  emptyPublishingDraftState,
+  normalizePublishingDraftState,
+  type PublishingDraftContent,
+  type PublishingDraftState,
+  type PublishingPlatformId,
+} from "@shared/publishingDraft";
 import type { StoryShotEditableField } from "@shared/shotDirector";
 import { buildStoryArtReferences } from "./storyArtReferences";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
@@ -330,6 +341,19 @@ interface StoryAgentContextValue {
   latestScript: GeneratedScript | null;
   isReplying: boolean;
   isGeneratingScript: boolean;
+  publishing: PublishingDraftState;
+  publishingBuffers: Record<string, PublishingDraftBuffer>;
+  setPublishing: (state: PublishingDraftState) => void;
+  setPublishingBuffer: (
+    storyId: number,
+    platform: PublishingPlatformId,
+    content: PublishingDraftContent
+  ) => void;
+  discardPublishingBuffer: (
+    storyId: number,
+    platform: PublishingPlatformId
+  ) => void;
+  ensureActiveStoryPersisted: () => Promise<number>;
   confirmedIntent: StoryIntent | null;
   setConfirmedIntent: (intent: StoryIntent | null) => void;
   clearIntent: () => void;
@@ -441,6 +465,10 @@ interface StoryAgentContextValue {
 const StoryAgentContext = createContext<StoryAgentContextValue | null>(null);
 
 type StoryAgentActionKey =
+  | "setPublishing"
+  | "setPublishingBuffer"
+  | "discardPublishingBuffer"
+  | "ensureActiveStoryPersisted"
   | "setConfirmedIntent"
   | "clearIntent"
   | "confirmPendingIntent"
@@ -486,6 +514,10 @@ export type StoryAgentActions = Pick<
 >;
 
 const storyAgentActionKeys = [
+  "setPublishing",
+  "setPublishingBuffer",
+  "discardPublishingBuffer",
+  "ensureActiveStoryPersisted",
   "setConfirmedIntent",
   "clearIntent",
   "confirmPendingIntent",
@@ -863,6 +895,7 @@ export function StoryAgentProvider({
   projectId,
   onActiveStoryChange,
   editingCommandRunner,
+  interactionMode = "story",
   children,
 }: {
   projectId: number | null;
@@ -895,6 +928,7 @@ export function StoryAgentProvider({
       "status" | "error"
     >;
   } | null>;
+  interactionMode?: "story" | "publishing";
   children: ReactNode;
 }) {
   const utils = trpc.useUtils();
@@ -928,6 +962,8 @@ export function StoryAgentProvider({
   const storyImages = useStorySpine(state => state.storyImages);
   const imageProvider = useStorySpine(state => state.imageProvider);
   const artDirection = useStorySpine(state => state.artDirection);
+  const publishing = useStorySpine(state => state.publishing);
+  const publishingBuffers = useStorySpine(state => state.publishingBuffers);
   const isArtWorking = useStorySpine(state => state.isArtWorking);
   const isReplying = useStorySpine(state => state.isReplying);
   const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
@@ -960,6 +996,10 @@ export function StoryAgentProvider({
   const setStoryImages = useStorySpine(state => state.setStoryImages);
   const setImageProvider = useStorySpine(state => state.setImageProvider);
   const setArtDirection = useStorySpine(state => state.setArtDirection);
+  const setPublishing = useStorySpine(state => state.setPublishing);
+  const setPublishingBuffers = useStorySpine(
+    state => state.setPublishingBuffers
+  );
   const setIsArtWorking = useStorySpine(state => state.setIsArtWorking);
   const setIsReplying = useStorySpine(state => state.setIsReplying);
   const setIsGeneratingScript = useStorySpine(
@@ -1046,6 +1086,8 @@ export function StoryAgentProvider({
     setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? "default");
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
+    setPublishing(normalizePublishingDraftState(persisted.publishing));
+    setPublishingBuffers(persisted.publishingBuffers ?? {});
     setConfirmedIntent(persisted.confirmedIntent ?? null);
     setPendingIntentDraft(null);
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
@@ -1074,6 +1116,8 @@ export function StoryAgentProvider({
     setLastSavedAt,
     setMessages,
     setPendingIntentDraft,
+    setPublishing,
+    setPublishingBuffers,
     setRemoteStoryId,
     setSaveStatus,
     setScripts,
@@ -1126,6 +1170,8 @@ export function StoryAgentProvider({
       imageProvider,
       artDirection,
       confirmedIntent,
+      publishing,
+      publishingBuffers,
       savedAt: Date.now(),
       activeStoryId: activeStoryId ?? undefined,
       serverRevision,
@@ -1153,6 +1199,8 @@ export function StoryAgentProvider({
     imageProvider,
     artDirection,
     confirmedIntent,
+    publishing,
+    publishingBuffers,
     activeStoryId,
     hydratedFor,
     serverRevision,
@@ -1256,6 +1304,8 @@ export function StoryAgentProvider({
       visualPreference?: string;
       imageProvider?: ImageProviderSelection;
       artDirection?: StoryArtDirection;
+      publishing?: PublishingDraftState;
+      publishingBuffers?: Record<string, PublishingDraftBuffer>;
       baseRevision?: number;
     }): Promise<number | undefined> => {
       if (!hasLiveStoryWork(snapshot)) return Promise.resolve(undefined);
@@ -1321,6 +1371,11 @@ export function StoryAgentProvider({
             },
           });
           if (saved && typeof saved.id === "number") {
+            if (storyId == null || storyId < 0) {
+              setPublishingBuffers(currentBuffers =>
+                remapPublishingBuffers(currentBuffers, -1, saved.id)
+              );
+            }
             setRemoteStoryId(saved.id);
             // 只在「正处于某篇故事」时把 activeStoryId 对齐到 saved.id（新故事 -1 → 真 id）。
             // 若用户正停在选择屏 (activeStoryId === null)，后台自动保存绝不能把人弹进故事——
@@ -1359,6 +1414,7 @@ export function StoryAgentProvider({
       setRemoteStoryId,
       setSaveStatus,
       setServerRevision,
+      setPublishingBuffers,
       storyUpsertMut,
     ]
   );
@@ -1382,6 +1438,8 @@ export function StoryAgentProvider({
       visualPreference,
       imageProvider,
       artDirection,
+      publishing,
+      publishingBuffers,
       baseRevision: serverRevision,
     };
     if (!hasLiveStoryWork(snapshot)) return;
@@ -1434,6 +1492,8 @@ export function StoryAgentProvider({
     storyImages,
     imageProvider,
     artDirection,
+    publishing,
+    publishingBuffers,
     isReplying,
     isGeneratingScript,
     projectId,
@@ -1441,6 +1501,64 @@ export function StoryAgentProvider({
     hydratedFor,
     setLastArchiveSaveHash,
   ]);
+
+  const ensureActiveStoryPersisted = useCallback(async (): Promise<number> => {
+    const current = storySpineStore.getState();
+    if (current.activeStoryId && current.activeStoryId > 0) {
+      return current.activeStoryId;
+    }
+    if (current.activeStoryId !== -1) {
+      throw new Error("请先开始或打开一个故事");
+    }
+    const savedId = await saveArchiveStory({
+      messages: current.messages,
+      cards: current.cards,
+      scripts: current.scripts,
+      storyShots: current.storyShots,
+      characters: current.characters,
+      remoteStoryId: current.remoteStoryId,
+      title: current.storyTitle,
+      logline: current.storyLogline,
+      theme: current.storyTheme,
+      arc: current.storyArc,
+      visualCanvasItems: current.visualCanvasItems,
+      visualPreference: current.visualPreference,
+      imageProvider: current.imageProvider,
+      artDirection: current.artDirection,
+      publishing: current.publishing,
+      publishingBuffers: current.publishingBuffers,
+      baseRevision: current.serverRevision,
+    });
+    if (!savedId) throw new Error("故事保存失败，请稍后重试");
+    return savedId;
+  }, [saveArchiveStory]);
+
+  const setLocalPublishingBuffer = useCallback(
+    (
+      storyId: number,
+      platform: PublishingPlatformId,
+      content: PublishingDraftContent
+    ) => {
+      setPublishingBuffers(current =>
+        putPublishingBuffer(current, {
+          storyId,
+          platform,
+          content,
+          updatedAt: Date.now(),
+        })
+      );
+    },
+    [setPublishingBuffers]
+  );
+
+  const discardLocalPublishingBuffer = useCallback(
+    (storyId: number, platform: PublishingPlatformId) => {
+      setPublishingBuffers(current =>
+        removePublishingBuffer(current, storyId, platform)
+      );
+    },
+    [setPublishingBuffers]
+  );
 
   const recognizeIntentFromHistory = useCallback(
     async (history: ChatMessage[], requestStoryId: number | null) => {
@@ -1483,11 +1601,13 @@ export function StoryAgentProvider({
       const trimmed = text.trim();
       if ((!trimmed && !photoBase64) || isReplying) return;
       const requestStoryId = activeStoryId;
-      const shouldRecognizeIntent = shouldTriggerIntentRecognition({
-        messages,
-        confirmedIntent,
-        pendingIntentDraft,
-      });
+      const shouldRecognizeIntent =
+        interactionMode === "story" &&
+        shouldTriggerIntentRecognition({
+          messages,
+          confirmedIntent,
+          pendingIntentDraft,
+        });
       if (
         confirmedIntent?.purpose === "linkedin_job_search" &&
         !confirmedIntent.jobMaterialsPrompted &&
@@ -1550,7 +1670,12 @@ export function StoryAgentProvider({
         setMessages(nextMessages);
 
         // 剪辑工作室的指令通道：先问剪辑代理，接住就不进故事聊天。
-        if (editingCommandRunner && trimmed && !photoBase64) {
+        if (
+          interactionMode === "story" &&
+          editingCommandRunner &&
+          trimmed &&
+          !photoBase64
+        ) {
           try {
             const outcome = await editingCommandRunner(trimmed);
             if (outcome?.handled) {
@@ -1618,7 +1743,7 @@ export function StoryAgentProvider({
 
         // Capture snapshot of current state before Agent generation.
         // Errors are silent — snapshot failure must never block message send.
-        if (projectId !== null) {
+        if (interactionMode === "story" && projectId !== null) {
           try {
             const snapshotResult = await saveSnapshotMut.mutateAsync({
               projectId,
@@ -1661,6 +1786,7 @@ export function StoryAgentProvider({
 
         const result = (await chatMut.mutateAsync({
           message: userContent,
+          interactionMode,
           history: messages.map(m => ({
             role: m.role as "user" | "assistant",
             content: m.content,
@@ -1672,6 +1798,7 @@ export function StoryAgentProvider({
             theme: storyTheme,
             arc: storyArc,
             shots: storyShots,
+            publishing,
           }),
           currentShots: storyShots.map(shot => ({
             shotNo: shot.shotNo,
@@ -1898,6 +2025,7 @@ export function StoryAgentProvider({
       uploadPhotoMut,
       recognizeIntentFromHistory,
       editingCommandRunner,
+      interactionMode,
       utils.promptLineage.getStoryProjection,
       // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
       // 它们在组件里比 sendMessage 声明得晚，放进去会在渲染时触发 TDZ
@@ -2384,6 +2512,7 @@ export function StoryAgentProvider({
     setVisualPreference("");
     setStoryImages([]);
     setArtDirection(emptyStoryArtDirection());
+    setPublishing(emptyPublishingDraftState());
     setActiveStoryId(-1);
     setSaveStatus("idle");
     setLastSavedAt(undefined);
@@ -2392,7 +2521,7 @@ export function StoryAgentProvider({
     setConfirmedIntent(null);
     setPendingIntentDraft(null);
     toast.success("已开始新故事，旧故事仍保留在云端故事库");
-  }, []);
+  }, [setPublishing]);
 
   const refreshStoryList = useCallback(async () => {
     setIsLoadingStories(true);
@@ -2449,13 +2578,14 @@ export function StoryAgentProvider({
     setStoryImages([]);
     setImageProvider("default");
     setArtDirection(emptyStoryArtDirection());
+    setPublishing(emptyPublishingDraftState());
     setSaveStatus("idle");
     setLastSavedAt(undefined);
     setServerRevision(0);
     setReturningGreeting(null);
     setConfirmedIntent(null);
     setPendingIntentDraft(null);
-  }, []);
+  }, [setPublishing]);
 
   const loadStory = useCallback(
     async (id: number, options?: { silent?: boolean }) => {
@@ -2524,6 +2654,9 @@ export function StoryAgentProvider({
         const restoredConfirmedIntent = normalizeStoryIntent(
           body.confirmedIntent
         );
+        const restoredPublishing = normalizePublishingDraftState(
+          body.publishing
+        );
 
         setRemoteStoryId(id);
         setStoryTitle(row.title || undefined);
@@ -2547,6 +2680,7 @@ export function StoryAgentProvider({
         setStoryImages(restoredMobileImages);
         setImageProvider(restoredImageProvider);
         setArtDirection(restoredArtDirection);
+        setPublishing(restoredPublishing);
         setConfirmedIntent(restoredConfirmedIntent);
         setPendingIntentDraft(null);
 
@@ -2612,7 +2746,7 @@ export function StoryAgentProvider({
         toast.error("加载故事失败");
       }
     },
-    [utils.storyAgent.storyGet]
+    [setPublishing, utils.storyAgent.storyGet]
   );
 
   useEffect(() => {
@@ -2958,8 +3092,9 @@ export function StoryAgentProvider({
     trpc.promptLineage.confirmCandidate.useMutation();
   const rejectPromptCandidateMut =
     trpc.promptLineage.rejectCandidate.useMutation();
-  const imageRerenderRunnerRef =
-    useRef<StoryboardImageRerenderRunner | null>(null);
+  const imageRerenderRunnerRef = useRef<StoryboardImageRerenderRunner | null>(
+    null
+  );
 
   const registerImageRerenderRunner = useCallback(
     (runner: StoryboardImageRerenderRunner) => {
@@ -3183,7 +3318,7 @@ export function StoryAgentProvider({
                     sourceType,
                     sourceId,
                     excerpt: instruction,
-                  }),
+                  })
                 ),
                 authorType: "agent",
                 expectedVersion: loaded.projection.state.version,
@@ -3209,8 +3344,7 @@ export function StoryAgentProvider({
           timestamp: Date.now(),
           promptCandidate,
           imageRerenderAction:
-            sourceType === "storyboard-image" &&
-            activeSelection.shotNo != null
+            sourceType === "storyboard-image" && activeSelection.shotNo != null
               ? {
                   storyId,
                   stableShotId: activeSelection.stableShotId ?? null,
@@ -3667,6 +3801,12 @@ export function StoryAgentProvider({
       latestScript: scripts.length > 0 ? scripts[scripts.length - 1] : null,
       isReplying,
       isGeneratingScript,
+      publishing,
+      publishingBuffers,
+      setPublishing,
+      setPublishingBuffer: setLocalPublishingBuffer,
+      discardPublishingBuffer: discardLocalPublishingBuffer,
+      ensureActiveStoryPersisted,
       confirmedIntent,
       setConfirmedIntent,
       clearIntent,
@@ -3731,6 +3871,12 @@ export function StoryAgentProvider({
       characters,
       isReplying,
       isGeneratingScript,
+      publishing,
+      publishingBuffers,
+      setPublishing,
+      setLocalPublishingBuffer,
+      discardLocalPublishingBuffer,
+      ensureActiveStoryPersisted,
       confirmedIntent,
       clearIntent,
       pendingIntentDraft,
@@ -3788,6 +3934,10 @@ export function StoryAgentProvider({
   );
 
   const currentActions: StoryAgentActions = {
+    setPublishing,
+    setPublishingBuffer: setLocalPublishingBuffer,
+    discardPublishingBuffer: discardLocalPublishingBuffer,
+    ensureActiveStoryPersisted,
     setConfirmedIntent,
     clearIntent,
     confirmPendingIntent,

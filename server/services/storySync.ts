@@ -69,6 +69,10 @@ const BODY_FIELDS_TO_PRESERVE = [
   "chatCutImport",
 ] as const;
 
+// Dedicated publishing mutations own this slice. Generic whole-Story saves may
+// carry an older browser snapshot and must never replace the latest server copy.
+const SERVER_OWNED_BODY_FIELDS = ["publishing"] as const;
+
 const SHOT_PROMPT_METADATA_FIELDS = [
   "promptOverrides",
   "promptRun",
@@ -218,10 +222,7 @@ function mergeShotPreservedFields(
   for (const field of SHOT_DIRECTOR_FIELDS_TO_PRESERVE) {
     const isPromptMetadata =
       field === "promptDraft" || field === "negativePrompt";
-    if (
-      options.preserveServerDirectorFields &&
-      hasOwn(serverShot, field)
-    ) {
+    if (options.preserveServerDirectorFields && hasOwn(serverShot, field)) {
       merged[field] = serverShot[field];
     } else if (
       !isPromptMetadata &&
@@ -400,6 +401,11 @@ export function prepareStoryBody(
   const existing = asRecord(existingBody);
   for (const field of BODY_FIELDS_TO_PRESERVE) {
     if (!hasOwn(prepared, field) && hasOwn(existing, field)) {
+      prepared[field] = existing[field];
+    }
+  }
+  for (const field of SERVER_OWNED_BODY_FIELDS) {
+    if (hasOwn(existing, field)) {
       prepared[field] = existing[field];
     }
   }

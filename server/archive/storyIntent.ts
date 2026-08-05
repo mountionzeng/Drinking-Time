@@ -43,6 +43,10 @@ const VALID_PLATFORMS: StoryIntentPlatform[] = [
   "unknown",
   "wechat",
   "xiaohongshu",
+  "x",
+  "instagram",
+  "wechat_moments",
+  "douyin_tiktok",
   "douyin",
   "bilibili",
   "linkedin",
@@ -102,13 +106,28 @@ function normalizePlatform(value: unknown): StoryIntentPlatform {
 
 function localIntentFallback(text: string): StoryIntentPayload {
   const normalized = text.toLowerCase();
-  const hasLinkedIn =
-    normalized.includes("linkedin") ||
-    text.includes("领英") ||
+  const mentionsLinkedIn =
+    normalized.includes("linkedin") || text.includes("领英");
+  const hasJobSearch =
     text.includes("找工作") ||
     text.includes("求职") ||
     text.includes("招聘") ||
-    text.includes("面试");
+    text.includes("面试") ||
+    text.includes("岗位") ||
+    text.includes("职业机会");
+  const mentionsX = /\bx\b/i.test(normalized) || /twitter|推特/i.test(text);
+  const mentionsInstagram =
+    normalized.includes("instagram") || /\big\b/i.test(normalized);
+  const mentionsMoments =
+    text.includes("朋友圈") || normalized.includes("wechat moments");
+  const mentionsDouyinTikTok =
+    text.includes("抖音") ||
+    normalized.includes("douyin") ||
+    normalized.includes("tiktok");
+  const mentionsXiaohongshu =
+    text.includes("小红书") ||
+    normalized.includes("rednote") ||
+    /\bxhs\b/i.test(normalized);
   const hasFiction =
     text.includes("虚构") ||
     text.includes("另一个世界") ||
@@ -134,7 +153,11 @@ function localIntentFallback(text: string): StoryIntentPayload {
     /礼物|送给|讲给/.test(text) &&
     /亲友|亲人|家人|朋友|父母|爸爸|妈妈|孩子|伴侣|爱人|同事|闺蜜/.test(text);
   const hasSocialAudience =
-    /社交平台|小红书|抖音|视频号|朋友圈|公开发布|陌生人|公开观众/.test(text);
+    /社交平台|小红书|抖音|视频号|朋友圈|公开发布|陌生人|公开观众/.test(text) ||
+    mentionsX ||
+    mentionsInstagram ||
+    mentionsLinkedIn ||
+    mentionsDouyinTikTok;
   const hasPersonalStory =
     /介绍自己|自我介绍|我的经历|个人经历|成长经历|职业经历|我的故事/.test(text);
   const hasSelfReflection =
@@ -145,7 +168,7 @@ function localIntentFallback(text: string): StoryIntentPayload {
     /记录再说|先记录|先记下来|先保存|暂时不讲|以后再说|先留着/.test(text);
   const hasPersonalRecord = /记录|留念|保存|回看|回忆|纪念/.test(text);
 
-  if (hasLinkedIn) {
+  if (mentionsLinkedIn && hasJobSearch) {
     return {
       purpose: "linkedin_job_search",
       audience: "recruiters",
@@ -187,14 +210,23 @@ function localIntentFallback(text: string): StoryIntentPayload {
   }
 
   if (hasSocialAudience) {
+    const platform: StoryIntentPlatform = mentionsXiaohongshu
+      ? "xiaohongshu"
+      : mentionsX
+        ? "x"
+        : mentionsInstagram
+          ? "instagram"
+          : mentionsLinkedIn
+            ? "linkedin"
+            : mentionsMoments
+              ? "wechat_moments"
+              : mentionsDouyinTikTok
+                ? "douyin_tiktok"
+                : "wechat";
     return {
       purpose: "social_post",
       audience: "public",
-      platform: text.includes("小红书")
-        ? "xiaohongshu"
-        : text.includes("抖音")
-          ? "douyin"
-          : "wechat",
+      platform,
       desiredEffect: "让社交平台上的陌生观众快速理解并愿意看完",
       tone: "清楚、有分享感、对陌生观众友好",
       confidence: 0.72,
@@ -348,7 +380,7 @@ function buildIntentPrompt(params: {
     "{",
     '  "purpose": "self_reflection | raw_record | gift | social_post | linkedin_job_search | portfolio | fiction | exploration",',
     '  "audience": "self | specific_person | friends | public | recruiters | clients | investors | teammates | unknown",',
-    '  "platform": "unknown | wechat | xiaohongshu | douyin | bilibili | linkedin | portfolio_site | presentation | private_archive",',
+    '  "platform": "unknown | wechat | xiaohongshu | x | instagram | linkedin | wechat_moments | douyin_tiktok | douyin | bilibili | portfolio_site | presentation | private_archive",',
     '  "desiredEffect": "用户希望短片对观众产生的效果，≤40字",',
     '  "tone": "适合这个用途的表达气质，≤40字",',
     '  "confidence": 0.0,',

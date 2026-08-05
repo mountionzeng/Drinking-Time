@@ -18,6 +18,10 @@ import {
   getStoryMaterialState,
 } from "./storyMaterials";
 import { selectVideoTimelineSegment } from "./videoTimeline";
+import {
+  PUBLISHING_COVER_SHOT_IDENTITY,
+  PUBLISHING_COVER_SHOT_NO,
+} from "@shared/imageAsset";
 
 const savedDatabaseUrl = ENV.databaseUrl;
 
@@ -190,6 +194,50 @@ describe("normalizeTimelineItems", () => {
 });
 
 describe("getStoryMaterialState", () => {
+  it("keeps publishing covers out of shots and unassigned materials", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "发布稿封面隔离",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-01",
+            shotIdentity: "shot-01",
+            shotNo: 1,
+            subject: "主角",
+          },
+        ],
+      },
+    });
+    const cover = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: PUBLISHING_COVER_SHOT_NO,
+      shotIdentity: PUBLISHING_COVER_SHOT_IDENTITY,
+      imageUrl: "data:image/png;base64,COVER",
+      imageKey: null,
+      prompt: "text-free publishing cover",
+      generationType: "initial",
+      isCurrent: true,
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.unassignedImages.map(image => image.id)).not.toContain(
+      cover.id
+    );
+    expect(
+      materials?.shots
+        .flatMap(shot => shot.imageVersions)
+        .map(image => image.id)
+    ).not.toContain(cover.id);
+    expect(materials?.shots.map(shot => shot.currentImage?.id)).not.toContain(
+      cover.id
+    );
+  });
+
   it("matches imported genji assets to legacy shot identities by shot number", async () => {
     const story = await createStory({
       userId: 1,

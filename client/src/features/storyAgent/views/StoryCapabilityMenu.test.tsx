@@ -125,7 +125,7 @@ describe("StoryCapabilityMenu", () => {
       id => CAPABILITY_OPTIONS.find(option => option.id === id)?.label
     );
 
-    expect(labels).toEqual(["介绍自己", "给亲友的礼物", "发在社交平台上"]);
+    expect(labels).toEqual(["介绍自己", "给亲友的礼物", "发社交文案"]);
     expect(group.options).not.toContain("linkedin_job_search");
   });
 

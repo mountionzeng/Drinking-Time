@@ -3,6 +3,7 @@ import path from "node:path";
 import type { GeneratedImage, ImageSignal } from "../../drizzle/schema";
 import {
   canonicalizeShotNo,
+  isPublishingCoverShotNo,
   isStyleReferenceShotNo,
   type ImageAsset,
   type ImageAssetAvailability,
@@ -127,9 +128,11 @@ export function projectImageAssets({
 
   const assets = images.map((image): ImageAsset => {
     const signal = latestSignals.get(image.id);
-    const kind = isStyleReferenceShotNo(image.shotNo)
-      ? "style_reference"
-      : "story_frame";
+    const kind = isPublishingCoverShotNo(image.shotNo)
+      ? "publishing_cover"
+      : isStyleReferenceShotNo(image.shotNo)
+        ? "style_reference"
+        : "story_frame";
     const canonicalShotNo = canonicalizeShotNo(image.shotNo);
     const shotIdentity =
       normalizeShotIdentity(
@@ -147,11 +150,13 @@ export function projectImageAssets({
         validShots.has(canonicalShotNo)
     );
     const assignment =
-      kind === "style_reference"
-        ? "style_reference"
-        : isIdentityAssigned || isLegacyShotAssigned
-          ? "shot"
-          : "unassigned";
+      kind === "publishing_cover"
+        ? "publishing_cover"
+        : kind === "style_reference"
+          ? "style_reference"
+          : isIdentityAssigned || isLegacyShotAssigned
+            ? "shot"
+            : "unassigned";
     const status =
       signal?.action === "swipe_right"
         ? "selected"
@@ -192,6 +197,7 @@ export function projectImageAssets({
 
   const shotGroups = new Map<string, ImageAsset[]>();
   for (const asset of assets) {
+    if (asset.kind === "publishing_cover") continue;
     if (asset.assignment !== "shot") continue;
     const groupKey = asset.shotIdentity ?? asset.canonicalShotNo;
     if (!groupKey) continue;

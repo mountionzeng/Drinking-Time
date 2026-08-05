@@ -50,6 +50,7 @@ import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
 import StoryCapabilityMenu, {
   shouldShowCapabilityMenu,
 } from "./StoryCapabilityMenu";
+import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatformPicker";
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
 import EditingTransitionCandidateCard from "../components/EditingTransitionCandidateCard";
@@ -179,8 +180,8 @@ function getPendingIntentCopy(intent: StoryIntent) {
       };
     case "social_post":
       return {
-        body: "听起来你是想把这段故事发在社交平台上，对吗？",
-        confirmLabel: "对，发在社交平台上",
+        body: "听起来你是想把这段故事整理成社交文案，对吗？",
+        confirmLabel: "对，发社交文案",
       };
     case "portfolio":
       return {
@@ -215,8 +216,10 @@ function intentLabel(intent: StoryIntent | null): string {
 
 export default function StoryAgentChat({
   showHeader = true,
+  interactionMode = "story",
 }: {
   showHeader?: boolean;
+  interactionMode?: "story" | "publishing";
 }) {
   const {
     messages,
@@ -326,19 +329,24 @@ export default function StoryAgentChat({
       ? `故事 #${remoteStoryId ?? activeStoryId}`
       : "新故事草稿");
   const storyDisplaySubtitle =
-    storyLogline?.trim() ||
-    (storyShotsCount > 0
-      ? `${storyShotsCount} 个镜头正在同步`
-      : currentIntent
-        ? "等待从对话直接生成 Storyboard 表格"
-        : cardRefs.length > 0
-          ? `${cardRefs.length} 张故事卡正在同步`
-          : "等待整理成故事卡");
-  const inputPlaceholder = activeSelection
-    ? "告诉聊聊这处想怎么改…"
-    : pendingMedia.length > 0
-      ? "补一句你希望怎么用这些素材…"
-      : "说说这一版哪里需要推进…";
+    interactionMode === "publishing"
+      ? "等待你整理成当前平台发布稿"
+      : storyLogline?.trim() ||
+        (storyShotsCount > 0
+          ? `${storyShotsCount} 个镜头正在同步`
+          : currentIntent
+            ? "等待从对话直接生成 Storyboard 表格"
+            : cardRefs.length > 0
+              ? `${cardRefs.length} 张故事卡正在同步`
+              : "等待整理成故事卡");
+  const inputPlaceholder =
+    interactionMode === "publishing"
+      ? "先把真实想法说出来，聊聊会一次只追问一个关键点…"
+      : activeSelection
+        ? "告诉聊聊这处想怎么改…"
+        : pendingMedia.length > 0
+          ? "补一句你希望怎么用这些素材…"
+          : "说说这一版哪里需要推进…";
 
   useEffect(() => {
     const previousStoryId = draftStoryIdRef.current;
@@ -417,15 +425,20 @@ export default function StoryAgentChat({
     onTranscribed: handleVoiceTranscribed,
     onError: handleVoiceError,
   });
-  const showCapabilityMenu = shouldShowCapabilityMenu({
-    messages,
-    confirmedIntent,
-    returningGreeting,
-    isReplying,
-  });
+  const showCapabilityMenu =
+    interactionMode === "story" &&
+    shouldShowCapabilityMenu({
+      messages,
+      confirmedIntent,
+      returningGreeting,
+      isReplying,
+    });
   const jobIntakeStep = getJobIntakeStep(confirmedIntent);
   const showJobIntake =
-    jobIntakeStep !== "none" && jobIntakeStep !== "done" && !isReplying;
+    interactionMode === "story" &&
+    jobIntakeStep !== "none" &&
+    jobIntakeStep !== "done" &&
+    !isReplying;
 
   useEffect(() => {
     pendingMediaRef.current = pendingMedia;
@@ -584,6 +597,13 @@ export default function StoryAgentChat({
 
   const handleSubmit = async () => {
     const text = input.trim();
+    if (interactionMode === "publishing") {
+      if (!text || isReplying || voice.isBusy || isImportingMedia) return;
+      setInput("");
+      await sendMessage(text);
+      resizeAndFocusInput();
+      return;
+    }
     if (
       (!text && pendingMedia.length === 0) ||
       isReplying ||
@@ -746,13 +766,17 @@ export default function StoryAgentChat({
   return (
     <div
       className="monitor-panel relative h-full flex flex-col"
-      onDragEnter={handleMediaDragEnter}
-      onDragOver={handleMediaDragOver}
-      onDragLeave={handleMediaDragLeave}
-      onDrop={handleMediaDrop}
+      onDragEnter={
+        interactionMode === "story" ? handleMediaDragEnter : undefined
+      }
+      onDragOver={interactionMode === "story" ? handleMediaDragOver : undefined}
+      onDragLeave={
+        interactionMode === "story" ? handleMediaDragLeave : undefined
+      }
+      onDrop={interactionMode === "story" ? handleMediaDrop : undefined}
       data-testid="story-agent-media-dropzone"
     >
-      {isMediaDragActive ? (
+      {interactionMode === "story" && isMediaDragActive ? (
         <div
           className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-md border-2 border-dashed bg-background/92"
           style={{ borderColor: "var(--nayin-accent)" }}
@@ -1314,8 +1338,13 @@ export default function StoryAgentChat({
         className="border-t px-3 pb-3 flex flex-col gap-2"
         style={{ borderColor: "var(--panel-border)" }}
       >
+        {interactionMode === "publishing" ? (
+          <div className="pt-2.5">
+            <PublishingPlatformPicker compact />
+          </div>
+        ) : null}
         {/* Quote block */}
-        {activeSelection && (
+        {interactionMode === "story" && activeSelection && (
           <div className="mt-2.5">
             <SelectionContextCard
               selection={activeSelection}
@@ -1324,7 +1353,7 @@ export default function StoryAgentChat({
           </div>
         )}
 
-        {pendingMedia.length > 0 ? (
+        {interactionMode === "story" && pendingMedia.length > 0 ? (
           <div
             className={`min-w-0 ${!activeSelection ? "mt-2.5" : "mt-1.5"}`}
             data-testid="story-agent-media-tray"
@@ -1399,24 +1428,28 @@ export default function StoryAgentChat({
         <div
           className={`flex items-end gap-2 ${!activeSelection && pendingMedia.length === 0 ? "pt-2.5" : "pt-1.5"}`}
         >
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isReplying || voice.isBusy || isImportingMedia}
-            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-            aria-label="添加图片或视频"
-            title="添加图片或视频"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            className="hidden"
-            onChange={handleMediaSelect}
-          />
+          {interactionMode === "story" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isReplying || voice.isBusy || isImportingMedia}
+                className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                aria-label="添加图片或视频"
+                title="添加图片或视频"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={handleMediaSelect}
+              />
+            </>
+          ) : null}
           <button
             type="button"
             onClick={voice.toggleRecording}
@@ -1466,7 +1499,9 @@ export default function StoryAgentChat({
             type="button"
             onClick={handleSubmit}
             disabled={
-              (!input.trim() && pendingMedia.length === 0) ||
+              (!input.trim() &&
+                (interactionMode === "publishing" ||
+                  pendingMedia.length === 0)) ||
               isReplying ||
               voice.isBusy ||
               isImportingMedia

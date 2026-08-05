@@ -48,7 +48,7 @@ export const CAPABILITY_OPTIONS: Array<{
   },
   {
     id: "social_post",
-    label: "发在社交平台上",
+    label: "发社交文案",
     description: "把故事整理成适合公开分享的表达",
     icon: Share2,
   },

@@ -1,13 +1,8 @@
-import type {
-  NarrativeJob,
-  StoryShot,
-} from "@/features/storyAgent/types";
+import type { NarrativeJob, StoryShot } from "@/features/storyAgent/types";
 import type { StoryTimelineItem } from "@shared/storyMaterial";
 import type { VideoTakeAsset, VideoTakeStatus } from "@shared/videoAsset";
-import type {
-  PromptOverrides,
-  PromptRunRecord,
-} from "./promptTable/types";
+import type { PromptOverrides, PromptRunRecord } from "./promptTable/types";
+export type { PublishingVideoHandoff } from "@/features/publishingDraft/publishingVideoHandoff";
 
 export type CreationEditorStory = {
   id: number;

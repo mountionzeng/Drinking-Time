@@ -386,6 +386,128 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
   });
 
+  it("stores every 302 Midjourney object-array candidate in provider order", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-object-urls" } },
+      {
+        ok: true,
+        status: 200,
+        json: {
+          status: "SUCCESS",
+          imageUrl: "",
+          imageUrls: [
+            { url: "https://file.302.ai/mj-first.png" },
+            { url: "https://file.302.ai/mj-second.png" },
+            { url: "https://file.302.ai/mj-third.png" },
+            { url: "https://file.302.ai/mj-fourth.png" },
+          ],
+        },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await generateImage("a portrait cover", {
+      fetcher,
+      provider: "midjourney",
+      aspectRatio: "3:4",
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[2][0]).toBe("https://file.302.ai/mj-first.png");
+    expect(fetcher.mock.calls.slice(2).map(call => call[0])).toEqual([
+      "https://file.302.ai/mj-first.png",
+      "https://file.302.ai/mj-second.png",
+      "https://file.302.ai/mj-third.png",
+      "https://file.302.ai/mj-fourth.png",
+    ]);
+    expect(result.candidates).toHaveLength(4);
+    expect(result.imageUrl).toBe(result.candidates?.[0]?.imageUrl);
+  });
+
+  it("prefers individual Midjourney candidates over a combined imageUrl", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-grid" } },
+      {
+        ok: true,
+        status: 200,
+        json: {
+          status: "SUCCESS",
+          imageUrl: "https://file.302.ai/mj-grid.png",
+          imageUrls: [
+            { url: "https://file.302.ai/mj-1.png" },
+            { url: "https://file.302.ai/mj-2.png" },
+            { url: "https://file.302.ai/mj-3.png" },
+            { url: "https://file.302.ai/mj-4.png" },
+          ],
+        },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await generateImage("a portrait cover", {
+      fetcher,
+      provider: "midjourney",
+      aspectRatio: "3:4",
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls.slice(2).map(call => call[0])).toEqual([
+      "https://file.302.ai/mj-1.png",
+      "https://file.302.ai/mj-2.png",
+      "https://file.302.ai/mj-3.png",
+      "https://file.302.ai/mj-4.png",
+    ]);
+    expect(result.candidates).toHaveLength(4);
+  });
+
+  it("keeps polling after one transient Midjourney poll timeout", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 1, result: "task-retry" }),
+      })
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "SUCCESS",
+          imageUrl: "https://file.302.ai/mj-retry.png",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new ArrayBuffer(18),
+      });
+
+    const result = await generateImage("a resilient cat", {
+      fetcher,
+      provider: "midjourney",
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(isCircuitOpen()).toBe(false);
+  });
+
   it("默认给 Midjourney 加 --turbo，但不覆盖调用方已写的模式", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
@@ -668,16 +790,20 @@ describe("editImage", () => {
     expect(form.get("quality")).toBe("high");
     expect(form.get("image")).toBeTruthy();
     expect(form.get("mask")).toBeTruthy();
-    expect(form.get("prompt")).toBe(
-      "只把白色短裙延长为裙摆触地的白色及地长裙"
-    );
+    expect(form.get("prompt")).toBe("只把白色短裙延长为裙摆触地的白色及地长裙");
   });
 
   it("遮罩编辑保存结果时强制保留遮罩外的原图像素", async () => {
     const source = await sharp(
       Buffer.from([
-        255, 0, 0, 255, // editable red pixel
-        0, 255, 0, 255, // protected green pixel
+        255,
+        0,
+        0,
+        255, // editable red pixel
+        0,
+        255,
+        0,
+        255, // protected green pixel
       ]),
       { raw: { width: 2, height: 1, channels: 4 } }
     )
@@ -685,8 +811,14 @@ describe("editImage", () => {
       .toBuffer();
     const generated = await sharp(
       Buffer.from([
-        0, 0, 255, 255, // edited blue pixel
-        255, 255, 0, 255, // unwanted yellow change outside the mask
+        0,
+        0,
+        255,
+        255, // edited blue pixel
+        255,
+        255,
+        0,
+        255, // unwanted yellow change outside the mask
       ]),
       { raw: { width: 2, height: 1, channels: 4 } }
     )
@@ -694,8 +826,14 @@ describe("editImage", () => {
       .toBuffer();
     const mask = await sharp(
       Buffer.from([
-        0, 0, 0, 0, // transparent = editable
-        0, 0, 0, 255, // opaque = protected
+        0,
+        0,
+        0,
+        0, // transparent = editable
+        0,
+        0,
+        0,
+        255, // opaque = protected
       ]),
       { raw: { width: 2, height: 1, channels: 4 } }
     )
@@ -728,8 +866,14 @@ describe("editImage", () => {
       .raw()
       .toBuffer();
     expect([...pixels]).toEqual([
-      0, 0, 255, 255, // generated pixel inside the editable mask
-      0, 255, 0, 255, // original pixel outside the editable mask
+      0,
+      0,
+      255,
+      255, // generated pixel inside the editable mask
+      0,
+      255,
+      0,
+      255, // original pixel outside the editable mask
     ]);
   });
 
@@ -749,9 +893,7 @@ describe("editImage", () => {
                   status: 200,
                   json: () =>
                     Promise.resolve({
-                      data: [
-                        { b64_json: generated.toString("base64") },
-                      ],
+                      data: [{ b64_json: generated.toString("base64") }],
                     }),
                   arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
                 }),

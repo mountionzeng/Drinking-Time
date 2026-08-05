@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+
+import { mergeStaleStoryBody, prepareStoryBody } from "./storySync";
+
+describe("storySync publishing preservation", () => {
+  const serverPublishing = {
+    version: 1,
+    revision: 4,
+    activePlatform: "x",
+    selectedPlatforms: ["xiaohongshu", "x"],
+    drafts: {
+      x: {
+        platform: "x",
+        content: { title: "", body: "latest server draft", tags: [] },
+      },
+    },
+  };
+
+  it("preserves the server-owned publishing slice during a current generic save", () => {
+    const body = prepareStoryBody(
+      {
+        cards: [{ id: "new-card" }],
+        shots: [],
+        publishing: {
+          ...serverPublishing,
+          revision: 2,
+          drafts: {
+            x: {
+              platform: "x",
+              content: { title: "", body: "stale client draft", tags: [] },
+            },
+          },
+        },
+      },
+      9,
+      { cards: [], shots: [], publishing: serverPublishing }
+    );
+
+    expect(body.cards).toEqual([{ id: "new-card" }]);
+    expect(body.publishing).toEqual(serverPublishing);
+  });
+
+  it("preserves publishing during stale conservative merges", () => {
+    const body = mergeStaleStoryBody(
+      { messages: [], shots: [], publishing: serverPublishing },
+      {
+        messages: [{ id: "m1", role: "user", content: "new message" }],
+        shots: [],
+        publishing: { revision: 1 },
+      },
+      10
+    );
+
+    expect(body.messages).toEqual([
+      { id: "m1", role: "user", content: "new message" },
+    ]);
+    expect(body.publishing).toEqual(serverPublishing);
+  });
+});

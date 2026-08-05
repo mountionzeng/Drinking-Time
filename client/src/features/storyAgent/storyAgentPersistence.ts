@@ -12,19 +12,36 @@ import {
   type GeneratedScript,
   type StoryShot,
   type VisualCanvasItem,
-} from './types';
-import { normalizeVisualCanvasItem } from './storyAgentUtils';
+} from "./types";
+import { normalizeVisualCanvasItem } from "./storyAgentUtils";
 import {
   normalizeImageProviderSelection,
   type ImageProviderSelection,
-} from './storyAgentImageProvider';
+} from "./storyAgentImageProvider";
 import {
   emptyStoryArtDirection,
   normalizeStoryArtDirection,
   type StoryArtDirection,
-} from '@shared/artDirection';
-import type { GeneratedImageItem } from '@/features/storyAgent/storyTypes';
-import { normalizeStoryIntent, type StoryIntent } from './intentTypes';
+} from "@shared/artDirection";
+import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
+import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
+import {
+  emptyPublishingDraftState,
+  isPublishingPlatformId,
+  normalizePublishingDraftState,
+  type PublishingDraftContent,
+  type PublishingDraftState,
+  type PublishingPlatformId,
+} from "@shared/publishingDraft";
+
+export type PublishingDraftBuffer = {
+  storyId: number;
+  platform: PublishingPlatformId;
+  content: PublishingDraftContent;
+  updatedAt: number;
+};
+
+export type PublishingDraftBufferMap = Record<string, PublishingDraftBuffer>;
 
 // 一个故事在 localStorage 里持久化的完整形状。
 export interface PersistedState {
@@ -49,6 +66,8 @@ export interface PersistedState {
   savedAt?: number;
   activeStoryId?: number;
   serverRevision?: number;
+  publishing?: PublishingDraftState;
+  publishingBuffers?: PublishingDraftBufferMap;
 }
 
 // localStorage 的键：每个 projectId 一个槽位；没有 projectId 就返回 null（不存）。
@@ -60,8 +79,8 @@ export function emptyState(): PersistedState {
   return {
     messages: [
       {
-        id: 'first-question',
-        role: 'assistant',
+        id: "first-question",
+        role: "assistant",
         content: OPENING_MESSAGE,
         timestamp: Date.now(),
       },
@@ -71,12 +90,133 @@ export function emptyState(): PersistedState {
     storyShots: [],
     characters: [],
     visualCanvasItems: [],
-    visualPreference: '',
+    visualPreference: "",
     mobileImages: [],
-    imageProvider: 'default',
+    imageProvider: "default",
     artDirection: emptyStoryArtDirection(),
     confirmedIntent: null,
+    publishing: emptyPublishingDraftState(),
+    publishingBuffers: {},
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function normalizeBufferContent(value: unknown): PublishingDraftContent | null {
+  const obj = asRecord(value);
+  if (!obj) return null;
+  return {
+    title: typeof obj.title === "string" ? obj.title : "",
+    body: typeof obj.body === "string" ? obj.body : "",
+    tags: Array.isArray(obj.tags)
+      ? Array.from(
+          new Set(
+            obj.tags
+              .filter((tag): tag is string => typeof tag === "string")
+              .map(tag => tag.trim())
+              .filter(Boolean)
+          )
+        )
+      : [],
+  };
+}
+
+export function publishingBufferKey(
+  storyId: number,
+  platform: PublishingPlatformId
+): string {
+  return `${storyId}:${platform}`;
+}
+
+export function normalizePublishingBuffers(
+  value: unknown
+): PublishingDraftBufferMap {
+  const obj = asRecord(value);
+  if (!obj) return {};
+  const normalized: PublishingDraftBufferMap = {};
+  for (const candidate of Object.values(obj)) {
+    const buffer = asRecord(candidate);
+    if (!buffer) continue;
+    if (
+      typeof buffer.storyId !== "number" ||
+      !Number.isInteger(buffer.storyId) ||
+      buffer.storyId === 0 ||
+      !isPublishingPlatformId(buffer.platform)
+    ) {
+      continue;
+    }
+    const content = normalizeBufferContent(buffer.content);
+    if (!content) continue;
+    const entry: PublishingDraftBuffer = {
+      storyId: buffer.storyId,
+      platform: buffer.platform,
+      content,
+      updatedAt:
+        typeof buffer.updatedAt === "number" &&
+        Number.isFinite(buffer.updatedAt)
+          ? buffer.updatedAt
+          : 0,
+    };
+    normalized[publishingBufferKey(entry.storyId, entry.platform)] = entry;
+  }
+  return normalized;
+}
+
+export function setPublishingBuffer(
+  buffers: PublishingDraftBufferMap,
+  buffer: PublishingDraftBuffer
+): PublishingDraftBufferMap {
+  if (!isPublishingPlatformId(buffer.platform)) return buffers;
+  const content = normalizeBufferContent(buffer.content);
+  if (!content) return buffers;
+  return {
+    ...buffers,
+    [publishingBufferKey(buffer.storyId, buffer.platform)]: {
+      ...buffer,
+      content,
+    },
+  };
+}
+
+export function getPublishingBuffer(
+  buffers: PublishingDraftBufferMap,
+  storyId: number,
+  platform: PublishingPlatformId
+): PublishingDraftBuffer | undefined {
+  return buffers[publishingBufferKey(storyId, platform)];
+}
+
+export function removePublishingBuffer(
+  buffers: PublishingDraftBufferMap,
+  storyId: number,
+  platform: PublishingPlatformId
+): PublishingDraftBufferMap {
+  const key = publishingBufferKey(storyId, platform);
+  if (!(key in buffers)) return buffers;
+  const next = { ...buffers };
+  delete next[key];
+  return next;
+}
+
+export function remapPublishingBuffers(
+  buffers: PublishingDraftBufferMap,
+  fromStoryId: number,
+  toStoryId: number
+): PublishingDraftBufferMap {
+  let changed = false;
+  const next = { ...buffers };
+  for (const [key, buffer] of Object.entries(buffers)) {
+    if (buffer.storyId !== fromStoryId) continue;
+    delete next[key];
+    const remapped = { ...buffer, storyId: toStoryId };
+    next[publishingBufferKey(toStoryId, buffer.platform)] = remapped;
+    changed = true;
+  }
+  return changed ? next : buffers;
 }
 
 // 把读回来的「未知形状」清洗成合法 PersistedState（缺字段一律给安全默认值）。
@@ -87,24 +227,37 @@ export function normalizePersisted(parsed: PersistedState): PersistedState {
     scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
     storyShots: Array.isArray(parsed.storyShots) ? parsed.storyShots : [],
     characters: Array.isArray(parsed.characters) ? parsed.characters : [],
-    remoteStoryId: typeof parsed.remoteStoryId === 'number' ? parsed.remoteStoryId : undefined,
-    title: typeof parsed.title === 'string' ? parsed.title : undefined,
-    logline: typeof parsed.logline === 'string' ? parsed.logline : undefined,
-    theme: typeof parsed.theme === 'string' ? parsed.theme : undefined,
-    arc: typeof parsed.arc === 'string' ? parsed.arc : undefined,
-    summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+    remoteStoryId:
+      typeof parsed.remoteStoryId === "number"
+        ? parsed.remoteStoryId
+        : undefined,
+    title: typeof parsed.title === "string" ? parsed.title : undefined,
+    logline: typeof parsed.logline === "string" ? parsed.logline : undefined,
+    theme: typeof parsed.theme === "string" ? parsed.theme : undefined,
+    arc: typeof parsed.arc === "string" ? parsed.arc : undefined,
+    summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
     visualCanvasItems: Array.isArray(parsed.visualCanvasItems)
-      ? parsed.visualCanvasItems.map(normalizeVisualCanvasItem).filter((item): item is VisualCanvasItem => Boolean(item))
+      ? parsed.visualCanvasItems
+          .map(normalizeVisualCanvasItem)
+          .filter((item): item is VisualCanvasItem => Boolean(item))
       : [],
-    visualPreference: typeof parsed.visualPreference === 'string' ? parsed.visualPreference : '',
+    visualPreference:
+      typeof parsed.visualPreference === "string"
+        ? parsed.visualPreference
+        : "",
     mobileImages: Array.isArray(parsed.mobileImages) ? parsed.mobileImages : [],
     imageProvider: normalizeImageProviderSelection(parsed.imageProvider),
     artDirection: normalizeStoryArtDirection(parsed.artDirection),
     confirmedIntent: normalizeStoryIntent(parsed.confirmedIntent),
-    savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : undefined,
-    activeStoryId: typeof parsed.activeStoryId === 'number' ? parsed.activeStoryId : undefined,
+    savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : undefined,
+    activeStoryId:
+      typeof parsed.activeStoryId === "number"
+        ? parsed.activeStoryId
+        : undefined,
     serverRevision:
-      typeof parsed.serverRevision === 'number' ? parsed.serverRevision : 0,
+      typeof parsed.serverRevision === "number" ? parsed.serverRevision : 0,
+    publishing: normalizePublishingDraftState(parsed.publishing),
+    publishingBuffers: normalizePublishingBuffers(parsed.publishingBuffers),
   };
 }
 
@@ -130,7 +283,10 @@ export function storyWorkScore(state: PersistedState): number {
     Math.max(0, state.messages.length - 1) * 20 +
     (state.visualCanvasItems?.length ?? 0) * 40 +
     (state.artDirection?.candidates.length ?? 0) * 25 +
-    (state.artDirection?.recipe ? 80 : 0)
+    (state.artDirection?.recipe ? 80 : 0) +
+    (state.publishing?.core ? 80 : 0) +
+    Object.keys(state.publishing?.drafts ?? {}).length * 60 +
+    Object.keys(state.publishingBuffers ?? {}).length * 30
   );
 }
 
@@ -141,8 +297,8 @@ export function hasStoryWork(state: PersistedState): boolean {
 
 // 推断「当前活跃故事 id」：优先显式 id，其次远端 id；否则有工作量给 -1（本地草稿），没有给 null。
 export function activeStoryIdFrom(state: PersistedState): number | null {
-  if (typeof state.activeStoryId === 'number') return state.activeStoryId;
-  if (typeof state.remoteStoryId === 'number') return state.remoteStoryId;
+  if (typeof state.activeStoryId === "number") return state.activeStoryId;
+  if (typeof state.remoteStoryId === "number") return state.remoteStoryId;
   return hasStoryWork(state) ? -1 : null;
 }
 
@@ -153,28 +309,37 @@ export function hasLiveStoryWork(state: {
   scripts: GeneratedScript[];
   storyShots: StoryShot[];
   visualCanvasItems?: VisualCanvasItem[];
+  publishing?: PublishingDraftState;
+  publishingBuffers?: PublishingDraftBufferMap;
 }): boolean {
   return (
     state.cards.length > 0 ||
     state.scripts.length > 0 ||
     state.storyShots.length > 0 ||
     (state.visualCanvasItems?.length ?? 0) > 0 ||
+    Boolean(state.publishing?.core) ||
+    Object.keys(state.publishing?.drafts ?? {}).length > 0 ||
+    Object.keys(state.publishingBuffers ?? {}).length > 0 ||
     state.messages.some(
-      (message) =>
-        message.role === 'user' &&
-        (message.content.trim().length > 0 || Boolean(message.photoUrl)),
+      message =>
+        message.role === "user" &&
+        (message.content.trim().length > 0 || Boolean(message.photoUrl))
     )
   );
 }
 
 // projectId 会在本地 / 部署间漂移。当前槽位空时，从旧 projectId 的槽位里捞出「最实」的那个故事，
 // 避免用户的工作看起来凭空消失。只读不删，源槽位保持不动。
-export function findOrphanStory(currentProjectId: number): PersistedState | null {
+export function findOrphanStory(
+  currentProjectId: number
+): PersistedState | null {
   const currentKey = storageKey(currentProjectId);
-  let best: { state: PersistedState; score: number; savedAt: number } | null = null;
+  let best: { state: PersistedState; score: number; savedAt: number } | null =
+    null;
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (!key || !key.startsWith('dt:storyAgent:') || key === currentKey) continue;
+    if (!key || !key.startsWith("dt:storyAgent:") || key === currentKey)
+      continue;
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
@@ -183,7 +348,9 @@ export function findOrphanStory(currentProjectId: number): PersistedState | null
       if (score === 0) continue;
       const savedAt = parsed.savedAt ?? 0;
       const better =
-        !best || savedAt > best.savedAt || (savedAt === best.savedAt && score > best.score);
+        !best ||
+        savedAt > best.savedAt ||
+        (savedAt === best.savedAt && score > best.score);
       if (better) best = { state: parsed, score, savedAt };
     } catch {
       // skip unparseable entries

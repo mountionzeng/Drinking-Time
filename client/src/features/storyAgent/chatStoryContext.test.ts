@@ -2,11 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStoryChatSummary } from "./chatStoryContext";
 import type { StoryShot } from "./types";
 
-function shot(
-  shotNo: number,
-  cueCode: string,
-  actNo: string
-): StoryShot {
+function shot(shotNo: number, cueCode: string, actNo: string): StoryShot {
   return {
     stableShotId: `shot-${shotNo}`,
     shotNo,
@@ -51,5 +47,67 @@ describe("buildStoryChatSummary", () => {
     expect(summary).toContain("第一幕 2 镜");
     expect(summary).toContain("0101、0102、0201、0301、0401");
     expect(summary).toContain("按 cueCode 定位");
+  });
+
+  it("只带入当前平台的一份发布稿上下文供剪辑台继续追问", () => {
+    const summary = buildStoryChatSummary({
+      shots: [],
+      publishing: {
+        version: 1,
+        revision: 4,
+        activePlatform: "x",
+        selectedPlatforms: ["xiaohongshu", "x"],
+        core: {
+          revision: 2,
+          facts: ["Codex 触发了不必要的子 Agent"],
+          thesis: "人的注意力不该被无效调用浪费。",
+          emotion: "克制的不满",
+          voiceTraits: ["直接"],
+          visualConcept: "被烧掉的 token",
+          updatedAt: 10,
+        },
+        drafts: {
+          x: {
+            platform: "x",
+            content: {
+              title: "Token 都去了哪里",
+              body: "我开始怀疑，真正稀缺的不是 token，而是人的注意力。",
+              tags: [],
+            },
+            appliedBaseline: {
+              title: "Token 都去了哪里",
+              body: "我开始怀疑，真正稀缺的不是 token，而是人的注意力。",
+              tags: [],
+            },
+            sourceCoreRevision: 2,
+            revision: 1,
+            needsReview: false,
+            updatedAt: 10,
+          },
+          xiaohongshu: {
+            platform: "xiaohongshu",
+            content: { title: "不应出现", body: "另一平台正文", tags: [] },
+            appliedBaseline: {
+              title: "不应出现",
+              body: "另一平台正文",
+              tags: [],
+            },
+            sourceCoreRevision: 2,
+            revision: 1,
+            needsReview: false,
+            updatedAt: 10,
+          },
+        },
+        cover: null,
+        updatedAt: 10,
+      },
+    });
+
+    expect(summary.match(/\[发布稿交接/g)).toHaveLength(1);
+    expect(summary).toContain("[发布稿交接｜X]");
+    expect(summary).toContain("人的注意力不该被无效调用浪费");
+    expect(summary).toContain("Token 都去了哪里");
+    expect(summary).not.toContain("不应出现");
+    expect(summary).not.toContain("另一平台正文");
   });
 });

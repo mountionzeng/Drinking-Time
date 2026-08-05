@@ -16,6 +16,11 @@ import {
 } from "@shared/artDirection";
 import type { StoryPanel } from "@/features/analysis/storyPanels";
 import { ensureShotIdentities } from "@shared/shotIdentity";
+import {
+  emptyPublishingDraftState,
+  type PublishingDraftState,
+} from "@shared/publishingDraft";
+import type { PublishingDraftBufferMap } from "../storyAgentPersistence";
 
 export type StorySaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -47,6 +52,8 @@ type StorySpineData = {
   storyImages: GeneratedImageItem[];
   imageProvider: ImageProviderSelection;
   artDirection: StoryArtDirection;
+  publishing: PublishingDraftState;
+  publishingBuffers: PublishingDraftBufferMap;
   isArtWorking: boolean;
   isReplying: boolean;
   isGeneratingScript: boolean;
@@ -87,6 +94,8 @@ type StorySpineActions = {
   setStoryImages: StorySpineSetter<GeneratedImageItem[]>;
   setImageProvider: StorySpineSetter<ImageProviderSelection>;
   setArtDirection: StorySpineSetter<StoryArtDirection>;
+  setPublishing: StorySpineSetter<PublishingDraftState>;
+  setPublishingBuffers: StorySpineSetter<PublishingDraftBufferMap>;
   setIsArtWorking: StorySpineSetter<boolean>;
   setIsReplying: StorySpineSetter<boolean>;
   setIsGeneratingScript: StorySpineSetter<boolean>;
@@ -133,6 +142,8 @@ function initialData(): StorySpineData {
     storyImages: [],
     imageProvider: "default",
     artDirection: emptyStoryArtDirection(),
+    publishing: emptyPublishingDraftState(),
+    publishingBuffers: {},
     isArtWorking: false,
     isReplying: false,
     isGeneratingScript: false,
@@ -200,6 +211,8 @@ export const useStorySpine = create<StorySpineState>()(set => {
     setStoryImages: setField("storyImages"),
     setImageProvider: setField("imageProvider"),
     setArtDirection: setField("artDirection"),
+    setPublishing: setField("publishing"),
+    setPublishingBuffers: setField("publishingBuffers"),
     setIsArtWorking: setField("isArtWorking"),
     setIsReplying: setField("isReplying"),
     setIsGeneratingScript: setField("isGeneratingScript"),

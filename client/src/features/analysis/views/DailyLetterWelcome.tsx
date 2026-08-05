@@ -41,6 +41,22 @@ export function shouldShowDailyLetter(
   );
 }
 
+export function shouldShowInitialProfileSetup(params: {
+  querySucceeded: boolean;
+  hasProfile: boolean;
+  forceOpen: boolean;
+  today: string;
+  seenDate: string | null;
+  closedDate: string | null;
+}) {
+  return Boolean(
+    params.querySucceeded &&
+      !params.hasProfile &&
+      (params.forceOpen ||
+        shouldShowDailyLetter(params.today, params.seenDate, params.closedDate))
+  );
+}
+
 export function shouldMarkDailyLetterSeen(
   selectedDate: string,
   profileDate: string
@@ -276,6 +292,14 @@ export default function DailyLetterWelcome({
       shouldShowDailyLetter(profileDate, seenDate, closedDate)
     : shouldShowDailyLetter(publicLetter.date, seenDate, closedDate);
   const visible = forceOpen || autoVisible;
+  const initialProfileSetupVisible = shouldShowInitialProfileSetup({
+    querySucceeded: profileQuery.isSuccess,
+    hasProfile: Boolean(profile),
+    forceOpen,
+    today: today.cstDateStr,
+    seenDate,
+    closedDate,
+  });
 
   useEffect(() => {
     if (!editingMessage) setMessageDraft(selectedMessage);
@@ -292,6 +316,12 @@ export default function DailyLetterWelcome({
     setEditingMessage(false);
     onRequestClose?.();
   }, [onRequestClose, profileDate, publicLetter.date, selectedDate, userId]);
+
+  const dismissInitialProfileSetup = useCallback(() => {
+    if (userId) writeSeenDate(userId, today.cstDateStr);
+    setClosedDate(today.cstDateStr);
+    onRequestClose?.();
+  }, [onRequestClose, today.cstDateStr, userId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -486,7 +516,7 @@ export default function DailyLetterWelcome({
     );
   }
 
-  if (profileQuery.isSuccess && !profile) {
+  if (initialProfileSetupVisible) {
     return (
       <div
         className="fixed inset-0 z-[100] overflow-y-auto bg-background/95 px-4 py-6"
@@ -494,21 +524,36 @@ export default function DailyLetterWelcome({
         aria-modal="true"
         aria-label="第一次写回信"
       >
-        <section className="mx-auto w-full max-w-3xl">
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          className="mx-auto w-full max-w-3xl outline-none"
+        >
           <header
-            className="border-b pb-5"
+            className="flex items-start justify-between gap-5 border-b pb-5"
             style={{ borderColor: "var(--nayin-border)" }}
           >
-            <p className="text-[10px] text-muted-foreground">
-              只需填写一次，之后可以随时修改
-            </p>
-            <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
-              先留一点关于你的信息
-            </h1>
-            <p className="mt-2 text-xs leading-6 text-muted-foreground">
-              这些资料会保存在你的账号里。今天的回信会由服务器重新计算，
-              不再使用浏览器里的固定模板。
-            </p>
+            <div>
+              <p className="text-[10px] text-muted-foreground">
+                只需填写一次，之后可以随时修改
+              </p>
+              <h1 className="font-chat-brand mt-2 text-3xl font-normal text-foreground">
+                先留一点关于你的信息
+              </h1>
+              <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                这些资料会保存在你的账号里。今天的回信会由服务器重新计算，
+                不再使用浏览器里的固定模板。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissInitialProfileSetup}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="暂时跳过资料设置"
+              title="暂时跳过资料设置"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </header>
           <EmotionAnalysisInvitePanel
             today={today}
@@ -524,6 +569,18 @@ export default function DailyLetterWelcome({
             compactEntry
             persistLocalProfile={false}
           />
+          <div
+            className="mt-2 flex justify-end border-t pt-4"
+            style={{ borderColor: "var(--nayin-border)" }}
+          >
+            <button
+              type="button"
+              onClick={dismissInitialProfileSetup}
+              className="px-2 py-2 text-xs text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              暂时跳过，先去创作
+            </button>
+          </div>
         </section>
       </div>
     );

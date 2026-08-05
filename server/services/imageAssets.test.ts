@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { GeneratedImage, ImageSignal } from "../../drizzle/schema";
-import { canonicalizeShotNo } from "../../shared/imageAsset";
+import {
+  canonicalizeShotNo,
+  PUBLISHING_COVER_SHOT_NO,
+} from "../../shared/imageAsset";
 import { projectImageAssets } from "./imageAssets";
 
 function image(
@@ -155,6 +158,22 @@ describe("projectImageAssets", () => {
     expect(assets.find(asset => asset.id === 3)).toMatchObject({
       canonicalShotNo: "SH07",
       assignment: "unassigned",
+    });
+  });
+
+  it("在数字镜号解析前识别发布封面，并隔离出分镜素材", () => {
+    const assets = projectImageAssets({
+      images: [image(1, PUBLISHING_COVER_SHOT_NO)],
+      signals: [],
+      validShotNos: ["SH01"],
+    });
+
+    expect(assets[0]).toMatchObject({
+      rawShotNo: PUBLISHING_COVER_SHOT_NO,
+      canonicalShotNo: null,
+      kind: "publishing_cover",
+      assignment: "publishing_cover",
+      isPrimary: false,
     });
   });
 

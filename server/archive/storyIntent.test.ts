@@ -233,4 +233,23 @@ describe("recognizeStoryIntent", () => {
       expect(result.audience).toBe(audience);
     }
   );
+
+  it.each([
+    ["我要发小红书", "xiaohongshu"],
+    ["帮我转成 X 上能发的文字", "x"],
+    ["我想发 Twitter / 推特", "x"],
+    ["改成 Instagram 的 caption", "instagram"],
+    ["这篇准备发 IG", "instagram"],
+    ["我想发 LinkedIn 给同行看", "linkedin"],
+    ["整理成朋友圈文案", "wechat_moments"],
+    ["改成抖音文案", "douyin_tiktok"],
+    ["做成 TikTok caption", "douyin_tiktok"],
+  ])("未配置 API 时识别发布平台：%s", async (message, platform) => {
+    envMock.ENV.forgeApiKey = undefined;
+
+    const result = await recognizeStoryIntent({ message });
+
+    expect(result.purpose).toBe("social_post");
+    expect(result.platform).toBe(platform);
+  });
 });

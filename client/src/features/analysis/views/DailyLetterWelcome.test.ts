@@ -6,6 +6,7 @@ import {
   dailyLetterSeenKey,
   nextDailyLetterDate,
   shouldMarkDailyLetterSeen,
+  shouldShowInitialProfileSetup,
   shouldShowDailyLetter,
 } from "./DailyLetterWelcome";
 
@@ -90,5 +91,37 @@ describe("DailyLetterWelcome", () => {
   it("只有正在查看今天回信时，关闭才把今天标为已读", () => {
     expect(shouldMarkDailyLetterSeen("2026-07-28", "2026-07-28")).toBe(true);
     expect(shouldMarkDailyLetterSeen("2026-07-27", "2026-07-28")).toBe(false);
+  });
+
+  it("允许没有回信资料的用户先关闭引导进入创作，并可从读信按钮再次打开", () => {
+    expect(
+      shouldShowInitialProfileSetup({
+        querySucceeded: true,
+        hasProfile: false,
+        forceOpen: false,
+        today: "2026-08-05",
+        seenDate: "2026-08-05",
+        closedDate: null,
+      })
+    ).toBe(false);
+    expect(
+      shouldShowInitialProfileSetup({
+        querySucceeded: true,
+        hasProfile: false,
+        forceOpen: true,
+        today: "2026-08-05",
+        seenDate: "2026-08-05",
+        closedDate: null,
+      })
+    ).toBe(true);
+
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "client/src/features/analysis/views/DailyLetterWelcome.tsx"
+      ),
+      "utf8"
+    );
+    expect(source).toContain("暂时跳过，先去创作");
   });
 });

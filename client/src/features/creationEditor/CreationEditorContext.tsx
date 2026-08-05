@@ -62,10 +62,7 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
-import type {
-  ImageProvider,
-  ImageProviderStatus,
-} from "@shared/imageProvider";
+import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import type {
   VideoCropPath,
   VideoConformMode,
@@ -82,16 +79,19 @@ import type {
   StoryShotEditableField,
 } from "@shared/shotDirector";
 import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
+import { normalizePublishingDraftState } from "@shared/publishingDraft";
+import {
+  buildPublishingVideoHandoff,
+  latestPublishingDraftState,
+  type PublishingVideoHandoff,
+} from "@/features/publishingDraft/publishingVideoHandoff";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
   takeTimelineUndoSnapshot,
 } from "./timelineUndoStore";
-import {
-  addShotToRenderSlots,
-  removeShotFromRenderSlots,
-} from "./renderSlots";
+import { addShotToRenderSlots, removeShotFromRenderSlots } from "./renderSlots";
 import type {
   CreationEditorError,
   CreationEditorImage,
@@ -119,6 +119,7 @@ type CreationEditorContextValue = {
   activeStoryId: number | null;
   setActiveStoryId: (storyId: number | null) => void;
   activeStory: CreationEditorStory | null;
+  publishingHandoff: PublishingVideoHandoff | null;
   materialState: StoryMaterialState | null;
   chatCutTimeline: ChatCutTimelineManifest | null;
   promptLineageMode: "legacy" | "lineage";
@@ -1281,12 +1282,26 @@ export function CreationEditorProvider({
       ? state.storyShots
       : EMPTY_STORY_SHOTS
   );
+  const spinePublishing = useStorySpine(state =>
+    activeId != null &&
+    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
+      ? state.publishing
+      : null
+  );
   const storyQuery = trpc.storyAgent.storyGet.useQuery(
     { id: activeId ?? 0 },
     {
       // 草稿故事的 activeId 是 -1，服务端只认正数 id，别让 400 进入重试循环
       enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
+    }
+  );
+  const publishingDraftQuery = trpc.publishingDraft.read.useQuery(
+    { storyId: activeId ?? 1 },
+    {
+      enabled: activeId != null && activeId > 0,
+      refetchOnWindowFocus: false,
+      retry: false,
     }
   );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
@@ -1364,6 +1379,31 @@ export function CreationEditorProvider({
       logline: row.logline,
     };
   }, [storyQuery.data]);
+  const publishingHandoff = useMemo(() => {
+    if (activeId == null || activeId <= 0) return null;
+    const body =
+      storyQuery.data?.body &&
+      typeof storyQuery.data.body === "object" &&
+      !Array.isArray(storyQuery.data.body)
+        ? (storyQuery.data.body as Record<string, unknown>)
+        : {};
+    const publishing = latestPublishingDraftState([
+      spinePublishing,
+      publishingDraftQuery.data?.publishing,
+      normalizePublishingDraftState(body.publishing),
+    ]);
+    return buildPublishingVideoHandoff({
+      storyId: activeId,
+      publishing,
+      coverAsset: publishingDraftQuery.data?.coverAsset ?? null,
+    });
+  }, [
+    activeId,
+    publishingDraftQuery.data?.coverAsset,
+    publishingDraftQuery.data?.publishing,
+    spinePublishing,
+    storyQuery.data?.body,
+  ]);
   const chatCutTimeline = useMemo(
     () => normalizeChatCutTimeline(storyQuery.data?.body),
     [storyQuery.data?.body]
@@ -1632,7 +1672,7 @@ export function CreationEditorProvider({
   // currentContent === nextValue 永远成立，候选永远提不出来。
   const proposeEditPromptCandidates = async (
     changes: ShotFieldChange[],
-    aggregate: StoryPromptAggregate,
+    aggregate: StoryPromptAggregate
   ) => {
     const storyId = activeId;
     if (storyId == null || changes.length === 0) return;
@@ -1988,9 +2028,7 @@ export function CreationEditorProvider({
     const shot = shots.find(item => item.shotNo === shotNo);
     if (!shot) throw new Error(`找不到镜头 ${shotNo}`);
     setRerenderError(null);
-    setRerenderingShotNos(current =>
-      addShotToRenderSlots(current, shotNo)
-    );
+    setRerenderingShotNos(current => addShotToRenderSlots(current, shotNo));
     try {
       let batch;
       if (options?.candidateCount === 4) {
@@ -3131,6 +3169,7 @@ export function CreationEditorProvider({
       activeStoryId: activeId,
       setActiveStoryId,
       activeStory,
+      publishingHandoff,
       materialState:
         (storyMaterialQuery.data as StoryMaterialState | null | undefined) ??
         null,
@@ -3152,6 +3191,7 @@ export function CreationEditorProvider({
       isLoading:
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
+        publishingDraftQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
@@ -3223,6 +3263,7 @@ export function CreationEditorProvider({
     [
       activeId,
       activeStory,
+      publishingHandoff,
       chatCutTimeline,
       error,
       selectedShot,
@@ -3259,6 +3300,7 @@ export function CreationEditorProvider({
       imageProviderStatusQuery,
       storyListQuery,
       storyQuery,
+      publishingDraftQuery,
     ]
   );
 

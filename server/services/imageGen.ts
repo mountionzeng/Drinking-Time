@@ -32,10 +32,17 @@ export type ImageGenStatus = "ok" | "error";
 export type ImageFidelity = "draft" | "final";
 export type { ImageProvider };
 
+export interface ImageGenCandidate {
+  imageUrl: string;
+  imageKey?: string;
+}
+
 export interface ImageGenResult {
   status: ImageGenStatus;
   imageUrl?: string;
   imageKey?: string;
+  /** Ordered provider candidates when one task returns multiple images. */
+  candidates?: ImageGenCandidate[];
   message?: string;
 }
 
@@ -1427,8 +1434,7 @@ async function generate302MidjourneyImage(
     const accepted = submitJson.code === 1 || submitJson.code === 22;
     const taskId = submitJson.result ? String(submitJson.result) : "";
     if (!accepted || !taskId) {
-      const message =
-        submitJson.description || "302 Midjourney submit failed";
+      const message = submitJson.description || "302 Midjourney submit failed";
       recordProviderFailure("midjourney", message);
       return {
         status: "error",
@@ -1444,32 +1450,75 @@ async function generate302MidjourneyImage(
         `/mj/task/${encodeURIComponent(taskId)}/fetch`,
         `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
       );
-      const taskResponse = await withTimeout(
-        fetcher(taskUrl.toString(), {
-          method: "GET",
-          headers: build302Headers("midjourney"),
-        }),
-        TIMEOUT_MS
-      );
-
-      if (!taskResponse.ok) {
-        recordFailure();
-        return {
-          status: "error",
-          message: `302 Midjourney task HTTP ${taskResponse.status}`,
-        };
-      }
-
-      const taskJson = (await taskResponse.json()) as {
+      let taskResponse: FetchResponseLike;
+      let taskJson: {
         status?: string;
-        imageUrl?: string;
-        imageUrls?: string[];
+        imageUrl?: unknown;
+        imageUrls?: unknown[];
         failReason?: string;
       };
+      try {
+        const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+        taskResponse = await withTimeout(
+          fetcher(taskUrl.toString(), {
+            method: "GET",
+            headers: build302Headers("midjourney"),
+          }),
+          Math.min(TIMEOUT_MS, remainingMs)
+        );
+
+        if (!taskResponse.ok) {
+          const retryable =
+            taskResponse.status === 408 ||
+            taskResponse.status === 425 ||
+            taskResponse.status === 429 ||
+            taskResponse.status >= 500;
+          if (retryable) {
+            console.warn(
+              `[302 MJ] 轮询暂时失败（HTTP ${taskResponse.status}），继续等待任务 ${taskId}`
+            );
+            continue;
+          }
+          recordFailure();
+          return {
+            status: "error",
+            message: `302 Midjourney task HTTP ${taskResponse.status}`,
+          };
+        }
+
+        taskJson = (await taskResponse.json()) as {
+          status?: string;
+          imageUrl?: unknown;
+          imageUrls?: unknown[];
+          failReason?: string;
+        };
+      } catch (error) {
+        console.warn(
+          `[302 MJ] 轮询暂时失败，继续等待任务 ${taskId}:`,
+          error instanceof Error ? error.message : error
+        );
+        continue;
+      }
+
       const status = taskJson.status?.toUpperCase();
       if (status === "SUCCESS") {
-        const imageUrl = taskJson.imageUrl || taskJson.imageUrls?.[0];
-        if (!imageUrl) {
+        const rawCandidates =
+          taskJson.imageUrls && taskJson.imageUrls.length > 0
+            ? taskJson.imageUrls
+            : [taskJson.imageUrl];
+        const imageUrls = Array.from(
+          new Set(
+            rawCandidates
+              .map(candidate => {
+                if (typeof candidate === "string") return candidate.trim();
+                if (!candidate || typeof candidate !== "object") return "";
+                const url = (candidate as { url?: unknown }).url;
+                return typeof url === "string" ? url.trim() : "";
+              })
+              .filter(Boolean)
+          )
+        ).slice(0, 4);
+        if (imageUrls.length === 0) {
           recordFailure();
           return {
             status: "error",
@@ -1477,19 +1526,36 @@ async function generate302MidjourneyImage(
           };
         }
 
-        const stored = await storeImageFromUrl(imageUrl, fetcher);
-        if (stored.status !== "ok") {
+        const stored = await Promise.all(
+          imageUrls.map(imageUrl => storeImageFromUrl(imageUrl, fetcher))
+        );
+        const failedIndex = stored.findIndex(
+          candidate => candidate.status !== "ok"
+        );
+        if (failedIndex >= 0) {
           recordFailure();
-          return stored;
+          return {
+            status: "error",
+            message: `302 Midjourney candidate ${failedIndex + 1} could not be stored: ${stored[failedIndex]?.message ?? "unknown storage error"}`,
+          };
         }
 
+        const candidates = stored.map(candidate => ({
+          imageUrl: candidate.imageUrl!,
+          ...(candidate.imageKey ? { imageKey: candidate.imageKey } : {}),
+        }));
+        const first = candidates[0]!;
         recordSuccess();
-        return stored;
+        return {
+          status: "ok",
+          imageUrl: first.imageUrl,
+          imageKey: first.imageKey,
+          candidates,
+        };
       }
 
       if (status === "FAILURE") {
-        const message =
-          taskJson.failReason || "302 Midjourney task failed";
+        const message = taskJson.failReason || "302 Midjourney task failed";
         recordProviderFailure("midjourney", message);
         return {
           status: "error",

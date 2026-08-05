@@ -1,4 +1,4 @@
-import { canonicalizeShotNo, type ImageAsset } from '@shared/imageAsset';
+import { canonicalizeShotNo, type ImageAsset } from "@shared/imageAsset";
 
 export type ShotAssetGroup = {
   shotNo: string;
@@ -15,8 +15,8 @@ export type ImageAssetWorkspaceModel = {
 
 function assetRank(asset: ImageAsset): number {
   if (asset.isPrimary) return 0;
-  if (asset.status === 'pending') return 1;
-  if (asset.status === 'selected') return 2;
+  if (asset.status === "pending") return 1;
+  if (asset.status === "selected") return 2;
   return 3;
 }
 
@@ -29,7 +29,7 @@ function sortAssets(left: ImageAsset, right: ImageAsset): number {
 
 export function buildImageAssetWorkspace(
   assets: ImageAsset[],
-  shotNos: string[],
+  shotNos: string[]
 ): ImageAssetWorkspaceModel {
   const shotGroups = new Map<string, ShotAssetGroup>();
   for (const shotNo of shotNos) {
@@ -46,14 +46,15 @@ export function buildImageAssetWorkspace(
   const unassigned: ImageAsset[] = [];
   const styleReferences: ImageAsset[] = [];
   for (const asset of assets) {
-    if (asset.assignment === 'style_reference') {
+    if (asset.assignment === "publishing_cover") continue;
+    if (asset.assignment === "style_reference") {
       styleReferences.push(asset);
       continue;
     }
     const group = asset.canonicalShotNo
       ? shotGroups.get(asset.canonicalShotNo)
       : undefined;
-    if (!group || asset.assignment === 'unassigned') {
+    if (!group || asset.assignment === "unassigned") {
       unassigned.push(asset);
       continue;
     }
@@ -65,7 +66,7 @@ export function buildImageAssetWorkspace(
     group.primary = group.assets.find(asset => asset.isPrimary) ?? null;
     group.preview =
       group.primary ??
-      group.assets.find(asset => asset.status === 'pending') ??
+      group.assets.find(asset => asset.status === "pending") ??
       group.assets[0] ??
       null;
   }

@@ -14,6 +14,7 @@ describe("creation editor spine boundary", () => {
 
     expect(context).toContain("trpc.storyAgent.storyGet.useQuery");
     expect(context).toContain("trpc.storyAgent.storyImages.useQuery");
+    expect(context).toContain("trpc.publishingDraft.read.useQuery");
     expect(context).toMatch(/useStorySpine\(\s*state\s*=>/);
     expect(context).toContain("state.activeStoryId === activeId");
     expect(context).toContain(
@@ -53,31 +54,51 @@ describe("creation editor spine boundary", () => {
     expect(workspace).not.toContain("useStoryAgent()");
   });
 
+  it("uses publishing-specific orientation copy instead of Storyboard copy", () => {
+    const chat = source(
+      "client/src/features/storyAgent/views/StoryAgentChat.tsx"
+    );
+
+    expect(chat).toContain('interactionMode === "publishing"');
+    expect(chat).toContain('"等待你整理成当前平台发布稿"');
+  });
+
   it("keeps the dedicated editing route in the studio layout", () => {
     const editingPage = source("client/src/pages/EditingStudioPage.tsx");
+    const studioWorkspaces = source(
+      "client/src/pages/editingStudioWorkspace.ts"
+    );
     const editingWorkspace = source(
       "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
     );
 
-    expect(editingPage).toContain('data-story-panel="editing-nle"');
+    expect(editingPage).toContain(
+      'workspace === "editing" ? "editing-nle" : workspace'
+    );
     expect(editingPage).toContain(
       "<EditingNleWorkspace timelineVisible={timelineVisible} />"
     );
-    expect(editingPage).toContain("<StoryAgentChat showHeader={false} />");
+    expect(editingPage).toContain("<StoryAgentChat");
+    expect(editingPage).toContain("interactionMode={interactionMode}");
+    expect(editingPage).toContain("<PublishingDraftWorkspace");
+    expect(editingPage).toContain("<PublishingVideoHandoffBanner");
+    expect(editingPage).toContain("shouldShowPublishingHandoff(workspace)");
+    expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
+    expect(studioWorkspaces).toContain('label: "发布稿"');
+    expect(studioWorkspaces).toContain('label: "剪辑台"');
+    expect(studioWorkspaces).toContain("...STORY_PANELS");
+    expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
+    expect(editingPage).toContain("<StoryboardPanel />");
+    expect(editingPage).toContain("<AnimaticPanel />");
+    expect(editingPage).toContain("<PromptTablePanel />");
+    expect(editingPage).toContain("<StoryCardsBoard />");
     expect(editingPage).toContain('aria-label="切换或新建故事"');
     expect(editingPage).toContain("回到以前的故事");
     expect(editingPage).toContain("开启新故事");
     expect(editingPage).toContain("backToList();");
     expect(editingPage).toContain("createNewStory();");
-    expect(editingPage).toContain(
-      'data-story-panel="editing-material-warehouse"'
-    );
-    expect(editingPage).toContain('label: "Materials"');
-    expect(editingPage).toContain(
-      "setMaterialWarehouseVisible(value => !value)"
-    );
-    expect(editingPage).toContain('label: "Timeline"');
+    expect(editingPage).toContain("Timeline");
     expect(editingPage).toContain("setTimelineVisible(value => !value)");
     expect(editingPage).toContain(
       "const [timelineVisible, setTimelineVisible] = useState(false)"

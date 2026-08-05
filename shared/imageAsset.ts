@@ -1,10 +1,17 @@
-export type ImageAssetKind = "story_frame" | "style_reference";
+export type ImageAssetKind =
+  | "story_frame"
+  | "style_reference"
+  | "publishing_cover";
 
 export type ImageAssetStatus = "selected" | "rejected" | "pending";
 
 export type ImageAssetAvailability = "available" | "missing" | "unknown";
 
-export type ImageAssetAssignment = "shot" | "unassigned" | "style_reference";
+export type ImageAssetAssignment =
+  | "shot"
+  | "unassigned"
+  | "style_reference"
+  | "publishing_cover";
 export type PromptAssetFreshness = "current" | "stale" | "legacy";
 
 export type ImageAsset = {
@@ -36,6 +43,17 @@ export type ImageAsset = {
 
 const ART_DIRECTION_PATTERN = /^ART(?:-|$)/i;
 const NUMERIC_SHOT_PATTERN = /^(?:SH)?0*(\d+)$/i;
+export const PUBLISHING_COVER_SHOT_NO = "PUBLISHING-COVER" as const;
+export const PUBLISHING_COVER_SHOT_IDENTITY = "publishing-cover" as const;
+
+export function isPublishingCoverShotNo(
+  shotNo: string | null | undefined
+): boolean {
+  return (
+    typeof shotNo === "string" &&
+    shotNo.trim().toUpperCase() === PUBLISHING_COVER_SHOT_NO
+  );
+}
 
 export function isStyleReferenceShotNo(
   shotNo: string | null | undefined
@@ -50,7 +68,13 @@ export function canonicalizeShotNo(
 ): string | null {
   if (shotNo == null) return null;
   const value = String(shotNo).trim();
-  if (!value || isStyleReferenceShotNo(value)) return null;
+  if (
+    !value ||
+    isPublishingCoverShotNo(value) ||
+    isStyleReferenceShotNo(value)
+  ) {
+    return null;
+  }
   const match = NUMERIC_SHOT_PATTERN.exec(value);
   if (!match) return null;
   const numeric = Number(match[1]);

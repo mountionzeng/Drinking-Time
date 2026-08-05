@@ -189,6 +189,7 @@ export const storyAgentRouter = router({
           .optional(),
         projectId: z.number().optional(),
         photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
+        interactionMode: z.enum(["story", "publishing"]).optional(),
         confirmedIntent: z
           .object({
             purpose: z.string(),
@@ -217,6 +218,7 @@ export const storyAgentRouter = router({
         userId: ctx.user.id,
         photoUrl: input.photoUrl,
         confirmedIntent: input.confirmedIntent ?? undefined,
+        interactionMode: input.interactionMode,
       });
     }),
 
@@ -1416,8 +1418,7 @@ export const storyAgentRouter = router({
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
-            referenceImageInput =
-              await materializeImageInput(referenceImage);
+            referenceImageInput = await materializeImageInput(referenceImage);
           } catch (error) {
             if (referencePlan.usesStoryboardFrames) {
               return {

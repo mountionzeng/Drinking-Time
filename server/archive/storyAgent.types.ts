@@ -96,9 +96,9 @@ export type GenerateImageToolCall = {
  */
 export type ProposePromptRevisionToolCall = {
   name: "proposePromptRevision";
-  shotNo: number;        // 目标镜头（必须在 currentShots 里存在）
-  dimension: string;     // 维度（UTTERANCE_ELIGIBLE_DIMENSIONS 之一，宽松写法都行，客户端会归一）
-  content: string;       // 新内容
+  shotNo: number; // 目标镜头（必须在 currentShots 里存在）
+  dimension: string; // 维度（UTTERANCE_ELIGIBLE_DIMENSIONS 之一，宽松写法都行，客户端会归一）
+  content: string; // 新内容
 };
 
 export type ToolCall = GenerateImageToolCall | ProposePromptRevisionToolCall;
@@ -245,6 +245,10 @@ export type StoryIntentPlatform =
   | "unknown"
   | "wechat"
   | "xiaohongshu"
+  | "x"
+  | "instagram"
+  | "wechat_moments"
+  | "douyin_tiktok"
   | "douyin"
   | "bilibili"
   | "linkedin"

@@ -4,9 +4,30 @@ import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import { createImageSignal } from "../db";
-import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
-import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt, buildShotDimensionDigest } from "./storyAgent.prompts";
-import type { ChatTurn, HumanityRead, HumanityTrait, SimilarStoryCardPayload, ShotDraft, StoryAgentChatResult, StoryCardContextPayload, StoryCardPayload, StoryChatIntentPayload, ToolCall } from "./storyAgent.types";
+import {
+  asCleanString,
+  asCleanStringArray,
+  asEmotionOptions,
+  asIntensity,
+} from "./storyAgent.parsing";
+import {
+  buildAgentSystemPrompt,
+  formatEditContextBlock,
+  buildCardExtractionPrompt,
+  buildShotDimensionDigest,
+} from "./storyAgent.prompts";
+import type {
+  ChatTurn,
+  HumanityRead,
+  HumanityTrait,
+  SimilarStoryCardPayload,
+  ShotDraft,
+  StoryAgentChatResult,
+  StoryCardContextPayload,
+  StoryCardPayload,
+  StoryChatIntentPayload,
+  ToolCall,
+} from "./storyAgent.types";
 import { canonicalDimension } from "@shared/promptDimensions";
 import { UTTERANCE_ELIGIBLE_DIMENSIONS } from "@shared/promptRevisionAttribution";
 
@@ -50,12 +71,12 @@ function extractReplyText(raw: string): string {
  */
 async function detectVisualCorrection(
   message: string,
-  history: Array<{ role: string; content: string }>,
+  history: Array<{ role: string; content: string }>
 ): Promise<string | null> {
   try {
     const recentContext = history
       .slice(-4)
-      .map((t) => `${t.role === "user" ? "用户" : "聊聊"}：${t.content}`)
+      .map(t => `${t.role === "user" ? "用户" : "聊聊"}：${t.content}`)
       .join("\n");
 
     const { text } = await invokeAgent(
@@ -72,7 +93,7 @@ async function detectVisualCorrection(
           : []),
         { role: "user" as const, content: `用户最新消息：${message}` },
       ],
-      128,
+      128
     );
 
     const parsed = parseJsonLoose<{ correction?: string | null }>(text);
@@ -87,7 +108,7 @@ async function detectVisualCorrection(
 
 export function historyBeforeCurrentMessage(
   history: readonly ChatTurn[] | undefined,
-  currentMessage: string,
+  currentMessage: string
 ): ChatTurn[] {
   const current = currentMessage.trim();
   const cleaned = (history ?? [])
@@ -122,13 +143,16 @@ export async function replyFromStoryAgent(params: {
   storyCards?: StoryCardContextPayload[];
   projectId?: number;
   userId?: number;
-  enableImageGen?: boolean;  // 手机端出图开关
-  photoUrl?: string;         // 用户上传的照片 URL，传给 LLM 做多模态理解
+  enableImageGen?: boolean; // 手机端出图开关
+  photoUrl?: string; // 用户上传的照片 URL，传给 LLM 做多模态理解
   confirmedIntent?: StoryChatIntentPayload;
+  interactionMode?: "story" | "publishing";
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
-  const currentShots = Array.isArray(params.currentShots) ? params.currentShots : [];
+  const currentShots = Array.isArray(params.currentShots)
+    ? params.currentShots
+    : [];
   const similarCards = Array.isArray(params.similarCards)
     ? params.similarCards.slice(0, 3)
     : [];
@@ -149,16 +173,77 @@ export async function replyFromStoryAgent(params: {
 
   const cleanedHistory = historyBeforeCurrentMessage(
     params.history,
-    params.message,
+    params.message
   );
+
+  if (params.interactionMode === "publishing") {
+    const platform = params.confirmedIntent?.platform?.trim();
+    const publishingPrompt = [
+      "你是用户的个人发布稿编辑，先通过对话帮助他把真正想说的内容讲清楚。",
+      "一次只问一个问题；回复要简洁、自然，先复述你听见的关键判断，再追问最缺的一点。",
+      "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
+      "当前阶段不要生成发布稿、标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
+      "不要提及系统、提示词、token 预算或后台流程。",
+      platform ? `用户当前选择的平台是：${platform}。` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const userContent = params.photoUrl
+      ? [
+          {
+            type: "image_url" as const,
+            image_url: { url: params.photoUrl, detail: "low" as const },
+          },
+          {
+            type: "text" as const,
+            text: params.message.trim() || "帮我看看这张照片",
+          },
+        ]
+      : params.message.trim();
+    const messages: Message[] = [
+      { role: "system", content: publishingPrompt },
+      ...cleanedHistory.slice(-16).map(turn => ({
+        role: turn.role,
+        content: turn.content,
+      })),
+      { role: "user", content: userContent },
+    ];
+    try {
+      const { text, modelLabel } = await invokeAgent(messages, 1_200);
+      return {
+        configured: true,
+        modelLabel,
+        reply: extractReplyText(text) || "嗯。你最不想被改掉的那句话是什么？",
+        card: null,
+        read: null,
+        toolCalls: [],
+        suggestImage: false,
+      };
+    } catch (error) {
+      console.error(
+        "[publishingChat] conversational call failed:",
+        error instanceof Error ? error.message : error
+      );
+      return {
+        configured: true,
+        modelLabel: "请求失败",
+        reply: "我刚刚没接住。你可以再说一遍最想保留的那个判断吗？",
+        card: null,
+        read: null,
+        toolCalls: [],
+        suggestImage: false,
+      };
+    }
+  }
 
   // userTurnNumber = 截至本轮（含本轮），用户一共说了第几次。
   // history 里的 user 条目数 + 1（即将到来的本轮）。
-  const userTurnNumber = cleanedHistory.filter((t) => t.role === "user").length + 1;
+  const userTurnNumber =
+    cleanedHistory.filter(t => t.role === "user").length + 1;
 
   const turns: Message[] = cleanedHistory
     .slice(-16)
-    .map((t) => ({ role: t.role, content: t.content.trim() }));
+    .map(t => ({ role: t.role, content: t.content.trim() }));
 
   // 拉取最近编辑标注并格式化成上下文；失败时静默降级为空
   let editContextBlock: string | undefined;
@@ -172,13 +257,20 @@ export async function replyFromStoryAgent(params: {
   }
 
   // 构建用户消息：如果有照片就用多模态格式（image_url + text）
-  const userContent: import("../_core/llm").MessageContent | import("../_core/llm").MessageContent[] =
-    params.photoUrl
-      ? [
-          { type: "image_url" as const, image_url: { url: params.photoUrl, detail: "low" as const } },
-          { type: "text" as const, text: params.message.trim() || "帮我看看这张照片" },
-        ]
-      : params.message.trim();
+  const userContent:
+    | import("../_core/llm").MessageContent
+    | import("../_core/llm").MessageContent[] = params.photoUrl
+    ? [
+        {
+          type: "image_url" as const,
+          image_url: { url: params.photoUrl, detail: "low" as const },
+        },
+        {
+          type: "text" as const,
+          text: params.message.trim() || "帮我看看这张照片",
+        },
+      ]
+    : params.message.trim();
 
   const messages: Message[] = [
     {
@@ -191,9 +283,9 @@ export async function replyFromStoryAgent(params: {
         similarCards,
         editContextBlock,
         params.enableImageGen,
-        Boolean(params.photoUrl),  // 有照片 → 注入「先看图」指令
+        Boolean(params.photoUrl), // 有照片 → 注入「先看图」指令
         params.confirmedIntent,
-        params.storyCards,
+        params.storyCards
       ),
     },
     ...turns,
@@ -225,11 +317,11 @@ export async function replyFromStoryAgent(params: {
         params.enableImageGen,
         Boolean(params.photoUrl),
         params.confirmedIntent,
-        shotDimensionDigest,
+        shotDimensionDigest
       ),
     },
     ...turns,
-    { role: "user", content: userContent },   // 对方这一轮（带图时含图）
+    { role: "user", content: userContent }, // 对方这一轮（带图时含图）
     {
       role: "user",
       content:
@@ -244,7 +336,7 @@ export async function replyFromStoryAgent(params: {
   const extractionPromise = readOnlyRequest
     ? null
     : invokeAgent(extractionMessages, EXTRACTION_MAX_TOKENS)
-        .then((result) => ({ ok: true as const, result }))
+        .then(result => ({ ok: true as const, result }))
         .catch((error: unknown) => ({ ok: false as const, error }));
 
   // ── B 改造 · 第一步：回话（robust，纯人话，不背 JSON）──
@@ -278,135 +370,143 @@ export async function replyFromStoryAgent(params: {
   let card: StoryCardPayload | null = null;
   let read: HumanityRead | null = null;
   const toolCalls: ToolCall[] = [];
-  if (extractionPromise) try {
-    const extractionResult = await extractionPromise;
-    if (!extractionResult.ok) throw extractionResult.error;
-    const { text: extractionText } = extractionResult.result;
-    const parsed = parseJsonLoose<{
-      card?: Record<string, unknown> | null;
-      read?: { trait?: unknown; note?: unknown } | null;
-      toolCalls?: Array<{
-        name?: string;
-        prompt?: string;
-        shotNo?: number;
-        dimension?: string;
-        content?: string;
-      }> | null;
-    }>(extractionText);
+  if (extractionPromise)
+    try {
+      const extractionResult = await extractionPromise;
+      if (!extractionResult.ok) throw extractionResult.error;
+      const { text: extractionText } = extractionResult.result;
+      const parsed = parseJsonLoose<{
+        card?: Record<string, unknown> | null;
+        read?: { trait?: unknown; note?: unknown } | null;
+        toolCalls?: Array<{
+          name?: string;
+          prompt?: string;
+          shotNo?: number;
+          dimension?: string;
+          content?: string;
+        }> | null;
+      }>(extractionText);
 
-    // 校验 card 形状：只强制 content
-    if (
-      parsed.card &&
-      typeof parsed.card.content === "string" &&
-      (parsed.card.content as string).trim().length > 0
-    ) {
-      const rawTextRaw =
-        typeof parsed.card.rawText === "string"
-          ? (parsed.card.rawText as string)
-          : params.message;
-      card = {
-        content: (parsed.card.content as string).trim(),
-        rawText: rawTextRaw.trim(),
-        sourceQuote: asCleanString(parsed.card.sourceQuote),
-        emotion: asCleanString(parsed.card.emotion),
-        emotionOptions: asEmotionOptions(parsed.card.emotionOptions),
-        emotionBlend: asCleanStringArray(parsed.card.emotionBlend),
-        intensity: asIntensity(parsed.card.intensity),
-        direction: asCleanString(parsed.card.direction),
-        complexity: asCleanString(parsed.card.complexity),
-        trigger: asCleanString(parsed.card.trigger),
-        dramaticFunction: asCleanString(parsed.card.dramaticFunction),
-        personalTrace: asCleanString(parsed.card.personalTrace),
-        retrievalQuery: asCleanString(parsed.card.retrievalQuery),
-        themeHints: asCleanStringArray(parsed.card.themeHints),
-        outlierSignal: asCleanString(parsed.card.outlierSignal),
-        softMembership: asCleanStringArray(parsed.card.softMembership),
-      };
-    }
-
-    // 校验 read 形状：trait 必须是 7 个已知 key 之一
-    if (parsed.read && typeof parsed.read === "object") {
-      const traitRaw =
-        typeof parsed.read.trait === "string"
-          ? parsed.read.trait.trim().toLowerCase()
-          : "";
-      const noteRaw =
-        typeof parsed.read.note === "string" ? parsed.read.note.trim() : "";
-      if ((HUMANITY_TRAITS as string[]).includes(traitRaw)) {
-        read = {
-          trait: traitRaw as HumanityTrait,
-          note: noteRaw.slice(0, 80), // 硬截断，避免模型话太多溢出
+      // 校验 card 形状：只强制 content
+      if (
+        parsed.card &&
+        typeof parsed.card.content === "string" &&
+        (parsed.card.content as string).trim().length > 0
+      ) {
+        const rawTextRaw =
+          typeof parsed.card.rawText === "string"
+            ? (parsed.card.rawText as string)
+            : params.message;
+        card = {
+          content: (parsed.card.content as string).trim(),
+          rawText: rawTextRaw.trim(),
+          sourceQuote: asCleanString(parsed.card.sourceQuote),
+          emotion: asCleanString(parsed.card.emotion),
+          emotionOptions: asEmotionOptions(parsed.card.emotionOptions),
+          emotionBlend: asCleanStringArray(parsed.card.emotionBlend),
+          intensity: asIntensity(parsed.card.intensity),
+          direction: asCleanString(parsed.card.direction),
+          complexity: asCleanString(parsed.card.complexity),
+          trigger: asCleanString(parsed.card.trigger),
+          dramaticFunction: asCleanString(parsed.card.dramaticFunction),
+          personalTrace: asCleanString(parsed.card.personalTrace),
+          retrievalQuery: asCleanString(parsed.card.retrievalQuery),
+          themeHints: asCleanStringArray(parsed.card.themeHints),
+          outlierSignal: asCleanString(parsed.card.outlierSignal),
+          softMembership: asCleanStringArray(parsed.card.softMembership),
         };
       }
-    }
 
-    if (Array.isArray(parsed.toolCalls)) {
-      // generateImage：仅在手机端出图模式下有意义
-      if (params.enableImageGen) {
-        for (const tc of parsed.toolCalls) {
-          if (tc.name === "generateImage" && typeof tc.prompt === "string" && tc.prompt.trim()) {
+      // 校验 read 形状：trait 必须是 7 个已知 key 之一
+      if (parsed.read && typeof parsed.read === "object") {
+        const traitRaw =
+          typeof parsed.read.trait === "string"
+            ? parsed.read.trait.trim().toLowerCase()
+            : "";
+        const noteRaw =
+          typeof parsed.read.note === "string" ? parsed.read.note.trim() : "";
+        if ((HUMANITY_TRAITS as string[]).includes(traitRaw)) {
+          read = {
+            trait: traitRaw as HumanityTrait,
+            note: noteRaw.slice(0, 80), // 硬截断，避免模型话太多溢出
+          };
+        }
+      }
+
+      if (Array.isArray(parsed.toolCalls)) {
+        // generateImage：仅在手机端出图模式下有意义
+        if (params.enableImageGen) {
+          for (const tc of parsed.toolCalls) {
+            if (
+              tc.name === "generateImage" &&
+              typeof tc.prompt === "string" &&
+              tc.prompt.trim()
+            ) {
+              toolCalls.push({
+                name: "generateImage",
+                prompt: tc.prompt.trim(),
+                shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+              });
+            }
+          }
+        }
+
+        // proposePromptRevision（阶段 C）：模型只是提议，这里做三层防御——
+        // shotNo 必须对应真实存在的镜头（防幻觉镜头号）、dimension 必须落在
+        // UTTERANCE_ELIGIBLE_DIMENSIONS 白名单内（防止绕开白名单去提议运镜/负面
+        // 提示词这类不该被聊天随口改的维度）、每轮最多 2 条（防止模型不听指挥、
+        // 一轮吐一长串导致候选洪水——落成真正的候选修订这一步在客户端做，这里
+        // 只是把「值得提议」的信号收窄到可信范围）。
+        if (hasProposeTool) {
+          const validShotNos = new Set(currentShots.map(shot => shot.shotNo));
+          let proposed = 0;
+          const MAX_PROPOSE_PER_TURN = 2;
+          for (const tc of parsed.toolCalls) {
+            if (proposed >= MAX_PROPOSE_PER_TURN) break;
+            if (tc.name !== "proposePromptRevision") continue;
+            if (typeof tc.shotNo !== "number" || !validShotNos.has(tc.shotNo))
+              continue;
+            const dimension =
+              typeof tc.dimension === "string"
+                ? canonicalDimension(tc.dimension.trim())
+                : "";
+            if (!UTTERANCE_ELIGIBLE_DIMENSIONS.includes(dimension)) continue;
+            const content =
+              typeof tc.content === "string"
+                ? tc.content.trim().slice(0, 300)
+                : "";
+            if (!content) continue;
             toolCalls.push({
-              name: "generateImage",
-              prompt: tc.prompt.trim(),
-              shotNo: typeof tc.shotNo === "number" ? tc.shotNo : undefined,
+              name: "proposePromptRevision",
+              shotNo: tc.shotNo,
+              dimension,
+              content,
             });
+            proposed += 1;
           }
         }
       }
-
-      // proposePromptRevision（阶段 C）：模型只是提议，这里做三层防御——
-      // shotNo 必须对应真实存在的镜头（防幻觉镜头号）、dimension 必须落在
-      // UTTERANCE_ELIGIBLE_DIMENSIONS 白名单内（防止绕开白名单去提议运镜/负面
-      // 提示词这类不该被聊天随口改的维度）、每轮最多 2 条（防止模型不听指挥、
-      // 一轮吐一长串导致候选洪水——落成真正的候选修订这一步在客户端做，这里
-      // 只是把「值得提议」的信号收窄到可信范围）。
-      if (hasProposeTool) {
-        const validShotNos = new Set(currentShots.map(shot => shot.shotNo));
-        let proposed = 0;
-        const MAX_PROPOSE_PER_TURN = 2;
-        for (const tc of parsed.toolCalls) {
-          if (proposed >= MAX_PROPOSE_PER_TURN) break;
-          if (tc.name !== "proposePromptRevision") continue;
-          if (typeof tc.shotNo !== "number" || !validShotNos.has(tc.shotNo)) continue;
-          const dimension =
-            typeof tc.dimension === "string" ? canonicalDimension(tc.dimension.trim()) : "";
-          if (!UTTERANCE_ELIGIBLE_DIMENSIONS.includes(dimension)) continue;
-          const content = typeof tc.content === "string" ? tc.content.trim().slice(0, 300) : "";
-          if (!content) continue;
-          toolCalls.push({
-            name: "proposePromptRevision",
-            shotNo: tc.shotNo,
-            dimension,
-            content,
-          });
-          proposed += 1;
-        }
-      }
+    } catch (err) {
+      // 抽取这一步失败完全不影响对话：这一轮就当没出卡，reply 照常返回。
+      console.warn(
+        "[storyAgent] 后台抽取失败，本轮按无卡片降级（不影响回复）：",
+        err instanceof Error ? err.message : err
+      );
     }
-  } catch (err) {
-    // 抽取这一步失败完全不影响对话：这一轮就当没出卡，reply 照常返回。
-    console.warn(
-      "[storyAgent] 后台抽取失败，本轮按无卡片降级（不影响回复）：",
-      err instanceof Error ? err.message : err,
-    );
-  }
 
   // 如果有 generateImage toolCall，说明聊聊建议出图
   const suggestImage = toolCalls.some(tc => tc.name === "generateImage");
 
   // 矫正循环：检测用户消息中的视觉修正，写入 image_signals 供出图网关消费
-  if (
-    !readOnlyRequest &&
-    params.userId != null &&
-    params.projectId != null
-  ) {
+  if (!readOnlyRequest && params.userId != null && params.projectId != null) {
     detectVisualCorrection(params.message, cleanedHistory)
-      .then(async (correction) => {
+      .then(async correction => {
         if (!correction) return;
         // 从 currentShots 中找第一个镜头的 shotNo 作为关联
-        const firstShotNo = currentShots[0]?.shotNo != null
-          ? String(currentShots[0].shotNo)
-          : undefined;
+        const firstShotNo =
+          currentShots[0]?.shotNo != null
+            ? String(currentShots[0].shotNo)
+            : undefined;
         await createImageSignal({
           userId: params.userId!,
           storyId: 0, // 聊天矫正不关联特定故事
@@ -451,7 +551,9 @@ export async function deriveMobileImagePrompt(params: {
   artStyle?: string;
 }): Promise<string> {
   if (!ENV.forgeApiKey) return "";
-  const recent = (params.history ?? []).filter((t) => t.content?.trim()).slice(-12);
+  const recent = (params.history ?? [])
+    .filter(t => t.content?.trim())
+    .slice(-12);
   if (recent.length === 0 && !params.cardHint?.trim()) return "";
 
   const contextLines: string[] = [
@@ -465,11 +567,13 @@ export async function deriveMobileImagePrompt(params: {
   if (params.artStyle?.trim()) {
     contextLines.push(`美术风格：${params.artStyle.trim()}`);
   }
-  contextLines.push("只输出这一行英文 prompt 本身 —— 不要解释、不要引号、不要 JSON、不要中文。");
+  contextLines.push(
+    "只输出这一行英文 prompt 本身 —— 不要解释、不要引号、不要 JSON、不要中文。"
+  );
 
   const sys = contextLines.join("\n");
 
-  const turns: Message[] = recent.map((t) => ({
+  const turns: Message[] = recent.map(t => ({
     role: t.role,
     content: t.content.trim(),
   }));
@@ -479,8 +583,12 @@ export async function deriveMobileImagePrompt(params: {
 
   try {
     const { text } = await invokeAgent(
-      [{ role: "system", content: sys }, ...turns, { role: "user", content: tail }],
-      400,
+      [
+        { role: "system", content: sys },
+        ...turns,
+        { role: "user", content: tail },
+      ],
+      400
     );
     let p = (text ?? "").trim();
     // 剥代码块围栏与首尾引号，只取第一行，避免模型多嘴
@@ -492,7 +600,7 @@ export async function deriveMobileImagePrompt(params: {
   } catch (err) {
     console.warn(
       "[deriveMobileImagePrompt] 现编出图 prompt 失败：",
-      err instanceof Error ? err.message : err,
+      err instanceof Error ? err.message : err
     );
     return "";
   }
