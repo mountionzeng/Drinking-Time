@@ -294,6 +294,8 @@ export type PublishingDraftState = {
   activeVersionId?: string;
   versions?: PublishingStoryVersion[];
   containerRevision?: number;
+  /** Persisted idempotency receipts for version operations. */
+  versionOperationReceipts?: Record<string, string>;
 };
 
 export type PublishingEditOutcome =
@@ -344,6 +346,7 @@ export function emptyPublishingDraftState(
     activeVersionId: version.versionId,
     versions: [version],
     containerRevision: 0,
+    versionOperationReceipts: {},
   };
 }
 
@@ -566,6 +569,7 @@ export function normalizePublishingDraftState(
     canonicalVersions.some(version => version.versionId === obj.activeVersionId)
       ? obj.activeVersionId
       : canonicalVersions[0].versionId;
+  const receipts = record(obj.versionOperationReceipts);
   return {
     ...legacy,
     activeVersionId,
@@ -574,6 +578,14 @@ export function normalizePublishingDraftState(
       obj.containerRevision,
       legacy.revision
     ),
+    versionOperationReceipts: receipts
+      ? Object.fromEntries(
+          Object.entries(receipts).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[0] === "string" && typeof entry[1] === "string"
+          )
+        )
+      : {},
   };
 }
 
