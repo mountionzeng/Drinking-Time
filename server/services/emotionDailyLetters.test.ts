@@ -5,6 +5,7 @@ import type {
 } from "../../drizzle/schema";
 import type { AlmanacDay } from "./almanac";
 import {
+  buildPriorMessageHistory,
   EmotionDailyLetterConflictError,
   rewriteEmotionDailyLetter,
 } from "./emotionDailyLetters";
@@ -74,6 +75,26 @@ function archivedLetter(letterDate: string): EmotionDailyLetter {
 }
 
 describe("重写每日回信", () => {
+  it("从时间戳推导历史日期时使用上海日期而不是 UTC 日期", () => {
+    const history = buildPriorMessageHistory({
+      seed: {
+        messageHistory: [
+          {
+            text: "跨过 UTC 午夜才是当天的话",
+            saidAt: "2026-08-04T16:30:00.000Z",
+          },
+        ],
+      },
+      letters: [],
+      beforeDate: "2026-08-06",
+    });
+
+    expect(history[0]).toMatchObject({
+      dailyLetterDate: "2026-08-05",
+      text: "跨过 UTC 午夜才是当天的话",
+    });
+  });
+
   it("修改过去某天的话只重写那一天，不替换今天画像", async () => {
     const existing = archivedLetter("2026-07-26");
     const earlier = {
