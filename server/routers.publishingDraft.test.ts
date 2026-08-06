@@ -262,6 +262,83 @@ describe("publishingDraft router", () => {
     );
   });
 
+  it("creates, selects, and renames a version with explicit revision baselines", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+    const core = {
+      facts: ["事实"],
+      thesis: "新判断",
+      emotion: "克制",
+      voiceTraits: ["直接"],
+      visualConcept: "画面",
+    };
+
+    await caller.createVersion({
+      storyId: 7,
+      platform: "xiaohongshu",
+      core,
+      content: { title: "V2", body: "V2 正文", tags: [] },
+      baseCoreRevision: 1,
+      baseDraftRevision: 1,
+      baseVersionRevision: 1,
+      baseContainerRevision: 0,
+      displayName: "第二版",
+      operationToken: "version-op-1",
+    });
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationToken: "version-op-1",
+        operation: expect.objectContaining({
+          type: "create_version",
+          displayName: "第二版",
+          baseVersionRevision: 1,
+          conversationSnapshot: expect.objectContaining({
+            messages: expect.arrayContaining([
+              expect.objectContaining({ content: "服务端对话里的判断" }),
+            ]),
+          }),
+        }),
+      })
+    );
+
+    await caller.selectVersion({
+      storyId: 7,
+      versionId: "v1",
+      baseContainerRevision: 1,
+      baseVersionRevision: 1,
+      operationToken: "select-v1-1",
+    });
+    await caller.renameVersion({
+      storyId: 7,
+      versionId: "v1",
+      displayName: "第一版整理稿",
+      baseContainerRevision: 2,
+      baseVersionRevision: 2,
+    });
+
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationToken: "select-v1-1",
+        operation: {
+          type: "select_version",
+          versionId: "v1",
+          baseContainerRevision: 1,
+          baseVersionRevision: 1,
+        },
+      })
+    );
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: {
+          type: "rename_version",
+          versionId: "v1",
+          displayName: "第一版整理稿",
+          baseContainerRevision: 2,
+          baseVersionRevision: 2,
+        },
+      })
+    );
+  });
+
   it("still rejects a truly empty legacy story", async () => {
     dbMocks.getStoryById.mockResolvedValueOnce({
       id: 7,

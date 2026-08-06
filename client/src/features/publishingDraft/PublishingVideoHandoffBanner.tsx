@@ -32,7 +32,7 @@ export function PublishingVideoHandoffBannerView({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-semibold text-foreground">
-            从 {adapter.label} 发布稿继续
+            从 {adapter.label} 发布稿继续 · {handoff.versionId.toUpperCase()}
           </p>
           {handoff.needsReview ? (
             <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] text-rose-700">

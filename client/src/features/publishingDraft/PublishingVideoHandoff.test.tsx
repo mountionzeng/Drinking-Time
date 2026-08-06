@@ -11,6 +11,9 @@ describe("PublishingVideoHandoffBannerView", () => {
       <PublishingVideoHandoffBannerView
         handoff={{
           storyId: 17,
+          versionId: "v1",
+          containerRevision: 0,
+          versionRevision: 1,
           sourcePlatform: "x",
           core: null,
           draft: { title: "标题", body: "正文", tags: [] },

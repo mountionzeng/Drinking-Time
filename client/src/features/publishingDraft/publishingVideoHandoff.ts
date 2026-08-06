@@ -22,6 +22,9 @@ export type PublishingVideoCover = {
 
 export type PublishingVideoHandoff = {
   storyId: number;
+  versionId: string;
+  containerRevision: number;
+  versionRevision: number;
   sourcePlatform: PublishingPlatformId;
   core: PublishingStoryCore | null;
   draft: PublishingDraftContent;
@@ -117,6 +120,13 @@ export function buildPublishingVideoHandoff(params: {
   });
   return {
     storyId: params.storyId,
+    versionId: params.publishing.activeVersionId ?? "v1",
+    containerRevision:
+      params.publishing.containerRevision ?? params.publishing.revision,
+    versionRevision:
+      params.publishing.versions?.find(
+        version => version.versionId === params.publishing.activeVersionId
+      )?.versionRevision ?? params.publishing.revision,
     sourcePlatform: platform,
     core: params.publishing.core,
     draft: platformDraft.content,

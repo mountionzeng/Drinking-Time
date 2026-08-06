@@ -86,6 +86,9 @@ describe("publishing video handoff", () => {
 
     expect(handoff).toMatchObject({
       storyId: 17,
+      versionId: "v1",
+      containerRevision: expect.any(Number),
+      versionRevision: expect.any(Number),
       sourcePlatform: "x",
       needsReview: true,
       core: { thesis: "真正稀缺的是人的判断" },

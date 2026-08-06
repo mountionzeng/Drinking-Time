@@ -6,9 +6,11 @@ import {
   Clipboard,
   Download,
   FilePenLine,
+  GitBranch,
   Image as ImageIcon,
   Loader2,
   MessageCircleMore,
+  Plus,
   RefreshCcw,
   Sparkles,
   Undo2,
@@ -151,6 +153,9 @@ export default function PublishingDraftWorkspace({
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
   const confirmCoreMut = trpc.publishingDraft.confirmCoreChange.useMutation();
+  const createVersionMut = trpc.publishingDraft.createVersion.useMutation();
+  const selectVersionMut = trpc.publishingDraft.selectVersion.useMutation();
+  const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
   const generateCoverMut = trpc.publishingDraft.generateCover.useMutation();
   const adoptCoverMut = trpc.publishingDraft.adoptCoverCandidate.useMutation();
   const utils = trpc.useUtils();
@@ -169,6 +174,9 @@ export default function PublishingDraftWorkspace({
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
     useState<StoryScopedPublishingCoverRounds | null>(null);
+  const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
+  const [newVersionName, setNewVersionName] = useState("");
+  const versionId = publishing.activeVersionId ?? "v1";
 
   useEffect(() => {
     setCoverStudioOpen(false);
@@ -178,7 +186,7 @@ export default function PublishingDraftWorkspace({
     setCoverFeedback("");
     setGeneratedCover(null);
     setGeneratedCoverRounds(null);
-  }, [activeStoryId]);
+  }, [activeStoryId, versionId]);
 
   useEffect(() => {
     const readData = readQuery.data;
@@ -200,6 +208,10 @@ export default function PublishingDraftWorkspace({
   ]);
 
   const platform = publishing.activePlatform;
+  const activeVersion =
+    publishing.versions?.find(version => version.versionId === versionId) ??
+    publishing.versions?.[0] ??
+    null;
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
@@ -211,6 +223,7 @@ export default function PublishingDraftWorkspace({
           buffers: publishingBuffers,
           storyId: activeStoryId,
           platform,
+          versionId,
         });
   const dirty = Boolean(
     draft &&
@@ -227,7 +240,10 @@ export default function PublishingDraftWorkspace({
     rewriteMut.isPending ||
     applyMut.isPending ||
     confirmWordingMut.isPending ||
-    confirmCoreMut.isPending;
+    confirmCoreMut.isPending ||
+    createVersionMut.isPending ||
+    selectVersionMut.isPending ||
+    renameVersionMut.isPending;
   const coverBusy = generateCoverMut.isPending || adoptCoverMut.isPending;
   const coverAsset =
     (generatedCover?.storyId === activeStoryId ? generatedCover.asset : null) ??
@@ -266,10 +282,10 @@ export default function PublishingDraftWorkspace({
   const replaceContent = (next: PublishingDraftContent) => {
     if (activeStoryId == null || !draft) return;
     if (publishingContentEquals(next, draft.content)) {
-      discardPublishingBuffer(activeStoryId, platform);
+      discardPublishingBuffer(activeStoryId, platform, versionId);
       return;
     }
-    setPublishingBuffer(activeStoryId, platform, next);
+    setPublishingBuffer(activeStoryId, platform, next, versionId);
   };
 
   const generateOrConvert = async () => {
@@ -339,7 +355,7 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, targetPlatform);
+      discardPublishingBuffer(storyId, targetPlatform, versionId);
       toast.success(
         `已转为 ${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}`
       );
@@ -375,7 +391,7 @@ export default function PublishingDraftWorkspace({
       ) {
         return;
       }
-      setPublishingBuffer(storyId, platform, result.content);
+      setPublishingBuffer(storyId, platform, result.content, versionId);
       setRewriteInstruction("");
       toast.success("改写预览已放进编辑器；看完后再决定是否应用");
     } catch (error) {
@@ -405,7 +421,7 @@ export default function PublishingDraftWorkspace({
         return;
       if (result.status === "applied") {
         setPublishing(result.publishing);
-        discardPublishingBuffer(storyId, platform);
+        discardPublishingBuffer(storyId, platform, versionId);
         toast.success("当前平台的修改已应用");
         return;
       }
@@ -425,7 +441,7 @@ export default function PublishingDraftWorkspace({
 
   const discardChanges = () => {
     if (!dirty || activeStoryId == null || busy) return;
-    discardPublishingBuffer(activeStoryId, platform);
+    discardPublishingBuffer(activeStoryId, platform, versionId);
     setPendingDecision(null);
     setRewriteInstruction("");
     toast.success("已放弃这次修改，恢复到已应用版本");
@@ -449,7 +465,7 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, pendingDecision.platform);
+      discardPublishingBuffer(storyId, pendingDecision.platform, versionId);
       setPendingDecision(null);
       toast.success("只更新了当前平台的措辞");
     } catch (error) {
@@ -485,7 +501,7 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, pendingDecision.platform);
+      discardPublishingBuffer(storyId, pendingDecision.platform, versionId);
       setPendingDecision(null);
       toast.success("故事内核已更新，其他平台已标记为建议复核");
     } catch (error) {
@@ -629,6 +645,141 @@ export default function PublishingDraftWorkspace({
     }
   };
 
+  const performVersionSwitch = async (targetVersionId: string) => {
+    if (activeStoryId == null || targetVersionId === versionId) return;
+    const target = publishing.versions?.find(
+      candidate => candidate.versionId === targetVersionId
+    );
+    if (!target) return;
+    try {
+      const result = await selectVersionMut.mutateAsync({
+        storyId: activeStoryId,
+        versionId: targetVersionId,
+        baseContainerRevision:
+          publishing.containerRevision ?? publishing.revision,
+        baseVersionRevision: target.versionRevision,
+      });
+      if (
+        !publishingStoryScopeMatches(
+          activeStoryId,
+          storySpineStore.getState().activeStoryId
+        )
+      )
+        return;
+      setPublishing(result.publishing);
+      setPendingDecision(null);
+      setPendingVersionId(null);
+      setRewriteInstruction("");
+      setPendingDecision(null);
+      toast.success(`已切换到 ${target.displayName}`);
+    } catch (error) {
+      toast.error(
+        publishingErrorMessage(error, "版本切换失败，当前版本仍然保留")
+      );
+    }
+  };
+
+  const requestVersionSwitch = (targetVersionId: string) => {
+    if (targetVersionId === versionId || busy) return;
+    if (dirty) {
+      setPendingVersionId(targetVersionId);
+      return;
+    }
+    void performVersionSwitch(targetVersionId);
+  };
+
+  const keepBufferAndSwitchVersion = () => {
+    if (!pendingVersionId) return;
+    void performVersionSwitch(pendingVersionId);
+  };
+
+  const applyBufferAndSwitchVersion = async () => {
+    if (
+      !pendingVersionId ||
+      !editorContent ||
+      !draft ||
+      activeStoryId == null
+    ) {
+      return;
+    }
+    try {
+      const result = await applyMut.mutateAsync({
+        storyId: activeStoryId,
+        platform,
+        content: editorContent,
+        baseDraftRevision: draft.revision,
+      });
+      if (result.status !== "applied") {
+        setPendingDecision({
+          platform,
+          content: editorContent,
+          baseDraftRevision: draft.revision,
+          assessment: result.assessment,
+          proposedCore: result.proposedCore,
+        });
+        toast.error("这次修改涉及故事内核，请先在当前版本确认它");
+        return;
+      }
+      setPublishing(result.publishing);
+      discardPublishingBuffer(activeStoryId, platform, versionId);
+      await performVersionSwitch(pendingVersionId);
+    } catch (error) {
+      toast.error(
+        publishingErrorMessage(error, "修改没有保存，仍保留在当前版本")
+      );
+    }
+  };
+
+  const createVersion = async () => {
+    if (
+      activeStoryId == null ||
+      !publishing.core ||
+      !draft ||
+      !editorContent ||
+      dirty ||
+      busy
+    ) {
+      if (dirty) toast.error("请先应用或保留当前未应用修改，再创建新版本");
+      return;
+    }
+    const activeVersionRevision =
+      activeVersion?.versionRevision ?? publishing.revision;
+    const nextSequence =
+      Math.max(
+        0,
+        ...(publishing.versions ?? []).map(version => version.sequence)
+      ) + 1;
+    try {
+      const result = await createVersionMut.mutateAsync({
+        storyId: activeStoryId,
+        platform,
+        core: publishing.core,
+        content: editorContent,
+        baseCoreRevision: publishing.core.revision,
+        baseDraftRevision: draft.revision,
+        baseVersionRevision: activeVersionRevision,
+        baseContainerRevision:
+          publishing.containerRevision ?? publishing.revision,
+        displayName: newVersionName.trim() || `V${nextSequence}`,
+        operationToken: `create-${versionId}-${Date.now()}`,
+      });
+      if (
+        !publishingStoryScopeMatches(
+          activeStoryId,
+          storySpineStore.getState().activeStoryId
+        )
+      )
+        return;
+      setPublishing(result.publishing);
+      setNewVersionName("");
+      toast.success("已创建新版本，其他平台保留原稿并标记为待更新");
+    } catch (error) {
+      toast.error(
+        publishingErrorMessage(error, "新版本创建失败，当前版本没有变化")
+      );
+    }
+  };
+
   const targetOptions = useMemo(
     () =>
       convertTargets.map(target => ({
@@ -675,6 +826,48 @@ export default function PublishingDraftWorkspace({
             <h1 className="font-chat-brand mt-1 text-xl text-foreground">
               {storyTitle?.trim() || "未命名故事"}
             </h1>
+            <div
+              className="mt-3 flex flex-wrap items-center gap-2"
+              aria-label="故事发布版本"
+              data-testid="publishing-version-selector"
+            >
+              <GitBranch className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
+              <select
+                value={versionId}
+                onChange={event => requestVersionSwitch(event.target.value)}
+                disabled={busy || (publishing.versions?.length ?? 0) < 2}
+                className="h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25 disabled:opacity-60"
+                style={{ borderColor: "var(--panel-border)" }}
+                aria-label="选择发布版本"
+              >
+                {(publishing.versions ?? []).map(version => (
+                  <option key={version.versionId} value={version.versionId}>
+                    {version.displayName}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newVersionName}
+                onChange={event => setNewVersionName(event.target.value)}
+                disabled={busy || !draft || !publishing.core || dirty}
+                placeholder={`V${Math.max(0, ...(publishing.versions ?? []).map(v => v.sequence)) + 1}`}
+                maxLength={80}
+                className="h-8 w-28 rounded-md border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-[var(--nayin-accent)]/25 disabled:opacity-60"
+                style={{ borderColor: "var(--panel-border)" }}
+                aria-label="新版本名称"
+              />
+              <ActionButton
+                onClick={() => void createVersion()}
+                disabled={busy || !draft || !publishing.core || dirty}
+              >
+                {createVersionMut.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                新建版本
+              </ActionButton>
+            </div>
           </div>
           <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
             AI 帮你整理结构和措辞，但事实、判断与锋芒仍属于你。
@@ -1081,6 +1274,43 @@ export default function PublishingDraftWorkspace({
           )}
         </article>
       </div>
+
+      <Dialog
+        open={Boolean(pendingVersionId)}
+        onOpenChange={open => !open && setPendingVersionId(null)}
+      >
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>当前版本还有未应用修改</DialogTitle>
+            <DialogDescription>
+              切换到其他版本前，选择如何处理这份修改。保留后它会留在当前版本，稍后可以回来继续应用。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setPendingVersionId(null)}
+              disabled={busy}
+              className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              取消
+            </button>
+            <ActionButton onClick={keepBufferAndSwitchVersion} disabled={busy}>
+              保留稍后处理
+            </ActionButton>
+            <ActionButton
+              onClick={() => void applyBufferAndSwitchVersion()}
+              disabled={busy || Boolean(contentError)}
+              primary
+            >
+              {applyMut.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              应用并切换
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(pendingDecision)}

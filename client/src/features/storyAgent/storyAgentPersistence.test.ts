@@ -69,6 +69,32 @@ describe("storyAgent publishing persistence", () => {
     expect(getPublishingBuffer(buffers, 8, "xiaohongshu")).toBeDefined();
   });
 
+  it("keeps dirty buffers isolated between publishing versions", () => {
+    let buffers = {};
+    buffers = setPublishingBuffer(buffers, {
+      storyId: 7,
+      versionId: "v1",
+      platform: "xiaohongshu",
+      content: { title: "V1", body: "旧版本修改", tags: [] },
+      updatedAt: 10,
+    });
+    buffers = setPublishingBuffer(buffers, {
+      storyId: 7,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      content: { title: "V2", body: "新版本修改", tags: [] },
+      updatedAt: 11,
+    });
+
+    expect(
+      getPublishingBuffer(buffers, 7, "xiaohongshu", "v1")?.content.body
+    ).toBe("旧版本修改");
+    expect(
+      getPublishingBuffer(buffers, 7, "xiaohongshu", "v2")?.content.body
+    ).toBe("新版本修改");
+    expect(Object.keys(buffers)).toEqual(["7:xiaohongshu", "7:v2:xiaohongshu"]);
+  });
+
   it("counts accepted drafts and dirty buffers as recoverable work", () => {
     const withPublishing = normalizePersisted({
       ...emptyState(),

@@ -37,6 +37,8 @@ import {
 export type PublishingDraftBuffer = {
   storyId: number;
   platform: PublishingPlatformId;
+  /** Version scope; omitted by legacy localStorage entries, which are V1. */
+  versionId?: string;
   content: PublishingDraftContent;
   updatedAt: number;
 };
@@ -127,9 +129,12 @@ function normalizeBufferContent(value: unknown): PublishingDraftContent | null {
 
 export function publishingBufferKey(
   storyId: number,
-  platform: PublishingPlatformId
+  platform: PublishingPlatformId,
+  versionId = "v1"
 ): string {
-  return `${storyId}:${platform}`;
+  return versionId === "v1"
+    ? `${storyId}:${platform}`
+    : `${storyId}:${versionId}:${platform}`;
 }
 
 export function normalizePublishingBuffers(
@@ -154,6 +159,10 @@ export function normalizePublishingBuffers(
     const entry: PublishingDraftBuffer = {
       storyId: buffer.storyId,
       platform: buffer.platform,
+      versionId:
+        typeof buffer.versionId === "string" && buffer.versionId.trim()
+          ? buffer.versionId.trim()
+          : "v1",
       content,
       updatedAt:
         typeof buffer.updatedAt === "number" &&
@@ -161,7 +170,9 @@ export function normalizePublishingBuffers(
           ? buffer.updatedAt
           : 0,
     };
-    normalized[publishingBufferKey(entry.storyId, entry.platform)] = entry;
+    normalized[
+      publishingBufferKey(entry.storyId, entry.platform, entry.versionId)
+    ] = entry;
   }
   return normalized;
 }
@@ -175,8 +186,9 @@ export function setPublishingBuffer(
   if (!content) return buffers;
   return {
     ...buffers,
-    [publishingBufferKey(buffer.storyId, buffer.platform)]: {
+    [publishingBufferKey(buffer.storyId, buffer.platform, buffer.versionId)]: {
       ...buffer,
+      versionId: buffer.versionId ?? "v1",
       content,
     },
   };
@@ -185,17 +197,19 @@ export function setPublishingBuffer(
 export function getPublishingBuffer(
   buffers: PublishingDraftBufferMap,
   storyId: number,
-  platform: PublishingPlatformId
+  platform: PublishingPlatformId,
+  versionId = "v1"
 ): PublishingDraftBuffer | undefined {
-  return buffers[publishingBufferKey(storyId, platform)];
+  return buffers[publishingBufferKey(storyId, platform, versionId)];
 }
 
 export function removePublishingBuffer(
   buffers: PublishingDraftBufferMap,
   storyId: number,
-  platform: PublishingPlatformId
+  platform: PublishingPlatformId,
+  versionId = "v1"
 ): PublishingDraftBufferMap {
-  const key = publishingBufferKey(storyId, platform);
+  const key = publishingBufferKey(storyId, platform, versionId);
   if (!(key in buffers)) return buffers;
   const next = { ...buffers };
   delete next[key];
@@ -213,7 +227,8 @@ export function remapPublishingBuffers(
     if (buffer.storyId !== fromStoryId) continue;
     delete next[key];
     const remapped = { ...buffer, storyId: toStoryId };
-    next[publishingBufferKey(toStoryId, buffer.platform)] = remapped;
+    next[publishingBufferKey(toStoryId, buffer.platform, buffer.versionId)] =
+      remapped;
     changed = true;
   }
   return changed ? next : buffers;

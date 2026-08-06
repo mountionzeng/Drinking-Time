@@ -347,11 +347,13 @@ interface StoryAgentContextValue {
   setPublishingBuffer: (
     storyId: number,
     platform: PublishingPlatformId,
-    content: PublishingDraftContent
+    content: PublishingDraftContent,
+    versionId?: string
   ) => void;
   discardPublishingBuffer: (
     storyId: number,
-    platform: PublishingPlatformId
+    platform: PublishingPlatformId,
+    versionId?: string
   ) => void;
   ensureActiveStoryPersisted: () => Promise<number>;
   confirmedIntent: StoryIntent | null;
@@ -1537,12 +1539,14 @@ export function StoryAgentProvider({
     (
       storyId: number,
       platform: PublishingPlatformId,
-      content: PublishingDraftContent
+      content: PublishingDraftContent,
+      versionId = "v1"
     ) => {
       setPublishingBuffers(current =>
         putPublishingBuffer(current, {
           storyId,
           platform,
+          versionId,
           content,
           updatedAt: Date.now(),
         })
@@ -1552,9 +1556,9 @@ export function StoryAgentProvider({
   );
 
   const discardLocalPublishingBuffer = useCallback(
-    (storyId: number, platform: PublishingPlatformId) => {
+    (storyId: number, platform: PublishingPlatformId, versionId = "v1") => {
       setPublishingBuffers(current =>
-        removePublishingBuffer(current, storyId, platform)
+        removePublishingBuffer(current, storyId, platform, versionId)
       );
     },
     [setPublishingBuffers]

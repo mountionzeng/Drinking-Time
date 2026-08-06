@@ -1392,10 +1392,17 @@ export function CreationEditorProvider({
       publishingDraftQuery.data?.publishing,
       normalizePublishingDraftState(body.publishing),
     ]);
+    const queryPublishing = publishingDraftQuery.data?.publishing;
+    const queryCoverAsset =
+      queryPublishing &&
+      (queryPublishing.activeVersionId ?? "v1") ===
+        (publishing.activeVersionId ?? "v1")
+        ? (publishingDraftQuery.data?.coverAsset ?? null)
+        : null;
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
-      coverAsset: publishingDraftQuery.data?.coverAsset ?? null,
+      coverAsset: queryCoverAsset,
     });
   }, [
     activeId,
