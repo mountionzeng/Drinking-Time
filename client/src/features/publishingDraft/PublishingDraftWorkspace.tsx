@@ -645,6 +645,20 @@ export default function PublishingDraftWorkspace({
     }
   };
 
+  const refreshPublishingRead = async (storyId: number) => {
+    const latest = await utils.publishingDraft.read.fetch({ storyId });
+    if (
+      publishingStoryScopeMatches(
+        storyId,
+        storySpineStore.getState().activeStoryId
+      )
+    ) {
+      setPublishing(latest.publishing);
+      utils.publishingDraft.read.setData({ storyId }, latest);
+    }
+    return latest;
+  };
+
   const performVersionSwitch = async (targetVersionId: string) => {
     if (activeStoryId == null || targetVersionId === versionId) return;
     const target = publishing.versions?.find(
@@ -667,6 +681,7 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
+      await refreshPublishingRead(activeStoryId);
       setPendingDecision(null);
       setPendingVersionId(null);
       setRewriteInstruction("");
@@ -771,6 +786,7 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
+      await refreshPublishingRead(activeStoryId);
       setNewVersionName("");
       toast.success("已创建新版本，其他平台保留原稿并标记为待更新");
     } catch (error) {
