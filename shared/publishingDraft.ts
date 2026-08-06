@@ -260,6 +260,26 @@ export type PublishingCoverRound = {
   createdAt: number;
 };
 
+export type PublishingConversationSnapshot = {
+  messages: unknown[];
+  updatedAt: number;
+};
+
+export type PublishingStoryVersion = {
+  versionId: string;
+  sequence: number;
+  displayName: string;
+  parentId: string | null;
+  versionRevision: number;
+  core: PublishingStoryCore | null;
+  drafts: Partial<Record<PublishingPlatformId, PublishingPlatformDraft>>;
+  activePlatform: PublishingPlatformId;
+  selectedPlatforms: PublishingPlatformId[];
+  cover: PublishingCoverReference | null;
+  coverRounds: PublishingCoverRound[];
+  conversationSnapshot: PublishingConversationSnapshot | null;
+};
+
 export type PublishingDraftState = {
   version: typeof PUBLISHING_DRAFT_STATE_VERSION;
   revision: number;
@@ -270,6 +290,10 @@ export type PublishingDraftState = {
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
   updatedAt: number;
+  /** Canonical story-level version projection (legacy callers may omit these). */
+  activeVersionId?: string;
+  versions?: PublishingStoryVersion[];
+  containerRevision?: number;
 };
 
 export type PublishingEditOutcome =
@@ -303,7 +327,7 @@ export function emptyPublishingDraftContent(): PublishingDraftContent {
 export function emptyPublishingDraftState(
   now = Date.now()
 ): PublishingDraftState {
-  return {
+  const state: PublishingDraftState = {
     version: PUBLISHING_DRAFT_STATE_VERSION,
     revision: 0,
     activePlatform: DEFAULT_PUBLISHING_PLATFORM,
@@ -313,6 +337,13 @@ export function emptyPublishingDraftState(
     cover: null,
     coverRounds: [],
     updatedAt: now,
+  };
+  const version = versionFromLegacyState(state, "v1", 1, "V1", null);
+  return {
+    ...state,
+    activeVersionId: version.versionId,
+    versions: [version],
+    containerRevision: 0,
   };
 }
 
@@ -499,7 +530,7 @@ export function normalizePublishingDraftState(
       })
     : [];
 
-  return {
+  const legacy: PublishingDraftState = {
     version: PUBLISHING_DRAFT_STATE_VERSION,
     revision: finiteNonNegativeInteger(obj.revision),
     activePlatform,
@@ -510,6 +541,128 @@ export function normalizePublishingDraftState(
     coverRounds,
     updatedAt: timestamp(obj.updatedAt, now),
   };
+  const rawVersions = Array.isArray(obj.versions) ? obj.versions : [];
+  const versions = rawVersions
+    .map((value, index) => normalizeStoryVersion(value, index, now))
+    .filter((version): version is PublishingStoryVersion => Boolean(version));
+  const dedupedVersions = versions.filter(
+    (version, index, candidates) =>
+      candidates.findIndex(
+        candidate => candidate.versionId === version.versionId
+      ) === index
+  );
+  // A legacy payload is always retained as V1 unless the canonical markers are
+  // present. Malformed version metadata must never discard its formal cover or
+  // platform drafts.
+  const hasCanonicalMarkers =
+    typeof obj.activeVersionId === "string" ||
+    typeof obj.containerRevision === "number";
+  const canonicalVersions =
+    hasCanonicalMarkers && dedupedVersions.length > 0
+      ? dedupedVersions
+      : [versionFromLegacyState(legacy, "v1", 1, "V1", null)];
+  const activeVersionId =
+    typeof obj.activeVersionId === "string" &&
+    canonicalVersions.some(version => version.versionId === obj.activeVersionId)
+      ? obj.activeVersionId
+      : canonicalVersions[0].versionId;
+  return {
+    ...legacy,
+    activeVersionId,
+    versions: canonicalVersions,
+    containerRevision: finiteNonNegativeInteger(
+      obj.containerRevision,
+      legacy.revision
+    ),
+  };
+}
+
+function versionFromLegacyState(
+  state: PublishingDraftState,
+  versionId: string,
+  sequence: number,
+  displayName: string,
+  parentId: string | null
+): PublishingStoryVersion {
+  return {
+    versionId,
+    sequence,
+    displayName,
+    parentId,
+    versionRevision: state.revision,
+    core: state.core ? structuredClone(state.core) : null,
+    drafts: structuredClone(state.drafts),
+    activePlatform: state.activePlatform,
+    selectedPlatforms: [...state.selectedPlatforms],
+    cover: state.cover ? { ...state.cover } : null,
+    coverRounds: structuredClone(state.coverRounds),
+    conversationSnapshot: null,
+  };
+}
+
+function normalizeStoryVersion(
+  value: unknown,
+  index: number,
+  now: number
+): PublishingStoryVersion | null {
+  const obj = record(value);
+  if (!obj) return null;
+  const versionId = cleanString(obj.versionId).trim();
+  if (!versionId) return null;
+  const activePlatform = isPublishingPlatformId(obj.activePlatform)
+    ? obj.activePlatform
+    : DEFAULT_PUBLISHING_PLATFORM;
+  const selectedPlatforms = Array.isArray(obj.selectedPlatforms)
+    ? Array.from(new Set(obj.selectedPlatforms.filter(isPublishingPlatformId)))
+    : [activePlatform];
+  if (!selectedPlatforms.includes(activePlatform))
+    selectedPlatforms.unshift(activePlatform);
+  const rawDrafts = record(obj.drafts);
+  const drafts: PublishingDraftState["drafts"] = {};
+  if (rawDrafts)
+    for (const platform of PUBLISHING_PLATFORM_IDS) {
+      const draft = normalizePlatformDraft(rawDrafts[platform], platform, now);
+      if (draft) drafts[platform] = draft;
+    }
+  const rounds = Array.isArray(obj.coverRounds)
+    ? obj.coverRounds
+        .map(round => normalizeCoverRound(round, now))
+        .filter((round): round is PublishingCoverRound => Boolean(round))
+    : [];
+  const snapshotObj = record(obj.conversationSnapshot);
+  return {
+    versionId,
+    sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
+    displayName: cleanString(obj.displayName).trim() || `V${index + 1}`,
+    parentId: typeof obj.parentId === "string" ? obj.parentId : null,
+    versionRevision: finiteNonNegativeInteger(obj.versionRevision),
+    core: normalizeStoryCore(obj.core, now),
+    drafts,
+    activePlatform,
+    selectedPlatforms,
+    cover: normalizeCover(obj.cover, now),
+    coverRounds: rounds,
+    conversationSnapshot: snapshotObj
+      ? {
+          messages: Array.isArray(snapshotObj.messages)
+            ? structuredClone(snapshotObj.messages)
+            : [],
+          updatedAt: timestamp(snapshotObj.updatedAt, now),
+        }
+      : null,
+  };
+}
+
+export function resolvePublishingActiveVersion(
+  state: PublishingDraftState
+): PublishingStoryVersion {
+  const versions = state.versions ?? [
+    versionFromLegacyState(state, "v1", 1, "V1", null),
+  ];
+  return (
+    versions.find(version => version.versionId === state.activeVersionId) ??
+    versions[0]
+  );
 }
 
 export function appendPublishingCoverRound(

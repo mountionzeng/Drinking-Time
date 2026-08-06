@@ -10,6 +10,7 @@ import {
   getXThreadStats,
   numberXThreadPosts,
   normalizePublishingDraftState,
+  resolvePublishingActiveVersion,
   upsertPublishingPlatformDraft,
   xWeightedCharacterLength,
   type PublishingDraftContent,
@@ -127,6 +128,44 @@ describe("publishing platform registry", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("normalizes legacy state into an isolated V1 canonical version", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: core(2),
+        drafts: { x: { platform: "x", content: content("legacy") } },
+        cover: { assetId: 99, sourceCoreRevision: 2, createdAt: NOW },
+      },
+      NOW
+    );
+    expect(normalized.activeVersionId).toBe("v1");
+    expect(normalized.versions).toHaveLength(1);
+    expect(resolvePublishingActiveVersion(normalized)).toMatchObject({
+      versionId: "v1",
+      displayName: "V1",
+      activePlatform: "x",
+      cover: { assetId: 99 },
+    });
+    expect(normalized.versions?.[0].drafts.x?.content).not.toBe(
+      normalized.drafts.x?.content
+    );
+  });
+
+  it("keeps formal cover provenance when malformed version metadata is supplied", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "instagram",
+        selectedPlatforms: ["instagram"],
+        cover: { assetId: 7, sourceCoreRevision: 1, createdAt: NOW },
+        versions: [{ versionId: "", drafts: "broken" }],
+      },
+      NOW
+    );
+    expect(normalized.cover?.assetId).toBe(7);
+    expect(normalized.versions?.[0].cover?.assetId).toBe(7);
+  });
+
   it("retains independent drafts, core revisions, active platform, and cover", () => {
     const raw = {
       version: 1,
