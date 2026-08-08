@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   editedTimelineDurationMs,
   normalizeVideoClipEditDraft,
+  timelineVideoMotionStyle,
   videoClipboardPayloadFromTarget,
   videoClipboardPlannedDurationSec,
   videoClipEditorTargetForVisualClip,
@@ -65,6 +66,34 @@ describe("video clip editor model", () => {
       transform: { zoom: 8, panX: -1 },
     });
     expect(editedTimelineDurationMs(draft)).toBe(2_000);
+  });
+
+  it("keeps heartbeat motion editable and derives a preview animation", () => {
+    const draft = normalizeVideoClipEditDraft(
+      {
+        sourceStartSec: 0,
+        sourceEndSec: 3,
+        effects: {
+          playbackRate: 1,
+          reverse: false,
+          volume: 1,
+          muted: false,
+          motionPreset: { kind: "heartbeat", bpm: 240, scaleAmount: 0.3 },
+        },
+        transform,
+      },
+      3
+    );
+
+    expect(draft.effects.motionPreset).toEqual({
+      kind: "heartbeat",
+      bpm: 180,
+      scaleAmount: 0.16,
+    });
+    expect(timelineVideoMotionStyle(draft.effects)).toMatchObject({
+      animation: expect.stringContaining("timeline-heartbeat"),
+      "--timeline-heartbeat-primary-scale": "1.1600",
+    });
   });
 
   it("keeps a visual clip's own effects and transform", () => {

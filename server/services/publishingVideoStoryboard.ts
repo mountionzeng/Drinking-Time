@@ -1,0 +1,359 @@
+import type {
+  PublishingPlatformId,
+  PublishingStoryCore,
+} from "../../shared/publishingDraft";
+import {
+  buildPublishingVideoPreview,
+  canonicalizePublishingVideoParagraphs,
+  validatePublishingVideoPreview,
+  type PublishingVideoStoryboardPreview,
+} from "../../shared/publishingVideoStoryboard";
+import { ENV } from "../_core/env";
+import { parseJsonLoose } from "../_core/llmJson";
+
+export class PublishingVideoStoryboardModelOutputError extends Error {
+  constructor(readonly reasons: string[]) {
+    super(`Publishing video storyboard output is invalid: ${reasons.join(", ")}`);
+    this.name = "PublishingVideoStoryboardModelOutputError";
+  }
+}
+
+type ModelParagraph = {
+  paragraphId: string;
+  scriptText: string;
+  visualTreatment: string;
+  treatmentReason?: string | null;
+  shots: Array<{
+    subject: string;
+    action: string;
+    imageRequirement: string;
+    videoRequirement: string;
+  }>;
+};
+
+type CompletionResponse = {
+  model?: string;
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+};
+
+const MODEL_PARAGRAPH_BATCH_SIZE = 3;
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function text(value: unknown, max = 6_000): string {
+  return typeof value === "string" ? value.trim().slice(0, max) : "";
+}
+
+function completionText(data: CompletionResponse): string {
+  const content = data.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map(part => (part.type === "text" ? part.text ?? "" : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function positiveInteger(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function normalizeModelParagraphs(value: unknown): ModelParagraph[] {
+  const root = record(value);
+  if (!root || !Array.isArray(root.paragraphs)) return [];
+  return root.paragraphs.flatMap(raw => {
+    const item = record(raw);
+    if (!item) return [];
+    const paragraphId = text(item.paragraphId, 200);
+    const scriptText = text(item.scriptText);
+    const visualTreatment = text(item.visualTreatment);
+    if (!paragraphId || !scriptText || !visualTreatment) return [];
+    const shots = Array.isArray(item.shots)
+      ? item.shots.slice(0, 6).flatMap(rawShot => {
+          const shot = record(rawShot);
+          if (!shot) return [];
+          const normalized = {
+            subject: text(shot.subject, 2_000),
+            action: text(shot.action, 2_000),
+            imageRequirement: text(shot.imageRequirement, 4_000),
+            videoRequirement: text(shot.videoRequirement, 4_000),
+          };
+          return normalized.subject &&
+            normalized.action &&
+            normalized.imageRequirement &&
+            normalized.videoRequirement
+            ? [normalized]
+            : [];
+        })
+      : [];
+    if (shots.length === 0) return [];
+    return [{
+      paragraphId,
+      scriptText,
+      visualTreatment,
+      treatmentReason:
+        typeof item.treatmentReason === "string"
+          ? text(item.treatmentReason, 1_000)
+          : null,
+      shots,
+    }];
+  });
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function fallbackRewrite(input: {
+  paragraph: ReturnType<typeof canonicalizePublishingVideoParagraphs>[number];
+  core: PublishingStoryCore | null;
+}): ModelParagraph {
+  const anchor = input.paragraph.text.replace(/\s+/g, " ").slice(0, 24);
+  const visualConcept = input.core?.visualConcept?.trim();
+  const material = visualConcept
+    ? `沿用“${visualConcept.slice(0, 80)}”的视觉基调`
+    : "以人物、环境和光线的关系承接这一段";
+  const classification = input.paragraph.classification;
+  const scriptText =
+    classification === "cta"
+      ? "不直接朗读行动号召；人物在将要离开画面时停一下，把邀请留给观众自己接住。"
+      : classification === "formatting"
+        ? "不把结构提示念出来；镜头用一次停顿和重新整理的动作，让信息在画面里落位。"
+        : `这句话不直接朗读。人物把“${anchor}”留在一个短暂停顿里，再把目光移向更开阔的地方。`;
+  const visualTreatment =
+    classification === "cta"
+      ? `${material}，用留白、回望和未完成的动作代替逐字号召。`
+      : classification === "formatting"
+        ? `${material}，让纸面、物件或手部动作完成一次可见的整理。`
+        : `${material}，用视线、手部和景别变化把第 ${input.paragraph.ordinal} 段的感受落下来。`;
+
+  return {
+    paragraphId: input.paragraph.paragraphId,
+    scriptText,
+    visualTreatment,
+    treatmentReason:
+      classification === "narrative"
+        ? null
+        : `${classification} 内容改为非逐字的画面/表演处理`,
+    shots: [
+      {
+        subject: "与正文情绪一致的人物和环境",
+        action:
+          classification === "cta"
+            ? "停在画面边缘，回望后把动作留在未完成处"
+            : "完成一次停顿、视线移动和细小的手部动作",
+        imageRequirement: `${visualTreatment}；保持封面的人物、色板与油画或纸张材质连续。`,
+        videoRequirement:
+          "从中景缓慢推进到近景，动作自然完成，不复制封面构图。",
+      },
+    ],
+  };
+}
+
+function completeModelRewrites(input: {
+  paragraphs: ReturnType<typeof canonicalizePublishingVideoParagraphs>;
+  modelRewrites: ModelParagraph[];
+  core: PublishingStoryCore | null;
+}): { rewrites: ModelParagraph[]; usedFallback: boolean } {
+  const byParagraph = new Map(
+    input.modelRewrites.map(rewrite => [rewrite.paragraphId, rewrite])
+  );
+  let usedFallback = false;
+  const rewrites = input.paragraphs.map(paragraph => {
+    const candidate = byParagraph.get(paragraph.paragraphId);
+    if (
+      candidate &&
+      compactText(candidate.scriptText) !== compactText(paragraph.text) &&
+      candidate.visualTreatment.trim()
+    ) {
+      return candidate;
+    }
+    usedFallback = true;
+    return fallbackRewrite({ paragraph, core: input.core });
+  });
+  return { rewrites, usedFallback };
+}
+
+function allowlistedContext(input: {
+  body: string;
+  platform: PublishingPlatformId;
+  core: PublishingStoryCore | null;
+  coverVisualDescription?: string | null;
+}) {
+  const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
+  return {
+    platform: input.platform,
+    paragraphs: paragraphs.map(paragraph => ({
+      paragraphId: paragraph.paragraphId,
+      text: paragraph.text,
+      classification: paragraph.classification,
+    })),
+    storyCore: input.core
+      ? {
+          facts: input.core.facts.slice(0, 20),
+          thesis: input.core.thesis,
+          emotion: input.core.emotion,
+          voiceTraits: input.core.voiceTraits.slice(0, 12),
+          visualConcept: input.core.visualConcept,
+        }
+      : null,
+    coverVisualDescription: text(input.coverVisualDescription, 2_000) || null,
+  };
+}
+
+function generationPrompt(): string {
+  return [
+    "你是短片编剧兼分镜导演。把用户已确认的发布正文转成可说、可演、可拍的短片剧本，不补写正文之外的新事实。",
+    "输入中的 paragraphId 必须原样返回且每个只出现一次。每个正文段落都必须有 scriptText、visualTreatment 和至少一个 shots 项。",
+    "scriptText 是剧本，不是发布稿复制：可以是画外音、台词、动作性文字或视觉转写；CTA/格式段也必须覆盖，但不能机械朗读‘点赞关注’。",
+    "用户只提供情绪时，用景别、视角、动作节拍、主体与环境关系补足基础镜头语言；不要写具体视频模型参数，也不要发起图片或视频生成。",
+    "每个 shot 必须完整提供 subject、action、imageRequirement、videoRequirement；四项任一为空即视为无效。图片要求写清单帧主体、场景、构图、光线、材质；视频要求写清动作三拍、摄影机承载与路径、结尾状态。保持人物、色板、油画颜料或纸张纤维等材质连续，但让每镜构图服从本段内容，不复制封面构图，也不得复用其他镜头的句子。",
+    "本次请求会分批处理：每个正文段落至少一镜、单段最多 6 镜。最终短片总镜头数由系统在合并所有批次后校验。",
+    "严格返回 JSON，不要 markdown：",
+    '{"paragraphs":[{"paragraphId":"原样键","scriptText":"剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"动作与基础运镜要求"}]}]}',
+  ].join("\n");
+}
+
+function batches<T>(items: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    result.push(items.slice(start, start + size));
+  }
+  return result;
+}
+
+async function runPublishingVideoStoryboard302(input: {
+  systemPrompt: string;
+  context: unknown;
+}): Promise<{ parsed: unknown; modelLabel: string }> {
+  const model = ENV.videoPrompt302Model.trim();
+  if (!ENV.api302Key || !model) {
+    return {
+      parsed: null,
+      modelLabel: "302 未配置（本地保底补全）",
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    positiveInteger(ENV.publishingVideoStoryboard302TimeoutMs, 90_000)
+  );
+  try {
+    const response = await fetch(
+      `${ENV.api302BaseUrl.trim().replace(/\/+$/, "")}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${ENV.api302Key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          max_completion_tokens: 4_500,
+          reasoning_effort: "low",
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: input.systemPrompt },
+            {
+              role: "user",
+              content: `请按要求逐段生成剧本、图片提示词与视频提示词。上下文：${JSON.stringify(input.context)}`,
+            },
+          ],
+        }),
+        signal: controller.signal,
+      }
+    );
+    if (!response.ok) {
+      return {
+        parsed: null,
+        modelLabel: `302 HTTP ${response.status}（本地保底补全）`,
+      };
+    }
+    const data = (await response.json()) as CompletionResponse;
+    try {
+      return {
+        parsed: parseJsonLoose<unknown>(completionText(data)),
+        modelLabel: data.model || model,
+      };
+    } catch {
+      return {
+        parsed: null,
+        modelLabel: "302 返回不是有效 JSON（本地保底补全）",
+      };
+    }
+  } catch (error) {
+    return {
+      parsed: null,
+      modelLabel: `302 转写失败：${
+        error instanceof Error ? error.message.slice(0, 120) : "未知错误"
+      }（本地保底补全）`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function generatePublishingVideoStoryboardPreview(input: {
+  body: string;
+  platform: PublishingPlatformId;
+  core: PublishingStoryCore | null;
+  coverVisualDescription?: string | null;
+  now?: number;
+}): Promise<{ preview: PublishingVideoStoryboardPreview; modelLabel: string }> {
+  const context = allowlistedContext(input);
+  const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
+  if (paragraphs.length === 0) {
+    throw new PublishingVideoStoryboardModelOutputError(["empty_source"]);
+  }
+  const batchResults = await Promise.all(
+    batches(context.paragraphs, MODEL_PARAGRAPH_BATCH_SIZE).map(
+      batch =>
+        runPublishingVideoStoryboard302({
+          systemPrompt: generationPrompt(),
+          context: { ...context, paragraphs: batch },
+        })
+    )
+  );
+  const modelRewrites = batchResults.flatMap(result =>
+    normalizeModelParagraphs(result.parsed)
+  );
+  const modelLabels = Array.from(
+    new Set(batchResults.map(result => result.modelLabel))
+  );
+
+  const completed = completeModelRewrites({
+    paragraphs,
+    modelRewrites,
+    core: input.core,
+  });
+  const preview = buildPublishingVideoPreview({
+    paragraphs,
+    rewrites: completed.rewrites,
+    now: input.now,
+  });
+  const issues = validatePublishingVideoPreview(preview);
+  if (issues.length > 0) {
+    throw new PublishingVideoStoryboardModelOutputError(
+      issues.map(issue => issue.code)
+    );
+  }
+  return {
+    preview,
+    modelLabel: completed.usedFallback
+      ? `${modelLabels.join("；")}（本地保底补全）`
+      : modelLabels.join("；"),
+  };
+}

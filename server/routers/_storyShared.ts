@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import { shotIdentityFromShot } from "@shared/shotIdentity";
 import { z } from "zod";
-import { getStoryById, updateStory } from "../db";
+import { getStoryById } from "../db";
 import type { ShotEntry } from "../archive/storyAgent";
 import { getStoryImageAssets } from "../services/imageAssets";
 import { toPublicImageUrl } from "../services/imageGen";
@@ -14,6 +14,10 @@ import {
   PromptLineageValidationError,
 } from "../services/promptLineageStore";
 import { getStoryRevision, prepareStoryBody } from "../services/storySync";
+import {
+  persistPreparedStoryBody,
+  StoryBodyRevisionConflictError,
+} from "../services/storyBodyPersistence";
 import {
   normalizeStoryArtDirection,
   type ArtRecipeDNA,
@@ -315,13 +319,29 @@ export async function writeCharacterAnchor(
     story.body
   );
 
-  await updateStory(story.id, userId, { body: nextBody });
-  const saved = await getStoryById(story.id, userId);
+  let saved;
+  try {
+    saved = await persistPreparedStoryBody({
+      storyId: story.id,
+      userId,
+      expectedRevision: getStoryRevision(story.body),
+      body: nextBody,
+    });
+  } catch (error) {
+    if (error instanceof StoryBodyRevisionConflictError) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "故事已在别处更新，请刷新后重新设置人物锚点",
+        cause: error,
+      });
+    }
+    throw error;
+  }
   return {
     status: "ok" as const,
     publicUrl,
     story: await composeStoryWorkspace(
-      saved ?? { ...story, body: nextBody },
+      saved,
       userId
     ),
   };

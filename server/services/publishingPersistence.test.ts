@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbMocks = vi.hoisted(() => ({
   getStoryById: vi.fn(),
   updateStory: vi.fn(),
+  updateStoryBodyIfRevision: vi.fn(),
 }));
 
 vi.mock("../db", () => dbMocks);
@@ -44,6 +45,26 @@ describe("publishingPersistence", () => {
         if (id === story.id && userId === story.userId) {
           story = { ...story, ...structuredClone(patch) };
         }
+      }
+    );
+    dbMocks.updateStoryBodyIfRevision.mockImplementation(
+      async (input: {
+        id: number;
+        userId: number;
+        expectedRevision: number;
+        body: Record<string, unknown>;
+      }) => {
+        const currentRevision =
+          ((story.body as Record<string, unknown>)._revision as number) ?? 0;
+        if (
+          input.id !== story.id ||
+          input.userId !== story.userId ||
+          input.expectedRevision !== currentRevision
+        ) {
+          return false;
+        }
+        story = { ...story, body: structuredClone(input.body) };
+        return true;
       }
     );
   });
@@ -276,7 +297,7 @@ describe("publishingPersistence", () => {
         },
       })
     ).rejects.toBeInstanceOf(PublishingDraftOwnershipError);
-    expect(dbMocks.updateStory).not.toHaveBeenCalled();
+    expect(dbMocks.updateStoryBodyIfRevision).not.toHaveBeenCalled();
   });
 
   it("creates an isolated V2 with the confirmed platform, inherited cover, and review flags", async () => {
@@ -402,7 +423,7 @@ describe("publishingPersistence", () => {
       operation,
       operationToken: "persisted-token",
     });
-    const updateCount = dbMocks.updateStory.mock.calls.length;
+    const updateCount = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
     const retry = await writePublishingDraftState({
       storyId: 7,
       userId: 3,
@@ -413,7 +434,7 @@ describe("publishingPersistence", () => {
     expect(retry.storyRevision).toBe(first.storyRevision);
     expect(retry.publishing.activeVersionId).toBe("v2");
     expect(retry.publishing.versions).toHaveLength(2);
-    expect(dbMocks.updateStory).toHaveBeenCalledTimes(updateCount);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(updateCount);
     expect(retry.publishing.versionOperationReceipts).toEqual({
       "persisted-token": "v2",
     });

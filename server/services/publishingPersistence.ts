@@ -14,7 +14,11 @@ import {
   type PublishingStoryCoreContent,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
-import { getStoryById, updateStory } from "../db";
+import { getStoryById } from "../db";
+import {
+  persistPreparedStoryBody,
+  StoryBodyRevisionConflictError,
+} from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 
 export class PublishingDraftOwnershipError extends Error {
@@ -295,6 +299,7 @@ function applyVersionOperation(
       : parent.conversationSnapshot
         ? structuredClone(parent.conversationSnapshot)
         : null,
+    videoStoryboard: null,
   };
   return {
     ...state,
@@ -531,7 +536,8 @@ export async function writePublishingDraftState(params: {
     const publishing = canonicalize(
       applyOperation(current, params.operation, now, params.operationToken)
     );
-    const storyRevision = getStoryRevision(body) + 1;
+    const expectedStoryRevision = getStoryRevision(body);
+    const storyRevision = expectedStoryRevision + 1;
     // prepareStoryBody protects publishing as a server-owned field. Supplying
     // the updated body on both sides marks this dedicated operation as the one
     // authoritative writer while retaining every other Story field.
@@ -541,7 +547,23 @@ export async function writePublishingDraftState(params: {
       storyRevision,
       bodyWithPublishing
     );
-    await updateStory(params.storyId, params.userId, { body: nextBody });
+    try {
+      await persistPreparedStoryBody({
+        storyId: params.storyId,
+        userId: params.userId,
+        expectedRevision: expectedStoryRevision,
+        body: nextBody,
+      });
+    } catch (error) {
+      if (error instanceof StoryBodyRevisionConflictError) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          expectedStoryRevision,
+          getStoryRevision(error.latestStory.body)
+        );
+      }
+      throw error;
+    }
     return { storyId: params.storyId, storyRevision, publishing };
   });
 }

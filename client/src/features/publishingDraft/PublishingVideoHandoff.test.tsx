@@ -34,11 +34,11 @@ describe("PublishingVideoHandoffBannerView", () => {
       />
     );
 
-    expect(html).toContain("从 X 发布稿继续");
+    expect(html).toContain("从 X 文字稿继续");
     expect(html).toContain("当前稿建议先复核");
     expect(html).toContain("1 段旁白候选");
     expect(html).toContain("0 句台词候选");
     expect(html).toContain("想把它做成什么视频？");
-    expect(html).toContain('aria-label="收起发布稿交接"');
+    expect(html).toContain('aria-label="收起文字稿交接"');
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -42,9 +42,14 @@ import {
   type PublishingPlatformId,
   type PublishingStoryCoreContent,
 } from "@shared/publishingDraft";
+import type { PublishingVideoStoryboardPreview } from "@shared/publishingVideoStoryboard";
 import { estimatePublishingCoverCost } from "@shared/imageRenderCost";
 import { usePublishingPlatformSelection } from "./PublishingPlatformPicker";
 import { downloadPublishingCover } from "./publishingCoverExport";
+import {
+  getCoverGenerationPresentation,
+  type CoverGenerationMode,
+} from "./publishingCoverGenerationState";
 import {
   buildPublishableText,
   existingPublishingTabs,
@@ -55,6 +60,7 @@ import {
   publishingErrorMessage,
   publishingStoryScopeMatches,
 } from "./publishingDraftViewModel";
+import PublishingVideoScriptReview from "./PublishingVideoScriptReview";
 
 type PendingEditDecision = {
   platform: PublishingPlatformId;
@@ -68,6 +74,7 @@ type PublishingCoverAssetView = {
   id: number;
   imageUrl: string;
   imageKey: string | null;
+  shotIdentity: string | null;
   createdAt: Date;
 };
 
@@ -140,6 +147,7 @@ export default function PublishingDraftWorkspace({
     setPublishingBuffer,
     discardPublishingBuffer,
     ensureActiveStoryPersisted,
+    loadStory,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
   const readQuery = trpc.publishingDraft.read.useQuery(
@@ -158,6 +166,10 @@ export default function PublishingDraftWorkspace({
   const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
   const generateCoverMut = trpc.publishingDraft.generateCover.useMutation();
   const adoptCoverMut = trpc.publishingDraft.adoptCoverCandidate.useMutation();
+  const prepareVideoStoryboardMut =
+    trpc.publishingDraft.prepareVideoStoryboard.useMutation();
+  const confirmVideoStoryboardMut =
+    trpc.publishingDraft.confirmVideoStoryboard.useMutation();
   const utils = trpc.useUtils();
   const [pendingDecision, setPendingDecision] =
     useState<PendingEditDecision | null>(null);
@@ -170,6 +182,20 @@ export default function PublishingDraftWorkspace({
     number | null
   >(null);
   const [coverFeedback, setCoverFeedback] = useState("");
+  const [coverGenerationMode, setCoverGenerationMode] =
+    useState<CoverGenerationMode | null>(null);
+  const coverGenerationInFlightRef = useRef(false);
+  const videoPreviewInFlightRef = useRef(false);
+  const videoPreviewOperationRef = useRef<{
+    scope: string;
+    token: string;
+  } | null>(null);
+  const videoConfirmationOperationRef = useRef<{
+    scope: string;
+    token: string;
+  } | null>(null);
+  const [videoPreview, setVideoPreview] =
+    useState<PublishingVideoStoryboardPreview | null>(null);
   const [generatedCover, setGeneratedCover] =
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
@@ -184,6 +210,12 @@ export default function PublishingDraftWorkspace({
     setActiveCoverRoundId(null);
     setSelectedCoverAssetId(null);
     setCoverFeedback("");
+    setCoverGenerationMode(null);
+    coverGenerationInFlightRef.current = false;
+    videoPreviewInFlightRef.current = false;
+    videoPreviewOperationRef.current = null;
+    videoConfirmationOperationRef.current = null;
+    setVideoPreview(null);
     setGeneratedCover(null);
     setGeneratedCoverRounds(null);
   }, [activeStoryId, versionId]);
@@ -244,7 +276,14 @@ export default function PublishingDraftWorkspace({
     createVersionMut.isPending ||
     selectVersionMut.isPending ||
     renameVersionMut.isPending;
-  const coverBusy = generateCoverMut.isPending || adoptCoverMut.isPending;
+  const coverBusy =
+    coverGenerationMode !== null ||
+    generateCoverMut.isPending ||
+    adoptCoverMut.isPending ||
+    prepareVideoStoryboardMut.isPending ||
+    confirmVideoStoryboardMut.isPending;
+  const coverGenerationPresentation =
+    getCoverGenerationPresentation(coverGenerationMode);
   const coverAsset =
     (generatedCover?.storyId === activeStoryId ? generatedCover.asset : null) ??
     (readQuery.data?.storyId === activeStoryId
@@ -326,13 +365,13 @@ export default function PublishingDraftWorkspace({
         )
           return;
         setPublishing(result.publishing);
-        toast.success(`${adapter.label}发布稿已生成`);
+        toast.success(`${adapter.label}文字稿已生成`);
       }
     } catch (error) {
       toast.error(
         publishingErrorMessage(
           error,
-          "发布稿生成失败，左侧对话和编辑内容都还在"
+          "文字稿生成失败，左侧对话和编辑内容都还在"
         )
       );
     }
@@ -533,9 +572,18 @@ export default function PublishingDraftWorkspace({
   };
 
   const generateCover = async (mode: "fresh" | "revise") => {
-    if (!draft || dirty || activeStoryId == null || coverBusy) return;
+    if (
+      !draft ||
+      dirty ||
+      activeStoryId == null ||
+      coverBusy ||
+      coverGenerationInFlightRef.current
+    )
+      return;
     if (mode === "revise" && !selectedCoverAsset) return;
     const storyId = activeStoryId;
+    coverGenerationInFlightRef.current = true;
+    setCoverGenerationMode(mode);
     try {
       const result = await generateCoverMut.mutateAsync({
         storyId,
@@ -586,10 +634,139 @@ export default function PublishingDraftWorkspace({
       toast.error(
         publishingErrorMessage(error, "封面生成失败，原封面仍然保留")
       );
+    } finally {
+      coverGenerationInFlightRef.current = false;
+      setCoverGenerationMode(current => (current === mode ? null : current));
     }
   };
 
-  const adoptCoverCandidate = async (continueToVideo = false) => {
+  const continueToVideo = async () => {
+    if (
+      activeStoryId == null ||
+      coverBusy ||
+      dirty ||
+      videoPreviewInFlightRef.current
+    )
+      return;
+    const storyId = activeStoryId;
+    const scope = `${storyId}:${versionId}`;
+    const existingOperation = videoPreviewOperationRef.current;
+    const operationToken =
+      existingOperation?.scope === scope
+        ? existingOperation.token
+        : `video-preview-${crypto.randomUUID()}`;
+    videoPreviewOperationRef.current = { scope, token: operationToken };
+    videoPreviewInFlightRef.current = true;
+    try {
+      const result = await prepareVideoStoryboardMut.mutateAsync({
+        storyId,
+        versionId,
+        operationToken,
+      });
+      if (
+        !publishingStoryScopeMatches(
+          storyId,
+          storySpineStore.getState().activeStoryId
+        )
+      ) {
+        return;
+      }
+      setPublishing(result.publishing);
+      utils.publishingDraft.read.setData({ storyId }, current =>
+        current
+          ? {
+              ...current,
+              storyRevision: result.storyRevision,
+              publishing: result.publishing,
+            }
+          : current
+      );
+      if (result.status === "pending") {
+        toast.info("剧本正在转写，稍后可用同一入口继续查看");
+        return;
+      }
+      if (!result.preview) {
+        videoPreviewOperationRef.current = null;
+        toast.error("剧本预览没有返回内容，请使用同一入口重试");
+        return;
+      }
+      setVideoPreview(result.preview);
+      toast.success(
+        result.reused ? "已恢复之前的剧本预览" : "完整剧本预览已生成，请确认后再写入故事版"
+      );
+    } catch (error) {
+      // A completed failure may have changed the server-side request hash
+      // (for example after another Story edit). A later user retry must claim
+      // a fresh operation instead of replaying an incompatible receipt.
+      videoPreviewOperationRef.current = null;
+      toast.error(
+        publishingErrorMessage(error, "剧本转写失败，正式故事版没有改变")
+      );
+    } finally {
+      videoPreviewInFlightRef.current = false;
+    }
+  };
+
+  const confirmVideoPreview = async () => {
+    if (activeStoryId == null || !videoPreview || confirmVideoStoryboardMut.isPending) {
+      return;
+    }
+    const storyId = activeStoryId;
+    const scope = `${storyId}:${versionId}:${videoPreview.previewId}`;
+    const existingOperation = videoConfirmationOperationRef.current;
+    const operationToken =
+      existingOperation?.scope === scope
+        ? existingOperation.token
+        : `video-confirm-${crypto.randomUUID()}`;
+    videoConfirmationOperationRef.current = { scope, token: operationToken };
+    try {
+      const result = await confirmVideoStoryboardMut.mutateAsync({
+        storyId,
+        versionId,
+        previewId: videoPreview.previewId,
+        operationToken,
+      });
+      if (
+        !publishingStoryScopeMatches(
+          storyId,
+          storySpineStore.getState().activeStoryId
+        )
+      ) {
+        return;
+      }
+      setPublishing(result.publishing);
+      utils.publishingDraft.read.setData({ storyId }, current =>
+        current
+          ? {
+              ...current,
+              storyRevision: result.storyRevision,
+              publishing: result.publishing,
+            }
+          : current
+      );
+      await Promise.all([
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.storyImages.invalidate({ storyId }),
+        utils.storyAgent.storyVideoAssets.invalidate({ storyId }),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+      ]);
+      await loadStory(storyId, {
+        silent: true,
+        expectedActiveStoryId: storyId,
+      });
+      setVideoPreview(null);
+      videoPreviewOperationRef.current = null;
+      videoConfirmationOperationRef.current = null;
+      toast.success("剧本已确认并写入故事版");
+      onContinueToVideo?.();
+    } catch (error) {
+      toast.error(
+        publishingErrorMessage(error, "剧本确认失败，正式故事版没有改变")
+      );
+    }
+  };
+
+  const adoptCoverCandidate = async (shouldContinueToVideo = false) => {
     if (!selectedCoverAsset || activeStoryId == null || coverBusy || dirty) {
       return;
     }
@@ -622,7 +799,7 @@ export default function PublishingDraftWorkspace({
       setSelectedCoverAssetId(null);
       setCoverFeedback("");
       toast.success("已采用这张正式封面，其他工作区会继承它");
-      if (continueToVideo) onContinueToVideo?.();
+      if (shouldContinueToVideo) await continueToVideo();
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "封面采用失败，原封面仍然保留")
@@ -637,7 +814,7 @@ export default function PublishingDraftWorkspace({
         imageUrl: coverAsset.imageUrl,
         platform,
         title: editorContent.title,
-        storyTitle: storyTitle?.trim() || "发布稿",
+        storyTitle: storyTitle?.trim() || "文字稿",
       });
       toast.success(`已下载 ${adapter.label} 封面`);
     } catch (error) {
@@ -809,7 +986,7 @@ export default function PublishingDraftWorkspace({
     return (
       <section
         className="flex h-full items-center justify-center px-8"
-        aria-label="发布稿空状态"
+        aria-label="文字稿空状态"
       >
         <div className="max-w-sm text-center">
           <MessageCircleMore className="mx-auto h-8 w-8 text-[var(--nayin-accent)]" />
@@ -817,7 +994,7 @@ export default function PublishingDraftWorkspace({
             先从左侧打开一个故事
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            你可以继续讲自己的想法；只有点击生成后，发布稿才会出现在这里。
+            你可以继续讲自己的想法；只有点击生成后，文字稿才会出现在这里。
           </p>
         </div>
       </section>
@@ -830,7 +1007,7 @@ export default function PublishingDraftWorkspace({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       className="h-full overflow-y-auto bg-[var(--nayin-surface-dim)]/45 p-3 sm:p-5"
-      aria-label="发布稿工作区"
+      aria-label="文字稿工作区"
       data-story-panel="publishing-draft"
     >
       <div className="mx-auto flex min-h-full max-w-5xl flex-col">
@@ -958,7 +1135,7 @@ export default function PublishingDraftWorkspace({
                   )}
                   {publishing.core
                     ? `转为 ${adapter.label}`
-                    : `生成 ${adapter.label} 发布稿`}
+                    : `生成 ${adapter.label} 文字稿`}
                 </ActionButton>
                 {targetOptions.length > 0 ? (
                   <p className="mt-4 text-[11px] text-muted-foreground">
@@ -1195,7 +1372,7 @@ export default function PublishingDraftWorkspace({
                         </p>
                         <div className="mt-3">
                           <ActionButton
-                            onClick={() => onContinueToVideo?.()}
+                            onClick={() => void continueToVideo()}
                             disabled={busy || dirty}
                             primary
                           >
@@ -1277,7 +1454,7 @@ export default function PublishingDraftWorkspace({
                 ))}
                 <div className="ml-auto">
                   <ActionButton
-                    onClick={() => onContinueToVideo?.()}
+                    onClick={() => void continueToVideo()}
                     disabled={busy || dirty}
                     primary={Boolean(coverAsset)}
                   >
@@ -1290,6 +1467,17 @@ export default function PublishingDraftWorkspace({
           )}
         </article>
       </div>
+
+      <PublishingVideoScriptReview
+        preview={videoPreview}
+        confirming={confirmVideoStoryboardMut.isPending}
+        onCancel={() => {
+          if (confirmVideoStoryboardMut.isPending) return;
+          setVideoPreview(null);
+          videoPreviewOperationRef.current = null;
+        }}
+        onConfirm={() => void confirmVideoPreview()}
+      />
 
       <Dialog
         open={Boolean(pendingVersionId)}
@@ -1562,6 +1750,14 @@ export default function PublishingDraftWorkspace({
           </div>
 
           <DialogFooter className="sticky bottom-0 border-t border-[var(--panel-border)] bg-[var(--background)]/95 px-5 py-4 backdrop-blur sm:px-6">
+            {coverGenerationPresentation.message ? (
+              <p
+                role="status"
+                className="mr-auto max-w-xs text-[11px] leading-4 text-muted-foreground"
+              >
+                {coverGenerationPresentation.message}
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={() => setCoverStudioOpen(false)}
@@ -1575,7 +1771,7 @@ export default function PublishingDraftWorkspace({
               disabled={coverBusy}
               primary={!selectedCoverAsset && !coverAsset}
             >
-              {generateCoverMut.isPending ? (
+              {coverGenerationPresentation.freshLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <RefreshCcw className="h-4 w-4" />
@@ -1588,7 +1784,7 @@ export default function PublishingDraftWorkspace({
                 onClick={() => void generateCover("revise")}
                 disabled={coverBusy}
               >
-                {generateCoverMut.isPending ? (
+                {coverGenerationPresentation.reviseLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Sparkles className="h-4 w-4" />
@@ -1632,7 +1828,7 @@ export default function PublishingDraftWorkspace({
               <ActionButton
                 onClick={() => {
                   setCoverStudioOpen(false);
-                  onContinueToVideo?.();
+                  void continueToVideo();
                 }}
                 disabled={coverBusy}
                 primary

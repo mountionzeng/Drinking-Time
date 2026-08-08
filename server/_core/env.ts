@@ -24,7 +24,8 @@ export const ENV = {
   llmModel: process.env.LLM_MODEL ?? "gemini-2.5-flash",      // 默认使用的模型名称
   llmSupportsImage: process.env.LLM_SUPPORTS_IMAGE === "true", // 模型是否支持图片输入
   llmSupportsResponseFormat: process.env.LLM_SUPPORTS_RESPONSE_FORMAT !== "false", // 模型是否支持 structured output
-  voiceTranscriptionModel: process.env.VOICE_TRANSCRIPTION_MODEL ?? "whisper-1", // 语音转文字模型
+  doubaoSpeechApiKey: process.env.DOUBAO_SPEECH_API_KEY ?? "", // 豆包录音文件极速版 API Key
+  voiceTranscriptionFallbackModel: process.env.VOICE_TRANSCRIPTION_FALLBACK_MODEL ?? "gpt-4o-mini-transcribe", // 豆包资源权限异常时临时回退的 302 转写模型
   scriptStructureAgentApiUrl: process.env.SCRIPT_STRUCTURE_AGENT_API_URL ?? "", // 剧本/台词 Agent API 地址（可选）
   scriptStructureAgentApiKey: process.env.SCRIPT_STRUCTURE_AGENT_API_KEY ?? "", // 剧本/台词 Agent API Key（可选，不填则复用默认通道）
   scriptStructureAgentModel: process.env.SCRIPT_STRUCTURE_AGENT_MODEL ?? "", // 剧本/台词 Agent 模型（可选）
@@ -82,6 +83,8 @@ export const ENV = {
     process.env.VIDEO_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
   videoPrompt302TimeoutMs:
     process.env.VIDEO_PROMPT_302_TIMEOUT_MS ?? "30000",
+  publishingVideoStoryboard302TimeoutMs:
+    process.env.PUBLISHING_VIDEO_STORYBOARD_302_TIMEOUT_MS ?? "90000",
   imagePrompt302Model:
     process.env.IMAGE_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
   imagePrompt302TimeoutMs:

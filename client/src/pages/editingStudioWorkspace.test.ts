@@ -3,6 +3,7 @@ import type { StoryIntent } from "@/features/storyAgent/intentTypes";
 import {
   STUDIO_WORKSPACE_OPTIONS,
   resolveStudioInteractionMode,
+  resolveTimelineCommandStoryId,
   shouldShowPublishingHandoff,
 } from "./editingStudioWorkspace";
 
@@ -36,7 +37,7 @@ describe("resolveStudioInteractionMode", () => {
 
   it("restores publishing, the five story panels, and editing as seven peer workspaces", () => {
     expect(STUDIO_WORKSPACE_OPTIONS.map(option => option.label)).toEqual([
-      "发布稿",
+      "文字稿",
       "素材仓库",
       "故事版看板",
       "动态分镜",
@@ -51,5 +52,19 @@ describe("resolveStudioInteractionMode", () => {
     for (const option of STUDIO_WORKSPACE_OPTIONS.slice(1)) {
       expect(shouldShowPublishingHandoff(option.id)).toBe(true);
     }
+  });
+});
+
+describe("resolveTimelineCommandStoryId", () => {
+  it("keeps the page story when the spine store is transiently empty", () => {
+    expect(resolveTimelineCommandStoryId(null, 1172, null)).toBe(1172);
+  });
+
+  it("falls back to the spine story when the page has not loaded one yet", () => {
+    expect(resolveTimelineCommandStoryId(null, null, 1172)).toBe(1172);
+  });
+
+  it("keeps the chat's story even while both shared stores are refreshing", () => {
+    expect(resolveTimelineCommandStoryId(1172, null, null)).toBe(1172);
   });
 });

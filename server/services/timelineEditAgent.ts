@@ -294,6 +294,25 @@ function parseSelectedVideoEdit(
   const effects: Partial<TimelineVideoEffects> = {};
   const labels: string[] = [];
   const visualTransform = parseSelectedVisualTransform(instruction);
+  const disableHeartbeat =
+    /(?:取消|关闭|移除|不要).{0,8}(?:心跳|脉冲)(?:缩放|节奏|运动)?/.test(
+      instruction
+    );
+  const heartbeatRequested =
+    /(?:心跳|脉冲).{0,8}(?:频率|节奏|缩放|运动)|(?:运动|缩放).{0,8}(?:心跳|脉冲)/.test(
+      instruction
+    );
+  if (disableHeartbeat) {
+    effects.motionPreset = null;
+    labels.push("取消心跳缩放");
+  } else if (heartbeatRequested) {
+    const bpmMatch = instruction.match(
+      /(?:按|以|为|改成|设为)?\s*(\d{2,3}(?:\.\d+)?)\s*(?:bpm|拍(?:每分钟)?|次(?:每分钟)?)/i
+    );
+    const bpm = clamp(bpmMatch ? Number(bpmMatch[1]) : 72, 36, 180);
+    effects.motionPreset = { kind: "heartbeat", bpm, scaleAmount: 0.06 };
+    labels.push(`心跳缩放 ${Math.round(bpm)} BPM、6% 幅度`);
+  }
   const speedMatch = instruction.match(
     /(?:播放速度|速度|倍速|调成|调到|改成|设为|用)?\s*(\d+(?:\.\d+)?)\s*(?:倍速?|x)/i
   );

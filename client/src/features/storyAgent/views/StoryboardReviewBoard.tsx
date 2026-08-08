@@ -164,15 +164,18 @@ import {
   storyboardRenderShotWithDraft,
   storyboardRerenderRequestId,
   storyboardShotFrameImages,
+  STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED,
   storyboardStartEndFrameIssue,
   storyboardStartEndGenerationParams,
   storyboardVideoIntentPatch,
   storyboardVideoRenderBlockReason,
   storyboardVideoSourceFrame,
+  shouldAnnounceVideoGenerationCancellation,
   shouldUseSingleImageFallback,
   storyShotInsertIdentity,
   type StoryboardFrameRole,
   type StoryboardNeighborFrameSource,
+  type StoryboardContinuityResolution,
 } from "./storyboardReviewModel";
 import {
   buildStoryboardImageRenderPlan,
@@ -407,7 +410,7 @@ export function StoryboardReviewBoard({
     mismatches: ShotConsistencyMismatch[];
   } | null>(null);
   const continuityChoiceResolverRef = useRef<
-    ((option: StoryboardContinuityOption | null) => void) | null
+    ((resolution: StoryboardContinuityResolution) => void) | null
   >(null);
   const continuityAnalysisCacheRef = useRef(
     new Map<string, Promise<ShotConsistencyAnalysis>>()
@@ -548,8 +551,10 @@ export function StoryboardReviewBoard({
   );
   const requestContinuityChoice = useCallback(
     (request: NonNullable<typeof continuityDialog>) =>
-      new Promise<StoryboardContinuityOption | null>(resolve => {
-        continuityChoiceResolverRef.current?.(null);
+      new Promise<StoryboardContinuityResolution>(resolve => {
+        continuityChoiceResolverRef.current?.(
+          STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED
+        );
         continuityChoiceResolverRef.current = resolve;
         setContinuityDialog(request);
       }),
@@ -557,7 +562,9 @@ export function StoryboardReviewBoard({
   );
   useEffect(
     () => () => {
-      continuityChoiceResolverRef.current?.(null);
+      continuityChoiceResolverRef.current?.(
+        STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED
+      );
       continuityChoiceResolverRef.current = null;
     },
     []
@@ -753,7 +760,7 @@ export function StoryboardReviewBoard({
     shot: StoryShot;
     creationShot: CreationEditorShot;
     renderKind: "image" | "video";
-  }): Promise<StoryboardContinuityOption | null | undefined> => {
+  }): Promise<StoryboardContinuityResolution> => {
     const persistedReference = storyboardCharacterContinuityReference(
       input.creationShot.generationParams
     );
@@ -1905,7 +1912,7 @@ export function StoryboardReviewBoard({
     onSelectShot?.(shot.shotNo);
     try {
       beginContinuityCheck(shot.shotNo, "video");
-      let continuityChoice: StoryboardContinuityOption | null | undefined;
+      let continuityChoice: StoryboardContinuityResolution;
       try {
         continuityChoice = await resolveGenerationContinuity({
           shot,
@@ -1915,7 +1922,12 @@ export function StoryboardReviewBoard({
       } finally {
         finishContinuityCheck(shot.shotNo);
       }
-      if (continuityChoice === null) {
+      if (
+        continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED
+      ) {
+        return;
+      }
+      if (shouldAnnounceVideoGenerationCancellation(continuityChoice)) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
         return;
       }

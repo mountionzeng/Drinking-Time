@@ -266,6 +266,19 @@ function videoFilters(
   const zoom = clamp(segment.transform.zoom, 1, 8);
   const cropX = ((clamp(segment.transform.panX, -1, 1) + 1) / 2).toFixed(5);
   const cropY = ((clamp(segment.transform.panY, -1, 1) + 1) / 2).toFixed(5);
+  const heartbeat =
+    segment.effects.motionPreset?.kind === "heartbeat"
+      ? segment.effects.motionPreset
+      : null;
+  const heartbeatScale = heartbeat
+    ? (() => {
+        const bpm = clamp(heartbeat.bpm, 36, 180).toFixed(4);
+        const amount = clamp(heartbeat.scaleAmount, 0.01, 0.16).toFixed(5);
+        const pulse = `((sin(2*PI*${bpm}/60*t)+1)/2)`;
+        const scale = `(1+${amount}*${pulse}*${pulse}*${pulse}*${pulse})`;
+        return `scale=iw*${scale}:ih*${scale}:eval=frame,crop=${dims.width}:${dims.height}:(iw-${dims.width})/2:(ih-${dims.height})/2`;
+      })()
+    : null;
   return [
     `scale=${dims.width}:${dims.height}:force_original_aspect_ratio=decrease`,
     `pad=${dims.width}:${dims.height}:(ow-iw)/2:(oh-ih)/2:color=black`,
@@ -273,6 +286,7 @@ function videoFilters(
       ? `crop=iw/${zoom.toFixed(5)}:ih/${zoom.toFixed(5)}:(iw-iw/${zoom.toFixed(5)})*${cropX}:(ih-ih/${zoom.toFixed(5)})*${cropY}`
       : null,
     zoom > 1 ? `scale=${dims.width}:${dims.height}` : null,
+    heartbeatScale,
     segment.effects.reverse ? "reverse" : null,
     `setpts=(PTS-STARTPTS)/${segment.effects.playbackRate.toFixed(5)}`,
     "fps=30",

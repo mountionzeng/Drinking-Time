@@ -49,7 +49,7 @@ describe("buildStoryChatSummary", () => {
     expect(summary).toContain("按 cueCode 定位");
   });
 
-  it("只带入当前平台的一份发布稿上下文供剪辑台继续追问", () => {
+  it("只带入当前平台的一份文字稿上下文供剪辑台继续追问", () => {
     const summary = buildStoryChatSummary({
       shots: [],
       publishing: {
@@ -103,8 +103,8 @@ describe("buildStoryChatSummary", () => {
       },
     });
 
-    expect(summary.match(/\[发布稿交接/g)).toHaveLength(1);
-    expect(summary).toContain("[发布稿交接｜X]");
+    expect(summary.match(/\[文字稿交接/g)).toHaveLength(1);
+    expect(summary).toContain("[文字稿交接｜X]");
     expect(summary).toContain("人的注意力不该被无效调用浪费");
     expect(summary).toContain("Token 都去了哪里");
     expect(summary).not.toContain("不应出现");

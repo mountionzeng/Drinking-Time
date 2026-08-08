@@ -1,5 +1,6 @@
 import {
   Gauge,
+  HeartPulse,
   RotateCcw,
   Save,
   SlidersHorizontal,
@@ -274,6 +275,64 @@ export default function VideoClipEditorPanel({
               aria-label="静音原声"
             />
           </label>
+        </section>
+
+        <section className="border-b border-border px-3 py-3">
+          <div className="mb-2 flex items-center gap-2">
+            <HeartPulse className="h-3.5 w-3.5 text-muted-foreground" />
+            <h2 className="text-[11px] font-semibold">节奏运动</h2>
+          </div>
+          <label className="flex h-8 items-center justify-between text-[10px]">
+            <span>心跳缩放</span>
+            <Checkbox
+              checked={draft.effects.motionPreset?.kind === "heartbeat"}
+              onCheckedChange={checked =>
+                updateEffects({
+                  motionPreset:
+                    checked === true
+                      ? { kind: "heartbeat", bpm: 72, scaleAmount: 0.06 }
+                      : null,
+                })
+              }
+              aria-label="心跳缩放"
+            />
+          </label>
+          {draft.effects.motionPreset?.kind === "heartbeat" ? (
+            <div className="mt-3 grid gap-3">
+              <RangeRow
+                label="心跳频率"
+                value={draft.effects.motionPreset.bpm}
+                min={36}
+                max={180}
+                step={1}
+                display={`${draft.effects.motionPreset.bpm} BPM`}
+                onChange={bpm =>
+                  updateEffects({
+                    motionPreset: {
+                      ...draft.effects.motionPreset!,
+                      bpm,
+                    },
+                  })
+                }
+              />
+              <RangeRow
+                label="缩放幅度"
+                value={draft.effects.motionPreset.scaleAmount}
+                min={0.01}
+                max={0.16}
+                step={0.01}
+                display={`${Math.round(draft.effects.motionPreset.scaleAmount * 100)}%`}
+                onChange={scaleAmount =>
+                  updateEffects({
+                    motionPreset: {
+                      ...draft.effects.motionPreset!,
+                      scaleAmount,
+                    },
+                  })
+                }
+              />
+            </div>
+          ) : null}
         </section>
 
         <section className="px-3 py-3">

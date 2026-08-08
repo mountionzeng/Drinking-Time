@@ -179,6 +179,16 @@ export interface StoryShot {
   actNo?: string;
   subject: string;
   action: string;
+  /** Rewritten video script for this shot; distinct from publishing copy and dialogue. */
+  scriptText?: string;
+  /** Immutable lineage for shots confirmed from a publishing-version preview. */
+  publishingVideo?: {
+    versionId: string;
+    groupId: string;
+    segmentIds: string[];
+    sourceParagraphIds: string[];
+    confirmedRevision: number;
+  };
   performance?: string;
   environmentMotion?: string;
   dialogue: string;

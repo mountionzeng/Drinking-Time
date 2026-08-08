@@ -113,10 +113,7 @@ function transform(value: unknown): TimelineTransform {
   ) =>
     Math.min(
       max,
-      Math.max(
-        min,
-        finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key] ?? 0)
-      )
+      Math.max(min, finite(record[key], DEFAULT_TIMELINE_TRANSFORM[key] ?? 0))
     );
   return {
     cropX: clamp("cropX", 0, 1),
@@ -137,6 +134,27 @@ function videoEffects(value: unknown): TimelineVideoEffects {
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const motion = record.motionPreset;
+  const motionPreset =
+    motion &&
+    typeof motion === "object" &&
+    !Array.isArray(motion) &&
+    (motion as Record<string, unknown>).kind === "heartbeat"
+      ? {
+          kind: "heartbeat" as const,
+          bpm: Math.min(
+            180,
+            Math.max(36, finite((motion as Record<string, unknown>).bpm, 72))
+          ),
+          scaleAmount: Math.min(
+            0.16,
+            Math.max(
+              0.01,
+              finite((motion as Record<string, unknown>).scaleAmount, 0.06)
+            )
+          ),
+        }
+      : null;
   return {
     playbackRate: Math.min(
       4,
@@ -151,6 +169,7 @@ function videoEffects(value: unknown): TimelineVideoEffects {
       Math.max(0, finite(record.volume, DEFAULT_TIMELINE_VIDEO_EFFECTS.volume))
     ),
     muted: record.muted === true,
+    motionPreset,
   };
 }
 

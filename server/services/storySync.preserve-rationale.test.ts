@@ -66,6 +66,50 @@ describe("storySync shot field preservation", () => {
     });
   });
 
+  it("preserves publishing script and provenance when an older client omits them", () => {
+    const body = prepareStoryBody(
+      {
+        shots: [
+          {
+            stableShotId: "publishing-v1-shot-1",
+            shotNo: 1,
+            subject: "人物",
+            action: "抬头",
+          },
+        ],
+      },
+      5,
+      {
+        shots: [
+          {
+            stableShotId: "publishing-v1-shot-1",
+            shotNo: 1,
+            subject: "人物",
+            action: "抬头",
+            scriptText: "这不是发布稿原文，而是可表演的剧本。",
+            publishingVideo: {
+              versionId: "v1",
+              groupId: "publishing-group-v1",
+              segmentIds: ["segment-1"],
+              sourceParagraphIds: ["paragraph-1"],
+              confirmedRevision: 4,
+            },
+          },
+        ],
+      }
+    );
+
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      scriptText: "这不是发布稿原文，而是可表演的剧本。",
+      publishingVideo: {
+        versionId: "v1",
+        groupId: "publishing-group-v1",
+        segmentIds: ["segment-1"],
+        sourceParagraphIds: ["paragraph-1"],
+      },
+    });
+  });
+
   it("preserves scene metadata when an older client omits scene fields", () => {
     const serverBody = {
       scenes: [

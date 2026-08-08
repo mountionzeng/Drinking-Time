@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
 const dbMocks = vi.hoisted(() => ({
+  assignStoryImageToShot: vi.fn(),
   getStoryById: vi.fn(),
   createGeneratedImage: vi.fn(),
   promoteStoryImageToCurrent: vi.fn(),
   getGeneratedImageById: vi.fn(),
+  updateStory: vi.fn(),
 }));
 const imageGenMocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
@@ -24,6 +26,10 @@ const persistenceMocks = vi.hoisted(() => ({
   getPublishingDraftState: vi.fn(),
   writePublishingDraftState: vi.fn(),
 }));
+const videoPreviewMocks = vi.hoisted(() => ({
+  generateAndPersistPublishingVideoPreview: vi.fn(),
+  confirmPublishingVideoStoryboard: vi.fn(),
+}));
 
 vi.mock("./db", () => dbMocks);
 vi.mock("./services/imageGen", () => imageGenMocks);
@@ -38,8 +44,22 @@ vi.mock("./services/publishingPersistence", async importOriginal => {
     await importOriginal<typeof import("./services/publishingPersistence")>();
   return { ...original, ...persistenceMocks };
 });
+vi.mock(
+  "./services/publishingVideoStoryboardPersistence",
+  async importOriginal => {
+    const original =
+      await importOriginal<
+        typeof import("./services/publishingVideoStoryboardPersistence")
+      >();
+    return { ...original, ...videoPreviewMocks };
+  }
+);
 
 import { publishingDraftRouter } from "./routers/publishingDraft";
+import {
+  PublishingVideoStoryboardConfirmationError,
+  PublishingVideoStoryboardEligibilityError,
+} from "./services/publishingVideoStoryboardPersistence";
 
 function context(userId = 3): TrpcContext {
   return {
@@ -105,6 +125,18 @@ describe("publishingDraft router", () => {
         publishing: { ...publishing, revision: 2, operation: operation.type },
       })
     );
+    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockResolvedValue({
+      status: "ready",
+      storyId: 7,
+      storyRevision: 3,
+      publishing,
+      preview: {
+        previewId: "preview-op-1",
+        shots: [{ draftShotId: "draft-1" }],
+      },
+      reused: false,
+      modelLabel: "test-model",
+    });
     imageGenMocks.generateImage.mockResolvedValue({
       status: "ok",
       imageUrl: "/api/images/candidate-1.png",
@@ -162,6 +194,7 @@ describe("publishingDraft router", () => {
         signal: { id: 1 },
       })
     );
+    dbMocks.assignStoryImageToShot.mockResolvedValue({ image: { id: 52 } });
     modelMocks.generatePublishingDraft.mockResolvedValue({
       platform: "xiaohongshu",
       core: {
@@ -688,6 +721,7 @@ describe("publishingDraft router", () => {
       expect.objectContaining({
         provider: "midjourney",
         aspectRatio: "3:4",
+        mjTimeoutMs: 600_000,
       })
     );
     const submittedPrompt = imageGenMocks.generateImage.mock.calls[0]?.[0];
@@ -763,6 +797,7 @@ describe("publishingDraft router", () => {
       expect.objectContaining({
         provider: "midjourney",
         aspectRatio: "3:4",
+        mjTimeoutMs: 600_000,
         requireInputImage: true,
       })
     );
@@ -843,5 +878,103 @@ describe("publishingDraft router", () => {
     expect(dbMocks.promoteStoryImageToCurrent).toHaveBeenCalledWith(
       expect.objectContaining({ imageId: 52, storyId: 7, userId: 3 })
     );
+  });
+
+  it("creates a recoverable preview without mutating shots or assigning the cover", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+
+    const prepared = await caller.prepareVideoStoryboard({
+      storyId: 7,
+      versionId: "v1",
+      operationToken: "preview-op-1",
+    });
+
+    expect(prepared).toMatchObject({
+      status: "ready",
+      storyId: 7,
+      preview: { previewId: "preview-op-1" },
+    });
+    expect(
+      videoPreviewMocks.generateAndPersistPublishingVideoPreview
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId: 7,
+        userId: 3,
+        versionId: "v1",
+        operationToken: "preview-op-1",
+      })
+    );
+    expect(dbMocks.updateStory).not.toHaveBeenCalled();
+    expect(dbMocks.assignStoryImageToShot).not.toHaveBeenCalled();
+  });
+
+  it("confirms a reviewed preview through the owner-scoped endpoint", async () => {
+    videoPreviewMocks.confirmPublishingVideoStoryboard.mockResolvedValue({
+      status: "confirmed",
+      storyId: 7,
+      storyRevision: 4,
+      publishing,
+      preview: { previewId: "preview-op-1", status: "confirmed" },
+      shots: [{ stableShotId: "publishing-v1-shot-1", scriptText: "改写" }],
+      reused: false,
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+
+    const confirmed = await caller.confirmVideoStoryboard({
+      storyId: 7,
+      versionId: "v1",
+      previewId: "preview-op-1",
+      operationToken: "confirm-op-1",
+    });
+
+    expect(confirmed).toMatchObject({
+      status: "confirmed",
+      storyId: 7,
+      preview: { previewId: "preview-op-1" },
+    });
+    expect(
+      videoPreviewMocks.confirmPublishingVideoStoryboard
+    ).toHaveBeenCalledWith({
+      storyId: 7,
+      userId: 3,
+      versionId: "v1",
+      previewId: "preview-op-1",
+      operationToken: "confirm-op-1",
+    });
+    expect(dbMocks.updateStory).not.toHaveBeenCalled();
+    expect(dbMocks.assignStoryImageToShot).not.toHaveBeenCalled();
+  });
+
+  it("maps confirmation validation failures to a recoverable bad request", async () => {
+    videoPreviewMocks.confirmPublishingVideoStoryboard.mockRejectedValue(
+      new PublishingVideoStoryboardConfirmationError("剧本预览已过期")
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await expect(
+      caller.confirmVideoStoryboard({
+        storyId: 7,
+        versionId: "v1",
+        previewId: "preview-op-1",
+        operationToken: "confirm-op-1",
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "剧本预览已过期",
+    });
+  });
+
+  it("never binds a cover asset from another story", async () => {
+    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockRejectedValue(
+      new PublishingVideoStoryboardEligibilityError("故事不存在")
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await expect(
+      caller.prepareVideoStoryboard({ storyId: 7 })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(dbMocks.updateStory).not.toHaveBeenCalled();
+    expect(dbMocks.assignStoryImageToShot).not.toHaveBeenCalled();
   });
 });

@@ -29,10 +29,15 @@ export const EDITING_ACTION_CAPABILITIES = [
   },
   {
     id: "video.timing",
-    label: "裁切、调速、倒放、静音和音量",
+    label: "裁切、调速、倒放、静音、音量和心跳节奏运动",
     requiresMediaSelection: true,
     reversible: true,
-    examples: ["把选中的视频改成 0.5 倍并倒放", "保留 1 秒到 3 秒"],
+    examples: [
+      "把选中的视频改成 0.5 倍并倒放",
+      "保留 1 秒到 3 秒",
+      "把选中的视频的运动频率改成一个心跳的频率",
+      "让选中的视频按 90 BPM 心跳缩放",
+    ],
   },
   {
     id: "visual.transform",

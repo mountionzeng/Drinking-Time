@@ -52,6 +52,12 @@ vi.mock("@/lib/trpc", () => {
         publishingDraft: {
           read: { setData: vi.fn() },
         },
+        storyAgent: {
+          storyGet: { invalidate: vi.fn() },
+          storyImages: { invalidate: vi.fn() },
+          storyVideoAssets: { invalidate: vi.fn() },
+          storyMaterialState: { invalidate: vi.fn() },
+        },
       }),
       publishingDraft: {
         read: { useQuery: () => ({ data: api.readData }) },
@@ -66,6 +72,8 @@ vi.mock("@/lib/trpc", () => {
         renameVersion: { useMutation: mutation },
         generateCover: { useMutation: mutation },
         adoptCoverCandidate: { useMutation: mutation },
+        prepareVideoStoryboard: { useMutation: mutation },
+        confirmVideoStoryboard: { useMutation: mutation },
       },
     },
   };
@@ -116,7 +124,7 @@ describe("PublishingDraftWorkspace", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
     expect(html).toContain("先聊清楚，再落笔");
-    expect(html).toContain("生成 小红书 发布稿");
+    expect(html).toContain("生成 小红书 文字稿");
     expect(html).toContain("不会判断“够了”就自动写稿");
     expect(html).not.toContain('id="publishing-body"');
   });
@@ -245,7 +253,7 @@ describe("PublishingDraftWorkspace", () => {
     const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
 
     expect(html).toContain("先从左侧打开一个故事");
-    expect(html).not.toContain("生成 小红书 发布稿");
+    expect(html).not.toContain("生成 小红书 文字稿");
   });
 
   it("shows X thread length feedback without an unsupported title field", () => {

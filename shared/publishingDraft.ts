@@ -1,3 +1,8 @@
+import {
+  normalizePublishingVideoStoryboardAggregate,
+  type PublishingVideoStoryboardAggregate,
+} from "./publishingVideoStoryboard";
+
 export const PUBLISHING_PLATFORM_IDS = [
   "xiaohongshu",
   "x",
@@ -278,6 +283,8 @@ export type PublishingStoryVersion = {
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
   conversationSnapshot: PublishingConversationSnapshot | null;
+  /** Version-local preview/confirmed script state. Never projected across versions. */
+  videoStoryboard: PublishingVideoStoryboardAggregate | null;
 };
 
 export type PublishingDraftState = {
@@ -296,6 +303,9 @@ export type PublishingDraftState = {
   containerRevision?: number;
   /** Persisted idempotency receipts for version operations. */
   versionOperationReceipts?: Record<string, string>;
+  /** Formal Storyboard activation is independent from the browsed publishing version. */
+  activeVideoStoryboardVersionId?: string | null;
+  activeVideoStoryboardGroupId?: string | null;
 };
 
 export type PublishingEditOutcome =
@@ -347,6 +357,8 @@ export function emptyPublishingDraftState(
     versions: [version],
     containerRevision: 0,
     versionOperationReceipts: {},
+    activeVideoStoryboardVersionId: null,
+    activeVideoStoryboardGroupId: null,
   };
 }
 
@@ -586,6 +598,18 @@ export function normalizePublishingDraftState(
           )
         )
       : {},
+    activeVideoStoryboardVersionId:
+      typeof obj.activeVideoStoryboardVersionId === "string" &&
+      canonicalVersions.some(
+        version => version.versionId === obj.activeVideoStoryboardVersionId
+      )
+        ? obj.activeVideoStoryboardVersionId
+        : null,
+    activeVideoStoryboardGroupId:
+      typeof obj.activeVideoStoryboardGroupId === "string" &&
+      obj.activeVideoStoryboardGroupId.trim()
+        ? obj.activeVideoStoryboardGroupId.trim()
+        : null,
   };
 }
 
@@ -609,6 +633,7 @@ function versionFromLegacyState(
     cover: state.cover ? { ...state.cover } : null,
     coverRounds: structuredClone(state.coverRounds),
     conversationSnapshot: null,
+    videoStoryboard: null,
   };
 }
 
@@ -662,6 +687,9 @@ function normalizeStoryVersion(
           updatedAt: timestamp(snapshotObj.updatedAt, now),
         }
       : null,
+    videoStoryboard: normalizePublishingVideoStoryboardAggregate(
+      obj.videoStoryboard
+    ),
   };
 }
 

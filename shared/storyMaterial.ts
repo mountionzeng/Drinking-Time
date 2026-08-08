@@ -19,6 +19,16 @@ export type TimelineVideoEffects = {
   reverse: boolean;
   volume: number;
   muted: boolean;
+  /** 可撤销的时间性画面效果；不改变源视频。 */
+  motionPreset?: TimelineMotionPreset | null;
+};
+
+export type TimelineMotionPreset = {
+  kind: "heartbeat";
+  /** 每分钟脉冲次数。 */
+  bpm: number;
+  /** 单次脉冲的最大缩放幅度，例如 0.06 表示 6%。 */
+  scaleAmount: number;
 };
 
 export type StoryTimelinePrimaryVideoEdit = {

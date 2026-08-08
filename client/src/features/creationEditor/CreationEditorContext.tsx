@@ -2947,6 +2947,17 @@ export function CreationEditorProvider({
       reverse: Boolean(input.effects.reverse),
       volume: Math.min(2, Math.max(0, input.effects.volume)),
       muted: Boolean(input.effects.muted),
+      motionPreset:
+        input.effects.motionPreset?.kind === "heartbeat"
+          ? {
+              kind: "heartbeat",
+              bpm: Math.min(180, Math.max(36, input.effects.motionPreset.bpm)),
+              scaleAmount: Math.min(
+                0.16,
+                Math.max(0.01, input.effects.motionPreset.scaleAmount)
+              ),
+            }
+          : null,
     };
     const durationMs = Math.max(
       100,

@@ -10,12 +10,15 @@ import {
   assignStoryImageToShot as assignStoryImageToShotDb,
   getStoryById,
   promoteStoryImageToCurrent,
-  updateStory,
 } from "../db";
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import { parseJsonLoose } from "../_core/llmJson";
 import { getStoryMaterialState } from "./storyMaterials";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
+import {
+  persistPreparedStoryBody,
+  StoryBodyRevisionConflictError,
+} from "./storyBodyPersistence";
 import { materializeImageInput } from "./imageAssets";
 import { invokeVisionJson, visionChannelConfigured } from "./visionChannel";
 import { promptShotCode } from "../../shared/shotIdentity";
@@ -306,13 +309,23 @@ export async function applyImageDirectorAdvice(params: {
     };
   });
   if (touched) {
-    await updateStory(params.storyId, params.userId, {
-      body: prepareStoryBody(
+    try {
+      await persistPreparedStoryBody({
+        storyId: params.storyId,
+        userId: params.userId,
+        expectedRevision: getStoryRevision(story.body),
+        body: prepareStoryBody(
         { ...body, shots: nextShots },
         getStoryRevision(story.body) + 1,
         story.body
       ),
-    });
+      });
+    } catch (error) {
+      if (error instanceof StoryBodyRevisionConflictError) {
+        return { status: "error", message: "镜头已在别处更新，请刷新后重试" };
+      }
+      throw error;
+    }
   }
   return { status: "ok", shotNo: params.targetShotNo };
 }

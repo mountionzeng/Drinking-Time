@@ -177,6 +177,27 @@ describe("projectImageAssets", () => {
     });
   });
 
+  it("以激活 Storyboard 版本的正式封面 assetId 为权威，即使旧行仍是 SH01", () => {
+    const assets = projectImageAssets({
+      images: [
+        image(4, "SH01", {
+          shotIdentity: "publishing-cover-opening",
+        }),
+      ],
+      signals: [],
+      validShotNos: ["SH01"],
+      validShotIdentities: ["publishing-shot-1"],
+      publishingCoverAssetId: 4,
+    });
+
+    expect(assets[0]).toMatchObject({
+      kind: "publishing_cover",
+      assignment: "publishing_cover",
+      shotIdentity: "publishing-cover-opening",
+      isPrimary: false,
+    });
+  });
+
   // U2/AE5：单图循环——出第1张划走→第2张划走→第3张收下。被划走的进历史不消失，
   // 收下那张成为唯一主图。这是「划走再来、直到满意」依赖的数据层契约。
   it("Covers AE5：连续划走两张、收下第三张 → 前两张 rejected 留历史，第三张唯一主图", () => {

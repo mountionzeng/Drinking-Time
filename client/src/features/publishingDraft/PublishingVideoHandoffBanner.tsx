@@ -15,13 +15,13 @@ export function PublishingVideoHandoffBannerView({
     <section
       className="flex shrink-0 items-start gap-3 border-b bg-[var(--nayin-surface)]/70 px-4 py-3"
       style={{ borderColor: "var(--panel-border)" }}
-      aria-label="发布稿视频交接"
+      aria-label="文字稿视频交接"
       data-testid="publishing-video-handoff"
     >
       {handoff.cover ? (
         <img
           src={handoff.cover.imageUrl}
-          alt="发布稿封面"
+          alt="文字稿封面"
           className="h-14 w-14 shrink-0 rounded-md object-cover"
         />
       ) : (
@@ -32,7 +32,7 @@ export function PublishingVideoHandoffBannerView({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-semibold text-foreground">
-            从 {adapter.label} 发布稿继续 · {handoff.versionId.toUpperCase()}
+            从 {adapter.label} 文字稿继续 · {handoff.versionId.toUpperCase()}
           </p>
           {handoff.needsReview ? (
             <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] text-rose-700">
@@ -62,7 +62,7 @@ export function PublishingVideoHandoffBannerView({
           type="button"
           onClick={onDismiss}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
-          aria-label="收起发布稿交接"
+          aria-label="收起文字稿交接"
         >
           <X className="h-3.5 w-3.5" />
         </button>

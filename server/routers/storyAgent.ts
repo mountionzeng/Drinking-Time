@@ -9,7 +9,6 @@ import {
   listUserStories,
   getStoryById,
   createStory,
-  updateStory,
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
@@ -65,6 +64,10 @@ import {
   mergeStaleStoryBody,
   prepareStoryBody,
 } from "../services/storySync";
+import {
+  persistPreparedStoryBody,
+  StoryBodyRevisionConflictError,
+} from "../services/storyBodyPersistence";
 import {
   deleteStoryShotAtIndex,
   insertStoryShotAfter,
@@ -604,16 +607,32 @@ export const storyAgentRouter = router({
               : syncConflict
                 ? mergeStaleStoryBody(existing.body, input.body, nextRevision)
                 : prepareStoryBody(input.body, nextRevision, existing.body);
-          await updateStory(input.id, ctx.user.id, {
-            title,
-            logline: syncConflict ? undefined : input.logline,
-            theme: syncConflict ? undefined : input.theme,
-            arc: syncConflict ? undefined : input.arc,
-            summary: syncConflict ? undefined : input.summary,
-            projectId: syncConflict ? undefined : input.projectId,
-            body: nextBody,
-          });
-          const saved = await getStoryById(input.id, ctx.user.id);
+          let saved;
+          try {
+            saved = await persistPreparedStoryBody({
+              storyId: input.id,
+              userId: ctx.user.id,
+              expectedRevision: currentRevision,
+              body: nextBody,
+              data: {
+                title,
+                logline: syncConflict ? undefined : input.logline,
+                theme: syncConflict ? undefined : input.theme,
+                arc: syncConflict ? undefined : input.arc,
+                summary: syncConflict ? undefined : input.summary,
+                projectId: syncConflict ? undefined : input.projectId,
+              },
+            });
+          } catch (error) {
+            if (error instanceof StoryBodyRevisionConflictError) {
+              return composeStoryWorkspace(
+                error.latestStory,
+                ctx.user.id,
+                true
+              );
+            }
+            throw error;
+          }
           if (saved) {
             await migrateStoryPromptLineage({
               storyId: saved.id,
@@ -743,8 +762,20 @@ export const storyAgentRouter = router({
         getStoryRevision(story.body) + 1,
         story.body
       );
-      await updateStory(story.id, ctx.user.id, { body: nextBody });
-      const saved = await getStoryById(story.id, ctx.user.id);
+      let saved;
+      try {
+        saved = await persistPreparedStoryBody({
+          storyId: story.id,
+          userId: ctx.user.id,
+          expectedRevision: getStoryRevision(story.body),
+          body: nextBody,
+        });
+      } catch (error) {
+        if (error instanceof StoryBodyRevisionConflictError) {
+          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+        }
+        throw error;
+      }
       if (saved) {
         void migrateStoryPromptLineage({
           storyId: saved.id,
@@ -823,8 +854,20 @@ export const storyAgentRouter = router({
         getStoryRevision(story.body) + 1,
         story.body
       );
-      await updateStory(story.id, ctx.user.id, { body: nextBody });
-      const saved = await getStoryById(story.id, ctx.user.id);
+      let saved;
+      try {
+        saved = await persistPreparedStoryBody({
+          storyId: story.id,
+          userId: ctx.user.id,
+          expectedRevision: getStoryRevision(story.body),
+          body: nextBody,
+        });
+      } catch (error) {
+        if (error instanceof StoryBodyRevisionConflictError) {
+          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+        }
+        throw error;
+      }
       if (saved) {
         void migrateStoryPromptLineage({
           storyId: saved.id,
@@ -890,8 +933,20 @@ export const storyAgentRouter = router({
         getStoryRevision(story.body) + 1,
         story.body
       );
-      await updateStory(story.id, ctx.user.id, { body: nextBody });
-      const saved = await getStoryById(story.id, ctx.user.id);
+      let saved;
+      try {
+        saved = await persistPreparedStoryBody({
+          storyId: story.id,
+          userId: ctx.user.id,
+          expectedRevision: getStoryRevision(story.body),
+          body: nextBody,
+        });
+      } catch (error) {
+        if (error instanceof StoryBodyRevisionConflictError) {
+          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+        }
+        throw error;
+      }
       if (saved) {
         void migrateStoryPromptLineage({
           storyId: saved.id,
@@ -927,13 +982,23 @@ export const storyAgentRouter = router({
         typeof body.styleIndex === "number" ? body.styleIndex : -1;
       const next = (current + 1) % styles.length;
       const nextBody = { ...body, styleIndex: next };
-      await updateStory(story.id, ctx.user.id, {
-        body: prepareStoryBody(
-          nextBody,
-          getStoryRevision(story.body) + 1,
-          story.body
-        ),
-      });
+      try {
+        await persistPreparedStoryBody({
+          storyId: story.id,
+          userId: ctx.user.id,
+          expectedRevision: getStoryRevision(story.body),
+          body: prepareStoryBody(
+            nextBody,
+            getStoryRevision(story.body) + 1,
+            story.body
+          ),
+        });
+      } catch (error) {
+        if (error instanceof StoryBodyRevisionConflictError) {
+          return { status: "error" as const, error: "故事已更新，请刷新后重试" };
+        }
+        throw error;
+      }
       return {
         status: "ok" as const,
         styleIndex: next,
@@ -1849,13 +1914,20 @@ export const storyAgentRouter = router({
         Array.isArray(mobileImages) &&
         mobileImages.length !== previousMobileImages.length;
       if (removedPromptRunReference || removedMobileImage) {
-        await updateStory(story.id, ctx.user.id, {
-          body: prepareStoryBody(
-            { ...body, shots, mobileImages },
-            getStoryRevision(story.body) + 1,
-            story.body
-          ),
-        });
+        try {
+          await persistPreparedStoryBody({
+            storyId: story.id,
+            userId: ctx.user.id,
+            expectedRevision: getStoryRevision(story.body),
+            body: prepareStoryBody(
+              { ...body, shots, mobileImages },
+              getStoryRevision(story.body) + 1,
+              story.body
+            ),
+          });
+        } catch (error) {
+          if (!(error instanceof StoryBodyRevisionConflictError)) throw error;
+        }
       }
 
       const assets = await getStoryImageAssets(input.storyId, ctx.user.id);

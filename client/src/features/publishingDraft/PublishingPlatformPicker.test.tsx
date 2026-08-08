@@ -28,6 +28,24 @@ describe("PublishingPlatformPickerView", () => {
     expect(html).not.toContain("overflow-x-auto");
   });
 
+  it("compact mode keeps each platform group on a single scrollable line", () => {
+    const html = renderToStaticMarkup(
+      <PublishingPlatformPickerView
+        activePlatform="xiaohongshu"
+        selectedPlatforms={["xiaohongshu", "x"]}
+        onActivePlatformChange={vi.fn()}
+        onToggleTarget={vi.fn()}
+        compact
+      />
+    );
+
+    expect(html).toContain("overflow-x-auto");
+    expect(html).not.toContain("flex-wrap");
+    expect(html).not.toContain("选择不会自动生成");
+    expect(html).toContain('aria-label="当前写作平台"');
+    expect(html).toContain('aria-label="也想发布到"');
+  });
+
   it("disables every control while one selection request is in flight", () => {
     const html = renderToStaticMarkup(
       <PublishingPlatformPickerView

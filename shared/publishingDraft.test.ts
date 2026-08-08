@@ -228,6 +228,58 @@ describe("normalizePublishingDraftState", () => {
     ]);
   });
 
+  it("keeps each version video storyboard isolated from the formal activation pointer", () => {
+    const raw = normalizePublishingDraftState(
+      {
+        ...emptyPublishingDraftState(NOW),
+        activeVersionId: "v2",
+        activeVideoStoryboardVersionId: "v1",
+        activeVideoStoryboardGroupId: "publishing-group-v1",
+        containerRevision: 2,
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            parentId: null,
+            versionRevision: 1,
+            activePlatform: "xiaohongshu",
+            selectedPlatforms: ["xiaohongshu"],
+            drafts: {},
+            cover: null,
+            coverRounds: [],
+            videoStoryboard: {
+              version: 1,
+              latestPreview: null,
+              confirmed: null,
+              impactPlan: null,
+              operations: {},
+            },
+          },
+          {
+            versionId: "v2",
+            sequence: 2,
+            displayName: "V2",
+            parentId: "v1",
+            versionRevision: 2,
+            activePlatform: "x",
+            selectedPlatforms: ["x"],
+            drafts: {},
+            cover: null,
+            coverRounds: [],
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(raw.activeVersionId).toBe("v2");
+    expect(raw.activeVideoStoryboardVersionId).toBe("v1");
+    expect(raw.activeVideoStoryboardGroupId).toBe("publishing-group-v1");
+    expect(raw.versions?.[0]?.videoStoryboard).toMatchObject({ version: 1 });
+    expect(raw.versions?.[1]?.videoStoryboard).toBeNull();
+  });
+
   it("deduplicates selections and drops unsupported or malformed data without manufacturing text", () => {
     const normalized = normalizePublishingDraftState(
       {

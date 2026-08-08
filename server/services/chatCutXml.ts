@@ -5,11 +5,11 @@ import {
   deleteStory,
   getStoryById,
   getStoryTimeline,
-  updateStory,
   updateStoryTimeline,
 } from "../db";
 import { migrateStoryPromptLineage } from "./promptLineageMigration";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
+import { persistPreparedStoryBody } from "./storyBodyPersistence";
 
 export const MAX_CHATCUT_XML_BYTES = 2_000_000;
 
@@ -1142,14 +1142,17 @@ export async function attachChatCutXmlToStory(input: {
     };
   });
 
+  const updatedStory = await persistPreparedStoryBody({
+    storyId: input.storyId,
+    userId: input.userId,
+    expectedRevision: getStoryRevision(story.body),
+    body: nextBody,
+  });
   const timeline = await updateStoryTimeline({
     storyId: input.storyId,
     userId: input.userId,
     expectedVersion: currentTimeline?.version ?? 0,
     items: timelineItems,
   });
-  await updateStory(input.storyId, input.userId, { body: nextBody });
-  const updatedStory = await getStoryById(input.storyId, input.userId);
-  if (!updatedStory) throw new Error("ChatCut 时间线已解析，但故事保存失败");
   return { story: updatedStory, timeline, plan: attachedPlan, summary };
 }

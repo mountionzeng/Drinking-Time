@@ -5,6 +5,7 @@ export const STORY_SHOT_EDITABLE_FIELDS = [
   "actNo",
   "subject",
   "action",
+  "scriptText",
   "performance",
   "environmentMotion",
   "dialogue",

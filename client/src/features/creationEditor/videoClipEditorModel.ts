@@ -7,6 +7,7 @@ import {
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import type { CSSProperties } from "react";
 
 export type VideoClipEditorTarget = {
   stableShotId: string;
@@ -47,6 +48,34 @@ export type VideoClipboardPayload = {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 
+function normalizedMotionPreset(
+  motionPreset: TimelineVideoEffects["motionPreset"]
+): TimelineVideoEffects["motionPreset"] {
+  if (!motionPreset || motionPreset.kind !== "heartbeat") return null;
+  return {
+    kind: "heartbeat",
+    bpm: clamp(motionPreset.bpm, 36, 180),
+    scaleAmount: clamp(motionPreset.scaleAmount, 0.01, 0.16),
+  };
+}
+
+/** 供画布预览使用。静态构图留给内部 video 元素，避免 transform 冲突。 */
+export function timelineVideoMotionStyle(
+  effects: TimelineVideoEffects | null | undefined
+): CSSProperties | undefined {
+  const motionPreset = normalizedMotionPreset(effects?.motionPreset);
+  if (!motionPreset) return undefined;
+  const scale = (1 + motionPreset.scaleAmount).toFixed(4);
+  const echo = (1 + motionPreset.scaleAmount * 0.42).toFixed(4);
+  const second = (1 + motionPreset.scaleAmount * 0.72).toFixed(4);
+  return {
+    animation: `timeline-heartbeat ${(60 / motionPreset.bpm).toFixed(3)}s ease-in-out infinite`,
+    "--timeline-heartbeat-primary-scale": scale,
+    "--timeline-heartbeat-echo-scale": echo,
+    "--timeline-heartbeat-secondary-scale": second,
+  } as CSSProperties;
+}
+
 export function normalizeVideoClipEditDraft(
   value: VideoClipEditDraft,
   mediaDurationSec: number
@@ -66,6 +95,7 @@ export function normalizeVideoClipEditDraft(
       reverse: Boolean(value.effects.reverse),
       volume: clamp(value.effects.volume, 0, 2),
       muted: Boolean(value.effects.muted),
+      motionPreset: normalizedMotionPreset(value.effects.motionPreset),
     },
     transform: {
       cropX: clamp(value.transform.cropX, 0, 1),
