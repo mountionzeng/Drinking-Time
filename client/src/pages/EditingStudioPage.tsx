@@ -14,7 +14,7 @@ import {
   PanelLeftOpen,
   Plus,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import {
@@ -60,6 +60,7 @@ import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
 import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
+import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
 import type { SelectionContext } from "@shared/selectionContext";
@@ -75,6 +76,7 @@ import {
   STUDIO_WORKSPACE_OPTIONS,
   isStoryPanelWorkspace,
   resolveStudioInteractionMode,
+  resolveTimelineCommandStoryId,
   shouldShowPublishingHandoff,
   type StudioInteractionMode,
   type StudioWorkspace,
@@ -174,12 +176,18 @@ function ExportButton({ storyId }: { storyId: number }) {
   );
 }
 
-function StoryPanelWorkspace({ workspace }: { workspace: StoryPanel }) {
+function StoryPanelWorkspace({
+  workspace,
+  onEditVideo,
+}: {
+  workspace: StoryPanel;
+  onEditVideo: (target: VideoClipEditorTarget) => void;
+}) {
   switch (workspace) {
     case "materialWarehouse":
       return <MaterialWarehousePanel />;
     case "storyboard":
-      return <StoryboardPanel />;
+      return <StoryboardPanel onEditVideo={onEditVideo} />;
     case "animatic":
       return <AnimaticPanel />;
     case "promptTable":
@@ -209,6 +217,8 @@ function EditingStudioBody({
   const [pendingStoryAction, setPendingStoryAction] = useState<
     "back" | "new" | null
   >(null);
+  const [videoEditorHandoffTarget, setVideoEditorHandoffTarget] =
+    useState<VideoClipEditorTarget | null>(null);
   const dirtyBuffers = Object.values(publishingBuffers).filter(
     buffer => buffer.storyId === activeStoryId
   );
@@ -241,6 +251,18 @@ function EditingStudioBody({
     }
     leaveWithDrafts();
   };
+
+  useEffect(() => {
+    setVideoEditorHandoffTarget(null);
+  }, [activeStoryId]);
+
+  const openStoryboardVideoEditor = useCallback(
+    (target: VideoClipEditorTarget) => {
+      setVideoEditorHandoffTarget(target);
+      onWorkspaceChange("editing");
+    },
+    [onWorkspaceChange]
+  );
 
   return (
     <CreationEditorProvider activeStoryId={activeStoryId}>
@@ -331,12 +353,12 @@ function EditingStudioBody({
           </div>
         </div>
 
-        {/* 右：发布稿、五个故事面板与剪辑台共享同一 Story。 */}
+        {/* 右：文字稿、五个故事面板与剪辑台共享同一 Story。 */}
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {workspace === "publishing" ? (
             <div id="publishing-draft-workspace" className="h-full">
               <PublishingDraftWorkspace
-                onContinueToVideo={() => onWorkspaceChange("editing")}
+                onContinueToVideo={() => onWorkspaceChange("storyboard")}
               />
             </div>
           ) : activeStoryId !== null ? (
@@ -360,9 +382,18 @@ function EditingStudioBody({
               ) : null}
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {workspace === "editing" ? (
-                  <EditingNleWorkspace timelineVisible={timelineVisible} />
+                  <EditingNleWorkspace
+                    timelineVisible={timelineVisible}
+                    videoEditorHandoffTarget={videoEditorHandoffTarget}
+                    onVideoEditorHandoffHandled={() =>
+                      setVideoEditorHandoffTarget(null)
+                    }
+                  />
                 ) : isStoryPanelWorkspace(workspace) ? (
-                  <StoryPanelWorkspace workspace={workspace} />
+                  <StoryPanelWorkspace
+                    workspace={workspace}
+                    onEditVideo={openStoryboardVideoEditor}
+                  />
                 ) : null}
               </div>
             </div>
@@ -383,14 +414,14 @@ function EditingStudioBody({
       >
         <DialogContent showCloseButton>
           <DialogHeader>
-            <DialogTitle>这篇发布稿还有未应用修改</DialogTitle>
+            <DialogTitle>这篇文字稿还有未应用修改</DialogTitle>
             <DialogDescription>
               你的文字仍安全保存在当前 Story 的本地缓冲区，不会带到下一个
               Story。
             </DialogDescription>
           </DialogHeader>
           <p className="text-xs leading-5 text-muted-foreground">
-            回到发布稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。
+            回到文字稿可以先点“应用修改”；也可以保留草稿稍后处理，或明确丢弃这些修改后离开。
           </p>
           <DialogFooter>
             <button
@@ -451,9 +482,14 @@ export default function EditingStudioPage() {
         | "videoTakeId"
         | "rangeId"
         | "selection"
-      >
+      >,
+      requestedStoryId?: number | null
     ) => {
-      const storyId = storySpineStore.getState().activeStoryId;
+      const storyId = resolveTimelineCommandStoryId(
+        requestedStoryId,
+        activeStoryId,
+        storySpineStore.getState().activeStoryId
+      );
       if (storyId == null) return null;
       const localCommand = parseLocalEditingChatCommand(instruction);
       if (localCommand?.type === "capabilities") {
@@ -504,7 +540,7 @@ export default function EditingStudioPage() {
         transitionCandidate: result.proposal,
       };
     },
-    [timelineEditMut, utils]
+    [activeStoryId, timelineEditMut, utils]
   );
 
   return (

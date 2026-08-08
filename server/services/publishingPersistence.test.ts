@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbMocks = vi.hoisted(() => ({
   getStoryById: vi.fn(),
   updateStory: vi.fn(),
+  updateStoryBodyIfRevision: vi.fn(),
 }));
 
 vi.mock("../db", () => dbMocks);
@@ -44,6 +45,26 @@ describe("publishingPersistence", () => {
         if (id === story.id && userId === story.userId) {
           story = { ...story, ...structuredClone(patch) };
         }
+      }
+    );
+    dbMocks.updateStoryBodyIfRevision.mockImplementation(
+      async (input: {
+        id: number;
+        userId: number;
+        expectedRevision: number;
+        body: Record<string, unknown>;
+      }) => {
+        const currentRevision =
+          ((story.body as Record<string, unknown>)._revision as number) ?? 0;
+        if (
+          input.id !== story.id ||
+          input.userId !== story.userId ||
+          input.expectedRevision !== currentRevision
+        ) {
+          return false;
+        }
+        story = { ...story, body: structuredClone(input.body) };
+        return true;
       }
     );
   });
@@ -276,6 +297,233 @@ describe("publishingPersistence", () => {
         },
       })
     ).rejects.toBeInstanceOf(PublishingDraftOwnershipError);
-    expect(dbMocks.updateStory).not.toHaveBeenCalled();
+    expect(dbMocks.updateStoryBodyIfRevision).not.toHaveBeenCalled();
+  });
+
+  it("creates an isolated V2 with the confirmed platform, inherited cover, and review flags", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu", "x"],
+        core: baseCore,
+        content: { title: "V1 标题", body: "V1 小红书", tags: [] },
+        basePublishingRevision: 0,
+      },
+    });
+    const withX = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "upsert_draft",
+        platform: "x",
+        content: { title: "V1 X", body: "V1 X 正文", tags: [] },
+        baseDraftRevision: 0,
+      },
+    });
+    const withCover = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "set_cover",
+        cover: { assetId: 77, sourceCoreRevision: 1, createdAt: 10 },
+        basePublishingRevision: withX.publishing.revision,
+      },
+    });
+    const withRound = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "append_cover_round",
+        round: {
+          id: "v1-round",
+          platform: "xiaohongshu",
+          sourceCoreRevision: 1,
+          parentAssetId: null,
+          feedback: "候选",
+          assetIds: [81, 82, 83, 84],
+          createdAt: 11,
+        },
+        basePublishingRevision: withCover.publishing.revision,
+      },
+    });
+
+    const saved = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operationToken: "create-v2-once",
+      operation: {
+        type: "create_version",
+        platform: "xiaohongshu",
+        core: { ...baseCore, thesis: "V2 判断" },
+        content: { title: "V2 标题", body: "V2 小红书", tags: ["V2"] },
+        baseCoreRevision: 1,
+        baseDraftRevision: 1,
+        baseVersionRevision: withRound.publishing.versions?.find(
+          v => v.versionId === "v1"
+        )?.versionRevision,
+        baseContainerRevision: withRound.publishing.containerRevision ?? 0,
+        conversationSnapshot: {
+          messages: [{ role: "user", content: "V2 想法" }],
+          updatedAt: 12,
+        },
+      },
+    });
+
+    expect(saved.publishing.activeVersionId).toBe("v2");
+    expect(saved.publishing.versions).toHaveLength(2);
+    expect(saved.publishing.core?.thesis).toBe("V2 判断");
+    expect(saved.publishing.drafts.xiaohongshu?.content.body).toBe("V2 小红书");
+    expect(saved.publishing.drafts.x?.content.body).toBe("V1 X 正文");
+    expect(saved.publishing.drafts.x?.needsReview).toBe(true);
+    expect(saved.publishing.cover?.assetId).toBe(77);
+    expect(saved.publishing.coverRounds).toEqual([]);
+    expect(saved.publishing.versions?.[0]?.coverRounds).toHaveLength(1);
+    expect(
+      saved.publishing.versions?.[0]?.drafts.xiaohongshu?.content.body
+    ).toBe("V1 小红书");
+    expect(saved.publishing.versions?.[0]?.cover?.assetId).toBe(77);
+    expect(
+      saved.publishing.versions?.[1]?.conversationSnapshot?.messages
+    ).toEqual([{ role: "user", content: "V2 想法" }]);
+    expect(initialized.publishing.activeVersionId).toBe("v1");
+  });
+
+  it("replays a version operation from the persisted receipt without creating another version", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "原稿", tags: [] },
+        basePublishingRevision: 0,
+      },
+    });
+    const operation = {
+      type: "create_version" as const,
+      platform: "xiaohongshu" as const,
+      core: { ...baseCore, thesis: "重试版本" },
+      content: { title: "V2", body: "新稿", tags: [] },
+      baseCoreRevision: 1,
+      baseDraftRevision: 1,
+      baseVersionRevision: initialized.publishing.versions?.find(
+        v => v.versionId === "v1"
+      )?.versionRevision,
+      baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+    };
+
+    const first = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation,
+      operationToken: "persisted-token",
+    });
+    const updateCount = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retry = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation,
+      operationToken: "persisted-token",
+    });
+
+    expect(retry.storyRevision).toBe(first.storyRevision);
+    expect(retry.publishing.activeVersionId).toBe("v2");
+    expect(retry.publishing.versions).toHaveLength(2);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(updateCount);
+    expect(retry.publishing.versionOperationReceipts).toEqual({
+      "persisted-token": "v2",
+    });
+  });
+
+  it("rejects stale container operations and keeps V1/V2 edits isolated", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "V1 原稿", tags: [] },
+        basePublishingRevision: 0,
+      },
+    });
+    const created = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "create_version",
+        platform: "xiaohongshu",
+        core: { ...baseCore, thesis: "V2" },
+        content: { title: "V2", body: "V2 原稿", tags: [] },
+        baseCoreRevision: 1,
+        baseDraftRevision: 1,
+        baseVersionRevision: initialized.publishing.versions?.find(
+          v => v.versionId === "v1"
+        )?.versionRevision,
+        baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+      },
+    });
+
+    await expect(
+      writePublishingDraftState({
+        storyId: 7,
+        userId: 3,
+        operation: {
+          type: "select_version",
+          versionId: "v1",
+          baseContainerRevision: 0,
+          baseVersionRevision: 1,
+        },
+      })
+    ).rejects.toBeInstanceOf(PublishingDraftConflictError);
+
+    const selectedV1 = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "select_version",
+        versionId: "v1",
+        baseContainerRevision: created.publishing.containerRevision ?? 0,
+        baseVersionRevision: created.publishing.versions?.find(
+          v => v.versionId === "v1"
+        )?.versionRevision,
+      },
+    });
+    await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "apply_wording",
+        platform: "xiaohongshu",
+        content: { title: "V1", body: "V1 修改后", tags: [] },
+        baseDraftRevision: 1,
+      },
+    });
+    const selectedV2 = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "select_version",
+        versionId: "v2",
+        baseContainerRevision: selectedV1.publishing.containerRevision ?? 0,
+        baseVersionRevision: created.publishing.versions?.find(
+          v => v.versionId === "v2"
+        )?.versionRevision,
+      },
+    });
+
+    expect(selectedV2.publishing.drafts.xiaohongshu?.content.body).toBe(
+      "V2 原稿"
+    );
+    expect(
+      selectedV2.publishing.versions?.find(v => v.versionId === "v1")?.drafts
+        .xiaohongshu?.content.body
+    ).toBe("V1 修改后");
   });
 });

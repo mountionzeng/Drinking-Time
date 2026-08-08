@@ -2,6 +2,25 @@
 @import "tw-animate-css";
 @import "./styles/shot-stage-illustration.css";
 
+@keyframes timeline-heartbeat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  12% {
+    transform: scale(var(--timeline-heartbeat-primary-scale));
+  }
+  25% {
+    transform: scale(var(--timeline-heartbeat-echo-scale));
+  }
+  38% {
+    transform: scale(var(--timeline-heartbeat-secondary-scale));
+  }
+  54% {
+    transform: scale(1);
+  }
+}
+
 @font-face {
   font-family: "Honglei Zhuoshu";
   src: url("./assets/fonts/honglei-zhuoshu-brand.ttf") format("truetype");

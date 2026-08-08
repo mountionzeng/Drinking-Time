@@ -225,6 +225,41 @@ describe("buildExportPlan", () => {
     ]);
   });
 
+  it("把心跳缩放作为可导出的时间性效果保留在导出计划中", () => {
+    const plan = buildExportPlan(
+      material({
+        shots: [{ stableShotId: "a", shotNo: 1, currentVideo: video(32) }],
+        items: [
+          {
+            stableShotId: "a",
+            included: true,
+            position: 0,
+            plannedDurationMs: 2_000,
+            transform,
+            primaryVideoEdit: {
+              takeId: 32,
+              sourceStartSec: 0,
+              sourceEndSec: 2,
+              effects: {
+                playbackRate: 1,
+                reverse: false,
+                volume: 1,
+                muted: false,
+                motionPreset: { kind: "heartbeat", bpm: 90, scaleAmount: 0.06 },
+              },
+            },
+          },
+        ],
+      })
+    );
+
+    expect(plan.segments[0].effects.motionPreset).toEqual({
+      kind: "heartbeat",
+      bpm: 90,
+      scaleAmount: 0.06,
+    });
+  });
+
   it("按时间顺序导出替代主镜头的视频切片", () => {
     const plan = buildExportPlan(
       material({

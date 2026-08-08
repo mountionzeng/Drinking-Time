@@ -26,7 +26,6 @@ import {
   UploadCloud,
   Video,
   Mic,
-  Square,
   Cloud,
   Check,
   Link2,
@@ -46,6 +45,10 @@ import {
 import { useNayin } from "@/features/nayin/NayinContext";
 import EmotiveWuxingIcon from "@/features/nayin/views/EmotiveWuxingIcon";
 import { useVoiceInput } from "@/features/storyAgent/hooks/useVoiceInput";
+import {
+  RecordingGlyph,
+  TranscribingGlyph,
+} from "@/features/storyAgent/views/VoiceInputGlyph";
 import { formatBytes, optimizeImageForUpload } from "@/lib/imageUpload";
 import StoryCapabilityMenu, {
   shouldShowCapabilityMenu,
@@ -330,7 +333,7 @@ export default function StoryAgentChat({
       : "新故事草稿");
   const storyDisplaySubtitle =
     interactionMode === "publishing"
-      ? "等待你整理成当前平台发布稿"
+      ? "等待你整理成当前平台文字稿"
       : storyLogline?.trim() ||
         (storyShotsCount > 0
           ? `${storyShotsCount} 个镜头正在同步`
@@ -1467,9 +1470,9 @@ export default function StoryAgentChat({
             title={voice.isRecording ? "停止录音" : "语音输入"}
           >
             {voice.isTranscribing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <TranscribingGlyph />
             ) : voice.isRecording ? (
-              <Square className="w-4 h-4 fill-current" />
+              <RecordingGlyph />
             ) : (
               <Mic className="w-4 h-4" />
             )}

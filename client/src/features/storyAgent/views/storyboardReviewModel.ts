@@ -35,6 +35,28 @@ import {
 import { hasStoryboardImageDragPayload } from "../storyboardLocalMedia";
 import type { StoryboardContinuityOption } from "./StoryboardContinuityDialog";
 
+/**
+ * A pending continuity choice can be interrupted when the user leaves the
+ * storyboard. That is different from explicitly pressing "取消" in the
+ * dialog, which should remain visible feedback for a deliberately cancelled
+ * render.
+ */
+export const STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED = Symbol(
+  "storyboard-continuity-request-interrupted"
+);
+
+export type StoryboardContinuityResolution =
+  | StoryboardContinuityOption
+  | null
+  | undefined
+  | typeof STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED;
+
+export function shouldAnnounceVideoGenerationCancellation(
+  resolution: StoryboardContinuityResolution
+): boolean {
+  return resolution === null;
+}
+
 export function shouldUseSingleImageFallback(
   status: ImageProviderStatus | null | undefined
 ): boolean {

@@ -26,6 +26,9 @@ export const PUBLISHING_COVER_PROFILE = {
   provider: "midjourney",
   aspectRatio: "3:4",
   candidateCount: STORYBOARD_IMAGE_CANDIDATE_COUNT,
+  // 302 的 MJ 任务偶尔会在队列中停留超过默认三分钟；封面任务必须等到
+  // 供应商明确失败或完成，不能把已被接受、随后会成功的四图任务误报为失败。
+  mjTimeoutMs: 10 * 60 * 1000,
 } as const;
 
 export const STORYBOARD_MASKED_EDIT_PROFILE = {

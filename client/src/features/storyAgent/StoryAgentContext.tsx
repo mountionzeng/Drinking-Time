@@ -347,11 +347,13 @@ interface StoryAgentContextValue {
   setPublishingBuffer: (
     storyId: number,
     platform: PublishingPlatformId,
-    content: PublishingDraftContent
+    content: PublishingDraftContent,
+    versionId?: string
   ) => void;
   discardPublishingBuffer: (
     storyId: number,
-    platform: PublishingPlatformId
+    platform: PublishingPlatformId,
+    versionId?: string
   ) => void;
   ensureActiveStoryPersisted: () => Promise<number>;
   confirmedIntent: StoryIntent | null;
@@ -403,7 +405,10 @@ interface StoryAgentContextValue {
   lastSavedAt?: number;
   storyList: StoryListItem[];
   isLoadingStories: boolean;
-  loadStory: (id: number) => Promise<void>;
+  loadStory: (
+    id: number,
+    options?: { silent?: boolean; expectedActiveStoryId?: number }
+  ) => Promise<void>;
   createNewStory: () => void;
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
@@ -919,7 +924,8 @@ export function StoryAgentProvider({
       | "videoTakeId"
       | "rangeId"
       | "selection"
-    >
+    >,
+    storyId?: number | null
   ) => Promise<{
     handled: boolean;
     reply: string;
@@ -1537,12 +1543,14 @@ export function StoryAgentProvider({
     (
       storyId: number,
       platform: PublishingPlatformId,
-      content: PublishingDraftContent
+      content: PublishingDraftContent,
+      versionId = "v1"
     ) => {
       setPublishingBuffers(current =>
         putPublishingBuffer(current, {
           storyId,
           platform,
+          versionId,
           content,
           updatedAt: Date.now(),
         })
@@ -1552,9 +1560,9 @@ export function StoryAgentProvider({
   );
 
   const discardLocalPublishingBuffer = useCallback(
-    (storyId: number, platform: PublishingPlatformId) => {
+    (storyId: number, platform: PublishingPlatformId, versionId = "v1") => {
       setPublishingBuffers(current =>
-        removePublishingBuffer(current, storyId, platform)
+        removePublishingBuffer(current, storyId, platform, versionId)
       );
     },
     [setPublishingBuffers]
@@ -1670,14 +1678,32 @@ export function StoryAgentProvider({
         setMessages(nextMessages);
 
         // 剪辑工作室的指令通道：先问剪辑代理，接住就不进故事聊天。
+        const selectedVideoForEditing =
+          activeSelection?.sourceType === "animatic-video" ||
+          activeSelection?.sourceType === "timeline-range";
         if (
-          interactionMode === "story" &&
           editingCommandRunner &&
           trimmed &&
-          !photoBase64
+          !photoBase64 &&
+          (interactionMode === "story" || selectedVideoForEditing)
         ) {
           try {
-            const outcome = await editingCommandRunner(trimmed);
+            const outcome = await editingCommandRunner(
+              trimmed,
+              selectedVideoForEditing && activeSelection
+                ? {
+                    sourceType: activeSelection.sourceType,
+                    sourceId: activeSelection.sourceId,
+                    stableShotId: activeSelection.stableShotId,
+                    shotNo: activeSelection.shotNo,
+                    imageId: activeSelection.imageId,
+                    videoTakeId: activeSelection.videoTakeId,
+                    rangeId: activeSelection.rangeId,
+                    selection: activeSelection.selection,
+                  }
+                : undefined,
+              requestStoryId
+            );
             if (outcome?.handled) {
               if (
                 storyScopeMatches(
@@ -2026,6 +2052,7 @@ export function StoryAgentProvider({
       recognizeIntentFromHistory,
       editingCommandRunner,
       interactionMode,
+      activeSelection,
       utils.promptLineage.getStoryProjection,
       // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
       // 它们在组件里比 sendMessage 声明得晚，放进去会在渲染时触发 TDZ
@@ -2588,7 +2615,17 @@ export function StoryAgentProvider({
   }, [setPublishing]);
 
   const loadStory = useCallback(
-    async (id: number, options?: { silent?: boolean }) => {
+    async (
+      id: number,
+      options?: { silent?: boolean; expectedActiveStoryId?: number }
+    ) => {
+      if (
+        options?.expectedActiveStoryId != null &&
+        storySpineStore.getState().activeStoryId !==
+          options.expectedActiveStoryId
+      ) {
+        return;
+      }
       try {
         // staleTime:0 强制从服务器重拉最新 —— 否则命中缓存会显示旧快照，
         // 看不到另一端（手机）刚加的消息/卡片/图（跨端同步的关键）。
@@ -2598,6 +2635,13 @@ export function StoryAgentProvider({
         );
         if (!row) {
           toast.error("故事不存在");
+          return;
+        }
+        if (
+          options?.expectedActiveStoryId != null &&
+          storySpineStore.getState().activeStoryId !==
+            options.expectedActiveStoryId
+        ) {
           return;
         }
         const body =
@@ -3168,16 +3212,20 @@ export function StoryAgentProvider({
         // 在剪辑工作室里，镜头/图片选区先交给时间轴代理。它只在明确的
         // 剪辑意图下接管；普通文字润色仍继续走下面原有 selectionEdit。
         if (editingCommandRunner) {
-          const outcome = await editingCommandRunner(instruction, {
-            sourceType: activeSelection.sourceType,
-            sourceId: activeSelection.sourceId,
-            stableShotId: activeSelection.stableShotId,
-            shotNo: activeSelection.shotNo,
-            imageId: activeSelection.imageId,
-            videoTakeId: activeSelection.videoTakeId,
-            rangeId: activeSelection.rangeId,
-            selection: activeSelection.selection,
-          });
+          const outcome = await editingCommandRunner(
+            instruction,
+            {
+              sourceType: activeSelection.sourceType,
+              sourceId: activeSelection.sourceId,
+              stableShotId: activeSelection.stableShotId,
+              shotNo: activeSelection.shotNo,
+              imageId: activeSelection.imageId,
+              videoTakeId: activeSelection.videoTakeId,
+              rangeId: activeSelection.rangeId,
+              selection: activeSelection.selection,
+            },
+            requestStoryId ?? activeSelection.storyId
+          );
           if (outcome?.handled) {
             if (
               !storyScopeMatches(

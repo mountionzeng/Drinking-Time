@@ -36,6 +36,7 @@ describe("estimateStoryboardImageCost", () => {
       provider: "midjourney",
       aspectRatio: "3:4",
       candidateCount: 4,
+      mjTimeoutMs: 600_000,
     });
     expect(estimatePublishingCoverCost()).toEqual({
       currency: "CNY",

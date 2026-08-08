@@ -8,7 +8,7 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
   id: StudioWorkspace;
   label: string;
 }> = [
-  { id: "publishing", label: "发布稿" },
+  { id: "publishing", label: "文字稿" },
   ...STORY_PANELS,
   { id: "editing", label: "剪辑台" },
 ];
@@ -33,4 +33,17 @@ export function resolveStudioInteractionMode(
     confirmedIntent?.purpose === "social_post"
     ? "publishing"
     : "story";
+}
+
+/**
+ * 剪辑指令必须跟随当前页面已经解析出的故事。
+ * spine store 在工作区切换/热更新期间可能短暂还原为空，不能让这段瞬态状态
+ * 把本来有效的选区又放回普通聊天。
+ */
+export function resolveTimelineCommandStoryId(
+  requestedStoryId: number | null | undefined,
+  activeStoryId: number | null,
+  spineStoryId: number | null
+): number | null {
+  return requestedStoryId ?? activeStoryId ?? spineStoryId;
 }

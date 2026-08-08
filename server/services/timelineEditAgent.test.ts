@@ -472,6 +472,89 @@ describe("runTimelineEditCommand", () => {
     });
   });
 
+  it("选中主视频后把心跳运动写入时间线，而不是误当成倍速", async () => {
+    const take = {
+      ...currentVideo(52, 4),
+      isTimelineSelected: true,
+      stableShotId: "shot-a",
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [item("shot-a", 0)] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: take,
+          videoTakes: [take],
+          currentImage: null,
+        },
+      ],
+    });
+
+    const result = await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "我想把选中的视频的运动频率改成一个心跳的频率",
+      selectionContext: {
+        sourceType: "animatic-video",
+        sourceId: "52",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 52,
+        rangeId: null,
+        selection: { kind: "time", startSec: 0, endSec: 4 },
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, appliedCount: 1 });
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+    const saved = dbMocks.updateStoryTimeline.mock.calls[0][0].items[0];
+    expect(saved.primaryVideoEdit.effects).toMatchObject({
+      motionPreset: { kind: "heartbeat", bpm: 72, scaleAmount: 0.06 },
+    });
+    // 该镜头原本按时间线时长适配了播放速度；心跳指令不额外改它。
+    expect(saved.primaryVideoEdit.effects.playbackRate).toBeCloseTo(4 / 3);
+  });
+
+  it("心跳指令接受明确 BPM", async () => {
+    const take = {
+      ...currentVideo(53, 4),
+      isTimelineSelected: true,
+      stableShotId: "shot-a",
+    };
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 3, items: [item("shot-a", 0)] },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          currentVideo: take,
+          videoTakes: [take],
+          currentImage: null,
+        },
+      ],
+    });
+
+    await runTimelineEditCommand({
+      storyId: 7,
+      userId: 1,
+      instruction: "让选中的视频按 90 BPM 心跳缩放",
+      selectionContext: {
+        sourceType: "animatic-video",
+        sourceId: "53",
+        stableShotId: "shot-a",
+        shotNo: 1,
+        videoTakeId: 53,
+        rangeId: null,
+      },
+    });
+
+    expect(
+      dbMocks.updateStoryTimeline.mock.calls[0][0].items[0].primaryVideoEdit
+        .effects.motionPreset
+    ).toMatchObject({ kind: "heartbeat", bpm: 90 });
+  });
+
   it("选中视频后可直接追加到指定 cue 镜头并保留撤销快照", async () => {
     const take = {
       ...currentVideo(71, 4),

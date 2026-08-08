@@ -77,6 +77,7 @@ import {
   videoClipboardPlannedDurationSec,
   videoClipEditorTargetForTake,
   videoClipEditorTargetForVisualClip,
+  timelineVideoMotionStyle,
   type VideoClipboardPayload,
   type VideoClipEditDraft,
   type VideoClipEditorTarget,
@@ -617,6 +618,9 @@ function ShotPreview({
     false;
   const videoTransform =
     normalizedEditorDraft?.transform ?? timelineVideoSource?.transform;
+  const videoMotionStyle = timelineVideoMotionStyle(
+    normalizedEditorDraft?.effects ?? timelineVideoSource?.effects
+  );
   const editorSourceOffsetSeconds = Math.min(
     Math.max(0, sourceEndSeconds - sourceStartSeconds),
     (timelineOffsetMs / 1_000) * playbackRate
@@ -763,120 +767,129 @@ function ShotPreview({
             data-project-size={formatLabel}
           >
             {videoUrl ? (
-              <video
-                key={
-                  editorPreview
-                    ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
-                    : videoUrl
+              <div
+                className="h-full w-full"
+                style={videoMotionStyle}
+                data-testid={
+                  videoMotionStyle ? "editing-preview-heartbeat" : undefined
                 }
-                ref={videoRef}
-                src={videoUrl}
-                poster={imageUrl ?? undefined}
-                controls
-                playsInline
-                preload="metadata"
-                onPointerDown={() => {
-                  previewControlInteractionAtRef.current = Date.now();
-                }}
-                onKeyDown={event => {
-                  if (
-                    event.key === " " ||
-                    event.key === "Enter" ||
-                    event.key.toLowerCase() === "k" ||
-                    event.key === "MediaPlayPause"
-                  ) {
+              >
+                <video
+                  key={
+                    editorPreview
+                      ? `editor-${editorPreview.target.takeId}-${editorPreview.target.clipId ?? "primary"}`
+                      : videoUrl
+                  }
+                  ref={videoRef}
+                  src={videoUrl}
+                  poster={imageUrl ?? undefined}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  onPointerDown={() => {
                     previewControlInteractionAtRef.current = Date.now();
-                  }
-                }}
-                onLoadedMetadata={event => {
-                  const maximumTime = Math.max(
-                    0,
-                    event.currentTarget.duration - 0.001
-                  );
-                  event.currentTarget.defaultPlaybackRate = playbackRate;
-                  event.currentTarget.playbackRate = playbackRate;
-                  event.currentTarget.volume = sourceVolume;
-                  event.currentTarget.muted = sourceMuted;
-                  const targetTime = shouldHoldLastFrame
-                    ? Math.max(
-                        sourceStartSeconds,
-                        sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
-                      )
-                    : targetVideoTimeSeconds;
-                  event.currentTarget.currentTime = Math.min(
-                    targetTime,
-                    maximumTime
-                  );
-                  if (timelinePlaying && !shouldHoldLastFrame && !reverse) {
-                    void event.currentTarget.play().catch(() => undefined);
-                  }
-                }}
-                onPlay={event => {
-                  previewControlInteractionAtRef.current = null;
-                  const startSeconds = sourceStartSeconds;
-                  const endSeconds = sourceEndSeconds;
-                  event.currentTarget.defaultPlaybackRate = playbackRate;
-                  event.currentTarget.playbackRate = playbackRate;
-                  event.currentTarget.volume = sourceVolume;
-                  event.currentTarget.muted = sourceMuted;
-                  if (
-                    event.currentTarget.currentTime < startSeconds ||
-                    (endSeconds > startSeconds &&
-                      event.currentTarget.currentTime >= endSeconds - 0.03)
-                  ) {
-                    event.currentTarget.currentTime = reverse
-                      ? Math.max(startSeconds, endSeconds - 1 / 120)
-                      : startSeconds;
-                  }
-                  if (!timelinePlaying) onRequestTimelinePlaying(true);
-                  if (reverse) {
-                    ignoreNextVideoPauseRef.current = true;
-                    event.currentTarget.pause();
-                  }
-                }}
-                onPause={event => {
-                  const ignoreNextPause = ignoreNextVideoPauseRef.current;
-                  const lastInteractionAtMs =
-                    previewControlInteractionAtRef.current;
-                  ignoreNextVideoPauseRef.current = false;
-                  previewControlInteractionAtRef.current = null;
-                  if (
-                    shouldForwardPreviewPause({
-                      timelinePlaying,
-                      ignoreNextPause,
-                      mediaIsCurrent: videoRef.current === event.currentTarget,
-                      mediaConnected: event.currentTarget.isConnected,
-                      mediaEnded: event.currentTarget.ended,
-                      lastInteractionAtMs,
-                      nowMs: Date.now(),
-                    })
-                  ) {
-                    onRequestTimelinePlaying(false);
-                  }
-                }}
-                onTimeUpdate={event => {
-                  const endSeconds = sourceEndSeconds;
-                  if (
-                    !reverse &&
-                    endSeconds > 0 &&
-                    event.currentTarget.currentTime >= endSeconds
-                  ) {
-                    ignoreNextVideoPauseRef.current = true;
-                    event.currentTarget.pause();
-                    event.currentTarget.currentTime = Math.max(
-                      sourceStartSeconds,
-                      endSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+                  }}
+                  onKeyDown={event => {
+                    if (
+                      event.key === " " ||
+                      event.key === "Enter" ||
+                      event.key.toLowerCase() === "k" ||
+                      event.key === "MediaPlayPause"
+                    ) {
+                      previewControlInteractionAtRef.current = Date.now();
+                    }
+                  }}
+                  onLoadedMetadata={event => {
+                    const maximumTime = Math.max(
+                      0,
+                      event.currentTarget.duration - 0.001
                     );
+                    event.currentTarget.defaultPlaybackRate = playbackRate;
+                    event.currentTarget.playbackRate = playbackRate;
+                    event.currentTarget.volume = sourceVolume;
+                    event.currentTarget.muted = sourceMuted;
+                    const targetTime = shouldHoldLastFrame
+                      ? Math.max(
+                          sourceStartSeconds,
+                          sourceEndSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+                        )
+                      : targetVideoTimeSeconds;
+                    event.currentTarget.currentTime = Math.min(
+                      targetTime,
+                      maximumTime
+                    );
+                    if (timelinePlaying && !shouldHoldLastFrame && !reverse) {
+                      void event.currentTarget.play().catch(() => undefined);
+                    }
+                  }}
+                  onPlay={event => {
+                    previewControlInteractionAtRef.current = null;
+                    const startSeconds = sourceStartSeconds;
+                    const endSeconds = sourceEndSeconds;
+                    event.currentTarget.defaultPlaybackRate = playbackRate;
+                    event.currentTarget.playbackRate = playbackRate;
+                    event.currentTarget.volume = sourceVolume;
+                    event.currentTarget.muted = sourceMuted;
+                    if (
+                      event.currentTarget.currentTime < startSeconds ||
+                      (endSeconds > startSeconds &&
+                        event.currentTarget.currentTime >= endSeconds - 0.03)
+                    ) {
+                      event.currentTarget.currentTime = reverse
+                        ? Math.max(startSeconds, endSeconds - 1 / 120)
+                        : startSeconds;
+                    }
+                    if (!timelinePlaying) onRequestTimelinePlaying(true);
+                    if (reverse) {
+                      ignoreNextVideoPauseRef.current = true;
+                      event.currentTarget.pause();
+                    }
+                  }}
+                  onPause={event => {
+                    const ignoreNextPause = ignoreNextVideoPauseRef.current;
+                    const lastInteractionAtMs =
+                      previewControlInteractionAtRef.current;
+                    ignoreNextVideoPauseRef.current = false;
+                    previewControlInteractionAtRef.current = null;
+                    if (
+                      shouldForwardPreviewPause({
+                        timelinePlaying,
+                        ignoreNextPause,
+                        mediaIsCurrent:
+                          videoRef.current === event.currentTarget,
+                        mediaConnected: event.currentTarget.isConnected,
+                        mediaEnded: event.currentTarget.ended,
+                        lastInteractionAtMs,
+                        nowMs: Date.now(),
+                      })
+                    ) {
+                      onRequestTimelinePlaying(false);
+                    }
+                  }}
+                  onTimeUpdate={event => {
+                    const endSeconds = sourceEndSeconds;
+                    if (
+                      !reverse &&
+                      endSeconds > 0 &&
+                      event.currentTarget.currentTime >= endSeconds
+                    ) {
+                      ignoreNextVideoPauseRef.current = true;
+                      event.currentTarget.pause();
+                      event.currentTarget.currentTime = Math.max(
+                        sourceStartSeconds,
+                        endSeconds - VIDEO_END_HOLD_EPSILON_SECONDS
+                      );
+                    }
+                  }}
+                  className="h-full w-full object-cover"
+                  style={
+                    videoTransform
+                      ? timelineTransformStyle(videoTransform)
+                      : undefined
                   }
-                }}
-                className="h-full w-full object-cover"
-                style={
-                  videoTransform
-                    ? timelineTransformStyle(videoTransform)
-                    : undefined
-                }
-                aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
-              />
+                  aria-label={`${shot ? shotLabel(shot) : "当前镜头"} 视频预览`}
+                />
+              </div>
             ) : imageUrl ? (
               <>
                 <img
@@ -2196,8 +2209,12 @@ function MultiTrackTimeline({
 
 export default function EditingNleWorkspace({
   timelineVisible = true,
+  videoEditorHandoffTarget = null,
+  onVideoEditorHandoffHandled,
 }: {
   timelineVisible?: boolean;
+  videoEditorHandoffTarget?: VideoClipEditorTarget | null;
+  onVideoEditorHandoffHandled?: () => void;
 }) {
   const { generateScript, setActiveSelection } = useStoryAgentActions();
   const activeSelection = useStorySpine(state => state.activeSelection);
@@ -2472,6 +2489,12 @@ export default function EditingNleWorkspace({
     },
     [activeStoryId, setActiveSelection, setSelectedShotNo]
   );
+
+  useEffect(() => {
+    if (!videoEditorHandoffTarget) return;
+    openVideoEditor(videoEditorHandoffTarget);
+    onVideoEditorHandoffHandled?.();
+  }, [onVideoEditorHandoffHandled, openVideoEditor, videoEditorHandoffTarget]);
 
   const openImageEditor = useCallback(
     (target: ImageClipEditorTarget) => {
@@ -2797,7 +2820,10 @@ export default function EditingNleWorkspace({
                 : "直接使用对话原文生成镜头表，不再要求先生成 Story Card。"}
           </p>
           {!confirmedIntent ? (
-            <ol className="mt-6 grid grid-cols-3 gap-2 text-left" aria-label="新故事步骤">
+            <ol
+              className="mt-6 grid grid-cols-3 gap-2 text-left"
+              aria-label="新故事步骤"
+            >
               {[
                 ["01", "选一个方向"],
                 ["02", "说出故事"],
@@ -2808,7 +2834,9 @@ export default function EditingNleWorkspace({
                   className="border-t pt-2"
                   style={{ borderColor: "var(--panel-border)" }}
                 >
-                  <span className="font-mono text-[9px] text-nayin-bright">{step}</span>
+                  <span className="font-mono text-[9px] text-nayin-bright">
+                    {step}
+                  </span>
                   <span className="mt-1 block text-[10.5px] font-medium text-foreground">
                     {label}
                   </span>

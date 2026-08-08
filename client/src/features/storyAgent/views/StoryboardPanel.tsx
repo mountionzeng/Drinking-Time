@@ -38,7 +38,7 @@ export function currentStoryboardImages(
 }
 
 export default function StoryboardPanel({
-  defaultViewMode = "simple",
+  defaultViewMode = "full",
   embeddedEditorMode = false,
   headerAction,
   onEditVideo,

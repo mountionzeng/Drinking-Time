@@ -1,5 +1,9 @@
 export type ArtReferencePurpose = "fact" | "aesthetic" | "both";
-export type ArtReferenceSource = "message-photo" | "visual-anchor" | "story-card";
+export type ArtReferenceSource =
+  | "message-photo"
+  | "visual-anchor"
+  | "story-card"
+  | "publishing-cover";
 // 参考图角色：character 锁人物，scene 锁空间/气氛，local 只服务当前镜头。
 // 加法式扩展（可选字段），旧数据无此字段 → 视为普通事实/美术参考，向后兼容。
 export type ArtReferenceRole =
@@ -7,7 +11,8 @@ export type ArtReferenceRole =
   | "scene"
   | "object"
   | "composition"
-  | "local";
+  | "local"
+  | "story-style";
 export type ArtReferenceScope = "story" | "scene" | "shot";
 
 export type ArtReferenceMaterial = {
@@ -21,6 +26,8 @@ export type ArtReferenceMaterial = {
   shotNo?: string;
   shotIdentity?: string;
   sceneId?: string;
+  /** Stable identity for persisted generated assets; URLs are resolved later. */
+  assetId?: number;
   imageUrl?: string;
   text?: string;
   visualStyle?: string[];
@@ -29,6 +36,7 @@ export type ArtReferenceMaterial = {
   composition?: string;
   material?: string[];
   confidence?: number;
+  constraints?: string[];
 };
 
 export type ArtRecipeDNA = {
@@ -159,7 +167,8 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
   const source: ArtReferenceSource =
     obj.source === "message-photo" ||
     obj.source === "visual-anchor" ||
-    obj.source === "story-card"
+    obj.source === "story-card" ||
+    obj.source === "publishing-cover"
       ? obj.source
       : "story-card";
   const purpose: ArtReferencePurpose =
@@ -171,7 +180,8 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     obj.role === "scene" ||
     obj.role === "object" ||
     obj.role === "composition" ||
-    obj.role === "local"
+    obj.role === "local" ||
+    obj.role === "story-style"
       ? obj.role
       : undefined;
   const scope =
@@ -189,6 +199,9 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     ...(typeof obj.shotNo === "string" ? { shotNo: obj.shotNo } : {}),
     ...(typeof obj.shotIdentity === "string" ? { shotIdentity: obj.shotIdentity } : {}),
     ...(typeof obj.sceneId === "string" ? { sceneId: obj.sceneId } : {}),
+    ...(typeof obj.assetId === "number" && Number.isInteger(obj.assetId) && obj.assetId > 0
+      ? { assetId: obj.assetId }
+      : {}),
     ...(typeof obj.imageUrl === "string" ? { imageUrl: obj.imageUrl } : {}),
     ...(typeof obj.text === "string" ? { text: obj.text } : {}),
     visualStyle: stringList(obj.visualStyle),
@@ -197,6 +210,7 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     ...(typeof obj.composition === "string" ? { composition: obj.composition } : {}),
     material: stringList(obj.material),
     ...(typeof obj.confidence === "number" ? { confidence: obj.confidence } : {}),
+    constraints: stringList(obj.constraints),
   };
 }
 

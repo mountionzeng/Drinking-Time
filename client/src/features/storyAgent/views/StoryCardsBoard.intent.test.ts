@@ -278,6 +278,7 @@ describe("StoryCardsBoard intent entry", () => {
 
   it("keeps only user-actionable rows editable in the full storyboard", () => {
     expect(STORYBOARD_MATRIX_ROWS.map(row => row.field)).toEqual([
+      "scriptText",
       "dialogue",
       "action",
       "performance",
@@ -288,10 +289,12 @@ describe("StoryCardsBoard intent entry", () => {
       "videoPrompt",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.field)).toEqual([
+      "scriptText",
       "promptDraft",
       "videoPrompt",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.description)).toEqual([
+      "文字稿转写 · 可表演/可执行",
       "主体 · 画面动作 · 构图",
       "旁白 · 表演 · 运镜 · 声音 · 衔接",
     ]);

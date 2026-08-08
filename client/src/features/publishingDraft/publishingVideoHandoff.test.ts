@@ -16,7 +16,7 @@ describe("publishing video handoff", () => {
       emptyPublishingDraftState(2),
       {
         platform: "x",
-        content: { title: "最新", body: "当前发布稿", tags: [] },
+        content: { title: "最新", body: "当前文字稿", tags: [] },
         now: 3,
       }
     );
@@ -24,7 +24,7 @@ describe("publishing video handoff", () => {
     expect(
       latestPublishingDraftState([staleQuery, currentSpine]).drafts.x?.content
         .body
-    ).toBe("当前发布稿");
+    ).toBe("当前文字稿");
   });
 
   it("turns prose paragraphs into narration and explicit quotes into dialogue", () => {
@@ -86,6 +86,9 @@ describe("publishing video handoff", () => {
 
     expect(handoff).toMatchObject({
       storyId: 17,
+      versionId: "v1",
+      containerRevision: expect.any(Number),
+      versionRevision: expect.any(Number),
       sourcePlatform: "x",
       needsReview: true,
       core: { thesis: "真正稀缺的是人的判断" },

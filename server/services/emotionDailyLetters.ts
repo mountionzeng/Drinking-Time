@@ -80,8 +80,8 @@ function messageDate(item: PayloadRecord) {
     return item.dailyLetterDate;
   }
   if (typeof item.saidAt !== "string") return "";
-  const date = item.saidAt.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+  const parsed = dateValue(item.saidAt);
+  return parsed ? chinaDateString(parsed) : "";
 }
 
 export function buildPriorMessageHistory({

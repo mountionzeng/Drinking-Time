@@ -87,11 +87,13 @@ export function getPublishingEditorContent(params: {
   buffers: PublishingDraftBufferMap;
   storyId: number;
   platform: PublishingPlatformId;
+  versionId?: string;
 }): PublishingDraftContent | null {
   const buffered = getPublishingBuffer(
     params.buffers,
     params.storyId,
-    params.platform
+    params.platform,
+    params.versionId
   );
   return (
     buffered?.content ?? params.state.drafts[params.platform]?.content ?? null

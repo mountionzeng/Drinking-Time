@@ -60,7 +60,7 @@ describe("creation editor spine boundary", () => {
     );
 
     expect(chat).toContain('interactionMode === "publishing"');
-    expect(chat).toContain('"等待你整理成当前平台发布稿"');
+    expect(chat).toContain('"等待你整理成当前平台文字稿"');
   });
 
   it("keeps the dedicated editing route in the studio layout", () => {
@@ -75,8 +75,11 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain(
       'workspace === "editing" ? "editing-nle" : workspace'
     );
+    expect(editingPage).toContain("<EditingNleWorkspace");
+    expect(editingPage).toContain("openStoryboardVideoEditor");
+    expect(editingPage).toContain("onEditVideo={openStoryboardVideoEditor}");
     expect(editingPage).toContain(
-      "<EditingNleWorkspace timelineVisible={timelineVisible} />"
+      "videoEditorHandoffTarget={videoEditorHandoffTarget}"
     );
     expect(editingPage).toContain("<StoryAgentChat");
     expect(editingPage).toContain("interactionMode={interactionMode}");
@@ -84,12 +87,12 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("<PublishingVideoHandoffBanner");
     expect(editingPage).toContain("shouldShowPublishingHandoff(workspace)");
     expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
-    expect(studioWorkspaces).toContain('label: "发布稿"');
+    expect(studioWorkspaces).toContain('label: "文字稿"');
     expect(studioWorkspaces).toContain('label: "剪辑台"');
     expect(studioWorkspaces).toContain("...STORY_PANELS");
     expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
-    expect(editingPage).toContain("<StoryboardPanel />");
+    expect(editingPage).toContain("<StoryboardPanel onEditVideo={onEditVideo} />");
     expect(editingPage).toContain("<AnimaticPanel />");
     expect(editingPage).toContain("<PromptTablePanel />");
     expect(editingPage).toContain("<StoryCardsBoard />");
@@ -117,6 +120,8 @@ describe("creation editor spine boundary", () => {
       'autoSaveId="editing-storyboard-preview-widths-v3"'
     );
     expect(editingWorkspace).toContain('defaultViewMode="full"');
+    expect(editingWorkspace).toContain("videoEditorHandoffTarget");
+    expect(editingWorkspace).toContain("onVideoEditorHandoffHandled");
     expect(editingWorkspace).toContain(
       'aria-label="Resize Storyboard and Preview"'
     );

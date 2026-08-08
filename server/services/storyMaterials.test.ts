@@ -5,7 +5,9 @@ import {
   createGeneratedImage,
   createStory,
   createVideoTake,
+  getStoryById,
   resetMemoryStateForTesting,
+  updateStoryBodyIfRevision,
 } from "../db";
 import {
   confirmPromptCandidateForStory,
@@ -22,6 +24,10 @@ import {
   PUBLISHING_COVER_SHOT_IDENTITY,
   PUBLISHING_COVER_SHOT_NO,
 } from "@shared/imageAsset";
+import {
+  emptyPublishingDraftState,
+  upsertPublishingPlatformDraft,
+} from "@shared/publishingDraft";
 
 const savedDatabaseUrl = ENV.databaseUrl;
 
@@ -113,6 +119,35 @@ describe("normalizeTimelineItems", () => {
       stableShotId: "shot-a",
       included: true,
       position: 1,
+    });
+  });
+
+  it("preserves a persisted heartbeat effect for the editing preview", () => {
+    const [item] = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          primaryVideoEdit: {
+            takeId: 12,
+            sourceStartSec: 0,
+            sourceEndSec: 1.8,
+            effects: {
+              playbackRate: 1,
+              reverse: false,
+              volume: 1,
+              muted: false,
+              motionPreset: { kind: "heartbeat", bpm: 72, scaleAmount: 0.06 },
+            },
+          },
+        },
+      ],
+      facts
+    );
+
+    expect(item.primaryVideoEdit?.effects.motionPreset).toEqual({
+      kind: "heartbeat",
+      bpm: 72,
+      scaleAmount: 0.06,
     });
   });
 
@@ -236,6 +271,90 @@ describe("getStoryMaterialState", () => {
     expect(materials?.shots.map(shot => shot.currentImage?.id)).not.toContain(
       cover.id
     );
+  });
+
+  it("uses the active Storyboard version cover assetId to isolate a legacy SH01 cover", async () => {
+    const basePublishing = upsertPublishingPlatformDraft(
+      emptyPublishingDraftState(100),
+      {
+        platform: "xiaohongshu",
+        content: {
+          title: "标题",
+          body: "正文",
+          tags: [],
+        },
+        activate: true,
+        now: 101,
+      }
+    );
+    const publishing = {
+      ...basePublishing,
+      activeVideoStoryboardVersionId: basePublishing.activeVersionId,
+      activeVideoStoryboardGroupId: "publishing-group-v1-preview",
+      versions: basePublishing.versions?.map(version => ({
+        ...version,
+        cover: null,
+      })),
+    };
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "旧编号封面故事",
+      body: {
+        publishing,
+        shots: [
+          {
+            stableShotId: "publishing-shot-1",
+            shotIdentity: "publishing-shot-1",
+            shotNo: 1,
+            subject: "正文镜头",
+          },
+        ],
+      },
+    });
+    const cover = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "publishing-cover-opening",
+      imageUrl: "data:image/png;base64,LEGACY-COVER",
+      imageKey: null,
+      prompt: "legacy publishing cover",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const saved = await getStoryById(story.id, 1);
+    const body = structuredClone(saved?.body as Record<string, unknown>);
+    const storedPublishing = body.publishing as Record<string, unknown>;
+    storedPublishing.versions = (
+      storedPublishing.versions as Array<Record<string, unknown>>
+    ).map(version => ({
+      ...version,
+      cover: {
+        assetId: cover.id,
+        sourceCoreRevision: 1,
+        createdAt: 102,
+      },
+    }));
+    body._revision = 1;
+    expect(
+      await updateStoryBodyIfRevision({
+        id: story.id,
+        userId: 1,
+        expectedRevision: 0,
+        body,
+      })
+    ).toBe(true);
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.unassignedImages.map(image => image.id)).not.toContain(
+      cover.id
+    );
+    expect(
+      materials?.shots.flatMap(shot => shot.imageVersions).map(image => image.id)
+    ).not.toContain(cover.id);
   });
 
   it("matches imported genji assets to legacy shot identities by shot number", async () => {

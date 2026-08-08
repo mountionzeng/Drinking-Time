@@ -10,6 +10,7 @@ import {
   getXThreadStats,
   numberXThreadPosts,
   normalizePublishingDraftState,
+  resolvePublishingActiveVersion,
   upsertPublishingPlatformDraft,
   xWeightedCharacterLength,
   type PublishingDraftContent,
@@ -127,6 +128,44 @@ describe("publishing platform registry", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("normalizes legacy state into an isolated V1 canonical version", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: core(2),
+        drafts: { x: { platform: "x", content: content("legacy") } },
+        cover: { assetId: 99, sourceCoreRevision: 2, createdAt: NOW },
+      },
+      NOW
+    );
+    expect(normalized.activeVersionId).toBe("v1");
+    expect(normalized.versions).toHaveLength(1);
+    expect(resolvePublishingActiveVersion(normalized)).toMatchObject({
+      versionId: "v1",
+      displayName: "V1",
+      activePlatform: "x",
+      cover: { assetId: 99 },
+    });
+    expect(normalized.versions?.[0].drafts.x?.content).not.toBe(
+      normalized.drafts.x?.content
+    );
+  });
+
+  it("keeps formal cover provenance when malformed version metadata is supplied", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "instagram",
+        selectedPlatforms: ["instagram"],
+        cover: { assetId: 7, sourceCoreRevision: 1, createdAt: NOW },
+        versions: [{ versionId: "", drafts: "broken" }],
+      },
+      NOW
+    );
+    expect(normalized.cover?.assetId).toBe(7);
+    expect(normalized.versions?.[0].cover?.assetId).toBe(7);
+  });
+
   it("retains independent drafts, core revisions, active platform, and cover", () => {
     const raw = {
       version: 1,
@@ -187,6 +226,58 @@ describe("normalizePublishingDraftState", () => {
         assetIds: [51, 52, 53, 54],
       }),
     ]);
+  });
+
+  it("keeps each version video storyboard isolated from the formal activation pointer", () => {
+    const raw = normalizePublishingDraftState(
+      {
+        ...emptyPublishingDraftState(NOW),
+        activeVersionId: "v2",
+        activeVideoStoryboardVersionId: "v1",
+        activeVideoStoryboardGroupId: "publishing-group-v1",
+        containerRevision: 2,
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            parentId: null,
+            versionRevision: 1,
+            activePlatform: "xiaohongshu",
+            selectedPlatforms: ["xiaohongshu"],
+            drafts: {},
+            cover: null,
+            coverRounds: [],
+            videoStoryboard: {
+              version: 1,
+              latestPreview: null,
+              confirmed: null,
+              impactPlan: null,
+              operations: {},
+            },
+          },
+          {
+            versionId: "v2",
+            sequence: 2,
+            displayName: "V2",
+            parentId: "v1",
+            versionRevision: 2,
+            activePlatform: "x",
+            selectedPlatforms: ["x"],
+            drafts: {},
+            cover: null,
+            coverRounds: [],
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(raw.activeVersionId).toBe("v2");
+    expect(raw.activeVideoStoryboardVersionId).toBe("v1");
+    expect(raw.activeVideoStoryboardGroupId).toBe("publishing-group-v1");
+    expect(raw.versions?.[0]?.videoStoryboard).toMatchObject({ version: 1 });
+    expect(raw.versions?.[1]?.videoStoryboard).toBeNull();
   });
 
   it("deduplicates selections and drops unsupported or malformed data without manufacturing text", () => {

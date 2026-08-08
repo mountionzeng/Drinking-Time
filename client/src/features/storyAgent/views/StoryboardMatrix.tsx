@@ -10,6 +10,7 @@ import {
 import type { StoryShot } from "@/features/storyAgent/types";
 
 export type StoryboardMatrixField =
+  | "scriptText"
   | "dialogue"
   | "intent"
   | "action"
@@ -31,6 +32,13 @@ export type StoryboardMatrixRow = {
 };
 
 export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
+  {
+    field: "scriptText",
+    label: "剧本",
+    description: "文字稿转写 · 可表演/可执行",
+    placeholder: "这一镜真正要说、要演或要呈现什么",
+    rows: 4,
+  },
   {
     field: "dialogue",
     label: "旁白",
@@ -85,7 +93,10 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
 
 export const STORYBOARD_MATRIX_VISIBLE_ROWS: readonly StoryboardMatrixRow[] =
   STORYBOARD_MATRIX_ROWS.filter(
-    row => row.field === "promptDraft" || row.field === "videoPrompt"
+    row =>
+      row.field === "scriptText" ||
+      row.field === "promptDraft" ||
+      row.field === "videoPrompt"
   );
 
 export function storyboardMatrixTextareaHeight(
@@ -96,10 +107,14 @@ export function storyboardMatrixTextareaHeight(
   const maxHeight = expanded
     ? field === "videoPrompt"
       ? 176
-      : 112
+      : field === "scriptText"
+        ? 144
+        : 112
     : field === "videoPrompt"
       ? 60
-      : 44;
+      : field === "scriptText"
+        ? 72
+        : 44;
   return Math.max(28, Math.min(maxHeight, Math.ceil(scrollHeight)));
 }
 
@@ -161,6 +176,9 @@ export function StoryboardMatrixFieldCell({
   const [draftValue, setDraftValue] = useState(currentValue);
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const descriptionId = row.description
+    ? `storyboard-${row.field}-${shotLabel.replace(/[^a-zA-Z0-9_-]/g, "-")}-description`
+    : undefined;
   useEffect(() => {
     setDraftValue(currentValue);
   }, [currentValue, row.field, shotLabel]);
@@ -236,13 +254,23 @@ export function StoryboardMatrixFieldCell({
           maxHeight: isFocused
             ? row.field === "videoPrompt"
               ? 176
-              : 112
+              : row.field === "scriptText"
+                ? 144
+                : 112
             : row.field === "videoPrompt"
               ? 60
-              : 44,
+              : row.field === "scriptText"
+                ? 72
+                : 44,
         }}
         aria-label={`${shotLabel} ${row.label}`}
+        aria-describedby={descriptionId}
       />
+      {row.description ? (
+        <span id={descriptionId} className="sr-only">
+          {row.description}
+        </span>
+      ) : null}
       {action ? (
         <div className="mt-1 flex min-h-7 items-center border-t border-border/45 pt-1">
           {action}

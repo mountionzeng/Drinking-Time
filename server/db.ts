@@ -2032,6 +2032,69 @@ export async function updateStory(
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
+function persistedStoryBodyRevision(body: unknown): number {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return 0;
+  const revision = (body as Record<string, unknown>)._revision;
+  return typeof revision === "number" &&
+    Number.isInteger(revision) &&
+    revision >= 0
+    ? revision
+    : 0;
+}
+
+/**
+ * Owner-scoped Story-body compare-and-swap. The revision predicate is checked
+ * by the storage write itself; callers must not treat an earlier read or an
+ * in-process mutex as the correctness boundary.
+ */
+export async function updateStoryBodyIfRevision(input: {
+  id: number;
+  userId: number;
+  expectedRevision: number;
+  body: unknown;
+  data?: Omit<Partial<InsertStory>, "body">;
+}): Promise<boolean> {
+  const nextRevision = persistedStoryBodyRevision(input.body);
+  if (nextRevision !== input.expectedRevision + 1) {
+    throw new Error(
+      `Story CAS body revision ${nextRevision} must follow expected revision ${input.expectedRevision}`
+    );
+  }
+  const db = await getDb();
+  if (!db) {
+    const row = memoryState.stories.find(
+      story => story.id === input.id && story.userId === input.userId
+    );
+    if (
+      !row ||
+      persistedStoryBodyRevision(row.body) !== input.expectedRevision
+    ) {
+      return false;
+    }
+    if (input.data) {
+      applyDefinedValues(
+        row as unknown as Record<string, unknown>,
+        input.data as unknown as Record<string, unknown>
+      );
+    }
+    row.body = input.body;
+    row.updatedAt = now();
+    await persistMemoryState();
+    return true;
+  }
+  const result = await db
+    .update(stories)
+    .set({ ...(input.data ?? {}), body: input.body })
+    .where(
+      and(
+        eq(stories.id, input.id),
+        eq(stories.userId, input.userId),
+        sql`CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${stories.body}, '$._revision')), '0') AS UNSIGNED) = ${input.expectedRevision}`
+      )
+    );
+  return result[0].affectedRows === 1;
+}
+
 export async function deleteStory(id: number, userId: number): Promise<void> {
   const db = await getDb();
   if (!db) {

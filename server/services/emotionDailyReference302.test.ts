@@ -331,6 +331,7 @@ describe("personalizeEmotionDailyReference302", () => {
         text: "最近工作不稳定。",
         saidAt: "2026-07-26T08:00:00.000Z",
         editedAt: "",
+        relativeDate: "昨天",
       },
     ]);
     expect(context.traditionalTimeContext).toMatchObject({
@@ -368,6 +369,99 @@ describe("personalizeEmotionDailyReference302", () => {
     );
     expect(body.messages[0].content).toContain("currentShichenContext");
     expect(body.messages[0].content).toContain("当下时辰建议");
+  });
+
+  it("没有新话时拒绝模型把旧话写成昨天", async () => {
+    const response = {
+      summary: [
+        "今天先把注意力放回眼前，不必急着替所有事情找到答案。你昨天说起过一件旧事，但这一天没有新的话，旧内容不应被当成今天的状态。",
+        "如果事情很多，先挑一件最小的做完。穿一件轻薄、方便活动的衣服，出门前再按体感增减一层。",
+        "现在可以把力气留给一段不被打断的时间，做完以后停一下，给自己一点余量，再决定下一段要交给什么。",
+      ].join("\n\n"),
+      clothing: "穿一件舒服、方便活动的衣服。",
+      mindset: "先照顾眼前能完成的一小步。",
+      schedule: baseInput.baseDailyReference.schedule,
+      lenses: baseInput.baseDailyReference.lenses,
+      personalizedYi: ["做小一步", "留点空白", "按时吃饭"],
+      personalizedJi: ["一次排满", "替今天定性", "急着总结"],
+      avoid: "不要一次把整天排满。",
+      note: "今天只需要从一个小动作开始。",
+    };
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [{ message: { content: JSON.stringify(response) } }],
+      }),
+      text: async () => "",
+    }));
+
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      date: "2026-08-06",
+      generationIntent: "daily-letter",
+      analysisSeed: {
+        ...baseInput.analysisSeed,
+        userMessage: "",
+        messageHistory: [
+          {
+            dailyLetterDate: "2026-08-04",
+            text: "小猫送走了，我有点想它",
+            saidAt: "2026-08-04T02:19:25.322Z",
+          },
+        ],
+      },
+      fetcher,
+      now: new Date("2026-08-06T09:00:00.000Z"),
+    });
+
+    expect(result.source).toBe("local-template");
+    expect(result.dailyReference.summary).not.toContain("昨天");
+    expect(result.dailyReference.summary).not.toContain("小猫");
+    const body = JSON.parse(String(fetcher.mock.calls[0][1].body));
+    const context = JSON.parse(
+      body.messages[1].content.slice(body.messages[1].content.indexOf("{"))
+    );
+    expect(context.userContext.previousWords[0].relativeDate).toBe("前天");
+  });
+
+  it("对话回信引用旧话时拒绝模型猜测相对日期", async () => {
+    const response = {
+      summary: [
+        "你说最近对收入有些焦虑，这句话里有一笔很具体的钱，也连着工作是否稳定和接下来怎么安排的未知。现在还不需要把这些线索压成一个结论。",
+        "你昨天说过“最近工作不稳定”。两句话挨得很近，能确定的是，不确定感还在；还不能确定的是，你现在最在意的究竟是收入数字、工作的去留，还是自己重新安排生活的节奏。",
+        "今天可以只确认一件可控的小事，比如写下一条需要问清的消息。穿一件舒服、方便活动的衣服，做完这一步以后给自己留一点余量，再决定要不要继续往下想。",
+      ].join("\n\n"),
+      clothing: "穿一件舒服、方便活动的衣服。",
+      mindset: "先照顾眼前能确认的一步。",
+      schedule: baseInput.baseDailyReference.schedule,
+      lenses: baseInput.baseDailyReference.lenses,
+      personalizedYi: ["做小一步", "留点空白", "确认信息"],
+      personalizedJi: ["一次排满", "疲惫定论", "反复比较"],
+      avoid: "不要在疲惫时替未来下结论。",
+      note: "今天先从一件能确认的小事开始。",
+    };
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "deepseek-v3.2",
+        choices: [{ message: { content: JSON.stringify(response) } }],
+      }),
+      text: async () => "",
+    }));
+
+    const result = await personalizeEmotionDailyReference302({
+      ...baseInput,
+      generationIntent: "conversation-reply",
+      fetcher,
+      now: new Date("2026-07-27T02:30:00.000Z"),
+    });
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(result.source).toBe("local-template");
+    expect(result.dailyReference.summary).not.toContain("你昨天说");
   });
 
   it("模型第一次写得过短时要求重写成完整自然段", async () => {

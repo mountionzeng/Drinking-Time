@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 import { Check, CircleDot } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -40,92 +40,132 @@ export function PublishingPlatformPickerView({
       aria-label="发布平台设置"
       data-testid="publishing-platform-picker"
     >
-      <div>
-        <div className="mb-1.5 flex items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            当前写作平台
-          </p>
-          {!compact ? (
-            <p className="text-[10px] text-muted-foreground/80">
-              选择不会自动生成
-            </p>
-          ) : null}
-        </div>
-        <div
-          role="radiogroup"
-          aria-label="当前写作平台"
-          className="flex flex-wrap gap-1.5"
-        >
-          {PUBLISHING_PLATFORM_IDS.map(platform => {
-            const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
-            const active = platform === activePlatform;
-            return (
-              <button
-                key={platform}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                disabled={disabled}
-                onClick={() => onActivePlatformChange(platform)}
-                className="inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-50"
-                style={
-                  active
-                    ? {
-                        borderColor: "var(--nayin-accent)",
-                        background: "var(--nayin-glow)",
-                        color: "var(--foreground)",
-                      }
-                    : { borderColor: "var(--panel-border)" }
-                }
-              >
-                {active ? <CircleDot className="h-3 w-3" /> : null}
-                {adapter.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <PlatformGroup
+        compact={compact}
+        label="当前写作平台"
+        hint={compact ? undefined : "选择不会自动生成"}
+        ariaLabel="当前写作平台"
+        role="radiogroup"
+      >
+        {PUBLISHING_PLATFORM_IDS.map(platform => {
+          const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
+          const active = platform === activePlatform;
+          return (
+            <button
+              key={platform}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              disabled={disabled}
+              onClick={() => onActivePlatformChange(platform)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[10.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-50"
+              style={
+                active
+                  ? {
+                      borderColor: "var(--nayin-accent)",
+                      background: "var(--nayin-glow)",
+                      color: "var(--foreground)",
+                    }
+                  : { borderColor: "var(--panel-border)" }
+              }
+            >
+              {active ? <CircleDot className="h-3 w-3" /> : null}
+              {adapter.label}
+            </button>
+          );
+        })}
+      </PlatformGroup>
 
-      <div>
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          也想发布到
-        </p>
-        <div aria-label="也想发布到" className="flex flex-wrap gap-1.5">
-          {PUBLISHING_PLATFORM_IDS.filter(
-            platform => platform !== activePlatform
-          ).map(platform => {
-            const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
-            const selected = selectedPlatforms.includes(platform);
-            return (
-              <button
-                key={platform}
-                type="button"
-                aria-pressed={selected}
-                disabled={disabled}
-                onClick={() => onToggleTarget(platform)}
-                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-50"
+      <PlatformGroup
+        compact={compact}
+        label="也想发布到"
+        ariaLabel="也想发布到"
+      >
+        {PUBLISHING_PLATFORM_IDS.filter(
+          platform => platform !== activePlatform
+        ).map(platform => {
+          const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
+          const selected = selectedPlatforms.includes(platform);
+          return (
+            <button
+              key={platform}
+              type="button"
+              aria-pressed={selected}
+              disabled={disabled}
+              onClick={() => onToggleTarget(platform)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span
+                className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border"
+                style={{
+                  borderColor: selected
+                    ? "var(--nayin-accent)"
+                    : "var(--panel-border)",
+                  background: selected ? "var(--nayin-accent)" : "transparent",
+                  color: "var(--background)",
+                }}
               >
-                <span
-                  className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border"
-                  style={{
-                    borderColor: selected
-                      ? "var(--nayin-accent)"
-                      : "var(--panel-border)",
-                    background: selected
-                      ? "var(--nayin-accent)"
-                      : "transparent",
-                    color: "var(--background)",
-                  }}
-                >
-                  {selected ? <Check className="h-2.5 w-2.5" /> : null}
-                </span>
-                {adapter.shortLabel}
-              </button>
-            );
-          })}
+                {selected ? <Check className="h-2.5 w-2.5" /> : null}
+              </span>
+              {adapter.shortLabel}
+            </button>
+          );
+        })}
+      </PlatformGroup>
+    </section>
+  );
+}
+
+/**
+ * 两组平台选择在 compact 下各占一行：标签固定在左，选项在剩余空间里
+ * 横向滚动而不是换行，六个平台也不会把面板撑成五六行。非 compact
+ * 保持标签在上、选项换行在下的原布局（供未来更宽的展示位复用）。
+ */
+function PlatformGroup({
+  compact,
+  label,
+  hint,
+  ariaLabel,
+  role,
+  children,
+}: {
+  compact: boolean;
+  label: string;
+  hint?: string;
+  ariaLabel: string;
+  role?: "radiogroup";
+  children: ReactNode;
+}) {
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </p>
+        <div
+          role={role}
+          aria-label={ariaLabel}
+          className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto"
+        >
+          {children}
         </div>
       </div>
-    </section>
+    );
+  }
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </p>
+        {hint ? (
+          <p className="text-[10px] text-muted-foreground/80">{hint}</p>
+        ) : null}
+      </div>
+      <div role={role} aria-label={ariaLabel} className="flex flex-wrap gap-1.5">
+        {children}
+      </div>
+    </div>
   );
 }
 

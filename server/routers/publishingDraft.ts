@@ -40,6 +40,14 @@ import {
   revisePublishingDraft,
 } from "../services/publishingDraft";
 import { listStoryConversation } from "../services/storyConversation";
+import {
+  confirmPublishingVideoStoryboard,
+  generateAndPersistPublishingVideoPreview,
+  PublishingVideoStoryboardConfirmationError,
+  PublishingVideoStoryboardEligibilityError,
+  PublishingVideoStoryboardOperationConflictError,
+} from "../services/publishingVideoStoryboardPersistence";
+import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
 const contentSchema = z.object({
@@ -80,6 +88,22 @@ function throwPublishingError(error: unknown): never {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "发布稿生成结果不完整，自动修复一次后仍未通过，请重试",
+      cause: error,
+    });
+  }
+  if (error instanceof PublishingVideoStoryboardEligibilityError) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error instanceof PublishingVideoStoryboardOperationConflictError) {
+    throw new TRPCError({ code: "CONFLICT", message: error.message });
+  }
+  if (error instanceof PublishingVideoStoryboardConfirmationError) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+  }
+  if (error instanceof PublishingVideoStoryboardModelOutputError) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "剧本转写结果不完整，自动修复后仍未通过，请重试",
       cause: error,
     });
   }
@@ -215,12 +239,23 @@ type PublishingCoverAsset = {
   id: number;
   imageUrl: string;
   imageKey: string | null;
+  shotIdentity: string | null;
   createdAt: Date;
 };
 
 type PublishingCoverRoundView = PublishingCoverRound & {
   candidates: PublishingCoverAsset[];
 };
+
+const PUBLISHING_COVER_OPENING_SHOT_IDENTITY =
+  "publishing-cover-opening" as const;
+
+function isPublishingCoverIdentity(identity: string | null): boolean {
+  return (
+    identity === PUBLISHING_COVER_SHOT_IDENTITY ||
+    identity === PUBLISHING_COVER_OPENING_SHOT_IDENTITY
+  );
+}
 
 async function loadPublishingCoverAsset(params: {
   assetId: number | null | undefined;
@@ -233,7 +268,7 @@ async function loadPublishingCoverAsset(params: {
     !image ||
     image.storyId !== params.storyId ||
     image.userId !== params.userId ||
-    image.shotIdentity !== PUBLISHING_COVER_SHOT_IDENTITY
+    !isPublishingCoverIdentity(image.shotIdentity)
   ) {
     return null;
   }
@@ -241,6 +276,7 @@ async function loadPublishingCoverAsset(params: {
     id: image.id,
     imageUrl: image.imageUrl,
     imageKey: image.imageKey,
+    shotIdentity: image.shotIdentity,
     createdAt: image.createdAt,
   };
 }
@@ -329,6 +365,156 @@ export const publishingDraftRouter = router({
           }),
           coverEstimate: estimatePublishingCoverCost(),
         };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  prepareVideoStoryboard: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64).optional(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await generateAndPersistPublishingVideoPreview({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          versionId: input.versionId,
+          operationToken: input.operationToken,
+        });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  confirmVideoStoryboard: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        previewId: z.string().trim().min(1).max(200),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await confirmPublishingVideoStoryboard({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          versionId: input.versionId,
+          previewId: input.previewId,
+          operationToken: input.operationToken,
+        });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  createVersion: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        platform: platformSchema,
+        core: coreSchema,
+        content: contentSchema,
+        baseCoreRevision: z.number().int().nonnegative(),
+        baseDraftRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        baseContainerRevision: z.number().int().nonnegative(),
+        displayName: z.string().trim().max(80).optional(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        assertPublishingContentFitsPlatform(input.platform, input.content);
+        const conversation = await loadOwnedPublishingConversation(
+          input.storyId,
+          ctx.user.id
+        );
+        const saved = await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operationToken: input.operationToken,
+          operation: {
+            type: "create_version",
+            platform: input.platform,
+            core: input.core as PublishingStoryCoreContent,
+            content: input.content,
+            baseCoreRevision: input.baseCoreRevision,
+            baseDraftRevision: input.baseDraftRevision,
+            baseVersionRevision: input.baseVersionRevision,
+            baseContainerRevision: input.baseContainerRevision,
+            displayName: input.displayName,
+            conversationSnapshot: {
+              messages: conversation,
+              updatedAt: Date.now(),
+            },
+          },
+        });
+        return saved;
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  selectVersion: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        baseContainerRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operationToken: input.operationToken,
+          operation: {
+            type: "select_version",
+            versionId: input.versionId,
+            baseContainerRevision: input.baseContainerRevision,
+            baseVersionRevision: input.baseVersionRevision,
+          },
+        });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  renameVersion: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64),
+        displayName: z.string().trim().min(1).max(80),
+        baseContainerRevision: z.number().int().nonnegative(),
+        baseVersionRevision: z.number().int().nonnegative(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operationToken: input.operationToken,
+          operation: {
+            type: "rename_version",
+            versionId: input.versionId,
+            displayName: input.displayName,
+            baseContainerRevision: input.baseContainerRevision,
+            baseVersionRevision: input.baseVersionRevision,
+          },
+        });
       } catch (error) {
         throwPublishingError(error);
       }
@@ -680,12 +866,14 @@ export const publishingDraftRouter = router({
           ? await editImage(referenceAsset.imageUrl, prompt, {
               provider: PUBLISHING_COVER_PROFILE.provider,
               aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+              mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
               requireInputImage: true,
               imageWeight: 1.4,
             })
           : await generateImage(prompt, {
               provider: PUBLISHING_COVER_PROFILE.provider,
               aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+              mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
             });
         const generatedCandidates = generated.candidates?.slice(0, 4) ?? [];
         if (generated.status !== "ok" || generatedCandidates.length !== 4) {
@@ -789,6 +977,7 @@ export const publishingDraftRouter = router({
               id: image.id,
               imageUrl: image.imageUrl,
               imageKey: image.imageKey,
+              shotIdentity: image.shotIdentity,
               createdAt: image.createdAt,
             })),
           } satisfies PublishingCoverRoundView,
@@ -877,6 +1066,7 @@ export const publishingDraftRouter = router({
             id: promoted.image.id,
             imageUrl: promoted.image.imageUrl,
             imageKey: promoted.image.imageKey,
+            shotIdentity: promoted.image.shotIdentity,
             createdAt: promoted.image.createdAt,
           } satisfies PublishingCoverAsset,
         };

@@ -60,7 +60,7 @@ export function buildStoryChatSummary(input: StoryChatSummaryInput): string {
     const core = publishing.core;
     lines.push(
       [
-        `[发布稿交接｜${platform.label}]`,
+        `[文字稿交接｜${platform.label}]`,
         core?.thesis
           ? `核心观点：${compactPublishingText(core.thesis, 240)}`
           : "",

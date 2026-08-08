@@ -8,6 +8,7 @@ import {
   type ImageAsset,
   type ImageAssetAvailability,
 } from "../../shared/imageAsset";
+import { normalizePublishingDraftState } from "../../shared/publishingDraft";
 import {
   ensureShotIdentities,
   normalizeShotIdentity,
@@ -32,6 +33,11 @@ type AssetProjectionInput = {
   validShotIdentities?: string[];
   shotIdentityByShotNo?: ReadonlyMap<string, string>;
   availabilityByImageId?: ReadonlyMap<number, ImageAssetAvailability>;
+  /**
+   * The active Storyboard group's formal cover is authoritative even when a
+   * legacy image row still carries SH01 or another ordinary shot number.
+   */
+  publishingCoverAssetId?: number | null;
 };
 
 type SignalDecision = {
@@ -112,6 +118,7 @@ export function projectImageAssets({
   validShotIdentities = [],
   shotIdentityByShotNo = new Map(),
   availabilityByImageId = new Map(),
+  publishingCoverAssetId = null,
 }: AssetProjectionInput): ImageAsset[] {
   const validShots = new Set(
     validShotNos
@@ -128,11 +135,14 @@ export function projectImageAssets({
 
   const assets = images.map((image): ImageAsset => {
     const signal = latestSignals.get(image.id);
-    const kind = isPublishingCoverShotNo(image.shotNo)
-      ? "publishing_cover"
-      : isStyleReferenceShotNo(image.shotNo)
-        ? "style_reference"
-        : "story_frame";
+    const isAuthoritativePublishingCover =
+      publishingCoverAssetId != null && image.id === publishingCoverAssetId;
+    const kind =
+      isAuthoritativePublishingCover || isPublishingCoverShotNo(image.shotNo)
+        ? "publishing_cover"
+        : isStyleReferenceShotNo(image.shotNo)
+          ? "style_reference"
+          : "story_frame";
     const canonicalShotNo = canonicalizeShotNo(image.shotNo);
     const shotIdentity =
       normalizeShotIdentity(
@@ -343,6 +353,20 @@ export async function getStoryImageAssets(
     resolveAssetAvailability(images),
   ]);
   const storyShotRefs = storyBodyShotRefs(story);
+  const storyBody =
+    story.body && typeof story.body === "object" && !Array.isArray(story.body)
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const publishing = normalizePublishingDraftState(storyBody.publishing);
+  const activeStoryboardVersionId = publishing.activeVideoStoryboardGroupId
+    ? publishing.activeVideoStoryboardVersionId
+    : null;
+  const activeStoryboardVersion = activeStoryboardVersionId
+    ? publishing.versions?.find(
+        version => version.versionId === activeStoryboardVersionId
+      )
+    : null;
+  const publishingCoverAssetId = activeStoryboardVersion?.cover?.assetId ?? null;
   const shotIdentityByShotNo = new Map(
     storyShotRefs
       .filter(ref => ref.shotIdentity)
@@ -361,6 +385,7 @@ export async function getStoryImageAssets(
       .map(ref => ref.shotIdentity)
       .filter((identity): identity is string => Boolean(identity)),
     shotIdentityByShotNo,
+    publishingCoverAssetId,
     availabilityByImageId,
   });
 }

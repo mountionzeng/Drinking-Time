@@ -10,9 +10,15 @@ import {
   type PublishingDraftContent,
   type PublishingDraftState,
   type PublishingPlatformId,
+  type PublishingConversationSnapshot,
   type PublishingStoryCoreContent,
+  resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
-import { getStoryById, updateStory } from "../db";
+import { getStoryById } from "../db";
+import {
+  persistPreparedStoryBody,
+  StoryBodyRevisionConflictError,
+} from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 
 export class PublishingDraftOwnershipError extends Error {
@@ -81,6 +87,32 @@ type SetCoverOperation = {
   basePublishingRevision: number;
 };
 
+export type CreatePublishingVersionOperation = {
+  type: "create_version";
+  platform: PublishingPlatformId;
+  core: PublishingStoryCoreContent;
+  content: PublishingDraftContent;
+  baseCoreRevision: number;
+  baseDraftRevision: number;
+  baseVersionRevision?: number;
+  displayName?: string;
+  baseContainerRevision: number;
+  conversationSnapshot?: PublishingConversationSnapshot | null;
+};
+export type SelectPublishingVersionOperation = {
+  type: "select_version";
+  versionId: string;
+  baseContainerRevision: number;
+  baseVersionRevision?: number;
+};
+export type RenamePublishingVersionOperation = {
+  type: "rename_version";
+  versionId: string;
+  displayName: string;
+  baseContainerRevision: number;
+  baseVersionRevision?: number;
+};
+
 type AppendCoverRoundOperation = {
   type: "append_cover_round";
   round: PublishingCoverRound;
@@ -94,13 +126,202 @@ export type PublishingDraftWriteOperation =
   | ConfirmCoreOperation
   | SetSelectionOperation
   | AppendCoverRoundOperation
-  | SetCoverOperation;
+  | SetCoverOperation
+  | CreatePublishingVersionOperation
+  | SelectPublishingVersionOperation
+  | RenamePublishingVersionOperation;
+
+export type PublishingVersionOperation =
+  | CreatePublishingVersionOperation
+  | SelectPublishingVersionOperation
+  | RenamePublishingVersionOperation;
 
 export type PublishingDraftPersistenceResult = {
   storyId: number;
   storyRevision: number;
   publishing: PublishingDraftState;
 };
+
+function canonicalize(state: PublishingDraftState): PublishingDraftState {
+  const versions = state.versions ?? [];
+  const active = resolvePublishingActiveVersion(state);
+  return {
+    ...state,
+    activeVersionId: active.versionId,
+    versions: versions.map(v =>
+      v.versionId === active.versionId
+        ? {
+            ...v,
+            core: structuredClone(state.core),
+            drafts: structuredClone(state.drafts),
+            activePlatform: state.activePlatform,
+            selectedPlatforms: [...state.selectedPlatforms],
+            cover: state.cover ? { ...state.cover } : null,
+            coverRounds: structuredClone(state.coverRounds),
+            versionRevision: Math.max(v.versionRevision, state.revision),
+          }
+        : v
+    ),
+  };
+}
+
+function projectVersion(
+  state: PublishingDraftState,
+  versionId: string
+): PublishingDraftState {
+  const version = state.versions?.find(
+    candidate => candidate.versionId === versionId
+  );
+  if (!version) throw new Error(`Unknown publishing version: ${versionId}`);
+  return {
+    ...state,
+    activeVersionId: version.versionId,
+    core: structuredClone(version.core),
+    drafts: structuredClone(version.drafts),
+    activePlatform: version.activePlatform,
+    selectedPlatforms: [...version.selectedPlatforms],
+    cover: version.cover ? { ...version.cover } : null,
+    coverRounds: structuredClone(version.coverRounds),
+  };
+}
+
+function applyVersionOperation(
+  state: PublishingDraftState,
+  op: PublishingVersionOperation,
+  now: number,
+  operationToken?: string
+): PublishingDraftState {
+  const versions = state.versions ?? [];
+  assertRevision(
+    "publishing",
+    op.baseContainerRevision,
+    state.containerRevision ?? state.revision
+  );
+  if (op.type === "select_version") {
+    const target = versions.find(version => version.versionId === op.versionId);
+    if (!target) throw new Error(`Unknown publishing version: ${op.versionId}`);
+    if (op.baseVersionRevision != null) {
+      assertRevision(
+        "publishing",
+        op.baseVersionRevision,
+        target.versionRevision
+      );
+    }
+    return {
+      ...projectVersion(state, op.versionId),
+      revision: state.revision + 1,
+      containerRevision: (state.containerRevision ?? 0) + 1,
+      updatedAt: now,
+    };
+  }
+  if (op.type === "rename_version") {
+    const target = versions.find(version => version.versionId === op.versionId);
+    if (!target) throw new Error(`Unknown publishing version: ${op.versionId}`);
+    if (op.baseVersionRevision != null) {
+      assertRevision(
+        "publishing",
+        op.baseVersionRevision,
+        target.versionRevision
+      );
+    }
+    return {
+      ...state,
+      versions: versions.map(v =>
+        v.versionId === op.versionId
+          ? { ...v, displayName: op.displayName.trim() || v.displayName }
+          : v
+      ),
+      containerRevision: (state.containerRevision ?? 0) + 1,
+      revision: state.revision + 1,
+      updatedAt: now,
+    };
+  }
+  assertRevision("core", op.baseCoreRevision, state.core?.revision ?? 0);
+  assertRevision(
+    op.platform,
+    op.baseDraftRevision,
+    state.drafts[op.platform]?.revision ?? 0
+  );
+  const parent = resolvePublishingActiveVersion(state);
+  if (op.baseVersionRevision != null) {
+    assertRevision(
+      "publishing",
+      op.baseVersionRevision,
+      parent.versionRevision
+    );
+  }
+  const nextSequence = Math.max(0, ...versions.map(v => v.sequence)) + 1;
+  const versionId = `v${nextSequence}`;
+  const nextCore = {
+    revision: (parent.core?.revision ?? 0) + 1,
+    facts: [...op.core.facts],
+    thesis: op.core.thesis,
+    emotion: op.core.emotion,
+    voiceTraits: [...op.core.voiceTraits],
+    visualConcept: op.core.visualConcept,
+    updatedAt: now,
+  };
+  const drafts = structuredClone(parent.drafts);
+  for (const [platform, draft] of Object.entries(drafts)) {
+    if (platform !== op.platform && draft)
+      drafts[platform as PublishingPlatformId] = {
+        ...draft,
+        needsReview: true,
+      };
+  }
+  const priorDraft = drafts[op.platform];
+  drafts[op.platform] = {
+    platform: op.platform,
+    content: structuredClone(op.content),
+    appliedBaseline: structuredClone(op.content),
+    sourceCoreRevision: nextCore.revision,
+    revision: (priorDraft?.revision ?? 0) + 1,
+    needsReview: false,
+    updatedAt: now,
+  };
+  const next = {
+    ...parent,
+    versionId,
+    sequence: nextSequence,
+    displayName: op.displayName?.trim() || `V${nextSequence}`,
+    parentId: parent.versionId,
+    versionRevision: parent.versionRevision + 1,
+    core: nextCore,
+    drafts,
+    activePlatform: op.platform,
+    selectedPlatforms: parent.selectedPlatforms.includes(op.platform)
+      ? [...parent.selectedPlatforms]
+      : [...parent.selectedPlatforms, op.platform],
+    cover: parent.cover ? { ...parent.cover } : null,
+    coverRounds: [],
+    conversationSnapshot: op.conversationSnapshot
+      ? structuredClone(op.conversationSnapshot)
+      : parent.conversationSnapshot
+        ? structuredClone(parent.conversationSnapshot)
+        : null,
+    videoStoryboard: null,
+  };
+  return {
+    ...state,
+    activeVersionId: versionId,
+    versions: [...versions, next],
+    core: structuredClone(next.core),
+    drafts: structuredClone(next.drafts),
+    activePlatform: next.activePlatform,
+    selectedPlatforms: [...next.selectedPlatforms],
+    cover: next.cover ? { ...next.cover } : null,
+    coverRounds: [],
+    revision: state.revision + 1,
+    containerRevision: (state.containerRevision ?? 0) + 1,
+    versionOperationReceipts: operationToken
+      ? {
+          ...(state.versionOperationReceipts ?? {}),
+          [operationToken]: versionId,
+        }
+      : state.versionOperationReceipts,
+    updatedAt: now,
+  };
+}
 
 const storyWriteTails = new Map<string, Promise<void>>();
 
@@ -153,7 +374,8 @@ function normalizeSelection(
 function applyOperation(
   current: PublishingDraftState,
   operation: PublishingDraftWriteOperation,
-  now: number
+  now: number,
+  operationToken?: string
 ): PublishingDraftState {
   switch (operation.type) {
     case "initialize": {
@@ -258,6 +480,10 @@ function applyOperation(
         updatedAt: now,
       };
     }
+    case "create_version":
+    case "select_version":
+    case "rename_version":
+      return applyVersionOperation(current, operation, now, operationToken);
   }
 }
 
@@ -281,8 +507,9 @@ export async function getPublishingDraftState(
 export async function writePublishingDraftState(params: {
   storyId: number;
   userId: number;
-  operation: PublishingDraftWriteOperation;
+  operation: PublishingDraftWriteOperation | PublishingVersionOperation;
   now?: number;
+  operationToken?: string;
 }): Promise<PublishingDraftPersistenceResult> {
   return withStoryWriteLock(`${params.userId}:${params.storyId}`, async () => {
     const story = await getStoryById(params.storyId, params.userId);
@@ -292,9 +519,25 @@ export async function writePublishingDraftState(params: {
         ? (story.body as Record<string, unknown>)
         : {};
     const current = normalizePublishingDraftState(body.publishing);
+    const receiptVersionId = params.operationToken
+      ? current.versionOperationReceipts?.[params.operationToken]
+      : undefined;
+    if (
+      receiptVersionId &&
+      current.versions?.some(version => version.versionId === receiptVersionId)
+    ) {
+      return {
+        storyId: params.storyId,
+        storyRevision: getStoryRevision(body),
+        publishing: current,
+      };
+    }
     const now = params.now ?? Date.now();
-    const publishing = applyOperation(current, params.operation, now);
-    const storyRevision = getStoryRevision(body) + 1;
+    const publishing = canonicalize(
+      applyOperation(current, params.operation, now, params.operationToken)
+    );
+    const expectedStoryRevision = getStoryRevision(body);
+    const storyRevision = expectedStoryRevision + 1;
     // prepareStoryBody protects publishing as a server-owned field. Supplying
     // the updated body on both sides marks this dedicated operation as the one
     // authoritative writer while retaining every other Story field.
@@ -304,7 +547,25 @@ export async function writePublishingDraftState(params: {
       storyRevision,
       bodyWithPublishing
     );
-    await updateStory(params.storyId, params.userId, { body: nextBody });
+    try {
+      await persistPreparedStoryBody({
+        storyId: params.storyId,
+        userId: params.userId,
+        expectedRevision: expectedStoryRevision,
+        body: nextBody,
+      });
+    } catch (error) {
+      if (error instanceof StoryBodyRevisionConflictError) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          expectedStoryRevision,
+          getStoryRevision(error.latestStory.body)
+        );
+      }
+      throw error;
+    }
     return { storyId: params.storyId, storyRevision, publishing };
   });
 }
+
+export const getActivePublishingVersion = resolvePublishingActiveVersion;

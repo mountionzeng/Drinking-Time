@@ -132,6 +132,32 @@ function currentWordsFromMessage(value: unknown) {
   return continued?.[1]?.trim() || message;
 }
 
+const RELATIVE_DAY_PATTERN = /昨天|前天|大前天|\d+天前/;
+const HISTORY_RELATIVE_REFERENCE_PATTERN =
+  /(?:你(?:昨天|前天|大前天|\d+天前)|(?:昨天|前天|大前天|\d+天前)你)(?:说|写|提)/;
+
+function chinaDateFromTimestamp(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : chinaDateString(parsed);
+}
+
+function calendarDayDistance(from: string, to: string) {
+  const fromMs = Date.parse(`${from}T00:00:00Z`);
+  const toMs = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+  return Math.round((toMs - fromMs) / 86_400_000);
+}
+
+function relativeDateLabel(date: string, today: string) {
+  const distance = calendarDayDistance(date, today);
+  if (distance === 1) return "昨天";
+  if (distance === 2) return "前天";
+  if (distance !== null && distance > 2 && distance < 10) {
+    return `${distance}天前`;
+  }
+  return "请写明确日期";
+}
+
 function cleanLetter(value: unknown, max = 1_200) {
   if (typeof value !== "string") return "";
   const cleaned = value
@@ -208,6 +234,23 @@ function dailyLetterCoverageIssue(
     return "缺少今天怎样和自己相处的建议";
   }
   return "";
+}
+
+function temporalReferenceIssue(
+  input: PersonalizeEmotionDailyReferenceInput,
+  summary: string
+) {
+  const currentMessage = currentWordsFromMessage(input.analysisSeed.userMessage);
+  if (
+    input.generationIntent === "daily-letter" &&
+    !currentMessage &&
+    RELATIVE_DAY_PATTERN.test(summary)
+  ) {
+    return "没有新话时不应使用相对日期回指旧话";
+  }
+  return HISTORY_RELATIVE_REFERENCE_PATTERN.test(summary)
+    ? "联系旧话时必须标明原始日期，不能猜测相对日期"
+    : "";
 }
 
 function completeLetter(summary: string) {
@@ -475,11 +518,11 @@ function systemPrompt() {
     "currentShichenContext 是服务器按中国标准时间确定的当下时辰、时间范围和日常节奏参照。它只说明此刻更适合怎样安排动作，不表示吉凶，也不能覆盖用户的现实处境。",
     "生日、出生地、当前所在地、年龄、八字和用户留言只用于内部理解生活阶段与日常节奏。除非 currentWords 当天主动提到且确有必要，summary 不得直接写出用户年龄、出生地或当前所在地，尤其不得写成“你住在……，你……岁”。",
     "文字要温和、具体、克制，承认不确定性，不夸大转折，不替用户下结论。",
-    "currentWords 是用户在目标日期写下的原话；previousWords 只包含这一天之前由同一用户留下的文字。两者必须严格区分，旧话不能写成今天刚说的话。",
+    "currentWords 是用户在目标日期写下的原话；previousWords 只包含这一天之前由同一用户留下的文字。两者必须严格区分，旧话不能写成今天刚说的话。previousWords 每条都带有按 Asia/Shanghai 计算的 relativeDate；提到旧话时只能使用这个字段，不能自行猜测“昨天/前天”。",
     "currentWords 已去掉产品自动添加的“接着某天说的……我现在想说”导航句。回信只引用用户真正新写的内容；需要联系旧话时，从 previousWords 取，并标明日期。",
     "先在内部比较 currentWords 与 previousWords：判断它更像过去感受的延续、变化、新出现的关注，还是证据还不够。只有文字本身有清楚证据时，才把这个判断自然写进回信；不得贴心理标签，也不得猜测用户没有说出的动机。",
     "generationIntent 为 daily-letter 时，这是新一天首次打开页面看到的信。结合 previousWords 中长期、重复出现的生活节奏与偏好来理解用户，但不得复述、引用或追问某一次旧事件，也不得把旧情绪写成用户今天的状态；existingReference.summary 只用于避免重复。",
-    "generationIntent 为 conversation-reply 时，以 currentWords 为主，最多联系两条确实相关的 previousWords，并用“你在M月D日写过”标明来源；不要翻旧账，不要为了显得懂用户而牵强关联。",
+    "generationIntent 为 conversation-reply 时，以 currentWords 为主，最多联系两条确实相关的 previousWords，并用“你在M月D日写过”标明来源；严禁把旧话写成“你昨天说”“前天你写过”这类自行推断的相对日期。不要翻旧账，不要为了显得懂用户而牵强关联。",
     "summary 是页面唯一展示的主回信。写成 3 到 4 个自然段、220 到 420 个汉字，语气像熟悉用户、但尊重边界的人在早晨说话：亲切、准确，不写报告腔。正文自然说清三件事：今天最值得留意什么；结合节气、季节和 supportiveColors 给一条不假装知道实时天气的穿衣建议；今天怎样安排力气、怎样和自己相处。有 currentWords 时先接住一个具体词或动作；没有 currentWords 时只借长期信息理解生活节奏，不复述任何旧事件。",
     "有 currentWords 时，不要把“拼豆、面试、猫、某个人”等具体内容概括成空泛的“责任、资源、关系位置”；保留用户真正写下的词。",
     "面对同一句话可能有不止一种理解时，把两种或三种仍有依据的可能并排放着，并清楚区分“能确定的”和“还不能确定的”。这不是为了罗列选项，而是避免用一个漂亮解释盖住用户复杂、矛盾或尚未说完的感受。",
@@ -514,14 +557,16 @@ function userContext(input: PersonalizeEmotionDailyReferenceInput) {
           const record = item as PayloadRecord;
           const saidAt = cleanText(record.saidAt, 40);
           const explicitDate = cleanText(record.dailyLetterDate, 10);
-          const inferredDate = /^\d{4}-\d{2}-\d{2}/.test(saidAt)
-            ? saidAt.slice(0, 10)
-            : "";
+          const inferredDate = chinaDateFromTimestamp(saidAt);
           return {
             date: explicitDate || inferredDate,
             text: currentWordsFromMessage(record.text),
             saidAt,
             editedAt: cleanText(record.editedAt, 40),
+            relativeDate: relativeDateLabel(
+              explicitDate || inferredDate,
+              input.date
+            ),
           };
         })
         .filter(
@@ -737,7 +782,8 @@ export async function personalizeEmotionDailyReference302(
     const firstSummary = softenTraditionalExposition(cleanLetter(raw.summary));
     const firstQualityIssue =
       letterQualityIssue(firstSummary) ||
-      dailyLetterCoverageIssue(input, firstSummary);
+      dailyLetterCoverageIssue(input, firstSummary) ||
+      temporalReferenceIssue(input, firstSummary);
     if (firstQualityIssue) {
       const retryResponse = await fetcher(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
@@ -764,7 +810,7 @@ export async function personalizeEmotionDailyReference302(
             },
             {
               role: "user",
-              content: `第一次回信${firstQualityIssue}。请保留事实边界和其他 JSON 字段，把 summary 重写为 3 到 4 个自然段、220 到 420 个汉字，并自然包含今天的注意事项、穿衣建议和与自己相处的方式。没有 currentWords 时可以借 previousWords 理解长期节奏，但不得复述旧事件、旧情绪或直接写出年龄地点。不要用“你不是……而是……”“你真正……”或“这说明你……”替用户解释内心；有证据的多种可能要并排保留，并区分能确定与还不能确定的部分。不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。`,
+              content: `第一次回信${firstQualityIssue}。请保留事实边界和其他 JSON 字段，把 summary 重写为 3 到 4 个自然段、220 到 420 个汉字，并自然包含今天的注意事项、穿衣建议和与自己相处的方式。没有 currentWords 时可以借 previousWords 理解长期节奏，但不得复述旧事件、旧情绪或直接写出年龄地点，也不得使用“昨天”“前天”或“几天前”回指旧话。联系旧话时只能写明确的“你在M月D日写过”，不得猜测相对日期。不要用“你不是……而是……”“你真正……”或“这说明你……”替用户解释内心；有证据的多种可能要并排保留，并区分能确定与还不能确定的部分。不要增加标题、列表、术语报告或用户没有说过的结论。仍只返回完整 JSON。`,
             },
           ],
         }),
@@ -792,7 +838,8 @@ export async function personalizeEmotionDailyReference302(
     );
     const remainingQualityIssue =
       letterQualityIssue(selectedSummary) ||
-      dailyLetterCoverageIssue(input, selectedSummary);
+      dailyLetterCoverageIssue(input, selectedSummary) ||
+      temporalReferenceIssue(input, selectedSummary);
     if (remainingQualityIssue) {
       return localFallback(input, `302 DeepSeek 回信${remainingQualityIssue}`);
     }
