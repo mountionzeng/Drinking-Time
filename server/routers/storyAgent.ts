@@ -80,9 +80,10 @@ import {
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
+  applyStoryShotUpdate,
   persistedStoryIdSchema,
   stableShotIdSchema,
-  storyShotFieldPatchSchema,
+  storyShotUpdateCommandSchema,
 } from "../../shared/storyContract";
 import {
   type PromptContext,
@@ -704,18 +705,12 @@ export const storyAgentRouter = router({
     }),
 
   /**
-   * 职责：按 stableShotId 提交镜头字段命令，不接收整条镜头或整份 Story body。
-   * 调用方：CreationEditorContext 的 `updatePersistedShotFields`。
+   * 职责：按 stableShotId 原子提交镜头字段和编辑元数据，不接收整条镜头或 Story body。
+   * 调用方：CreationEditorContext 的镜头字段、时长和提示词保存函数。
    * 下游：`persistPreparedStoryBody` 以 revision CAS 落库，再同步 prompt lineage。
    */
   updateStoryShotFields: protectedProcedure
-    .input(
-      z.object({
-        storyId: persistedStoryIdSchema,
-        stableShotId: stableShotIdSchema,
-        patch: storyShotFieldPatchSchema,
-      })
-    )
+    .input(storyShotUpdateCommandSchema)
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
@@ -737,7 +732,7 @@ export const storyAgentRouter = router({
           return raw;
         }
         found = true;
-        return { ...shot, ...input.patch };
+        return applyStoryShotUpdate(shot, input);
       });
       if (!found) {
         return { status: "error" as const, error: "镜头不存在或已经更新" };

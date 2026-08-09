@@ -11,7 +11,6 @@ import {
 import { trpc } from "@/lib/trpc";
 import type {
   NarrativeJob,
-  StoryCard,
   StoryShot,
 } from "@/features/storyAgent/types";
 import {
@@ -31,15 +30,7 @@ import {
   rerenderShotImageCandidates,
   type RerenderReference,
 } from "./rerender";
-import {
-  writePromptOverride,
-  writePromptRun,
-  writePromptShot,
-  writeShotContentSnapshot,
-  writeShotDuration,
-} from "./promptTable/persist";
 import { MAX_SHOT_DURATION_MS, MIN_SHOT_DURATION_MS } from "./playback";
-import { buildPromptTable } from "./promptTable/buildPromptTable";
 import { compilePromptRecipe } from "./promptTable/promptRecipe";
 import type {
   PromptOverride,
@@ -62,6 +53,7 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
+import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import type {
   VideoCropPath,
@@ -162,16 +154,6 @@ type CreationEditorContextValue = {
     shotNo: number,
     dimension: string,
     override: PromptOverride
-  ) => Promise<void>;
-  ensurePromptShot: (input: {
-    shotNo: number;
-    card?: Pick<StoryCard, "title" | "content" | "emotion" | "sensoryDetails">;
-    styleRef?: string;
-    narrativeJob?: NarrativeJob;
-  }) => Promise<{ shot: CreationEditorShot; rows: PromptRow[] }>;
-  recordPromptRun: (
-    shotNo: number,
-    promptRun: PromptRunRecord
   ) => Promise<void>;
   rerenderShot: (
     shotNo: number,
@@ -724,14 +706,6 @@ export function normalizeStoryShots(body: unknown): CreationEditorShot[] {
   );
 }
 
-export function storyBodyRevision(body: unknown): number {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return 0;
-  const revision = (body as Record<string, unknown>)._revision;
-  return typeof revision === "number" && Number.isFinite(revision)
-    ? revision
-    : 0;
-}
-
 function preserveEditorMetadata(
   canonical: CreationEditorShot,
   persisted?: CreationEditorShot
@@ -1197,13 +1171,12 @@ export function CreationEditorProvider({
   const [recentVideoTakeIds, setRecentVideoTakeIds] = useState<number[]>([]);
   const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
-  const shotFieldSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const storyShotSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const utils = trpc.useUtils();
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const updateStoryShotFieldsMut =
     trpc.storyAgent.updateStoryShotFields.useMutation();
   const insertStoryShotAfterMut =
@@ -1264,7 +1237,6 @@ export function CreationEditorProvider({
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
   const spineRemoteStoryId = useStorySpine(state => state.remoteStoryId);
   const setCanonicalStoryShots = useStorySpine(state => state.setStoryShots);
-  const setSpineRemoteStoryId = useStorySpine(state => state.setRemoteStoryId);
   const setSpineServerRevision = useStorySpine(
     state => state.setServerRevision
   );
@@ -1276,6 +1248,8 @@ export function CreationEditorProvider({
     spineActiveStoryId,
     spineRemoteStoryId,
   });
+  const activeStoryIdRef = useRef(activeId);
+  activeStoryIdRef.current = activeId;
   const canonicalStoryShots = useStorySpine(state =>
     activeId != null &&
     (state.activeStoryId === activeId || state.remoteStoryId === activeId)
@@ -1622,49 +1596,63 @@ export function CreationEditorProvider({
   }, [recentVideoTakeIds, shots]);
 
   /**
-   * 职责：保存仍未迁移到专用命令的 Story body 变更；镜头字段编辑不得调用它。
-   * 调用方：`updateShotDuration`、`updatePromptOverride`、`ensurePromptShot`、
-   * `recordPromptRun`、`rerenderShot`。
-   * 下游：调用 `storyUpsert`，再刷新 Story 与素材投影；后续应逐项淘汰。
+   * 职责：串行提交一条镜头命令，并以服务端返回快照统一刷新 spine 与查询缓存。
+   * 调用方：`updatePersistedShotFields`、`updateShotDuration`、`updatePromptOverride`、`rerenderShot`。
+   * 下游：调用 `storyAgent.updateStoryShotFields`，不再发送整份 Story body。
    */
-  const persistBody = async (body: Record<string, unknown>) => {
-    const row = storyQuery.data;
-    if (!row) throw new Error("故事尚未加载，无法保存");
-    const saved = await storyUpsertMut.mutateAsync({
-      id: row.id,
-      baseRevision:
-        typeof row.revision === "number"
-          ? row.revision
-          : storyBodyRevision(row.body),
-      title: row.title,
-      logline: row.logline,
-      theme: row.theme,
-      arc: row.arc,
-      summary: row.summary,
-      projectId: row.projectId,
-      body,
-    });
-    const savedBody =
-      saved?.body &&
-      typeof saved.body === "object" &&
-      !Array.isArray(saved.body)
-        ? (saved.body as Record<string, unknown>)
-        : body;
-    if (saved && typeof saved.id === "number") {
-      setSpineRemoteStoryId(saved.id);
+  const persistStoryShotUpdate = async (
+    stableShotId: string,
+    update: StoryShotCommandUpdate
+  ) => {
+    const storyId = activeId;
+    const targetStableShotId = normalizeShotIdentity(stableShotId);
+    if (storyId == null || !targetStableShotId) {
+      throw new Error("故事或镜头身份无效，无法保存");
     }
-    if (saved && typeof saved.revision === "number") {
-      setSpineServerRevision(saved.revision);
-    }
-    if (Array.isArray(savedBody.shots)) {
-      setCanonicalStoryShots(normalizeStoryShots(savedBody));
-    }
-    await Promise.all([
-      utils.storyAgent.storyGet.invalidate({ id: row.id }),
-      utils.storyAgent.storyList.invalidate(),
-      utils.storyAgent.storyMaterialState.invalidate({ storyId: row.id }),
-    ]);
-    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+    const save = async () => {
+      const result = await updateStoryShotFieldsMut.mutateAsync({
+        storyId,
+        stableShotId: targetStableShotId,
+        ...update,
+      });
+      if (result.status !== "ok" || !result.story) {
+        throw new Error(
+          result.status === "error" ? result.error : "镜头保存失败"
+        );
+      }
+      const savedBody =
+        result.story.body &&
+        typeof result.story.body === "object" &&
+        !Array.isArray(result.story.body)
+          ? (result.story.body as Record<string, unknown>)
+          : null;
+      const savedShots = Array.isArray(savedBody?.shots) ? savedBody.shots : [];
+      const savedShot = savedShots.find((raw, index) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+        return shotIdentityFromShot(raw, index) === targetStableShotId;
+      }) as Record<string, unknown> | undefined;
+      if (!savedShot) throw new Error("服务器没有返回已保存的镜头");
+
+      if (activeStoryIdRef.current === storyId) {
+        setCanonicalStoryShots(normalizeStoryShots(savedBody));
+        if (typeof result.story.revision === "number") {
+          setSpineServerRevision(result.story.revision);
+        }
+      }
+      await Promise.all([
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.storyList.invalidate(),
+        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+      ]);
+      await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+      return savedShot;
+    };
+    const queued = storyShotSaveQueueRef.current.then(save, save);
+    storyShotSaveQueueRef.current = queued.then(
+      () => undefined,
+      () => undefined
+    );
+    return queued;
   };
 
   /**
@@ -1714,92 +1702,56 @@ export function CreationEditorProvider({
   /**
    * 职责：镜头字段编辑的客户端唯一入口，串行提交并用服务端快照回灌 spine。
    * 调用方：StoryboardReviewBoard、ShotMaterialBasket 等编辑面板。
-   * 下游：调用 `storyAgent.updateStoryShotFields`、刷新 Story/素材投影，并提议提示词候选。
+   * 下游：调用 `persistStoryShotUpdate`，保存成功后再提议提示词候选。
    */
   const updatePersistedShotFields = async (
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
   ) => {
     const storyId = activeId;
-    if (storyId == null) throw new Error("故事尚未加载，无法保存镜头");
+    const targetStableShotId = normalizeShotIdentity(stableShotId);
+    if (storyId == null || !targetStableShotId) {
+      throw new Error("故事或镜头身份无效，无法保存");
+    }
     const previousShot = canonicalStoryShots.find(
-      (shot, index) => shotIdentityFromShot(shot, index) === stableShotId
+      (shot, index) =>
+        shotIdentityFromShot(shot, index) === targetStableShotId
     ) as Record<string, unknown> | undefined;
-    // 必须在 updateStoryShotFieldsMut 落库之前发起——见 proposeEditPromptCandidates
-    // 上面的注释：晚一步取就会取到被这次编辑污染过的谱系基线。这里只发起请求，
-    // 不 await，跟保存请求并发进行，不多花时间；哪怕这次编辑最终没有可提议的
-    // 候选，这个快照请求本身也无害。
+    // 必须在镜头命令落库之前发起，否则谱系迁移会把本次编辑吸收为新基线。
     const preEditProjection = utils.promptLineage.getStoryProjection
       .fetch({ storyId })
       .catch(() => null);
-    const save = async () => {
-      const result = await updateStoryShotFieldsMut.mutateAsync({
-        storyId,
-        stableShotId,
-        patch,
-      });
-      if (result.status !== "ok" || !result.story) {
-        throw new Error(
-          result.status === "error" ? result.error : "镜头保存失败"
-        );
-      }
-      const savedBody =
-        result.story.body &&
-        typeof result.story.body === "object" &&
-        !Array.isArray(result.story.body)
-          ? (result.story.body as Record<string, unknown>)
-          : null;
-      const savedShots = Array.isArray(savedBody?.shots) ? savedBody.shots : [];
-      const savedShot = savedShots.find((raw, index) => {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
-        return shotIdentityFromShot(raw, index) === stableShotId;
-      }) as Record<string, unknown> | undefined;
-      const confirmed =
-        savedShot &&
-        Object.entries(patch).every(
-          ([field, value]) => savedShot[field] === value
-        );
-      if (!confirmed) {
-        throw new Error("服务器没有确认镜头字段，已保留为未保存状态");
-      }
-      setCanonicalStoryShots(normalizeStoryShots(savedBody));
-      if (typeof result.story.revision === "number") {
-        setSpineServerRevision(result.story.revision);
-      }
-      await Promise.all([
-        utils.storyAgent.storyGet.invalidate({ id: storyId }),
-        utils.storyAgent.storyList.invalidate(),
-        utils.storyAgent.storyMaterialState.invalidate({ storyId }),
-      ]);
-      await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-      const loaded = await preEditProjection;
-      if (loaded?.mode === "lineage") {
-        void proposeEditPromptCandidates(
-          Object.entries(patch).flatMap(([field, value]) =>
-            value == null
-              ? []
-              : [
-                  {
-                    stableShotId,
-                    previousValue:
-                      previousShot != null
-                        ? String(previousShot[field] ?? "")
-                        : undefined,
-                    nextValue: value,
-                    field,
-                  },
-                ]
-          ),
-          loaded.projection
-        );
-      }
-    };
-    const queued = shotFieldSaveQueueRef.current.then(save, save);
-    shotFieldSaveQueueRef.current = queued.then(
-      () => undefined,
-      () => undefined
-    );
-    return queued;
+    const savedShot = await persistStoryShotUpdate(targetStableShotId, {
+      patch,
+    });
+    if (
+      !Object.entries(patch).every(
+        ([field, value]) => savedShot[field] === value
+      )
+    ) {
+      throw new Error("服务器没有确认镜头字段，已保留为未保存状态");
+    }
+    const loaded = await preEditProjection;
+    if (loaded?.mode === "lineage") {
+      void proposeEditPromptCandidates(
+        Object.entries(patch).flatMap(([field, value]) =>
+          value == null
+            ? []
+            : [
+                {
+                  stableShotId: targetStableShotId,
+                  previousValue:
+                    previousShot != null
+                      ? String(previousShot[field] ?? "")
+                      : undefined,
+                  nextValue: value,
+                  field,
+                },
+              ]
+        ),
+        loaded.projection
+      );
+    }
   };
 
   /**
@@ -1908,119 +1860,88 @@ export function CreationEditorProvider({
     return result.nextSelectedShotNo;
   };
 
+  /**
+   * 职责：同时更新镜头时长元数据和 timeline 计划时长，不发送整份 Story body。
+   * 调用方：AnimaticPanel 的拖拽和时长输入控件。
+   * 下游：调用 `persistStoryShotUpdate`，timeline 变化时再调用 `saveTimelineItems`。
+   */
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
     const normalizedDurationMs = Math.min(
       MAX_SHOT_DURATION_MS,
       Math.max(MIN_SHOT_DURATION_MS, Math.round(durationMs))
     );
-    const body = writeShotDuration(
-      storyQuery.data?.body,
-      shotNo,
-      normalizedDurationMs
-    );
     const targetShot = shots.find(shot => shot.shotNo === shotNo);
-    const targetShotId = targetShot ? creationTimelineShotId(targetShot) : null;
-    const nextTimelineItems = targetShotId
-      ? timelineItems.map(item =>
-          item.stableShotId === targetShotId
-            ? { ...item, plannedDurationMs: normalizedDurationMs }
-            : item
-        )
-      : timelineItems;
+    const targetShotId = targetShot
+      ? shotIdentityFromShot(targetShot)
+      : null;
+    if (!targetShot || !targetShotId) throw new Error(`找不到镜头 ${shotNo}`);
+    const savedShot = await persistStoryShotUpdate(targetShotId, {
+      metadata: { durationMs: normalizedDurationMs },
+    });
+    if (savedShot.durationMs !== normalizedDurationMs) {
+      throw new Error("服务器没有确认镜头时长");
+    }
+    const timelineShotId = creationTimelineShotId(targetShot);
+    const nextTimelineItems = timelineItems.map(item =>
+      item.stableShotId === timelineShotId
+        ? { ...item, plannedDurationMs: normalizedDurationMs }
+        : item
+    );
     const timelineChanged = nextTimelineItems.some(
       (item, index) =>
         item.plannedDurationMs !== timelineItems[index]?.plannedDurationMs
     );
-    await persistBody(body);
     if (timelineChanged) {
       await saveTimelineItems(nextTimelineItems);
     }
   };
 
+  /**
+   * 职责：只合并目标镜头的单个提示词维度覆盖，保留其他维度和兄弟镜头。
+   * 调用方：PromptTablePanel 的旧版提示词编辑流程。
+   * 下游：仅调用 `persistStoryShotUpdate` 的 `promptOverride` 元数据命令。
+   */
   const updatePromptOverride = async (
     shotNo: number,
     dimension: string,
     override: PromptOverride
   ) => {
-    const body = writePromptOverride(
-      storyQuery.data?.body,
-      shotNo,
-      dimension,
-      override
-    );
-    await persistBody(body);
-  };
-
-  const ensurePromptShot = async (input: {
-    shotNo: number;
-    card?: Pick<StoryCard, "title" | "content" | "emotion" | "sensoryDetails">;
-    styleRef?: string;
-    narrativeJob?: NarrativeJob;
-  }) => {
-    const existing = shots.find(item => item.shotNo === input.shotNo);
-    const fallbackShot: CreationEditorShot = existing ?? {
-      shotNo: input.shotNo,
-      shotKey: shotKey(input.shotNo),
-      subject:
-        input.card?.title ||
-        input.card?.content?.slice(0, 80) ||
-        `镜头 ${input.shotNo}`,
-      action: input.card?.content || "",
-      dialogue: "",
-      shotType: "",
-      beat: input.card?.title || `Story Card ${input.shotNo}`,
-      cameraAngle: "",
-      cameraMove: "",
-      location: input.card?.sensoryDetails?.join("，") || "",
-      timeLight: "",
-      mood: input.card?.emotion || "",
-      sound: "",
-      styleRef: input.styleRef || "",
-      note: "",
-      emotion: input.card?.emotion || "",
-      sourceCardContent: input.card?.content || "",
-      narrativeJob: input.narrativeJob,
-    };
-
-    const narrativeChanged = input.narrativeJob
-      ? JSON.stringify(existing?.narrativeJob ?? null) !==
-        JSON.stringify(input.narrativeJob)
-      : false;
-    const shouldPersist =
-      !existing ||
-      (Boolean(input.styleRef) && !existing.styleRef.trim()) ||
-      narrativeChanged;
-    const nextShot = existing
-      ? {
-          ...existing,
-          styleRef: existing.styleRef || input.styleRef || "",
-          narrativeJob: input.narrativeJob ?? existing.narrativeJob,
-        }
-      : fallbackShot;
-    if (shouldPersist) {
-      const body = writePromptShot(
-        storyQuery.data?.body,
-        input.shotNo,
-        nextShot as unknown as Record<string, unknown>
-      );
-      await persistBody(body);
+    const targetShot = shots.find(shot => shot.shotNo === shotNo);
+    const targetShotId = targetShot
+      ? shotIdentityFromShot(targetShot)
+      : null;
+    if (!targetShotId) throw new Error(`找不到镜头 ${shotNo}`);
+    const savedShot = await persistStoryShotUpdate(targetShotId, {
+      metadata: {
+        promptOverride: { dimension, override },
+      },
+    });
+    const savedOverrides =
+      savedShot.promptOverrides &&
+      typeof savedShot.promptOverrides === "object" &&
+      !Array.isArray(savedShot.promptOverrides)
+        ? (savedShot.promptOverrides as Record<string, unknown>)
+        : {};
+    const savedDimension =
+      savedOverrides[dimension] &&
+      typeof savedOverrides[dimension] === "object" &&
+      !Array.isArray(savedOverrides[dimension])
+        ? (savedOverrides[dimension] as Record<string, unknown>)
+        : {};
+    if (
+      !Object.entries(override).every(
+        ([field, value]) => savedDimension[field] === value
+      )
+    ) {
+      throw new Error("服务器没有确认提示词覆盖");
     }
-
-    const previousShots = shots.filter(item => item.shotNo < input.shotNo);
-    return {
-      shot: nextShot,
-      rows: buildPromptTable(nextShot, { previousShots }),
-    };
   };
 
-  const recordPromptRun = async (
-    shotNo: number,
-    promptRun: PromptRunRecord
-  ) => {
-    const body = writePromptRun(storyQuery.data?.body, shotNo, promptRun);
-    await persistBody(body);
-  };
-
+  /**
+   * 职责：重渲目标镜头，并把本次使用的镜头快照与提示词记录原子落库。
+   * 调用方：PromptTablePanel、StoryboardReviewBoard 的单图或四图重渲操作。
+   * 下游：调用图片生成服务；旧版提示词模式再调用 `persistStoryShotUpdate`。
+   */
   const rerenderShot = async (
     shotNo: number,
     rows: PromptRow[],
@@ -2038,7 +1959,8 @@ export function CreationEditorProvider({
   ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法重渲");
     const shot = shots.find(item => item.shotNo === shotNo);
-    if (!shot) throw new Error(`找不到镜头 ${shotNo}`);
+    const targetStableShotId = shot ? shotIdentityFromShot(shot) : null;
+    if (!shot || !targetStableShotId) throw new Error(`找不到镜头 ${shotNo}`);
     setRerenderError(null);
     setRerenderingShotNos(current => addShotToRenderSlots(current, shotNo));
     try {
@@ -2083,13 +2005,8 @@ export function CreationEditorProvider({
       if (!result) throw new Error("图片生成没有返回候选结果");
       if (promptLineageQuery.data?.mode !== "lineage") {
         const compiled = compilePromptRecipe({ shot, rows });
-        const bodyWithShotContent = writeShotContentSnapshot(
-          storyQuery.data?.body,
-          shotNo,
-          {
-            stableShotId: shot.stableShotId,
-            shotIdentity: shot.shotIdentity,
-            shotKey: shot.shotKey,
+        const patch = Object.fromEntries(
+          Object.entries({
             subject: shot.subject,
             action: shot.action,
             dialogue: shot.dialogue,
@@ -2104,7 +2021,6 @@ export function CreationEditorProvider({
             styleRef: shot.styleRef,
             note: shot.note,
             emotion: shot.emotion,
-            sourceCardContent: shot.sourceCardContent,
             intent: shot.intent,
             rationale: shot.rationale,
             videoPrompt: shot.videoPrompt,
@@ -2113,17 +2029,32 @@ export function CreationEditorProvider({
             transitionIn: shot.transitionIn,
             transitionOut: shot.transitionOut,
             negativePrompt: shot.negativePrompt,
-          }
-        );
-        const body = writePromptRun(bodyWithShotContent, shotNo, {
+          }).filter(([, value]) => typeof value === "string")
+        ) as Partial<Record<StoryShotEditableField, string>>;
+        const promptRun: PromptRunRecord = {
           finalPrompt: result.prompt || compiled.finalPrompt,
           generatedAt: Date.now(),
           imageId: result.imageId,
           imageUrl: result.imageUrl,
           source: "prompt-table-rerender",
           usedDimensions: compiled.usedDimensions,
-        });
-        await persistBody(body);
+        };
+        const savedShot = await persistStoryShotUpdate(
+          targetStableShotId,
+          { patch, metadata: { promptRun } }
+        );
+        const savedPromptRun =
+          savedShot.promptRun &&
+          typeof savedShot.promptRun === "object" &&
+          !Array.isArray(savedShot.promptRun)
+            ? (savedShot.promptRun as Record<string, unknown>)
+            : null;
+        if (
+          savedPromptRun?.generatedAt !== promptRun.generatedAt ||
+          savedPromptRun.imageId !== promptRun.imageId
+        ) {
+          throw new Error("服务器没有确认本次重渲记录");
+        }
       }
       await Promise.all([
         storyImagesQuery.refetch(),
@@ -3222,7 +3153,8 @@ export function CreationEditorProvider({
         shotVideoProviderStatusQuery.isLoading ||
         imageProviderStatusQuery.isLoading,
       error,
-      isSaving: storyUpsertMut.isPending,
+      isSaving:
+        updateStoryShotFieldsMut.isPending || updateStoryTimelineMut.isPending,
       rerenderingShotNos,
       rerenderError,
       promotingFrameCropShotNo,
@@ -3233,8 +3165,6 @@ export function CreationEditorProvider({
       confirmPromptCandidate,
       rejectPromptCandidate,
       updatePromptOverride,
-      ensurePromptShot,
-      recordPromptRun,
       rerenderShot,
       promoteFrameCrop,
       promoteStoryImage,
@@ -3314,7 +3244,8 @@ export function CreationEditorProvider({
       attachChatCutXml,
       adviseStoryImages,
       applyStoryImageAdvice,
-      storyUpsertMut.isPending,
+      updateStoryShotFieldsMut.isPending,
+      updateStoryTimelineMut.isPending,
       storyImagesQuery,
       storyVideoAssetsQuery,
       storyMaterialQuery,

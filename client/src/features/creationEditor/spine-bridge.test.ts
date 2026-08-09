@@ -21,6 +21,13 @@ describe("creation editor spine boundary", () => {
     expect(editorContext).toContain(
       "trpc.storyAgent.updateStoryShotFields.useMutation()"
     );
+    expect(editorContext).not.toContain(
+      "trpc.storyAgent.storyUpsert.useMutation()"
+    );
+    expect(editorContext).not.toContain("const persistBody");
+    expect(editorContext).not.toContain("ensurePromptShot");
+    expect(editorContext).not.toContain("recordPromptRun");
+    expect(editorContext).toContain("activeStoryIdRef.current === storyId");
   });
 
   it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {

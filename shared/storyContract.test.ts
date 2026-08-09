@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyStoryShotUpdate,
   assertPersistedStoryBodyEnvelope,
   parsePersistedStoryBody,
   persistedStoryIdSchema,
   stableShotIdSchema,
   storyShotFieldPatchSchema,
+  storyShotUpdateCommandSchema,
 } from "./storyContract";
 
 describe("story contract", () => {
@@ -55,6 +57,73 @@ describe("story contract", () => {
     expect(storyShotFieldPatchSchema.safeParse({}).success).toBe(false);
     expect(
       storyShotFieldPatchSchema.safeParse({ stableShotId: "覆盖身份" }).success
+    ).toBe(false);
+  });
+
+  it("在同一镜头命令中合并字段、时长和提示词元数据", () => {
+    const command = storyShotUpdateCommandSchema.parse({
+      storyId: 7,
+      stableShotId: " SHOT-0101 ",
+      patch: { cameraMove: "缓慢推进" },
+      metadata: {
+        durationMs: 4200,
+        promptOverride: {
+          dimension: "genre",
+          override: { value: "水彩", weight: 0.9 },
+        },
+        promptRun: {
+          finalPrompt: "窗边人物，水彩质感",
+          generatedAt: 123,
+          imageId: 99,
+          source: "prompt-table-rerender",
+          usedDimensions: ["subject", "genre"],
+        },
+      },
+    });
+
+    expect(command.stableShotId).toBe("shot-0101");
+    expect(
+      applyStoryShotUpdate(
+        {
+          stableShotId: "shot-0101",
+          cameraMove: "固定机位",
+          promptOverrides: { tone: { value: "暖色", weight: 0.3 } },
+        },
+        command
+      )
+    ).toMatchObject({
+      cameraMove: "缓慢推进",
+      durationMs: 4200,
+      promptOverrides: {
+        tone: { value: "暖色", weight: 0.3 },
+        genre: { value: "水彩", weight: 0.9 },
+      },
+      promptRun: { imageId: 99, finalPrompt: "窗边人物，水彩质感" },
+    });
+  });
+
+  it("拒绝空镜头命令和越界编辑元数据", () => {
+    expect(
+      storyShotUpdateCommandSchema.safeParse({
+        storyId: 7,
+        stableShotId: "shot-0101",
+      }).success
+    ).toBe(false);
+    expect(
+      storyShotUpdateCommandSchema.safeParse({
+        storyId: 7,
+        stableShotId: "shot-0101",
+        metadata: { durationMs: 99 },
+      }).success
+    ).toBe(false);
+    expect(
+      storyShotUpdateCommandSchema.safeParse({
+        storyId: 7,
+        stableShotId: "shot-0101",
+        metadata: {
+          promptOverride: { dimension: "genre", override: {} },
+        },
+      }).success
     ).toBe(false);
   });
 });

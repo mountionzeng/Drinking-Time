@@ -102,6 +102,74 @@ describe("storyAgent.updateStoryShotFields", () => {
     expect(body.publishing).toEqual({ activeVersionId: "v3" });
   });
 
+  it("updates editor metadata atomically without replacing sibling state", async () => {
+    const caller = appRouter.createCaller(context(612));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "Metadata command",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-0101",
+            shotIdentity: "shot-0101",
+            shotNo: 1,
+            subject: "窗边人物",
+            promptOverrides: {
+              tone: { value: "暖色", weight: 0.3 },
+            },
+          },
+          {
+            stableShotId: "shot-0102",
+            shotIdentity: "shot-0102",
+            shotNo: 2,
+            subject: "兄弟镜头",
+          },
+        ],
+        timeline: { version: 4 },
+        publishing: { activeVersionId: "v2" },
+      },
+    });
+    if (!created) throw new Error("story creation failed");
+
+    const result = await caller.storyAgent.updateStoryShotFields({
+      storyId: created.id,
+      stableShotId: "SHOT-0101",
+      patch: { cameraMove: "缓慢推进" },
+      metadata: {
+        durationMs: 4200,
+        promptOverride: {
+          dimension: "genre",
+          override: { value: "水彩", weight: 0.9 },
+        },
+        promptRun: {
+          finalPrompt: "窗边人物，水彩质感",
+          generatedAt: 123,
+          imageId: 99,
+          source: "prompt-table-rerender",
+          usedDimensions: ["subject", "genre"],
+        },
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    const body = result.story?.body as Record<string, unknown>;
+    expect((body.shots as Array<Record<string, unknown>>)[0]).toMatchObject({
+      stableShotId: "shot-0101",
+      cameraMove: "缓慢推进",
+      durationMs: 4200,
+      promptOverrides: {
+        tone: { value: "暖色", weight: 0.3 },
+        genre: { value: "水彩", weight: 0.9 },
+      },
+      promptRun: { imageId: 99, finalPrompt: "窗边人物，水彩质感" },
+    });
+    expect((body.shots as Array<Record<string, unknown>>)[1]).toMatchObject({
+      stableShotId: "shot-0102",
+      subject: "兄弟镜头",
+    });
+    expect(body.timeline).toEqual({ version: 4 });
+    expect(body.publishing).toEqual({ activeVersionId: "v2" });
+  });
+
   it("does not allow another user to patch the story", async () => {
     const owner = appRouter.createCaller(context(612));
     const intruder = appRouter.createCaller(context(613));
