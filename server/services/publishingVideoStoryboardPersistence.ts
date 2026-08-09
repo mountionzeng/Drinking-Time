@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type {
   PublishingDraftState,
   PublishingPlatformDraft,
@@ -284,7 +285,14 @@ async function claimPreviewOperation(input: {
             : null,
       };
     }
-    if (existing?.status === "pending" && existing.expiresAt > input.now) {
+    const equivalentPending = Object.values(aggregate.operations).find(
+      operation =>
+        operation.operationKind === "preview" &&
+        operation.status === "pending" &&
+        operation.requestHash === context.requestHash &&
+        operation.expiresAt > input.now
+    );
+    if (equivalentPending?.status === "pending") {
       return {
         status: "pending",
         context,
@@ -673,6 +681,61 @@ function formalShotFromPreview(input: {
   };
 }
 
+const GENERATED_VERSIONED_SHOT_FIELDS = new Set<string>([
+  ...STORYBOARD_VERSIONED_FIELDS,
+  "sound",
+]);
+
+function previousFormalShotBaseline(input: {
+  shot: PublishingVideoStoryboardShot;
+  current: Record<string, unknown>;
+  versionId: string;
+  sourcePlatform: string;
+  groupId: string;
+  confirmedRevision: number;
+}): Record<string, unknown> {
+  const stableShotId = input.shot.stableShotId!;
+  return formalShotFromPreview({
+    shot: input.shot,
+    stableShotId,
+    shotNo: typeof input.current.shotNo === "number" ? input.current.shotNo : 0,
+    versionId: input.versionId,
+    sourcePlatform: input.sourcePlatform,
+    groupId: input.groupId,
+    confirmedRevision: input.confirmedRevision,
+  });
+}
+
+function mergeUserEnrichment(input: {
+  current: Record<string, unknown>;
+  baseline: Record<string, unknown>;
+  generated: Record<string, unknown>;
+}): Record<string, unknown> {
+  const preserved = Object.fromEntries(
+    Object.entries(input.current).flatMap(([field, value]) => {
+      if (
+        field === "shotNo" ||
+        field === "stableShotId" ||
+        field === "shotIdentity" ||
+        field === "publishingVideo" ||
+        GENERATED_VERSIONED_SHOT_FIELDS.has(field) ||
+        isDeepStrictEqual(value, input.baseline[field])
+      ) {
+        return [];
+      }
+      return [[field, structuredClone(value)]];
+    })
+  );
+  return {
+    ...input.generated,
+    ...preserved,
+    stableShotId: input.generated.stableShotId,
+    shotIdentity: input.generated.shotIdentity,
+    shotNo: input.generated.shotNo,
+    publishingVideo: input.generated.publishingVideo,
+  };
+}
+
 function storyStyleReference(
   body: Record<string, unknown>,
   coverAssetId: number | null,
@@ -818,15 +881,47 @@ export async function confirmPublishingVideoStoryboard(input: {
         : [];
     });
     const legacyIndex = rawShots.findIndex(isUntouchedLegacyPublishingOpening);
-    const insertionIndex =
-      managedIndexes[0] ?? (legacyIndex >= 0 ? legacyIndex : rawShots.length);
+    const previousConfirmed =
+      aggregate.confirmed?.groupId === activeGroupId
+        ? aggregate.confirmed
+        : null;
+    const currentManagedByStableId = new Map(
+      managedIndexes.flatMap(index => {
+        const shot = rawShots[index]!;
+        const stableShotId =
+          typeof shot.stableShotId === "string"
+            ? shot.stableShotId
+            : typeof shot.shotIdentity === "string"
+              ? shot.shotIdentity
+              : null;
+        return stableShotId ? [[stableShotId, { index, shot }] as const] : [];
+      })
+    );
+    const previousByDraftShotId = new Map(
+      (previousConfirmed?.shots ?? []).map(shot => [shot.draftShotId, shot])
+    );
+    const reusedManagedIndexes = new Set<number>();
+    const stableShotIdByDraftShotId = new Map<string, string>();
+    for (const shot of preview.shots) {
+      const previous = previousByDraftShotId.get(shot.draftShotId);
+      if (!previous?.stableShotId) continue;
+      const current = currentManagedByStableId.get(previous.stableShotId);
+      if (!current) continue;
+      stableShotIdByDraftShotId.set(shot.draftShotId, previous.stableShotId);
+      reusedManagedIndexes.add(current.index);
+    }
     const removedIndexes = new Set([
-      ...managedIndexes,
+      ...Array.from(reusedManagedIndexes),
       ...(legacyIndex >= 0 ? [legacyIndex] : []),
     ]);
-    const unrelated = rawShots.filter((_, index) => !removedIndexes.has(index));
+    const retained = rawShots.filter((_, index) => !removedIndexes.has(index));
+    const replacementIndex =
+      managedIndexes[0] ?? (legacyIndex >= 0 ? legacyIndex : rawShots.length);
+    const insertionIndex = rawShots
+      .slice(0, replacementIndex)
+      .filter((_, index) => !removedIndexes.has(index)).length;
     const usedStableIds = new Set(
-      unrelated.flatMap(shot => {
+      retained.flatMap(shot => {
         const id =
           typeof shot.stableShotId === "string"
             ? shot.stableShotId
@@ -838,12 +933,14 @@ export async function confirmPublishingVideoStoryboard(input: {
     );
     const confirmedRevision = context.storyRevision + 1;
     const confirmedShots = preview.shots.map(shot => {
-      const stableShotId = stablePublishingShotId({
-        storyId: input.storyId,
-        versionId: input.versionId,
-        previewId: input.previewId,
-        draftShotId: shot.draftShotId,
-      });
+      const stableShotId =
+        stableShotIdByDraftShotId.get(shot.draftShotId) ??
+        stablePublishingShotId({
+          storyId: input.storyId,
+          versionId: input.versionId,
+          previewId: input.previewId,
+          draftShotId: shot.draftShotId,
+        });
       if (usedStableIds.has(stableShotId)) {
         throw new PublishingVideoStoryboardConfirmationError(
           `镜头身份冲突：${stableShotId}`
@@ -852,8 +949,8 @@ export async function confirmPublishingVideoStoryboard(input: {
       usedStableIds.add(stableShotId);
       return confirmedShotSnapshot(shot, stableShotId);
     });
-    const formalConfirmed = confirmedShots.map((shot, index) =>
-      formalShotFromPreview({
+    const formalConfirmed = confirmedShots.map((shot, index) => {
+      const generated = formalShotFromPreview({
         shot,
         stableShotId: shot.stableShotId!,
         shotNo: insertionIndex + index + 1,
@@ -862,12 +959,36 @@ export async function confirmPublishingVideoStoryboard(input: {
           preview.source?.platform ?? context.version.activePlatform,
         groupId,
         confirmedRevision,
-      })
-    );
+      });
+      const previous = previousByDraftShotId.get(shot.draftShotId);
+      const current = previous?.stableShotId
+        ? currentManagedByStableId.get(previous.stableShotId)?.shot
+        : null;
+      if (!previous || !current || !previousConfirmed) return generated;
+      const provenance = storyBodyRecord(current.publishingVideo);
+      const baseline = previousFormalShotBaseline({
+        shot: previous,
+        current,
+        versionId:
+          typeof provenance.versionId === "string"
+            ? provenance.versionId
+            : input.versionId,
+        sourcePlatform:
+          typeof provenance.sourcePlatform === "string"
+            ? provenance.sourcePlatform
+            : (preview.source?.platform ?? context.version.activePlatform),
+        groupId: previousConfirmed.groupId,
+        confirmedRevision:
+          typeof provenance.confirmedRevision === "number"
+            ? provenance.confirmedRevision
+            : previousConfirmed.confirmedStoryRevision,
+      });
+      return mergeUserEnrichment({ current, baseline, generated });
+    });
     const nextShots = [
-      ...unrelated.slice(0, insertionIndex),
+      ...retained.slice(0, insertionIndex),
       ...formalConfirmed,
-      ...unrelated.slice(insertionIndex),
+      ...retained.slice(insertionIndex),
     ].map((shot, index) => ({ ...shot, shotNo: index + 1 }));
     const confirmed: PublishingVideoConfirmedSnapshot = {
       previewId: preview.previewId,

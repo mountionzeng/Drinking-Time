@@ -15,7 +15,9 @@ import { parseJsonLoose } from "../_core/llmJson";
 
 export class PublishingVideoStoryboardModelOutputError extends Error {
   constructor(readonly reasons: string[]) {
-    super(`Publishing video storyboard output is invalid: ${reasons.join(", ")}`);
+    super(
+      `Publishing video storyboard output is invalid: ${reasons.join(", ")}`
+    );
     this.name = "PublishingVideoStoryboardModelOutputError";
   }
 }
@@ -44,6 +46,7 @@ type CompletionResponse = {
 };
 
 const MODEL_PARAGRAPH_BATCH_SIZE = 3;
+const MODEL_BATCH_CONCURRENCY = 2;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -60,7 +63,7 @@ function completionText(data: CompletionResponse): string {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content
-    .map(part => (part.type === "text" ? part.text ?? "" : ""))
+    .map(part => (part.type === "text" ? (part.text ?? "") : ""))
     .filter(Boolean)
     .join("\n")
     .trim();
@@ -101,16 +104,18 @@ function normalizeModelParagraphs(value: unknown): ModelParagraph[] {
         })
       : [];
     if (shots.length === 0) return [];
-    return [{
-      paragraphId,
-      scriptText,
-      visualTreatment,
-      treatmentReason:
-        typeof item.treatmentReason === "string"
-          ? text(item.treatmentReason, 1_000)
-          : null,
-      shots,
-    }];
+    return [
+      {
+        paragraphId,
+        scriptText,
+        visualTreatment,
+        treatmentReason:
+          typeof item.treatmentReason === "string"
+            ? text(item.treatmentReason, 1_000)
+            : null,
+        shots,
+      },
+    ];
   });
 }
 
@@ -213,7 +218,8 @@ function allowlistedContext(input: {
           visualConcept: input.core.visualConcept,
         }
       : null,
-    narrativeIntent: input.narrativeIntent ?? defaultPublishingNarrativeIntent(),
+    narrativeIntent:
+      input.narrativeIntent ?? defaultPublishingNarrativeIntent(),
     coverVisualDescription: text(input.coverVisualDescription, 2_000) || null,
   };
 }
@@ -253,6 +259,27 @@ function batches<T>(items: readonly T[], size: number): T[][] {
     result.push(items.slice(start, start + size));
   }
   return result;
+}
+
+async function mapWithConcurrency<T, R>(input: {
+  items: readonly T[];
+  concurrency: number;
+  task: (item: T, index: number) => Promise<R>;
+}): Promise<R[]> {
+  const results = new Array<R>(input.items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(input.concurrency, input.items.length) },
+    async () => {
+      while (nextIndex < input.items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await input.task(input.items[index]!, index);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 async function runPublishingVideoStoryboard302(input: {
@@ -342,17 +369,17 @@ export async function generatePublishingVideoStoryboardPreview(input: {
   if (paragraphs.length === 0) {
     throw new PublishingVideoStoryboardModelOutputError(["empty_source"]);
   }
-  const batchResults = await Promise.all(
-    batches(context.paragraphs, MODEL_PARAGRAPH_BATCH_SIZE).map(
-      batch =>
-        runPublishingVideoStoryboard302({
-          systemPrompt: generationPrompt(
-            input.narrativeIntent ?? defaultPublishingNarrativeIntent()
-          ),
-          context: { ...context, paragraphs: batch },
-        })
-    )
-  );
+  const batchResults = await mapWithConcurrency({
+    items: batches(context.paragraphs, MODEL_PARAGRAPH_BATCH_SIZE),
+    concurrency: MODEL_BATCH_CONCURRENCY,
+    task: batch =>
+      runPublishingVideoStoryboard302({
+        systemPrompt: generationPrompt(
+          input.narrativeIntent ?? defaultPublishingNarrativeIntent()
+        ),
+        context: { ...context, paragraphs: batch },
+      }),
+  });
   const modelRewrites = batchResults.flatMap(result =>
     normalizeModelParagraphs(result.parsed)
   );

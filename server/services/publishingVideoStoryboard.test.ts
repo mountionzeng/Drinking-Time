@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 
-import {
-  generatePublishingVideoStoryboardPreview,
-} from "./publishingVideoStoryboard";
+import { generatePublishingVideoStoryboardPreview } from "./publishingVideoStoryboard";
 import { validatePublishingVideoPreview } from "../../shared/publishingVideoStoryboard";
 
 const saved = {
@@ -112,9 +110,15 @@ describe("publishing video storyboard generation", () => {
     expect(generated.preview.segments).toHaveLength(6);
     expect(generated.preview.shots).toHaveLength(6);
     expect(generated.modelLabel).toBe("gpt-5.4-nano-2026-03-17");
-    expect(new Set(generated.preview.shots.map(shot => shot.imageRequirement)).size).toBe(6);
-    expect(new Set(generated.preview.shots.map(shot => shot.videoRequirement)).size).toBe(6);
-    expect(new Set(generated.preview.shots.map(shot => shot.soundRequirement)).size).toBe(6);
+    expect(
+      new Set(generated.preview.shots.map(shot => shot.imageRequirement)).size
+    ).toBe(6);
+    expect(
+      new Set(generated.preview.shots.map(shot => shot.videoRequirement)).size
+    ).toBe(6);
+    expect(
+      new Set(generated.preview.shots.map(shot => shot.soundRequirement)).size
+    ).toBe(6);
     expect(generated.preview.shots.map(shot => shot.voiceText)).toEqual(
       generated.preview.paragraphs.map(paragraph => paragraph.text)
     );
@@ -130,7 +134,9 @@ describe("publishing video storyboard generation", () => {
       fetch.mock.calls.map(([, init]) => {
         const request = JSON.parse(String(init?.body));
         const content = String(request.messages[1].content);
-        const context = JSON.parse(content.slice(content.indexOf("上下文：") + 4));
+        const context = JSON.parse(
+          content.slice(content.indexOf("上下文：") + 4)
+        );
         return context.paragraphs.length;
       })
     ).toEqual([3, 3]);
@@ -164,6 +170,70 @@ describe("publishing video storyboard generation", () => {
     expect(serialized).not.toContain("operationToken");
     expect(serialized).not.toContain("http://");
     expect(serialized).not.toContain("https://");
+  });
+
+  it("caps concurrent 302 storyboard batches for paragraph-heavy drafts", async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        activeRequests += 1;
+        maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        activeRequests -= 1;
+        const request = JSON.parse(String(init.body));
+        const content = String(request.messages[1].content);
+        const context = JSON.parse(
+          content.slice(content.indexOf("上下文：") + 4)
+        );
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            model: "gpt-5.4-nano-2026-03-17",
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    paragraphs: context.paragraphs.map(
+                      (paragraph: { paragraphId: string }) => ({
+                        paragraphId: paragraph.paragraphId,
+                        scriptText: `${paragraph.paragraphId} 被转写成可执行镜头。`,
+                        visualTreatment: `${paragraph.paragraphId} 的独立画面动作。`,
+                        shots: [
+                          {
+                            subject: `${paragraph.paragraphId} 的主体`,
+                            action: `${paragraph.paragraphId} 的动作`,
+                            imageRequirement: `${paragraph.paragraphId} 的静帧构图`,
+                            videoRequirement: `${paragraph.paragraphId} 的运镜节拍`,
+                            soundRequirement: "",
+                          },
+                        ],
+                      })
+                    ),
+                  }),
+                },
+              },
+            ],
+          }),
+          text: async () => "",
+        };
+      })
+    );
+
+    const generated = await generatePublishingVideoStoryboardPreview({
+      body: Array.from(
+        { length: 12 },
+        (_, index) => `这是并发保护测试的第${index + 1}段。`
+      ).join("\n\n"),
+      platform: "xiaohongshu",
+      core: null,
+      now: 100,
+    });
+
+    expect(generated.preview.paragraphs).toHaveLength(12);
+    expect(maxActiveRequests).toBeLessThanOrEqual(2);
   });
 
   it("falls back to a complete local script when the model output is incomplete or copy-equal", async () => {
@@ -206,8 +276,8 @@ describe("publishing video storyboard generation", () => {
     expect(generated.preview.segments).toHaveLength(2);
     expect(generated.preview.shots).toHaveLength(4);
     expect(validatePublishingVideoPreview(generated.preview)).toEqual([]);
-    expect(generated.preview.segments.map(segment => segment.scriptText)).not.toContain(
-      "正文 A"
-    );
+    expect(
+      generated.preview.segments.map(segment => segment.scriptText)
+    ).not.toContain("正文 A");
   });
 });

@@ -180,6 +180,55 @@ describe("publishing video preview persistence", () => {
     expect((saved?.body as Record<string, unknown>).shots).toEqual(formalShots);
   });
 
+  it("deduplicates identical in-flight previews even when callers use different operation tokens", async () => {
+    const db = await import("../db");
+    const persistence = await import("./publishingVideoStoryboardPersistence");
+    const publishing = publishingState();
+    const bodyText = publishing.drafts.xiaohongshu!.content.body;
+    const { id } = await db.createStory({
+      userId: 34,
+      title: "cross-token preview dedupe",
+      body: { _revision: 1, shots: [], publishing },
+    });
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const didStart = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    const firstGenerate = vi.fn(async () => {
+      started();
+      await blocked;
+      return generatedPreview(bodyText);
+    });
+    const secondGenerate = vi.fn(async () => generatedPreview(bodyText));
+
+    const first = persistence.generateAndPersistPublishingVideoPreview({
+      storyId: id,
+      userId: 34,
+      operationToken: "preview-token-a",
+      now: 200,
+      generate: firstGenerate,
+    });
+    await didStart;
+    const duplicate =
+      await persistence.generateAndPersistPublishingVideoPreview({
+        storyId: id,
+        userId: 34,
+        operationToken: "preview-token-b",
+        now: 201,
+        generate: secondGenerate,
+      });
+
+    expect(duplicate.status).toBe("pending");
+    expect(secondGenerate).not.toHaveBeenCalled();
+    release();
+    await first;
+    expect(firstGenerate).toHaveBeenCalledTimes(1);
+  });
+
   it("recovers a completed receipt after process restart", async () => {
     let db = await import("../db");
     let persistence = await import("./publishingVideoStoryboardPersistence");
@@ -491,6 +540,87 @@ describe("publishing video storyboard confirmation", () => {
     expect(second.shots).toHaveLength(5);
     const saved = await fixture.db.getStoryById(fixture.id, 41);
     expect((saved?.body as Record<string, any>).shots).toHaveLength(5);
+  });
+
+  it("keeps user-enriched shot data and stable media identity when regenerating the storyboard", async () => {
+    const fixture = await createConfirmFixture({ withCover: false });
+    const first = await fixture.persistence.confirmPublishingVideoStoryboard({
+      storyId: fixture.id,
+      userId: 41,
+      versionId: fixture.versionId,
+      previewId: fixture.previewId,
+      operationToken: "confirm-before-user-enrichment",
+      now: 300,
+    });
+    const firstGenerated = first.shots.find(shot =>
+      Boolean(shot.publishingVideo)
+    )!;
+    const stableShotId = firstGenerated.stableShotId as string;
+    const saved = await fixture.db.getStoryById(fixture.id, 41);
+    const editedBody = structuredClone(saved?.body as Record<string, any>);
+    editedBody.shots = editedBody.shots.map((shot: Record<string, any>) =>
+      shot.stableShotId === stableShotId
+        ? {
+            ...shot,
+            subject: "用户重新确定的主体",
+            promptRun: {
+              finalPrompt: "用户已经确认并实际出图的提示词",
+              generatedAt: 350,
+              imageId: 9301,
+              imageUrl: "https://example.com/confirmed-frame.webp",
+              source: "prompt-table-rerender",
+              usedDimensions: ["subject", "style"],
+            },
+            voiceAudioUrl: "https://example.com/narration.mp3",
+          }
+        : shot
+    );
+    editedBody._revision = first.storyRevision + 1;
+    editedBody._storyboardRevision =
+      (typeof editedBody._storyboardRevision === "number"
+        ? editedBody._storyboardRevision
+        : 0) + 1;
+    expect(
+      await fixture.db.updateStoryBodyIfRevision({
+        id: fixture.id,
+        userId: 41,
+        expectedRevision: first.storyRevision,
+        body: editedBody,
+      })
+    ).toBe(true);
+
+    const regenerated =
+      await fixture.persistence.generateAndPersistPublishingVideoPreview({
+        storyId: fixture.id,
+        userId: 41,
+        versionId: fixture.versionId,
+        operationToken: "preview-after-user-enrichment",
+        now: 400,
+        generate: vi.fn(async () => generatedPreview(fixture.bodyText, 400)),
+      });
+    const reconfirmed =
+      await fixture.persistence.confirmPublishingVideoStoryboard({
+        storyId: fixture.id,
+        userId: 41,
+        versionId: fixture.versionId,
+        previewId: regenerated.preview!.previewId,
+        operationToken: "confirm-after-user-enrichment",
+        now: 401,
+      });
+
+    expect(
+      reconfirmed.shots.filter(shot => shot.stableShotId === stableShotId)
+    ).toHaveLength(1);
+    expect(
+      reconfirmed.shots.find(shot => shot.stableShotId === stableShotId)
+    ).toMatchObject({
+      subject: "用户重新确定的主体",
+      voiceAudioUrl: "https://example.com/narration.mp3",
+      promptRun: {
+        imageId: 9301,
+        imageUrl: "https://example.com/confirmed-frame.webp",
+      },
+    });
   });
 
   it("keeps a materially edited legacy cover before writing the generated storyboard", async () => {
