@@ -11,9 +11,12 @@ import {
   Layers3,
   Loader2,
   Music2,
+  Pencil,
   Plus,
   Ratio,
   Trash2,
+  Check,
+  X,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -72,8 +75,13 @@ export default function StoryListView() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [importPreview, setImportPreview] =
     useState<ChatCutImportPreview | null>(null);
+  const [editingStoryTitle, setEditingStoryTitle] = useState<{
+    id: number;
+    value: string;
+  } | null>(null);
   const inspectXml = trpc.storyAgent.inspectChatCutXml.useMutation();
   const importXml = trpc.storyAgent.importChatCutXml.useMutation();
+  const renameStory = trpc.storyAgent.storyRename.useMutation();
 
   const chooseXml = () => fileInputRef.current?.click();
 
@@ -116,6 +124,33 @@ export default function StoryListView() {
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'ChatCut XML 导入失败');
+    }
+  };
+
+  const commitStoryTitle = async () => {
+    if (!editingStoryTitle || renameStory.isPending) return;
+    const title = editingStoryTitle.value.trim();
+    if (!title) {
+      toast.error('故事名称不能为空');
+      return;
+    }
+    try {
+      const result = await renameStory.mutateAsync({
+        id: editingStoryTitle.id,
+        title,
+      });
+      if (result.status !== 'ok') {
+        toast.error(result.error);
+        return;
+      }
+      setEditingStoryTitle(null);
+      toast.success('故事名称已更新');
+      const refreshed = await refreshStoryList();
+      if (!refreshed) {
+        toast.error('名称已更新，但列表刷新失败');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '故事改名失败');
     }
   };
 
@@ -250,6 +285,7 @@ export default function StoryListView() {
             tabIndex={0}
             onClick={() => loadStory(story.id)}
             onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 loadStory(story.id);
@@ -263,9 +299,90 @@ export default function StoryListView() {
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <h3 className="text-xs font-medium truncate">
-                  {story.title || '未命名故事'}
-                </h3>
+                {editingStoryTitle?.id === story.id ? (
+                  <div
+                    className="flex items-center gap-1"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      autoFocus
+                      value={editingStoryTitle.value}
+                      maxLength={255}
+                      onChange={(event) =>
+                        setEditingStoryTitle({
+                          id: story.id,
+                          value: event.target.value,
+                        })
+                      }
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void commitStoryTitle();
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setEditingStoryTitle(null);
+                        }
+                      }}
+                      aria-label={`修改「${story.title || '未命名故事'}」的故事名称`}
+                      className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-xs font-medium outline-none focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-glow)]"
+                      style={{ borderColor: 'var(--panel-border)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void commitStoryTitle();
+                      }}
+                      disabled={renameStory.isPending}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--nayin-accent-bright)] transition-colors hover:bg-[var(--nayin-glow)] disabled:opacity-40"
+                      aria-label="保存故事名称"
+                      title="保存"
+                    >
+                      {renameStory.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="h-3 w-3" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingStoryTitle(null);
+                      }}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted"
+                      aria-label="取消修改故事名称"
+                      title="取消"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <h3 className="min-w-0 flex-1 truncate text-xs font-medium">
+                      {story.title || '未命名故事'}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingStoryTitle({
+                          id: story.id,
+                          value: story.title || '',
+                        });
+                      }}
+                      className="flex h-6 shrink-0 items-center justify-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:bg-[var(--nayin-glow)] hover:text-[var(--nayin-accent-bright)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]"
+                      aria-label={`修改「${story.title || '未命名故事'}」的故事名称`}
+                      title="修改故事名称"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      改名
+                    </button>
+                  </div>
+                )}
                 {story.logline && (
                   <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
                     {story.logline}

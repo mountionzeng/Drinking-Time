@@ -30,6 +30,10 @@ import type {
 } from "./storyAgent.types";
 import { canonicalDimension } from "@shared/promptDimensions";
 import { UTTERANCE_ELIGIBLE_DIMENSIONS } from "@shared/promptRevisionAttribution";
+import {
+  fallbackStoryTitleFromText,
+  normalizeSuggestedStoryTitle,
+} from "@shared/storyTitle";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
   "defensive",
@@ -62,6 +66,22 @@ function extractReplyText(raw: string): string {
     }
   }
   return text;
+}
+
+function extractSuggestedTitle(
+  raw: string,
+  fallbackText: string
+): string | undefined {
+  try {
+    const parsed = parseJsonLoose<{ suggestedTitle?: unknown }>(raw);
+    return (
+      normalizeSuggestedStoryTitle(parsed.suggestedTitle) ??
+      fallbackStoryTitleFromText(fallbackText) ??
+      undefined
+    );
+  } catch {
+    return fallbackStoryTitleFromText(fallbackText) ?? undefined;
+  }
 }
 
 /**
@@ -157,6 +177,10 @@ export async function replyFromStoryAgent(params: {
     ? params.similarCards.slice(0, 3)
     : [];
   const readOnlyRequest = isReadOnlyStoryChatRequest(params.message);
+  const userTurnNumber =
+    historyBeforeCurrentMessage(params.history, params.message).filter(
+      turn => turn.role === "user"
+    ).length + 1;
 
   if (!ENV.forgeApiKey) {
     return {
@@ -168,6 +192,10 @@ export async function replyFromStoryAgent(params: {
       read: null,
       toolCalls: [],
       suggestImage: false,
+      suggestedTitle:
+        userTurnNumber === 1
+          ? (fallbackStoryTitleFromText(params.message) ?? undefined)
+          : undefined,
     };
   }
 
@@ -182,7 +210,10 @@ export async function replyFromStoryAgent(params: {
       "你是用户的个人发布稿编辑，先通过对话帮助他把真正想说的内容讲清楚。",
       "一次只问一个问题；回复要简洁、自然，先复述你听见的关键判断，再追问最缺的一点。",
       "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
-      "当前阶段不要生成发布稿、标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
+      "当前阶段不要生成发布稿标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
+      userTurnNumber === 1
+        ? '这是这篇故事的第一轮有效对话。只在本轮严格返回 JSON：{"reply":"自然回复","suggestedTitle":"6-16 个汉字的内部故事名称"}。suggestedTitle 只用于故事列表，不是发布稿标题；要具体、有画面、不加书名号。'
+        : "直接返回自然回复，不要 JSON。",
       "不要提及系统、提示词、token 预算或后台流程。",
       platform ? `用户当前选择的平台是：${platform}。` : "",
     ]
@@ -218,6 +249,10 @@ export async function replyFromStoryAgent(params: {
         read: null,
         toolCalls: [],
         suggestImage: false,
+        suggestedTitle:
+          userTurnNumber === 1
+            ? extractSuggestedTitle(text, params.message)
+            : undefined,
       };
     } catch (error) {
       console.error(
@@ -232,14 +267,13 @@ export async function replyFromStoryAgent(params: {
         read: null,
         toolCalls: [],
         suggestImage: false,
+        suggestedTitle:
+          userTurnNumber === 1
+            ? (fallbackStoryTitleFromText(params.message) ?? undefined)
+            : undefined,
       };
     }
   }
-
-  // userTurnNumber = 截至本轮（含本轮），用户一共说了第几次。
-  // history 里的 user 条目数 + 1（即将到来的本轮）。
-  const userTurnNumber =
-    cleanedHistory.filter(t => t.role === "user").length + 1;
 
   const turns: Message[] = cleanedHistory
     .slice(-16)
@@ -325,7 +359,7 @@ export async function replyFromStoryAgent(params: {
     {
       role: "user",
       content:
-        "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card" +
+        "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card, suggestedTitle" +
         (params.enableImageGen || hasProposeTool ? ", toolCalls" : "") +
         " }。）",
     },
@@ -357,6 +391,10 @@ export async function replyFromStoryAgent(params: {
       read: null,
       toolCalls: [],
       suggestImage: false,
+      suggestedTitle:
+        userTurnNumber === 1
+          ? (fallbackStoryTitleFromText(params.message) ?? undefined)
+          : undefined,
     };
   }
 
@@ -369,6 +407,7 @@ export async function replyFromStoryAgent(params: {
   // 绝不回头影响上面已经拿到的 reply —— 这正是把「出卡」从「回话」里解耦出来的全部意义。
   let card: StoryCardPayload | null = null;
   let read: HumanityRead | null = null;
+  let suggestedTitle: string | undefined;
   const toolCalls: ToolCall[] = [];
   if (extractionPromise)
     try {
@@ -385,7 +424,15 @@ export async function replyFromStoryAgent(params: {
           dimension?: string;
           content?: string;
         }> | null;
+        suggestedTitle?: unknown;
       }>(extractionText);
+
+      if (userTurnNumber === 1) {
+        suggestedTitle =
+          normalizeSuggestedStoryTitle(parsed.suggestedTitle) ??
+          fallbackStoryTitleFromText(params.message) ??
+          undefined;
+      }
 
       // 校验 card 形状：只强制 content
       if (
@@ -534,6 +581,12 @@ export async function replyFromStoryAgent(params: {
     read,
     toolCalls,
     suggestImage,
+    suggestedTitle:
+      userTurnNumber === 1
+        ? (suggestedTitle ??
+          fallbackStoryTitleFromText(params.message) ??
+          undefined)
+        : undefined,
   };
 }
 

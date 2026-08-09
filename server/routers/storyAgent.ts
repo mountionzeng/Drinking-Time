@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
+import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
 import { protectedProcedure, router } from "../_core/trpc";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -9,6 +10,8 @@ import {
   listUserStories,
   getStoryById,
   createStory,
+  updateStoryTitle,
+  updateStoryTitleIfUntitled,
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
@@ -583,6 +586,7 @@ export const storyAgentRouter = router({
         projectId: z.number().nullable().optional(),
         body: z.record(z.string(), z.unknown()).optional(),
         baseRevision: z.number().int().nonnegative().optional(),
+        preserveTitle: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -598,7 +602,7 @@ export const storyAgentRouter = router({
               : input.body !== undefined && currentRevision > 0;
           const nextRevision = currentRevision + 1;
           const title =
-            !syncConflict && input.title !== undefined
+            !input.preserveTitle && !syncConflict && input.title !== undefined
               ? input.title.trim().slice(0, 255) || existing.title
               : existing.title;
           const nextBody =
@@ -702,6 +706,63 @@ export const storyAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       await deleteStory(input.id, ctx.user.id);
       return { ok: true };
+    }),
+
+  /** Rename only story metadata; never replace the story body blob. */
+  storyRename: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        title: z.string().trim().min(1).max(255),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const title = input.title.trim();
+      const updated = await updateStoryTitle(input.id, ctx.user.id, title);
+      if (!updated) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      return {
+        status: "ok" as const,
+        storyId: input.id,
+        title,
+      };
+    }),
+
+  /** Apply a generated title only if the persisted title is still a placeholder. */
+  storyAutoRename: protectedProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        suggestedTitle: z.string().min(1).max(255),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const title = normalizeSuggestedStoryTitle(input.suggestedTitle);
+      if (!title) {
+        return { status: "error" as const, error: "未生成有效名称" };
+      }
+      const updated = await updateStoryTitleIfUntitled(
+        input.id,
+        ctx.user.id,
+        title
+      );
+      if (updated) {
+        return {
+          status: "ok" as const,
+          storyId: input.id,
+          title,
+        };
+      }
+      const existing = await getStoryById(input.id, ctx.user.id);
+      if (!existing) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      return {
+        status: "skipped" as const,
+        storyId: input.id,
+        title: existing.title,
+      };
     }),
 
   /**

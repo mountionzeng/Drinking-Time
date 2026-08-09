@@ -98,6 +98,7 @@ import {
   buildPromptAttribution,
   encodeAttributionReason,
 } from "@shared/promptRevisionAttribution";
+import { resolveAutoStoryTitle } from "@shared/storyTitle";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
@@ -388,7 +389,7 @@ interface StoryAgentContextValue {
   createNewStory: () => void;
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
-  refreshStoryList: () => void;
+  refreshStoryList: () => Promise<boolean>;
   /**
    * 老用户点回旧故事时，聊聊的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
    * 仅活在内存里：永不进 messages、永不落库，所以反复点回不会堆叠、也不会污染历史。
@@ -531,6 +532,7 @@ const StoryAgentActionsContext = createContext<StoryAgentActions | null>(null);
 
 type StoryAgentChatResult = {
   reply?: string;
+  suggestedTitle?: string;
   card?: Partial<StoryCard> | null;
   read?: unknown;
   configured?: boolean;
@@ -910,6 +912,7 @@ export function StoryAgentProvider({
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const storyAutoRenameMut = trpc.storyAgent.storyAutoRename.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
@@ -1313,6 +1316,7 @@ export function StoryAgentProvider({
           setSaveStatus("saving");
           const saved = await storyUpsertMut.mutateAsync({
             id: storyId,
+            preserveTitle: storyId != null,
             // The body and revision must come from the same snapshot. Reading the
             // latest revision here can make an older queued body look current and
             // overwrite atomic shot-director edits that landed in the meantime.
@@ -1846,6 +1850,10 @@ export function StoryAgentProvider({
         }
         let nextCards = cards;
         let spawnedCardId: string | undefined;
+        const suggestedTitle = resolveAutoStoryTitle(
+          storyTitle,
+          result.suggestedTitle
+        );
 
         if (result.card && shouldStoreStoryCard(confirmedIntent)) {
           const normalized = normalizeCard({
@@ -1963,6 +1971,24 @@ export function StoryAgentProvider({
           remoteStoryId,
           savedStoryId
         );
+        if (savedStoryId != null && suggestedTitle) {
+          try {
+            const renamed = await storyAutoRenameMut.mutateAsync({
+              id: savedStoryId,
+              suggestedTitle,
+            });
+            if (renamed.status === "ok" || renamed.status === "skipped") {
+              setStoryTitle(renamed.title);
+            } else {
+              console.warn(
+                "[storyTitle] automatic rename skipped:",
+                renamed.error
+              );
+            }
+          } catch (error) {
+            console.warn("[storyTitle] automatic rename failed:", error);
+          }
+        }
         if (conversationStoryId != null) {
           try {
             await appendConversationTurnMut.mutateAsync({
@@ -2011,6 +2037,7 @@ export function StoryAgentProvider({
       artDirection,
       activeStoryId,
       appendConversationTurnMut,
+      storyAutoRenameMut,
       saveArchiveStory,
       uploadPhotoMut,
       recognizeIntentFromHistory,
@@ -2424,9 +2451,11 @@ export function StoryAgentProvider({
       });
     } catch (error) {
       console.warn("refreshStoryList failed", error);
+      return false;
     } finally {
       setIsLoadingStories(false);
     }
+    return true;
   }, [utils.storyAgent.storyList]);
 
   // Fetch story list on mount

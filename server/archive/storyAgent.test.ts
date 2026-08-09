@@ -65,7 +65,10 @@ function makeAnnotation(
   };
 }
 
-function makeAgentResponse(reply = "好的") {
+function makeAgentResponse(
+  reply = "好的",
+  extra: Record<string, unknown> = {}
+) {
   return {
     id: "mock",
     created: 0,
@@ -79,6 +82,7 @@ function makeAgentResponse(reply = "好的") {
             reply,
             card: null,
             read: { trait: "reflecting", note: "测试" },
+            ...extra,
           }),
         },
         finish_reason: "stop",
@@ -287,7 +291,71 @@ describe("storyAgent edit context injection (U6)", () => {
   });
 });
 
+describe("story title suggestion contract", () => {
+  it("asks the first-turn extractor for a short internal story title", () => {
+    const prompt = buildCardExtractionPrompt(0, 1);
+
+    expect(prompt).toContain('"suggestedTitle"');
+    expect(prompt).toContain("6-16 个汉字");
+  });
+
+  it("does not ask later turns to rename the story again", () => {
+    const prompt = buildCardExtractionPrompt(2, 3);
+
+    expect(prompt).toContain('"suggestedTitle": null');
+  });
+
+  it("returns the first-turn title from the existing extraction call", async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse("你接着说。"))
+      .mockResolvedValueOnce(
+        makeAgentResponse("", { suggestedTitle: "标题：《雨夜里的旧书》。" })
+      );
+
+    const result = await replyFromStoryAgent({
+      message: "凌晨三点整理旧书时突然停电了。",
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
+    expect(result.suggestedTitle).toBe("雨夜里的旧书");
+  });
+
+  it("never suggests another title after the first user turn", async () => {
+    mockInvokeLLM.mockResolvedValue(makeAgentResponse("继续说。", {
+      suggestedTitle: "不应采用的新标题",
+    }));
+
+    const result = await replyFromStoryAgent({
+      message: "后来天亮了。",
+      history: [
+        { role: "user", content: "凌晨三点整理旧书时突然停电了。" },
+        { role: "assistant", content: "当时你最先想到什么？" },
+      ],
+    });
+
+    expect(result.suggestedTitle).toBeUndefined();
+  });
+});
+
 describe("publishing conversation mode", () => {
+  it("extracts the reply and internal title from the first existing call", async () => {
+    mockInvokeLLM.mockResolvedValueOnce(
+      makeAgentResponse("你真正介意的是决定权被拿走。", {
+        suggestedTitle: "《被拿走的决定权》",
+      })
+    );
+
+    const result = await replyFromStoryAgent({
+      message: "Codex 总会触发根本用不着的子 Agent。",
+      interactionMode: "publishing",
+      projectId: 42,
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(1);
+    expect(result.reply).toBe("你真正介意的是决定权被拿走。");
+    expect(result.suggestedTitle).toBe("被拿走的决定权");
+  });
+
   it("uses exactly one conversational call and never runs card extraction", async () => {
     mockInvokeLLM.mockResolvedValueOnce(
       makeAgentResponse("你真正担心的，是 token 变少，还是决定权被拿走？")

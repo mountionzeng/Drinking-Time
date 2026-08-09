@@ -102,6 +102,7 @@ import {
   normalizePromptLineageLocalState,
   type PromptLineageLocalState,
 } from "../shared/promptLineage";
+import { isUntitledStoryTitle } from "../shared/storyTitle";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let mysqlModeLogged = false;
@@ -2030,6 +2031,58 @@ export async function updateStory(
     .update(stories)
     .set(data)
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
+}
+
+export async function updateStoryTitle(
+  id: number,
+  userId: number,
+  title: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    const row = memoryState.stories.find(
+      story => story.id === id && story.userId === userId
+    );
+    if (!row) return false;
+    row.title = title;
+    row.updatedAt = now();
+    await persistMemoryState();
+    return true;
+  }
+  const result = await db
+    .update(stories)
+    .set({ title })
+    .where(and(eq(stories.id, id), eq(stories.userId, userId)));
+  return result[0].affectedRows === 1;
+}
+
+export async function updateStoryTitleIfUntitled(
+  id: number,
+  userId: number,
+  title: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    const row = memoryState.stories.find(
+      story => story.id === id && story.userId === userId
+    );
+    if (!row || !isUntitledStoryTitle(row.title)) return false;
+    row.title = title;
+    row.updatedAt = now();
+    await persistMemoryState();
+    return true;
+  }
+  const result = await db
+    .update(stories)
+    .set({ title })
+    .where(
+      and(
+        eq(stories.id, id),
+        eq(stories.userId, userId),
+        sql`TRIM(${stories.title}) IN ('', '未命名', '未命名故事')`
+      )
+    );
+  return result[0].affectedRows === 1;
 }
 
 function persistedStoryBodyRevision(body: unknown): number {

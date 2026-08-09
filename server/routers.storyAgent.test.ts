@@ -372,6 +372,117 @@ describe("storyAgent tRPC router", () => {
     ).resolves.toBeNull();
   });
 
+  it("renames only the story title without replacing body or sibling metadata", async () => {
+    const owner = appRouter.createCaller(createAuthContext(199));
+    const intruder = appRouter.createCaller(createAuthContext(200));
+    const created = await owner.storyAgent.storyUpsert({
+      title: "未命名故事",
+      logline: "保留这一句",
+      body: {
+        messages: [{ id: "m1", who: "u", text: "雨夜里整理旧书" }],
+        shots: [{ stableShotId: "shot-1", subject: "旧书" }],
+        publishing: { activeVersionId: "v3" },
+      },
+    });
+    if (!created) throw new Error("story creation failed");
+    const beforeRename = await owner.storyAgent.storyGet({ id: created.id });
+
+    await expect(
+      intruder.storyAgent.storyRename({
+        id: created.id,
+        title: "不应成功",
+      })
+    ).resolves.toEqual({ status: "error", error: "故事不存在" });
+
+    await expect(
+      owner.storyAgent.storyRename({
+        id: created.id,
+        title: "  雨夜里的旧书  ",
+      })
+    ).resolves.toEqual({
+      status: "ok",
+      storyId: created.id,
+      title: "雨夜里的旧书",
+    });
+
+    const renamed = await owner.storyAgent.storyGet({ id: created.id });
+    expect(renamed?.body).toEqual(beforeRename?.body);
+    expect(renamed).toMatchObject({
+      title: "雨夜里的旧书",
+      logline: "保留这一句",
+      body: {
+        messages: [{ id: "m1", who: "u", text: "雨夜里整理旧书" }],
+        shots: [{ stableShotId: "shot-1", subject: "旧书" }],
+        publishing: { activeVersionId: "v3" },
+      },
+    });
+
+    const staleSave = await owner.storyAgent.storyUpsert({
+      id: created.id,
+      baseRevision: renamed!.revision,
+      preserveTitle: true,
+      title: "未命名故事",
+      body: renamed!.body as Record<string, unknown>,
+    });
+    expect(staleSave?.title).toBe("雨夜里的旧书");
+    expect(staleSave?.revision).toBe(renamed!.revision + 1);
+    expect(staleSave?.body).toMatchObject({
+      messages: [{ id: "m1", who: "u", text: "雨夜里整理旧书" }],
+      shots: [{ stableShotId: "shot-1", subject: "旧书" }],
+      publishing: { activeVersionId: "v3" },
+    });
+  });
+
+  it("applies an automatic title only while the persisted story is still unnamed", async () => {
+    const owner = appRouter.createCaller(createAuthContext(201));
+    const intruder = appRouter.createCaller(createAuthContext(202));
+    const created = await owner.storyAgent.storyUpsert({
+      title: "未命名故事",
+      body: {
+        messages: [{ id: "m1", who: "u", text: "凌晨三点整理旧书" }],
+        shots: [{ stableShotId: "shot-1", subject: "旧书" }],
+      },
+    });
+    if (!created) throw new Error("story creation failed");
+
+    await expect(
+      intruder.storyAgent.storyAutoRename({
+        id: created.id,
+        suggestedTitle: "雨夜里的旧书",
+      })
+    ).resolves.toEqual({ status: "error", error: "故事不存在" });
+
+    await expect(
+      owner.storyAgent.storyAutoRename({
+        id: created.id,
+        suggestedTitle: "标题：《雨夜里的旧书》。",
+      })
+    ).resolves.toEqual({
+      status: "ok",
+      storyId: created.id,
+      title: "雨夜里的旧书",
+    });
+
+    await owner.storyAgent.storyRename({
+      id: created.id,
+      title: "我亲自改的名字",
+    });
+    await expect(
+      owner.storyAgent.storyAutoRename({
+        id: created.id,
+        suggestedTitle: "旧标签页生成的名字",
+      })
+    ).resolves.toEqual({
+      status: "skipped",
+      storyId: created.id,
+      title: "我亲自改的名字",
+    });
+
+    const finalStory = await owner.storyAgent.storyGet({ id: created.id });
+    expect(finalStory?.title).toBe("我亲自改的名字");
+    expect(finalStory?.body).toEqual(created.body);
+  });
+
   it("inserts a manual shot directly into the persisted story trunk", async () => {
     const caller = appRouter.createCaller(createAuthContext(105));
 

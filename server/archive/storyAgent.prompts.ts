@@ -742,6 +742,10 @@ export function buildCardExtractionPrompt(
   const isFiction = confirmedIntent?.purpose === "fiction";
   const digest = shotDimensionDigest?.trim();
   const hasProposeTool = Boolean(digest);
+  const titleInstruction =
+    userTurnNumber === 1
+      ? "这是这篇故事的第一轮有效对话。suggestedTitle 请根据用户原话生成一个 6-16 个汉字的内部故事名称：具体、有画面、不加书名号，不要写成“关于……的故事”。"
+      : "这不是第一轮对话，不要再次改名；suggestedTitle 必须返回 null。";
   return [
     "你是 Drinking Time 的后台分析器。你不和任何人对话、不扮演任何人设——你只做一件事：",
     "读下面这段对话（重点是对方【最后一轮】说的话），把这一轮值得沉淀的信号抽成结构化数据。",
@@ -797,11 +801,15 @@ export function buildCardExtractionPrompt(
     "护栏 1（原话可追溯）：sourceQuote 必须从对方原话里截一个短句或词组（≤24 字）；没有原话锚点就别把情绪说死，sourceQuote 留空。",
     "护栏 2（情绪词平衡）：emotionOptions 至少 5 个、正负面平衡；正面内容给正面词，理性清醒的表达给力量型词（清醒 / 笃定 / 边界感 / 不迁就），不要全往消极方向走，不要把理性判断归为防御。",
     "护栏 3（真实性）：绝不替用户补重大事实、创伤、疾病、死亡、暴力、背叛；用户没说就不能写成事实。",
+    titleInstruction,
     "",
     "【返回格式：严格 JSON 对象，不要附加任何额外文字、不要包 markdown 代码块、不要带注释】",
-    "顶层结构是 { \"read\": {…}, \"card\": {…}" +
-      (enableImageGen || hasProposeTool ? ", \"toolCalls\": […]" : "") +
+    '顶层结构是 { "read": {…}, "card": {…}, "suggestedTitle": "标题或 null"' +
+      (enableImageGen || hasProposeTool ? ', "toolCalls": […]' : "") +
       " }。",
+    userTurnNumber === 1
+      ? 'suggestedTitle 示例："雨夜里的旧书"。'
+      : '"suggestedTitle": null。',
     "★默认就要给出【完整的 card 对象】（下面 16 个字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
     "",
     'read 对象：{ "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',

@@ -105,6 +105,7 @@ export type ToolCall = GenerateImageToolCall | ProposePromptRevisionToolCall;
 
 export type StoryAgentChatResult = {
   reply: string;
+  suggestedTitle?: string;
   card: StoryCardPayload | null;
   read: HumanityRead | null;
   configured: boolean;
