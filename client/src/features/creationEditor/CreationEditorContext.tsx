@@ -9,10 +9,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { trpc } from "@/lib/trpc";
-import type {
-  NarrativeJob,
-  StoryShot,
-} from "@/features/storyAgent/types";
+import type { NarrativeJob, StoryShot } from "@/features/storyAgent/types";
 import {
   resolveEditCandidatePlans,
   type ShotFieldChange,
@@ -1762,8 +1759,7 @@ export function CreationEditorProvider({
       throw new Error("故事或镜头身份无效，无法保存");
     }
     const previousShot = canonicalStoryShots.find(
-      (shot, index) =>
-        shotIdentityFromShot(shot, index) === targetStableShotId
+      (shot, index) => shotIdentityFromShot(shot, index) === targetStableShotId
     ) as Record<string, unknown> | undefined;
     // 必须在镜头命令落库之前发起，否则谱系迁移会把本次编辑吸收为新基线。
     const preEditProjection = utils.promptLineage.getStoryProjection
@@ -1836,9 +1832,11 @@ export function CreationEditorProvider({
         !Array.isArray(result.story.body)
           ? (result.story.body as Record<string, unknown>)
           : null;
-      setCanonicalStoryShots(normalizeStoryShots(savedBody));
-      if (typeof result.story.revision === "number") {
-        setSpineServerRevision(result.story.revision);
+      if (activeStoryIdRef.current === storyId) {
+        setCanonicalStoryShots(normalizeStoryShots(savedBody));
+        if (typeof result.story.revision === "number") {
+          setSpineServerRevision(result.story.revision);
+        }
       }
       await Promise.all([
         utils.storyAgent.storyGet.invalidate({ id: storyId }),
@@ -1879,9 +1877,11 @@ export function CreationEditorProvider({
       !Array.isArray(result.story.body)
         ? (result.story.body as Record<string, unknown>)
         : null;
-    setCanonicalStoryShots(normalizeStoryShots(savedBody));
-    if (typeof result.story.revision === "number") {
-      setSpineServerRevision(result.story.revision);
+    if (activeStoryIdRef.current === storyId) {
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+      if (typeof result.story.revision === "number") {
+        setSpineServerRevision(result.story.revision);
+      }
     }
     await Promise.all([
       utils.storyAgent.storyGet.invalidate({ id: storyId }),
@@ -1926,7 +1926,9 @@ export function CreationEditorProvider({
     // 确认本身已经提交成功，不可回滚；但镜头表没跟上必须让用户看见，
     // 否则又变回「点了确认，出图毫无变化，且不报错」。
     if (result.writeback?.status === "failed") {
-      throw new Error(`候选已确认，但写回镜头表失败：${result.writeback.error}`);
+      throw new Error(
+        `候选已确认，但写回镜头表失败：${result.writeback.error}`
+      );
     }
   };
 
@@ -2018,9 +2020,7 @@ export function CreationEditorProvider({
       Math.max(MIN_SHOT_DURATION_MS, Math.round(durationMs))
     );
     const targetShot = shots.find(shot => shot.shotNo === shotNo);
-    const targetShotId = targetShot
-      ? shotIdentityFromShot(targetShot)
-      : null;
+    const targetShotId = targetShot ? shotIdentityFromShot(targetShot) : null;
     if (!targetShot || !targetShotId) throw new Error(`找不到镜头 ${shotNo}`);
     const savedShot = await persistStoryShotUpdate(targetShotId, {
       metadata: { durationMs: normalizedDurationMs },
@@ -2054,9 +2054,7 @@ export function CreationEditorProvider({
     override: PromptOverride
   ) => {
     const targetShot = shots.find(shot => shot.shotNo === shotNo);
-    const targetShotId = targetShot
-      ? shotIdentityFromShot(targetShot)
-      : null;
+    const targetShotId = targetShot ? shotIdentityFromShot(targetShot) : null;
     if (!targetShotId) throw new Error(`找不到镜头 ${shotNo}`);
     const savedShot = await persistStoryShotUpdate(targetShotId, {
       metadata: {
@@ -2186,10 +2184,10 @@ export function CreationEditorProvider({
           source: "prompt-table-rerender",
           usedDimensions: compiled.usedDimensions,
         };
-        const savedShot = await persistStoryShotUpdate(
-          targetStableShotId,
-          { patch, metadata: { promptRun } }
-        );
+        const savedShot = await persistStoryShotUpdate(targetStableShotId, {
+          patch,
+          metadata: { promptRun },
+        });
         const savedPromptRun =
           savedShot.promptRun &&
           typeof savedShot.promptRun === "object" &&

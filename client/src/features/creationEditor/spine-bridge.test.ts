@@ -30,6 +30,50 @@ describe("creation editor spine boundary", () => {
     expect(editorContext).toContain("activeStoryIdRef.current === storyId");
   });
 
+  it("drops late automatic titles after the user opens another story", () => {
+    const storyContext = source(
+      "client/src/features/storyAgent/StoryAgentContext.tsx"
+    );
+    const loadStoryStart = storyContext.indexOf(
+      "const loadStory = useCallback"
+    );
+    const autoOpenPanelsStart = storyContext.indexOf(
+      "// Auto-open panels",
+      loadStoryStart
+    );
+    const loadStoryAutoRename = storyContext.slice(
+      loadStoryStart,
+      autoOpenPanelsStart
+    );
+
+    expect(loadStoryAutoRename).toMatch(
+      /storyScopeMatches\([\s\S]*?id,[\s\S]*?storySpineStore\.getState\(\)\.activeStoryId[\s\S]*?\)[\s\S]*?setStoryTitle\(renamed\.title\)/
+    );
+  });
+
+  it("drops late voice and version-restore snapshots after switching stories", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    const voiceStart = editorContext.indexOf("const generateShotVoice");
+    const restoreStart = editorContext.indexOf(
+      "const restoreStoryboardFieldVersion",
+      voiceStart
+    );
+    const promptCandidateStart = editorContext.indexOf(
+      "// ── 阶段 E",
+      restoreStart
+    );
+    const voiceFlow = editorContext.slice(voiceStart, restoreStart);
+    const restoreFlow = editorContext.slice(restoreStart, promptCandidateStart);
+
+    for (const flow of [voiceFlow, restoreFlow]) {
+      expect(flow).toMatch(
+        /if \(activeStoryIdRef\.current === storyId\) \{[\s\S]*?setCanonicalStoryShots\(normalizeStoryShots\(savedBody\)\)[\s\S]*?setSpineServerRevision\(result\.story\.revision\)[\s\S]*?\}/
+      );
+    }
+  });
+
   it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {
     const context = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"

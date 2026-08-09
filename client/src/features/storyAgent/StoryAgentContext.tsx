@@ -268,7 +268,8 @@ export function shouldTriggerIntentRecognition({
   confirmedIntent: StoryIntent | null;
   pendingIntentDraft: StoryIntent | null;
 }): boolean {
-  if (pendingIntentDraft || confirmedIntent?.status === "confirmed") return false;
+  if (pendingIntentDraft || confirmedIntent?.status === "confirmed")
+    return false;
   const userMessageCount = messages.filter(
     message =>
       message.role === "user" && (message.content.trim() || message.photoUrl)
@@ -1439,7 +1440,10 @@ export function StoryAgentProvider({
       if (result.status !== "ok") throw new Error(result.error);
 
       const current = storySpineStore.getState();
-      if (current.activeStoryId === storyId || current.remoteStoryId === storyId) {
+      if (
+        current.activeStoryId === storyId ||
+        current.remoteStoryId === storyId
+      ) {
         setStoryTitle(nextTitle);
       }
       setStoryList(items =>
@@ -1609,8 +1613,8 @@ export function StoryAgentProvider({
             .filter(message => message.content.trim())
             .map(message => ({
               role: message.role as "user" | "assistant",
-            content: message.content,
-          })),
+              content: message.content,
+            })),
           existingIntent: existingIntent ? { ...existingIntent } : null,
         });
         if (
@@ -2736,7 +2740,11 @@ export function StoryAgentProvider({
               suggestedTitle,
             });
             if (renamed.status === "ok" || renamed.status === "skipped") {
-              setStoryTitle(renamed.title);
+              if (
+                storyScopeMatches(id, storySpineStore.getState().activeStoryId)
+              ) {
+                setStoryTitle(renamed.title);
+              }
               setStoryList(items =>
                 items.map(item =>
                   item.id === id ? { ...item, title: renamed.title } : item
@@ -2770,12 +2778,7 @@ export function StoryAgentProvider({
         toast.error("加载故事失败");
       }
     },
-    [
-      setPublishing,
-      setStoryList,
-      storyAutoRenameMut,
-      utils.storyAgent.storyGet,
-    ]
+    [setPublishing, setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
   );
 
   useEffect(() => {
