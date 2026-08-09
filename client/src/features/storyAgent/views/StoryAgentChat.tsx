@@ -29,6 +29,7 @@ import {
   Cloud,
   Check,
   Link2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOptionalCreationEditor } from "@/features/creationEditor/CreationEditorContext";
@@ -79,6 +80,7 @@ import {
 type OpenCreationChatDetail = {
   draftMessage?: string;
   preserveSelection?: boolean;
+  autoSubmit?: boolean;
 };
 
 type MaterialAdvice = StoryImageMaterialAdvice;
@@ -253,6 +255,7 @@ export default function StoryAgentChat({
     rerenderSelectionImage,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
+    renameStory,
   } = useStoryAgentActions();
   const [rerenderingMessageId, setRerenderingMessageId] = useState<
     string | null
@@ -312,6 +315,9 @@ export default function StoryAgentChat({
   const [isMediaDragActive, setIsMediaDragActive] = useState(false);
   const [isImportingMedia, setIsImportingMedia] = useState(false);
   const [mediaProgress, setMediaProgress] = useState<string | null>(null);
+  const [isRenamingTitle, setIsRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [materialAdvices, setMaterialAdvices] = useState<MaterialAdvice[]>([]);
   const [applyingAdviceImageId, setApplyingAdviceImageId] = useState<
     number | null
@@ -350,6 +356,38 @@ export default function StoryAgentChat({
         : pendingMedia.length > 0
           ? "补一句你希望怎么用这些素材…"
           : "说说这一版哪里需要推进…";
+
+  const startRenamingTitle = () => {
+    setTitleDraft(storyDisplayTitle);
+    setIsRenamingTitle(true);
+  };
+
+  const cancelRenamingTitle = () => {
+    setTitleDraft("");
+    setIsRenamingTitle(false);
+  };
+
+  const saveStoryTitle = async () => {
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle || isSavingTitle) {
+      if (!nextTitle) toast.error("故事名称不能为空");
+      return;
+    }
+    setIsSavingTitle(true);
+    try {
+      await renameStory(
+        remoteStoryId ??
+          (activeStoryId && activeStoryId > 0 ? activeStoryId : null),
+        nextTitle
+      );
+      setIsRenamingTitle(false);
+      toast.success("故事名称已修改");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "故事改名失败");
+    } finally {
+      setIsSavingTitle(false);
+    }
+  };
 
   useEffect(() => {
     const previousStoryId = draftStoryIdRef.current;
@@ -407,6 +445,12 @@ export default function StoryAgentChat({
       const detail = (event as CustomEvent<OpenCreationChatDetail>).detail;
       if (!detail?.draftMessage) return;
       if (!detail.preserveSelection) clearSelection();
+      if (detail.autoSubmit) {
+        setInput("");
+        void sendMessage(detail.draftMessage);
+        resizeAndFocusInput();
+        return;
+      }
       setInput(prev =>
         prev.trim()
           ? `${prev.trim()}\n\n${detail.draftMessage}`
@@ -417,7 +461,7 @@ export default function StoryAgentChat({
     window.addEventListener("dt:open-creation-chat", applyCreationDraft);
     return () =>
       window.removeEventListener("dt:open-creation-chat", applyCreationDraft);
-  }, [clearSelection, resizeAndFocusInput]);
+  }, [clearSelection, resizeAndFocusInput, sendMessage]);
 
   const handleVoiceError = useCallback((message: string) => {
     alert(message);
@@ -871,9 +915,64 @@ export default function StoryAgentChat({
                 <span>·</span>
                 <span>{intentLabel(currentIntent)}</span>
               </div>
-              <p className="mt-0.5 truncate text-[12px] font-semibold text-foreground">
-                {storyDisplayTitle}
-              </p>
+              {isRenamingTitle ? (
+                <div className="mt-1 flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    maxLength={80}
+                    disabled={isSavingTitle}
+                    onChange={event => setTitleDraft(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void saveStoryTitle();
+                      } else if (event.key === "Escape") {
+                        cancelRenamingTitle();
+                      }
+                    }}
+                    aria-label="故事名称"
+                    className="h-7 min-w-0 flex-1 rounded border border-[var(--nayin-accent-dim)] bg-background px-2 text-[12px] font-semibold outline-none ring-2 ring-[var(--nayin-glow)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveStoryTitle()}
+                    disabled={isSavingTitle || !titleDraft.trim()}
+                    aria-label="保存故事名称"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-nayin-bright hover:bg-[var(--nayin-glow)] disabled:opacity-40"
+                  >
+                    {isSavingTitle ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelRenamingTitle}
+                    disabled={isSavingTitle}
+                    aria-label="取消修改故事名称"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                  <p className="truncate text-[12px] font-semibold text-foreground">
+                    {storyDisplayTitle}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startRenamingTitle}
+                    aria-label="修改故事名称"
+                    title="修改故事名称"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-65 transition hover:bg-[var(--nayin-glow)] hover:text-nayin-bright hover:opacity-100"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
               <p className="mt-0.5 truncate text-[10.5px] leading-relaxed text-muted-foreground">
                 {storyDisplaySubtitle}
               </p>

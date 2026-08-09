@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   PUBLISHING_PLATFORM_IDS,
   getPublishingContentError,
+  normalizePublishingNarrativeIntent,
   type PublishingCoverRound,
   type PublishingDraftContent,
   type PublishingDraftState,
@@ -25,7 +26,11 @@ import {
   getStoryById,
   promoteStoryImageToCurrent,
 } from "../db";
-import { editImage, generateImage } from "../services/imageGen";
+import {
+  editImage,
+  generateImage,
+  resume302MidjourneyTask,
+} from "../services/imageGen";
 import {
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
@@ -42,6 +47,7 @@ import {
 import { listStoryConversation } from "../services/storyConversation";
 import {
   confirmPublishingVideoStoryboard,
+  generateAndConfirmPublishingVideoStoryboard,
   generateAndPersistPublishingVideoPreview,
   PublishingVideoStoryboardConfirmationError,
   PublishingVideoStoryboardEligibilityError,
@@ -61,6 +67,16 @@ const coreSchema = z.object({
   emotion: z.string().max(500),
   voiceTraits: z.array(z.string().max(200)).max(12),
   visualConcept: z.string().max(2_000),
+});
+const narrativeIntentSchema = z.object({
+  primaryPurpose: z.enum(["preserve", "gift", "share", "persuade", "create"]),
+  secondaryPurposes: z
+    .array(z.enum(["preserve", "gift", "share", "persuade", "create"]))
+    .max(4),
+  coreAudience: z.string().trim().min(1).max(80),
+  secondaryAudiences: z.array(z.string().trim().min(1).max(80)).max(5),
+  status: z.enum(["provisional", "confirmed"]),
+  updatedAt: z.number().int().nonnegative(),
 });
 
 function assertPublishingContentFitsPlatform(
@@ -235,6 +251,21 @@ async function loadOwnedPublishingConversation(
     : conversation;
 }
 
+async function loadOwnedPublishingNarrativeIntent(
+  storyId: number,
+  userId: number
+) {
+  const story = await getStoryById(storyId, userId);
+  if (!story) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+  }
+  const body =
+    story.body && typeof story.body === "object" && !Array.isArray(story.body)
+      ? (story.body as Record<string, unknown>)
+      : {};
+  return normalizePublishingNarrativeIntent(body.confirmedIntent);
+}
+
 type PublishingCoverAsset = {
   id: number;
   imageUrl: string;
@@ -391,6 +422,27 @@ export const publishingDraftRouter = router({
       }
     }),
 
+  buildVideoStoryboard: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        versionId: z.string().trim().min(1).max(64).optional(),
+        operationToken: z.string().trim().min(1).max(160).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await generateAndConfirmPublishingVideoStoryboard({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          versionId: input.versionId,
+          operationToken: input.operationToken,
+        });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
   confirmVideoStoryboard: protectedProcedure
     .input(
       z.object({
@@ -426,6 +478,7 @@ export const publishingDraftRouter = router({
         baseVersionRevision: z.number().int().nonnegative(),
         baseContainerRevision: z.number().int().nonnegative(),
         displayName: z.string().trim().max(80).optional(),
+        narrativeIntent: narrativeIntentSchema.optional(),
         operationToken: z.string().trim().min(1).max(200).optional(),
       })
     )
@@ -450,6 +503,7 @@ export const publishingDraftRouter = router({
             baseVersionRevision: input.baseVersionRevision,
             baseContainerRevision: input.baseContainerRevision,
             displayName: input.displayName,
+            narrativeIntent: input.narrativeIntent,
             conversationSnapshot: {
               messages: conversation,
               updatedAt: Date.now(),
@@ -535,6 +589,10 @@ export const publishingDraftRouter = router({
           input.storyId,
           ctx.user.id
         );
+        const narrativeIntent = await loadOwnedPublishingNarrativeIntent(
+          input.storyId,
+          ctx.user.id
+        );
         if (!conversation.some(message => message.role === "user")) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -544,6 +602,7 @@ export const publishingDraftRouter = router({
         const generated = await generatePublishingDraft({
           platform: input.activePlatform,
           conversation,
+          narrativeIntent,
         });
         const saved = await writePublishingDraftState({
           storyId: input.storyId,
@@ -554,6 +613,7 @@ export const publishingDraftRouter = router({
             selectedPlatforms: input.selectedPlatforms,
             core: generated.core,
             content: generated.content,
+            narrativeIntent,
             basePublishingRevision: input.basePublishingRevision,
           },
         });
@@ -785,6 +845,7 @@ export const publishingDraftRouter = router({
         basePublishingRevision: z.number().int().nonnegative(),
         referenceAssetId: z.number().int().positive().optional(),
         feedback: z.string().trim().max(2_000).optional(),
+        operationToken: z.string().trim().min(1).max(200).optional(),
         costConfirmation: z
           .object({
             accepted: z.literal(true),
@@ -799,7 +860,16 @@ export const publishingDraftRouter = router({
           input.storyId,
           ctx.user.id
         );
-        if (current.publishing.revision !== input.basePublishingRevision) {
+        const operationToken = input.operationToken ?? `cover-${randomUUID()}`;
+        const persistedGeneration = current.publishing.coverGeneration;
+        const matchingOperation =
+          persistedGeneration?.operationToken === operationToken;
+        const resuming =
+          matchingOperation && persistedGeneration.status === "pending";
+        if (
+          !matchingOperation &&
+          current.publishing.revision !== input.basePublishingRevision
+        ) {
           throw new PublishingDraftConflictError(
             "publishing",
             input.basePublishingRevision,
@@ -807,12 +877,12 @@ export const publishingDraftRouter = router({
           );
         }
         const estimate = estimatePublishingCoverCost();
-        if (
-          !input.costConfirmation?.accepted ||
+        const confirmationIsCurrent =
+          input.costConfirmation?.accepted === true &&
           Math.abs(
-            input.costConfirmation.estimatedCny - estimate.estimatedCny
-          ) > 0.001
-        ) {
+            (input.costConfirmation?.estimatedCny ?? -1) - estimate.estimatedCny
+          ) <= 0.001;
+        if (!matchingOperation && !confirmationIsCurrent) {
           return {
             status: "confirmation_required" as const,
             estimate,
@@ -833,16 +903,21 @@ export const publishingDraftRouter = router({
             message: "请先完成当前平台的发布稿，再生成封面",
           });
         }
-        const prompt = composePublishingCoverPrompt({
-          visualConcept: core.visualConcept,
-          thesis: core.thesis,
-          emotion: core.emotion,
-          feedback: input.feedback,
-        });
+        const prompt = resuming
+          ? persistedGeneration!.prompt
+          : composePublishingCoverPrompt({
+              visualConcept: core.visualConcept,
+              thesis: core.thesis,
+              emotion: core.emotion,
+              feedback: input.feedback,
+            });
+        const referenceAssetId = resuming
+          ? persistedGeneration!.referenceAssetId
+          : (input.referenceAssetId ?? null);
         let referenceAsset: PublishingCoverAsset | null = null;
-        if (input.referenceAssetId != null) {
+        if (referenceAssetId != null) {
           const belongsToRound = current.publishing.coverRounds.some(round =>
-            round.assetIds.includes(input.referenceAssetId!)
+            round.assetIds.includes(referenceAssetId)
           );
           if (!belongsToRound) {
             throw new TRPCError({
@@ -851,7 +926,7 @@ export const publishingDraftRouter = router({
             });
           }
           referenceAsset = await loadPublishingCoverAsset({
-            assetId: input.referenceAssetId,
+            assetId: referenceAssetId,
             storyId: input.storyId,
             userId: ctx.user.id,
           });
@@ -862,35 +937,166 @@ export const publishingDraftRouter = router({
             });
           }
         }
-        const generated = referenceAsset
+        if (persistedGeneration?.operationToken === operationToken) {
+          if (persistedGeneration.status === "completed") {
+            const coverRounds = await loadPublishingCoverRounds({
+              publishing: current.publishing,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            });
+            const coverRound = coverRounds.find(
+              round => round.id === persistedGeneration.roundId
+            );
+            if (!coverRound) {
+              throw new Error("封面候选已完成但结果轮次不可用");
+            }
+            return {
+              status: "ok" as const,
+              estimate,
+              ...current,
+              coverAsset: await loadPublishingCoverAsset({
+                assetId: current.publishing.cover?.assetId,
+                storyId: input.storyId,
+                userId: ctx.user.id,
+              }),
+              coverRounds,
+              coverRound,
+            };
+          }
+          if (persistedGeneration.status !== "pending") {
+            return {
+              status: "error" as const,
+              error: persistedGeneration.error || "上一轮封面生成未完成",
+              estimate,
+              ...current,
+              coverAsset: await loadPublishingCoverAsset({
+                assetId: current.publishing.cover?.assetId,
+                storyId: input.storyId,
+                userId: ctx.user.id,
+              }),
+              coverRounds: await loadPublishingCoverRounds({
+                publishing: current.publishing,
+                storyId: input.storyId,
+                userId: ctx.user.id,
+              }),
+            };
+          }
+        }
+
+        let generation = persistedGeneration;
+        if (!resuming) {
+          const claimedAt = Date.now();
+          const claimed = await writePublishingDraftState({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operation: {
+              type: "claim_cover_generation",
+              basePublishingRevision: current.publishing.revision,
+              generation: {
+                operationToken,
+                versionId: current.publishing.activeVersionId ?? "v1",
+                status: "pending",
+                platform: input.platform,
+                referenceAssetId,
+                feedback: input.feedback?.trim() ?? "",
+                prompt,
+                roundId: randomUUID(),
+                taskId: null,
+                claimedAt,
+                updatedAt: claimedAt,
+                expiresAt: claimedAt + PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+              },
+            },
+          });
+          generation = claimed.publishing.coverGeneration;
+        }
+        if (!generation) throw new Error("封面生成操作没有保存成功");
+        if (!generation.taskId && resuming) {
+          const unknown = await writePublishingDraftState({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operation: {
+              type: "update_cover_generation",
+              operationToken,
+              status: "unknown",
+              error:
+                "这次提交没有留下可恢复的 302 任务编号；系统不会自动重新提交，以免重复扣费。",
+            },
+          });
+          return {
+            status: "error" as const,
+            error: unknown.publishing.coverGeneration?.error ?? "封面任务状态未知",
+            estimate,
+            ...unknown,
+            coverAsset: await loadPublishingCoverAsset({
+              assetId: unknown.publishing.cover?.assetId,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+            coverRounds: await loadPublishingCoverRounds({
+              publishing: unknown.publishing,
+              storyId: input.storyId,
+              userId: ctx.user.id,
+            }),
+          };
+        }
+        const persistTaskId = async (taskId: string) => {
+          await writePublishingDraftState({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operation: {
+              type: "update_cover_generation",
+              operationToken,
+              taskId,
+              expiresAt: Date.now() + PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+            },
+          });
+        };
+        const imageOptions = {
+          provider: PUBLISHING_COVER_PROFILE.provider,
+          aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+          mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+          onMidjourneyTaskAccepted: persistTaskId,
+        } as const;
+        const generated = generation.taskId
+          ? await resume302MidjourneyTask(generation.taskId, imageOptions)
+          : referenceAsset
           ? await editImage(referenceAsset.imageUrl, prompt, {
-              provider: PUBLISHING_COVER_PROFILE.provider,
-              aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
-              mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+              ...imageOptions,
               requireInputImage: true,
               imageWeight: 1.4,
             })
           : await generateImage(prompt, {
-              provider: PUBLISHING_COVER_PROFILE.provider,
-              aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
-              mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+              ...imageOptions,
             });
         const generatedCandidates = generated.candidates?.slice(0, 4) ?? [];
         if (generated.status !== "ok" || generatedCandidates.length !== 4) {
+          const failed = await writePublishingDraftState({
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            operation: {
+              type: "update_cover_generation",
+              operationToken,
+              status: "failed",
+              error:
+                generated.message ||
+                `本轮只收到 ${generatedCandidates.length} 张可用候选`,
+            },
+          });
           return {
             status: "error" as const,
             error:
               generated.message ||
               `本轮只收到 ${generatedCandidates.length} 张可用候选，没有写入正式封面，请重试`,
             estimate,
-            publishing: current.publishing,
+            ...failed,
             coverAsset: await loadPublishingCoverAsset({
-              assetId: current.publishing.cover?.assetId,
+              assetId: failed.publishing.cover?.assetId,
               storyId: input.storyId,
               userId: ctx.user.id,
             }),
             coverRounds: await loadPublishingCoverRounds({
-              publishing: current.publishing,
+              publishing: failed.publishing,
               storyId: input.storyId,
               userId: ctx.user.id,
             }),
@@ -918,7 +1124,7 @@ export const publishingDraftRouter = router({
         );
         const createdAt = Date.now();
         const round: PublishingCoverRound = {
-          id: randomUUID(),
+          id: generation.roundId,
           platform: input.platform,
           sourceCoreRevision: core.revision,
           parentAssetId: referenceAsset?.id ?? null,
@@ -931,31 +1137,15 @@ export const publishingDraftRouter = router({
           ],
           createdAt,
         };
-        let saved: Awaited<
-          ReturnType<typeof writePublishingDraftState>
-        > | null = null;
-        let lastConflict: unknown = null;
-        for (let attempt = 0; attempt < 3 && !saved; attempt += 1) {
-          const latest = await getPublishingDraftState(
-            input.storyId,
-            ctx.user.id
-          );
-          try {
-            saved = await writePublishingDraftState({
-              storyId: input.storyId,
-              userId: ctx.user.id,
-              operation: {
-                type: "append_cover_round",
-                round,
-                basePublishingRevision: latest.publishing.revision,
-              },
-            });
-          } catch (error) {
-            if (!(error instanceof PublishingDraftConflictError)) throw error;
-            lastConflict = error;
-          }
-        }
-        if (!saved) throw lastConflict ?? new Error("候选轮次保存失败");
+        const saved = await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operation: {
+            type: "complete_cover_generation",
+            operationToken,
+            round,
+          },
+        });
         const coverRounds = await loadPublishingCoverRounds({
           publishing: saved.publishing,
           storyId: input.storyId,
@@ -971,16 +1161,7 @@ export const publishingDraftRouter = router({
             userId: ctx.user.id,
           }),
           coverRounds,
-          coverRound: {
-            ...round,
-            candidates: images.map(image => ({
-              id: image.id,
-              imageUrl: image.imageUrl,
-              imageKey: image.imageKey,
-              shotIdentity: image.shotIdentity,
-              createdAt: image.createdAt,
-            })),
-          } satisfies PublishingCoverRoundView,
+          coverRound: coverRounds.find(candidate => candidate.id === round.id)!,
         };
       } catch (error) {
         throwPublishingError(error);

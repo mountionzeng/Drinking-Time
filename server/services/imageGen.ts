@@ -101,6 +101,8 @@ export interface ImageGenOptions {
   primaryReferenceLock?: boolean;
   /** GPT-image transparent mask; alpha=0 is the only editable region. */
   editMaskImageUrl?: string;
+  /** Called after 302 accepts an MJ task, before the first poll. */
+  onMidjourneyTaskAccepted?: (taskId: string) => void | Promise<void>;
 }
 
 // ── 常量 ──
@@ -1349,15 +1351,10 @@ async function generate302MidjourneyImage(
   fetcher: Fetcher,
   inputImageUrls: string[] = []
 ): Promise<ImageGenResult> {
-  const pollIntervalMs =
-    options.mjPollIntervalMs ?? parseNumber(ENV.image302MjPollMs, 4_000);
   const submitTimeoutMs =
     options.mjSubmitTimeoutMs ??
     parseNumber(ENV.image302MjSubmitTimeoutMs, 90_000);
-  const timeoutMs =
-    options.mjTimeoutMs ?? parseNumber(ENV.image302MjTimeoutMs, 180_000);
   const startedAt = Date.now();
-  let nextPollDelayMs = Math.min(500, pollIntervalMs);
 
   // 图生图：把输入图读成 data-URI base64，放进 MJ 的 base64Array（作为 image prompt）。
   // 读图失败不阻断，退化成纯文生图。
@@ -1442,6 +1439,50 @@ async function generate302MidjourneyImage(
       };
     }
 
+    await options.onMidjourneyTaskAccepted?.(taskId);
+    return poll302MidjourneyTask(taskId, options, fetcher, startedAt);
+  } catch (error) {
+    // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
+    console.warn(
+      "[302 MJ] 出图请求异常:",
+      error instanceof Error ? error.message : error,
+      error instanceof Error && error.cause
+        ? `cause: ${String(error.cause)}`
+        : ""
+    );
+    const message =
+      error instanceof Error
+        ? error.message
+        : "302 Midjourney generation failed";
+    recordProviderFailure("midjourney", message);
+    return { status: "error", message };
+  }
+}
+
+/** Resume an already accepted 302 MJ task without submitting another paid job. */
+export async function resume302MidjourneyTask(
+  taskId: string,
+  options: ImageGenOptions = {}
+): Promise<ImageGenResult> {
+  if (!taskId.trim()) {
+    return { status: "error", message: "302 Midjourney task id is missing" };
+  }
+  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  return poll302MidjourneyTask(taskId.trim(), options, fetcher, Date.now());
+}
+
+async function poll302MidjourneyTask(
+  taskId: string,
+  options: ImageGenOptions,
+  fetcher: Fetcher,
+  startedAt: number
+): Promise<ImageGenResult> {
+  const pollIntervalMs =
+    options.mjPollIntervalMs ?? parseNumber(ENV.image302MjPollMs, 4_000);
+  const timeoutMs =
+    options.mjTimeoutMs ?? parseNumber(ENV.image302MjTimeoutMs, 180_000);
+  let nextPollDelayMs = Math.min(500, pollIntervalMs);
+  try {
     while (Date.now() - startedAt < timeoutMs) {
       await new Promise(resolve => setTimeout(resolve, nextPollDelayMs));
       nextPollDelayMs = pollIntervalMs;

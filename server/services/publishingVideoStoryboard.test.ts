@@ -40,6 +40,7 @@ function mockSuccessful302() {
                         action: `完成 ${paragraph.paragraphId} 的独立动作`,
                         imageRequirement: `油画纸张质感中的 ${paragraph.paragraphId} 独立场景与构图`,
                         videoRequirement: `${paragraph.paragraphId} 采用不同运动节拍并停在下一镜入口`,
+                        soundRequirement: `${paragraph.paragraphId} 的纸张摩擦与低频环境声`,
                       },
                     ],
                   })
@@ -87,6 +88,14 @@ describe("publishing video storyboard generation", () => {
     const generated = await generatePublishingVideoStoryboardPreview({
       body,
       platform: "xiaohongshu",
+      narrativeIntent: {
+        primaryPurpose: "gift",
+        secondaryPurposes: ["share"],
+        coreAudience: "妈妈",
+        secondaryAudiences: ["朋友圈朋友"],
+        status: "confirmed",
+        updatedAt: 1,
+      },
       core: {
         revision: 1,
         facts: ["事实"],
@@ -105,7 +114,18 @@ describe("publishing video storyboard generation", () => {
     expect(generated.modelLabel).toBe("gpt-5.4-nano-2026-03-17");
     expect(new Set(generated.preview.shots.map(shot => shot.imageRequirement)).size).toBe(6);
     expect(new Set(generated.preview.shots.map(shot => shot.videoRequirement)).size).toBe(6);
+    expect(new Set(generated.preview.shots.map(shot => shot.soundRequirement)).size).toBe(6);
+    expect(generated.preview.shots.map(shot => shot.voiceText)).toEqual(
+      generated.preview.paragraphs.map(paragraph => paragraph.text)
+    );
     expect(fetch).toHaveBeenCalledTimes(2);
+    const firstRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+    expect(String(firstRequest.messages[0].content)).toContain(
+      "不得写旁白、对白、音乐、环境声或音效"
+    );
+    expect(String(firstRequest.messages[0].content)).toContain(
+      "礼物版：每镜优先让核心观众认出两人之间的共同细节"
+    );
     expect(
       fetch.mock.calls.map(([, init]) => {
         const request = JSON.parse(String(init?.body));

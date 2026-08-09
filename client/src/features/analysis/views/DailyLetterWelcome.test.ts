@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  dailyLetterStoryPrompt,
   dailyLetterGreeting,
   dailyLetterSeenKey,
   nextDailyLetterDate,
   shouldMarkDailyLetterSeen,
   shouldShowInitialProfileSetup,
   shouldShowDailyLetter,
+  storiesForDailyLetter,
 } from "./DailyLetterWelcome";
 
 describe("DailyLetterWelcome", () => {
@@ -123,5 +125,55 @@ describe("DailyLetterWelcome", () => {
       "utf8"
     );
     expect(source).toContain("暂时跳过，先去创作");
+  });
+
+  it("允许把今天写下的话直接带进聊聊做成画面", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "client/src/features/analysis/views/DailyLetterWelcome.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("把今天的想法做成画面");
+    expect(source).toContain("onStartVisualConversation(message)");
+    expect(source).toContain("selectedDate === profileDate");
+  });
+
+  it("从历史回信进入故事时明确收起回信浮层", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "client/src/features/analysis/views/DailyLetterWelcome.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("const leaveLetterForStory");
+    expect(source).toContain("leaveLetterForStory();");
+  });
+
+  it("按用户实际对话日期把旧故事放回对应回信", () => {
+    const stories = [
+      {
+        id: 7,
+        title: "夜行",
+        activityDates: ["2026-08-08", "2026-08-09"],
+      },
+      {
+        id: 8,
+        title: "午后",
+        activityDates: ["2026-08-09"],
+      },
+    ];
+
+    expect(storiesForDailyLetter(stories, "2026-08-08")).toEqual([stories[0]]);
+  });
+
+  it("把回信正文完整带入新故事的第一轮对话", () => {
+    expect(dailyLetterStoryPrompt("2026-08-08", "第一段。\n\n第二段。")).toBe(
+      "我想把8月8日的这封回信变成一个新的故事。\n\n第一段。\n\n第二段。"
+    );
   });
 });

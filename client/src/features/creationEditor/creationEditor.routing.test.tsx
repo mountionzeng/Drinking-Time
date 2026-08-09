@@ -119,7 +119,15 @@ describe("creation editor route and shell", () => {
         {
           shotNo: 2,
           subject: "第二镜",
+          scriptText: "由文字稿改写的视觉剧本",
           dialogue: "后一句",
+          publishingVideo: {
+            versionId: "v1",
+            groupId: "group-1",
+            segmentIds: ["segment-2"],
+            sourceParagraphIds: ["paragraph-2"],
+            confirmedRevision: 1,
+          },
           intent: "证明职业判断",
           rationale: "这一镜要把材料转成可见的判断力。",
           narrativeJob: {
@@ -147,6 +155,10 @@ describe("creation editor route and shell", () => {
     expect(shots[0].rationale).toBeNull();
     expect(shots[1].intent).toBe("证明职业判断");
     expect(shots[1].rationale).toBe("这一镜要把材料转成可见的判断力。");
+    expect(shots[1].scriptText).toBe("由文字稿改写的视觉剧本");
+    expect(shots[1].publishingVideo?.sourceParagraphIds).toEqual([
+      "paragraph-2",
+    ]);
     expect(shots[1].promptRun?.finalPrompt).toBe("real prompt");
     expect(shots[1].narrativeJob?.claim).toBe("说明职业判断");
     expect(selectInitialShotNo(null, shots)).toBe(1);

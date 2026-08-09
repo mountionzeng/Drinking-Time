@@ -13,6 +13,14 @@ export interface StoryIntent {
   jobMaterialsPrompted?: boolean;
   fictionStoryCardConfirmed?: boolean;
   fictionStoryCardSignature?: string;
+  primaryPurpose?: "preserve" | "gift" | "share" | "persuade" | "create";
+  secondaryPurposes?: Array<
+    "preserve" | "gift" | "share" | "persuade" | "create"
+  >;
+  coreAudience?: string;
+  secondaryAudiences?: string[];
+  /** Auto-detected intent is useful immediately, but may still change as the story unfolds. */
+  status?: "provisional" | "confirmed";
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -53,6 +61,31 @@ export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
         ? obj.fictionStoryCardConfirmed
         : undefined,
     fictionStoryCardSignature: optionalString(obj.fictionStoryCardSignature),
+    primaryPurpose:
+      obj.primaryPurpose === "preserve" ||
+      obj.primaryPurpose === "gift" ||
+      obj.primaryPurpose === "share" ||
+      obj.primaryPurpose === "persuade" ||
+      obj.primaryPurpose === "create"
+        ? obj.primaryPurpose
+        : undefined,
+    secondaryPurposes: Array.isArray(obj.secondaryPurposes)
+      ? obj.secondaryPurposes.filter(
+          (item): item is NonNullable<StoryIntent["primaryPurpose"]> =>
+            item === "preserve" ||
+            item === "gift" ||
+            item === "share" ||
+            item === "persuade" ||
+            item === "create"
+        )
+      : undefined,
+    coreAudience: optionalString(obj.coreAudience),
+    secondaryAudiences: Array.isArray(obj.secondaryAudiences)
+      ? obj.secondaryAudiences.filter(
+          (item): item is string => typeof item === "string"
+        )
+      : undefined,
+    status: obj.status === "confirmed" ? "confirmed" : "provisional",
   };
 }
 

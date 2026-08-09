@@ -1,9 +1,13 @@
 import {
+  BookOpen,
   CalendarDays,
   Check,
+  ChevronRight,
+  Image as ImageIcon,
   Loader2,
   MessageCircle,
   Pencil,
+  Sparkles,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -142,12 +146,43 @@ function letterParagraphs(summary: string) {
     .filter(Boolean);
 }
 
+export type DailyLetterStorySummary = {
+  id: number;
+  title: string;
+  logline?: string | null;
+  summary?: string | null;
+  cardCount?: number;
+  shotCount?: number;
+  activityDates?: string[];
+};
+
+export function storiesForDailyLetter(
+  stories: DailyLetterStorySummary[],
+  letterDate: string
+) {
+  return stories.filter(story =>
+    (story.activityDates ?? []).includes(letterDate)
+  );
+}
+
+export function dailyLetterStoryPrompt(letterDate: string, summary: string) {
+  return `我想把${dateLabel(letterDate)}的这封回信变成一个新的故事。\n\n${summary.trim()}`;
+}
+
 export default function DailyLetterWelcome({
   forceOpen = false,
   onRequestClose,
+  onStartVisualConversation,
+  stories = [],
+  onOpenStory,
+  onStartLetterStory,
 }: {
   forceOpen?: boolean;
   onRequestClose?: () => void;
+  onStartVisualConversation?: (message: string) => void;
+  stories?: DailyLetterStorySummary[];
+  onOpenStory?: (storyId: number) => void;
+  onStartLetterStory?: (message: string) => void;
 }) {
   const { user } = useAuth();
   const { today } = useNayin();
@@ -286,6 +321,7 @@ export default function DailyLetterWelcome({
       ? (profile?.savedAt ?? null)
       : null);
   const editedAt = selectedLetter?.userMessageEditedAt ?? null;
+  const relatedStories = storiesForDailyLetter(stories, selectedDate);
   const userId = user?.id;
   const seenDate = userId ? readSeenDate(userId) : readPublicSeenDate();
   const autoVisible = userId
@@ -323,6 +359,18 @@ export default function DailyLetterWelcome({
     setClosedDate(today.cstDateStr);
     onRequestClose?.();
   }, [onRequestClose, today.cstDateStr, userId]);
+
+  const leaveLetterForStory = useCallback(() => {
+    if (userId && profileDate) {
+      writeSeenDate(userId, profileDate);
+      setClosedDate(profileDate);
+    } else if (!userId) {
+      writePublicSeenDate(publicLetter.date);
+      setClosedDate(publicLetter.date);
+    }
+    setEditingMessage(false);
+    onRequestClose?.();
+  }, [onRequestClose, profileDate, publicLetter.date, userId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -390,6 +438,53 @@ export default function DailyLetterWelcome({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "回信暂时没有改好");
     }
+  };
+
+  const startVisualConversation = async () => {
+    const message = messageDraft.trim();
+    if (
+      !message ||
+      !selectedDate ||
+      !selectedLetter ||
+      rewriteMut.isPending ||
+      !onStartVisualConversation
+    ) {
+      return;
+    }
+    try {
+      if (message !== selectedMessage.trim()) {
+        await rewriteMut.mutateAsync({
+          letterDate: selectedDate,
+          userMessage: message,
+          expectedRevision: selectedLetter.revision,
+        });
+        await Promise.all([
+          utils.emotionAnalysis.listDailyLetters.invalidate(),
+          utils.emotionAnalysis.getProfile.invalidate(),
+        ]);
+      }
+      closeLetter();
+      onStartVisualConversation(message);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "这句话暂时没有带进聊聊"
+      );
+    }
+  };
+
+  const openRelatedStory = (storyId: number) => {
+    leaveLetterForStory();
+    onOpenStory?.(storyId);
+  };
+
+  const startStoryFromLetter = () => {
+    if (!selectedReference?.summary.trim() || !onStartLetterStory) return;
+    const message = dailyLetterStoryPrompt(
+      selectedDate,
+      selectedReference.summary
+    );
+    leaveLetterForStory();
+    onStartLetterStory(message);
   };
 
   if (!userId) {
@@ -710,7 +805,7 @@ export default function DailyLetterWelcome({
                 className="w-full resize-none border-0 bg-transparent p-0 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground/55 focus:ring-0"
                 autoFocus
               />
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => void saveMessage()}
@@ -725,6 +820,22 @@ export default function DailyLetterWelcome({
                   )}
                   记下这句，再读一遍
                 </button>
+                {selectedDate === profileDate && onStartVisualConversation ? (
+                  <button
+                    type="button"
+                    onClick={() => void startVisualConversation()}
+                    disabled={!messageDraft.trim() || rewriteMut.isPending}
+                    className="group inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ borderColor: "var(--nayin-border)" }}
+                  >
+                    {rewriteMut.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ImageIcon className="h-3.5 w-3.5 text-nayin transition-transform group-hover:scale-110" />
+                    )}
+                    把今天的想法做成画面
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setEditingMessage(false)}
@@ -754,6 +865,61 @@ export default function DailyLetterWelcome({
           </p>
         </section>
 
+        {relatedStories.length > 0 && onOpenStory ? (
+          <section
+            className="border-b py-5"
+            style={{ borderColor: "var(--nayin-border)" }}
+            aria-label="这天聊过的故事"
+          >
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-nayin" />
+              <h2 className="font-chat-brand text-lg font-normal text-foreground">
+                那天，也聊过这些故事
+              </h2>
+            </div>
+            <div
+              className="mt-3 divide-y"
+              style={{ borderColor: "var(--nayin-border)" }}
+            >
+              {relatedStories.map(story => {
+                const detail = story.logline?.trim() || story.summary?.trim();
+                const counts = [
+                  story.cardCount ? `${story.cardCount} 张故事卡` : "",
+                  story.shotCount ? `${story.shotCount} 个镜头` : "",
+                ].filter(Boolean);
+                return (
+                  <button
+                    key={story.id}
+                    type="button"
+                    onClick={() => openRelatedStory(story.id)}
+                    className="group flex w-full items-center gap-4 py-3 text-left transition-colors hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground transition-colors group-hover:text-[var(--nayin-accent)]">
+                        {story.title.trim() || "未命名故事"}
+                      </span>
+                      {detail ? (
+                        <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+                          {detail}
+                        </span>
+                      ) : null}
+                    </span>
+                    {counts.length > 0 ? (
+                      <span className="hidden shrink-0 text-[9px] text-muted-foreground/70 sm:block">
+                        {counts.join(" · ")}
+                      </span>
+                    ) : null}
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground transition-colors group-hover:text-[var(--nayin-accent)]">
+                      继续聊
+                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <section className="py-6" aria-label="聊会儿的回信">
           <div className="space-y-4">
             {letterParagraphs(selectedReference.summary).map(paragraph => (
@@ -768,6 +934,17 @@ export default function DailyLetterWelcome({
               ? ` · 更新于 ${timestampLabel(selectedLetter.updatedAt)}`
               : ""}
           </p>
+          {onStartLetterStory ? (
+            <button
+              type="button"
+              onClick={startStoryFromLetter}
+              className="group mt-5 inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium text-foreground transition-colors hover:border-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              style={{ borderColor: "var(--nayin-border)" }}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-nayin transition-transform group-hover:rotate-6 group-hover:scale-110" />
+              把这封回信变成新故事
+            </button>
+          ) : null}
         </section>
 
         <div

@@ -236,6 +236,48 @@ export type PublishingStoryCore = {
   updatedAt: number;
 };
 
+/**
+ * A version's story-making mission. This is deliberately separate from a
+ * publishing platform: the same story can be a gift for one person and also
+ * have a public-sharing version without either version rewriting the other.
+ */
+export const PUBLISHING_NARRATIVE_PURPOSES = [
+  "preserve",
+  "gift",
+  "share",
+  "persuade",
+  "create",
+] as const;
+
+export type PublishingNarrativePurpose =
+  (typeof PUBLISHING_NARRATIVE_PURPOSES)[number];
+
+export type PublishingNarrativeIntent = {
+  primaryPurpose: PublishingNarrativePurpose;
+  secondaryPurposes: PublishingNarrativePurpose[];
+  coreAudience: string;
+  secondaryAudiences: string[];
+  status: "provisional" | "confirmed";
+  updatedAt: number;
+};
+
+export const PUBLISHING_NARRATIVE_PURPOSE_LABELS: Record<
+  PublishingNarrativePurpose,
+  string
+> = {
+  preserve: "留存",
+  gift: "赠予",
+  share: "分享",
+  persuade: "介绍／说服",
+  create: "创作",
+};
+
+export function publishingNarrativePurposeLabel(
+  purpose: PublishingNarrativePurpose
+): string {
+  return PUBLISHING_NARRATIVE_PURPOSE_LABELS[purpose];
+}
+
 export type PublishingPlatformDraft = {
   platform: PublishingPlatformId;
   content: PublishingDraftContent;
@@ -265,6 +307,27 @@ export type PublishingCoverRound = {
   createdAt: number;
 };
 
+/**
+ * One paid cover request at a time. This receipt is deliberately stored with
+ * the Story rather than kept in React: the provider task can outlive a tab,
+ * a request, or a dev-server reload.
+ */
+export type PublishingCoverGeneration = {
+  operationToken: string;
+  versionId: string;
+  status: "pending" | "completed" | "failed" | "unknown";
+  platform: PublishingPlatformId;
+  referenceAssetId: number | null;
+  feedback: string;
+  prompt: string;
+  roundId: string;
+  taskId: string | null;
+  claimedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  error?: string;
+};
+
 export type PublishingConversationSnapshot = {
   messages: unknown[];
   updatedAt: number;
@@ -280,6 +343,8 @@ export type PublishingStoryVersion = {
   drafts: Partial<Record<PublishingPlatformId, PublishingPlatformDraft>>;
   activePlatform: PublishingPlatformId;
   selectedPlatforms: PublishingPlatformId[];
+  /** The purpose and audience that generated this version. */
+  narrativeIntent: PublishingNarrativeIntent;
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
   conversationSnapshot: PublishingConversationSnapshot | null;
@@ -296,6 +361,8 @@ export type PublishingDraftState = {
   drafts: Partial<Record<PublishingPlatformId, PublishingPlatformDraft>>;
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
+  /** Latest paid cover request, persisted so its 302 task can be resumed. */
+  coverGeneration?: PublishingCoverGeneration | null;
   updatedAt: number;
   /** Canonical story-level version projection (legacy callers may omit these). */
   activeVersionId?: string;
@@ -348,6 +415,7 @@ export function emptyPublishingDraftState(
     drafts: {},
     cover: null,
     coverRounds: [],
+    coverGeneration: null,
     updatedAt: now,
   };
   const version = versionFromLegacyState(state, "v1", 1, "V1", null);
@@ -394,6 +462,101 @@ function cleanStringList(value: unknown): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function isPublishingNarrativePurpose(
+  value: unknown
+): value is PublishingNarrativePurpose {
+  return (
+    typeof value === "string" &&
+    (PUBLISHING_NARRATIVE_PURPOSES as readonly string[]).includes(value)
+  );
+}
+
+function narrativePurposeFromLegacy(value: unknown): PublishingNarrativePurpose {
+  switch (value) {
+    case "gift":
+      return "gift";
+    case "social_post":
+      return "share";
+    case "linkedin_job_search":
+    case "portfolio":
+    case "product_intro":
+      return "persuade";
+    case "fiction":
+    case "creative_expression":
+      return "create";
+    default:
+      return "preserve";
+  }
+}
+
+function audienceFromLegacy(value: unknown): string {
+  switch (value) {
+    case "specific_person":
+      return "某位重要的人";
+    case "friends":
+      return "朋友";
+    case "public":
+      return "公开观众";
+    case "recruiters":
+      return "招聘者";
+    case "clients":
+      return "客户";
+    case "investors":
+      return "投资人";
+    case "teammates":
+      return "团队";
+    default:
+      return "自己";
+  }
+}
+
+export function defaultPublishingNarrativeIntent(
+  now = Date.now()
+): PublishingNarrativeIntent {
+  return {
+    primaryPurpose: "preserve",
+    secondaryPurposes: [],
+    coreAudience: "自己",
+    secondaryAudiences: [],
+    status: "provisional",
+    updatedAt: now,
+  };
+}
+
+/** Normalizes both the new profile and the legacy chat intent persisted on Story. */
+export function normalizePublishingNarrativeIntent(
+  value: unknown,
+  now = Date.now()
+): PublishingNarrativeIntent {
+  const obj = record(value);
+  if (!obj) return defaultPublishingNarrativeIntent(now);
+  const primaryPurpose = isPublishingNarrativePurpose(obj.primaryPurpose)
+    ? obj.primaryPurpose
+    : narrativePurposeFromLegacy(obj.purpose);
+  const secondaryPurposes = Array.isArray(obj.secondaryPurposes)
+    ? Array.from(
+        new Set(
+          obj.secondaryPurposes.filter(isPublishingNarrativePurpose)
+        )
+      )
+        .filter(purpose => purpose !== primaryPurpose)
+        .slice(0, 4)
+    : [];
+  const coreAudience =
+    cleanString(obj.coreAudience).trim().slice(0, 80) ||
+    audienceFromLegacy(obj.audience);
+  return {
+    primaryPurpose,
+    secondaryPurposes,
+    coreAudience,
+    secondaryAudiences: cleanStringList(obj.secondaryAudiences)
+      .filter(audience => audience !== coreAudience)
+      .slice(0, 5),
+    status: obj.status === "confirmed" ? "confirmed" : "provisional",
+    updatedAt: timestamp(obj.updatedAt, now),
+  };
 }
 
 function normalizeDraftContent(value: unknown): PublishingDraftContent | null {
@@ -509,6 +672,45 @@ function normalizeCoverRound(
   };
 }
 
+function normalizeCoverGeneration(
+  value: unknown,
+  now: number
+): PublishingCoverGeneration | null {
+  const obj = record(value);
+  if (!obj || !isPublishingPlatformId(obj.platform)) return null;
+  const operationToken = cleanString(obj.operationToken).trim();
+  const versionId = cleanString(obj.versionId).trim();
+  const prompt = cleanString(obj.prompt).trim();
+  const roundId = cleanString(obj.roundId).trim();
+  const rawStatus = cleanString(obj.status);
+  if (
+    !operationToken ||
+    !versionId ||
+    !prompt ||
+    !roundId ||
+    !["pending", "completed", "failed", "unknown"].includes(rawStatus)
+  ) {
+    return null;
+  }
+  return {
+    operationToken: operationToken.slice(0, 200),
+    versionId: versionId.slice(0, 64),
+    status: rawStatus as PublishingCoverGeneration["status"],
+    platform: obj.platform,
+    referenceAssetId: positiveInteger(obj.referenceAssetId),
+    feedback: cleanString(obj.feedback).trim().slice(0, 2_000),
+    prompt: prompt.slice(0, 12_000),
+    roundId: roundId.slice(0, 200),
+    taskId: cleanString(obj.taskId).trim().slice(0, 500) || null,
+    claimedAt: timestamp(obj.claimedAt, now),
+    updatedAt: timestamp(obj.updatedAt, now),
+    expiresAt: timestamp(obj.expiresAt, now),
+    ...(cleanString(obj.error).trim()
+      ? { error: cleanString(obj.error).trim().slice(0, 2_000) }
+      : {}),
+  };
+}
+
 export function normalizePublishingDraftState(
   value: unknown,
   now = Date.now()
@@ -554,6 +756,7 @@ export function normalizePublishingDraftState(
     drafts,
     cover: normalizeCover(obj.cover, now),
     coverRounds,
+    coverGeneration: normalizeCoverGeneration(obj.coverGeneration, now),
     updatedAt: timestamp(obj.updatedAt, now),
   };
   const rawVersions = Array.isArray(obj.versions) ? obj.versions : [];
@@ -630,6 +833,7 @@ function versionFromLegacyState(
     drafts: structuredClone(state.drafts),
     activePlatform: state.activePlatform,
     selectedPlatforms: [...state.selectedPlatforms],
+    narrativeIntent: defaultPublishingNarrativeIntent(),
     cover: state.cover ? { ...state.cover } : null,
     coverRounds: structuredClone(state.coverRounds),
     conversationSnapshot: null,
@@ -677,6 +881,10 @@ function normalizeStoryVersion(
     drafts,
     activePlatform,
     selectedPlatforms,
+    narrativeIntent: normalizePublishingNarrativeIntent(
+      obj.narrativeIntent,
+      now
+    ),
     cover: normalizeCover(obj.cover, now),
     coverRounds: rounds,
     conversationSnapshot: snapshotObj

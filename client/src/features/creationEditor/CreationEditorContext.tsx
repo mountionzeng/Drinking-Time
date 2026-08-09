@@ -71,6 +71,11 @@ import type {
   StoryShotEditableField,
 } from "@shared/shotDirector";
 import type { StartEndShotVideoEstimate } from "@shared/startEndVideo";
+import {
+  normalizeStoryboardFieldVersions,
+  type StoryboardFieldVersions,
+  type StoryboardVersionedField,
+} from "@shared/storyboardFieldVersions";
 import { normalizePublishingDraftState } from "@shared/publishingDraft";
 import {
   buildPublishingVideoHandoff,
@@ -116,6 +121,7 @@ type CreationEditorContextValue = {
   chatCutTimeline: ChatCutTimelineManifest | null;
   promptLineageMode: "legacy" | "lineage";
   promptProjection: StoryPromptAggregate | null;
+  storyboardFieldVersions: StoryboardFieldVersions;
   shots: CreationEditorShot[];
   timelineShotIds: string[];
   addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
@@ -132,6 +138,11 @@ type CreationEditorContextValue = {
   rerenderError: string | null;
   promotingFrameCropShotNo: number | null;
   generatingVideoShotNos: readonly number[];
+  generatingVoiceShotIds: readonly string[];
+  generateShotVoice: (
+    stableShotId: string,
+    text: string
+  ) => Promise<{ audioUrl: string; provider: string; voice: string }>;
   updateShotDuration: (shotNo: number, durationMs: number) => Promise<void>;
   updatePersistedShotField: (
     stableShotId: string,
@@ -141,6 +152,10 @@ type CreationEditorContextValue = {
   updatePersistedShotFields: (
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
+  ) => Promise<void>;
+  restoreStoryboardFieldVersion: (
+    field: StoryboardVersionedField,
+    revision: number
   ) => Promise<void>;
   /** 阶段 E：确认/放弃一条候选修订（划词编辑 / 聊天提议 / 直接编辑 / 手改产生的都走这里）。 */
   confirmPromptCandidate: (candidateRevisionId: number) => Promise<void>;
@@ -395,6 +410,7 @@ const SHOT_STORY_IDENTITY_FIELDS = [
   "shotNo",
   "subject",
   "action",
+  "scriptText",
   "dialogue",
   "shotType",
   "beat",
@@ -624,9 +640,25 @@ function normalizeShot(raw: unknown, index: number): CreationEditorShot | null {
     actNo: stringValue(obj.actNo) || undefined,
     subject: stringValue(obj.subject),
     action: stringValue(obj.action),
+    scriptText: stringValue(obj.scriptText) || undefined,
+    publishingVideo:
+      obj.publishingVideo &&
+      typeof obj.publishingVideo === "object" &&
+      !Array.isArray(obj.publishingVideo)
+        ? (obj.publishingVideo as StoryShot["publishingVideo"])
+        : undefined,
     performance: stringValue(obj.performance) || undefined,
     environmentMotion: stringValue(obj.environmentMotion) || undefined,
     dialogue: stringValue(obj.dialogue),
+    voiceAudioUrl: stringValue(obj.voiceAudioUrl) || undefined,
+    voiceAudioText: stringValue(obj.voiceAudioText) || undefined,
+    voiceAudioProvider: stringValue(obj.voiceAudioProvider) || undefined,
+    voiceAudioVoice: stringValue(obj.voiceAudioVoice) || undefined,
+    voiceAudioGeneratedAt:
+      typeof obj.voiceAudioGeneratedAt === "number" &&
+      Number.isFinite(obj.voiceAudioGeneratedAt)
+        ? obj.voiceAudioGeneratedAt
+        : undefined,
     shotType: stringValue(obj.shotType),
     beat: stringValue(obj.beat),
     cameraAngle: stringValue(obj.cameraAngle),
@@ -1168,6 +1200,9 @@ export function CreationEditorProvider({
   const [generatingVideoShotNos, setGeneratingVideoShotNos] = useState<
     number[]
   >([]);
+  const [generatingVoiceShotIds, setGeneratingVoiceShotIds] = useState<
+    string[]
+  >([]);
   const [recentVideoTakeIds, setRecentVideoTakeIds] = useState<number[]>([]);
   const [timelineShotIds, setTimelineShotIds] = useState<string[]>([]);
   const autoRefreshVideoRef = useRef(false);
@@ -1179,6 +1214,10 @@ export function CreationEditorProvider({
   });
   const updateStoryShotFieldsMut =
     trpc.storyAgent.updateStoryShotFields.useMutation();
+  const generateStoryShotVoiceMut =
+    trpc.storyAgent.generateStoryShotVoice.useMutation();
+  const restoreStoryShotFieldVersionMut =
+    trpc.storyAgent.restoreStoryShotFieldVersion.useMutation();
   const insertStoryShotAfterMut =
     trpc.storyAgent.insertStoryShotAfter.useMutation();
   const deleteStoryShotMut = trpc.storyAgent.deleteStoryShot.useMutation();
@@ -1389,6 +1428,15 @@ export function CreationEditorProvider({
     () => normalizeChatCutTimeline(storyQuery.data?.body),
     [storyQuery.data?.body]
   );
+  const storyboardFieldVersions = useMemo(() => {
+    const body =
+      storyQuery.data?.body &&
+      typeof storyQuery.data.body === "object" &&
+      !Array.isArray(storyQuery.data.body)
+        ? (storyQuery.data.body as Record<string, unknown>)
+        : {};
+    return normalizeStoryboardFieldVersions(body.storyboardFieldVersions);
+  }, [storyQuery.data?.body]);
 
   const shots = useMemo(() => {
     const body = storyQuery.data?.body;
@@ -1765,6 +1813,84 @@ export function CreationEditorProvider({
     value: string
   ) => updatePersistedShotFields(stableShotId, { [field]: value });
 
+  const generateShotVoice = async (stableShotId: string, text: string) => {
+    const storyId = activeId;
+    if (storyId == null) throw new Error("故事尚未加载，无法生成旁白");
+    setGeneratingVoiceShotIds(current =>
+      current.includes(stableShotId) ? current : [...current, stableShotId]
+    );
+    try {
+      const result = await generateStoryShotVoiceMut.mutateAsync({
+        storyId,
+        stableShotId,
+        text,
+      });
+      if (result.status !== "ok" || !result.story) {
+        throw new Error(
+          result.status === "error" ? result.error : "旁白生成后保存失败"
+        );
+      }
+      const savedBody =
+        result.story.body &&
+        typeof result.story.body === "object" &&
+        !Array.isArray(result.story.body)
+          ? (result.story.body as Record<string, unknown>)
+          : null;
+      setCanonicalStoryShots(normalizeStoryShots(savedBody));
+      if (typeof result.story.revision === "number") {
+        setSpineServerRevision(result.story.revision);
+      }
+      await Promise.all([
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.storyList.invalidate(),
+      ]);
+      await storyQuery.refetch();
+      return {
+        audioUrl: result.audioUrl,
+        provider: result.provider,
+        voice: result.voice,
+      };
+    } finally {
+      setGeneratingVoiceShotIds(current =>
+        current.filter(identity => identity !== stableShotId)
+      );
+    }
+  };
+
+  const restoreStoryboardFieldVersion = async (
+    field: StoryboardVersionedField,
+    revision: number
+  ) => {
+    const storyId = activeId;
+    if (storyId == null) throw new Error("故事尚未加载，无法恢复版本");
+    const result = await restoreStoryShotFieldVersionMut.mutateAsync({
+      storyId,
+      field,
+      revision,
+    });
+    if (result.status !== "ok" || !result.story) {
+      throw new Error(
+        result.status === "error" ? result.error : "故事版版本恢复失败"
+      );
+    }
+    const savedBody =
+      result.story.body &&
+      typeof result.story.body === "object" &&
+      !Array.isArray(result.story.body)
+        ? (result.story.body as Record<string, unknown>)
+        : null;
+    setCanonicalStoryShots(normalizeStoryShots(savedBody));
+    if (typeof result.story.revision === "number") {
+      setSpineServerRevision(result.story.revision);
+    }
+    await Promise.all([
+      utils.storyAgent.storyGet.invalidate({ id: storyId }),
+      utils.storyAgent.storyList.invalidate(),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId }),
+    ]);
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+  };
+
   // ── 阶段 E：确认/放弃候选 ──
   // 用 promptLineageQuery.data 里已经订阅好的版本号，不额外发一次 fetch——
   // 跟阶段 D 的 proposeEditPromptCandidates 不同，这两个是用户主动点按钮
@@ -1775,12 +1901,33 @@ export function CreationEditorProvider({
     if (storyId == null || promptLineageQuery.data?.mode !== "lineage") {
       throw new Error("故事提示词尚未初始化，无法确认候选");
     }
-    await confirmPromptCandidateMut.mutateAsync({
+    const result = await confirmPromptCandidateMut.mutateAsync({
       storyId,
       candidateRevisionId,
       expectedVersion: promptLineageQuery.data.projection.state.version,
     });
+    // 服务端确认候选时会把确认值写回 stories.body 的镜头字段（见
+    // promptLineage router 的 writeConfirmedCandidateToShot）。本地的 spine
+    // 快照在 mergeCanonicalStoryShots 里**优先级高于** body，所以只 refetch
+    // storyQuery 不够——不同步 spine 的话，故事版会继续显示旧值，出图也继续用
+    // 旧值，回写等于白做。
+    if (result.writeback?.status === "applied") {
+      const refreshed = await storyQuery.refetch();
+      const savedBody =
+        refreshed.data?.body &&
+        typeof refreshed.data.body === "object" &&
+        !Array.isArray(refreshed.data.body)
+          ? (refreshed.data.body as Record<string, unknown>)
+          : null;
+      if (savedBody) setCanonicalStoryShots(normalizeStoryShots(savedBody));
+      await storyMaterialQuery.refetch();
+    }
     await promptLineageQuery.refetch();
+    // 确认本身已经提交成功，不可回滚；但镜头表没跟上必须让用户看见，
+    // 否则又变回「点了确认，出图毫无变化，且不报错」。
+    if (result.writeback?.status === "failed") {
+      throw new Error(`候选已确认，但写回镜头表失败：${result.writeback.error}`);
+    }
   };
 
   const rejectPromptCandidate = async (candidateRevisionId: number) => {
@@ -3133,6 +3280,7 @@ export function CreationEditorProvider({
         promptLineageQuery.data?.mode === "lineage"
           ? promptLineageQuery.data.projection
           : null,
+      storyboardFieldVersions,
       shots,
       timelineShotIds,
       addShotToTimeline,
@@ -3159,9 +3307,12 @@ export function CreationEditorProvider({
       rerenderError,
       promotingFrameCropShotNo,
       generatingVideoShotNos,
+      generatingVoiceShotIds,
+      generateShotVoice,
       updateShotDuration,
       updatePersistedShotField,
       updatePersistedShotFields,
+      restoreStoryboardFieldVersion,
       confirmPromptCandidate,
       rejectPromptCandidate,
       updatePromptOverride,
@@ -3218,12 +3369,14 @@ export function CreationEditorProvider({
       activeStory,
       publishingHandoff,
       chatCutTimeline,
+      storyboardFieldVersions,
       error,
       selectedShot,
       selectedShotNo,
       setActiveStoryId,
       promotingFrameCropShotNo,
       generatingVideoShotNos,
+      generatingVoiceShotIds,
       rerenderError,
       rerenderingShotNos,
       shots,

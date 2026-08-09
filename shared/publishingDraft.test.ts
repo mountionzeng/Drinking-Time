@@ -10,6 +10,7 @@ import {
   getXThreadStats,
   numberXThreadPosts,
   normalizePublishingDraftState,
+  normalizePublishingNarrativeIntent,
   resolvePublishingActiveVersion,
   upsertPublishingPlatformDraft,
   xWeightedCharacterLength,
@@ -128,6 +129,91 @@ describe("publishing platform registry", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("maps legacy chat intent into a compact provisional version purpose", () => {
+    expect(
+      normalizePublishingNarrativeIntent({
+        purpose: "gift",
+        audience: "specific_person",
+      }, NOW)
+    ).toMatchObject({
+      primaryPurpose: "gift",
+      coreAudience: "某位重要的人",
+      status: "provisional",
+    });
+  });
+
+  it("keeps a version's purpose and multiple audiences independent", () => {
+    const normalized = normalizePublishingDraftState({
+      ...emptyPublishingDraftState(NOW),
+      versions: [
+        {
+          versionId: "v1",
+          sequence: 1,
+          displayName: "V1",
+          parentId: null,
+          versionRevision: 1,
+          activePlatform: "xiaohongshu",
+          selectedPlatforms: ["xiaohongshu"],
+          drafts: {},
+          core: null,
+          cover: null,
+          coverRounds: [],
+          narrativeIntent: {
+            primaryPurpose: "gift",
+            secondaryPurposes: ["share"],
+            coreAudience: "妈妈",
+            secondaryAudiences: ["朋友圈朋友"],
+            status: "confirmed",
+            updatedAt: NOW,
+          },
+          conversationSnapshot: null,
+          videoStoryboard: null,
+        },
+      ],
+      activeVersionId: "v1",
+      containerRevision: 1,
+    }, NOW);
+
+    expect(resolvePublishingActiveVersion(normalized).narrativeIntent).toEqual({
+      primaryPurpose: "gift",
+      secondaryPurposes: ["share"],
+      coreAudience: "妈妈",
+      secondaryAudiences: ["朋友圈朋友"],
+      status: "confirmed",
+      updatedAt: NOW,
+    });
+  });
+
+  it("retains a submitted cover task so a refreshed workspace can recover it", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        ...emptyPublishingDraftState(NOW),
+        coverGeneration: {
+          operationToken: "cover-op-1",
+          versionId: "v1",
+          status: "pending",
+          platform: "xiaohongshu",
+          referenceAssetId: 52,
+          feedback: "让人物更小",
+          prompt: "durable prompt",
+          roundId: "round-op-1",
+          taskId: "302-task-1",
+          claimedAt: NOW,
+          updatedAt: NOW,
+          expiresAt: NOW + 600_000,
+        },
+      },
+      NOW + 1
+    );
+
+    expect(normalized.coverGeneration).toMatchObject({
+      operationToken: "cover-op-1",
+      status: "pending",
+      taskId: "302-task-1",
+      roundId: "round-op-1",
+    });
+  });
+
   it("normalizes legacy state into an isolated V1 canonical version", () => {
     const normalized = normalizePublishingDraftState(
       {

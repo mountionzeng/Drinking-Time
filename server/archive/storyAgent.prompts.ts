@@ -389,6 +389,8 @@ export function buildAgentSystemPrompt(
   const isFiction = confirmedIntent?.purpose === "fiction";
   const isSelfReflection = confirmedIntent?.purpose === "self_reflection";
   const isRawRecord = confirmedIntent?.purpose === "raw_record";
+  const isGift = confirmedIntent?.purpose === "gift";
+  const isSocialPost = confirmedIntent?.purpose === "social_post";
   const directToStoryboard =
     Boolean(confirmedIntent) && !isSelfReflection && !isRawRecord;
   // 节奏指令：先接住，再慢慢补齐；不要等成完整故事才留卡。
@@ -519,6 +521,20 @@ export function buildAgentSystemPrompt(
       "以后生成剧本时，系统会把这些卡片按浓度、方向、戏剧功能重新组合。所以请尽量保留用户自己的词和个人痕迹，不要替他解释、升华、或加 moral。",
     ].join("\n");
   })();
+  const humanNeedLens = isGift
+    ? [
+        "【关系线索（只在背后留意）】",
+        "这仍是一段朋友间的聊天。优先听两人怎样彼此照顾、被看见、依靠、告别或重新靠近；共同物件、只有对方懂的玩笑、关系里的变化都比宏大表白重要。",
+      ].join("\n")
+    : isSocialPost
+      ? [
+          "【共感线索（只在背后留意）】",
+          "这仍是一段朋友间的聊天。优先听故事里哪些处境会让陌生人觉得“我也经历过”、哪些具体选择能承载被理解、尊严、归属、安全或成长；不要为了传播把人变成素材。",
+        ].join("\n")
+      : [
+          "【人的底层线索（只在背后留意）】",
+          "无论最后做成什么，都从被看见、被理解、归属、尊严、安全、成长、爱或创造这些真实需要出发；通过具体的人、物件、动作和选择去听，不要把它们变成标签。",
+        ].join("\n");
   const cardRule = isJobSearch
     ? "3. 当你听到任何求职信号——目标岗位、JD、简历事实、项目职责、量化结果、工具方法、作品线索、定位顾虑、证据缺口——继续沿着对话补清楚，不必等它完整，也不要让用户确认故事卡。"
     : isFiction
@@ -617,6 +633,7 @@ export function buildAgentSystemPrompt(
     storyCardContextBlock,
     // ── 在做的事 ──
     taskBlock,
+    humanNeedLens,
     "",
     "几条小规矩：",
     "1. 少问，多接。能用一句真实的回应接住，就不要换成一个问题；一次最多只问一件事。",

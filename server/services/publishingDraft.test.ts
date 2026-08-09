@@ -46,6 +46,14 @@ describe("publishing draft model operations", () => {
 
     const result = await generatePublishingDraft({
       platform: "xiaohongshu",
+      narrativeIntent: {
+        primaryPurpose: "gift",
+        secondaryPurposes: ["share"],
+        coreAudience: "妈妈",
+        secondaryAudiences: ["朋友圈朋友"],
+        status: "confirmed",
+        updatedAt: 1,
+      },
       conversation: [
         {
           role: "user",
@@ -60,6 +68,12 @@ describe("publishing draft model operations", () => {
     );
     expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
       "不要用“危险的信号”“背叛”“反噬”"
+    );
+    expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
+      "核心观众=妈妈"
+    );
+    expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
+      "共同经历、专属物件、关系如何彼此改变"
     );
     expect(result.platform).toBe("xiaohongshu");
     expect(result.core.thesis).toBe(core.thesis);

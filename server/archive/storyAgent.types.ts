@@ -279,6 +279,12 @@ export type StoryIntentPayload = {
   missingQuestion: string;
   targetRole?: string;
   channel?: string;
+  primaryPurpose?: "preserve" | "gift" | "share" | "persuade" | "create";
+  secondaryPurposes?: Array<
+    "preserve" | "gift" | "share" | "persuade" | "create"
+  >;
+  coreAudience?: string;
+  secondaryAudiences?: string[];
 };
 
 export type StoryIntentResult = StoryIntentPayload & {

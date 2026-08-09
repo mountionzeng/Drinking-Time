@@ -21,12 +21,64 @@ import {
   listArtPromptLibraries,
 } from "../services/artPromptLibrary";
 import type { SelectionContext } from "../../shared/selectionContext";
+import type { PromptNode, PromptRevision } from "../../shared/promptLineage";
+import { resolveCandidateWriteback } from "../../shared/promptCandidateWriteback";
+import { applyStoryShotFieldPatch } from "../services/storyShotFieldPatch";
 import {
   ensureStoryPromptLineage,
   selectionContextSchema,
   storyPromptLineageBody,
   throwPromptLineageError,
 } from "./_storyShared";
+
+/** 确认候选后回写镜头表的结果，会原样返回给前端。 */
+export type ConfirmCandidateWriteback =
+  | { status: "applied"; field: string; stableShotId: string }
+  /** 这条候选本来就不该落到某一列上（故事级共享维度等），不是异常。 */
+  | { status: "skipped" }
+  | { status: "failed"; error: string };
+
+/**
+ * 把已确认的候选值写回 `stories.body` 的镜头字段。
+ *
+ * 确认本身此刻已经提交成功、不可回滚，所以这里**不抛错**——写回失败就如实报告，
+ * 让前端提示「确认已记录，但镜头表没跟上」。悄悄吞掉才是真正危险的：那正是这套
+ * 回写要消灭的故障形态（确认了，出图却毫无变化，且不报任何错）。
+ */
+async function writeConfirmedCandidateToShot(input: {
+  storyId: number;
+  userId: number;
+  nodes: readonly PromptNode[];
+  candidate: PromptRevision;
+}): Promise<ConfirmCandidateWriteback> {
+  const writeback = resolveCandidateWriteback({
+    nodes: input.nodes,
+    candidate: input.candidate,
+  });
+  if (!writeback) return { status: "skipped" };
+  try {
+    const result = await applyStoryShotFieldPatch({
+      storyId: input.storyId,
+      userId: input.userId,
+      stableShotId: writeback.stableShotId,
+      patch: { [writeback.field]: writeback.value },
+    });
+    if (result.status === "error") {
+      return { status: "failed", error: result.error };
+    }
+    return {
+      status: "applied",
+      field: writeback.field,
+      stableShotId: writeback.stableShotId,
+    };
+  } catch (error) {
+    console.warn("confirmCandidate shot writeback failed", error);
+    return {
+      status: "failed",
+      error: error instanceof Error ? error.message : "写回镜头表失败",
+    };
+  }
+}
 
 export const promptLineageRouter = router({
   getStoryProjection: protectedProcedure
@@ -126,11 +178,18 @@ export const promptLineageRouter = router({
           userId: ctx.user.id,
           operationKey: input.operationKey ?? nanoid(),
         });
+        const projection = await getStoryPromptProjection({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
         return {
           ...result,
-          projection: await getStoryPromptProjection({
+          projection,
+          writeback: await writeConfirmedCandidateToShot({
             storyId: input.storyId,
             userId: ctx.user.id,
+            nodes: projection?.nodes ?? [],
+            candidate: result.candidate,
           }),
         };
       } catch (error) {

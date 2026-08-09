@@ -49,6 +49,46 @@ describe("publishing video storyboard domain", () => {
     expect(validatePublishingVideoPreview(preview)).toEqual([]);
   });
 
+  it("keeps narration and sound in dedicated shot fields instead of the video requirement", () => {
+    const paragraphs = canonicalizePublishingVideoParagraphs("这是文字稿原文。");
+    const preview = buildPublishingVideoPreview({
+      paragraphs,
+      rewrites: [
+        {
+          paragraphId: paragraphs[0]!.paragraphId,
+          scriptText: "人物把信纸放回桌面。",
+          visualTreatment: "用一次克制的手部动作完成情绪转折。",
+          shots: [
+            {
+              subject: "桌边的人物",
+              action: "把信纸放回桌面",
+              imageRequirement: "冷蓝屏幕光照在泛黄旧纸上",
+              videoRequirement: "手指松开信纸，相机缓慢后撤并停住",
+              soundRequirement: "纸张摩擦声，远处低频环境音",
+            },
+            {
+              subject: "桌面的信纸",
+              action: "纸角轻轻回弹",
+              imageRequirement: "纸张纤维近景",
+              videoRequirement: "纸角回弹后停在画面右下角",
+              soundRequirement: "轻微纸张回弹声",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(preview.shots[0]).toMatchObject({
+      voiceText: "这是文字稿原文。",
+      soundRequirement: "纸张摩擦声，远处低频环境音",
+      videoRequirement: "手指松开信纸，相机缓慢后撤并停住",
+    });
+    expect(preview.shots[1]).toMatchObject({
+      voiceText: "",
+      soundRequirement: "轻微纸张回弹声",
+    });
+  });
+
   it("requires six body paragraphs to produce at least six script-bearing shots", () => {
     const paragraphs = canonicalizePublishingVideoParagraphs(
       Array.from({ length: 6 }, (_, index) => `第${index + 1}段正文。`).join(

@@ -8,6 +8,7 @@ import {
   inpaintImage,
   isCircuitOpen,
   resetCircuitBreaker,
+  resume302MidjourneyTask,
 } from "./imageGen";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -384,6 +385,32 @@ describe("generateImage", () => {
     );
     expect(fetcher.mock.calls[1][0]).toContain("/mj/task/task-1/fetch");
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
+  });
+
+  it("resumes an accepted Midjourney task without submitting it again", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/resumed.png" },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
+    ]);
+
+    const result = await resume302MidjourneyTask("task-already-paid", {
+      fetcher,
+      mjPollIntervalMs: 1,
+      mjTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toContain(
+      "/mj/task/task-already-paid/fetch"
+    );
+    expect(fetcher.mock.calls.some(call =>
+      String(call[0]).includes("/mj/submit/imagine")
+    )).toBe(false);
   });
 
   it("stores every 302 Midjourney object-array candidate in provider order", async () => {

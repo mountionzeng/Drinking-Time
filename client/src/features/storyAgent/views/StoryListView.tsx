@@ -403,13 +403,14 @@ export default function StoryListView() {
               </div>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={(event) => {
+                  event.stopPropagation();
                   if (window.confirm('确定删除这个故事吗？')) {
                     deleteStory(story.id);
                   }
                 }}
-                className="opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity p-1"
+                className="p-1 opacity-50 transition-opacity hover:!opacity-100 sm:opacity-0 sm:group-hover:opacity-50"
+                aria-label={`删除「${story.title || '未命名故事'}」`}
                 title="删除"
               >
                 <Trash2 className="w-3 h-3" />

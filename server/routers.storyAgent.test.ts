@@ -319,6 +319,14 @@ describe("storyAgent tRPC router", () => {
       body: {
         cards: [{ id: "card-1", content: "路灯" }],
         shots: [{ shotNo: 1, subject: "林" }],
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "那天晚上我终于出门了。",
+            timestamp: Date.parse("2026-08-08T01:30:00.000Z"),
+          },
+        ],
       },
     });
 
@@ -337,6 +345,7 @@ describe("storyAgent tRPC router", () => {
         title: "夜行",
         cardCount: 1,
         shotCount: 1,
+        activityDates: ["2026-08-08"],
       }),
     ]);
 

@@ -32,6 +32,10 @@ export type PublishingVideoStoryboardShot = {
   segmentIds: string[];
   sourceParagraphIds: string[];
   scriptText: string;
+  /** 直接用于旁白/对白的文字；同一正文段拆多镜时只放在第一镜，避免重复朗读。 */
+  voiceText: string;
+  /** 环境声、音乐和音效制作要求，不传给图生视频提示词。 */
+  soundRequirement: string;
   subject: string;
   action: string;
   imageRequirement: string;
@@ -311,6 +315,8 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
     segmentIds: stringArray(record.segmentIds),
     sourceParagraphIds: stringArray(record.sourceParagraphIds),
     scriptText: normalizedText(stringValue(record.scriptText)),
+    voiceText: normalizedText(stringValue(record.voiceText)),
+    soundRequirement: normalizedText(stringValue(record.soundRequirement)),
     subject: normalizedText(stringValue(record.subject)),
     action: normalizedText(stringValue(record.action)),
     imageRequirement: normalizedText(stringValue(record.imageRequirement)),
@@ -507,6 +513,7 @@ export function buildPublishingVideoPreview(input: {
           | "action"
           | "imageRequirement"
           | "videoRequirement"
+          | "soundRequirement"
         >
       >
     >;
@@ -536,6 +543,8 @@ export function buildPublishingVideoPreview(input: {
         segmentIds: [segmentId],
         sourceParagraphIds: [paragraph.paragraphId],
         scriptText: normalizedText(rewrite.scriptText),
+        voiceText: shotIndex === 0 ? normalizedText(paragraph.text) : "",
+        soundRequirement: normalizedText(requested.soundRequirement ?? ""),
         subject: normalizedText(requested.subject ?? ""),
         action: normalizedText(requested.action ?? rewrite.visualTreatment),
         imageRequirement: normalizedText(
@@ -719,6 +728,8 @@ export function validatePublishingVideoPreview(
 
 const BASELINE_FIELDS: Array<keyof PublishingVideoStoryboardShot> = [
   "scriptText",
+  "voiceText",
+  "soundRequirement",
   "subject",
   "action",
   "imageRequirement",
