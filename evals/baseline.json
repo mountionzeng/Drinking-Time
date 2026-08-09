@@ -1,30 +1,30 @@
 {
-  "generatedAt": "2026-08-01T16:09:34.136Z",
+  "generatedAt": "2026-08-09T08:56:50.863Z",
   "corpus": {
     "stories": 9,
-    "shots": 83,
-    "samples": 249
+    "shots": 68,
+    "samples": 204
   },
   "scores": {
     "hygiene": {
-      "score": 0.4016,
-      "passed": 100,
-      "total": 249
+      "score": 0.7451,
+      "passed": 152,
+      "total": 204
     },
     "coverage": {
-      "score": 0.8072,
-      "passed": 1407,
-      "total": 1743
+      "score": 0.6471,
+      "passed": 924,
+      "total": 1428
     },
     "continuity": {
-      "score": 0.3133,
-      "passed": 26,
-      "total": 83
+      "score": 0.4706,
+      "passed": 32,
+      "total": 68
     },
     "budget": {
-      "score": 0.9398,
-      "passed": 234,
-      "total": 249
+      "score": 0.9265,
+      "passed": 189,
+      "total": 204
     }
   }
 }

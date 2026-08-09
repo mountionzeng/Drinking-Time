@@ -14,7 +14,12 @@ import type {
   PromptNodeBinding,
   PromptRevision,
 } from "../shared/promptLineage";
-import type { EvalModality, EvalSample } from "./types";
+import type {
+  CorpusDrift,
+  EvalModality,
+  EvalSample,
+  GoldenSet,
+} from "./types";
 
 const CORPUS_FILENAME = ".webdev/prompt-lineage-local.json";
 const MODALITIES: EvalModality[] = ["dialogue", "image", "video"];
@@ -132,6 +137,55 @@ export function buildSamples(archive: LineageArchive): EvalSample[] {
     }
   }
   return samples;
+}
+
+/**
+ * 用 golden set 把样本收敛到冻结的总体。
+ *
+ * 分数只有在**同一批镜头**上才可比：语料是活的（用户天天在创作，故事会新增会删除），
+ * 不冻结总体的话，「分数掉了」永远分不清是代码退步还是换了一批故事。
+ */
+export function applyGoldenSet(
+  samples: readonly EvalSample[],
+  golden: GoldenSet,
+): { samples: EvalSample[]; drift: CorpusDrift } {
+  const wanted = new Set(
+    golden.shots.map(shot => `${shot.storyId}::${shot.stableShotId}`),
+  );
+  const present = new Set(
+    samples.map(sample => `${sample.storyId}::${sample.stableShotId}`),
+  );
+
+  return {
+    samples: samples.filter(sample =>
+      wanted.has(`${sample.storyId}::${sample.stableShotId}`),
+    ),
+    drift: {
+      missing: golden.shots.filter(
+        shot => !present.has(`${shot.storyId}::${shot.stableShotId}`),
+      ),
+      extra: Array.from(present).filter(key => !wanted.has(key)).length,
+    },
+  };
+}
+
+/** 从当前语料冻结一份 golden set */
+export function freezeGoldenSet(samples: readonly EvalSample[]): GoldenSet {
+  const seen = new Map<string, { storyId: number; stableShotId: string }>();
+  for (const sample of samples) {
+    seen.set(`${sample.storyId}::${sample.stableShotId}`, {
+      storyId: sample.storyId,
+      stableShotId: sample.stableShotId,
+    });
+  }
+  return {
+    frozenAt: new Date().toISOString(),
+    shots: Array.from(seen.values()).sort(
+      (left, right) =>
+        left.storyId - right.storyId ||
+        left.stableShotId.localeCompare(right.stableShotId),
+    ),
+  };
 }
 
 export function loadCorpus(corpusPath?: string): {

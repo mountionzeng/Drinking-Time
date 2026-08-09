@@ -12,17 +12,27 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadCorpus } from "./corpus";
+import { applyGoldenSet, freezeGoldenSet, loadCorpus } from "./corpus";
 import { budgetMetric } from "./metrics/budget";
 import { continuityMetric } from "./metrics/continuity";
 import { coverageMetric } from "./metrics/coverage";
 import { hygieneMetric } from "./metrics/hygiene";
 import { compareToBaseline, renderReport, toBaseline } from "./report";
-import type { Baseline, EvalReport, EvalSample } from "./types";
+import type {
+  Baseline,
+  CorpusDrift,
+  EvalReport,
+  EvalSample,
+  GoldenSet,
+} from "./types";
 
 const BASELINE_PATH = resolve(import.meta.dirname, "baseline.json");
+const GOLDEN_PATH = resolve(import.meta.dirname, "golden-set.json");
 
-export function runMetrics(samples: readonly EvalSample[]): EvalReport {
+export function runMetrics(
+  samples: readonly EvalSample[],
+  drift: CorpusDrift | null = null,
+): EvalReport {
   const shots = new Set(
     samples.map(sample => `${sample.storyId}::${sample.stableShotId}`),
   );
@@ -33,6 +43,7 @@ export function runMetrics(samples: readonly EvalSample[]): EvalReport {
       shots: shots.size,
       samples: samples.length,
     },
+    drift,
     metrics: [
       hygieneMetric(samples),
       coverageMetric(samples),
@@ -52,8 +63,26 @@ function hasFlag(name: string): boolean {
 }
 
 function main(): void {
-  const { path, samples } = loadCorpus(readFlag("corpus"));
-  const report = runMetrics(samples);
+  const { path, samples: allSamples } = loadCorpus(readFlag("corpus"));
+
+  if (hasFlag("freeze-golden")) {
+    const golden = freezeGoldenSet(allSamples);
+    writeFileSync(GOLDEN_PATH, `${JSON.stringify(golden, null, 2)}\n`);
+    console.log(
+      `已冻结 golden set：${golden.shots.length} 个镜头 → ${GOLDEN_PATH}\n` +
+        `记得同时重新冻结基线：pnpm eval:prompt --update-baseline`,
+    );
+    return;
+  }
+
+  const golden: GoldenSet | null = existsSync(GOLDEN_PATH)
+    ? (JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenSet)
+    : null;
+  const resolved = golden
+    ? applyGoldenSet(allSamples, golden)
+    : { samples: [...allSamples], drift: null };
+
+  const report = runMetrics(resolved.samples, resolved.drift);
 
   const baseline: Baseline | null = existsSync(BASELINE_PATH)
     ? (JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline)
@@ -73,6 +102,13 @@ function main(): void {
       `${JSON.stringify(toBaseline(report), null, 2)}\n`,
     );
     console.log(`\n已冻结基线：${BASELINE_PATH}`);
+    return;
+  }
+
+  // 语料漂移时分数与基线不同总体，不能判回归——用独立退出码 2 区分，
+  // 免得把「换了一批故事」误报成「代码退步」。
+  if (report.drift && report.drift.missing.length > 0) {
+    process.exitCode = 2;
     return;
   }
 

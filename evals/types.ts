@@ -54,6 +54,20 @@ export type MetricResult = {
   violations: Violation[];
 };
 
+/** 冻结的评测总体：分数只有在同一批镜头上才可比 */
+export type GoldenSet = {
+  frozenAt: string;
+  shots: Array<{ storyId: number; stableShotId: string }>;
+};
+
+/** golden set 与当前语料的差异 */
+export type CorpusDrift = {
+  /** golden set 里有、当前语料里没了的镜头 */
+  missing: Array<{ storyId: number; stableShotId: string }>;
+  /** 当前语料里有、但不在 golden set 里的镜头数（不参与评分） */
+  extra: number;
+};
+
 export type EvalReport = {
   generatedAt: string;
   corpus: {
@@ -61,6 +75,8 @@ export type EvalReport = {
     shots: number;
     samples: number;
   };
+  /** 无 golden set 时为 null */
+  drift: CorpusDrift | null;
   metrics: MetricResult[];
 };
 

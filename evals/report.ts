@@ -102,7 +102,9 @@ export function renderReport(
   const deltas = compareToBaseline(report, baseline);
   const deltaByKey = new Map(deltas.map(delta => [delta.key, delta]));
 
-  const header =
+  const drifted = (report.drift?.missing.length ?? 0) > 0;
+
+  let header =
     `提示词工程评测报告\n` +
     `${"=".repeat(52)}\n` +
     `语料：${corpusPath}\n` +
@@ -111,6 +113,29 @@ export function renderReport(
     `时间：${report.generatedAt}` +
     (baseline ? `\n基线：${baseline.generatedAt}` : `\n基线：无（首次运行，用 --update-baseline 冻结）`);
 
+  if (report.drift === null) {
+    header +=
+      `\n\n⚠️  未冻结 golden set：本次评测的是「当前语料里恰好有什么」。\n` +
+      `    语料是活的，故事会增删，分数与基线不同总体、不可直接比较。\n` +
+      `    先跑 pnpm eval:prompt --freeze-golden 冻结总体。`;
+  } else if (drifted) {
+    const missing = report.drift.missing;
+    const shown = missing.slice(0, 6);
+    header +=
+      `\n\n⚠️  语料漂移：golden set 里有 ${missing.length} 个镜头在当前语料中已不存在。\n` +
+      `    分数是在剩下 ${report.corpus.shots} 个镜头上算的，**与基线不同总体，不可判回归**。\n` +
+      shown
+        .map(shot => `      · story${shot.storyId}/${shot.stableShotId}`)
+        .join("\n") +
+      (missing.length > shown.length
+        ? `\n      · …另有 ${missing.length - shown.length} 个`
+        : "") +
+      `\n    确认这些镜头是被正常删除的话，重新冻结：\n` +
+      `      pnpm eval:prompt --freeze-golden && pnpm eval:prompt --update-baseline`;
+  } else if (report.drift.extra > 0) {
+    header += `\n（语料中另有 ${report.drift.extra} 个新镜头不在 golden set 内，未参与评分）`;
+  }
+
   const body = report.metrics
     .map(metric => renderMetric(metric, deltaByKey.get(metric.key)!))
     .join("\n");
@@ -118,11 +143,13 @@ export function renderReport(
   const regressed = deltas.filter(delta => delta.regressed);
   const footer =
     `\n${"=".repeat(52)}\n` +
-    (regressed.length > 0
-      ? `❌ ${regressed.length} 项回归：${regressed.map(d => d.key).join("、")}`
-      : baseline
-        ? `✅ 无回归`
-        : `ℹ️  首次运行，尚无可比基线`);
+    (drifted
+      ? `⚠️  语料漂移，本次不判回归（退出码 2）。上面的 ↑↓ 只是参考，不是代码变化的证据。`
+      : regressed.length > 0
+        ? `❌ ${regressed.length} 项回归：${regressed.map(d => d.key).join("、")}`
+        : baseline
+          ? `✅ 无回归`
+          : `ℹ️  首次运行，尚无可比基线`);
 
   return `${header}\n${body}\n${footer}`;
 }
