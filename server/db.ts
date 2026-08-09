@@ -1902,7 +1902,51 @@ export type StoryListItem = Pick<
   | "summary"
   | "createdAt"
   | "updatedAt"
-> & { cardCount: number; shotCount: number };
+> & { cardCount: number; shotCount: number; activityDates: string[] };
+
+function chinaDateKey(value: Date | number | string): string | null {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find(item => item.type === type)?.value;
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+export function storyActivityDates(body: unknown, createdAt: Date): string[] {
+  const dates = new Set<string>();
+  if (body && typeof body === "object") {
+    const messages = (body as { messages?: unknown }).messages;
+    if (Array.isArray(messages)) {
+      for (const message of messages) {
+        if (!message || typeof message !== "object") continue;
+        const record = message as { role?: unknown; timestamp?: unknown };
+        if (record.role !== "user") continue;
+        if (
+          typeof record.timestamp !== "number" &&
+          typeof record.timestamp !== "string"
+        ) {
+          continue;
+        }
+        const date = chinaDateKey(record.timestamp);
+        if (date) dates.add(date);
+      }
+    }
+  }
+  if (dates.size === 0) {
+    const fallback = chinaDateKey(createdAt);
+    if (fallback) dates.add(fallback);
+  }
+  return Array.from(dates).sort();
+}
 
 function emptyBody(): StoryBody {
   return { cards: [], characters: [], shots: [] };
@@ -1934,6 +1978,7 @@ function toListItem(row: Story): StoryListItem {
     updatedAt: row.updatedAt,
     cardCount: bodyCardCount(row.body),
     shotCount: bodyShotCount(row.body),
+    activityDates: storyActivityDates(row.body, row.createdAt),
   };
 }
 

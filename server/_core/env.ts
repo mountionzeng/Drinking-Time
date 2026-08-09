@@ -85,6 +85,9 @@ export const ENV = {
     process.env.VIDEO_PROMPT_302_TIMEOUT_MS ?? "30000",
   publishingVideoStoryboard302TimeoutMs:
     process.env.PUBLISHING_VIDEO_STORYBOARD_302_TIMEOUT_MS ?? "90000",
+  tts302Provider: process.env.TTS_302_PROVIDER ?? "openai",
+  tts302Voice: process.env.TTS_302_VOICE ?? "alloy",
+  tts302TimeoutMs: process.env.TTS_302_TIMEOUT_MS ?? "60000",
   imagePrompt302Model:
     process.env.IMAGE_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
   imagePrompt302TimeoutMs:

@@ -279,7 +279,6 @@ describe("StoryCardsBoard intent entry", () => {
   it("keeps only user-actionable rows editable in the full storyboard", () => {
     expect(STORYBOARD_MATRIX_ROWS.map(row => row.field)).toEqual([
       "scriptText",
-      "dialogue",
       "action",
       "performance",
       "cameraMove",
@@ -287,16 +286,19 @@ describe("StoryCardsBoard intent entry", () => {
       "transitionOut",
       "promptDraft",
       "videoPrompt",
+      "dialogue",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.field)).toEqual([
       "scriptText",
       "promptDraft",
       "videoPrompt",
+      "dialogue",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.description)).toEqual([
       "文字稿转写 · 可表演/可执行",
       "主体 · 画面动作 · 构图",
-      "旁白 · 表演 · 运镜 · 声音 · 衔接",
+      "表演 · 运镜 · 动作节拍 · 衔接",
+      "旁白 / 对白 · 背景音 / 音效",
     ]);
   });
 
@@ -1437,7 +1439,11 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain(
       'data-storyboard-media-layout="start-end-strip"'
     );
-    expect(boardSource).toContain('data-storyboard-media-height="fixed"');
+    expect(boardSource).toContain('mediaExpanded ? "expanded" : "compact"');
+    expect(boardSource).toContain("data-storyboard-media-expanded");
+    expect(boardSource).toContain("data-storyboard-media-selected");
+    expect(boardSource).toContain("aria-pressed={imageSelected}");
+    expect(boardSource).toContain("StoryboardMediaSelectionIndicator");
     expect(boardSource).toContain("data-storyboard-frame-role");
     expect(boardSource).toContain("画面");
     expect(boardSource).toContain("h-[75px]");

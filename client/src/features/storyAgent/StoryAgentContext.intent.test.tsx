@@ -35,6 +35,7 @@ vi.mock('@/lib/trpc', () => ({
       generateForMobile: { useMutation: makeMutation },
       recognizeIntent: { useMutation: makeMutation },
       storyUpsert: { useMutation: makeMutation },
+      renameStory: { useMutation: makeMutation },
       insertStoryShotAfter: { useMutation: makeMutation },
       storyDelete: { useMutation: makeMutation },
       selectionEdit: { useMutation: makeMutation },

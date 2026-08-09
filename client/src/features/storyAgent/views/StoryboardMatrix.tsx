@@ -1,4 +1,4 @@
-import { GripVertical } from "lucide-react";
+import { GripVertical, Loader2, Volume2 } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import type { StoryShot } from "@/features/storyAgent/types";
+import type { StoryboardFieldVersionTrack } from "@shared/storyboardFieldVersions";
 
 export type StoryboardMatrixField =
   | "scriptText"
@@ -38,12 +39,6 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
     description: "文字稿转写 · 可表演/可执行",
     placeholder: "这一镜真正要说、要演或要呈现什么",
     rows: 4,
-  },
-  {
-    field: "dialogue",
-    label: "旁白",
-    placeholder: "这一镜对应的台词或画外音",
-    rows: 3,
   },
   {
     field: "action",
@@ -85,8 +80,15 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
   {
     field: "videoPrompt",
     label: "视频要求",
-    description: "旁白 · 表演 · 运镜 · 声音 · 衔接",
-    placeholder: "写清表演、运镜、声音与镜头衔接",
+    description: "表演 · 运镜 · 动作节拍 · 衔接",
+    placeholder: "写清表演、运镜、动作节拍与镜头衔接",
+    rows: 4,
+  },
+  {
+    field: "dialogue",
+    label: "语音",
+    description: "旁白 / 对白 · 背景音 / 音效",
+    placeholder: "这一镜要朗读的文字稿内容",
     rows: 4,
   },
 ];
@@ -96,8 +98,170 @@ export const STORYBOARD_MATRIX_VISIBLE_ROWS: readonly StoryboardMatrixRow[] =
     row =>
       row.field === "scriptText" ||
       row.field === "promptDraft" ||
-      row.field === "videoPrompt"
+      row.field === "videoPrompt" ||
+      row.field === "dialogue"
   );
+
+export function StoryboardVoiceCell({
+  shot,
+  shotLabel,
+  selected,
+  editable,
+  generating,
+  onFocus,
+  onCommit,
+  onGenerate,
+}: {
+  shot: StoryShot;
+  shotLabel: string;
+  selected: boolean;
+  editable: boolean;
+  generating: boolean;
+  onFocus: () => void;
+  onCommit: (field: "dialogue" | "sound", value: string) => void | Promise<void>;
+  onGenerate?: (text: string) => void | Promise<void>;
+}) {
+  const narrationValue = shot.dialogue?.trim() || "";
+  const soundValue = shot.sound ?? "";
+  const [narrationText, setNarrationText] = useState(narrationValue);
+  const [soundText, setSoundText] = useState(soundValue);
+
+  useEffect(() => setNarrationText(narrationValue), [narrationValue, shotLabel]);
+  useEffect(() => setSoundText(soundValue), [soundValue, shotLabel]);
+
+  const audioStale = Boolean(
+    shot.voiceAudioUrl &&
+      (shot.voiceAudioText ?? "").trim() !== narrationText.trim()
+  );
+  const commit = (
+    field: "dialogue" | "sound",
+    draft: string,
+    current: string
+  ) => {
+    const next = draft.trim();
+    if (next !== current.trim()) void onCommit(field, next);
+  };
+
+  return (
+    <div
+      role="cell"
+      className="min-w-0 border-b border-r p-1.5"
+      style={{
+        borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+        background: selected
+          ? "color-mix(in srgb, var(--nayin-glow) 46%, transparent)"
+          : "transparent",
+      }}
+    >
+      <label className="block text-[8px] font-semibold text-muted-foreground/80">
+        旁白 / 对白
+        <textarea
+          value={narrationText}
+          rows={2}
+          placeholder="暂用文字稿原文，可在这里调整朗读内容"
+          disabled={!editable}
+          onFocus={onFocus}
+          onChange={event => setNarrationText(event.currentTarget.value)}
+          onBlur={() => commit("dialogue", narrationText, narrationValue)}
+          onPointerDown={event => event.stopPropagation()}
+          className="mt-0.5 block min-h-12 w-full resize-none rounded-sm bg-transparent px-1.5 py-1 text-[9px] font-normal leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:opacity-70"
+          aria-label={`${shotLabel} 旁白或对白`}
+        />
+      </label>
+      <label className="mt-1 block border-t border-border/45 pt-1 text-[8px] font-semibold text-muted-foreground/80">
+        背景音 / 音效
+        <textarea
+          value={soundText}
+          rows={1}
+          placeholder="环境声、音乐、音效或声音桥"
+          disabled={!editable}
+          onFocus={onFocus}
+          onChange={event => setSoundText(event.currentTarget.value)}
+          onBlur={() => commit("sound", soundText, soundValue)}
+          onPointerDown={event => event.stopPropagation()}
+          className="mt-0.5 block min-h-8 w-full resize-none rounded-sm bg-transparent px-1.5 py-1 text-[9px] font-normal leading-relaxed text-foreground outline-none transition focus:bg-background focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:opacity-70"
+          aria-label={`${shotLabel} 背景音或音效`}
+        />
+      </label>
+      <div className="mt-1 flex min-h-8 flex-wrap items-center gap-1.5 border-t border-border/45 pt-1">
+        <button
+          type="button"
+          disabled={!onGenerate || !narrationText.trim() || generating}
+          onClick={() => void onGenerate?.(narrationText.trim())}
+          onPointerDown={event => event.stopPropagation()}
+          className="inline-flex h-7 items-center gap-1 rounded-sm border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)]/45 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+        >
+          {generating ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Volume2 className="h-3 w-3" />
+          )}
+          {generating ? "生成中…" : "生成旁白"}
+        </button>
+        {shot.voiceAudioUrl && !audioStale ? (
+          <audio
+            controls
+            preload="none"
+            src={shot.voiceAudioUrl}
+            className="h-7 min-w-[120px] max-w-full flex-1"
+            aria-label={`${shotLabel} 已生成旁白`}
+          />
+        ) : null}
+        {audioStale ? (
+          <span className="text-[8px] text-amber-600 dark:text-amber-400">
+            文字已修改，请重新生成
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function StoryboardFieldVersionSelect({
+  label,
+  track,
+  restoring,
+  onRestore,
+}: {
+  label: string;
+  track: StoryboardFieldVersionTrack;
+  restoring: boolean;
+  onRestore: (revision: number) => void;
+}) {
+  const currentRevision = track.currentRevision || 1;
+  const history =
+    track.history.length > 0
+      ? [...track.history].sort((left, right) => right.revision - left.revision)
+      : [
+          {
+            revision: 1,
+            createdAt: 0,
+            source: "generated" as const,
+            values: {},
+          },
+        ];
+  return (
+    <select
+      value={currentRevision}
+      disabled={restoring || history.length < 2}
+      onChange={event => {
+        const revision = Number(event.currentTarget.value);
+        if (revision !== currentRevision) onRestore(revision);
+      }}
+      onPointerDown={event => event.stopPropagation()}
+      className="h-6 rounded-sm border border-border bg-background px-1 text-[8px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:cursor-default disabled:opacity-80"
+      aria-label={`${label}版本`}
+      title={history.length < 2 ? `${label}当前为 V${currentRevision}` : `切换${label}版本`}
+    >
+      {history.map(entry => (
+        <option key={entry.revision} value={entry.revision}>
+          V{entry.revision}
+          {entry.revision === currentRevision ? " · 当前" : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function storyboardMatrixTextareaHeight(
   scrollHeight: number,

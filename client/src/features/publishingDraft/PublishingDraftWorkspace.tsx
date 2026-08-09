@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Loader2,
   MessageCircleMore,
+  Pencil,
   Plus,
   RefreshCcw,
   Sparkles,
@@ -34,15 +35,19 @@ import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
+  PUBLISHING_NARRATIVE_PURPOSES,
+  defaultPublishingNarrativeIntent,
   getPublishingContentError,
   getXThreadStats,
   type PublishingDraftContent,
   type PublishingEditAssessment,
   type PublishingCoverRound,
   type PublishingPlatformId,
+  type PublishingNarrativeIntent,
+  type PublishingNarrativePurpose,
   type PublishingStoryCoreContent,
+  publishingNarrativePurposeLabel,
 } from "@shared/publishingDraft";
-import type { PublishingVideoStoryboardPreview } from "@shared/publishingVideoStoryboard";
 import { estimatePublishingCoverCost } from "@shared/imageRenderCost";
 import { usePublishingPlatformSelection } from "./PublishingPlatformPicker";
 import { downloadPublishingCover } from "./publishingCoverExport";
@@ -60,7 +65,6 @@ import {
   publishingErrorMessage,
   publishingStoryScopeMatches,
 } from "./publishingDraftViewModel";
-import PublishingVideoScriptReview from "./PublishingVideoScriptReview";
 
 type PendingEditDecision = {
   platform: PublishingPlatformId;
@@ -166,10 +170,8 @@ export default function PublishingDraftWorkspace({
   const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
   const generateCoverMut = trpc.publishingDraft.generateCover.useMutation();
   const adoptCoverMut = trpc.publishingDraft.adoptCoverCandidate.useMutation();
-  const prepareVideoStoryboardMut =
-    trpc.publishingDraft.prepareVideoStoryboard.useMutation();
-  const confirmVideoStoryboardMut =
-    trpc.publishingDraft.confirmVideoStoryboard.useMutation();
+  const buildVideoStoryboardMut =
+    trpc.publishingDraft.buildVideoStoryboard.useMutation();
   const utils = trpc.useUtils();
   const [pendingDecision, setPendingDecision] =
     useState<PendingEditDecision | null>(null);
@@ -185,23 +187,22 @@ export default function PublishingDraftWorkspace({
   const [coverGenerationMode, setCoverGenerationMode] =
     useState<CoverGenerationMode | null>(null);
   const coverGenerationInFlightRef = useRef(false);
-  const videoPreviewInFlightRef = useRef(false);
-  const videoPreviewOperationRef = useRef<{
+  const recoveredCoverOperationRef = useRef<string | null>(null);
+  const videoBuildInFlightRef = useRef(false);
+  const videoBuildOperationRef = useRef<{
     scope: string;
     token: string;
   } | null>(null);
-  const videoConfirmationOperationRef = useRef<{
-    scope: string;
-    token: string;
-  } | null>(null);
-  const [videoPreview, setVideoPreview] =
-    useState<PublishingVideoStoryboardPreview | null>(null);
   const [generatedCover, setGeneratedCover] =
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
     useState<StoryScopedPublishingCoverRounds | null>(null);
   const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
   const [newVersionName, setNewVersionName] = useState("");
+  const [intentEditorOpen, setIntentEditorOpen] = useState(false);
+  const [intentDraft, setIntentDraft] = useState<PublishingNarrativeIntent>(
+    () => defaultPublishingNarrativeIntent()
+  );
   const versionId = publishing.activeVersionId ?? "v1";
 
   useEffect(() => {
@@ -212,10 +213,9 @@ export default function PublishingDraftWorkspace({
     setCoverFeedback("");
     setCoverGenerationMode(null);
     coverGenerationInFlightRef.current = false;
-    videoPreviewInFlightRef.current = false;
-    videoPreviewOperationRef.current = null;
-    videoConfirmationOperationRef.current = null;
-    setVideoPreview(null);
+    recoveredCoverOperationRef.current = null;
+    videoBuildInFlightRef.current = false;
+    videoBuildOperationRef.current = null;
     setGeneratedCover(null);
     setGeneratedCoverRounds(null);
   }, [activeStoryId, versionId]);
@@ -244,6 +244,8 @@ export default function PublishingDraftWorkspace({
     publishing.versions?.find(version => version.versionId === versionId) ??
     publishing.versions?.[0] ??
     null;
+  const activeNarrativeIntent =
+    activeVersion?.narrativeIntent ?? defaultPublishingNarrativeIntent();
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
@@ -279,9 +281,9 @@ export default function PublishingDraftWorkspace({
   const coverBusy =
     coverGenerationMode !== null ||
     generateCoverMut.isPending ||
-    adoptCoverMut.isPending ||
-    prepareVideoStoryboardMut.isPending ||
-    confirmVideoStoryboardMut.isPending;
+    adoptCoverMut.isPending;
+  const videoPreparing = buildVideoStoryboardMut.isPending;
+  const videoBusy = videoPreparing;
   const coverGenerationPresentation =
     getCoverGenerationPresentation(coverGenerationMode);
   const coverAsset =
@@ -297,6 +299,10 @@ export default function PublishingDraftWorkspace({
       : readQuery.data?.storyId === activeStoryId
         ? readQuery.data.coverRounds
         : [];
+  const persistedCoverGeneration =
+    readQuery.data?.storyId === activeStoryId
+      ? readQuery.data.publishing.coverGeneration
+      : null;
   const activeCoverRound =
     coverRounds.find(round => round.id === activeCoverRoundId) ??
     coverRounds.at(-1) ??
@@ -571,17 +577,23 @@ export default function PublishingDraftWorkspace({
     setCoverStudioOpen(true);
   };
 
-  const generateCover = async (mode: "fresh" | "revise") => {
+  const generateCover = async (
+    mode: "fresh" | "revise",
+    existingOperationToken?: string
+  ) => {
     if (
       !draft ||
       dirty ||
       activeStoryId == null ||
-      coverBusy ||
+      (!existingOperationToken && coverBusy) ||
       coverGenerationInFlightRef.current
     )
       return;
-    if (mode === "revise" && !selectedCoverAsset) return;
+    if (mode === "revise" && !selectedCoverAsset && !existingOperationToken)
+      return;
     const storyId = activeStoryId;
+    const operationToken =
+      existingOperationToken ?? `cover-${crypto.randomUUID()}`;
     coverGenerationInFlightRef.current = true;
     setCoverGenerationMode(mode);
     try {
@@ -592,6 +604,7 @@ export default function PublishingDraftWorkspace({
         referenceAssetId:
           mode === "revise" ? selectedCoverAsset?.id : undefined,
         feedback: coverFeedback.trim() || undefined,
+        operationToken,
         costConfirmation: {
           accepted: true,
           estimatedCny: coverEstimate.estimatedCny,
@@ -604,6 +617,23 @@ export default function PublishingDraftWorkspace({
         return;
       }
       if (result.status === "error") {
+        if (
+          publishingStoryScopeMatches(
+            storyId,
+            storySpineStore.getState().activeStoryId
+          )
+        ) {
+          setPublishing(result.publishing);
+          utils.publishingDraft.read.setData({ storyId }, () => ({
+            storyId,
+            storyRevision: result.storyRevision,
+            publishing: result.publishing,
+            coverAsset: result.coverAsset,
+            coverRounds: result.coverRounds,
+            coverEstimate: result.estimate,
+          }));
+          setGeneratedCoverRounds({ storyId, rounds: result.coverRounds });
+        }
         toast.error(result.error);
         return;
       }
@@ -637,28 +667,54 @@ export default function PublishingDraftWorkspace({
     } finally {
       coverGenerationInFlightRef.current = false;
       setCoverGenerationMode(current => (current === mode ? null : current));
+      void utils.publishingDraft.read.invalidate({ storyId });
     }
   };
+
+  useEffect(() => {
+    if (
+      !persistedCoverGeneration ||
+      persistedCoverGeneration.status !== "pending" ||
+      !persistedCoverGeneration.taskId ||
+      persistedCoverGeneration.versionId !== publishing.activeVersionId ||
+      recoveredCoverOperationRef.current ===
+        persistedCoverGeneration.operationToken ||
+      coverGenerationInFlightRef.current
+    ) {
+      return;
+    }
+    recoveredCoverOperationRef.current = persistedCoverGeneration.operationToken;
+    void generateCover(
+      persistedCoverGeneration.referenceAssetId ? "revise" : "fresh",
+      persistedCoverGeneration.operationToken
+    );
+  }, [
+    persistedCoverGeneration?.operationToken,
+    persistedCoverGeneration?.status,
+    persistedCoverGeneration?.taskId,
+    persistedCoverGeneration?.versionId,
+    publishing.activeVersionId,
+  ]);
 
   const continueToVideo = async () => {
     if (
       activeStoryId == null ||
       coverBusy ||
       dirty ||
-      videoPreviewInFlightRef.current
+      videoBuildInFlightRef.current
     )
       return;
     const storyId = activeStoryId;
     const scope = `${storyId}:${versionId}`;
-    const existingOperation = videoPreviewOperationRef.current;
+    const existingOperation = videoBuildOperationRef.current;
     const operationToken =
       existingOperation?.scope === scope
         ? existingOperation.token
-        : `video-preview-${crypto.randomUUID()}`;
-    videoPreviewOperationRef.current = { scope, token: operationToken };
-    videoPreviewInFlightRef.current = true;
+        : `video-build-${crypto.randomUUID()}`;
+    videoBuildOperationRef.current = { scope, token: operationToken };
+    videoBuildInFlightRef.current = true;
     try {
-      const result = await prepareVideoStoryboardMut.mutateAsync({
+      const result = await buildVideoStoryboardMut.mutateAsync({
         storyId,
         versionId,
         operationToken,
@@ -682,68 +738,9 @@ export default function PublishingDraftWorkspace({
           : current
       );
       if (result.status === "pending") {
-        toast.info("剧本正在转写，稍后可用同一入口继续查看");
+        toast.info("故事版正在生成，稍后可用同一入口继续进入");
         return;
       }
-      if (!result.preview) {
-        videoPreviewOperationRef.current = null;
-        toast.error("剧本预览没有返回内容，请使用同一入口重试");
-        return;
-      }
-      setVideoPreview(result.preview);
-      toast.success(
-        result.reused ? "已恢复之前的剧本预览" : "完整剧本预览已生成，请确认后再写入故事版"
-      );
-    } catch (error) {
-      // A completed failure may have changed the server-side request hash
-      // (for example after another Story edit). A later user retry must claim
-      // a fresh operation instead of replaying an incompatible receipt.
-      videoPreviewOperationRef.current = null;
-      toast.error(
-        publishingErrorMessage(error, "剧本转写失败，正式故事版没有改变")
-      );
-    } finally {
-      videoPreviewInFlightRef.current = false;
-    }
-  };
-
-  const confirmVideoPreview = async () => {
-    if (activeStoryId == null || !videoPreview || confirmVideoStoryboardMut.isPending) {
-      return;
-    }
-    const storyId = activeStoryId;
-    const scope = `${storyId}:${versionId}:${videoPreview.previewId}`;
-    const existingOperation = videoConfirmationOperationRef.current;
-    const operationToken =
-      existingOperation?.scope === scope
-        ? existingOperation.token
-        : `video-confirm-${crypto.randomUUID()}`;
-    videoConfirmationOperationRef.current = { scope, token: operationToken };
-    try {
-      const result = await confirmVideoStoryboardMut.mutateAsync({
-        storyId,
-        versionId,
-        previewId: videoPreview.previewId,
-        operationToken,
-      });
-      if (
-        !publishingStoryScopeMatches(
-          storyId,
-          storySpineStore.getState().activeStoryId
-        )
-      ) {
-        return;
-      }
-      setPublishing(result.publishing);
-      utils.publishingDraft.read.setData({ storyId }, current =>
-        current
-          ? {
-              ...current,
-              storyRevision: result.storyRevision,
-              publishing: result.publishing,
-            }
-          : current
-      );
       await Promise.all([
         utils.storyAgent.storyGet.invalidate({ id: storyId }),
         utils.storyAgent.storyImages.invalidate({ storyId }),
@@ -754,15 +751,16 @@ export default function PublishingDraftWorkspace({
         silent: true,
         expectedActiveStoryId: storyId,
       });
-      setVideoPreview(null);
-      videoPreviewOperationRef.current = null;
-      videoConfirmationOperationRef.current = null;
-      toast.success("剧本已确认并写入故事版");
+      videoBuildOperationRef.current = null;
+      toast.success("故事版已生成，可以直接修改剧本、图片要求和视频要求");
       onContinueToVideo?.();
     } catch (error) {
+      videoBuildOperationRef.current = null;
       toast.error(
-        publishingErrorMessage(error, "剧本确认失败，正式故事版没有改变")
+        publishingErrorMessage(error, "故事版生成失败，原故事内容没有改变")
       );
+    } finally {
+      videoBuildInFlightRef.current = false;
     }
   };
 
@@ -922,7 +920,7 @@ export default function PublishingDraftWorkspace({
     }
   };
 
-  const createVersion = async () => {
+  const createVersion = async (narrativeIntent?: PublishingNarrativeIntent) => {
     if (
       activeStoryId == null ||
       !publishing.core ||
@@ -953,6 +951,7 @@ export default function PublishingDraftWorkspace({
         baseContainerRevision:
           publishing.containerRevision ?? publishing.revision,
         displayName: newVersionName.trim() || `V${nextSequence}`,
+        narrativeIntent,
         operationToken: `create-${versionId}-${Date.now()}`,
       });
       if (
@@ -965,12 +964,45 @@ export default function PublishingDraftWorkspace({
       setPublishing(result.publishing);
       await refreshPublishingRead(activeStoryId);
       setNewVersionName("");
-      toast.success("已创建新版本，其他平台保留原稿并标记为待更新");
+      toast.success(
+        narrativeIntent
+          ? "已按新用途创建版本，旧版本仍完整保留"
+          : "已创建新版本，其他平台保留原稿并标记为待更新"
+      );
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "新版本创建失败，当前版本没有变化")
       );
     }
+  };
+
+  const openIntentEditor = () => {
+    setIntentDraft({
+      ...activeNarrativeIntent,
+      secondaryPurposes: [...activeNarrativeIntent.secondaryPurposes],
+      secondaryAudiences: [...activeNarrativeIntent.secondaryAudiences],
+    });
+    setIntentEditorOpen(true);
+  };
+
+  const saveIntentAsNewVersion = async () => {
+    const coreAudience = intentDraft.coreAudience.trim();
+    if (!coreAudience) {
+      toast.error("请写下这版最优先给谁看");
+      return;
+    }
+    await createVersion({
+      ...intentDraft,
+      coreAudience,
+      secondaryAudiences: intentDraft.secondaryAudiences
+        .map(audience => audience.trim())
+        .filter(Boolean)
+        .filter(audience => audience !== coreAudience)
+        .slice(0, 5),
+      status: "confirmed",
+      updatedAt: Date.now(),
+    });
+    setIntentEditorOpen(false);
   };
 
   const targetOptions = useMemo(
@@ -1039,6 +1071,27 @@ export default function PublishingDraftWorkspace({
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={openIntentEditor}
+                disabled={busy || !draft || !publishing.core || dirty}
+                className="inline-flex h-8 max-w-[min(100%,19rem)] items-center gap-1.5 rounded-md border px-2 text-left text-[11px] text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/25 disabled:cursor-not-allowed disabled:opacity-55"
+                style={{ borderColor: "var(--panel-border)" }}
+                aria-label="修改这版的用途和观众"
+                title="修改用途或观众会创建新版本，原版本不会改变"
+              >
+                <span className="truncate">
+                  {publishingNarrativePurposeLabel(
+                    activeNarrativeIntent.primaryPurpose
+                  )}
+                  {" · "}
+                  {activeNarrativeIntent.coreAudience}
+                  {activeNarrativeIntent.secondaryAudiences.length > 0
+                    ? ` / ${activeNarrativeIntent.secondaryAudiences.join("、")}`
+                    : ""}
+                </span>
+                <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+              </button>
               <input
                 value={newVersionName}
                 onChange={event => setNewVersionName(event.target.value)}
@@ -1370,16 +1423,6 @@ export default function PublishingDraftWorkspace({
                         <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                           下载时才按平台比例居中裁切并加入当前标题，不会再次调用图片模型。
                         </p>
-                        <div className="mt-3">
-                          <ActionButton
-                            onClick={() => void continueToVideo()}
-                            disabled={busy || dirty}
-                            primary
-                          >
-                            用这张进入视频制作
-                            <ArrowRight className="h-4 w-4" />
-                          </ActionButton>
-                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1425,7 +1468,7 @@ export default function PublishingDraftWorkspace({
                 </ActionButton>
                 <ActionButton
                   onClick={openCoverStudio}
-                  disabled={busy || coverBusy || dirty}
+                  disabled={busy || coverBusy || videoBusy || dirty}
                 >
                   {coverBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1452,14 +1495,32 @@ export default function PublishingDraftWorkspace({
                     一键转为 {target.label}
                   </ActionButton>
                 ))}
-                <div className="ml-auto">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  {videoPreparing ? (
+                    <span
+                      className="text-[11px] text-muted-foreground"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      正在生成剧本、图片要求和视频要求，完成后会直接打开故事版…
+                    </span>
+                  ) : null}
                   <ActionButton
                     onClick={() => void continueToVideo()}
-                    disabled={busy || dirty}
+                    disabled={busy || videoBusy || dirty}
                     primary={Boolean(coverAsset)}
                   >
-                    进入视频制作
-                    <ArrowRight className="h-4 w-4" />
+                    {videoPreparing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        正在生成故事版…
+                      </>
+                    ) : (
+                      <>
+                        进入视频制作
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
                   </ActionButton>
                 </div>
               </footer>
@@ -1468,16 +1529,126 @@ export default function PublishingDraftWorkspace({
         </article>
       </div>
 
-      <PublishingVideoScriptReview
-        preview={videoPreview}
-        confirming={confirmVideoStoryboardMut.isPending}
-        onCancel={() => {
-          if (confirmVideoStoryboardMut.isPending) return;
-          setVideoPreview(null);
-          videoPreviewOperationRef.current = null;
-        }}
-        onConfirm={() => void confirmVideoPreview()}
-      />
+      <Dialog open={intentEditorOpen} onOpenChange={setIntentEditorOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>这版故事想完成什么</DialogTitle>
+            <DialogDescription>
+              修改用途或观众会新建一个版本；当前文字、封面和故事版都不会被覆盖。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-1 text-sm">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-foreground">主用途</span>
+              <select
+                value={intentDraft.primaryPurpose}
+                onChange={event => {
+                  const primaryPurpose = event.target
+                    .value as PublishingNarrativePurpose;
+                  setIntentDraft(current => ({
+                    ...current,
+                    primaryPurpose,
+                    secondaryPurposes: current.secondaryPurposes.filter(
+                      purpose => purpose !== primaryPurpose
+                    ),
+                  }));
+                }}
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                {PUBLISHING_NARRATIVE_PURPOSES.map(purpose => (
+                  <option key={purpose} value={purpose}>
+                    {publishingNarrativePurposeLabel(purpose)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-medium text-foreground">
+                兼顾用途
+              </legend>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                {PUBLISHING_NARRATIVE_PURPOSES.filter(
+                  purpose => purpose !== intentDraft.primaryPurpose
+                ).map(purpose => (
+                  <label
+                    key={purpose}
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={intentDraft.secondaryPurposes.includes(purpose)}
+                      onChange={event =>
+                        setIntentDraft(current => ({
+                          ...current,
+                          secondaryPurposes: event.target.checked
+                            ? [...current.secondaryPurposes, purpose].slice(0, 4)
+                            : current.secondaryPurposes.filter(
+                                item => item !== purpose
+                              ),
+                        }))
+                      }
+                    />
+                    {publishingNarrativePurposeLabel(purpose)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-foreground">
+                最优先给谁看
+              </span>
+              <input
+                value={intentDraft.coreAudience}
+                onChange={event =>
+                  setIntentDraft(current => ({
+                    ...current,
+                    coreAudience: event.target.value,
+                  }))
+                }
+                maxLength={80}
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
+                style={{ borderColor: "var(--panel-border)" }}
+                placeholder="例如：妈妈、招聘者、正在经历同样困惑的人"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-foreground">
+                还要兼顾谁（用顿号或逗号分开）
+              </span>
+              <input
+                value={intentDraft.secondaryAudiences.join("、")}
+                onChange={event =>
+                  setIntentDraft(current => ({
+                    ...current,
+                    secondaryAudiences: event.target.value
+                      .split(/[、,，]/)
+                      .map(value => value.trim())
+                      .filter(Boolean)
+                      .slice(0, 5),
+                  }))
+                }
+                maxLength={400}
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25"
+                style={{ borderColor: "var(--panel-border)" }}
+                placeholder="例如：朋友圈朋友"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <ActionButton onClick={() => setIntentEditorOpen(false)}>
+              取消
+            </ActionButton>
+            <ActionButton
+              onClick={() => void saveIntentAsNewVersion()}
+              disabled={busy}
+              primary
+            >
+              按这个目的新建版本
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(pendingVersionId)}

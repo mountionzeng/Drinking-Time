@@ -94,6 +94,7 @@ import {
 } from "./selectionPromptCandidate";
 import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
+import { suggestAutomaticStoryTitleFromState } from "./storyTitle";
 import {
   buildPromptAttribution,
   encodeAttributionReason,
@@ -267,11 +268,15 @@ export function shouldTriggerIntentRecognition({
   confirmedIntent: StoryIntent | null;
   pendingIntentDraft: StoryIntent | null;
 }): boolean {
-  if (confirmedIntent || pendingIntentDraft) return false;
-  return !messages.some(
+  if (pendingIntentDraft || confirmedIntent?.status === "confirmed") return false;
+  const userMessageCount = messages.filter(
     message =>
       message.role === "user" && (message.content.trim() || message.photoUrl)
-  );
+  ).length;
+  // Let an uncertain opening keep listening briefly. Once a useful provisional
+  // purpose is found it becomes active immediately instead of blocking the
+  // conversation behind a confirmation card.
+  return userMessageCount < 3;
 }
 
 export function recognitionToPendingIntent(
@@ -388,6 +393,7 @@ interface StoryAgentContextValue {
   createNewStory: () => void;
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
+  renameStory: (storyId: number | null, title: string) => Promise<void>;
   refreshStoryList: () => void;
   /**
    * 老用户点回旧故事时，聊聊的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
@@ -463,6 +469,7 @@ type StoryAgentActionKey =
   | "createNewStory"
   | "backToList"
   | "deleteStory"
+  | "renameStory"
   | "refreshStoryList"
   | "setImageProvider"
   | "addVisualReference"
@@ -507,6 +514,7 @@ const storyAgentActionKeys = [
   "createNewStory",
   "backToList",
   "deleteStory",
+  "renameStory",
   "refreshStoryList",
   "setImageProvider",
   "addVisualReference",
@@ -660,9 +668,30 @@ function normalizeShot(raw: unknown, index: number): StoryShot | null {
     actNo: str(obj.actNo),
     subject: str(obj.subject),
     action,
+    scriptText: str(obj.scriptText) || undefined,
+    publishingVideo:
+      obj.publishingVideo &&
+      typeof obj.publishingVideo === "object" &&
+      !Array.isArray(obj.publishingVideo)
+        ? (obj.publishingVideo as StoryShot["publishingVideo"])
+        : undefined,
     performance: str(obj.performance),
     environmentMotion: str(obj.environmentMotion),
     dialogue: str(obj.dialogue),
+    voiceAudioUrl: str(obj.voiceAudioUrl) || undefined,
+    voiceAudioText: str(obj.voiceAudioText) || undefined,
+    voiceAudioProvider: str(obj.voiceAudioProvider) || undefined,
+    voiceAudioVoice: str(obj.voiceAudioVoice) || undefined,
+    voiceAudioGeneratedAt:
+      typeof obj.voiceAudioGeneratedAt === "number" &&
+      Number.isFinite(obj.voiceAudioGeneratedAt)
+        ? obj.voiceAudioGeneratedAt
+        : undefined,
+    voiceAudioRequestStartedAt:
+      typeof obj.voiceAudioRequestStartedAt === "number" &&
+      Number.isFinite(obj.voiceAudioRequestStartedAt)
+        ? obj.voiceAudioRequestStartedAt
+        : undefined,
     shotType: str(obj.shotType) || "中",
     beat: str(obj.beat) || (index === 0 ? "开场" : "起势"),
     cameraAngle: str(obj.cameraAngle),
@@ -910,6 +939,7 @@ export function StoryAgentProvider({
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
+  const renameStoryMut = trpc.storyAgent.renameStory.useMutation();
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
@@ -1389,6 +1419,38 @@ export function StoryAgentProvider({
     ]
   );
 
+  const renameStory = useCallback(
+    async (storyId: number | null, title: string) => {
+      const nextTitle = title.trim().slice(0, 80);
+      if (!nextTitle) throw new Error("故事名称不能为空");
+
+      if (storyId == null || storyId <= 0) {
+        setStoryTitle(nextTitle);
+        return;
+      }
+
+      const result = await renameStoryMut.mutateAsync({ storyId, title: nextTitle });
+      if (result.status !== "ok") throw new Error(result.error);
+
+      const current = storySpineStore.getState();
+      if (current.activeStoryId === storyId || current.remoteStoryId === storyId) {
+        setStoryTitle(nextTitle);
+      }
+      setStoryList(items =>
+        items.map(item =>
+          item.id === storyId
+            ? { ...item, title: nextTitle, updatedAt: new Date() }
+            : item
+        )
+      );
+      await Promise.all([
+        utils.storyAgent.storyGet.invalidate({ id: storyId }),
+        utils.storyAgent.storyList.invalidate(),
+      ]);
+    },
+    [renameStoryMut, setStoryList, setStoryTitle, utils.storyAgent]
+  );
+
   useEffect(() => {
     if (projectId !== null && hydratedFor !== projectId) return;
     if (isReplying || isGeneratingScript) return;
@@ -1535,13 +1597,15 @@ export function StoryAgentProvider({
   const recognizeIntentFromHistory = useCallback(
     async (history: ChatMessage[], requestStoryId: number | null) => {
       try {
+        const existingIntent = storySpineStore.getState().confirmedIntent;
         const result = await recognizeIntentMut.mutateAsync({
           history: history
             .filter(message => message.content.trim())
             .map(message => ({
               role: message.role as "user" | "assistant",
-              content: message.content,
-            })),
+            content: message.content,
+          })),
+          existingIntent: existingIntent ? { ...existingIntent } : null,
         });
         if (
           !storyScopeMatches(
@@ -1555,13 +1619,14 @@ export function StoryAgentProvider({
         if (!pending) return;
         const { confirmedIntent, pendingIntentDraft } =
           storySpineStore.getState();
-        if (confirmedIntent || pendingIntentDraft) return;
-        setPendingIntentDraft(pending);
+        if (pendingIntentDraft || confirmedIntent?.status === "confirmed")
+          return;
+        setConfirmedIntent({ ...pending, status: "provisional" });
       } catch (error) {
         warnIntentRecognitionError(error);
       }
     },
-    [recognizeIntentMut, setPendingIntentDraft]
+    [recognizeIntentMut, setConfirmedIntent]
   );
 
   const sendMessage = useCallback(
@@ -1941,6 +2006,15 @@ export function StoryAgentProvider({
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
+        const suggestedTitle = suggestAutomaticStoryTitleFromState({
+          currentTitle: storyTitle,
+          publishing,
+          scripts,
+          cards: nextCards,
+          messages: finalMessages,
+        });
+        const nextStoryTitle = suggestedTitle ?? storyTitle;
+        if (suggestedTitle) setStoryTitle(suggestedTitle);
         if (shouldRecognizeIntent) {
           void recognizeIntentFromHistory(nextMessages, requestStoryId);
         }
@@ -1953,11 +2027,18 @@ export function StoryAgentProvider({
           storyShots,
           characters,
           remoteStoryId,
-          title: storyTitle,
+          title: nextStoryTitle,
           logline: storyLogline,
           theme: storyTheme,
           arc: storyArc,
         });
+        if (suggestedTitle && savedStoryId) {
+          try {
+            await renameStory(savedStoryId, suggestedTitle);
+          } catch (error) {
+            console.warn("automatic story rename failed", error);
+          }
+        }
         const conversationStoryId = resolvePersistedStoryId(
           activeStoryId,
           remoteStoryId,
@@ -2003,6 +2084,7 @@ export function StoryAgentProvider({
       characters,
       remoteStoryId,
       storyTitle,
+      publishing,
       storyLogline,
       storyTheme,
       storyArc,
@@ -2011,12 +2093,14 @@ export function StoryAgentProvider({
       artDirection,
       activeStoryId,
       appendConversationTurnMut,
+      renameStory,
       saveArchiveStory,
       uploadPhotoMut,
       recognizeIntentFromHistory,
       editingCommandRunner,
       interactionMode,
       activeSelection,
+      setStoryTitle,
       utils.promptLineage.getStoryProjection,
       // promptCandidateMut / rejectPromptCandidateMut 故意不放进依赖数组：
       // 它们在组件里比 sendMessage 声明得晚，放进去会在渲染时触发 TDZ
@@ -2406,9 +2490,12 @@ export function StoryAgentProvider({
         id: s.id,
         title: s.title,
         logline: s.logline,
+        summary: s.summary,
+        createdAt: s.createdAt,
         updatedAt: s.updatedAt,
         cardCount: s.cardCount,
         shotCount: s.shotCount,
+        activityDates: s.activityDates ?? [],
       }));
       setStoryList(items);
       // Clear stale remoteStoryId if it no longer exists on the server
@@ -2549,9 +2636,17 @@ export function StoryAgentProvider({
         const restoredPublishing = normalizePublishingDraftState(
           body.publishing
         );
+        const suggestedTitle = suggestAutomaticStoryTitleFromState({
+          currentTitle: row.title,
+          publishing: restoredPublishing,
+          scripts: [],
+          cards: restoredCards,
+          messages: restoredMessages,
+        });
+        const resolvedTitle = suggestedTitle ?? row.title ?? undefined;
 
         setRemoteStoryId(id);
-        setStoryTitle(row.title || undefined);
+        setStoryTitle(resolvedTitle);
         setStoryLogline(row.logline || undefined);
         setStoryTheme(row.theme || undefined);
         setStoryArc(row.arc || undefined);
@@ -2577,7 +2672,7 @@ export function StoryAgentProvider({
         setPendingIntentDraft(null);
 
         const remoteScript = scriptFromStory({
-          title: row.title || undefined,
+          title: resolvedTitle,
           logline: row.logline || undefined,
           theme: row.theme || undefined,
           arc: row.arc || undefined,
@@ -2611,9 +2706,17 @@ export function StoryAgentProvider({
                 shouldShowReturningGreeting(restoredMessages),
               logline: row.logline,
               lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
-              title: row.title,
+              title: resolvedTitle,
             })
           );
+        }
+
+        if (suggestedTitle) {
+          try {
+            await renameStory(id, suggestedTitle);
+          } catch (error) {
+            console.warn("automatic story rename on load failed", error);
+          }
         }
 
         // Auto-open panels if the loaded story has shots (previously generated storyboard).
@@ -2638,7 +2741,7 @@ export function StoryAgentProvider({
         toast.error("加载故事失败");
       }
     },
-    [setPublishing, utils.storyAgent.storyGet]
+    [renameStory, setPublishing, utils.storyAgent.storyGet]
   );
 
   useEffect(() => {
@@ -3350,7 +3453,7 @@ export function StoryAgentProvider({
       if (!candidate || candidate.status !== "pending" || storyId == null)
         return;
       try {
-        await confirmPromptCandidateMut.mutateAsync({
+        const result = await confirmPromptCandidateMut.mutateAsync({
           storyId,
           candidateRevisionId: candidate.revisionId,
           expectedVersion: candidate.expectedVersion,
@@ -3360,7 +3463,19 @@ export function StoryAgentProvider({
           utils.promptLineage.getStoryProjection.invalidate({ storyId }),
           utils.storyAgent.storyMaterialState.invalidate({ storyId }),
         ]);
-        toast.success("候选提示词已确认，重渲仍由你决定。");
+        // 服务端确认时已把确认值写回镜头字段，这里必须把镜头表重新拉一遍：
+        // spine 里的 storyShots 在渲染时优先级高于服务端 body，不重载的话
+        // 故事版会继续显示旧值。
+        if (result.writeback?.status === "applied") {
+          await loadStory(storyId, { silent: true });
+        }
+        if (result.writeback?.status === "failed") {
+          toast.error(
+            `候选已确认，但写回镜头表失败：${result.writeback.error}`
+          );
+        } else {
+          toast.success("候选提示词已确认，重渲仍由你决定。");
+        }
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -3372,6 +3487,7 @@ export function StoryAgentProvider({
     [
       activeStoryId,
       confirmPromptCandidateMut,
+      loadStory,
       messages,
       remoteStoryId,
       updateSelectionCandidateStatus,
@@ -3670,7 +3786,8 @@ export function StoryAgentProvider({
   }, []);
 
   const confirmPendingIntent = useCallback(() => {
-    if (pendingIntentDraft) setConfirmedIntent(pendingIntentDraft);
+    if (pendingIntentDraft)
+      setConfirmedIntent({ ...pendingIntentDraft, status: "confirmed" });
     setPendingIntentDraft(null);
   }, [pendingIntentDraft]);
 
@@ -3717,6 +3834,7 @@ export function StoryAgentProvider({
       createNewStory,
       backToList,
       deleteStory: handleDeleteStory,
+      renameStory,
       refreshStoryList,
       returningGreeting,
       visualCanvasItems,
@@ -3781,6 +3899,7 @@ export function StoryAgentProvider({
       createNewStory,
       backToList,
       handleDeleteStory,
+      renameStory,
       refreshStoryList,
       returningGreeting,
       visualCanvasItems,
@@ -3830,6 +3949,7 @@ export function StoryAgentProvider({
     createNewStory,
     backToList,
     deleteStory: handleDeleteStory,
+    renameStory,
     refreshStoryList,
     setImageProvider,
     addVisualReference,

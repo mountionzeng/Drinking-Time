@@ -6,11 +6,13 @@ import {
   applyPublishingWordingEdit,
   appendPublishingCoverRound,
   type PublishingCoverReference,
+  type PublishingCoverGeneration,
   type PublishingCoverRound,
   type PublishingDraftContent,
   type PublishingDraftState,
   type PublishingPlatformId,
   type PublishingConversationSnapshot,
+  type PublishingNarrativeIntent,
   type PublishingStoryCoreContent,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
@@ -47,6 +49,7 @@ type InitializeOperation = {
   selectedPlatforms: PublishingPlatformId[];
   core: PublishingStoryCoreContent;
   content: PublishingDraftContent;
+  narrativeIntent: PublishingNarrativeIntent;
   basePublishingRevision: number;
 };
 
@@ -96,6 +99,7 @@ export type CreatePublishingVersionOperation = {
   baseDraftRevision: number;
   baseVersionRevision?: number;
   displayName?: string;
+  narrativeIntent?: PublishingNarrativeIntent;
   baseContainerRevision: number;
   conversationSnapshot?: PublishingConversationSnapshot | null;
 };
@@ -119,6 +123,27 @@ type AppendCoverRoundOperation = {
   basePublishingRevision: number;
 };
 
+type ClaimCoverGenerationOperation = {
+  type: "claim_cover_generation";
+  generation: PublishingCoverGeneration;
+  basePublishingRevision: number;
+};
+
+type UpdateCoverGenerationOperation = {
+  type: "update_cover_generation";
+  operationToken: string;
+  taskId?: string | null;
+  status?: PublishingCoverGeneration["status"];
+  error?: string;
+  expiresAt?: number;
+};
+
+type CompleteCoverGenerationOperation = {
+  type: "complete_cover_generation";
+  operationToken: string;
+  round: PublishingCoverRound;
+};
+
 export type PublishingDraftWriteOperation =
   | InitializeOperation
   | UpsertDraftOperation
@@ -126,6 +151,9 @@ export type PublishingDraftWriteOperation =
   | ConfirmCoreOperation
   | SetSelectionOperation
   | AppendCoverRoundOperation
+  | ClaimCoverGenerationOperation
+  | UpdateCoverGenerationOperation
+  | CompleteCoverGenerationOperation
   | SetCoverOperation
   | CreatePublishingVersionOperation
   | SelectPublishingVersionOperation
@@ -300,6 +328,9 @@ function applyVersionOperation(
         ? structuredClone(parent.conversationSnapshot)
         : null,
     videoStoryboard: null,
+    narrativeIntent: op.narrativeIntent
+      ? structuredClone(op.narrativeIntent)
+      : structuredClone(parent.narrativeIntent),
   };
   return {
     ...state,
@@ -390,11 +421,23 @@ function applyOperation(
         activeDraftContent: operation.content,
         now,
       });
-      return {
+      const initialized = {
         ...next,
         selectedPlatforms: normalizeSelection(
           operation.activePlatform,
           operation.selectedPlatforms
+        ),
+      };
+      const activeVersionId = initialized.activeVersionId;
+      return {
+        ...initialized,
+        versions: initialized.versions?.map(version =>
+          version.versionId === activeVersionId
+            ? {
+                ...version,
+                narrativeIntent: structuredClone(operation.narrativeIntent),
+              }
+            : version
         ),
       };
     }
@@ -466,6 +509,84 @@ function applyOperation(
         current.revision
       );
       return appendPublishingCoverRound(current, operation.round, now);
+    }
+    case "claim_cover_generation": {
+      assertRevision(
+        "publishing",
+        operation.basePublishingRevision,
+        current.revision
+      );
+      const existing = current.coverGeneration;
+      if (existing?.operationToken === operation.generation.operationToken) {
+        return current;
+      }
+      if (existing?.status === "pending" && existing.expiresAt > now) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.basePublishingRevision,
+          current.revision
+        );
+      }
+      if (operation.generation.versionId !== current.activeVersionId) {
+        throw new Error("封面生成属于另一个文字稿版本");
+      }
+      return {
+        ...current,
+        revision: current.revision + 1,
+        coverGeneration: operation.generation,
+        updatedAt: now,
+      };
+    }
+    case "update_cover_generation": {
+      const existing = current.coverGeneration;
+      if (!existing || existing.operationToken !== operation.operationToken) {
+        throw new Error("封面生成操作不存在或已被替换");
+      }
+      if (existing.versionId !== current.activeVersionId) {
+        throw new Error("封面生成属于另一个文字稿版本");
+      }
+      return {
+        ...current,
+        revision: current.revision + 1,
+        coverGeneration: {
+          ...existing,
+          ...(operation.taskId !== undefined ? { taskId: operation.taskId } : {}),
+          ...(operation.status ? { status: operation.status } : {}),
+          ...(operation.error !== undefined ? { error: operation.error } : {}),
+          ...(operation.expiresAt !== undefined
+            ? { expiresAt: operation.expiresAt }
+            : {}),
+          updatedAt: now,
+        },
+        updatedAt: now,
+      };
+    }
+    case "complete_cover_generation": {
+      const existing = current.coverGeneration;
+      if (!existing || existing.operationToken !== operation.operationToken) {
+        throw new Error("封面生成操作不存在或已被替换");
+      }
+      if (existing.versionId !== current.activeVersionId) {
+        throw new Error("封面生成属于另一个文字稿版本");
+      }
+      const withRound = current.coverRounds.some(
+        round => round.id === operation.round.id
+      )
+        ? current
+        : appendPublishingCoverRound(current, operation.round, now);
+      return {
+        ...withRound,
+        revision:
+          withRound === current ? current.revision + 1 : withRound.revision,
+        coverGeneration: {
+          ...existing,
+          status: "completed",
+          error: undefined,
+          updatedAt: now,
+          expiresAt: now,
+        },
+        updatedAt: now,
+      };
     }
     case "set_cover": {
       assertRevision(

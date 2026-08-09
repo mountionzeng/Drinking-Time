@@ -49,6 +49,7 @@ const fixtures = vi.hoisted(() => {
       isReplying: false,
       sendMessage: vi.fn(),
       resetConversation: vi.fn(),
+      renameStory: vi.fn(),
       backToList: vi.fn(),
       activeStoryId: -1,
       remoteStoryId: undefined as number | undefined,
@@ -70,7 +71,7 @@ const fixtures = vi.hoisted(() => {
 });
 
 describe("StoryAgentContext background intent recognition", () => {
-  it("triggers only for the first real user message when no intent exists", async () => {
+  it("keeps listening through a short uncertain opening", async () => {
     const { shouldTriggerIntentRecognition } = await import(
       "./StoryAgentContext"
     );
@@ -97,10 +98,10 @@ describe("StoryAgentContext background intent recognition", () => {
         confirmedIntent: null,
         pendingIntentDraft: null,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does not trigger after menu confirmation or while a soft-confirm draft exists", async () => {
+  it("does not trigger after a confirmed purpose or while a soft-confirm draft exists", async () => {
     const { shouldTriggerIntentRecognition } = await import(
       "./StoryAgentContext"
     );
@@ -108,7 +109,7 @@ describe("StoryAgentContext background intent recognition", () => {
     expect(
       shouldTriggerIntentRecognition({
         messages: [fixtures.openingMessage],
-        confirmedIntent: fixtures.jobIntent,
+        confirmedIntent: { ...fixtures.jobIntent, status: "confirmed" },
         pendingIntentDraft: null,
       })
     ).toBe(false);
@@ -305,6 +306,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).toContain("当前故事");
     expect(html).toContain("虚构故事");
     expect(html).toContain("月亮掉进菜市场");
+    expect(html).toContain('aria-label="修改故事名称"');
     expect(html).toContain("01 · 镜头意图");
     expect(html).toContain("下一条消息会带着这个选区交给聊聊");
     expect(html).toContain("告诉聊聊这处想怎么改");

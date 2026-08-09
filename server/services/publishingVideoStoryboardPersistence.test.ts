@@ -59,6 +59,34 @@ function generatedPreview(body: string, now = 200) {
         paragraphId: paragraph.paragraphId,
         scriptText: `转写后的第 ${index + 1} 段剧本。`,
         visualTreatment: `第 ${index + 1} 个画面动作。`,
+        shots: [
+          {
+            soundRequirement: `第 ${index + 1} 段的纸张摩擦与环境底噪。`,
+          },
+        ],
+      })),
+      now,
+    }),
+    modelLabel: "test-model",
+  };
+}
+
+function generatedSplitPreview(body: string, now = 200) {
+  const paragraphs = canonicalizePublishingVideoParagraphs(body);
+  return {
+    preview: buildPublishingVideoPreview({
+      paragraphs,
+      rewrites: paragraphs.map((paragraph, index) => ({
+        paragraphId: paragraph.paragraphId,
+        scriptText: `转写后的第 ${index + 1} 段剧本。`,
+        visualTreatment: `第 ${index + 1} 个画面动作。`,
+        shots:
+          index === 0
+            ? [
+                { action: "第一段的第一个镜头" },
+                { action: "第一段的第二个镜头" },
+              ]
+            : [{ action: `第 ${index + 1} 段镜头` }],
       })),
       now,
     }),
@@ -122,13 +150,14 @@ describe("publishing video preview persistence", () => {
       generate,
     });
     await didStart;
-    const duplicate = await persistence.generateAndPersistPublishingVideoPreview({
-      storyId: id,
-      userId: 31,
-      operationToken: "preview-op-1",
-      now: 201,
-      generate,
-    });
+    const duplicate =
+      await persistence.generateAndPersistPublishingVideoPreview({
+        storyId: id,
+        userId: 31,
+        operationToken: "preview-op-1",
+        now: 201,
+        generate,
+      });
     expect(duplicate.status).toBe("pending");
     expect(generate).toHaveBeenCalledTimes(1);
 
@@ -183,7 +212,9 @@ describe("publishing video preview persistence", () => {
     });
     expect(replay).toMatchObject({ status: "ready", reused: true });
     expect(afterRestartGenerate).not.toHaveBeenCalled();
-    expect((await db.getStoryById(id, 32))?.body).toMatchObject({ _revision: 2 });
+    expect((await db.getStoryById(id, 32))?.body).toMatchObject({
+      _revision: 2,
+    });
   });
 
   it("keeps a later successful preview current after an earlier generation failure", async () => {
@@ -209,13 +240,14 @@ describe("publishing video preview persistence", () => {
       })
     ).rejects.toThrow("model output invalid");
 
-    const completed = await persistence.generateAndPersistPublishingVideoPreview({
-      storyId: id,
-      userId: 33,
-      operationToken: "successful-preview",
-      now: 201,
-      generate: vi.fn(async () => generatedPreview(bodyText)),
-    });
+    const completed =
+      await persistence.generateAndPersistPublishingVideoPreview({
+        storyId: id,
+        userId: 33,
+        operationToken: "successful-preview",
+        now: 201,
+        generate: vi.fn(async () => generatedPreview(bodyText)),
+      });
 
     expect(completed.preview?.status).toBe("preview");
   });
@@ -244,9 +276,10 @@ describe("publishing video storyboard confirmation", () => {
     const db = await import("../db");
     const persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
-    const cover = options?.withCover === false
-      ? null
-      : { assetId: 7301, sourceCoreRevision: 1, createdAt: 150 };
+    const cover =
+      options?.withCover === false
+        ? null
+        : { assetId: 7301, sourceCoreRevision: 1, createdAt: 150 };
     const versionId = publishing.activeVersionId!;
     const version = publishing.versions!.find(
       candidate => candidate.versionId === versionId
@@ -288,22 +321,48 @@ describe("publishing video storyboard confirmation", () => {
       },
     });
     const bodyText = version.drafts.xiaohongshu!.content.body;
-    const generated = await persistence.generateAndPersistPublishingVideoPreview({
-      storyId: id,
-      userId: 41,
-      versionId,
-      operationToken: "preview-confirm",
-      now: 200,
-      generate: vi.fn(async () => generatedPreview(bodyText)),
-    });
+    const generated =
+      await persistence.generateAndPersistPublishingVideoPreview({
+        storyId: id,
+        userId: 41,
+        versionId,
+        operationToken: "preview-confirm",
+        now: 200,
+        generate: vi.fn(async () => generatedPreview(bodyText)),
+      });
     return {
       db,
       persistence,
       id,
       versionId,
+      bodyText,
       previewId: generated.preview!.previewId,
     };
   }
+
+  it("generates and writes the storyboard through one end-to-end operation", async () => {
+    const fixture = await createConfirmFixture({ editedLegacyOpening: true });
+    const result =
+      await fixture.persistence.generateAndConfirmPublishingVideoStoryboard({
+        storyId: fixture.id,
+        userId: 41,
+        versionId: fixture.versionId,
+        operationToken: "build-directly",
+        now: 300,
+        generate: vi.fn(async () => generatedPreview(fixture.bodyText, 250)),
+      });
+
+    expect(result.status).toBe("confirmed");
+    if (result.status !== "confirmed") throw new Error("expected confirmation");
+    expect(result.shots[0]).toMatchObject({
+      stableShotId: "publishing-cover-opening",
+      subject: "用户改过的封面",
+    });
+    expect(result.shots.slice(2)).toHaveLength(4);
+    expect(result.shots.slice(2).every(shot => shot.publishingVideo)).toBe(
+      true
+    );
+  });
 
   it("promotes every rewritten shot atomically, keeps manual shots, and stores the cover at Story scope", async () => {
     const fixture = await createConfirmFixture();
@@ -318,21 +377,34 @@ describe("publishing video storyboard confirmation", () => {
 
     expect(result.reused).toBe(false);
     expect(result.shots).toHaveLength(5);
-    expect(result.shots.filter(shot => shot.stableShotId === "manual-shot-keep"))
-      .toHaveLength(1);
-    expect(result.shots.filter(shot => shot.stableShotId === "publishing-cover-opening"))
-      .toHaveLength(0);
+    expect(
+      result.shots.filter(shot => shot.stableShotId === "manual-shot-keep")
+    ).toHaveLength(1);
+    expect(
+      result.shots.filter(
+        shot => shot.stableShotId === "publishing-cover-opening"
+      )
+    ).toHaveLength(0);
     const formal = result.shots.filter(
       shot => shot.publishingVideo && typeof shot.publishingVideo === "object"
     );
     expect(formal).toHaveLength(4);
-    expect(formal.every(shot =>
-      typeof shot.scriptText === "string" &&
-      typeof shot.promptDraft === "string" &&
-      typeof shot.videoPrompt === "string" &&
-      Array.isArray(shot.publishingVideo?.sourceParagraphIds)
-    )).toBe(true);
-    expect(result.publishing.activeVideoStoryboardVersionId).toBe(fixture.versionId);
+    expect(
+      formal.every(
+        shot =>
+          typeof shot.scriptText === "string" &&
+          typeof shot.dialogue === "string" &&
+          shot.dialogue.length > 0 &&
+          typeof shot.sound === "string" &&
+          shot.sound.includes("环境底噪") &&
+          typeof shot.promptDraft === "string" &&
+          typeof shot.videoPrompt === "string" &&
+          Array.isArray(shot.publishingVideo?.sourceParagraphIds)
+      )
+    ).toBe(true);
+    expect(result.publishing.activeVideoStoryboardVersionId).toBe(
+      fixture.versionId
+    );
     expect(result.publishing.activeVideoStoryboardGroupId).toMatch(
       /^publishing-group-/
     );
@@ -350,9 +422,52 @@ describe("publishing video storyboard confirmation", () => {
       ])
     );
     expect(body.shots).toEqual(result.shots);
-    expect(body.shots.every((shot: Record<string, any>) =>
-      shot.publishingVideo?.coverAssetId == null
-    )).toBe(true);
+    expect(body.storyboardFieldVersions.tracks).toMatchObject({
+      scriptText: { currentRevision: 2 },
+      promptDraft: { currentRevision: 2 },
+      videoPrompt: { currentRevision: 2 },
+      dialogue: { currentRevision: 2 },
+    });
+    expect(
+      body.shots.every(
+        (shot: Record<string, any>) =>
+          shot.publishingVideo?.coverAssetId == null
+      )
+    ).toBe(true);
+  });
+
+  it("keeps narration only on the first shot when one paragraph is split", async () => {
+    const fixture = await createConfirmFixture();
+    const generated =
+      await fixture.persistence.generateAndPersistPublishingVideoPreview({
+        storyId: fixture.id,
+        userId: 41,
+        versionId: fixture.versionId,
+        operationToken: "split-preview",
+        now: 301,
+        generate: vi.fn(async () =>
+          generatedSplitPreview(fixture.bodyText, 250)
+        ),
+      });
+    const result = await fixture.persistence.confirmPublishingVideoStoryboard({
+      storyId: fixture.id,
+      userId: 41,
+      versionId: fixture.versionId,
+      previewId: generated.preview!.previewId,
+      operationToken: "confirm-split-preview",
+      now: 302,
+    });
+    const firstParagraphShots = result.shots.filter(shot =>
+      shot.publishingVideo?.sourceParagraphIds.includes(
+        canonicalizePublishingVideoParagraphs(fixture.bodyText)[0]!.paragraphId
+      )
+    );
+
+    expect(firstParagraphShots).toHaveLength(2);
+    expect(firstParagraphShots.map(shot => shot.dialogue)).toEqual([
+      "第一段正文。",
+      "",
+    ]);
   });
 
   it("returns the completed confirmation receipt without duplicating formal shots", async () => {
@@ -365,7 +480,8 @@ describe("publishing video storyboard confirmation", () => {
       operationToken: "confirm-retry",
       now: 300,
     } as const;
-    const first = await fixture.persistence.confirmPublishingVideoStoryboard(input);
+    const first =
+      await fixture.persistence.confirmPublishingVideoStoryboard(input);
     const second = await fixture.persistence.confirmPublishingVideoStoryboard({
       ...input,
       now: 301,
@@ -377,19 +493,36 @@ describe("publishing video storyboard confirmation", () => {
     expect((saved?.body as Record<string, any>).shots).toHaveLength(5);
   });
 
-  it("does not silently remove a materially edited legacy cover placeholder", async () => {
+  it("keeps a materially edited legacy cover before writing the generated storyboard", async () => {
     const fixture = await createConfirmFixture({ editedLegacyOpening: true });
-    await expect(
-      fixture.persistence.confirmPublishingVideoStoryboard({
-        storyId: fixture.id,
-        userId: 41,
-        versionId: fixture.versionId,
-        previewId: fixture.previewId,
-        operationToken: "confirm-edited-legacy",
-      })
-    ).rejects.toThrow("旧封面镜头已经被编辑");
+    const result = await fixture.persistence.confirmPublishingVideoStoryboard({
+      storyId: fixture.id,
+      userId: 41,
+      versionId: fixture.versionId,
+      previewId: fixture.previewId,
+      operationToken: "confirm-edited-legacy",
+    });
+
+    expect(result.shots).toHaveLength(6);
+    expect(result.shots[0]).toMatchObject({
+      stableShotId: "publishing-cover-opening",
+      subject: "用户改过的封面",
+    });
+    expect(result.shots[1]).toMatchObject({
+      stableShotId: "manual-shot-keep",
+      subject: "手工镜头",
+    });
+    expect(
+      result.shots
+        .slice(2)
+        .every(shot =>
+          Boolean(
+            shot.publishingVideo && typeof shot.publishingVideo === "object"
+          )
+        )
+    ).toBe(true);
     const saved = await fixture.db.getStoryById(fixture.id, 41);
-    expect((saved?.body as Record<string, any>).shots).toHaveLength(2);
+    expect((saved?.body as Record<string, any>).shots).toEqual(result.shots);
   });
 
   it("blocks confirmation when the bound draft changes after preview", async () => {

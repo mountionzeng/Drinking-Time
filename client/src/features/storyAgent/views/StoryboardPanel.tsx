@@ -16,6 +16,7 @@ import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
+import { withStoryboardVoiceTextFallbacks } from "./storyboardVoiceText";
 
 export function currentStoryboardImages(
   shots: readonly CreationEditorShot[],
@@ -64,16 +65,14 @@ export default function StoryboardPanel({
   const { isGeneratingScript, latestScript, storyShots } =
     useStoryCardsBoardSlice();
   const { artDirection } = useStoryboardPanelArtSlice();
-  const {
-    loadStory,
-    setActiveSelection,
-    registerImageRerenderRunner,
-  } = useStoryAgentActions();
+  const { loadStory, setActiveSelection, registerImageRerenderRunner } =
+    useStoryAgentActions();
   const setStoryShots = useStorySpine(state => state.setStoryShots);
   const setSaveStatus = useStorySpine(state => state.setSaveStatus);
   const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
   const {
     activeStoryId,
+    publishingHandoff,
     selectedShotNo,
     setSelectedShotNo,
     shots: creationShots,
@@ -88,6 +87,8 @@ export default function StoryboardPanel({
     estimateStartEndShotVideo,
     generateStartEndShotVideo,
     generatingVideoShotNos,
+    generatingVoiceShotIds,
+    generateShotVoice,
     refreshShotVideoStatus,
     markVideoTakeUnusable,
     assignStoryImageToShot,
@@ -103,6 +104,8 @@ export default function StoryboardPanel({
     promotingFrameCropShotNo,
     shotVideoProviderStatus,
     promptProjection,
+    storyboardFieldVersions,
+    restoreStoryboardFieldVersion,
     confirmPromptCandidate,
     rejectPromptCandidate,
     imageProviderStatus,
@@ -141,8 +144,22 @@ export default function StoryboardPanel({
       return draft ? { ...shot, ...draft, shotKey: shot.shotKey } : shot;
     });
   }, [creationShots, storyShots]);
-  const displayShots =
+  const baseDisplayShots =
     mergedCreationShots.length > 0 ? mergedCreationShots : storyShots;
+  const displayShots = useMemo(
+    () =>
+      withStoryboardVoiceTextFallbacks(
+        baseDisplayShots,
+        publishingHandoff?.draftBodiesBySource ??
+          publishingHandoff?.draft.body ??
+          ""
+      ),
+    [
+      baseDisplayShots,
+      publishingHandoff?.draft.body,
+      publishingHandoff?.draftBodiesBySource,
+    ]
+  );
   const generatedImages = currentStoryboardImages(
     mergedCreationShots,
     activeStoryId ?? 0
@@ -257,6 +274,22 @@ export default function StoryboardPanel({
           );
         }
       }}
+      generatingVoiceShotIds={generatingVoiceShotIds}
+      onGenerateShotVoice={async (stableShotId, text) => {
+        try {
+          await generateShotVoice(stableShotId, text);
+          setSaveStatus("saved");
+          setLastSavedAt(Date.now());
+          toast.success("旁白已生成并保存到当前镜头");
+        } catch (error) {
+          setSaveStatus("error");
+          toast.error(
+            error instanceof Error ? error.message : "旁白生成失败，请重试"
+          );
+        }
+      }}
+      storyboardFieldVersions={storyboardFieldVersions}
+      onRestoreStoryboardFieldVersion={restoreStoryboardFieldVersion}
       creationShots={mergedCreationShots}
       timelineShotIds={timelineShotIds}
       onAddShotToTimeline={addShotToTimeline}

@@ -127,6 +127,44 @@ function createAuthContext(userId = 42): TrpcContext {
 }
 
 describe("storyAgent tRPC router", () => {
+  it("renames an owned story without changing its body and rejects another user", async () => {
+    const owner = appRouter.createCaller(createAuthContext(120));
+    const intruder = appRouter.createCaller(createAuthContext(121));
+    const created = await owner.storyAgent.storyUpsert({
+      title: "未命名故事",
+      body: {
+        cards: [{ id: "kept-card", content: "不能丢失的故事内容" }],
+        characters: [],
+        shots: [{ stableShotId: "kept-shot", shotNo: 1 }],
+      },
+    });
+    if (!created) throw new Error("story creation failed");
+
+    await expect(
+      intruder.storyAgent.renameStory({
+        storyId: created.id,
+        title: "不允许的名字",
+      })
+    ).resolves.toEqual({ status: "error", error: "故事不存在" });
+
+    const renamed = await owner.storyAgent.renameStory({
+      storyId: created.id,
+      title: "AI味儿与活人味",
+    });
+    const loaded = await owner.storyAgent.storyGet({ id: created.id });
+
+    expect(renamed).toEqual({
+      status: "ok",
+      storyId: created.id,
+      title: "AI味儿与活人味",
+    });
+    expect(loaded?.title).toBe("AI味儿与活人味");
+    expect(loaded?.body).toMatchObject({
+      cards: [{ id: "kept-card", content: "不能丢失的故事内容" }],
+      shots: [{ stableShotId: "kept-shot", shotNo: 1 }],
+    });
+  });
+
   beforeAll(async () => {
     process.env.DATABASE_URL = "";
     process.env.LOCAL_PERSIST_PATH = path.join(
@@ -319,6 +357,14 @@ describe("storyAgent tRPC router", () => {
       body: {
         cards: [{ id: "card-1", content: "路灯" }],
         shots: [{ shotNo: 1, subject: "林" }],
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            content: "那天晚上我终于出门了。",
+            timestamp: Date.parse("2026-08-08T01:30:00.000Z"),
+          },
+        ],
       },
     });
 
@@ -337,6 +383,7 @@ describe("storyAgent tRPC router", () => {
         title: "夜行",
         cardCount: 1,
         shotCount: 1,
+        activityDates: ["2026-08-08"],
       }),
     ]);
 

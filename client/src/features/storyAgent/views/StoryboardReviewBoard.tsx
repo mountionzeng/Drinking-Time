@@ -98,10 +98,7 @@ import { displayShotCode } from "@shared/shotIdentity";
 import type { ShotPendingCandidate } from "../shotCandidateSummary";
 import ShotCandidateBadge from "./ShotCandidateBadge";
 import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
-import type {
-  ImageProvider,
-  ImageProviderStatus,
-} from "@shared/imageProvider";
+import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import {
   createStoryboardEditMaskDataUrl,
   requiresStoryboardExactEditMask,
@@ -114,17 +111,30 @@ import {
 } from "./videoTakeDrag";
 import { buildStoryboardTimingRows } from "../storyboardTiming";
 import {
+  StoryboardFieldVersionSelect,
   StoryboardMatrixFieldCell,
+  StoryboardVoiceCell,
   STORYBOARD_MATRIX_VISIBLE_ROWS,
   storyboardMatrixSwapPlan,
   type StoryboardMatrixField,
   type StoryboardMatrixRow,
 } from "./StoryboardMatrix";
 import {
+  isStoryboardVersionedField,
+  type StoryboardFieldVersions,
+  type StoryboardVersionedField,
+} from "@shared/storyboardFieldVersions";
+import {
   StoryboardMediaPreviewDialog,
   StoryboardVideoThumbnail,
   type StoryboardMediaPreview,
 } from "./StoryboardMediaPreview";
+import {
+  isStoryboardMediaSelected,
+  storyboardMediaSelection,
+  storyboardMediaShotExpanded,
+  type StoryboardMediaSelectionTarget,
+} from "./storyboardMediaSelection";
 import {
   hasStoryboardImageDragPayload,
   importStoryboardMediaFiles,
@@ -188,6 +198,23 @@ import {
   StoryboardMediaDropOverlay,
 } from "./SimpleStoryboardBoard";
 
+function StoryboardMediaSelectionIndicator({
+  selected,
+}: {
+  selected: boolean;
+}) {
+  if (!selected) return null;
+  return (
+    <span
+      className="absolute left-1 top-1 z-20 inline-flex items-center gap-0.5 rounded-sm bg-[var(--nayin-accent)] px-1.5 py-0.5 text-[8px] font-semibold text-white shadow-sm"
+      data-storyboard-media-selection-indicator="true"
+    >
+      <Check className="h-2.5 w-2.5" />
+      已选
+    </span>
+  );
+}
+
 export function StoryboardReviewBoard({
   images,
   shots,
@@ -197,6 +224,10 @@ export function StoryboardReviewBoard({
   selectedShotNo = null,
   onSelectShot,
   onUpdateShotField,
+  onGenerateShotVoice,
+  generatingVoiceShotIds = [],
+  storyboardFieldVersions,
+  onRestoreStoryboardFieldVersion,
   creationShots = [],
   timelineShotIds = [],
   onAddShotToTimeline,
@@ -250,6 +281,16 @@ export function StoryboardReviewBoard({
     field: StoryShotEditableField,
     value: string
   ) => void | Promise<void>;
+  onGenerateShotVoice?: (
+    stableShotId: string,
+    text: string
+  ) => void | Promise<void>;
+  generatingVoiceShotIds?: readonly string[];
+  storyboardFieldVersions?: StoryboardFieldVersions;
+  onRestoreStoryboardFieldVersion?: (
+    field: StoryboardVersionedField,
+    revision: number
+  ) => Promise<void>;
   creationShots?: CreationEditorShot[];
   timelineShotIds?: string[];
   onAddShotToTimeline?: (shotNo: number, stableShotId?: string | null) => void;
@@ -396,6 +437,10 @@ export function StoryboardReviewBoard({
 }) {
   const [previewMedia, setPreviewMedia] =
     useState<StoryboardMediaPreview | null>(null);
+  const [selectedStoryboardMedia, setSelectedStoryboardMedia] =
+    useState<ReturnType<typeof storyboardMediaSelection> | null>(null);
+  const [restoringStoryboardField, setRestoringStoryboardField] =
+    useState<StoryboardVersionedField | null>(null);
   const [hoveredImagePreview, setHoveredImagePreview] = useState<{
     imageUrl: string;
     label: string;
@@ -584,6 +629,14 @@ export function StoryboardReviewBoard({
       }, 220);
     },
     [cancelDeferredVideoSingleClick]
+  );
+  const selectStoryboardMedia = useCallback(
+    (target: StoryboardMediaSelectionTarget, shotNo: number) => {
+      onSelectShot?.(shotNo);
+      setSelectedStoryboardMedia(storyboardMediaSelection(target));
+      setHoveredImagePreview(null);
+    },
+    [onSelectShot]
   );
   useEffect(
     () => () => cancelDeferredVideoSingleClick(),
@@ -1034,6 +1087,22 @@ export function StoryboardReviewBoard({
         targetStableShotId: input.targetStableShotId,
         preserveTimelineSelection: true,
       });
+      setSelectedStoryboardMedia(current => {
+        if (
+          !isStoryboardMediaSelected(current, {
+            shotIdentity: input.sourceStableShotId,
+            kind: "image",
+            id: input.imageId,
+          })
+        ) {
+          return current;
+        }
+        return storyboardMediaSelection({
+          shotIdentity: input.targetStableShotId,
+          kind: "image",
+          id: input.imageId,
+        });
+      });
       if (frameOrders && onUpdateShotFields) {
         await onUpdateShotFields(input.sourceStableShotId, {
           generationParams: storyboardFrameOrderGenerationParams(
@@ -1121,6 +1190,22 @@ export function StoryboardReviewBoard({
       );
       await onUpdateShotFields(input.stableShotId, { generationParams });
       await onDeleteStoryImage(input.imageId);
+      setSelectedStoryboardMedia(current => {
+        if (!current || current.shotIdentity !== input.stableShotId) {
+          return current;
+        }
+        const deletedImageId = String(input.imageId);
+        if (current.kind === "image" && current.id === deletedImageId) {
+          return null;
+        }
+        if (
+          current.kind === "candidate" &&
+          current.id.startsWith(`${deletedImageId}:`)
+        ) {
+          return null;
+        }
+        return current;
+      });
       if (
         previewMedia?.kind === "image" &&
         input.frameImages.find(
@@ -1260,6 +1345,22 @@ export function StoryboardReviewBoard({
           targetStableShotId: stableShotId,
         })
           .then(() => {
+            setSelectedStoryboardMedia(current => {
+              if (
+                !isStoryboardMediaSelected(current, {
+                  shotIdentity: payload.sourceStableShotId,
+                  kind: "video",
+                  id: `take-${payload.takeId}`,
+                })
+              ) {
+                return current;
+              }
+              return storyboardMediaSelection({
+                shotIdentity: stableShotId,
+                kind: "video",
+                id: `take-${payload.takeId}`,
+              });
+            });
             onSelectShot?.(shot.shotNo);
             const shotLabel = displayShotCode(shot);
             toast.success(`已移动 Take ${payload.takeId} 到 ${shotLabel}`);
@@ -1544,10 +1645,10 @@ export function StoryboardReviewBoard({
     }
     if (!canStartRenderForShot(shot.shotNo)) {
       const message = isShotRenderActive(shot.shotNo)
-          ? `${label} 已在渲染线上`
-          : continuityWorkflowLocked
-            ? "正在确认人物连续性，确认后即可使用另一条渲染线"
-            : `两条渲染线都在使用，请等待其中一条完成`;
+        ? `${label} 已在渲染线上`
+        : continuityWorkflowLocked
+          ? "正在确认人物连续性，确认后即可使用另一条渲染线"
+          : `两条渲染线都在使用，请等待其中一条完成`;
       toast.info(message);
       return { status: "cancelled", message };
     }
@@ -1615,8 +1716,7 @@ export function StoryboardReviewBoard({
         return { status: "error", message };
       }
     }
-    const boardInstruction =
-      storyboardExplicitImageInstruction(effectiveShot);
+    const boardInstruction = storyboardExplicitImageInstruction(effectiveShot);
     const useSingleImageFallback =
       !isExactFrameEdit && shouldUseSingleImageFallback(imageProviderStatus);
     const explicitInstruction = [
@@ -1786,13 +1886,10 @@ export function StoryboardReviewBoard({
 
   useEffect(() => {
     if (!onRegisterImageRerenderRunner) return;
-      const runner: StoryboardImageRerenderRunner = async request => {
+    const runner: StoryboardImageRerenderRunner = async request => {
       const shotIndex = shots.findIndex((candidate, index) => {
         const stableShotId = storyShotInsertIdentity(candidate, index);
-        if (
-          request.stableShotId &&
-          stableShotId === request.stableShotId
-        ) {
+        if (request.stableShotId && stableShotId === request.stableShotId) {
           return true;
         }
         if (request.cueCode && candidate.cueCode === request.cueCode) {
@@ -1811,18 +1908,12 @@ export function StoryboardReviewBoard({
         const candidateStableShotId =
           candidate.stableShotId ?? candidate.shotIdentity ?? null;
         return (
-          (stableShotId != null &&
-            candidateStableShotId === stableShotId) ||
+          (stableShotId != null && candidateStableShotId === stableShotId) ||
           candidate.shotNo === shot.shotNo
         );
       });
-        return renderShotImageCandidates(
-          shot,
-          creationShot,
-          shotIndex,
-          request
-        );
-      };
+      return renderShotImageCandidates(shot, creationShot, shotIndex, request);
+    };
     return onRegisterImageRerenderRunner(runner);
   }, [
     creationShots,
@@ -1833,6 +1924,7 @@ export function StoryboardReviewBoard({
 
   const promoteStoryboardFrameCandidate = async (input: {
     shot: StoryShot;
+    shotIdentity: string;
     imageId: number;
     imageUrl: string;
     quadrant: FrameQuadrant;
@@ -1841,17 +1933,33 @@ export function StoryboardReviewBoard({
     onSelectShot?.(input.shot.shotNo);
     try {
       const cropped = await cropFrameQuadrant(input.imageUrl, input.quadrant);
-      await onPromoteFrameCrop({
+      const promoted = await onPromoteFrameCrop({
         shotNo: input.shot.shotNo,
         imageBase64: cropped.imageBase64,
         mimeType: cropped.mimeType,
         parentImageId: input.imageId,
         quadrant: input.quadrant,
       });
+      setSelectedStoryboardMedia(
+        storyboardMediaSelection({
+          shotIdentity: input.shotIdentity,
+          kind: "image",
+          id: promoted.imageId,
+        })
+      );
       toast.success(
         `${displayShotCode(input.shot)} 已采用${FRAME_QUADRANTS.find(item => item.value === input.quadrant)?.label ?? ""}候选`
       );
     } catch (error) {
+      setSelectedStoryboardMedia(current =>
+        isStoryboardMediaSelected(current, {
+          shotIdentity: input.shotIdentity,
+          kind: "candidate",
+          id: `${input.imageId}:${input.quadrant}`,
+        })
+          ? null
+          : current
+      );
       toast.error(error instanceof Error ? error.message : "候选图片保存失败");
     }
   };
@@ -1922,9 +2030,7 @@ export function StoryboardReviewBoard({
       } finally {
         finishContinuityCheck(shot.shotNo);
       }
-      if (
-        continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED
-      ) {
+      if (continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED) {
         return;
       }
       if (shouldAnnounceVideoGenerationCancellation(continuityChoice)) {
@@ -2486,8 +2592,8 @@ export function StoryboardReviewBoard({
                             title={
                               imageProviderStatus?.ready
                                 ? "根据前后画面和图片要求重新生成图片"
-                                : imageProviderStatus?.reason ??
-                                  "正在确认图片供应商状态"
+                                : (imageProviderStatus?.reason ??
+                                  "正在确认图片供应商状态")
                             }
                           >
                             {generatingImageShotNos.includes(shot.shotNo) ||
@@ -2560,6 +2666,12 @@ export function StoryboardReviewBoard({
                     : (shot.stableShotId ??
                       shot.shotIdentity ??
                       `legacy-sh${String(shot.shotNo).padStart(2, "0")}`);
+                  const mediaShotIdentity =
+                    insertStableShotId ?? shotTimelineId;
+                  const mediaExpanded = storyboardMediaShotExpanded(
+                    selectedStoryboardMedia,
+                    mediaShotIdentity
+                  );
                   const isOnTimeline = timelineShotIdSet.has(shotTimelineId);
                   const isVideoTakeDropTarget =
                     insertStableShotId != null &&
@@ -2644,7 +2756,10 @@ export function StoryboardReviewBoard({
                       )}
                       aria-busy={isImportingMedia}
                       data-storyboard-media-drop-target={displayShotCode(shot)}
-                      className="relative h-[75px] min-w-0 border-b border-r p-2"
+                      data-storyboard-media-expanded={mediaExpanded}
+                      className={`relative min-w-0 border-b border-r p-2 transition-[height] duration-200 ${
+                        mediaExpanded ? "h-[164px]" : "h-[75px]"
+                      }`}
                       style={{
                         borderColor:
                           "color-mix(in srgb, var(--panel-border) 62%, transparent)",
@@ -2668,9 +2783,13 @@ export function StoryboardReviewBoard({
                         />
                       ) : null}
                       <div
-                        className="flex h-[59px] items-center gap-1 overflow-x-auto overflow-y-hidden custom-scrollbar"
+                        className={`flex items-center gap-1 overflow-x-auto overflow-y-hidden transition-[height] duration-200 custom-scrollbar ${
+                          mediaExpanded ? "h-[148px]" : "h-[59px]"
+                        }`}
                         data-storyboard-media-layout="start-end-strip"
-                        data-storyboard-media-height="fixed"
+                        data-storyboard-media-height={
+                          mediaExpanded ? "expanded" : "compact"
+                        }
                       >
                         {isSubmittingVideo ? (
                           <div
@@ -2791,7 +2910,7 @@ export function StoryboardReviewBoard({
                               >
                                 <ContextMenu.Trigger asChild>
                                   <div
-                                    className={`relative order-2 flex h-[59px] shrink-0 gap-1 pr-6 ${
+                                    className={`relative order-2 flex h-full shrink-0 items-center gap-1 pr-6 ${
                                       deleting ? "opacity-45" : ""
                                     }`}
                                     role="group"
@@ -2799,70 +2918,99 @@ export function StoryboardReviewBoard({
                                     title="右键可删除这组候选"
                                   >
                                     {FRAME_QUADRANTS.map(
-                                      (candidate, candidateIndex) => (
-                                        <button
-                                          key={candidate.value}
-                                          type="button"
-                                          disabled={promoting || deleting}
-                                          onClick={() =>
-                                            void promoteStoryboardFrameCandidate(
-                                              {
-                                                shot,
-                                                imageId: frame.id,
-                                                imageUrl: frame.imageUrl,
-                                                quadrant: candidate.value,
-                                              }
-                                            )
-                                          }
-                                          onMouseEnter={event =>
-                                            showImageHoverPreview(
-                                              event,
-                                              frame.imageUrl,
-                                              `${displayShotCode(shot)} 候选 ${candidateIndex + 1}`,
-                                              storyboardCandidateImageStyle(
-                                                candidate.value
+                                      (candidate, candidateIndex) => {
+                                        const candidateTarget = {
+                                          shotIdentity: mediaShotIdentity,
+                                          kind: "candidate",
+                                          id: `${frame.id}:${candidate.value}`,
+                                        } satisfies StoryboardMediaSelectionTarget;
+                                        const candidateSelected =
+                                          isStoryboardMediaSelected(
+                                            selectedStoryboardMedia,
+                                            candidateTarget
+                                          );
+                                        return (
+                                          <button
+                                            key={candidate.value}
+                                            type="button"
+                                            disabled={promoting || deleting}
+                                            onClick={() => {
+                                              selectStoryboardMedia(
+                                                candidateTarget,
+                                                shot.shotNo
+                                              );
+                                              void promoteStoryboardFrameCandidate(
+                                                {
+                                                  shot,
+                                                  shotIdentity:
+                                                    mediaShotIdentity,
+                                                  imageId: frame.id,
+                                                  imageUrl: frame.imageUrl,
+                                                  quadrant: candidate.value,
+                                                }
+                                              );
+                                            }}
+                                            onMouseEnter={event =>
+                                              showImageHoverPreview(
+                                                event,
+                                                frame.imageUrl,
+                                                `${displayShotCode(shot)} 候选 ${candidateIndex + 1}`,
+                                                storyboardCandidateImageStyle(
+                                                  candidate.value
+                                                )
                                               )
-                                            )
-                                          }
-                                          onMouseLeave={() =>
-                                            setHoveredImagePreview(null)
-                                          }
-                                          onFocus={event =>
-                                            showImageHoverPreview(
-                                              event,
-                                              frame.imageUrl,
-                                              `${displayShotCode(shot)} 候选 ${candidateIndex + 1}`,
-                                              storyboardCandidateImageStyle(
-                                                candidate.value
+                                            }
+                                            onMouseLeave={() =>
+                                              setHoveredImagePreview(null)
+                                            }
+                                            onFocus={event =>
+                                              showImageHoverPreview(
+                                                event,
+                                                frame.imageUrl,
+                                                `${displayShotCode(shot)} 候选 ${candidateIndex + 1}`,
+                                                storyboardCandidateImageStyle(
+                                                  candidate.value
+                                                )
                                               )
-                                            )
-                                          }
-                                          onBlur={() =>
-                                            setHoveredImagePreview(null)
-                                          }
-                                          className="relative h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm border border-[var(--nayin-accent)]/40 bg-muted text-left transition hover:border-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                          aria-label={`采用 ${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
-                                          title={`${candidate.label}候选 · 点击设为当前主图`}
-                                        >
-                                          <img
-                                            src={frame.imageUrl}
-                                            alt={`${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
-                                            draggable={false}
-                                            className="absolute object-fill"
-                                            style={storyboardCandidateImageStyle(
-                                              candidate.value
-                                            )}
-                                          />
-                                          <span className="absolute inset-x-0 bottom-0 bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
-                                            候选 {candidateIndex + 1}
-                                          </span>
-                                          {promoting ? (
-                                            <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
-                                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            }
+                                            onBlur={() =>
+                                              setHoveredImagePreview(null)
+                                            }
+                                            className={`relative shrink-0 overflow-hidden rounded-sm border bg-muted text-left transition-[width,height,border-color,box-shadow] duration-200 hover:border-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55 ${
+                                              candidateSelected
+                                                ? "h-[148px] w-[148px] border-[var(--nayin-accent)] ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
+                                                : "h-[59px] w-[59px] border-[var(--nayin-accent)]/40"
+                                            }`}
+                                            aria-label={`采用 ${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                            aria-pressed={candidateSelected}
+                                            data-storyboard-media-selected={
+                                              candidateSelected
+                                            }
+                                            title={`${candidate.label}候选 · ${candidateSelected ? "已选中" : "点击设为当前主图"}`}
+                                          >
+                                            <img
+                                              src={frame.imageUrl}
+                                              alt={`${displayShotCode(shot)} 候选 ${candidateIndex + 1}`}
+                                              draggable={false}
+                                              className="absolute object-fill"
+                                              style={storyboardCandidateImageStyle(
+                                                candidate.value
+                                              )}
+                                            />
+                                            <span className="absolute inset-x-0 bottom-0 bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
+                                              候选 {candidateIndex + 1}
                                             </span>
-                                          ) : null}
-                                        </button>
-                                      )
+                                            <StoryboardMediaSelectionIndicator
+                                              selected={candidateSelected}
+                                            />
+                                            {promoting ? (
+                                              <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                              </span>
+                                            ) : null}
+                                          </button>
+                                        );
+                                      }
                                     )}
                                     {candidateManageInput &&
                                     onDeleteStoryImage ? (
@@ -2960,10 +3108,23 @@ export function StoryboardReviewBoard({
                                   label: `${displayShotCode(shot)} · ${frameRole}`,
                                 })
                               : null;
+                          const imageTarget = {
+                            shotIdentity: mediaShotIdentity,
+                            kind: "image",
+                            id: frame.id,
+                          } satisfies StoryboardMediaSelectionTarget;
+                          const imageSelected = isStoryboardMediaSelected(
+                            selectedStoryboardMedia,
+                            imageTarget
+                          );
                           return (
                             <div
                               key={`frame-${frame.id}`}
-                              className="relative order-3 h-[59px] w-[59px] shrink-0"
+                              className={`relative order-3 shrink-0 transition-[width,height] duration-200 ${
+                                imageSelected
+                                  ? "h-[148px] w-[148px]"
+                                  : "h-[59px] w-[59px]"
+                              }`}
                             >
                               <ContextMenu.Root>
                                 <ContextMenu.Trigger asChild>
@@ -2973,7 +3134,11 @@ export function StoryboardReviewBoard({
                                       insertStableShotId && onMoveStoryImage
                                     )}
                                     data-storyboard-frame-role={frameRole}
-                                    className={`relative h-full w-full overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                    className={`relative h-full w-full overflow-hidden rounded-sm bg-muted text-left transition-[box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                      imageSelected
+                                        ? "ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
+                                        : ""
+                                    } ${
                                       movingImageId === frame.id || isUpdating
                                         ? "opacity-45"
                                         : ""
@@ -3003,15 +3168,10 @@ export function StoryboardReviewBoard({
                                     }}
                                     onClick={() =>
                                       deferVideoSingleClick(() => {
-                                        onSelectShot?.(shot.shotNo);
-                                        setPreviewMedia({
-                                          kind: "image",
-                                          url: frame.imageUrl,
-                                          label: `${displayShotCode(shot)} ${frameRole}`,
-                                          transform:
-                                            creationShot?.timelineItem
-                                              ?.transform,
-                                        });
+                                        selectStoryboardMedia(
+                                          imageTarget,
+                                          shot.shotNo
+                                        );
                                       })
                                     }
                                     onMouseEnter={event =>
@@ -3042,7 +3202,11 @@ export function StoryboardReviewBoard({
                                       onEditImage(imageEditTarget);
                                     }}
                                     aria-label={`查看 ${displayShotCode(shot)} ${frameRole}`}
-                                    title={`${frameRole} · 图片 #${frame.id} · 双击编辑 · 可右键设置角色，可拖到其他镜头`}
+                                    aria-pressed={imageSelected}
+                                    data-storyboard-media-selected={
+                                      imageSelected
+                                    }
+                                    title={`${frameRole} · 图片 #${frame.id} · ${imageSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 可右键设置角色，可拖到其他镜头`}
                                   >
                                     <img
                                       src={frame.imageUrl}
@@ -3061,6 +3225,9 @@ export function StoryboardReviewBoard({
                                     <span className="absolute bottom-0 left-0 right-0 truncate bg-black/72 px-1 py-0.5 text-center text-[7px] text-white">
                                       {frameRole}
                                     </span>
+                                    <StoryboardMediaSelectionIndicator
+                                      selected={imageSelected}
+                                    />
                                   </button>
                                 </ContextMenu.Trigger>
                                 <ContextMenu.Portal>
@@ -3189,24 +3356,32 @@ export function StoryboardReviewBoard({
                                 posterUrl: poster,
                               })
                             : null;
+                          const clipTarget = {
+                            shotIdentity: mediaShotIdentity,
+                            kind: "video",
+                            id: `clip-${clip.id}`,
+                          } satisfies StoryboardMediaSelectionTarget;
+                          const clipSelected = isStoryboardMediaSelected(
+                            selectedStoryboardMedia,
+                            clipTarget
+                          );
                           return (
                             <Fragment key={`timeline-clip-${clip.id}`}>
                               <ContextMenu.Root>
                                 <ContextMenu.Trigger asChild>
                                   <button
                                     type="button"
-                                    className={`relative order-4 h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
-                                      isRemoving ? "opacity-45" : ""
-                                    }`}
+                                    className={`relative order-4 shrink-0 overflow-hidden rounded-sm bg-muted text-left transition-[width,height,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                      clipSelected
+                                        ? "h-[148px] w-[148px] ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
+                                        : "h-[59px] w-[59px]"
+                                    } ${isRemoving ? "opacity-45" : ""}`}
                                     onClick={() =>
                                       deferVideoSingleClick(() => {
-                                        onSelectShot?.(shot.shotNo);
-                                        setPreviewMedia({
-                                          kind: "video",
-                                          url: clip.videoUrl,
-                                          poster,
-                                          label: `${displayShotCode(shot)} ${clip.label}`,
-                                        });
+                                        selectStoryboardMedia(
+                                          clipTarget,
+                                          shot.shotNo
+                                        );
                                       })
                                     }
                                     onDoubleClick={event => {
@@ -3219,12 +3394,21 @@ export function StoryboardReviewBoard({
                                       onEditVideo(videoEditTarget);
                                     }}
                                     aria-label={`播放 ${displayShotCode(shot)} ${clip.label}`}
-                                    title={`${clip.label} · 双击编辑 · 右键可移除`}
+                                    aria-pressed={clipSelected}
+                                    data-storyboard-media-selected={
+                                      clipSelected
+                                    }
+                                    title={`${clip.label} · ${clipSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 右键可移除`}
                                   >
-                                    <img
-                                      src={poster}
-                                      alt=""
+                                    <StoryboardVideoThumbnail
+                                      src={clip.videoUrl}
+                                      poster={poster}
+                                      active={clipSelected}
+                                      label={`${displayShotCode(shot)} ${clip.label}`}
                                       className="h-full w-full object-cover"
+                                    />
+                                    <StoryboardMediaSelectionIndicator
+                                      selected={clipSelected}
                                     />
                                     {isRemoving ? (
                                       <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
@@ -3295,6 +3479,15 @@ export function StoryboardReviewBoard({
                                           clipId: clip.id,
                                         })
                                           .then(() => {
+                                            setSelectedStoryboardMedia(
+                                              current =>
+                                                isStoryboardMediaSelected(
+                                                  current,
+                                                  clipTarget
+                                                )
+                                                  ? null
+                                                  : current
+                                            );
                                             setPreviewMedia(current =>
                                               current?.kind === "video" &&
                                               current.url === clip.videoUrl
@@ -3358,6 +3551,15 @@ export function StoryboardReviewBoard({
                                 posterUrl: poster,
                               })
                             : null;
+                          const takeTarget = {
+                            shotIdentity: mediaShotIdentity,
+                            kind: "video",
+                            id: `take-${take.id}`,
+                          } satisfies StoryboardMediaSelectionTarget;
+                          const takeMediaSelected = isStoryboardMediaSelected(
+                            selectedStoryboardMedia,
+                            takeTarget
+                          );
                           return (
                             <Fragment key={`take-${take.id}`}>
                               <ContextMenu.Root>
@@ -3367,7 +3569,11 @@ export function StoryboardReviewBoard({
                                     draggable={Boolean(
                                       insertStableShotId && onMoveVideoTake
                                     )}
-                                    className={`relative order-1 h-[59px] w-[59px] shrink-0 overflow-hidden rounded-sm bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                    className={`relative order-1 shrink-0 overflow-hidden rounded-sm bg-muted text-left transition-[width,height,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                                      takeMediaSelected
+                                        ? "h-[148px] w-[148px] ring-2 ring-[var(--nayin-accent)] ring-offset-1 ring-offset-background shadow-md"
+                                        : "h-[59px] w-[59px]"
+                                    } ${
                                       movingVideoTakeId === take.id ||
                                       isRemoving
                                         ? "opacity-45"
@@ -3398,7 +3604,10 @@ export function StoryboardReviewBoard({
                                     }}
                                     onClick={() =>
                                       deferVideoSingleClick(() => {
-                                        onSelectShot?.(shot.shotNo);
+                                        selectStoryboardMedia(
+                                          takeTarget,
+                                          shot.shotNo
+                                        );
                                         if (insertStableShotId) {
                                           setPreviewVideoTakeByShot(
                                             current => ({
@@ -3407,12 +3616,6 @@ export function StoryboardReviewBoard({
                                             })
                                           );
                                         }
-                                        setPreviewMedia({
-                                          kind: "video",
-                                          url: take.videoUrl ?? "",
-                                          poster,
-                                          label: `${displayShotCode(shot)} Take ${take.id}`,
-                                        });
                                       })
                                     }
                                     onDoubleClick={event => {
@@ -3425,7 +3628,11 @@ export function StoryboardReviewBoard({
                                       onEditVideo(videoEditTarget);
                                     }}
                                     aria-label={`播放 ${displayShotCode(shot)} Take ${take.id}`}
-                                    title={`${progress.label} · Take ${take.id} · 双击编辑 · 可拖动`}
+                                    aria-pressed={takeMediaSelected}
+                                    data-storyboard-media-selected={
+                                      takeMediaSelected
+                                    }
+                                    title={`${progress.label} · Take ${take.id} · ${takeMediaSelected ? "已选中" : "点击选中并放大"} · 双击编辑 · 可拖动`}
                                     data-video-take-stage={progress.stage}
                                     data-video-take-id={take.id}
                                   >
@@ -3433,11 +3640,15 @@ export function StoryboardReviewBoard({
                                       src={take.videoUrl}
                                       poster={poster}
                                       active={
-                                        selected &&
-                                        (selectedTake || previewSelected)
+                                        takeMediaSelected ||
+                                        (selected &&
+                                          (selectedTake || previewSelected))
                                       }
                                       label={`${displayShotCode(shot)} Take ${take.id}`}
                                       className="h-full w-full object-cover"
+                                    />
+                                    <StoryboardMediaSelectionIndicator
+                                      selected={takeMediaSelected}
                                     />
                                     {isRemoving ? (
                                       <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">
@@ -3493,6 +3704,15 @@ export function StoryboardReviewBoard({
                                         setRemovingVideoKey(removalKey);
                                         void onMarkVideoTakeUnusable(take.id)
                                           .then(() => {
+                                            setSelectedStoryboardMedia(
+                                              current =>
+                                                isStoryboardMediaSelected(
+                                                  current,
+                                                  takeTarget
+                                                )
+                                                  ? null
+                                                  : current
+                                            );
                                             setPreviewMedia(current =>
                                               current?.kind === "video" &&
                                               current.url === take.videoUrl
@@ -3693,7 +3913,48 @@ export function StoryboardReviewBoard({
                         background: "var(--background)",
                       }}
                     >
-                      <span className="block">{row.label}</span>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="block">{row.label}</span>
+                        {isStoryboardVersionedField(row.field) ? (
+                          <StoryboardFieldVersionSelect
+                            label={row.label}
+                            track={
+                              storyboardFieldVersions?.tracks[row.field] ?? {
+                                currentRevision: 0,
+                                history: [],
+                              }
+                            }
+                            restoring={restoringStoryboardField === row.field}
+                            onRestore={revision => {
+                              if (!onRestoreStoryboardFieldVersion) return;
+                              const field =
+                                row.field as StoryboardVersionedField;
+                              setRestoringStoryboardField(field);
+                              void onRestoreStoryboardFieldVersion(
+                                field,
+                                revision
+                              )
+                                .then(() =>
+                                  toast.success(
+                                    `${row.label}已恢复到 V${revision}，并保存为新版本`
+                                  )
+                                )
+                                .catch(error =>
+                                  toast.error(
+                                    error instanceof Error
+                                      ? error.message
+                                      : `${row.label}版本恢复失败`
+                                  )
+                                )
+                                .finally(() =>
+                                  setRestoringStoryboardField(current =>
+                                    current === field ? null : current
+                                  )
+                                );
+                            }}
+                          />
+                        ) : null}
+                      </div>
                       {row.description ? (
                         <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
                           {row.description}
@@ -3707,6 +3968,7 @@ export function StoryboardReviewBoard({
                         matrixDropTarget?.targetIndex === index &&
                         matrixDropTarget.field === row.field;
                       const shotLabel = displayShotCode(shot);
+                      const stableShotId = storyShotInsertIdentity(shot, index);
                       const matrixVideoBlockReason = creationShot
                         ? storyboardVideoRenderBlockReason(
                             storyboardRenderShotWithDraft(
@@ -3721,11 +3983,35 @@ export function StoryboardReviewBoard({
                               reason:
                                 shotVideoProviderStatus?.missing
                                   .filter(Boolean)
-                                  .join("、") ||
-                                "视频模型状态尚未就绪",
+                                  .join("、") || "视频模型状态尚未就绪",
                             }
                           )
                         : "还没有可渲染的镜头记录";
+                      if (row.field === "dialogue") {
+                        return (
+                          <StoryboardVoiceCell
+                            key={`matrix-dialogue-${stableShotId ?? shot.shotNo}-${index}`}
+                            shot={shot}
+                            shotLabel={shotLabel}
+                            selected={selected}
+                            editable={Boolean(onUpdateShotField)}
+                            generating={Boolean(
+                              stableShotId &&
+                                generatingVoiceShotIds.includes(stableShotId)
+                            )}
+                            onFocus={() => onSelectShot?.(shot.shotNo)}
+                            onCommit={(field, value) =>
+                              onUpdateShotField?.(index, field, value)
+                            }
+                            onGenerate={
+                              stableShotId && onGenerateShotVoice
+                                ? text =>
+                                    onGenerateShotVoice(stableShotId, text)
+                                : undefined
+                            }
+                          />
+                        );
+                      }
                       return (
                         <StoryboardMatrixFieldCell
                           key={
@@ -3844,8 +4130,8 @@ export function StoryboardReviewBoard({
                                 title={
                                   imageProviderStatus?.ready
                                     ? "原文要求优先，生成四张同风格候选图"
-                                    : imageProviderStatus?.reason ??
-                                      "正在确认图片供应商状态"
+                                    : (imageProviderStatus?.reason ??
+                                      "正在确认图片供应商状态")
                                 }
                               >
                                 {generatingImageShotNos.includes(shot.shotNo) ||

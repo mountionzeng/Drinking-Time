@@ -28,9 +28,12 @@ export type StoryListItem = {
   id: number;
   title: string;
   logline?: string | null;
+  summary?: string | null;
+  createdAt?: string | Date | null;
   updatedAt?: string | Date | null;
   cardCount?: number;
   shotCount?: number;
+  activityDates?: string[];
 };
 
 type SetterInput<T> = T | ((current: T) => T);

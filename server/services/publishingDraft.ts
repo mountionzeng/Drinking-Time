@@ -8,8 +8,10 @@ import {
   type PublishingEditAssessment,
   type PublishingPlatformDraft,
   type PublishingPlatformId,
+  type PublishingNarrativeIntent,
   type PublishingStoryCore,
   type PublishingStoryCoreContent,
+  defaultPublishingNarrativeIntent,
 } from "../../shared/publishingDraft";
 import { runJsonAgent, type AgentTurn } from "./agentRuntime";
 
@@ -169,9 +171,39 @@ function platformContext(platform: PublishingPlatformId): string {
   return rules.join("\n");
 }
 
+function narrativeIntentContext(intent: PublishingNarrativeIntent): string {
+  const secondaryPurposes = intent.secondaryPurposes.length
+    ? `；兼顾用途=${intent.secondaryPurposes.join("、")}`
+    : "";
+  const secondaryAudiences = intent.secondaryAudiences.length
+    ? `；次要观众=${intent.secondaryAudiences.join("、")}`
+    : "";
+  const mission = (() => {
+    switch (intent.primaryPurpose) {
+      case "gift":
+        return "先挖掘核心观众与用户之间共同经历、专属物件、关系如何彼此改变，以及想说却没说出口的话；写给这个人，不把私人关系磨成泛泛鸡汤。";
+      case "share":
+        return "先让陌生人快速进入真实处境，再给出值得停留的反差、判断或实用价值；保留用户立场，不把故事改成热点模板。";
+      case "persuade":
+        return "先给清楚主张，再用用户说过的项目、行动、结果或判断作证据；优先消除核心观众的真实疑虑。";
+      case "create":
+        return "优先维持人物欲望、世界规则和形式感；不要把创作写成个人经历复盘或营销文案。";
+      default:
+        return "优先保留真实原话、细节和未完成的感受；不为外部传播强行补冲突、结论或口号。";
+    }
+  })();
+  return [
+    "【本版本的故事任务】",
+    `主用途=${intent.primaryPurpose}；核心观众=${intent.coreAudience}${secondaryPurposes}${secondaryAudiences}。`,
+    mission,
+    "无论用途是什么，都从人的基本诉求出发：被看见、被理解、归属、尊严、安全、成长、爱或创造。不要把这些词直接写成口号；让具体经历、关系和选择承载它们。",
+  ].join("\n");
+}
+
 export async function generatePublishingDraft(params: {
   platform: PublishingPlatformId;
   conversation: AgentTurn[];
+  narrativeIntent?: PublishingNarrativeIntent;
 }): Promise<GeneratedPublishingDraft> {
   const adapter = PUBLISHING_PLATFORM_REGISTRY[params.platform];
   const outputSchema =
@@ -183,6 +215,9 @@ export async function generatePublishingDraft(params: {
     "优先写具体发生了什么、用户为什么不同意，再写结论。不要用“危险的信号”“背叛”“反噬”“守住……就是守住……”这类宏大措辞代替论证。",
     "保留具体判断，但删除口号感、AI 腔和 Markdown 粗体符号。不要为了显得有力量而重复同一个结论。",
     "先从对话提炼一份跨平台故事内核，再只写当前指定平台的一个版本。不得生成其他平台版本。",
+    narrativeIntentContext(
+      params.narrativeIntent ?? defaultPublishingNarrativeIntent()
+    ),
     platformContext(params.platform),
     "返回严格 JSON，不要 markdown：",
     outputSchema,

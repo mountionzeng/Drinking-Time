@@ -9,6 +9,7 @@ import {
   listUserStories,
   getStoryById,
   createStory,
+  updateStory,
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
@@ -74,9 +75,19 @@ import {
 } from "../../shared/storyShotEditing";
 import { shotIdentityFromShot } from "../../shared/shotIdentity";
 import {
+  initializeStoryboardFieldVersions,
+  recordStoryboardFieldVersions,
+  restoreStoryboardFieldVersion,
+  STORYBOARD_VERSIONED_FIELDS,
+} from "../../shared/storyboardFieldVersions";
+import {
   estimateStoryboardImageCost,
   estimateStoryboardMaskedEditCost,
 } from "../../shared/imageRenderCost";
+import {
+  generateStoryVoice302,
+  type StoryVoice302Result,
+} from "../services/storyVoice302";
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
 import {
@@ -89,6 +100,7 @@ import {
   buildUnifiedPrompt,
 } from "../../shared/promptContext";
 import { migrateStoryPromptLineage } from "../services/promptLineageMigration";
+import { applyStoryShotFieldPatch } from "../services/storyShotFieldPatch";
 import {
   attachChatCutXmlToStory,
   importChatCutXmlStory,
@@ -109,6 +121,70 @@ import {
   storyShotToDbRow,
   writeCharacterAnchor,
 } from "./_storyShared";
+
+const inFlightStoryVoiceGenerations = new Map<
+  string,
+  Promise<StoryVoice302Result>
+>();
+const recentStoryVoiceGenerations = new Map<
+  string,
+  { result: StoryVoice302Result; expiresAt: number }
+>();
+const STORY_VOICE_RETRY_CACHE_MS = 5 * 60_000;
+let lastStoryVoiceRequestStartedAt = 0;
+
+function nextStoryVoiceRequestStartedAt(): number {
+  lastStoryVoiceRequestStartedAt = Math.max(
+    Date.now(),
+    lastStoryVoiceRequestStartedAt + 1
+  );
+  return lastStoryVoiceRequestStartedAt;
+}
+
+function storyVoiceGenerationKey(input: {
+  userId: number;
+  storyId: number;
+  stableShotId: string;
+  text: string;
+  provider: string;
+  voice: string;
+}): string {
+  return JSON.stringify(input);
+}
+
+function generateStoryVoiceOnce(input: {
+  key: string;
+  text: string;
+  provider?: string;
+  voice?: string;
+}): Promise<StoryVoice302Result> {
+  const cached = recentStoryVoiceGenerations.get(input.key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.result);
+  }
+  if (cached) recentStoryVoiceGenerations.delete(input.key);
+  const existing = inFlightStoryVoiceGenerations.get(input.key);
+  if (existing) return existing;
+  const pending = generateStoryVoice302({
+    text: input.text,
+    provider: input.provider,
+    voice: input.voice,
+  })
+    .then(result => {
+      recentStoryVoiceGenerations.set(input.key, {
+        result,
+        expiresAt: Date.now() + STORY_VOICE_RETRY_CACHE_MS,
+      });
+      return result;
+    })
+    .finally(() => {
+      if (inFlightStoryVoiceGenerations.get(input.key) === pending) {
+        inFlightStoryVoiceGenerations.delete(input.key);
+      }
+    });
+  inFlightStoryVoiceGenerations.set(input.key, pending);
+  return pending;
+}
 
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
@@ -570,6 +646,26 @@ export const storyAgentRouter = router({
     }),
 
   /** Create or update a story */
+  renameStory: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        title: z.string().trim().min(1).max(80),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await getStoryById(input.storyId, ctx.user.id);
+      if (!existing) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      await updateStory(input.storyId, ctx.user.id, { title: input.title });
+      return {
+        status: "ok" as const,
+        storyId: input.storyId,
+        title: input.title,
+      };
+    }),
+
   storyUpsert: protectedProcedure
     .input(
       z.object({
@@ -717,6 +813,274 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const result = await applyStoryShotFieldPatch({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        patch: input.patch,
+      });
+      if (result.status === "error") {
+        return { status: "error" as const, error: result.error };
+      }
+      const saved = result.story;
+      void migrateStoryPromptLineage({
+        storyId: saved.id,
+        userId: ctx.user.id,
+        body: storyPromptLineageBody(saved),
+      }).catch(error => {
+        console.warn("updateStoryShotFields prompt lineage sync failed", error);
+      });
+      return {
+        status: "ok" as const,
+        story: await composeStoryWorkspace(saved, ctx.user.id),
+      };
+    }),
+
+  /** 先校验故事归属与镜头身份，再调用付费 TTS，并把音频绑定到最新镜头快照。 */
+  generateStoryShotVoice: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        stableShotId: stableShotIdSchema,
+        text: z.string().trim().min(1).max(5_000),
+        provider: z
+          .string()
+          .trim()
+          .min(1)
+          .max(80)
+          .regex(/^[\w.-]+$/i)
+          .optional(),
+        voice: z
+          .string()
+          .trim()
+          .min(1)
+          .max(80)
+          .regex(/^[\w.-]+$/i)
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const ownedStory = await getStoryById(input.storyId, ctx.user.id);
+      if (!ownedStory) {
+        return { status: "error" as const, error: "故事不存在" };
+      }
+      const ownedBody =
+        ownedStory.body &&
+        typeof ownedStory.body === "object" &&
+        !Array.isArray(ownedStory.body)
+          ? (ownedStory.body as Record<string, unknown>)
+          : {};
+      const ownedShots = Array.isArray(ownedBody.shots) ? ownedBody.shots : [];
+      const ownedTargetShot = ownedShots.find(
+        (raw, index) =>
+          Boolean(raw && typeof raw === "object" && !Array.isArray(raw)) &&
+          shotIdentityFromShot(raw, index) === input.stableShotId
+      ) as Record<string, unknown> | undefined;
+      if (!ownedTargetShot) {
+        return { status: "error" as const, error: "镜头不存在或已经更新" };
+      }
+      const dialogueBeforeGeneration =
+        typeof ownedTargetShot.dialogue === "string"
+          ? ownedTargetShot.dialogue
+          : "";
+      const requestStartedAt = nextStoryVoiceRequestStartedAt();
+      const requestedProvider = (input.provider ?? ENV.tts302Provider).trim();
+      const requestedVoice = (input.voice ?? ENV.tts302Voice).trim();
+      const cachedAudioUrl =
+        typeof ownedTargetShot.voiceAudioUrl === "string"
+          ? ownedTargetShot.voiceAudioUrl.trim()
+          : "";
+      if (
+        cachedAudioUrl &&
+        ownedTargetShot.voiceAudioText === input.text &&
+        ownedTargetShot.voiceAudioProvider === requestedProvider &&
+        ownedTargetShot.voiceAudioVoice === requestedVoice
+      ) {
+        return {
+          status: "ok" as const,
+          audioUrl: cachedAudioUrl,
+          provider: requestedProvider,
+          voice: requestedVoice,
+          story: await composeStoryWorkspace(ownedStory, ctx.user.id),
+        };
+      }
+
+      const voice = await generateStoryVoiceOnce({
+        key: storyVoiceGenerationKey({
+          userId: ctx.user.id,
+          storyId: input.storyId,
+          stableShotId: input.stableShotId,
+          text: input.text,
+          provider: requestedProvider,
+          voice: requestedVoice,
+        }),
+        text: input.text,
+        provider: input.provider,
+        voice: input.voice,
+      });
+
+      // TTS 可能耗时；付费调用只做一次，CAS 冲突时基于最新 Story 重新合并音频字段。
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const latestStory = await getStoryById(input.storyId, ctx.user.id);
+        if (!latestStory) {
+          return { status: "error" as const, error: "故事不存在" };
+        }
+        const body =
+          latestStory.body &&
+          typeof latestStory.body === "object" &&
+          !Array.isArray(latestStory.body)
+            ? (latestStory.body as Record<string, unknown>)
+            : {};
+        const shots = Array.isArray(body.shots) ? body.shots : [];
+        let found = false;
+        let alreadyBound = false;
+        let supersededByNewerRequest = false;
+        let newerVoice:
+          | { audioUrl: string; provider: string; voice: string }
+          | undefined;
+        const generatedAt = Date.now();
+        const nextShots = shots.map((raw, index) => {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+          if (shotIdentityFromShot(raw, index) !== input.stableShotId)
+            return raw;
+          found = true;
+          const latest = raw as Record<string, unknown>;
+          alreadyBound =
+            latest.voiceAudioUrl === voice.audioUrl &&
+            latest.voiceAudioText === input.text &&
+            latest.voiceAudioProvider === voice.provider &&
+            latest.voiceAudioVoice === voice.voice;
+          const latestDialogue =
+            typeof latest.dialogue === "string" ? latest.dialogue : "";
+          const latestRequestStartedAt =
+            typeof latest.voiceAudioRequestStartedAt === "number"
+              ? latest.voiceAudioRequestStartedAt
+              : 0;
+          const hasCurrentAudioForLatestDialogue =
+            latestDialogue !== input.text &&
+            typeof latest.voiceAudioUrl === "string" &&
+            latest.voiceAudioText === latestDialogue;
+          if (
+            (latestRequestStartedAt > requestStartedAt ||
+              hasCurrentAudioForLatestDialogue) &&
+            !alreadyBound
+          ) {
+            supersededByNewerRequest = true;
+            if (
+              typeof latest.voiceAudioUrl === "string" &&
+              typeof latest.voiceAudioProvider === "string" &&
+              typeof latest.voiceAudioVoice === "string"
+            ) {
+              newerVoice = {
+                audioUrl: latest.voiceAudioUrl,
+                provider: latest.voiceAudioProvider,
+                voice: latest.voiceAudioVoice,
+              };
+            }
+            return raw;
+          }
+          return {
+            ...latest,
+            // 生成期间若用户已修改同一格旁白，保留新文字；旧音频会在前端显示为陈旧。
+            dialogue:
+              latestDialogue === dialogueBeforeGeneration
+                ? input.text
+                : latestDialogue,
+            voiceAudioUrl: voice.audioUrl,
+            voiceAudioText: input.text,
+            voiceAudioProvider: voice.provider,
+            voiceAudioVoice: voice.voice,
+            voiceAudioGeneratedAt:
+              typeof latest.voiceAudioGeneratedAt === "number" && alreadyBound
+                ? latest.voiceAudioGeneratedAt
+                : generatedAt,
+            voiceAudioRequestStartedAt: alreadyBound
+              ? latestRequestStartedAt || requestStartedAt
+              : requestStartedAt,
+          };
+        });
+        if (!found) {
+          return {
+            status: "error" as const,
+            error: "镜头不存在或已经更新",
+          };
+        }
+        if (alreadyBound) {
+          return {
+            status: "ok" as const,
+            audioUrl: voice.audioUrl,
+            provider: voice.provider,
+            voice: voice.voice,
+            story: await composeStoryWorkspace(latestStory, ctx.user.id),
+          };
+        }
+        if (supersededByNewerRequest && newerVoice) {
+          return {
+            status: "ok" as const,
+            ...newerVoice,
+            story: await composeStoryWorkspace(latestStory, ctx.user.id),
+          };
+        }
+
+        const recordShots = (items: unknown[]) =>
+          items.filter((shot): shot is Record<string, unknown> =>
+            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          );
+        const initializedFieldVersions = initializeStoryboardFieldVersions(
+          body.storyboardFieldVersions,
+          recordShots(shots),
+          generatedAt,
+          "edited"
+        );
+        const storyboardFieldVersions = recordStoryboardFieldVersions({
+          state: initializedFieldVersions,
+          beforeShots: recordShots(shots),
+          afterShots: recordShots(nextShots),
+          fields: ["dialogue"],
+          now: generatedAt,
+          source: "edited",
+        });
+        const nextBody = prepareStoryBody(
+          { ...body, shots: nextShots, storyboardFieldVersions },
+          getStoryRevision(latestStory.body) + 1,
+          latestStory.body
+        );
+        try {
+          const saved = await persistPreparedStoryBody({
+            storyId: latestStory.id,
+            userId: ctx.user.id,
+            expectedRevision: getStoryRevision(latestStory.body),
+            body: nextBody,
+          });
+          return {
+            status: "ok" as const,
+            audioUrl: voice.audioUrl,
+            provider: voice.provider,
+            voice: voice.voice,
+            story: saved
+              ? await composeStoryWorkspace(saved, ctx.user.id)
+              : null,
+          };
+        } catch (error) {
+          if (!(error instanceof StoryBodyRevisionConflictError)) throw error;
+        }
+      }
+      return {
+        status: "error" as const,
+        error:
+          "镜头持续被更新，旁白已生成但暂未绑定；请尽快重试。当前服务会短期复用本次结果，重启或缓存过期后可能再次计费。",
+      };
+    }),
+
+  restoreStoryShotFieldVersion: protectedProcedure
+    .input(
+      z.object({
+        storyId: persistedStoryIdSchema,
+        field: z.enum(STORYBOARD_VERSIONED_FIELDS),
+        revision: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
         return { status: "error" as const, error: "故事不存在" };
@@ -727,24 +1091,31 @@ export const storyAgentRouter = router({
         !Array.isArray(story.body)
           ? (story.body as Record<string, unknown>)
           : {};
-      const shots = Array.isArray(body.shots) ? body.shots : [];
-      const targetStableShotId = input.stableShotId;
-      let found = false;
-      const nextShots = shots.map((raw, index) => {
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-        const shot = raw as Record<string, unknown>;
-        if (shotIdentityFromShot(shot, index) !== targetStableShotId) {
-          return raw;
-        }
-        found = true;
-        return { ...shot, ...input.patch };
-      });
-      if (!found) {
-        return { status: "error" as const, error: "镜头不存在或已经更新" };
+      const shots = (Array.isArray(body.shots) ? body.shots : []).filter(
+        (shot): shot is Record<string, unknown> =>
+          Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+      );
+      let restored;
+      try {
+        restored = restoreStoryboardFieldVersion({
+          state: body.storyboardFieldVersions,
+          shots,
+          field: input.field,
+          revision: input.revision,
+          now: Date.now(),
+        });
+      } catch (error) {
+        return {
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "版本不存在",
+        };
       }
-
       const nextBody = prepareStoryBody(
-        { ...body, shots: nextShots },
+        {
+          ...body,
+          shots: restored.shots,
+          storyboardFieldVersions: restored.state,
+        },
         getStoryRevision(story.body) + 1,
         story.body
       );
@@ -760,7 +1131,7 @@ export const storyAgentRouter = router({
         if (error instanceof StoryBodyRevisionConflictError) {
           return {
             status: "error" as const,
-            error: "镜头已在别处更新，请刷新后重试",
+            error: "故事版已在别处更新，请刷新后重试",
           };
         }
         throw error;
@@ -772,7 +1143,7 @@ export const storyAgentRouter = router({
           body: storyPromptLineageBody(saved),
         }).catch(error => {
           console.warn(
-            "updateStoryShotFields prompt lineage sync failed",
+            "restoreStoryShotFieldVersion prompt lineage sync failed",
             error
           );
         });

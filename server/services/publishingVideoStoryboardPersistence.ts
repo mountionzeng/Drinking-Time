@@ -21,6 +21,10 @@ import {
 } from "../../shared/publishingVideoStoryboard";
 import { ensureShotIdentities } from "../../shared/shotIdentity";
 import { normalizeStoryArtDirection } from "../../shared/artDirection";
+import {
+  recordStoryboardFieldVersions,
+  STORYBOARD_VERSIONED_FIELDS,
+} from "../../shared/storyboardFieldVersions";
 import { getStoryById } from "../db";
 import {
   persistPreparedStoryBody,
@@ -72,6 +76,10 @@ export type PublishingVideoConfirmationResult = {
   shots: Record<string, unknown>[];
   reused: boolean;
 };
+
+export type PublishingVideoBuildResult =
+  | PublishingVideoConfirmationResult
+  | (PublishingVideoPreviewPersistenceResult & { status: "pending" });
 
 type PreviewContext = {
   storyId: number;
@@ -168,14 +176,18 @@ async function loadPreviewContext(input: {
   const body = storyBodyRecord(story.body);
   const publishing = normalizePublishingDraftState(body.publishing);
   const version = input.versionId
-    ? publishing.versions?.find(candidate => candidate.versionId === input.versionId)
+    ? publishing.versions?.find(
+        candidate => candidate.versionId === input.versionId
+      )
     : resolvePublishingActiveVersion(publishing);
   if (!version) {
     throw new PublishingVideoStoryboardEligibilityError("文字稿版本不存在");
   }
   const draft = version.drafts[version.activePlatform];
   if (!draft || !draft.content.body.trim()) {
-    throw new PublishingVideoStoryboardEligibilityError("请先保存一份非空文字稿");
+    throw new PublishingVideoStoryboardEligibilityError(
+      "请先保存一份非空文字稿"
+    );
   }
   if (draft.needsReview) {
     throw new PublishingVideoStoryboardEligibilityError(
@@ -208,9 +220,7 @@ async function loadPreviewContext(input: {
 function withVersionStoryboard(
   publishing: PublishingDraftState,
   versionId: string,
-  transform: (
-    version: PublishingStoryVersion
-  ) => PublishingStoryVersion
+  transform: (version: PublishingStoryVersion) => PublishingStoryVersion
 ): PublishingDraftState {
   return {
     ...publishing,
@@ -256,7 +266,8 @@ async function claimPreviewOperation(input: {
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const context = await loadPreviewContext(input);
     const aggregate =
-      context.version.videoStoryboard ?? emptyPublishingVideoStoryboardAggregate();
+      context.version.videoStoryboard ??
+      emptyPublishingVideoStoryboardAggregate();
     const existing = aggregate.operations[input.operationToken];
     if (existing && existing.requestHash !== context.requestHash) {
       throw new PublishingVideoStoryboardOperationConflictError(
@@ -325,7 +336,8 @@ async function completePreviewOperation(input: {
       versionId: input.claimed.version.versionId,
     });
     const aggregate =
-      latest.version.videoStoryboard ?? emptyPublishingVideoStoryboardAggregate();
+      latest.version.videoStoryboard ??
+      emptyPublishingVideoStoryboardAggregate();
     const operation = aggregate.operations[input.operationToken];
     if (!operation || operation.requestHash !== input.claimed.requestHash) {
       throw new PublishingVideoStoryboardOperationConflictError(
@@ -416,7 +428,8 @@ async function failPreviewOperation(input: {
       versionId: input.claimed.version.versionId,
     });
     const aggregate =
-      latest.version.videoStoryboard ?? emptyPublishingVideoStoryboardAggregate();
+      latest.version.videoStoryboard ??
+      emptyPublishingVideoStoryboardAggregate();
     const operation = aggregate.operations[input.operationToken];
     if (
       operation?.status !== "pending" ||
@@ -493,11 +506,13 @@ export async function generateAndPersistPublishingVideoPreview(input: {
   }
 
   try {
-    const generated = await (input.generate ??
-      generatePublishingVideoStoryboardPreview)({
+    const generated = await (
+      input.generate ?? generatePublishingVideoStoryboardPreview
+    )({
       body: claim.context.draft.content.body,
       platform: claim.context.version.activePlatform,
       core: claim.context.core,
+      narrativeIntent: claim.context.version.narrativeIntent,
       coverVisualDescription: claim.context.core?.visualConcept ?? null,
       now,
     });
@@ -516,6 +531,37 @@ export async function generateAndPersistPublishingVideoPreview(input: {
     });
     throw error;
   }
+}
+
+export async function generateAndConfirmPublishingVideoStoryboard(input: {
+  storyId: number;
+  userId: number;
+  versionId?: string;
+  operationToken?: string;
+  now?: number;
+  generate?: typeof generatePublishingVideoStoryboardPreview;
+}): Promise<PublishingVideoBuildResult> {
+  const operationToken = input.operationToken?.trim() || randomUUID();
+  const generated = await generateAndPersistPublishingVideoPreview({
+    ...input,
+    operationToken: `${operationToken}:preview`,
+  });
+  if (generated.status === "pending") {
+    return { ...generated, status: "pending" };
+  }
+  if (!generated.preview) {
+    throw new PublishingVideoStoryboardConfirmationError(
+      "剧本已经生成，但没有找到可写入的故事版内容"
+    );
+  }
+  return confirmPublishingVideoStoryboard({
+    storyId: input.storyId,
+    userId: input.userId,
+    versionId: generated.preview.source?.versionId ?? input.versionId ?? "",
+    previewId: generated.preview.previewId,
+    operationToken: `${operationToken}:confirm`,
+    now: input.now,
+  });
 }
 
 const LEGACY_OPENING_ID = "publishing-cover-opening";
@@ -544,7 +590,9 @@ function isUntouchedLegacyPublishingOpening(
   if (
     fields.some(([field, defaultValue]) => {
       const value = shot[field];
-      return typeof value === "string" && value.trim() && value !== defaultValue;
+      return (
+        typeof value === "string" && value.trim() && value !== defaultValue
+      );
     })
   ) {
     return false;
@@ -586,6 +634,7 @@ function formalShotFromPreview(input: {
   stableShotId: string;
   shotNo: number;
   versionId: string;
+  sourcePlatform: string;
   groupId: string;
   confirmedRevision: number;
 }): Record<string, unknown> {
@@ -596,7 +645,7 @@ function formalShotFromPreview(input: {
     subject: input.shot.subject || "按剧本呈现主体",
     action: input.shot.action || "按剧本完成动作",
     scriptText: input.shot.scriptText,
-    dialogue: "",
+    dialogue: input.shot.voiceText,
     shotType: "剧本镜头",
     beat: "正文推进",
     cameraAngle: "",
@@ -604,15 +653,18 @@ function formalShotFromPreview(input: {
     location: "",
     timeLight: "",
     mood: "",
-    sound: "",
+    sound: input.shot.soundRequirement,
     styleRef: "故事级封面风格参考（如有）",
     note: "由文字稿剧本预览确认生成",
     emotion: "",
+    intent: input.shot.scriptText,
+    rationale: input.shot.imageRequirement,
     sourceCardContent: "",
     promptDraft: input.shot.imageRequirement,
     videoPrompt: input.shot.videoRequirement,
     publishingVideo: {
       versionId: input.versionId,
+      sourcePlatform: input.sourcePlatform,
       groupId: input.groupId,
       segmentIds: [...input.shot.segmentIds],
       sourceParagraphIds: [...input.shot.sourceParagraphIds],
@@ -629,7 +681,8 @@ function storyStyleReference(
   const direction = normalizeStoryArtDirection(body.artDirection);
   const references = direction.references.filter(
     reference =>
-      reference.source !== "publishing-cover" && reference.role !== "story-style"
+      reference.source !== "publishing-cover" &&
+      reference.role !== "story-style"
   );
   if (coverAssetId) {
     references.push({
@@ -652,7 +705,8 @@ function storyStyleReference(
   }
   return {
     ...direction,
-    phase: direction.phase === "empty" ? ("references" as const) : direction.phase,
+    phase:
+      direction.phase === "empty" ? ("references" as const) : direction.phase,
     references,
     updatedAt: now,
   };
@@ -685,7 +739,8 @@ export async function confirmPublishingVideoStoryboard(input: {
       versionId: input.versionId,
     });
     const aggregate =
-      context.version.videoStoryboard ?? emptyPublishingVideoStoryboardAggregate();
+      context.version.videoStoryboard ??
+      emptyPublishingVideoStoryboardAggregate();
     const preview = aggregate.latestPreview;
     if (!preview || preview.previewId !== input.previewId) {
       throw new PublishingVideoStoryboardConfirmationError(
@@ -740,11 +795,14 @@ export async function confirmPublishingVideoStoryboard(input: {
         previewSource.storyId === context.source.storyId &&
         previewSource.versionId === context.source.versionId &&
         previewSource.platform === context.source.platform &&
-        previewSource.publishingRevision === context.source.publishingRevision &&
+        previewSource.publishingRevision ===
+          context.source.publishingRevision &&
         previewSource.versionRevision === context.source.versionRevision &&
         previewSource.draftRevision === context.source.draftRevision &&
-        previewSource.storyboardRevision === context.source.storyboardRevision &&
-        previewSource.canonicalContentHash === context.source.canonicalContentHash &&
+        previewSource.storyboardRevision ===
+          context.source.storyboardRevision &&
+        previewSource.canonicalContentHash ===
+          context.source.canonicalContentHash &&
         previewSource.formalCoverAssetId === context.source.formalCoverAssetId
     );
     if (!sourceMatchesCurrentDraft) {
@@ -752,18 +810,12 @@ export async function confirmPublishingVideoStoryboard(input: {
         "文字稿已经变化，请重新转写后确认"
       );
     }
-    const ambiguousLegacy = rawShots.find(
-      shot => isLegacyPublishingOpening(shot) && !isUntouchedLegacyPublishingOpening(shot)
-    );
-    if (ambiguousLegacy) {
-      throw new PublishingVideoStoryboardConfirmationError(
-        "旧封面镜头已经被编辑，需要先在影响检查中决定保留或退休"
-      );
-    }
     const activeGroupId = context.publishing.activeVideoStoryboardGroupId;
     const managedIndexes = rawShots.flatMap((shot, index) => {
       const provenance = storyBodyRecord(shot.publishingVideo);
-      return activeGroupId && provenance.groupId === activeGroupId ? [index] : [];
+      return activeGroupId && provenance.groupId === activeGroupId
+        ? [index]
+        : [];
     });
     const legacyIndex = rawShots.findIndex(isUntouchedLegacyPublishingOpening);
     const insertionIndex =
@@ -806,6 +858,8 @@ export async function confirmPublishingVideoStoryboard(input: {
         stableShotId: shot.stableShotId!,
         shotNo: insertionIndex + index + 1,
         versionId: input.versionId,
+        sourcePlatform:
+          preview.source?.platform ?? context.version.activePlatform,
         groupId,
         confirmedRevision,
       })
@@ -859,11 +913,21 @@ export async function confirmPublishingVideoStoryboard(input: {
       activeVideoStoryboardGroupId: groupId,
     };
     const coverAssetId = context.version.cover?.assetId ?? null;
+    const storyboardFieldVersions = recordStoryboardFieldVersions({
+      state: body.storyboardFieldVersions,
+      beforeShots: rawShots,
+      afterShots: nextShots,
+      fields: STORYBOARD_VERSIONED_FIELDS,
+      now,
+      source: "generated",
+      initializeFrom: rawShots.length > 0 ? "before" : "after",
+    });
     const nextBody = prepareStoryBody(
       {
         ...body,
         shots: nextShots,
         publishing,
+        storyboardFieldVersions,
         artDirection: storyStyleReference(body, coverAssetId, now),
         _storyboardRevision:
           (typeof body._storyboardRevision === "number"

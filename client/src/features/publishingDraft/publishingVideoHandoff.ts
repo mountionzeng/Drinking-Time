@@ -28,6 +28,8 @@ export type PublishingVideoHandoff = {
   sourcePlatform: PublishingPlatformId;
   core: PublishingStoryCore | null;
   draft: PublishingDraftContent;
+  /** Historical publishing bodies keyed by version and optional source platform. */
+  draftBodiesBySource?: Record<string, string>;
   cover: PublishingVideoCover | null;
   needsReview: boolean;
   narrationCandidates: PublishingSpeechCandidate[];
@@ -118,6 +120,23 @@ export function buildPublishingVideoHandoff(params: {
     platform,
     body: platformDraft.content.body,
   });
+  const draftBodiesBySource = Object.fromEntries(
+    (params.publishing.versions ?? []).flatMap(version =>
+      Object.entries(version.drafts).flatMap(([versionPlatform, draft]) => {
+        const body = draft?.content.body;
+        return typeof body === "string"
+          ? [[`${version.versionId}:${versionPlatform}`, body] as const]
+          : [];
+      })
+    )
+  );
+  for (const version of params.publishing.versions ?? []) {
+    const versionBody = version.drafts[version.activePlatform]?.content.body;
+    if (typeof versionBody === "string") {
+      draftBodiesBySource[version.versionId] = versionBody;
+    }
+  }
+  draftBodiesBySource.__current__ = platformDraft.content.body;
   return {
     storyId: params.storyId,
     versionId: params.publishing.activeVersionId ?? "v1",
@@ -130,6 +149,7 @@ export function buildPublishingVideoHandoff(params: {
     sourcePlatform: platform,
     core: params.publishing.core,
     draft: platformDraft.content,
+    draftBodiesBySource,
     cover: params.coverAsset,
     needsReview: platformDraft.needsReview,
     narrationCandidates: speech.narration,

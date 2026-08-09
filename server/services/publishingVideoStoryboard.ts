@@ -1,7 +1,9 @@
 import type {
   PublishingPlatformId,
+  PublishingNarrativeIntent,
   PublishingStoryCore,
 } from "../../shared/publishingDraft";
+import { defaultPublishingNarrativeIntent } from "../../shared/publishingDraft";
 import {
   buildPublishingVideoPreview,
   canonicalizePublishingVideoParagraphs,
@@ -28,6 +30,7 @@ type ModelParagraph = {
     action: string;
     imageRequirement: string;
     videoRequirement: string;
+    soundRequirement: string;
   }>;
 };
 
@@ -87,6 +90,7 @@ function normalizeModelParagraphs(value: unknown): ModelParagraph[] {
             action: text(shot.action, 2_000),
             imageRequirement: text(shot.imageRequirement, 4_000),
             videoRequirement: text(shot.videoRequirement, 4_000),
+            soundRequirement: text(shot.soundRequirement, 2_000),
           };
           return normalized.subject &&
             normalized.action &&
@@ -155,6 +159,7 @@ function fallbackRewrite(input: {
         imageRequirement: `${visualTreatment}；保持封面的人物、色板与油画或纸张材质连续。`,
         videoRequirement:
           "从中景缓慢推进到近景，动作自然完成，不复制封面构图。",
+        soundRequirement: "",
       },
     ],
   };
@@ -188,6 +193,7 @@ function allowlistedContext(input: {
   body: string;
   platform: PublishingPlatformId;
   core: PublishingStoryCore | null;
+  narrativeIntent?: PublishingNarrativeIntent;
   coverVisualDescription?: string | null;
 }) {
   const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
@@ -207,20 +213,37 @@ function allowlistedContext(input: {
           visualConcept: input.core.visualConcept,
         }
       : null,
+    narrativeIntent: input.narrativeIntent ?? defaultPublishingNarrativeIntent(),
     coverVisualDescription: text(input.coverVisualDescription, 2_000) || null,
   };
 }
 
-function generationPrompt(): string {
+function generationPrompt(intent: PublishingNarrativeIntent): string {
+  const narrativeDirection = (() => {
+    switch (intent.primaryPurpose) {
+      case "gift":
+        return "礼物版：每镜优先让核心观众认出两人之间的共同细节、关系动作和只属于他们的物件；不要退化成单个人的泛泛伤感肖像。";
+      case "share":
+        return "分享版：每镜都要让陌生观众先看懂处境，再看见反差、判断或值得转发的具体点；避免只拍漂亮但无法理解的氛围图。";
+      case "persuade":
+        return "介绍／说服版：每镜必须承担一个可见的论证任务，用用户给出的证据、行动或结果回应核心观众的疑虑；避免职业人物、桌子或门口等泛泛象征。";
+      case "create":
+        return "创作版：每镜推动人物欲望、阻碍或世界规则，维持独立的形式和美术逻辑；不要套用真实经历的回忆蒙太奇。";
+      default:
+        return "留存版：优先保存真实物件、动作、时间关系和未完成感；不要为了好看或传播性强行制造戏剧冲突。";
+    }
+  })();
   return [
     "你是短片编剧兼分镜导演。把用户已确认的发布正文转成可说、可演、可拍的短片剧本，不补写正文之外的新事实。",
     "输入中的 paragraphId 必须原样返回且每个只出现一次。每个正文段落都必须有 scriptText、visualTreatment 和至少一个 shots 项。",
-    "scriptText 是剧本，不是发布稿复制：可以是画外音、台词、动作性文字或视觉转写；CTA/格式段也必须覆盖，但不能机械朗读‘点赞关注’。",
+    "scriptText 是可表演、可执行的视觉剧本，不承载旁白或声音制作；CTA/格式段也必须覆盖，但不能机械呈现‘点赞关注’。旁白文字由系统直接继承文字稿原文。",
     "用户只提供情绪时，用景别、视角、动作节拍、主体与环境关系补足基础镜头语言；不要写具体视频模型参数，也不要发起图片或视频生成。",
-    "每个 shot 必须完整提供 subject、action、imageRequirement、videoRequirement；四项任一为空即视为无效。图片要求写清单帧主体、场景、构图、光线、材质；视频要求写清动作三拍、摄影机承载与路径、结尾状态。保持人物、色板、油画颜料或纸张纤维等材质连续，但让每镜构图服从本段内容，不复制封面构图，也不得复用其他镜头的句子。",
+    "每个 shot 必须完整提供 subject、action、imageRequirement、videoRequirement，并单独提供 soundRequirement（没有声音要求时返回空字符串）；前四项任一为空即视为无效。图片要求写清单帧主体、场景、构图、光线、材质；视频要求只写动作三拍、表演、摄影机承载与路径、结尾状态及衔接，不得写旁白、对白、音乐、环境声或音效；声音内容全部写入 soundRequirement。保持人物、色板、油画颜料或纸张纤维等材质连续，但让每镜构图服从本段内容，不复制封面构图，也不得复用其他镜头的句子。",
+    `【本版本意图】主用途=${intent.primaryPurpose}；核心观众=${intent.coreAudience}。${narrativeDirection}`,
+    "所有镜头仍以人的基本诉求为底层线索（被看见、被理解、归属、尊严、安全、成长、爱或创造）；把它落实为人物关系、物件、动作和选择，绝不写成抽象口号。",
     "本次请求会分批处理：每个正文段落至少一镜、单段最多 6 镜。最终短片总镜头数由系统在合并所有批次后校验。",
     "严格返回 JSON，不要 markdown：",
-    '{"paragraphs":[{"paragraphId":"原样键","scriptText":"剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"动作与基础运镜要求"}]}]}',
+    '{"paragraphs":[{"paragraphId":"原样键","scriptText":"视觉剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"纯视觉动作与运镜要求","soundRequirement":"背景音、环境声、音乐和音效要求；没有则为空字符串"}]}]}',
   ].join("\n");
 }
 
@@ -310,6 +333,7 @@ export async function generatePublishingVideoStoryboardPreview(input: {
   body: string;
   platform: PublishingPlatformId;
   core: PublishingStoryCore | null;
+  narrativeIntent?: PublishingNarrativeIntent;
   coverVisualDescription?: string | null;
   now?: number;
 }): Promise<{ preview: PublishingVideoStoryboardPreview; modelLabel: string }> {
@@ -322,7 +346,9 @@ export async function generatePublishingVideoStoryboardPreview(input: {
     batches(context.paragraphs, MODEL_PARAGRAPH_BATCH_SIZE).map(
       batch =>
         runPublishingVideoStoryboard302({
-          systemPrompt: generationPrompt(),
+          systemPrompt: generationPrompt(
+            input.narrativeIntent ?? defaultPublishingNarrativeIntent()
+          ),
           context: { ...context, paragraphs: batch },
         })
     )

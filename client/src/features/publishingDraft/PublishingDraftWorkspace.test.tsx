@@ -21,7 +21,10 @@ const actions = vi.hoisted(() => ({
   ensureActiveStoryPersisted: vi.fn(async () => 7),
 }));
 
-const api = vi.hoisted(() => ({ readData: undefined as any }));
+const api = vi.hoisted(() => ({
+  readData: undefined as any,
+  buildVideoStoryboardPending: false,
+}));
 
 vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
   useStoryAgent: () => ({
@@ -72,6 +75,12 @@ vi.mock("@/lib/trpc", () => {
         renameVersion: { useMutation: mutation },
         generateCover: { useMutation: mutation },
         adoptCoverCandidate: { useMutation: mutation },
+        buildVideoStoryboard: {
+          useMutation: () => ({
+            isPending: api.buildVideoStoryboardPending,
+            mutateAsync: vi.fn(),
+          }),
+        },
         prepareVideoStoryboard: { useMutation: mutation },
         confirmVideoStoryboard: { useMutation: mutation },
       },
@@ -107,6 +116,7 @@ describe("PublishingDraftWorkspace", () => {
     story.publishing = emptyPublishingDraftState(1);
     story.publishingBuffers = {};
     api.readData = undefined;
+    api.buildVideoStoryboardPending = false;
   });
 
   it("explains that a disconnected local service never submitted the paid image job", () => {
@@ -153,6 +163,8 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("按要求重写");
     expect(html).toContain("复制文案");
     expect(html).toContain("进入视频制作");
+    expect(html).toContain("留存 · 自己");
+    expect(html).toContain("修改用途或观众会创建新版本");
     expect(html).toContain("四图候选 · 对话修改 · 明确采用");
     expect(html).toContain("一次生成 4 张粗选图");
     expect(html).toContain("也可以先说下一批要怎么变");
@@ -160,6 +172,106 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("选择与采用免费");
     expect(html).not.toContain("主视觉为正方形");
     expect(html).not.toContain("X</button>");
+  });
+
+  it("shows one video-production entry point and keeps cover selection separate", () => {
+    const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu",
+      content: {
+        title: "真正稀缺的不是 token",
+        body: "人的判断不该被浪费。",
+        tags: [],
+      },
+      now: 2,
+    });
+    story.publishing = state;
+    api.readData = {
+      storyId: 7,
+      storyRevision: 3,
+      publishing: state,
+      coverAsset: {
+        id: 61,
+        imageUrl: "/api/images/cover.png",
+        imageKey: "cover.png",
+        createdAt: new Date("2026-08-05T00:00:00Z"),
+      },
+      coverEstimate: {
+        currency: "CNY",
+        estimatedCny: 0.68,
+        candidateCount: 4,
+      },
+      coverRounds: [],
+    };
+
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+
+    expect(html.match(/进入视频制作/g)).toHaveLength(1);
+    expect(html).not.toContain("用这张进入视频制作");
+  });
+
+  it("puts video-script progress on the video action without animating the cover action", () => {
+    const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu",
+      content: {
+        title: "真正稀缺的不是 token",
+        body: "人的判断不该被浪费。",
+        tags: [],
+      },
+      now: 2,
+    });
+    state.coverRounds = [
+      {
+        id: "round-1",
+        platform: "xiaohongshu",
+        sourceCoreRevision: 1,
+        parentAssetId: null,
+        feedback: "",
+        assetIds: [51, 52, 53, 54],
+        createdAt: 3,
+      },
+    ];
+    story.publishing = state;
+    api.readData = {
+      storyId: 7,
+      storyRevision: 3,
+      publishing: state,
+      coverAsset: null,
+      coverEstimate: {
+        currency: "CNY",
+        estimatedCny: 0.68,
+        candidateCount: 4,
+      },
+      coverRounds: [
+        {
+          ...state.coverRounds[0],
+          candidates: [51, 52, 53, 54].map(id => ({
+            id,
+            imageUrl: `/api/images/candidate-${id}.png`,
+            imageKey: `candidate-${id}.png`,
+            createdAt: new Date("2026-08-05T00:00:00Z"),
+          })),
+        },
+      ],
+    };
+    api.buildVideoStoryboardPending = true;
+
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+
+    expect(html).toContain("正在生成故事版…");
+    expect(html).toContain(
+      "正在生成剧本、图片要求和视频要求，完成后会直接打开故事版…"
+    );
+    const videoButton = html.match(
+      /<button[^>]*>(?:(?!<\/button>)[\s\S])*正在生成故事版…(?:(?!<\/button>)[\s\S])*<\/button>/
+    )?.[0];
+    const coverButton = html.match(
+      /<button[^>]*>(?:(?!<\/button>)[\s\S])*继续选封面(?:(?!<\/button>)[\s\S])*<\/button>/
+    )?.[0];
+
+    expect(videoButton).toContain('disabled=""');
+    expect(videoButton).toContain("animate-spin");
+    expect(coverButton).toBeDefined();
+    expect(coverButton).not.toContain("animate-spin");
   });
 
   it("lets the user discard an unsaved rewrite so cover and video work are not blocked", () => {

@@ -184,6 +184,7 @@ export interface StoryShot {
   /** Immutable lineage for shots confirmed from a publishing-version preview. */
   publishingVideo?: {
     versionId: string;
+    sourcePlatform?: string;
     groupId: string;
     segmentIds: string[];
     sourceParagraphIds: string[];
@@ -192,6 +193,14 @@ export interface StoryShot {
   performance?: string;
   environmentMotion?: string;
   dialogue: string;
+  /** 302 TTS 生成的旁白音频及其生成基线；文字变化后 UI 会提示重新生成。 */
+  voiceAudioUrl?: string;
+  voiceAudioText?: string;
+  voiceAudioProvider?: string;
+  voiceAudioVoice?: string;
+  voiceAudioGeneratedAt?: number;
+  /** 用于保证同一镜头最后发起的 TTS 请求优先于较早但较晚完成的请求。 */
+  voiceAudioRequestStartedAt?: number;
   shotType: string;
   beat: string;
   cameraAngle: string;
@@ -462,9 +471,7 @@ export function normalizeChatMessages(
       const role =
         obj.role === "user" || obj.who === "u"
           ? "user"
-          : obj.role === "assistant" ||
-              obj.who === "s" ||
-              obj.who === "a"
+          : obj.role === "assistant" || obj.who === "s" || obj.who === "a"
             ? "assistant"
             : null;
       const content = stringValue(obj.content) ?? stringValue(obj.text) ?? "";
@@ -509,19 +516,20 @@ export function normalizeChatMessages(
           };
         }
       }
-      if (obj.imageRerenderAction && typeof obj.imageRerenderAction === "object") {
+      if (
+        obj.imageRerenderAction &&
+        typeof obj.imageRerenderAction === "object"
+      ) {
         const action = obj.imageRerenderAction as Record<string, unknown>;
         if (typeof action.shotNo === "number") {
           message.imageRerenderAction = {
-            storyId:
-              typeof action.storyId === "number" ? action.storyId : null,
+            storyId: typeof action.storyId === "number" ? action.storyId : null,
             stableShotId:
               typeof action.stableShotId === "string"
                 ? action.stableShotId
                 : null,
             shotNo: action.shotNo,
-            cueCode:
-              typeof action.cueCode === "string" ? action.cueCode : null,
+            cueCode: typeof action.cueCode === "string" ? action.cueCode : null,
             ...(typeof action.imageId === "number"
               ? { imageId: action.imageId }
               : {}),
@@ -556,8 +564,7 @@ export function displayAssistantName(content: string): string {
 // 精简自原三句版：删掉与 FIRST_QUESTION 重复的「随口说 / 不用大事」，收到约 1/3，避免开场啰嗦（AE1 实测反馈）。
 // 硬约束：保留「你好，我是聊聊 / 朋友 / 助手 / 一件今天的小事」四个 token（openingCopy.test.ts 守着）；
 // 不含「收集 / 采样」字样；不含「永久 / 永远记得 / 都会记住」式永久记忆承诺（R6/R13）。
-export const OPENING_PREAMBLE =
-  `你好，我是${ASSISTANT_DISPLAY_NAME}——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。`;
+export const OPENING_PREAMBLE = `你好，我是${ASSISTANT_DISPLAY_NAME}——会听你说话的朋友，也是帮你把一件今天的小事做成小短片的助手。`;
 
 // emptyState() 实际播出的组合开场消息：preamble 在前报到 + 立人格，FIRST_QUESTION 收尾邀请。
 export const OPENING_MESSAGE = `${OPENING_PREAMBLE}\n\n${FIRST_QUESTION}`;

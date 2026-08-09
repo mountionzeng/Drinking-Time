@@ -11,6 +11,7 @@ import {
   Layers3,
   Loader2,
   Music2,
+  Pencil,
   Plus,
   Ratio,
   Trash2,
@@ -67,11 +68,18 @@ export default function StoryListView() {
     loadStory,
     createNewStory,
     deleteStory,
+    renameStory,
     refreshStoryList,
   } = useStoryAgent();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [importPreview, setImportPreview] =
     useState<ChatCutImportPreview | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{
+    id: number;
+    title: string;
+  } | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
   const inspectXml = trpc.storyAgent.inspectChatCutXml.useMutation();
   const importXml = trpc.storyAgent.importChatCutXml.useMutation();
 
@@ -116,6 +124,31 @@ export default function StoryListView() {
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'ChatCut XML 导入失败');
+    }
+  };
+
+  const openRenameDialog = (story: { id: number; title: string }) => {
+    const title = story.title.trim() || '未命名故事';
+    setRenameTarget({ id: story.id, title });
+    setRenameDraft(title);
+  };
+
+  const confirmRename = async () => {
+    if (!renameTarget || isRenaming) return;
+    const nextTitle = renameDraft.trim();
+    if (!nextTitle) {
+      toast.error('故事名称不能为空');
+      return;
+    }
+    setIsRenaming(true);
+    try {
+      await renameStory(renameTarget.id, nextTitle);
+      setRenameTarget(null);
+      toast.success('故事名称已修改');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '故事改名失败');
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -284,23 +317,93 @@ export default function StoryListView() {
                   )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (window.confirm('确定删除这个故事吗？')) {
-                    deleteStory(story.id);
-                  }
-                }}
-                className="opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity p-1"
-                title="删除"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openRenameDialog(story);
+                  }}
+                  className="p-1 opacity-50 transition-opacity hover:!opacity-100 sm:opacity-0 sm:group-hover:opacity-50"
+                  aria-label={`重命名 ${story.title || '未命名故事'}`}
+                  title="修改故事名称"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm('确定删除这个故事吗？')) {
+                      deleteStory(story.id);
+                    }
+                  }}
+                  className="p-1 opacity-50 transition-opacity hover:!opacity-100 sm:opacity-0 sm:group-hover:opacity-50"
+                  title="删除"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
             </div>
           </div>
         ))}
       </div>
+
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isRenaming) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton={!isRenaming}>
+          <DialogHeader>
+            <DialogTitle className="text-base">修改故事名称</DialogTitle>
+            <DialogDescription className="text-xs">
+              只修改名称，故事内容、镜头和素材都不会改变。
+            </DialogDescription>
+          </DialogHeader>
+          <label className="grid gap-1.5 text-xs font-medium">
+            故事名称
+            <input
+              autoFocus
+              value={renameDraft}
+              maxLength={80}
+              disabled={isRenaming}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void confirmRename();
+                }
+              }}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal outline-none transition focus:border-[var(--nayin-accent)] focus:ring-2 focus:ring-[var(--nayin-glow)]"
+            />
+          </label>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setRenameTarget(null)}
+              disabled={isRenaming}
+              className="h-9 rounded-md border border-border px-3 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmRename()}
+              disabled={isRenaming || !renameDraft.trim()}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                background: 'var(--nayin-accent)',
+                color: 'var(--background)',
+              }}
+            >
+              {isRenaming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              保存名称
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(importPreview)}

@@ -51,12 +51,16 @@ import {
   useStoryAgent,
   useStoryAgentActions,
 } from "@/features/storyAgent/StoryAgentContext";
-import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
+import {
+  storySpineStore,
+  useStorySpine,
+} from "@/features/storyAgent/spine/storySpine";
 import {
   useActiveStoryId,
   useConfirmedIntent,
 } from "@/features/storyAgent/spine/selectors";
 import StoryAgentChat from "@/features/storyAgent/views/StoryAgentChat";
+import { buildCapabilityIntent } from "@/features/storyAgent/views/StoryCapabilityMenu";
 import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
@@ -210,8 +214,13 @@ function EditingStudioBody({
 }) {
   const activeStoryId = useActiveStoryId();
   const { publishingBuffers } = useStoryAgent();
-  const { backToList, createNewStory, discardPublishingBuffer } =
-    useStoryAgentActions();
+  const {
+    backToList,
+    createNewStory,
+    discardPublishingBuffer,
+    loadStory,
+    setConfirmedIntent,
+  } = useStoryAgentActions();
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [storyMenuOpen, setStoryMenuOpen] = useState(false);
   const [pendingStoryAction, setPendingStoryAction] = useState<
@@ -222,6 +231,63 @@ function EditingStudioBody({
   const dirtyBuffers = Object.values(publishingBuffers).filter(
     buffer => buffer.storyId === activeStoryId
   );
+
+  useEffect(() => {
+    const startDailyThoughtConversation = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          message?: string;
+          mode?: "visual" | "letter";
+        }>
+      ).detail;
+      const message = detail?.message?.trim();
+      if (!message || (detail.mode !== "visual" && detail.mode !== "letter")) {
+        return;
+      }
+
+      createNewStory();
+      setConfirmedIntent(buildCapabilityIntent("personal_memory"));
+      setChatCollapsed(false);
+      onWorkspaceChange("storyboard");
+
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("dt:open-creation-chat", {
+            detail: {
+              draftMessage: message,
+              autoSubmit: true,
+            },
+          })
+        );
+      }, 0);
+    };
+
+    window.addEventListener(
+      "dt:start-daily-thought-conversation",
+      startDailyThoughtConversation
+    );
+    return () =>
+      window.removeEventListener(
+        "dt:start-daily-thought-conversation",
+        startDailyThoughtConversation
+      );
+  }, [createNewStory, onWorkspaceChange, setConfirmedIntent]);
+
+  useEffect(() => {
+    const openDailyLetterStory = (event: Event) => {
+      const storyId = (event as CustomEvent<{ storyId?: number }>).detail
+        ?.storyId;
+      if (!storyId) return;
+      setChatCollapsed(false);
+      void loadStory(storyId);
+    };
+    window.addEventListener("dt:open-daily-letter-story", openDailyLetterStory);
+    return () =>
+      window.removeEventListener(
+        "dt:open-daily-letter-story",
+        openDailyLetterStory
+      );
+  }, [loadStory]);
 
   const runStoryAction = (action: "back" | "new") => {
     if (action === "back") backToList();
@@ -457,6 +523,7 @@ export default function EditingStudioPage() {
   const { currentProjectId } = useProjectData();
   const activeStoryId = useActiveStoryId();
   const confirmedIntent = useConfirmedIntent();
+  const storyList = useStorySpine(state => state.storyList);
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
@@ -581,6 +648,28 @@ export default function EditingStudioPage() {
       <DailyLetterWelcome
         forceOpen={dailyLetterOpen}
         onRequestClose={() => setDailyLetterOpen(false)}
+        onStartVisualConversation={message => {
+          window.dispatchEvent(
+            new CustomEvent("dt:start-daily-thought-conversation", {
+              detail: { message, mode: "visual" },
+            })
+          );
+        }}
+        stories={storyList}
+        onOpenStory={storyId => {
+          window.dispatchEvent(
+            new CustomEvent("dt:open-daily-letter-story", {
+              detail: { storyId },
+            })
+          );
+        }}
+        onStartLetterStory={message => {
+          window.dispatchEvent(
+            new CustomEvent("dt:start-daily-thought-conversation", {
+              detail: { message, mode: "letter" },
+            })
+          );
+        }}
       />
       <div className="relative z-10 min-h-0 flex-1">
         <StoryAgentProvider

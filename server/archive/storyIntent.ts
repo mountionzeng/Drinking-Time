@@ -94,6 +94,21 @@ function normalizeAudience(value: unknown): StoryIntentAudience {
   return "unknown";
 }
 
+function audienceLabel(audience: StoryIntentAudience): string {
+  const labels: Record<StoryIntentAudience, string> = {
+    self: "自己",
+    specific_person: "某位重要的人",
+    friends: "朋友",
+    public: "公开观众",
+    recruiters: "招聘者",
+    clients: "客户",
+    investors: "投资人",
+    teammates: "团队",
+    unknown: "自己",
+  };
+  return labels[audience];
+}
+
 function normalizePlatform(value: unknown): StoryIntentPlatform {
   if (
     typeof value === "string" &&
@@ -102,6 +117,46 @@ function normalizePlatform(value: unknown): StoryIntentPlatform {
     return value as StoryIntentPlatform;
   }
   return "unknown";
+}
+
+type NarrativePurpose =
+  | "preserve"
+  | "gift"
+  | "share"
+  | "persuade"
+  | "create";
+
+const NARRATIVE_PURPOSES: NarrativePurpose[] = [
+  "preserve",
+  "gift",
+  "share",
+  "persuade",
+  "create",
+];
+
+function normalizeNarrativePurpose(
+  value: unknown,
+  legacyPurpose: StoryIntentPurpose
+): NarrativePurpose {
+  if (
+    typeof value === "string" &&
+    NARRATIVE_PURPOSES.includes(value as NarrativePurpose)
+  ) {
+    return value as NarrativePurpose;
+  }
+  if (legacyPurpose === "gift") return "gift";
+  if (legacyPurpose === "social_post") return "share";
+  if (
+    ["linkedin_job_search", "portfolio", "product_intro"].includes(
+      legacyPurpose
+    )
+  ) {
+    return "persuade";
+  }
+  if (["fiction", "creative_expression"].includes(legacyPurpose)) {
+    return "create";
+  }
+  return "preserve";
 }
 
 function localIntentFallback(text: string): StoryIntentPayload {
@@ -201,6 +256,10 @@ function localIntentFallback(text: string): StoryIntentPayload {
       purpose: "gift",
       audience: "specific_person",
       platform: "private_archive",
+      primaryPurpose: "gift",
+      secondaryPurposes: hasSocialAudience ? ["share"] : [],
+      coreAudience: "某位重要的人",
+      secondaryAudiences: hasSocialAudience ? ["公开观众"] : [],
       desiredEffect: "让一位亲友感受到这段故事是专门为他或她准备的",
       tone: "亲切、真诚、有私人细节，不过度煽情",
       confidence: 0.72,
@@ -227,6 +286,10 @@ function localIntentFallback(text: string): StoryIntentPayload {
       purpose: "social_post",
       audience: "public",
       platform,
+      primaryPurpose: "share",
+      secondaryPurposes: [],
+      coreAudience: "公开观众",
+      secondaryAudiences: [],
       desiredEffect: "让社交平台上的陌生观众快速理解并愿意看完",
       tone: "清楚、有分享感、对陌生观众友好",
       confidence: 0.72,
@@ -385,7 +448,11 @@ function buildIntentPrompt(params: {
     '  "tone": "适合这个用途的表达气质，≤40字",',
     '  "confidence": 0.0,',
     '  "evidence": ["支撑判断的用户原话或信号，最多5条"],',
-    '  "missingQuestion": "如果还需要追问，只问一个最关键的问题；若足够明确，也给一个可选追问"',
+    '  "missingQuestion": "如果还需要追问，只问一个最关键的问题；若足够明确，也给一个可选追问",',
+    '  "primaryPurpose": "preserve | gift | share | persuade | create",',
+    '  "secondaryPurposes": ["可兼顾的用途，最多4个"],',
+    '  "coreAudience": "最优先服务的具体人或人群，≤40字",',
+    '  "secondaryAudiences": ["还要兼顾的人或人群，最多5个"]',
     "}",
   ]
     .filter(Boolean)
@@ -397,8 +464,10 @@ function normalizeIntent(
   fallbackText: string
 ): StoryIntentPayload {
   const fallback = localIntentFallback(fallbackText);
+  const purpose = normalizePurpose(raw.purpose);
+  const primaryPurpose = normalizeNarrativePurpose(raw.primaryPurpose, purpose);
   return {
-    purpose: normalizePurpose(raw.purpose),
+    purpose,
     audience: normalizeAudience(raw.audience),
     platform: normalizePlatform(raw.platform),
     desiredEffect: cleanText(raw.desiredEffect, fallback.desiredEffect).slice(
@@ -412,6 +481,17 @@ function normalizeIntent(
       raw.missingQuestion,
       fallback.missingQuestion
     ).slice(0, 120),
+    primaryPurpose,
+    secondaryPurposes: cleanStringArray(raw.secondaryPurposes)
+      .filter((item): item is NarrativePurpose =>
+        NARRATIVE_PURPOSES.includes(item as NarrativePurpose)
+      )
+      .filter(item => item !== primaryPurpose),
+    coreAudience: cleanText(
+      raw.coreAudience,
+      audienceLabel(normalizeAudience(raw.audience))
+    ).slice(0, 80),
+    secondaryAudiences: cleanStringArray(raw.secondaryAudiences).slice(0, 5),
   };
 }
 
