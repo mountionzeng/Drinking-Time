@@ -6,7 +6,7 @@ import {
 import { applyPromptInheritance } from './inheritance';
 import type { PromptCategory, PromptRow, PromptSource } from './types';
 
-type ContentDimension = {
+export type ContentDimension = {
   key: keyof CreationEditorShot;
   dimension: string;
   label: string;
@@ -14,7 +14,11 @@ type ContentDimension = {
   source: PromptSource['system'];
 };
 
-const CONTENT_DIMENSIONS: ContentDimension[] = [
+// 导出这两个数组是为了 weightTableSync.test.ts 能校验它们跟
+// shared/promptDimensionWeights.ts 的对应维度权重保持一致——
+// 两张表分属客户端/服务端、字段命名规则也不同（camelCase vs snake_case），
+// 手改一张忘了改另一张过去是没有测试兜底的，见 evals/README.md「已知限制」历史记录。
+export const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'sceneTitle', dimension: 'sceneTitle', label: '场次', weight: 0.34, source: 'intent' },
   { key: 'sceneArtBrief', dimension: 'sceneArtBrief', label: '场景美术库', weight: 0.4, source: 'art-repo' },
   { key: 'subject', dimension: 'subject', label: '主体', weight: 0.42, source: 'chat' },
@@ -25,10 +29,13 @@ const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'cameraAngle', dimension: 'cameraAngle', label: '机位', weight: 0.24, source: 'intent' },
   { key: 'timeLight', dimension: 'timeLight', label: '时间光', weight: 0.24, source: 'intent' },
   { key: 'mood', dimension: 'mood', label: '情绪', weight: 0.3, source: 'intent' },
-  { key: 'styleRef', dimension: 'styleRef', label: '风格参考', weight: 0.26, source: 'intent' },
+  // 0.26 → 0.32：evals/run-weight-analysis.ts 用真实编辑历史发现 style_reference
+  // 的编辑率（29.9%，77 个镜头样本）跟 mood/location 这一档接近，权重却明显偏低。
+  // 调到跟 location 同档，不是拍脑袋的新数字。
+  { key: 'styleRef', dimension: 'styleRef', label: '风格参考', weight: 0.32, source: 'intent' },
 ];
 
-const VIDEO_DIMENSIONS: ContentDimension[] = [
+export const VIDEO_DIMENSIONS: ContentDimension[] = [
   { key: 'cameraMove', dimension: 'cameraMove', label: '相机运动', weight: 0.36, source: 'director' },
   { key: 'videoStart', dimension: 'videoStart', label: '起始画面', weight: 0.35, source: 'director' },
   { key: 'videoEnd', dimension: 'videoEnd', label: '结束状态', weight: 0.34, source: 'director' },

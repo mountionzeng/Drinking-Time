@@ -22,7 +22,8 @@
     "invite:setup": "tsx scripts/setup-invite-access.ts",
     "invite:create": "tsx scripts/create-invite-code.ts",
     "monitor": "DATABASE_URL=mysql://x knip",
-    "eval:prompt": "tsx evals/run.ts"
+    "eval:prompt": "tsx evals/run.ts",
+    "eval:weights": "tsx evals/run-weight-analysis.ts"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",

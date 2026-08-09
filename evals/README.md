@@ -76,6 +76,42 @@ pnpm eval:prompt --update-baseline    # 冻结分数
 3. 在 `metrics/metrics.test.ts` 里补单测（用 `sample()` 构造数据，不依赖真实语料）
 4. `pnpm eval:prompt --update-baseline` 重新冻结
 
+## 维度权重信号（`pnpm eval:weights`）
+
+`shared/promptDimensionWeights.ts` 里 40 个权重是手写的，没有数据支撑。
+这个工具拿真实编辑历史（`.webdev/edit-snapshots-local.json` 里 old/new 镜头字段对比）
+检验它们：一个维度如果总被用户改，说明 agent 在这个维度上的默认产出经常不够好，
+权重却给得不高，就是「值得调高」的证据；反之亦然。
+
+```bash
+pnpm eval:weights
+```
+
+**这不是自动调权重的工具**，只是把编辑率 vs 权重的排名错配列出来。
+权重要不要改、改多少，是产品判断——脚本给证据，不替你下结论。
+
+已知限制：
+
+- 编辑率高不是「agent 做错了」的因果证明，也可能是这个维度天然更主观、
+  用户本来就想反复调。样本量小的维度（<8 个镜头）不参与判定，避免用几个样本的噪音下结论。
+- 只分析**真正会被编译进最终提示词的维度**，不是镜头上所有可编辑字段——
+  参考图绑定、出图模型配置这些字段永远不会出现在提示词文本里，
+  问「该给它多少权重」没有意义（完整边界见 `editSnapshotCorpus.ts` 的 `KNOWN_DIMENSION_FIELDS`）。
+
+**已知的真实发现**：`style_reference` 编辑率 29.9%（77 个镜头样本），
+跟 mood/location 同一档，权重却只有同类维度的八成——已按此证据调到 0.32
+（两份权重表都改了，`weightTableSync.test.ts` 保证以后不会只改一边）。
+更多维度（`time_light`、`negative_prompt`、`intent` 权重可能偏高）有信号但样本量
+还薄，留给后续数据积累后重跑再判断。
+
+## 权重表同步（`weightTableSync.test.ts`）
+
+`shared/promptDimensionWeights.ts`（服务端）和
+`client/.../promptTable/buildPromptTable.ts`（客户端）是两张独立维护的权重表，
+覆盖同一组创作维度，键名规则还不一样（snake_case vs camelCase）。
+`weightTableSync.test.ts` 断言两边都定义的维度权重必须相等——改一张忘了改另一张，
+CI 就红，不用等到评测或线上行为不一致才发现。
+
 ## 语料从哪来
 
 默认读 `.webdev/prompt-lineage-local.json`（只读，绝不写）。
