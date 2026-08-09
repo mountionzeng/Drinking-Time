@@ -12,72 +12,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import {
+  dimensionForField,
+  isPromptDimensionField,
+} from "../shared/promptFieldDimensions";
+
 const SNAPSHOT_FILENAME = ".webdev/edit-snapshots-local.json";
 
-/**
- * 快照里的镜头字段是 camelCase（`styleRef`），服务端谱系维度键是 snake_case
- * （`style_reference`）。这份映射照抄 `promptLineageMigration.ts` 里
- * shared/dialogue/image/video 四组的字段→维度对应关系，保持单一事实来源的口径。
- * 不在映射表里的字段（如 `subject`/`action`/`mood`）本身就是维度键，原样返回。
- */
-const FIELD_TO_DIMENSION: Record<string, string> = {
-  timeLight: "time_light",
-  styleRef: "style_reference",
-  promptDraft: "image_prompt",
-  negativePrompt: "negative_prompt",
-  cameraMove: "camera_motion",
-  videoPrompt: "video_prompt",
-};
-
-/**
- * 「真的是提示词维度」的白名单——不是「镜头上能编辑的字段」。
- *
- * `shared/shotDirector.ts` 的 `STORY_SHOT_EDITABLE_FIELDS` 有 30+ 个可编辑字段，
- * 但其中 `characterReference`/`wardrobeReference`/`hairReference`/`sceneReference`/
- * `textureReference`/`generationModel`/`generationParams` 是参考图绑定和出图配置，
- * 从来不会被编译进最终提示词文本，问「该给它多少权重」没有意义。
- *
- * 这份白名单 = `promptLineageMigration.ts` 的字段→维度映射（服务端真实编译用的）
- * ∪ `client/.../promptTable/buildPromptTable.ts` 的 `CONTENT_DIMENSIONS`/`VIDEO_DIMENSIONS`
- * （客户端提示词表用的，键名口径不同）。两处都不认的字段，就不是提示词维度。
- */
-const KNOWN_DIMENSION_FIELDS = new Set([
-  // 服务端 shared 维度（scope: shot, modality: shared）
-  "sceneTitle",
-  "sceneArtBrief",
-  "subject",
-  "action",
-  "intent",
-  "rationale",
-  "location",
-  "timeLight",
-  "mood",
-  "styleRef",
-  "beat",
-  // 服务端 dialogue/image/video 维度
-  "dialogue",
-  "promptDraft",
-  "negativePrompt",
-  "cameraMove",
-  "videoPrompt",
-  "sound",
-  // 只在客户端 buildPromptTable 里加权、服务端 shared 权重表里还没有的维度——
-  // 编辑率一旦跑出来，这本身就是「两份权重表不同步」的证据，不是要排除的噪音。
-  "shotType",
-  "cameraAngle",
-  "videoStart",
-  "videoEnd",
-  "transitionIn",
-  "transitionOut",
-]);
-
-export function dimensionForField(field: string): string {
-  return FIELD_TO_DIMENSION[field] ?? field;
-}
-
-export function isCreativeField(field: string): boolean {
-  return KNOWN_DIMENSION_FIELDS.has(field);
-}
+export { dimensionForField, isPromptDimensionField };
 
 type ShotRecord = Record<string, unknown> & { stableShotId?: string };
 
@@ -169,7 +111,7 @@ export function buildShotEditFacts(
         ...Object.keys(pair.new ?? {}),
       ]);
       fields.forEach(field => {
-        if (!isCreativeField(field)) return;
+        if (!isPromptDimensionField(field)) return;
         const dimension = dimensionForField(field);
         const oldValue = fieldValueKey(pair.old?.[field]);
         const newValue = fieldValueKey(pair.new?.[field]);

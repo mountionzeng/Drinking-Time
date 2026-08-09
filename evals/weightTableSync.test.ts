@@ -19,14 +19,7 @@ import {
   VIDEO_DIMENSIONS,
 } from "../client/src/features/creationEditor/promptTable/buildPromptTable";
 import { PROMPT_DIMENSION_WEIGHTS } from "../shared/promptDimensionWeights";
-
-/** client 的 camelCase 维度键 → shared 的 snake_case 维度键（同一份口径，见 editSnapshotCorpus.ts） */
-const CLIENT_TO_SHARED_DIMENSION: Record<string, string> = {
-  timeLight: "time_light",
-  styleRef: "style_reference",
-  cameraMove: "camera_motion",
-  videoPrompt: "video_prompt",
-};
+import { dimensionForField } from "../shared/promptFieldDimensions";
 
 describe("两份提示词权重表保持同步", () => {
   const clientDimensions = [...CONTENT_DIMENSIONS, ...VIDEO_DIMENSIONS];
@@ -35,7 +28,7 @@ describe("两份提示词权重表保持同步", () => {
   const overlapping = clientDimensions
     .map(item => ({
       clientKey: item.dimension,
-      sharedKey: CLIENT_TO_SHARED_DIMENSION[item.dimension] ?? item.dimension,
+      sharedKey: dimensionForField(item.dimension),
       clientWeight: item.weight,
     }))
     .filter(item => sharedKeys.has(item.sharedKey));

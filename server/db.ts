@@ -3072,6 +3072,34 @@ export async function getLatestEditSnapshot(
   return snapshot ?? null;
 }
 
+/**
+ * 按项目取最近 N 条快照（含 diff），供 `recurringEditSignal` 检测「反复修正」用。
+ * 单条快照的 diff 只看得到相邻两次的变化，要判断「这个维度改了不止一次」
+ * 必须看一段历史，不能只取最新一条。
+ */
+export async function getRecentEditSnapshots(
+  projectId: number,
+  limit = 50
+): Promise<EditSnapshot[]> {
+  const db = await getDb();
+  if (!db) {
+    await ensureLocalEditSnapshotsLoaded();
+    return memoryState.editSnapshots
+      .filter(s => s.projectId === projectId)
+      .sort((a, b) => {
+        const tDiff = b.timestamp.getTime() - a.timestamp.getTime();
+        return tDiff !== 0 ? tDiff : b.id - a.id;
+      })
+      .slice(0, limit);
+  }
+  return db
+    .select()
+    .from(editSnapshots)
+    .where(eq(editSnapshots.projectId, projectId))
+    .orderBy(desc(editSnapshots.timestamp))
+    .limit(limit);
+}
+
 export async function getEditSnapshotById(
   id: number
 ): Promise<EditSnapshot | null> {

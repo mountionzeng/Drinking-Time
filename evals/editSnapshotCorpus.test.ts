@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildShotEditFacts,
   dimensionForField,
-  isCreativeField,
+  isPromptDimensionField,
 } from "./editSnapshotCorpus";
 
 function snapshot(modified: Array<{ old: Record<string, unknown> | null; new: Record<string, unknown> | null }>) {
   return { id: 1, projectId: 1, timestamp: "2026-08-01T00:00:00.000Z", diff: { shots: { modified } } };
 }
 
-describe("dimensionForField / isCreativeField", () => {
+describe("dimensionForField / isPromptDimensionField", () => {
   it("把 camelCase 字段映射到谱系维度键", () => {
     expect(dimensionForField("styleRef")).toBe("style_reference");
     expect(dimensionForField("videoPrompt")).toBe("video_prompt");
@@ -21,15 +21,15 @@ describe("dimensionForField / isCreativeField", () => {
   });
 
   it("排除参考图绑定和出图配置字段——它们从不进入编译后的提示词", () => {
-    expect(isCreativeField("characterReference")).toBe(false);
-    expect(isCreativeField("generationModel")).toBe(false);
-    expect(isCreativeField("wardrobeReference")).toBe(false);
+    expect(isPromptDimensionField("characterReference")).toBe(false);
+    expect(isPromptDimensionField("generationModel")).toBe(false);
+    expect(isPromptDimensionField("wardrobeReference")).toBe(false);
   });
 
   it("放行真正的提示词维度字段", () => {
-    expect(isCreativeField("subject")).toBe(true);
-    expect(isCreativeField("styleRef")).toBe(true);
-    expect(isCreativeField("shotType")).toBe(true);
+    expect(isPromptDimensionField("subject")).toBe(true);
+    expect(isPromptDimensionField("styleRef")).toBe(true);
+    expect(isPromptDimensionField("shotType")).toBe(true);
   });
 });
 

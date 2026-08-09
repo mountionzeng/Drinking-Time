@@ -3,6 +3,10 @@ import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
+import {
+  formatRecurringEditSignalBlock,
+  getRecurringEditSignalsForProject,
+} from "../services/recurringEditSignal";
 import { createImageSignal } from "../db";
 import { asCleanString, asCleanStringArray, asEmotionOptions, asIntensity } from "./storyAgent.parsing";
 import { buildAgentSystemPrompt, formatEditContextBlock, buildCardExtractionPrompt } from "./storyAgent.prompts";
@@ -158,12 +162,19 @@ export async function replyFromStoryAgent(params: {
     .slice(-16)
     .map((t) => ({ role: t.role, content: t.content.trim() }));
 
-  // 拉取最近编辑标注并格式化成上下文；失败时静默降级为空
+  // 拉取最近编辑标注 + 重复修正信号，格式化成上下文；失败时静默降级为空
   let editContextBlock: string | undefined;
   if (params.projectId != null) {
     try {
       const annotations = await getRecentAnnotations(params.projectId, 5);
-      editContextBlock = formatEditContextBlock(annotations) || undefined;
+      const recurringSignals = await getRecurringEditSignalsForProject(
+        params.projectId,
+      );
+      const blocks = [
+        formatEditContextBlock(annotations),
+        formatRecurringEditSignalBlock(recurringSignals),
+      ].filter(Boolean);
+      editContextBlock = blocks.length > 0 ? blocks.join("\n\n") : undefined;
     } catch (err) {
       console.error("[storyAgent] Failed to fetch edit annotations:", err);
     }
