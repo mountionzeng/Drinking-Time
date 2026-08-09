@@ -46,7 +46,7 @@ export default function DailyDrinkHero({
       <div
         className={`relative flex items-center justify-center ${
           pour
-            ? "h-[17rem] w-[17rem] -mb-10 sm:h-96 sm:w-96 sm:-mb-14"
+            ? "h-[19rem] w-[19rem] -mb-12 translate-y-6 sm:h-96 sm:w-96 sm:-mb-14 sm:translate-y-0"
             : compact
               ? "h-24 w-24 sm:h-28 sm:w-28"
               : "h-36 w-36 sm:h-44 sm:w-44"
@@ -100,47 +100,49 @@ export default function DailyDrinkHero({
               </textPath>
             </text>
             {/* 点开时品牌字跟着弹一下：像被杯子的动作带了一把 */}
-            <motion.g
-              style={{
-                transformOrigin: "192px 170px",
-                willChange: "transform",
-              }}
-              animate={{
-                y: pour.open ? -9 : 0,
-                rotate: pour.open ? -2.5 : 0,
-                scale: pour.open ? 1.04 : 1,
-              }}
-              transition={{ type: "spring", stiffness: 260, damping: 13 }}
-            >
-              <text
-                fill="currentColor"
-                className="text-foreground"
-                style={{ fontFamily: brandTitleFont, letterSpacing: 0 }}
-                fontSize="46"
+            <g className="translate-x-2 sm:translate-x-0">
+              <motion.g
+                style={{
+                  transformOrigin: "192px 170px",
+                  willChange: "transform",
+                }}
+                animate={{
+                  y: pour.open ? -9 : 0,
+                  rotate: pour.open ? -2.5 : 0,
+                  scale: pour.open ? 1.04 : 1,
+                }}
+                transition={{ type: "spring", stiffness: 260, damping: 13 }}
               >
-                <textPath
-                  href="#brand-arc"
-                  startOffset="28%"
-                  textAnchor="middle"
+                <text
+                  fill="currentColor"
+                  className="text-foreground"
+                  style={{ fontFamily: brandTitleFont, letterSpacing: 0 }}
+                  fontSize="69"
                 >
-                  聊会儿
-                </textPath>
-              </text>
-              <text
-                fill="currentColor"
-                className="text-muted-foreground"
-                style={{ fontFamily: brandTitleFont }}
-                fontSize="16"
-              >
-                <textPath
-                  href="#brand-arc"
-                  startOffset="73%"
-                  textAnchor="middle"
+                  <textPath
+                    href="#brand-arc"
+                    startOffset="25%"
+                    textAnchor="middle"
+                  >
+                    聊会儿
+                  </textPath>
+                </text>
+                <text
+                  fill="currentColor"
+                  className="text-muted-foreground"
+                  style={{ fontFamily: brandTitleFont }}
+                  fontSize="24"
                 >
-                  Drinking Time
-                </textPath>
-              </text>
-            </motion.g>
+                  <textPath
+                    href="#brand-arc"
+                    startOffset="78%"
+                    textAnchor="middle"
+                  >
+                    Drinking Time
+                  </textPath>
+                </text>
+              </motion.g>
+            </g>
           </svg>
         ) : null}
         <motion.div
@@ -175,13 +177,15 @@ export default function DailyDrinkHero({
           transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
         >
           {pour ? (
-            <WuxingPourTrigger
-              element={today.element}
-              open={pour.open}
-              onToggle={pour.onToggle}
-              contentId={pour.contentId}
-              className="h-[40.6%] w-[40.6%]"
-            />
+            <div className="h-[40.6%] w-[40.6%] translate-x-1 sm:translate-x-0">
+              <WuxingPourTrigger
+                element={today.element}
+                open={pour.open}
+                onToggle={pour.onToggle}
+                contentId={pour.contentId}
+                className="h-full w-full"
+              />
+            </div>
           ) : (
             <WuxingDrinkIcon
               element={today.element}

@@ -1,5 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmotionAnalysisProfile } from "@/features/analysis/emotionAnalysis";
 
@@ -160,6 +162,21 @@ describe("GuidedLanding", () => {
     expect(html).not.toContain("长期情绪分析底盘");
     expect(html).not.toContain("上传素材开始");
     expect(html).not.toContain("聊一个故事开始");
+  });
+
+  it("展开介绍直接说明今日参考与回忆成画面", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "client/src/features/analysis/views/GuidedLanding.tsx"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("在这里，你可以看看今天适合做什么");
+    expect(source).toContain("可以看见的故事和画面");
+    expect(source).not.toContain("正式开放后");
+    expect(source).not.toContain("美丽的图片");
   });
 
   it("老黄历不可用时不向用户暴露技术状态", async () => {
