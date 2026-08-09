@@ -50,7 +50,15 @@ describe("storyAgent.updateStoryShotFields", () => {
             dialogue: "我害怕所有的事情",
             cameraMove: "缓慢推进",
           },
+          {
+            stableShotId: "shot-0102",
+            shotIdentity: "shot-0102",
+            shotNo: 2,
+            dialogue: "另一镜保持不变",
+          },
         ],
+        timeline: { version: 7, items: ["shot-0101", "shot-0102"] },
+        publishing: { activeVersionId: "v3" },
       },
     });
     if (!created) throw new Error("story creation failed");
@@ -83,6 +91,15 @@ describe("storyAgent.updateStoryShotFields", () => {
       cameraMove: "缓慢推进",
       cameraPath: "从正面极近景开始，沿视线轴推至眼部后停住。",
     });
+    expect((body.shots as Array<Record<string, unknown>>)[1]).toMatchObject({
+      stableShotId: "shot-0102",
+      dialogue: "另一镜保持不变",
+    });
+    expect(body.timeline).toEqual({
+      version: 7,
+      items: ["shot-0101", "shot-0102"],
+    });
+    expect(body.publishing).toEqual({ activeVersionId: "v3" });
   });
 
   it("does not allow another user to patch the story", async () => {

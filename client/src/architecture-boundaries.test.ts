@@ -6,6 +6,7 @@ const srcRoot = import.meta.dirname;
 const repoRoot = path.resolve(srcRoot, "..", "..");
 const componentsRoot = path.join(srcRoot, "components");
 const archiveRoot = path.join(srcRoot, "archive");
+const sharedRoot = path.join(repoRoot, "shared");
 
 const allowedTopLevelComponents = new Set(["ErrorBoundary.tsx", "ui"]);
 const sourceExtensions = new Set([".ts", ".tsx"]);
@@ -18,24 +19,28 @@ async function listFiles(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files = await Promise.all(
     entries
-      .filter((entry) => !entry.name.startsWith("."))
-      .map(async (entry) => {
+      .filter(entry => !entry.name.startsWith("."))
+      .map(async entry => {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) return listFiles(fullPath);
         return [fullPath];
-      }),
+      })
   );
   return files.flat();
 }
 
 function isUnder(child: string, parent: string) {
   const relative = path.relative(parent, child);
-  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return (
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
 }
 
 async function activeSourceFiles() {
   const files = await listFiles(srcRoot);
-  return files.filter((file) => {
+  return files.filter(file => {
     if (isUnder(file, archiveRoot)) return false;
     if (path.basename(file) === "architecture-boundaries.test.ts") return false;
     return sourceExtensions.has(path.extname(file));
@@ -43,12 +48,30 @@ async function activeSourceFiles() {
 }
 
 describe("frontend architecture boundaries", () => {
+  it("keeps shared contracts independent from client and server implementations", async () => {
+    const files = (await listFiles(sharedRoot)).filter(file =>
+      sourceExtensions.has(path.extname(file))
+    );
+    const implementationImportPattern =
+      /(?:from\s+|import\s*\()\s*["'](?:@\/|(?:\.\.\/)+(?:client|server)\/)/;
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const content = await fs.readFile(file, "utf8");
+      if (implementationImportPattern.test(content)) {
+        violations.push(toRepoPath(file));
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   it("keeps top-level components limited to shared platform UI", async () => {
     const entries = await fs.readdir(componentsRoot, { withFileTypes: true });
     const unexpected = entries
-      .filter((entry) => !entry.name.startsWith("."))
-      .map((entry) => entry.name)
-      .filter((name) => !allowedTopLevelComponents.has(name));
+      .filter(entry => !entry.name.startsWith("."))
+      .map(entry => entry.name)
+      .filter(name => !allowedTopLevelComponents.has(name));
 
     expect(unexpected).toEqual([]);
   });
@@ -71,7 +94,8 @@ describe("frontend architecture boundaries", () => {
 
   it("does not import feature-specific files from components", async () => {
     const files = await activeSourceFiles();
-    const componentImportPattern = /from\s+["']@\/components\/(?!ui\/|ErrorBoundary["'])/;
+    const componentImportPattern =
+      /from\s+["']@\/components\/(?!ui\/|ErrorBoundary["'])/;
     const violations: string[] = [];
 
     for (const file of files) {

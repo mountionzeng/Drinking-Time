@@ -7,6 +7,22 @@ function source(path: string) {
 }
 
 describe("creation editor spine boundary", () => {
+  it("keeps shot field persistence on the dedicated command path", () => {
+    const storyContext = source(
+      "client/src/features/storyAgent/StoryAgentContext.tsx"
+    );
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+
+    expect(storyContext).not.toContain("const commitStoryShots");
+    expect(storyContext).not.toContain("updateStoryShotField");
+    expect(storyContext).not.toContain("updateAllStoryShotField");
+    expect(editorContext).toContain(
+      "trpc.storyAgent.updateStoryShotFields.useMutation()"
+    );
+  });
+
   it("projects dynamic storyboard shots from the active spine story without taking over persistence", () => {
     const context = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"
@@ -92,7 +108,9 @@ describe("creation editor spine boundary", () => {
     expect(studioWorkspaces).toContain("...STORY_PANELS");
     expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
-    expect(editingPage).toContain("<StoryboardPanel onEditVideo={onEditVideo} />");
+    expect(editingPage).toContain(
+      "<StoryboardPanel onEditVideo={onEditVideo} />"
+    );
     expect(editingPage).toContain("<AnimaticPanel />");
     expect(editingPage).toContain("<PromptTablePanel />");
     expect(editingPage).toContain("<StoryCardsBoard />");

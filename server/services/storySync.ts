@@ -3,6 +3,7 @@ import {
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
 import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
+import { assertPersistedStoryBodyEnvelope } from "../../shared/storyContract";
 
 type StoryBodyRecord = Record<string, unknown>;
 
@@ -419,6 +420,7 @@ export function prepareStoryBody(
   delete prepared.mobileImages;
   delete prepared.images;
   prepared[REVISION_KEY] = revision;
+  assertPersistedStoryBodyEnvelope(prepared);
   return prepared;
 }
 

@@ -78,7 +78,6 @@ import {
   type PublishingDraftState,
   type PublishingPlatformId,
 } from "@shared/publishingDraft";
-import type { StoryShotEditableField } from "@shared/shotDirector";
 import { buildStoryArtReferences } from "./storyArtReferences";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
 import {
@@ -320,8 +319,6 @@ export function canPersistStoryToActiveScope(
   return activeStoryId === persistedStoryId;
 }
 
-export type { StoryShotEditableField } from "@shared/shotDirector";
-
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";
   message: string;
@@ -372,27 +369,6 @@ interface StoryAgentContextValue {
   removeCard: (id: string) => void;
   /** Inline-edit a single card's content; persists locally + to the server. */
   updateCardContent: (id: string, content: string) => void;
-  /** Inline-edit the latest script's title / logline / arc; persists. */
-  updateScriptMeta: (
-    field: "title" | "logline" | "arcSummary",
-    value: string
-  ) => void;
-  /** Inline-edit one scene of the latest script; persists. */
-  updateScriptScene: (
-    sceneIndex: number,
-    field: "visual" | "emotion",
-    value: string
-  ) => void;
-  /** Inline-edit a single shot's script field (subject/action/dialogue); persists. */
-  updateStoryShotField: (
-    index: number,
-    field: StoryShotEditableField,
-    value: string
-  ) => void;
-  updateAllStoryShotField: (
-    field: StoryShotEditableField,
-    value: string
-  ) => void;
   generateScript: (
     intent?: ScriptIntentArg,
     profile?: GenerationProfileArg
@@ -424,8 +400,6 @@ interface StoryAgentContextValue {
   visualPreference: string;
   /** 「把这一刻画出来」收下的故事画面（故事版 / Story Cards 读这个）。 */
   storyImages: GeneratedImageItem[];
-  /** 收下一张故事画面：去重追加并持久化到 body.mobileImages。 */
-  addStoryImage: (image: GeneratedImageItem) => void;
   /** 删除一张已选择故事画面：先从本地故事版移除，后端信号由调用方记录。 */
   removeStoryImage: (imageId: number) => void;
   imageProvider: ImageProviderSelection;
@@ -483,10 +457,6 @@ type StoryAgentActionKey =
   | "reorderCards"
   | "removeCard"
   | "updateCardContent"
-  | "updateScriptMeta"
-  | "updateScriptScene"
-  | "updateStoryShotField"
-  | "updateAllStoryShotField"
   | "generateScript"
   | "resetConversation"
   | "loadStory"
@@ -509,7 +479,6 @@ type StoryAgentActionKey =
   | "registerImageRerenderRunner"
   | "confirmEditingTransitionCandidate"
   | "rejectEditingTransitionCandidate"
-  | "addStoryImage"
   | "removeStoryImage"
   | "updateShotFragmentRefs";
 
@@ -532,10 +501,6 @@ const storyAgentActionKeys = [
   "reorderCards",
   "removeCard",
   "updateCardContent",
-  "updateScriptMeta",
-  "updateScriptScene",
-  "updateStoryShotField",
-  "updateAllStoryShotField",
   "generateScript",
   "resetConversation",
   "loadStory",
@@ -558,7 +523,6 @@ const storyAgentActionKeys = [
   "registerImageRerenderRunner",
   "confirmEditingTransitionCandidate",
   "rejectEditingTransitionCandidate",
-  "addStoryImage",
   "removeStoryImage",
   "updateShotFragmentRefs",
 ] as const satisfies readonly StoryAgentActionKey[];
@@ -2186,122 +2150,6 @@ export function StoryAgentProvider({
     ]
   );
 
-  // Replace the latest script with an edited copy. Same persistence path as
-  // updateCardContent: setScripts → persist-on-change effect + saveArchiveStory.
-  const commitScripts = useCallback(
-    (nextScripts: GeneratedScript[]) => {
-      setScripts(nextScripts);
-      void saveArchiveStory({
-        messages,
-        cards,
-        scripts: nextScripts,
-        storyShots,
-        characters,
-        remoteStoryId,
-        title: storyTitle,
-        logline: storyLogline,
-        theme: storyTheme,
-        arc: storyArc,
-      });
-    },
-    [
-      messages,
-      cards,
-      storyShots,
-      characters,
-      remoteStoryId,
-      storyTitle,
-      storyLogline,
-      storyTheme,
-      storyArc,
-      saveArchiveStory,
-    ]
-  );
-
-  const updateScriptMeta = useCallback(
-    (field: "title" | "logline" | "arcSummary", value: string) => {
-      const idx = scripts.length - 1;
-      if (idx < 0) return;
-      const nextScripts = scripts.map((s, i) =>
-        i === idx ? { ...s, [field]: value } : s
-      );
-      commitScripts(nextScripts);
-    },
-    [scripts, commitScripts]
-  );
-
-  const updateScriptScene = useCallback(
-    (sceneIndex: number, field: "visual" | "emotion", value: string) => {
-      const idx = scripts.length - 1;
-      if (idx < 0) return;
-      const last = scripts[idx];
-      if (!last || sceneIndex < 0 || sceneIndex >= last.scenes.length) return;
-      const nextScenes = last.scenes.map((sc, i) =>
-        i === sceneIndex ? { ...sc, [field]: value } : sc
-      );
-      const nextScripts = scripts.map((s, i) =>
-        i === idx ? { ...s, scenes: nextScenes } : s
-      );
-      commitScripts(nextScripts);
-    },
-    [scripts, commitScripts]
-  );
-
-  const commitStoryShots = useCallback(
-    (nextStoryShots: StoryShot[]) => {
-      setStoryShots(nextStoryShots);
-      void saveArchiveStory({
-        messages,
-        cards,
-        scripts,
-        storyShots: nextStoryShots,
-        characters,
-        remoteStoryId,
-        title: storyTitle,
-        logline: storyLogline,
-        theme: storyTheme,
-        arc: storyArc,
-      });
-    },
-    [
-      messages,
-      cards,
-      scripts,
-      characters,
-      remoteStoryId,
-      storyTitle,
-      storyLogline,
-      storyTheme,
-      storyArc,
-      saveArchiveStory,
-    ]
-  );
-
-  const updateStoryShotField = useCallback(
-    (index: number, field: StoryShotEditableField, value: string) => {
-      const currentShots = storySpineStore.getState().storyShots;
-      if (index < 0 || index >= currentShots.length) return;
-      const nextStoryShots = currentShots.map((shot, i) =>
-        i === index ? { ...shot, [field]: value } : shot
-      );
-      commitStoryShots(nextStoryShots);
-    },
-    [commitStoryShots]
-  );
-
-  const updateAllStoryShotField = useCallback(
-    (field: StoryShotEditableField, value: string) => {
-      const currentShots = storySpineStore.getState().storyShots;
-      if (currentShots.length === 0) return;
-      const nextStoryShots = currentShots.map(shot => ({
-        ...shot,
-        [field]: value,
-      }));
-      commitStoryShots(nextStoryShots);
-    },
-    [commitStoryShots]
-  );
-
   const generateScript = useCallback(
     async (intent?: ScriptIntentArg, profile?: GenerationProfileArg) => {
       const effectiveIntent = resolveScriptIntent(intent, confirmedIntent);
@@ -3776,15 +3624,6 @@ export function StoryAgentProvider({
     []
   );
 
-  // 收下一张故事画面：去重追加（同 id 覆盖）。state 变更经 autosave 落 body.mobileImages，
-  // 故事版 / Story Cards 直接读 context.storyImages，即时可见。
-  const addStoryImage = useCallback((image: GeneratedImageItem) => {
-    setStoryImages(prev => {
-      const without = prev.filter(item => item.id !== image.id);
-      return [...without, image];
-    });
-  }, []);
-
   const removeStoryImage = useCallback((imageId: number) => {
     setStoryImages(prev => prev.filter(item => item.id !== imageId));
   }, []);
@@ -3866,10 +3705,6 @@ export function StoryAgentProvider({
       reorderCards,
       removeCard,
       updateCardContent,
-      updateScriptMeta,
-      updateScriptScene,
-      updateStoryShotField,
-      updateAllStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -3887,7 +3722,6 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       storyImages,
-      addStoryImage,
       removeStoryImage,
       imageProvider,
       artDirection,
@@ -3935,10 +3769,6 @@ export function StoryAgentProvider({
       reorderCards,
       removeCard,
       updateCardContent,
-      updateScriptMeta,
-      updateScriptScene,
-      updateStoryShotField,
-      updateAllStoryShotField,
       generateScript,
       resetConversation,
       activeStoryId,
@@ -3956,7 +3786,6 @@ export function StoryAgentProvider({
       visualCanvasItems,
       visualPreference,
       storyImages,
-      addStoryImage,
       removeStoryImage,
       imageProvider,
       artDirection,
@@ -3995,10 +3824,6 @@ export function StoryAgentProvider({
     reorderCards,
     removeCard,
     updateCardContent,
-    updateScriptMeta,
-    updateScriptScene,
-    updateStoryShotField,
-    updateAllStoryShotField,
     generateScript,
     resetConversation,
     loadStory,
@@ -4021,7 +3846,6 @@ export function StoryAgentProvider({
     registerImageRerenderRunner,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
-    addStoryImage,
     removeStoryImage,
     updateShotFragmentRefs,
   };

@@ -1621,6 +1621,12 @@ export function CreationEditorProvider({
     });
   }, [recentVideoTakeIds, shots]);
 
+  /**
+   * 职责：保存仍未迁移到专用命令的 Story body 变更；镜头字段编辑不得调用它。
+   * 调用方：`updateShotDuration`、`updatePromptOverride`、`ensurePromptShot`、
+   * `recordPromptRun`、`rerenderShot`。
+   * 下游：调用 `storyUpsert`，再刷新 Story 与素材投影；后续应逐项淘汰。
+   */
   const persistBody = async (body: Record<string, unknown>) => {
     const row = storyQuery.data;
     if (!row) throw new Error("故事尚未加载，无法保存");
@@ -1661,22 +1667,11 @@ export function CreationEditorProvider({
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
   };
 
-  // ── 阶段 D：镜头表字段直接编辑 → 额外提议一条提示词候选 ──
-  // 刻意不改变 updatePersistedShotFields 本身的行为：镜头表照常立即生效、
-  // 立即持久化，这只是叠加在保存成功之后的信号，失败绝不影响镜头表编辑
-  // 本身——跟 storyAgent 聊天路径落候选的非致命原则一致。
-  //
-  // 这是故事版看板（StoryboardPanel → StoryboardReviewBoard）实际调用的
-  // 保存函数——它跟 StoryAgentContext 的 updateStoryShotField 是两套并行
-  // 的镜头编辑通道，走的是不同的持久化路径（这里是 updateStoryShotFieldsMut
-  // + stories.body，那边是 saveArchiveStory）。候选提议接在这里才对真实
-  // UI 生效。
-  // `aggregate` 必须是编辑落库之前取到的快照——不能在这里现取。
-  // 原因（浏览器实测才抓到的真实 bug，不是假设）：getStoryProjection 会先跑
-  // maybeResetStaleMigration，一旦发现 stories.body 变了、又没有人工候选记录，
-  // 就整体重新迁移谱系，把最新的 body 值当成新基线吸收掉。如果编辑落库*之后*
-  // 才现取聚合，读到的"当前确认内容"已经被这次编辑污染成新基线，
-  // currentContent === nextValue 永远成立，候选永远提不出来。
+  /**
+   * 职责：把已保存的镜头字段变化转换为可确认的提示词候选。
+   * 调用方：`updatePersistedShotFields` 在镜头命令成功后调用。
+   * 下游：调用 prompt-lineage 的 reject/create mutation；失败不回滚镜头字段。
+   */
   const proposeEditPromptCandidates = async (
     changes: ShotFieldChange[],
     aggregate: StoryPromptAggregate
@@ -1716,6 +1711,11 @@ export function CreationEditorProvider({
     }
   };
 
+  /**
+   * 职责：镜头字段编辑的客户端唯一入口，串行提交并用服务端快照回灌 spine。
+   * 调用方：StoryboardReviewBoard、ShotMaterialBasket 等编辑面板。
+   * 下游：调用 `storyAgent.updateStoryShotFields`、刷新 Story/素材投影，并提议提示词候选。
+   */
   const updatePersistedShotFields = async (
     stableShotId: string,
     patch: Partial<Record<StoryShotEditableField, string>>
@@ -1802,6 +1802,11 @@ export function CreationEditorProvider({
     return queued;
   };
 
+  /**
+   * 职责：把单字段编辑适配为批量 patch 命令，避免维护第二套保存逻辑。
+   * 调用方：只编辑一个单元格的镜头面板。
+   * 下游：仅调用 `updatePersistedShotFields`。
+   */
   const updatePersistedShotField = async (
     stableShotId: string,
     field: StoryShotEditableField,

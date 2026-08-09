@@ -72,17 +72,18 @@ import {
   deleteStoryShotAtIndex,
   insertStoryShotAfter,
 } from "../../shared/storyShotEditing";
-import {
-  normalizeShotIdentity,
-  shotIdentityFromShot,
-} from "../../shared/shotIdentity";
-import { STORY_SHOT_EDITABLE_FIELDS } from "../../shared/shotDirector";
+import { shotIdentityFromShot } from "../../shared/shotIdentity";
 import {
   estimateStoryboardImageCost,
   estimateStoryboardMaskedEditCost,
 } from "../../shared/imageRenderCost";
 import { getActiveStyles } from "../services/styleLibrary";
 import { sceneAnalysisSchema } from "../../shared/sceneAnalysis";
+import {
+  persistedStoryIdSchema,
+  stableShotIdSchema,
+  storyShotFieldPatchSchema,
+} from "../../shared/storyContract";
 import {
   type PromptContext,
   buildUnifiedPrompt,
@@ -108,8 +109,6 @@ import {
   storyShotToDbRow,
   writeCharacterAnchor,
 } from "./_storyShared";
-
-const editableStoryShotFieldSet = new Set<string>(STORY_SHOT_EDITABLE_FIELDS);
 
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
@@ -704,24 +703,17 @@ export const storyAgentRouter = router({
       return { ok: true };
     }),
 
+  /**
+   * 职责：按 stableShotId 提交镜头字段命令，不接收整条镜头或整份 Story body。
+   * 调用方：CreationEditorContext 的 `updatePersistedShotFields`。
+   * 下游：`persistPreparedStoryBody` 以 revision CAS 落库，再同步 prompt lineage。
+   */
   updateStoryShotFields: protectedProcedure
     .input(
       z.object({
-        storyId: z.number().int().positive(),
-        stableShotId: z.string().trim().min(1),
-        patch: z
-          .record(z.string(), z.string().max(6000))
-          .refine(
-            value => Object.keys(value).length > 0,
-            "至少修改一个镜头字段"
-          )
-          .refine(
-            value =>
-              Object.keys(value).every(field =>
-                editableStoryShotFieldSet.has(field)
-              ),
-            "包含不支持修改的镜头字段"
-          ),
+        storyId: persistedStoryIdSchema,
+        stableShotId: stableShotIdSchema,
+        patch: storyShotFieldPatchSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -736,18 +728,12 @@ export const storyAgentRouter = router({
           ? (story.body as Record<string, unknown>)
           : {};
       const shots = Array.isArray(body.shots) ? body.shots : [];
-      const targetStableShotId = normalizeShotIdentity(input.stableShotId);
+      const targetStableShotId = input.stableShotId;
       let found = false;
       const nextShots = shots.map((raw, index) => {
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
         const shot = raw as Record<string, unknown>;
-        const identities = [
-          shotIdentityFromShot(shot, index),
-          normalizeShotIdentity(shot.stableShotId),
-          normalizeShotIdentity(shot.shotIdentity),
-          normalizeShotIdentity(shotIdentityForStoryShot(story, index + 1)),
-        ];
-        if (!identities.some(identity => identity === targetStableShotId)) {
+        if (shotIdentityFromShot(shot, index) !== targetStableShotId) {
           return raw;
         }
         found = true;
@@ -772,7 +758,10 @@ export const storyAgentRouter = router({
         });
       } catch (error) {
         if (error instanceof StoryBodyRevisionConflictError) {
-          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+          return {
+            status: "error" as const,
+            error: "镜头已在别处更新，请刷新后重试",
+          };
         }
         throw error;
       }
@@ -794,11 +783,16 @@ export const storyAgentRouter = router({
       };
     }),
 
+  /**
+   * 职责：在稳定镜头身份之后插入新镜头，并保持其余镜头与素材身份不变。
+   * 调用方：CreationEditorContext 的 `insertPersistedShotAfter`。
+   * 下游：调用 `insertStoryShotAfter` 生成镜头，再以 revision CAS 落库。
+   */
   insertStoryShotAfter: protectedProcedure
     .input(
       z.object({
-        storyId: z.number().int().positive(),
-        stableShotId: z.string().trim().min(1),
+        storyId: persistedStoryIdSchema,
+        stableShotId: stableShotIdSchema,
         dialogue: z.string().optional(),
       })
     )
@@ -818,15 +812,8 @@ export const storyAgentRouter = router({
             Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
           )
         : [];
-      const targetStableShotId = normalizeShotIdentity(input.stableShotId);
       const anchorIndex = shots.findIndex((shot, index) => {
-        const identities = [
-          shotIdentityFromShot(shot, index),
-          normalizeShotIdentity(shot.stableShotId),
-          normalizeShotIdentity(shot.shotIdentity),
-          normalizeShotIdentity(shotIdentityForStoryShot(story, index + 1)),
-        ];
-        return identities.some(identity => identity === targetStableShotId);
+        return shotIdentityFromShot(shot, index) === input.stableShotId;
       });
       const anchor = anchorIndex >= 0 ? shots[anchorIndex] : null;
       const anchorShotNo =
@@ -864,7 +851,10 @@ export const storyAgentRouter = router({
         });
       } catch (error) {
         if (error instanceof StoryBodyRevisionConflictError) {
-          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+          return {
+            status: "error" as const,
+            error: "镜头已在别处更新，请刷新后重试",
+          };
         }
         throw error;
       }
@@ -888,11 +878,16 @@ export const storyAgentRouter = router({
       };
     }),
 
+  /**
+   * 职责：按稳定镜头身份删除单镜，且强制故事至少保留一个镜头。
+   * 调用方：CreationEditorContext 的 `deletePersistedShot`。
+   * 下游：调用 `deleteStoryShotAtIndex` 重排镜头，再以 revision CAS 落库。
+   */
   deleteStoryShot: protectedProcedure
     .input(
       z.object({
-        storyId: z.number().int().positive(),
-        stableShotId: z.string().trim().min(1),
+        storyId: persistedStoryIdSchema,
+        stableShotId: stableShotIdSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -914,15 +909,8 @@ export const storyAgentRouter = router({
       if (shots.length <= 1) {
         return { status: "error" as const, error: "至少保留一个镜头" };
       }
-      const targetStableShotId = normalizeShotIdentity(input.stableShotId);
       const targetIndex = shots.findIndex((shot, index) => {
-        const identities = [
-          shotIdentityFromShot(shot, index),
-          normalizeShotIdentity(shot.stableShotId),
-          normalizeShotIdentity(shot.shotIdentity),
-          normalizeShotIdentity(shotIdentityForStoryShot(story, index + 1)),
-        ];
-        return identities.some(identity => identity === targetStableShotId);
+        return shotIdentityFromShot(shot, index) === input.stableShotId;
       });
       const deleted = deleteStoryShotAtIndex(shots, targetIndex);
       if (!deleted) {
@@ -943,7 +931,10 @@ export const storyAgentRouter = router({
         });
       } catch (error) {
         if (error instanceof StoryBodyRevisionConflictError) {
-          return { status: "error" as const, error: "镜头已在别处更新，请刷新后重试" };
+          return {
+            status: "error" as const,
+            error: "镜头已在别处更新，请刷新后重试",
+          };
         }
         throw error;
       }
@@ -995,7 +986,10 @@ export const storyAgentRouter = router({
         });
       } catch (error) {
         if (error instanceof StoryBodyRevisionConflictError) {
-          return { status: "error" as const, error: "故事已更新，请刷新后重试" };
+          return {
+            status: "error" as const,
+            error: "故事已更新，请刷新后重试",
+          };
         }
         throw error;
       }
