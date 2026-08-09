@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-import net from "net";
 import fs from "node:fs";
 import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -15,28 +14,17 @@ import { getStoryById, getVideoTakeById } from "../db";
 import { localVideoDir } from "../services/videoMedia";
 import { renderTransitionVideoFrame } from "../services/videoEndpointFrames";
 import { resolveMediaRouteUserId } from "./mediaRouteAuth";
-
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
-
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+import {
+  findAvailablePort,
+} from "./portPolicy";
+import { validateDevelopmentServerStartup } from "./devServerPreflight";
 
 async function startServer() {
+  const preferredPort = parseInt(process.env.PORT || "3000");
+  if (process.env.NODE_ENV === "development") {
+    validateDevelopmentServerStartup({ port: preferredPort });
+  }
+
   const app = express();
   app.set("trust proxy", true);
   const server = createServer(app);
@@ -202,12 +190,7 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

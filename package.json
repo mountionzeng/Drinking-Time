@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "predev": "pkill -f 'server/_core/index.ts' || true; sleep 1",
+    "predev": "tsx scripts/dev-preflight.ts && (pkill -f 'server/_core/index.ts' || true) && sleep 1",
     "dev": "PORT=3000 NODE_ENV=development tsx watch server/_core/index.ts",
     "env:status": "tsx scripts/env-status.ts",
     "preview:3000": "PORT=3000 NODE_ENV=development tsx watch scripts/preview-server.ts",
