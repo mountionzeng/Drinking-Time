@@ -103,19 +103,13 @@ export default function GuidedLanding({
             open={aboutOpen}
             contentId={ABOUT_CONTENT_ID}
           >
-            <div className="space-y-3 text-left">
+            <div className="space-y-2.5 text-left">
               <p className="text-sm leading-relaxed text-foreground">
-                聊一件小事，聊聊把它变成一段只给自己看的画面。
+                在这里，你可以看看今天适合做什么，也可以和聊聊说起一段经历。
               </p>
-              <ul className="space-y-2 text-xs leading-relaxed text-muted-foreground">
-                <li>不用会画，也不用会写提示词。你说人话就行。</li>
-                <li>
-                  出来的不是好看的图，是有情绪的画面。同样一句「我搬家了」，它给的是黄昏的空房间、地上拉长的影子。
-                </li>
-                <li>
-                  留得住。那些说不出口又舍不得忘的瞬间，有个地方放，回头还能再看。
-                </li>
-              </ul>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。
+              </p>
             </div>
           </WuxingPourContent>
 
