@@ -4,8 +4,8 @@
  * 检查最终提示词里有没有混进「不该给模型看的东西」——文件名、分辨率、URL、
  * 素材管理标签。这些是数据管道漏进来的，不是创作意图，会稀释真正的描述。
  *
- * 逐维度检测（不是整段扫），这样每条违规都能报出 dimension + source，
- * 直接指向该去哪个模块修。
+ * 以最终编译文本为准，避免编译器在维度内容之外拼入污染却漏报；命中内容能回溯到
+ * 某个维度时仍保留 dimension + source，无法回溯时明确标成「整段」。
  */
 import type { EvalSample, MetricResult, Violation } from "../types";
 
@@ -57,13 +57,19 @@ export function hygieneMetric(
 
   for (const sample of samples) {
     let sampleClean = true;
+    const attributedRules = new Set<string>();
+
+    // 先在确实进入 finalText 的维度内容里定位，保留 source；单独扫 finalText 会让
+    // 「整行 UI 标签」这类锚定规则被编译器加上的 `dimension(weight):` 前缀遮住。
     for (const [dimension, content] of Object.entries(
       sample.contentByDimension,
     )) {
+      if (!sample.finalText.includes(content)) continue;
       for (const rule of RULES) {
         const match = content.match(rule.pattern);
         if (!match) continue;
         sampleClean = false;
+        attributedRules.add(rule.key);
         ruleHits[rule.key] = (ruleHits[rule.key] ?? 0) + 1;
         if (violations.length < maxViolations) {
           violations.push({
@@ -76,6 +82,26 @@ export function hygieneMetric(
             source: sample.sourceByDimension[dimension] ?? null,
           });
         }
+      }
+    }
+
+    // 再扫最终文本，抓编译器或拼装逻辑额外引入、无法回溯到维度的污染。
+    for (const rule of RULES) {
+      if (attributedRules.has(rule.key)) continue;
+      const match = sample.finalText.match(rule.pattern);
+      if (!match) continue;
+      sampleClean = false;
+      ruleHits[rule.key] = (ruleHits[rule.key] ?? 0) + 1;
+      if (violations.length < maxViolations) {
+        violations.push({
+          rule: rule.key,
+          storyId: sample.storyId,
+          stableShotId: sample.stableShotId,
+          modality: sample.modality,
+          dimension: "(整段)",
+          evidence: evidenceFrom(sample.finalText, match),
+          source: null,
+        });
       }
     }
     if (sampleClean) cleanSamples += 1;

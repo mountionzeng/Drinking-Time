@@ -59,6 +59,42 @@ describe("hygieneMetric", () => {
     expect(result.violations[0].dimension).toBe("composition");
   });
 
+  it("抓出只出现在最终编译文本里的污染，并标记为整段来源", () => {
+    const result = hygieneMetric([
+      sample({
+        contentByDimension: { subject: "冬夜的菜市场" },
+        finalText: "subject(42%): 冬夜的菜市场\nUI 素材 1920x1080",
+      }),
+    ]);
+
+    expect(result.score).toBe(0);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rule: "pixelDimensions",
+          dimension: "(整段)",
+          source: null,
+        }),
+      ]),
+    );
+  });
+
+  it("编译器加上维度前缀后仍能抓出整行 UI 标签", () => {
+    const result = hygieneMetric([
+      sample({
+        contentByDimension: { style_reference: "A" },
+        sourceByDimension: { style_reference: "shot.styleRef" },
+      }),
+    ]);
+
+    expect(result.score).toBe(0);
+    expect(result.violations[0]).toMatchObject({
+      rule: "uiBucketLabel",
+      dimension: "style_reference",
+      source: "shot.styleRef",
+    });
+  });
+
   it("不把正常中文描述误判成 UI 标签", () => {
     const result = hygieneMetric([
       sample({ contentByDimension: { mood: "克制\n疏离\n带一点暖" } }),

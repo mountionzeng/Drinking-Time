@@ -1,12 +1,11 @@
 /**
- * 评测语料 —— 从提示词谱系存档里读出「事实」，用真实编译器现场编译成样本。
+ * 评测语料 —— 从提示词谱系存档里读出节点、revision 与绑定状态，
+ * 用当前真实编译器现场编译成样本（不读取历史 compilation 文本）。
  *
  * 只读。绝不写 `.webdev/`（见 AGENTS.md 环境铁律），所以本模块可以安全地在
  * worktree 里跑：语料路径显式传入，默认回退到主仓库的存档。
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 import { compilePromptTargets } from "../shared/promptCompiler";
 import type {
@@ -20,6 +19,7 @@ import type {
   EvalSample,
   GoldenSet,
 } from "./types";
+import { resolveEvalDataPath } from "./localDataPath";
 
 const CORPUS_FILENAME = ".webdev/prompt-lineage-local.json";
 const MODALITIES: EvalModality[] = ["dialogue", "image", "video"];
@@ -36,41 +36,19 @@ type LineageArchive = {
 };
 
 /**
- * 找到语料文件。优先级：显式参数 > 环境变量 > 当前目录 > 主 checkout。
+ * 找到语料文件。优先级：显式参数 > 环境变量 > 主 checkout > 当前目录。
  *
- * 最后一档是为 worktree 准备的：worktree 自己没有 `.webdev/`，
- * `git rev-parse --git-common-dir` 会指回主仓库的 `.git`，其父目录即主 checkout。
+ * 主 checkout 档是为 worktree 准备的：`git rev-parse --git-common-dir` 会指回
+ * 主仓库的 `.git`，其父目录即主 checkout；当前目录只作为最后兜底。
  */
 export function resolveCorpusPath(explicit?: string): string {
-  const candidates: string[] = [];
-  if (explicit) candidates.push(resolve(explicit));
-  if (process.env.PROMPT_EVAL_CORPUS)
-    candidates.push(resolve(process.env.PROMPT_EVAL_CORPUS));
-  candidates.push(resolve(process.cwd(), CORPUS_FILENAME));
-
-  try {
-    const commonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (commonDir) {
-      candidates.push(
-        resolve(dirname(resolve(process.cwd(), commonDir)), CORPUS_FILENAME),
-      );
-    }
-  } catch {
-    // 不在 git 仓库里，或没有 git——跳过这一档
-  }
-
-  const found = candidates.find(candidate => existsSync(candidate));
-  if (!found) {
-    throw new Error(
-      `找不到提示词谱系语料。试过：\n${candidates.map(c => `  - ${c}`).join("\n")}\n` +
-        `用 --corpus <路径> 或设 PROMPT_EVAL_CORPUS 指定。`,
-    );
-  }
-  return found;
+  return resolveEvalDataPath({
+    filename: CORPUS_FILENAME,
+    description: "提示词谱系语料",
+    usage: "用 --corpus <路径> 或设 PROMPT_EVAL_CORPUS 指定。",
+    explicit,
+    environmentPath: process.env.PROMPT_EVAL_CORPUS,
+  });
 }
 
 /** 把谱系存档编译成评测样本。纯函数，方便单测直接喂构造数据。 */

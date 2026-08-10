@@ -1,10 +1,9 @@
 /**
  * 提示词评测 —— 共享类型。
  *
- * 评测对象是「当前代码编译出来的提示词」，不是历史存档：
- * corpus 只提供 nodes/revisions/bindings 这些**事实**，
- * 由 `compilePromptTargets`（真实编译器）现场编译，指标再打分。
- * 这样改编译器 / 改权重，分数就会动——这才是回归闸门。
+ * 评测对象是「当前代码根据存档 revision 状态重新编译出来的提示词」，不是存档的
+ * compilation 文本。revision.weight 是用户已保存状态，默认权重表不会追溯覆盖它；
+ * 默认权重策略另由 `pnpm eval:weights` 的证据分数观测。
  */
 import type { PromptModality } from "../shared/promptLineage";
 
