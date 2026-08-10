@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 import { loadEditSnapshotFacts } from "./editSnapshotCorpus";
 import {
   computeDimensionSignals,
+  computeWeightEditAlignment,
   findMisalignedDimensions,
 } from "./dimensionWeightSignal";
 
@@ -27,16 +28,26 @@ function pct(value: number): string {
 }
 
 function main(): void {
-  const { path, shots, snapshotCount } = loadEditSnapshotFacts(
-    readFlag("snapshots"),
-  );
+  const {
+    path,
+    shots,
+    snapshotCount,
+    invalidSnapshots,
+    invalidModifiedPairs,
+  } = loadEditSnapshotFacts(readFlag("snapshots"));
   const signals = computeDimensionSignals(shots);
+  const alignment = computeWeightEditAlignment(signals);
   const misaligned = findMisalignedDimensions(signals);
 
   console.log("维度权重信号报告");
   console.log("=".repeat(52));
   console.log(`语料：${path}`);
   console.log(`规模：${snapshotCount} 次快照 / ${shots.size} 个有编辑历史的镜头\n`);
+  if (invalidSnapshots > 0 || invalidModifiedPairs > 0) {
+    console.log(
+      `跳过损坏数据：${invalidSnapshots} 条快照 / ${invalidModifiedPairs} 个 modified pair\n`,
+    );
+  }
 
   console.log("维度".padEnd(18) + "编辑率".padEnd(10) + "样本".padEnd(8) + "当前权重");
   for (const s of signals) {
@@ -48,6 +59,11 @@ function main(): void {
         `${s.currentWeight}${weightNote}`,
     );
   }
+
+  console.log(
+    `\n默认权重 × 编辑率证据分数：${pct(alignment.score)}` +
+      `（Pearson r=${alignment.correlation.toFixed(3)}，${alignment.eligibleDimensions} 个维度）`,
+  );
 
   console.log(`\n${"=".repeat(52)}`);
   if (misaligned.length === 0) {
@@ -73,7 +89,7 @@ function main(): void {
   if (jsonOut) {
     writeFileSync(
       resolve(jsonOut),
-      `${JSON.stringify({ generatedAt: new Date().toISOString(), snapshotCount, shotsAnalyzed: shots.size, signals, misaligned }, null, 2)}\n`,
+      `${JSON.stringify({ generatedAt: new Date().toISOString(), snapshotCount, invalidSnapshots, invalidModifiedPairs, shotsAnalyzed: shots.size, alignment, signals, misaligned }, null, 2)}\n`,
     );
     console.log(`\n已写出 JSON：${resolve(jsonOut)}`);
   }

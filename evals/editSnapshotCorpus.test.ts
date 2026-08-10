@@ -4,10 +4,15 @@ import {
   buildShotEditFacts,
   dimensionForField,
   isPromptDimensionField,
+  parseEditSnapshots,
+  shotEditFactKey,
 } from "./editSnapshotCorpus";
 
-function snapshot(modified: Array<{ old: Record<string, unknown> | null; new: Record<string, unknown> | null }>) {
-  return { id: 1, projectId: 1, timestamp: "2026-08-01T00:00:00.000Z", diff: { shots: { modified } } };
+function snapshot(
+  modified: Array<{ old: Record<string, unknown> | null; new: Record<string, unknown> | null }>,
+  projectId = 1,
+) {
+  return { id: 1, projectId, timestamp: "2026-08-01T00:00:00.000Z", diff: { shots: { modified } } };
 }
 
 describe("dimensionForField / isPromptDimensionField", () => {
@@ -43,7 +48,7 @@ describe("buildShotEditFacts", () => {
         },
       ]),
     ]);
-    expect(facts.get("a")!.editedDimensions.has("subject")).toBe(true);
+    expect(facts.get(shotEditFactKey(1, "a"))!.editedDimensions.has("subject")).toBe(true);
   });
 
   it("值没变不算 edited，即使字段出现在 diff 里", () => {
@@ -55,8 +60,8 @@ describe("buildShotEditFacts", () => {
         },
       ]),
     ]);
-    expect(facts.get("a")!.editedDimensions.has("subject")).toBe(false);
-    expect(facts.get("a")!.editedDimensions.has("action")).toBe(true);
+    expect(facts.get(shotEditFactKey(1, "a"))!.editedDimensions.has("subject")).toBe(false);
+    expect(facts.get(shotEditFactKey(1, "a"))!.editedDimensions.has("action")).toBe(true);
   });
 
   it("两端都是空字符串时不计入 present——不是「字段有内容」而是「key 恰好存在」", () => {
@@ -68,7 +73,7 @@ describe("buildShotEditFacts", () => {
         },
       ]),
     ]);
-    expect(facts.get("a")!.presentDimensions.has("location")).toBe(false);
+    expect(facts.get(shotEditFactKey(1, "a"))!.presentDimensions.has("location")).toBe(false);
   });
 
   it("非提示词维度字段（参考图/配置）完全不进入统计", () => {
@@ -80,7 +85,7 @@ describe("buildShotEditFacts", () => {
         },
       ]),
     ]);
-    expect(facts.get("a")!.presentDimensions.size).toBe(0);
+    expect(facts.get(shotEditFactKey(1, "a"))!.presentDimensions.size).toBe(0);
   });
 
   it("同一镜头在多次快照里出现，按镜头去重而不是按快照计数", () => {
@@ -90,11 +95,62 @@ describe("buildShotEditFacts", () => {
       snapshot([{ old: { stableShotId: "a", subject: "3" }, new: { stableShotId: "a", subject: "4" } }]),
     ]);
     expect(facts.size).toBe(1);
-    expect(facts.get("a")!.editedDimensions.has("subject")).toBe(true);
+    expect(facts.get(shotEditFactKey(1, "a"))!.editedDimensions.has("subject")).toBe(true);
+  });
+
+  it("不同项目复用同一 stableShotId 时分别统计，不跨项目合并", () => {
+    const facts = buildShotEditFacts([
+      snapshot(
+        [{ old: { stableShotId: "same", subject: "1" }, new: { stableShotId: "same", subject: "2" } }],
+        10,
+      ),
+      snapshot(
+        [{ old: { stableShotId: "same", mood: "冷" }, new: { stableShotId: "same", mood: "暖" } }],
+        20,
+      ),
+    ]);
+
+    expect(facts.size).toBe(2);
   });
 
   it("缺 stableShotId 的记录被跳过，不炸也不产生幽灵镜头", () => {
     const facts = buildShotEditFacts([snapshot([{ old: { subject: "x" }, new: { subject: "y" } }])]);
     expect(facts.size).toBe(0);
+  });
+
+  it("modified 里的损坏元素会被跳过，不影响有效 pair", () => {
+    const facts = buildShotEditFacts([
+      {
+        id: 1,
+        projectId: 1,
+        diff: {
+          shots: {
+            modified: [
+              null,
+              "bad",
+              {
+                old: { stableShotId: "a", mood: "冷" },
+                new: { stableShotId: "a", mood: "暖" },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    expect(facts.size).toBe(1);
+    expect(facts.get(shotEditFactKey(1, "a"))?.editedDimensions.has("mood")).toBe(true);
+  });
+
+  it("损坏根节点和非法项目快照不会进入权重统计", () => {
+    expect(parseEditSnapshots(null)).toEqual({ snapshots: [], invalidSnapshots: 0 });
+    const parsed = parseEditSnapshots([
+      null,
+      "bad",
+      { projectId: "1", diff: {} },
+      { id: 4, projectId: 4, diff: {} },
+    ]);
+    expect(parsed.invalidSnapshots).toBe(3);
+    expect(parsed.snapshots).toEqual([{ id: 4, projectId: 4, diff: {} }]);
   });
 });

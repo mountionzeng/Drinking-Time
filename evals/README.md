@@ -21,11 +21,11 @@ pnpm eval:prompt
 
 `golden-set.json` 冻结参与评分的镜头列表。三种情况：
 
-| 情况 | 表现 | 退出码 |
-|---|---|---|
-| golden set 内的镜头都在 | 正常评分，与基线比 | 0 / 1 |
-| 有镜头消失了 | 报告漂移并列出，**不判回归** | 2 |
-| 语料有新镜头 | 提示但不参与评分 | 0 / 1 |
+| 情况                    | 表现                         | 退出码 |
+| ----------------------- | ---------------------------- | ------ |
+| golden set 内的镜头都在 | 正常评分，与基线比           | 0 / 1  |
+| 有镜头消失了            | 报告漂移并列出，**不判回归** | 2      |
+| 语料有新镜头            | 提示但不参与评分             | 0 / 1  |
 
 ```bash
 pnpm eval:prompt --freeze-golden      # 冻结总体
@@ -39,9 +39,16 @@ pnpm eval:prompt --update-baseline    # 冻结分数
 
 ## 它测的是什么
 
-**测当前代码，不是历史存档。** 语料只提供 `nodes / revisions / bindings` 这些*事实*，
-由真实的 `compilePromptTargets()` 现场编译，指标再对编译结果打分。
-所以改编译器、改 `PROMPT_DIMENSION_WEIGHTS`、改维度路由，分数都会动——这才是回归闸门。
+**测当前编译代码，不读历史 compilation 文本。** 语料提供 `nodes / revisions / bindings`，
+由真实的 `compilePromptTargets()` 现场重编译，指标再对最终 `finalText` 打分。
+所以改编译逻辑或维度路由会直接影响 `pnpm eval:prompt`；hygiene 也以 `finalText`
+为准，并在能回溯时保留 dimension/source 定位。
+
+这里有一个必须说清的边界：`revision.weight` 是已经保存的用户/历史状态，生产编译器
+会尊重它。修改 `PROMPT_DIMENSION_WEIGHTS` 只影响以后创建的默认值，不会追溯覆盖旧
+revision，因此不应伪装成会让这批生产重编译样本自动变化。默认权重策略由
+`pnpm eval:weights` 的「默认权重 × 编辑率证据分数」专门观测；改默认表会改变该分数，
+但不会偷偷覆盖用户自定义权重。
 
 > 这一点很重要：谱系里*存档*的 `compilations` 是历史产物，跟当前编译器的输出可能差很远。
 > 例：story48 某镜的存档编译是 4746 字符（`subject` 里全是视频文件名），
@@ -50,12 +57,12 @@ pnpm eval:prompt --update-baseline    # 冻结分数
 
 ## 四个指标
 
-| 指标 | 问的问题 | 不合格意味着 |
-|---|---|---|
-| **hygiene** 提示词卫生 | 有没有混进文件名、分辨率、URL、UI 分桶标签？ | 数据管道漏进了非创作内容，稀释真正的描述 |
-| **coverage** 维度覆盖率 | 期望维度填了多少？ | 缺的维度模型会自己脑补，脑补的部分每次重渲都不一样 |
-| **continuity** 视觉连续性 | 镜头共享同一个风格锚点吗？ | 每镜各写各的风格，接起来跳戏 |
-| **budget** 长度预算 | 在 80–3000 字符内吗？ | 太长稀释重点/可能被供应商截断，太短等于没描述 |
+| 指标                      | 问的问题                                     | 不合格意味着                                       |
+| ------------------------- | -------------------------------------------- | -------------------------------------------------- |
+| **hygiene** 提示词卫生    | 有没有混进文件名、分辨率、URL、UI 分桶标签？ | 数据管道漏进了非创作内容，稀释真正的描述           |
+| **coverage** 维度覆盖率   | 期望维度填了多少？                           | 缺的维度模型会自己脑补，脑补的部分每次重渲都不一样 |
+| **continuity** 视觉连续性 | 镜头共享同一个风格锚点吗？                   | 每镜各写各的风格，接起来跳戏                       |
+| **budget** 长度预算       | 在 80–3000 字符内吗？                        | 太长稀释重点/可能被供应商截断，太短等于没描述      |
 
 每条违规都带 `dimension` 和 `source`（如 `story.visualCanvasItems`），直接指向该去哪个模块修，
 而不是只给一个分数。
@@ -98,11 +105,12 @@ pnpm eval:weights
   参考图绑定、出图模型配置这些字段永远不会出现在提示词文本里，
   问「该给它多少权重」没有意义（完整边界见 `editSnapshotCorpus.ts` 的 `KNOWN_DIMENSION_FIELDS`）。
 
-**已知的真实发现**：`style_reference` 编辑率 29.9%（77 个镜头样本），
-跟 mood/location 同一档，权重却只有同类维度的八成——已按此证据调到 0.32
-（两份权重表都改了，`weightTableSync.test.ts` 保证以后不会只改一边）。
-更多维度（`time_light`、`negative_prompt`、`intent` 权重可能偏高）有信号但样本量
-还薄，留给后续数据积累后重跑再判断。
+报告里的证据分数把「编辑率与默认权重的 Pearson 相关系数」映射到 0–1，只用于
+观察默认策略是否跟真实编辑需求同向，不是画质分数，更不能拿来自动调权重。
+
+编辑快照会随主 checkout 的实际使用持续变化，不在文档里冻结样本数和百分比。
+合并判断以重新运行 `pnpm eval:weights` 的输出为准；需要保留历史结论时，应同时记录
+语料文件副本或内容哈希，不能只记录运行日期。
 
 ## 权重表同步（`weightTableSync.test.ts`）
 
@@ -112,11 +120,37 @@ pnpm eval:weights
 `weightTableSync.test.ts` 断言两边都定义的维度权重必须相等——改一张忘了改另一张，
 CI 就红，不用等到评测或线上行为不一致才发现。
 
+## 检索算法真实语料对比（`pnpm eval:retrieval`）
+
+该命令只读主 checkout 的 `.webdev/local-persist.json`，用旧重叠余弦和当前 TF-IDF
+逐事件对比 top-1。固定口径如下：
+
+- 卡片按 `storyId + cardId` 识别，不把不同故事里复用的 cardId 错误去重；每次检索只用
+  该 story 的卡池，与产品运行路径一致。
+- 同时纳入现代 `role=user/content` 和旧版 `who=u/text`；trim 后空消息排除，重复消息
+  保留，因为每一条都是一次真实检索事件。
+- IDF 的 df=1 比例按 `(storyId, token)` 词表项统计，不拿全局卡池稀释每个用户故事的词频。
+- 用当前最终卡池回放历史消息，不声称还原每条消息当时的卡池时间切片。
+
+本地持久化数据会持续变化，不在文档里冻结卡片数、消息数和 top-1 差异数。
+“所有真实消息 0 差异、df=1 约 67.8%”只在未保存的旧筛选口径下成立，不能再当作
+当前语料结论；最新数字始终以命令输出为准。
+
+## 重复修正阈值复算（`pnpm eval:recurring`）
+
+该命令只读 `.webdev/edit-snapshots-local.json`，输出单次 modified pair 同时变化的提示词
+维度数直方图、中位数，以及 field limit 1–10 下的信号数。信号按 project 分组，runtime
+口径模拟服务端每项目最近 50 条快照；不能把不同项目里相同 stableShotId 拼在一起。
+
+分布和阈值下的信号数会随编辑历史变化，不在文档或生产代码注释里冻结具体数字。
+阈值是否仍落在“目标修正”和“整镜重写”两簇之间，应以 `pnpm eval:recurring`
+对合并时语料的复算结果为准。
+
 ## 语料从哪来
 
 默认读 `.webdev/prompt-lineage-local.json`（只读，绝不写）。
-查找顺序：`--corpus` 参数 → `PROMPT_EVAL_CORPUS` 环境变量 → 当前目录 → 主 checkout。
+查找顺序：`--corpus` 参数 → `PROMPT_EVAL_CORPUS` 环境变量 → 主 checkout → 当前目录。
 
-最后一档是为 worktree 准备的：worktree 自己没有 `.webdev/`，
+默认优先主 checkout 是为 worktree 准备的：即使 worktree 里残留了事故数据，也不会抢先读到；
 `git rev-parse --git-common-dir` 会指回主仓库，所以在 worktree 里也能直接跑。
 这符合 AGENTS.md 的环境铁律——评测只读主仓库的数据，不在 worktree 里制造第二份。

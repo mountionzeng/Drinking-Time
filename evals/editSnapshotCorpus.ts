@@ -8,38 +8,44 @@
  *
  * 只读。跟 corpus.ts 一样的路径解析策略（worktree 也能跑）。
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 import {
   dimensionForField,
   isPromptDimensionField,
 } from "../shared/promptFieldDimensions";
+import {
+  extractModifiedPairs,
+  extractModifiedPairsWithStats,
+} from "../server/services/recurringEditSignal";
+import { resolveEvalDataPath } from "./localDataPath";
 
 const SNAPSHOT_FILENAME = ".webdev/edit-snapshots-local.json";
 
 export { dimensionForField, isPromptDimensionField };
 
-type ShotRecord = Record<string, unknown> & { stableShotId?: string };
-
-type ModifiedPair = { old: ShotRecord | null; new: ShotRecord | null };
-
 type EditSnapshot = {
   id: number;
   projectId: number;
-  timestamp: string;
-  diff?: { shots?: { modified?: ModifiedPair[] } } | null;
+  diff?: unknown;
 };
 
 /** 一个镜头在其编辑历史里，每个创作字段是否被改过 */
 export type ShotEditFacts = {
+  projectId: number;
   stableShotId: string;
   /** dimension → 是否在任意一次快照里发生了变化 */
   editedDimensions: Set<string>;
   /** dimension → 该镜头历史上出现过这个字段（不论是否为空） */
   presentDimensions: Set<string>;
 };
+
+export function shotEditFactKey(
+  projectId: number,
+  stableShotId: string,
+): string {
+  return `${projectId}::${stableShotId}`;
+}
 
 function fieldValueKey(value: unknown): string {
   if (typeof value === "string") return value.trim();
@@ -48,46 +54,23 @@ function fieldValueKey(value: unknown): string {
 }
 
 export function resolveEditSnapshotPath(explicit?: string): string {
-  const candidates: string[] = [];
-  if (explicit) candidates.push(resolve(explicit));
-  if (process.env.PROMPT_EVAL_EDIT_SNAPSHOTS)
-    candidates.push(resolve(process.env.PROMPT_EVAL_EDIT_SNAPSHOTS));
-  candidates.push(resolve(process.cwd(), SNAPSHOT_FILENAME));
-
-  try {
-    const commonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (commonDir) {
-      candidates.push(
-        resolve(
-          dirname(resolve(process.cwd(), commonDir)),
-          SNAPSHOT_FILENAME,
-        ),
-      );
-    }
-  } catch {
-    // 不在 git 仓库里——跳过
-  }
-
-  const found = candidates.find(candidate => existsSync(candidate));
-  if (!found) {
-    throw new Error(
-      `找不到编辑快照语料。试过：\n${candidates.map(c => `  - ${c}`).join("\n")}\n` +
-        `用 --snapshots <路径> 或设 PROMPT_EVAL_EDIT_SNAPSHOTS 指定。`,
-    );
-  }
-  return found;
+  return resolveEvalDataPath({
+    filename: SNAPSHOT_FILENAME,
+    description: "编辑快照语料",
+    usage:
+      "用 --snapshots <路径> 或设 PROMPT_EVAL_EDIT_SNAPSHOTS 指定。",
+    explicit,
+    environmentPath: process.env.PROMPT_EVAL_EDIT_SNAPSHOTS,
+  });
 }
 
 /**
  * 把快照流折成「每个镜头 → 哪些维度改过」。
  *
- * 按 stableShotId 聚合而不是按 diff 记录计数：同一个镜头在自动保存间隔里
+ * 按 (projectId, stableShotId) 聚合而不是按 diff 记录计数：同一个镜头在自动保存间隔里
  * 会产生很多次快照（本地语料里中位数 1 次、最多 48 次），
- * 不去重会让「反复保存同一处修改」的镜头把统计喂歪。
+ * 不去重会让「反复保存同一处修改」的镜头把统计喂歪；只用 stableShotId
+ * 又会把不同项目里复用的镜头编号错误合并。
  */
 export function buildShotEditFacts(
   snapshots: readonly EditSnapshot[],
@@ -95,12 +78,14 @@ export function buildShotEditFacts(
   const byShot = new Map<string, ShotEditFacts>();
 
   for (const snapshot of snapshots) {
-    const modified = snapshot.diff?.shots?.modified ?? [];
+    const modified = extractModifiedPairs(snapshot.diff);
     for (const pair of modified) {
       const stableShotId = pair.old?.stableShotId ?? pair.new?.stableShotId;
       if (typeof stableShotId !== "string" || !stableShotId) continue;
 
-      const facts = byShot.get(stableShotId) ?? {
+      const key = shotEditFactKey(snapshot.projectId, stableShotId);
+      const facts = byShot.get(key) ?? {
+        projectId: snapshot.projectId,
         stableShotId,
         editedDimensions: new Set<string>(),
         presentDimensions: new Set<string>(),
@@ -122,7 +107,7 @@ export function buildShotEditFacts(
         if (oldValue !== newValue) facts.editedDimensions.add(dimension);
       });
 
-      byShot.set(stableShotId, facts);
+      byShot.set(key, facts);
     }
   }
 
@@ -133,15 +118,56 @@ export function loadEditSnapshotFacts(snapshotsPath?: string): {
   path: string;
   shots: Map<string, ShotEditFacts>;
   snapshotCount: number;
+  invalidSnapshots: number;
+  invalidModifiedPairs: number;
 } {
   const path = resolveEditSnapshotPath(snapshotsPath);
   const raw = JSON.parse(readFileSync(path, "utf8"));
-  const snapshots: EditSnapshot[] = Array.isArray(raw)
-    ? raw
-    : Object.values(raw);
+  const { snapshots, invalidSnapshots } = parseEditSnapshots(raw);
+  const invalidModifiedPairs = snapshots.reduce(
+    (total, snapshot) =>
+      total + extractModifiedPairsWithStats(snapshot.diff).invalidCount,
+    0,
+  );
   return {
     path,
     shots: buildShotEditFacts(snapshots),
     snapshotCount: snapshots.length,
+    invalidSnapshots,
+    invalidModifiedPairs,
   };
+}
+
+export function parseEditSnapshots(raw: unknown): {
+  snapshots: EditSnapshot[];
+  invalidSnapshots: number;
+} {
+  const entries: unknown[] = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+      ? Object.values(raw)
+      : [];
+  const snapshots: EditSnapshot[] = [];
+  let invalidSnapshots = 0;
+  entries.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      invalidSnapshots += 1;
+      return;
+    }
+    const value = entry as Record<string, unknown>;
+    if (
+      typeof value.projectId !== "number" ||
+      !Number.isSafeInteger(value.projectId) ||
+      value.projectId <= 0
+    ) {
+      invalidSnapshots += 1;
+      return;
+    }
+    snapshots.push({
+      id: typeof value.id === "number" ? value.id : index,
+      projectId: value.projectId,
+      diff: value.diff,
+    });
+  });
+  return { snapshots, invalidSnapshots };
 }

@@ -27,6 +27,7 @@ export type DimensionSignal = {
 
 export function computeDimensionSignals(
   shots: ReadonlyMap<string, ShotEditFacts>,
+  weightForDimension: (dimension: string) => number = promptDimensionWeight,
 ): DimensionSignal[] {
   const shotsWithField = new Map<string, number>();
   const shotsEdited = new Map<string, number>();
@@ -46,10 +47,61 @@ export function computeDimensionSignals(
       shotsWithField: total,
       shotsEdited: shotsEdited.get(dimension) ?? 0,
       editRate: total > 0 ? (shotsEdited.get(dimension) ?? 0) / total : 0,
-      currentWeight: promptDimensionWeight(dimension),
+      currentWeight: weightForDimension(dimension),
       hasExplicitWeight: dimension in PROMPT_DIMENSION_WEIGHTS,
     }))
     .sort((left, right) => right.editRate - left.editRate);
+}
+
+export type WeightEditAlignment = {
+  eligibleDimensions: number;
+  /** Pearson 相关系数，-1 表示完全反向，1 表示完全同向。 */
+  correlation: number;
+  /** 把相关系数映射到 0–1，便于作为专门的权重证据分数追踪。 */
+  score: number;
+};
+
+/**
+ * 量化「常被编辑的维度是否也获得了较高默认权重」。
+ *
+ * 这是默认策略的证据分数，不是生成画质分数；只纳入有足够镜头样本的维度。
+ * 修改 `PROMPT_DIMENSION_WEIGHTS` 会改变 currentWeight，从而在这里留下可复算信号，
+ * 但不会覆盖历史 revision 里用户已经保存的自定义权重。
+ */
+export function computeWeightEditAlignment(
+  signals: readonly DimensionSignal[],
+  options: { minShots?: number } = {},
+): WeightEditAlignment {
+  const minShots = options.minShots ?? 8;
+  const eligible = signals.filter(signal => signal.shotsWithField >= minShots);
+  if (eligible.length < 2) {
+    return { eligibleDimensions: eligible.length, correlation: 0, score: 0.5 };
+  }
+
+  const meanEditRate =
+    eligible.reduce((sum, signal) => sum + signal.editRate, 0) /
+    eligible.length;
+  const meanWeight =
+    eligible.reduce((sum, signal) => sum + signal.currentWeight, 0) /
+    eligible.length;
+  let covariance = 0;
+  let editVariance = 0;
+  let weightVariance = 0;
+  for (const signal of eligible) {
+    const editDelta = signal.editRate - meanEditRate;
+    const weightDelta = signal.currentWeight - meanWeight;
+    covariance += editDelta * weightDelta;
+    editVariance += editDelta * editDelta;
+    weightVariance += weightDelta * weightDelta;
+  }
+
+  const denominator = Math.sqrt(editVariance * weightVariance);
+  const correlation = denominator > 0 ? covariance / denominator : 0;
+  return {
+    eligibleDimensions: eligible.length,
+    correlation,
+    score: Math.max(0, Math.min(1, (correlation + 1) / 2)),
+  };
 }
 
 export type MisalignedDimension = DimensionSignal & {

@@ -43,7 +43,7 @@ export function tokenizeForSimilarity(input: string): Set<string> {
 }
 
 // 把一张卡里所有「可被检索」的字段拼成一段长文本，作为这张卡的搜索语料。
-function storyCardSearchText(card: StoryCard): string {
+export function storyCardSearchText(card: StoryCard): string {
   return [
     card.content,
     card.rawText,

@@ -29,9 +29,8 @@ export const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'cameraAngle', dimension: 'cameraAngle', label: '机位', weight: 0.24, source: 'intent' },
   { key: 'timeLight', dimension: 'timeLight', label: '时间光', weight: 0.24, source: 'intent' },
   { key: 'mood', dimension: 'mood', label: '情绪', weight: 0.3, source: 'intent' },
-  // 0.26 → 0.32：evals/run-weight-analysis.ts 用真实编辑历史发现 style_reference
-  // 的编辑率（29.9%，77 个镜头样本）跟 mood/location 这一档接近，权重却明显偏低。
-  // 调到跟 location 同档，不是拍脑袋的新数字。
+  // 0.26 → 0.32：见 `pnpm eval:weights` 的真实编辑率证据；不在这里冻结
+  // 会随本地语料变化的样本数和百分比。调到跟 location 同档。
   { key: 'styleRef', dimension: 'styleRef', label: '风格参考', weight: 0.32, source: 'intent' },
 ];
 

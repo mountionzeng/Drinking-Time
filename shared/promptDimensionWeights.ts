@@ -20,7 +20,7 @@ const PROMPT_DIMENSION_WEIGHTS: Record<string, number> = {
   location: 0.32,
   time_light: 0.24,
   mood: 0.3,
-  // 0.26 → 0.32：见 evals/run-weight-analysis.ts 的输出与
+  // 0.26 → 0.32：见 `pnpm eval:weights` 的真实编辑率证据与
   // client/.../promptTable/buildPromptTable.ts 里 styleRef 的同步说明。
   style_reference: 0.32,
   beat: 0.28,
