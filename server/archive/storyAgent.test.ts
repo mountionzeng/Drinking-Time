@@ -17,6 +17,14 @@ vi.mock('../services/editContext', () => ({
   getRecentAnnotations: vi.fn(),
 }));
 
+vi.mock('../services/recurringEditSignal', async importOriginal => {
+  const actual = await importOriginal<typeof import('../services/recurringEditSignal')>();
+  return {
+    ...actual,
+    getRecurringEditSignalsForProject: vi.fn(),
+  };
+});
+
 vi.mock('../_core/llm', () => ({
   invokeLLM: vi.fn(),
 }));
@@ -33,11 +41,13 @@ vi.mock('../_core/env', () => ({
 }));
 
 import { getRecentAnnotations } from '../services/editContext';
+import { getRecurringEditSignalsForProject } from '../services/recurringEditSignal';
 import { invokeLLM } from '../_core/llm';
 import { replyFromStoryAgent, asEmotionOptions, synthesizeShotList } from './storyAgent';
 import type { SemanticAnnotation } from '../db';
 
 const mockGetRecentAnnotations = vi.mocked(getRecentAnnotations);
+const mockGetRecurringEditSignals = vi.mocked(getRecurringEditSignalsForProject);
 const mockInvokeLLM = vi.mocked(invokeLLM);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -78,6 +88,8 @@ function makeAgentResponse(reply = '好的') {
 
 beforeEach(() => {
   mockGetRecentAnnotations.mockReset();
+  mockGetRecurringEditSignals.mockReset();
+  mockGetRecurringEditSignals.mockResolvedValue([]);
   mockInvokeLLM.mockReset();
   mockInvokeLLM.mockResolvedValue(makeAgentResponse());
 });
@@ -188,6 +200,52 @@ describe('storyAgent edit context injection (U6)', () => {
       (m) => m.role === 'system',
     );
     expect((systemMessage?.content as string)).not.toContain('用户编辑偏好');
+  });
+
+  it('keeps recurring edit signals when annotation fetch throws', async () => {
+    mockGetRecentAnnotations.mockRejectedValueOnce(new Error('annotation DB error'));
+    mockGetRecurringEditSignals.mockResolvedValueOnce([
+      {
+        stableShotId: 'SH03',
+        dimension: 'dialogue',
+        editCount: 3,
+        latestOld: '说得太长',
+        latestNew: '短一点',
+        firstEditedAt: '2026-08-01T00:00:00.000Z',
+        latestEditedAt: '2026-08-03T00:00:00.000Z',
+      },
+    ]);
+    mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
+
+    const result = await replyFromStoryAgent({ message: '继续', projectId: 42 });
+
+    expect(result.reply).toBeDefined();
+    const systemMessage = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    );
+    const systemContent = systemMessage?.content as string;
+    expect(systemContent).toContain('镜头 SH03');
+    expect(systemContent).toContain('「dialogue」已改过 3 次');
+    expect(systemContent).toContain('从 「说得太长」 改成 「短一点」');
+  });
+
+  it('keeps annotations when recurring edit signal fetch throws', async () => {
+    mockGetRecentAnnotations.mockResolvedValueOnce([
+      makeAnnotation(['修改了对白使其简短'], ['偏好简洁对白']),
+    ]);
+    mockGetRecurringEditSignals.mockRejectedValueOnce(new Error('snapshot DB error'));
+    mockInvokeLLM.mockResolvedValueOnce(makeAgentResponse());
+
+    const result = await replyFromStoryAgent({ message: '继续', projectId: 42 });
+
+    expect(result.reply).toBeDefined();
+    expect(mockGetRecurringEditSignals).toHaveBeenCalledWith(42);
+    const systemMessage = mockInvokeLLM.mock.calls[0][0].messages.find(
+      (m) => m.role === 'system',
+    );
+    const systemContent = systemMessage?.content as string;
+    expect(systemContent).toContain('修改了对白使其简短');
+    expect(systemContent).toContain('偏好简洁对白');
   });
 
   it('aggregates facts and preferences from multiple annotations', async () => {

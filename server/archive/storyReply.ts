@@ -162,22 +162,29 @@ export async function replyFromStoryAgent(params: {
     .slice(-16)
     .map((t) => ({ role: t.role, content: t.content.trim() }));
 
-  // 拉取最近编辑标注 + 重复修正信号，格式化成上下文；失败时静默降级为空
+  // 拉取最近编辑标注 + 重复修正信号，分别降级：其中一路失败不能抹掉另一路已拿到的上下文。
   let editContextBlock: string | undefined;
   if (params.projectId != null) {
+    const blocks: string[] = [];
     try {
       const annotations = await getRecentAnnotations(params.projectId, 5);
-      const recurringSignals = await getRecurringEditSignalsForProject(
-        params.projectId,
-      );
-      const blocks = [
-        formatEditContextBlock(annotations),
-        formatRecurringEditSignalBlock(recurringSignals),
-      ].filter(Boolean);
-      editContextBlock = blocks.length > 0 ? blocks.join("\n\n") : undefined;
+      const annotationBlock = formatEditContextBlock(annotations);
+      if (annotationBlock) blocks.push(annotationBlock);
     } catch (err) {
       console.error("[storyAgent] Failed to fetch edit annotations:", err);
     }
+
+    try {
+      const recurringSignals = await getRecurringEditSignalsForProject(
+        params.projectId,
+      );
+      const recurringBlock = formatRecurringEditSignalBlock(recurringSignals);
+      if (recurringBlock) blocks.push(recurringBlock);
+    } catch (err) {
+      console.error("[storyAgent] Failed to fetch recurring edit signals:", err);
+    }
+
+    editContextBlock = blocks.length > 0 ? blocks.join("\n\n") : undefined;
   }
 
   // 构建用户消息：如果有照片就用多模态格式（image_url + text）
