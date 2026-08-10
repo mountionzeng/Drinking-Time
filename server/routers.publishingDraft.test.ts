@@ -930,6 +930,92 @@ describe("publishingDraft router", () => {
     );
   });
 
+  it("resumes an accepted cover task after a persisted network timeout", async () => {
+    const generation = {
+      operationToken: "cover-op-timeout",
+      versionId: "v1",
+      status: "failed" as const,
+      platform: "xiaohongshu" as const,
+      referenceAssetId: null,
+      feedback: "",
+      prompt: "durable cover prompt",
+      roundId: "round-timeout",
+      taskId: "302-task-timeout",
+      claimedAt: 1,
+      updatedAt: 2,
+      expiresAt: 3,
+      error: "302 Midjourney task timeout",
+    };
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      coverGeneration: generation,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => ({
+        storyId: 7,
+        storyRevision: 3,
+        publishing: {
+          ...state,
+          revision: state.revision + 1,
+          coverGeneration:
+            operation.type === "update_cover_generation"
+              ? {
+                  ...generation,
+                  status: operation.status,
+                  error: operation.error,
+                  expiresAt: operation.expiresAt,
+                }
+              : { ...generation, status: "completed" as const },
+          coverRounds:
+            operation.type === "complete_cover_generation"
+              ? [operation.round]
+              : [],
+        },
+      })
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    const result = await caller.generateCover({
+      storyId: 7,
+      platform: "xiaohongshu",
+      basePublishingRevision: 1,
+      operationToken: generation.operationToken,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(imageGenMocks.resume302MidjourneyTask).toHaveBeenCalledWith(
+      generation.taskId,
+      expect.objectContaining({ provider: "midjourney" })
+    );
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: expect.objectContaining({
+          type: "update_cover_generation",
+          operationToken: generation.operationToken,
+          status: "pending",
+          error: "",
+        }),
+      })
+    );
+  });
+
   it("does not resubmit when an interrupted cover request has no recoverable task id", async () => {
     const generation = {
       operationToken: "cover-op-unknown",

@@ -1,4 +1,15 @@
+import {
+  isRecoverablePublishingCoverGeneration,
+  type PublishingCoverGeneration,
+} from "@shared/publishingDraft";
+
 export type CoverGenerationMode = "fresh" | "revise";
+
+export function shouldRecoverCoverGeneration(
+  generation: PublishingCoverGeneration | null | undefined
+) {
+  return isRecoverablePublishingCoverGeneration(generation);
+}
 
 export function getCoverGenerationPresentation(
   mode: CoverGenerationMode | null

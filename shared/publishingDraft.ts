@@ -328,6 +328,24 @@ export type PublishingCoverGeneration = {
   error?: string;
 };
 
+const RECOVERABLE_COVER_GENERATION_ERROR =
+  /timeout|timed out|fetch failed|network|socket|tls|econn|aborted|temporar|超时|网络|断开|暂时/i;
+
+/**
+ * A provider task id is a paid-job receipt. Transient transport failures must
+ * resume that receipt instead of creating another paid cover request.
+ */
+export function isRecoverablePublishingCoverGeneration(
+  generation: PublishingCoverGeneration | null | undefined
+): generation is PublishingCoverGeneration & { taskId: string } {
+  if (!generation?.taskId?.trim()) return false;
+  if (generation.status === "pending") return true;
+  if (generation.status !== "failed" && generation.status !== "unknown") {
+    return false;
+  }
+  return RECOVERABLE_COVER_GENERATION_ERROR.test(generation.error ?? "");
+}
+
 export type PublishingConversationSnapshot = {
   messages: unknown[];
   updatedAt: number;

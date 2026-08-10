@@ -53,6 +53,7 @@ import { usePublishingPlatformSelection } from "./PublishingPlatformPicker";
 import { downloadPublishingCover } from "./publishingCoverExport";
 import {
   getCoverGenerationPresentation,
+  shouldRecoverCoverGeneration,
   type CoverGenerationMode,
 } from "./publishingCoverGenerationState";
 import {
@@ -673,9 +674,7 @@ export default function PublishingDraftWorkspace({
 
   useEffect(() => {
     if (
-      !persistedCoverGeneration ||
-      persistedCoverGeneration.status !== "pending" ||
-      !persistedCoverGeneration.taskId ||
+      !shouldRecoverCoverGeneration(persistedCoverGeneration) ||
       persistedCoverGeneration.versionId !== publishing.activeVersionId ||
       recoveredCoverOperationRef.current ===
         persistedCoverGeneration.operationToken ||
@@ -690,6 +689,7 @@ export default function PublishingDraftWorkspace({
     );
   }, [
     persistedCoverGeneration?.operationToken,
+    persistedCoverGeneration?.error,
     persistedCoverGeneration?.status,
     persistedCoverGeneration?.taskId,
     persistedCoverGeneration?.versionId,

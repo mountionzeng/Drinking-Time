@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   PUBLISHING_PLATFORM_IDS,
   getPublishingContentError,
+  isRecoverablePublishingCoverGeneration,
   normalizePublishingNarrativeIntent,
   type PublishingCoverRound,
   type PublishingDraftContent,
@@ -864,8 +865,13 @@ export const publishingDraftRouter = router({
         const persistedGeneration = current.publishing.coverGeneration;
         const matchingOperation =
           persistedGeneration?.operationToken === operationToken;
+        const recoveringAcceptedTask =
+          matchingOperation &&
+          persistedGeneration.status !== "pending" &&
+          isRecoverablePublishingCoverGeneration(persistedGeneration);
         const resuming =
-          matchingOperation && persistedGeneration.status === "pending";
+          matchingOperation &&
+          (persistedGeneration.status === "pending" || recoveringAcceptedTask);
         if (
           !matchingOperation &&
           current.publishing.revision !== input.basePublishingRevision
@@ -937,6 +943,7 @@ export const publishingDraftRouter = router({
             });
           }
         }
+        let generation = persistedGeneration;
         if (persistedGeneration?.operationToken === operationToken) {
           if (persistedGeneration.status === "completed") {
             const coverRounds = await loadPublishingCoverRounds({
@@ -963,7 +970,7 @@ export const publishingDraftRouter = router({
               coverRound,
             };
           }
-          if (persistedGeneration.status !== "pending") {
+          if (!resuming) {
             return {
               status: "error" as const,
               error: persistedGeneration.error || "上一轮封面生成未完成",
@@ -981,9 +988,22 @@ export const publishingDraftRouter = router({
               }),
             };
           }
+          if (recoveringAcceptedTask) {
+            const recovered = await writePublishingDraftState({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              operation: {
+                type: "update_cover_generation",
+                operationToken,
+                status: "pending",
+                error: "",
+                expiresAt: Date.now() + PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+              },
+            });
+            generation = recovered.publishing.coverGeneration;
+          }
         }
 
-        let generation = persistedGeneration;
         if (!resuming) {
           const claimedAt = Date.now();
           const claimed = await writePublishingDraftState({
