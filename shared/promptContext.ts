@@ -12,6 +12,14 @@ import type { ArtRecipeDNA } from './artDirection';
 import { artRecipePrompt } from './artDirection';
 import { promptShotCode } from './shotIdentity';
 
+/**
+ * 提示词长度软预算（字符）。超过它 `buildUnifiedPrompt` 会逐块丢尾。
+ *
+ * 谱系编译器 `compilePromptTargets` 目前**不**执行这条预算，
+ * 差距由 `evals/metrics/budget.ts` 持续度量。
+ */
+export const PROMPT_LENGTH_BUDGET = 3000;
+
 // ── PromptContext 类型 ──
 
 /** 镜头元数据：每个镜头必有的信息 */
@@ -238,8 +246,8 @@ function extractBlocks(ctx: PromptContext): PromptBlock[] {
 export function buildUnifiedPrompt(ctx: PromptContext): string {
   const blocks = extractBlocks(ctx);
   let prompt = blocks.map((b) => b.text).join('\n');
-  // MJ prompt 长度软限制：超过 3000 字符时截断尾部块
-  const MAX_PROMPT_LENGTH = 3000;
+  // MJ prompt 长度软限制：超过预算时截断尾部块
+  const MAX_PROMPT_LENGTH = PROMPT_LENGTH_BUDGET;
   if (prompt.length > MAX_PROMPT_LENGTH) {
     // 保留前 N 个 block，逐步截断直到符合限制
     for (let keep = blocks.length - 1; keep > 1; keep--) {

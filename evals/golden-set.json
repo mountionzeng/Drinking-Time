@@ -1,0 +1,277 @@
+{
+  "frozenAt": "2026-08-09T08:56:50.102Z",
+  "shots": [
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh01-shot"
+    },
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh02-1-0-3-knn-gmm"
+    },
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh03-2-0-45-knn-gmm"
+    },
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh04-3-0-4-knn-gmm"
+    },
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh05-4-0-4-knn-gmm"
+    },
+    {
+      "storyId": 20,
+      "stableShotId": "legacy-sh06-5-0-35-knn-gmm"
+    },
+    {
+      "storyId": 34,
+      "stableShotId": "legacy-sh01-shot"
+    },
+    {
+      "storyId": 34,
+      "stableShotId": "legacy-sh02-0-4-knn-gmm"
+    },
+    {
+      "storyId": 34,
+      "stableShotId": "legacy-sh03-shot"
+    },
+    {
+      "storyId": 36,
+      "stableShotId": "legacy-sh01-shot"
+    },
+    {
+      "storyId": 36,
+      "stableShotId": "legacy-sh02-shot"
+    },
+    {
+      "storyId": 36,
+      "stableShotId": "legacy-sh03-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh01-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh02-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh03-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh04-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh05-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh06-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh07-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh08-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh09-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh10-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh11-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh12-shot"
+    },
+    {
+      "storyId": 48,
+      "stableShotId": "legacy-sh13-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh01-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh02-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh03-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh04-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh05-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh06-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh07-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh08-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh09-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh10-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh11-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh12-shot"
+    },
+    {
+      "storyId": 49,
+      "stableShotId": "legacy-sh13-shot"
+    },
+    {
+      "storyId": 1139,
+      "stableShotId": "manual-sh02-mras28s0-h9etnj"
+    },
+    {
+      "storyId": 1139,
+      "stableShotId": "path-test-a"
+    },
+    {
+      "storyId": 1139,
+      "stableShotId": "path-test-b"
+    },
+    {
+      "storyId": 1142,
+      "stableShotId": "manual-sh02-mrbh2tss-igtjk8"
+    },
+    {
+      "storyId": 1142,
+      "stableShotId": "path-test-sh01"
+    },
+    {
+      "storyId": 1142,
+      "stableShotId": "path-test-sh02"
+    },
+    {
+      "storyId": 1142,
+      "stableShotId": "path-test-sh03"
+    },
+    {
+      "storyId": 1172,
+      "stableShotId": "manual-sh02-mslf4yuh-3jnro2"
+    },
+    {
+      "storyId": 1172,
+      "stableShotId": "manual-sh02-mslfmepb-jg3qti"
+    },
+    {
+      "storyId": 1172,
+      "stableShotId": "publishing-cover-opening"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-372f89bf7dee8fa3e10e"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-378199bc30d0490e74b6"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-3aad429328386a8e5480"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-3c57557c6e0ccb529516"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-3c852de88385502cd065"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-692074ff497b6a66efdb"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-716b9ab57412e5b8fb74"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-74f5eaa8088649ef7406"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-79777a57c6d7b84d9dc3"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-808fc76e56705311f82b"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-8153470ab6958e046a67"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-8bed8b800cadbe05addc"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-9385202fefe14a7abac2"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-990bdf586f7b68225139"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-a9d37d8ef6201380b3da"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-c34f6120d005f1fc37b8"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-c7bffbc3af2cc5df8758"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-e15d6cdfe50b603b4028"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-e8f8b31a47a1409fe6ff"
+    },
+    {
+      "storyId": 1174,
+      "stableShotId": "publishing-v2-e9373f6572c4f8a4053c"
+    }
+  ]
+}

@@ -122,7 +122,9 @@ export const PROMPT_DIMENSIONS: readonly PromptDimensionDef[] = [
     category: "visual",
     weight: 0.36,
   },
-  { id: "style_reference", aliases: ["styleRef"], label: "风格参考", category: "visual", weight: 0.26 },
+  // 0.26 → 0.32：见 `pnpm eval:weights` 的真实编辑率证据；不在这里冻结
+  // 会随本地语料变化的样本数和百分比。调到跟 location 同档。
+  { id: "style_reference", aliases: ["styleRef"], label: "风格参考", category: "visual", weight: 0.32 },
   { id: "color_palette", label: "配色", category: "visual", weight: 0.28 },
   {
     id: "composition",

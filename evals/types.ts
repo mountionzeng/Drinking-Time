@@ -1,0 +1,87 @@
+/**
+ * 提示词评测 —— 共享类型。
+ *
+ * 评测对象是「当前代码根据存档 revision 状态重新编译出来的提示词」，不是存档的
+ * compilation 文本。revision.weight 是用户已保存状态，默认权重表不会追溯覆盖它；
+ * 默认权重策略另由 `pnpm eval:weights` 的证据分数观测。
+ */
+import type { PromptModality } from "../shared/promptLineage";
+
+export type EvalModality = Exclude<PromptModality, "shared">;
+
+/** 一条被评测的样本：某故事某镜头某模态编译出的最终提示词 */
+export type EvalSample = {
+  storyId: number;
+  stableShotId: string;
+  modality: EvalModality;
+  finalText: string;
+  /** 参与本次编译的维度（按编译顺序） */
+  dimensions: string[];
+  /** dimension → 内容，供指标查具体值 */
+  contentByDimension: Record<string, string>;
+  /** dimension → 该修订的 source（`story.title` / `shot.subject` …），用于定位污染来源 */
+  sourceByDimension: Record<string, string | null>;
+};
+
+/** 一次违规命中 */
+export type Violation = {
+  rule: string;
+  storyId: number;
+  stableShotId: string;
+  modality: EvalModality;
+  dimension: string;
+  /** 触发违规的原文片段，截断后用于报告 */
+  evidence: string;
+  /** 该内容的来源，指向该去哪儿修 */
+  source: string | null;
+};
+
+/** 单个指标的结果 */
+export type MetricResult = {
+  /** 指标标识，如 `hygiene` */
+  key: string;
+  /** 中文名，报告里显示 */
+  label: string;
+  /** 主分数，0–1，越高越好 */
+  score: number;
+  /** 分子/分母，让分数可解释 */
+  passed: number;
+  total: number;
+  /** 附加数字（中位数、p90 之类），报告里原样打印 */
+  details: Record<string, number | string>;
+  /** 具体违规，最多保留前 N 条 */
+  violations: Violation[];
+};
+
+/** 冻结的评测总体：分数只有在同一批镜头上才可比 */
+export type GoldenSet = {
+  frozenAt: string;
+  shots: Array<{ storyId: number; stableShotId: string }>;
+};
+
+/** golden set 与当前语料的差异 */
+export type CorpusDrift = {
+  /** golden set 里有、当前语料里没了的镜头 */
+  missing: Array<{ storyId: number; stableShotId: string }>;
+  /** 当前语料里有、但不在 golden set 里的镜头数（不参与评分） */
+  extra: number;
+};
+
+export type EvalReport = {
+  generatedAt: string;
+  corpus: {
+    stories: number;
+    shots: number;
+    samples: number;
+  };
+  /** 无 golden set 时为 null */
+  drift: CorpusDrift | null;
+  metrics: MetricResult[];
+};
+
+/** baseline.json 的形状：只存可比较的数字，不存易变的违规明细 */
+export type Baseline = {
+  generatedAt: string;
+  corpus: EvalReport["corpus"];
+  scores: Record<string, { score: number; passed: number; total: number }>;
+};

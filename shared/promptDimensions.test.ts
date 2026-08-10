@@ -40,7 +40,7 @@ const PRE_UNIFICATION_SNAPSHOT: Record<string, number> = {
   location: 0.32,
   time_light: 0.24,
   mood: 0.3,
-  style_reference: 0.26,
+  style_reference: 0.32,
   beat: 0.28,
   intent: 0.5,
   rationale: 0.46,

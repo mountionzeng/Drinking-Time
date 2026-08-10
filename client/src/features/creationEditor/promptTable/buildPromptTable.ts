@@ -10,7 +10,7 @@ import {
   promptDimensionLabel,
 } from '@shared/promptDimensions';
 
-type ContentDimension = {
+export type ContentDimension = {
   key: keyof CreationEditorShot;
   dimension: string;
   label: string;
@@ -21,14 +21,15 @@ type ContentDimension = {
 /**
  * 标签统一从 shared/promptDimensions.ts 派生，避免同一个维度在这里和别处
  * 各写一份中文标签、改一处漏一处。查不到时退回原字面量（历史值，容错）——
- * `dimension` 与 `weight` 保持字面量不变：它们是持久化数据键和当前生效权重，
- * 改名/改值属于另一个需要单独评审的步骤。
+ * `dimension` 保持字面量不变，因为它是持久化数据键；权重变更需要独立证据，
+ * 并由 weightTableSync.test.ts 校验客户端生效值与共享规范表同步。
  */
 function dimLabel(dimension: string, fallback: string): string {
   return promptDimensionLabel(canonicalDimension(dimension)) ?? fallback;
 }
 
-const CONTENT_DIMENSIONS: ContentDimension[] = [
+// 导出这两个数组，让 weightTableSync.test.ts 校验客户端生效值与共享规范表一致。
+export const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'sceneTitle', dimension: 'sceneTitle', label: dimLabel('sceneTitle', '场次'), weight: 0.34, source: 'intent' },
   { key: 'sceneArtBrief', dimension: 'sceneArtBrief', label: dimLabel('sceneArtBrief', '场景美术库'), weight: 0.4, source: 'art-repo' },
   { key: 'subject', dimension: 'subject', label: dimLabel('subject', '主体'), weight: 0.42, source: 'chat' },
@@ -39,10 +40,10 @@ const CONTENT_DIMENSIONS: ContentDimension[] = [
   { key: 'cameraAngle', dimension: 'cameraAngle', label: dimLabel('cameraAngle', '机位'), weight: 0.24, source: 'intent' },
   { key: 'timeLight', dimension: 'timeLight', label: dimLabel('timeLight', '时间光'), weight: 0.24, source: 'intent' },
   { key: 'mood', dimension: 'mood', label: dimLabel('mood', '情绪'), weight: 0.3, source: 'intent' },
-  { key: 'styleRef', dimension: 'styleRef', label: dimLabel('styleRef', '风格参考'), weight: 0.26, source: 'intent' },
+  { key: 'styleRef', dimension: 'styleRef', label: dimLabel('styleRef', '风格参考'), weight: 0.32, source: 'intent' },
 ];
 
-const VIDEO_DIMENSIONS: ContentDimension[] = [
+export const VIDEO_DIMENSIONS: ContentDimension[] = [
   { key: 'cameraMove', dimension: 'cameraMove', label: dimLabel('cameraMove', '相机运动'), weight: 0.36, source: 'director' },
   { key: 'videoStart', dimension: 'videoStart', label: dimLabel('videoStart', '起始画面'), weight: 0.35, source: 'director' },
   { key: 'videoEnd', dimension: 'videoEnd', label: dimLabel('videoEnd', '结束状态'), weight: 0.34, source: 'director' },
