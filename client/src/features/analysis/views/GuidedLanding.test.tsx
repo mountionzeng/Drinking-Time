@@ -177,6 +177,12 @@ describe("GuidedLanding", () => {
     expect(source).toContain("可以看见的故事和画面");
     expect(source).toContain("写下你此刻最放不下的一件事");
     expect(source).toContain("接上今天的老黄历一起读");
+    expect(source).toMatch(
+      /<span className="block">\s*聊聊会把它接上今天的老黄历一起读，/
+    );
+    expect(source).toMatch(
+      /<span className="block">\s*说出来的话才是属于今天、属于你的。/
+    );
     expect(source).not.toContain("正式开放后");
     expect(source).not.toContain("美丽的图片");
   });

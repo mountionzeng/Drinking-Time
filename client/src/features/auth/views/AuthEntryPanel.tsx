@@ -200,20 +200,23 @@ export default function AuthEntryPanel({
               : "还没有邀请码，请联系邀请你来测试的人。"}
           </p>
 
-          {/* 内测期的另一条路：这张卡本来就在谈邀请，顺着说一句「你也可以推荐别人」，
-              不另开区域，字重压在登录按钮之下。 */}
+          {/* 内测期的另一条路：保留在登录卡底部，用完整次级按钮确保入口可见。 */}
           <div
-            className="border-t pt-2.5"
+            className="border-t pt-3"
             style={{ borderColor: "var(--nayin-border)" }}
           >
             <a
               href="https://www.drinkingtime.top/drinking-time-vision/#refer"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1 text-center text-[10px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-center text-xs font-medium text-foreground/80 transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              style={{
+                background: "var(--nayin-surface)",
+                borderColor: "var(--nayin-border)",
+              }}
             >
               认识合适的人？推荐给我们
-              <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             </a>
           </div>
         </div>
