@@ -17,6 +17,7 @@ import {
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
 import { getStoryById } from "../db";
+import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
 import {
   persistPreparedStoryBody,
   StoryBodyRevisionConflictError,
@@ -213,6 +214,47 @@ function projectVersion(
   };
 }
 
+function versionDisplayNameSources(
+  parent: ReturnType<typeof resolvePublishingActiveVersion>,
+  op: CreatePublishingVersionOperation
+): string[] {
+  const sources: string[] = [];
+  const thesis = op.core.thesis.trim();
+  if (thesis && thesis !== parent.core?.thesis.trim()) sources.push(thesis);
+
+  const parentFacts = new Set(parent.core?.facts.map(fact => fact.trim()));
+  sources.push(
+    ...op.core.facts
+      .map(fact => fact.trim())
+      .filter(fact => fact && !parentFacts.has(fact))
+  );
+
+  if (op.narrativeIntent) {
+    const intentChanged =
+      op.narrativeIntent.primaryPurpose !==
+        parent.narrativeIntent.primaryPurpose ||
+      op.narrativeIntent.coreAudience.trim() !==
+        parent.narrativeIntent.coreAudience.trim();
+    if (intentChanged) {
+      const audience = op.narrativeIntent.coreAudience.trim();
+      const purpose =
+        op.narrativeIntent.primaryPurpose === "gift"
+          ? "赠予"
+          : op.narrativeIntent.primaryPurpose === "persuade"
+            ? "介绍说服"
+            : op.narrativeIntent.primaryPurpose === "share"
+              ? "公开分享"
+              : op.narrativeIntent.primaryPurpose === "create"
+                ? "创作"
+                : "留存";
+      sources.push(audience ? `给${audience}的${purpose}` : purpose);
+    }
+  }
+
+  sources.push(op.content.title, op.content.body);
+  return sources;
+}
+
 function applyVersionOperation(
   state: PublishingDraftState,
   op: PublishingVersionOperation,
@@ -311,7 +353,12 @@ function applyVersionOperation(
     ...parent,
     versionId,
     sequence: nextSequence,
-    displayName: op.displayName?.trim() || `V${nextSequence}`,
+    displayName:
+      op.displayName?.trim() ||
+      derivePublishingVersionDisplayName(
+        nextSequence,
+        versionDisplayNameSources(parent, op)
+      ),
     parentId: parent.versionId,
     versionRevision: parent.versionRevision + 1,
     core: nextCore,

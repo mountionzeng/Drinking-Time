@@ -934,11 +934,6 @@ export default function PublishingDraftWorkspace({
     }
     const activeVersionRevision =
       activeVersion?.versionRevision ?? publishing.revision;
-    const nextSequence =
-      Math.max(
-        0,
-        ...(publishing.versions ?? []).map(version => version.sequence)
-      ) + 1;
     try {
       const result = await createVersionMut.mutateAsync({
         storyId: activeStoryId,
@@ -950,7 +945,7 @@ export default function PublishingDraftWorkspace({
         baseVersionRevision: activeVersionRevision,
         baseContainerRevision:
           publishing.containerRevision ?? publishing.revision,
-        displayName: newVersionName.trim() || `V${nextSequence}`,
+        displayName: newVersionName.trim() || undefined,
         narrativeIntent,
         operationToken: `create-${versionId}-${Date.now()}`,
       });

@@ -197,3 +197,68 @@ export function validateGeneratedTitle(input: {
     ),
   };
 }
+
+const VERSION_LABEL_MAX = 22;
+const GENERIC_VERSION_LABELS = new Set([
+  "标题",
+  "版本",
+  "新版本",
+  "判断",
+  "新判断",
+  "备用标题",
+]);
+
+function versionLabelFromSource(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let cleaned = normalizeTitleText(value)
+    .replace(/^(?:这一版|这版|新版|新版本|第[一二三四五六七八九十\d]+版)\s*/, "")
+    .trim();
+  const changedTo = cleaned.match(/(?:改成|改为|转向)(?:了)?\s*(.+)$/);
+  if (changedTo?.[1]) cleaned = changedTo[1].trim();
+  cleaned = cleaned.replace(/^把\s*/, "").trim();
+
+  const quoted = Array.from(
+    cleaned.matchAll(/[“"「『]([^”"」』]{2,22})[”"」』]/g),
+    match => match[1]?.trim() ?? ""
+  ).filter(Boolean);
+  const clauses = cleaned
+    .split(/[。！？!?；;，,：:\n]+/)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+
+  for (const candidate of [cleaned, ...quoted, ...clauses]) {
+    const normalized = normalizeTitleText(candidate);
+    if (
+      !normalized ||
+      countTextCharacters(normalized) > VERSION_LABEL_MAX ||
+      GENERIC_VERSION_LABELS.has(normalized) ||
+      /^V\d+(?:\s*(?:标题|判断|版本))?$/i.test(normalized) ||
+      containsGeneratedTitleContactInformation(normalized)
+    ) {
+      continue;
+    }
+    return normalized;
+  }
+  return null;
+}
+
+export function derivePublishingVersionDisplayName(
+  sequence: number,
+  sourceTexts: readonly unknown[]
+): string {
+  const prefix = `V${Math.max(1, Math.trunc(sequence))}`;
+  for (const source of sourceTexts) {
+    const label = versionLabelFromSource(source);
+    if (!label) continue;
+    const displayName = `${prefix} · ${label}`;
+    const validation = validateGeneratedTitle({
+      kind: "version",
+      value: displayName,
+      requireAnchor: false,
+    });
+    if (validation.hardFailures.length === 0) {
+      return validation.normalizedTitle;
+    }
+  }
+  return prefix;
+}

@@ -357,7 +357,7 @@ describe("publishingPersistence", () => {
       operation: {
         type: "create_version",
         platform: "xiaohongshu",
-        core: { ...baseCore, thesis: "V2 判断" },
+        core: { ...baseCore, thesis: "每天记录产品决定" },
         content: { title: "V2 标题", body: "V2 小红书", tags: ["V2"] },
         baseCoreRevision: 1,
         baseDraftRevision: 1,
@@ -374,7 +374,10 @@ describe("publishingPersistence", () => {
 
     expect(saved.publishing.activeVersionId).toBe("v2");
     expect(saved.publishing.versions).toHaveLength(2);
-    expect(saved.publishing.core?.thesis).toBe("V2 判断");
+    expect(saved.publishing.versions?.[1]?.displayName).toBe(
+      "V2 · 每天记录产品决定"
+    );
+    expect(saved.publishing.core?.thesis).toBe("每天记录产品决定");
     expect(saved.publishing.drafts.xiaohongshu?.content.body).toBe("V2 小红书");
     expect(saved.publishing.drafts.x?.content.body).toBe("V1 X 正文");
     expect(saved.publishing.drafts.x?.needsReview).toBe(true);
@@ -427,13 +430,16 @@ describe("publishingPersistence", () => {
     const retry = await writePublishingDraftState({
       storyId: 7,
       userId: 3,
-      operation,
+      operation: { ...operation, displayName: "重试时不该覆盖" },
       operationToken: "persisted-token",
     });
 
     expect(retry.storyRevision).toBe(first.storyRevision);
     expect(retry.publishing.activeVersionId).toBe("v2");
     expect(retry.publishing.versions).toHaveLength(2);
+    expect(retry.publishing.versions?.[1]?.displayName).toBe(
+      "V2 · 重试版本"
+    );
     expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(updateCount);
     expect(retry.publishing.versionOperationReceipts).toEqual({
       "persisted-token": "v2",

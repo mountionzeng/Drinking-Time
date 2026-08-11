@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  derivePublishingVersionDisplayName,
   diagnoseTitleShape,
   getGeneratedTitlePolicy,
   normalizeTitleText,
@@ -102,6 +103,24 @@ describe("title policies and diagnostics", () => {
     expect(getGeneratedTitlePolicy("card").recommendedMax).toBe(16);
     expect(getGeneratedTitlePolicy("publishing", "x").required).toBe(false);
     expect(getGeneratedTitlePolicy("publishing", "x").hardMax).toBe(0);
+  });
+
+  it("derives a complete version label from ordered version evidence", () => {
+    expect(
+      derivePublishingVersionDisplayName(2, [
+        "第二版把重点从离职改成了每天记录产品决定。",
+        "备用标题",
+      ])
+    ).toBe("V2 · 每天记录产品决定");
+    expect(
+      derivePublishingVersionDisplayName(3, [
+        `联系${["138", "0000", "0000"].join("")}`,
+        "向同行介绍木工影像项目",
+      ])
+    ).toBe("V3 · 向同行介绍木工影像项目");
+    expect(derivePublishingVersionDisplayName(4, ["V4", "标题"])).toBe(
+      "V4"
+    );
   });
 
   it("reports stiffness as a diagnostic rather than rejecting user language", () => {
