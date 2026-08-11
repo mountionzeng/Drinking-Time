@@ -5,6 +5,7 @@
  *   pnpm eval:prompt --update-baseline  用本次结果冻结新基线
  *   pnpm eval:prompt --corpus <路径>    指定语料
  *   pnpm eval:prompt --json <路径>      同时输出机器可读结果
+ *   pnpm eval:titles                    跑脱敏标题特征报告（不读取 .webdev）
  *
  * 有回归时退出码为 1，可以直接挂进 CI 或 pre-push。
  */
@@ -18,6 +19,11 @@ import { continuityMetric } from "./metrics/continuity";
 import { coverageMetric } from "./metrics/coverage";
 import { hygieneMetric } from "./metrics/hygiene";
 import { compareToBaseline, renderReport, toBaseline } from "./report";
+import { TITLE_CASES } from "./titleCases";
+import {
+  characterizeStoredTitles,
+  renderTitleCharacterization,
+} from "./titleMetrics";
 import type {
   Baseline,
   CorpusDrift,
@@ -63,6 +69,11 @@ function hasFlag(name: string): boolean {
 }
 
 function main(): void {
+  if (hasFlag("titles")) {
+    console.log(renderTitleCharacterization(characterizeStoredTitles(TITLE_CASES)));
+    return;
+  }
+
   const { path, samples: allSamples } = loadCorpus(readFlag("corpus"));
 
   if (hasFlag("freeze-golden")) {

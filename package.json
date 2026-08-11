@@ -23,6 +23,7 @@
     "invite:create": "tsx scripts/create-invite-code.ts",
     "monitor": "DATABASE_URL=mysql://x knip",
     "eval:prompt": "tsx evals/run.ts",
+    "eval:titles": "tsx evals/run.ts --titles",
     "eval:weights": "tsx evals/run-weight-analysis.ts",
     "eval:retrieval": "tsx evals/run-retrieval-analysis.ts",
     "eval:recurring": "tsx evals/run-recurring-analysis.ts"
