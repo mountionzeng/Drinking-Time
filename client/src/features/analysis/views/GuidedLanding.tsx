@@ -110,6 +110,9 @@ export default function GuidedLanding({
               <p className="text-xs leading-relaxed text-muted-foreground">
                 那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。
               </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                写下你此刻最放不下的一件事，一时想不到，留个生日也可以。聊聊会把它接上今天的老黄历一起读，说出来的话才是属于今天、属于你的。
+              </p>
             </div>
           </WuxingPourContent>
 

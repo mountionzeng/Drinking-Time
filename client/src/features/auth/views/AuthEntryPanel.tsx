@@ -3,6 +3,7 @@
  * 内测期由邮箱和专属邀请码直接建立登录态。
  */
 import { useEffect, useRef, useState } from "react";
+import { ArrowUpRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 
@@ -198,6 +199,23 @@ export default function AuthEntryPanel({
               ? `申请内测微信：${betaWechatId}`
               : "还没有邀请码，请联系邀请你来测试的人。"}
           </p>
+
+          {/* 内测期的另一条路：这张卡本来就在谈邀请，顺着说一句「你也可以推荐别人」，
+              不另开区域，字重压在登录按钮之下。 */}
+          <div
+            className="border-t pt-2.5"
+            style={{ borderColor: "var(--nayin-border)" }}
+          >
+            <a
+              href="https://www.drinkingtime.top/drinking-time-vision/#refer"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1 text-center text-[10px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              认识合适的人？推荐给我们
+              <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+            </a>
+          </div>
         </div>
       </div>
     </section>
