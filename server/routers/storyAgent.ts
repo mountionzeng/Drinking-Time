@@ -270,6 +270,7 @@ export const storyAgentRouter = router({
         projectId: z.number().optional(),
         photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
         interactionMode: z.enum(["story", "publishing"]).optional(),
+        allowStoryTitleSuggestion: z.boolean().optional(),
         confirmedIntent: z
           .object({
             purpose: z.string(),
@@ -299,6 +300,7 @@ export const storyAgentRouter = router({
         photoUrl: input.photoUrl,
         confirmedIntent: input.confirmedIntent ?? undefined,
         interactionMode: input.interactionMode,
+        allowStoryTitleSuggestion: input.allowStoryTitleSuggestion,
       });
     }),
 

@@ -33,6 +33,7 @@ describe("story title helpers", () => {
       fallbackStoryTitleFromText("我想讲一下，凌晨三点整理旧书时突然停电了。")
     ).toBe("凌晨三点整理旧书时突然停电了");
     expect(fallbackStoryTitleFromText("你好")).toBeNull();
+    expect(fallbackStoryTitleFromText("我想讲一件事。")).toBeNull();
   });
 
   it("auto names only unnamed stories and never overwrites a manual title", () => {

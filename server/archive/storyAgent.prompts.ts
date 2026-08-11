@@ -744,7 +744,7 @@ export function buildAgentSystemPrompt(
 // ── B 改造 · 后台抽取 prompt（与「回话」彻底解耦）──
 // 聊聊的「回话」已经在第一步用纯人话生成好（robust，不再受 JSON 影响）。
 // 这一步是一个【没有人设包袱】的后台分析器：只读对话 + 聊聊刚说的话，把这一轮的
-// 情绪信号抽成严格 JSON。以前模型要一边演聊聊、一边憋出 16 个字段的 JSON，一看到图
+// 情绪信号抽成严格 JSON。以前模型要一边演聊聊、一边憋出完整 card JSON，一看到图
 // 就破功直接说人话、丢掉 JSON 外壳 → card 永远为 null。把「出卡」单独拆出来后，这一步
 // 只干「吐 JSON」一件事，稳得多。任何失败都由调用处兜底成 card=null，绝不影响 reply。
 export function buildCardExtractionPrompt(
@@ -753,16 +753,17 @@ export function buildCardExtractionPrompt(
   enableImageGen?: boolean,
   photoShared?: boolean,
   confirmedIntent?: StoryChatIntentPayload,
-  shotDimensionDigest?: string
+  shotDimensionDigest?: string,
+  allowStoryTitleSuggestion = userTurnNumber === 1
 ): string {
   const isJobSearch = confirmedIntent?.purpose === "linkedin_job_search";
   const isFiction = confirmedIntent?.purpose === "fiction";
   const digest = shotDimensionDigest?.trim();
   const hasProposeTool = Boolean(digest);
   const titleInstruction =
-    userTurnNumber === 1
-      ? "这是这篇故事的第一轮有效对话。suggestedTitle 请根据用户原话生成一个 6-16 个汉字的内部故事名称：优先具体物件、动作、判断或用户自己的短语，不加书名号，不写“关于……的故事”；同时返回 suggestedTitleAnchor，它必须是标题和用户原话里都逐字出现的短词。只有寒暄、操作指令或信息不足时，两个字段都返回 null。"
-      : "这不是第一轮对话，不要再次改名；suggestedTitle 和 suggestedTitleAnchor 必须返回 null。";
+    allowStoryTitleSuggestion
+      ? `${userTurnNumber === 1 ? "这是这篇故事的第一轮有效对话" : "故事目前仍是未命名占位符"}。suggestedTitle 请根据用户最后一轮原话生成一个 6-16 个汉字的内部故事名称：优先具体物件、动作、判断或用户自己的短语，不加书名号，不写“关于……的故事”；同时返回 suggestedTitleAnchor，它必须是标题和用户原话里都逐字出现的短词。只有寒暄、操作指令或信息不足时，两个字段都返回 null。`
+      : "故事已有名称，不要再次改名；suggestedTitle 和 suggestedTitleAnchor 必须返回 null。";
   const cardTitleInstruction = isJobSearch
     ? "card.title 用一个具体的岗位词、项目动作、证据或用户判断标出这份素材的价值，不写成“能力/经历/求职素材”这类分类名。"
     : isFiction
@@ -831,10 +832,10 @@ export function buildCardExtractionPrompt(
     '顶层结构是 { "read": {…}, "card": {…}, "suggestedTitle": "标题或 null", "suggestedTitleAnchor": "原话锚点或 null"' +
       (enableImageGen || hasProposeTool ? ', "toolCalls": […]' : "") +
       " }。",
-    userTurnNumber === 1
+    allowStoryTitleSuggestion
       ? 'suggestedTitle 示例："雨夜里的旧书"；suggestedTitleAnchor 示例："旧书"。'
       : '"suggestedTitle": null, "suggestedTitleAnchor": null。',
-    "★默认就要给出【完整的 card 对象】（下面 16 个字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
+    "★默认就要给出【完整的 card 对象】（下面字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
     "",
     'read 对象：{ "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',
     "",

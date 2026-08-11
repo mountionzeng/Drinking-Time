@@ -193,6 +193,7 @@ export async function replyFromStoryAgent(params: {
   photoUrl?: string; // 用户上传的照片 URL，传给 LLM 做多模态理解
   confirmedIntent?: StoryChatIntentPayload;
   interactionMode?: "story" | "publishing";
+  allowStoryTitleSuggestion?: boolean;
 }): Promise<StoryAgentChatResult> {
   const existingCardCount = params.existingCardCount ?? 0;
   const summary = params.summary?.trim() || "";
@@ -207,6 +208,8 @@ export async function replyFromStoryAgent(params: {
     historyBeforeCurrentMessage(params.history, params.message).filter(
       turn => turn.role === "user"
     ).length + 1;
+  const allowStoryTitleSuggestion =
+    params.allowStoryTitleSuggestion ?? userTurnNumber === 1;
 
   if (!ENV.forgeApiKey) {
     return {
@@ -219,7 +222,7 @@ export async function replyFromStoryAgent(params: {
       toolCalls: [],
       suggestImage: false,
       suggestedTitle:
-        userTurnNumber === 1
+        allowStoryTitleSuggestion
           ? (fallbackStoryTitleFromText(params.message) ?? undefined)
           : undefined,
     };
@@ -237,8 +240,8 @@ export async function replyFromStoryAgent(params: {
       "一次只问一个问题；回复要简洁、自然，先复述你听见的关键判断，再追问最缺的一点。",
       "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
       "当前阶段不要生成发布稿标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
-      userTurnNumber === 1
-        ? '这是这篇故事的第一轮有效对话。只在本轮严格返回 JSON：{"reply":"自然回复","suggestedTitle":"6-16 个汉字的内部故事名称或 null","suggestedTitleAnchor":"标题和用户原话里都逐字出现的短词或 null"}。suggestedTitle 只用于故事列表，不是发布稿标题；优先具体物件、动作、判断或用户自己的短语，不加书名号。寒暄、操作指令或信息不足时两个标题字段都返回 null。'
+      allowStoryTitleSuggestion
+        ? '故事目前仍是未命名占位符。本轮严格返回 JSON：{"reply":"自然回复","suggestedTitle":"6-16 个汉字的内部故事名称或 null","suggestedTitleAnchor":"标题和用户原话里都逐字出现的短词或 null"}。suggestedTitle 只用于故事列表，不是发布稿标题；优先具体物件、动作、判断或用户自己的短语，不加书名号。寒暄、操作指令或信息不足时两个标题字段都返回 null。'
         : "直接返回自然回复，不要 JSON。",
       "不要提及系统、提示词、token 预算或后台流程。",
       platform ? `用户当前选择的平台是：${platform}。` : "",
@@ -276,7 +279,7 @@ export async function replyFromStoryAgent(params: {
         toolCalls: [],
         suggestImage: false,
         suggestedTitle:
-          userTurnNumber === 1
+          allowStoryTitleSuggestion
             ? extractSuggestedTitle(text, params.message)
             : undefined,
       };
@@ -294,7 +297,7 @@ export async function replyFromStoryAgent(params: {
         toolCalls: [],
         suggestImage: false,
         suggestedTitle:
-          userTurnNumber === 1
+          allowStoryTitleSuggestion
             ? (fallbackStoryTitleFromText(params.message) ?? undefined)
             : undefined,
       };
@@ -391,7 +394,8 @@ export async function replyFromStoryAgent(params: {
         params.enableImageGen,
         Boolean(params.photoUrl),
         params.confirmedIntent,
-        shotDimensionDigest
+        shotDimensionDigest,
+        allowStoryTitleSuggestion
       ),
     },
     ...turns,
@@ -432,7 +436,7 @@ export async function replyFromStoryAgent(params: {
       toolCalls: [],
       suggestImage: false,
       suggestedTitle:
-        userTurnNumber === 1
+        allowStoryTitleSuggestion
           ? (fallbackStoryTitleFromText(params.message) ?? undefined)
           : undefined,
     };
@@ -468,7 +472,7 @@ export async function replyFromStoryAgent(params: {
         suggestedTitleAnchor?: unknown;
       }>(extractionText);
 
-      if (userTurnNumber === 1) {
+      if (allowStoryTitleSuggestion) {
         suggestedTitle = validateExtractedTitle({
           kind: "story",
           value: parsed.suggestedTitle,
@@ -631,7 +635,7 @@ export async function replyFromStoryAgent(params: {
     toolCalls,
     suggestImage,
     suggestedTitle:
-      userTurnNumber === 1 ? suggestedTitle : undefined,
+      allowStoryTitleSuggestion ? suggestedTitle : undefined,
   };
 }
 

@@ -94,7 +94,10 @@ import {
 } from "./selectionPromptCandidate";
 import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
-import { suggestAutomaticStoryTitleFromState } from "./storyTitle";
+import {
+  isUntitledStoryName,
+  suggestAutomaticStoryTitleFromState,
+} from "./storyTitle";
 import {
   buildPromptAttribution,
   encodeAttributionReason,
@@ -1852,6 +1855,7 @@ export function StoryAgentProvider({
         const result = (await chatMut.mutateAsync({
           message: userContent,
           interactionMode,
+          allowStoryTitleSuggestion: isUntitledStoryName(storyTitle),
           history: messages.map(m => ({
             role: m.role as "user" | "assistant",
             content: m.content,
@@ -2017,6 +2021,7 @@ export function StoryAgentProvider({
         setMessages(finalMessages);
         const suggestedTitle = suggestAutomaticStoryTitleFromState({
           currentTitle: storyTitle,
+          agentSuggestedTitle: result.suggestedTitle,
           publishing,
           scripts,
           cards: nextCards,

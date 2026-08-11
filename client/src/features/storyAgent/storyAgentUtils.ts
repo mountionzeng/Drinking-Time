@@ -6,17 +6,59 @@
  * 所以单独成文件，方便复用与单测。
  */
 import type { StoryCard, VisualCanvasItem } from './types';
+import { validateGeneratedTitle } from '@shared/textTitle';
 
 // 生成一个带前缀的弱唯一 ID：前缀-时间戳-随机串。够本地用，不追求全局唯一。
 export function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// 给一张卡推导一个简短标题：优先取原话/正文，压成单行并截到 14 字。
+function fallbackCardTitleCandidate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value
+    .replace(/^(?:触发物|原话|内容)\s*[：:]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+
+  const quoted = Array.from(
+    cleaned.matchAll(/[“"「『]([^”"」』]{2,24})[”"」』]/g),
+    match => match[1]?.trim() ?? '',
+  ).filter(Boolean);
+  const clauses = cleaned
+    .split(/[。！？!?；;，,：:\n]+/)
+    .map(part => part.trim())
+    .filter(part => part.length >= 2);
+  const candidates = [cleaned, ...quoted, ...clauses]
+    .map(candidate => {
+      const validation = validateGeneratedTitle({
+        kind: 'card',
+        value: candidate,
+        requireAnchor: false,
+      });
+      return validation.hardFailures.length === 0
+        ? validation.normalizedTitle
+        : '';
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+
+  return candidates[0] ?? null;
+}
+
+// 新卡优先使用抽取器给出的标题；缺失时从已有字段里挑一个完整短语，绝不截断半句话。
 export function cardTitle(card: Partial<StoryCard>): string {
-  const source = card.sourceQuote || card.content || card.rawText || '故事素材';
-  const compact = source.replace(/\s+/g, ' ').trim();
-  return compact.length > 14 ? `${compact.slice(0, 14)}…` : compact || '故事素材';
+  if (typeof card.title === 'string' && card.title.trim()) return card.title;
+  for (const source of [
+    card.trigger,
+    card.sourceQuote,
+    card.content,
+    card.rawText,
+  ]) {
+    const candidate = fallbackCardTitleCandidate(source);
+    if (candidate) return candidate;
+  }
+  return '故事素材';
 }
 
 // 把 unknown 安全地收成 string[]：非数组返回空，数组里只保留字符串项。

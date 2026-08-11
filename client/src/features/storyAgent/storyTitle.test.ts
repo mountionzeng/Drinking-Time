@@ -29,6 +29,53 @@ describe("story title", () => {
     ).toBe("AI味儿正在吃掉活人味");
   });
 
+  it("prefers a grounded agent suggestion without replacing a manual name", () => {
+    expect(
+      suggestAutomaticStoryTitle({
+        currentTitle: "未命名故事",
+        agentSuggestedTitle: "塌了三次的杯壁",
+        publishingTitle: "关于第一次陶艺课的一些思考",
+        userMessages: ["第一次拉坯时，杯壁在手里塌了三次。"],
+      })
+    ).toBe("塌了三次的杯壁");
+    expect(
+      suggestAutomaticStoryTitle({
+        currentTitle: "我亲自改的名字",
+        agentSuggestedTitle: "塌了三次的杯壁",
+      })
+    ).toBeNull();
+  });
+
+  it("does not turn an overlong public headline into a clipped story name", () => {
+    const title = suggestAutomaticStoryTitle({
+      currentTitle: "未命名故事",
+      publishingTitle:
+        "为什么我最后删掉了已经上线的功能以及这次决定带来的全部反思",
+      userMessages: ["我最后删掉了已经上线的功能。"],
+    });
+
+    expect(title).toBe("我最后删掉了已经上线的功能");
+    expect(title).not.toMatch(/…|\.\.\.$/);
+  });
+
+  it("leaves a generic setup unnamed so a later concrete turn can name it", () => {
+    expect(
+      suggestAutomaticStoryTitle({
+        currentTitle: "未命名故事",
+        userMessages: ["我想讲一件事。"],
+      })
+    ).toBeNull();
+    expect(
+      suggestAutomaticStoryTitle({
+        currentTitle: "未命名故事",
+        userMessages: [
+          "我想讲一件事。",
+          "外婆用一根红线固定住收音机的刻度。",
+        ],
+      })
+    ).toBe("外婆用一根红线固定住收音机的刻度");
+  });
+
   it("uses two quoted ideas from the conversation as a compact fallback", () => {
     expect(
       suggestAutomaticStoryTitle({

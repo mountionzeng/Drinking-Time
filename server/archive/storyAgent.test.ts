@@ -367,6 +367,22 @@ describe("story title suggestion contract", () => {
     expect(prompt).toContain('"suggestedTitle": null');
   });
 
+  it("can ask a later substantive turn for a title while the story is still unnamed", () => {
+    const prompt = buildCardExtractionPrompt(
+      2,
+      3,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true
+    );
+
+    expect(prompt).toContain("故事目前仍是未命名占位符");
+    expect(prompt).toContain('"suggestedTitleAnchor"');
+    expect(prompt).not.toContain('"suggestedTitle": null, "suggestedTitleAnchor": null');
+  });
+
   it("returns the first-turn title from the existing extraction call", async () => {
     mockInvokeLLM
       .mockResolvedValueOnce(makeAgentResponse("你接着说。"))
@@ -452,6 +468,29 @@ describe("story title suggestion contract", () => {
     });
 
     expect(result.suggestedTitle).toBeUndefined();
+  });
+
+  it("accepts a grounded later-turn title only when the caller says the story is unnamed", async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse("这个画面很具体。"))
+      .mockResolvedValueOnce(
+        makeAgentResponse("", {
+          suggestedTitle: "红线固定的刻度",
+          suggestedTitleAnchor: "刻度",
+        })
+      );
+
+    const result = await replyFromStoryAgent({
+      message: "外婆用一根红线固定住收音机的刻度。",
+      history: [
+        { role: "user", content: "我想讲一件事。" },
+        { role: "assistant", content: "是什么事？" },
+      ],
+      allowStoryTitleSuggestion: true,
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
+    expect(result.suggestedTitle).toBe("红线固定的刻度");
   });
 });
 
