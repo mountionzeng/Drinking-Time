@@ -9,6 +9,16 @@ export function isUntitledStoryName(value: string | null | undefined): boolean {
   return UNTITLED_NAMES.has(title) || /^故事\s*#\d+$/.test(title);
 }
 
+export function canApplyAutomaticStoryTitle(
+  currentTitle: string | null | undefined,
+  suggestedTitle: string
+): boolean {
+  return (
+    isUntitledStoryName(currentTitle) ||
+    (currentTitle?.trim() ?? "") === suggestedTitle.trim()
+  );
+}
+
 function compactTitle(value: string): string {
   return normalizeTitleText(
     value

@@ -291,7 +291,9 @@ export async function generatePublishingDraft(params: {
   });
   let root = asRecord(result.parsed);
   let core = normalizeCore(root?.core);
-  const titleSources = params.conversation.map(turn => turn.content);
+  const titleSources = params.conversation
+    .filter(turn => turn.role === "user")
+    .map(turn => turn.content);
   let content = normalizeContent(root?.draft, params.platform, titleSources);
   if (!core || !content) {
     const firstReason = !root

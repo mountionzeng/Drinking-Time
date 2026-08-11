@@ -95,6 +95,7 @@ import {
 import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
 import {
+  canApplyAutomaticStoryTitle,
   isUntitledStoryName,
   suggestAutomaticStoryTitleFromState,
 } from "./storyTitle";
@@ -631,7 +632,7 @@ function normalizeCard(raw: unknown): StoryCard | null {
       : undefined,
     createdAt: typeof obj.createdAt === "number" ? obj.createdAt : Date.now(),
   };
-  return { ...card, title: card.title || cardTitle(card) };
+  return { ...card, title: cardTitle(card) };
 }
 
 function normalizeShot(raw: unknown, index: number): StoryShot | null {
@@ -2019,16 +2020,16 @@ export function StoryAgentProvider({
         };
         const finalMessages = [...nextMessages, replyMsg];
         setMessages(finalMessages);
+        const currentStoryTitle = storySpineStore.getState().storyTitle;
         const suggestedTitle = suggestAutomaticStoryTitleFromState({
-          currentTitle: storyTitle,
+          currentTitle: currentStoryTitle,
           agentSuggestedTitle: result.suggestedTitle,
           publishing,
           scripts,
           cards: nextCards,
           messages: finalMessages,
         });
-        const nextStoryTitle = suggestedTitle ?? storyTitle;
-        if (suggestedTitle) setStoryTitle(suggestedTitle);
+        const nextStoryTitle = currentStoryTitle;
         if (shouldRecognizeIntent) {
           void recognizeIntentFromHistory(nextMessages, requestStoryId);
         }
@@ -2053,17 +2054,52 @@ export function StoryAgentProvider({
         );
         if (savedStoryId != null && suggestedTitle) {
           try {
-            const renamed = await storyAutoRenameMut.mutateAsync({
-              id: savedStoryId,
-              suggestedTitle,
-            });
-            if (renamed.status === "ok" || renamed.status === "skipped") {
-              setStoryTitle(renamed.title);
+            const titleStateBeforeRename = storySpineStore.getState();
+            const manualTitleBeforeRename =
+              titleStateBeforeRename.storyTitle?.trim();
+            if (
+              storyScopeMatches(
+                savedStoryId,
+                titleStateBeforeRename.activeStoryId
+              ) &&
+              manualTitleBeforeRename &&
+              !canApplyAutomaticStoryTitle(
+                manualTitleBeforeRename,
+                suggestedTitle
+              )
+            ) {
+              await renameStory(savedStoryId, manualTitleBeforeRename);
             } else {
-              console.warn(
-                "[storyTitle] automatic rename skipped:",
-                renamed.error
-              );
+              const renamed = await storyAutoRenameMut.mutateAsync({
+                id: savedStoryId,
+                suggestedTitle,
+              });
+              if (renamed.status === "ok" || renamed.status === "skipped") {
+                const latestTitleState = storySpineStore.getState();
+                const latestManualTitle = latestTitleState.storyTitle?.trim();
+                if (
+                  storyScopeMatches(
+                    savedStoryId,
+                    latestTitleState.activeStoryId
+                  )
+                ) {
+                  if (
+                    canApplyAutomaticStoryTitle(
+                      latestManualTitle,
+                      suggestedTitle
+                    )
+                  ) {
+                    setStoryTitle(renamed.title);
+                  } else if (latestManualTitle) {
+                    await renameStory(savedStoryId, latestManualTitle);
+                  }
+                }
+              } else {
+                console.warn(
+                  "[storyTitle] automatic rename skipped:",
+                  renamed.error
+                );
+              }
             }
           } catch (error) {
             console.warn("[storyTitle] automatic rename failed:", error);
@@ -2119,6 +2155,7 @@ export function StoryAgentProvider({
       activeStoryId,
       appendConversationTurnMut,
       storyAutoRenameMut,
+      renameStory,
       saveArchiveStory,
       uploadPhotoMut,
       recognizeIntentFromHistory,

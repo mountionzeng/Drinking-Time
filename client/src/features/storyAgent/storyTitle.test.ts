@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canApplyAutomaticStoryTitle,
   isUntitledStoryName,
   suggestAutomaticStoryTitle,
 } from "./storyTitle";
@@ -15,6 +16,18 @@ describe("story title", () => {
         userMessages: ["用户说了一段新的内容"],
       })
     ).toBeNull();
+  });
+
+  it("rechecks a manual name before applying a late automatic result", () => {
+    expect(canApplyAutomaticStoryTitle("未命名故事", "雨夜里的旧书")).toBe(
+      true
+    );
+    expect(canApplyAutomaticStoryTitle("雨夜里的旧书", "雨夜里的旧书")).toBe(
+      true
+    );
+    expect(canApplyAutomaticStoryTitle("我刚刚手动改的名字", "雨夜里的旧书")).toBe(
+      false
+    );
   });
 
   it("prefers the confirmed publishing title for an unnamed story", () => {

@@ -51,6 +51,25 @@ describe("creation editor spine boundary", () => {
     );
   });
 
+  it("rechecks the live title before applying a late automatic suggestion", () => {
+    const storyContext = source(
+      "client/src/features/storyAgent/StoryAgentContext.tsx"
+    );
+    const sendStart = storyContext.indexOf("const sendMessage = useCallback");
+    const sendEnd = storyContext.indexOf(
+      "const clearFictionConfirmationIfNeeded",
+      sendStart
+    );
+    const sendFlow = storyContext.slice(sendStart, sendEnd);
+
+    expect(sendFlow).toMatch(
+      /const currentStoryTitle = storySpineStore\.getState\(\)\.storyTitle;[\s\S]*?currentTitle: currentStoryTitle,[\s\S]*?const nextStoryTitle = currentStoryTitle/
+    );
+    expect(sendFlow).toMatch(
+      /const renamed = await storyAutoRenameMut\.mutateAsync[\s\S]*?const latestTitleState = storySpineStore\.getState\(\);[\s\S]*?const latestManualTitle = latestTitleState\.storyTitle\?\.trim\(\);[\s\S]*?storyScopeMatches\([\s\S]*?savedStoryId,[\s\S]*?latestTitleState\.activeStoryId[\s\S]*?\)[\s\S]*?canApplyAutomaticStoryTitle\([\s\S]*?latestManualTitle,[\s\S]*?suggestedTitle/
+    );
+  });
+
   it("drops late voice and version-restore snapshots after switching stories", () => {
     const editorContext = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"

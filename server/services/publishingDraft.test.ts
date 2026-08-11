@@ -127,6 +127,42 @@ describe("publishing draft model operations", () => {
     });
   });
 
+  it("does not treat assistant replies as evidence for a generated title", async () => {
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        core: {
+          facts: core.facts,
+          thesis: core.thesis,
+          emotion: core.emotion,
+          voiceTraits: core.voiceTraits,
+          visualConcept: core.visualConcept,
+        },
+        draft: {
+          title: "百万用户都在等这个答案",
+          titleAnchor: "百万用户",
+          body: "正文仍然来自用户真实说过的内容。",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+
+    const result = await generatePublishingDraft({
+      platform: "xiaohongshu",
+      conversation: [
+        { role: "user", content: "我只是想记录第一次做产品的过程。" },
+        { role: "assistant", content: "也许已经有百万用户在等这个答案。" },
+      ],
+    });
+
+    expect(result.content).toEqual({
+      title: "",
+      body: "正文仍然来自用户真实说过的内容。",
+      tags: [],
+    });
+  });
+
   it("repairs one invalid generation result with exactly one bounded retry", async () => {
     runtimeMocks.runJsonAgent
       .mockResolvedValueOnce({
