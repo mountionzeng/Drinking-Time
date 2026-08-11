@@ -310,6 +310,7 @@ describe("publishing draft model operations", () => {
     });
 
     expect(result.content.body).toContain("我在意的就是这个动作");
+    expect(result.content.title).toBe("书的尸体与数据永生");
     expect(runtimeMocks.runJsonAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         systemPrompt: expect.stringContaining("不必保留原稿的情绪强度"),
@@ -323,6 +324,39 @@ describe("publishing draft model operations", () => {
       "不要把一种修辞替换成另一种修辞"
     );
     expect(core.thesis).toBe("人类最珍贵的时间不该浪费在无意义的自动化上");
+  });
+
+  it("keeps an applied title when a rewrite returns an unsafe title", async () => {
+    const phone = ["138", "0000", "0000"].join("");
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        draft: {
+          title: `联系 ${phone}`,
+          titleAnchor: phone,
+          body: "正文已经按要求变得更直接。",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+
+    const result = await revisePublishingDraft({
+      core,
+      current: {
+        title: "用户亲自改过的标题",
+        body: "原正文。",
+        tags: [],
+      },
+      platform: "xiaohongshu",
+      instruction: "正文直接一点",
+    });
+
+    expect(result.content).toEqual({
+      title: "用户亲自改过的标题",
+      body: "正文已经按要求变得更直接。",
+      tags: [],
+    });
   });
 
   it("repairs a restrained rewrite when the model leaves melodramatic language behind", async () => {

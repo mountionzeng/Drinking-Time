@@ -131,6 +131,15 @@ function publishingContentTitleSources(
   return [content.title, content.body, ...content.tags].filter(Boolean);
 }
 
+function preserveAppliedPublishingTitle(
+  generated: PublishingDraftContent,
+  current: PublishingDraftContent,
+  platform: PublishingPlatformId
+): PublishingDraftContent {
+  if (platform === "x" || !current.title) return generated;
+  return { ...generated, title: current.title };
+}
+
 function publishingTitleContext(platform: PublishingPlatformId): string {
   if (platform === "x") {
     return "X 不使用独立标题：draft.title 与 draft.titleAnchor 都必须是空字符串。";
@@ -482,6 +491,11 @@ export async function revisePublishingDraft(params: {
       invalidContentReason(root?.draft, params.platform)
     );
   }
+  content = preserveAppliedPublishingTitle(
+    content,
+    params.current,
+    params.platform
+  );
   const styleViolations = restrainedRewriteViolations(
     params.instruction,
     content
@@ -513,7 +527,11 @@ export async function revisePublishingDraft(params: {
     );
     if (repaired) {
       result = styleRepair;
-      content = repaired;
+      content = preserveAppliedPublishingTitle(
+        repaired,
+        params.current,
+        params.platform
+      );
     }
   }
   return {
