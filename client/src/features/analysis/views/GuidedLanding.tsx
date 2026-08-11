@@ -110,7 +110,7 @@ export default function GuidedLanding({
               <p className="text-xs leading-relaxed text-muted-foreground">
                 那些舍不得忘记的回忆，会慢慢变成可以看见的故事和画面。
               </p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
+              <p className="space-y-[1.625em] text-xs leading-relaxed text-muted-foreground">
                 <span className="block">
                   写下你此刻最放不下的一件事，一时想不到，留个生日也可以。
                 </span>
