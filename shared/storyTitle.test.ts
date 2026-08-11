@@ -22,7 +22,10 @@ describe("story title helpers", () => {
       normalizeSuggestedStoryTitle(
         "这个标题实在太长了需要在列表里面被安全地截断"
       )
-    ).toBe("这个标题实在太长了需要在列表里面被安");
+    ).toBeNull();
+    expect(
+      normalizeSuggestedStoryTitle(`联系${["138", "0000", "0000"].join("")}`)
+    ).toBeNull();
   });
 
   it("derives a useful fallback from the first meaningful user sentence", () => {

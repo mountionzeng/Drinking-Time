@@ -1,5 +1,6 @@
 import type { TitleEvalCase, TitleKind } from "./titleCases";
 import { TITLE_KINDS } from "./titleCases";
+import { validateGeneratedTitle } from "../shared/textTitle";
 
 export type TitlePlatform = TitleEvalCase["platform"];
 
@@ -23,20 +24,6 @@ export type TitleKindCharacterization = {
   diagnostics: Record<string, number>;
 };
 
-const PHONE_PATTERN = /(?:^|\D)1[3-9]\d{9}(?:\D|$)/;
-const EMAIL_PATTERN = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/;
-const PLAIN_VERSION_PATTERN = /^V\d+$/i;
-const CLIPPED_ENDING_PATTERN = /(?:…|\.\.\.)$/;
-const GENERIC_TEMPLATE_PATTERNS = [
-  /^关于.+(?:一些|的)?(?:想法|思考|事情|故事)$/,
-  /^一次(?:很)?(?:有意义|难忘|特别)的(?:经历|体验)$/,
-  /^我的(?:故事|感悟|思考|经历)$/,
-  /^记录一下/,
-  /^我想聊聊/,
-  /^这是一个关于/,
-  /^今天发生的事情$/,
-];
-
 const KIND_LABELS: Record<TitleKind, string> = {
   publishing: "发布稿标题",
   story: "故事名",
@@ -44,69 +31,15 @@ const KIND_LABELS: Record<TitleKind, string> = {
   card: "卡片标题",
 };
 
-function normalizeEvidence(value: string): string {
-  return value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, "");
-}
-
-function containsContactInformation(value: string): boolean {
-  return PHONE_PATTERN.test(value) || EMAIL_PATTERN.test(value);
-}
-
-function titleDiagnostics(kind: TitleKind, title: string): string[] {
-  const diagnostics: string[] = [];
-  const normalized = title.trim();
-
-  if (kind === "version" && PLAIN_VERSION_PATTERN.test(normalized)) {
-    diagnostics.push("plain-version");
-  }
-  if (CLIPPED_ENDING_PATTERN.test(normalized)) {
-    diagnostics.push("clipped-ending");
-  }
-  if (GENERIC_TEMPLATE_PATTERNS.some(pattern => pattern.test(normalized))) {
-    diagnostics.push("generic-template");
-  }
-
-  return diagnostics;
-}
-
-function structuralFailures(input: {
-  kind: TitleKind;
-  platform?: TitlePlatform;
-  title: string;
-}): string[] {
-  const title = input.title.trim();
-  const failures: string[] = [];
-
-  if (input.kind === "publishing" && input.platform === "x") {
-    if (title.length > 0) failures.push("x-must-be-titleless");
-    return failures;
-  }
-
-  if (title.length === 0) failures.push("required-title-empty");
-  if (Array.from(title).length > 160) failures.push("title-over-storage-limit");
-  if (containsContactInformation(title)) failures.push("contact-information");
-  return failures;
-}
-
 export function evaluateGeneratedTitle(input: GeneratedTitleInput): TitleEvaluation {
-  const hardFailures = structuralFailures(input);
-  const title = input.title.trim();
-
-  if (!(input.kind === "publishing" && input.platform === "x") && title.length > 0) {
-    const anchor = normalizeEvidence(input.anchor);
-    if (anchor.length === 0) {
-      hardFailures.push("anchor-empty");
-    } else if (
-      !input.sourceTexts.some(source => normalizeEvidence(source).includes(anchor))
-    ) {
-      hardFailures.push("anchor-not-in-source");
-    }
-  }
-
-  return {
-    hardFailures,
-    diagnostics: titleDiagnostics(input.kind, input.title),
-  };
+  const result = validateGeneratedTitle({
+    kind: input.kind,
+    platform: input.platform,
+    value: input.title,
+    anchor: input.anchor,
+    sourceTexts: input.sourceTexts,
+  });
+  return { hardFailures: result.hardFailures, diagnostics: result.diagnostics };
 }
 
 function increment(target: Record<string, number>, keys: readonly string[]): void {
@@ -122,15 +55,14 @@ export function characterizeStoredTitles(
     const diagnostics: Record<string, number> = {};
 
     for (const sample of samples) {
-      increment(
-        hardFailures,
-        structuralFailures({
-          kind: sample.kind,
-          platform: sample.platform,
-          title: sample.oldTitle,
-        }),
-      );
-      increment(diagnostics, titleDiagnostics(kind, sample.oldTitle));
+      const result = validateGeneratedTitle({
+        kind: sample.kind,
+        platform: sample.platform,
+        value: sample.oldTitle,
+        requireAnchor: false,
+      });
+      increment(hardFailures, result.hardFailures);
+      increment(diagnostics, result.diagnostics);
     }
 
     return { kind, samples: samples.length, hardFailures, diagnostics };

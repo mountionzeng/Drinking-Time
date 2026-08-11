@@ -1,6 +1,11 @@
-export const TITLE_KINDS = ["publishing", "story", "version", "card"] as const;
+import {
+  TEXT_TITLE_KINDS,
+  type TextTitleKind,
+} from "../shared/textTitle";
 
-export type TitleKind = (typeof TITLE_KINDS)[number];
+export const TITLE_KINDS = TEXT_TITLE_KINDS;
+
+export type TitleKind = TextTitleKind;
 
 export type TitleEvalCase = {
   id: string;
