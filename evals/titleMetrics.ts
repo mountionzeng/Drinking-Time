@@ -22,6 +22,8 @@ export type TitleKindCharacterization = {
   samples: number;
   hardFailures: Record<string, number>;
   diagnostics: Record<string, number>;
+  newHardFailures: Record<string, number>;
+  newDiagnostics: Record<string, number>;
 };
 
 const KIND_LABELS: Record<TitleKind, string> = {
@@ -53,6 +55,8 @@ export function characterizeStoredTitles(
     const samples = cases.filter(sample => sample.kind === kind);
     const hardFailures: Record<string, number> = {};
     const diagnostics: Record<string, number> = {};
+    const newHardFailures: Record<string, number> = {};
+    const newDiagnostics: Record<string, number> = {};
 
     for (const sample of samples) {
       const result = validateGeneratedTitle({
@@ -63,9 +67,25 @@ export function characterizeStoredTitles(
       });
       increment(hardFailures, result.hardFailures);
       increment(diagnostics, result.diagnostics);
+      const nextResult = validateGeneratedTitle({
+        kind: sample.kind,
+        platform: sample.platform,
+        value: sample.newTitle,
+        anchor: sample.anchor,
+        sourceTexts: sample.sourceTexts,
+      });
+      increment(newHardFailures, nextResult.hardFailures);
+      increment(newDiagnostics, nextResult.diagnostics);
     }
 
-    return { kind, samples: samples.length, hardFailures, diagnostics };
+    return {
+      kind,
+      samples: samples.length,
+      hardFailures,
+      diagnostics,
+      newHardFailures,
+      newDiagnostics,
+    };
   });
 }
 
@@ -85,8 +105,10 @@ export function renderTitleCharacterization(
   for (const result of report) {
     lines.push(
       `\n## ${KIND_LABELS[result.kind]}（${result.samples} 条）`,
-      `硬失败：${renderCounts(result.hardFailures)}`,
-      `质量诊断：${renderCounts(result.diagnostics)}`,
+      `旧行为硬失败：${renderCounts(result.hardFailures)}`,
+      `旧行为质量诊断：${renderCounts(result.diagnostics)}`,
+      `新候选硬失败：${renderCounts(result.newHardFailures)}`,
+      `新候选质量诊断：${renderCounts(result.newDiagnostics)}`,
     );
   }
   lines.push(

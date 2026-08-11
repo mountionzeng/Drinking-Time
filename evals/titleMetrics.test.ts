@@ -89,12 +89,16 @@ describe("characterizeStoredTitles", () => {
     expect(report.find(result => result.kind === "version")?.diagnostics["plain-version"]).toBeGreaterThan(0);
     expect(report.find(result => result.kind === "card")?.diagnostics["clipped-ending"]).toBeGreaterThan(0);
     expect(report.find(result => result.kind === "publishing")?.diagnostics["generic-template"]).toBeGreaterThan(0);
+    expect(report.every(result => Object.keys(result.newHardFailures).length === 0)).toBe(true);
+    expect(report.every(result => Object.keys(result.newDiagnostics).length === 0)).toBe(true);
 
     const rendered = renderTitleCharacterization(report);
     expect(rendered).toContain("发布稿标题");
     expect(rendered).toContain("故事名");
     expect(rendered).toContain("版本短名");
     expect(rendered).toContain("卡片标题");
+    expect(rendered).toContain("旧行为质量诊断");
+    expect(rendered).toContain("新候选质量诊断：无");
     expect(rendered).not.toContain("综合得分");
   });
 });
