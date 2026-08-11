@@ -38,6 +38,10 @@ import {
   fallbackStoryTitleFromText,
   normalizeSuggestedStoryTitle,
 } from "@shared/storyTitle";
+import {
+  type TextTitleKind,
+  validateGeneratedTitle,
+} from "@shared/textTitle";
 
 const HUMANITY_TRAITS: HumanityTrait[] = [
   "defensive",
@@ -72,19 +76,37 @@ function extractReplyText(raw: string): string {
   return text;
 }
 
-function extractSuggestedTitle(
-  raw: string,
-  fallbackText: string
-): string | undefined {
+function validateExtractedTitle(params: {
+  kind: Extract<TextTitleKind, "story" | "card">;
+  value: unknown;
+  anchor: unknown;
+  sourceTexts: readonly string[];
+}): string | undefined {
+  const validation = validateGeneratedTitle({
+    ...params,
+    requireAnchor: true,
+  });
+  if (validation.hardFailures.length > 0) return undefined;
+  if (params.kind === "story") {
+    return normalizeSuggestedStoryTitle(validation.normalizedTitle) ?? undefined;
+  }
+  return validation.normalizedTitle || undefined;
+}
+
+function extractSuggestedTitle(raw: string, sourceText: string): string | undefined {
   try {
-    const parsed = parseJsonLoose<{ suggestedTitle?: unknown }>(raw);
-    return (
-      normalizeSuggestedStoryTitle(parsed.suggestedTitle) ??
-      fallbackStoryTitleFromText(fallbackText) ??
-      undefined
-    );
+    const parsed = parseJsonLoose<{
+      suggestedTitle?: unknown;
+      suggestedTitleAnchor?: unknown;
+    }>(raw);
+    return validateExtractedTitle({
+      kind: "story",
+      value: parsed.suggestedTitle,
+      anchor: parsed.suggestedTitleAnchor,
+      sourceTexts: [sourceText],
+    });
   } catch {
-    return fallbackStoryTitleFromText(fallbackText) ?? undefined;
+    return fallbackStoryTitleFromText(sourceText) ?? undefined;
   }
 }
 
@@ -216,7 +238,7 @@ export async function replyFromStoryAgent(params: {
       "保留用户的事实、情绪、结论、原话和个人棱角，不要把批评磨成中性鸡汤。",
       "当前阶段不要生成发布稿标题、标签、故事卡、分镜或图片；只有用户点击“生成发布稿”后，另一条显式流程才会生成。",
       userTurnNumber === 1
-        ? '这是这篇故事的第一轮有效对话。只在本轮严格返回 JSON：{"reply":"自然回复","suggestedTitle":"6-16 个汉字的内部故事名称"}。suggestedTitle 只用于故事列表，不是发布稿标题；要具体、有画面、不加书名号。'
+        ? '这是这篇故事的第一轮有效对话。只在本轮严格返回 JSON：{"reply":"自然回复","suggestedTitle":"6-16 个汉字的内部故事名称或 null","suggestedTitleAnchor":"标题和用户原话里都逐字出现的短词或 null"}。suggestedTitle 只用于故事列表，不是发布稿标题；优先具体物件、动作、判断或用户自己的短语，不加书名号。寒暄、操作指令或信息不足时两个标题字段都返回 null。'
         : "直接返回自然回复，不要 JSON。",
       "不要提及系统、提示词、token 预算或后台流程。",
       platform ? `用户当前选择的平台是：${platform}。` : "",
@@ -377,7 +399,7 @@ export async function replyFromStoryAgent(params: {
     {
       role: "user",
       content:
-        "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card, suggestedTitle" +
+        "（以上是刚刚的对话。请只针对对方最后这一轮，按系统提示输出严格 JSON：{ read, card, suggestedTitle, suggestedTitleAnchor" +
         (params.enableImageGen || hasProposeTool ? ", toolCalls" : "") +
         " }。）",
     },
@@ -443,13 +465,16 @@ export async function replyFromStoryAgent(params: {
           content?: string;
         }> | null;
         suggestedTitle?: unknown;
+        suggestedTitleAnchor?: unknown;
       }>(extractionText);
 
       if (userTurnNumber === 1) {
-        suggestedTitle =
-          normalizeSuggestedStoryTitle(parsed.suggestedTitle) ??
-          fallbackStoryTitleFromText(params.message) ??
-          undefined;
+        suggestedTitle = validateExtractedTitle({
+          kind: "story",
+          value: parsed.suggestedTitle,
+          anchor: parsed.suggestedTitleAnchor,
+          sourceTexts: [params.message],
+        });
       }
 
       // 校验 card 形状：只强制 content
@@ -463,6 +488,12 @@ export async function replyFromStoryAgent(params: {
             ? (parsed.card.rawText as string)
             : params.message;
         card = {
+          title: validateExtractedTitle({
+            kind: "card",
+            value: parsed.card.title,
+            anchor: parsed.card.titleAnchor,
+            sourceTexts: [params.message],
+          }),
           content: (parsed.card.content as string).trim(),
           rawText: rawTextRaw.trim(),
           sourceQuote: asCleanString(parsed.card.sourceQuote),
@@ -600,11 +631,7 @@ export async function replyFromStoryAgent(params: {
     toolCalls,
     suggestImage,
     suggestedTitle:
-      userTurnNumber === 1
-        ? (suggestedTitle ??
-          fallbackStoryTitleFromText(params.message) ??
-          undefined)
-        : undefined,
+      userTurnNumber === 1 ? suggestedTitle : undefined,
   };
 }
 

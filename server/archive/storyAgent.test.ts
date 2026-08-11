@@ -356,6 +356,8 @@ describe("story title suggestion contract", () => {
     const prompt = buildCardExtractionPrompt(0, 1);
 
     expect(prompt).toContain('"suggestedTitle"');
+    expect(prompt).toContain('"suggestedTitleAnchor"');
+    expect(prompt).toContain('"titleAnchor"');
     expect(prompt).toContain("6-16 个汉字");
   });
 
@@ -369,7 +371,10 @@ describe("story title suggestion contract", () => {
     mockInvokeLLM
       .mockResolvedValueOnce(makeAgentResponse("你接着说。"))
       .mockResolvedValueOnce(
-        makeAgentResponse("", { suggestedTitle: "标题：《雨夜里的旧书》。" })
+        makeAgentResponse("", {
+          suggestedTitle: "标题：《雨夜里的旧书》。",
+          suggestedTitleAnchor: "旧书",
+        })
       );
 
     const result = await replyFromStoryAgent({
@@ -378,6 +383,59 @@ describe("story title suggestion contract", () => {
 
     expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
     expect(result.suggestedTitle).toBe("雨夜里的旧书");
+  });
+
+  it("validates story and card titles independently in the same extraction call", async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse("你接着说。"))
+      .mockResolvedValueOnce(
+        makeAgentResponse("", {
+          suggestedTitle: "从未出现的获奖时刻",
+          suggestedTitleAnchor: "获奖",
+          card: {
+            title: "塌了三次的杯壁",
+            titleAnchor: "杯壁",
+            content: "第一次拉坯时，杯壁在手里塌了三次。",
+            rawText: "第一次拉坯时，杯壁在手里塌了三次。",
+            sourceQuote: "杯壁在手里塌了三次",
+          },
+        })
+      );
+
+    const result = await replyFromStoryAgent({
+      message: "第一次拉坯时，杯壁在手里塌了三次。",
+    });
+
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2);
+    expect(result.suggestedTitle).toBeUndefined();
+    expect(result.card?.title).toBe("塌了三次的杯壁");
+    expect(result.card?.content).toBe("第一次拉坯时，杯壁在手里塌了三次。");
+  });
+
+  it("keeps a valid story title when the card title is ungrounded", async () => {
+    mockInvokeLLM
+      .mockResolvedValueOnce(makeAgentResponse("你接着说。"))
+      .mockResolvedValueOnce(
+        makeAgentResponse("", {
+          suggestedTitle: "雨夜里的旧书",
+          suggestedTitleAnchor: "旧书",
+          card: {
+            title: "不存在的金牌",
+            titleAnchor: "金牌",
+            content: "凌晨三点整理旧书时突然停电了。",
+            rawText: "凌晨三点整理旧书时突然停电了。",
+            sourceQuote: "凌晨三点整理旧书",
+          },
+        })
+      );
+
+    const result = await replyFromStoryAgent({
+      message: "凌晨三点整理旧书时突然停电了。",
+    });
+
+    expect(result.suggestedTitle).toBe("雨夜里的旧书");
+    expect(result.card?.title).toBeUndefined();
+    expect(result.card?.content).toBe("凌晨三点整理旧书时突然停电了。");
   });
 
   it("never suggests another title after the first user turn", async () => {
@@ -401,7 +459,8 @@ describe("publishing conversation mode", () => {
   it("extracts the reply and internal title from the first existing call", async () => {
     mockInvokeLLM.mockResolvedValueOnce(
       makeAgentResponse("你真正介意的是决定权被拿走。", {
-        suggestedTitle: "《被拿走的决定权》",
+        suggestedTitle: "《根本用不着的子 Agent》",
+        suggestedTitleAnchor: "子 Agent",
       })
     );
 
@@ -413,7 +472,7 @@ describe("publishing conversation mode", () => {
 
     expect(mockInvokeLLM).toHaveBeenCalledTimes(1);
     expect(result.reply).toBe("你真正介意的是决定权被拿走。");
-    expect(result.suggestedTitle).toBe("被拿走的决定权");
+    expect(result.suggestedTitle).toBe("根本用不着的子 Agent");
   });
 
   it("uses exactly one conversational call and never runs card extraction", async () => {

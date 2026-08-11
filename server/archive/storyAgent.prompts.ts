@@ -761,8 +761,13 @@ export function buildCardExtractionPrompt(
   const hasProposeTool = Boolean(digest);
   const titleInstruction =
     userTurnNumber === 1
-      ? "这是这篇故事的第一轮有效对话。suggestedTitle 请根据用户原话生成一个 6-16 个汉字的内部故事名称：具体、有画面、不加书名号，不要写成“关于……的故事”。"
-      : "这不是第一轮对话，不要再次改名；suggestedTitle 必须返回 null。";
+      ? "这是这篇故事的第一轮有效对话。suggestedTitle 请根据用户原话生成一个 6-16 个汉字的内部故事名称：优先具体物件、动作、判断或用户自己的短语，不加书名号，不写“关于……的故事”；同时返回 suggestedTitleAnchor，它必须是标题和用户原话里都逐字出现的短词。只有寒暄、操作指令或信息不足时，两个字段都返回 null。"
+      : "这不是第一轮对话，不要再次改名；suggestedTitle 和 suggestedTitleAnchor 必须返回 null。";
+  const cardTitleInstruction = isJobSearch
+    ? "card.title 用一个具体的岗位词、项目动作、证据或用户判断标出这份素材的价值，不写成“能力/经历/求职素材”这类分类名。"
+    : isFiction
+      ? "card.title 用一个具体角色、物件、动作、世界规则或关键场景标出这份素材，不写成“故事设定/灵感/情节”这类分类名。"
+      : "card.title 优先用户自己的短语、具体物件或动作，不写成情绪分类，不截断半句话。";
   return [
     "你是 Drinking Time 的后台分析器。你不和任何人对话、不扮演任何人设——你只做一件事：",
     "读下面这段对话（重点是对方【最后一轮】说的话），把这一轮值得沉淀的信号抽成结构化数据。",
@@ -819,20 +824,24 @@ export function buildCardExtractionPrompt(
     "护栏 2（情绪词平衡）：emotionOptions 至少 5 个、正负面平衡；正面内容给正面词，理性清醒的表达给力量型词（清醒 / 笃定 / 边界感 / 不迁就），不要全往消极方向走，不要把理性判断归为防御。",
     "护栏 3（真实性）：绝不替用户补重大事实、创伤、疾病、死亡、暴力、背叛；用户没说就不能写成事实。",
     titleInstruction,
+    cardTitleInstruction,
+    "card.titleAnchor 必须是 card.title 和用户最后一轮原话里都逐字出现的短词；无法找到这样的锚点就把 title 和 titleAnchor 都设为 null，card 其余字段照常返回。",
     "",
     "【返回格式：严格 JSON 对象，不要附加任何额外文字、不要包 markdown 代码块、不要带注释】",
-    '顶层结构是 { "read": {…}, "card": {…}, "suggestedTitle": "标题或 null"' +
+    '顶层结构是 { "read": {…}, "card": {…}, "suggestedTitle": "标题或 null", "suggestedTitleAnchor": "原话锚点或 null"' +
       (enableImageGen || hasProposeTool ? ', "toolCalls": […]' : "") +
       " }。",
     userTurnNumber === 1
-      ? 'suggestedTitle 示例："雨夜里的旧书"。'
-      : '"suggestedTitle": null。',
+      ? 'suggestedTitle 示例："雨夜里的旧书"；suggestedTitleAnchor 示例："旧书"。'
+      : '"suggestedTitle": null, "suggestedTitleAnchor": null。',
     "★默认就要给出【完整的 card 对象】（下面 16 个字段尽量都填好）。只有在纯寒暄、纯工具指令、或这一轮完全没有任何情绪信号这种极少数情况下，才把 card 设成 null。拿不准时，宁可记一张很轻的卡（intensity 0.25 都行），也绝不要偷懒给 null。",
     "",
     'read 对象：{ "trait": "defensive | performing | numb | romantic | reflecting | nostalgic | conflicted", "note": "≤24 字内部速记" }',
     "",
     "card 对象（这一轮但凡有一丝情绪，就按这个把字段填出来）：",
     "{",
+    '  "title": "具体、完整、便于扫读的卡片名，建议 4-16 字；没有可靠原话锚点时为 null",',
+    '  "titleAnchor": "同时逐字出现在 title 和用户最后一轮原话里的短词；title 为 null 时也为 null",',
     '  "content": "用 1-2 句话定形这张卡的情绪；保留日常感，不解释、不升华",',
     '  "rawText": "对方原话，尽量原样保留",',
     '  "sourceQuote": "用户原话里能支撑这个情绪判断的短句，≤24 字；必须原话可追溯",',
