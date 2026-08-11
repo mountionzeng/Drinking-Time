@@ -25,6 +25,13 @@ const TITLE_POLICIES: Record<TextTitleKind, GeneratedTitlePolicy> = {
   version: { required: true, recommendedMax: 18, hardMax: 30 },
   card: { required: true, recommendedMax: 16, hardMax: 24 },
 };
+const PUBLISHING_RECOMMENDED_MAX: Record<string, number> = {
+  xiaohongshu: 24,
+  instagram: 36,
+  linkedin: 80,
+  wechat_moments: 30,
+  douyin_tiktok: 24,
+};
 
 const PHONE_PATTERN = /(?:^|\D)1[3-9]\d{9}(?:\D|$)/;
 const EMAIL_PATTERN = /[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/;
@@ -54,10 +61,20 @@ export function countTextCharacters(value: string): number {
 
 export function getGeneratedTitlePolicy(
   kind: TextTitleKind,
-  platform?: string,
+  platform?: string
 ): GeneratedTitlePolicy {
   if (kind === "publishing" && platform === "x") {
     return { required: false, recommendedMax: 0, hardMax: 0 };
+  }
+  if (
+    kind === "publishing" &&
+    platform &&
+    PUBLISHING_RECOMMENDED_MAX[platform]
+  ) {
+    return {
+      ...TITLE_POLICIES.publishing,
+      recommendedMax: PUBLISHING_RECOMMENDED_MAX[platform],
+    };
   }
   return TITLE_POLICIES[kind];
 }
@@ -83,14 +100,16 @@ export function normalizeTitleText(value: unknown): string {
   return normalized.replace(/[。！？!?；;：:，,、]+$/, "").trim();
 }
 
-export function containsGeneratedTitleContactInformation(value: string): boolean {
+export function containsGeneratedTitleContactInformation(
+  value: string
+): boolean {
   return PHONE_PATTERN.test(value) || EMAIL_PATTERN.test(value);
 }
 
 export function diagnoseTitleShape(
   kind: TextTitleKind,
   value: string,
-  platform?: string,
+  platform?: string
 ): string[] {
   const title = normalizeTitleText(value);
   const policy = getGeneratedTitlePolicy(kind, platform);
@@ -131,7 +150,11 @@ export function validateGeneratedTitle(input: {
     return {
       normalizedTitle,
       hardFailures,
-      diagnostics: diagnoseTitleShape(input.kind, normalizedTitle, input.platform),
+      diagnostics: diagnoseTitleShape(
+        input.kind,
+        normalizedTitle,
+        input.platform
+      ),
     };
   }
 
@@ -150,18 +173,27 @@ export function validateGeneratedTitle(input: {
       typeof input.anchor === "string" ? normalizeEvidence(input.anchor) : "";
     if (!anchor) {
       hardFailures.push("anchor-empty");
-    } else if (
-      !(input.sourceTexts ?? []).some(source =>
-        normalizeEvidence(source).includes(anchor),
-      )
-    ) {
-      hardFailures.push("anchor-not-in-source");
+    } else {
+      if (!normalizeEvidence(normalizedTitle).includes(anchor)) {
+        hardFailures.push("anchor-not-in-title");
+      }
+      if (
+        !(input.sourceTexts ?? []).some(source =>
+          normalizeEvidence(source).includes(anchor)
+        )
+      ) {
+        hardFailures.push("anchor-not-in-source");
+      }
     }
   }
 
   return {
     normalizedTitle,
     hardFailures,
-    diagnostics: diagnoseTitleShape(input.kind, normalizedTitle, input.platform),
+    diagnostics: diagnoseTitleShape(
+      input.kind,
+      normalizedTitle,
+      input.platform
+    ),
   };
 }

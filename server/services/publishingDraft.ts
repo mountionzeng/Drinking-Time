@@ -13,6 +13,10 @@ import {
   type PublishingStoryCoreContent,
   defaultPublishingNarrativeIntent,
 } from "../../shared/publishingDraft";
+import {
+  getGeneratedTitlePolicy,
+  validateGeneratedTitle,
+} from "../../shared/textTitle";
 import { runJsonAgent, type AgentTurn } from "./agentRuntime";
 
 export class PublishingDraftModelOutputError extends Error {
@@ -81,7 +85,8 @@ function normalizeXThreadBody(value: string): string | null {
 
 function normalizeContent(
   value: unknown,
-  platform: PublishingPlatformId
+  platform: PublishingPlatformId,
+  titleSources: readonly string[] = []
 ): PublishingDraftContent | null {
   const obj = asRecord(value);
   if (!obj) return null;
@@ -89,12 +94,55 @@ function normalizeContent(
   const body =
     platform === "x" ? normalizeXThreadBody(rawBody) : rawBody.slice(0, 20_000);
   if (!body) return null;
+  const titleValidation = validateGeneratedTitle({
+    kind: "publishing",
+    platform,
+    value: obj.title,
+    anchor: obj.titleAnchor,
+    sourceTexts: titleSources,
+  });
   const content = {
-    title: platform === "x" ? "" : cleanString(obj.title).slice(0, 160),
+    title:
+      platform === "x" || titleValidation.hardFailures.length > 0
+        ? ""
+        : titleValidation.normalizedTitle,
     body,
     tags: cleanStringList(obj.tags, platform === "x" ? 3 : 12),
   };
   return getPublishingContentError(platform, content) ? null : content;
+}
+
+function publishingCoreTitleSources(
+  core: PublishingStoryCore | PublishingStoryCoreContent | null
+): string[] {
+  if (!core) return [];
+  return [
+    ...core.facts,
+    core.thesis,
+    core.emotion,
+    ...core.voiceTraits,
+    core.visualConcept,
+  ].filter(Boolean);
+}
+
+function publishingContentTitleSources(
+  content: PublishingDraftContent
+): string[] {
+  return [content.title, content.body, ...content.tags].filter(Boolean);
+}
+
+function publishingTitleContext(platform: PublishingPlatformId): string {
+  if (platform === "x") {
+    return "X 不使用独立标题：draft.title 与 draft.titleAnchor 都必须是空字符串。";
+  }
+  const policy = getGeneratedTitlePolicy("publishing", platform);
+  return [
+    "标题是独立写作任务，标题不是正文摘要，也不是把正文第一句截短。只生成一个标题。",
+    `让没看过这个故事的陌生人一眼看到真实处境、具体细节、反差或用户判断；建议不超过 ${policy.recommendedMax} 个字符。`,
+    "优先使用原文里的物件、动作、场景、结果、判断或有辨识度的短句。不要写成“关于……的一些想法”“我的感悟”“记录一下”或空泛情绪分类。",
+    "不制造悬念、冲突、承诺、数字、人物、结果或情绪强度；不要把普通经历包装成逆袭、秘密、真相或所有人都该知道的结论。",
+    "draft.titleAnchor 必须是 title 中逐字出现、并且也逐字存在于输入素材里的最短连续片段。不要把手机号或邮箱写进标题。",
+  ].join("\n");
 }
 
 const RESTRAINED_REWRITE_MARKERS = [
@@ -207,7 +255,7 @@ export async function generatePublishingDraft(params: {
 }): Promise<GeneratedPublishingDraft> {
   const adapter = PUBLISHING_PLATFORM_REGISTRY[params.platform];
   const outputSchema =
-    '{"core":{"facts":["明确事实"],"thesis":"核心判断","emotion":"真实情绪","voiceTraits":["声音特征"],"visualConcept":"无文字封面的视觉概念"},"draft":{"title":"可为空","body":"完整可发布正文","tags":["可选标签"]}}';
+    '{"core":{"facts":["明确事实"],"thesis":"核心判断","emotion":"真实情绪","voiceTraits":["声音特征"],"visualConcept":"无文字封面的视觉概念"},"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"完整可发布正文","tags":["可选标签"]}}';
   const systemPrompt = [
     "你是个人发布稿编辑。你的工作是把用户已经说出的想法整理成大众能读懂的文字，同时保留鲜明的个人判断。",
     "这不是批量营销稿：不要削弱批评，不要添加用户没说过的经历、数据或结论，不要把有棱角的话改成空泛鸡汤。",
@@ -219,6 +267,7 @@ export async function generatePublishingDraft(params: {
       params.narrativeIntent ?? defaultPublishingNarrativeIntent()
     ),
     platformContext(params.platform),
+    publishingTitleContext(params.platform),
     "返回严格 JSON，不要 markdown：",
     outputSchema,
     `当前只生成 ${adapter.label}，不要返回 drafts map。`,
@@ -233,7 +282,8 @@ export async function generatePublishingDraft(params: {
   });
   let root = asRecord(result.parsed);
   let core = normalizeCore(root?.core);
-  let content = normalizeContent(root?.draft, params.platform);
+  const titleSources = params.conversation.map(turn => turn.content);
+  let content = normalizeContent(root?.draft, params.platform, titleSources);
   if (!core || !content) {
     const firstReason = !root
       ? "invalid JSON root"
@@ -244,6 +294,7 @@ export async function generatePublishingDraft(params: {
       systemPrompt: [
         "你是发布稿结构修复器。只修复一次上次候选结果，不添加故事素材之外的新事实。",
         platformContext(params.platform),
+        publishingTitleContext(params.platform),
         `必须严格返回这个 JSON 结构：${outputSchema}`,
         "只返回 JSON，不要解释。",
       ].join("\n"),
@@ -258,7 +309,7 @@ export async function generatePublishingDraft(params: {
     });
     root = asRecord(result.parsed);
     core = normalizeCore(root?.core);
-    content = normalizeContent(root?.draft, params.platform);
+    content = normalizeContent(root?.draft, params.platform, titleSources);
   }
   if (!core || !content) {
     throw new PublishingDraftModelOutputError(
@@ -287,7 +338,7 @@ export async function convertPublishingDraft(params: {
     PUBLISHING_PLATFORM_REGISTRY[params.sourceDraft.platform];
   const targetAdapter = PUBLISHING_PLATFORM_REGISTRY[params.targetPlatform];
   const outputSchema =
-    '{"draft":{"title":"可为空","body":"目标平台完整正文","tags":["可选标签"]}}';
+    '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与来源共有的最短连续片段；X 为空","body":"目标平台完整正文","tags":["可选标签"]}}';
   const source = {
     core: params.core,
     source: params.sourceDraft.content,
@@ -298,6 +349,7 @@ export async function convertPublishingDraft(params: {
     "共享内核是不可变约束：事实、核心判断、情绪、结论与个人声音都不能被改写或弱化。",
     `来源平台：${sourceAdapter.label}`,
     platformContext(params.targetPlatform),
+    publishingTitleContext(params.targetPlatform),
     "返回严格 JSON，不要 markdown，也不要返回其他平台：",
     outputSchema,
   ].join("\n");
@@ -310,7 +362,15 @@ export async function convertPublishingDraft(params: {
     fallback: () => null,
   });
   let root = asRecord(result.parsed);
-  let content = normalizeContent(root?.draft, params.targetPlatform);
+  const titleSources = [
+    ...publishingCoreTitleSources(params.core),
+    ...publishingContentTitleSources(params.sourceDraft.content),
+  ];
+  let content = normalizeContent(
+    root?.draft,
+    params.targetPlatform,
+    titleSources
+  );
   if (!content) {
     const firstReason = invalidContentReason(
       root?.draft,
@@ -320,6 +380,7 @@ export async function convertPublishingDraft(params: {
       systemPrompt: [
         "你是发布稿结构修复器。只修复一次上次候选结果，不添加来源稿之外的新事实。",
         platformContext(params.targetPlatform),
+        publishingTitleContext(params.targetPlatform),
         `必须严格返回这个 JSON 结构：${outputSchema}`,
         "只返回 JSON，不要解释。",
       ].join("\n"),
@@ -334,7 +395,11 @@ export async function convertPublishingDraft(params: {
       fallback: () => null,
     });
     root = asRecord(result.parsed);
-    content = normalizeContent(root?.draft, params.targetPlatform);
+    content = normalizeContent(
+      root?.draft,
+      params.targetPlatform,
+      titleSources
+    );
   }
   if (!content) {
     throw new PublishingDraftModelOutputError(
@@ -356,7 +421,7 @@ export async function revisePublishingDraft(params: {
   instruction: string;
 }): Promise<RevisedPublishingDraft> {
   const outputSchema =
-    '{"draft":{"title":"可为空","body":"改写后的完整正文","tags":["可选标签"]}}';
+    '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"改写后的完整正文","tags":["可选标签"]}}';
   const source = {
     platform: params.platform,
     core: params.core,
@@ -371,6 +436,7 @@ export async function revisePublishingDraft(params: {
     "严格保持原稿的事实确定程度和时态：看到、听说、报道、计划、可能等表述，不得升级成已经确认、已经执行或必然发生。",
     "不要使用 Markdown 粗体符号。只有用户明确要求时才使用 emoji、网络热词或夸张语气。",
     platformContext(params.platform),
+    publishingTitleContext(params.platform),
     `严格返回 JSON，不要解释：${outputSchema}`,
   ].join("\n");
   let result = await runJsonAgent<unknown>({
@@ -382,12 +448,18 @@ export async function revisePublishingDraft(params: {
     fallback: () => null,
   });
   let root = asRecord(result.parsed);
-  let content = normalizeContent(root?.draft, params.platform);
+  const titleSources = [
+    ...publishingCoreTitleSources(params.core),
+    ...publishingContentTitleSources(params.current),
+    params.instruction,
+  ];
+  let content = normalizeContent(root?.draft, params.platform, titleSources);
   if (!content) {
     result = await runJsonAgent<unknown>({
       systemPrompt: [
         "你是发布稿改写结果修复器。只修复结构和平台长度，不添加新事实。",
         platformContext(params.platform),
+        publishingTitleContext(params.platform),
         `必须严格返回这个 JSON 结构：${outputSchema}`,
         "只返回 JSON，不要解释。",
       ].join("\n"),
@@ -402,7 +474,7 @@ export async function revisePublishingDraft(params: {
       fallback: () => null,
     });
     root = asRecord(result.parsed);
-    content = normalizeContent(root?.draft, params.platform);
+    content = normalizeContent(root?.draft, params.platform, titleSources);
   }
   if (!content) {
     throw new PublishingDraftModelOutputError(
@@ -421,6 +493,7 @@ export async function revisePublishingDraft(params: {
         `必须删除这些已经检出的表达：${styleViolations.join("、")}。不要用新的宏大比喻、口号或拟人句替换它们。`,
         "把句子改成具体动作、理由和直接判断；不添加新事实，不把可能或听说改成已经发生。",
         platformContext(params.platform),
+        publishingTitleContext(params.platform),
         `严格返回 JSON，不要解释：${outputSchema}`,
       ].join("\n"),
       message: JSON.stringify({
@@ -435,7 +508,8 @@ export async function revisePublishingDraft(params: {
     });
     const repaired = normalizeContent(
       asRecord(styleRepair.parsed)?.draft,
-      params.platform
+      params.platform,
+      [...titleSources, ...publishingContentTitleSources(content)]
     );
     if (repaired) {
       result = styleRepair;

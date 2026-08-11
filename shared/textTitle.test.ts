@@ -9,9 +9,11 @@ import {
 
 describe("normalizeTitleText", () => {
   it("removes model wrappers without clipping meaningful text", () => {
-    expect(normalizeTitleText(" 标题：《雨夜里的旧书》。 ")).toBe("雨夜里的旧书");
+    expect(normalizeTitleText(" 标题：《雨夜里的旧书》。 ")).toBe(
+      "雨夜里的旧书"
+    );
     expect(normalizeTitleText("故事标题： 末班车上的第一版剧本 ")).toBe(
-      "末班车上的第一版剧本",
+      "末班车上的第一版剧本"
     );
   });
 
@@ -37,7 +39,7 @@ describe("validateGeneratedTitle", () => {
         value: "辞职后，我把犹豫写进产品日志",
         anchor: "产品日志",
         sourceTexts: ["辞职后，我每天写产品日志，记录决定和犹豫。"],
-      }).hardFailures,
+      }).hardFailures
     ).toEqual([]);
 
     expect(
@@ -47,8 +49,18 @@ describe("validateGeneratedTitle", () => {
         value: "辞职后，我把犹豫写进产品日志",
         anchor: "百万用户",
         sourceTexts: ["辞职后，我每天写产品日志，记录决定和犹豫。"],
-      }).hardFailures,
+      }).hardFailures
     ).toContain("anchor-not-in-source");
+
+    expect(
+      validateGeneratedTitle({
+        kind: "publishing",
+        platform: "xiaohongshu",
+        value: "辞职后的第一周",
+        anchor: "产品日志",
+        sourceTexts: ["辞职后，我每天写产品日志，记录决定和犹豫。"],
+      }).hardFailures
+    ).toContain("anchor-not-in-title");
   });
 
   it("rejects generated contact information but keeps manual validation out of scope", () => {
@@ -70,7 +82,7 @@ describe("validateGeneratedTitle", () => {
         kind: "publishing",
         platform: "x",
         value: "",
-      }).hardFailures,
+      }).hardFailures
     ).toEqual([]);
     expect(
       validateGeneratedTitle({
@@ -79,7 +91,7 @@ describe("validateGeneratedTitle", () => {
         value: "不该出现",
         anchor: "不该出现",
         sourceTexts: ["不该出现"],
-      }).hardFailures,
+      }).hardFailures
     ).toContain("x-must-be-titleless");
   });
 });
@@ -94,11 +106,11 @@ describe("title policies and diagnostics", () => {
 
   it("reports stiffness as a diagnostic rather than rejecting user language", () => {
     expect(diagnoseTitleShape("publishing", "关于创作的一些思考")).toContain(
-      "generic-template",
+      "generic-template"
     );
     expect(diagnoseTitleShape("version", "V2")).toContain("plain-version");
     expect(diagnoseTitleShape("card", "第一次拉坯时杯壁塌了…")).toContain(
-      "clipped-ending",
+      "clipped-ending"
     );
   });
 });

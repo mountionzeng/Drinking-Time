@@ -90,6 +90,18 @@ function assertPublishingContentFitsPlatform(
   }
 }
 
+function isTitleOnlyPublishingEdit(
+  baseline: PublishingDraftContent,
+  next: PublishingDraftContent
+): boolean {
+  return (
+    baseline.title !== next.title &&
+    baseline.body === next.body &&
+    baseline.tags.length === next.tags.length &&
+    baseline.tags.every((tag, index) => tag === next.tags[index])
+  );
+}
+
 function throwPublishingError(error: unknown): never {
   if (error instanceof PublishingDraftOwnershipError) {
     throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
@@ -747,12 +759,25 @@ export const publishingDraftRouter = router({
             message: "当前平台还没有可修改的发布稿",
           });
         }
-        const classification = await classifyPublishingDraftEdit({
-          baseline: draft.appliedBaseline,
-          next: input.content as PublishingDraftContent,
-          core,
-          platform: input.platform,
-        });
+        const classification = isTitleOnlyPublishingEdit(
+          draft.appliedBaseline,
+          input.content as PublishingDraftContent
+        )
+          ? {
+              assessment: {
+                outcome: "wording_only" as const,
+                reason: "仅修改当前平台标题",
+              },
+              proposedCore: null,
+              usedModel: false,
+              modelLabel: "本地判断",
+            }
+          : await classifyPublishingDraftEdit({
+              baseline: draft.appliedBaseline,
+              next: input.content as PublishingDraftContent,
+              core,
+              platform: input.platform,
+            });
         if (classification.assessment.outcome === "wording_only") {
           const saved = await writePublishingDraftState({
             storyId: input.storyId,
@@ -1045,7 +1070,8 @@ export const publishingDraftRouter = router({
           });
           return {
             status: "error" as const,
-            error: unknown.publishing.coverGeneration?.error ?? "封面任务状态未知",
+            error:
+              unknown.publishing.coverGeneration?.error ?? "封面任务状态未知",
             estimate,
             ...unknown,
             coverAsset: await loadPublishingCoverAsset({
@@ -1081,14 +1107,14 @@ export const publishingDraftRouter = router({
         const generated = generation.taskId
           ? await resume302MidjourneyTask(generation.taskId, imageOptions)
           : referenceAsset
-          ? await editImage(referenceAsset.imageUrl, prompt, {
-              ...imageOptions,
-              requireInputImage: true,
-              imageWeight: 1.4,
-            })
-          : await generateImage(prompt, {
-              ...imageOptions,
-            });
+            ? await editImage(referenceAsset.imageUrl, prompt, {
+                ...imageOptions,
+                requireInputImage: true,
+                imageWeight: 1.4,
+              })
+            : await generateImage(prompt, {
+                ...imageOptions,
+              });
         const generatedCandidates = generated.candidates?.slice(0, 4) ?? [];
         if (generated.status !== "ok" || generatedCandidates.length !== 4) {
           const failed = await writePublishingDraftState({

@@ -1,7 +1,5 @@
-import {
-  TEXT_TITLE_KINDS,
-  type TextTitleKind,
-} from "../shared/textTitle";
+import { TEXT_TITLE_KINDS, type TextTitleKind } from "../shared/textTitle";
+import type { PublishingPlatformId } from "../shared/publishingDraft";
 
 export const TITLE_KINDS = TEXT_TITLE_KINDS;
 
@@ -10,7 +8,7 @@ export type TitleKind = TextTitleKind;
 export type TitleEvalCase = {
   id: string;
   kind: TitleKind;
-  platform?: "xiaohongshu" | "douyin" | "wechat" | "linkedin" | "x";
+  platform?: PublishingPlatformId;
   sourceTexts: string[];
   oldTitle: string;
 };
@@ -32,7 +30,7 @@ export const TITLE_CASES: readonly TitleEvalCase[] = [
   {
     id: "publishing-night-train",
     kind: "publishing",
-    platform: "wechat",
+    platform: "wechat_moments",
     sourceTexts: ["我在末班车上改完了第一版剧本，窗外一直在下雨。"],
     oldTitle: "一次很有意义的经历",
   },
@@ -46,7 +44,7 @@ export const TITLE_CASES: readonly TitleEvalCase[] = [
   {
     id: "publishing-repaired-camera",
     kind: "publishing",
-    platform: "douyin",
+    platform: "douyin_tiktok",
     sourceTexts: ["旧相机修好后，我第一次拍到父亲做木工的手。"],
     oldTitle: "记录一下今天发生的事情",
   },

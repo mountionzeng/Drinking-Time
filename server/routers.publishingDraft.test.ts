@@ -127,27 +127,31 @@ describe("publishingDraft router", () => {
         publishing: { ...publishing, revision: 2, operation: operation.type },
       })
     );
-    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockResolvedValue({
-      status: "ready",
-      storyId: 7,
-      storyRevision: 3,
-      publishing,
-      preview: {
-        previewId: "preview-op-1",
-        shots: [{ draftShotId: "draft-1" }],
-      },
-      reused: false,
-      modelLabel: "test-model",
-    });
-    videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard.mockResolvedValue({
-      status: "confirmed",
-      storyId: 7,
-      storyRevision: 4,
-      publishing,
-      preview: { previewId: "preview-build-1", status: "confirmed" },
-      shots: [{ stableShotId: "publishing-v1-shot-1", scriptText: "改写" }],
-      reused: false,
-    });
+    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockResolvedValue(
+      {
+        status: "ready",
+        storyId: 7,
+        storyRevision: 3,
+        publishing,
+        preview: {
+          previewId: "preview-op-1",
+          shots: [{ draftShotId: "draft-1" }],
+        },
+        reused: false,
+        modelLabel: "test-model",
+      }
+    );
+    videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard.mockResolvedValue(
+      {
+        status: "confirmed",
+        storyId: 7,
+        storyRevision: 4,
+        publishing,
+        preview: { previewId: "preview-build-1", status: "confirmed" },
+        shots: [{ stableShotId: "publishing-v1-shot-1", scriptText: "改写" }],
+        reused: false,
+      }
+    );
     imageGenMocks.generateImage.mockResolvedValue({
       status: "ok",
       imageUrl: "/api/images/candidate-1.png",
@@ -608,6 +612,52 @@ describe("publishingDraft router", () => {
     });
     expect(coreChange.status).toBe("confirmation_required");
     expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a title-only edit without invoking edit classification", async () => {
+    const draft = {
+      platform: "xiaohongshu" as const,
+      content: { title: "旧标题", body: "正文不变", tags: ["记录"] },
+      appliedBaseline: { title: "旧标题", body: "正文不变", tags: ["记录"] },
+      sourceCoreRevision: 1,
+      revision: 2,
+      needsReview: false,
+      updatedAt: 1,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: { ...publishing, drafts: { xiaohongshu: draft } },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+
+    const result = await caller.applyEdit({
+      storyId: 7,
+      platform: "xiaohongshu",
+      content: { title: "木工桌上那双手", body: "正文不变", tags: ["记录"] },
+      baseDraftRevision: 2,
+    });
+
+    expect(result).toMatchObject({
+      status: "applied",
+      assessment: { outcome: "wording_only", reason: "仅修改当前平台标题" },
+      usedModel: false,
+    });
+    expect(modelMocks.classifyPublishingDraftEdit).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "apply_wording",
+        platform: "xiaohongshu",
+        content: {
+          title: "木工桌上那双手",
+          body: "正文不变",
+          tags: ["记录"],
+        },
+        baseDraftRevision: 2,
+      },
+    });
   });
 
   it("accepts the user's explicit wording-only decision without another model call", async () => {
@@ -1075,7 +1125,10 @@ describe("publishingDraft router", () => {
       operationToken: "cover-op-unknown",
     });
 
-    expect(result).toMatchObject({ status: "error", error: expect.stringContaining("不会自动重新提交") });
+    expect(result).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("不会自动重新提交"),
+    });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
     expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();

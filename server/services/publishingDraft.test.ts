@@ -36,6 +36,7 @@ describe("publishing draft model operations", () => {
         },
         draft: {
           title: "当 AI 开始浪费人的时间",
+          titleAnchor: "人的时间",
           body: `“获利的只有大模型公司。”\n\n${core.thesis}`,
           tags: ["AI工具", "独立开发"],
         },
@@ -57,7 +58,8 @@ describe("publishing draft model operations", () => {
       conversation: [
         {
           role: "user",
-          content: "Codex 像疯了一样触发子 Agent，获利的只有大模型公司。",
+          content:
+            "Codex 像疯了一样触发子 Agent，开始浪费人的时间，获利的只有大模型公司。",
         },
       ],
     });
@@ -75,10 +77,54 @@ describe("publishing draft model operations", () => {
     expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
       "共同经历、专属物件、关系如何彼此改变"
     );
+    expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
+      "标题不是正文摘要"
+    );
+    expect(runtimeMocks.runJsonAgent.mock.calls[0]?.[0].systemPrompt).toContain(
+      "titleAnchor"
+    );
     expect(result.platform).toBe("xiaohongshu");
     expect(result.core.thesis).toBe(core.thesis);
+    expect(result.content.title).toBe("当 AI 开始浪费人的时间");
     expect(result.content.body).toContain("获利的只有大模型公司");
     expect(result).not.toHaveProperty("drafts");
+  });
+
+  it("drops an unsafe generated title without dropping the valid body", async () => {
+    const phone = ["138", "0000", "0000"].join("");
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        core: {
+          facts: core.facts,
+          thesis: core.thesis,
+          emotion: core.emotion,
+          voiceTraits: core.voiceTraits,
+          visualConcept: core.visualConcept,
+        },
+        draft: {
+          title: `联系 ${phone}`,
+          titleAnchor: phone,
+          body: "正文仍然有效。",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+
+    const result = await generatePublishingDraft({
+      platform: "xiaohongshu",
+      conversation: [
+        { role: "user", content: `我的联系方式是 ${phone}，正文仍然有效。` },
+      ],
+    });
+
+    expect(runtimeMocks.runJsonAgent).toHaveBeenCalledTimes(1);
+    expect(result.content).toEqual({
+      title: "",
+      body: "正文仍然有效。",
+      tags: [],
+    });
   });
 
   it("repairs one invalid generation result with exactly one bounded retry", async () => {
@@ -157,6 +203,49 @@ describe("publishing draft model operations", () => {
     expect(result.platform).toBe("x");
     expect(result.content.body).toContain("save attention");
     expect(JSON.stringify(source)).toBe(before);
+  });
+
+  it("creates one grounded title while converting to a non-X target", async () => {
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        draft: {
+          title: "The feature I deleted after launch",
+          titleAnchor: "feature",
+          body: "I deleted the feature after launch and wrote down why.",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+
+    const result = await convertPublishingDraft({
+      core: {
+        ...core,
+        facts: ["I deleted the feature after launch and wrote down why."],
+      },
+      sourceDraft: {
+        platform: "xiaohongshu",
+        content: {
+          title: "删掉上线功能",
+          body: "上线后我删掉了功能。",
+          tags: [],
+        },
+        appliedBaseline: {
+          title: "删掉上线功能",
+          body: "上线后我删掉了功能。",
+          tags: [],
+        },
+        sourceCoreRevision: 1,
+        revision: 1,
+        needsReview: false,
+        updatedAt: 1,
+      },
+      targetPlatform: "linkedin",
+    });
+
+    expect(result.content.title).toBe("The feature I deleted after launch");
+    expect(runtimeMocks.runJsonAgent).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes a valid X thread and removes the unsupported title", async () => {
@@ -274,7 +363,7 @@ describe("publishing draft model operations", () => {
 
     expect(runtimeMocks.runJsonAgent).toHaveBeenCalledTimes(2);
     expect(runtimeMocks.runJsonAgent.mock.calls[1]?.[0].systemPrompt).toContain(
-      "危险的信号、反噬"
+      "反噬"
     );
     expect(result.content.body).toBe(
       "扫描完成后销毁实体书，意味着只保留数据、不保留原件。我不认同这种取舍。"
