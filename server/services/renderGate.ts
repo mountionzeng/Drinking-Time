@@ -57,6 +57,8 @@ export type RenderContext = {
   explorationRound?: number;
   /** 当前/相邻故事板画面是本轮可见事实来源。 */
   storyboardReferenceTruth?: boolean;
+  /** 上游已经复制正式采用封面的美术原文；网关不得再追加或改写美术方向。 */
+  preservePrompt?: boolean;
 };
 
 /** 用户明确选中的库风格是覆盖项；自动美术判断走下方的文本艺术谱系。 */
@@ -392,6 +394,9 @@ function productConstraintBlock(ctx: RenderContext): string[] {
 
 /** 编译最终提示词；所有静态图片入口必须直接或通过 renderViaGate 使用它。 */
 export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
+  if (ctx.preservePrompt) {
+    return ctx.prompt.trim().slice(0, MJ_PROMPT_MAX_LENGTH);
+  }
   const additions: string[] = [];
   const instructions = cleanInstructions(ctx);
   const textSignals = inferTextArtSignals(ctx);

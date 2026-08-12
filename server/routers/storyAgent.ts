@@ -60,9 +60,7 @@ import {
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import {
   applyPublishingCoverArtDirection,
-  publishingCoverArtRecipe,
   resolvePublishingCoverArtDirection,
-  selectPublishingStoryboardArtRecipe,
 } from "../services/publishingCoverArtDirection";
 import {
   normalizeStoryArtDirection,
@@ -1943,21 +1941,16 @@ export const storyAgentRouter = router({
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
         prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
-        const inheritedCoverArtRecipe =
-          publishingCoverArtRecipe(coverArtDirection);
         const gateContext = {
           prompt,
           referenceImages: referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
           storyId: story.id,
-          artDirection: selectPublishingStoryboardArtRecipe({
-            inheritedCoverArtRecipe,
-            explicitStyleRecipe,
-            storyArtRecipe: referencePlan.usesStoryboardFrames
-              ? undefined
-              : storyArtRecipe(story),
-          }),
+          preservePrompt: Boolean(coverArtDirection),
+          artDirection: referencePlan.usesStoryboardFrames
+            ? explicitStyleRecipe
+            : (storyArtRecipe(story) ?? explicitStyleRecipe),
           styleIndex:
             typeof storyBody.styleIndex === "number"
               ? (storyBody.styleIndex as number)

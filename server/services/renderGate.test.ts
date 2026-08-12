@@ -4,6 +4,12 @@ const dbMocks = vi.hoisted(() => ({
   getRecentEditPreferences: vi.fn(),
 }));
 
+vi.mock("./artRepository", () => ({
+  artRepositoryPromptBlocks: vi.fn(async () => [
+    "【私人策展库审美底线】不是内容模板，不得因此固定色调；过滤平台水印。",
+  ]),
+}));
+
 vi.mock("../db", async importOriginal => {
   const actual = await importOriginal<typeof import("../db")>();
   return { ...actual, ...dbMocks };
@@ -12,6 +18,29 @@ vi.mock("../db", async importOriginal => {
 import { renderViaGate } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
+  it("正式封面原文已锁定时原样透传，不再追加任何美术内容", async () => {
+    const lockedPrompt = [
+      "【正式采用封面的美术提示词｜原文复制】",
+      "【艺术谱系】蛋彩、水粉、平涂油彩与纸板。",
+      "【手作完成度】不完美透视、手描轮廓和不均匀平涂。",
+      "镜头原文：人物停顿后把目光移向远处。",
+    ].join("\n");
+    let seen = "";
+
+    await renderViaGate(
+      { prompt: lockedPrompt, preservePrompt: true },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toBe(lockedPrompt);
+    expect(seen).not.toContain("【故事视觉配方】");
+    expect(seen).not.toContain("【用户创作偏好】");
+    expect(seen).not.toContain("【美术流派·");
+  });
+
   it("没有用户选定风格时只增加艺术底线，不给所有图片染上同一套流派", async () => {
     let seen = "";
     await renderViaGate({ prompt: "a cat on a wall" }, async prompt => {
