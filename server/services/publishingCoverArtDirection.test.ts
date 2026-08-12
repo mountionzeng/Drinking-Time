@@ -57,6 +57,31 @@ describe("publishing cover art direction", () => {
     expect(merged).toContain("镜头事实：女人把手放在桌面上");
   });
 
+  it("translates default photographic shot language into the adopted cover medium", () => {
+    const merged = applyPublishingCoverArtDirection(
+      [
+        "Cinematic extreme close-up of a sleek glass hourglass on a minimal white desktop.",
+        "Fingertip in sharp focus, skin detail, shallow depth of field and soft out-of-focus background.",
+        "Cool clinical top lighting, sharp rim light, glass texture, crisp edges and clean high-contrast look.",
+        "Style: realistic glass and sand detail with slightly painterly textures.",
+        "图片要求：沙漏占画面1/2，手占1/4；冷白顶光+轻微侧逆光，上层玻璃干净反光，玻璃材质高反差，指尖对焦清晰，后景虚化，沙粒呈细小颗粒质感。",
+      ].join("\n"),
+      extractPublishingCoverArtDirection(coverPrompt)
+    );
+
+    expect(merged).toContain("镜头词的封面媒介转译");
+    expect(merged).toContain("清晰的手绘轮廓和局部明度对比");
+    expect(merged).toContain("半透明叠色、留白和手绘边缘");
+    expect(merged).toContain("颜料颗粒与纸面阻力");
+    expect(merged).toContain("沙漏占画面1/2，手占1/4");
+    expect(merged).not.toMatch(/cinematic|sharp focus|skin detail/i);
+    expect(merged).not.toMatch(/shallow depth of field|out-of-focus/i);
+    expect(merged).not.toMatch(/realistic glass and sand detail/i);
+    expect(merged).not.toMatch(/sleek|sharp rim light|clean high-contrast/i);
+    expect(merged).not.toContain("对焦清晰");
+    expect(merged).not.toContain("后景虚化");
+  });
+
   it("loads the formally adopted cover instead of the latest unadopted round", async () => {
     const loadImage = async (id: number) =>
       id === 1480
