@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-11",
+  "updatedAt": "2026-08-13",
   "features": [
     {
       "id": "story-ownership",
@@ -17,11 +17,13 @@
       ],
       "evidence": [
         "server/routers.storyAgent.test.ts",
+        "server/services/storyMaterials.test.ts",
         "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
-        "不得使用 latest Story 作为写入回退。"
+        "不得使用 latest Story 作为写入回退。",
+        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。"
       ],
       "dependencies": [],
       "replaces": [
@@ -38,6 +40,11 @@
           "date": "2026-08-10",
           "kind": "fix",
           "summary": "隔离跨 Story 的迟到更新。"
+        },
+        {
+          "date": "2026-08-13",
+          "kind": "fix",
+          "summary": "素材仓库后端停止聚合其他故事的视频，并在前端按当前 storyId 过滤全部 Take 来源。"
         }
       ]
     },

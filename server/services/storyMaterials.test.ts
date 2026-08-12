@@ -510,7 +510,7 @@ describe("getStoryMaterialState", () => {
     );
   });
 
-  it("returns reusable video takes from the user's other stories", async () => {
+  it("keeps video takes from other stories out of the material warehouse", async () => {
     const currentStory = await createStory({
       userId: 1,
       projectId: null,
@@ -563,7 +563,7 @@ describe("getStoryMaterialState", () => {
 
     const materials = await getStoryMaterialState(currentStory.id, 1);
 
-    expect(materials?.reusableVideoTakes.map(item => item.id)).toContain(
+    expect(materials?.reusableVideoTakes.map(item => item.id)).not.toContain(
       reusableTake.id
     );
     expect(materials?.reusableVideoTakes.map(item => item.id)).not.toContain(
@@ -571,7 +571,7 @@ describe("getStoryMaterialState", () => {
     );
   });
 
-  it("keeps reusable takes out of current story shots until explicitly reused", async () => {
+  it("keeps selected takes from other stories out of the material warehouse", async () => {
     const currentStory = await createStory({
       userId: 1,
       projectId: null,
@@ -638,7 +638,7 @@ describe("getStoryMaterialState", () => {
     expect(manualShot?.videoTakes.map(item => item.id)).not.toContain(
       selectedTake.id
     );
-    expect(materials?.reusableVideoTakes.map(item => item.id)).toContain(
+    expect(materials?.reusableVideoTakes.map(item => item.id)).not.toContain(
       selectedTake.id
     );
   });
