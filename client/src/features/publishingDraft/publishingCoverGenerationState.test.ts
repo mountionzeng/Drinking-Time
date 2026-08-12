@@ -49,6 +49,29 @@ describe("shouldRecoverCoverGeneration", () => {
     expect(shouldRecoverCoverGeneration(generation)).toBe(true);
   });
 
+  it("recovers a round the pixel gate quarantined, since it was still billed", () => {
+    expect(
+      shouldRecoverCoverGeneration({
+        ...generation,
+        error:
+          "本轮 4 张均检测到文字、Logo、账号或水印，已全部隔离且不会自动重新出图或再次扣费。",
+      })
+    ).toBe(true);
+  });
+
+  it("recovers a socket termination, the failure 302 drops mid-download", () => {
+    // undici's bare message, as persisted before the cause was carried through.
+    expect(
+      shouldRecoverCoverGeneration({ ...generation, error: "terminated" })
+    ).toBe(true);
+    expect(
+      shouldRecoverCoverGeneration({
+        ...generation,
+        error: "terminated（SocketError: other side closed）",
+      })
+    ).toBe(true);
+  });
+
   it("does not recover a provider rejection or a request without a task id", () => {
     expect(
       shouldRecoverCoverGeneration({

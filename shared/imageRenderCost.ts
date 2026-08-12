@@ -22,6 +22,12 @@ export type PublishingCoverCostEstimate = {
   candidateCount: typeof STORYBOARD_IMAGE_CANDIDATE_COUNT;
 };
 
+export type PublishingCoverFallbackCostEstimate = {
+  currency: "CNY";
+  estimatedCny: number;
+  candidateCount: 1;
+};
+
 export const PUBLISHING_COVER_PROFILE = {
   provider: "midjourney",
   aspectRatio: "3:4",
@@ -29,7 +35,13 @@ export const PUBLISHING_COVER_PROFILE = {
   // 302 的 MJ 任务偶尔会在队列中停留超过默认三分钟；封面任务必须等到
   // 供应商明确失败或完成，不能把已被接受、随后会成功的四图任务误报为失败。
   mjTimeoutMs: 10 * 60 * 1000,
+  // 封面轮次是「粗选四张试方向」，不是终稿。MJ v7 Draft Mode 官方约 10 倍速度、
+  // 半价，且与正式版同源——换方向的成本降下来，画风不会变成另一个模型。
+  mjDraft: true,
 } as const;
+
+/** MJ v7 Draft Mode 官方定价为标准档的一半。 */
+const MJ_DRAFT_COST_RATIO = 0.5;
 
 export const STORYBOARD_MASKED_EDIT_PROFILE = {
   model: "gpt-image-1.5",
@@ -49,10 +61,23 @@ export function estimateStoryboardImageCost(): StoryboardImageCostEstimate {
 
 export function estimatePublishingCoverCost(): PublishingCoverCostEstimate {
   const storyboardEstimate = estimateStoryboardImageCost();
+  const estimatedCny = PUBLISHING_COVER_PROFILE.mjDraft
+    ? Math.ceil(storyboardEstimate.estimatedCny * MJ_DRAFT_COST_RATIO * 100) /
+      100
+    : storyboardEstimate.estimatedCny;
   return {
     currency: "CNY",
-    estimatedCny: storyboardEstimate.estimatedCny,
+    estimatedCny,
     candidateCount: PUBLISHING_COVER_PROFILE.candidateCount,
+  };
+}
+
+export function estimatePublishingCoverFallbackCost(): PublishingCoverFallbackCostEstimate {
+  const estimate = estimateStoryboardMaskedEditCost();
+  return {
+    currency: estimate.currency,
+    estimatedCny: estimate.estimatedCny,
+    candidateCount: 1,
   };
 }
 

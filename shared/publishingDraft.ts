@@ -295,7 +295,21 @@ export type PublishingCoverReference = {
   createdAt: number;
 };
 
-export type PublishingCoverCandidateIds = [number, number, number, number];
+/** One paid request asks for four images; pixel QA may quarantine some of them. */
+export type PublishingCoverCandidateIds = number[];
+
+/** 用户参考图中经 Vision 提取、并允许用户逐项修订的美术信息。 */
+export type PublishingCoverArtReference = {
+  label: string;
+  /** 只保存可安全持久化的 URL；内联大图不进入故事状态。 */
+  imageUrl?: string;
+  style: string[];
+  palette: string[];
+  light: string[];
+  composition: string[];
+  material: string[];
+  mood: string[];
+};
 
 export type PublishingCoverRound = {
   id: string;
@@ -303,7 +317,28 @@ export type PublishingCoverRound = {
   sourceCoreRevision: number;
   parentAssetId: number | null;
   feedback: string;
+  /** 本轮实际使用的累计用户要求；feedback 仅保留本轮新增文字以兼容旧数据。 */
+  instructions?: string[];
+  /** 本轮实际使用的参考图美术 DNA 快照。 */
+  artReference?: PublishingCoverArtReference | null;
   assetIds: PublishingCoverCandidateIds;
+  /**
+   * Legacy rounds dropped risky candidates outright. Kept so old data still
+   * explains why a paid round shows fewer than four images.
+   */
+  qualityRejectedCount?: number;
+  /**
+   * Candidates pixel QA flagged for text/logo/watermark risk. They stay in
+   * assetIds and stay selectable: QA advises, the user decides.
+   */
+  qualityFlaggedAssetIds?: number[];
+  /**
+   * QA could not run at all (provider unreachable). Without this, "inspected
+   * and clean" and "never inspected" both look like an empty flag list, and the
+   * UI silently presents unchecked images as if they had passed.
+   */
+  qualityCheckUnavailable?: boolean;
+  qualityCheckedAt?: number;
   createdAt: number;
 };
 
@@ -317,8 +352,11 @@ export type PublishingCoverGeneration = {
   versionId: string;
   status: "pending" | "completed" | "failed" | "unknown";
   platform: PublishingPlatformId;
+  provider?: "midjourney" | "gpt-image" | "flux-schnell";
   referenceAssetId: number | null;
   feedback: string;
+  instructions?: string[];
+  artReference?: PublishingCoverArtReference | null;
   prompt: string;
   roundId: string;
   taskId: string | null;
@@ -329,11 +367,13 @@ export type PublishingCoverGeneration = {
 };
 
 const RECOVERABLE_COVER_GENERATION_ERROR =
-  /timeout|timed out|fetch failed|network|socket|tls|econn|aborted|temporar|超时|网络|断开|暂时/i;
+  /timeout|timed out|fetch failed|terminated|other side closed|network|socket|tls|econn|epipe|aborted|temporar|超时|网络|断开|暂时|隔离|质检/i;
 
 /**
  * A provider task id is a paid-job receipt. Transient transport failures must
- * resume that receipt instead of creating another paid cover request.
+ * resume that receipt instead of creating another paid cover request. So must
+ * failures we caused after delivery — a round the pixel gate quarantined was
+ * still produced and still billed, and its images are one free query away.
  */
 export function isRecoverablePublishingCoverGeneration(
   generation: PublishingCoverGeneration | null | undefined
@@ -482,6 +522,16 @@ function cleanStringList(value: unknown): string[] {
   );
 }
 
+function boundedStringList(
+  value: unknown,
+  maxItems: number,
+  maxItemLength: number
+): string[] {
+  return cleanStringList(value)
+    .map(item => item.slice(0, maxItemLength))
+    .slice(0, maxItems);
+}
+
 function isPublishingNarrativePurpose(
   value: unknown
 ): value is PublishingNarrativePurpose {
@@ -491,7 +541,9 @@ function isPublishingNarrativePurpose(
   );
 }
 
-function narrativePurposeFromLegacy(value: unknown): PublishingNarrativePurpose {
+function narrativePurposeFromLegacy(
+  value: unknown
+): PublishingNarrativePurpose {
   switch (value) {
     case "gift":
       return "gift";
@@ -555,9 +607,7 @@ export function normalizePublishingNarrativeIntent(
     : narrativePurposeFromLegacy(obj.purpose);
   const secondaryPurposes = Array.isArray(obj.secondaryPurposes)
     ? Array.from(
-        new Set(
-          obj.secondaryPurposes.filter(isPublishingNarrativePurpose)
-        )
+        new Set(obj.secondaryPurposes.filter(isPublishingNarrativePurpose))
       )
         .filter(purpose => purpose !== primaryPurpose)
         .slice(0, 4)
@@ -662,6 +712,40 @@ function positiveInteger(value: unknown): number | null {
     : null;
 }
 
+function normalizeCoverArtReference(
+  value: unknown
+): PublishingCoverArtReference | null {
+  const obj = record(value);
+  if (!obj) return null;
+  const label = cleanString(obj.label).trim().slice(0, 160);
+  const persistentImageUrl = cleanString(obj.imageUrl).trim();
+  const imageUrl =
+    persistentImageUrl &&
+    persistentImageUrl.length <= 2_000 &&
+    !persistentImageUrl.startsWith("data:")
+      ? persistentImageUrl
+      : "";
+  const result: PublishingCoverArtReference = {
+    label: label || "用户参考图",
+    style: boundedStringList(obj.style, 12, 300),
+    palette: boundedStringList(obj.palette, 12, 300),
+    light: boundedStringList(obj.light, 12, 300),
+    composition: boundedStringList(obj.composition, 12, 300),
+    material: boundedStringList(obj.material, 12, 300),
+    mood: boundedStringList(obj.mood, 12, 300),
+  };
+  if (imageUrl) result.imageUrl = imageUrl;
+  const hasDna = [
+    result.style,
+    result.palette,
+    result.light,
+    result.composition,
+    result.material,
+    result.mood,
+  ].some(values => values.length > 0);
+  return hasDna ? result : null;
+}
+
 function normalizeCoverRound(
   value: unknown,
   now: number
@@ -673,19 +757,51 @@ function normalizeCoverRound(
   if (!Array.isArray(obj.assetIds)) return null;
   const assetIds = obj.assetIds.map(positiveInteger);
   if (
-    assetIds.length !== 4 ||
+    assetIds.length < 1 ||
+    assetIds.length > 4 ||
     assetIds.some((assetId): assetId is null => assetId == null) ||
-    new Set(assetIds).size !== 4
+    new Set(assetIds).size !== assetIds.length
   ) {
     return null;
   }
+  const qualityRejectedCount = Math.min(
+    4 - assetIds.length,
+    finiteNonNegativeInteger(obj.qualityRejectedCount)
+  );
+  const flaggedAssetIds = Array.isArray(obj.qualityFlaggedAssetIds)
+    ? Array.from(
+        new Set(
+          obj.qualityFlaggedAssetIds
+            .map(positiveInteger)
+            .filter(
+              (assetId): assetId is number =>
+                assetId != null && assetIds.includes(assetId)
+            )
+        )
+      )
+    : [];
+  const qualityCheckUnavailable = obj.qualityCheckUnavailable === true;
+  const qualityChecked =
+    qualityRejectedCount > 0 ||
+    flaggedAssetIds.length > 0 ||
+    qualityCheckUnavailable;
   return {
     id,
     platform: obj.platform,
     sourceCoreRevision: finiteNonNegativeInteger(obj.sourceCoreRevision),
     parentAssetId: positiveInteger(obj.parentAssetId),
     feedback: cleanString(obj.feedback).trim().slice(0, 2_000),
+    instructions: boundedStringList(obj.instructions, 20, 2_000),
+    artReference: normalizeCoverArtReference(obj.artReference),
     assetIds: assetIds as PublishingCoverCandidateIds,
+    ...(qualityRejectedCount > 0 ? { qualityRejectedCount } : {}),
+    ...(flaggedAssetIds.length > 0
+      ? { qualityFlaggedAssetIds: flaggedAssetIds }
+      : {}),
+    ...(qualityCheckUnavailable ? { qualityCheckUnavailable: true } : {}),
+    ...(qualityChecked
+      ? { qualityCheckedAt: timestamp(obj.qualityCheckedAt, now) }
+      : {}),
     createdAt: timestamp(obj.createdAt, now),
   };
 }
@@ -715,8 +831,14 @@ function normalizeCoverGeneration(
     versionId: versionId.slice(0, 64),
     status: rawStatus as PublishingCoverGeneration["status"],
     platform: obj.platform,
+    provider:
+      obj.provider === "gpt-image" || obj.provider === "flux-schnell"
+        ? obj.provider
+        : "midjourney",
     referenceAssetId: positiveInteger(obj.referenceAssetId),
     feedback: cleanString(obj.feedback).trim().slice(0, 2_000),
+    instructions: boundedStringList(obj.instructions, 20, 2_000),
+    artReference: normalizeCoverArtReference(obj.artReference),
     prompt: prompt.slice(0, 12_000),
     roundId: roundId.slice(0, 200),
     taskId: cleanString(obj.taskId).trim().slice(0, 500) || null,

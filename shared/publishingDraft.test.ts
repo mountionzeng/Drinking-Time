@@ -131,10 +131,13 @@ describe("publishing platform registry", () => {
 describe("normalizePublishingDraftState", () => {
   it("maps legacy chat intent into a compact provisional version purpose", () => {
     expect(
-      normalizePublishingNarrativeIntent({
-        purpose: "gift",
-        audience: "specific_person",
-      }, NOW)
+      normalizePublishingNarrativeIntent(
+        {
+          purpose: "gift",
+          audience: "specific_person",
+        },
+        NOW
+      )
     ).toMatchObject({
       primaryPurpose: "gift",
       coreAudience: "某位重要的人",
@@ -143,36 +146,39 @@ describe("normalizePublishingDraftState", () => {
   });
 
   it("keeps a version's purpose and multiple audiences independent", () => {
-    const normalized = normalizePublishingDraftState({
-      ...emptyPublishingDraftState(NOW),
-      versions: [
-        {
-          versionId: "v1",
-          sequence: 1,
-          displayName: "V1",
-          parentId: null,
-          versionRevision: 1,
-          activePlatform: "xiaohongshu",
-          selectedPlatforms: ["xiaohongshu"],
-          drafts: {},
-          core: null,
-          cover: null,
-          coverRounds: [],
-          narrativeIntent: {
-            primaryPurpose: "gift",
-            secondaryPurposes: ["share"],
-            coreAudience: "妈妈",
-            secondaryAudiences: ["朋友圈朋友"],
-            status: "confirmed",
-            updatedAt: NOW,
+    const normalized = normalizePublishingDraftState(
+      {
+        ...emptyPublishingDraftState(NOW),
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            parentId: null,
+            versionRevision: 1,
+            activePlatform: "xiaohongshu",
+            selectedPlatforms: ["xiaohongshu"],
+            drafts: {},
+            core: null,
+            cover: null,
+            coverRounds: [],
+            narrativeIntent: {
+              primaryPurpose: "gift",
+              secondaryPurposes: ["share"],
+              coreAudience: "妈妈",
+              secondaryAudiences: ["朋友圈朋友"],
+              status: "confirmed",
+              updatedAt: NOW,
+            },
+            conversationSnapshot: null,
+            videoStoryboard: null,
           },
-          conversationSnapshot: null,
-          videoStoryboard: null,
-        },
-      ],
-      activeVersionId: "v1",
-      containerRevision: 1,
-    }, NOW);
+        ],
+        activeVersionId: "v1",
+        containerRevision: 1,
+      },
+      NOW
+    );
 
     expect(resolvePublishingActiveVersion(normalized).narrativeIntent).toEqual({
       primaryPurpose: "gift",
@@ -195,6 +201,17 @@ describe("normalizePublishingDraftState", () => {
           platform: "xiaohongshu",
           referenceAssetId: 52,
           feedback: "让人物更小",
+          instructions: ["更多留白", "让人物更小", "更多留白"],
+          artReference: {
+            label: "参考.png",
+            imageUrl: "data:image/png;base64,too-large-for-state",
+            style: ["纸本拼贴"],
+            palette: ["矿物色"],
+            light: ["光成为实体"],
+            composition: ["极端留白"],
+            material: ["粗纸纤维"],
+            mood: ["温柔的不安"],
+          },
           prompt: "durable prompt",
           roundId: "round-op-1",
           taskId: "302-task-1",
@@ -211,7 +228,13 @@ describe("normalizePublishingDraftState", () => {
       status: "pending",
       taskId: "302-task-1",
       roundId: "round-op-1",
+      instructions: ["更多留白", "让人物更小"],
+      artReference: expect.objectContaining({
+        label: "参考.png",
+        style: ["纸本拼贴"],
+      }),
     });
+    expect(normalized.coverGeneration?.artReference?.imageUrl).toBeUndefined();
   });
 
   it("normalizes legacy state into an isolated V1 canonical version", () => {
@@ -291,6 +314,17 @@ describe("normalizePublishingDraftState", () => {
           sourceCoreRevision: 3,
           parentAssetId: null,
           feedback: "",
+          instructions: ["更多留白", "更多留白", "像风景画"],
+          artReference: {
+            label: "纸本参考",
+            imageUrl: "/api/images/reference.png",
+            style: ["纸本拼贴"],
+            palette: ["矿物色"],
+            light: [],
+            composition: ["极端留白"],
+            material: ["粗纸纤维"],
+            mood: [],
+          },
           assetIds: [51, 52, 53, 54],
           createdAt: NOW,
         },
@@ -310,6 +344,11 @@ describe("normalizePublishingDraftState", () => {
       expect.objectContaining({
         id: "round-1",
         assetIds: [51, 52, 53, 54],
+        instructions: ["更多留白", "像风景画"],
+        artReference: expect.objectContaining({
+          imageUrl: "/api/images/reference.png",
+          palette: ["矿物色"],
+        }),
       }),
     ]);
   });
@@ -392,7 +431,7 @@ describe("normalizePublishingDraftState", () => {
             id: "broken-count",
             platform: "x",
             sourceCoreRevision: 1,
-            assetIds: [4, 5, 6],
+            assetIds: [4, 5, 6, 7, 8],
           },
         ],
       },
@@ -418,6 +457,96 @@ describe("normalizePublishingDraftState", () => {
     });
     expect(normalized.cover).toBeNull();
     expect(normalized.coverRounds).toEqual([]);
+  });
+
+  it("keeps a non-empty clean subset after pixel QA quarantines provider candidates", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        coverRounds: [
+          {
+            id: "round-partial",
+            platform: "xiaohongshu",
+            sourceCoreRevision: 1,
+            assetIds: [41, 44],
+            qualityRejectedCount: 2,
+            qualityCheckedAt: NOW - 50,
+            createdAt: NOW,
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(normalized.coverRounds).toEqual([
+      expect.objectContaining({
+        id: "round-partial",
+        assetIds: [41, 44],
+        qualityRejectedCount: 2,
+        qualityCheckedAt: NOW - 50,
+      }),
+    ]);
+  });
+
+  it("keeps flagged candidates in the round and drops flags that name no candidate", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        coverRounds: [
+          {
+            id: "round-flagged",
+            platform: "xiaohongshu",
+            sourceCoreRevision: 1,
+            assetIds: [41, 42, 43, 44],
+            qualityFlaggedAssetIds: [42, 42, 43, 99],
+            qualityCheckedAt: NOW - 50,
+            createdAt: NOW,
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(normalized.coverRounds).toEqual([
+      expect.objectContaining({
+        id: "round-flagged",
+        assetIds: [41, 42, 43, 44],
+        qualityFlaggedAssetIds: [42, 43],
+        qualityCheckedAt: NOW - 50,
+      }),
+    ]);
+  });
+
+  it("preserves the never-inspected marker so it cannot read as a clean round", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        coverRounds: [
+          {
+            id: "round-unchecked",
+            platform: "xiaohongshu",
+            sourceCoreRevision: 1,
+            assetIds: [41, 42, 43, 44],
+            qualityCheckUnavailable: true,
+            qualityCheckedAt: NOW - 10,
+            createdAt: NOW,
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(normalized.coverRounds).toEqual([
+      expect.objectContaining({
+        id: "round-unchecked",
+        qualityCheckUnavailable: true,
+        qualityCheckedAt: NOW - 10,
+      }),
+    ]);
+    expect(normalized.coverRounds[0]!.qualityFlaggedAssetIds).toBeUndefined();
   });
 
   it("normalizes older publishing state to an empty cover-round collection", () => {

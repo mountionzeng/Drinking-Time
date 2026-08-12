@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import sharp from "sharp";
+import { randomBytes } from "node:crypto";
 import {
   editImage,
   generateDraftImage,
@@ -8,6 +9,7 @@ import {
   inpaintImage,
   isCircuitOpen,
   resetCircuitBreaker,
+  resume302GptImageTask,
   resume302MidjourneyTask,
 } from "./imageGen";
 import { ENV } from "../_core/env";
@@ -23,6 +25,8 @@ vi.mock("../storage", () => ({
 }));
 
 // ── Helpers ──
+
+const TEST_MJ_TIMEOUT_MS = 2_000;
 
 function makeFetcher(
   responses: Array<{
@@ -96,7 +100,7 @@ describe("generateImage", () => {
     ENV.image302MjAuthHeader = "bearer";
     ENV.image302MjPollMs = "1";
     ENV.image302MjSubmitTimeoutMs = "100";
-    ENV.image302MjTimeoutMs = "100";
+    ENV.image302MjTimeoutMs = String(TEST_MJ_TIMEOUT_MS);
     ENV.imagePrompt302Model = "";
     ENV.imagePrompt302TimeoutMs = "100";
     ENV.vision302ApiKey = "";
@@ -304,6 +308,74 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[1][0]).toBe("https://file.302.ai/result.png");
   });
 
+  it("submits GPT-image asynchronously and polls until the image is ready", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { task_id: "gpt-task-1" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status_code: 200, data: "", err: "result pending" },
+      },
+      {
+        ok: true,
+        status: 200,
+        json: {
+          status_code: 200,
+          data: "https://file.302.ai/async-result.png",
+          err: "",
+        },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(12) },
+    ]);
+
+    const result = await generateImage("a patient cat", {
+      fetcher,
+      provider: "gpt-image",
+      gptPollIntervalMs: 1,
+      gptTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher.mock.calls[0][0]).toContain("async=true");
+    expect(fetcher.mock.calls[1][0]).toContain(
+      "/async_result?task_id=gpt-task-1"
+    );
+    expect(fetcher.mock.calls[3][0]).toBe(
+      "https://file.302.ai/async-result.png"
+    );
+  });
+
+  it("resumes an accepted GPT-image task without submitting a second paid job", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      {
+        ok: true,
+        status: 200,
+        json: {
+          status_code: 200,
+          data: "https://file.302.ai/resumed-result.png",
+          err: "",
+        },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(12) },
+    ]);
+
+    const result = await resume302GptImageTask("accepted-task-1", {
+      fetcher,
+      gptPollIntervalMs: 1,
+      gptTimeoutMs: 100,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0][0]).toContain(
+      "/async_result?task_id=accepted-task-1"
+    );
+    expect(fetcher.mock.calls[0][1].method).toBe("GET");
+  });
+
   it("returns error on 302 GPT-image HTTP failure", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([{ ok: false, status: 502 }]);
@@ -346,6 +418,41 @@ describe("generateImage", () => {
     expect(result.message).toContain("timeout");
   });
 
+  it("allows GPT-image generation to use a budget longer than the generic 30s path", async () => {
+    vi.useFakeTimers();
+    try {
+      ENV.api302Key = "test-302-key";
+      const png = await makeSolidPng(20, 30, 40);
+      const fetcher = vi.fn().mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: async () => ({
+                    data: [{ b64_json: png.toString("base64") }],
+                  }),
+                }),
+              40
+            );
+          })
+      );
+
+      const resultPromise = generateImage("patient cover", {
+        fetcher,
+        provider: "gpt-image",
+        gptTimeoutMs: 100,
+      });
+      await vi.advanceTimersByTimeAsync(50);
+
+      await expect(resultPromise).resolves.toMatchObject({ status: "ok" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses 302 Midjourney submit, polls, downloads, and stores image", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
@@ -368,7 +475,7 @@ describe("generateImage", () => {
       provider: "midjourney",
       aspectRatio: "16:9",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -387,13 +494,71 @@ describe("generateImage", () => {
     expect(fetcher.mock.calls[3][0]).toBe("https://file.302.ai/mj.png");
   });
 
+  it("starts the Midjourney polling budget only after the paid task is accepted", async () => {
+    vi.useFakeTimers();
+    try {
+      ENV.api302Key = "test-302-key";
+      const fetcher = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              setTimeout(
+                () =>
+                  resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ code: 1, result: "slow-submit-task" }),
+                  }),
+                80
+              );
+            })
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ status: "IN_PROGRESS" }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: "SUCCESS",
+            imageUrl: "https://file.302.ai/slow-submit.png",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => new ArrayBuffer(18),
+        });
+
+      const resultPromise = generateImage("a patient cat", {
+        fetcher,
+        provider: "midjourney",
+        mjSubmitTimeoutMs: 100,
+        mjPollIntervalMs: 10,
+        mjTimeoutMs: 30,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(resultPromise).resolves.toMatchObject({ status: "ok" });
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resumes an accepted Midjourney task without submitting it again", async () => {
     ENV.api302Key = "test-302-key";
     const fetcher = makeFetcher([
       {
         ok: true,
         status: 200,
-        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/resumed.png" },
+        json: {
+          status: "SUCCESS",
+          imageUrl: "https://file.302.ai/resumed.png",
+        },
       },
       { ok: true, status: 200, arrayBuffer: new ArrayBuffer(18) },
     ]);
@@ -401,16 +566,18 @@ describe("generateImage", () => {
     const result = await resume302MidjourneyTask("task-already-paid", {
       fetcher,
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
     expect(fetcher.mock.calls[0][0]).toContain(
       "/mj/task/task-already-paid/fetch"
     );
-    expect(fetcher.mock.calls.some(call =>
-      String(call[0]).includes("/mj/submit/imagine")
-    )).toBe(false);
+    expect(
+      fetcher.mock.calls.some(call =>
+        String(call[0]).includes("/mj/submit/imagine")
+      )
+    ).toBe(false);
   });
 
   it("stores every 302 Midjourney object-array candidate in provider order", async () => {
@@ -442,7 +609,7 @@ describe("generateImage", () => {
       provider: "midjourney",
       aspectRatio: "3:4",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -486,7 +653,7 @@ describe("generateImage", () => {
       provider: "midjourney",
       aspectRatio: "3:4",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -527,7 +694,7 @@ describe("generateImage", () => {
       fetcher,
       provider: "midjourney",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -551,7 +718,7 @@ describe("generateImage", () => {
       fetcher,
       provider: "midjourney",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -582,7 +749,7 @@ describe("generateImage", () => {
       fetcher,
       provider: "midjourney",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     // 本地优先架构：存储 503 完全不影响出图 —— imageUrl 永远是同源稳定路由，
@@ -609,7 +776,7 @@ describe("generateImage", () => {
       fetcher,
       provider: "midjourney",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("ok");
@@ -633,11 +800,56 @@ describe("generateImage", () => {
       fetcher,
       provider: "midjourney",
       mjPollIntervalMs: 1,
-      mjTimeoutMs: 100,
+      mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
     });
 
     expect(result.status).toBe("error");
     expect(result.message).toBe("blocked");
+  });
+
+  it("marks a transport failure before the Midjourney receipt as submission-uncertain", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fetch failed"), {
+        cause: new Error("other side closed"),
+      })
+    );
+
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "midjourney",
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      submissionUncertain: true,
+    });
+    // "fetch failed" alone names no cause; the reason lives in `cause` and has
+    // to survive, otherwise nothing downstream can classify the failure.
+    expect(result.message).toContain("fetch failed");
+    expect(result.message).toContain("other side closed");
+  });
+
+  it("returns the accepted Midjourney receipt when its persistence callback fails", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-kept" } },
+    ]);
+
+    const result = await generateImage("a cat", {
+      fetcher,
+      provider: "midjourney",
+      onMidjourneyTaskAccepted: () => {
+        throw new Error("local receipt write failed");
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      message: "local receipt write failed",
+      submissionUncertain: false,
+      providerTaskId: "task-kept",
+    });
   });
 
   it("returns error when 302 Midjourney task times out", async () => {
@@ -1064,7 +1276,12 @@ describe("editImage", () => {
     const result = await editImage(
       "data:image/png;base64,aW1hZ2U=",
       "把这一刻画成电影感画面",
-      { fetcher, provider: "midjourney", mjPollIntervalMs: 1, mjTimeoutMs: 100 }
+      {
+        fetcher,
+        provider: "midjourney",
+        mjPollIntervalMs: 1,
+        mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
+      }
     );
 
     expect(result.status).toBe("ok");
@@ -1074,7 +1291,7 @@ describe("editImage", () => {
     expect(submitBody.base64Array[0]).toContain("base64,");
   });
 
-  it("故事版 MJ 生成锁定主参考，不让相邻镜头稀释服装与主色", async () => {
+  it("故事版 MJ 只传递已工程化的提示词，不在 provider 层写死服装与主色", async () => {
     const fetcher = makeFetcher([
       { ok: true, status: 200, json: { code: 1, result: "task-context" } },
       {
@@ -1099,7 +1316,7 @@ describe("editImage", () => {
         primaryReferenceLock: true,
         requireInputImage: true,
         mjPollIntervalMs: 1,
-        mjTimeoutMs: 100,
+        mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
       }
     );
 
@@ -1108,11 +1325,9 @@ describe("editImage", () => {
     expect(fetcher.mock.calls[0][0]).not.toContain("/v1/images/generations");
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(submitBody.base64Array).toHaveLength(1);
-    expect(submitBody.prompt).toContain(
-      "image 1 exclusively controls character identity"
-    );
-    expect(submitBody.prompt).toContain("Never shorten a floor-length gown");
-    expect(submitBody.prompt).toContain("blue, cyan, or teal cast");
+    expect(submitBody.prompt).toContain("保持人物、服装和红黑色彩");
+    expect(submitBody.prompt).not.toContain("floor-length gown");
+    expect(submitBody.prompt).not.toContain("blue, cyan, or teal cast");
   });
 
   it("requireInputImage=true 时 MJ 图生图失败不会回落纯文生图", async () => {
@@ -1132,7 +1347,7 @@ describe("editImage", () => {
         provider: "midjourney",
         requireInputImage: true,
         mjPollIntervalMs: 1,
-        mjTimeoutMs: 100,
+        mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
       }
     );
 
@@ -1231,7 +1446,7 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     ENV.api302Key = "test-302-key";
     ENV.image302MjPollMs = "1";
     ENV.image302MjSubmitTimeoutMs = "200";
-    ENV.image302MjTimeoutMs = "200";
+    ENV.image302MjTimeoutMs = String(TEST_MJ_TIMEOUT_MS);
   });
 
   afterEach(() => {
@@ -1316,12 +1531,188 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect(submitBody.prompt).toMatch(/deformed hands|extra fingers/);
     const noSection = submitBody.prompt.split("--no")[1] ?? "";
     expect(noSection).toMatch(/collage|thumbnails|panels/);
+    expect(noSection).toMatch(/text/);
+    expect(noSection).toMatch(/letters/);
+    expect(noSection).toMatch(/numbers/);
+    expect(noSection).toMatch(/signage/);
     expect(noSection).not.toMatch(
       /multi-panel|side-by-side|contact sheet|poster board|水印/
     );
   });
 
-  it("已显式带 --no 时不重复追加默认负面词", async () => {
+  it("断连失败保留 cause，任务编号才不会被当成不可恢复", async () => {
+    const terminated = Object.assign(new Error("terminated"), {
+      cause: "SocketError: other side closed",
+    });
+    const fetcher = vi
+      .fn()
+      // Submit accepts the paid job, Midjourney reports SUCCESS, and the socket
+      // then drops while the finished images are being downloaded.
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 1, result: "task-terminated" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "SUCCESS",
+          imageUrl: "https://file.302.ai/out.png",
+        }),
+      })
+      .mockRejectedValue(terminated);
+    const onMidjourneyTaskAccepted = vi.fn();
+
+    const result = await generateImage("a woman before an audience", {
+      fetcher,
+      onMidjourneyTaskAccepted,
+    });
+
+    expect(onMidjourneyTaskAccepted).toHaveBeenCalledWith("task-terminated");
+    expect(result.status).toBe("error");
+    // The bare "terminated" reads as unrecoverable; the cause is what proves
+    // this was a transport drop over an already-paid job.
+    expect(result.message).toContain("terminated");
+    expect(result.message).toContain("other side closed");
+  });
+
+  it("图生图断连时保留「提交结果未知」，不把可能已扣费的任务说成安全失败", async () => {
+    const fetcher = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fetch failed"), {
+        cause: "SocketError: other side closed",
+      })
+    );
+
+    const result = await editImage(
+      "data:image/png;base64,cGljaw==",
+      "a scene",
+      { fetcher, provider: "midjourney", requireInputImage: true }
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("图生图未能基于输入照片完成");
+    // Dropping this flag is what lets the UI offer a retry on a job 302 may
+    // already have accepted and billed.
+    expect(result.submissionUncertain).toBe(true);
+  });
+
+  it("图生图失败但已拿到任务编号时，付费凭据必须继续向上传递", async () => {
+    const fetcher = vi
+      .fn()
+      // Submit is accepted (paid), then the connection dies while polling.
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 1, result: "task-edit-paid" }),
+      })
+      .mockRejectedValue(new Error("terminated"));
+
+    const result = await editImage(
+      "data:image/png;base64,cGljaw==",
+      "a scene",
+      {
+        fetcher,
+        provider: "midjourney",
+        requireInputImage: true,
+        mjPollIntervalMs: 1,
+        mjTimeoutMs: TEST_MJ_TIMEOUT_MS,
+      }
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.providerTaskId).toBe("task-edit-paid");
+  });
+
+  it("MJ 图生图把参考图压成小体积再提交，避免数 MB 请求体被网络切断", async () => {
+    // A cover candidate is a multi-megabyte PNG; raw base64 pushes one submit
+    // past 8 MB with three references, which is what keeps getting cut.
+    // Noise, not flat colour: real cover art barely compresses as PNG, which is
+    // why the candidates on disk are 1.6–2.0 MB apiece.
+    const width = 700;
+    const height = 900;
+    const noise = randomBytes(width * height * 3);
+    const bigPng = await sharp(noise, { raw: { width, height, channels: 3 } })
+      .png()
+      .toBuffer();
+    const rawBase64Bytes = Math.ceil((bigPng.byteLength * 4) / 3);
+    expect(rawBase64Bytes).toBeGreaterThan(1_000_000);
+
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { code: 1, result: "task-compressed" } },
+      {
+        ok: true,
+        status: 200,
+        json: { status: "SUCCESS", imageUrl: "https://file.302.ai/out.png" },
+      },
+      { ok: true, status: 200, arrayBuffer: new ArrayBuffer(16) },
+    ]);
+
+    await editImage(
+      `data:image/png;base64,${bigPng.toString("base64")}`,
+      "a woman before an audience",
+      { fetcher, provider: "midjourney", requireInputImage: true }
+    );
+
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    const sent: string[] = submitBody.base64Array;
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/^data:image\/jpeg;base64,/);
+    expect(sent[0]!.length).toBeLessThan(rawBase64Bytes);
+    // Pure noise is JPEG's worst case — real cover art compresses far harder.
+    // Even so, three references must stay well below the multi-megabyte POST
+    // size this network keeps cutting.
+    expect(sent[0]!.length).toBeLessThan(rawBase64Bytes / 4);
+    expect(sent[0]!.length).toBeLessThan(800_000);
+  }, 20_000);
+
+  it("图生图失败改写文案时不丢「提交结果未知」，避免把可能已扣费的提交说成安全重试", async () => {
+    // The socket dies before 302 returns a task id: nothing proves the paid job
+    // was rejected, so the uncertainty must survive the message rewrite.
+    const fetcher = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fetch failed"), {
+        cause: "SocketError: other side closed",
+      })
+    );
+
+    // A data URI reference needs no download, so the only fetch — the one that
+    // drops — is the paid /mj/submit/imagine call itself.
+    const result = await editImage(
+      "data:image/png;base64,aW1hZ2U=",
+      "a woman before an audience",
+      { fetcher, provider: "midjourney", requireInputImage: true }
+    );
+
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringContaining("/mj/submit/imagine"),
+      expect.anything()
+    );
+
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("MJ 图生图未能基于输入照片完成");
+    expect(result.submissionUncertain).toBe(true);
+  });
+
+  it("MJ 负面词压制会自带文字的版式与印刷装饰（杂志封面/刊头/边框/签名）", async () => {
+    const fetcher = mjFetcher();
+    await generateImage("a person standing among roots", { fetcher });
+    const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
+    const noSection = submitBody.prompt.split("--no")[1] ?? "";
+    for (const term of [
+      "magazine cover",
+      "masthead",
+      "poster",
+      "newspaper",
+      "barcode",
+      "watermark",
+      "border",
+      "artist signature",
+    ]) {
+      expect(noSection).toContain(term);
+    }
+  });
+
+  it("已显式带 --no 时合并不可覆盖的无字负面词且不重复参数", async () => {
     const fetcher = mjFetcher();
     await generateImage("a cat --no dogs", { fetcher });
     const submitBody = JSON.parse(fetcher.mock.calls[0][1].body);
@@ -1329,6 +1720,12 @@ describe("Midjourney 角色参考 / 风格参考（U4 跨镜头一致）", () =>
     expect(submitBody.prompt.indexOf("Single-frame rule:")).toBeLessThan(
       submitBody.prompt.indexOf("--no dogs")
     );
+    const noSection = submitBody.prompt.split("--no")[1] ?? "";
+    expect(noSection).toMatch(/dogs/);
+    expect(noSection).toMatch(/text/);
+    expect(noSection).toMatch(/letters/);
+    expect(noSection).toMatch(/numbers/);
+    expect(noSection).toMatch(/logos/);
   });
 
   it("用户明确要求拼贴/多镜头时不追加单镜头禁令", async () => {

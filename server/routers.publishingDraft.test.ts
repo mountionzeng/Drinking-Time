@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
+import {
+  estimatePublishingCoverCost,
+  estimatePublishingCoverFallbackCost,
+  estimateStoryboardImageCost,
+} from "../shared/imageRenderCost";
+
+// Read the live estimate: the cover round runs in MJ draft mode, and a price
+// change must not turn every cost-confirmation test red.
+const COVER_CNY = estimatePublishingCoverCost().estimatedCny;
 
 const dbMocks = vi.hoisted(() => ({
   assignStoryImageToShot: vi.fn(),
@@ -8,14 +17,25 @@ const dbMocks = vi.hoisted(() => ({
   promoteStoryImageToCurrent: vi.fn(),
   getGeneratedImageById: vi.fn(),
   updateStory: vi.fn(),
+  getRecentRejectionSignals: vi.fn(),
+  getRecentEditPreferences: vi.fn(),
+  getRecentChatCorrections: vi.fn(),
 }));
 const imageGenMocks = vi.hoisted(() => ({
   generateImage: vi.fn(),
+  generateDraftImage: vi.fn(),
   editImage: vi.fn(),
   resume302MidjourneyTask: vi.fn(),
+  resume302GptImageTask: vi.fn(),
+}));
+const staticImageQualityMocks = vi.hoisted(() => ({
+  inspectStaticImageCandidates: vi.fn(),
 }));
 const conversationMocks = vi.hoisted(() => ({
   listStoryConversation: vi.fn(),
+}));
+const agentChannelMocks = vi.hoisted(() => ({
+  invokeAgent: vi.fn(),
 }));
 const modelMocks = vi.hoisted(() => ({
   generatePublishingDraft: vi.fn(),
@@ -35,7 +55,12 @@ const videoPreviewMocks = vi.hoisted(() => ({
 
 vi.mock("./db", () => dbMocks);
 vi.mock("./services/imageGen", () => imageGenMocks);
+vi.mock("./services/staticImageQualityGate", () => staticImageQualityMocks);
 vi.mock("./services/storyConversation", () => conversationMocks);
+vi.mock("./_core/agentChannel", async importOriginal => {
+  const original = await importOriginal<typeof import("./_core/agentChannel")>();
+  return { ...original, ...agentChannelMocks };
+});
 vi.mock("./services/publishingDraft", async importOriginal => {
   const original =
     await importOriginal<typeof import("./services/publishingDraft")>();
@@ -115,6 +140,10 @@ describe("publishingDraft router", () => {
     conversationMocks.listStoryConversation.mockResolvedValue({
       messages: [{ id: 9, role: "user", content: "服务端对话里的判断" }],
     });
+    agentChannelMocks.invokeAgent.mockResolvedValue({
+      text: "A compiled English cover scene.",
+      modelLabel: "agent-test",
+    });
     persistenceMocks.getPublishingDraftState.mockResolvedValue({
       storyId: 7,
       storyRevision: 2,
@@ -127,27 +156,31 @@ describe("publishingDraft router", () => {
         publishing: { ...publishing, revision: 2, operation: operation.type },
       })
     );
-    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockResolvedValue({
-      status: "ready",
-      storyId: 7,
-      storyRevision: 3,
-      publishing,
-      preview: {
-        previewId: "preview-op-1",
-        shots: [{ draftShotId: "draft-1" }],
-      },
-      reused: false,
-      modelLabel: "test-model",
-    });
-    videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard.mockResolvedValue({
-      status: "confirmed",
-      storyId: 7,
-      storyRevision: 4,
-      publishing,
-      preview: { previewId: "preview-build-1", status: "confirmed" },
-      shots: [{ stableShotId: "publishing-v1-shot-1", scriptText: "改写" }],
-      reused: false,
-    });
+    videoPreviewMocks.generateAndPersistPublishingVideoPreview.mockResolvedValue(
+      {
+        status: "ready",
+        storyId: 7,
+        storyRevision: 3,
+        publishing,
+        preview: {
+          previewId: "preview-op-1",
+          shots: [{ draftShotId: "draft-1" }],
+        },
+        reused: false,
+        modelLabel: "test-model",
+      }
+    );
+    videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard.mockResolvedValue(
+      {
+        status: "confirmed",
+        storyId: 7,
+        storyRevision: 4,
+        publishing,
+        preview: { previewId: "preview-build-1", status: "confirmed" },
+        shots: [{ stableShotId: "publishing-v1-shot-1", scriptText: "改写" }],
+        reused: false,
+      }
+    );
     imageGenMocks.generateImage.mockResolvedValue({
       status: "ok",
       imageUrl: "/api/images/candidate-1.png",
@@ -175,6 +208,23 @@ describe("publishingDraft router", () => {
         imageKey: `generated/resumed-${index}.png`,
       })),
     });
+    staticImageQualityMocks.inspectStaticImageCandidates.mockImplementation(
+      async ({
+        candidates,
+      }: {
+        candidates: Array<Record<string, unknown>>;
+      }) => ({
+        accepted: candidates.map((candidate, index) => ({
+          ...candidate,
+          originalIndex: index + 1,
+          risks: [],
+          evidence: "",
+          confidence: 0.99,
+        })),
+        rejected: [],
+        modelLabel: "vision-test",
+      })
+    );
     let nextImageId = 91;
     dbMocks.createGeneratedImage.mockImplementation(
       async (input: Record<string, unknown>) => ({
@@ -215,6 +265,9 @@ describe("publishingDraft router", () => {
       })
     );
     dbMocks.assignStoryImageToShot.mockResolvedValue({ image: { id: 52 } });
+    dbMocks.getRecentRejectionSignals.mockResolvedValue([]);
+    dbMocks.getRecentEditPreferences.mockResolvedValue([]);
+    dbMocks.getRecentChatCorrections.mockResolvedValue([]);
     modelMocks.generatePublishingDraft.mockResolvedValue({
       platform: "xiaohongshu",
       core: {
@@ -681,7 +734,7 @@ describe("publishingDraft router", () => {
     });
     expect(missing).toMatchObject({
       status: "confirmation_required",
-      estimate: { currency: "CNY", estimatedCny: 0.68 },
+      estimate: { currency: "CNY", estimatedCny: COVER_CNY },
     });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
 
@@ -732,7 +785,9 @@ describe("publishingDraft router", () => {
       storyId: 7,
       platform: "xiaohongshu",
       basePublishingRevision: 1,
-      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+      feedback: "我希望是一张风景画，更多留白",
+      instructions: ["不要人像", "我希望是一张风景画，更多留白"],
+      costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
     });
 
     expect(approved).toMatchObject({
@@ -748,20 +803,36 @@ describe("publishingDraft router", () => {
       ],
     });
     expect(imageGenMocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(
+      staticImageQualityMocks.inspectStaticImageCandidates
+    ).toHaveBeenCalledTimes(1);
+    // Midjourney receives the compiled English scene, not the Chinese brief.
     expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /Surreal minimalist cinematic fine-art scene[\s\S]*机械臂粉碎实体书[\s\S]*--style raw --stylize 250[\s\S]*--no words letters[\s\S]*barcode/
-      ),
+      expect.stringContaining("A compiled English cover scene."),
       expect.objectContaining({
         provider: "midjourney",
         aspectRatio: "3:4",
         mjTimeoutMs: 600_000,
       })
     );
-    const submittedPrompt = imageGenMocks.generateImage.mock.calls[0]?.[0];
+    // The brief itself is what gets compiled, so it is still fully asserted.
+    const submittedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+      -1
+    )?.content;
+    expect(submittedPrompt).toMatch(
+      /【封面内容简报】[\s\S]*机械臂粉碎实体书[\s\S]*【封面产品约束】[\s\S]*【四图探索梯度】[\s\S]*【艺术跃迁】/
+    );
     expect(submittedPrompt).not.toContain("这也是我们的下场吗");
     expect(submittedPrompt).not.toContain("标题用大字写");
     expect(submittedPrompt).not.toContain("正文");
+    expect(submittedPrompt).toContain("原始视觉联想（可推翻，不是事实）");
+    expect(submittedPrompt).not.toContain("故事提出的视觉概念");
+    expect(submittedPrompt).not.toContain("Dark indigo");
+    expect(submittedPrompt).not.toContain("gold dust");
+    expect(submittedPrompt).toContain(
+      "【用户持续要求】不要人像；我希望是一张风景画，更多留白"
+    );
+    expect(submittedPrompt).not.toContain("【修改边界】");
     expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
     expect(dbMocks.createGeneratedImage).toHaveBeenCalledWith(
       expect.objectContaining({ isCurrent: false, parentImageId: null })
@@ -775,6 +846,526 @@ describe("publishingDraft router", () => {
         }),
       })
     );
+  });
+
+  it("runs exploration rounds in MJ draft mode and prices them at half", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          return {
+            storyId: 7,
+            storyRevision: 3,
+            publishing: {
+              ...state,
+              revision: 2,
+              coverGeneration: operation.generation,
+            },
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 4,
+          publishing: {
+            ...state,
+            revision: 3,
+            coverRounds: [operation.round],
+            coverGeneration: { status: "completed" },
+          },
+        };
+      }
+    );
+
+    await publishingDraftRouter.createCaller(context()).generateCover({
+      storyId: 7,
+      platform: "xiaohongshu",
+      basePublishingRevision: 1,
+      costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+    });
+
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ provider: "midjourney", mjDraft: true })
+    );
+    // Half of the standard four-candidate Midjourney round.
+    expect(COVER_CNY).toBeCloseTo(
+      estimateStoryboardImageCost().estimatedCny / 2,
+      2
+    );
+  });
+
+  it("flags text-contaminated cover candidates but still delivers every paid image", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    staticImageQualityMocks.inspectStaticImageCandidates.mockImplementation(
+      async ({ candidates }: { candidates: any[] }) => ({
+        accepted: [
+          { ...candidates[0], originalIndex: 1, risks: [], confidence: 0.99 },
+          { ...candidates[3], originalIndex: 4, risks: [], confidence: 0.99 },
+        ],
+        rejected: [
+          {
+            ...candidates[1],
+            originalIndex: 2,
+            risks: ["readable_text"],
+            confidence: 0.99,
+          },
+          {
+            ...candidates[2],
+            originalIndex: 3,
+            risks: ["watermark"],
+            confidence: 0.99,
+          },
+        ],
+        modelLabel: "vision-test",
+      })
+    );
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          return {
+            storyId: 7,
+            storyRevision: 3,
+            publishing: {
+              ...state,
+              revision: 2,
+              coverGeneration: operation.generation,
+            },
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 4,
+          publishing: {
+            ...state,
+            revision: 3,
+            coverRounds: [operation.round],
+            coverGeneration: { status: "completed" },
+          },
+        };
+      }
+    );
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      coverRound: {
+        assetIds: [91, 92, 93, 94],
+        qualityFlaggedAssetIds: [92, 93],
+        candidates: [{ id: 91 }, { id: 92 }, { id: 93 }, { id: 94 }],
+      },
+    });
+    expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
+    expect(
+      dbMocks.createGeneratedImage.mock.calls.map(
+        call => (call[0] as { imageUrl: string }).imageUrl
+      )
+    ).toEqual([
+      "/api/images/candidate-1.png",
+      "/api/images/candidate-2.png",
+      "/api/images/candidate-3.png",
+      "/api/images/candidate-4.png",
+    ]);
+    // A flagged candidate is still a candidate: nothing is auto-adopted.
+    expect(
+      dbMocks.createGeneratedImage.mock.calls.every(
+        call => (call[0] as { isCurrent: boolean }).isCurrent === false
+      )
+    ).toBe(true);
+  });
+
+  it("keeps every paid candidate when pixel QA flags all four, without adopting any", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    staticImageQualityMocks.inspectStaticImageCandidates.mockImplementation(
+      async ({ candidates }: { candidates: any[] }) => ({
+        accepted: [],
+        rejected: candidates.map((candidate, index) => ({
+          ...candidate,
+          originalIndex: index + 1,
+          risks: ["readable_text"],
+          confidence: 0.99,
+        })),
+        modelLabel: "vision-test",
+      })
+    );
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          return {
+            storyId: 7,
+            storyRevision: 3,
+            publishing: {
+              ...state,
+              revision: 2,
+              coverGeneration: operation.generation,
+            },
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 4,
+          publishing: {
+            ...state,
+            revision: 3,
+            coverRounds: [operation.round],
+            coverGeneration: { status: "completed" },
+          },
+        };
+      }
+    );
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    // The round was paid for: QA labels it, it never swallows it.
+    expect(result).toMatchObject({
+      status: "ok",
+      coverRound: {
+        assetIds: [91, 92, 93, 94],
+        qualityFlaggedAssetIds: [91, 92, 93, 94],
+        candidates: [{ id: 91 }, { id: 92 }, { id: 93 }, { id: 94 }],
+      },
+    });
+    expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
+    expect(imageGenMocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
+    // Flagged candidates must never become the published cover on their own.
+    expect(result.publishing.cover).toBeNull();
+    expect(dbMocks.promoteStoryImageToCurrent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the generated candidates readable by a fresh caller after a reload", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    // One shared store, so `read` sees exactly what `generateCover` persisted.
+    let stored: Record<string, unknown> = { ...state };
+    persistenceMocks.getPublishingDraftState.mockImplementation(async () => ({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: stored,
+    }));
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        stored =
+          operation.type === "claim_cover_generation"
+            ? { ...stored, revision: 2, coverGeneration: operation.generation }
+            : {
+                ...stored,
+                revision: 3,
+                coverRounds: [
+                  ...((stored.coverRounds as unknown[]) ?? []),
+                  operation.round,
+                ],
+                coverGeneration: { status: "completed" },
+              };
+        return { storyId: 7, storyRevision: 4, publishing: stored };
+      }
+    );
+
+    const generated = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+    expect(generated.status).toBe("ok");
+    expect(generated.coverRound.candidates).toHaveLength(4);
+
+    // A brand new caller stands in for a browser reload.
+    const reread = await publishingDraftRouter
+      .createCaller(context())
+      .read({ storyId: 7 });
+
+    expect(reread.coverRounds).toHaveLength(1);
+    expect(reread.coverRounds.at(-1)?.candidates.map(c => c.id)).toEqual([
+      91, 92, 93, 94,
+    ]);
+    expect(reread.coverAsset).toBeNull();
+    expect(reread.publishing.cover).toBeNull();
+  });
+
+  it("still delivers the paid round when pixel QA itself is unavailable", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    staticImageQualityMocks.inspectStaticImageCandidates.mockRejectedValue(
+      new Error("视觉质检通道不可用")
+    );
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          return {
+            storyId: 7,
+            storyRevision: 3,
+            publishing: {
+              ...state,
+              revision: 2,
+              coverGeneration: operation.generation,
+            },
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 4,
+          publishing: {
+            ...state,
+            revision: 3,
+            coverRounds: [operation.round],
+            coverGeneration: { status: "completed" },
+          },
+        };
+      }
+    );
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      coverRound: { assetIds: [91, 92, 93, 94] },
+    });
+    expect(result.coverRound.qualityFlaggedAssetIds).toBeUndefined();
+    // A crashed inspection must not read as a clean one: without this marker
+    // the UI presents unchecked, possibly text-covered images as if they passed.
+    expect(result.coverRound.qualityCheckUnavailable).toBe(true);
+    expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(4);
+  });
+
+  it("marks an inspected clean round as checked, not as unavailable", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          return {
+            storyId: 7,
+            storyRevision: 3,
+            publishing: {
+              ...state,
+              revision: 2,
+              coverGeneration: operation.generation,
+            },
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 4,
+          publishing: {
+            ...state,
+            revision: 3,
+            coverRounds: [operation.round],
+            coverGeneration: { status: "completed" },
+          },
+        };
+      }
+    );
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    expect(result.status).toBe("ok");
+    expect(result.coverRound.qualityCheckUnavailable).toBeUndefined();
+  });
+
+  it("drops the old visual concept and changes the art route when no prior candidate was selected", async () => {
+    const previousRound = {
+      id: "round-1",
+      platform: "xiaohongshu" as const,
+      sourceCoreRevision: 1,
+      parentAssetId: null,
+      feedback: "",
+      assetIds: [51, 52, 53, 54] as [number, number, number, number],
+      createdAt: 1,
+    };
+    const state = {
+      ...publishing,
+      core: {
+        ...publishing.core,
+        facts: ["底层机制保质期长，上层工具淘汰快"],
+        thesis: "对真实欲望诚实，才能不被信息噪音带走",
+        visualConcept:
+          "一张极简风格的照片，画面中是一个正在快速走动的时钟或沙漏，旁边放着石头。",
+      },
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      coverRounds: [previousRound],
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => ({
+        storyId: 7,
+        storyRevision: 3,
+        publishing:
+          operation.type === "claim_cover_generation"
+            ? {
+                ...state,
+                revision: 2,
+                coverGeneration: operation.generation,
+              }
+            : {
+                ...state,
+                revision: 3,
+                coverRounds: [...state.coverRounds, operation.round],
+              },
+      })
+    );
+    const caller = publishingDraftRouter.createCaller(context());
+
+    await caller.generateCover({
+      storyId: 7,
+      platform: "xiaohongshu",
+      basePublishingRevision: 1,
+      costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+    });
+
+    const submittedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+      -1
+    )?.content;
+    expect(submittedPrompt).toContain("底层机制保质期长");
+    expect(submittedPrompt).toContain("【整轮否决·第2轮】");
+    expect(submittedPrompt).not.toContain("正在快速走动的时钟或沙漏");
+    expect(submittedPrompt).not.toContain("原始视觉联想（可推翻，不是事实）");
+    expect(submittedPrompt).toContain("【风格化硬约束】");
+    expect(submittedPrompt).toContain("【静态图片无字硬约束】");
   });
 
   it("uses a selected owned candidate as the visual reference for feedback", async () => {
@@ -829,14 +1420,27 @@ describe("publishingDraft router", () => {
       basePublishingRevision: 1,
       referenceAssetId: 52,
       feedback: "去掉画面里的字体，让人物更小、机器更压迫",
-      costConfirmation: { accepted: true, estimatedCny: 0.68 },
+      instructions: [
+        "像一张风景画",
+        "去掉画面里的字体，让人物更小、机器更压迫",
+      ],
+      artReference: {
+        label: "纸本参考.png",
+        style: ["纸本拼贴"],
+        palette: ["矿物色"],
+        light: ["光成为实体"],
+        composition: ["极端留白"],
+        material: ["粗纸纤维"],
+        mood: ["温柔的不安"],
+      },
+      costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
     });
 
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).toHaveBeenCalledTimes(1);
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "/api/images/asset-52.png",
-      expect.stringMatching(/人物更小[\s\S]*no readable text/i),
+      expect.stringContaining("A compiled English cover scene."),
       expect.objectContaining({
         provider: "midjourney",
         aspectRatio: "3:4",
@@ -844,6 +1448,15 @@ describe("publishingDraft router", () => {
         requireInputImage: true,
       })
     );
+    const revisedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
+      -1
+    )?.content;
+    expect(revisedPrompt).toMatch(/人物更小[\s\S]*禁止可读文字/);
+    expect(revisedPrompt).toContain("【用户持续要求】像一张风景画");
+    expect(revisedPrompt).toContain("纸本拼贴");
+    expect(revisedPrompt).toContain("粗纸纤维");
+    expect(revisedPrompt).toContain("【修改边界】");
+    expect(revisedPrompt).not.toContain("floor-length gown");
     expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: expect.objectContaining({
@@ -851,6 +1464,10 @@ describe("publishingDraft router", () => {
           round: expect.objectContaining({
             parentAssetId: 52,
             feedback: "去掉画面里的字体，让人物更小、机器更压迫",
+            instructions: [
+              "像一张风景画",
+              "去掉画面里的字体，让人物更小、机器更压迫",
+            ],
           }),
         }),
       })
@@ -1016,6 +1633,89 @@ describe("publishingDraft router", () => {
     );
   });
 
+  it("recovers an outstanding paid task instead of buying a new round on a fresh click", async () => {
+    const generation = {
+      operationToken: "cover-op-orphaned",
+      versionId: "v1",
+      status: "failed" as const,
+      platform: "xiaohongshu" as const,
+      referenceAssetId: null,
+      feedback: "女性，长发",
+      prompt: "durable cover prompt",
+      roundId: "round-orphaned",
+      taskId: "302-task-orphaned",
+      claimedAt: 1,
+      updatedAt: 2,
+      expiresAt: 3,
+      error: "timeout",
+    };
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      coverGeneration: generation,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => ({
+        storyId: 7,
+        storyRevision: 3,
+        publishing: {
+          ...state,
+          revision: state.revision + 1,
+          coverGeneration:
+            operation.type === "update_cover_generation"
+              ? { ...generation, status: operation.status }
+              : { ...generation, status: "completed" as const },
+          coverRounds:
+            operation.type === "complete_cover_generation"
+              ? [operation.round]
+              : [],
+        },
+      })
+    );
+
+    // No operationToken: exactly what the "换 4 张" button sends.
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    expect(result.status).toBe("ok");
+    // The paid receipt is resumed, and no second paid job is submitted.
+    expect(imageGenMocks.resume302MidjourneyTask).toHaveBeenCalledWith(
+      generation.taskId,
+      expect.objectContaining({ provider: "midjourney" })
+    );
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    // The receipt must never be overwritten by a fresh claim.
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: expect.objectContaining({
+          type: "claim_cover_generation",
+        }),
+      })
+    );
+  });
+
   it("does not resubmit when an interrupted cover request has no recoverable task id", async () => {
     const generation = {
       operationToken: "cover-op-unknown",
@@ -1075,10 +1775,185 @@ describe("publishingDraft router", () => {
       operationToken: "cover-op-unknown",
     });
 
-    expect(result).toMatchObject({ status: "error", error: expect.stringContaining("不会自动重新提交") });
+    expect(result).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("不会自动重新提交"),
+    });
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
     expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
+  });
+
+  it("persists an uncertain submit instead of presenting it as a safe retry", async () => {
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+    };
+    let generation: any = null;
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          generation = operation.generation;
+        } else if (operation.type === "update_cover_generation") {
+          generation = {
+            ...generation,
+            status: operation.status ?? generation.status,
+            error: operation.error ?? generation.error,
+          };
+        }
+        return {
+          storyId: 7,
+          storyRevision: 3,
+          publishing: {
+            ...state,
+            revision: 2,
+            coverGeneration: generation,
+          },
+        };
+      }
+    );
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "error",
+      message: "fetch failed",
+      submissionUncertain: true,
+    });
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        basePublishingRevision: 1,
+        costConfirmation: { accepted: true, estimatedCny: COVER_CNY },
+      });
+
+    expect(result).toMatchObject({
+      status: "error",
+      publishing: {
+        coverGeneration: {
+          status: "unknown",
+          taskId: null,
+        },
+      },
+      error: expect.stringContaining("不会自动重新提交"),
+    });
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: expect.objectContaining({
+          type: "update_cover_generation",
+          status: "unknown",
+        }),
+      })
+    );
+    expect(imageGenMocks.generateImage).toHaveBeenCalledTimes(1);
+    expect(imageGenMocks.resume302MidjourneyTask).not.toHaveBeenCalled();
+  });
+
+  it("uses the explicitly confirmed GPT-image fallback for one cover candidate", async () => {
+    const unresolvedGeneration = {
+      operationToken: "cover-mj-unknown",
+      versionId: "v1",
+      status: "unknown" as const,
+      platform: "xiaohongshu" as const,
+      provider: "midjourney" as const,
+      referenceAssetId: null,
+      feedback: "",
+      prompt: "durable cover prompt",
+      roundId: "round-mj-unknown",
+      taskId: null,
+      claimedAt: 1,
+      updatedAt: 2,
+      expiresAt: 3,
+      error: "fetch failed",
+    };
+    const state = {
+      ...publishing,
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "标题", body: "正文", tags: [] },
+          appliedBaseline: { title: "标题", body: "正文", tags: [] },
+          sourceCoreRevision: 1,
+          revision: 1,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      coverGeneration: unresolvedGeneration,
+    };
+    let generation: any = unresolvedGeneration;
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: state,
+    });
+    persistenceMocks.writePublishingDraftState.mockImplementation(
+      async ({ operation }: { operation: any }) => {
+        if (operation.type === "claim_cover_generation") {
+          generation = operation.generation;
+        }
+        return {
+          storyId: 7,
+          storyRevision: 3,
+          publishing: {
+            ...state,
+            revision: 2,
+            coverGeneration:
+              operation.type === "complete_cover_generation"
+                ? { ...generation, status: "completed" }
+                : generation,
+            coverRounds:
+              operation.type === "complete_cover_generation"
+                ? [operation.round]
+                : [],
+          },
+        };
+      }
+    );
+    imageGenMocks.generateImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "/api/images/gpt-cover.png",
+      imageKey: "generated/gpt-cover.png",
+    });
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .generateCover({
+        storyId: 7,
+        platform: "xiaohongshu",
+        provider: "gpt-image",
+        basePublishingRevision: state.revision,
+        costConfirmation: {
+          accepted: true,
+          estimatedCny: estimatePublishingCoverFallbackCost().estimatedCny,
+        },
+      });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      estimate: { candidateCount: 1 },
+      coverRound: { candidates: [{ imageUrl: "/api/images/asset-91.png" }] },
+    });
+    expect(imageGenMocks.generateImage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ provider: "gpt-image", aspectRatio: "3:4" })
+    );
+    expect(dbMocks.createGeneratedImage).toHaveBeenCalledTimes(1);
   });
 
   it("adopts only a candidate from this Story and keeps adoption free", async () => {
