@@ -304,6 +304,16 @@ type PublishingCoverRoundView = PublishingCoverRound & {
 const PUBLISHING_COVER_OPENING_SHOT_IDENTITY =
   "publishing-cover-opening" as const;
 
+/**
+ * Midjourney `--iw` (0–3) weighs the reference image against the prompt. At the
+ * old 1.4 the reference always won, so "按意见修改这张" could adjust mood but
+ * could not honour the very instructions users actually write — remove the
+ * lettering, make the subject a woman — because the reference kept feeding both
+ * back in. Below 1 the prompt leads and the reference still carries composition,
+ * palette and lighting, which is what this button promises.
+ */
+const PUBLISHING_COVER_REVISE_IMAGE_WEIGHT = 0.5;
+
 function isPublishingCoverIdentity(identity: string | null): boolean {
   return (
     identity === PUBLISHING_COVER_SHOT_IDENTITY ||
@@ -1255,7 +1265,7 @@ export const publishingDraftRouter = router({
               ? await editImage(referenceAsset.imageUrl, renderPrompt, {
                   ...imageOptions,
                   requireInputImage: true,
-                  imageWeight: 1.4,
+                  imageWeight: PUBLISHING_COVER_REVISE_IMAGE_WEIGHT,
                 })
               : await generateImage(renderPrompt, {
                   ...imageOptions,

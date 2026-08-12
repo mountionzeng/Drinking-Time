@@ -1448,6 +1448,12 @@ describe("publishingDraft router", () => {
         requireInputImage: true,
       })
     );
+    // The reference must not outweigh the prompt, or a revision cannot honour
+    // instructions like "remove the lettering" / "make the subject a woman".
+    const reviseOptions = imageGenMocks.editImage.mock.calls[0]?.[2] as {
+      imageWeight: number;
+    };
+    expect(reviseOptions.imageWeight).toBeLessThan(1);
     const revisedPrompt = agentChannelMocks.invokeAgent.mock.calls[0]?.[0]?.at(
       -1
     )?.content;
