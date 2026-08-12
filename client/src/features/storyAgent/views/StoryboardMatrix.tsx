@@ -9,6 +9,7 @@ import {
 
 import type { StoryShot } from "@/features/storyAgent/types";
 import type { StoryboardFieldVersionTrack } from "@shared/storyboardFieldVersions";
+import type { StoryboardShotCostEstimate } from "./storyboardReviewModel";
 
 export type StoryboardMatrixField =
   | "scriptText"
@@ -102,6 +103,46 @@ export const STORYBOARD_MATRIX_VISIBLE_ROWS: readonly StoryboardMatrixRow[] =
       row.field === "dialogue"
   );
 
+export function StoryboardCostCell({
+  estimate,
+  selected,
+}: {
+  estimate: StoryboardShotCostEstimate;
+  selected: boolean;
+}) {
+  return (
+    <div
+      role="cell"
+      className="min-w-0 border-b border-r px-2 py-2"
+      style={{
+        borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+        background: selected
+          ? "color-mix(in srgb, var(--nayin-glow) 46%, transparent)"
+          : "transparent",
+      }}
+      aria-label={`预计费用：图片 ¥${estimate.imageCny.toFixed(2)}，视频 ¥${estimate.videoCny.toFixed(2)}，合计 ¥${estimate.totalCny.toFixed(2)}`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[8px] text-muted-foreground">
+          图片 · {estimate.imageCandidateCount} 张
+        </span>
+        <span className="text-[9px] font-medium tabular-nums text-foreground">
+          ¥{estimate.imageCny.toFixed(2)}
+        </span>
+      </div>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <span className="text-[8px] text-muted-foreground">视频</span>
+        <span className="text-[9px] font-medium tabular-nums text-foreground">
+          ¥{estimate.videoCny.toFixed(2)}
+        </span>
+      </div>
+      <div className="mt-1 border-t border-border/45 pt-1 text-right text-[10px] font-semibold tabular-nums text-[var(--nayin-accent)]">
+        合计 ¥{estimate.totalCny.toFixed(2)}
+      </div>
+    </div>
+  );
+}
+
 export function StoryboardVoiceCell({
   shot,
   shotLabel,
@@ -118,7 +159,10 @@ export function StoryboardVoiceCell({
   editable: boolean;
   generating: boolean;
   onFocus: () => void;
-  onCommit: (field: "dialogue" | "sound", value: string) => void | Promise<void>;
+  onCommit: (
+    field: "dialogue" | "sound",
+    value: string
+  ) => void | Promise<void>;
   onGenerate?: (text: string) => void | Promise<void>;
 }) {
   const narrationValue = shot.dialogue?.trim() || "";
@@ -126,7 +170,10 @@ export function StoryboardVoiceCell({
   const [narrationText, setNarrationText] = useState(narrationValue);
   const [soundText, setSoundText] = useState(soundValue);
 
-  useEffect(() => setNarrationText(narrationValue), [narrationValue, shotLabel]);
+  useEffect(
+    () => setNarrationText(narrationValue),
+    [narrationValue, shotLabel]
+  );
   useEffect(() => setSoundText(soundValue), [soundValue, shotLabel]);
 
   const audioStale = Boolean(
@@ -251,7 +298,11 @@ export function StoryboardFieldVersionSelect({
       onPointerDown={event => event.stopPropagation()}
       className="h-6 rounded-sm border border-border bg-background px-1 text-[8px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/30 disabled:cursor-default disabled:opacity-80"
       aria-label={`${label}版本`}
-      title={history.length < 2 ? `${label}当前为 V${currentRevision}` : `切换${label}版本`}
+      title={
+        history.length < 2
+          ? `${label}当前为 V${currentRevision}`
+          : `切换${label}版本`
+      }
     >
       {history.map(entry => (
         <option key={entry.revision} value={entry.revision}>

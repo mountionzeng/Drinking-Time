@@ -188,7 +188,10 @@ export async function rerenderShotImageCandidates(params: {
   });
   return {
     results: [result],
-    generatedCount: params.candidateCount,
+    // The provider may return one complete fallback frame instead of a
+    // four-up grid. Report what actually came back so the board never clones
+    // one asset into four fake candidates.
+    generatedCount: 1,
     failedCount: 0,
     errors: [],
   };

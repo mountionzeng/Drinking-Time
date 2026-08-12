@@ -112,6 +112,7 @@ import {
 import { buildStoryboardTimingRows } from "../storyboardTiming";
 import {
   StoryboardFieldVersionSelect,
+  StoryboardCostCell,
   StoryboardMatrixFieldCell,
   StoryboardVoiceCell,
   STORYBOARD_MATRIX_VISIBLE_ROWS,
@@ -171,6 +172,7 @@ import {
   storyboardInheritedStartEndGenerationParams,
   storyboardImageGenerationReferences,
   storyboardRenderIntentSummary,
+  storyboardShotCostEstimate,
   storyboardRenderShotWithDraft,
   storyboardRerenderRequestId,
   storyboardShotFrameImages,
@@ -4129,7 +4131,11 @@ export function StoryboardReviewBoard({
                                 aria-label={`按图片要求渲染 ${shotLabel} 的四张候选图`}
                                 title={
                                   imageProviderStatus?.ready
-                                    ? "原文要求优先，生成四张同风格候选图"
+                                    ? shouldUseSingleImageFallback(
+                                        imageProviderStatus
+                                      )
+                                      ? "四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用"
+                                      : "原文要求优先，生成四张同风格候选图，提交前会显示费用"
                                     : (imageProviderStatus?.reason ??
                                       "正在确认图片供应商状态")
                                 }
@@ -4144,7 +4150,11 @@ export function StoryboardReviewBoard({
                                 {continuityCheckingByShot[shot.shotNo] ===
                                 "image"
                                   ? "检查人物"
-                                  : "渲染 4 张"}
+                                  : shouldUseSingleImageFallback(
+                                        imageProviderStatus
+                                      )
+                                    ? "渲染 1 张"
+                                    : "渲染 4 张"}
                               </button>
                             ) : row.field === "videoPrompt" &&
                               creationShot &&
@@ -4191,6 +4201,34 @@ export function StoryboardReviewBoard({
                       );
                     })}
                   </Fragment>
+                ))}
+
+                <div
+                  role="rowheader"
+                  className="sticky left-0 z-20 border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+                  style={{
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+                    background: "var(--background)",
+                  }}
+                >
+                  <span className="block">预计费用</span>
+                  <span className="mt-1 block text-[8px] font-normal leading-tight text-muted-foreground/70">
+                    当前图片与视频链路 · 提交前仍会确认
+                  </span>
+                </div>
+                {shots.map(shot => (
+                  <StoryboardCostCell
+                    key={`matrix-cost-${shot.stableShotId ?? shot.shotIdentity ?? shot.shotNo}`}
+                    selected={selectedShotNo === shot.shotNo}
+                    estimate={storyboardShotCostEstimate(
+                      creationShotByNo.get(shot.shotNo),
+                      {
+                        singleImageFallback:
+                          shouldUseSingleImageFallback(imageProviderStatus),
+                      }
+                    )}
+                  />
                 ))}
               </div>
             </div>

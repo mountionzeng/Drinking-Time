@@ -15,6 +15,10 @@ import {
   SHOT_VIDEO_ASPECT_RATIO,
 } from "@shared/shotDirector";
 import {
+  estimateStoryboardImageCost,
+  estimateStoryboardMaskedEditCost,
+} from "@shared/imageRenderCost";
+import {
   START_END_NEIGHBOR_FRAME_POLICY_VERSION,
   parseStartEndVideoConfig,
 } from "@shared/startEndVideo";
@@ -257,9 +261,7 @@ export function storyboardExplicitImageInstruction(
     value("action") ? `画面动作：${value("action")}` : "",
     value("performance") ? `表演：${value("performance")}` : "",
     value("cameraMove") ? `运镜构图：${value("cameraMove")}` : "",
-    value("transitionOut")
-      ? `衔接下一镜：${value("transitionOut")}`
-      : "",
+    value("transitionOut") ? `衔接下一镜：${value("transitionOut")}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -292,9 +294,7 @@ export function storyboardRenderIntentSummary(
     compact(shot.cameraPath || shot.cameraMove)
       ? `运镜：${compact(shot.cameraPath || shot.cameraMove)}`
       : "",
-    compact(shot.videoPrompt)
-      ? `视频要求：${compact(shot.videoPrompt)}`
-      : "",
+    compact(shot.videoPrompt) ? `视频要求：${compact(shot.videoPrompt)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -341,6 +341,31 @@ export function quickShotVideoRenderPlan(
     estimatedCny:
       renderDecision.strategy === "local-transform" ? 0 : estimate.estimatedCny,
     renderDecision,
+  };
+}
+
+export type StoryboardShotCostEstimate = {
+  imageCny: number;
+  videoCny: number;
+  totalCny: number;
+  imageCandidateCount: 1 | 4;
+};
+
+/** Current application-chain estimate shown before any paid submission. */
+export function storyboardShotCostEstimate(
+  shot: CreationEditorShot | undefined,
+  options: { singleImageFallback: boolean }
+): StoryboardShotCostEstimate {
+  const imageEstimate = options.singleImageFallback
+    ? estimateStoryboardMaskedEditCost()
+    : estimateStoryboardImageCost();
+  const videoCny = shot ? quickShotVideoRenderPlan(shot, []).estimatedCny : 0;
+  const imageCny = imageEstimate.estimatedCny;
+  return {
+    imageCny,
+    videoCny,
+    totalCny: Math.ceil((imageCny + videoCny) * 100) / 100,
+    imageCandidateCount: options.singleImageFallback ? 1 : 4,
   };
 }
 
@@ -475,8 +500,7 @@ export function storyboardCharacterContinuityMatchesTarget(
   }
   const record = validatedTarget as Record<string, unknown>;
   return (
-    record.imageId === target.imageId &&
-    record.imageUrl === target.imageUrl
+    record.imageId === target.imageId && record.imageUrl === target.imageUrl
   );
 }
 
@@ -1201,11 +1225,7 @@ function persistedNeighborBoundaryReferences(
   const previous = [...shots.slice(0, currentIndex)]
     .reverse()
     .map(shot =>
-      exactShotFrameReference(
-        shot,
-        firstFrameImageId,
-        "previous-last"
-      )
+      exactShotFrameReference(shot, firstFrameImageId, "previous-last")
     )
     .find(
       (reference): reference is StoryboardImageGenerationFrameReference =>
@@ -1213,9 +1233,7 @@ function persistedNeighborBoundaryReferences(
     );
   const next = shots
     .slice(currentIndex + 1)
-    .map(shot =>
-      exactShotFrameReference(shot, lastFrameImageId, "next-first")
-    )
+    .map(shot => exactShotFrameReference(shot, lastFrameImageId, "next-first"))
     .find(
       (reference): reference is StoryboardImageGenerationFrameReference =>
         reference != null
@@ -1258,9 +1276,8 @@ export function storyboardImageGenerationReferences(
       (reference): reference is StoryboardImageGenerationFrameReference =>
         reference != null
     );
-  const ordered = (current
-    ? [current, previous, next]
-    : [next, previous]
+  const ordered = (
+    current ? [current, previous, next] : [next, previous]
   ).filter(
     (reference): reference is StoryboardImageGenerationFrameReference =>
       reference != null
