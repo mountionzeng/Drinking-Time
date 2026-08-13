@@ -325,6 +325,18 @@ export function canPersistStoryToActiveScope(
   return activeStoryId === persistedStoryId;
 }
 
+export function canPersistStorySnapshot(input: {
+  snapshotScopeEpoch: number;
+  currentScopeEpoch: number;
+  persistedStoryId: number | null | undefined;
+  activeStoryId: number | null;
+}): boolean {
+  return (
+    input.snapshotScopeEpoch === input.currentScopeEpoch &&
+    canPersistStoryToActiveScope(input.persistedStoryId, input.activeStoryId)
+  );
+}
+
 export type StoryboardImageRerenderResult = {
   status: "success" | "cancelled" | "error";
   message: string;
@@ -1313,6 +1325,7 @@ export function StoryAgentProvider({
     }): Promise<number | undefined> => {
       if (!hasLiveStoryWork(snapshot)) return Promise.resolve(undefined);
       const current = storySpineStore.getState();
+      const snapshotScopeEpoch = current.storyScopeEpoch;
       const latest =
         snapshot.scripts.length > 0
           ? snapshot.scripts[snapshot.scripts.length - 1]
@@ -1339,7 +1352,12 @@ export function StoryAgentProvider({
           const latestState = storySpineStore.getState();
           const storyId = snapshot.remoteStoryId ?? latestState.remoteStoryId;
           if (
-            !canPersistStoryToActiveScope(storyId, latestState.activeStoryId)
+            !canPersistStorySnapshot({
+              snapshotScopeEpoch,
+              currentScopeEpoch: latestState.storyScopeEpoch,
+              persistedStoryId: storyId,
+              activeStoryId: latestState.activeStoryId,
+            })
           ) {
             return undefined;
           }
@@ -1375,6 +1393,17 @@ export function StoryAgentProvider({
             },
           });
           if (saved && typeof saved.id === "number") {
+            const currentScope = storySpineStore.getState();
+            if (
+              !canPersistStorySnapshot({
+                snapshotScopeEpoch,
+                currentScopeEpoch: currentScope.storyScopeEpoch,
+                persistedStoryId: storyId,
+                activeStoryId: currentScope.activeStoryId,
+              })
+            ) {
+              return saved.id;
+            }
             if (storyId == null || storyId < 0) {
               setPublishingBuffers(currentBuffers =>
                 remapPublishingBuffers(currentBuffers, -1, saved.id)
@@ -2583,6 +2612,7 @@ export function StoryAgentProvider({
       ) {
         return;
       }
+      const loadEpoch = storySpineStore.getState().beginStoryLoad();
       try {
         // staleTime:0 强制从服务器重拉最新 —— 否则命中缓存会显示旧快照，
         // 看不到另一端（手机）刚加的消息/卡片/图（跨端同步的关键）。
@@ -2594,11 +2624,7 @@ export function StoryAgentProvider({
           toast.error("故事不存在");
           return;
         }
-        if (
-          options?.expectedActiveStoryId != null &&
-          storySpineStore.getState().activeStoryId !==
-            options.expectedActiveStoryId
-        ) {
+        if (storySpineStore.getState().storyLoadEpoch !== loadEpoch) {
           return;
         }
         const body =
@@ -2667,32 +2693,6 @@ export function StoryAgentProvider({
         });
         const resolvedTitle = suggestedTitle ?? row.title ?? undefined;
 
-        setRemoteStoryId(id);
-        setStoryTitle(resolvedTitle);
-        setStoryLogline(row.logline || undefined);
-        setStoryTheme(row.theme || undefined);
-        setStoryArc(row.arc || undefined);
-        setCards(restoredCards);
-        setStoryShots(restoredShots);
-        setCharacters(restoredCharacters);
-        setMessages(restoredMessages);
-        // 老卡兜底(云端 loadStory 路):云端早存 / 功能上线前生成的卡名下没有继承图视觉锚,
-        // 这里和刷新时的 hydrate 走同一个 reconcileRestoredVisualItems 补挂,不再各写各的。
-        setVisualCanvasItems(
-          reconcileRestoredVisualItems(
-            restoredVisualCanvasItems,
-            restoredCards,
-            restoredMessages
-          )
-        );
-        setVisualPreference(restoredVisualPreference);
-        setStoryImages(restoredMobileImages);
-        setImageProvider(restoredImageProvider);
-        setArtDirection(restoredArtDirection);
-        setPublishing(restoredPublishing);
-        setConfirmedIntent(restoredConfirmedIntent);
-        setPendingIntentDraft(null);
-
         const remoteScript = scriptFromStory({
           title: resolvedTitle,
           logline: row.logline || undefined,
@@ -2708,29 +2708,55 @@ export function StoryAgentProvider({
               ? (body.boringCheck as GeneratedScript["boringCheck"])
               : undefined,
         });
-        setScripts(remoteScript ? [remoteScript] : []);
-        setActiveStoryId(id);
-        setSaveStatus("saved");
-        setLastSavedAt(
-          row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now()
-        );
         const loadedRevision =
           typeof row.revision === "number" ? row.revision : 0;
-        setServerRevision(loadedRevision);
-
-        // 第二步：用这篇真实留存的内容，让聊聊说一句「我还记得上次……」把人接回来。
-        // 只在这篇有过用户发言时才召回（只有开场白的空壳故事不硬造记忆）。
         const lastCard = restoredCards[restoredCards.length - 1];
-        if (!options?.silent) {
-          setReturningGreeting(
-            buildReturningGreeting({
+        const returningGreeting = options?.silent
+          ? storySpineStore.getState().returningGreeting
+          : buildReturningGreeting({
               hasPriorUserMessages:
                 shouldShowReturningGreeting(restoredMessages),
               logline: row.logline,
               lastCardQuote: lastCard?.sourceQuote || lastCard?.content,
               title: resolvedTitle,
-            })
-          );
+            });
+        const replaced = storySpineStore
+          .getState()
+          .replaceStoryScopeIfCurrent(loadEpoch, {
+            messages: restoredMessages,
+            cards: restoredCards,
+            scripts: remoteScript ? [remoteScript] : [],
+            storyShots: restoredShots,
+            characters: restoredCharacters,
+            remoteStoryId: id,
+            storyTitle: resolvedTitle,
+            storyLogline: row.logline || undefined,
+            storyTheme: row.theme || undefined,
+            storyArc: row.arc || undefined,
+            // 老卡兜底(云端 loadStory 路):云端早存 / 功能上线前生成的卡名下没有继承图视觉锚。
+            visualCanvasItems: reconcileRestoredVisualItems(
+              restoredVisualCanvasItems,
+              restoredCards,
+              restoredMessages
+            ),
+            visualPreference: restoredVisualPreference,
+            storyImages: restoredMobileImages,
+            imageProvider: restoredImageProvider,
+            artDirection: restoredArtDirection,
+            publishing: restoredPublishing,
+            publishingBuffers: storySpineStore.getState().publishingBuffers,
+            confirmedIntent: restoredConfirmedIntent,
+            pendingIntentDraft: null,
+            activeStoryId: id,
+            saveStatus: "saved",
+            lastSavedAt: row.updatedAt
+              ? new Date(row.updatedAt).getTime()
+              : Date.now(),
+            serverRevision: loadedRevision,
+            returningGreeting,
+          });
+        if (!replaced) {
+          return;
         }
 
         if (suggestedTitle) {
@@ -2778,7 +2804,7 @@ export function StoryAgentProvider({
         toast.error("加载故事失败");
       }
     },
-    [setPublishing, setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
+    [setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
   );
 
   useEffect(() => {
@@ -2812,11 +2838,13 @@ export function StoryAgentProvider({
   // 这里只移除「自动替用户挑最近一篇」的行为。
 
   const createNewStory = useCallback(() => {
+    storySpineStore.getState().beginStoryLoad();
     clearCurrentStory();
     setActiveStoryId(-1); // -1 = new unsaved story, will get real ID on first save
   }, [clearCurrentStory]);
 
   const backToList = useCallback(() => {
+    storySpineStore.getState().beginStoryLoad();
     setActiveStoryId(null);
     setReturningGreeting(null);
     setConfirmedIntent(null);

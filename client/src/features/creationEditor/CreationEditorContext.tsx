@@ -73,12 +73,11 @@ import {
   type StoryboardFieldVersions,
   type StoryboardVersionedField,
 } from "@shared/storyboardFieldVersions";
-import { normalizePublishingDraftState } from "@shared/publishingDraft";
 import {
   buildPublishingVideoHandoff,
-  latestPublishingDraftState,
   type PublishingVideoHandoff,
 } from "@/features/publishingDraft/publishingVideoHandoff";
+import { resolveScopedPublishingHandoff } from "./publishingHandoffScope";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
   recordTimelineUndoSnapshot,
@@ -1391,28 +1390,16 @@ export function CreationEditorProvider({
   }, [storyQuery.data]);
   const publishingHandoff = useMemo(() => {
     if (activeId == null || activeId <= 0) return null;
-    const body =
-      storyQuery.data?.body &&
-      typeof storyQuery.data.body === "object" &&
-      !Array.isArray(storyQuery.data.body)
-        ? (storyQuery.data.body as Record<string, unknown>)
-        : {};
-    const publishing = latestPublishingDraftState([
+    const { publishing, coverAsset } = resolveScopedPublishingHandoff({
+      activeStoryId: activeId,
       spinePublishing,
-      publishingDraftQuery.data?.publishing,
-      normalizePublishingDraftState(body.publishing),
-    ]);
-    const queryPublishing = publishingDraftQuery.data?.publishing;
-    const queryCoverAsset =
-      queryPublishing &&
-      (queryPublishing.activeVersionId ?? "v1") ===
-        (publishing.activeVersionId ?? "v1")
-        ? (publishingDraftQuery.data?.coverAsset ?? null)
-        : null;
+      story: storyQuery.data,
+      publishingRead: publishingDraftQuery.data,
+    });
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
-      coverAsset: queryCoverAsset,
+      coverAsset,
     });
   }, [
     activeId,
