@@ -167,7 +167,8 @@ export default function EmotionAnalysisInvitePanel({
   const activeProfile = profile ?? localProfile;
   const needsRealGuestReply =
     guestMode &&
-    (activeProfile?.dailyReference.interpretationSource !== "302-deepseek" ||
+    ((activeProfile?.dailyReference.interpretationSource !== "302-deepseek" &&
+      activeProfile?.dailyReference.interpretationSource !== "openai-next") ||
       activeProfile?.dailyReference.letterVersion !==
         EMOTION_DAILY_LETTER_VERSION);
   const [editing, setEditing] = useState(!activeProfile || needsRealGuestReply);

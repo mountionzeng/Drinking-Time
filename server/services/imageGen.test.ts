@@ -84,6 +84,9 @@ describe("generateImage", () => {
     vision302ApiKey: ENV.vision302ApiKey,
     vision302BaseUrl: ENV.vision302BaseUrl,
     vision302Model: ENV.vision302Model,
+    openaiNextApiKey: ENV.openaiNextApiKey,
+    openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+    openaiNextVisionModel: ENV.openaiNextVisionModel,
     falApiKey: ENV.falApiKey,
   };
 
@@ -106,6 +109,9 @@ describe("generateImage", () => {
     ENV.vision302ApiKey = "";
     ENV.vision302BaseUrl = "https://api.302.ai";
     ENV.vision302Model = "";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextVisionModel = "qwen3-vl-plus";
   });
 
   afterEach(() => {
@@ -125,6 +131,9 @@ describe("generateImage", () => {
     ENV.vision302ApiKey = originalEnv.vision302ApiKey;
     ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
     ENV.vision302Model = originalEnv.vision302Model;
+    ENV.openaiNextApiKey = originalEnv.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = originalEnv.openaiNextBaseUrl;
+    ENV.openaiNextVisionModel = originalEnv.openaiNextVisionModel;
     ENV.falApiKey = originalEnv.falApiKey;
   });
 
@@ -900,6 +909,9 @@ describe("editImage", () => {
     vision302ApiKey: ENV.vision302ApiKey,
     vision302BaseUrl: ENV.vision302BaseUrl,
     vision302Model: ENV.vision302Model,
+    openaiNextApiKey: ENV.openaiNextApiKey,
+    openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+    openaiNextVisionModel: ENV.openaiNextVisionModel,
     forgeApiUrl: ENV.forgeApiUrl,
     forgeApiKey: ENV.forgeApiKey,
     imageProviderDefault: ENV.imageProviderDefault,
@@ -917,6 +929,9 @@ describe("editImage", () => {
     ENV.vision302ApiKey = "";
     ENV.vision302BaseUrl = "https://api.302.ai";
     ENV.vision302Model = "";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextVisionModel = "qwen3-vl-plus";
     ENV.forgeApiUrl = "";
     ENV.forgeApiKey = "";
     // 这些用例专测 gpt-image 图生图 → Forge 的兜底链；显式钉成 gpt-image，
@@ -935,6 +950,9 @@ describe("editImage", () => {
     ENV.vision302ApiKey = originalEnv.vision302ApiKey;
     ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
     ENV.vision302Model = originalEnv.vision302Model;
+    ENV.openaiNextApiKey = originalEnv.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = originalEnv.openaiNextBaseUrl;
+    ENV.openaiNextVisionModel = originalEnv.openaiNextVisionModel;
     ENV.forgeApiUrl = originalEnv.forgeApiUrl;
     ENV.forgeApiKey = originalEnv.forgeApiKey;
     ENV.imageProviderDefault = originalEnv.imageProviderDefault;

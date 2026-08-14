@@ -512,7 +512,8 @@
       "dependencies": [
         "publishing-versions",
         "stable-shot-identity",
-        "image-asset-history"
+        "image-asset-history",
+        "text-compute-provider-routing"
       ],
       "replaces": [],
       "knownGaps": [],
@@ -546,6 +547,50 @@
           "date": "2026-08-12",
           "kind": "verification",
           "summary": "封面仅作为 scene-style 而非人物身份、当前图优先、缺图阶段规划和视频导演封面输入均有自动化测试。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "feature",
+          "summary": "发布视频故事板的文本转写支持优先分流到 OpenAI Next，未配置时保持 302 与本地保底路径。"
+        }
+      ]
+    },
+    {
+      "id": "text-compute-provider-routing",
+      "name": "文本算力供应商分流",
+      "status": "working",
+      "userValue": "把可兼容的文本生成负载从 302 分流到 OpenAI Next，同时保留媒体生成和故障回退边界。",
+      "entryPoints": [
+        "server/services/textComputeProvider.ts"
+      ],
+      "owners": [
+        "server/_core/env.ts",
+        "server/services/textComputeProvider.ts",
+        "server/services/publishingVideoStoryboard.ts",
+        "server/services/emotionDailyReference302.ts"
+      ],
+      "evidence": [
+        "server/services/textComputeProvider.test.ts",
+        "server/services/publishingVideoStoryboard.test.ts",
+        "server/services/emotionDailyReference302.test.ts",
+        "server/services/emotionProfileDailyRefresh.test.ts"
+      ],
+      "invariants": [
+        "OpenAI Next 只承接 OpenAI 兼容的文本 chat/completions。",
+        "图片、视频、视觉、语音及其付费任务凭据继续由 302 专用配置承接。",
+        "OpenAI Next 未配置时自动回退 302；两个通道都不可用时保持现有本地保底。",
+        "API Key 只允许通过未提交的环境变量注入。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "尚未使用真实 OpenAI Next Key 执行付费实跑；当前证据为官方公开协议说明与请求路由自动化测试。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "feature",
+          "summary": "新增 OpenAI Next 文本通道，优先承接发布视频故事板转写与每日回信；302 保留为兼容回退。"
         }
       ]
     },

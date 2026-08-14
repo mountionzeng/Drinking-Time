@@ -7,6 +7,9 @@ const saved = {
   api302BaseUrl: ENV.api302BaseUrl,
   videoPrompt302Model: ENV.videoPrompt302Model,
   videoPrompt302TimeoutMs: ENV.videoPrompt302TimeoutMs,
+  openaiNextApiKey: ENV.openaiNextApiKey,
+  openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+  openaiNextVisionModel: ENV.openaiNextVisionModel,
 };
 
 beforeEach(() => {
@@ -14,6 +17,9 @@ beforeEach(() => {
   ENV.api302BaseUrl = "https://api.302.ai";
   ENV.videoPrompt302Model = "gpt-5.4-nano-2026-03-17";
   ENV.videoPrompt302TimeoutMs = "30000";
+  ENV.openaiNextApiKey = "";
+  ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+  ENV.openaiNextVisionModel = "qwen3-vl-plus";
 });
 
 afterEach(() => {
@@ -21,16 +27,20 @@ afterEach(() => {
   ENV.api302BaseUrl = saved.api302BaseUrl;
   ENV.videoPrompt302Model = saved.videoPrompt302Model;
   ENV.videoPrompt302TimeoutMs = saved.videoPrompt302TimeoutMs;
+  ENV.openaiNextApiKey = saved.openaiNextApiKey;
+  ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
+  ENV.openaiNextVisionModel = saved.openaiNextVisionModel;
   vi.unstubAllGlobals();
 });
 
 describe("directVideoPrompt", () => {
-  it("asks the configured 302 vision model to turn the frame into a short MJ motion prompt", async () => {
+  it("asks the configured OpenAI Next vision model to turn frames into a short MJ motion prompt", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     const fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
-        model: "gpt-5.4-nano-2026-03-17",
+        model: "qwen3-vl-plus",
         choices: [
           {
             message: {
@@ -102,8 +112,8 @@ describe("directVideoPrompt", () => {
       nextShot: { intent: "让房间随时间变暗" },
     });
 
-    expect(result.source).toBe("302-vision");
-    expect(result.model).toBe("gpt-5.4-nano-2026-03-17");
+    expect(result.source).toBe("openai-next-vision");
+    expect(result.model).toBe("qwen3-vl-plus");
     expect(result.prompt).toContain("a short dolly");
     expect(result.prompt).toMatch(/^MATERIAL LOCK:/);
     expect(result.prompt).toContain("oil-painting");
@@ -132,10 +142,10 @@ describe("directVideoPrompt", () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
-    expect(url).toBe("https://api.302.ai/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer test-302-key");
+    expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer test-next-key");
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("gpt-5.4-nano-2026-03-17");
+    expect(body.model).toBe("qwen3-vl-plus");
     expect(body.max_completion_tokens).toBe(1400);
     expect(body.reasoning_effort).toBe("low");
     expect(body.response_format).toEqual({ type: "json_object" });
@@ -302,7 +312,7 @@ describe("directVideoPrompt", () => {
     expect(result.fallbackReason).toContain("503");
   });
 
-  it("does not call 302 when the director model is explicitly disabled", async () => {
+  it("does not call a provider when both vision channels are disabled", async () => {
     ENV.videoPrompt302Model = "";
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
@@ -317,7 +327,9 @@ describe("directVideoPrompt", () => {
     expect(result.source).toBe("deterministic-fallback");
     expect(result.prompt).toContain("Editor hard constraints");
     expect(result.engineering.version).toBe("video-prompt-engineering/v2");
-    expect(result.fallbackReason).toBe("VIDEO_PROMPT_302_MODEL 未配置");
+    expect(result.fallbackReason).toBe(
+      "OpenAI Next / 302 视频提示词通道未配置"
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,9 @@ const saved = {
   api302BaseUrl: ENV.api302BaseUrl,
   emotion302Model: ENV.emotion302Model,
   emotion302TimeoutMs: ENV.emotion302TimeoutMs,
+  openaiNextApiKey: ENV.openaiNextApiKey,
+  openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+  openaiNextTextModel: ENV.openaiNextTextModel,
 };
 
 const almanac: AlmanacDay = {
@@ -94,6 +97,9 @@ beforeEach(() => {
   ENV.api302BaseUrl = "https://api.302.ai";
   ENV.emotion302Model = "deepseek-v3.2";
   ENV.emotion302TimeoutMs = "30000";
+  ENV.openaiNextApiKey = "";
+  ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+  ENV.openaiNextTextModel = "gpt-5.6-terra";
 });
 
 afterEach(() => {
@@ -101,6 +107,9 @@ afterEach(() => {
   ENV.api302BaseUrl = saved.api302BaseUrl;
   ENV.emotion302Model = saved.emotion302Model;
   ENV.emotion302TimeoutMs = saved.emotion302TimeoutMs;
+  ENV.openaiNextApiKey = saved.openaiNextApiKey;
+  ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
+  ENV.openaiNextTextModel = saved.openaiNextTextModel;
   vi.unstubAllGlobals();
 });
 

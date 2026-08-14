@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
+import { resolveTextComputeProvider } from "./textComputeProvider";
 import type { AlmanacDay } from "./almanac";
 import {
   currentChinaShichenGuidance,
@@ -65,7 +66,7 @@ export interface PersonalizeEmotionDailyReferenceInput {
 
 export interface PersonalizeEmotionDailyReferenceResult {
   dailyReference: PayloadRecord;
-  source: "302-deepseek" | "local-template";
+  source: "302-deepseek" | "openai-next" | "local-template";
   model: string;
   fallbackReason?: string;
 }
@@ -726,14 +727,17 @@ export async function personalizeEmotionDailyReference302(
   if (!hasAlmanacFacts(input.almanac)) {
     return localFallback(input, "天行黄历事实暂不可用");
   }
-  if (!ENV.api302Key.trim()) {
-    return localFallback(input, "API302_KEY 未配置");
+  const provider = resolveTextComputeProvider(
+    ENV.emotion302Model,
+    ENV.openaiNextEmotionModel
+  );
+  if (!provider) {
+    return localFallback(
+      input,
+      "OPENAI_NEXT_API_KEY / API302_KEY 未配置或文本模型为空"
+    );
   }
-  if (!ENV.emotion302Model.trim()) {
-    return localFallback(input, "EMOTION_302_MODEL 未配置");
-  }
-
-  const baseUrl = ENV.api302BaseUrl.trim().replace(/\/+$/, "");
+  const source = provider.id === "openai-next" ? "openai-next" : "302-deepseek";
   const timeoutValue = Number(ENV.emotion302TimeoutMs);
   const timeoutMs =
     Number.isFinite(timeoutValue) && timeoutValue > 0
@@ -745,15 +749,15 @@ export async function personalizeEmotionDailyReference302(
   const guidance = currentTimeContext(input);
 
   try {
-    const response = await fetcher(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetcher(provider.chatCompletionsUrl, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${ENV.api302Key}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: ENV.emotion302Model,
+        model: provider.model,
         stream: false,
         temperature: 0.4,
         max_tokens: 1_800,
@@ -773,7 +777,7 @@ export async function personalizeEmotionDailyReference302(
       const body = await response.text().catch(() => "");
       return localFallback(
         input,
-        `302 DeepSeek 请求失败 HTTP ${response.status}${body ? `: ${body.slice(0, 240)}` : ""}`
+        `${provider.label} 请求失败 HTTP ${response.status}${body ? `: ${body.slice(0, 240)}` : ""}`
       );
     }
 
@@ -785,15 +789,15 @@ export async function personalizeEmotionDailyReference302(
       dailyLetterCoverageIssue(input, firstSummary) ||
       temporalReferenceIssue(input, firstSummary);
     if (firstQualityIssue) {
-      const retryResponse = await fetcher(`${baseUrl}/v1/chat/completions`, {
+      const retryResponse = await fetcher(provider.chatCompletionsUrl, {
         method: "POST",
         headers: {
           Accept: "application/json",
-          Authorization: `Bearer ${ENV.api302Key}`,
+          Authorization: `Bearer ${provider.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: ENV.emotion302Model,
+          model: provider.model,
           stream: false,
           temperature: 0.35,
           max_tokens: 1_800,
@@ -841,7 +845,7 @@ export async function personalizeEmotionDailyReference302(
       dailyLetterCoverageIssue(input, selectedSummary) ||
       temporalReferenceIssue(input, selectedSummary);
     if (remainingQualityIssue) {
-      return localFallback(input, `302 DeepSeek 回信${remainingQualityIssue}`);
+      return localFallback(input, `${provider.label} 回信${remainingQualityIssue}`);
     }
     const summary = includeCurrentTimeAdvice(selectedSummary, guidance);
     const clothing = cleanText(raw.clothing, 180);
@@ -849,10 +853,10 @@ export async function personalizeEmotionDailyReference302(
     const avoid = cleanText(raw.avoid, 300);
     const note = cleanText(raw.note, 320);
     if (!summary || !avoid || !note) {
-      return localFallback(input, "302 DeepSeek 返回字段不完整");
+      return localFallback(input, `${provider.label} 返回字段不完整`);
     }
     if (REPORT_TONE_PATTERN.test(summary)) {
-      return localFallback(input, "302 DeepSeek 回信仍带有分析报告腔");
+      return localFallback(input, `${provider.label} 回信仍带有分析报告腔`);
     }
 
     return {
@@ -874,8 +878,8 @@ export async function personalizeEmotionDailyReference302(
         avoid,
         note,
         factSource: input.almanac.sourceLabel,
-        interpretationSource: "302-deepseek",
-        interpretationModel: data.model || ENV.emotion302Model,
+        interpretationSource: source,
+        interpretationModel: data.model || provider.model,
         interpretationGeneratedAt: new Date().toISOString(),
         personalizedYi: mergeAdvice(
           normalizeAdvice(
@@ -895,13 +899,13 @@ export async function personalizeEmotionDailyReference302(
         currentShichen: guidance.name,
         letterVersion: EMOTION_DAILY_LETTER_VERSION,
       },
-      source: "302-deepseek",
-      model: data.model || ENV.emotion302Model,
+      source,
+      model: data.model || provider.model,
     };
   } catch (error) {
     return localFallback(
       input,
-      error instanceof Error ? error.message : "302 DeepSeek 请求失败"
+      error instanceof Error ? error.message : `${provider.label} 请求失败`
     );
   } finally {
     clearTimeout(timer);

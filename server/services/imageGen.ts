@@ -13,6 +13,7 @@ import {
 } from "@shared/singleFramePrompt";
 import { STORYBOARD_MASKED_EDIT_PROFILE } from "@shared/imageRenderCost";
 import { compositeMaskedEditPixels } from "./imageMaskComposite";
+import { resolveVisionComputeProvider } from "./textComputeProvider";
 import {
   circuitBreakerMessage,
   isCircuitOpen,
@@ -430,21 +431,12 @@ Scene prompt:
 ${prompt}`;
 }
 
-function resolve302VisionUrl(): string {
-  return new URL(
-    "/v1/chat/completions",
-    `${normalizeBaseUrl(ENV.vision302BaseUrl || ENV.api302BaseUrl)}/`
-  ).toString();
-}
-
-function referenceIdentityVisionConfig(): {
-  apiKey: string;
-  model: string;
-} | null {
-  const apiKey = (ENV.vision302ApiKey || ENV.api302Key).trim();
-  const model = (ENV.vision302Model || ENV.imagePrompt302Model).trim();
-  if (!apiKey || !model) return null;
-  return { apiKey, model };
+function referenceIdentityVisionConfig() {
+  return resolveVisionComputeProvider({
+    fallback302Model: ENV.vision302Model || ENV.imagePrompt302Model,
+    fallback302ApiKey: ENV.vision302ApiKey || ENV.api302Key,
+    fallback302BaseUrl: ENV.vision302BaseUrl || ENV.api302BaseUrl,
+  });
 }
 
 async function describeReferenceIdentity(
@@ -456,7 +448,7 @@ async function describeReferenceIdentity(
 
   try {
     const response = await withTimeout(
-      fetcher(resolve302VisionUrl(), {
+      fetcher(config.chatCompletionsUrl, {
         method: "POST",
         headers: build302VisionHeaders(config.apiKey),
         body: JSON.stringify({

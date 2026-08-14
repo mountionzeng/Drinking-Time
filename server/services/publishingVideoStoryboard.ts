@@ -12,6 +12,7 @@ import {
 } from "../../shared/publishingVideoStoryboard";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
+import { resolveTextComputeProvider } from "./textComputeProvider";
 
 export class PublishingVideoStoryboardModelOutputError extends Error {
   constructor(readonly reasons: string[]) {
@@ -282,15 +283,15 @@ async function mapWithConcurrency<T, R>(input: {
   return results;
 }
 
-async function runPublishingVideoStoryboard302(input: {
+async function runPublishingVideoStoryboardTextCompute(input: {
   systemPrompt: string;
   context: unknown;
 }): Promise<{ parsed: unknown; modelLabel: string }> {
-  const model = ENV.videoPrompt302Model.trim();
-  if (!ENV.api302Key || !model) {
+  const provider = resolveTextComputeProvider(ENV.videoPrompt302Model);
+  if (!provider) {
     return {
       parsed: null,
-      modelLabel: "302 未配置（本地保底补全）",
+      modelLabel: "文本算力未配置（本地保底补全）",
     };
   }
 
@@ -301,16 +302,16 @@ async function runPublishingVideoStoryboard302(input: {
   );
   try {
     const response = await fetch(
-      `${ENV.api302BaseUrl.trim().replace(/\/+$/, "")}/v1/chat/completions`,
+      provider.chatCompletionsUrl,
       {
         method: "POST",
         headers: {
           Accept: "application/json",
-          Authorization: `Bearer ${ENV.api302Key}`,
+          Authorization: `Bearer ${provider.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model,
+          model: provider.model,
           stream: false,
           max_completion_tokens: 4_500,
           reasoning_effort: "low",
@@ -329,25 +330,25 @@ async function runPublishingVideoStoryboard302(input: {
     if (!response.ok) {
       return {
         parsed: null,
-        modelLabel: `302 HTTP ${response.status}（本地保底补全）`,
+        modelLabel: `${provider.label} HTTP ${response.status}（本地保底补全）`,
       };
     }
     const data = (await response.json()) as CompletionResponse;
     try {
       return {
         parsed: parseJsonLoose<unknown>(completionText(data)),
-        modelLabel: data.model || model,
+        modelLabel: data.model || provider.model,
       };
     } catch {
       return {
         parsed: null,
-        modelLabel: "302 返回不是有效 JSON（本地保底补全）",
+        modelLabel: `${provider.label} 返回不是有效 JSON（本地保底补全）`,
       };
     }
   } catch (error) {
     return {
       parsed: null,
-      modelLabel: `302 转写失败：${
+      modelLabel: `${provider.label} 转写失败：${
         error instanceof Error ? error.message.slice(0, 120) : "未知错误"
       }（本地保底补全）`,
     };
@@ -373,7 +374,7 @@ export async function generatePublishingVideoStoryboardPreview(input: {
     items: batches(context.paragraphs, MODEL_PARAGRAPH_BATCH_SIZE),
     concurrency: MODEL_BATCH_CONCURRENCY,
     task: batch =>
-      runPublishingVideoStoryboard302({
+      runPublishingVideoStoryboardTextCompute({
         systemPrompt: generationPrompt(
           input.narrativeIntent ?? defaultPublishingNarrativeIntent()
         ),
