@@ -72,12 +72,17 @@ function shouldUseClaudeChannel(): boolean {
     ENV.visionModel?.startsWith("cc-") ||
       ENV.visionApiUrl?.includes("/cc") ||
       ENV.dropZoneModel?.startsWith("cc-") ||
-      ENV.dropZoneApiUrl?.includes("/cc"),
+      ENV.dropZoneApiUrl?.includes("/cc")
   );
 }
 
 function resolveClaudeUrl(): string {
-  const raw = (ENV.visionApiUrl || ENV.dropZoneApiUrl || ENV.forgeApiUrl || "").trim();
+  const raw = (
+    ENV.visionApiUrl ||
+    ENV.dropZoneApiUrl ||
+    ENV.forgeApiUrl ||
+    ""
+  ).trim();
   if (!raw) return "";
   const normalized = raw.replace(/\/+$/, "");
   if (normalized.endsWith("/v1/messages")) return normalized;
@@ -146,7 +151,8 @@ const stringValue = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
 
 function normalizeAnalysis(raw: unknown): VisionAnalysisResult["analysis"] {
-  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const obj =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const confidenceRaw = Number(obj.confidence);
   return {
     visualStyle: stringArray(obj.visualStyle),
@@ -174,6 +180,8 @@ function buildSystemPrompt() {
     "你是 Drinking Time 的影视视觉分析 Agent。",
     "用户会给你一张参考图。你的任务不是简单描述图片，而是把图片翻译成影视美术和 AI 生成可以使用的结构化信息。",
     "请重点识别：美术风格、主体/人物、场景、时代文化线索、光线、色彩、构图、镜头语言、材质纹理、情绪、制作风险、可执行 prompt。",
+    "如果输入是手机截图或带平台水印的转载图，必须把水印、可读文字、作者签名、用户名、账号、状态栏、应用界面、页码、播放控件和截图黑边列为 source artifacts / productionRisks；它们不是美术风格，不得进入 visualStyle、composition、materialsAndTextures 或 promptDraft。negativePrompt 必须要求最终画面不出现这些污染层。",
+    "参考图的主体、人物、物体、地点和情节可以客观描述，但不得在 promptDraft 中写成必须复制的内容；promptDraft 只保留可泛化的构图、光线、材料、情绪和制作方法。",
     "不要编造看不见的事实。看不清时用“无法确定”或降低 confidence。",
     "请用简体中文输出。必须返回严格 JSON，不要 markdown，不要解释。",
     "JSON 格式如下：",
@@ -264,7 +272,8 @@ async function invokeClaudeVision(params: VisionAnalyzeParams) {
 
   return {
     text,
-    modelLabel: data.model || ENV.visionModel || ENV.dropZoneModel || ENV.llmModel,
+    modelLabel:
+      data.model || ENV.visionModel || ENV.dropZoneModel || ENV.llmModel,
   };
 }
 
@@ -379,7 +388,7 @@ async function invoke302Vision(params: VisionAnalyzeParams) {
 function buildFallbackVisionResult(
   rawText: string,
   modelLabel: string,
-  params: VisionAnalyzeParams,
+  params: VisionAnalyzeParams
 ): VisionAnalysisResult {
   const cleaned = (rawText ?? "").trim();
   // 模型描述可能很长，截断到 600 字以内，避免塞爆卡片和后续 prompt。
@@ -399,11 +408,13 @@ function buildFallbackVisionResult(
 }
 
 export async function analyzeVisionReference(
-  params: VisionAnalyzeParams,
+  params: VisionAnalyzeParams
 ): Promise<VisionAnalysisResult> {
   const use302Vision = has302VisionConfig();
   if (!use302Vision && !ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY or VISION_302_API_KEY/VISION_302_MODEL is not configured");
+    throw new Error(
+      "BUILT_IN_FORGE_API_KEY or VISION_302_API_KEY/VISION_302_MODEL is not configured"
+    );
   }
   if (!params.imageDataUrl && !params.imageUrl) {
     throw new Error("imageDataUrl or imageUrl is required");
@@ -428,7 +439,10 @@ export async function analyzeVisionReference(
     }>(text);
   } catch (error) {
     // 视觉模型没给合法 JSON（line 131/133 都会抛到这里）→ 降级兜底，不再弹「Vision model returned non-JSON response」。
-    console.warn("[visionAgent] 视觉模型未返回合法 JSON，按原始描述降级，不抛错。", error);
+    console.warn(
+      "[visionAgent] 视觉模型未返回合法 JSON，按原始描述降级，不抛错。",
+      error
+    );
     return buildFallbackVisionResult(text, modelLabel, params);
   }
 
@@ -436,7 +450,9 @@ export async function analyzeVisionReference(
   const fallbackCard = [
     analysis.subject ? `主体：${analysis.subject}` : "",
     analysis.environment ? `场景：${analysis.environment}` : "",
-    analysis.visualStyle.length ? `风格：${analysis.visualStyle.join("、")}` : "",
+    analysis.visualStyle.length
+      ? `风格：${analysis.visualStyle.join("、")}`
+      : "",
     analysis.mood.length ? `情绪：${analysis.mood.join("、")}` : "",
   ]
     .filter(Boolean)
@@ -449,8 +465,13 @@ export async function analyzeVisionReference(
       stringValue(parsed.reply) ||
       "我看完这张图了。它可以作为视觉参考进入素材池，下面是可继续拆成镜头和 prompt 的分析。",
     card: {
-      content: stringValue(parsed.card?.content) || fallbackCard || "视觉参考素材",
-      rawText: stringValue(parsed.card?.rawText) || params.brief || params.fileName || "",
+      content:
+        stringValue(parsed.card?.content) || fallbackCard || "视觉参考素材",
+      rawText:
+        stringValue(parsed.card?.rawText) ||
+        params.brief ||
+        params.fileName ||
+        "",
     },
     analysis,
   };

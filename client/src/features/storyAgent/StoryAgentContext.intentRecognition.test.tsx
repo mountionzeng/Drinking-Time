@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, SelectionState } from "./types";
 import type { StoryIntent } from "./intentTypes";
+import StoryAgentChat from "./views/StoryAgentChat";
 
 vi.stubGlobal("React", React);
 
@@ -145,9 +146,7 @@ describe("StoryAgentContext background intent recognition", () => {
   });
 
   it("soft-confirms the other three top-level intent lanes", async () => {
-    const { recognitionToPendingIntent } = await import(
-      "./StoryAgentContext"
-    );
+    const { recognitionToPendingIntent } = await import("./StoryAgentContext");
 
     for (const purpose of [
       "personal_memory",
@@ -255,9 +254,7 @@ describe("StoryAgentChat intent soft confirm", () => {
     fixtures.chatContextState.activeSelection = null;
   });
 
-  it("renders the reflect-back bubble when a pending job intent exists", async () => {
-    const { default: StoryAgentChat } = await import("./views/StoryAgentChat");
-
+  it("renders the reflect-back bubble when a pending job intent exists", () => {
     const html = renderToStaticMarkup(<StoryAgentChat />);
 
     expect(html).toContain("听起来你是想做求职片");
@@ -265,9 +262,8 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).toContain("先不，继续聊");
   });
 
-  it("renders the world-building reflect-back bubble when a pending fiction intent exists", async () => {
+  it("renders the world-building reflect-back bubble when a pending fiction intent exists", () => {
     fixtures.chatContextState.pendingIntentDraft = fixtures.fictionIntent;
-    const { default: StoryAgentChat } = await import("./views/StoryAgentChat");
 
     const html = renderToStaticMarkup(<StoryAgentChat />);
 
@@ -277,16 +273,15 @@ describe("StoryAgentChat intent soft confirm", () => {
     expect(html).not.toContain("招聘者");
   });
 
-  it("does not render the bubble while the assistant is replying", async () => {
+  it("does not render the bubble while the assistant is replying", () => {
     fixtures.chatContextState.isReplying = true;
-    const { default: StoryAgentChat } = await import("./views/StoryAgentChat");
 
     expect(renderToStaticMarkup(<StoryAgentChat />)).not.toContain(
       "听起来你是想做求职片"
     );
   });
 
-  it("keeps the left chat anchored to the current story and right-side selection", async () => {
+  it("keeps the left chat anchored to the current story and right-side selection", () => {
     fixtures.chatContextState.pendingIntentDraft = null;
     fixtures.chatContextState.confirmedIntent = fixtures.fictionIntent;
     fixtures.chatContextState.storyShotsCount = 3;
@@ -299,8 +294,6 @@ describe("StoryAgentChat intent soft confirm", () => {
       stableShotId: "shot-1",
       storyId: 46,
     };
-    const { default: StoryAgentChat } = await import("./views/StoryAgentChat");
-
     const html = renderToStaticMarkup(<StoryAgentChat />);
 
     expect(html).toContain("当前故事");

@@ -53,15 +53,12 @@ import {
 } from "../services/imageInjection";
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
-import {
-  applyExplicitImageRenderInstruction,
-  applyStoryFrameVisualTruth,
-} from "../services/imageRenderInstruction";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import {
   applyPublishingCoverArtDirection,
   resolvePublishingCoverArtDirection,
 } from "../services/publishingCoverArtDirection";
+import { compilePublishingCoverStoryboardPrompt } from "../services/publishingCoverStoryboardPrompt";
 import {
   normalizeStoryArtDirection,
   characterReferenceOf,
@@ -192,6 +189,23 @@ function generateStoryVoiceOnce(input: {
   return pending;
 }
 
+async function syncStoryPromptLineageAfterMutation(input: {
+  storyId: number;
+  userId: number;
+  body: ReturnType<typeof storyPromptLineageBody>;
+  warningLabel: string;
+}): Promise<void> {
+  try {
+    await migrateStoryPromptLineage({
+      storyId: input.storyId,
+      userId: input.userId,
+      body: input.body,
+    });
+  } catch (error) {
+    console.warn(`${input.warningLabel} prompt lineage sync failed`, error);
+  }
+}
+
 export const storyAgentRouter = router({
   /** Conversational chat with the story agent */
   chat: protectedProcedure
@@ -274,7 +288,6 @@ export const storyAgentRouter = router({
         projectId: z.number().optional(),
         photoUrl: z.string().optional(), // 用户上传的照片 URL，传给 LLM 做多模态理解
         interactionMode: z.enum(["story", "publishing"]).optional(),
-        allowStoryTitleSuggestion: z.boolean().optional(),
         confirmedIntent: z
           .object({
             purpose: z.string(),
@@ -304,7 +317,6 @@ export const storyAgentRouter = router({
         photoUrl: input.photoUrl,
         confirmedIntent: input.confirmedIntent ?? undefined,
         interactionMode: input.interactionMode,
-        allowStoryTitleSuggestion: input.allowStoryTitleSuggestion,
       });
     }),
 
@@ -863,12 +875,11 @@ export const storyAgentRouter = router({
         return { status: "error" as const, error: result.error };
       }
       const saved = result.story;
-      void migrateStoryPromptLineage({
+      await syncStoryPromptLineageAfterMutation({
         storyId: saved.id,
         userId: ctx.user.id,
         body: storyPromptLineageBody(saved),
-      }).catch(error => {
-        console.warn("updateStoryShotFields prompt lineage sync failed", error);
+        warningLabel: "updateStoryShotFields",
       });
       return {
         status: "ok" as const,
@@ -1177,15 +1188,11 @@ export const storyAgentRouter = router({
         throw error;
       }
       if (saved) {
-        void migrateStoryPromptLineage({
+        await syncStoryPromptLineageAfterMutation({
           storyId: saved.id,
           userId: ctx.user.id,
           body: storyPromptLineageBody(saved),
-        }).catch(error => {
-          console.warn(
-            "restoreStoryShotFieldVersion prompt lineage sync failed",
-            error
-          );
+          warningLabel: "restoreStoryShotFieldVersion",
         });
       }
       return {
@@ -1270,15 +1277,11 @@ export const storyAgentRouter = router({
         throw error;
       }
       if (saved) {
-        void migrateStoryPromptLineage({
+        await syncStoryPromptLineageAfterMutation({
           storyId: saved.id,
           userId: ctx.user.id,
           body: storyPromptLineageBody(saved),
-        }).catch(error => {
-          console.warn(
-            "insertStoryShotAfter prompt lineage sync failed",
-            error
-          );
+          warningLabel: "insertStoryShotAfter",
         });
       }
       return {
@@ -1350,12 +1353,11 @@ export const storyAgentRouter = router({
         throw error;
       }
       if (saved) {
-        void migrateStoryPromptLineage({
+        await syncStoryPromptLineageAfterMutation({
           storyId: saved.id,
           userId: ctx.user.id,
           body: storyPromptLineageBody(saved),
-        }).catch(error => {
-          console.warn("deleteStoryShot prompt lineage sync failed", error);
+          warningLabel: "deleteStoryShot",
         });
       }
       return {
@@ -1914,15 +1916,15 @@ export const storyAgentRouter = router({
         const injection =
           referencePlan.usesStoryboardFrames ||
           referencePlan.usesStoryStyleReference
-            ? await deriveStoryboardReferenceInjection(story, {
-                identityImageUrl: input.referenceIdentityImageUrl,
-                sceneImageUrl: referencePlan.primaryImage,
-                styleImageUrl: input.storyStyleReferenceImageUrl,
-                analysis: input.sceneAnalysis,
-                allowSceneIdentity:
-                  referencePlan.referencePurpose !== "scene-style",
-              })
-            : await deriveInjection(story, input.sceneAnalysis);
+          ? await deriveStoryboardReferenceInjection(story, {
+              identityImageUrl: input.referenceIdentityImageUrl,
+              sceneImageUrl: referencePlan.primaryImage,
+              styleImageUrl: input.storyStyleReferenceImageUrl,
+              analysis: input.sceneAnalysis,
+              allowSceneIdentity:
+                referencePlan.referencePurpose !== "scene-style",
+            })
+          : await deriveInjection(story, input.sceneAnalysis);
         if (referenceImageInput) {
           try {
             const directed = await directImagePrompt({
@@ -1950,6 +1952,12 @@ export const storyAgentRouter = router({
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
         prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
+        if (coverArtDirection) {
+          prompt = await compilePublishingCoverStoryboardPrompt({
+            prompt,
+            provider: input.imageProvider ?? "midjourney",
+          });
+        }
         const gateContext = {
           prompt,
           userInstructions: input.explicitInstruction
@@ -1997,14 +2005,7 @@ export const storyAgentRouter = router({
         if (input.mode === "draft") {
           let renderedDraftPrompt = prompt;
           const draft = await renderViaGate(gateContext, renderedPrompt => {
-            renderedDraftPrompt = applyExplicitImageRenderInstruction(
-              renderedPrompt,
-              input.explicitInstruction
-            );
-            if (referencePlan.usesStoryboardFrames) {
-              renderedDraftPrompt =
-                applyStoryFrameVisualTruth(renderedDraftPrompt);
-            }
+            renderedDraftPrompt = renderedPrompt;
             return generateDraftImage(renderedDraftPrompt);
           });
           if (draft.status === "ok" && draft.imageUrl) {
@@ -2042,14 +2043,7 @@ export const storyAgentRouter = router({
         // 场景一致经垫图(--iw)，默认 0.5（可变不卡死），前端可经 sceneWeight 调。
         let renderedFinalPrompt = prompt;
         const result = await renderViaGate(gateContext, renderedPrompt => {
-          renderedFinalPrompt = applyExplicitImageRenderInstruction(
-            renderedPrompt,
-            input.explicitInstruction
-          );
-          if (referencePlan.usesStoryboardFrames) {
-            renderedFinalPrompt =
-              applyStoryFrameVisualTruth(renderedFinalPrompt);
-          }
+          renderedFinalPrompt = renderedPrompt;
           console.log(
             `[generateForMobile] final prompt after gate: ${renderedFinalPrompt.length} chars`
           );
@@ -2154,6 +2148,8 @@ export const storyAgentRouter = router({
             ),
             shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
             projectId: story.projectId ?? undefined,
+            outputPurpose: "image-edit",
+            referencePolicy: "preserve-composition",
             artDirection: storyArtRecipe(story),
             styleIndex:
               typeof (story.body as Record<string, unknown>)?.styleIndex ===

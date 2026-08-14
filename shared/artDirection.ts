@@ -98,16 +98,20 @@ export const EMPTY_ART_RECIPE_DNA: ArtRecipeDNA = {
 };
 
 /**
- * 零点击轻量默认配方：未锁定故事视觉配方时也让单张图够漂亮、风格一致。
- * 取中性的电影感写实基线，不抢内容、不绑定任何具名 IP；锁定配方存在时永远优先于它。
+ * 零点击艺术底线：只要求内容驱动的艺术表达，不预设色板、光线、构图或材质。
+ * 具体美术判断由 renderGate 的唯一提示词工程完成；锁定配方存在时永远优先。
  */
 export const DEFAULT_ART_RECIPE_DNA: ArtRecipeDNA = {
-  style: ["cinematic", "photographic realism", "soft film grain"],
-  palette: ["natural tones", "warm neutrals"],
-  light: ["soft natural light", "gentle directional key"],
-  composition: ["balanced framing", "clear subject focus"],
-  material: ["true-to-life texture"],
-  negative: ["oversaturated", "harsh on-camera flash", "cluttered background", "distorted anatomy"],
+  style: ["content-led fine art", "non-photographic visual invention"],
+  palette: [],
+  light: [],
+  composition: [],
+  material: [],
+  negative: [
+    "generic stock photography",
+    "fixed cinematic color grade",
+    "decorative spectacle unrelated to the story",
+  ],
 };
 
 /** 返回一份默认配方副本（避免调用方误改共享常量）。 */
@@ -141,15 +145,16 @@ function stringList(value: unknown): string[] {
       value
         .filter((item): item is string => typeof item === "string")
         .map(item => item.trim())
-        .filter(Boolean),
-    ),
+        .filter(Boolean)
+    )
   );
 }
 
 function normalizeRecipeDNA(value: unknown): ArtRecipeDNA {
-  const obj = value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : {};
+  const obj =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
   return {
     style: stringList(obj.style),
     palette: stringList(obj.palette),
@@ -172,7 +177,9 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
       ? obj.source
       : "story-card";
   const purpose: ArtReferencePurpose =
-    obj.purpose === "fact" || obj.purpose === "aesthetic" || obj.purpose === "both"
+    obj.purpose === "fact" ||
+    obj.purpose === "aesthetic" ||
+    obj.purpose === "both"
       ? obj.purpose
       : "fact";
   const role =
@@ -197,9 +204,13 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     ...(role ? { role } : {}),
     ...(scope ? { scope } : {}),
     ...(typeof obj.shotNo === "string" ? { shotNo: obj.shotNo } : {}),
-    ...(typeof obj.shotIdentity === "string" ? { shotIdentity: obj.shotIdentity } : {}),
+    ...(typeof obj.shotIdentity === "string"
+      ? { shotIdentity: obj.shotIdentity }
+      : {}),
     ...(typeof obj.sceneId === "string" ? { sceneId: obj.sceneId } : {}),
-    ...(typeof obj.assetId === "number" && Number.isInteger(obj.assetId) && obj.assetId > 0
+    ...(typeof obj.assetId === "number" &&
+    Number.isInteger(obj.assetId) &&
+    obj.assetId > 0
       ? { assetId: obj.assetId }
       : {}),
     ...(typeof obj.imageUrl === "string" ? { imageUrl: obj.imageUrl } : {}),
@@ -207,9 +218,13 @@ function normalizeReference(value: unknown): ArtReferenceMaterial | null {
     visualStyle: stringList(obj.visualStyle),
     colorPalette: stringList(obj.colorPalette),
     ...(typeof obj.lighting === "string" ? { lighting: obj.lighting } : {}),
-    ...(typeof obj.composition === "string" ? { composition: obj.composition } : {}),
+    ...(typeof obj.composition === "string"
+      ? { composition: obj.composition }
+      : {}),
     material: stringList(obj.material),
-    ...(typeof obj.confidence === "number" ? { confidence: obj.confidence } : {}),
+    ...(typeof obj.confidence === "number"
+      ? { confidence: obj.confidence }
+      : {}),
     constraints: stringList(obj.constraints),
   };
 }
@@ -282,14 +297,19 @@ export function normalizeStoryArtDirection(value: unknown): StoryArtDirection {
   return {
     phase: recoveredPhase,
     round: typeof obj.round === "number" ? obj.round : 0,
-    targetContent: typeof obj.targetContent === "string" ? obj.targetContent : "",
+    targetContent:
+      typeof obj.targetContent === "string" ? obj.targetContent : "",
     references: Array.isArray(obj.references)
-      ? obj.references.map(normalizeReference).filter((item): item is ArtReferenceMaterial => Boolean(item))
+      ? obj.references
+          .map(normalizeReference)
+          .filter((item): item is ArtReferenceMaterial => Boolean(item))
       : [],
     candidates,
     ...(recipe ? { recipe } : {}),
     recipeVersions: Array.isArray(obj.recipeVersions)
-      ? obj.recipeVersions.map(normalizeRecipe).filter((item): item is StoryArtRecipe => Boolean(item))
+      ? obj.recipeVersions
+          .map(normalizeRecipe)
+          .filter((item): item is StoryArtRecipe => Boolean(item))
       : [],
     updatedAt: typeof obj.updatedAt === "number" ? obj.updatedAt : Date.now(),
   };
@@ -300,26 +320,26 @@ export function normalizeStoryArtDirection(value: unknown): StoryArtDirection {
  * 取第一个标记为 role:'character' 且有 imageUrl 的参考；无则返回 undefined。
  */
 export function characterReferenceOf(
-  direction: StoryArtDirection,
+  direction: StoryArtDirection
 ): string | undefined {
   const hit = direction.references.find(
-    (reference) =>
+    reference =>
       reference.role === "character" &&
       typeof reference.imageUrl === "string" &&
-      reference.imageUrl.length > 0,
+      reference.imageUrl.length > 0
   );
   return hit?.imageUrl;
 }
 
 export function sceneReferencesOf(
-  direction: StoryArtDirection,
+  direction: StoryArtDirection
 ): ArtReferenceMaterial[] {
   return direction.references.filter(
     reference =>
       reference.selected !== false &&
       reference.role === "scene" &&
       typeof reference.imageUrl === "string" &&
-      reference.imageUrl.length > 0,
+      reference.imageUrl.length > 0
   );
 }
 
@@ -329,15 +349,16 @@ export function referencesForShot(
     shotNo?: string | null;
     shotIdentity?: string | null;
     sceneId?: string | null;
-  },
+  }
 ): ArtReferenceMaterial[] {
   return direction.references.filter(reference => {
     if (reference.selected === false) return false;
     if (!reference.imageUrl) return false;
     if (reference.scope === "shot") {
       return Boolean(
-        (params.shotIdentity && reference.shotIdentity === params.shotIdentity) ||
-          (params.shotNo && reference.shotNo === params.shotNo),
+        (params.shotIdentity &&
+          reference.shotIdentity === params.shotIdentity) ||
+          (params.shotNo && reference.shotNo === params.shotNo)
       );
     }
     if (reference.scope === "scene") {
@@ -358,7 +379,7 @@ const POSITIVE_FIELDS: Array<keyof Omit<ArtRecipeDNA, "negative">> = [
 function rankedValues(
   candidates: ArtDirectionCandidate[],
   field: keyof ArtRecipeDNA,
-  limit: number,
+  limit: number
 ): string[] {
   const counts = new Map<string, number>();
   for (const candidate of candidates) {
@@ -375,16 +396,20 @@ function rankedValues(
 export function deriveStoryArtRecipe(
   candidates: ArtDirectionCandidate[],
   previousVersion = 0,
-  now = Date.now(),
+  now = Date.now()
 ): StoryArtRecipe | null {
   const liked = candidates.filter(candidate => candidate.verdict === "liked");
   if (liked.length === 0) return null;
-  const rejected = candidates.filter(candidate => candidate.verdict === "rejected");
+  const rejected = candidates.filter(
+    candidate => candidate.verdict === "rejected"
+  );
   const likedPositive = new Set(
-    POSITIVE_FIELDS.flatMap(field => liked.flatMap(candidate => candidate.recipe[field])),
+    POSITIVE_FIELDS.flatMap(field =>
+      liked.flatMap(candidate => candidate.recipe[field])
+    )
   );
   const negativeFromRejected = POSITIVE_FIELDS.flatMap(field =>
-    rejected.flatMap(candidate => candidate.recipe[field]),
+    rejected.flatMap(candidate => candidate.recipe[field])
   ).filter(value => !likedPositive.has(value));
 
   return {
@@ -394,10 +419,7 @@ export function deriveStoryArtRecipe(
     composition: rankedValues(liked, "composition", 3),
     material: rankedValues(liked, "material", 4),
     negative: Array.from(
-      new Set([
-        ...rankedValues(liked, "negative", 6),
-        ...negativeFromRejected,
-      ]),
+      new Set([...rankedValues(liked, "negative", 6), ...negativeFromRejected])
     ).slice(0, 10),
     version: previousVersion + 1,
     sourceCandidateIds: liked.map(candidate => candidate.id),
@@ -410,7 +432,7 @@ function positiveSet(candidate: ArtDirectionCandidate): Set<string> {
 }
 
 export function artCandidatesNeedConvergence(
-  candidates: ArtDirectionCandidate[],
+  candidates: ArtDirectionCandidate[]
 ): boolean {
   const liked = candidates.filter(candidate => candidate.verdict === "liked");
   if (liked.length < 2) return false;
@@ -420,7 +442,9 @@ export function artCandidatesNeedConvergence(
       const right = positiveSet(liked[j]);
       const union = new Set([...Array.from(left), ...Array.from(right)]);
       if (union.size === 0) continue;
-      const intersection = Array.from(left).filter(value => right.has(value)).length;
+      const intersection = Array.from(left).filter(value =>
+        right.has(value)
+      ).length;
       if (intersection / union.size < 0.18) return true;
     }
   }

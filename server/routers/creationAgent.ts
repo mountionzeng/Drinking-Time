@@ -96,9 +96,7 @@ import {
   reuseVideoTakeForShot,
   appendVideoTakeToTimeline,
 } from "../services/videoTimeline";
-import { defaultArtRecipe } from "../../shared/artDirection";
 import {
-  artRecipePrompt,
   resolveStoryImageCompilationId,
   shotIdentityForStoryShot,
   storyArtRecipe,
@@ -251,9 +249,7 @@ function resolveStoryShotTarget(
 }
 
 export const creationAgentRouter = router({
-  imageProviderStatus: protectedProcedure.query(() =>
-    getImageProviderStatus()
-  ),
+  imageProviderStatus: protectedProcedure.query(() => getImageProviderStatus()),
 
   shotVideoProviderStatus: protectedProcedure.query(() =>
     getShotVideoProviderStatus()
@@ -430,23 +426,25 @@ export const creationAgentRouter = router({
             .filter(Boolean)
             .join("\n\n");
         } else {
-          const recipePrompt = artRecipePrompt(
-            storyArtRecipe(story) ?? defaultArtRecipe()
-          );
-          const stylized = await editMobileImage(
-            photoCall.photoUrl.trim(),
-            [
-              "Stylize the provided person photo into this story's visual style.",
-              "Preserve the person's recognizable face, hairstyle, clothing color, clothing material, and overall identity.",
-              "Create a clean character reference portrait suitable for future story frames.",
-              recipePrompt,
-            ]
-              .filter(Boolean)
-              .join(" "),
+          const stylized = await renderViaGate(
             {
-              provider: input.imageProvider,
-              requireInputImage: true,
-            }
+              prompt:
+                "Create a clean character reference portrait of the supplied person for future story frames.",
+              userInstructions: [
+                "Preserve the person's recognizable face, hairstyle, clothing color, clothing material, and overall identity.",
+              ],
+              storyId: story.id,
+              projectId: story.projectId ?? undefined,
+              artDirection: storyArtRecipe(story),
+              outputPurpose: "image-edit",
+              referencePolicy: "preserve-identity",
+              referenceImages: [photoCall.photoUrl.trim()],
+            },
+            prompt =>
+              editMobileImage(photoCall.photoUrl.trim(), prompt, {
+                provider: input.imageProvider,
+                requireInputImage: true,
+              })
           );
           if (stylized.status !== "ok" || !stylized.imageUrl) {
             result.reply = [
@@ -1859,8 +1857,8 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         promptCompilationId: input.promptCompilationId ?? null,
         imageProvider: input.imageProvider,
-        // 锁定配方优先，未锁定用零点击默认，保证单张也够漂亮、风格一致。
-        artDirection: storyArtRecipe(story) ?? defaultArtRecipe(),
+        // 锁定配方优先；未锁定时由统一美术工程按文本信号选择艺术谱系。
+        artDirection: storyArtRecipe(story),
         referenceImages: storyArtReferenceImages(story),
         story,
         assets,
@@ -1926,6 +1924,8 @@ export const creationAgentRouter = router({
           ),
           shotNo: input.shotNo,
           projectId: input.projectId,
+          outputPurpose: "image-edit",
+          referencePolicy: "preserve-composition",
           artDirection: story ? storyArtRecipe(story) : undefined,
           styleIndex:
             story &&

@@ -115,3 +115,9 @@ client/public/__manus__/version.json
 .claude/
 .env.server
 .worktrees
+
+# Private art-reference source images. Existing legacy images remain tracked
+# until the production private-object-storage migration is completed; newly
+# imported screenshots must not be added to git or shipped in public builds.
+art-repository/references/*
+!art-repository/references/.gitkeep

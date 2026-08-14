@@ -3160,8 +3160,7 @@ export function StoryAgentProvider({
                 },
                 ...cleared,
               ];
-        // 首次设主角时自动锁定美术风格——后续所有出图（正式版、重渲）都用同一个 recipe，
-        // 不再每次 pickStyle 随机选流派，确保跨镜头风格一致。
+        // 首次设主角时先锁定无固定色板的艺术底线；用户之后仍可编辑并确认具体配方。
         const needsLock = current.phase !== "locked";
         const recipe = needsLock
           ? {

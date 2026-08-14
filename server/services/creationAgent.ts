@@ -8,7 +8,12 @@
 import { ENV } from "../_core/env";
 import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
-import { editImage, generateImage, type ImageGenResult, type ImageProvider } from "./imageGen";
+import {
+  editImage,
+  generateImage,
+  type ImageGenResult,
+  type ImageProvider,
+} from "./imageGen";
 import { composeScenePrompt } from "./composeScenePrompt";
 import { deriveInjection } from "./imageInjection";
 import { renderViaGate } from "./renderGate";
@@ -22,10 +27,7 @@ import {
   normalizeStoryArtDirection,
   type ArtRecipeDNA,
 } from "../../shared/artDirection";
-import {
-  canonicalizeShotNo,
-  type ImageAsset,
-} from "../../shared/imageAsset";
+import { canonicalizeShotNo, type ImageAsset } from "../../shared/imageAsset";
 import {
   ensureShotIdentities,
   normalizeShotIdentity,
@@ -191,18 +193,28 @@ function buildSystemPrompt(
   currentFocusShotNo: string | null,
   goal: CreationGoal = "unset",
   assets: ImageAsset[] = [],
-  hasCharacterAnchor = false,
+  hasCharacterAnchor = false
 ): string {
   // 目标指引放在最前面，框住后面所有判断（unset 时为空串，不注入，行为与接入前一致）
   const guidance = goalGuidance(goal);
   const goalBlock = guidance ? `${guidance}\n\n` : "";
-  const shotSummary = shots.length > 0
-    ? shots.map(s => `  ${s.shotNo}: ${s.subject} — ${s.action} [${s.shotType}] ${s.mood}`).join("\n")
-    : "（尚无镜头）";
+  const shotSummary =
+    shots.length > 0
+      ? shots
+          .map(
+            s =>
+              `  ${s.shotNo}: ${s.subject} — ${s.action} [${s.shotType}] ${s.mood}`
+          )
+          .join("\n")
+      : "（尚无镜头）";
 
-  const cardSummary = cards.length > 0
-    ? cards.slice(0, 8).map((c, i) => `  ${i + 1}. ${c.content.slice(0, 80)}`).join("\n")
-    : "（尚无故事卡片）";
+  const cardSummary =
+    cards.length > 0
+      ? cards
+          .slice(0, 8)
+          .map((c, i) => `  ${i + 1}. ${c.content.slice(0, 80)}`)
+          .join("\n")
+      : "（尚无故事卡片）";
 
   const scriptSnippet = currentScript
     ? currentScript.slice(0, 600)
@@ -216,20 +228,21 @@ function buildSystemPrompt(
         .filter(asset => asset.canonicalShotNo === currentFocusShotNo)
         .slice(0, 8)
     : [];
-  const assetSummary = focusAssets.length > 0
-    ? focusAssets
-        .map(asset => {
-          const state = asset.isPrimary
-            ? "主图"
-            : asset.status === "pending"
-              ? "待确认"
-              : asset.status === "rejected"
-                ? "已淘汰"
-                : "曾收下";
-          return `  #${asset.id} [${state}] [${asset.availability}] ${asset.prompt?.slice(0, 120) || "无提示词"}`;
-        })
-        .join("\n")
-    : "（焦点镜头尚无图片）";
+  const assetSummary =
+    focusAssets.length > 0
+      ? focusAssets
+          .map(asset => {
+            const state = asset.isPrimary
+              ? "主图"
+              : asset.status === "pending"
+                ? "待确认"
+                : asset.status === "rejected"
+                  ? "已淘汰"
+                  : "曾收下";
+            return `  #${asset.id} [${state}] [${asset.availability}] ${asset.prompt?.slice(0, 120) || "无提示词"}`;
+          })
+          .join("\n")
+      : "（焦点镜头尚无图片）";
   const anchorLine = hasCharacterAnchor
     ? "当前人物锚点：已设置。"
     : "当前人物锚点：未设置。若后续镜头需要同一个固定人物，请先让用户确认哪张图或哪张照片作为人物锚点。";
@@ -317,7 +330,10 @@ ${anchorLine}
 
 const SHOT_NO_PATTERN = /SH0?(\d+)|第(\d+)镜|镜头\s*(\d+)/gi;
 
-function inferFocusFromMessage(message: string, existingShots: ShotContext[]): string | null {
+function inferFocusFromMessage(
+  message: string,
+  existingShots: ShotContext[]
+): string | null {
   const matches: RegExpExecArray[] = [];
   let m: RegExpExecArray | null;
   SHOT_NO_PATTERN.lastIndex = 0;
@@ -340,7 +356,7 @@ function inferFocusFromMessage(message: string, existingShots: ShotContext[]): s
 function findImageAsset(
   assets: ImageAsset[],
   focusShotNo: string | null,
-  imageId?: number,
+  imageId?: number
 ): ImageAsset | null {
   if (imageId != null) {
     return assets.find(asset => asset.id === imageId) ?? null;
@@ -350,7 +366,7 @@ function findImageAsset(
     asset =>
       asset.canonicalShotNo === focusShotNo &&
       asset.kind === "story_frame" &&
-      asset.status !== "rejected",
+      asset.status !== "rejected"
   );
   return (
     focusAssets.find(asset => asset.isPrimary) ??
@@ -366,7 +382,7 @@ function appendReply(base: string, addition: string): string {
 }
 
 function visionSummary(
-  result: Awaited<ReturnType<typeof analyzeVisionReference>>,
+  result: Awaited<ReturnType<typeof analyzeVisionReference>>
 ): string {
   const analysis = result.analysis;
   return [
@@ -388,9 +404,10 @@ function visionSummary(
 }
 
 function formatSceneProposal(analysis: SceneAnalysis): string {
-  const decision = analysis.needsCharacterAnchor || analysis.isPerson
-    ? "画人物"
-    : "画空镜，不放人物";
+  const decision =
+    analysis.needsCharacterAnchor || analysis.isPerson
+      ? "画人物"
+      : "画空镜，不放人物";
   const recurring = analysis.recurringCharacter?.name
     ? `固定角色：${analysis.recurringCharacter.name}。`
     : "";
@@ -404,13 +421,17 @@ function formatSceneProposal(analysis: SceneAnalysis): string {
     recurring,
     elements,
     `把握度：${analysis.confidence}。你确认我就按这个方向画；要改的话直接说哪里不对。`,
-  ].filter(Boolean).join("");
+  ]
+    .filter(Boolean)
+    .join("");
 }
 
 function hasStoryCharacterAnchor(story?: { body: unknown } | null): boolean {
   if (!story?.body || typeof story.body !== "object") return false;
   const body = story.body as Record<string, unknown>;
-  return Boolean(characterReferenceOf(normalizeStoryArtDirection(body.artDirection)));
+  return Boolean(
+    characterReferenceOf(normalizeStoryArtDirection(body.artDirection))
+  );
 }
 
 // ── Deterministic single-image generation (no LLM tool call) ──
@@ -423,7 +444,7 @@ export type GenerateNextImageInput = {
   storyId?: number | null;
   userId: number;
   promptCompilationId?: number | null;
-  /** 故事锁定配方或 defaultArtRecipe()，由路由层组合后传入。 */
+  /** 故事锁定配方；未锁定时留空，由 renderGate 读取文本决定。 */
   artDirection?: ArtRecipeDNA;
   imageProvider?: ImageProvider;
   referenceImages?: string[];
@@ -468,7 +489,7 @@ function stableShotIdForShot(params: {
   const assetMatch = (params.assets ?? []).find(
     asset =>
       asset.canonicalShotNo === canonical &&
-      normalizeShotIdentity(asset.shotIdentity),
+      normalizeShotIdentity(asset.shotIdentity)
   );
   if (assetMatch?.shotIdentity) {
     return normalizeShotIdentity(assetMatch.shotIdentity);
@@ -479,13 +500,13 @@ function stableShotIdForShot(params: {
     ? ensureShotIdentities(
         body.shots.filter(
           (shot): shot is Record<string, unknown> =>
-            Boolean(shot) && typeof shot === "object" && !Array.isArray(shot),
-        ),
+            Boolean(shot) && typeof shot === "object" && !Array.isArray(shot)
+        )
       )
     : [];
   const match = shots.find(shot => {
     const shotCanonical = canonicalizeShotNo(
-      (shot.shotNo ?? shot.shotKey) as string | number | null | undefined,
+      (shot.shotNo ?? shot.shotKey) as string | number | null | undefined
     );
     return shotCanonical === canonical;
   });
@@ -517,7 +538,7 @@ async function directPromptFromReference(input: {
  * 出图失败时只返回 error，不抛、不动已有资产——失败不清空由调用方据此处理。
  */
 export async function generateNextImage(
-  input: GenerateNextImageInput,
+  input: GenerateNextImageInput
 ): Promise<GenerateNextImageResult> {
   const targetShotNo = canonicalizeShotNo(input.shotNo) ?? input.shotNo;
   const assets = input.assets ?? [];
@@ -586,7 +607,10 @@ export async function generateNextImage(
     });
   }
   const storyBody = input.story?.body as Record<string, unknown> | undefined;
-  const styleIndex = typeof storyBody?.styleIndex === "number" ? storyBody.styleIndex : undefined;
+  const styleIndex =
+    typeof storyBody?.styleIndex === "number"
+      ? storyBody.styleIndex
+      : undefined;
 
   let genResult: Awaited<ReturnType<typeof generateImage>>;
   try {
@@ -599,6 +623,12 @@ export async function generateNextImage(
         artDirection: input.artDirection,
         referenceImages,
         styleIndex,
+        outputPurpose: "story-frame",
+        referencePolicy: continuitySource
+          ? injection.characterRef
+            ? "preserve-identity"
+            : "preserve-composition"
+          : "none",
       },
       prompt => {
         if (continuitySource) {
@@ -613,16 +643,18 @@ export async function generateNextImage(
             : "";
         return generateImage(
           [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
-          { provider: input.imageProvider, ...injection },
+          { provider: input.imageProvider, ...injection }
         );
-      },
+      }
     );
   } catch (error) {
     // undici 的 "fetch failed" 不带目标信息，把 cause 打出来才能定位是哪一环挂了
     console.warn(
       "[generateNextImage] 出图失败:",
       error instanceof Error ? error.message : error,
-      error instanceof Error && error.cause ? `cause: ${String(error.cause)}` : ""
+      error instanceof Error && error.cause
+        ? `cause: ${String(error.cause)}`
+        : ""
     );
     return {
       status: "error",
@@ -665,13 +697,14 @@ export async function generateNextImage(
 // ── Main function ──
 
 export async function replyFromCreationAgent(
-  input: CreationAgentInput,
+  input: CreationAgentInput
 ): Promise<CreationAgentResult> {
   if (!ENV.forgeApiKey) {
     return {
       configured: false,
       modelLabel: "未配置 API",
-      reply: "创作引擎已准备就绪，但还没配置 API Key。请在 .env 中补上 BUILT_IN_FORGE_API_KEY 和 BUILT_IN_FORGE_API_URL，然后重启服务。",
+      reply:
+        "创作引擎已准备就绪，但还没配置 API Key。请在 .env 中补上 BUILT_IN_FORGE_API_KEY 和 BUILT_IN_FORGE_API_URL，然后重启服务。",
       toolCalls: [],
       focusShotNo: null,
       generatedImage: null,
@@ -703,7 +736,7 @@ export async function replyFromCreationAgent(
       effectiveFocus,
       input.goal ?? "unset",
       assets,
-      hasStoryCharacterAnchor(input.story),
+      hasStoryCharacterAnchor(input.story)
     ),
     history,
     message: input.message,
@@ -722,7 +755,7 @@ export async function replyFromCreationAgent(
   let assetsChanged = false;
 
   const proposeCall = toolCalls.find(
-    (tc): tc is ProposeSceneToolCall => tc.tool === "proposeScene",
+    (tc): tc is ProposeSceneToolCall => tc.tool === "proposeScene"
   );
   if (proposeCall?.sceneAnalysis) {
     reply = appendReply(reply, formatSceneProposal(proposeCall.sceneAnalysis));
@@ -733,12 +766,14 @@ export async function replyFromCreationAgent(
   const generateCall = proposeCall
     ? undefined
     : toolCalls.find(
-        (tc): tc is GenerateImageToolCall => tc.tool === "generateImage",
+        (tc): tc is GenerateImageToolCall => tc.tool === "generateImage"
       );
 
   if (generateCall && generateCall.prompt && generateCall.shotNo) {
     const targetShotNo =
-      canonicalizeShotNo(generateCall.shotNo) ?? focusShotNo ?? generateCall.shotNo;
+      canonicalizeShotNo(generateCall.shotNo) ??
+      focusShotNo ??
+      generateCall.shotNo;
     const scenePrompt = generateCall.sceneAnalysis
       ? composeScenePrompt(generateCall.sceneAnalysis)
       : { prompt: generateCall.prompt };
@@ -763,50 +798,64 @@ export async function replyFromCreationAgent(
         ...(scenePrompt.rationale ? { rationale: scenePrompt.rationale } : {}),
       };
       assetsChanged = true;
-      reply = appendReply(reply, "我先做了一版，放在待确认里。你收下之后，它才会成为这个镜头的主图。");
+      reply = appendReply(
+        reply,
+        "我先做了一版，放在待确认里。你收下之后，它才会成为这个镜头的主图。"
+      );
     } else {
       reply = appendReply(reply, `这次没有生成成功：${genResult.message}`);
     }
   }
 
   const analyzeCall = toolCalls.find(
-    (tc): tc is AnalyzeImageToolCall => tc.tool === "analyzeImage",
+    (tc): tc is AnalyzeImageToolCall => tc.tool === "analyzeImage"
   );
   if (analyzeCall) {
     const asset = findImageAsset(assets, focusShotNo, analyzeCall.imageId);
     if (!asset) {
-      reply = appendReply(reply, "这个镜头还没有可分析的画面。先选一张图，或者让我先生成一版。");
+      reply = appendReply(
+        reply,
+        "这个镜头还没有可分析的画面。先选一张图，或者让我先生成一版。"
+      );
     } else if (asset.availability === "missing") {
-      reply = appendReply(reply, "这条历史记录还在，但图片文件已经缺失，暂时无法做视觉分析。");
+      reply = appendReply(
+        reply,
+        "这条历史记录还在，但图片文件已经缺失，暂时无法做视觉分析。"
+      );
     } else {
       try {
         const source = await materializeImageInput(asset.imageUrl);
         const vision = await analyzeVisionReference(
           source.startsWith("data:")
             ? { imageDataUrl: source, brief: input.message }
-            : { imageUrl: source, brief: input.message },
+            : { imageUrl: source, brief: input.message }
         );
         reply = appendReply(reply, visionSummary(vision));
       } catch (error) {
         reply = appendReply(
           reply,
-          `这次没有看清图片：${error instanceof Error ? error.message : "视觉分析失败"}`,
+          `这次没有看清图片：${error instanceof Error ? error.message : "视觉分析失败"}`
         );
       }
     }
   }
 
   const reviseCall = toolCalls.find(
-    (tc): tc is ReviseImageToolCall => tc.tool === "reviseImage",
+    (tc): tc is ReviseImageToolCall => tc.tool === "reviseImage"
   );
   if (reviseCall?.prompt) {
-    const targetShotNo =
-      canonicalizeShotNo(reviseCall.shotNo) ?? focusShotNo;
+    const targetShotNo = canonicalizeShotNo(reviseCall.shotNo) ?? focusShotNo;
     const asset = findImageAsset(assets, targetShotNo, reviseCall.imageId);
     if (!asset) {
-      reply = appendReply(reply, "这个镜头还没有可修改的画面。先选一张主图，或者让我先生成一版。");
+      reply = appendReply(
+        reply,
+        "这个镜头还没有可修改的画面。先选一张主图，或者让我先生成一版。"
+      );
     } else if (asset.availability === "missing") {
-      reply = appendReply(reply, "这张历史图的文件已经缺失，我不会假装能在原图上继续修改。");
+      reply = appendReply(
+        reply,
+        "这张历史图的文件已经缺失，我不会假装能在原图上继续修改。"
+      );
     } else {
       try {
         const stableShotId =
@@ -836,13 +885,16 @@ export async function replyFromCreationAgent(
           story: input.story,
         });
         const referenceImages = Array.from(
-          new Set([asset.imageUrl, ...(input.referenceImages ?? [])]),
+          new Set([asset.imageUrl, ...(input.referenceImages ?? [])])
         );
-        const injection = input.story
-          ? await deriveInjection(input.story)
-          : {};
-        const reviseStoryBody = input.story?.body as Record<string, unknown> | undefined;
-        const reviseStyleIndex = typeof reviseStoryBody?.styleIndex === "number" ? reviseStoryBody.styleIndex : undefined;
+        const injection = input.story ? await deriveInjection(input.story) : {};
+        const reviseStoryBody = input.story?.body as
+          | Record<string, unknown>
+          | undefined;
+        const reviseStyleIndex =
+          typeof reviseStoryBody?.styleIndex === "number"
+            ? reviseStoryBody.styleIndex
+            : undefined;
         const revised = await renderViaGate<ImageGenResult>(
           {
             prompt: directedPrompt,
@@ -853,11 +905,16 @@ export async function replyFromCreationAgent(
             storyId: input.storyId ?? undefined,
             artDirection: input.artDirection,
             styleIndex: reviseStyleIndex,
+            outputPurpose: "image-edit",
+            referencePolicy: injection.characterRef
+              ? "preserve-identity"
+              : "preserve-composition",
           },
-          prompt => editImage(source, prompt, {
-            provider: input.imageProvider,
-            ...injection,
-          }),
+          prompt =>
+            editImage(source, prompt, {
+              provider: input.imageProvider,
+              ...injection,
+            })
         );
         if (revised.status === "ok" && revised.imageUrl) {
           const dbImage = await createGeneratedImage({
@@ -882,28 +939,31 @@ export async function replyFromCreationAgent(
             imageId: dbImage.id,
           };
           assetsChanged = true;
-          reply = appendReply(reply, "我按你说的改了一版，原主图还保留着；这张先放在待确认里。");
+          reply = appendReply(
+            reply,
+            "我按你说的改了一版，原主图还保留着；这张先放在待确认里。"
+          );
         } else {
-          reply = appendReply(reply, `这次修改没有完成：${revised.message ?? "出图服务没有返回图片"}`);
+          reply = appendReply(
+            reply,
+            `这次修改没有完成：${revised.message ?? "出图服务没有返回图片"}`
+          );
         }
       } catch (error) {
         reply = appendReply(
           reply,
-          `这次修改没有完成：${error instanceof Error ? error.message : "图片处理失败"}`,
+          `这次修改没有完成：${error instanceof Error ? error.message : "图片处理失败"}`
         );
       }
     }
   }
 
   const selectCall = toolCalls.find(
-    (tc): tc is SelectImageToolCall => tc.tool === "selectImage",
+    (tc): tc is SelectImageToolCall => tc.tool === "selectImage"
   );
   if (selectCall) {
     const asset = findImageAsset(assets, focusShotNo, selectCall.imageId);
-    if (
-      asset?.kind === "story_frame" &&
-      asset.availability !== "missing"
-    ) {
+    if (asset?.kind === "story_frame" && asset.availability !== "missing") {
       await createImageSignal({
         userId: input.userId,
         storyId: asset.storyId ?? input.storyId ?? 0,
@@ -923,7 +983,7 @@ export async function replyFromCreationAgent(
   }
 
   const reassignCall = toolCalls.find(
-    (tc): tc is ReassignImageToolCall => tc.tool === "reassignImage",
+    (tc): tc is ReassignImageToolCall => tc.tool === "reassignImage"
   );
   if (reassignCall) {
     const asset = findImageAsset(assets, focusShotNo, reassignCall.imageId);
@@ -940,7 +1000,7 @@ export async function replyFromCreationAgent(
   // 处理 updateShotPrompt 工具调用
   let promptUpdate: CreationAgentResult["promptUpdate"] = null;
   const promptCall = toolCalls.find(
-    (tc): tc is UpdateShotPromptToolCall => tc.tool === "updateShotPrompt",
+    (tc): tc is UpdateShotPromptToolCall => tc.tool === "updateShotPrompt"
   );
   if (promptCall && promptCall.shotNo && promptCall.promptDraft) {
     promptUpdate = {
@@ -952,7 +1012,7 @@ export async function replyFromCreationAgent(
   // 处理 buildShotList 工具调用：仅透出 storyDigest，由路由层合成整张镜头表写当前故事
   let shotBuild: CreationAgentResult["shotBuild"] = null;
   const buildCall = toolCalls.find(
-    (tc): tc is BuildShotListToolCall => tc.tool === "buildShotList",
+    (tc): tc is BuildShotListToolCall => tc.tool === "buildShotList"
   );
   if (buildCall && buildCall.storyDigest?.trim()) {
     shotBuild = { storyDigest: buildCall.storyDigest.trim() };

@@ -12,14 +12,18 @@ import {
 } from "../db";
 import { editImage, storeImageBytes } from "./imageGen";
 import { materializeImageInput } from "./imageAssets";
+import { renderViaGate } from "./renderGate";
 import { getStoryMaterialState } from "./storyMaterials";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { DEFAULT_TIMELINE_TRANSFORM } from "../../shared/storyMaterial";
+import { normalizeStoryArtDirection } from "../../shared/artDirection";
 
 type ReferenceRole = "person" | "scene" | "object" | "composition";
 
 function decodeBase64(value: string): Buffer {
-  const payload = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+  const payload = value.includes(",")
+    ? value.slice(value.indexOf(",") + 1)
+    : value;
   return Buffer.from(payload, "base64");
 }
 
@@ -100,7 +104,8 @@ export async function analyzeDerivationDraft(
     analysis = {
       summary: "从框选区域延伸的新镜头",
       referenceRole: input.referenceRole ?? "composition",
-      prompt: input.instruction || "cinematic continuation from the selected crop",
+      prompt:
+        input.instruction || "cinematic continuation from the selected crop",
     };
   } else {
     const result = await invokeAgent(
@@ -113,7 +118,10 @@ export async function analyzeDerivationDraft(
         {
           role: "user",
           content: [
-            { type: "text", text: input.instruction || "以框选区域为主要参考派生新镜头。" },
+            {
+              type: "text",
+              text: input.instruction || "以框选区域为主要参考派生新镜头。",
+            },
             { type: "image_url", image_url: { url: fullFrame } },
             { type: "image_url", image_url: { url: cropFrame } },
           ],
@@ -137,7 +145,10 @@ export async function analyzeDerivationDraft(
     action: String(analysis.action || "延续原镜头动作"),
     intent: String(analysis.intent || analysis.summary || "补充叙事细节"),
     dialogue: String(analysis.dialogue || ""),
-    durationMs: Math.max(500, Math.min(10000, Number(analysis.durationMs) || 2400)),
+    durationMs: Math.max(
+      500,
+      Math.min(10000, Number(analysis.durationMs) || 2400)
+    ),
     imagePrompt: String(
       analysis.prompt || input.instruction || "cinematic continuation"
     ),
@@ -169,16 +180,35 @@ export async function generateDerivedCandidates(
     "preserve story world, subtle camera-angle variation",
   ];
   const source = await materializeImageInput(draft.cropImageUrl);
+  const story = await getStoryById(draft.storyId, userId);
+  const storyBody =
+    story?.body && typeof story.body === "object"
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const storyArtDirection = normalizeStoryArtDirection(storyBody.artDirection);
   const results = await Promise.all(
     variants.map(variant =>
-      editImage(
-        source,
-        `${basePrompt}. ${variant}. One uninterrupted cinematic frame only.`,
-        { requireInputImage: true }
+      renderViaGate(
+        {
+          prompt: basePrompt,
+          userInstructions: [variant],
+          storyId: draft.storyId,
+          projectId: story?.projectId ?? undefined,
+          artDirection:
+            storyArtDirection.phase === "locked"
+              ? storyArtDirection.recipe
+              : undefined,
+          outputPurpose: "image-edit",
+          referencePolicy: "preserve-composition",
+          referenceImages: [draft.cropImageUrl],
+        },
+        prompt => editImage(source, prompt, { requireInputImage: true })
       )
     )
   );
-  const failed = results.find(result => result.status !== "ok" || !result.imageUrl);
+  const failed = results.find(
+    result => result.status !== "ok" || !result.imageUrl
+  );
   if (failed) throw new Error(failed.message || "派生候选生成失败");
   const images = [];
   for (const result of results) {

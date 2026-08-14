@@ -410,7 +410,7 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   );
   if (instructions.length > 0) {
     additions.push(
-      `【用户持续要求】${instructions.join("；")}。这些是用户本人的美术指令，优先级高于你的默认想象：凡是原文未明写的外观，一律按用户所说执行，不得因为「可能改变故事事实」而打折扣或忽略。只有当某条要求与原文明确写出的事实直接冲突时才不执行它，并且照常完成其余要求。`
+      `【用户持续要求】${instructions.join("；")}。这些要求必须完整落实。这些是用户本人的美术指令，优先级高于你的默认想象：凡是原文未明写的外观，一律按用户所说执行，不得因为「可能改变故事事实」而打折扣或忽略。只有当某条要求与原文明确写出的事实直接冲突时才不执行它，并且照常完成其余要求。`
     );
   }
   additions.push(...productConstraintBlock(ctx));

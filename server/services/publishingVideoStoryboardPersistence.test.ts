@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   emptyPublishingDraftState,
   upsertPublishingPlatformDraft,
@@ -10,8 +10,6 @@ import {
   buildPublishingVideoPreview,
   canonicalizePublishingVideoParagraphs,
 } from "../../shared/publishingVideoStoryboard";
-
-let tempDir: string | null = null;
 
 function publishingState() {
   const empty = emptyPublishingDraftState(100);
@@ -94,24 +92,28 @@ function generatedSplitPreview(body: string, now = 200) {
   };
 }
 
-describe("publishing video preview persistence", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "dt-video-preview-"));
-    process.env.DATABASE_URL = "";
-    process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
-  });
+const previousDatabaseUrl = process.env.DATABASE_URL;
+const previousLocalPersistPath = process.env.LOCAL_PERSIST_PATH;
+const tempDir = await mkdtemp(path.join(os.tmpdir(), "dt-video-storyboard-"));
+process.env.DATABASE_URL = "";
+process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
 
-  afterEach(async () => {
+let db = await import("../db");
+let persistence = await import("./publishingVideoStoryboardPersistence");
+
+afterAll(async () => {
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+  if (previousLocalPersistPath === undefined) {
     delete process.env.LOCAL_PERSIST_PATH;
-    delete process.env.DATABASE_URL;
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
-    tempDir = null;
-  });
+  } else {
+    process.env.LOCAL_PERSIST_PATH = previousLocalPersistPath;
+  }
+  await rm(tempDir, { recursive: true, force: true });
+});
 
+describe("publishing video preview persistence", () => {
   it("claims before generation, deduplicates retries, and never mutates formal shots", async () => {
-    const db = await import("../db");
-    const persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
     const bodyText = publishing.drafts.xiaohongshu!.content.body;
     const formalShots = [
@@ -150,19 +152,23 @@ describe("publishing video preview persistence", () => {
       generate,
     });
     await didStart;
-    const duplicate =
-      await persistence.generateAndPersistPublishingVideoPreview({
-        storyId: id,
-        userId: 31,
-        operationToken: "preview-op-1",
-        now: 201,
-        generate,
-      });
-    expect(duplicate.status).toBe("pending");
-    expect(generate).toHaveBeenCalledTimes(1);
-
-    release();
-    const completed = await first;
+    let completed: Awaited<typeof first> | undefined;
+    try {
+      const duplicate =
+        await persistence.generateAndPersistPublishingVideoPreview({
+          storyId: id,
+          userId: 31,
+          operationToken: "preview-op-1",
+          now: 201,
+          generate,
+        });
+      expect(duplicate.status).toBe("pending");
+      expect(generate).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      completed = await first;
+    }
+    if (!completed) throw new Error("preview generation did not complete");
     expect(completed.status).toBe("ready");
     expect(completed.preview?.status).toBe("preview");
     expect(completed.preview?.shots).toHaveLength(4);
@@ -181,8 +187,6 @@ describe("publishing video preview persistence", () => {
   });
 
   it("deduplicates identical in-flight previews even when callers use different operation tokens", async () => {
-    const db = await import("../db");
-    const persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
     const bodyText = publishing.drafts.xiaohongshu!.content.body;
     const { id } = await db.createStory({
@@ -213,25 +217,26 @@ describe("publishing video preview persistence", () => {
       generate: firstGenerate,
     });
     await didStart;
-    const duplicate =
-      await persistence.generateAndPersistPublishingVideoPreview({
-        storyId: id,
-        userId: 34,
-        operationToken: "preview-token-b",
-        now: 201,
-        generate: secondGenerate,
-      });
+    try {
+      const duplicate =
+        await persistence.generateAndPersistPublishingVideoPreview({
+          storyId: id,
+          userId: 34,
+          operationToken: "preview-token-b",
+          now: 201,
+          generate: secondGenerate,
+        });
 
-    expect(duplicate.status).toBe("pending");
-    expect(secondGenerate).not.toHaveBeenCalled();
-    release();
-    await first;
+      expect(duplicate.status).toBe("pending");
+      expect(secondGenerate).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await first;
+    }
     expect(firstGenerate).toHaveBeenCalledTimes(1);
   });
 
   it("recovers a completed receipt after process restart", async () => {
-    let db = await import("../db");
-    let persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
     const bodyText = publishing.drafts.xiaohongshu!.content.body;
     const { id } = await db.createStory({
@@ -267,8 +272,6 @@ describe("publishing video preview persistence", () => {
   });
 
   it("keeps a later successful preview current after an earlier generation failure", async () => {
-    const db = await import("../db");
-    const persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
     const bodyText = publishing.drafts.xiaohongshu!.content.body;
     const { id } = await db.createStory({
@@ -303,27 +306,14 @@ describe("publishing video preview persistence", () => {
 });
 
 describe("publishing video storyboard confirmation", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "dt-video-confirm-"));
-    process.env.DATABASE_URL = "";
-    process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
-  });
-
-  afterEach(async () => {
+  afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.LOCAL_PERSIST_PATH;
-    delete process.env.DATABASE_URL;
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
-    tempDir = null;
   });
 
   async function createConfirmFixture(options?: {
     editedLegacyOpening?: boolean;
     withCover?: boolean;
   }) {
-    const db = await import("../db");
-    const persistence = await import("./publishingVideoStoryboardPersistence");
     const publishing = publishingState();
     const cover =
       options?.withCover === false
@@ -686,7 +676,6 @@ describe("publishing video storyboard confirmation", () => {
 
   it("leaves the prior Story unchanged when the confirmation CAS never wins", async () => {
     const fixture = await createConfirmFixture();
-    const db = await import("../db");
     vi.spyOn(db, "updateStoryBodyIfRevision").mockResolvedValue(false);
     await expect(
       fixture.persistence.confirmPublishingVideoStoryboard({
