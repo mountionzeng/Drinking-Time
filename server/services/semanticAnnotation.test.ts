@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateAnnotation, isCircuitOpen, resetCircuitBreaker } from './semanticAnnotation';
 import type { EditDiff } from '../_core/editDiff';
 import type { SemanticAnnotation } from '../db';
+import { ENV } from '../_core/env';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,11 @@ import { createSemanticAnnotation } from '../db';
 
 const mockInvokeLLM = vi.mocked(invokeLLM);
 const mockCreateAnnotation = vi.mocked(createSemanticAnnotation);
+const originalOpenAINext = {
+  apiKey: ENV.openaiNextApiKey,
+  baseUrl: ENV.openaiNextBaseUrl,
+  textModel: ENV.openaiNextTextModel,
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +73,51 @@ describe('generateAnnotation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetCircuitBreaker();
+    ENV.openaiNextApiKey = '';
+    ENV.openaiNextBaseUrl = 'https://api.openai-next.com';
+    ENV.openaiNextTextModel = 'gpt-5.6-terra';
+  });
+
+  afterEach(() => {
+    ENV.openaiNextApiKey = originalOpenAINext.apiKey;
+    ENV.openaiNextBaseUrl = originalOpenAINext.baseUrl;
+    ENV.openaiNextTextModel = originalOpenAINext.textModel;
+    vi.unstubAllGlobals();
+  });
+
+  it('routes semantic annotation through OpenAI Next when configured', async () => {
+    ENV.openaiNextApiKey = 'test-next-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        makeLLMResponse(['修改了故事文字'], ['偏好更克制的表达']),
+      text: async () => '',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
+
+    const result = await generateAnnotation({
+      diff: makeDiff(),
+      snapshotId: 10,
+      previousSnapshotId: 5,
+      previousAnnotations: [],
+    });
+
+    expect(result.status).toBe('active');
+    expect(mockInvokeLLM).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://api.openai-next.com/v1/chat/completions',
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      'Bearer test-next-key',
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.model).toBe('gpt-5.6-terra');
+    expect(body.max_completion_tokens).toBe(1024);
+    expect(body.reasoning_effort).toBe('low');
+    expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
   it('returns LLM-generated annotation on success', async () => {

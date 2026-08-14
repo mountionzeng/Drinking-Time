@@ -5,10 +5,12 @@
  * failures (10-minute cooldown).
  */
 
-import { invokeLLM } from '../_core/llm';
+import { invokeLLM, type InvokeParams, type InvokeResult } from '../_core/llm';
+import { ENV } from '../_core/env';
 import { createSemanticAnnotation } from '../db';
 import type { SemanticAnnotation } from '../db';
 import { type EditDiff } from '../_core/editDiff';
+import { resolveTextComputeProvider } from './textComputeProvider';
 
 const ANNOTATION_TIMEOUT_MS = 30_000;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -166,6 +168,40 @@ export interface GenerateAnnotationParams {
   inlineCorrection?: InlineCorrection;
 }
 
+async function invokeAnnotationLLM(params: InvokeParams): Promise<InvokeResult> {
+  const provider = resolveTextComputeProvider(ENV.llmModel);
+  if (provider?.id !== 'openai-next') {
+    return invokeLLM(params);
+  }
+
+  const response = await fetch(provider.chatCompletionsUrl, {
+    method: 'POST',
+    signal: AbortSignal.timeout(ANNOTATION_TIMEOUT_MS),
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${provider.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      stream: false,
+      max_completion_tokens: params.maxTokens ?? params.max_tokens ?? 1024,
+      reasoning_effort: 'low',
+      response_format: params.responseFormat ?? params.response_format,
+      messages: params.messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `${provider.label} annotation failed: HTTP ${response.status}${body ? ` ${body.slice(0, 240)}` : ''}`,
+    );
+  }
+
+  return (await response.json()) as InvokeResult;
+}
+
 export async function generateAnnotation(
   params: GenerateAnnotationParams,
 ): Promise<SemanticAnnotation> {
@@ -177,7 +213,7 @@ export async function generateAnnotation(
   }
 
   try {
-    const llmPromise = invokeLLM({
+    const llmPromise = invokeAnnotationLLM({
       messages: [
         {
           role: 'system',

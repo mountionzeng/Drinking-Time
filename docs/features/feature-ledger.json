@@ -596,6 +596,7 @@
       "owners": [
         "server/_core/env.ts",
         "server/services/textComputeProvider.ts",
+        "server/services/semanticAnnotation.ts",
         "server/services/publishingVideoStoryboard.ts",
         "server/services/emotionDailyReference302.ts",
         "server/services/imagePromptDirector.ts",
@@ -606,6 +607,7 @@
       ],
       "evidence": [
         "server/services/textComputeProvider.test.ts",
+        "server/services/semanticAnnotation.test.ts",
         "server/services/publishingVideoStoryboard.test.ts",
         "server/services/emotionDailyReference302.test.ts",
         "server/services/emotionProfileDailyRefresh.test.ts",
@@ -642,6 +644,16 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "文本、情绪、视觉导演、视觉通道、图片编辑身份分析及 MJ 前置视觉分析的供应商路由均由自动化测试覆盖。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "编辑快照的语义标注接入统一文本算力路由；配置 OpenAI Next 时使用 gpt-5.6-terra，未配置时保持原有 302 与本地降级行为。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "新增语义标注 OpenAI Next 请求契约回归测试，并联合编辑上下文与供应商解析测试验证 27 项通过。"
         }
       ]
     },
