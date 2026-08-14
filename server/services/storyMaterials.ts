@@ -23,7 +23,6 @@ import {
   resolveVideoStaleReasons,
 } from "./promptMaterialProjection";
 import {
-  getReusableVideoAssetsForStory,
   getStoryVideoAssets,
 } from "./videoAssets";
 
@@ -313,11 +312,10 @@ export async function getStoryMaterialState(
   const story = await getStoryById(storyId, userId);
   if (!story) return null;
   const facts = storyShots(story);
-  const [images, videos, reusableVideos, timelineRow, promptProjection] =
+  const [images, videos, timelineRow, promptProjection] =
     await Promise.all([
       getStoryImageAssets(storyId, userId),
       getStoryVideoAssets(storyId, userId),
-      getReusableVideoAssetsForStory(storyId, userId),
       getStoryTimeline(storyId, userId),
       getStoryPromptProjection({ storyId, userId }),
     ]);
@@ -398,8 +396,6 @@ export async function getStoryMaterialState(
           isStale: staleReasons.length > 0,
         };
       });
-    // 跨故事素材只作为可复用候选；用户明确复用后才会复制进当前故事。
-    // 否则来源故事的时间线选择会串进同镜号的新故事。
     const videoTakes = ownVideoTakes;
     const currentVideo =
       videoTakes.find(
@@ -436,7 +432,9 @@ export async function getStoryMaterialState(
     unassignedVideoTakes: videos.filter(
       take => !matchedVideoTakeIds.has(take.id)
     ),
-    reusableVideoTakes: reusableVideos,
+    // 素材仓库严格属于当前故事。保留字段兼容现有客户端结构，但绝不
+    // 将同一用户其他故事的素材投影进来。
+    reusableVideoTakes: [],
     shots,
   };
 }

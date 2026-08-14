@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
 import {
@@ -44,6 +45,13 @@ export interface ImageGenResult {
   /** Ordered provider candidates when one task returns multiple images. */
   candidates?: ImageGenCandidate[];
   message?: string;
+  /**
+   * The provider connection ended before a paid-task receipt was received.
+   * Callers must not treat this as proof that the provider rejected the job.
+   */
+  submissionUncertain?: boolean;
+  /** Provider receipt recovered even if persisting it through the callback failed. */
+  providerTaskId?: string;
 }
 
 interface FetchResponseLike {
@@ -81,6 +89,10 @@ export interface ImageGenOptions {
   mjPollIntervalMs?: number;
   mjSubmitTimeoutMs?: number;
   mjTimeoutMs?: number;
+  /** 302 GPT-image synchronous generation budget; high-quality images often exceed 30s. */
+  gptTimeoutMs?: number;
+  /** Poll interval for 302 GPT-image asynchronous jobs. */
+  gptPollIntervalMs?: number;
   /** 主角参照（MJ --oref，跨镜头锁人物长相）。仅公网 http(s) URL 生效，data URI 跳过走垫图降级 */
   characterRef?: string;
   /** 风格参照（MJ --sref，跨镜头锁画风）。仅公网 http(s) URL 生效 */
@@ -103,6 +115,8 @@ export interface ImageGenOptions {
   editMaskImageUrl?: string;
   /** Called after 302 accepts an MJ task, before the first poll. */
   onMidjourneyTaskAccepted?: (taskId: string) => void | Promise<void>;
+  /** Called after any asynchronous provider accepts a paid task. */
+  onProviderTaskAccepted?: (taskId: string) => void | Promise<void>;
 }
 
 // ── 常量 ──
@@ -111,8 +125,17 @@ const GENERATE_URL = "https://queue.fal.run/fal-ai/flux-pro/v1.1-ultra";
 const INPAINT_URL = "https://queue.fal.run/fal-ai/flux-pro/v1/fill";
 const FORGE_IMAGE_PATH = "images.v1.ImageService/GenerateImage";
 const TIMEOUT_MS = 30_000;
+// 302 high-quality GPT-image jobs can remain queued for several minutes.
+// The API's async_result polling is free, so keep the paid task alive instead
+// of declaring a healthy pending job failed after the old three-minute limit.
+const GPT_IMAGE_GENERATION_TIMEOUT_MS = 600_000;
+const GPT_IMAGE_POLL_INTERVAL_MS = 2_000;
 const GPT_MASKED_EDIT_TIMEOUT_MS = 120_000;
-const MIDJOURNEY_ANATOMY_NEGATIVE_TERMS = [
+// MJ 图生图参考图的编码上限：长边 1024 + JPEG，够 MJ 读懂构图与配色，
+// 又能把请求体从数 MB 压到百 KB 级，避开会掐大请求的网络。
+const MJ_IMAGE_PROMPT_MAX_EDGE = 1024;
+const MJ_IMAGE_PROMPT_JPEG_QUALITY = 82;
+const MIDJOURNEY_DEFAULT_NEGATIVE_TERMS = [
   "deformed hands",
   "extra fingers",
   "fused fingers",
@@ -120,7 +143,136 @@ const MIDJOURNEY_ANATOMY_NEGATIVE_TERMS = [
   "malformed limbs",
   "extra limbs",
   "bad anatomy",
+  "text",
+  "letters",
+  "words",
+  "numbers",
+  "typography",
+  "signage",
+  "logos",
+  "signatures",
+  "captions",
+  "glyphs",
+  // Layout formats that carry type by definition. Without these, a prompt that
+  // merely says "cover" reliably returns a magazine front page: masthead,
+  // headlines, barcode and all.
+  "magazine cover",
+  "magazine",
+  "masthead",
+  "poster",
+  "book cover",
+  "album cover",
+  "newspaper",
+  "headline",
+  "barcode",
+  "QR code",
+  "watermark",
+  "username",
+  "user interface",
+  "screenshot",
+  // Print furniture the model adds around an illustration: a paper margin and
+  // a signature glyph in the corner, which read as contamination even though
+  // no word is legible.
+  "border",
+  "frame",
+  "paper margin",
+  "artist signature",
+  "stamp",
+  "seal",
+  "photorealism",
+  "photography",
+  "productphoto",
+  "stockphoto",
+  "3drender",
 ];
+
+/**
+ * undici reports a dropped connection as the bare message "terminated" and puts
+ * the real reason ("SocketError: other side closed") in `cause`. Persisting only
+ * the message strands a paid task: nothing downstream can tell that a transport
+ * drop — the recoverable kind of failure — is what happened.
+ */
+function providerErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const cause = error.cause ? String(error.cause).trim() : "";
+  return cause ? `${error.message}（${cause}）` : error.message;
+}
+
+/**
+ * Rewording a provider failure must carry its money-safety fields forward. A
+ * task id is a paid receipt, and `submissionUncertain` is what stops the UI
+ * from presenting a possibly-charged submission as a safe retry. Rebuilding a
+ * result object with only status and message silently drops both.
+ */
+function keepProviderReceipt(
+  message: string,
+  ...sources: (ImageGenResult | undefined)[]
+): ImageGenResult {
+  const receipt = sources.find(source => source?.providerTaskId)?.providerTaskId;
+  const uncertain = sources.some(source => source?.submissionUncertain);
+  return {
+    status: "error",
+    message,
+    ...(uncertain ? { submissionUncertain: true } : {}),
+    ...(receipt ? { providerTaskId: receipt } : {}),
+  };
+}
+
+/**
+ * Midjourney reads `base64Array` as an image prompt, not as pixels to preserve,
+ * so full-resolution source art buys nothing. It costs a lot though: a 2 MB PNG
+ * becomes ~2.7 MB of base64, and three references push one POST past 8 MB —
+ * exactly the shape of request this network keeps cutting ("other side closed").
+ * Downscaling to a long edge of 1024 and re-encoding as JPEG shrinks the body by
+ * more than an order of magnitude. Falls back to the original bytes rather than
+ * failing the round.
+ */
+async function toMidjourneyImagePrompt(
+  bytes: Uint8Array,
+  mimeType: string
+): Promise<string> {
+  try {
+    const compressed = await sharp(Buffer.from(bytes))
+      .rotate()
+      .resize({
+        width: MJ_IMAGE_PROMPT_MAX_EDGE,
+        height: MJ_IMAGE_PROMPT_MAX_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: MJ_IMAGE_PROMPT_JPEG_QUALITY })
+      .toBuffer();
+    if (compressed.byteLength < bytes.byteLength) {
+      return `data:image/jpeg;base64,${compressed.toString("base64")}`;
+    }
+  } catch (error) {
+    console.warn(
+      "[302 MJ] 参考图压缩失败，改用原图：",
+      error instanceof Error ? error.message : error
+    );
+  }
+  return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+}
+
+function withMidjourneyNegativeTerms(prompt: string, terms: string[]): string {
+  const match =
+    /(^|\s)--no\s+([\s\S]*?)(?=\s--[a-z][a-z0-9-]*(?:\s|$)|$)/i.exec(prompt);
+  if (!match) return `${prompt} --no ${terms.join(", ")}`;
+
+  const existing = match[2]!.trim();
+  const normalizedExisting = existing.toLocaleLowerCase("en-US");
+  const missing = terms.filter(
+    term => !normalizedExisting.includes(term.toLocaleLowerCase("en-US"))
+  );
+  if (missing.length === 0) return prompt;
+
+  const replacement = `${match[1]}--no ${[existing, ...missing]
+    .filter(Boolean)
+    .join(", ")}`;
+  return `${prompt.slice(0, match.index)}${replacement}${prompt.slice(
+    match.index + match[0].length
+  )}`;
+}
 
 // ── 工具函数 ──
 
@@ -466,15 +618,12 @@ function midjourneyPromptFor(
   if (hasCharacterRef && !/(?:^|\s)--(?:v|version)\s+\S+/i.test(out)) {
     out = `${out} --v 7`;
   }
-  // 默认负面词：压制 MJ 常见畸形，同时默认禁止单镜头里混进拼贴/分屏/小图格。
-  // 已有 --no 则不重复（尊重调用方显式负面词，如 artDirection recipe 的 negative）。
-  if (!/(?:^|\s)--no\s/i.test(out)) {
-    const negativeTerms = [
-      ...MIDJOURNEY_ANATOMY_NEGATIVE_TERMS,
-      ...singleFrameNegativeTermsForPrompt(sourcePrompt),
-    ];
-    out = `${out} --no ${negativeTerms.join(", ")}`;
-  }
+  // Provider 层硬约束：调用方已有 --no 时合并进去，不能让任意显式负面词
+  // 意外覆盖全站的无字、非摄影与单镜头不变量。
+  out = withMidjourneyNegativeTerms(out, [
+    ...MIDJOURNEY_DEFAULT_NEGATIVE_TERMS,
+    ...singleFrameNegativeTermsForPrompt(sourcePrompt),
+  ]);
   if (aspectRatio && !/(?:^|\s)--ar\s+\S+/i.test(out)) {
     out = `${out} --ar ${aspectRatio}`;
   }
@@ -744,7 +893,10 @@ export async function generateDraftImage(
         },
         body: JSON.stringify({
           prompt,
-          image_size: { width: 1024, height: 1024 },
+          image_size:
+            options.aspectRatio === "3:4"
+              ? { width: 768, height: 1024 }
+              : { width: 1024, height: 1024 },
           num_inference_steps: 4,
         }),
       }),
@@ -769,7 +921,23 @@ export async function generateDraftImage(
     if (!imageUrl) {
       return { status: "error", message: "草稿图返回里没有图片 URL" };
     }
-    return await storeImageFromUrl(imageUrl, fetcher);
+    const source = await readImageInput(imageUrl, fetcher);
+    const metadata = await sharp(source.bytes).metadata();
+    if (!metadata.width || !metadata.height) {
+      return { status: "error", message: "草稿图尺寸不可读" };
+    }
+    const cleanedHeight = Math.max(1, Math.floor(metadata.height * 0.9));
+    const cleaned = await sharp(source.bytes)
+      .extract({
+        left: 0,
+        top: 0,
+        width: metadata.width,
+        height: cleanedHeight,
+      })
+      .resize(metadata.width, metadata.height, { fit: "fill" })
+      .png()
+      .toBuffer();
+    return await storeImageBytes(cleaned, "image/png");
   } catch (error) {
     return {
       status: "error",
@@ -782,10 +950,6 @@ export async function generateImage(
   prompt: string,
   options: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
-  if (isCircuitOpen()) {
-    return { status: "error", message: circuitBreakerMessage() };
-  }
-
   const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
   const requested = normalizeImageProvider(
     options.provider ?? ENV.imageProviderDefault
@@ -818,6 +982,10 @@ export async function generateImage(
     requested === "fal" && !ENV.falApiKey && ENV.api302Key
       ? "gpt-image"
       : requested;
+
+  if (isCircuitOpen(provider)) {
+    return { status: "error", message: circuitBreakerMessage(provider) };
+  }
 
   if (provider === "gpt-image" && ENV.api302Key) {
     return generate302GptImage(prompt, options, fetcher);
@@ -904,13 +1072,19 @@ async function generate302GptImage(
   options: ImageGenOptions,
   fetcher: Fetcher
 ): Promise<ImageGenResult> {
+  let acceptedTaskId = "";
   try {
+    const startedAt = Date.now();
+    const timeoutMs = options.gptTimeoutMs ?? GPT_IMAGE_GENERATION_TIMEOUT_MS;
     const endpoint = new URL(
       "/v1/images/generations",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
     );
     endpoint.searchParams.set("response_format", "url");
-    endpoint.searchParams.set("async", "false");
+    // 302 explicitly recommends async image generation. The synchronous
+    // connection is routinely closed by the gateway before a high-quality
+    // image is ready, even though the paid job may still be running.
+    endpoint.searchParams.set("async", "true");
 
     const response = await withTimeout(
       fetcher(endpoint.toString(), {
@@ -926,7 +1100,7 @@ async function generate302GptImage(
           moderation: "auto",
         }),
       }),
-      TIMEOUT_MS
+      timeoutMs
     );
 
     if (!response.ok) {
@@ -938,8 +1112,23 @@ async function generate302GptImage(
       };
     }
 
+    const submitted = (await response.json()) as {
+      task_id?: string;
+      taskId?: string;
+      id?: string;
+      data?: unknown;
+    };
+    const taskId = submitted.task_id || submitted.taskId || submitted.id;
+    acceptedTaskId = taskId ?? "";
+    let imagePayload: unknown = submitted;
+
+    if (taskId && !Array.isArray(submitted.data)) {
+      await options.onProviderTaskAccepted?.(taskId);
+      return await poll302GptImageTask(taskId, options, fetcher, startedAt);
+    }
+
     const stored = await storeImageFromOpenAIJson(
-      await response.json(),
+      imagePayload,
       fetcher,
       "302 GPT-image 没有返回图片。"
     );
@@ -957,7 +1146,85 @@ async function generate302GptImage(
     return {
       status: "error",
       message,
+      ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : {}),
     };
+  }
+}
+
+async function poll302GptImageTask(
+  taskId: string,
+  options: ImageGenOptions,
+  fetcher: Fetcher,
+  startedAt = Date.now()
+): Promise<ImageGenResult> {
+  const timeoutMs = options.gptTimeoutMs ?? GPT_IMAGE_GENERATION_TIMEOUT_MS;
+  const pollIntervalMs =
+    options.gptPollIntervalMs ?? GPT_IMAGE_POLL_INTERVAL_MS;
+  const pollUrl = new URL(
+    "/async_result",
+    `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
+  );
+  pollUrl.searchParams.set("task_id", taskId);
+
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    const remainingMs = timeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) break;
+
+    const pollResponse = await withTimeout(
+      fetcher(pollUrl.toString(), {
+        method: "GET",
+        headers: build302Headers("openai"),
+      }),
+      remainingMs
+    );
+    const polled = (await pollResponse.json()) as {
+      status_code?: number;
+      err?: string;
+      data?: unknown;
+    };
+    if (!pollResponse.ok) {
+      throw new Error(`异步查询 HTTP ${pollResponse.status}`);
+    }
+    if (polled.status_code === 200 && polled.data) {
+      const payload =
+        typeof polled.data === "string"
+          ? { data: [{ url: polled.data }] }
+          : polled.data;
+      return await storeImageFromOpenAIJson(
+        payload,
+        fetcher,
+        "302 GPT-image 没有返回图片。"
+      );
+    }
+    if (polled.err && !/pending|processing|running/i.test(polled.err)) {
+      throw new Error(polled.err);
+    }
+    if (
+      polled.status_code !== undefined &&
+      polled.status_code !== 202 &&
+      !(polled.status_code === 200 && polled.err)
+    ) {
+      throw new Error(`异步任务失败（状态 ${polled.status_code}）`);
+    }
+  }
+
+  throw new Error("timeout");
+}
+
+export async function resume302GptImageTask(
+  taskId: string,
+  options: ImageGenOptions = {}
+): Promise<ImageGenResult> {
+  const fetcher: Fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
+  try {
+    const result = await poll302GptImageTask(taskId, options, fetcher);
+    if (result.status === "ok") recordSuccess();
+    return result;
+  } catch (error) {
+    const message = `302 GPT-image 任务恢复失败：${readableError(error, "未知错误")}`;
+    recordProviderFailure("gpt-image", message);
+    return { status: "error", message, providerTaskId: taskId };
   }
 }
 
@@ -1284,21 +1551,20 @@ export async function editImage(
     const inputImageUrls = Array.from(
       new Set([imageUrl, ...contextImageUrls])
     ).slice(0, 3);
+    // prompt 已由 renderGate 的唯一美术提示词工程完成。provider adapter 只负责
+    // 把参考图和模型参数送给 MJ，不能再注入服装、主色、光线等业务美术判断。
     const mjEdit = await generate302MidjourneyImage(
-      [
-        "PRIMARY REFERENCE LOCK: image 1 exclusively controls character identity, exact wardrobe silhouette and length, dominant hue family, lighting, and material. Never shorten a floor-length gown. Never borrow a blue, cyan, or teal cast from continuity context when those hues are absent from image 1. Neighboring frames have already been translated into transition text and must not replace image 1's person or visual identity.",
-        prompt,
-      ].join("\n\n"),
+      prompt,
       options,
       fetcher,
       inputImageUrls
     );
     if (mjEdit.status === "ok") return mjEdit;
     if (options.requireInputImage) {
-      return {
-        status: "error",
-        message: `MJ 图生图未能基于输入照片完成：${mjEdit.message ?? "未知错误"}`,
-      };
+      return keepProviderReceipt(
+        `MJ 图生图未能基于输入照片完成：${mjEdit.message ?? "未知错误"}`,
+        mjEdit
+      );
     }
     console.warn(
       "[editImage] MJ 图生图失败，改试 MJ 纯文生图：",
@@ -1313,14 +1579,16 @@ export async function editImage(
       []
     );
     if (mjText.status === "ok") return mjText;
-    return {
-      status: "error",
-      message: `MJ 出图失败 —— 图生图：${mjEdit.message}；文生图：${mjText.message}`,
-    };
+    return keepProviderReceipt(
+      `MJ 出图失败 —— 图生图：${mjEdit.message}；文生图：${mjText.message}`,
+      mjEdit,
+      mjText
+    );
   }
 
   // 非 MJ provider（显式指定 gpt-image 等）才走 gpt-image edit + Forge 兜底
   let image302Error: string | undefined;
+  let image302Result: ImageGenResult | undefined;
   if (ENV.api302Key) {
     const result = await generate302GptImageEdit(
       imageUrl,
@@ -1329,6 +1597,7 @@ export async function editImage(
       fetcher
     );
     if (result.status === "ok") return result;
+    image302Result = result;
     image302Error = result.message;
   }
 
@@ -1336,10 +1605,11 @@ export async function editImage(
   if (forgeResult.status === "ok") return forgeResult;
 
   if (image302Error) {
-    return {
-      status: "error",
-      message: `${image302Error} Forge 回退也不可用：${forgeResult.message ?? "未知错误"}`,
-    };
+    return keepProviderReceipt(
+      `${image302Error} Forge 回退也不可用：${forgeResult.message ?? "未知错误"}`,
+      image302Result,
+      forgeResult
+    );
   }
 
   return forgeResult;
@@ -1354,17 +1624,20 @@ async function generate302MidjourneyImage(
   const submitTimeoutMs =
     options.mjSubmitTimeoutMs ??
     parseNumber(ENV.image302MjSubmitTimeoutMs, 90_000);
-  const startedAt = Date.now();
 
   // 图生图：把输入图读成 data-URI base64，放进 MJ 的 base64Array（作为 image prompt）。
   // 读图失败不阻断，退化成纯文生图。
   let base64Array: string[] = [];
+  let acceptedTaskId = "";
   if (inputImageUrls.length > 0) {
     try {
       base64Array = await Promise.all(
         inputImageUrls.map(async u => {
           const src = await readImageInput(u, fetcher);
-          return `data:${src.mimeType};base64,${Buffer.from(src.bytes as Uint8Array).toString("base64")}`;
+          return toMidjourneyImagePrompt(
+            src.bytes as Uint8Array,
+            src.mimeType
+          );
         })
       );
     } catch (err) {
@@ -1439,8 +1712,9 @@ async function generate302MidjourneyImage(
       };
     }
 
+    acceptedTaskId = taskId;
     await options.onMidjourneyTaskAccepted?.(taskId);
-    return poll302MidjourneyTask(taskId, options, fetcher, startedAt);
+    return poll302MidjourneyTask(taskId, options, fetcher, Date.now());
   } catch (error) {
     // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
     console.warn(
@@ -1450,12 +1724,17 @@ async function generate302MidjourneyImage(
         ? `cause: ${String(error.cause)}`
         : ""
     );
-    const message =
-      error instanceof Error
-        ? error.message
-        : "302 Midjourney generation failed";
+    const message = providerErrorMessage(
+      error,
+      "302 Midjourney generation failed"
+    );
     recordProviderFailure("midjourney", message);
-    return { status: "error", message };
+    return {
+      status: "error",
+      message,
+      submissionUncertain: !acceptedTaskId,
+      ...(acceptedTaskId ? { providerTaskId: acceptedTaskId } : {}),
+    };
   }
 }
 
@@ -1607,7 +1886,8 @@ async function poll302MidjourneyTask(
 
     const message = "302 Midjourney task timeout";
     recordProviderFailure("midjourney", message);
-    return { status: "error", message };
+    // The task id is a paid receipt; a poll that gave up must still hand it back.
+    return { status: "error", message, providerTaskId: taskId };
   } catch (error) {
     // undici 的 "fetch failed" 不带目标与原因，cause 里才有（DNS/代理/超时/断连）
     console.warn(
@@ -1617,12 +1897,12 @@ async function poll302MidjourneyTask(
         ? `cause: ${String(error.cause)}`
         : ""
     );
-    const message =
-      error instanceof Error
-        ? error.message
-        : "302 Midjourney generation failed";
+    const message = providerErrorMessage(
+      error,
+      "302 Midjourney generation failed"
+    );
     recordProviderFailure("midjourney", message);
-    return { status: "error", message };
+    return { status: "error", message, providerTaskId: taskId };
   }
 }
 

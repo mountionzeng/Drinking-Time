@@ -262,7 +262,7 @@ describe("creation editor route and shell", () => {
     expect(merged[0].imageId).toBe(11);
   });
 
-  it("keeps unmatched video takes visible in the material warehouse", () => {
+  it("keeps current-story unmatched takes visible without showing other stories", () => {
     const matchedTake = videoTake(1, { stableShotId: "shot-01" });
     const oldTake = videoTake(2, { stableShotId: "old-shot-99" });
     const reusableTake = videoTake(3, {
@@ -288,7 +288,7 @@ describe("creation editor route and shell", () => {
       reusableVideoTakes: [reusableTake],
     });
 
-    expect(items.map(item => item.take.id)).toEqual([1, 3, 2]);
+    expect(items.map(item => item.take.id)).toEqual([1, 2]);
     expect(items[0]).toMatchObject({
       shotNo: 1,
       stableShotId: "shot-01",
@@ -298,13 +298,6 @@ describe("creation editor route and shell", () => {
     });
     expect(items[1]).toMatchObject({
       shotNo: null,
-      stableShotId: "genji-s04",
-      isCurrent: false,
-      isUnmatched: false,
-      isReusable: true,
-    });
-    expect(items[2]).toMatchObject({
-      shotNo: null,
       stableShotId: "old-shot-99",
       isCurrent: false,
       isUnmatched: true,
@@ -312,7 +305,7 @@ describe("creation editor route and shell", () => {
     });
   });
 
-  it("shows inherited selected takes as already adopted instead of reusable", () => {
+  it("drops inherited selected takes owned by another story", () => {
     const inheritedTake = videoTake(28, {
       storyId: 49,
       stableShotId: "genji-s02",
@@ -344,25 +337,7 @@ describe("creation editor route and shell", () => {
       reusableVideoTakes: [inheritedTake],
     });
 
-    expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({
-      take: { id: 28 },
-      shotNo: 3,
-      stableShotId: "legacy-sh02-shot",
-      isCurrent: true,
-      isReusable: false,
-    });
-    expect(
-      videoWarehouseActionState({
-        item: items[0],
-        activeStoryId: 1158,
-        currentStableShotId: "legacy-sh02-shot",
-        playable: true,
-      })
-    ).toMatchObject({
-      disabled: true,
-      label: "已采用",
-    });
+    expect(items).toEqual([]);
   });
 
   it("attaches imported genji images to legacy shot identities", () => {

@@ -6,6 +6,7 @@ import {
   getPublishingContentError,
   isRecoverablePublishingCoverGeneration,
   normalizePublishingNarrativeIntent,
+  type PublishingCoverArtReference,
   type PublishingCoverRound,
   type PublishingDraftContent,
   type PublishingDraftState,
@@ -18,9 +19,11 @@ import {
 } from "../../shared/imageAsset";
 import {
   estimatePublishingCoverCost,
+  estimatePublishingCoverFallbackCost,
   PUBLISHING_COVER_PROFILE,
 } from "../../shared/imageRenderCost";
 import { protectedProcedure, router } from "../_core/trpc";
+import { invokeAgent } from "../_core/agentChannel";
 import {
   createGeneratedImage,
   getGeneratedImageById,
@@ -29,9 +32,15 @@ import {
 } from "../db";
 import {
   editImage,
+  generateDraftImage,
   generateImage,
+  resume302GptImageTask,
   resume302MidjourneyTask,
 } from "../services/imageGen";
+import { engineerImagePrompt } from "../services/renderGate";
+import { inspectStaticImageCandidates } from "../services/staticImageQualityGate";
+import { storyArtRecipe } from "./_storyShared";
+import type { ArtRecipeDNA } from "../../shared/artDirection";
 import {
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
@@ -78,6 +87,19 @@ const narrativeIntentSchema = z.object({
   secondaryAudiences: z.array(z.string().trim().min(1).max(80)).max(5),
   status: z.enum(["provisional", "confirmed"]),
   updatedAt: z.number().int().nonnegative(),
+});
+const artReferenceStringListSchema = z
+  .array(z.string().trim().min(1).max(300))
+  .max(12);
+const publishingCoverArtReferenceSchema = z.object({
+  label: z.string().trim().min(1).max(160),
+  imageUrl: z.string().trim().max(2_000).optional(),
+  style: artReferenceStringListSchema,
+  palette: artReferenceStringListSchema,
+  light: artReferenceStringListSchema,
+  composition: artReferenceStringListSchema,
+  material: artReferenceStringListSchema,
+  mood: artReferenceStringListSchema,
 });
 
 function assertPublishingContentFitsPlatform(
@@ -294,6 +316,16 @@ type PublishingCoverRoundView = PublishingCoverRound & {
 const PUBLISHING_COVER_OPENING_SHOT_IDENTITY =
   "publishing-cover-opening" as const;
 
+/**
+ * Midjourney `--iw` (0–3) weighs the reference image against the prompt. At the
+ * old 1.4 the reference always won, so "按意见修改这张" could adjust mood but
+ * could not honour the very instructions users actually write — remove the
+ * lettering, make the subject a woman — because the reference kept feeding both
+ * back in. Below 1 the prompt leads and the reference still carries composition,
+ * palette and lighting, which is what this button promises.
+ */
+const PUBLISHING_COVER_REVISE_IMAGE_WEIGHT = 0.5;
+
 function isPublishingCoverIdentity(identity: string | null): boolean {
   return (
     identity === PUBLISHING_COVER_SHOT_IDENTITY ||
@@ -351,13 +383,8 @@ async function loadPublishingCoverRounds(params: {
   );
 }
 
-function composePublishingCoverPrompt(params: {
-  visualConcept: string;
-  thesis: string;
-  emotion: string;
-  feedback?: string;
-}): string {
-  const visualConcept = params.visualConcept
+function cleanCoverVisualConcept(value: string): string {
+  const cleaned = value
     .replace(
       /(?:标题|副标题|大字|文字|文案|写着|字样|标语)[^。！？!?；;\n]*/g,
       ""
@@ -369,21 +396,62 @@ function composePublishingCoverPrompt(params: {
     .replace(/[“"「『'][^”"」』']{1,200}[”"」』']/g, "")
     .trim()
     .slice(0, 800);
+  if (
+    /(?:极简[^。！？\n]{0,40}(?:照片|摄影)|photoreal|photograph|product\s*photo|时钟|闹钟|怀表|钟表|沙漏|灯泡|棋子|道路|梯子|拼图|发光大脑)/i.test(
+      cleaned
+    )
+  ) {
+    return "";
+  }
+  return cleaned;
+}
+
+/** 这里只整理内容事实；色调、光线、风格和创造力全部交给唯一提示词工程。 */
+function composePublishingCoverContentBrief(params: {
+  facts: string[];
+  visualConcept: string;
+  thesis: string;
+  emotion: string;
+}): string {
+  const visualConcept = cleanCoverVisualConcept(params.visualConcept);
   return [
-    "Surreal minimalist cinematic fine-art scene, one coherent wordless physical environment, full-bleed image only, no graphic-design layout.",
-    `Purely visual concept: ${visualConcept || "a small solitary human facing an immense symbolic system"}.`,
-    `Express this underlying idea only through imagery: ${params.thesis}.`,
-    `Emotional tone: ${params.emotion || "hauntingly beautiful, honest and restrained"}.`,
-    params.feedback
-      ? `User-requested visual revision: ${params.feedback}. Preserve the chosen image's strongest composition and visual identity while applying this revision.`
-      : "Create four meaningfully different visual interpretations of the same editorial concept.",
-    "Represent digital information only as abstract light, dust, smoke and flowing particles, never as code, characters or interface elements.",
-    "Dark indigo background, subtle red glow, gold dust, cinematic lighting, hauntingly beautiful, refined contemporary fine-art direction, clean vertical composition.",
-    "Keep the subject and meaningful details inside the centered safe area, with quiet negative space at the top made only from background texture and light.",
-    "No borders, panels, columns, frames, edge decorations, ornamental micro-details, screens, interface chrome, signs or labels. Ignore any source instruction that asks for a title, caption or visible writing.",
-    "Absolutely no readable text, letters, words, numbers, pseudo-text, gibberish glyphs, typography, captions, logos, signatures, notification text or watermarks anywhere in the image.",
-    "--style raw --stylize 250 --no words letters numbers text writing typeface typography captions headlines labels logos watermark signature glyphs barcode HUD UI screens interface borders columns frames",
-  ].join("\n");
+    "【封面内容简报】",
+    params.facts.length ? `已经确认的事实：${params.facts.join("；")}` : "",
+    visualConcept ? `原始视觉联想（可推翻，不是事实）：${visualConcept}` : "",
+    `核心表达：${params.thesis}`,
+    params.emotion ? `内容情绪：${params.emotion}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function coverInstructions(
+  instructions: string[] | undefined,
+  feedback: string | undefined
+): string[] {
+  const normalized = [...(instructions ?? []), feedback ?? ""]
+    .map(value => value.trim())
+    .filter(Boolean);
+  return normalized
+    .filter((value, index) => normalized.lastIndexOf(value) === index)
+    .slice(-20);
+}
+
+function coverArtRecipe(
+  storyRecipe: ArtRecipeDNA | undefined,
+  reference: PublishingCoverArtReference | null | undefined
+): ArtRecipeDNA | undefined {
+  if (!reference) return storyRecipe;
+  const choose = (referenceValues: string[], storyValues?: string[]) =>
+    referenceValues.length > 0 ? referenceValues : (storyValues ?? []);
+  return {
+    style: choose(reference.style, storyRecipe?.style),
+    palette: choose(reference.palette, storyRecipe?.palette),
+    light: choose(reference.light, storyRecipe?.light),
+    composition: choose(reference.composition, storyRecipe?.composition),
+    material: choose(reference.material, storyRecipe?.material),
+    negative: storyRecipe?.negative ?? [],
+  };
 }
 
 export const publishingDraftRouter = router({
@@ -408,6 +476,7 @@ export const publishingDraftRouter = router({
             userId: ctx.user.id,
           }),
           coverEstimate: estimatePublishingCoverCost(),
+          coverFallbackEstimate: estimatePublishingCoverFallbackCost(),
         };
       } catch (error) {
         throwPublishingError(error);
@@ -868,9 +937,17 @@ export const publishingDraftRouter = router({
       z.object({
         storyId: z.number().int().positive(),
         platform: platformSchema,
+        provider: z
+          .enum(["midjourney", "gpt-image", "flux-schnell"])
+          .optional(),
         basePublishingRevision: z.number().int().nonnegative(),
         referenceAssetId: z.number().int().positive().optional(),
         feedback: z.string().trim().max(2_000).optional(),
+        instructions: z
+          .array(z.string().trim().min(1).max(2_000))
+          .max(20)
+          .optional(),
+        artReference: publishingCoverArtReferenceSchema.nullable().optional(),
         operationToken: z.string().trim().min(1).max(200).optional(),
         costConfirmation: z
           .object({
@@ -886,8 +963,23 @@ export const publishingDraftRouter = router({
           input.storyId,
           ctx.user.id
         );
-        const operationToken = input.operationToken ?? `cover-${randomUUID()}`;
         const persistedGeneration = current.publishing.coverGeneration;
+        /**
+         * A fresh click mints a new operation token, which used to skip the
+         * resume branch entirely and overwrite an outstanding provider task id
+         * — silently abandoning a round the user already paid for. When a paid
+         * receipt is still owed a recovery, adopt its token so this call
+         * recovers that round instead of buying another one.
+         */
+        const outstandingPaidReceipt =
+          !input.operationToken &&
+          isRecoverablePublishingCoverGeneration(persistedGeneration)
+            ? persistedGeneration
+            : null;
+        const operationToken =
+          outstandingPaidReceipt?.operationToken ??
+          input.operationToken ??
+          `cover-${randomUUID()}`;
         const matchingOperation =
           persistedGeneration?.operationToken === operationToken;
         const recoveringAcceptedTask =
@@ -907,7 +999,13 @@ export const publishingDraftRouter = router({
             current.publishing.revision
           );
         }
-        const estimate = estimatePublishingCoverCost();
+        const coverProvider = matchingOperation
+          ? (persistedGeneration?.provider ?? "midjourney")
+          : (input.provider ?? "midjourney");
+        const estimate =
+          coverProvider === "midjourney"
+            ? estimatePublishingCoverCost()
+            : estimatePublishingCoverFallbackCost();
         const confirmationIsCurrent =
           input.costConfirmation?.accepted === true &&
           Math.abs(
@@ -934,14 +1032,6 @@ export const publishingDraftRouter = router({
             message: "请先完成当前平台的发布稿，再生成封面",
           });
         }
-        const prompt = resuming
-          ? persistedGeneration!.prompt
-          : composePublishingCoverPrompt({
-              visualConcept: core.visualConcept,
-              thesis: core.thesis,
-              emotion: core.emotion,
-              feedback: input.feedback,
-            });
         const referenceAssetId = resuming
           ? persistedGeneration!.referenceAssetId
           : (input.referenceAssetId ?? null);
@@ -967,6 +1057,50 @@ export const publishingDraftRouter = router({
               message: "选择的候选图已不可用，请换一张再试",
             });
           }
+        }
+        const instructions = resuming
+          ? coverInstructions(
+              persistedGeneration!.instructions,
+              persistedGeneration!.feedback
+            )
+          : coverInstructions(input.instructions, input.feedback);
+        const artReference = resuming
+          ? (persistedGeneration!.artReference ?? null)
+          : (input.artReference ?? null);
+        const explorationRound = current.publishing.coverRounds.length + 1;
+        const discardPreviousRound =
+          referenceAssetId == null && current.publishing.coverRounds.length > 0;
+        let prompt = persistedGeneration?.prompt ?? "";
+        if (!resuming) {
+          const story = await getStoryById(input.storyId, ctx.user.id);
+          if (!story) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "故事不存在" });
+          }
+          const referenceMoodInstruction = artReference?.mood.length
+            ? [`参考图的情绪语言：${artReference.mood.join("、")}`]
+            : [];
+          prompt = await engineerImagePrompt({
+            prompt: composePublishingCoverContentBrief({
+              facts: core.facts,
+              visualConcept: discardPreviousRound ? "" : core.visualConcept,
+              thesis: core.thesis,
+              emotion: core.emotion,
+            }),
+            storyId: input.storyId,
+            projectId: story.projectId ?? undefined,
+            emotion: core.emotion,
+            userInstructions: [...instructions, ...referenceMoodInstruction],
+            artDirection: coverArtRecipe(storyArtRecipe(story), artReference),
+            outputPurpose: "publishing-cover",
+            referencePolicy: referenceAssetId
+              ? "preserve-composition"
+              : artReference
+                ? "style-only"
+                : "none",
+            fourCandidateExploration: true,
+            discardPreviousRound,
+            explorationRound,
+          });
         }
         let generation = persistedGeneration;
         if (persistedGeneration?.operationToken === operationToken) {
@@ -1042,8 +1176,11 @@ export const publishingDraftRouter = router({
                 versionId: current.publishing.activeVersionId ?? "v1",
                 status: "pending",
                 platform: input.platform,
+                provider: coverProvider,
                 referenceAssetId,
                 feedback: input.feedback?.trim() ?? "",
+                instructions,
+                artReference,
                 prompt,
                 roundId: randomUUID(),
                 taskId: null,
@@ -1099,41 +1236,112 @@ export const publishingDraftRouter = router({
           });
         };
         const imageOptions = {
-          provider: PUBLISHING_COVER_PROFILE.provider,
+          provider:
+            coverProvider === "flux-schnell" ? "gpt-image" : coverProvider,
           aspectRatio: PUBLISHING_COVER_PROFILE.aspectRatio,
+          fidelity: coverProvider === "gpt-image" ? "draft" : "final",
           mjTimeoutMs: PUBLISHING_COVER_PROFILE.mjTimeoutMs,
+          // Exploration rounds run in MJ v7 Draft Mode: same art lineage, about
+          // ten times faster and half the price, so changing direction is cheap.
+          ...(coverProvider === "midjourney"
+            ? { mjDraft: PUBLISHING_COVER_PROFILE.mjDraft }
+            : {}),
           onMidjourneyTaskAccepted: persistTaskId,
+          onProviderTaskAccepted: persistTaskId,
         } as const;
+        /**
+         * `prompt` is the full Chinese art brief: the record of intent, and
+         * what GPT-image reads well. Midjourney and Flux do not — a multi-page
+         * Chinese brief dilutes the subject and actively raises the odds of
+         * lettering and signatures appearing in the pixels. They get a short
+         * English scene compiled from that same brief instead.
+         */
+        let renderPrompt = prompt;
+        if (!generation.taskId && coverProvider !== "gpt-image") {
+          const compiled = await invokeAgent(
+            [
+              {
+                role: "system",
+                content:
+                  // Diffusion models have no "not". Every forbidden noun that
+                  // reaches the positive prompt is an instruction to draw it —
+                  // "no newspapers" is how a man ends up buried in newspapers.
+                  // So the compiler must produce a purely affirmative scene and
+                  // never name the thing being avoided; suppression is the
+                  // --no parameter's job, not this text's.
+                  "Compile the supplied Chinese art brief into ONE English visual prompt describing a single vertical painted scene. Keep the confirmed story facts: who is present, how they relate, the setting, and what is happening. HIGHEST PRIORITY: the 【用户持续要求】 block is the user's own binding art direction — carry EVERY concrete detail in it through literally (subject gender, age, hair, clothing, season, palette, light, mood), even when compressing. Appearance the source text never states is NOT a story fact; it is the user's to decide, so never soften or drop such a direction on the grounds that it might alter the story — obey it. If a direction says the two people are women, both figures are unambiguously women. Losing one of these details is a failure; sacrifice background description instead. Drop only section headers, policy sentences, and rules — describe what is visibly in the picture. Write purely affirmative description: state what IS there, never what is absent, forbidden or avoided. This is a standalone painting, NOT a cover, poster, magazine, layout or publication — never use those words. Never write the words text, letters, words, writing, title, headline, sign, label, logo, watermark, signature, book, newspaper, screen, or clock, not even to forbid them, and never describe any surface that would carry writing. Do not quote or transliterate source words. Output English only, one paragraph, under 140 words.",
+              },
+              { role: "user", content: prompt },
+            ],
+            400
+          );
+          const compiledText = compiled.text.trim();
+          if (compiledText) {
+            renderPrompt = `${compiledText} Handcrafted tempera and gouache painting, visible paper grain and brush marks, one continuous vertical scene, quiet empty space near the top, plain unmarked surfaces throughout.`;
+          }
+        }
         const generated = generation.taskId
-          ? await resume302MidjourneyTask(generation.taskId, imageOptions)
-          : referenceAsset
-            ? await editImage(referenceAsset.imageUrl, prompt, {
-                ...imageOptions,
-                requireInputImage: true,
-                imageWeight: 1.4,
-              })
-            : await generateImage(prompt, {
-                ...imageOptions,
-              });
-        const generatedCandidates = generated.candidates?.slice(0, 4) ?? [];
-        if (generated.status !== "ok" || generatedCandidates.length !== 4) {
+          ? coverProvider === "gpt-image"
+            ? await resume302GptImageTask(generation.taskId, imageOptions)
+            : await resume302MidjourneyTask(generation.taskId, imageOptions)
+          : coverProvider === "flux-schnell"
+            ? await generateDraftImage(renderPrompt, imageOptions)
+            : referenceAsset
+              ? await editImage(referenceAsset.imageUrl, renderPrompt, {
+                  ...imageOptions,
+                  requireInputImage: true,
+                  imageWeight: PUBLISHING_COVER_REVISE_IMAGE_WEIGHT,
+                })
+              : await generateImage(renderPrompt, {
+                  ...imageOptions,
+                });
+        const expectedCandidateCount = coverProvider === "midjourney" ? 4 : 1;
+        const generatedCandidates =
+          generated.candidates?.slice(0, expectedCandidateCount) ??
+          (generated.imageUrl
+            ? [
+                {
+                  imageUrl: generated.imageUrl,
+                  imageKey: generated.imageKey,
+                },
+              ]
+            : []);
+        // A partial delivery is still a paid delivery: only a round that
+        // produced nothing usable counts as a failure.
+        if (generated.status !== "ok" || generatedCandidates.length === 0) {
+          const acceptedTaskId = generated.providerTaskId?.trim() || "";
+          const submissionUncertain =
+            generated.submissionUncertain === true &&
+            !generation.taskId &&
+            !acceptedTaskId;
+          const acceptedButReceiptWriteFailed =
+            Boolean(acceptedTaskId) && !generation.taskId;
+          const generationError = acceptedButReceiptWriteFailed
+            ? `302 已受理封面任务 ${acceptedTaskId}，但本地保存任务编号时暂时失败（${generated.message || "本地状态写入异常"}）。系统只会恢复同一个任务，不会重新提交或重复扣费。`
+            : submissionUncertain
+              ? `提交封面任务时连接中断，未拿到 302 任务编号，无法确认上游是否已经受理（${generated.message || "网络连接异常"}）。系统不会自动重新提交，以免重复扣费；请先在 302 后台确认本轮记录，再决定是否开启新一轮。`
+              : generated.message ||
+                `本轮只收到 ${generatedCandidates.length} 张可用候选`;
           const failed = await writePublishingDraftState({
             storyId: input.storyId,
             userId: ctx.user.id,
             operation: {
               type: "update_cover_generation",
               operationToken,
-              status: "failed",
-              error:
-                generated.message ||
-                `本轮只收到 ${generatedCandidates.length} 张可用候选`,
+              status: submissionUncertain ? "unknown" : "failed",
+              ...(acceptedButReceiptWriteFailed
+                ? { taskId: acceptedTaskId }
+                : {}),
+              error: generationError,
             },
           });
           return {
             status: "error" as const,
             error:
-              generated.message ||
-              `本轮只收到 ${generatedCandidates.length} 张可用候选，没有写入正式封面，请重试`,
+              submissionUncertain || acceptedButReceiptWriteFailed
+                ? generationError
+                : generated.message ||
+                  `本轮只收到 ${generatedCandidates.length} 张可用候选，没有写入正式封面，请重试`,
             estimate,
             ...failed,
             coverAsset: await loadPublishingCoverAsset({
@@ -1147,6 +1355,33 @@ export const publishingDraftRouter = router({
               userId: ctx.user.id,
             }),
           };
+        }
+
+        /**
+         * Pixel QA advises, it never discards. The round is already paid for,
+         * so every candidate reaches the user; risky ones are merely labelled
+         * and the user decides whether a mark is acceptable. QA being down is
+         * likewise not a reason to withhold images the provider delivered.
+         */
+        let flaggedIndexes = new Set<number>();
+        let qualityCheckUnavailable = false;
+        try {
+          const qualityInspection = await inspectStaticImageCandidates({
+            candidates: generatedCandidates,
+          });
+          flaggedIndexes = new Set(
+            qualityInspection.rejected.map(candidate => candidate.originalIndex)
+          );
+        } catch (error) {
+          // Swallowing this made a crashed inspection indistinguishable from a
+          // clean one, so obviously text-covered candidates were presented as
+          // if they had passed. Deliver them anyway — they are paid for — but
+          // say plainly that nothing checked them.
+          qualityCheckUnavailable = true;
+          console.warn(
+            "[publishingDraft] 像素质检不可用，本轮候选未经检查：",
+            error instanceof Error ? error.message : error
+          );
         }
 
         const images = await Promise.all(
@@ -1174,13 +1409,21 @@ export const publishingDraftRouter = router({
           platform: input.platform,
           sourceCoreRevision: core.revision,
           parentAssetId: referenceAsset?.id ?? null,
-          feedback: input.feedback?.trim() ?? "",
-          assetIds: [
-            images[0]!.id,
-            images[1]!.id,
-            images[2]!.id,
-            images[3]!.id,
-          ],
+          feedback: generation.feedback || input.feedback?.trim() || "",
+          instructions: generation.instructions ?? instructions,
+          artReference: generation.artReference ?? artReference,
+          assetIds: images.map(image => image.id),
+          ...(flaggedIndexes.size > 0
+            ? {
+                qualityFlaggedAssetIds: images
+                  .filter((_image, index) => flaggedIndexes.has(index + 1))
+                  .map(image => image.id),
+                qualityCheckedAt: createdAt,
+              }
+            : {}),
+          ...(qualityCheckUnavailable
+            ? { qualityCheckUnavailable: true, qualityCheckedAt: createdAt }
+            : {}),
           createdAt,
         };
         const saved = await writePublishingDraftState({

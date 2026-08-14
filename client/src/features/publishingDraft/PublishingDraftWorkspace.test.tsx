@@ -84,6 +84,9 @@ vi.mock("@/lib/trpc", () => {
         prepareVideoStoryboard: { useMutation: mutation },
         confirmVideoStoryboard: { useMutation: mutation },
       },
+      artAgent: {
+        analyzeReference: { useMutation: mutation },
+      },
     },
   };
 });
@@ -107,7 +110,9 @@ vi.mock("@/components/ui/dialog", () => ({
   ),
 }));
 
-import PublishingDraftWorkspace from "./PublishingDraftWorkspace";
+import PublishingDraftWorkspace, {
+  isCurrentCoverReferenceAnalysis,
+} from "./PublishingDraftWorkspace";
 import { publishingErrorMessage } from "./publishingDraftViewModel";
 
 describe("PublishingDraftWorkspace", () => {
@@ -128,6 +133,38 @@ describe("PublishingDraftWorkspace", () => {
     ).toBe(
       "本地服务未连接，图片任务没有提交，也不会扣费。恢复服务后再试一次。"
     );
+  });
+
+  it("rejects a stale cover-reference analysis after a newer request or scope reset", () => {
+    const requestedScope = { storyId: 7, versionId: "v1" };
+
+    expect(
+      isCurrentCoverReferenceAnalysis({
+        requestId: 1,
+        currentRequestId: 2,
+        requestedScope,
+        currentScope: requestedScope,
+        activeStoryId: 7,
+      })
+    ).toBe(false);
+    expect(
+      isCurrentCoverReferenceAnalysis({
+        requestId: 2,
+        currentRequestId: 2,
+        requestedScope,
+        currentScope: { storyId: 7, versionId: "v2" },
+        activeStoryId: 7,
+      })
+    ).toBe(false);
+    expect(
+      isCurrentCoverReferenceAnalysis({
+        requestId: 2,
+        currentRequestId: 2,
+        requestedScope,
+        currentScope: requestedScope,
+        activeStoryId: 8,
+      })
+    ).toBe(false);
   });
 
   it("keeps the editor empty until the user explicitly generates a draft", () => {
@@ -167,7 +204,10 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("修改用途或观众会创建新版本");
     expect(html).toContain("四图候选 · 对话修改 · 明确采用");
     expect(html).toContain("一次生成 4 张粗选图");
-    expect(html).toContain("也可以先说下一批要怎么变");
+    expect(html).toContain("本轮补充要求 · 两个生成按钮都会参考");
+    expect(html).toContain("美术参考图 · 可选");
+    expect(html).toContain("只提取风格、色彩、光线、构图与材质");
+    expect(html).toContain("上传参考图");
     expect(html).toContain("先选一张，再修改");
     expect(html).toContain("选择与采用免费");
     expect(html).not.toContain("主视觉为正方形");
@@ -356,8 +396,175 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("第 1 轮");
     expect(html).toContain("不满意，换");
     expect(html.match(/第 [1-4] 张封面候选/g)).toHaveLength(8);
-    expect(html).toContain("先点上面任意一张");
+    expect(html).toContain("不选图也可以直接换一批");
     expect(html).not.toContain("采用并进入视频");
+  });
+
+  it("explains a legacy round whose risky candidates were discarded", () => {
+    const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu",
+      content: {
+        title: "真正稀缺的不是 token",
+        body: "人的判断不该被浪费。",
+        tags: [],
+      },
+      now: 2,
+    });
+    state.coverRounds = [
+      {
+        id: "round-qa",
+        platform: "xiaohongshu",
+        sourceCoreRevision: 1,
+        parentAssetId: null,
+        feedback: "",
+        assetIds: [51, 54],
+        qualityRejectedCount: 2,
+        qualityCheckedAt: 3,
+        createdAt: 3,
+      },
+    ];
+    story.publishing = state;
+    api.readData = {
+      storyId: 7,
+      storyRevision: 3,
+      publishing: state,
+      coverAsset: null,
+      coverEstimate: {
+        currency: "CNY",
+        estimatedCny: 0.68,
+        candidateCount: 4,
+      },
+      coverRounds: [
+        {
+          ...state.coverRounds[0],
+          candidates: [51, 54].map(id => ({
+            id,
+            imageUrl: `/api/images/candidate-${id}.png`,
+            imageKey: `candidate-${id}.png`,
+            createdAt: new Date("2026-08-05T00:00:00Z"),
+          })),
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+
+    expect(html).toContain(
+      "这是早期轮次：当时有 2 张因检测到文字、Logo 或水印被隔离，未保留。"
+    );
+    expect(html).not.toContain("这一轮有图片资产暂时不可用");
+  });
+
+  it("says plainly when a round was never inspected instead of implying it passed", () => {
+    const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu",
+      content: {
+        title: "真正稀缺的不是 token",
+        body: "人的判断不该被浪费。",
+        tags: [],
+      },
+      now: 2,
+    });
+    state.coverRounds = [
+      {
+        id: "round-unchecked",
+        platform: "xiaohongshu",
+        sourceCoreRevision: 1,
+        parentAssetId: null,
+        feedback: "",
+        assetIds: [51, 52, 53, 54],
+        qualityCheckUnavailable: true,
+        qualityCheckedAt: 3,
+        createdAt: 3,
+      },
+    ];
+    story.publishing = state;
+    api.readData = {
+      storyId: 7,
+      storyRevision: 3,
+      publishing: state,
+      coverAsset: null,
+      coverEstimate: {
+        currency: "CNY",
+        estimatedCny: 0.34,
+        candidateCount: 4,
+      },
+      coverRounds: [
+        {
+          ...state.coverRounds[0],
+          candidates: [51, 52, 53, 54].map(id => ({
+            id,
+            imageUrl: `/api/images/candidate-${id}.png`,
+            imageKey: `candidate-${id}.png`,
+            createdAt: new Date("2026-08-05T00:00:00Z"),
+          })),
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+
+    expect(html).toContain("本轮没有经过像素质检");
+    expect(html).toContain("请自己确认后再采用");
+    // No false reassurance and no phantom badges.
+    expect(html).not.toContain("疑似文字");
+    expect(html).not.toContain("是否采用由你决定");
+  });
+
+  it("shows every flagged candidate as selectable rather than hiding it", () => {
+    const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
+      platform: "xiaohongshu",
+      content: {
+        title: "真正稀缺的不是 token",
+        body: "人的判断不该被浪费。",
+        tags: [],
+      },
+      now: 2,
+    });
+    state.coverRounds = [
+      {
+        id: "round-flagged",
+        platform: "xiaohongshu",
+        sourceCoreRevision: 1,
+        parentAssetId: null,
+        feedback: "",
+        assetIds: [51, 52, 53, 54],
+        qualityFlaggedAssetIds: [52, 53],
+        qualityCheckedAt: 3,
+        createdAt: 3,
+      },
+    ];
+    story.publishing = state;
+    api.readData = {
+      storyId: 7,
+      storyRevision: 3,
+      publishing: state,
+      coverAsset: null,
+      coverEstimate: {
+        currency: "CNY",
+        estimatedCny: 0.68,
+        candidateCount: 4,
+      },
+      coverRounds: [
+        {
+          ...state.coverRounds[0],
+          candidates: [51, 52, 53, 54].map(id => ({
+            id,
+            imageUrl: `/api/images/candidate-${id}.png`,
+            imageKey: `candidate-${id}.png`,
+            createdAt: new Date("2026-08-05T00:00:00Z"),
+          })),
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(<PublishingDraftWorkspace />);
+
+    // All four paid images stay on screen and stay selectable.
+    expect(html.match(/第 [1-4] 张封面候选/g)).toHaveLength(8);
+    expect(html.match(/疑似文字/g)).toHaveLength(2);
+    expect(html).toContain("是否采用由你决定");
+    expect(html).not.toContain("已自动隔离");
   });
 
   it("does not issue any publishing query without an active Story", () => {

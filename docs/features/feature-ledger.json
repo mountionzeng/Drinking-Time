@@ -1,0 +1,799 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-13",
+  "features": [
+    {
+      "id": "story-ownership",
+      "name": "Story 作为唯一工作单元",
+      "status": "working",
+      "userValue": "同一项目中的不同故事不会互相覆盖镜头、素材和编辑状态。",
+      "entryPoints": [
+        "server/routers/storyAgent.ts",
+        "server/routers/creationAgent.ts"
+      ],
+      "owners": [
+        "server/db.ts",
+        "server/services/storySync.ts"
+      ],
+      "evidence": [
+        "server/routers.storyAgent.test.ts",
+        "server/services/storyMaterials.test.ts",
+        "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md"
+      ],
+      "invariants": [
+        "所有故事读写同时校验 storyId 与 userId。",
+        "不得使用 latest Story 作为写入回退。",
+        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。"
+      ],
+      "dependencies": [],
+      "replaces": [
+        "legacy-project-scoped-shots"
+      ],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-06-13",
+          "kind": "feature",
+          "summary": "镜头与素材归属从 projectId 收敛到 storyId。"
+        },
+        {
+          "date": "2026-08-10",
+          "kind": "fix",
+          "summary": "隔离跨 Story 的迟到更新。"
+        },
+        {
+          "date": "2026-08-13",
+          "kind": "fix",
+          "summary": "素材仓库后端停止聚合其他故事的视频，并在前端按当前 storyId 过滤全部 Take 来源。"
+        }
+      ]
+    },
+    {
+      "id": "legacy-project-scoped-shots",
+      "name": "历史项目级镜头归属",
+      "status": "superseded",
+      "userValue": "历史上按项目保存镜头的实现。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/data-structure-diagnosis.md"
+      ],
+      "invariants": [],
+      "dependencies": [],
+      "replaces": [],
+      "replacedBy": "story-ownership",
+      "knownGaps": [],
+      "history": []
+    },
+    {
+      "id": "stable-shot-identity",
+      "name": "稳定镜头身份",
+      "status": "working",
+      "userValue": "镜头重排和重新生成时，图片、视频与人工修改仍能跟随正确镜头。",
+      "entryPoints": [
+        "shared/shotIdentity.ts"
+      ],
+      "owners": [
+        "shared/shotIdentity.ts"
+      ],
+      "evidence": [
+        "shared/shotIdentity.test.ts"
+      ],
+      "invariants": [
+        "资产关联不得只依赖可变 shotNo。",
+        "稳定身份不得跨故事复用。"
+      ],
+      "dependencies": [
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-06-13",
+          "kind": "feature",
+          "summary": "建立规范镜号与稳定身份归一化。"
+        }
+      ]
+    },
+    {
+      "id": "image-asset-history",
+      "name": "图片候选与采用历史",
+      "status": "working",
+      "userValue": "新生成图片不会静默覆盖已采用图片，旧候选仍可恢复。",
+      "entryPoints": [
+        "server/services/imageAssets.ts"
+      ],
+      "owners": [
+        "server/services/imageAssets.ts",
+        "server/services/storyMaterials.ts"
+      ],
+      "evidence": [
+        "server/services/imageAssets.test.ts"
+      ],
+      "invariants": [
+        "只有明确采用事件改变当前图片。",
+        "未采用和失配素材仍可作为未分配素材找回。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-06-13",
+          "kind": "feature",
+          "summary": "统一图片资产查询、候选和采用语义。"
+        }
+      ]
+    },
+    {
+      "id": "prompt-lineage",
+      "name": "提示词修订谱系",
+      "status": "working",
+      "userValue": "提示词修改、来源和生成素材之间可以追溯，不靠覆盖旧内容更新。",
+      "entryPoints": [
+        "server/routers/promptLineage.ts"
+      ],
+      "owners": [
+        "server/services/promptLineage.ts",
+        "server/services/promptLineageStore.ts"
+      ],
+      "evidence": [
+        "server/services/promptLineage.test.ts",
+        "server/routers.promptLineage.test.ts"
+      ],
+      "invariants": [
+        "已确认修订不可原地覆盖。",
+        "镜头级覆盖不得反向修改故事级快照。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-06-29",
+          "kind": "feature",
+          "summary": "建立故事、镜头和生成记录之间的提示词谱系。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "镜头字段保存等待谱系同步完成后再返回，消除短暂不一致与跨所有权串扰。"
+        }
+      ]
+    },
+    {
+      "id": "single-dev-environment",
+      "name": "单一开发服务与数据隔离",
+      "status": "broken",
+      "userValue": "所有本地页面读取同一份故事数据，避免多 worktree 数据分裂。",
+      "entryPoints": [
+        "scripts/env-status.ts",
+        "scripts/dev-preflight.ts"
+      ],
+      "owners": [
+        "scripts/env-status.ts",
+        "scripts/dev-preflight.ts",
+        "server/db.ts"
+      ],
+      "evidence": [
+        "scripts/env-status.test.ts"
+      ],
+      "invariants": [
+        "只有主仓库可运行端口 3000。",
+        "测试必须使用临时 LOCAL_PERSIST_PATH。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "login-copy-refer worktree 正在端口 3050 运行第二个 dev server，违反单一服务铁律。",
+        "当前 5 个 worktree 含 local-persist.json，存在数据分裂风险。"
+      ],
+      "history": [
+        {
+          "date": "2026-06-12",
+          "kind": "feature",
+          "summary": "建立环境仪表盘和数据防误写规则。"
+        },
+        {
+          "date": "2026-08-09",
+          "kind": "fix",
+          "summary": "禁止 worktree 端口回退和预检前误杀服务。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "refactor",
+          "summary": "测试按文件隔离临时持久化目录并把并发收敛到 1–4 workers，避免争用主数据。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "env:status 发现 login-copy-refer 在端口 3050 运行第二个服务，实际环境已违反单一服务约束；按自动化限制只报告，未停止进程。"
+        }
+      ]
+    },
+    {
+      "id": "feature-lifecycle-ledger",
+      "name": "Agent 功能生命账本",
+      "status": "working",
+      "userValue": "让 Codex 和 Claude 开工前知道已有能力，结束后留下可追溯证据，避免功能被遗忘、重复或静默覆盖。",
+      "entryPoints": [
+        "AGENTS.md",
+        "docs/features/README.md"
+      ],
+      "owners": [
+        "docs/features/feature-ledger.json",
+        "scripts/validate-feature-ledger.ts"
+      ],
+      "evidence": [
+        "scripts/validate-feature-ledger.test.ts",
+        "command:pnpm feature:validate"
+      ],
+      "invariants": [
+        "可能覆盖、削弱、替换或删除已有功能时必须暂停并取得用户明确批准。",
+        "持久用户能力建卡，修复、重构和性能优化只追加到所属功能历史。",
+        "working 必须引用真实入口和可执行证据。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "当前由仓库规则和校验命令执行，尚未接入 CI 强制检查。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-11",
+          "kind": "feature",
+          "summary": "建立统一功能卡、Agent 开工硬闸门与机器校验，首批回填新旧功能。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-workspace",
+      "name": "个人社交发布工作台",
+      "status": "working",
+      "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      ],
+      "owners": [
+        "server/routers/publishingDraft.ts",
+        "shared/publishingDraft.ts",
+        "server/services/imageGen.ts",
+        "server/services/staticImageQualityGate.ts",
+        "shared/imageRenderCost.ts",
+        "server/services/renderGate.ts"
+      ],
+      "evidence": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
+        "server/routers.publishingDraft.test.ts",
+        "server/services/imageGen.test.ts",
+        "server/services/staticImageQualityGate.test.ts",
+        "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts"
+      ],
+      "invariants": [
+        "平台稿相互隔离。",
+        "切换工作台不自动触发付费生成。",
+        "生成结果只进入候选轮次，不自动覆盖正式封面。",
+        "已受理的异步付费任务必须保存任务编号并恢复同一任务，不能自动重复提交。",
+        "像素质检只标注风险，不得丢弃或隐藏已付费候选。",
+        "开新一轮前必须先恢复仍欠恢复的已付费任务，不得覆盖任务编号。",
+        "供应商失败必须保留 error.cause，断连不得被误判为不可恢复。",
+        "改写供应商失败文案时必须转发 providerTaskId 与 submissionUncertain，不得把可能已扣费的提交呈现为安全重试。",
+        "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
+        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "image-asset-history"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-05",
+          "kind": "feature",
+          "summary": "增加六平台发布文字稿与封面工作台。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "工作台入口、平台隔离、封面恢复和无付费副作用路径通过全量测试。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "Midjourney 提交阶段断连且未取得任务编号时保存为未知状态并阻止自动重提，避免把可能已扣费的任务误报成安全失败。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "图片供应商熔断改为按 provider 隔离；GPT-image 改用异步提交、免费轮询、任务编号持久化和可恢复查询，避免同步长连接断开及全局误封。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "增加 3:4 极速备用封面通道，使用纯英文短视觉提示、边缘签名清洗和无字像素质检；故事 1178 已通过正式 generateCover 路由生成候选资产 1481。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "像素质检由拦截改为提示：4 张付费候选全部落库并展示，疑似含文字的只加标记，采用与否由用户决定；质检通道故障或供应商只回部分图也不再作废整轮。Midjourney/Flux 改用由中文简报编译的短英文提示，避免长中文提示反向诱发文字污染。故事 1178 被隔离的付费任务 1786445875048369 经正式恢复路径找回 4 张候选（资产 1482-1485），未重复扣费，正式封面仍为空。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "fix",
+          "summary": "封面链路三处付费安全修复：① 点「换 4 张」会生成新 operationToken 从而跳过恢复分支、覆盖未恢复的付费任务编号，改为先接管旧凭据做恢复；② 供应商断连只存 error.message，undici 的 terminated 丢掉 cause 后不含可恢复关键词，付费任务卡死，改为携带 cause 并把 terminated/other side closed/epipe 纳入可恢复；③ Midjourney 正向提示词里列举「不要报纸/招牌/书页」等名词反而诱发这些物体，改为纯肯定式英文编译 + 用 --no 压制版式与印刷装饰（杂志封面、刊头、海报、报纸、条形码、边框、签名、印章）。故事 1178 实测：文字/Logo/水印/边框/签名全部消失，用户要求的女性主体、唯美、暖调全部落实。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "feature",
+          "summary": "封面候选轮改用 MJ v7 Draft Mode（同源画风、约 10 倍速度、半价），一轮估价由 ¥0.68 降至 ¥0.34；估价从 PUBLISHING_COVER_PROFILE 推导，测试不再写死金额。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "图生图与 Forge 回退在改写失败文案时只转发 status/message，丢掉 providerTaskId 和 submissionUncertain：付费凭据被丢弃，且提交阶段断连会被标成 failed 而非 unknown，界面因此鼓励可能重复扣费的重试。统一改用 keepProviderReceipt 转发。故事 1178 第 5 轮（11:12 图生图，提交阶段 SocketError）正是被这个缺口影响。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "MJ 图生图把参考图原样 base64 塞进提交体：1.6–2.0MB 的封面候选 PNG 编码后每张约 2.7MB，三张参考图使单次 POST 逼近 8MB，正是本机反复出现 SocketError: other side closed 的请求形态（当日文生图全部成功、两次图生图全部断连）。改为提交前将参考图缩到长边 1024 并转 JPEG，压缩失败则回落原图，不让优化本身成为新的失败点。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "提示词内部存在相互否决的规则：【内容主权】要求不得反转故事事实，【用户持续要求】又自带「不能篡改已经确认的故事事实」的尾巴，于是「我希望是两个女性」这类外观指定被模型当成越界而稳定忽略——故事20连续三轮、图生图与文生图两条路径都复现。改为明确划界：故事事实是人物关系、事件与含义，原文未明写的性别、年龄、发型、衣着、配色、光线属于美术空缺，用户指定优先于默认想象，仅在与明写事实直接冲突时才不执行。中文装配层与英文编译层同步修正。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "像素质检抛异常时被静默吞掉，未标记也未记录日志，导致「质检崩了」与「质检通过」在数据上完全相同：故事1176 第10轮四张顶部满是伪汉字却无任何标记。改为显式记录 qualityCheckUnavailable 并打日志，界面明说本轮未经质检、需自行确认，不再用沉默冒充通过。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "图生图用 --iw 1.4 提交，参考图权重压过提示词，「按意见修改这张」只能调氛围、无法执行用户真正写的指令（去掉文字、把人物换成女性），因为参考图每轮把文字和原人物重新灌回去；降到 0.5 让提示词主导、参考图仍提供构图与配色。另增 pnpm check:images 只读体检命令（域名 fake-IP 劫持、TCP 耗时、空请求延迟），出图前可自查环境，不提交任务不扣费。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-versions",
+      "name": "发布文字稿版本",
+      "status": "working",
+      "userValue": "核心内容变化创建新版本，旧文字稿、封面和视频交接不会被覆盖。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      ],
+      "owners": [
+        "shared/publishingDraft.ts",
+        "server/services/publishingPersistence.ts",
+        "server/routers/publishingDraft.ts"
+      ],
+      "evidence": [
+        "shared/publishingDraft.test.ts",
+        "server/routers.publishingDraft.test.ts"
+      ],
+      "invariants": [
+        "V2 写入不得改变 V1。",
+        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
+      ],
+      "dependencies": [
+        "publishing-workspace"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-06",
+          "kind": "feature",
+          "summary": "增加版本容器、选择、重命名与待更新状态。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "创建、切换、重命名、幂等回执、CAS 和版本隔离生命周期通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-narrative-intent",
+      "name": "版本化用途与受众识别",
+      "status": "working",
+      "userValue": "系统知道用户为什么写、写给谁，并让不同用途版本互不覆盖。",
+      "entryPoints": [
+        "server/archive/storyIntent.ts",
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
+      ],
+      "owners": [
+        "server/archive/storyIntent.ts",
+        "shared/publishingDraft.ts"
+      ],
+      "evidence": [
+        "server/archive/storyIntent.test.ts",
+        "shared/publishingDraft.test.ts"
+      ],
+      "invariants": [
+        "用途与平台是不同维度。",
+        "意图必须绑定发布版本。"
+      ],
+      "dependencies": [
+        "publishing-versions"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "实时社交媒体趋势适配不在当前可运行能力内。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-09",
+          "kind": "feature",
+          "summary": "增加留存、赠予、分享、介绍/说服、创作用途与核心/次要受众。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "意图识别、版本绑定、用途与平台分离路径通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "safe-story-titles",
+      "name": "安全自动标题与手动改名",
+      "status": "working",
+      "userValue": "故事更容易识别，同时自动命名不会覆盖人工标题。",
+      "entryPoints": [
+        "client/src/features/storyAgent/StoryAgentContext.tsx"
+      ],
+      "owners": [
+        "shared/storyTitle.ts",
+        "server/db.ts",
+        "server/routers/storyAgent.ts"
+      ],
+      "evidence": [
+        "shared/storyTitle.test.ts",
+        "client/src/features/storyAgent/storyTitle.test.ts",
+        "server/routers.storyAgent.test.ts"
+      ],
+      "invariants": [
+        "自动标题只能替换未命名标题。",
+        "改名只更新标题，不重写 Story body。"
+      ],
+      "dependencies": [
+        "story-ownership"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-09",
+          "kind": "feature",
+          "summary": "增加首轮自动标题、手动改名和迟到请求保护。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "自动标题、手动改名、占位标题条件更新和迟到响应隔离通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-video-storyboard",
+      "name": "文字稿转确认式视频故事版",
+      "status": "working",
+      "userValue": "将完整发布文字稿转成可检查剧本和镜头，确认后再写入正式故事版。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingVideoScriptReview.tsx"
+      ],
+      "owners": [
+        "server/services/publishingVideoStoryboard.ts",
+        "server/services/publishingVideoStoryboardPersistence.ts"
+      ],
+      "evidence": [
+        "server/services/publishingVideoStoryboard.test.ts",
+        "server/services/publishingVideoStoryboardPersistence.test.ts",
+        "client/src/features/publishingDraft/PublishingVideoScriptReview.test.tsx",
+        "client/src/features/storyAgent/views/storyboardOneClickVideo.test.ts",
+        "server/services/imageGenerationReference.test.ts",
+        "server/services/videoPromptDirector.test.ts"
+      ],
+      "invariants": [
+        "预览不得修改正式镜头。",
+        "确认以 Story CAS 原子写入。",
+        "重新生成不得自动删除人工修改和媒体。"
+      ],
+      "dependencies": [
+        "publishing-versions",
+        "stable-shot-identity",
+        "image-asset-history"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-08",
+          "kind": "feature",
+          "summary": "增加发布稿转视频剧本预览与确认。"
+        },
+        {
+          "date": "2026-08-10",
+          "kind": "fix",
+          "summary": "重新生成时保留故事数据与稳定镜头身份。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "feature",
+          "summary": "补齐一键视频交接与版本级确认写入。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "预览无副作用、确认 CAS、重生成保留资产和一键交接通过全量测试。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "fix",
+          "summary": "故事版图片要求继承文字稿正式封面的美术风格；视频以当前主图为首帧并继承封面风格；约 30 秒一键生成会先为缺图镜头生成四图候选并按固定左上规则采用主图，再提交视频。"
+        },
+        {
+          "date": "2026-08-12",
+          "kind": "verification",
+          "summary": "封面仅作为 scene-style 而非人物身份、当前图优先、缺图阶段规划和视频导演封面输入均有自动化测试。"
+        }
+      ]
+    },
+    {
+      "id": "storyboard-voice-lane",
+      "name": "故事版语音栏",
+      "status": "working",
+      "userValue": "旁白朗读与环境声、音效、视频画面要求保持分离。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ],
+      "owners": [
+        "client/src/features/storyAgent/views/storyboardVoiceText.ts",
+        "server/routers/storyAgent.ts"
+      ],
+      "evidence": [
+        "client/src/features/storyAgent/views/storyboardVoiceText.test.ts",
+        "server/routers.storyAgent.test.ts"
+      ],
+      "invariants": [
+        "朗读文本不得混入环境声说明。",
+        "语音结果必须绑定正确 Story 和镜头。"
+      ],
+      "dependencies": [
+        "publishing-video-storyboard",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-09",
+          "kind": "feature",
+          "summary": "在故事版增加独立语音区域和 TTS 入口。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "旁白与声音分栏、TTS 复用和跨 Story 迟到结果隔离通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "unified-static-image-prompt",
+      "name": "统一静态图片提示词工程",
+      "status": "working",
+      "userValue": "所有静态图片遵循一致美术和安全规则，同时由故事决定具体内容与色彩。",
+      "entryPoints": [
+        "server/services/renderGate.ts"
+      ],
+      "owners": [
+        "server/services/renderGate.ts",
+        "server/services/imageGen.ts"
+      ],
+      "evidence": [
+        "server/services/renderGate.test.ts",
+        "server/services/imageGen.test.ts"
+      ],
+      "invariants": [
+        "每个静态图入口只经过一次权威编译。",
+        "provider adapter 不再追加第二套美术规则。",
+        "最终硬规则不可被用户或参考图覆盖。"
+      ],
+      "dependencies": [
+        "prompt-lineage"
+      ],
+      "replaces": [
+        "legacy-image-render-instruction"
+      ],
+      "knownGaps": [
+        "当前实现仍在未提交工作区，需在提示词评测语义决策后与 main 收敛。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-10",
+          "kind": "refactor",
+          "summary": "将封面、故事与镜头静态图规则收敛到 renderGate。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "封面、故事和镜头静态图入口、硬规则与供应商适配路径通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "legacy-image-render-instruction",
+      "name": "历史第二套图片渲染规则",
+      "status": "superseded",
+      "userValue": "历史上向部分图片路径追加固定衣着和色调规则。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "git:HEAD:server/services/imageRenderInstruction.ts"
+      ],
+      "invariants": [],
+      "dependencies": [],
+      "replaces": [],
+      "replacedBy": "unified-static-image-prompt",
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-10",
+          "kind": "decision",
+          "summary": "删除第二套规则，避免与权威编译器冲突。"
+        }
+      ]
+    },
+    {
+      "id": "static-image-quality-quarantine",
+      "name": "静态图片污染质检与隔离",
+      "status": "working",
+      "userValue": "文字、Logo、水印等污染图片不会展示，也不会因整轮失败自动重复扣费。",
+      "entryPoints": [
+        "server/services/imageGen.ts"
+      ],
+      "owners": [
+        "server/services/staticImageQualityGate.ts",
+        "server/services/imageGen.ts"
+      ],
+      "evidence": [
+        "server/services/staticImageQualityGate.test.ts",
+        "server/services/imageGen.test.ts"
+      ],
+      "invariants": [
+        "质检只判断文字污染，不替代审美选择。",
+        "整轮污染不得自动再次提交付费任务。"
+      ],
+      "dependencies": [
+        "unified-static-image-prompt",
+        "image-asset-history"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "当前实现仍在未提交工作区。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-10",
+          "kind": "feature",
+          "summary": "增加生成后逐图文字污染质检与候选隔离。"
+        },
+        {
+          "date": "2026-08-11",
+          "kind": "verification",
+          "summary": "误杀边界、部分污染、整轮失败、无自动重复付费和恢复路径通过全量测试。"
+        }
+      ]
+    },
+    {
+      "id": "private-art-curation",
+      "name": "私人美术策展库",
+      "status": "observing",
+      "userValue": "把创始人认可的图片提炼为可复用美术 DNA，同时隔离水印、身份和原图情节。",
+      "entryPoints": [
+        "scripts/import-art-references.ts",
+        "scripts/analyze-art-references.ts"
+      ],
+      "owners": [
+        "server/services/artRepository.ts",
+        "server/services/artRepositoryCatalog.ts",
+        "art-repository/catalog.json"
+      ],
+      "evidence": [
+        "server/services/artRepository.test.ts"
+      ],
+      "invariants": [
+        "线上只消费清洗后且状态为 ready 的 DNA。",
+        "原图路径、人物身份、具体情节和污染文字不得进入运行时提示词。",
+        "付费分析必须显式确认。"
+      ],
+      "dependencies": [
+        "unified-static-image-prompt"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "99 张参考图仍为 pending-analysis。",
+        "当前实现未提交且尚未迁移私有对象存储。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-10",
+          "kind": "feature",
+          "summary": "建立去重导入、待分析目录和清洗后 DNA 读取边界。"
+        }
+      ]
+    },
+    {
+      "id": "prompt-evaluation-loop",
+      "name": "提示词评测与重复修改反馈闭环",
+      "status": "observing",
+      "userValue": "用最终提示词和真实修改历史衡量效果，让反复出现的问题可以被系统识别。",
+      "entryPoints": [
+        "git:main:evals/run.ts"
+      ],
+      "owners": [
+        "git:main:evals/run.ts",
+        "git:main:evals/recurringEditAnalysis.ts",
+        "git:main:server/services/recurringEditSignal.ts"
+      ],
+      "evidence": [
+        "git:main:evals/metrics/metrics.test.ts",
+        "git:main:evals/recurringEditAnalysis.test.ts",
+        "git:main:docs/codex-verify-prompt-eval-harness.md"
+      ],
+      "invariants": [
+        "评分对象是最终编译提示词。",
+        "损坏、超长或注入型修改记录不得污染后续上下文。"
+      ],
+      "dependencies": [
+        "prompt-lineage",
+        "unified-static-image-prompt"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "实现只在本地 main，当前功能分支尚未收敛。",
+        "评测评分对象是 compilePromptTargets().finalText，但静态图供应商实际接收 engineerImagePrompt()/renderViaGate() 输出；尚未决定保留两级编译并分别评测，还是让谱系 finalText 成为 Render Gate 输入。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-10",
+          "kind": "feature",
+          "summary": "加入最终提示词评分、权重信号、检索评测和 recurring edit 隔离。"
+        }
+      ]
+    },
+    {
+      "id": "realtime-social-context",
+      "name": "实时社交媒体语境适配",
+      "status": "planned",
+      "userValue": "根据实时平台语境帮助用户调整表达，而不只是识别用途和受众。",
+      "entryPoints": [],
+      "owners": [],
+      "evidence": [
+        "docs/brainstorms/2026-08-05-publishing-draft-workspace-requirements.md"
+      ],
+      "invariants": [
+        "不得把静态用途识别冒充实时趋势能力。",
+        "外部信息来源和成本必须显式。"
+      ],
+      "dependencies": [
+        "publishing-narrative-intent"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "尚未发现可执行数据源、刷新策略或生成入口。"
+      ],
+      "history": []
+    }
+  ]
+}

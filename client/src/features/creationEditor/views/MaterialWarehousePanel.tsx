@@ -306,9 +306,12 @@ export function videoWarehouseActionState(input: {
 export function buildMaterialWarehouseVideoItems(
   materialState: StoryMaterialState | null | undefined
 ): WarehouseVideoItem[] {
+  const storyId = materialState?.storyId;
+  const belongsToStory = (take: VideoTakeAsset) => take.storyId === storyId;
   const rows: WarehouseVideoItem[] = [];
   for (const shot of materialState?.shots ?? []) {
     for (const take of shot.videoTakes) {
+      if (!belongsToStory(take)) continue;
       rows.push({
         take,
         shotNo: shot.shotNo,
@@ -321,6 +324,7 @@ export function buildMaterialWarehouseVideoItems(
     }
   }
   for (const take of materialState?.unassignedVideoTakes ?? []) {
+    if (!belongsToStory(take)) continue;
     rows.push({
       take,
       shotNo: null,
@@ -332,6 +336,7 @@ export function buildMaterialWarehouseVideoItems(
     });
   }
   for (const take of materialState?.reusableVideoTakes ?? []) {
+    if (!belongsToStory(take)) continue;
     rows.push({
       take,
       shotNo: null,

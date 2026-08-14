@@ -8,6 +8,7 @@ import {
   FilePenLine,
   GitBranch,
   Image as ImageIcon,
+  ImagePlus,
   Loader2,
   MessageCircleMore,
   Pencil,
@@ -15,6 +16,7 @@ import {
   RefreshCcw,
   Sparkles,
   Undo2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -33,6 +35,7 @@ import {
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { trpc } from "@/lib/trpc";
+import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
   PUBLISHING_NARRATIVE_PURPOSES,
@@ -41,6 +44,7 @@ import {
   getXThreadStats,
   type PublishingDraftContent,
   type PublishingEditAssessment,
+  type PublishingCoverArtReference,
   type PublishingCoverRound,
   type PublishingPlatformId,
   type PublishingNarrativeIntent,
@@ -48,7 +52,10 @@ import {
   type PublishingStoryCoreContent,
   publishingNarrativePurposeLabel,
 } from "@shared/publishingDraft";
-import { estimatePublishingCoverCost } from "@shared/imageRenderCost";
+import {
+  estimatePublishingCoverCost,
+  estimatePublishingCoverFallbackCost,
+} from "@shared/imageRenderCost";
 import { usePublishingPlatformSelection } from "./PublishingPlatformPicker";
 import { downloadPublishingCover } from "./publishingCoverExport";
 import {
@@ -96,6 +103,79 @@ type StoryScopedPublishingCoverRounds = {
   storyId: number;
   rounds: PublishingCoverRoundView[];
 };
+
+type CoverArtDnaField = Exclude<
+  keyof PublishingCoverArtReference,
+  "label" | "imageUrl"
+>;
+
+type CoverReferenceAnalysisScope = {
+  storyId: number | null;
+  versionId: string;
+};
+
+export function isCurrentCoverReferenceAnalysis({
+  requestId,
+  currentRequestId,
+  requestedScope,
+  currentScope,
+  activeStoryId,
+}: {
+  requestId: number;
+  currentRequestId: number;
+  requestedScope: CoverReferenceAnalysisScope;
+  currentScope: CoverReferenceAnalysisScope;
+  activeStoryId: number | null;
+}): boolean {
+  return (
+    requestId === currentRequestId &&
+    requestedScope.storyId != null &&
+    requestedScope.storyId === currentScope.storyId &&
+    requestedScope.versionId === currentScope.versionId &&
+    publishingStoryScopeMatches(requestedScope.storyId, activeStoryId)
+  );
+}
+
+const COVER_ART_DNA_FIELDS: Array<{
+  key: CoverArtDnaField;
+  label: string;
+  placeholder: string;
+}> = [
+  { key: "style", label: "风格", placeholder: "如：纸本拼贴、表现主义绘画" },
+  { key: "palette", label: "色彩", placeholder: "如：矿物色、局部高纯度红" },
+  { key: "light", label: "光线", placeholder: "如：光成为实体、无明确光源" },
+  { key: "composition", label: "构图", placeholder: "如：极端留白、失衡尺度" },
+  { key: "material", label: "材质", placeholder: "如：粗纸纤维、透明树脂" },
+  { key: "mood", label: "情绪", placeholder: "如：荒诞、温柔的不安" },
+];
+
+function uniqueCoverInstructions(values: string[]): string[] {
+  const normalized = values
+    .map(value => value.trim().slice(0, 2_000))
+    .filter(Boolean);
+  return normalized
+    .filter((value, index) => normalized.lastIndexOf(value) === index)
+    .slice(-20);
+}
+
+function instructionsFromRound(
+  round: PublishingCoverRoundView | null | undefined
+): string[] {
+  return uniqueCoverInstructions([
+    ...(round?.instructions ?? []),
+    round?.feedback ?? "",
+  ]);
+}
+
+function normalizeArtDnaValues(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map(item => item.trim().slice(0, 300)).filter(Boolean))
+  ).slice(0, 12);
+}
+
+function parseArtDnaInput(value: string): string[] {
+  return normalizeArtDnaValues(value.split(/[\n,，、;；]+/));
+}
 
 function parseTags(value: string): string[] {
   return Array.from(
@@ -171,6 +251,7 @@ export default function PublishingDraftWorkspace({
   const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
   const generateCoverMut = trpc.publishingDraft.generateCover.useMutation();
   const adoptCoverMut = trpc.publishingDraft.adoptCoverCandidate.useMutation();
+  const analyzeReferenceMut = trpc.artAgent.analyzeReference.useMutation();
   const buildVideoStoryboardMut =
     trpc.publishingDraft.buildVideoStoryboard.useMutation();
   const utils = trpc.useUtils();
@@ -185,6 +266,18 @@ export default function PublishingDraftWorkspace({
     number | null
   >(null);
   const [coverFeedback, setCoverFeedback] = useState("");
+  const [coverInstructions, setCoverInstructions] = useState<string[]>([]);
+  const [coverArtReference, setCoverArtReference] =
+    useState<PublishingCoverArtReference | null>(null);
+  const [coverReferencePreview, setCoverReferencePreview] = useState<
+    string | null
+  >(null);
+  const coverReferenceInputRef = useRef<HTMLInputElement | null>(null);
+  const coverReferenceAnalysisRequestRef = useRef(0);
+  const coverReferenceAnalysisScopeRef = useRef<CoverReferenceAnalysisScope>({
+    storyId: activeStoryId,
+    versionId: publishing.activeVersionId ?? "v1",
+  });
   const [coverGenerationMode, setCoverGenerationMode] =
     useState<CoverGenerationMode | null>(null);
   const coverGenerationInFlightRef = useRef(false);
@@ -205,13 +298,21 @@ export default function PublishingDraftWorkspace({
     () => defaultPublishingNarrativeIntent()
   );
   const versionId = publishing.activeVersionId ?? "v1";
+  coverReferenceAnalysisScopeRef.current = {
+    storyId: activeStoryId,
+    versionId,
+  };
 
   useEffect(() => {
+    coverReferenceAnalysisRequestRef.current += 1;
     setCoverStudioOpen(false);
     setRewriteInstruction("");
     setActiveCoverRoundId(null);
     setSelectedCoverAssetId(null);
     setCoverFeedback("");
+    setCoverInstructions([]);
+    setCoverArtReference(null);
+    setCoverReferencePreview(null);
     setCoverGenerationMode(null);
     coverGenerationInFlightRef.current = false;
     recoveredCoverOperationRef.current = null;
@@ -282,7 +383,8 @@ export default function PublishingDraftWorkspace({
   const coverBusy =
     coverGenerationMode !== null ||
     generateCoverMut.isPending ||
-    adoptCoverMut.isPending;
+    adoptCoverMut.isPending ||
+    analyzeReferenceMut.isPending;
   const videoPreparing = buildVideoStoryboardMut.isPending;
   const videoBusy = videoPreparing;
   const coverGenerationPresentation =
@@ -294,6 +396,9 @@ export default function PublishingDraftWorkspace({
       : null);
   const coverEstimate =
     readQuery.data?.coverEstimate ?? estimatePublishingCoverCost();
+  const coverFallbackEstimate =
+    readQuery.data?.coverFallbackEstimate ??
+    estimatePublishingCoverFallbackCost();
   const coverRounds =
     generatedCoverRounds?.storyId === activeStoryId
       ? generatedCoverRounds.rounds
@@ -304,6 +409,13 @@ export default function PublishingDraftWorkspace({
     readQuery.data?.storyId === activeStoryId
       ? readQuery.data.publishing.coverGeneration
       : null;
+  const canUseCoverFallback =
+    (persistedCoverGeneration?.status === "unknown" &&
+      !persistedCoverGeneration.taskId &&
+      (persistedCoverGeneration.provider ?? "midjourney") === "midjourney") ||
+    (persistedCoverGeneration?.provider === "gpt-image" &&
+      (persistedCoverGeneration.status === "failed" ||
+        persistedCoverGeneration.status === "unknown"));
   const activeCoverRound =
     coverRounds.find(round => round.id === activeCoverRoundId) ??
     coverRounds.at(-1) ??
@@ -572,15 +684,103 @@ export default function PublishingDraftWorkspace({
   };
 
   const openCoverStudio = () => {
-    setActiveCoverRoundId(coverRounds.at(-1)?.id ?? null);
+    const latestRound = coverRounds.at(-1) ?? null;
+    setActiveCoverRoundId(latestRound?.id ?? null);
     setSelectedCoverAssetId(null);
     setCoverFeedback("");
+    setCoverInstructions(instructionsFromRound(latestRound));
+    setCoverArtReference(latestRound?.artReference ?? null);
+    setCoverReferencePreview(latestRound?.artReference?.imageUrl ?? null);
     setCoverStudioOpen(true);
+  };
+
+  const analyzeCoverArtReference = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      if (!file.type.startsWith("image/")) toast.error("请选择一张图片");
+      return;
+    }
+    const storyId = activeStoryId;
+    const capturedVersionId = versionId;
+    const requestId = ++coverReferenceAnalysisRequestRef.current;
+    const isCurrentRequest = () =>
+      isCurrentCoverReferenceAnalysis({
+        requestId,
+        currentRequestId: coverReferenceAnalysisRequestRef.current,
+        requestedScope: { storyId, versionId: capturedVersionId },
+        currentScope: coverReferenceAnalysisScopeRef.current,
+        activeStoryId: storySpineStore.getState().activeStoryId,
+      });
+    try {
+      const optimized = await optimizeImageForUpload(file, {
+        profile: "analysis",
+      });
+      const result = await analyzeReferenceMut.mutateAsync({
+        imageBase64: optimized.base64,
+        mimeType: optimized.mimeType,
+        fileName: optimized.fileName,
+        instruction:
+          "只提取可迁移的美术语言，不要把图中的人物、物体、地点或情节当成生成内容。",
+      });
+      if (!isCurrentRequest()) return;
+      const persistentImageUrl =
+        !result.originalImageUrl.startsWith("data:") &&
+        result.originalImageUrl.length <= 2_000
+          ? result.originalImageUrl
+          : undefined;
+      setCoverArtReference({
+        label: (file.name.trim() || "用户参考图").slice(0, 160),
+        ...(persistentImageUrl ? { imageUrl: persistentImageUrl } : {}),
+        style: normalizeArtDnaValues(result.analysis.visualStyle),
+        palette: normalizeArtDnaValues(result.analysis.colorPalette),
+        light: normalizeArtDnaValues(
+          result.analysis.lighting ? [result.analysis.lighting] : []
+        ),
+        composition: normalizeArtDnaValues(
+          result.analysis.composition ? [result.analysis.composition] : []
+        ),
+        material: normalizeArtDnaValues(
+          result.analysis.materialsAndTextures ?? []
+        ),
+        mood: normalizeArtDnaValues(result.analysis.mood),
+      });
+      setCoverReferencePreview(optimized.dataUrl);
+      toast.success("参考图已分析；你可以修改下面的美术 DNA");
+    } catch (error) {
+      if (!isCurrentRequest()) return;
+      toast.error(
+        publishingErrorMessage(error, "参考图分析失败，现有美术方向没有改变")
+      );
+    } finally {
+      if (coverReferenceInputRef.current) {
+        coverReferenceInputRef.current.value = "";
+      }
+    }
+  };
+
+  const updateCoverArtDna = (field: CoverArtDnaField, value: string) => {
+    setCoverArtReference(current =>
+      current ? { ...current, [field]: parseArtDnaInput(value) } : current
+    );
+  };
+
+  const removeCoverInstruction = (index: number) => {
+    setCoverInstructions(current =>
+      current.filter((_, candidateIndex) => candidateIndex !== index)
+    );
+  };
+
+  const updateCoverInstruction = (index: number, value: string) => {
+    setCoverInstructions(current =>
+      current.map((instruction, candidateIndex) =>
+        candidateIndex === index ? value : instruction
+      )
+    );
   };
 
   const generateCover = async (
     mode: "fresh" | "revise",
-    existingOperationToken?: string
+    existingOperationToken?: string,
+    provider: "midjourney" | "gpt-image" | "flux-schnell" = "midjourney"
   ) => {
     if (
       !draft ||
@@ -595,20 +795,30 @@ export default function PublishingDraftWorkspace({
     const storyId = activeStoryId;
     const operationToken =
       existingOperationToken ?? `cover-${crypto.randomUUID()}`;
+    const submittedInstructions = uniqueCoverInstructions([
+      ...coverInstructions,
+      coverFeedback,
+    ]);
     coverGenerationInFlightRef.current = true;
     setCoverGenerationMode(mode);
     try {
       const result = await generateCoverMut.mutateAsync({
         storyId,
         platform,
+        provider,
         basePublishingRevision: publishing.revision,
         referenceAssetId:
           mode === "revise" ? selectedCoverAsset?.id : undefined,
         feedback: coverFeedback.trim() || undefined,
+        instructions: submittedInstructions,
+        artReference: coverArtReference,
         operationToken,
         costConfirmation: {
           accepted: true,
-          estimatedCny: coverEstimate.estimatedCny,
+          estimatedCny:
+            provider === "midjourney"
+              ? coverEstimate.estimatedCny
+              : coverFallbackEstimate.estimatedCny,
         },
       });
       if (result.status === "confirmation_required") {
@@ -631,7 +841,22 @@ export default function PublishingDraftWorkspace({
             publishing: result.publishing,
             coverAsset: result.coverAsset,
             coverRounds: result.coverRounds,
-            coverEstimate: result.estimate,
+            coverEstimate:
+              provider === "midjourney"
+                ? {
+                    currency: result.estimate.currency,
+                    estimatedCny: result.estimate.estimatedCny,
+                    candidateCount: 4,
+                  }
+                : coverEstimate,
+            coverFallbackEstimate:
+              provider === "gpt-image"
+                ? {
+                    currency: result.estimate.currency,
+                    estimatedCny: result.estimate.estimatedCny,
+                    candidateCount: 1,
+                  }
+                : coverFallbackEstimate,
           }));
           setGeneratedCoverRounds({ storyId, rounds: result.coverRounds });
         }
@@ -653,14 +878,40 @@ export default function PublishingDraftWorkspace({
           publishing: result.publishing,
           coverAsset: result.coverAsset,
           coverRounds: result.coverRounds,
-          coverEstimate: result.estimate,
+          coverEstimate:
+            provider === "midjourney"
+              ? {
+                  currency: result.estimate.currency,
+                  estimatedCny: result.estimate.estimatedCny,
+                  candidateCount: 4,
+                }
+              : coverEstimate,
+          coverFallbackEstimate:
+            provider === "gpt-image"
+              ? {
+                  currency: result.estimate.currency,
+                  estimatedCny: result.estimate.estimatedCny,
+                  candidateCount: 1,
+                }
+              : coverFallbackEstimate,
         };
       });
       setGeneratedCoverRounds({ storyId, rounds: result.coverRounds });
       setActiveCoverRoundId(result.coverRound.id);
       setSelectedCoverAssetId(null);
+      setCoverInstructions(
+        result.coverRound.instructions ?? submittedInstructions
+      );
+      setCoverArtReference(result.coverRound.artReference ?? coverArtReference);
       setCoverFeedback("");
-      toast.success("新一轮 4 张候选已就绪，正式封面没有改变");
+      const flaggedCount = result.coverRound.qualityFlaggedAssetIds?.length ?? 0;
+      toast.success(
+        result.coverRound.qualityCheckUnavailable
+          ? `新一轮 ${result.coverRound.candidates.length} 张候选已就绪，但本轮未经过像素质检，请自行确认有无文字`
+          : flaggedCount > 0
+            ? `新一轮 ${result.coverRound.candidates.length} 张候选已就绪，其中 ${flaggedCount} 张被标记为疑似含文字，正式封面没有改变`
+            : `新一轮 ${result.coverRound.candidates.length} 张候选已就绪，正式封面没有改变`
+      );
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "封面生成失败，原封面仍然保留")
@@ -682,10 +933,12 @@ export default function PublishingDraftWorkspace({
     ) {
       return;
     }
-    recoveredCoverOperationRef.current = persistedCoverGeneration.operationToken;
+    recoveredCoverOperationRef.current =
+      persistedCoverGeneration.operationToken;
     void generateCover(
       persistedCoverGeneration.referenceAssetId ? "revise" : "fresh",
-      persistedCoverGeneration.operationToken
+      persistedCoverGeneration.operationToken,
+      persistedCoverGeneration.provider ?? "midjourney"
     );
   }, [
     persistedCoverGeneration?.operationToken,
@@ -791,6 +1044,8 @@ export default function PublishingDraftWorkspace({
         coverAsset: result.coverAsset,
         coverRounds: current?.coverRounds ?? coverRounds,
         coverEstimate: current?.coverEstimate ?? coverEstimate,
+        coverFallbackEstimate:
+          current?.coverFallbackEstimate ?? coverFallbackEstimate,
       }));
       setGeneratedCover({ storyId, asset: result.coverAsset });
       setCoverStudioOpen(false);
@@ -1534,7 +1789,9 @@ export default function PublishingDraftWorkspace({
           </DialogHeader>
           <div className="space-y-4 py-1 text-sm">
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-foreground">主用途</span>
+              <span className="text-xs font-medium text-foreground">
+                主用途
+              </span>
               <select
                 value={intentDraft.primaryPurpose}
                 onChange={event => {
@@ -1577,7 +1834,10 @@ export default function PublishingDraftWorkspace({
                         setIntentDraft(current => ({
                           ...current,
                           secondaryPurposes: event.target.checked
-                            ? [...current.secondaryPurposes, purpose].slice(0, 4)
+                            ? [...current.secondaryPurposes, purpose].slice(
+                                0,
+                                4
+                              )
                             : current.secondaryPurposes.filter(
                                 item => item !== purpose
                               ),
@@ -1747,11 +2007,11 @@ export default function PublishingDraftWorkspace({
                   </DialogTitle>
                   <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
                     一次生成 4
-                    张粗选图。你可以选一张，在这里直接说怎么改；只有点击“采用这张”后，它才会成为正式封面。
+                    张粗选图，全部展示；像素质检只把疑似含文字的标出来，不替你丢弃。你可以选一张，在这里直接说怎么改；只有点击“采用这张”后，它才会成为正式封面。
                   </DialogDescription>
                 </div>
                 <div className="rounded-full border border-[var(--panel-border)] bg-[var(--nayin-surface)] px-3 py-1.5 text-[10px] text-muted-foreground">
-                  新一轮 ¥{coverEstimate.estimatedCny.toFixed(2)} ·
+                  新一轮 ¥{coverEstimate.estimatedCny.toFixed(2)} · 含像素质检 ·
                   选择与采用免费
                 </div>
               </div>
@@ -1822,11 +2082,14 @@ export default function PublishingDraftWorkspace({
                 </div>
                 <div
                   role="radiogroup"
-                  aria-label="本轮四张封面候选"
+                  aria-label="本轮封面候选"
                   className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4"
                 >
                   {activeCoverRound.candidates.map((candidate, index) => {
                     const selected = candidate.id === selectedCoverAsset?.id;
+                    const flagged = (
+                      activeCoverRound.qualityFlaggedAssetIds ?? []
+                    ).includes(candidate.id);
                     return (
                       <button
                         key={candidate.id}
@@ -1858,11 +2121,33 @@ export default function PublishingDraftWorkspace({
                             index + 1
                           )}
                         </span>
+                        {flagged ? (
+                          <span
+                            title="像素质检怀疑这张有文字、Logo 或水印，仅作提示，你仍然可以采用"
+                            className="absolute right-2 top-2 rounded-full bg-amber-500/90 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
+                          >
+                            疑似文字
+                          </span>
+                        ) : null}
                       </button>
                     );
                   })}
                 </div>
-                {activeCoverRound.candidates.length !== 4 ? (
+                {activeCoverRound.qualityCheckUnavailable ? (
+                  <p className="mt-2 text-[11px] leading-5 text-amber-700">
+                    本轮没有经过像素质检（质检通道当时不可用），画面里的文字、Logo
+                    或水印不会被标出来，请自己确认后再采用。
+                  </p>
+                ) : (activeCoverRound.qualityFlaggedAssetIds?.length ?? 0) > 0 ? (
+                  <p className="mt-2 text-[11px] leading-5 text-amber-700">
+                    {`本轮 ${activeCoverRound.candidates.length} 张全部保留可选；其中 ${activeCoverRound.qualityFlaggedAssetIds!.length} 张被像素质检标记为疑似含文字、Logo 或水印，仅作提示，是否采用由你决定。`}
+                  </p>
+                ) : (activeCoverRound.qualityRejectedCount ?? 0) > 0 ? (
+                  <p className="mt-2 text-[11px] leading-5 text-amber-700">
+                    {`这是早期轮次：当时有 ${activeCoverRound.qualityRejectedCount} 张因检测到文字、Logo 或水印被隔离，未保留。`}
+                  </p>
+                ) : activeCoverRound.candidates.length !==
+                  activeCoverRound.assetIds.length ? (
                   <p className="mt-2 text-[11px] text-rose-700">
                     这一轮有图片资产暂时不可用，你仍可查看其他轮次或重新生成。
                   </p>
@@ -1878,20 +2163,112 @@ export default function PublishingDraftWorkspace({
                 </p>
                 <p className="mx-auto mt-1.5 max-w-md text-[11px] leading-5 text-muted-foreground">
                   Midjourney 会生成 4 张原生 3:4
-                  候选。提示词会强力压制文字、乱码、Logo
-                  与水印，但最终审美仍由你决定。
+                  候选。每张都会在展示前检查文字、乱码、Logo、账号与水印；污染候选不会进入可选轮次，最终审美仍由你决定。
                 </p>
               </div>
             )}
+
+            <div className="rounded-xl border border-[var(--panel-border)] bg-[var(--nayin-surface)]/55 p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                    美术参考图 · 可选
+                  </p>
+                  <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                    系统只提取风格、色彩、光线、构图与材质，不复制图中的人物和内容。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => coverReferenceInputRef.current?.click()}
+                  disabled={coverBusy}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--panel-border)] px-2.5 text-[10px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+                >
+                  {analyzeReferenceMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                  {coverArtReference ? "更换参考图" : "上传参考图"}
+                </button>
+                <input
+                  ref={coverReferenceInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={event => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) void analyzeCoverArtReference(file);
+                  }}
+                />
+              </div>
+
+              {coverArtReference ? (
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-center gap-2 rounded-lg border border-[var(--panel-border)] bg-[var(--background)] p-2">
+                    {coverReferencePreview || coverArtReference.imageUrl ? (
+                      <img
+                        src={
+                          coverReferencePreview || coverArtReference.imageUrl
+                        }
+                        alt={coverArtReference.label}
+                        className="h-12 w-12 rounded-md object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-md bg-[var(--nayin-surface)] text-muted-foreground">
+                        <ImageIcon className="h-4 w-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[11px] font-medium text-foreground">
+                        {coverArtReference.label}
+                      </p>
+                      <p className="mt-0.5 text-[9px] text-muted-foreground">
+                        以下是将参与生成的美术 DNA，可直接改写或清空。
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCoverArtReference(null);
+                        setCoverReferencePreview(null);
+                      }}
+                      disabled={coverBusy}
+                      aria-label="移除封面美术参考图"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-rose-500/10 hover:text-rose-700 disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {COVER_ART_DNA_FIELDS.map(field => (
+                      <label
+                        key={field.key}
+                        className="grid grid-cols-[40px_1fr] items-center gap-2 text-[9px] font-medium text-muted-foreground"
+                      >
+                        <span>{field.label}</span>
+                        <input
+                          value={coverArtReference[field.key].join("、")}
+                          onChange={event =>
+                            updateCoverArtDna(field.key, event.target.value)
+                          }
+                          disabled={coverBusy}
+                          placeholder={field.placeholder}
+                          className="h-8 min-w-0 rounded-md border border-[var(--panel-border)] bg-[var(--background)] px-2 text-[10px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             <div className="rounded-xl border border-[var(--panel-border)] bg-[var(--nayin-surface)]/55 p-3.5">
               <label
                 htmlFor="publishing-cover-feedback"
                 className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground"
               >
-                {selectedCoverAsset
-                  ? "告诉我怎么修改这张"
-                  : "也可以先说下一批要怎么变"}
+                本轮补充要求 · 两个生成按钮都会参考
               </label>
               <textarea
                 id="publishing-cover-feedback"
@@ -1904,13 +2281,55 @@ export default function PublishingDraftWorkspace({
                 placeholder={
                   selectedCoverAsset
                     ? "例如：去掉画面里的字体，让人物更小、机器更压迫……"
-                    : "例如：不要海报感，不要任何文字，画面更克制、更像电影剧照。"
+                    : "例如：不要海报感，不要任何文字；让空间更陌生，材质更有想象力。"
                 }
               />
+              {coverInstructions.length > 0 ? (
+                <div className="mt-2.5">
+                  <p className="text-[9px] font-medium text-muted-foreground">
+                    后续每一轮都会继续参考
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {coverInstructions.map((instruction, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--panel-border)] bg-[var(--background)] py-1 pl-2.5 pr-1 text-[10px] text-foreground"
+                      >
+                        <input
+                          value={instruction}
+                          onChange={event =>
+                            updateCoverInstruction(index, event.target.value)
+                          }
+                          onBlur={() =>
+                            setCoverInstructions(current =>
+                              uniqueCoverInstructions(current)
+                            )
+                          }
+                          disabled={coverBusy}
+                          aria-label={`持续要求 ${index + 1}`}
+                          className="min-w-[72px] max-w-[260px] bg-transparent outline-none disabled:opacity-60"
+                          style={{
+                            width: `${Math.min(30, Math.max(8, instruction.length + 1))}ch`,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeCoverInstruction(index)}
+                          disabled={coverBusy}
+                          aria-label={`不再参考：${instruction}`}
+                          className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-rose-500/10 hover:text-rose-700 disabled:opacity-50"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
                 {selectedCoverAsset
-                  ? "点击“修改这张”后，下一轮会保留它的主要构图，再按你的意见生成。"
-                  : "先点上面任意一张，修改和采用按钮就会出现；不选图也可以直接换一批。"}
+                  ? "“修改这张”会保留主要构图；“不满意，换 4 张”会重新构思。两者都会使用上面的全部文字要求。"
+                  : "不选图也可以直接换一批；上面的文字会与已有要求一起用于下一轮。"}
               </p>
             </div>
           </div>
@@ -1945,6 +2364,18 @@ export default function PublishingDraftWorkspace({
               {coverRounds.length > 0 ? "不满意，换" : "生成"} 4 张 · ¥
               {coverEstimate.estimatedCny.toFixed(2)}
             </ActionButton>
+            {canUseCoverFallback ? (
+              <ActionButton
+                onClick={() =>
+                  void generateCover("fresh", undefined, "flux-schnell")
+                }
+                disabled={coverBusy}
+              >
+                <Sparkles className="h-4 w-4" />
+                极速备用通道生成 1 张 · ¥
+                {coverFallbackEstimate.estimatedCny.toFixed(2)}
+              </ActionButton>
+            ) : null}
             {selectedCoverAsset ? (
               <ActionButton
                 onClick={() => void generateCover("revise")}
