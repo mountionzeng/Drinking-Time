@@ -20,6 +20,7 @@ import {
   emptyPublishingDraftState,
   type PublishingDraftState,
 } from "@shared/publishingDraft";
+import type { ScopeKey } from "@shared/scopedResource";
 import type { PublishingDraftBufferMap } from "../storyAgentPersistence";
 
 export type StorySaveStatus = "idle" | "saving" | "saved" | "error";
@@ -218,6 +219,23 @@ function resolve<T>(current: T, next: SetterInput<T>): T {
   return typeof next === "function"
     ? (next as (current: T) => T)(current)
     : next;
+}
+
+/**
+ * 用途：把 spine 当前的 activeStoryId 转换为跨层统一的 Story ScopeKey；
+ *   替代此前各处直接比较 `activeStoryId` 数字的零散写法。没有活跃 Story
+ *   时返回 null，调用方必须显式处理"当前无 scope"这个状态，不能假装它是
+ *   某个默认 storyId。
+ * 调用入口（尚未接入，U7 落地）：Story Agent Context 判断响应/订阅是否仍
+ *   属于当前 Story；目前还没有生产调用方。
+ * 下游调用：@shared/scopedResource.ts 的 scopeKeysEqual。
+ */
+export function currentStoryScopeKey(
+  state: Pick<StorySpineData, "activeStoryId">
+): ScopeKey | null {
+  return state.activeStoryId == null
+    ? null
+    : { resourceKind: "story", storyId: state.activeStoryId };
 }
 
 export const useStorySpine = create<StorySpineState>()(set => {

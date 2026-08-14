@@ -7,6 +7,7 @@ const repoRoot = path.resolve(srcRoot, "..", "..");
 const componentsRoot = path.join(srcRoot, "components");
 const archiveRoot = path.join(srcRoot, "archive");
 const sharedRoot = path.join(repoRoot, "shared");
+const serverRoot = path.join(repoRoot, "server");
 
 const allowedTopLevelComponents = new Set(["ErrorBoundary.tsx", "ui"]);
 const sourceExtensions = new Set([".ts", ".tsx"]);
@@ -63,6 +64,15 @@ const activeSourcesPromise = activeSourceFiles().then(readSources);
 const sharedSourcesPromise = listFiles(sharedRoot)
   .then(files => files.filter(file => sourceExtensions.has(path.extname(file))))
   .then(readSources);
+const serverSourcesPromise = listFiles(serverRoot)
+  .then(files =>
+    files.filter(
+      file =>
+        sourceExtensions.has(path.extname(file)) &&
+        !file.endsWith(".test.ts")
+    )
+  )
+  .then(readSources);
 
 describe("frontend architecture boundaries", () => {
   it("keeps shared contracts independent from client and server implementations", async () => {
@@ -100,6 +110,50 @@ describe("frontend architecture boundaries", () => {
       if (retiredImportPattern.test(content)) {
         violations.push(toRepoPath(file));
       }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps ScopeKey free of a userId field", async () => {
+    const scopedResourcePath = path.join(sharedRoot, "scopedResource.ts");
+    const content = await fs.readFile(scopedResourcePath, "utf8");
+    const start = content.indexOf("export type ScopeKey");
+    const end = content.indexOf("export type ScopedRevision");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const scopeKeyBlock = content.slice(start, end);
+
+    expect(/\buserId\s*:/.test(scopeKeyBlock)).toBe(false);
+  });
+
+  it("does not construct a ScopeKey-shaped object with an embedded client userId in server code", async () => {
+    // A regex line-window heuristic, not an AST check — it catches the
+    // realistic case (userId set near a resourceKind-discriminated object
+    // literal or via a helper) but not every possible construction (e.g.
+    // userId assigned many lines away, or via spread from an unrelated
+    // variable). Revisit with a real AST check once U3 starts wiring
+    // ScopeKey into server code and this guard has real violations to catch.
+    const sources = await serverSourcesPromise;
+    // Matches a `resourceKind:` key regardless of whether its value is a
+    // string literal or an identifier/expression (e.g. `resourceKind: kind`),
+    // since the latter is the realistic shape once server code builds
+    // ScopeKeys through a helper instead of inline literals.
+    const resourceKindLinePattern = /\bresourceKind\s*:\s*\S/;
+    const userIdKeyPattern = /\buserId\s*:/;
+    const violations: string[] = [];
+
+    for (const { file, content } of sources) {
+      const lines = content.split("\n");
+      lines.forEach((line, index) => {
+        if (!resourceKindLinePattern.test(line)) return;
+        const windowStart = Math.max(0, index - 6);
+        const windowEnd = Math.min(lines.length, index + 7);
+        const window = lines.slice(windowStart, windowEnd).join("\n");
+        if (userIdKeyPattern.test(window)) {
+          violations.push(`${toRepoPath(file)}:${index + 1}`);
+        }
+      });
     }
 
     expect(violations).toEqual([]);

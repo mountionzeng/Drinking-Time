@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { storySpineStore } from "./storySpine";
+import { currentStoryScopeKey, storySpineStore } from "./storySpine";
 
 describe("storySpine", () => {
   beforeEach(() => {
@@ -212,5 +212,13 @@ describe("storySpine", () => {
         .replaceStoryScopeIfCurrent(secondLoad, replacement)
     ).toBe(true);
     expect(storySpineStore.getState().activeStoryId).toBe(20);
+  });
+
+  it("derives a Story ScopeKey from activeStoryId, or null when no story is active", () => {
+    expect(currentStoryScopeKey({ activeStoryId: null })).toBeNull();
+    expect(currentStoryScopeKey({ activeStoryId: 20 })).toEqual({
+      resourceKind: "story",
+      storyId: 20,
+    });
   });
 });

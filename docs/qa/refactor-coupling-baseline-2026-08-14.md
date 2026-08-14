@@ -1,0 +1,96 @@
+# 耦合基线：U2（2026-08-14）
+
+> 给 U3、U4、U5、U8 用的同一套统计口径。三类代表性改动分别记录"这件事目前
+> 要触达多少个生产文件、有哪些重复的 writer/DTO 重建点/状态解释点/
+> direct-db seam"。后续单元完成对应重构后，用同一方法重新统计，与本文档
+> 的数字对比作为验收证据（见各单元 Success Metrics）。
+
+## 方法
+
+- 只数**生产代码**文件（不含 `*.test.ts`）。
+- "触达"指：要正确、完整地实现这类改动，需要理解或修改的文件——包括
+  writer（实际落库）、DTO 重建点（把持久化形状转成返回给调用方/UI 的形状）、
+  状态解释点（对某个状态/类型字段做 if/switch 分支并据此改变行为）、
+  direct-db/provider seam（绕开既有领域 persistence 模块，直接调
+  `server/db.ts` 或 provider SDK 的非 persistence 层代码）。
+- 行号为撰写时（2026-08-14，`codex/jb` 合并 U1 后）的快照，后续代码演进会
+  漂移；重新统计时以函数名/职责定位，不必逐行核对。
+
+---
+
+## A. Story 文本字段（title / logline / theme / summary）
+
+| 文件 | 角色 | 说明 |
+|---|---|---|
+| `server/db.ts` | writer | `createStory`（新建，2026行）、`updateStory`（整包覆盖，2056行）、`updateStoryTitle`（仅 title，2081行，无 CAS）、`updateStoryTitleIfUntitled`（仅未命名时写 title，2104行）、`updateStoryBodyIfRevision`（CAS 写 body，2148行） |
+| `server/services/storyBodyPersistence.ts` | writer（封装层） | `persistPreparedStoryBody` 包一层 `getStoryById` + `updateStoryBodyIfRevision`，是 title/logline/theme/summary 随 body 一起落库时唯一带 CAS 的入口 |
+| `server/routers/storyAgent.ts` | writer + mutation procedure | `storyUpsert`（经 `persistPreparedStoryBody`/`createStory`）、`storyRename`（直接调 `updateStoryTitle`，绕开 CAS 封装层）、`storyAutoRename`（直接调 `updateStoryTitleIfUntitled`） |
+| `server/routers/_storyShared.ts` | DTO 重建 | `composeStoryWorkspace`（168行）把 `getStoryById` 读出的原始行组装成返回给客户端的 workspace 对象；`storyPromptLineageBody` 是另一处专门摘出 title/theme/arc 给 prompt lineage 用的 DTO |
+| `client/src/features/storyAgent/StoryAgentContext.tsx` | UI 消费 + 二次写入触发 | `renameStory` 调 `storyRename` mutation；自动保存逻辑把本地 `storyTitle/storyLogline/storyTheme` 状态拼进 `storyUpsert` payload；消费 `composeStoryWorkspace` 返回值 |
+| `client/src/features/creationEditor/CreationEditorContext.tsx` | DTO 重建（client 侧二次组装） | `stories`/`activeStory` 的 `useMemo` 把 tRPC 返回的 story 行再次 normalize 成本地 `CreationEditorStory` 形状（`{ id, title, logline }`），不复用 `composeStoryWorkspace` 的输出结构 |
+
+**触达生产文件数：6**
+
+**重复例子**
+1. **title 有三条独立写入路径**，各自决定"能不能写、要不要校验 revision"，没有共用一个 title 写入函数：`storyUpsert`（经 `persistPreparedStoryBody` → `updateStoryBodyIfRevision`，有 CAS）、`storyRename`（直接调 `server/db.ts:updateStoryTitle`，无 CAS）、`storyAutoRename`（直接调 `updateStoryTitleIfUntitled`，带隐式"仅未命名才写"条件）。
+2. **DTO 重组两次**：`composeStoryWorkspace`（server 端一次）与 `CreationEditorContext.tsx` 的 `stories`/`activeStory` useMemo（client 端又一次，字段集更窄）。
+
+---
+
+## B. 生成状态（pending / completed / failed / unknown）
+
+| 文件 | 角色 | 说明 |
+|---|---|---|
+| `shared/publishingDraft.ts` | 状态解释（权威定义） | `PublishingCoverGeneration.status` 定义为四态枚举；`isRecoverablePublishingCoverGeneration` 是唯一"官方"可恢复性判断函数 |
+| `server/services/publishingPersistence.ts` | writer + 状态解释 | 写 `coverGeneration` 到 story body；对 `existing?.status === "pending"` 做过期判断 |
+| `server/routers/publishingDraft.ts` | writer + 状态解释（重复判断） | `resuming`/`recoveringAcceptedTask` 对 `persistedGeneration.status` 做 pending/completed 分支；另有一处 `status === "completed"` 分支处理已完成情形，与 `isRecoverablePublishingCoverGeneration` 逻辑部分重叠但不复用 |
+| `server/services/publishingVideoStoryboardPersistence.ts` | writer + 状态解释（多处重复） | 同一文件内对 `PublishingVideoOperationState.status` 独立判断达 8 处（claim/complete/existing 各自判断 pending/completed） |
+| `shared/publishingVideoStoryboard.ts` | 状态解释（反序列化+分支） | `normalizeOperationState` 按 status 字段分三支重建 pending/completed/failed 三种 operation 形状 |
+| `client/src/features/publishingDraft/publishingCoverGenerationState.ts` | 状态解释（client 封装） | `shouldRecoverCoverGeneration` 转调 shared 的 `isRecoverablePublishingCoverGeneration`（复用），但只覆盖"是否可恢复"，不覆盖 UI fallback 判断 |
+| `client/src/features/publishingDraft/PublishingDraftWorkspace.tsx` | 状态解释（UI 分支，独立判断） | `canUseCoverFallback`（412行）自己组合 `status === "unknown"/"failed"` + `provider` + `taskId`，和 `isRecoverablePublishingCoverGeneration` 条件不同但语义重叠 |
+| `server/services/localMotionVideo.ts` | 状态解释 | `current.status === "available" \|\| current.status === "failed"` 判断视频素材是否终态 |
+| `server/services/startEndShotVideoWorkflow.ts` | 状态解释 | `take.status === "failed"` 独立判断视频 take 失败态 |
+| `client/src/features/creationEditor/videoAssetViewModel.ts` | 状态解释（UI） | `take.status === "failed"` |
+| `client/src/features/creationEditor/views/Timeline.tsx` | 状态解释（UI） | `shot.videoTakes?.find(take => take.status === "failed")` |
+| `client/src/features/creationEditor/views/MaterialWarehousePanel.tsx` | 状态解释（UI） | `item.take.status === "failed" \|\| item.take.status === "timeout"`（比其他四处多判一个 `"timeout"`） |
+
+**触达生产文件数：12**
+
+**重复例子**
+1. **"cover 生成能否用 fallback / 可否恢复"被判断了至少 3 次**：`shared/publishingDraft.ts:isRecoverablePublishingCoverGeneration`（官方）、`server/routers/publishingDraft.ts` 的 `resuming`/`recoveringAcceptedTask`（自拼一套条件）、`PublishingDraftWorkspace.tsx:canUseCoverFallback`（按 provider+status 组合再判一次）。三处对同一个 `status` 字段的"能否重试/恢复"给出不完全一致的条件表达式。
+2. **video take 的失败态在 5 个文件里各自 if 判断**，`MaterialWarehousePanel.tsx` 甚至多判了一个 `"timeout"` 值，没有共用一个"take 是否失败"的判定函数。
+
+---
+
+## C. 资产类型（候选图 / 正式封面 / 视频首帧 / 故事版预览）
+
+| 文件 | 角色 | 说明 |
+|---|---|---|
+| `server/db.ts` | writer | `createGeneratedImage`（候选图落库）、`promoteStoryImageToCurrent`（把某张图标记 `isCurrent`，即"转正"，2834行）、`createImageSignal`（记录 swipe 信号） |
+| `server/services/imageAssets.ts` | 状态解释（权威投影） | `projectImageAssets`（114行）是把原始 `generatedImages` 行投影为 `kind`/`assignment`/`status`/`isPrimary` 的唯一"官方"分类函数 |
+| `server/routers/storyAgent.ts` | writer（绕过 imageAssets.ts） | `recordSignal`：`swipe_right` 时直接调 `promoteStoryImageToCurrent`；另有 3 处直接调 `createGeneratedImage` 写候选图 |
+| `server/routers/publishingDraft.ts` | writer（绕过 imageAssets.ts，且绕过 publishingPersistence.ts） | 出封面候选时直接 `createGeneratedImage`；"采用为正式封面"时先经 `writePublishingDraftState`（走 publishingPersistence）、再直接调 `promoteStoryImageToCurrent` |
+| `server/routers/creationAgent.ts` | writer（绕过 imageAssets.ts） | 复核确认发现的第三、四、五处独立 `promoteStoryImageToCurrent` 调用点（3 处），比最初调研多出的重复面 |
+| `server/services/directorAdvice.ts` | writer（绕过 imageAssets.ts） | 又一处独立 `promoteStoryImageToCurrent` 调用（273行），"转正"逻辑目前共有 6 个调用点分布在 5 个文件 |
+| `server/services/publishingVideoStoryboardPersistence.ts` | writer + DTO 重建 | 管理"故事版预览（preview）"与"确认后的正式 storyboard"两种资产语义的持久化与状态机 |
+| `client/src/features/storyAgent/views/StoryboardReviewBoard.tsx` | 状态解释（UI，独立词汇表） | `selectedStoryboardMedia.kind === "candidate"` vs `"image"` 是 UI 层自造的候选/正式二分，不复用 server 的 `assignment`/`status` 字段 |
+| `client/src/features/creationEditor/CreationEditorContext.tsx` | 状态解释（UI，独立判定函数） | `isCurrentMaterialImage` 自己组合 `isPrimary`/`selectionSource`/`status` 三个字段判断"是不是当前生效图" |
+| `client/src/features/creationAgent/imageAssetViewModel.ts` | 状态解释（UI，独立排序/分组） | `assetRank`/`buildImageAssetWorkspace` 按 `isPrimary`/`status === "pending"`/`assignment` 自行分组出 `primary`/`preview` |
+
+**触达生产文件数：10**（复核 `promoteStoryImageToCurrent` 实际调用点时，在最初调研基础上额外确认了 `server/routers/creationAgent.ts` 与 `server/services/directorAdvice.ts` 两个文件，均绕过 `imageAssets.ts`）
+
+**重复例子**
+1. **"候选图转正式"（promote to current）目前有 6 个独立调用点、分布在 5 个文件**（`server/routers/storyAgent.ts` 的 `recordSignal`、`server/routers/publishingDraft.ts` 的封面确认流程、`server/routers/creationAgent.ts` 的 3 处、`server/services/directorAdvice.ts` 1 处），全部直接调 `server/db.ts:promoteStoryImageToCurrent`、都不经过 `server/services/imageAssets.ts`。`publishingDraft.ts` 的确认流程还额外维护了 `writePublishingDraftState` 里 `cover.assetId` 这个第二份"哪张是官方封面"的真相源——一次操作要在两处（story 行的 `isCurrent` 列 + publishing draft JSON 的 `cover` 字段）分别写入才算完整转正。
+2. **"这是候选还是正式资产"被至少 4 个地方各自判断**：server 端权威口径是 `imageAssets.ts:projectImageAssets` 算出的 `assignment`/`status`/`isPrimary`；但 `StoryboardReviewBoard.tsx`（`kind === "candidate"`）、`CreationEditorContext.tsx`（`isCurrentMaterialImage`）、`imageAssetViewModel.ts`（`assetRank`）三个 client 文件各自用不同字段组合重新定义了一遍"候选 vs 正式"，彼此不共用同一个判定函数。
+
+---
+
+## 汇总
+
+| 代表性改动 | 触达生产文件数（基线） | 已确认的重复 writer/状态解释组数 |
+|---|---|---|
+| A. Story 文本字段 | 6 | 1 组重复 writer（title 三条路径）+ 1 组重复 DTO 重建 |
+| B. 生成状态 | 12 | 1 组重复"可恢复性"判断（3 处）+ 1 组重复"失败态"判断（5 处） |
+| C. 资产类型 | 10 | 1 组重复"转正"writer（6 个调用点）+ 1 组重复"候选/正式"判定（4 处） |
+
+U3/U4/U5/U8 完成后，用同一方法（只数生产文件、只数尚存的独立 writer/状态解释组）重新统计，目标是三类改动的触达文件数与重复组数都低于本表。

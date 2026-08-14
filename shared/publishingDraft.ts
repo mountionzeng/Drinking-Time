@@ -7,6 +7,7 @@ import {
   storyIntentProfileFromLegacy,
   type StoryIntentProfile,
 } from "./storyIntentProfile";
+import type { ScopeKey, ScopedRevision } from "./scopedResource";
 
 export const PUBLISHING_PLATFORM_IDS = [
   "xiaohongshu",
@@ -1064,6 +1065,42 @@ export function resolvePublishingActiveVersion(
     versions.find(version => version.versionId === state.activeVersionId) ??
     versions[0]
   );
+}
+
+/**
+ * 用途：构造某个发布版本的 ScopeKey，统一 storyId + versionId 的资源身份
+ *   表达，替代散落各处的 `story.id === activeStoryId && versionId === xxx`
+ *   手写比较。
+ * 调用入口：server 发布版本 router/service 的写入前置校验；client 发布
+ *   工作台判断响应是否仍属于当前浏览版本。
+ * 下游调用：@shared/scopedResource.ts 的 scopeKeysEqual/buildOwnerScope。
+ */
+export function publishingVersionScopeKey(
+  storyId: number,
+  versionId: string
+): ScopeKey {
+  return { resourceKind: "publishingVersion", storyId, versionId };
+}
+
+/**
+ * 用途：把某个发布版本现有的 `versionRevision` / `containerRevision` 字段
+ *   映射为跨层统一的 ScopedRevision 形状，供 U3 的资源级 CAS 直接复用，不
+ *   需要新增一份平行的 revision 存储。
+ * 调用入口：server 发布版本写入前置校验、client 乐观更新冲突判断。
+ * 下游调用：@shared/scopedResource.ts 的 hasResourceRevisionConflict /
+ *   commitResourceRevision。
+ */
+export function publishingVersionScopedRevision(
+  state: PublishingDraftState,
+  versionId: string
+): ScopedRevision {
+  const version = (state.versions ?? []).find(
+    candidate => candidate.versionId === versionId
+  );
+  return {
+    resourceRevision: version?.versionRevision ?? 0,
+    aggregateRevision: state.containerRevision ?? state.revision,
+  };
 }
 
 export function hasPersistedPublishingVersion(
