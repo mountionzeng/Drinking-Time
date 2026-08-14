@@ -2871,10 +2871,10 @@ export function StoryboardReviewBoard({
                               void rerenderShotVideo(shot, creationShot);
                             }}
                             className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-background hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-45"
-                            aria-label={`根据前后画面和视频要求生成 ${shotLabel} 视频`}
+                            aria-label={`根据当前图片、正式封面和视频要求生成 ${shotLabel} 视频`}
                             title={
                               headerVideoBlockReason ??
-                              "根据前后画面和视频要求生成视频"
+                              "以当前主图为首帧，继承正式封面风格并按视频要求生成"
                             }
                           >
                             {continuityCheckingByShot[shot.shotNo] ===

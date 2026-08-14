@@ -96,7 +96,6 @@ import { resolveUtteranceCandidatePlans } from "./utterancePromptCandidate";
 import { mergeStoryConversationMessages } from "./storyConversationStore";
 import {
   canApplyAutomaticStoryTitle,
-  isUntitledStoryName,
   suggestAutomaticStoryTitleFromState,
 } from "./storyTitle";
 import {
@@ -1885,7 +1884,6 @@ export function StoryAgentProvider({
         const result = (await chatMut.mutateAsync({
           message: userContent,
           interactionMode,
-          allowStoryTitleSuggestion: isUntitledStoryName(storyTitle),
           history: messages.map(m => ({
             role: m.role as "user" | "assistant",
             content: m.content,

@@ -1424,6 +1424,7 @@ export function CreationEditorProvider({
     publishingDraftQuery.data?.publishing,
     spinePublishing,
     storyQuery.data?.body,
+    storyQuery.data?.id,
   ]);
   const chatCutTimeline = useMemo(
     () => normalizeChatCutTimeline(storyQuery.data?.body),
