@@ -877,52 +877,6 @@
   .mvp-proof-note strong{
     color: var(--ink);
   }
-  .refer-template{
-    margin-top: 56px;
-    border-top: 1px solid rgba(61,46,38,.16);
-    border-bottom: 1px solid rgba(61,46,38,.16);
-    padding: 28px 0;
-  }
-  .refer-template pre{
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family:'Noto Sans SC','PingFang SC', sans-serif;
-    font-size: 19px;
-    line-height: 1.85;
-    color: var(--ink-soft);
-    margin: 0;
-  }
-  .refer-actions{
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 16px 22px;
-    margin-top: 24px;
-  }
-  .copy-button{
-    appearance: none;
-    border: 1px solid rgba(168,91,77,.45);
-    background: transparent;
-    color: var(--ink);
-    font-family:'JetBrains Mono', monospace;
-    font-size: 13px;
-    letter-spacing: .14em;
-    padding: 11px 15px;
-    cursor: pointer;
-    transition: color .25s ease, border-color .25s ease, background .25s ease;
-  }
-  .copy-button:hover,
-  .copy-button:focus-visible{
-    color: var(--muted-red);
-    border-color: var(--muted-red);
-    background: rgba(232,214,192,.28);
-    outline: none;
-  }
-  .copy-status{
-    font-size: 17px;
-    line-height: 1.6;
-    color: var(--ink-ghost);
-  }
   .referral-live-shell{
     align-items: start;
   }
@@ -2292,138 +2246,6 @@
 </main>
 </div><!-- /route invite -->
 
-<!-- ====================================================================
-     ROUTE ③ · 推荐入口  (friend-facing referral page)
-     ==================================================================== -->
-<div class="route route-refer" data-route="refer">
-<main class="scroll">
-
-  <section class="hero" id="referHero">
-    <div class="scene jitter" data-anim style="max-width:500px; margin-bottom:8px;">
-      <svg viewBox="0 0 540 390" aria-hidden="true">
-        <path class="ink ink-thin" d="M48 328 C 172 318, 342 340, 500 326"/>
-        <g transform="translate(96 64) rotate(-5 116 116)">
-          <rect class="ink" x="0" y="0" width="220" height="260" rx="18" fill="var(--paper)"/>
-          <rect x="18" y="24" width="184" height="62" rx="10" class="rose" stroke="none" opacity=".56"/>
-          <circle cx="58" cy="56" r="18" class="brick" stroke="none" opacity=".74"/>
-          <line class="ink" x1="92" y1="44" x2="176" y2="44"/>
-          <line class="ink ink-thin" x1="92" y1="64" x2="154" y2="64"/>
-          <line class="ink ink-thin" x1="24" y1="122" x2="184" y2="122"/>
-          <line class="ink ink-thin" x1="24" y1="150" x2="198" y2="150"/>
-          <line class="ink ink-thin" x1="24" y1="178" x2="166" y2="178"/>
-          <path class="ink" d="M52 226 C 74 208, 104 210, 126 226 C 148 244, 178 244, 196 224"/>
-        </g>
-        <g transform="translate(300 98)">
-          <path d="M0 42 C 24 10, 86 4, 126 28 C 164 50, 164 104, 128 128 C 92 154, 34 142, 10 108 C -4 88, -8 62, 0 42 Z" class="rose" stroke="none" opacity=".56"/>
-          <path class="ink" d="M0 42 C 24 10, 86 4, 126 28 C 164 50, 164 104, 128 128 C 92 154, 34 142, 10 108 C -4 88, -8 62, 0 42 Z"/>
-          <path class="ink ink-thin" d="M34 70 C 50 54, 78 54, 94 70"/>
-          <circle class="mred" cx="58" cy="88" r="5" stroke="none"/>
-          <circle class="mred" cx="82" cy="88" r="5" stroke="none"/>
-          <path class="ink ink-thin" d="M44 112 C 66 124, 94 120, 112 102"/>
-          <path class="ink" d="M20 136 L 4 170 L 52 146"/>
-        </g>
-        <path class="ink ink-thin" d="M262 176 C 294 156, 318 152, 344 166" stroke-dasharray="3 8"/>
-        <path class="mred" stroke="none" d="M350 168 l-13 -5 l5 13 Z"/>
-      </svg>
-    </div>
-
-    <p class="wordmark-sub" data-anim>推荐一位合适的人</p>
-    <p class="hero-epigraph" data-anim>如果你认识一位正在被低估、但值得被主流准确看见的人，请把对方介绍给聊会儿。</p>
-  </section>
-
-  <span class="quiet-rule" aria-hidden="true">
-    <svg viewBox="0 0 80 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <path d="M2 8 C 18 4, 32 12, 50 7 C 64 4, 72 9, 78 7"/>
-    </svg>
-  </span>
-
-  <section class="chapter" id="referIntent">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">WHY &nbsp; THIS &nbsp; REFERRAL</div>
-      <h2 class="ch-display">INTENT</h2>
-      <p class="ch-cn">为什么请你推荐</p>
-    </header>
-    <div class="copy" data-anim>
-      <p class="lead">我相信人的感受、经历、判断和关系能力，本身蕴含巨大的价值，不应该只停留在私人表达里。</p>
-      <p>聊会儿要做的，不是把情绪当成内容消费掉，也不是把一个人包装成更容易被接受的样子。它要把那些尚未被主流语言接住的真实，转译成一种可以交换其他价值的媒介：信任、机会、资本、合作、话语权和主流认可。</p>
-    </div>
-  </section>
-
-  <section class="chapter" id="referFit">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">WHO &nbsp; SHOULD &nbsp; YOU &nbsp; SEND</div>
-      <h2 class="ch-display">REFER</h2>
-      <p class="ch-cn">请推荐这样的人</p>
-    </header>
-    <div class="copy" data-anim>
-      <p class="lead">我正在服务首批 5 位“希望拿到主流认可的人”。</p>
-      <p>被推荐者不需要完美，也不需要已经很会表达。只需要已经有真实积累，并且正在进入一个更大的舞台：申请、升职、创业、融资、出海、媒体曝光、独立执业，或任何需要陌生人快速理解自己的场景。</p>
-    </div>
-    <div class="mvp-board">
-      <div class="mvp-panel" data-anim>
-        <h3>适合推荐</h3>
-        <ul class="mvp-proof-list">
-          <li>有能力、作品、成绩、判断或影响力，但还没有被准确看见</li>
-          <li>正在争取某种主流认可：资本、客户、职位、媒体、行业声誉</li>
-          <li>故事有复杂性，不适合被压成标准简历模板</li>
-          <li>愿意接受一次认真访谈，并对表达提出真实修改</li>
-        </ul>
-      </div>
-      <div class="mvp-panel" data-anim>
-        <h3>暂时不适合</h3>
-        <ul class="mvp-proof-list">
-          <li>只是想做普通简历润色或求职包装</li>
-          <li>没有明确上升场景，也不打算公开使用任何表达</li>
-          <li>只想要“好看的 AI 视频”，但不想参与故事共创</li>
-          <li>不愿意说明哪些内容可授权、哪些内容必须保持私人</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section class="chapter" id="referHow">
-    <header class="ch-head" data-anim>
-      <div class="ch-mark">WHAT &nbsp; TO &nbsp; SEND &nbsp; BACK</div>
-      <h2 class="ch-display">NOTE</h2>
-      <p class="ch-cn">推荐时发这几句话</p>
-    </header>
-    <div class="copy" data-anim>
-      <p class="lead">你不用写长介绍。只要帮我判断：对方为什么值得被看见，以及现在最需要被谁理解。</p>
-      <p>复制下面这段，填几句你知道的信息，发回给我就可以。你也可以先把这个页面链接发给对方，让对方自己判断要不要参与。</p>
-    </div>
-    <div class="refer-template" data-anim>
-      <pre data-referral-template>我想推荐一位可能适合聊会儿首批共创的人：
-
-1. 被推荐者是谁 / LinkedIn：
-2. 为什么值得被看见：
-3. 正在争取的主流认可：
-4. 最容易被低估或误解的地方：
-5. 我可以帮你们互相介绍吗：
-
-推荐链接：https://www.drinkingtime.top/drinking-time-vision/#refer</pre>
-      <div class="refer-actions">
-        <button class="copy-button" type="button" data-copy-referral>复制推荐模板</button>
-        <span class="copy-status" data-copy-status>复制后发给岱岱，或直接转发这个页面链接。</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="chapter" id="referClose" style="text-align:center;">
-    <div class="copy" data-anim style="max-width:720px; margin:0 auto; text-align:center;">
-      <p class="seated-line" style="text-align:center;">真正有价值的推荐，不是简单说“这个人很厉害”，而是指出“这个人值得被谁更准确地理解”。</p>
-    </div>
-    <p data-anim style="text-align:center; margin-top:18px;">
-      <a class="op-backlink" href="#referrals">打开推荐后台 →</a>
-    </p>
-  </section>
-
-  <div class="colophon">
-    <span class="sig">聊 · 会 · 儿 &nbsp;·&nbsp; DRINKING&nbsp;TIME</span>
-    <span>REFERRAL &nbsp; · &nbsp; 5 &nbsp; PEOPLE &nbsp; · &nbsp; 2026</span>
-  </div>
-
-</main>
-</div><!-- /route refer -->
 
 <!-- ====================================================================
      ROUTE ④ · 推荐后台  (local/server analytics)
@@ -2522,7 +2344,7 @@
 
   <section class="chapter" id="referralsClose" style="text-align:center;">
     <p data-anim style="text-align:center;">
-      <a class="op-backlink" href="#refer">回到推荐入口 →</a>
+      <a class="op-backlink" href="#vision">回到愿景与定位 →</a>
     </p>
   </section>
 
@@ -2820,89 +2642,6 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 }
 
 // =================================================================
-// REFERRAL — copy friend-facing recommendation template
-// =================================================================
-{
-  const copyButton = document.querySelector('[data-copy-referral]');
-  const template = document.querySelector('[data-referral-template]');
-  const status = document.querySelector('[data-copy-status]');
-
-  function currentRouteFromHash(){
-    return (location.hash || '#vision').replace(/^#\/?/, '').split('?')[0].toLowerCase() || 'vision';
-  }
-
-  function hashParams(){
-    return new URLSearchParams((location.hash.split('?')[1] || '').split('#')[0]);
-  }
-
-  function referralContext(){
-    const params = hashParams();
-    return {
-      referrerCode: params.get('by') || params.get('ref') || params.get('source') || 'direct',
-      channel: params.get('channel') || 'direct',
-      tracked: params.get('tracked') === '1',
-    };
-  }
-
-  async function trackReferralEvent(eventType){
-    if (currentRouteFromHash() !== 'refer') return;
-    const context = referralContext();
-    if (eventType === 'page_view' && context.tracked) return;
-    const sessionKey = `dt-referral-${eventType}-${context.referrerCode}-${context.channel}`;
-    if (eventType === 'page_view') {
-      try {
-        if (sessionStorage.getItem(sessionKey)) return;
-        sessionStorage.setItem(sessionKey, '1');
-      } catch(e){}
-    }
-
-    try {
-      await fetch('/api/referrals/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventType,
-          referrerCode: context.referrerCode,
-          channel: context.channel,
-          landingUrl: location.pathname + location.hash,
-        }),
-      });
-    } catch(e) {
-      // GitHub Pages cannot write to SQLite; local/Node deployments can.
-    }
-  }
-
-  async function copyReferralText(){
-    if (!copyButton || !template) return;
-    const text = template.textContent.trim();
-    try {
-      await navigator.clipboard.writeText(text);
-      if (status) status.textContent = '已复制。把它发给岱岱，或转发这个页面链接。';
-    } catch(e) {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.setAttribute('readonly', '');
-      area.style.position = 'fixed';
-      area.style.left = '-9999px';
-      document.body.appendChild(area);
-      area.select();
-      try {
-        document.execCommand('copy');
-        if (status) status.textContent = '已复制。把它发给岱岱，或转发这个页面链接。';
-      } catch(err) {
-        if (status) status.textContent = '复制失败，请手动选中上面的模板。';
-      }
-      document.body.removeChild(area);
-    }
-    trackReferralEvent('copy_template');
-  }
-
-  if (copyButton) copyButton.addEventListener('click', copyReferralText);
-  window.addEventListener('hashchange', () => trackReferralEvent('page_view'));
-  trackReferralEvent('page_view');
-}
-
-// =================================================================
 // REFERRAL DASHBOARD — local/server SQLite statistics
 // =================================================================
 {
@@ -3040,7 +2779,7 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
 
 // =================================================================
 // ROUTER — 主导航路由：#vision · #operations
-//          另有 #invite · #refer · #referrals（不在主导航）
+//          另有 #invite · #referrals（不在主导航）
 // 纯前端 hash 切换；不碰上面任何一节的动画与交互
 // =================================================================
 {
@@ -3052,7 +2791,6 @@ document.querySelectorAll('[data-anim]').forEach(el => io.observe(el));
     const route = h.split('?')[0];
     if (route === 'operations') return 'operations';
     if (route === 'invite') return 'invite';
-    if (route === 'refer') return 'refer';
     if (route === 'referrals') return 'referrals';
     return 'vision';
   }

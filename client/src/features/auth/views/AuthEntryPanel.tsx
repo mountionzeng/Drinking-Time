@@ -198,6 +198,7 @@ export default function AuthEntryPanel({
               ? `申请内测微信：${betaWechatId}`
               : "还没有邀请码，请联系邀请你来测试的人。"}
           </p>
+
         </div>
       </div>
     </section>
