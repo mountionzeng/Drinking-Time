@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13",
+  "updatedAt": "2026-08-14",
   "features": [
     {
       "id": "story-ownership",
@@ -181,7 +181,7 @@
     {
       "id": "single-dev-environment",
       "name": "单一开发服务与数据隔离",
-      "status": "broken",
+      "status": "working",
       "userValue": "所有本地页面读取同一份故事数据，避免多 worktree 数据分裂。",
       "entryPoints": [
         "scripts/env-status.ts",
@@ -190,21 +190,25 @@
       "owners": [
         "scripts/env-status.ts",
         "scripts/dev-preflight.ts",
+        "server/_core/devServerPreflight.ts",
+        "server/_core/portPolicy.ts",
         "server/db.ts"
       ],
       "evidence": [
-        "scripts/env-status.test.ts"
+        "scripts/env-status.test.ts",
+        "scripts/dev-preflight.test.ts",
+        "server/_core/portPolicy.test.ts",
+        "command:pnpm env:check"
       ],
       "invariants": [
         "只有主仓库可运行端口 3000。",
+        "worktree 只用于修改代码，不运行 dev/preview server，也不保存业务持久化文件。",
+        "环境状态无法确认时，严格门禁必须失败关闭且不得自动清理数据。",
         "测试必须使用临时 LOCAL_PERSIST_PATH。"
       ],
       "dependencies": [],
       "replaces": [],
-      "knownGaps": [
-        "login-copy-refer worktree 正在端口 3050 运行第二个 dev server，违反单一服务铁律。",
-        "当前 5 个 worktree 含 local-persist.json，存在数据分裂风险。"
-      ],
+      "knownGaps": [],
       "history": [
         {
           "date": "2026-06-12",
@@ -225,6 +229,16 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "env:status 发现 login-copy-refer 在端口 3050 运行第二个服务，实际环境已违反单一服务约束；按自动化限制只报告，未停止进程。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "新增 fail-closed env:check，监听或业务数据采集不完整时阻断；predev 只终止二次核验通过的主仓进程组，并等待整个进程组退出。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "环境规则测试与真实 env:check 通过：主仓仅有端口 3000 服务，其他 worktree 不含业务持久化文件。"
         }
       ]
     },

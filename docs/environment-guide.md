@@ -1,60 +1,90 @@
-# 环境指南：数据在哪、端口是谁、乱了怎么查
+# 环境指南：单一服务、单一数据源与安全排查
 
 > 给项目所有者本人的一页说明。AI 会话的对应规则在根目录 `AGENTS.md`。
-> 最后更新：2026-06-12（环境收敛日）
+> 最后更新：2026-08-14
 
-## 数据存放机制（理解这一条，就理解了一切乱象）
+## 唯一允许的运行方式
 
-本地数据存在 **`.webdev/local-persist.json`**，路径跟"服务器从哪个目录启动"走（`server/db.ts`）。
+- 只有 `git worktree list` 第一项所代表的主仓库可以运行开发服务。
+- 开发服务固定使用端口 `3000`，从主仓库执行 `pnpm dev`。
+- 其他 worktree 只用于修改代码：禁止启动 dev/preview server，也禁止写入 `.webdev/` 业务数据。
+- 不再保留“换个端口临时预览”的例外。换端口不能共享业务数据，反而会掩盖环境已经分裂。
 
-**推论：每个 worktree 里启动的 dev server，读写的是那个 worktree 自己的数据文件。**
-两个端口数据对不上 = 它们是两个目录里的两份文件，从来就不是同一份。
+## 为什么必须只有一个环境
 
-图片不受此影响：图片在共享目录 `.webdev/images`（`.env` 的 `LOCAL_IMAGE_DIR`），所有环境同源。
+本地业务数据存在 `.webdev/local-persist.json`，路径跟服务启动时的
+`process.cwd()` 走（见 `server/db.ts`）。提示词谱系和编辑快照也分别写入
+`.webdev/prompt-lineage-local.json` 与 `.webdev/edit-snapshots-local.json`。
 
-## 端口约定
+因此，每个 worktree 启动的服务都会读写自己目录下的一套数据。多个服务并行并非
+同一环境的多个入口，而是多份互不相通、可能同时增长的数据副本。
 
-- **3000 = 唯一正式环境**，主仓库 `pnpm dev`。
-- 其他端口上的服务都是临时/预览性质，**不要在上面录入真实内容**。
+图片目录由 `.env` 的 `LOCAL_IMAGE_DIR` 指定，通常是共享目录；这不改变业务 JSON
+只能由主仓维护的规则。
 
-## 数据对不上时，三步排查
+## 两个环境命令
 
-1. 跑 `pnpm env:status` —— 看有几个 dev server 在跑、各自属于哪个目录
-2. 看警告 —— 有"⚠️ N 个 dev server 并行"说明数据已经在分裂，先停掉多余的
-3. 对照各环境数据文件的大小和最后改动时间，判断哪份是你刚才写入的
+### `pnpm env:status`：只读诊断
 
-## 已知盲点
+显示所有 worktree、业务数据文件、Node 监听端口以及进程所属目录。它不会停止进程、
+删除数据或自动修复环境。即使部分系统信息采集失败，它也会尽量展示其余结果，适合
+人工排查。
 
-- `pnpm dev` 的 `predev` 钩子会先杀旧的 dev server，但 **`scripts/preview-server.ts` 包装入口和 `dev-mobile.sh` 启动的服务绕过这个查杀**——这就是为什么会出现多服务并行。发现多服务先手动停。
-- worktree 不只 `.claude/worktrees/`：还可能在 `.worktrees/`、目录外（如 `~/Documents/`）甚至 `/tmp`。`git worktree list` 是唯一权威来源（`pnpm env:status` 用的就是它）。
+### `pnpm env:check`：严格门禁
 
-## 事故史与备份
+复用同一份环境快照，但任何无法确认的状态都会以非零状态退出，包括：
 
-| 日期 | 事故 | 教训/对策 |
+- 无法读取 Git worktree、监听端口、监听进程 cwd 或任一业务数据文件元数据；
+- 同时存在多个项目服务；
+- 非主 worktree 正在运行服务；
+- 主仓服务使用的不是端口 `3000`；
+- 非主 worktree 含任一业务持久化文件。
+
+已确认 cwd 属于其他仓库的 Node 服务不算本项目违规。测试、合并前检查和自动化门禁
+应使用 `env:check`，不要从 `env:status` 的文字输出猜测是否安全。
+
+## `pnpm dev` 启动前会做什么
+
+`predev` 先确认命令从主仓根目录、固定端口 `3000` 启动，再执行严格环境检查。
+如果端口 `3000` 上已有本项目旧服务，只在下列身份全部吻合时才停止它：
+
+- 监听进程和进程组 leader 都属于当前用户；
+- 两者 cwd 都精确等于主仓根目录；
+- 监听进程入口是 `server/_core/index.ts`；
+- 进程组 leader 是 `pnpm dev`。
+
+发送 `SIGTERM` 前会再次核验 PID、进程组、用户、cwd 和命令，防止 PID 复用或环境变化；
+信号按已核验的进程组发送，并等待整个进程组无成员后才算成功。任一快照缺失、身份变化或
+进程组状态无法确认都会失败关闭并要求重试，不会用宽泛进程名批量杀进程，也不会自动清理
+任何数据文件。
+
+## 页面或数据对不上时
+
+1. 先运行 `pnpm env:status`，确认服务和数据实际属于哪个 worktree。
+2. 再运行 `pnpm env:check`，按违规代码处理；`DATA_COLLECTION_FAILED` 表示业务数据文件
+   无法检查，`LISTENER_COLLECTION_FAILED` 表示监听进程采集不完整。不要先重启，重启可能
+   继续写错数据副本。
+3. 数据疑似丢失时，先检查主仓 `.webdev/backups/` 和
+   `.webdev/manual-backups-*/`，保存现场后再决定是否合并。
+
+## 数据合并工具
+
+只有确认发生过数据分裂、并已备份所有源文件时才使用：
+
+```sh
+npx tsx scripts/merge-local-persist.ts <源1> <源2> ...
+npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
+```
+
+第一条只生成 dry-run 报告；第二条才落盘。重点核对故事清单和“分叉副本”组：同一故事
+在不同环境都修改过时，工具只报告冲突，不替人选择版本。
+
+## 事故史与安全网
+
+| 日期 | 事故 | 教训与现有保护 |
 |---|---|---|
-| 2026-06-01 | 测试把真实数据文件原子覆盖 | `server/db.ts` 加了测试防误写 + 自动备份安全网 `.webdev/backups/`（保留近 N 份） |
-| 2026-06-12 | 数据分裂成 6 份（6 个 worktree 各一份，id 互相冲突） | 全量手工备份 `.webdev/manual-backups-20260612/`；用 `scripts/merge-local-persist.ts` 内容去重+id 重编号合并 |
+| 2026-06-01 | 测试原子覆盖真实数据文件 | `server/db.ts` 增加测试防误写和 `.webdev/backups/` 自动备份 |
+| 2026-06-12 | 6 个 worktree 各自产生数据，ID 相互冲突 | 完整备份后按内容去重、重编号合并；从此确立主仓单服务规则 |
+| 2026-08-14 | 旧诊断只能提示，旧 `predev` 依赖宽泛进程名处理 | 增加 fail-closed `env:check`，并将旧服务终止收窄到经过二次身份核验的主仓进程组 |
 
-**数据疑似丢失：先去 `.webdev/backups/` 和 `.webdev/manual-backups-*/` 找，不要急着重启服务（重启可能触发覆盖）。**
-
-## 数据合并工具（多环境数据再次分裂时用）
-
-```
-npx tsx scripts/merge-local-persist.ts <源1> <源2> ...            # dry-run 出报告
-npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>  # 确认后落盘
-```
-
-报告里重点看：故事清单是否齐全、"分叉副本"组（同一篇故事在两个环境各自改过——工具不替你选，列出来由你拍板）。
-
-## 2026-06-12 收敛记录
-
-已处置（提交已并入主干或 integration-ab，数据已备份并纳入合并集）：
-- `~/Documents/dt-refactor`（split-godobjects，5 提交已含于 integration-ab）— 已删
-- `.claude/worktrees/agent-layer-foundation`（无独有提交）— 已删
-- `.worktrees/codex/art-taste-workflow`（已含于 main）— 已停服并删
-
-暂留（等另一会话完成 main ∪ integration-ab 的分支合并后收尾）：
-- `.claude/worktrees/integration-ab` — :3000 在跑、主数据所在，**分支合并+数据合并落位后删除**
-- `/tmp/drinking-time-main-deploy` — 另一会话的部署预览（:3001），**确认无独有数据后删除**
-
-收尾清单（剩余步骤）：① 另一会话完成分支合并 → ② 停 integration-ab 与 tmp-deploy 的写入 → ③ 用最新数据重跑合并工具、拍板分叉副本 → ④ 合并产物放主仓库 `.webdev/local-persist.json` → ⑤ 主仓库切到合并后分支、`pnpm dev` 起 3000 → ⑥ 核对故事清单 → ⑦ 删除两个暂留 worktree → ⑧ `pnpm env:status` 确认绿色无警告。
+环境工具只负责发现风险和安全拒绝，不会自动删除 worktree、业务数据或备份。

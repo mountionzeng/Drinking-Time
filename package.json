@@ -4,9 +4,11 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "predev": "tsx scripts/dev-preflight.ts && (pkill -f 'server/_core/index.ts' || true) && sleep 1",
+    "predev": "tsx scripts/dev-preflight.ts",
     "dev": "PORT=3000 NODE_ENV=development tsx watch server/_core/index.ts",
     "env:status": "tsx scripts/env-status.ts",
+    "env:check": "tsx scripts/env-status.ts --check",
+    "verify:merge": "pnpm env:check && pnpm check && pnpm feature:validate && pnpm test && pnpm build && pnpm env:check",
     "check:images": "tsx scripts/check-image-pipeline.ts",
     "preview:3000": "PORT=3000 NODE_ENV=development tsx watch scripts/preview-server.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
