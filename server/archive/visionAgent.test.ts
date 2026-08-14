@@ -124,6 +124,7 @@ describe("analyzeVisionReference compatible vision", () => {
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
       "Bearer test-next-key"
     );
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("qwen3-vl-plus");
     expect(body.messages[1].content[1].image_url.url).toBe("data:image/png;base64,AAAA");

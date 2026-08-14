@@ -21,9 +21,10 @@ function chatCompletionsUrl(value: string): string {
 }
 
 /**
- * Text-only provider split. Media generation, transcription and vision keep
- * using their dedicated 302 configuration so provider-specific paid-job
- * receipts and recovery semantics are never mixed across gateways.
+ * OpenAI-compatible compute split for text and multimodal chat completions.
+ * Media generation and transcription keep using their dedicated 302
+ * configuration so provider-specific paid-job receipts and recovery semantics
+ * are never mixed across gateways.
  */
 export function resolveTextComputeProvider(
   fallback302Model: string,

@@ -93,8 +93,8 @@ export const ENV = {
   imagePrompt302TimeoutMs:
     process.env.IMAGE_PROMPT_302_TIMEOUT_MS ?? "30000",
 
-  // ── OpenAI Next 文本算力分流（只承接 OpenAI 兼容 chat/completions）──
-  // 配置 Key 后，文本型 302 任务优先走此通道；图片、视频、语音和视觉任务仍留在 302。
+  // ── OpenAI Next 文本/多模态算力分流（只承接 OpenAI 兼容 chat/completions）──
+  // 配置 Key 后，兼容的文本与视觉分析任务优先走此通道；媒体生成、语音和转写仍留在 302。
   openaiNextApiKey: process.env.OPENAI_NEXT_API_KEY ?? "",
   openaiNextBaseUrl:
     process.env.OPENAI_NEXT_BASE_URL ?? "https://api.openai-next.com",

@@ -1225,7 +1225,12 @@ describe("editImage", () => {
       "data:image/png;base64,aWRlbnRpdHktY3JvcA=="
     );
 
-    expect(fetcher.mock.calls[1][0]).toContain("/v1/images/generations");
+    expect(fetcher.mock.calls[1][0]).toBe(
+      "https://api.302.ai/v1/images/generations"
+    );
+    expect(fetcher.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
     const body = JSON.parse(fetcher.mock.calls[1][1].body);
     expect(body.model).toBe("flux-kontext-pro");
     expect(body.input_image).toBe("data:image/png;base64,cmVmZXJlbmNlLWZyYW1l");

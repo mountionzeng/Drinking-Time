@@ -314,6 +314,7 @@ async function invokeCompatibleVision(
 
   const response = await fetch(provider.chatCompletionsUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(45_000),
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${provider.apiKey}`,

@@ -14,6 +14,7 @@ const saved = {
   openaiNextApiKey: ENV.openaiNextApiKey,
   openaiNextBaseUrl: ENV.openaiNextBaseUrl,
   openaiNextTextModel: ENV.openaiNextTextModel,
+  openaiNextEmotionModel: ENV.openaiNextEmotionModel,
 };
 
 const almanac: AlmanacDay = {
@@ -100,6 +101,7 @@ beforeEach(() => {
   ENV.openaiNextApiKey = "";
   ENV.openaiNextBaseUrl = "https://api.openai-next.com";
   ENV.openaiNextTextModel = "gpt-5.6-terra";
+  ENV.openaiNextEmotionModel = "deepseek-v3.2";
 });
 
 afterEach(() => {
@@ -110,6 +112,7 @@ afterEach(() => {
   ENV.openaiNextApiKey = saved.openaiNextApiKey;
   ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
   ENV.openaiNextTextModel = saved.openaiNextTextModel;
+  ENV.openaiNextEmotionModel = saved.openaiNextEmotionModel;
   vi.unstubAllGlobals();
 });
 
@@ -212,7 +215,8 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.dailyReference.personalizedJi).not.toContain("情绪化回应");
   });
 
-  it("只让 DeepSeek 写解读，并保留天行黄历事实", async () => {
+  it("通过 OpenAI Next 让 DeepSeek 写解读，并保留天行黄历事实", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     const fetcher = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -276,10 +280,10 @@ describe("personalizeEmotionDailyReference302", () => {
       now: new Date("2026-07-27T02:30:00.000Z"),
     });
 
-    expect(result.source, result.fallbackReason).toBe("302-deepseek");
+    expect(result.source, result.fallbackReason).toBe("openai-next");
     expect(result.dailyReference.activity).toBe("宜 会友、出行、纳财");
     expect(result.dailyReference.factSource).toBe("天行数据老黄历");
-    expect(result.dailyReference.interpretationSource).toBe("302-deepseek");
+    expect(result.dailyReference.interpretationSource).toBe("openai-next");
     expect(result.dailyReference.schedule).toHaveLength(3);
     expect(result.dailyReference.lenses).toHaveLength(3);
     expect(result.dailyReference.personalizedYi).toEqual([
@@ -304,7 +308,8 @@ describe("personalizeEmotionDailyReference302", () => {
     expect(result.dailyReference.summary).not.toContain("日主");
 
     const [url, init] = fetcher.mock.calls[0];
-    expect(url).toBe("https://api.302.ai/v1/chat/completions");
+    expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer test-next-key");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("deepseek-v3.2");
     expect(body.max_tokens).toBe(1800);

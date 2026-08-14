@@ -21,6 +21,9 @@ import { getStoryPromptProjection } from "./promptLineage";
 const saved = {
   api302Key: ENV.api302Key,
   api302BaseUrl: ENV.api302BaseUrl,
+  openaiNextApiKey: ENV.openaiNextApiKey,
+  openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+  openaiNextVisionModel: ENV.openaiNextVisionModel,
   databaseUrl: ENV.databaseUrl,
   video302Model: ENV.video302Model,
   video302SubmitPath: ENV.video302SubmitPath,
@@ -36,6 +39,9 @@ beforeEach(() => {
   ENV.databaseUrl = "";
   ENV.api302Key = "test-302-key";
   ENV.api302BaseUrl = "https://api.302.ai";
+  ENV.openaiNextApiKey = "";
+  ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+  ENV.openaiNextVisionModel = "qwen3-vl-plus";
   ENV.video302Model = "test-video-model";
   ENV.video302SubmitPath = "/302/submit/{model}";
   ENV.video302PollPath = "";
@@ -48,6 +54,9 @@ beforeEach(() => {
 afterEach(() => {
   ENV.api302Key = saved.api302Key;
   ENV.api302BaseUrl = saved.api302BaseUrl;
+  ENV.openaiNextApiKey = saved.openaiNextApiKey;
+  ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
+  ENV.openaiNextVisionModel = saved.openaiNextVisionModel;
   ENV.databaseUrl = saved.databaseUrl;
   ENV.video302Model = saved.video302Model;
   ENV.video302SubmitPath = saved.video302SubmitPath;
@@ -609,12 +618,13 @@ Negative: no floating objects, characters obey physics.
     );
   });
 
-  it("runs the 302 visual director before MJ and records its analysis in the take snapshot", async () => {
+  it("runs the OpenAI Next visual director before MJ and records its analysis in the take snapshot", async () => {
     ENV.video302Model = "";
     ENV.video302SubmitPath = "/mj/submit/video";
     ENV.video302PollPath = "";
     ENV.video302ImageField = "";
     ENV.videoPrompt302Model = "gpt-5.4-nano-2026-03-17";
+    ENV.openaiNextApiKey = "test-next-key";
     const story = await createStory({
       userId: 1,
       projectId: null,
@@ -664,7 +674,7 @@ Negative: no floating objects, characters obey physics.
         ok: true,
         status: 200,
         json: async () => ({
-          model: "gpt-5.4-nano-2026-03-17",
+          model: "qwen3-vl-plus",
           choices: [
             {
               message: {
@@ -710,9 +720,13 @@ Negative: no floating objects, characters obey physics.
     if (result.status !== "ok") return;
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0][0]).toBe(
-      "https://api.302.ai/v1/chat/completions"
+      "https://api.openai-next.com/v1/chat/completions"
+    );
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-next-key"
     );
     const directorBody = JSON.parse(String(fetch.mock.calls[0][1].body));
+    expect(directorBody.model).toBe("qwen3-vl-plus");
     expect(directorBody.messages[1].content[0].text).toContain(
       "用户最新要求：人物先屏息，再抬眼，相机随后响应"
     );
@@ -733,8 +747,8 @@ Negative: no floating objects, characters obey physics.
     expect(result.take.parameterSnapshot).toMatchObject({
       characterReferenceImageUrl: "inline-image",
       promptDirector: {
-        source: "302-vision",
-        model: "gpt-5.4-nano-2026-03-17",
+        source: "openai-next-vision",
+        model: "qwen3-vl-plus",
         engineering: {
           userRequirement:
             "用户最新要求：人物先屏息，再抬眼，相机随后响应",
