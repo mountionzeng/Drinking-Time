@@ -101,7 +101,7 @@ export async function getFreshEmotionAnalysisProfile(
   const preferAi =
     dependencies.preferAi ??
     Boolean(
-      (ENV.openaiNextApiKey.trim() && ENV.openaiNextTextModel.trim()) ||
+      (ENV.openaiNextApiKey.trim() && ENV.openaiNextEmotionModel.trim()) ||
         (ENV.api302Key.trim() && ENV.emotion302Model.trim())
     );
 

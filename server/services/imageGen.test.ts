@@ -1177,6 +1177,7 @@ describe("editImage", () => {
   });
 
   it("FLUX 参考图编辑先提取五官脸型再生成", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     ENV.vision302ApiKey = "test-vision-key";
     ENV.vision302Model = "gemini-3-pro-preview";
     const b64 = Buffer.from("kontext-image").toString("base64");
@@ -1207,13 +1208,13 @@ describe("editImage", () => {
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[0][0]).toBe(
-      "https://api.302.ai/v1/chat/completions"
+      "https://api.openai-next.com/v1/chat/completions"
     );
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
-      "Bearer test-vision-key"
+      "Bearer test-next-key"
     );
     const visionBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(visionBody.model).toBe("gemini-3-pro-preview");
+    expect(visionBody.model).toBe("qwen3-vl-plus");
     expect(visionBody.messages[0].content).toContain(
       "Prioritize lower-face geometry"
     );
