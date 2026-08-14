@@ -266,7 +266,7 @@
     {
       "id": "publishing-workspace",
       "name": "个人社交发布工作台",
-      "status": "working",
+      "status": "observing",
       "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
@@ -304,9 +304,16 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "尚未完成版本、意图、封面和视频故事版统一生命周期的真实 UI 全链路验收。",
+        "首次生成、转换和改写请求尚未全部绑定明确 version scope，异步结果存在跨版本落入当前视图的风险。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
       ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：保留六平台隔离、人工标题保护、四图候选与付费恢复等表征证据，但不再用分层测试冒充真实 UI 全链路可用。"
+        },
         {
           "date": "2026-08-05",
           "kind": "feature",
@@ -377,7 +384,7 @@
     {
       "id": "publishing-versions",
       "name": "发布文字稿版本",
-      "status": "working",
+      "status": "observing",
       "userValue": "核心内容变化创建新版本，旧文字稿、封面和视频交接不会被覆盖。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
@@ -399,8 +406,17 @@
         "publishing-workspace"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "core change 仍可原地覆盖当前版本，尚未稳定落实核心变化必须创建新版本。",
+        "renameVersion 后端操作缺少真实 UI 入口。",
+        "版本转换与本地 buffer 尚无原子握手，刷新和失败恢复的全链路证据不足。"
+      ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：CAS、幂等 receipt 和 V1/V2 隔离已有表征，但核心变化、重命名入口及 buffer 握手仍待修复和验收。"
+        },
         {
           "date": "2026-08-06",
           "kind": "feature",
@@ -416,7 +432,7 @@
     {
       "id": "publishing-narrative-intent",
       "name": "版本化用途与受众识别",
-      "status": "working",
+      "status": "observing",
       "userValue": "系统知道用户为什么写、写给谁，并让不同用途版本互不覆盖。",
       "entryPoints": [
         "server/archive/storyIntent.ts",
@@ -439,9 +455,16 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "聊天 confirmedIntent、开场选择和发布版本 narrativeIntent 仍是多份可写状态，冲突时缺少统一、可解释的权威解析。",
+        "切换用途与受众后创建、标记和切换版本的真实交互不顺畅，自动识别尚未完整收敛为只写 proposal。",
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：用途与平台分离已有表征，但三份意图状态尚未统一为版本快照权威。"
+        },
         {
           "date": "2026-08-09",
           "kind": "feature",
@@ -497,7 +520,7 @@
     {
       "id": "publishing-video-storyboard",
       "name": "文字稿转确认式视频故事版",
-      "status": "working",
+      "status": "observing",
       "userValue": "将完整发布文字稿转成可检查剧本和镜头，确认后再写入正式故事版。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingVideoScriptReview.tsx"
@@ -526,8 +549,17 @@
         "text-compute-provider-routing"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "尚未完成从版本文字稿预览、影响分析、确认到刷新恢复的真实 UI 全链路验收。",
+        "Story body 与外部资产/材料索引跨存储写入缺少 staged record、指针 CAS 和幂等对账边界。",
+        "旧封面占位镜头与正式版本级封面来源仍需更完整的历史数据兼容盘点。"
+      ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：preview 无正式副作用和 confirm CAS 已有表征，跨存储边界与真实 UI 生命周期仍待验收。"
+        },
         {
           "date": "2026-08-08",
           "kind": "feature",

@@ -11,6 +11,7 @@ import {
   numberXThreadPosts,
   normalizePublishingDraftState,
   normalizePublishingNarrativeIntent,
+  resolvePublishingIntentProfile,
   resolvePublishingActiveVersion,
   upsertPublishingPlatformDraft,
   xWeightedCharacterLength,
@@ -129,6 +130,112 @@ describe("publishing platform registry", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("resolves publishing intent from the active version snapshot instead of a conflicting pre-version profile", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        activeVersionId: "v1",
+        containerRevision: 1,
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            activePlatform: "xiaohongshu",
+            selectedPlatforms: ["xiaohongshu"],
+            intentSnapshot: {
+              primaryPurpose: "share",
+              secondaryPurposes: [],
+              coreAudience: "陌生读者",
+              secondaryAudiences: [],
+              channel: "xiaohongshu",
+              expression: { tone: "真诚", desiredEffect: "愿意读完" },
+              status: "confirmed",
+              revision: 3,
+              provenance: { source: "version_snapshot", updatedAt: NOW },
+            },
+          },
+        ],
+      },
+      NOW
+    );
+    const preVersion = {
+      primaryPurpose: "preserve" as const,
+      secondaryPurposes: [],
+      coreAudience: "自己",
+      secondaryAudiences: [],
+      channel: "private_archive",
+      expression: { tone: "", desiredEffect: "" },
+      status: "confirmed" as const,
+      revision: 2,
+      provenance: { source: "user" as const, updatedAt: NOW },
+    };
+
+    expect(resolvePublishingIntentProfile(normalized, preVersion)).toMatchObject({
+      authority: "active_version",
+      profile: { primaryPurpose: "share", coreAudience: "陌生读者" },
+    });
+  });
+
+  it("keeps an empty synthesized V1 in the pre-version phase", () => {
+    const preVersion = {
+      primaryPurpose: "preserve" as const, secondaryPurposes: [], coreAudience: "自己",
+      secondaryAudiences: [], channel: "private_archive",
+      expression: { tone: "", desiredEffect: "留给自己" }, status: "confirmed" as const,
+      revision: 2, provenance: { source: "user" as const, updatedAt: NOW },
+    };
+    expect(resolvePublishingIntentProfile(emptyPublishingDraftState(NOW), preVersion)).toEqual({
+      profile: preVersion,
+      authority: "pre_version",
+    });
+  });
+
+  it("keeps selection-only state in the pre-version phase", () => {
+    const preVersion = {
+      primaryPurpose: "share" as const,
+      secondaryPurposes: [],
+      coreAudience: "陌生读者",
+      secondaryAudiences: [],
+      channel: "x",
+      expression: { tone: "", desiredEffect: "" },
+      status: "confirmed" as const,
+      revision: 3,
+      provenance: { source: "user" as const, updatedAt: NOW },
+    };
+    const selectionOnly = normalizePublishingDraftState(
+      {
+        revision: 1,
+        containerRevision: 1,
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        activeVersionId: "v1",
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            versionRevision: 1,
+            activePlatform: "x",
+            selectedPlatforms: ["x"],
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(resolvePublishingIntentProfile(selectionOnly, preVersion)).toEqual({
+      profile: preVersion,
+      authority: "pre_version",
+    });
+  });
+
+  it("treats legacy core/drafts as a real V1 even without intentSnapshot", () => {
+    const state = normalizePublishingDraftState({ core: core(), drafts: {
+      xiaohongshu: { platform: "xiaohongshu", content: content("已有发布稿") },
+    } }, NOW);
+    const resolved = resolvePublishingIntentProfile(state, null);
+    expect(resolved.authority).toBe("active_version");
+    expect(resolved.profile?.provenance.source).toBe("version_snapshot");
+  });
   it("maps legacy chat intent into a compact provisional version purpose", () => {
     expect(
       normalizePublishingNarrativeIntent(
@@ -259,6 +366,73 @@ describe("normalizePublishingDraftState", () => {
     expect(normalized.versions?.[0].drafts.x?.content).not.toBe(
       normalized.drafts.x?.content
     );
+  });
+
+  it("inventories canonical V1 coexisting with conflicting legacy projections", () => {
+    const canonicalV1 = resolvePublishingActiveVersion(
+      normalizePublishingDraftState(
+        {
+          activePlatform: "xiaohongshu",
+          selectedPlatforms: ["xiaohongshu"],
+          core: core(1),
+          drafts: {
+            xiaohongshu: {
+              platform: "xiaohongshu",
+              content: content("canonical V1"),
+            },
+          },
+        },
+        NOW
+      )
+    );
+    const normalized = normalizePublishingDraftState(
+      {
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: { ...core(9), thesis: "stale legacy core" },
+        drafts: { x: { platform: "x", content: content("stale legacy") } },
+        narrativeIntent: { primaryPurpose: "gift", coreAudience: "旧值" },
+        confirmedIntent: { purpose: "share", audience: "另一份旧值" },
+        activeVersionId: "v1",
+        containerRevision: 4,
+        versions: [
+          {
+            ...canonicalV1,
+            narrativeIntent: {
+              primaryPurpose: "persuade",
+              secondaryPurposes: [],
+              coreAudience: "产品团队",
+              secondaryAudiences: [],
+              status: "confirmed",
+              updatedAt: NOW,
+            },
+            cover: { assetId: 70, sourceCoreRevision: 1, createdAt: NOW },
+            coverRounds: [
+              {
+                id: "v1-paid-round",
+                platform: "xiaohongshu",
+                sourceCoreRevision: 1,
+                parentAssetId: null,
+                feedback: "保留正式封面，候选另存",
+                assetIds: [71, 72, 73, 74],
+                createdAt: NOW,
+              },
+            ],
+          },
+        ],
+      },
+      NOW + 1
+    );
+
+    const active = resolvePublishingActiveVersion(normalized);
+    expect(active.drafts.xiaohongshu?.content.body).toBe("canonical V1");
+    expect(active.narrativeIntent).toMatchObject({
+      primaryPurpose: "persuade",
+      coreAudience: "产品团队",
+      status: "confirmed",
+    });
+    expect(active.cover?.assetId).toBe(70);
+    expect(active.coverRounds[0]?.assetIds).toEqual([71, 72, 73, 74]);
   });
 
   it("keeps formal cover provenance when malformed version metadata is supplied", () => {

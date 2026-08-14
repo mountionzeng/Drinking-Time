@@ -4,6 +4,13 @@ import path from "node:path";
 import type { TrpcContext } from "./_core/context";
 
 const storyAgentMocks = vi.hoisted(() => ({
+  recognizeStoryIntent: vi.fn(async () => ({
+    purpose: "social_post",
+    audience: "public",
+    platform: "xiaohongshu",
+    confidence: 0.9,
+    evidence: ["提到公开发布"],
+  })),
   replyFromStoryAgent: vi.fn(async () => ({
     reply: "我在，继续说。",
     card: {
@@ -148,6 +155,29 @@ describe("storyAgent tRPC router", () => {
         analysis: null,
       })
     );
+  });
+
+  it("returns recognition as a proposal bound to the request Story/version/revision scope", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const result = await caller.storyAgent.recognizeIntent({
+      history: [{ role: "user", content: "我要发给陌生人看" }],
+      existingIntent: null,
+      sourceScope: { storyId: 17, versionId: "v2", intentRevision: 4 },
+    });
+
+    expect(result).toMatchObject({
+      purpose: "social_post",
+      proposal: {
+        status: "pending",
+        source: { storyId: 17, versionId: "v2", intentRevision: 4 },
+      },
+    });
+    const repeated = await caller.storyAgent.recognizeIntent({
+      history: [{ role: "user", content: "我要发给陌生人看" }],
+      existingIntent: null,
+      sourceScope: { storyId: 17, versionId: "v2", intentRevision: 4 },
+    });
+    expect(repeated.proposal?.id).toBe(result.proposal?.id);
   });
 
   it("wraps chat with the archive Story Agent response shape", async () => {

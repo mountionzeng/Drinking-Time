@@ -21,6 +21,7 @@ vi.mock("../_core/llm", () => ({
 vi.mock("../_core/env", () => envMock);
 
 import { recognizeStoryIntent } from "./storyAgent";
+import { recognizedIntentToProfile } from "./storyIntent";
 
 function makeLLMResponse(content: string) {
   return {
@@ -38,6 +39,27 @@ function makeLLMResponse(content: string) {
 }
 
 describe("recognizeStoryIntent", () => {
+  it("maps recognition into a provisional shared profile without upgrading it to confirmed", () => {
+    expect(
+      recognizedIntentToProfile(
+        {
+          purpose: "social_post",
+          audience: "public",
+          platform: "xiaohongshu",
+          tone: "真诚",
+          desiredEffect: "愿意读完",
+        },
+        { revision: 6, now: 1_786_600_000_000 }
+      )
+    ).toMatchObject({
+      primaryPurpose: "share",
+      coreAudience: "public",
+      channel: "xiaohongshu",
+      status: "provisional",
+      revision: 6,
+      provenance: { source: "recognition" },
+    });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     envMock.ENV.forgeApiKey = "test-key";

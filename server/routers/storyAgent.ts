@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
@@ -584,18 +585,41 @@ export const storyAgentRouter = router({
           })
         ),
         existingIntent: z.record(z.string(), z.unknown()).nullish(),
+        sourceScope: z
+          .object({
+            storyId: z.number().int(),
+            versionId: z.string().min(1).nullable(),
+            intentRevision: z.number().int().nonnegative(),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ input }) => {
       const turns = input.history.filter(t => t.content.trim());
       const message = turns.length ? turns[turns.length - 1].content : "";
-      return recognizeStoryIntent({
+      const recognized = await recognizeStoryIntent({
         message,
         history: turns.slice(0, -1),
         existingIntent:
           (input.existingIntent as StoryIntentPayload | null | undefined) ??
           null,
       });
+      if (!input.sourceScope) return recognized;
+      return {
+        ...recognized,
+        proposal: {
+          id: intentProposalId({
+            source: input.sourceScope,
+            candidate: recognized,
+          }),
+          status: "pending" as const,
+          source: {
+            kind: "recognition" as const,
+            ...input.sourceScope,
+          },
+          evidence: recognized.evidence ?? [],
+        },
+      };
     }),
 
   /** 读取 ChatCut / Premiere XMEML，只返回导入预览，不写故事。 */

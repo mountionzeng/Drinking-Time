@@ -2,6 +2,11 @@ import {
   normalizePublishingVideoStoryboardAggregate,
   type PublishingVideoStoryboardAggregate,
 } from "./publishingVideoStoryboard";
+import {
+  resolveStoryIntentProfile,
+  storyIntentProfileFromLegacy,
+  type StoryIntentProfile,
+} from "./storyIntentProfile";
 
 export const PUBLISHING_PLATFORM_IDS = [
   "xiaohongshu",
@@ -403,6 +408,8 @@ export type PublishingStoryVersion = {
   selectedPlatforms: PublishingPlatformId[];
   /** The purpose and audience that generated this version. */
   narrativeIntent: PublishingNarrativeIntent;
+  /** Immutable purpose/audience snapshot for this version. */
+  intentSnapshot?: StoryIntentProfile;
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
   conversationSnapshot: PublishingConversationSnapshot | null;
@@ -974,6 +981,7 @@ function versionFromLegacyState(
     activePlatform: state.activePlatform,
     selectedPlatforms: [...state.selectedPlatforms],
     narrativeIntent: defaultPublishingNarrativeIntent(),
+    intentSnapshot: undefined,
     cover: state.cover ? { ...state.cover } : null,
     coverRounds: structuredClone(state.coverRounds),
     conversationSnapshot: null,
@@ -1011,6 +1019,10 @@ function normalizeStoryVersion(
         .filter((round): round is PublishingCoverRound => Boolean(round))
     : [];
   const snapshotObj = record(obj.conversationSnapshot);
+  const intentSnapshot = storyIntentProfileFromLegacy(
+    record(obj.intentSnapshot),
+    { now, source: "version_snapshot" }
+  );
   return {
     versionId,
     sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
@@ -1025,6 +1037,7 @@ function normalizeStoryVersion(
       obj.narrativeIntent,
       now
     ),
+    intentSnapshot: intentSnapshot ?? undefined,
     cover: normalizeCover(obj.cover, now),
     coverRounds: rounds,
     conversationSnapshot: snapshotObj
@@ -1051,6 +1064,45 @@ export function resolvePublishingActiveVersion(
     versions.find(version => version.versionId === state.activeVersionId) ??
     versions[0]
   );
+}
+
+export function hasPersistedPublishingVersion(
+  state: PublishingDraftState
+): boolean {
+  const active = resolvePublishingActiveVersion(state);
+  return Boolean(
+    active.intentSnapshot ||
+    state.core ||
+    Object.keys(state.drafts).length > 0 ||
+    state.cover ||
+    state.coverRounds.length > 0 ||
+    state.coverGeneration ||
+    active.core ||
+    Object.keys(active.drafts).length > 0 ||
+    active.cover ||
+    active.coverRounds.length > 0 ||
+    active.conversationSnapshot ||
+    active.videoStoryboard
+  );
+}
+
+export function resolvePublishingIntentProfile(
+  state: PublishingDraftState,
+  preVersionProfile: StoryIntentProfile | null
+) {
+  const activeVersion = resolvePublishingActiveVersion(state);
+  const legacySnapshot = hasPersistedPublishingVersion(state)
+    ? activeVersion.intentSnapshot ??
+      storyIntentProfileFromLegacy(activeVersion.narrativeIntent, {
+        revision: activeVersion.versionRevision,
+        source: "version_snapshot",
+        now: activeVersion.narrativeIntent.updatedAt,
+      })
+    : null;
+  return resolveStoryIntentProfile({
+    preVersionProfile,
+    activeVersionSnapshot: legacySnapshot,
+  });
 }
 
 export function appendPublishingCoverRound(
