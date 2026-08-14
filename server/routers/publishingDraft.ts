@@ -562,6 +562,11 @@ export const publishingDraftRouter = router({
         displayName: z.string().trim().max(80).optional(),
         narrativeIntent: narrativeIntentSchema.optional(),
         operationToken: z.string().trim().min(1).max(200).optional(),
+        requestHash: z.string().trim().min(8).max(128).optional(),
+        sourceVersionId: z.string().trim().min(1).max(64).optional(),
+        bufferDisposition: z.enum(["leave", "carry", "cancel"]).optional(),
+        sourceBufferKey: z.string().trim().max(300).optional(),
+        sourceBufferHash: z.string().trim().max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -590,6 +595,12 @@ export const publishingDraftRouter = router({
               messages: conversation,
               updatedAt: Date.now(),
             },
+            requestHash: input.requestHash,
+            sourceVersionId: input.sourceVersionId,
+            bufferDisposition: input.bufferDisposition,
+            sourceBufferKey: input.sourceBufferKey,
+            sourceBufferHash: input.sourceBufferHash,
+            storyId: input.storyId,
           },
         });
         return saved;
@@ -606,6 +617,7 @@ export const publishingDraftRouter = router({
         baseContainerRevision: z.number().int().nonnegative(),
         baseVersionRevision: z.number().int().nonnegative(),
         operationToken: z.string().trim().min(1).max(200).optional(),
+        requestHash: z.string().trim().min(8).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -619,6 +631,7 @@ export const publishingDraftRouter = router({
             versionId: input.versionId,
             baseContainerRevision: input.baseContainerRevision,
             baseVersionRevision: input.baseVersionRevision,
+            ...(input.requestHash ? { requestHash: input.requestHash } : {}),
           },
         });
       } catch (error) {
@@ -635,6 +648,7 @@ export const publishingDraftRouter = router({
         baseContainerRevision: z.number().int().nonnegative(),
         baseVersionRevision: z.number().int().nonnegative(),
         operationToken: z.string().trim().min(1).max(200).optional(),
+        requestHash: z.string().trim().min(8).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -649,6 +663,7 @@ export const publishingDraftRouter = router({
             displayName: input.displayName,
             baseContainerRevision: input.baseContainerRevision,
             baseVersionRevision: input.baseVersionRevision,
+            ...(input.requestHash ? { requestHash: input.requestHash } : {}),
           },
         });
       } catch (error) {
@@ -888,18 +903,33 @@ export const publishingDraftRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         assertPublishingContentFitsPlatform(input.platform, input.content);
-        return await writePublishingDraftState({
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          operation: {
-            type: "confirm_core_change",
+        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const active = current.publishing.versions?.find(
+          version => version.versionId === current.publishing.activeVersionId
+        );
+        const actualCoreRevision = active?.core?.revision ?? 0;
+        const actualDraftRevision = active?.drafts[input.platform]?.revision ?? 0;
+        if (actualCoreRevision !== input.baseCoreRevision) {
+          throw new PublishingDraftConflictError("core", input.baseCoreRevision, actualCoreRevision);
+        }
+        if (actualDraftRevision !== input.baseDraftRevision) {
+          throw new PublishingDraftConflictError(input.platform, input.baseDraftRevision, actualDraftRevision);
+        }
+        return {
+          ...current,
+          status: "version_transition_required" as const,
+          transition: {
+            storyId: input.storyId,
+            sourceVersionId: active?.versionId ?? "v1",
             platform: input.platform,
-            core: input.core as PublishingStoryCoreContent,
-            content: input.content,
+            baseContainerRevision: current.publishing.containerRevision ?? 0,
+            baseVersionRevision: active?.versionRevision ?? 0,
             baseCoreRevision: input.baseCoreRevision,
             baseDraftRevision: input.baseDraftRevision,
+            core: input.core as PublishingStoryCoreContent,
+            content: input.content,
           },
-        });
+        };
       } catch (error) {
         throwPublishingError(error);
       }

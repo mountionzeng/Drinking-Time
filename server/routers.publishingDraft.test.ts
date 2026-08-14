@@ -445,6 +445,121 @@ describe("publishingDraft router", () => {
     );
   });
 
+  it("returns a version transition for a core change without calling the persistence writer", async () => {
+    const activeVersion = {
+      versionId: "v2",
+      sequence: 2,
+      displayName: "第二版",
+      parentId: "v1",
+      versionRevision: 4,
+      core: { ...publishing.core, revision: 3 },
+      drafts: {
+        xiaohongshu: {
+          platform: "xiaohongshu" as const,
+          content: { title: "旧标题", body: "旧正文", tags: [] },
+          appliedBaseline: { title: "旧标题", body: "旧正文", tags: [] },
+          sourceCoreRevision: 3,
+          revision: 5,
+          needsReview: false,
+          updatedAt: 1,
+        },
+      },
+      activePlatform: "xiaohongshu" as const,
+      selectedPlatforms: ["xiaohongshu" as const],
+      narrativeIntent: {},
+      cover: null,
+      coverRounds: [],
+      conversationSnapshot: null,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 9,
+      publishing: {
+        ...publishing,
+        activeVersionId: "v2",
+        containerRevision: 6,
+        versions: [activeVersion],
+      },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    const result = await caller.confirmCoreChange({
+      storyId: 7,
+      platform: "xiaohongshu",
+      content: { title: "新标题", body: "新正文", tags: [] },
+      core: {
+        facts: ["事实"],
+        thesis: "新判断",
+        emotion: "克制",
+        voiceTraits: ["直接"],
+        visualConcept: "画面",
+      },
+      baseCoreRevision: 3,
+      baseDraftRevision: 5,
+    });
+    expect(result).toMatchObject({
+      status: "version_transition_required",
+      transition: {
+        storyId: 7,
+        sourceVersionId: "v2",
+        baseContainerRevision: 6,
+        baseVersionRevision: 4,
+      },
+    });
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on stale core or draft revisions before returning a transition", async () => {
+    const current = {
+      storyId: 7,
+      storyRevision: 9,
+      publishing: {
+        ...publishing,
+        activeVersionId: "v1",
+        containerRevision: 2,
+        versions: [{
+          versionId: "v1",
+          sequence: 1,
+          displayName: "V1",
+          parentId: null,
+          versionRevision: 2,
+          core: { ...publishing.core, revision: 3 },
+          drafts: {
+            xiaohongshu: {
+              platform: "xiaohongshu" as const,
+              content: { title: "旧标题", body: "旧正文", tags: [] },
+              appliedBaseline: { title: "旧标题", body: "旧正文", tags: [] },
+              sourceCoreRevision: 3,
+              revision: 5,
+              needsReview: false,
+              updatedAt: 1,
+            },
+          },
+          activePlatform: "xiaohongshu" as const,
+          selectedPlatforms: ["xiaohongshu" as const],
+          narrativeIntent: {},
+          cover: null,
+          coverRounds: [],
+          conversationSnapshot: null,
+        }],
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValue(current);
+    const caller = publishingDraftRouter.createCaller(context());
+    const input = {
+      storyId: 7,
+      platform: "xiaohongshu" as const,
+      content: { title: "新标题", body: "新正文", tags: [] },
+      core: { facts: ["事实"], thesis: "新判断", emotion: "克制", voiceTraits: ["直接"], visualConcept: "画面" },
+      baseCoreRevision: 3,
+      baseDraftRevision: 5,
+    };
+    await expect(caller.confirmCoreChange({ ...input, baseCoreRevision: 2 }))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(caller.confirmCoreChange({ ...input, baseDraftRevision: 4 }))
+      .rejects.toMatchObject({ code: "CONFLICT" });
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
   it("still rejects a truly empty legacy story", async () => {
     dbMocks.getStoryById.mockResolvedValueOnce({
       id: 7,

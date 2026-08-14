@@ -4,6 +4,8 @@ import {
   PUBLISHING_PLATFORM_IDS,
   PUBLISHING_PLATFORM_REGISTRY,
   applyPublishingWordingEdit,
+  computePublishingDraftContentHash,
+  computePublishingVersionRequestHash,
   confirmPublishingCoreChange,
   emptyPublishingDraftState,
   getPublishingContentError,
@@ -11,6 +13,7 @@ import {
   numberXThreadPosts,
   normalizePublishingDraftState,
   normalizePublishingNarrativeIntent,
+  publishingDraftBufferKey,
   resolvePublishingIntentProfile,
   resolvePublishingActiveVersion,
   upsertPublishingPlatformDraft,
@@ -129,7 +132,89 @@ describe("publishing platform registry", () => {
   });
 });
 
+describe("publishing version operation identity", () => {
+  it("uses stable 128-bit fingerprints and version-scoped buffer keys", () => {
+    const input = {
+      storyId: 7,
+      sourceVersionId: "v1",
+      platform: "x" as const,
+      baseContainerRevision: 2,
+      baseVersionRevision: 3,
+      baseCoreRevision: 4,
+      baseDraftRevision: 5,
+      core: core(),
+      content: content("draft"),
+      bufferDisposition: "carry" as const,
+      sourceBufferKey: publishingDraftBufferKey(7, "x", "v1"),
+      sourceBufferHash: computePublishingDraftContentHash(content("draft")),
+    };
+    expect(computePublishingVersionRequestHash(input)).toMatch(/^pv2-[a-f0-9]{32}$/);
+    expect(computePublishingVersionRequestHash({ ...input })).toBe(
+      computePublishingVersionRequestHash(input)
+    );
+    expect(computePublishingVersionRequestHash({ ...input, storyId: 8 })).not.toBe(
+      computePublishingVersionRequestHash(input)
+    );
+    expect(input.sourceBufferHash).toMatch(/^pb2-[a-f0-9]{32}$/);
+    expect(publishingDraftBufferKey(7, "x", "v2")).toBe("7:v2:x");
+  });
+});
+
 describe("normalizePublishingDraftState", () => {
+  it("keeps only well-scoped committed version receipts", () => {
+    const version = (versionId: string, sequence: number) => ({
+      versionId,
+      sequence,
+      displayName: versionId.toUpperCase(),
+      parentId: sequence === 1 ? null : "v1",
+      versionRevision: 1,
+      core: core(),
+      drafts: {},
+      activePlatform: "x",
+      selectedPlatforms: ["x"],
+      narrativeIntent: {},
+      cover: null,
+      coverRounds: [],
+      conversationSnapshot: null,
+    });
+    const valid = {
+      status: "committed",
+      operationKind: "create_version",
+      operationToken: "valid",
+      requestHash: "pv2-1234567890abcdef1234567890abcdef",
+      versionId: "v2",
+      resultActiveVersionId: "v2",
+      sourceVersionId: "v1",
+      storyId: 7,
+      platform: "x",
+      bufferDisposition: "carry",
+      sourceBufferKey: "7:x",
+      sourceBufferHash: "pb2-1234567890abcdef1234567890abcdef",
+      committedAt: NOW,
+      baseContainerRevision: 1,
+      baseVersionRevision: 1,
+    };
+    const normalized = normalizePublishingDraftState({
+      canonicalAuthority: "versions",
+      activeVersionId: "v2",
+      containerRevision: 2,
+      versions: [version("v1", 1), version("v2", 2)],
+      versionOperationReceipts: {
+        valid,
+        "bad-active": { ...valid, operationToken: "bad-active", resultActiveVersionId: "v9" },
+        "bad-story": { ...valid, operationToken: "bad-story", storyId: Number.NaN },
+        "bad-time": { ...valid, operationToken: "bad-time", committedAt: 1.5 },
+        "bad-token": { ...valid, operationToken: "another-token" },
+        "legacy-valid": "v1",
+        "legacy-missing": "v9",
+      },
+    }, NOW);
+    expect(normalized.versionOperationReceipts).toEqual({
+      valid,
+      "legacy-valid": "v1",
+    });
+  });
+
   it("resolves publishing intent from the active version snapshot instead of a conflicting pre-version profile", () => {
     const normalized = normalizePublishingDraftState(
       {

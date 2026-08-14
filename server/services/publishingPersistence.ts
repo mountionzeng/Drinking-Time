@@ -13,6 +13,12 @@ import {
   type PublishingPlatformId,
   type PublishingConversationSnapshot,
   type PublishingNarrativeIntent,
+  type PublishingBufferDisposition,
+  type PublishingVersionOperationReceipt,
+  computePublishingDraftContentHash,
+  computePublishingSimpleVersionRequestHash,
+  computePublishingVersionRequestHash,
+  publishingDraftBufferKey,
   type PublishingStoryCoreContent,
   hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
@@ -106,12 +112,20 @@ export type CreatePublishingVersionOperation = {
   narrativeIntent?: PublishingNarrativeIntent;
   baseContainerRevision: number;
   conversationSnapshot?: PublishingConversationSnapshot | null;
+  requestHash?: string;
+  sourceVersionId?: string;
+  bufferDisposition?: PublishingBufferDisposition;
+  sourceBufferKey?: string;
+  sourceBufferHash?: string;
+  storyId?: number;
 };
 export type SelectPublishingVersionOperation = {
   type: "select_version";
   versionId: string;
   baseContainerRevision: number;
   baseVersionRevision?: number;
+  storyId?: number;
+  requestHash?: string;
 };
 export type RenamePublishingVersionOperation = {
   type: "rename_version";
@@ -119,6 +133,8 @@ export type RenamePublishingVersionOperation = {
   displayName: string;
   baseContainerRevision: number;
   baseVersionRevision?: number;
+  storyId?: number;
+  requestHash?: string;
 };
 
 type AppendCoverRoundOperation = {
@@ -172,6 +188,7 @@ export type PublishingDraftPersistenceResult = {
   storyId: number;
   storyRevision: number;
   publishing: PublishingDraftState;
+  committedReceipt?: PublishingVersionOperationReceipt;
 };
 
 export const MAX_PUBLISHING_STATE_BYTES = 2 * 1024 * 1024;
@@ -390,12 +407,13 @@ function applyVersionOperation(
         target.versionRevision
       );
     }
-    return {
+    const selected = {
       ...projectVersion(state, op.versionId),
       revision: state.revision + 1,
       containerRevision: (state.containerRevision ?? 0) + 1,
       updatedAt: now,
     };
+    return operationToken ? withSimpleVersionReceipt(selected, op, operationToken, now, target) : selected;
   }
   if (op.type === "rename_version") {
     const target = versions.find(version => version.versionId === op.versionId);
@@ -407,17 +425,20 @@ function applyVersionOperation(
         target.versionRevision
       );
     }
-    return {
+    const renamed = {
       ...state,
       versions: versions.map(v =>
         v.versionId === op.versionId
-          ? { ...v, displayName: op.displayName.trim() || v.displayName }
+          ? { ...v, displayName: op.displayName.trim() || v.displayName, displayNameSource: "manual" as const,
+              versionRevision: v.versionRevision + 1 }
           : v
       ),
       containerRevision: (state.containerRevision ?? 0) + 1,
       revision: state.revision + 1,
       updatedAt: now,
     };
+    const renamedTarget = renamed.versions?.find(version => version.versionId === op.versionId) ?? target;
+    return operationToken ? withSimpleVersionReceipt(renamed, op, operationToken, now, renamedTarget) : renamed;
   }
   assertRevision("core", op.baseCoreRevision, state.core?.revision ?? 0);
   assertRevision(
@@ -426,6 +447,9 @@ function applyVersionOperation(
     state.drafts[op.platform]?.revision ?? 0
   );
   const parent = resolvePublishingActiveVersion(state);
+  if (op.sourceVersionId && op.sourceVersionId !== parent.versionId) {
+    throw new Error("Publishing version scope changed before commit");
+  }
   if (op.baseVersionRevision != null) {
     assertRevision(
       "publishing",
@@ -444,6 +468,11 @@ function applyVersionOperation(
     visualConcept: op.core.visualConcept,
     updatedAt: now,
   };
+  const narrativeChanged = Boolean(
+    op.narrativeIntent &&
+    (op.narrativeIntent.primaryPurpose !== parent.narrativeIntent.primaryPurpose ||
+      op.narrativeIntent.coreAudience !== parent.narrativeIntent.coreAudience)
+  );
   const drafts = structuredClone(parent.drafts);
   for (const [platform, draft] of Object.entries(drafts)) {
     if (platform !== op.platform && draft)
@@ -472,6 +501,7 @@ function applyVersionOperation(
         nextSequence,
         versionDisplayNameSources(parent, op)
       ),
+    displayNameSource: op.displayName?.trim() ? "manual" as const : "automatic" as const,
     parentId: parent.versionId,
     versionRevision: parent.versionRevision + 1,
     core: nextCore,
@@ -483,6 +513,14 @@ function applyVersionOperation(
     cover: parent.cover ? { ...parent.cover } : null,
     coverRounds: [],
     coverGeneration: null,
+    platformStatuses: Object.fromEntries(
+      Array.from(new Set([...parent.selectedPlatforms, op.platform])).map(platform => [
+        platform,
+        platform === op.platform
+          ? (op.bufferDisposition === "carry" ? "carried" : narrativeChanged ? "awaiting_generation" : "ready")
+          : "inherited",
+      ])
+    ),
     conversationSnapshot: op.conversationSnapshot
       ? structuredClone(op.conversationSnapshot)
       : parent.conversationSnapshot
@@ -492,6 +530,26 @@ function applyVersionOperation(
     narrativeIntent: op.narrativeIntent
       ? structuredClone(op.narrativeIntent)
       : structuredClone(parent.narrativeIntent),
+    intentSnapshot: op.narrativeIntent
+      ? (() => {
+          const migrated = storyIntentProfileFromLegacy(op.narrativeIntent, {
+            source: "version_snapshot",
+            now,
+          });
+          if (!migrated) return parent.intentSnapshot
+            ? structuredClone(parent.intentSnapshot)
+            : undefined;
+          return {
+            ...migrated,
+            channel: parent.intentSnapshot?.channel ?? migrated.channel,
+            expression: parent.intentSnapshot
+              ? structuredClone(parent.intentSnapshot.expression)
+              : migrated.expression,
+            revision: (parent.intentSnapshot?.revision ?? migrated.revision) + 1,
+            provenance: { source: "version_snapshot" as const, updatedAt: now },
+          };
+        })()
+      : parent.intentSnapshot ? structuredClone(parent.intentSnapshot) : undefined,
   };
   return {
     ...state,
@@ -507,13 +565,102 @@ function applyVersionOperation(
     revision: state.revision + 1,
     containerRevision: (state.containerRevision ?? 0) + 1,
     versionOperationReceipts: operationToken
-      ? {
+      ? boundedVersionReceipts({
           ...(state.versionOperationReceipts ?? {}),
-          [operationToken]: versionId,
-        }
+          [operationToken]: op.requestHash
+            ? {
+                status: "committed",
+                operationKind: "create_version",
+                operationToken,
+                requestHash: op.requestHash,
+                versionId,
+                resultActiveVersionId: versionId,
+                sourceVersionId: parent.versionId,
+                storyId: op.storyId ?? 0,
+                platform: op.platform,
+                bufferDisposition: op.bufferDisposition === "carry" ? "carry" : "leave",
+                sourceBufferKey: op.sourceBufferKey,
+                sourceBufferHash: op.sourceBufferHash,
+                committedAt: now,
+                baseContainerRevision: op.baseContainerRevision,
+                baseVersionRevision: op.baseVersionRevision,
+              } satisfies PublishingVersionOperationReceipt
+            : versionId,
+        })
       : state.versionOperationReceipts,
     updatedAt: now,
   };
+}
+
+function simpleVersionRequestHash(op: SelectPublishingVersionOperation | RenamePublishingVersionOperation): string {
+  if (op.storyId == null) throw new Error("Publishing version request hash requires Story scope");
+  return computePublishingSimpleVersionRequestHash({
+    type: op.type,
+    storyId: op.storyId,
+    versionId: op.versionId,
+    displayName: op.type === "rename_version" ? op.displayName : undefined,
+    baseContainerRevision: op.baseContainerRevision,
+    baseVersionRevision: op.baseVersionRevision,
+  });
+}
+
+function withSimpleVersionReceipt(
+  state: PublishingDraftState,
+  op: SelectPublishingVersionOperation | RenamePublishingVersionOperation,
+  operationToken: string,
+  now: number,
+  target: ReturnType<typeof resolvePublishingActiveVersion>
+): PublishingDraftState {
+  const receipt: PublishingVersionOperationReceipt = {
+    status: "committed", operationKind: op.type, operationToken,
+    requestHash: op.requestHash ?? simpleVersionRequestHash(op),
+    versionId: target.versionId, resultActiveVersionId: state.activeVersionId ?? target.versionId,
+    storyId: op.storyId ?? 0, platform: target.activePlatform,
+    committedAt: now, baseContainerRevision: op.baseContainerRevision,
+    baseVersionRevision: op.baseVersionRevision,
+  };
+  return { ...state, versionOperationReceipts: boundedVersionReceipts({
+    ...(state.versionOperationReceipts ?? {}), [operationToken]: receipt,
+  }) };
+}
+
+function validateVersionHandshake(
+  operationToken: string | undefined,
+  op: CreatePublishingVersionOperation
+): void {
+  const hasAny = Boolean(op.requestHash || op.sourceVersionId || op.bufferDisposition || op.sourceBufferKey || op.sourceBufferHash);
+  if (!hasAny) return;
+  if (!operationToken || !op.requestHash || !op.sourceVersionId || !op.bufferDisposition || op.storyId == null) {
+    throw new Error("Publishing version handshake requires token, hash, source version, Story and disposition");
+  }
+  if (op.bufferDisposition === "carry" && (!op.sourceBufferKey || !op.sourceBufferHash)) {
+    throw new Error("Publishing carry handshake requires buffer key and hash");
+  }
+  if (
+    op.bufferDisposition === "carry" &&
+    op.sourceBufferKey !== publishingDraftBufferKey(op.storyId, op.platform, op.sourceVersionId)
+  ) throw new Error("Publishing carry handshake buffer key does not match its Story/version/platform scope");
+  if (
+    op.bufferDisposition === "carry" &&
+    op.sourceBufferHash !== computePublishingDraftContentHash(op.content)
+  ) throw new Error("Publishing carry handshake buffer hash does not match its content");
+  const expected = computePublishingVersionRequestHash({
+    storyId: op.storyId, sourceVersionId: op.sourceVersionId, platform: op.platform,
+    baseContainerRevision: op.baseContainerRevision, baseVersionRevision: op.baseVersionRevision,
+    baseCoreRevision: op.baseCoreRevision, baseDraftRevision: op.baseDraftRevision,
+    core: op.core, content: op.content, narrativeIntent: op.narrativeIntent,
+    bufferDisposition: op.bufferDisposition, sourceBufferKey: op.sourceBufferKey, sourceBufferHash: op.sourceBufferHash,
+  });
+  if (op.requestHash !== expected) throw new Error("Publishing request hash does not match canonical payload");
+}
+
+function boundedVersionReceipts(
+  receipts: PublishingDraftState["versionOperationReceipts"]
+): NonNullable<PublishingDraftState["versionOperationReceipts"]> {
+  const entries = Object.entries(receipts ?? {});
+  const legacy = entries.filter(([, receipt]) => typeof receipt === "string");
+  const completed = entries.filter(([, receipt]) => typeof receipt !== "string").slice(-128);
+  return Object.fromEntries([...legacy, ...completed]);
 }
 
 const storyWriteTails = new Map<string, Promise<void>>();
@@ -641,22 +788,7 @@ function applyOperation(
       );
     }
     case "confirm_core_change": {
-      assertRevision(
-        "core",
-        operation.baseCoreRevision,
-        current.core?.revision ?? 0
-      );
-      assertRevision(
-        operation.platform,
-        operation.baseDraftRevision,
-        current.drafts[operation.platform]?.revision ?? 0
-      );
-      return confirmPublishingCoreChange(current, {
-        platform: operation.platform,
-        nextCore: operation.core,
-        activeDraftContent: operation.content,
-        now,
-      });
+      throw new Error("Core changes require a version transition");
     }
     case "set_selection": {
       assertRevision(
@@ -815,9 +947,30 @@ export async function writePublishingDraftState(params: {
     const rawPublishing = body.publishing;
     const normalized = normalizeStoredPublishing(rawPublishing);
     const current = projectVersion(normalized, normalized.activeVersionId ?? "v1");
-    const receiptVersionId = params.operationToken
+    const operation = { ...params.operation, storyId: params.storyId } as PublishingDraftWriteOperation;
+    if (operation.type === "create_version") validateVersionHandshake(params.operationToken, operation);
+    if (operation.type === "select_version" || operation.type === "rename_version") {
+      const expectedHash = simpleVersionRequestHash(operation);
+      if (operation.requestHash && operation.requestHash !== expectedHash) {
+        throw new Error("Publishing request hash does not match canonical payload");
+      }
+    }
+    const incomingHash = operation.type === "create_version"
+      ? operation.requestHash
+      : operation.type === "select_version" || operation.type === "rename_version"
+        ? operation.requestHash ?? simpleVersionRequestHash(operation)
+        : undefined;
+    const storedReceipt = params.operationToken
       ? current.versionOperationReceipts?.[params.operationToken]
       : undefined;
+    if (storedReceipt && typeof storedReceipt === "string" && incomingHash) {
+      throw new Error("Legacy publishing receipt has no request hash and cannot verify this retry");
+    }
+    if (
+      storedReceipt && typeof storedReceipt !== "string" &&
+      incomingHash && storedReceipt.requestHash !== incomingHash
+    ) throw new Error("Publishing operation token was already used with a different request hash");
+    const receiptVersionId = typeof storedReceipt === "string" ? storedReceipt : storedReceipt?.versionId;
     if (
       receiptVersionId &&
       current.versions?.some(version => version.versionId === receiptVersionId)
@@ -825,12 +978,22 @@ export async function writePublishingDraftState(params: {
       return {
         storyId: params.storyId,
         storyRevision: getStoryRevision(body),
-        publishing: current,
+        publishing: projectVersion(
+          current,
+          typeof storedReceipt === "string"
+            ? receiptVersionId
+            : storedReceipt!.resultActiveVersionId
+        ),
+        committedReceipt:
+          typeof storedReceipt === "string" ? undefined : storedReceipt,
       };
+    }
+    if (operation.type === "create_version" && operation.bufferDisposition === "cancel") {
+      return { storyId: params.storyId, storyRevision: getStoryRevision(body), publishing: current };
     }
     const now = params.now ?? Date.now();
     const publishing = canonicalize(
-      applyOperation(current, params.operation, now, params.operationToken, body.confirmedIntent)
+      applyOperation(current, operation, now, params.operationToken, body.confirmedIntent)
     );
     inspectPublishingSerializedOutput(publishing);
     if (!inspectPublishingProjection(publishing).equivalent) {
@@ -866,7 +1029,16 @@ export async function writePublishingDraftState(params: {
       }
       throw error;
     }
-    return { storyId: params.storyId, storyRevision, publishing };
+    const committed = params.operationToken
+      ? publishing.versionOperationReceipts?.[params.operationToken]
+      : undefined;
+    return {
+      storyId: params.storyId,
+      storyRevision,
+      publishing,
+      committedReceipt:
+        committed && typeof committed !== "string" ? committed : undefined,
+    };
   });
 }
 

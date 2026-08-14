@@ -396,22 +396,30 @@
       ],
       "evidence": [
         "shared/publishingDraft.test.ts",
+        "server/services/publishingPersistence.test.ts",
         "server/routers.publishingDraft.test.ts"
       ],
       "invariants": [
         "V2 写入不得改变 V1。",
-        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
+        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。",
+        "versions[] 是发布内容的唯一持久权威，顶层字段只能由活动版本派生。",
+        "核心变化只能提出版本转换，不能原地改写当前版本。"
       ],
       "dependencies": [
         "publishing-workspace"
       ],
       "replaces": [],
       "knownGaps": [
-        "core change 仍可原地覆盖当前版本，尚未稳定落实核心变化必须创建新版本。",
         "renameVersion 后端操作缺少真实 UI 入口。",
-        "版本转换与本地 buffer 尚无原子握手，刷新和失败恢复的全链路证据不足。"
+        "底层 committed receipt 与本地 buffer 恢复握手已建立，但真实工作区尚未接入 dirty 三选、冲突恢复和 reload 验收。",
+        "版本转换 CAS 冲突目前仍由调用方重新读取最新 projection，统一冲突响应将在工作区作用域接入时完成。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "完成 canonical versions 单一新写、原子版本转换回执、token+payload 幂等校验、carry buffer key/hash 握手和 confirmCoreChange 零写入；底层定向测试通过，真实 UI 仍待接入，因此保持 observing。"
+        },
         {
           "date": "2026-08-14",
           "kind": "verification",
@@ -440,11 +448,14 @@
       ],
       "owners": [
         "server/archive/storyIntent.ts",
-        "shared/publishingDraft.ts"
+        "shared/publishingDraft.ts",
+        "shared/storyIntentProfile.ts"
       ],
       "evidence": [
         "server/archive/storyIntent.test.ts",
-        "shared/publishingDraft.test.ts"
+        "shared/publishingDraft.test.ts",
+        "shared/storyIntentProfile.test.ts",
+        "client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx"
       ],
       "invariants": [
         "用途与平台是不同维度。",
@@ -455,11 +466,16 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "聊天 confirmedIntent、开场选择和发布版本 narrativeIntent 仍是多份可写状态，冲突时缺少统一、可解释的权威解析。",
-        "切换用途与受众后创建、标记和切换版本的真实交互不顺畅，自动识别尚未完整收敛为只写 proposal。",
+        "共享 profile、proposal 与活动版本 snapshot 权威已建立，但聊天和发布工作区尚未接入同一套 proposal 接受/拒绝/切版交互。",
+        "切换用途与受众后的命名、dirty buffer 选择、生成状态和刷新恢复仍缺真实 UI 全链路验收。",
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "自动识别收敛为非权威 proposal，V1 前使用 pre-version profile，V1 后由活动版本 intent snapshot 解析；接受实质意图变化只产生版本转换，真实双入口交互仍待完成。"
+        },
         {
           "date": "2026-08-14",
           "kind": "verification",

@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  computePublishingDraftContentHash,
+  computePublishingVersionRequestHash,
+  publishingDraftBufferKey,
+} from "../../shared/publishingDraft";
 
 const dbMocks = vi.hoisted(() => ({
   getStoryById: vi.fn(),
@@ -358,7 +363,7 @@ describe("publishingPersistence", () => {
     ).toBe("server");
   });
 
-  it("advances a confirmed core and marks other drafts without rewriting them", async () => {
+  it("refuses to persist a confirmed core change in place", async () => {
     await writePublishingDraftState({
       storyId: 7,
       userId: 3,
@@ -382,7 +387,8 @@ describe("publishingPersistence", () => {
       },
     });
 
-    const saved = await writePublishingDraftState({
+    const calls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    await expect(writePublishingDraftState({
       storyId: 7,
       userId: 3,
       operation: {
@@ -393,11 +399,12 @@ describe("publishingPersistence", () => {
         baseCoreRevision: 1,
         baseDraftRevision: 1,
       },
-    });
+    })).rejects.toThrow(/version transition/i);
 
-    expect(saved.publishing.core?.revision).toBe(2);
-    expect(saved.publishing.drafts.x?.needsReview).toBe(true);
+    const saved = await getPublishingDraftState(7, 3);
+    expect(saved.publishing.core?.revision).toBe(1);
     expect(saved.publishing.drafts.x?.content.body).toBe("do not rewrite");
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(calls);
   });
 
   it("appends a paid four-candidate cover round without changing the formal cover", async () => {
@@ -635,6 +642,128 @@ describe("publishingPersistence", () => {
     expect(retry.publishing.versionOperationReceipts).toEqual({
       "persisted-token": "v2",
     });
+  });
+
+  it("commits a request-hash receipt atomically, replays lost response, and rejects token hash reuse", async () => {
+    const initialized = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "x", selectedPlatforms: ["x"], core: baseCore,
+      content: { title: "V1", body: "one", tags: [] }, basePublishingRevision: 0,
+    }});
+    const v1Before = structuredClone(initialized.publishing.versions?.[0]);
+    const operation = { type: "create_version" as const, storyId: 7, platform: "x" as const,
+      core: { ...baseCore, thesis: "V2" }, content: { title: "V2", body: "two", tags: [] },
+      baseCoreRevision: 1, baseDraftRevision: 1, baseVersionRevision: v1Before?.versionRevision,
+      baseContainerRevision: initialized.publishing.containerRevision ?? 0, sourceVersionId: "v1",
+      requestHash: "", bufferDisposition: "carry" as const,
+      sourceBufferKey: publishingDraftBufferKey(7, "x", "v1"),
+      sourceBufferHash: computePublishingDraftContentHash({ title: "V2", body: "two", tags: [] }) };
+    operation.requestHash = computePublishingVersionRequestHash(operation);
+    const first = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "atomic-op", operation });
+    const calls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retry = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "atomic-op", operation });
+    expect(retry.publishing.versions).toHaveLength(2);
+    expect(retry.publishing.versions?.[0]).toEqual(v1Before);
+    expect(retry.publishing.versionOperationReceipts?.["atomic-op"]).toMatchObject({
+      status: "committed", requestHash: operation.requestHash, versionId: "v2", bufferDisposition: "carry",
+    });
+    expect(first.committedReceipt).toMatchObject({ operationToken: "atomic-op", versionId: "v2" });
+    expect(retry.committedReceipt).toEqual(first.committedReceipt);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(calls);
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "atomic-op",
+      operation: { ...operation, requestHash: "different-hash" } })).rejects.toThrow(/request hash/i);
+  });
+
+  it("rejects a carry handshake whose key or content hash does not match its immutable scope", async () => {
+    const initialized = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "x", selectedPlatforms: ["x"], core: baseCore,
+      content: { title: "V1", body: "one", tags: [] }, basePublishingRevision: 0,
+    }});
+    const base = {
+      type: "create_version" as const, storyId: 7, platform: "x" as const,
+      core: { ...baseCore, thesis: "V2" }, content: { title: "V2", body: "two", tags: [] },
+      baseCoreRevision: 1, baseDraftRevision: 1,
+      baseVersionRevision: initialized.publishing.versions?.[0]?.versionRevision,
+      baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+      sourceVersionId: "v1", bufferDisposition: "carry" as const,
+      sourceBufferKey: publishingDraftBufferKey(8, "x", "v1"),
+      sourceBufferHash: computePublishingDraftContentHash({ title: "V2", body: "two", tags: [] }),
+      requestHash: "",
+    };
+    const badKey = { ...base, requestHash: computePublishingVersionRequestHash(base) };
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "bad-key", operation: badKey }))
+      .rejects.toThrow(/buffer key/i);
+    const badHashInput = { ...base, sourceBufferKey: publishingDraftBufferKey(7, "x", "v1"), sourceBufferHash: "pb2-wrong" };
+    const badHash = { ...badHashInput, requestHash: computePublishingVersionRequestHash(badHashInput) };
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "bad-hash", operation: badHash }))
+      .rejects.toThrow(/buffer hash/i);
+  });
+
+  it("treats cancel as a zero-write operation", async () => {
+    const operation = {
+      type: "create_version", storyId: 7, platform: "x", core: baseCore,
+      content: { title: "", body: "cancel", tags: [] }, baseCoreRevision: 0, baseDraftRevision: 0,
+      baseContainerRevision: 0, sourceVersionId: "v1", bufferDisposition: "cancel" as const,
+      requestHash: "",
+    } as const;
+    const hashed = { ...operation, requestHash: computePublishingVersionRequestHash(operation) };
+    const result = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "cancel-op", operation: hashed });
+    expect(result.publishing.versions).toHaveLength(1);
+    expect(dbMocks.updateStoryBodyIfRevision).not.toHaveBeenCalled();
+  });
+
+  it("replays select and rename lost responses without advancing revisions twice", async () => {
+    const initialized = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "x", selectedPlatforms: ["x"], core: baseCore,
+      content: { title: "", body: "one", tags: [] }, basePublishingRevision: 0,
+    }});
+    const select = { type: "select_version" as const, versionId: "v1", storyId: 7,
+      baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+      baseVersionRevision: initialized.publishing.versions?.[0]?.versionRevision };
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "bad-select-hash",
+      operation: { ...select, requestHash: "pvo2-not-canonical" } }))
+      .rejects.toThrow(/canonical payload/i);
+    const firstSelect = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "select-op", operation: select });
+    const selectCalls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retrySelect = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "select-op", operation: select });
+    expect(retrySelect.publishing.containerRevision).toBe(firstSelect.publishing.containerRevision);
+    expect(retrySelect.committedReceipt?.operationKind).toBe("select_version");
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(selectCalls);
+
+    const rename = { type: "rename_version" as const, versionId: "v1", storyId: 7, displayName: "人工名",
+      baseContainerRevision: firstSelect.publishing.containerRevision ?? 0,
+      baseVersionRevision: firstSelect.publishing.versions?.[0]?.versionRevision };
+    const firstRename = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "rename-op", operation: rename });
+    const renameCalls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retryRename = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "rename-op", operation: rename });
+    expect(retryRename.publishing.versions?.[0]?.displayName).toBe("人工名");
+    expect(retryRename.publishing.containerRevision).toBe(firstRename.publishing.containerRevision);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(renameCalls);
+  });
+
+  it("replays an inactive-version rename while preserving the originally active version", async () => {
+    const initialized = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "x", selectedPlatforms: ["x"], core: baseCore,
+      content: { title: "", body: "v1", tags: [] }, basePublishingRevision: 0,
+    }});
+    const created = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "create_version", platform: "x", core: { ...baseCore, thesis: "v2" },
+      content: { title: "", body: "v2", tags: [] }, baseCoreRevision: 1, baseDraftRevision: 1,
+      baseVersionRevision: initialized.publishing.versions?.[0]?.versionRevision,
+      baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+    }});
+    const rename = { type: "rename_version" as const, versionId: "v1", displayName: "V1 人工名",
+      baseContainerRevision: created.publishing.containerRevision ?? 0,
+      baseVersionRevision: created.publishing.versions?.find(v => v.versionId === "v1")?.versionRevision };
+    const first = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "rename-inactive", operation: rename });
+    const calls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retry = await writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "rename-inactive", operation: rename });
+    expect(first.publishing.activeVersionId).toBe("v2");
+    expect(retry.publishing.activeVersionId).toBe("v2");
+    expect(retry.publishing.versions?.find(v => v.versionId === "v1")).toMatchObject({
+      displayName: "V1 人工名", versionRevision: 2,
+    });
+    expect(retry.publishing.containerRevision).toBe(first.publishing.containerRevision);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(calls);
   });
 
   it("rejects stale container operations and keeps V1/V2 edits isolated", async () => {

@@ -36,6 +36,29 @@ export function publishingStoryScopeMatches(
   return requestStoryId === activeStoryId;
 }
 
+export type PublishingOperationScope = {
+  storyId: number;
+  versionId: string;
+  platform: PublishingPlatformId;
+  containerRevision: number;
+  versionRevision: number;
+  operationToken: string;
+  requestHash: string;
+};
+
+export function publishingOperationScopeMatches(
+  request: PublishingOperationScope,
+  current: PublishingOperationScope
+): boolean {
+  return request.storyId === current.storyId &&
+    request.versionId === current.versionId &&
+    request.platform === current.platform &&
+    request.containerRevision === current.containerRevision &&
+    request.versionRevision === current.versionRevision &&
+    request.operationToken === current.operationToken &&
+    request.requestHash === current.requestHash;
+}
+
 export function publishingContentEquals(
   left: PublishingDraftContent,
   right: PublishingDraftContent
