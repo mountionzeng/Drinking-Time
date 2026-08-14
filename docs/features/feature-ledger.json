@@ -627,7 +627,7 @@
       "dependencies": [],
       "replaces": [],
       "knownGaps": [
-        "尚未使用真实 OpenAI Next Key 执行付费实跑；当前证据为官方公开协议说明与请求路由自动化测试。"
+        "尚未通过编辑页真实输入触发完整语义标注链路；OpenAI Next 请求协议与模型可用性已实跑验证。"
       ],
       "history": [
         {
@@ -654,6 +654,11 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "新增语义标注 OpenAI Next 请求契约回归测试，并联合编辑上下文与供应商解析测试验证 27 项通过。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "使用真实 OpenAI Next 通道验证 gpt-5.6-terra 返回 HTTP 200，并确认 JSON 输出、max_completion_tokens 与 reasoning_effort 请求参数可用。"
         }
       ]
     },
