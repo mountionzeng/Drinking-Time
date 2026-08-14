@@ -67,7 +67,7 @@ export function readableRerenderError(
         : "";
   if (!message) return fallback;
   if (!isNetworkFetchError(message)) return message;
-  return "重渲请求没有连上生成服务。请确认本地服务正在运行后再试；如果刚选择了参考视频，可以先切回“不使用参考”再重渲。";
+  return "图片请求在返回前中断，暂时无法判断生成服务是否已经接单。请先检查当前镜头是否出现了新候选；没有新候选再重试，避免重复付费。开发服务重启、浏览器连接中断或请求超时都可能出现此提示。";
 }
 
 function safeReferenceUrl(value: string | undefined): string | undefined {

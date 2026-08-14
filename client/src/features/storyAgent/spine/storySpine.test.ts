@@ -98,4 +98,119 @@ describe("storySpine", () => {
     );
     expect(storySpineStore.getState().publishingBuffers).toEqual({});
   });
+
+  it("replaces a loaded story atomically without exposing mixed story state", () => {
+    const store = storySpineStore.getState();
+    store.setActiveStoryId(20);
+    store.setRemoteStoryId(20);
+    store.setStoryTitle("故事 A");
+    store.setStoryShots([
+      {
+        shotNo: 1,
+        subject: "故事 A 主体",
+        action: "",
+        cameraMove: "",
+        dialogue: "",
+        transitionOut: "cut",
+        durationMs: 1_000,
+      },
+    ]);
+
+    const observedScopes: string[] = [];
+    const unsubscribe = storySpineStore.subscribe(state => {
+      observedScopes.push(
+        `${state.activeStoryId}:${state.storyTitle}:${state.storyShots[0]?.subject ?? ""}`
+      );
+    });
+    const loadEpoch = storySpineStore.getState().beginStoryLoad();
+    const current = storySpineStore.getState();
+    const replaced = current.replaceStoryScopeIfCurrent(loadEpoch, {
+      messages: [],
+      cards: [],
+      scripts: [],
+      storyShots: [
+        {
+          shotNo: 1,
+          subject: "故事 B 主体",
+          action: "",
+          cameraMove: "",
+          dialogue: "",
+          transitionOut: "cut",
+          durationMs: 1_000,
+        },
+      ],
+      characters: [],
+      remoteStoryId: 1176,
+      storyTitle: "故事 B",
+      storyLogline: undefined,
+      storyTheme: undefined,
+      storyArc: undefined,
+      visualCanvasItems: [],
+      visualPreference: "",
+      storyImages: [],
+      imageProvider: "default",
+      artDirection: current.artDirection,
+      publishing: current.publishing,
+      publishingBuffers: {},
+      confirmedIntent: null,
+      pendingIntentDraft: null,
+      activeStoryId: 1176,
+      saveStatus: "saved",
+      lastSavedAt: 2,
+      serverRevision: 3,
+      returningGreeting: null,
+    });
+    unsubscribe();
+
+    expect(replaced).toBe(true);
+    expect(storySpineStore.getState().storyScopeEpoch).toBe(1);
+    expect(observedScopes).not.toContain("1176:故事 A:故事 A 主体");
+    expect(observedScopes).not.toContain("1176:故事 B:故事 A 主体");
+    expect(observedScopes.at(-1)).toBe("1176:故事 B:故事 B 主体");
+  });
+
+  it("discards a story load that finishes after a newer load", () => {
+    const firstLoad = storySpineStore.getState().beginStoryLoad();
+    const secondLoad = storySpineStore.getState().beginStoryLoad();
+    const current = storySpineStore.getState();
+    const replacement = {
+      messages: [],
+      cards: [],
+      scripts: [],
+      storyShots: [],
+      characters: [],
+      remoteStoryId: 20,
+      storyTitle: "迟到的故事",
+      storyLogline: undefined,
+      storyTheme: undefined,
+      storyArc: undefined,
+      visualCanvasItems: [],
+      visualPreference: "",
+      storyImages: [],
+      imageProvider: "default" as const,
+      artDirection: current.artDirection,
+      publishing: current.publishing,
+      publishingBuffers: {},
+      confirmedIntent: null,
+      pendingIntentDraft: null,
+      activeStoryId: 20,
+      saveStatus: "saved" as const,
+      lastSavedAt: 1,
+      serverRevision: 1,
+      returningGreeting: null,
+    };
+
+    expect(
+      storySpineStore
+        .getState()
+        .replaceStoryScopeIfCurrent(firstLoad, replacement)
+    ).toBe(false);
+    expect(storySpineStore.getState().activeStoryId).toBeNull();
+    expect(
+      storySpineStore
+        .getState()
+        .replaceStoryScopeIfCurrent(secondLoad, replacement)
+    ).toBe(true);
+    expect(storySpineStore.getState().activeStoryId).toBe(20);
+  });
 });
