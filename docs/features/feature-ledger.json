@@ -410,7 +410,9 @@
       ],
       "evidence": [
         "shared/publishingDraft.test.ts",
-        "server/routers.publishingDraft.test.ts"
+        "server/routers.publishingDraft.test.ts",
+        "shared/scopedResource.test.ts",
+        "client/src/features/creationEditor/publishingHandoffScope.test.ts"
       ],
       "invariants": [
         "V2 写入不得改变 V1。",
@@ -426,6 +428,11 @@
         "版本转换与本地 buffer 尚无原子握手，刷新和失败恢复的全链路证据不足。"
       ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "refactor",
+          "summary": "U2：新增 shared/scopedResource.ts（ScopeKey/ScopedRevision/领域命令信封合同），为 shared/publishingDraft.ts 追加 publishingVersionScopeKey/publishingVersionScopedRevision 纯访问器，publishingHandoffScope.ts 改用共享 scopeKeysEqual 替代手写 storyId 比较。只固定类型/解析/静态边界合同，不改变现有 writer 行为；本卡 knownGaps 不受影响，留给 U3 处理。"
+        },
         {
           "date": "2026-08-14",
           "kind": "verification",

@@ -13,6 +13,8 @@ import {
   normalizePublishingNarrativeIntent,
   resolvePublishingIntentProfile,
   resolvePublishingActiveVersion,
+  publishingVersionScopeKey,
+  publishingVersionScopedRevision,
   upsertPublishingPlatformDraft,
   xWeightedCharacterLength,
   type PublishingDraftContent,
@@ -836,5 +838,40 @@ describe("publishing draft transitions", () => {
         content: content("unsupported"),
       })
     ).toThrow(/unsupported publishing platform/i);
+  });
+});
+
+describe("scoped resource contract accessors", () => {
+  it("builds a publishingVersion ScopeKey from storyId and versionId", () => {
+    expect(publishingVersionScopeKey(7, "v2")).toEqual({
+      resourceKind: "publishingVersion",
+      storyId: 7,
+      versionId: "v2",
+    });
+  });
+
+  it("maps versionRevision to resourceRevision and containerRevision to aggregateRevision, not the top-level revision", () => {
+    // Uses three distinct, non-zero values so a field-swap bug (e.g. reading
+    // state.revision instead of state.containerRevision) would fail this test.
+    const state = normalizePublishingDraftState(
+      {
+        activeVersionId: "v2",
+        containerRevision: 9,
+        revision: 2,
+        versions: [{ versionId: "v2", sequence: 1, versionRevision: 4 }],
+      },
+      NOW
+    );
+    expect(publishingVersionScopedRevision(state, "v2")).toEqual({
+      resourceRevision: 4,
+      aggregateRevision: 9,
+    });
+  });
+
+  it("falls back to resourceRevision 0 for an unknown versionId without throwing", () => {
+    const state = emptyPublishingDraftState(NOW);
+    expect(
+      publishingVersionScopedRevision(state, "does-not-exist")
+    ).toEqual({ resourceRevision: 0, aggregateRevision: 0 });
   });
 });
