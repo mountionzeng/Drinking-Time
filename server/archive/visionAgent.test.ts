@@ -81,16 +81,17 @@ describe("analyzeVisionReference 302 vision", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({
-        model: "gemini-3-pro-preview",
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(analysisPayload),
+      json: () =>
+        Promise.resolve({
+          model: "gemini-3-pro-preview",
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(analysisPayload),
+              },
             },
-          },
-        ],
-      }),
+          ],
+        }),
       text: () => Promise.resolve(""),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -108,11 +109,21 @@ describe("analyzeVisionReference 302 vision", () => {
     expect(result.analysis.confidence).toBe(0.86);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("https://api.302.ai/v1/chat/completions");
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer test-302-key");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://api.302.ai/v1/chat/completions"
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("gemini-3-pro-preview");
-    expect(body.messages[1].content[1].image_url.url).toBe("data:image/png;base64,AAAA");
+    expect(body.messages[0].content).toContain("水印、可读文字、作者签名");
+    expect(body.messages[0].content).toContain(
+      "不得在 promptDraft 中写成必须复制的内容"
+    );
+    expect(body.messages[1].content[1].image_url.url).toBe(
+      "data:image/png;base64,AAAA"
+    );
   });
 
   it("falls back to the legacy OpenAI-compatible vision channel when 302 is not configured", async () => {
@@ -175,7 +186,8 @@ describe("analyzeVisionReference 302 vision", () => {
 
   it("视觉模型返回坏 JSON（有花括号但语法错，正是 live 踩到的那种）时同样降级兜底，不抛错", async () => {
     // 缺少逗号的非法 JSON：parseJsonLoose 的两条路径（直接 parse + 截花括号再 parse）都会抛。
-    const brokenJson = '{ "reply": "我看了图" "analysis": { "subject": "雨夜" }';
+    const brokenJson =
+      '{ "reply": "我看了图" "analysis": { "subject": "雨夜" }';
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,

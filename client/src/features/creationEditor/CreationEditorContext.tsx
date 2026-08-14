@@ -73,12 +73,11 @@ import {
   type StoryboardFieldVersions,
   type StoryboardVersionedField,
 } from "@shared/storyboardFieldVersions";
-import { normalizePublishingDraftState } from "@shared/publishingDraft";
 import {
   buildPublishingVideoHandoff,
-  latestPublishingDraftState,
   type PublishingVideoHandoff,
 } from "@/features/publishingDraft/publishingVideoHandoff";
+import { resolveScopedPublishingHandoff } from "./publishingHandoffScope";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
   recordTimelineUndoSnapshot,
@@ -229,6 +228,7 @@ type CreationEditorContextValue = {
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
+    storyStyleReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -1030,14 +1030,35 @@ export function mergeShotsWithImages(
         imageIsPrimary: explicitlySelectedImage.isPrimary,
       };
     }
+    if (promptRunImage && !isCurrentMaterialImage(promptRunImage)) {
+      return {
+        ...shotWithVersions,
+        // Preserve a newly generated candidate as a visible preview while
+        // withholding its id from paid video actions until the user adopts it.
+        imageUrl: promptRunImage.imageUrl,
+        imagePrompt: shot.promptRun?.finalPrompt ?? promptRunImage.prompt,
+      };
+    }
     if (shot.promptRun?.imageUrl) {
       return {
         ...shotWithVersions,
-        imageId: promptRunImage?.id,
+        // A prompt-run result is still a candidate until it has an explicit
+        // selection marker. Keep the preview visible, but do not expose a
+        // source image id that would falsely enable paid video generation.
+        imageId:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.id
+            : undefined,
         imageUrl: shot.promptRun.imageUrl,
         imagePrompt: shot.promptRun.finalPrompt,
-        imageSelectionSource: promptRunImage?.selectionSource,
-        imageIsPrimary: promptRunImage?.isPrimary,
+        imageSelectionSource:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.selectionSource
+            : undefined,
+        imageIsPrimary:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.isPrimary
+            : undefined,
       };
     }
     if (!image) return shotWithVersions;
@@ -1391,28 +1412,16 @@ export function CreationEditorProvider({
   }, [storyQuery.data]);
   const publishingHandoff = useMemo(() => {
     if (activeId == null || activeId <= 0) return null;
-    const body =
-      storyQuery.data?.body &&
-      typeof storyQuery.data.body === "object" &&
-      !Array.isArray(storyQuery.data.body)
-        ? (storyQuery.data.body as Record<string, unknown>)
-        : {};
-    const publishing = latestPublishingDraftState([
+    const { publishing, coverAsset } = resolveScopedPublishingHandoff({
+      activeStoryId: activeId,
       spinePublishing,
-      publishingDraftQuery.data?.publishing,
-      normalizePublishingDraftState(body.publishing),
-    ]);
-    const queryPublishing = publishingDraftQuery.data?.publishing;
-    const queryCoverAsset =
-      queryPublishing &&
-      (queryPublishing.activeVersionId ?? "v1") ===
-        (publishing.activeVersionId ?? "v1")
-        ? (publishingDraftQuery.data?.coverAsset ?? null)
-        : null;
+      story: storyQuery.data,
+      publishingRead: publishingDraftQuery.data,
+    });
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
-      coverAsset: queryCoverAsset,
+      coverAsset,
     });
   }, [
     activeId,
@@ -1420,6 +1429,7 @@ export function CreationEditorProvider({
     publishingDraftQuery.data?.publishing,
     spinePublishing,
     storyQuery.data?.body,
+    storyQuery.data?.id,
   ]);
   const chatCutTimeline = useMemo(
     () => normalizeChatCutTimeline(storyQuery.data?.body),
@@ -2408,6 +2418,7 @@ export function CreationEditorProvider({
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
+    storyStyleReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;

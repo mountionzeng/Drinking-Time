@@ -2,10 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import {
   characterReferenceOf,
+  defaultArtRecipe,
   normalizeStoryArtDirection,
   referencesForShot,
   sceneReferencesOf,
 } from "./artDirection";
+
+describe("defaultArtRecipe", () => {
+  it("只提供艺术底线，不给未设方向的故事写死色板、光线、构图或材质", () => {
+    const recipe = defaultArtRecipe();
+
+    expect(recipe.style).toContain("content-led fine art");
+    expect(recipe.palette).toEqual([]);
+    expect(recipe.light).toEqual([]);
+    expect(recipe.composition).toEqual([]);
+    expect(recipe.material).toEqual([]);
+    expect(recipe.style).not.toContain("cinematic");
+  });
+});
 
 function dir(references: unknown[]) {
   return normalizeStoryArtDirection({ phase: "locked", references });
@@ -28,7 +42,12 @@ describe("artDirection 主角参照（role:'character'）", () => {
 
   it("向后兼容: 旧数据无 role → 归一化不报错且视为非主角", () => {
     const d = dir([
-      { id: "r1", label: "素材", imageUrl: "https://file.302.ai/a.png", purpose: "fact" },
+      {
+        id: "r1",
+        label: "素材",
+        imageUrl: "https://file.302.ai/a.png",
+        purpose: "fact",
+      },
     ]);
     expect(d.references[0]?.role).toBeUndefined();
     expect(characterReferenceOf(d)).toBeUndefined();
@@ -55,7 +74,9 @@ describe("artDirection 主角参照（role:'character'）", () => {
   });
 
   it("character 但无 imageUrl → 跳过，返回 undefined", () => {
-    const d = dir([{ id: "r1", label: "主角", role: "character", purpose: "fact" }]);
+    const d = dir([
+      { id: "r1", label: "主角", role: "character", purpose: "fact" },
+    ]);
     expect(characterReferenceOf(d)).toBeUndefined();
   });
 
@@ -100,13 +121,13 @@ describe("artDirection 主角参照（role:'character'）", () => {
     ]);
     expect(
       referencesForShot(d, { shotIdentity: "shot-06" }).map(
-        reference => reference.id,
-      ),
+        reference => reference.id
+      )
     ).toEqual(["scene-1", "local-1"]);
     expect(
       referencesForShot(d, { shotIdentity: "shot-07" }).map(
-        reference => reference.id,
-      ),
+        reference => reference.id
+      )
     ).toEqual(["scene-1"]);
   });
 });

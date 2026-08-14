@@ -334,6 +334,7 @@ describe('StoryAgentContext intent state', () => {
   it('prefers the first persisted story id over draft sentinels', async () => {
     const {
       canPersistStoryToActiveScope,
+      canPersistStorySnapshot,
       resolvePersistedStoryId,
       storyScopeMatches,
     } = await import('./StoryAgentContext');
@@ -348,5 +349,21 @@ describe('StoryAgentContext intent state', () => {
     expect(canPersistStoryToActiveScope(36, 34)).toBe(false);
     expect(canPersistStoryToActiveScope(undefined, -1)).toBe(true);
     expect(canPersistStoryToActiveScope(undefined, null)).toBe(false);
+    expect(
+      canPersistStorySnapshot({
+        snapshotScopeEpoch: 4,
+        currentScopeEpoch: 4,
+        persistedStoryId: 36,
+        activeStoryId: 36,
+      })
+    ).toBe(true);
+    expect(
+      canPersistStorySnapshot({
+        snapshotScopeEpoch: 3,
+        currentScopeEpoch: 4,
+        persistedStoryId: 36,
+        activeStoryId: 36,
+      })
+    ).toBe(false);
   });
 });

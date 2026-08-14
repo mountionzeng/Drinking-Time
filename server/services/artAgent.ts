@@ -1,15 +1,16 @@
 /**
- * 美术 Agent —— 从用户的参考图 riff 出一版电影感新图。
+ * 参考图分析与视觉 riff 流水线。
  *
- * 流水线型（非对话）：图进 → 视觉分析(visionAgent) → 拼 riff prompt → 经出图网关 renderViaGate 出图。
- * 「每次渲图都过美术判断」的智能在 renderGate.artJudge 里填；本文件是「图→图」这条具体流水线。
- *
- * 主接口：createArtRiff(params) → { originalImageUrl, imageUrl, prompt, analysis, reply, ... }
+ * 本文件只提取参考图信息并整理内容任务；最终美术提示词统一由 renderGate 编译。
  */
-import { analyzeVisionReference, type VisionAnalysisResult } from "../archive/visionAgent";
+import {
+  analyzeVisionReference,
+  type VisionAnalysisResult,
+} from "../archive/visionAgent";
 import { generateImage, type ImageProvider } from "./imageGen";
 import { renderViaGate } from "./renderGate";
 import { storagePut } from "../storage";
+import type { ArtRecipeDNA } from "../../shared/artDirection";
 
 export type ArtRiffParams = {
   imageBase64?: string;
@@ -35,6 +36,8 @@ export type ArtRiffResult = {
     colorPalette: string[];
     composition: string;
     lighting: string;
+    cameraLanguage: string;
+    materialsAndTextures: string[];
     promptDraft: string;
     negativePrompt: string;
     confidence: number;
@@ -77,47 +80,56 @@ async function storeOriginalImage(params: {
     const stored = await storagePut(
       `visual-anchors/${Date.now()}-${safeName}`,
       buffer,
-      params.mimeType,
+      params.mimeType
     );
     return stored.url;
   } catch (error) {
-    console.warn("[artAgent] original image storage failed, using inline data URL:", error);
+    console.warn(
+      "[artAgent] original image storage failed, using inline data URL:",
+      error
+    );
     return toDataUrl(params.base64, params.mimeType);
   }
 }
 
-function compactList(values?: string[]) {
-  return Array.isArray(values) && values.length ? values.join(", ") : "未明确";
-}
-
 function buildObjective(analysis: VisionAnalysisResult["analysis"]) {
-  return [
-    analysis.subject ? `主体：${analysis.subject}` : "",
-    analysis.environment ? `场景：${analysis.environment}` : "",
-    analysis.characters.length ? `人物：${analysis.characters.join("、")}` : "",
-    analysis.materialsAndTextures.length
-      ? `材质：${analysis.materialsAndTextures.join("、")}`
-      : "",
-    analysis.cameraLanguage ? `镜头：${analysis.cameraLanguage}` : "",
-  ]
-    .filter(Boolean)
-    .join("；") || "画面主体尚不明确";
+  return (
+    [
+      analysis.subject ? `主体：${analysis.subject}` : "",
+      analysis.environment ? `场景：${analysis.environment}` : "",
+      analysis.characters.length
+        ? `人物：${analysis.characters.join("、")}`
+        : "",
+      analysis.materialsAndTextures.length
+        ? `材质：${analysis.materialsAndTextures.join("、")}`
+        : "",
+      analysis.cameraLanguage ? `镜头：${analysis.cameraLanguage}` : "",
+    ]
+      .filter(Boolean)
+      .join("；") || "画面主体尚不明确"
+  );
 }
 
 function buildAesthetic(analysis: VisionAnalysisResult["analysis"]) {
-  return [
-    analysis.visualStyle.length ? `风格像 ${analysis.visualStyle.join("、")}` : "",
-    analysis.mood.length ? `情绪是 ${analysis.mood.join("、")}` : "",
-    analysis.colorPalette.length ? `颜色偏 ${analysis.colorPalette.join("、")}` : "",
-    analysis.lighting ? `光线：${analysis.lighting}` : "",
-    analysis.composition ? `构图：${analysis.composition}` : "",
-  ]
-    .filter(Boolean)
-    .join("；") || "这张图的情绪还需要继续和用户确认";
+  return (
+    [
+      analysis.visualStyle.length
+        ? `风格像 ${analysis.visualStyle.join("、")}`
+        : "",
+      analysis.mood.length ? `情绪是 ${analysis.mood.join("、")}` : "",
+      analysis.colorPalette.length
+        ? `颜色偏 ${analysis.colorPalette.join("、")}`
+        : "",
+      analysis.lighting ? `光线：${analysis.lighting}` : "",
+      analysis.composition ? `构图：${analysis.composition}` : "",
+    ]
+      .filter(Boolean)
+      .join("；") || "这张图的情绪还需要继续和用户确认"
+  );
 }
 
 function analysisFromPrevious(
-  previous?: Partial<VisionAnalysisResult["analysis"]>,
+  previous?: Partial<VisionAnalysisResult["analysis"]>
 ): VisionAnalysisResult["analysis"] {
   return {
     visualStyle: previous?.visualStyle ?? [],
@@ -147,6 +159,8 @@ function publicAnalysis(analysis: VisionAnalysisResult["analysis"]) {
     colorPalette: analysis.colorPalette,
     composition: analysis.composition,
     lighting: analysis.lighting,
+    cameraLanguage: analysis.cameraLanguage,
+    materialsAndTextures: analysis.materialsAndTextures,
     promptDraft: analysis.promptDraft,
     negativePrompt: analysis.negativePrompt,
     confidence: analysis.confidence,
@@ -179,40 +193,37 @@ export async function analyzeArtReference(params: {
   };
 }
 
-function buildRiffPrompt(params: {
-  analysis: VisionAnalysisResult["analysis"];
+function artRecipeFromAnalysis(
+  analysis: VisionAnalysisResult["analysis"]
+): ArtRecipeDNA {
+  return {
+    style: analysis.visualStyle,
+    palette: analysis.colorPalette,
+    light: analysis.lighting ? [analysis.lighting] : [],
+    composition: analysis.composition ? [analysis.composition] : [],
+    material: analysis.materialsAndTextures,
+    negative: analysis.negativePrompt ? [analysis.negativePrompt] : [],
+  };
+}
+
+function buildRiffContentBrief(params: {
   objective: string;
-  aesthetic: string;
-  instruction?: string;
-  projectPreference?: string;
   previousPrompt?: string;
 }) {
   return [
-    "Create a new cinematic image riff from the reference image.",
-    "Keep the user's real visual anchor recognizable in mood, palette, light, and composition, but do not copy it mechanically.",
-    "",
-    `Objective read: ${params.objective}`,
-    `Aesthetic and emotional read: ${params.aesthetic}`,
-    `Style tags: ${compactList(params.analysis.visualStyle)}`,
-    `Mood tags: ${compactList(params.analysis.mood)}`,
-    `Palette: ${compactList(params.analysis.colorPalette)}`,
-    params.analysis.lighting ? `Lighting: ${params.analysis.lighting}` : "",
-    params.analysis.composition ? `Composition: ${params.analysis.composition}` : "",
-    params.projectPreference
-      ? `Project-level taste memory: ${params.projectPreference}`
+    "【视觉 riff 内容简报】",
+    `参考画面的内容关系：${params.objective}`,
+    params.previousPrompt
+      ? `需要延续的上一版内容：${params.previousPrompt}`
       : "",
-    params.previousPrompt ? `Previous prompt to evolve from: ${params.previousPrompt}` : "",
-    params.instruction
-      ? `User requested change: ${params.instruction}`
-      : "User wants the first visual riff. Make it emotionally precise, filmic, and usable as a downstream visual anchor.",
-    "",
-    "Output style: cinematic still, tactile textures, emotionally legible, not generic, no text, no watermark.",
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResult> {
+export async function createArtRiff(
+  params: ArtRiffParams
+): Promise<ArtRiffResult> {
   const mimeType = params.mimeType || "image/jpeg";
   if (!params.imageBase64 && !params.imageUrl) {
     throw new Error("imageBase64 or imageUrl is required");
@@ -237,13 +248,8 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
       };
 
   const objective = buildObjective(vision.analysis);
-  const aesthetic = buildAesthetic(vision.analysis);
-  const prompt = buildRiffPrompt({
-    analysis: vision.analysis,
+  const prompt = buildRiffContentBrief({
     objective,
-    aesthetic,
-    instruction: params.instruction,
-    projectPreference: params.projectPreference,
     previousPrompt: params.previousPrompt,
   });
 
@@ -251,9 +257,16 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     {
       prompt,
       intent: params.instruction,
+      emotion: vision.analysis.mood.join("、") || undefined,
+      userInstructions: params.projectPreference
+        ? [params.projectPreference]
+        : undefined,
+      artDirection: artRecipeFromAnalysis(vision.analysis),
       referenceImages: params.imageUrl ? [params.imageUrl] : undefined,
+      outputPurpose: "image-edit",
+      referencePolicy: params.imageUrl ? "preserve-composition" : "none",
     },
-    (p) => generateImage(p, { provider: params.imageProvider }),
+    p => generateImage(p, { provider: params.imageProvider })
   );
 
   if (generated.status !== "ok" || !generated.imageUrl) {
@@ -274,7 +287,9 @@ export async function createArtRiff(params: ArtRiffParams): Promise<ArtRiffResul
     vision.analysis.visualStyle.length
       ? `偏好风格：${vision.analysis.visualStyle.join(" / ")}`
       : "",
-    vision.analysis.mood.length ? `偏好情绪：${vision.analysis.mood.join(" / ")}` : "",
+    vision.analysis.mood.length
+      ? `偏好情绪：${vision.analysis.mood.join(" / ")}`
+      : "",
     vision.analysis.colorPalette.length
       ? `偏好色彩：${vision.analysis.colorPalette.join(" / ")}`
       : "",

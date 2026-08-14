@@ -1,27 +1,33 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-let tempDir: string | null = null;
+const previousDatabaseUrl = process.env.DATABASE_URL;
+const previousLocalPersistPath = process.env.LOCAL_PERSIST_PATH;
+const tempDir = await mkdtemp(path.join(os.tmpdir(), "dt-story-cas-"));
+process.env.DATABASE_URL = "";
+process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
+
+let db = await import("./db");
 
 describe("Story body revision compare-and-swap", () => {
-  beforeEach(async () => {
-    vi.resetModules();
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "dt-story-cas-"));
-    process.env.DATABASE_URL = "";
-    process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
+  beforeEach(() => {
+    db.resetMemoryStateForTesting();
   });
 
-  afterEach(async () => {
-    delete process.env.LOCAL_PERSIST_PATH;
-    delete process.env.DATABASE_URL;
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
-    tempDir = null;
+  afterAll(async () => {
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    if (previousLocalPersistPath === undefined) {
+      delete process.env.LOCAL_PERSIST_PATH;
+    } else {
+      process.env.LOCAL_PERSIST_PATH = previousLocalPersistPath;
+    }
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   it("allows exactly one independent writer to win the same expected revision", async () => {
-    const db = await import("./db");
     const { id } = await db.createStory({
       userId: 9,
       title: "CAS",
@@ -52,7 +58,6 @@ describe("Story body revision compare-and-swap", () => {
   });
 
   it("is owner-scoped and persists the winning body across module restart", async () => {
-    let db = await import("./db");
     const { id } = await db.createStory({
       userId: 11,
       title: "Persisted CAS",

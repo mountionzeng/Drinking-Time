@@ -47,17 +47,31 @@ async function activeSourceFiles() {
   });
 }
 
+async function readSources(files: string[]) {
+  return Promise.all(
+    files.map(async file => ({
+      file,
+      content: await fs.readFile(file, "utf8"),
+    }))
+  );
+}
+
+// Start the two repository walks during collection and reuse their contents.
+// Re-scanning and reading every frontend file once per assertion made these
+// guards contend with unrelated test transforms and hit Vitest's 5s timeout.
+const activeSourcesPromise = activeSourceFiles().then(readSources);
+const sharedSourcesPromise = listFiles(sharedRoot)
+  .then(files => files.filter(file => sourceExtensions.has(path.extname(file))))
+  .then(readSources);
+
 describe("frontend architecture boundaries", () => {
   it("keeps shared contracts independent from client and server implementations", async () => {
-    const files = (await listFiles(sharedRoot)).filter(file =>
-      sourceExtensions.has(path.extname(file))
-    );
+    const sources = await sharedSourcesPromise;
     const implementationImportPattern =
       /(?:from\s+|import\s*\()\s*["'](?:@\/|(?:\.\.\/)+(?:client|server)\/)/;
     const violations: string[] = [];
 
-    for (const file of files) {
-      const content = await fs.readFile(file, "utf8");
+    for (const { file, content } of sources) {
       if (implementationImportPattern.test(content)) {
         violations.push(toRepoPath(file));
       }
@@ -77,13 +91,12 @@ describe("frontend architecture boundaries", () => {
   });
 
   it("does not import from retired frontend paths", async () => {
-    const files = await activeSourceFiles();
+    const sources = await activeSourcesPromise;
     const retiredImportPattern =
       /from\s+["'](?:@\/contexts\/(?:NayinContext|ThemeContext)|@\/lib\/(?:nayin|favicon|mockData)|@\/features\/analysis\/hooks\/useAnalysisWorkspace)["']/;
     const violations: string[] = [];
 
-    for (const file of files) {
-      const content = await fs.readFile(file, "utf8");
+    for (const { file, content } of sources) {
       if (retiredImportPattern.test(content)) {
         violations.push(toRepoPath(file));
       }
@@ -93,13 +106,12 @@ describe("frontend architecture boundaries", () => {
   });
 
   it("does not import feature-specific files from components", async () => {
-    const files = await activeSourceFiles();
+    const sources = await activeSourcesPromise;
     const componentImportPattern =
       /from\s+["']@\/components\/(?!ui\/|ErrorBoundary["'])/;
     const violations: string[] = [];
 
-    for (const file of files) {
-      const content = await fs.readFile(file, "utf8");
+    for (const { file, content } of sources) {
       if (componentImportPattern.test(content)) {
         violations.push(toRepoPath(file));
       }
@@ -109,12 +121,11 @@ describe("frontend architecture boundaries", () => {
   });
 
   it("keeps Story Agent client traffic on tRPC", async () => {
-    const files = await activeSourceFiles();
+    const sources = await activeSourcesPromise;
     const archiveStoryApiPattern = /\/api\/archive\/(?:story-agent|stories)/;
     const violations: string[] = [];
 
-    for (const file of files) {
-      const content = await fs.readFile(file, "utf8");
+    for (const { file, content } of sources) {
       if (archiveStoryApiPattern.test(content)) {
         violations.push(toRepoPath(file));
       }

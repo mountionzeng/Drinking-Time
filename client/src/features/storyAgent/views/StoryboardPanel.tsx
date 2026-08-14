@@ -352,6 +352,7 @@ export default function StoryboardPanel({
       defaultViewMode={defaultViewMode}
       embeddedEditorMode={embeddedEditorMode}
       headerAction={headerAction}
+      inheritedPublishingCover={publishingHandoff?.cover ?? null}
       className="h-full min-h-[280px] overflow-auto"
       candidatesByShot={candidatesByShot}
       onConfirmCandidate={async candidate => {

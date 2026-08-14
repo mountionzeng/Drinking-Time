@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import StoryListView from "./StoryListView";
 
 vi.stubGlobal("React", React);
 
@@ -25,10 +26,10 @@ vi.mock("@/features/storyAgent/StoryAgentContext", () => ({
   }),
 }));
 
-const mutation = () => ({
+const mutation = vi.hoisted(() => () => ({
   isPending: false,
   mutateAsync: vi.fn(),
-});
+}));
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -41,9 +42,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 
 describe("StoryListView", () => {
-  it("shows an explicit rename control beside every story title", async () => {
-    const { default: StoryListView } = await import("./StoryListView");
-
+  it("shows an explicit rename control beside every story title", () => {
     const html = renderToStaticMarkup(<StoryListView />);
 
     expect(html).toContain("未命名故事");
@@ -53,7 +52,10 @@ describe("StoryListView", () => {
   });
 
   it("keeps keyboard activation on rename controls from opening the story", () => {
-    const source = readFileSync(new URL("./StoryListView.tsx", import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL("./StoryListView.tsx", import.meta.url),
+      "utf8"
+    );
 
     expect(source).toContain("event.target !== event.currentTarget");
     expect(source).toContain("故事名称已更新");

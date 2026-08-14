@@ -14,7 +14,10 @@ export type ImageInjection = {
 type StoryboardReferenceInjectionInput = {
   identityImageUrl?: string;
   sceneImageUrl?: string;
+  styleImageUrl?: string;
   analysis?: SceneAnalysis;
+  /** False for aesthetic-only references such as the publishing cover. */
+  allowSceneIdentity?: boolean;
 };
 
 function storyCharacterReference(story: { body: unknown }): string | undefined {
@@ -60,10 +63,11 @@ export async function deriveStoryboardReferenceInjection(
   const needsCharacter = input.analysis?.needsCharacterAnchor !== false;
   const characterImageUrl = needsCharacter
     ? (input.identityImageUrl ??
-      input.sceneImageUrl ??
+      (input.allowSceneIdentity === false ? undefined : input.sceneImageUrl) ??
       lockedCharacterImageUrl)
     : undefined;
   const sceneImageUrl =
+    input.styleImageUrl ??
     input.sceneImageUrl ??
     input.identityImageUrl ??
     (needsCharacter ? lockedCharacterImageUrl : undefined);

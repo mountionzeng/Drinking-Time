@@ -78,6 +78,7 @@ describe("creation editor rerender", () => {
           "/api/images/previous-tail.webp",
           "/api/images/next-head.webp",
         ],
+        storyStyleImageUrl: "/api/images/publishing-cover.webp",
       },
       explicitInstruction: "背景变亮，人物和物体不变。",
       costConfirmation: { accepted: true, estimatedCny: 0.68 },
@@ -98,6 +99,7 @@ describe("creation editor rerender", () => {
           "/api/images/previous-tail.webp",
           "/api/images/next-head.webp",
         ],
+        storyStyleReferenceImageUrl: "/api/images/publishing-cover.webp",
         explicitInstruction: "背景变亮，人物和物体不变。",
         costConfirmation: { accepted: true, estimatedCny: 0.68 },
       })
@@ -207,9 +209,9 @@ describe("creation editor rerender", () => {
           throw new Error("Failed to fetch");
         },
       })
-    ).rejects.toThrow("重渲请求没有连上生成服务");
+    ).rejects.toThrow("图片请求在返回前中断");
 
-    expect(readableRerenderError("fetch failed")).toContain("生成服务");
+    expect(readableRerenderError("fetch failed")).toContain("避免重复付费");
   });
 
   it("does not send oversized inline reference images with the rerender request", () => {

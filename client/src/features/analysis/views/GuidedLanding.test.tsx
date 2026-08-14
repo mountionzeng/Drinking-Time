@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmotionAnalysisProfile } from "@/features/analysis/emotionAnalysis";
+import GuidedLanding from "./GuidedLanding";
 
 vi.stubGlobal("React", React);
 
@@ -75,8 +76,7 @@ describe("GuidedLanding", () => {
     almanacState.isLoading = false;
   });
 
-  it("renders the two required entry buttons and the daily atmosphere layer", async () => {
-    const { default: GuidedLanding } = await import("./GuidedLanding");
+  it("renders the two required entry buttons and the daily atmosphere layer", () => {
     const html = renderToStaticMarkup(
       <GuidedLanding onSelectMaterial={() => {}} onSelectStory={() => {}} />
     );
@@ -109,8 +109,7 @@ describe("GuidedLanding", () => {
     expect(html).not.toContain("火气明朗");
   });
 
-  it("电脑登录入口允许访客先在本机留下资料和旧话", async () => {
-    const { default: GuidedLanding } = await import("./GuidedLanding");
+  it("电脑登录入口允许访客先在本机留下资料和旧话", () => {
     const html = renderToStaticMarkup(
       <GuidedLanding
         onSelectMaterial={() => {}}
@@ -179,9 +178,8 @@ describe("GuidedLanding", () => {
     expect(source).not.toContain("美丽的图片");
   });
 
-  it("老黄历不可用时不向用户暴露技术状态", async () => {
+  it("老黄历不可用时不向用户暴露技术状态", () => {
     almanacState.available = false;
-    const { default: GuidedLanding } = await import("./GuidedLanding");
     const html = renderToStaticMarkup(
       <GuidedLanding
         onSelectMaterial={() => {}}
@@ -199,8 +197,7 @@ describe("GuidedLanding", () => {
     expect(html).not.toContain("真实老黄历信息暂时不可用");
   });
 
-  it("登录入口即使收到旧的本地回信也不展示，避免串到别人的资料", async () => {
-    const { default: GuidedLanding } = await import("./GuidedLanding");
+  it("登录入口即使收到旧的本地回信也不展示，避免串到别人的资料", () => {
     const emotionProfile: EmotionAnalysisProfile = {
       birthDate: "1994-08-31",
       dailyReference: {

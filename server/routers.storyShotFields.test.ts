@@ -5,6 +5,19 @@ import { ENV } from "./_core/env";
 import { resetMemoryStateForTesting } from "./db";
 import { appRouter } from "./routers";
 
+const promptLineageMocks = vi.hoisted(() => ({
+  migrateStoryPromptLineage: vi.fn(async () => undefined),
+}));
+
+vi.mock("./services/promptLineageMigration", async importOriginal => {
+  const actual =
+    await importOriginal<typeof import("./services/promptLineageMigration")>();
+  return {
+    ...actual,
+    migrateStoryPromptLineage: promptLineageMocks.migrateStoryPromptLineage,
+  };
+});
+
 const savedDatabaseUrl = ENV.databaseUrl;
 const savedVoiceEnv = {
   api302Key: ENV.api302Key,
@@ -33,6 +46,8 @@ function context(userId: number): TrpcContext {
 beforeEach(() => {
   ENV.databaseUrl = "";
   resetMemoryStateForTesting();
+  promptLineageMocks.migrateStoryPromptLineage.mockReset();
+  promptLineageMocks.migrateStoryPromptLineage.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -177,6 +192,55 @@ describe("storyAgent.updateStoryShotFields", () => {
     });
     expect(body.timeline).toEqual({ version: 4 });
     expect(body.publishing).toEqual({ activeVersionId: "v2" });
+  });
+
+  it("waits for prompt lineage sync before reporting a successful patch", async () => {
+    const caller = appRouter.createCaller(context(615));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "Prompt lineage barrier",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-0101",
+            shotIdentity: "shot-0101",
+            shotNo: 1,
+            subject: "窗边人物",
+          },
+        ],
+      },
+    });
+    if (!created) throw new Error("story creation failed");
+
+    promptLineageMocks.migrateStoryPromptLineage.mockClear();
+    let releaseSync!: () => void;
+    const blockedSync = new Promise<void>(resolve => {
+      releaseSync = resolve;
+    });
+    promptLineageMocks.migrateStoryPromptLineage.mockReturnValueOnce(
+      blockedSync
+    );
+
+    let completed = false;
+    const update = caller.storyAgent
+      .updateStoryShotFields({
+        storyId: created.id,
+        stableShotId: "shot-0101",
+        patch: { cameraMove: "缓慢推进" },
+      })
+      .then(result => {
+        completed = true;
+        return result;
+      });
+
+    await vi.waitFor(() => {
+      expect(
+        promptLineageMocks.migrateStoryPromptLineage
+      ).toHaveBeenCalledOnce();
+    });
+    expect(completed).toBe(false);
+
+    releaseSync();
+    await expect(update).resolves.toMatchObject({ status: "ok" });
   });
 
   it("does not allow another user to patch the story", async () => {
@@ -512,7 +576,9 @@ describe("storyAgent.generateStoryShotVoice", () => {
       olderStarted();
       await olderBlocked;
       return new Response(
-        JSON.stringify({ audio_url: "https://file.302.ai/voice/older-again.mp3" }),
+        JSON.stringify({
+          audio_url: "https://file.302.ai/voice/older-again.mp3",
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     });

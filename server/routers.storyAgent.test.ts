@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import type { TrpcContext } from "./_core/context";
@@ -99,9 +99,17 @@ const imagePromptDirectorMocks = vi.hoisted(() => ({
 
 vi.mock("./services/imagePromptDirector", () => imagePromptDirectorMocks);
 
-type AppRouter = typeof import("./routers").appRouter;
+process.env.DATABASE_URL = "";
+process.env.LOCAL_PERSIST_PATH = path.join(
+  os.tmpdir(),
+  `drinking-time-story-router-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.json`
+);
 
-let appRouter: AppRouter;
+// The router graph is intentionally large. Loading it in a 10s beforeAll hook made
+// this suite fail before any behavior ran on slower or contended machines.
+const { appRouter } = await import("./routers");
 
 function createAuthContext(userId = 42): TrpcContext {
   return {
@@ -127,17 +135,6 @@ function createAuthContext(userId = 42): TrpcContext {
 }
 
 describe("storyAgent tRPC router", () => {
-  beforeAll(async () => {
-    process.env.DATABASE_URL = "";
-    process.env.LOCAL_PERSIST_PATH = path.join(
-      os.tmpdir(),
-      `drinking-time-story-router-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}.json`
-    );
-    ({ appRouter } = await import("./routers"));
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     imageGenMocks.toPublicImageUrl.mockImplementation(
@@ -1061,7 +1058,7 @@ describe("storyAgent tRPC router", () => {
     );
     expect(imageGenMocks.editImage).toHaveBeenCalledWith(
       "https://file.302.ai/red-black-scene.webp",
-      expect.stringContaining("EXACT CHARACTER AND WARDROBE LOCK"),
+      expect.stringContaining("【故事板视觉事实】"),
       expect.objectContaining({
         characterRef: "https://file.302.ai/hero-white-gown.webp",
         characterWeight: 100,
@@ -1383,10 +1380,10 @@ describe("storyAgent tRPC router", () => {
       expect.any(Object)
     );
     expect(imageGenMocks.generateImage.mock.calls[0][0]).toContain(
-      "HIGHEST PRIORITY"
+      "【用户持续要求】"
     );
     expect(imageGenMocks.generateImage.mock.calls[0][0]).toContain(
-      "not a weighted suggestion"
+      "这些要求必须完整落实"
     );
   });
 

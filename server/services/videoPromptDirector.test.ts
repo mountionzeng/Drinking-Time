@@ -87,6 +87,7 @@ describe("directVideoPrompt", () => {
       endImageInput: "data:image/png;base64,END",
       middleImageInput: "data:image/png;base64,MIDDLE",
       identityImageInput: "data:image/png;base64,IDENTITY",
+      storyStyleImageInput: "data:image/png;base64,COVER",
       previousImageInput: "data:image/png;base64,PREVIOUS",
       nextImageInput: "data:image/png;base64,NEXT",
       fallbackPrompt: "subtle natural motion, stable camera",
@@ -151,8 +152,11 @@ describe("directVideoPrompt", () => {
     expect(body.messages[1].content[5].image_url.url).toContain("MIDDLE");
     expect(body.messages[1].content[6].text).toContain("人物身份基准");
     expect(body.messages[1].content[7].image_url.url).toContain("IDENTITY");
-    expect(body.messages[1].content[9].image_url.url).toContain("PREVIOUS");
-    expect(body.messages[1].content[11].image_url.url).toContain("NEXT");
+    expect(body.messages[1].content[8].text).toContain("故事正式封面");
+    expect(body.messages[1].content[8].text).toContain("不得作为人物身份");
+    expect(body.messages[1].content[9].image_url.url).toContain("COVER");
+    expect(body.messages[1].content[11].image_url.url).toContain("PREVIOUS");
+    expect(body.messages[1].content[13].image_url.url).toContain("NEXT");
     expect(body.messages[0].content).toContain("手持不是默认装饰");
     expect(body.messages[0].content).toContain("脸、发型和服饰的唯一事实来源");
     expect(body.messages[0].content).toContain("高于“既有视频方案”");

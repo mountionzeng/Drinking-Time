@@ -8,6 +8,7 @@ export type ImageGenerationReferencePlan = {
   referencePurpose: ImageGenerationReferencePurpose;
   gateReferenceImages: string[] | undefined;
   usesStoryboardFrames: boolean;
+  usesStoryStyleReference: boolean;
 };
 
 function cleanUrl(value: string | null | undefined): string | undefined {
@@ -27,7 +28,9 @@ export function planImageGenerationReferences(input: {
   originalImageUrl?: string | null;
   characterReferenceImageUrl?: string | null;
   storyReferenceImageUrls?: readonly string[] | null;
+  storyStyleReferenceImageUrl?: string | null;
 }): ImageGenerationReferencePlan {
+  const storyStyleReference = cleanUrl(input.storyStyleReferenceImageUrl);
   const storyboardFrames = uniqueUrls([
     input.shotReferenceImageUrl,
     ...(input.shotContextImageUrls ?? []),
@@ -36,8 +39,12 @@ export function planImageGenerationReferences(input: {
     return {
       primaryImage: storyboardFrames[0],
       referencePurpose: "current-frame",
-      gateReferenceImages: storyboardFrames,
+      gateReferenceImages: uniqueUrls([
+        ...storyboardFrames,
+        storyStyleReference,
+      ]),
       usesStoryboardFrames: true,
+      usesStoryStyleReference: Boolean(storyStyleReference),
     };
   }
 
@@ -45,19 +52,23 @@ export function planImageGenerationReferences(input: {
   const characterReference = cleanUrl(input.characterReferenceImageUrl);
   const storyReferences = uniqueUrls(input.storyReferenceImageUrls ?? []);
   const primaryImage =
-    originalImage ?? characterReference ?? storyReferences[0];
+    originalImage ??
+    characterReference ??
+    storyStyleReference ??
+    storyReferences[0];
   const referencePurpose = originalImage
     ? "current-frame"
     : characterReference
       ? "character"
       : "scene-style";
   const gateReferenceImages = primaryImage
-    ? uniqueUrls([primaryImage, ...storyReferences])
+    ? uniqueUrls([primaryImage, storyStyleReference, ...storyReferences])
     : undefined;
   return {
     primaryImage,
     referencePurpose,
     gateReferenceImages,
     usesStoryboardFrames: false,
+    usesStoryStyleReference: Boolean(storyStyleReference),
   };
 }

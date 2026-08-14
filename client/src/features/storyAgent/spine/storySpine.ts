@@ -77,7 +77,39 @@ type StorySpineData = {
   lastArchiveSaveHash: string;
   lastStateChangeTime: number;
   lastSnapshotId: number | null;
+  /** Increments whenever the active story payload is replaced. */
+  storyScopeEpoch: number;
+  /** Monotonic token used to discard story loads that finish out of order. */
+  storyLoadEpoch: number;
 };
+
+export type StoryScopeReplacement = Pick<
+  StorySpineData,
+  | "messages"
+  | "cards"
+  | "scripts"
+  | "storyShots"
+  | "characters"
+  | "remoteStoryId"
+  | "storyTitle"
+  | "storyLogline"
+  | "storyTheme"
+  | "storyArc"
+  | "visualCanvasItems"
+  | "visualPreference"
+  | "storyImages"
+  | "imageProvider"
+  | "artDirection"
+  | "publishing"
+  | "publishingBuffers"
+  | "confirmedIntent"
+  | "pendingIntentDraft"
+  | "activeStoryId"
+  | "saveStatus"
+  | "lastSavedAt"
+  | "serverRevision"
+  | "returningGreeting"
+>;
 
 type StorySpineActions = {
   setMessages: StorySpineSetter<ChatMessage[]>;
@@ -119,6 +151,11 @@ type StorySpineActions = {
   setLastArchiveSaveHash: StorySpineSetter<string>;
   setLastStateChangeTime: StorySpineSetter<number>;
   setLastSnapshotId: StorySpineSetter<number | null>;
+  beginStoryLoad: () => number;
+  replaceStoryScopeIfCurrent: (
+    loadEpoch: number,
+    replacement: StoryScopeReplacement
+  ) => boolean;
   resetStorySpine: () => void;
 };
 
@@ -172,6 +209,8 @@ function initialData(): StorySpineData {
     lastArchiveSaveHash: "",
     lastStateChangeTime: Date.now(),
     lastSnapshotId: null,
+    storyScopeEpoch: 0,
+    storyLoadEpoch: 0,
   };
 }
 
@@ -241,6 +280,28 @@ export const useStorySpine = create<StorySpineState>()(set => {
     setLastArchiveSaveHash: setField("lastArchiveSaveHash"),
     setLastStateChangeTime: setField("lastStateChangeTime"),
     setLastSnapshotId: setField("lastSnapshotId"),
+    beginStoryLoad: () => {
+      let loadEpoch = 0;
+      set(state => {
+        loadEpoch = state.storyLoadEpoch + 1;
+        return { storyLoadEpoch: loadEpoch };
+      });
+      return loadEpoch;
+    },
+    replaceStoryScopeIfCurrent: (loadEpoch, replacement) => {
+      let replaced = false;
+      set(state => {
+        if (state.storyLoadEpoch !== loadEpoch) return state;
+        replaced = true;
+        return {
+          ...replacement,
+          storyShots: ensureShotIdentities(replacement.storyShots),
+          storyScopeEpoch: state.storyScopeEpoch + 1,
+          lastArchiveSaveHash: "",
+        };
+      });
+      return replaced;
+    },
     resetStorySpine: () => set(initialData()),
   };
 });

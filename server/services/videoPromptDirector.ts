@@ -65,6 +65,8 @@ export type DirectVideoPromptInput = {
   middleImageInput?: string;
   /** 人物身份基准，只约束脸、发型和服饰，不替换当前镜头构图。 */
   identityImageInput?: string;
+  /** Story cover: palette, material, light and mood only; never identity/composition. */
+  storyStyleImageInput?: string;
   previousImageInput?: string;
   nextImageInput?: string;
   fallbackPrompt: string;
@@ -397,6 +399,18 @@ export async function directVideoPrompt(
         {
           type: "image_url",
           image_url: { url: input.identityImageInput, detail: "high" },
+        }
+      );
+    }
+    if (input.storyStyleImageInput) {
+      visualContent.push(
+        {
+          type: "text",
+          text: "故事正式封面（只继承色板、材质、光线和情绪；不得复制构图，不得作为人物身份）：",
+        },
+        {
+          type: "image_url",
+          image_url: { url: input.storyStyleImageInput, detail: "high" },
         }
       );
     }

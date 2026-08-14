@@ -1071,7 +1071,7 @@ describe("StoryCardsBoard intent entry", () => {
         } as unknown as CreationEditorShot,
         { ready: true }
       )
-    ).toBeNull();
+    ).toBe("需要先选择当前主图");
 
     expect(
       storyboardVideoRenderBlockReason(
@@ -1422,7 +1422,7 @@ describe("StoryCardsBoard intent entry", () => {
     expect(reviewSource).toContain("storyboard-header-generate-image-");
     expect(reviewSource).toContain("storyboard-header-generate-video-");
     expect(reviewSource).toContain("根据前后画面和图片要求重新生成");
-    expect(reviewSource).toContain("根据前后画面和视频要求生成");
+    expect(reviewSource).toContain("根据当前图片、正式封面和视频要求生成");
     expect(panelSource).toContain("onEditImage={onEditImage}");
     expect(boardSource).toContain("StoryboardMediaDropOverlay");
     expect(boardSource).toContain("data-storyboard-media-drop-target");

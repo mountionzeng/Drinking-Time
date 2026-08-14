@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    minWorkers: 1,
+    maxWorkers: 4,
+    globalSetup: ["./vitest.globalSetup.ts"],
     setupFiles: ["./vitest.setup.ts"],
     include: [
       "server/**/*.test.ts",

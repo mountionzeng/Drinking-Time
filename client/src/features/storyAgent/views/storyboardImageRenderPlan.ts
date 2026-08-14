@@ -23,8 +23,7 @@ export function storyboardImageRenderBlockReason(
 ): string | null {
   if (status?.ready) return null;
   return (
-    status?.reason ??
-    "正在确认图片供应商状态，请稍后再试；本次未提交付费任务"
+    status?.reason ?? "正在确认图片供应商状态，请稍后再试；本次未提交付费任务"
   );
 }
 
@@ -34,6 +33,8 @@ export function storyboardImageReferenceLabel(
   const cue = reference.cueCode ?? String(reference.shotNo);
   if (reference.source === "current") return `当前镜头 ${cue}`;
   if (reference.source === "previous-last") return `上一镜 ${cue} 尾帧`;
+  if (reference.source === "publishing-cover")
+    return "文字稿正式封面（故事风格）";
   return `下一镜 ${cue} 首帧`;
 }
 
