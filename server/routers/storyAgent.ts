@@ -59,6 +59,10 @@ import {
 } from "../services/imageRenderInstruction";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import {
+  applyPublishingCoverArtDirection,
+  resolvePublishingCoverArtDirection,
+} from "../services/publishingCoverArtDirection";
+import {
   normalizeStoryArtDirection,
   characterReferenceOf,
 } from "../../shared/artDirection";
@@ -1626,6 +1630,11 @@ export const storyAgentRouter = router({
           story.body && typeof story.body === "object"
             ? (story.body as Record<string, unknown>)
             : {};
+        const coverArtDirection = await resolvePublishingCoverArtDirection({
+          storyId: input.storyId,
+          storyBody,
+          loadImage: getGeneratedImageById,
+        });
 
         // ── prompt 构建阶段 ──
         // 三条路径的初始 prompt：
@@ -1933,12 +1942,14 @@ export const storyAgentRouter = router({
           }
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
+        prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
         const gateContext = {
           prompt,
           referenceImages: referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
           storyId: story.id,
+          preservePrompt: Boolean(coverArtDirection),
           artDirection: referencePlan.usesStoryboardFrames
             ? explicitStyleRecipe
             : (storyArtRecipe(story) ?? explicitStyleRecipe),

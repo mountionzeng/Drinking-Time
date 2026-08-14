@@ -142,7 +142,7 @@ describe("creation editor rerender", () => {
     );
   });
 
-  it("submits one Midjourney grid task for four storyboard candidates", async () => {
+  it("reports the one returned provider asset without inventing four results", async () => {
     const generate = vi.fn(async () => ({
       status: "ok" as const,
       imageUrl: "/api/images/candidate-grid.png",
@@ -164,7 +164,7 @@ describe("creation editor rerender", () => {
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
-      generatedCount: 4,
+      generatedCount: 1,
       failedCount: 0,
     });
     expect(result.results).toEqual([
