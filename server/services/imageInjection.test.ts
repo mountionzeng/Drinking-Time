@@ -167,6 +167,33 @@ describe("deriveStoryboardReferenceInjection", () => {
     });
   });
 
+  it("正式封面作为场景风格时不会自动变成人物身份锚点", async () => {
+    await expect(
+      deriveStoryboardReferenceInjection(storyWithCharacter(), {
+        sceneImageUrl: "/api/images/publishing-cover.webp",
+        analysis: personAnalysis,
+        allowSceneIdentity: false,
+      })
+    ).resolves.toEqual({
+      styleRef: "/api/images/publishing-cover.webp",
+    });
+  });
+
+  it("当前镜头锁人物时仍由正式封面提供故事风格", async () => {
+    await expect(
+      deriveStoryboardReferenceInjection(storyWithCharacter(), {
+        identityImageUrl: "/api/images/current-frame.webp",
+        sceneImageUrl: "/api/images/current-frame.webp",
+        styleImageUrl: "/api/images/publishing-cover.webp",
+        analysis: personAnalysis,
+      })
+    ).resolves.toEqual({
+      characterRef: "/api/images/current-frame.webp",
+      characterWeight: 100,
+      styleRef: "/api/images/publishing-cover.webp",
+    });
+  });
+
   it("故事版人物或场景锚点无法公网化时不回退到旧美术库", async () => {
     mocks.toPublicImageUrl.mockImplementation(async (url?: string) =>
       url?.startsWith("/api/images/") ? undefined : url

@@ -25,6 +25,7 @@ describe("planImageGenerationReferences", () => {
         "/story/0103.webp",
       ],
       usesStoryboardFrames: true,
+      usesStoryStyleReference: false,
     });
   });
 
@@ -42,6 +43,41 @@ describe("planImageGenerationReferences", () => {
         "/art-library/scene.webp",
       ],
       usesStoryboardFrames: false,
+      usesStoryStyleReference: false,
+    });
+  });
+
+  it("uses the publishing cover as scene style without turning it into identity", () => {
+    expect(
+      planImageGenerationReferences({
+        storyStyleReferenceImageUrl: "/api/images/publishing-cover.webp",
+      })
+    ).toEqual({
+      primaryImage: "/api/images/publishing-cover.webp",
+      referencePurpose: "scene-style",
+      gateReferenceImages: ["/api/images/publishing-cover.webp"],
+      usesStoryboardFrames: false,
+      usesStoryStyleReference: true,
+    });
+  });
+
+  it("keeps the current frame primary and adds the cover as style context", () => {
+    expect(
+      planImageGenerationReferences({
+        shotReferenceImageUrl: "/story/current.webp",
+        shotContextImageUrls: ["/story/previous.webp"],
+        storyStyleReferenceImageUrl: "/api/images/publishing-cover.webp",
+      })
+    ).toEqual({
+      primaryImage: "/story/current.webp",
+      referencePurpose: "current-frame",
+      gateReferenceImages: [
+        "/story/current.webp",
+        "/story/previous.webp",
+        "/api/images/publishing-cover.webp",
+      ],
+      usesStoryboardFrames: true,
+      usesStoryStyleReference: true,
     });
   });
 });

@@ -83,7 +83,7 @@ type StorySpineData = {
   storyLoadEpoch: number;
 };
 
-export type StoryScopeReplacement = Pick<
+type StoryScopeReplacement = Pick<
   StorySpineData,
   | "messages"
   | "cards"

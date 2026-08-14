@@ -1071,7 +1071,7 @@ describe("StoryCardsBoard intent entry", () => {
         } as unknown as CreationEditorShot,
         { ready: true }
       )
-    ).toBeNull();
+    ).toBe("需要先选择当前主图");
 
     expect(
       storyboardVideoRenderBlockReason(

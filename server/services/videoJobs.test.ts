@@ -699,6 +699,7 @@ Negative: no floating objects, characters obey physics.
         stableShotId: "shot-02",
         imageId: image.id,
         characterReferenceImageUrl: "data:image/png;base64,IDENTITY",
+        storyStyleReferenceImageUrl: "data:image/png;base64,COVER",
         prompt: "动作：坐在沙发边缘\n相机运动：缓慢推进",
         subtitle: "我最近一直都在昏昏欲睡的状态",
         durationSec: 5,
@@ -716,11 +717,13 @@ Negative: no floating objects, characters obey physics.
     expect(directorBody.messages[1].content[0].text).toContain(
       "用户最新要求：人物先屏息，再抬眼，相机随后响应"
     );
-    expect(directorBody.messages[1].content[2].text).toContain(
-      "人物身份基准"
-    );
+    expect(directorBody.messages[1].content[2].text).toContain("人物身份基准");
     expect(directorBody.messages[1].content[3].image_url.url).toContain(
       "IDENTITY"
+    );
+    expect(directorBody.messages[1].content[4].text).toContain("故事正式封面");
+    expect(directorBody.messages[1].content[5].image_url.url).toContain(
+      "COVER"
     );
     expect(fetch.mock.calls[1][0]).toBe("https://api.302.ai/mj/submit/video");
     const mjBody = JSON.parse(String(fetch.mock.calls[1][1].body));
@@ -732,12 +735,12 @@ Negative: no floating objects, characters obey physics.
     expect(result.take.prompt).toBe(mjBody.prompt);
     expect(result.take.parameterSnapshot).toMatchObject({
       characterReferenceImageUrl: "inline-image",
+      storyStyleReferenceImageUrl: "inline-image",
       promptDirector: {
         source: "302-vision",
         model: "gpt-5.4-nano-2026-03-17",
         engineering: {
-          userRequirement:
-            "用户最新要求：人物先屏息，再抬眼，相机随后响应",
+          userRequirement: "用户最新要求：人物先屏息，再抬眼，相机随后响应",
         },
         analysis: {
           visualSummary: "男子坐在沙发边缘。",
@@ -892,9 +895,10 @@ Negative: no floating objects, characters obey physics.
     ]);
     expect(
       variants
-        .map(take =>
-          (take.parameterSnapshot as Record<string, unknown>)
-            .mjVideoVariantLabel
+        .map(
+          take =>
+            (take.parameterSnapshot as Record<string, unknown>)
+              .mjVideoVariantLabel
         )
         .sort()
     ).toEqual(["V1", "V2", "V3", "V4"]);

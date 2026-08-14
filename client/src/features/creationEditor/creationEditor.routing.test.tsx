@@ -10,10 +10,7 @@ import {
   selectInitialShotNo,
   type CreationEditorShot,
 } from "./CreationEditorContext";
-import {
-  buildMaterialWarehouseVideoItems,
-  videoWarehouseActionState,
-} from "./views/MaterialWarehousePanel";
+import { buildMaterialWarehouseVideoItems } from "./views/MaterialWarehousePanel";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 
@@ -701,7 +698,7 @@ describe("creation editor route and shell", () => {
     expect(merged[1].imageUrl).toBeUndefined();
   });
 
-  it("keeps prompt-run images visible even when they are still pending drafts", () => {
+  it("keeps prompt-run candidates visible without exposing them as video source images", () => {
     const merged = mergeShotsWithImages(
       [
         shot(1, {
@@ -727,6 +724,7 @@ describe("creation editor route and shell", () => {
       ]
     );
 
+    expect(merged[0].imageId).toBeUndefined();
     expect(merged[0].imageUrl).toBe("/api/images/prompt-run.png");
     expect(merged[0].imagePrompt).toBe("prompt table prompt");
   });

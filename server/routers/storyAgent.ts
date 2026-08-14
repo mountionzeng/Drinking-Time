@@ -1570,6 +1570,7 @@ export const storyAgentRouter = router({
         referenceImageUrl: z.string().optional(), // FLUX Kontext 参考图 URL，跨镜头保角色/场景一致
         referenceIdentityImageUrl: z.string().optional(), // 人物身份锚点图，优先用来提取五官/脸型
         referenceContextImageUrls: z.array(z.string()).max(3).optional(), // 当前故事的相邻镜头画面，仅用于视觉连续性
+        storyStyleReferenceImageUrl: z.string().optional(), // 正式封面：只继承色板、材质、光线与情绪
         editMaskImageUrl: z
           .string()
           .startsWith("data:image/png;base64,")
@@ -1605,9 +1606,10 @@ export const storyAgentRouter = router({
           };
         }
         if (input.explicitInstruction || input.editMaskImageUrl) {
-          const estimate = input.editMaskImageUrl
-            ? estimateStoryboardMaskedEditCost()
-            : estimateStoryboardImageCost();
+          const estimate =
+            input.editMaskImageUrl || input.imageProvider === "gpt-image"
+              ? estimateStoryboardMaskedEditCost()
+              : estimateStoryboardImageCost();
           if (!input.costConfirmation?.accepted) {
             return {
               status: "error" as const,
@@ -1880,6 +1882,7 @@ export const storyAgentRouter = router({
           originalImageUrl: input.originalImageUrl,
           characterReferenceImageUrl: rawCharacterRef,
           storyReferenceImageUrls: storyReferences,
+          storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
         });
         prompt = withCharacterContinuityPrompt(prompt, storyBody, {
           hasCharacterReference: Boolean(
@@ -1908,14 +1911,18 @@ export const storyAgentRouter = router({
             );
           }
         }
-        const injection = referencePlan.usesStoryboardFrames
-          ? await deriveStoryboardReferenceInjection(story, {
-              identityImageUrl:
-                input.referenceIdentityImageUrl ?? referencePlan.primaryImage,
-              sceneImageUrl: referencePlan.primaryImage,
-              analysis: input.sceneAnalysis,
-            })
-          : await deriveInjection(story, input.sceneAnalysis);
+        const injection =
+          referencePlan.usesStoryboardFrames ||
+          referencePlan.usesStoryStyleReference
+            ? await deriveStoryboardReferenceInjection(story, {
+                identityImageUrl: input.referenceIdentityImageUrl,
+                sceneImageUrl: referencePlan.primaryImage,
+                styleImageUrl: input.storyStyleReferenceImageUrl,
+                analysis: input.sceneAnalysis,
+                allowSceneIdentity:
+                  referencePlan.referencePurpose !== "scene-style",
+              })
+            : await deriveInjection(story, input.sceneAnalysis);
         if (referenceImageInput) {
           try {
             const directed = await directImagePrompt({
@@ -1945,11 +1952,23 @@ export const storyAgentRouter = router({
         prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
         const gateContext = {
           prompt,
+          userInstructions: input.explicitInstruction
+            ? [input.explicitInstruction]
+            : undefined,
           referenceImages: referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
           storyId: story.id,
           preservePrompt: Boolean(coverArtDirection),
+          outputPurpose: "story-frame" as const,
+          referencePolicy: referenceImage
+            ? referencePlan.referencePurpose === "character"
+              ? ("preserve-identity" as const)
+              : referencePlan.referencePurpose === "scene-style"
+                ? ("style-only" as const)
+                : ("preserve-composition" as const)
+            : ("none" as const),
+          storyboardReferenceTruth: referencePlan.usesStoryboardFrames,
           artDirection: referencePlan.usesStoryboardFrames
             ? explicitStyleRecipe
             : (storyArtRecipe(story) ?? explicitStyleRecipe),

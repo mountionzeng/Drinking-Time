@@ -228,6 +228,7 @@ type CreationEditorContextValue = {
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
+    storyStyleReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -1029,14 +1030,30 @@ export function mergeShotsWithImages(
         imageIsPrimary: explicitlySelectedImage.isPrimary,
       };
     }
+    if (promptRunImage && !isCurrentMaterialImage(promptRunImage)) {
+      return {
+        ...shotWithVersions,
+        imageUrl: promptRunImage.imageUrl,
+        imagePrompt: shot.promptRun?.finalPrompt ?? promptRunImage.prompt,
+      };
+    }
     if (shot.promptRun?.imageUrl) {
       return {
         ...shotWithVersions,
-        imageId: promptRunImage?.id,
+        imageId:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.id
+            : undefined,
         imageUrl: shot.promptRun.imageUrl,
         imagePrompt: shot.promptRun.finalPrompt,
-        imageSelectionSource: promptRunImage?.selectionSource,
-        imageIsPrimary: promptRunImage?.isPrimary,
+        imageSelectionSource:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.selectionSource
+            : undefined,
+        imageIsPrimary:
+          promptRunImage && isCurrentMaterialImage(promptRunImage)
+            ? promptRunImage.isPrimary
+            : undefined,
       };
     }
     if (!image) return shotWithVersions;
@@ -2395,6 +2412,7 @@ export function CreationEditorProvider({
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
+    storyStyleReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;

@@ -357,6 +357,7 @@ function snapshot(input: {
   submittedParameters?: Record<string, unknown>;
   sourceImageId: number;
   characterReferenceImageUrl?: string;
+  storyStyleReferenceImageUrl?: string;
   previousReference?: ImageAsset | null;
   nextReference?: ImageAsset | null;
   durationSec: number;
@@ -367,11 +368,14 @@ function snapshot(input: {
   promptDirector: VideoSubmissionPromptDirectorResult;
 }) {
   const providerStatus = getShotVideoProviderStatus();
-  const characterReferenceImageUrl = input.characterReferenceImageUrl?.startsWith(
-    "data:"
-  )
-    ? "inline-image"
-    : input.characterReferenceImageUrl;
+  const characterReferenceImageUrl =
+    input.characterReferenceImageUrl?.startsWith("data:")
+      ? "inline-image"
+      : input.characterReferenceImageUrl;
+  const storyStyleReferenceImageUrl =
+    input.storyStyleReferenceImageUrl?.startsWith("data:")
+      ? "inline-image"
+      : input.storyStyleReferenceImageUrl;
   return {
     provider: "302",
     model: providerStatus.model,
@@ -379,6 +383,7 @@ function snapshot(input: {
     aspectRatio: input.aspectRatio,
     sourceImageId: input.sourceImageId,
     characterReferenceImageUrl,
+    storyStyleReferenceImageUrl,
     previousReferenceImageId: input.previousReference?.id,
     previousReferenceShotNo: input.previousReference?.canonicalShotNo,
     nextReferenceImageId: input.nextReference?.id,
@@ -419,6 +424,7 @@ export type StartShotVideoJobInput = {
   promptCompilationId?: number | null;
   imageId: number;
   characterReferenceImageUrl?: string;
+  storyStyleReferenceImageUrl?: string;
   previousReferenceImageId?: number | null;
   nextReferenceImageId?: number | null;
   prompt: string;
@@ -537,6 +543,19 @@ export async function startShotVideoJob(
   const identityImageInput = input.characterReferenceImageUrl
     ? await materializeImageInput(input.characterReferenceImageUrl)
     : undefined;
+  let storyStyleImageInput: string | undefined;
+  if (input.storyStyleReferenceImageUrl) {
+    try {
+      storyStyleImageInput = await materializeImageInput(
+        input.storyStyleReferenceImageUrl
+      );
+    } catch (error) {
+      console.warn(
+        "[videoJobs] story style cover unavailable; continuing from current frame:",
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
   const deterministicPrompt = input.directorPromptApproved
     ? sanitizeApprovedVideoPrompt(input.prompt)
     : promptWithVideoReferences({
@@ -587,6 +606,7 @@ export async function startShotVideoJob(
     previousReference?.id,
     nextReference?.id,
     input.characterReferenceImageUrl,
+    input.storyStyleReferenceImageUrl,
     input.rerenderRequestId
   );
   const existing = await findVideoTakeByIdempotencyKey(
@@ -614,6 +634,7 @@ export async function startShotVideoJob(
         ? await directVideoPrompt({
             imageInput: sourceImage,
             identityImageInput,
+            storyStyleImageInput,
             fallbackPrompt: deterministicPrompt,
             shotNo: input.shotNo,
             draftPrompt: input.prompt,
@@ -653,6 +674,7 @@ export async function startShotVideoJob(
       previousReference,
       nextReference,
       characterReferenceImageUrl: input.characterReferenceImageUrl,
+      storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
       durationSec,
       aspectRatio,
       motion,
@@ -713,6 +735,7 @@ export async function startShotVideoJob(
       previousReference,
       nextReference,
       characterReferenceImageUrl: input.characterReferenceImageUrl,
+      storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
       durationSec,
       aspectRatio,
       motion,

@@ -14,6 +14,8 @@ export type RerenderReference = {
   identityImageUrl?: string;
   /** Neighboring storyboard frames used only for continuity context. */
   contextImageUrls?: string[];
+  /** Publishing cover used for story-wide palette/material/style only. */
+  storyStyleImageUrl?: string;
 };
 
 export type GenerateForMobileInput = {
@@ -31,6 +33,7 @@ export type GenerateForMobileInput = {
   referenceImageUrl?: string;
   referenceIdentityImageUrl?: string;
   referenceContextImageUrls?: string[];
+  storyStyleReferenceImageUrl?: string;
   /** Transparent pixels identify the only region GPT-image may edit. */
   editMaskImageUrl?: string;
 };
@@ -115,6 +118,9 @@ export function createGenerateForMobileInput(params: {
     referenceContextImageUrls: params.reference?.contextImageUrls
       ?.map(safeReferenceUrl)
       .filter((url): url is string => Boolean(url)),
+    storyStyleReferenceImageUrl: safeReferenceUrl(
+      params.reference?.storyStyleImageUrl
+    ),
     editMaskImageUrl: safeReferenceUrl(params.editMaskImageUrl),
   };
 }

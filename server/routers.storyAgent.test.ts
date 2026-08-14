@@ -1072,6 +1072,42 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("正式封面只作为故事风格参考，不冒充人物身份", async () => {
+    const coverUrl = "https://file.302.ai/publishing-cover.webp";
+    const caller = appRouter.createCaller(createAuthContext(496));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "封面风格继承故事",
+      projectId: 7496,
+      body: {
+        cards: [],
+        characters: [{ name: "主角", role: "主角" }],
+        shots: [{ shotNo: 1, cueCode: "0101", subject: "主角" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角走进雨夜车站",
+      imageProvider: "midjourney",
+      storyStyleReferenceImageUrl: coverUrl,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      coverUrl,
+      expect.any(String),
+      expect.objectContaining({
+        styleRef: coverUrl,
+        primaryReferenceLock: false,
+        requireInputImage: false,
+      })
+    );
+    expect(imageGenMocks.editImage.mock.calls[0][2]).not.toHaveProperty(
+      "characterRef"
+    );
+  });
+
   it("故事版图片可直接读取时，公网锚点失败也继续使用原图生成", async () => {
     imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
     const caller = appRouter.createCaller(createAuthContext(397));

@@ -369,6 +369,87 @@ export function storyboardShotCostEstimate(
   };
 }
 
+export type StoryboardOneClickVideoPlan = {
+  shots: Array<{
+    shotNo: number;
+    durationSec: number;
+    estimatedCny: number;
+    needsImage: boolean;
+  }>;
+  durationSec: number;
+  estimatedCny: number;
+  imageGenerationCount: number;
+  skippedCount: number;
+};
+
+/** Build the paid-work plan before the UI asks for one combined confirmation. */
+export function planStoryboardOneClickVideo(
+  shots: readonly CreationEditorShot[],
+  providerStatus: { ready: boolean; reason?: string | null },
+  targetDurationSec = 30,
+  imageStage: {
+    imageProviderReady: boolean;
+    hasInheritedCover: boolean;
+    estimatedImageCny?: number;
+  } = { imageProviderReady: false, hasInheritedCover: false }
+): StoryboardOneClickVideoPlan {
+  const ready = shots.flatMap(shot => {
+    const hasCurrentImage = Boolean(storyboardVideoSourceFrame(shot));
+    const canGenerateImage =
+      !hasCurrentImage &&
+      imageStage.imageProviderReady &&
+      imageStage.hasInheritedCover &&
+      Boolean((shot.promptDraft ?? "").trim());
+    if (!hasCurrentImage && !canGenerateImage) return [];
+    if (!(shot.videoPrompt ?? "").trim() || !providerStatus.ready) return [];
+    const renderPlan = quickShotVideoRenderPlan(
+      hasCurrentImage
+        ? shot
+        : ({
+            ...shot,
+            imageId: -1,
+            imageUrl: "pending-cover-seed",
+          } as CreationEditorShot),
+      []
+    );
+    if (renderPlan.missing.length > 0) return [];
+    return [
+      {
+        shotNo: shot.shotNo,
+        durationSec: renderPlan.durationSec,
+        estimatedCny:
+          renderPlan.estimatedCny +
+          (!hasCurrentImage ? (imageStage.estimatedImageCny ?? 0) : 0),
+        needsImage: !hasCurrentImage,
+      },
+    ];
+  });
+
+  const selected: StoryboardOneClickVideoPlan["shots"] = [];
+  let durationSec = 0;
+  for (const candidate of ready) {
+    const currentDistance = Math.abs(targetDurationSec - durationSec);
+    const nextDistance = Math.abs(
+      targetDurationSec - (durationSec + candidate.durationSec)
+    );
+    if (durationSec > 0 && nextDistance > currentDistance) break;
+    selected.push(candidate);
+    durationSec += candidate.durationSec;
+    if (durationSec === targetDurationSec) break;
+  }
+
+  return {
+    shots: selected,
+    durationSec,
+    estimatedCny: selected.reduce(
+      (total, shot) => total + shot.estimatedCny,
+      0
+    ),
+    imageGenerationCount: selected.filter(shot => shot.needsImage).length,
+    skippedCount: shots.length - ready.length,
+  };
+}
+
 export function storyboardVideoRenderBlockReason(
   shot: CreationEditorShot,
   providerStatus: { ready: boolean; reason?: string | null }
@@ -388,15 +469,11 @@ export function storyboardVideoRenderBlockReason(
 export function storyboardVideoSourceFrame(
   shot: CreationEditorShot
 ): CreationEditorImage | null {
+  if (shot.imageId == null || shot.imageId <= 0) return null;
   const frames = storyboardShotFrameImages(shot).filter(
     frame => !isFrameCandidateSheet(frame, shot.promptRun?.imageId)
   );
-  return (
-    frames.find(frame => frame.id === shot.imageId) ??
-    frames.find(frame => frame.imageUrl === shot.imageUrl) ??
-    frames[0] ??
-    null
-  );
+  return frames.find(frame => frame.id === shot.imageId) ?? null;
 }
 
 export function storyboardRerenderRequestId(shotNo: number): string {
@@ -1107,9 +1184,9 @@ export function storyboardShotFrameImages(
   ];
 }
 
-export type StoryboardImageGenerationFrameReference = {
+type StoryboardImageGenerationFrameReference = {
   imageUrl: string;
-  source: "current" | "previous-last" | "next-first";
+  source: "current" | "previous-last" | "next-first" | "publishing-cover";
   cueCode: string | null;
   shotNo: number;
 };

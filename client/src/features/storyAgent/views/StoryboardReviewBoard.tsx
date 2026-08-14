@@ -22,6 +22,7 @@ import {
   Trash2,
   ListPlus,
   Video,
+  Sparkles,
   Check,
   Focus,
   SkipBack,
@@ -155,6 +156,7 @@ import {
   autoScrollElementHorizontallyAtPoint,
   hasStoryboardScrollableDragPayload,
   latestStoryboardFrames,
+  planStoryboardOneClickVideo,
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
   shortText,
@@ -264,6 +266,7 @@ export function StoryboardReviewBoard({
   defaultViewMode = "simple",
   embeddedEditorMode = false,
   headerAction,
+  inheritedPublishingCover = null,
   className = "",
   candidatesByShot,
   onConfirmCandidate,
@@ -316,6 +319,7 @@ export function StoryboardReviewBoard({
       imageUrl?: string;
       identityImageUrl?: string;
       contextImageUrls?: string[];
+      storyStyleImageUrl?: string;
     };
     costConfirmation: {
       accepted: true;
@@ -345,6 +349,7 @@ export function StoryboardReviewBoard({
     shotNo: number;
     imageId: number;
     characterReferenceImageUrl?: string;
+    storyStyleReferenceImageUrl?: string;
     prompt: string;
     subtitle?: string;
     durationSec?: number;
@@ -431,6 +436,7 @@ export function StoryboardReviewBoard({
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
+  inheritedPublishingCover?: { imageUrl: string } | null;
   className?: string;
   /** 阶段 E：每个镜头（按 stableShotId）待确认候选；缺省当作没有候选。 */
   candidatesByShot?: Map<string, ShotPendingCandidate[]>;
@@ -500,6 +506,10 @@ export function StoryboardReviewBoard({
   >({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
+  const [oneClickVideoProgress, setOneClickVideoProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [continuityCheckingByShot, setContinuityCheckingByShot] = useState<
     Record<number, "image" | "video">
   >({});
@@ -1637,8 +1647,11 @@ export function StoryboardReviewBoard({
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
     shotIndex: number,
-    request?: NonNullable<ChatMessage["imageRerenderAction"]>
-  ): Promise<StoryboardImageRerenderResult> => {
+    request?: NonNullable<ChatMessage["imageRerenderAction"]>,
+    options: { skipCostConfirmation?: boolean } = {}
+  ): Promise<
+    StoryboardImageRerenderResult & { imageId?: number; imageUrl?: string }
+  > => {
     const label = displayShotCode(shot);
     if (!creationShot || !onGenerateShotImages) {
       const message = `${label} 还没有可渲染的镜头记录`;
@@ -1735,7 +1748,7 @@ export function StoryboardReviewBoard({
     ]
       .filter(Boolean)
       .join("\n");
-    const imageReferences = selectedFrame
+    const storyboardReferences = selectedFrame
       ? {
           primary: {
             imageUrl: selectedFrame.imageUrl,
@@ -1747,6 +1760,29 @@ export function StoryboardReviewBoard({
         }
       : ((await resolvePersistedNeighborImageReferences(creationShot)) ??
         storyboardImageGenerationReferences(creationShot, creationShots));
+    const coverReference = inheritedPublishingCover?.imageUrl
+      ? {
+          imageUrl: inheritedPublishingCover.imageUrl,
+          source: "publishing-cover" as const,
+          cueCode: null,
+          shotNo: creationShot.shotNo,
+        }
+      : null;
+    const imageReferences = storyboardReferences
+      ? {
+          ...storyboardReferences,
+          context: coverReference
+            ? [...storyboardReferences.context, coverReference].filter(
+                (reference, index, all) =>
+                  all.findIndex(
+                    item => item.imageUrl === reference.imageUrl
+                  ) === index
+              )
+            : storyboardReferences.context,
+        }
+      : coverReference
+        ? { primary: coverReference, context: [] }
+        : null;
     if (!imageReferences) {
       const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
       toast.error(message);
@@ -1772,7 +1808,9 @@ export function StoryboardReviewBoard({
       explicitInstruction,
     });
     const { editRoleLabel, estimate: imageEstimate } = imageRenderPlan;
-    const confirmed = window.confirm(imageRenderPlan.confirmation);
+    const confirmed =
+      options.skipCostConfirmation ||
+      window.confirm(imageRenderPlan.confirmation);
     if (!confirmed) {
       return {
         status: "cancelled",
@@ -1826,11 +1864,18 @@ export function StoryboardReviewBoard({
             : "midjourney",
         editMaskImageUrl,
         reference: {
-          imageUrl: imageReferences.primary.imageUrl,
-          identityImageUrl: imageReferences.primary.imageUrl,
-          contextImageUrls: imageReferences.context.map(
-            reference => reference.imageUrl
-          ),
+          imageUrl:
+            imageReferences.primary.source === "publishing-cover"
+              ? undefined
+              : imageReferences.primary.imageUrl,
+          identityImageUrl:
+            imageReferences.primary.source === "publishing-cover"
+              ? undefined
+              : imageReferences.primary.imageUrl,
+          contextImageUrls: imageReferences.context
+            .filter(reference => reference.source !== "publishing-cover")
+            .map(reference => reference.imageUrl),
+          storyStyleImageUrl: inheritedPublishingCover?.imageUrl,
         },
         costConfirmation: {
           accepted: true,
@@ -1865,16 +1910,31 @@ export function StoryboardReviewBoard({
       if (isExactFrameEdit) {
         const message = `${label} 的${editRoleLabel}已生成新版本并放回“画面”行，旧图仍然保留`;
         toast.success(message);
-        return { status: "success", message };
+        return {
+          status: "success",
+          message,
+          imageId: generation.imageId,
+          imageUrl: generation.imageUrl,
+        };
       }
       if (generation.failedCount > 0) {
         const message = `${label} 已生成 ${generation.generatedCount} 张候选，另有 ${generation.failedCount} 张失败；现有结果已放入“画面”行`;
         toast.warning(message);
-        return { status: "success", message };
+        return {
+          status: "success",
+          message,
+          imageId: generation.imageId,
+          imageUrl: generation.imageUrl,
+        };
       } else {
         const message = `${label} 已生成四张候选图，请在“画面”行选择一张`;
         toast.success(message);
-        return { status: "success", message };
+        return {
+          status: "success",
+          message,
+          imageId: generation.imageId,
+          imageUrl: generation.imageUrl,
+        };
       }
     } catch (error) {
       const message =
@@ -1968,12 +2028,16 @@ export function StoryboardReviewBoard({
 
   const rerenderShotVideo = async (
     shot: StoryShot,
-    creationShot: CreationEditorShot | undefined
+    creationShot: CreationEditorShot | undefined,
+    options: {
+      skipCostConfirmation?: boolean;
+      sourceImage?: { imageId: number; imageUrl: string };
+    } = {}
   ) => {
     const label = displayShotCode(shot);
     if (!creationShot) {
       toast.error(`${label} 还没有可渲染的镜头记录`);
-      return;
+      return false;
     }
     if (!canStartRenderForShot(shot.shotNo)) {
       toast.info(
@@ -1983,7 +2047,7 @@ export function StoryboardReviewBoard({
             ? "正在确认人物连续性，确认后即可使用另一条渲染线"
             : "两条渲染线都在使用，请等待其中一条完成"
       );
-      return;
+      return false;
     }
     const stableShotId =
       creationShot.stableShotId ?? creationShot.shotIdentity ?? null;
@@ -1996,6 +2060,13 @@ export function StoryboardReviewBoard({
       shot,
       draftKey ? matrixDraftsRef.current.get(draftKey) : undefined
     );
+    if (options.sourceImage) {
+      effectiveShot = {
+        ...effectiveShot,
+        imageId: options.sourceImage.imageId,
+        imageUrl: options.sourceImage.imageUrl,
+      };
+    }
     const videoSourceFrame = storyboardVideoSourceFrame(effectiveShot);
     if (
       videoSourceFrame &&
@@ -2016,7 +2087,7 @@ export function StoryboardReviewBoard({
     });
     if (videoBlockReason) {
       toast.error(`${label} ${videoBlockReason}`);
-      return;
+      return false;
     }
     beginShotRender(shot.shotNo);
     onSelectShot?.(shot.shotNo);
@@ -2033,11 +2104,11 @@ export function StoryboardReviewBoard({
         finishContinuityCheck(shot.shotNo);
       }
       if (continuityChoice === STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED) {
-        return;
+        return false;
       }
       if (shouldAnnounceVideoGenerationCancellation(continuityChoice)) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
-        return;
+        return false;
       }
       if (continuityChoice) {
         effectiveShot = {
@@ -2128,14 +2199,16 @@ export function StoryboardReviewBoard({
         const frameConstraintNotice = estimate.frameConstraintWarning
           ? `\n\n注意：${estimate.frameConstraintWarning}`
           : "";
-        const confirmed = window.confirm(
-          usesLocalTransform
-            ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
-        );
+        const confirmed =
+          options.skipCostConfirmation ||
+          window.confirm(
+            usesLocalTransform
+              ? `${label} 已判断为简单缩放、平移或定格：${estimate.renderReason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+              : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。并使用首帧 ${estimate.firstFrame.label}（图 #${estimate.firstFrame.imageId}）和末帧 ${estimate.lastFrame.label}（图 #${estimate.lastFrame.imageId}）重新渲染。${frameConstraintNotice}\n\n判断：${estimate.renderReason} 预计人民币 ¥${estimate.estimatedCny.toFixed(2)}，时长 ${estimate.durationSec} 秒、${estimate.resolution}、1:1；会创建新 Take 并保留旧版本。确认提交？`
+          );
         if (!confirmed) {
           toast.info(`${label} 已取消视频生成，未产生费用`);
-          return;
+          return false;
         }
         const result = (await onGenerateStartEndShotVideo({
           shotNo: effectiveShot.shotNo,
@@ -2155,7 +2228,7 @@ export function StoryboardReviewBoard({
               ? `${label} 已完成本地镜头生成`
               : `${label} 首尾帧视频已提交`
         );
-        return;
+        return true;
       }
 
       const startEndFrameIssue = storyboardStartEndFrameIssue(
@@ -2188,19 +2261,22 @@ export function StoryboardReviewBoard({
           missing ? `视频模型未就绪：${missing}` : "视频模型状态尚未就绪"
         );
       }
-      const confirmed = window.confirm(
-        plan.renderDecision.strategy === "local-transform"
-          ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
-          : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
-      );
+      const confirmed =
+        options.skipCostConfirmation ||
+        window.confirm(
+          plan.renderDecision.strategy === "local-transform"
+            ? `${label} 已判断为简单缩放、平移或定格：${plan.renderDecision.reason} 将在本机免费生成，人民币 ¥0.00，不会请求 302；会创建新 Take 并保留旧版本。确认生成？`
+            : `${label} 已先保存本镜文字，视频模型会收到：\n${intentSummary || "当前镜头表格中的动作与运镜"}\n\n人物版本：${continuityChoice?.label ?? "当前镜头"}。判断：${plan.renderDecision.reason} 预计人民币 ¥${plan.estimatedCny.toFixed(2)}，时长 ${plan.durationSec} 秒、1:1；会创建新 Take 并保留旧版本。确认提交？`
+        );
       if (!confirmed) {
         toast.info(`${label} 已取消视频生成，未产生费用`);
-        return;
+        return false;
       }
       const result = (await onGenerateShotVideo({
         shotNo: effectiveShot.shotNo,
         imageId: effectiveShot.imageId,
         characterReferenceImageUrl: continuityChoice?.imageUrl,
+        storyStyleReferenceImageUrl: inheritedPublishingCover?.imageUrl,
         prompt: plan.prompt,
         subtitle: effectiveShot.dialogue || undefined,
         durationSec: plan.durationSec,
@@ -2222,12 +2298,146 @@ export function StoryboardReviewBoard({
             ? `${label} 已完成本地镜头生成`
             : `${label} 视频已提交；结果会显示在画面 / Take 行`
       );
+      return true;
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : `${label} 视频提交失败`
       );
+      return false;
     } finally {
       finishShotRender(shot.shotNo);
+    }
+  };
+
+  const generateThirtySecondVideo = async () => {
+    if (oneClickVideoProgress) return;
+    const singleImageFallback =
+      shouldUseSingleImageFallback(imageProviderStatus);
+    if (!singleImageFallback && !onPromoteFrameCrop) {
+      toast.error("一键生成缺少候选图采用链路，本次不会提交付费任务");
+      return;
+    }
+    const providerStatus = {
+      ready: Boolean(shotVideoProviderStatus?.ready),
+      reason:
+        shotVideoProviderStatus?.missing.filter(Boolean).join("、") ||
+        "视频模型状态尚未就绪",
+    };
+    const imageEstimate = storyboardShotCostEstimate(undefined, {
+      singleImageFallback,
+    }).imageCny;
+    const plan = planStoryboardOneClickVideo(
+      creationShots,
+      providerStatus,
+      30,
+      {
+        imageProviderReady: Boolean(imageProviderStatus?.ready),
+        hasInheritedCover: Boolean(inheritedPublishingCover?.imageUrl),
+        estimatedImageCny: imageEstimate,
+      }
+    );
+    if (plan.shots.length === 0) {
+      toast.error(
+        "还没有可一键生成的镜头，请确认正式封面、图片要求、视频要求和模型状态"
+      );
+      return;
+    }
+    const skippedNotice = plan.skippedCount
+      ? `\n另有 ${plan.skippedCount} 镜因缺少主图、视频要求或模型未就绪而跳过。`
+      : "";
+    const coverNotice = inheritedPublishingCover
+      ? "\n美术方向将继承当前文字稿封面。"
+      : "";
+    const imageStageNotice = plan.imageGenerationCount
+      ? singleImageFallback
+        ? `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成单张主图，再生成视频。`
+        : `\n其中 ${plan.imageGenerationCount} 镜缺少主图，将先根据封面和图片要求生成四图候选，并按固定规则采用左上候选作为当前主图，再生成视频。`
+      : "";
+    const confirmed = window.confirm(
+      `将读取整个故事版，根据现有图案和文字生成 ${plan.shots.length} 镜、约 ${plan.durationSec} 秒的视频。${coverNotice}${imageStageNotice}${skippedNotice}\n\n图片与视频预计费用合计 ¥${plan.estimatedCny.toFixed(2)}；新资产会保留旧版本。确认一键生成？`
+    );
+    if (!confirmed) {
+      toast.info("已取消一键生成，未产生费用");
+      return;
+    }
+
+    setOneClickVideoProgress({ completed: 0, total: plan.shots.length });
+    let completed = 0;
+    let processed = 0;
+    try {
+      for (const plannedShot of plan.shots) {
+        try {
+          const shot = shots.find(item => item.shotNo === plannedShot.shotNo);
+          const creationShot = creationShots.find(
+            item => item.shotNo === plannedShot.shotNo
+          );
+          if (!shot || !creationShot) continue;
+          let sourceImage: { imageId: number; imageUrl: string } | undefined;
+          if (plannedShot.needsImage) {
+            const shotIndex = shots.findIndex(item => item === shot);
+            const generated = await renderShotImageCandidates(
+              shot,
+              creationShot,
+              shotIndex,
+              undefined,
+              { skipCostConfirmation: true }
+            );
+            if (
+              generated.status !== "success" ||
+              generated.imageId == null ||
+              !generated.imageUrl
+            ) {
+              continue;
+            }
+            if (singleImageFallback) {
+              sourceImage = {
+                imageId: generated.imageId,
+                imageUrl: generated.imageUrl,
+              };
+            } else if (onPromoteFrameCrop) {
+              const cropped = await cropFrameQuadrant(
+                generated.imageUrl,
+                "top-left"
+              );
+              const promoted = await onPromoteFrameCrop({
+                shotNo: creationShot.shotNo,
+                imageBase64: cropped.imageBase64,
+                mimeType: cropped.mimeType,
+                parentImageId: generated.imageId,
+                quadrant: "top-left",
+              });
+              sourceImage = {
+                imageId: promoted.imageId,
+                imageUrl: promoted.imageUrl,
+              };
+            }
+          }
+          const submitted = await rerenderShotVideo(shot, creationShot, {
+            skipCostConfirmation: true,
+            sourceImage,
+          });
+          if (submitted) completed += 1;
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? `${plannedShot.shotNo} 镜一键生成失败：${error.message}`
+              : `${plannedShot.shotNo} 镜一键生成失败`
+          );
+        } finally {
+          processed += 1;
+          setOneClickVideoProgress({
+            completed: processed,
+            total: plan.shots.length,
+          });
+        }
+      }
+    } finally {
+      setOneClickVideoProgress(null);
+    }
+    if (completed > 0) {
+      toast.success(
+        `${completed} 镜已进入生成队列${completed === plan.shots.length ? `，成片时长约 ${plan.durationSec} 秒` : `；${plan.shots.length - completed} 镜未提交`}`
+      );
     }
   };
 
@@ -2298,6 +2508,44 @@ export function StoryboardReviewBoard({
         </div>
         <div className="flex items-center gap-2">
           {headerAction}
+          {inheritedPublishingCover ? (
+            <span
+              className="hidden items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[9px] text-muted-foreground sm:inline-flex"
+              style={{ borderColor: "var(--panel-border)" }}
+              title="人物设计、色板、材质、光线与情绪继承自文字稿正式封面"
+            >
+              <img
+                src={inheritedPublishingCover.imageUrl}
+                alt=""
+                className="h-4 w-4 rounded-[2px] object-cover"
+              />
+              继承文字稿封面
+            </span>
+          ) : null}
+          {shots.length > 0 && onGenerateShotVideo ? (
+            <button
+              type="button"
+              onClick={() => void generateThirtySecondVideo()}
+              disabled={
+                Boolean(oneClickVideoProgress) ||
+                (!shouldUseSingleImageFallback(imageProviderStatus) &&
+                  !onPromoteFrameCrop)
+              }
+              className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-[var(--nayin-accent)] px-2.5 text-[10px] font-semibold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-60"
+              aria-label="根据现有图案和文字一键生成约30秒视频"
+              data-testid="storyboard-one-click-video"
+              title="读取完整故事版；缺图时先继承正式封面生成主图，再生成约 30 秒视频"
+            >
+              {oneClickVideoProgress ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              {oneClickVideoProgress
+                ? `${oneClickVideoProgress.completed}/${oneClickVideoProgress.total}`
+                : "一键生成 · 约30秒"}
+            </button>
+          ) : null}
           {!headerAction ? (
             <span className="creation-board-panel-status">
               {isGeneratingScript
