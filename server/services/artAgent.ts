@@ -35,6 +35,8 @@ export type ArtRiffResult = {
     colorPalette: string[];
     composition: string;
     lighting: string;
+    cameraLanguage: string;
+    materialsAndTextures: string[];
     promptDraft: string;
     negativePrompt: string;
     confidence: number;
@@ -147,6 +149,8 @@ function publicAnalysis(analysis: VisionAnalysisResult["analysis"]) {
     colorPalette: analysis.colorPalette,
     composition: analysis.composition,
     lighting: analysis.lighting,
+    cameraLanguage: analysis.cameraLanguage,
+    materialsAndTextures: analysis.materialsAndTextures,
     promptDraft: analysis.promptDraft,
     negativePrompt: analysis.negativePrompt,
     confidence: analysis.confidence,

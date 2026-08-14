@@ -1,0 +1,810 @@
+{
+  "schemaVersion": 1,
+  "collectionId": "founder-private-art-references",
+  "updatedAt": "2026-08-10T11:44:01.519Z",
+  "sourcePolicy": {
+    "visibility": "private",
+    "rawImagesAtRuntime": false,
+    "defaultRightsStatus": "unverified",
+    "artifactExclusions": [
+      "平台水印",
+      "可读文字与伪文字",
+      "作者签名、用户名和账号",
+      "手机状态栏与应用界面"
+    ]
+  },
+  "assets": {
+    "03594f4458acbae0dd26d5f300a29752.jpg": {
+      "sha256": "4f1e2857d8b8b2b3f51727362a249f0364ed34f0386f840eefcc59f791c7de40",
+      "sourceFileName": "03594f4458acbae0dd26d5f300a29752.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "06569be4a45e54227196702cb6bc7d77.jpg": {
+      "sha256": "ff6535457e364826b2a202a912102cca0fa5949c25422938803fd457a7d6e53a",
+      "sourceFileName": "06569be4a45e54227196702cb6bc7d77.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "0781ba7c7ab7dd3f9207b55bfd6e29ec.jpg": {
+      "sha256": "2eed34ec9644f678a389361095329280a0f6a1f2f518bbba011cd61ad1f1608e",
+      "sourceFileName": "0781ba7c7ab7dd3f9207b55bfd6e29ec.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "0af818be4335b46e4469b441dd81c34b.jpg": {
+      "sha256": "7451d81ae4e6cd6a21eb6c9836233b29c03fc20f33b9ee1b0f1812f01c171647",
+      "sourceFileName": "0af818be4335b46e4469b441dd81c34b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "0c41a277134678fb58cdeb5aad372500.jpg": {
+      "sha256": "0acebc4a96fa05eed202ea7fecf9ffd86111acd898c06fabbaa80f42b3791cd6",
+      "sourceFileName": "0c41a277134678fb58cdeb5aad372500.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "146143e43a78dc9929c164b70580abb8.jpg": {
+      "sha256": "04c4aaaaf017ba715fd503575d8c80243871e13bfe49fae2c0ac1ef2f3324fa2",
+      "sourceFileName": "146143e43a78dc9929c164b70580abb8.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "156900199dd9b770b27c4139ed1bdea0.jpg": {
+      "sha256": "c9b110003de8ca8dd116e86b39dbe5b213019a4cd884a126a091394f35beffe8",
+      "sourceFileName": "156900199dd9b770b27c4139ed1bdea0.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "17320d144bd333ce49915b70c1676e3f.jpg": {
+      "sha256": "bd5abffef2ba121be4fb3ef76853bb08bbf323a328df405cdba5a4cabde95b50",
+      "sourceFileName": "17320d144bd333ce49915b70c1676e3f.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "1be19bdc622271b9e9005978e8faec64.jpg": {
+      "sha256": "5054b2b69de0b1a7a79c917927ec0354f65416dfa955dd8160f70ba9f62730d0",
+      "sourceFileName": "1be19bdc622271b9e9005978e8faec64.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "1d03dab4a17835d92115fc7dfd7c1ca5.jpg": {
+      "sha256": "3027539d835ce90cf83cd257f8ea6964a426062107353255d63f7721325ebf20",
+      "sourceFileName": "1d03dab4a17835d92115fc7dfd7c1ca5.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg": {
+      "sha256": "6d2104584a3be5bcd315a9f2e3c74ebbd5e418364811268dbac2aa493416a3b9",
+      "sourceFileName": "1f76c7a5df6a7921dc7fe8ae44b3c878.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "216e86f32c4f626514166409c01bd899.jpg": {
+      "sha256": "3c3411832028b193acb554abad18c10533885c7f9ba8c46b7c9eff4d2d7cdc1f",
+      "sourceFileName": "216e86f32c4f626514166409c01bd899.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "26f4744ffb6f71c236685cf7a25a5d1e.jpg": {
+      "sha256": "0352ba113092c0ee9032f3edca5b242c2fb4b05a8dccb11979e57da630a6c2b9",
+      "sourceFileName": "26f4744ffb6f71c236685cf7a25a5d1e.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "296fe087f8d9d677eb8e964936b67171.jpg": {
+      "sha256": "c86f59c384b4e4d0479750bc135e5659e4e91638d9e418ec5f0e345a3a5774bd",
+      "sourceFileName": "296fe087f8d9d677eb8e964936b67171.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "2c23550c177b13810e1aa846a2e6314d.jpg": {
+      "sha256": "5cb95f8c46704b67dc1e016b3c8dd1c80873c6208bf4154cbfb0a1b1cbd7e56c",
+      "sourceFileName": "2c23550c177b13810e1aa846a2e6314d.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3162303808fac712bcf00c60c7a8afa5.jpg": {
+      "sha256": "fc20a2cac47451786b9d1b4c814211d01748d064211b314b7e0c5043513a3353",
+      "sourceFileName": "3162303808fac712bcf00c60c7a8afa5.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3685382d7bcbfce321817eb262cff5a1.jpg": {
+      "sha256": "4f1776fae799edea5ffff9418ccf4f85782bd80d5a276f5b814e832eb131b6be",
+      "sourceFileName": "3685382d7bcbfce321817eb262cff5a1.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3939b6d147017e60c3d16a5ab2ccfdee.jpg": {
+      "sha256": "105da5aa8f82c067abd722ce8a4fe72422bec050a908de78ead084d455e45d44",
+      "sourceFileName": "3939b6d147017e60c3d16a5ab2ccfdee.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3ae3c085b442624a0ff45cf0b0a944e0.jpg": {
+      "sha256": "3bea69d5e4b4445831fac2aa920ac4a6e67a1d5160960f1006d4f8d9c8d707aa",
+      "sourceFileName": "3ae3c085b442624a0ff45cf0b0a944e0.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3beac1dbb97b4477f7630ee4a88cbf72.jpg": {
+      "sha256": "964ed24363e46464b4701ca841521abe1f0ba524387ab69413657804b2b40127",
+      "sourceFileName": "3beac1dbb97b4477f7630ee4a88cbf72.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "3dced4d435f910947e32aecacbd7b76b.jpg": {
+      "sha256": "fec3f8d063b0527e9e1a02d9b822422323c4f02cb2a710054af99fd28b6d56d0",
+      "sourceFileName": "3dced4d435f910947e32aecacbd7b76b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "431dafa5900a573375537236b166e765.jpg": {
+      "sha256": "321bcbcf785ba1346961b843f2ca6802665ecd865155106b58dbed39e309a2a2",
+      "sourceFileName": "431dafa5900a573375537236b166e765.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "447db8569fe4fd0d32ab2f5816044223.jpg": {
+      "sha256": "ffb4fffa2ac7528c9a2ecde2c9a595c84601ec90db996a783f69c5a1fb93f2e9",
+      "sourceFileName": "447db8569fe4fd0d32ab2f5816044223.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "44cc4963d85d7a278283c11d2f82814a.jpg": {
+      "sha256": "6afc7918abf5327b99b6323c2383926ff8604a232d84b09711d5ec4f88b22f7e",
+      "sourceFileName": "44cc4963d85d7a278283c11d2f82814a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "4626c808af84c874e6fe32b8a314c64f.jpg": {
+      "sha256": "fff9eef03e15c005782b27407caa7d539e65a478dd61474c5763285b1efed368",
+      "sourceFileName": "4626c808af84c874e6fe32b8a314c64f.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "4840de42868f1c351f97a4c4a8ebf94a.jpg": {
+      "sha256": "255cc2c321c2342ba6e2b376a30891caf39d4075c474d3c24f4fdcff7b351f20",
+      "sourceFileName": "4840de42868f1c351f97a4c4a8ebf94a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "49203439d467bce185ba0294414be5c8.jpg": {
+      "sha256": "8c339e895980fea4f7779c66cabbdad71d3ee77eda02b9581178040124b82f11",
+      "sourceFileName": "49203439d467bce185ba0294414be5c8.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "492aca92bbbc80ed82525dc21ae1cd0c.jpg": {
+      "sha256": "95ca96722d95e4dadad157f36ea3423f39b827f0a604dad8bb2e21f1bd73c82a",
+      "sourceFileName": "492aca92bbbc80ed82525dc21ae1cd0c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "498da3c58a6e60e0b97cefbd63306e95.jpg": {
+      "sha256": "af336cc5139b36c978436016ff4be6ad675129c423e84fbc4ae7f2d3e9b86e04",
+      "sourceFileName": "498da3c58a6e60e0b97cefbd63306e95.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "4a9bfb3b9d61a99a0f06eafb4b4f3772.jpg": {
+      "sha256": "4a7e5c87e5496603a7ad6613400e55d4c780f9817f6ecd3d6cfcad7fda16e710",
+      "sourceFileName": "4a9bfb3b9d61a99a0f06eafb4b4f3772.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "4acbf36e4a052299eb2137a4b3e42895.jpg": {
+      "sha256": "0e8cc1066e27255da4f4d12cb2ab5b1d98ce855262ae5fbc43f9d6ffc6b2c828",
+      "sourceFileName": "4acbf36e4a052299eb2137a4b3e42895.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "4e650687ebfc51df7ba2784dca79d805.jpg": {
+      "sha256": "b8f990064dc19de67eb54d3a7f0b1a40ecff4141f8ca210837c62597408d4a21",
+      "sourceFileName": "4e650687ebfc51df7ba2784dca79d805.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "55ff99b5a0cc855197d31fdcd1cb4430.jpg": {
+      "sha256": "43c922f0abc4cb2638b16c173da623acb995a7918915656bf998cabf7e102862",
+      "sourceFileName": "55ff99b5a0cc855197d31fdcd1cb4430.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "58d0b35ddf5d9fae3fbd4de95bdae18a.jpg": {
+      "sha256": "3d105cce5b77bc6113a4bab04aa423bd6a83d32f222aee8f710859a124cab84e",
+      "sourceFileName": "58d0b35ddf5d9fae3fbd4de95bdae18a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "5944e4019670a6b283ade50edf2f7bde.jpg": {
+      "sha256": "ca03f05a6dbb333d974c7e308e1c6d0870ff2c231d6f1391bd1d2a591f3655e3",
+      "sourceFileName": "5944e4019670a6b283ade50edf2f7bde.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "5dd5eee42dfecbd0b91e7fda324e0602.jpg": {
+      "sha256": "8ac2cc41e28b68cbf1e36ce37f5667f0dd02c05f4a274bebe9177f364f28445f",
+      "sourceFileName": "5dd5eee42dfecbd0b91e7fda324e0602.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "5ddb112d8f84d693c254fefbd8424951.jpg": {
+      "sha256": "5cd59c700f4fefac859aebe79e3519afcf26b9bf24203090057aaf2f69ab8b05",
+      "sourceFileName": "5ddb112d8f84d693c254fefbd8424951.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "632166909ff14ed5ffba9430962addd7.jpg": {
+      "sha256": "29064d4ccca9ac4f002a5f07167c77325d24c3a62265fbd64ee9de1ca310ce3b",
+      "sourceFileName": "632166909ff14ed5ffba9430962addd7.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "6578f5d55bab8f782e7d0546516c20ab.jpg": {
+      "sha256": "3c401d3e14dc8d63c7090ecd154b455ce9daf19f071c0332c99f838d6ef2c9f9",
+      "sourceFileName": "6578f5d55bab8f782e7d0546516c20ab.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "683628dac067dd4492ba0ab78bb5549a.jpg": {
+      "sha256": "fe2cc0ec856ea42b825706244f39a16f6feb15c820c0d347b2757f69f83dd67d",
+      "sourceFileName": "683628dac067dd4492ba0ab78bb5549a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "69e2cb3872eb02e4b68a94aa48aa953b.jpg": {
+      "sha256": "e7b92747f89e8f25a6fc059fce0c8c72eefc0dc8099bfecb43f16cb7c61e4209",
+      "sourceFileName": "69e2cb3872eb02e4b68a94aa48aa953b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "6d53da88021216bf45f65d41cc10db54.jpg": {
+      "sha256": "0aaad99d61c0c5434b36579b7abf312dfb4ecd112c168771fbf64cad92062a60",
+      "sourceFileName": "6d53da88021216bf45f65d41cc10db54.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "6d6f399df7ca2a5ebaecb269ebd585b9.jpg": {
+      "sha256": "98a5bbe02a097d13d415d0d06926c7f57d8531ae727a18de29d1eef5b015dfe2",
+      "sourceFileName": "6d6f399df7ca2a5ebaecb269ebd585b9.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "753226b417e9079b7ceb5d82b77a16f6.jpg": {
+      "sha256": "1a66a41579a9188d61af8948feef3ce187431b5654b2f6b5aec0a3143f7aa506",
+      "sourceFileName": "753226b417e9079b7ceb5d82b77a16f6.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "78526a13f741dc2b19ede2a44cf89426.jpg": {
+      "sha256": "4f007fd4d752c572de0901f694ff0fa729d1fe82bcfe1fe819dd0fed8b9635d2",
+      "sourceFileName": "78526a13f741dc2b19ede2a44cf89426.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "79c9b65f736f7c3edaa37ccd4fb4df37.jpg": {
+      "sha256": "6de0f5436d619388f7968b70333d0f86edf057a47070123d26f17baf31ab3fb1",
+      "sourceFileName": "79c9b65f736f7c3edaa37ccd4fb4df37.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "7caf4515caa9409f487fd424b81aeca3.jpg": {
+      "sha256": "cb58c5a57da9989a2659a7cfaf7aca79407458d912fed037fd1b5e7054999037",
+      "sourceFileName": "7caf4515caa9409f487fd424b81aeca3.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "7cea79d6138e54a6e8a24d748fc19fbc.jpg": {
+      "sha256": "c23fefac5d8071f4c0c5dedbbc794e63bbe04801cc9bebf543afe4a00b024280",
+      "sourceFileName": "7cea79d6138e54a6e8a24d748fc19fbc.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "826d454d99b57de641a385c0fe49b83a.jpg": {
+      "sha256": "4f1df43bc8facbe3a25c99e6e35d86b3b44cc41742c2d66fb74b4238b37ef2bf",
+      "sourceFileName": "826d454d99b57de641a385c0fe49b83a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "84b1ca5a87c6a9e54ed2fa62f016b68c.jpg": {
+      "sha256": "ff8b49db30daa70cd1454456193b5ac5b84563bd196c0945954a0cebbff37d20",
+      "sourceFileName": "84b1ca5a87c6a9e54ed2fa62f016b68c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "84d644c0db2ae8829bf04b2c893f872c.jpg": {
+      "sha256": "a3e6dc9b021f643ed7bd12912fee1333a5f7d011c72c8af0d5e618abe826fe66",
+      "sourceFileName": "84d644c0db2ae8829bf04b2c893f872c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "86ee03c40411823b48044521732abc12.jpg": {
+      "sha256": "332bdb72bcf469cc3f7e419768bcb59b39acb391696e92bca43678ead620f4a1",
+      "sourceFileName": "86ee03c40411823b48044521732abc12.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "8990ae003134eca68b14c779d95c96d7.jpg": {
+      "sha256": "af347831125852b99822f919d2229dad6e9e04ab9477f7974ca223b9632847bb",
+      "sourceFileName": "8990ae003134eca68b14c779d95c96d7.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "8d5ca347102552a9e367db7877678799.jpg": {
+      "sha256": "c4d545a2b8a1d437126e7be8c6c18c5e8778aded1c874f527e3d4ebdbcbe60af",
+      "sourceFileName": "8d5ca347102552a9e367db7877678799.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "8e49f7bd8783b8ec71bb051b2a0aaae1.jpg": {
+      "sha256": "ce55584614d95835c86ccd4249cb49eb5f308157cb4c06fa7121d9719e694f90",
+      "sourceFileName": "8e49f7bd8783b8ec71bb051b2a0aaae1.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "8e66768d7f1cfa9e4447b09652826e7e.jpg": {
+      "sha256": "82a7661e4ca8890c0620183874d3bafb0accb0a20c1c0cc44a8d53604cdc7f9d",
+      "sourceFileName": "8e66768d7f1cfa9e4447b09652826e7e.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "91e4b213999f7cd61fa5c2f5cdf83d9d.jpg": {
+      "sha256": "a19c6148348bd32907aff2571c033b2b512f2fc93bdd7e1a98b5443781ecb945",
+      "sourceFileName": "91e4b213999f7cd61fa5c2f5cdf83d9d.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9296374861ff21cecf3bd4bfc85f2066.jpg": {
+      "sha256": "ab1b1adb986d1ea1901819def245d972fe23d485783551a3c81738303e4c3bba",
+      "sourceFileName": "9296374861ff21cecf3bd4bfc85f2066.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "93e7c37cdf63e81e3718b06a68b0f9aa.jpg": {
+      "sha256": "c5c0b01faa941ca0651ed27e91d29b6c4cae00e957e4ac27f3d897d0d91c1990",
+      "sourceFileName": "93e7c37cdf63e81e3718b06a68b0f9aa.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "97fd0e7b74f87c6b034629560f59aaae.jpg": {
+      "sha256": "5c3c42c28f002844d2eec0d522e79d29d0db077b462899f41289417d3edfb301",
+      "sourceFileName": "97fd0e7b74f87c6b034629560f59aaae.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9965b753e54010643f5dfdf81251459c.jpg": {
+      "sha256": "b0bccce18cda3a58e91eb89c09886c7f3d1e7f9db773fc21c2a38d7a0f72c56c",
+      "sourceFileName": "9965b753e54010643f5dfdf81251459c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9c5c101ad1af64274ade5078864d007c.jpg": {
+      "sha256": "f13f65cb619b3ec41ce62772a18f3f98abe420f687eff85409bbd47f7bd5ab95",
+      "sourceFileName": "9c5c101ad1af64274ade5078864d007c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9c850251f697ff7c2ad8d9944ae0e518.jpg": {
+      "sha256": "322eefb2e8583b87651e5a3ff3ee40ea1c2c9a051e0995477c6fb1f6338f96a1",
+      "sourceFileName": "9c850251f697ff7c2ad8d9944ae0e518.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9ec11ba24599de0598b73dc0fee0e502.jpg": {
+      "sha256": "485db47bae42b7b02d5f361660d7acd2db2cac05cd013b3fb06911c877c5195d",
+      "sourceFileName": "9ec11ba24599de0598b73dc0fee0e502.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "9f7e30884f745666de4b253fdbc76255.jpg": {
+      "sha256": "197c4c8cfdea2923d231ebf7fbcc9e638cf1ac6f6ed691da3aa2831878d361cc",
+      "sourceFileName": "9f7e30884f745666de4b253fdbc76255.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "a2ceaa1ecdb38cf08b8c02da19f9c2ab.jpg": {
+      "sha256": "e5bb4090c6102bbcae32a7df0684d5e99913bae9a03fc3d228ccfdd279189ad3",
+      "sourceFileName": "a2ceaa1ecdb38cf08b8c02da19f9c2ab.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "a3d42498ca161722d917c686b14c33e0.jpg": {
+      "sha256": "c34e9b0f5b96c8a9e1eaedd0c72295aa0ed63086d81907386c54302caa55a7d0",
+      "sourceFileName": "a3d42498ca161722d917c686b14c33e0.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "a431660ffd4a0db481b3899d225d8478.jpg": {
+      "sha256": "cd5e9a373430b5a296ba774f7535a3ef4e021b4db9a8e6f309f749aadc421402",
+      "sourceFileName": "a431660ffd4a0db481b3899d225d8478.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "a687e3aff6ea6e718e993da23f6f12cc.jpg": {
+      "sha256": "400f89542efb842cee475ee763ac78c088c0218973f33dabfd7d166d5b83700c",
+      "sourceFileName": "a687e3aff6ea6e718e993da23f6f12cc.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "b68e5717c7f08600d17813be408a566f.jpg": {
+      "sha256": "6146268aeeee027d82c9259d2d62c582666db7d8b998a6eaaa8bd25b762e3167",
+      "sourceFileName": "b68e5717c7f08600d17813be408a566f.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "b998298e930e690f5774fdb1adb08866.jpg": {
+      "sha256": "4bb5c82703b9b40a159f7be47a6cbb6f20e68b91d031630345023cac2b54bf2c",
+      "sourceFileName": "b998298e930e690f5774fdb1adb08866.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "bace81c2e69dd489eac0ddeaa32ca230.jpg": {
+      "sha256": "4c56d421b64c4bcfa170d87eea796f12d8604dea1c463800adb20c88a3687c75",
+      "sourceFileName": "bace81c2e69dd489eac0ddeaa32ca230.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "bcf373fce6103b63b0f8114c10fa53c5.jpg": {
+      "sha256": "6abf97f05dcee77c040be7c38c04039f55975561902f0c0ec756992d443e1f7b",
+      "sourceFileName": "bcf373fce6103b63b0f8114c10fa53c5.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "c612577cd837637b2b79a9aca10fc9ff.jpg": {
+      "sha256": "624d4e7ecf8d65a3f6769edca0af8bd373da59490bd79a4d2507985f94ce632e",
+      "sourceFileName": "c612577cd837637b2b79a9aca10fc9ff.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "c67a178ee0a84167e97b24ce63dbe657.jpg": {
+      "sha256": "f454b311ea5fee6aa536e68c390918880dea89917be68abc95284649df8e3e13",
+      "sourceFileName": "c67a178ee0a84167e97b24ce63dbe657.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cb5792a903f2d92ca0d9206fdef66b3b.jpg": {
+      "sha256": "54b19c0c05a7b9a49bae841856dce6f705cbd05b63a4fdef0cdb74bd07b8398c",
+      "sourceFileName": "cb5792a903f2d92ca0d9206fdef66b3b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cc639d1a283b4de8e50da6fa4ee87ffd.jpg": {
+      "sha256": "0b19e183f9b3576efd2e2568a7a92b67f6216013ffc484d6a5eff03cc701c692",
+      "sourceFileName": "cc639d1a283b4de8e50da6fa4ee87ffd.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cc6fa7711b04627519f1091517aba490.jpg": {
+      "sha256": "8e08151f7fd0c052bafe13d439ae60a338d32c6b8d969267b3e88f1dca9da090",
+      "sourceFileName": "cc6fa7711b04627519f1091517aba490.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cc9502ddeac02452a4824bf603eb2499.jpg": {
+      "sha256": "eb60a841f4e6a43f6b589249a51f0cb06f0a1f396b5a18b2c632b0b1ce470bf5",
+      "sourceFileName": "cc9502ddeac02452a4824bf603eb2499.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cca97edf9055bb7ea7904c9d343828d2.jpg": {
+      "sha256": "79c9e0e9998aa02b0c32ee5e5485216020151a2fddb88bdf022028b849647e0c",
+      "sourceFileName": "cca97edf9055bb7ea7904c9d343828d2.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "cece200eefcadc345cf9705f89d171d2.jpg": {
+      "sha256": "1df2317b821511f80f67c2f3127828c7829f2af306d84f0281b7c35cf7e53e25",
+      "sourceFileName": "cece200eefcadc345cf9705f89d171d2.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "d8e30babd20015ac161fae5dc07dfe7b.jpg": {
+      "sha256": "23ab5b3c9f7ef87eb3f66f794e14305ef9b7518374d9fd157a7ebe48a9e93616",
+      "sourceFileName": "d8e30babd20015ac161fae5dc07dfe7b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "d9201b5e9295280c768f3767e5380e9a.jpg": {
+      "sha256": "7515e0e726674ebc47b417a4d99f6679b8edf6d5e5666e653958233247204b02",
+      "sourceFileName": "d9201b5e9295280c768f3767e5380e9a.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "daf66dc7269aba3922d673f89e1b5cb7.jpg": {
+      "sha256": "332646657b965409f4ddeeb90520d8a63c1afab2810477a1dc97f8cb77ebf390",
+      "sourceFileName": "daf66dc7269aba3922d673f89e1b5cb7.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "de55899fd1e99f80bd47798b70dc5384.jpg": {
+      "sha256": "4b49cb0f512fe7353630f66ca4cb168cec1040cca7a7784d9295fb6d5540aacf",
+      "sourceFileName": "de55899fd1e99f80bd47798b70dc5384.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "dfd32011d47f53ef640d5bc7a96ded21.jpg": {
+      "sha256": "6a8bbdc07a0b6d36e14f9dfd89973236a7f85568b7dd4879e3055f4c79fe5591",
+      "sourceFileName": "dfd32011d47f53ef640d5bc7a96ded21.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e004efeeeb5373ce8e796496de3b715c.jpg": {
+      "sha256": "961051fb6dcaf4085346ba40165ba8770aba6d39f3833af15f4741b070d5727a",
+      "sourceFileName": "e004efeeeb5373ce8e796496de3b715c.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e04ad09dc58255f08b231e42e769a256.jpg": {
+      "sha256": "47d41151e5ba44b700f68fed3098b93b5e82c63ecb59c53d5ba2de479d57754f",
+      "sourceFileName": "e04ad09dc58255f08b231e42e769a256.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e06398d330cb871a8f6eb14ec93a8fc8.jpg": {
+      "sha256": "54f944042b7d9213b8375e1120caa0ac5d659a1008a5f6c9cec11893ea0d0000",
+      "sourceFileName": "e06398d330cb871a8f6eb14ec93a8fc8.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e08100e340e8256864c041f38518fcef.jpg": {
+      "sha256": "18e015e90f55ec7920d9dbba6db1423dc6a876e2726bac94627ee75b33cc4306",
+      "sourceFileName": "e08100e340e8256864c041f38518fcef.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e2039f1dcbdbb57acf18e5bbb4f1d4ad.jpg": {
+      "sha256": "570e7987a001882ddec0fadedbe86f942e3fc5fc8f202b7e8e6997cd06a2ba41",
+      "sourceFileName": "e2039f1dcbdbb57acf18e5bbb4f1d4ad.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e225ca3efaf17f9be8f86ac603d0fbf3.jpg": {
+      "sha256": "7a2443ff4121e6507373bc5ee97ad2c98de5b6eceb84f9dc9cede354800a9f98",
+      "sourceFileName": "e225ca3efaf17f9be8f86ac603d0fbf3.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e54b34dbbbb27cf9fd8daf4246b776c9.jpg": {
+      "sha256": "83c53f4e9f56ff028388918efef0e9b5016db60d0965e4cf8d68ed81378eeb88",
+      "sourceFileName": "e54b34dbbbb27cf9fd8daf4246b776c9.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "e86cc8e4f804a95ad2e78430be8faac3.jpg": {
+      "sha256": "4cdfca3c514bc0e6c4db84a89b8c56c61334378ddf621ae2a539d54697221562",
+      "sourceFileName": "e86cc8e4f804a95ad2e78430be8faac3.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "ebd8b58a951b284e328c6883a59e332d.jpg": {
+      "sha256": "4c9c8548ad02546f9a44c8eab01323af5bedc99e1842e0e280231634d625d7ac",
+      "sourceFileName": "ebd8b58a951b284e328c6883a59e332d.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "f16471b4039fa53cdb3b0c56ac6d23ae.jpg": {
+      "sha256": "44c4288d8b02f42529cbad81b8d8469f1e2259840a5e0cf720f935dc56551fa5",
+      "sourceFileName": "f16471b4039fa53cdb3b0c56ac6d23ae.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "fc016e75457f0e76bb0ad09d146be79b.jpg": {
+      "sha256": "a92942ac217cf766b2effc3a29ef78255df97f60ff4cae173cecf678377ca69a",
+      "sourceFileName": "fc016e75457f0e76bb0ad09d146be79b.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "ff2c0863a19f0bc037eb68b6dfdfbf22.jpg": {
+      "sha256": "421cbe5d7c404e22cd438b956286dba74f24879bda2d1d5a14503f968fa01fcd",
+      "sourceFileName": "ff2c0863a19f0bc037eb68b6dfdfbf22.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    },
+    "ffbf3a06a0753ba956d30c3f016dc93d.jpg": {
+      "sha256": "f380bb7a37309ad07fee8f89e07f82a08c9fc982c5a0ed0f6561454aa588c10b",
+      "sourceFileName": "ffbf3a06a0753ba956d30c3f016dc93d.jpg",
+      "status": "pending-analysis",
+      "rightsStatus": "unverified",
+      "usage": "derived-dna-only",
+      "addedAt": "2026-08-10T11:44:01.519Z"
+    }
+  }
+}

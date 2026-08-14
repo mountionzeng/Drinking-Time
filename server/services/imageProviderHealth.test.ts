@@ -51,4 +51,13 @@ describe("image provider health", () => {
 
     expect(getImageProviderStatus().ready).toBe(true);
   });
+
+  it("keeps other providers available when one provider enters cooldown", () => {
+    recordProviderFailure("midjourney", "timeout");
+
+    expect(isCircuitOpen()).toBe(true);
+    expect(isCircuitOpen("midjourney")).toBe(true);
+    expect(isCircuitOpen("gpt-image")).toBe(false);
+    expect(isCircuitOpen("fal")).toBe(false);
+  });
 });

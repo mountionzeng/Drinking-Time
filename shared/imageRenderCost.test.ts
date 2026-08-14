@@ -37,10 +37,11 @@ describe("estimateStoryboardImageCost", () => {
       aspectRatio: "3:4",
       candidateCount: 4,
       mjTimeoutMs: 600_000,
+      mjDraft: true,
     });
     expect(estimatePublishingCoverCost()).toEqual({
       currency: "CNY",
-      estimatedCny: 0.68,
+      estimatedCny: 0.34,
       candidateCount: 4,
     });
   });

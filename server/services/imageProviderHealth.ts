@@ -1,27 +1,39 @@
-import type {
-  ImageProvider,
-  ImageProviderStatus,
-} from "@shared/imageProvider";
+import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 
 const CIRCUIT_BREAKER_THRESHOLD = 3;
 const CIRCUIT_BREAKER_COOLDOWN_MS = 10 * 60 * 1000;
 
 let consecutiveFailures = 0;
 let circuitBreakerOpenUntil: number | null = null;
+const providerOpenUntil = new Map<ImageProvider, number>();
 let lastProviderFailure: {
   provider: ImageProvider;
   message: string;
   failedAt: number;
 } | null = null;
 
-export function isCircuitOpen(): boolean {
-  if (circuitBreakerOpenUntil === null) return false;
-  if (Date.now() >= circuitBreakerOpenUntil) {
-    circuitBreakerOpenUntil = null;
-    consecutiveFailures = 0;
-    return false;
+export function isCircuitOpen(provider?: ImageProvider): boolean {
+  if (circuitBreakerOpenUntil !== null) {
+    if (Date.now() >= circuitBreakerOpenUntil) {
+      circuitBreakerOpenUntil = null;
+      consecutiveFailures = 0;
+    } else {
+      return true;
+    }
   }
-  return true;
+  if (provider) {
+    const openUntil = providerOpenUntil.get(provider);
+    if (!openUntil) return false;
+    if (Date.now() >= openUntil) {
+      providerOpenUntil.delete(provider);
+      return false;
+    }
+    return true;
+  }
+  for (const candidate of Array.from(providerOpenUntil.keys())) {
+    if (isCircuitOpen(candidate)) return true;
+  }
+  return false;
 }
 
 export function recordSuccess(): void {
@@ -54,8 +66,10 @@ export function recordProviderFailure(
       consecutiveFailures,
       CIRCUIT_BREAKER_THRESHOLD
     );
-    circuitBreakerOpenUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
-    console.warn(`[imageGen] Provider cooldown opened: ${provider}: ${message}`);
+    providerOpenUntil.set(provider, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
+    console.warn(
+      `[imageGen] Provider cooldown opened: ${provider}: ${message}`
+    );
     return;
   }
   recordFailure();
@@ -63,16 +77,20 @@ export function recordProviderFailure(
 
 export function getImageProviderStatus(): ImageProviderStatus {
   const ready = !isCircuitOpen();
+  const retryAtMs =
+    circuitBreakerOpenUntil ??
+    (lastProviderFailure
+      ? providerOpenUntil.get(lastProviderFailure.provider)
+      : undefined) ??
+    null;
   return {
     ready,
     reason: ready
       ? null
-      : lastProviderFailure?.message ??
-        "图片供应商连续失败，付费生成已暂时停用",
+      : (lastProviderFailure?.message ??
+        "图片供应商连续失败，付费生成已暂时停用"),
     retryAt:
-      !ready && circuitBreakerOpenUntil != null
-        ? new Date(circuitBreakerOpenUntil).toISOString()
-        : null,
+      !ready && retryAtMs != null ? new Date(retryAtMs).toISOString() : null,
     lastFailure: lastProviderFailure
       ? {
           provider: lastProviderFailure.provider,
@@ -83,10 +101,14 @@ export function getImageProviderStatus(): ImageProviderStatus {
   };
 }
 
-export function circuitBreakerMessage(): string {
+export function circuitBreakerMessage(provider?: ImageProvider): string {
   const status = getImageProviderStatus();
-  return status.reason
-    ? `图片付费生成暂时停用：${status.reason}`
+  const providerReason =
+    provider && status.lastFailure?.provider === provider
+      ? status.lastFailure.message
+      : null;
+  return providerReason || status.reason
+    ? `图片付费生成暂时停用：${providerReason ?? status.reason}`
     : "图片付费生成暂时停用";
 }
 
@@ -94,5 +116,6 @@ export function circuitBreakerMessage(): string {
 export function resetCircuitBreaker(): void {
   consecutiveFailures = 0;
   circuitBreakerOpenUntil = null;
+  providerOpenUntil.clear();
   lastProviderFailure = null;
 }
