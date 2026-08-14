@@ -27,7 +27,8 @@ describe("findAvailablePort", () => {
       blocker!.on("error", reject);
     });
     const address = blocker.address();
-    if (!address || typeof address === "string") throw new Error("missing port");
+    if (!address || typeof address === "string")
+      throw new Error("missing port");
 
     await expect(findAvailablePort(address.port)).rejects.toThrow(
       `Port ${address.port} is already in use`
@@ -42,10 +43,7 @@ describe("findAvailablePort", () => {
 describe("development server invariants", () => {
   it("refuses to run the development server from a linked worktree", () => {
     expect(() =>
-      assertDevelopmentServerCwd(
-        "/repo/.worktrees/codex/port-fix",
-        "/repo"
-      )
+      assertDevelopmentServerCwd("/repo/.worktrees/codex/port-fix", "/repo")
     ).toThrow("must be started from the primary worktree");
   });
 
@@ -58,16 +56,17 @@ describe("development server invariants", () => {
 });
 
 describe("pnpm development lifecycle", () => {
-  it("runs the worktree preflight before it can kill an existing server", async () => {
+  it("delegates old-server cleanup to the verified preflight without broad pkill", async () => {
     const packageJson = JSON.parse(
-      await readFile(path.resolve(import.meta.dirname, "../../package.json"), "utf-8")
+      await readFile(
+        path.resolve(import.meta.dirname, "../../package.json"),
+        "utf-8"
+      )
     ) as { scripts: Record<string, string> };
     const predev = packageJson.scripts.predev;
 
-    expect(predev).toContain("tsx scripts/dev-preflight.ts");
-    expect(predev.indexOf("tsx scripts/dev-preflight.ts")).toBeLessThan(
-      predev.indexOf("pkill")
-    );
+    expect(predev).toBe("tsx scripts/dev-preflight.ts");
+    expect(predev).not.toContain("pkill");
   });
 });
 
