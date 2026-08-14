@@ -39,6 +39,7 @@ import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
   PUBLISHING_NARRATIVE_PURPOSES,
+  computePublishingTextOperationRequestHash,
   defaultPublishingNarrativeIntent,
   getPublishingContentError,
   getXThreadStats,
@@ -50,6 +51,8 @@ import {
   type PublishingNarrativeIntent,
   type PublishingNarrativePurpose,
   type PublishingStoryCoreContent,
+  type PublishingTextOperationKind,
+  type PublishingTextOperationScope,
   publishingNarrativePurposeLabel,
 } from "@shared/publishingDraft";
 import {
@@ -72,7 +75,23 @@ import {
   publishingConvertTargets,
   publishingErrorMessage,
   publishingStoryScopeMatches,
+  publishingTextOperationScope,
+  publishingTextOperationScopeMatches,
 } from "./publishingDraftViewModel";
+
+function createPublishingTextOperationIdentity(
+  kind: PublishingTextOperationKind,
+  scope: PublishingTextOperationScope,
+  payload: unknown
+) {
+  const nonce = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    operationToken: `${kind}-${nonce}`,
+    requestHash: computePublishingTextOperationRequestHash({ kind, scope, payload }),
+  };
+}
 
 type PendingEditDecision = {
   platform: PublishingPlatformId;
@@ -242,6 +261,7 @@ export default function PublishingDraftWorkspace({
   const generateMut = trpc.publishingDraft.generate.useMutation();
   const convertMut = trpc.publishingDraft.convert.useMutation();
   const rewriteMut = trpc.publishingDraft.rewrite.useMutation();
+  const repairFormattingMut = trpc.publishingDraft.repairFormatting.useMutation();
   const applyMut = trpc.publishingDraft.applyEdit.useMutation();
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
@@ -297,6 +317,8 @@ export default function PublishingDraftWorkspace({
   const [intentDraft, setIntentDraft] = useState<PublishingNarrativeIntent>(
     () => defaultPublishingNarrativeIntent()
   );
+  const publishingStateRef = useRef(publishing);
+  publishingStateRef.current = publishing;
   const versionId = publishing.activeVersionId ?? "v1";
   coverReferenceAnalysisScopeRef.current = {
     storyId: activeStoryId,
@@ -374,6 +396,7 @@ export default function PublishingDraftWorkspace({
     generateMut.isPending ||
     convertMut.isPending ||
     rewriteMut.isPending ||
+    repairFormattingMut.isPending ||
     applyMut.isPending ||
     confirmWordingMut.isPending ||
     confirmCoreMut.isPending ||
@@ -451,10 +474,20 @@ export default function PublishingDraftWorkspace({
     try {
       const storyId = await ensureActiveStoryPersisted();
       if (publishing.core && sourcePlatform) {
+        const scope = publishingTextOperationScope({
+          storyId,
+          state: publishing,
+          platform,
+          sourcePlatform,
+        });
+        const payload = { sourcePlatform, targetPlatform: platform };
+        const identity = createPublishingTextOperationIdentity("convert", scope, payload);
         const result = await convertMut.mutateAsync({
           storyId,
           sourcePlatform,
           targetPlatform: platform,
+          scope,
+          ...identity,
         });
         if (
           !publishingStoryScopeMatches(
@@ -463,18 +496,39 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
+        if (!publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })) return;
         setPublishing(result.publishing);
+        if (result.status === "candidate") {
+          setPublishingBuffer(storyId, platform, result.content, versionId);
+        }
         toast.success(
-          result.status === "existing"
-            ? `${adapter.label}版本已经存在`
+          result.status === "candidate"
+            ? `${adapter.label}已有稿件，转换结果已放入编辑器等待应用`
             : `已转换为 ${adapter.label}`
         );
       } else {
+        const scope = publishingTextOperationScope({
+          storyId,
+          state: publishing,
+          platform,
+        });
+        const payload = {
+          activePlatform: platform,
+          selectedPlatforms: publishing.selectedPlatforms,
+        };
+        const identity = createPublishingTextOperationIdentity("generate", scope, payload);
         const result = await generateMut.mutateAsync({
           storyId,
           activePlatform: platform,
           selectedPlatforms: publishing.selectedPlatforms,
           basePublishingRevision: publishing.revision,
+          scope,
+          ...identity,
         });
         if (
           !publishingStoryScopeMatches(
@@ -483,6 +537,12 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
+        if (!publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })) return;
         setPublishing(result.publishing);
         toast.success(`${adapter.label}文字稿已生成`);
       }
@@ -500,10 +560,20 @@ export default function PublishingDraftWorkspace({
     if (activeStoryId == null || !draft || busy) return;
     try {
       const storyId = await ensureActiveStoryPersisted();
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform: targetPlatform,
+        sourcePlatform: platform,
+      });
+      const payload = { sourcePlatform: platform, targetPlatform };
+      const identity = createPublishingTextOperationIdentity("convert", scope, payload);
       const result = await convertMut.mutateAsync({
         storyId,
         sourcePlatform: platform,
         targetPlatform,
+        scope,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
@@ -512,10 +582,22 @@ export default function PublishingDraftWorkspace({
         )
       )
         return;
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, targetPlatform, versionId);
+      if (result.status === "candidate") {
+        setPublishingBuffer(storyId, targetPlatform, result.content, versionId);
+      } else {
+        discardPublishingBuffer(storyId, targetPlatform, versionId);
+      }
       toast.success(
-        `已转为 ${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}`
+        result.status === "candidate"
+          ? `${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}已有稿件，候选已放入编辑器`
+          : `已转为 ${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}`
       );
     } catch (error) {
       toast.error(publishingErrorMessage(error, "平台转换失败，原稿没有变化"));
@@ -534,12 +616,24 @@ export default function PublishingDraftWorkspace({
     }
     const storyId = activeStoryId;
     try {
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform,
+      });
+      const payload = {
+        instruction: rewriteInstruction.trim(),
+        content: editorContent,
+      };
+      const identity = createPublishingTextOperationIdentity("rewrite", scope, payload);
       const result = await rewriteMut.mutateAsync({
         storyId,
         platform,
         instruction: rewriteInstruction.trim(),
         content: editorContent,
         baseDraftRevision: draft.revision,
+        scope,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
@@ -549,6 +643,12 @@ export default function PublishingDraftWorkspace({
       ) {
         return;
       }
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
       setPublishingBuffer(storyId, platform, result.content, versionId);
       setRewriteInstruction("");
       toast.success("改写预览已放进编辑器；看完后再决定是否应用");
@@ -556,6 +656,50 @@ export default function PublishingDraftWorkspace({
       toast.error(
         publishingErrorMessage(error, "文案改写失败，当前稿件没有变化")
       );
+    }
+  };
+
+  const repairFormatting = async () => {
+    if (!draft || !editorContent || activeStoryId == null || busy) return;
+    const storyId = activeStoryId;
+    try {
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform,
+      });
+      const payload = { content: editorContent };
+      const identity = createPublishingTextOperationIdentity(
+        "format_repair",
+        scope,
+        payload
+      );
+      const result = await repairFormattingMut.mutateAsync({
+        storyId,
+        platform,
+        content: editorContent,
+        baseDraftRevision: draft.revision,
+        scope,
+        ...identity,
+      });
+      if (!publishingStoryScopeMatches(
+        storyId,
+        storySpineStore.getState().activeStoryId
+      )) return;
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
+      replaceContent(result.content);
+      toast.success(
+        publishingContentEquals(result.content, editorContent)
+          ? "当前格式已经符合平台要求"
+          : "格式修复预览已放进编辑器；确认后再应用"
+      );
+    } catch (error) {
+      toast.error(publishingErrorMessage(error, "格式修复失败，当前内容没有变化"));
     }
   };
 
@@ -659,9 +803,8 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, pendingDecision.platform, versionId);
       setPendingDecision(null);
-      toast.success("故事内核已更新，其他平台已标记为建议复核");
+      toast.info("这次修改涉及故事内核，当前版本未被覆盖；请创建新版本继续，编辑内容已保留");
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "故事内核暂时没有更新，编辑内容仍在")
@@ -1530,6 +1673,17 @@ export default function PublishingDraftWorkspace({
                       placeholder="例如：太矫情了，改得克制直接一点，少用比喻，保留我的判断。"
                       className="min-h-[68px] flex-1 resize-y rounded-lg border border-[var(--panel-border)] bg-[var(--nayin-surface)]/45 px-3 py-2 text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
                     />
+                    <ActionButton
+                      onClick={() => void repairFormatting()}
+                      disabled={busy}
+                    >
+                      {repairFormattingMut.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-4 w-4" />
+                      )}
+                      只修格式
+                    </ActionButton>
                     <ActionButton
                       onClick={() => void rewriteDraft()}
                       disabled={

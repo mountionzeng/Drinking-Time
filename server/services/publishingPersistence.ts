@@ -20,6 +20,7 @@ import {
   computePublishingVersionRequestHash,
   publishingDraftBufferKey,
   type PublishingStoryCoreContent,
+  type PublishingTextOperationReceipt,
   hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
@@ -61,6 +62,10 @@ type InitializeOperation = {
   content: PublishingDraftContent;
   narrativeIntent?: PublishingNarrativeIntent;
   basePublishingRevision: number;
+  baseContainerRevision?: number;
+  baseVersionRevision?: number;
+  textOperationReceipt?: PublishingTextOperationReceipt;
+  storyId?: number;
 };
 
 type UpsertDraftOperation = {
@@ -69,6 +74,10 @@ type UpsertDraftOperation = {
   content: PublishingDraftContent;
   baseDraftRevision: number;
   activate?: boolean;
+  baseContainerRevision?: number;
+  baseVersionRevision?: number;
+  textOperationReceipt?: PublishingTextOperationReceipt;
+  storyId?: number;
 };
 
 type ApplyWordingOperation = {
@@ -85,6 +94,22 @@ type ConfirmCoreOperation = {
   content: PublishingDraftContent;
   baseCoreRevision: number;
   baseDraftRevision: number;
+};
+
+type ClaimTextOperation = {
+  type: "claim_text_operation";
+  receipt: PublishingTextOperationReceipt;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  storyId?: number;
+};
+
+type SettleTextOperation = {
+  type: "settle_text_operation";
+  receipt: PublishingTextOperationReceipt;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  storyId?: number;
 };
 
 type SetSelectionOperation = {
@@ -174,6 +199,8 @@ export type PublishingDraftWriteOperation =
   | ClaimCoverGenerationOperation
   | UpdateCoverGenerationOperation
   | CompleteCoverGenerationOperation
+  | ClaimTextOperation
+  | SettleTextOperation
   | SetCoverOperation
   | CreatePublishingVersionOperation
   | SelectPublishingVersionOperation
@@ -189,6 +216,7 @@ export type PublishingDraftPersistenceResult = {
   storyRevision: number;
   publishing: PublishingDraftState;
   committedReceipt?: PublishingVersionOperationReceipt;
+  textOperationReceipt?: PublishingTextOperationReceipt;
 };
 
 export const MAX_PUBLISHING_STATE_BYTES = 2 * 1024 * 1024;
@@ -513,6 +541,7 @@ function applyVersionOperation(
     cover: parent.cover ? { ...parent.cover } : null,
     coverRounds: [],
     coverGeneration: null,
+    textOperations: {},
     platformStatuses: Object.fromEntries(
       Array.from(new Set([...parent.selectedPlatforms, op.platform])).map(platform => [
         platform,
@@ -663,6 +692,142 @@ function boundedVersionReceipts(
   return Object.fromEntries([...legacy, ...completed]);
 }
 
+export function compactPublishingTextOperations(
+  operations: Record<string, PublishingTextOperationReceipt>
+): Record<string, PublishingTextOperationReceipt> {
+  const entries = Object.entries(operations);
+  const pending = entries.filter(([, receipt]) => receipt.status === "pending");
+  const terminal = entries
+    .filter(([, receipt]) => receipt.status !== "pending")
+    .sort(([leftToken, left], [rightToken, right]) =>
+      left.updatedAt - right.updatedAt ||
+      left.claimedAt - right.claimedAt ||
+      leftToken.localeCompare(rightToken)
+    )
+    .slice(-32);
+  return Object.fromEntries([...pending, ...terminal]);
+}
+
+function assertTextOperationScope(
+  state: PublishingDraftState,
+  receipt: PublishingTextOperationReceipt,
+  baseContainerRevision: number,
+  baseVersionRevision: number,
+  storyId?: number
+): ReturnType<typeof resolvePublishingActiveVersion> {
+  if (storyId == null || receipt.scope.storyId !== storyId) {
+    throw new Error("Publishing text operation Story scope does not match");
+  }
+  assertRevision("publishing", baseContainerRevision, state.containerRevision ?? state.revision);
+  const version = state.versions?.find(candidate => candidate.versionId === receipt.scope.versionId);
+  if (!version) throw new Error(`Unknown publishing version: ${receipt.scope.versionId}`);
+  assertRevision("publishing", baseVersionRevision, version.versionRevision);
+  assertRevision("core", receipt.scope.coreRevision, version.core?.revision ?? 0);
+  assertRevision(receipt.scope.platform, receipt.scope.draftRevision, version.drafts[receipt.scope.platform]?.revision ?? 0);
+  if (receipt.scope.sourcePlatform) {
+    assertRevision(
+      receipt.scope.sourcePlatform,
+      receipt.scope.sourceDraftRevision ?? 0,
+      version.drafts[receipt.scope.sourcePlatform]?.revision ?? 0
+    );
+  }
+  assertRevision("publishing", receipt.scope.intentRevision, version.intentSnapshot?.revision ?? 0);
+  if (receipt.scope.contextRevision !== 0) {
+    throw new Error("Publishing platform context revision is not available yet");
+  }
+  return version;
+}
+
+function storeTextOperationReceipt(
+  state: PublishingDraftState,
+  versionId: string,
+  receipt: PublishingTextOperationReceipt,
+  now: number,
+  advanceRevision: boolean
+): PublishingDraftState {
+  return {
+    ...state,
+    versions: state.versions?.map(candidate => candidate.versionId === versionId
+      ? {
+          ...candidate,
+          versionRevision: candidate.versionRevision + 1,
+          textOperations: compactPublishingTextOperations({
+            ...(candidate.textOperations ?? {}),
+            [receipt.operationToken]: structuredClone(receipt),
+          }),
+        }
+      : candidate),
+    revision: advanceRevision ? state.revision + 1 : state.revision,
+    containerRevision: (state.containerRevision ?? 0) + 1,
+    updatedAt: now,
+  };
+}
+
+function attachTextOperationSettlement(
+  current: PublishingDraftState,
+  next: PublishingDraftState,
+  receipt: PublishingTextOperationReceipt,
+  baseContainerRevision: number,
+  baseVersionRevision: number,
+  storyId: number | undefined,
+  now: number
+): PublishingDraftState {
+  const version = assertTextOperationScope(
+    current,
+    receipt,
+    baseContainerRevision,
+    baseVersionRevision,
+    storyId
+  );
+  const existing = version.textOperations?.[receipt.operationToken];
+  if (receipt.status === "pending") {
+    throw new Error("Publishing text operation settlement must be terminal");
+  }
+  if (!existing || existing.status !== "pending") {
+    throw new Error("Publishing text operation must have a pending claim before settlement");
+  }
+  if (
+    existing.requestHash !== receipt.requestHash ||
+    existing.kind !== receipt.kind ||
+    stableJson(existing.scope) !== stableJson(receipt.scope)
+  ) throw new Error("Publishing text operation settlement scope does not match its claim");
+  return storeTextOperationReceipt(next, version.versionId, receipt, now, false);
+}
+
+function applyTextOperationReceipt(
+  state: PublishingDraftState,
+  operation: ClaimTextOperation | SettleTextOperation,
+  now: number
+): PublishingDraftState {
+  const receipt = operation.receipt;
+  const version = assertTextOperationScope(
+    state,
+    receipt,
+    operation.baseContainerRevision,
+    operation.baseVersionRevision,
+    operation.storyId
+  );
+  const existing = version.textOperations?.[receipt.operationToken];
+  if (existing && existing.requestHash !== receipt.requestHash) {
+    throw new Error("Publishing text operation token was already used with a different request hash");
+  }
+  if (operation.type === "claim_text_operation") {
+    if (receipt.status !== "pending") throw new Error("Publishing text operation claim must be pending");
+    if (existing && (existing.status !== "pending" || existing.expiresAt > receipt.claimedAt)) return state;
+  } else {
+    return attachTextOperationSettlement(
+      state,
+      { ...state, revision: state.revision + 1 },
+      receipt,
+      operation.baseContainerRevision,
+      operation.baseVersionRevision,
+      operation.storyId,
+      now
+    );
+  }
+  return storeTextOperationReceipt(state, version.versionId, receipt, now, true);
+}
+
 const storyWriteTails = new Map<string, Promise<void>>();
 
 async function withStoryWriteLock<T>(
@@ -741,7 +906,7 @@ function applyOperation(
       const activeVersionId = initialized.activeVersionId;
       const shouldFreezeIntent = !hasPersistedPublishingVersion(current);
       const freezeSource = preVersionIntent ?? operation.narrativeIntent;
-      return {
+      const withIntent = {
         ...initialized,
         versions: initialized.versions?.map(version =>
           version.versionId === activeVersionId
@@ -760,6 +925,19 @@ function applyOperation(
             : version
         ),
       };
+      if (!operation.textOperationReceipt) return withIntent;
+      if (operation.baseContainerRevision == null || operation.baseVersionRevision == null) {
+        throw new Error("Publishing text completion requires container and version revisions");
+      }
+      return attachTextOperationSettlement(
+        current,
+        withIntent,
+        operation.textOperationReceipt,
+        operation.baseContainerRevision,
+        operation.baseVersionRevision,
+        operation.storyId,
+        now
+      );
     }
     case "upsert_draft": {
       assertRevision(
@@ -767,12 +945,25 @@ function applyOperation(
         operation.baseDraftRevision,
         current.drafts[operation.platform]?.revision ?? 0
       );
-      return upsertPublishingPlatformDraft(current, {
+      const next = upsertPublishingPlatformDraft(current, {
         platform: operation.platform,
         content: operation.content,
         activate: operation.activate ?? true,
         now,
       });
+      if (!operation.textOperationReceipt) return next;
+      if (operation.baseContainerRevision == null || operation.baseVersionRevision == null) {
+        throw new Error("Publishing text completion requires container and version revisions");
+      }
+      return attachTextOperationSettlement(
+        current,
+        next,
+        operation.textOperationReceipt,
+        operation.baseContainerRevision,
+        operation.baseVersionRevision,
+        operation.storyId,
+        now
+      );
     }
     case "apply_wording": {
       assertRevision(
@@ -789,6 +980,10 @@ function applyOperation(
     }
     case "confirm_core_change": {
       throw new Error("Core changes require a version transition");
+    }
+    case "claim_text_operation":
+    case "settle_text_operation": {
+      return applyTextOperationReceipt(current, operation, now);
     }
     case "set_selection": {
       assertRevision(
@@ -948,6 +1143,35 @@ export async function writePublishingDraftState(params: {
     const normalized = normalizeStoredPublishing(rawPublishing);
     const current = projectVersion(normalized, normalized.activeVersionId ?? "v1");
     const operation = { ...params.operation, storyId: params.storyId } as PublishingDraftWriteOperation;
+    const incomingTextReceipt = operation.type === "claim_text_operation" || operation.type === "settle_text_operation"
+      ? operation.receipt
+      : operation.type === "initialize" || operation.type === "upsert_draft"
+        ? operation.textOperationReceipt
+        : undefined;
+    if (incomingTextReceipt && incomingTextReceipt.scope.storyId !== params.storyId) {
+      throw new Error("Publishing text operation Story scope does not match");
+    }
+    const storedTextReceipt = incomingTextReceipt
+      ? current.versions?.find(version => version.versionId === incomingTextReceipt.scope.versionId)
+          ?.textOperations?.[incomingTextReceipt.operationToken]
+      : undefined;
+    if (storedTextReceipt && storedTextReceipt.requestHash !== incomingTextReceipt?.requestHash) {
+      throw new Error("Publishing text operation token was already used with a different request hash");
+    }
+    if (
+      storedTextReceipt &&
+      (((operation.type === "initialize" || operation.type === "upsert_draft") && storedTextReceipt.status !== "pending") ||
+        (operation.type === "claim_text_operation" &&
+        (storedTextReceipt.status !== "pending" || storedTextReceipt.expiresAt > incomingTextReceipt!.claimedAt)) ||
+        (operation.type === "settle_text_operation" && storedTextReceipt.status !== "pending"))
+    ) {
+      return {
+        storyId: params.storyId,
+        storyRevision: getStoryRevision(body),
+        publishing: current,
+        textOperationReceipt: storedTextReceipt,
+      };
+    }
     if (operation.type === "create_version") validateVersionHandshake(params.operationToken, operation);
     if (operation.type === "select_version" || operation.type === "rename_version") {
       const expectedHash = simpleVersionRequestHash(operation);
@@ -1032,12 +1256,17 @@ export async function writePublishingDraftState(params: {
     const committed = params.operationToken
       ? publishing.versionOperationReceipts?.[params.operationToken]
       : undefined;
+    const committedTextReceipt = incomingTextReceipt
+      ? publishing.versions?.find(version => version.versionId === incomingTextReceipt.scope.versionId)
+          ?.textOperations?.[incomingTextReceipt.operationToken]
+      : undefined;
     return {
       storyId: params.storyId,
       storyRevision,
       publishing,
       committedReceipt:
         committed && typeof committed !== "string" ? committed : undefined,
+      textOperationReceipt: committedTextReceipt,
     };
   });
 }

@@ -67,6 +67,7 @@ vi.mock("@/lib/trpc", () => {
         generate: { useMutation: mutation },
         convert: { useMutation: mutation },
         rewrite: { useMutation: mutation },
+        repairFormatting: { useMutation: mutation },
         applyEdit: { useMutation: mutation },
         confirmWordingChange: { useMutation: mutation },
         confirmCoreChange: { useMutation: mutation },
@@ -198,6 +199,7 @@ describe("PublishingDraftWorkspace", () => {
     expect(html).toContain("这版不对？直接告诉我");
     expect(html).toContain("少点矫情");
     expect(html).toContain("按要求重写");
+    expect(html).toContain("只修格式");
     expect(html).toContain("复制文案");
     expect(html).toContain("进入视频制作");
     expect(html).toContain("留存 · 自己");

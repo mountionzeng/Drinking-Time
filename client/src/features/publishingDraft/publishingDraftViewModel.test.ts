@@ -12,6 +12,8 @@ import {
   publishingConvertTargets,
   publishingStoryScopeMatches,
   publishingOperationScopeMatches,
+  publishingTextOperationScope,
+  publishingTextOperationScopeMatches,
   updatePublishingSelection,
 } from "./publishingDraftViewModel";
 
@@ -34,6 +36,36 @@ describe("publishingDraftViewModel", () => {
     expect(publishingOperationScopeMatches(scope, scope)).toBe(true);
     expect(publishingOperationScopeMatches(scope, { ...scope, versionId: "v2" })).toBe(false);
     expect(publishingOperationScopeMatches(scope, { ...scope, requestHash: "late" })).toBe(false);
+  });
+
+  it("captures all text-operation revisions and rejects a response after a version transition", () => {
+    const state = emptyPublishingDraftState(1);
+    const scope = publishingTextOperationScope({
+      storyId: 7,
+      state,
+      platform: "x",
+    });
+    expect(scope).toEqual({
+      storyId: 7,
+      versionId: "v1",
+      platform: "x",
+      containerRevision: 0,
+      versionRevision: 0,
+      coreRevision: 0,
+      draftRevision: 0,
+      intentRevision: 0,
+      contextRevision: 0,
+    });
+    expect(publishingTextOperationScopeMatches(scope, {
+      storyId: 7,
+      state,
+      platform: "x",
+    })).toBe(true);
+    expect(publishingTextOperationScopeMatches(scope, {
+      storyId: 7,
+      state: { ...state, containerRevision: 1 },
+      platform: "x",
+    })).toBe(false);
   });
 
   it("only exposes drafts that actually exist as retained tabs", () => {

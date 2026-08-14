@@ -17,6 +17,7 @@ import {
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
   PublishingLegacyFallbackDisabledError,
+  compactPublishingTextOperations,
   getPublishingDraftState,
   getPublishingMigrationMetrics,
   publishingProjectionHash,
@@ -80,6 +81,54 @@ describe("publishingPersistence", () => {
         return true;
       }
     );
+  });
+
+  it("keeps pending claims and the 32 most recently updated terminal text receipts", () => {
+    const scope = {
+      storyId: 7,
+      versionId: "v1",
+      platform: "x" as const,
+      containerRevision: 0,
+      versionRevision: 0,
+      coreRevision: 0,
+      draftRevision: 0,
+      intentRevision: 0,
+      contextRevision: 0,
+    };
+    const terminal = Object.fromEntries(Array.from({ length: 34 }, (_, index) => {
+      const token = `terminal-${index}`;
+      return [token, {
+        status: "failed" as const,
+        kind: "rewrite" as const,
+        operationToken: token,
+        requestHash: `hash-${index}`,
+        scope,
+        claimedAt: index,
+        updatedAt: index,
+        expiresAt: 100,
+        error: "failed",
+      }];
+    }));
+    // Updating an old object key must make it recent even though JavaScript
+    // preserves that key's original insertion position.
+    terminal["terminal-0"] = { ...terminal["terminal-0"], updatedAt: 100 };
+    const pending = {
+      status: "pending" as const,
+      kind: "rewrite" as const,
+      operationToken: "pending",
+      requestHash: "pending-hash",
+      scope,
+      claimedAt: 50,
+      updatedAt: 50,
+      expiresAt: 200,
+    };
+    const compacted = compactPublishingTextOperations({ ...terminal, pending });
+
+    expect(compacted.pending).toEqual(pending);
+    expect(compacted["terminal-0"]).toEqual(terminal["terminal-0"]);
+    expect(compacted["terminal-1"]).toBeUndefined();
+    expect(compacted["terminal-2"]).toBeUndefined();
+    expect(Object.values(compacted).filter(receipt => receipt.status !== "pending")).toHaveLength(32);
   });
 
   it("freezes the pre-version confirmed intent into V1 in the same initialize CAS", async () => {
@@ -696,6 +745,184 @@ describe("publishingPersistence", () => {
     const badHash = { ...badHashInput, requestHash: computePublishingVersionRequestHash(badHashInput) };
     await expect(writePublishingDraftState({ storyId: 7, userId: 3, operationToken: "bad-hash", operation: badHash }))
       .rejects.toThrow(/buffer hash/i);
+  });
+
+  it("claims and completes a version-scoped text operation without duplicate work on retry", async () => {
+    const scope = {
+      storyId: 7,
+      versionId: "v1",
+      platform: "x" as const,
+      containerRevision: 0,
+      versionRevision: 0,
+      coreRevision: 0,
+      draftRevision: 0,
+      intentRevision: 0,
+      contextRevision: 0,
+    };
+    const pending = {
+      status: "pending" as const,
+      kind: "rewrite" as const,
+      operationToken: "text-op",
+      requestHash: "pto2-1234567890abcdef1234567890abcdef",
+      scope,
+      claimedAt: 10,
+      updatedAt: 10,
+      expiresAt: 1_000,
+    };
+    const claimed = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "claim_text_operation",
+        receipt: pending,
+        baseContainerRevision: 0,
+        baseVersionRevision: 0,
+      },
+    });
+    expect(claimed.textOperationReceipt).toEqual(pending);
+    expect(claimed.publishing.versions?.[0]?.textOperations?.["text-op"]).toEqual(pending);
+    const claimCalls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const claimRetry = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "claim_text_operation",
+        receipt: pending,
+        baseContainerRevision: 0,
+        baseVersionRevision: 0,
+      },
+    });
+    expect(claimRetry.textOperationReceipt).toEqual(pending);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(claimCalls);
+    await expect(writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "claim_text_operation",
+        receipt: { ...pending, requestHash: "pto2-different" },
+        baseContainerRevision: 0,
+        baseVersionRevision: 0,
+      },
+    })).rejects.toThrow(/different request hash/i);
+
+    const completed = {
+      ...pending,
+      status: "completed" as const,
+      updatedAt: 20,
+      result: {
+        status: "preview" as const,
+        content: { title: "", body: "revised", tags: [] },
+        modelLabel: "mock-model",
+      },
+    };
+    const v1 = claimed.publishing.versions?.[0];
+    const settled = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "settle_text_operation",
+        receipt: completed,
+        baseContainerRevision: claimed.publishing.containerRevision ?? 0,
+        baseVersionRevision: v1?.versionRevision ?? 0,
+      },
+    });
+    expect(settled.textOperationReceipt).toEqual(completed);
+    const settleCalls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const settleRetry = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "settle_text_operation",
+        receipt: completed,
+        baseContainerRevision: claimed.publishing.containerRevision ?? 0,
+        baseVersionRevision: v1?.versionRevision ?? 0,
+      },
+    });
+    expect(settleRetry.textOperationReceipt).toEqual(completed);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(settleCalls);
+  });
+
+  it("commits initial generated content and its completed text receipt in one Story CAS", async () => {
+    const scope = {
+      storyId: 7,
+      versionId: "v1",
+      platform: "x" as const,
+      containerRevision: 0,
+      versionRevision: 0,
+      coreRevision: 0,
+      draftRevision: 0,
+      intentRevision: 0,
+      contextRevision: 0,
+    };
+    const pending = {
+      status: "pending" as const,
+      kind: "generate" as const,
+      operationToken: "generate-op",
+      requestHash: "pto2-abcdefabcdefabcdefabcdefabcdefab",
+      scope,
+      claimedAt: 10,
+      updatedAt: 10,
+      expiresAt: 1_000,
+    };
+    const claimed = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "claim_text_operation",
+        receipt: pending,
+        baseContainerRevision: 0,
+        baseVersionRevision: 0,
+      },
+    });
+    const completed = {
+      ...pending,
+      status: "completed" as const,
+      updatedAt: 20,
+      result: {
+        status: "created" as const,
+        core: baseCore,
+        content: { title: "", body: "generated", tags: [] },
+        modelLabel: "mock-model",
+        draftRevision: 1,
+      },
+    };
+    const claimedVersion = claimed.publishing.versions?.[0];
+    const saved = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: baseCore,
+        content: completed.result.content,
+        basePublishingRevision: claimed.publishing.revision,
+        baseContainerRevision: claimed.publishing.containerRevision,
+        baseVersionRevision: claimedVersion?.versionRevision,
+        textOperationReceipt: completed,
+      },
+    });
+    expect(saved.publishing.drafts.x?.content.body).toBe("generated");
+    expect(saved.textOperationReceipt).toEqual(completed);
+    expect(saved.publishing.versions?.[0]?.textOperations?.["generate-op"]).toEqual(completed);
+    const calls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const retry = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: baseCore,
+        content: completed.result.content,
+        basePublishingRevision: claimed.publishing.revision,
+        baseContainerRevision: claimed.publishing.containerRevision,
+        baseVersionRevision: claimedVersion?.versionRevision,
+        textOperationReceipt: completed,
+      },
+    });
+    expect(retry.textOperationReceipt).toEqual(completed);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(calls);
   });
 
   it("treats cancel as a zero-write operation", async () => {

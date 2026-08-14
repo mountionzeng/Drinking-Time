@@ -273,6 +273,7 @@
       ],
       "owners": [
         "server/routers/publishingDraft.ts",
+        "server/services/publishingDraft.ts",
         "shared/publishingDraft.ts",
         "server/services/imageGen.ts",
         "server/services/staticImageQualityGate.ts",
@@ -282,6 +283,8 @@
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "server/routers.publishingDraft.test.ts",
+        "server/services/publishingDraft.test.ts",
+        "server/services/publishingPersistence.test.ts",
         "server/services/imageGen.test.ts",
         "server/services/staticImageQualityGate.test.ts",
         "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts"
@@ -296,7 +299,9 @@
         "供应商失败必须保留 error.cause，断连不得被误判为不可恢复。",
         "改写供应商失败文案时必须转发 providerTaskId 与 submissionUncertain，不得把可能已扣费的提交呈现为安全重试。",
         "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
-        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。"
+        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
+        "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
+        "人工标题不能被转换、改写、格式修复或无效标题结果清空。"
       ],
       "dependencies": [
         "story-ownership",
@@ -305,10 +310,15 @@
       "replaces": [],
       "knownGaps": [
         "尚未完成版本、意图、封面和视频故事版统一生命周期的真实 UI 全链路验收。",
-        "首次生成、转换和改写请求尚未全部绑定明确 version scope，异步结果存在跨版本落入当前视图的风险。",
+        "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "统一首次生成、转换、改写和格式修复的版本作用域与字段策略；增加 pending/completed/failed 持久文字操作回执、完成重放、已有目标候选保护、人工标题保留和本地格式修复入口。真实交互仍待 U6/U9 验收，因此保持 observing。"
+        },
         {
           "date": "2026-08-14",
           "kind": "verification",

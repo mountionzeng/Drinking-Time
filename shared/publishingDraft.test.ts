@@ -5,6 +5,7 @@ import {
   PUBLISHING_PLATFORM_REGISTRY,
   applyPublishingWordingEdit,
   computePublishingDraftContentHash,
+  computePublishingTextOperationRequestHash,
   computePublishingVersionRequestHash,
   confirmPublishingCoreChange,
   emptyPublishingDraftState,
@@ -157,6 +158,38 @@ describe("publishing version operation identity", () => {
     );
     expect(input.sourceBufferHash).toMatch(/^pb2-[a-f0-9]{32}$/);
     expect(publishingDraftBufferKey(7, "x", "v2")).toBe("7:v2:x");
+  });
+
+  it("binds text operations to the complete immutable version scope", () => {
+    const scope = {
+      storyId: 7,
+      versionId: "v2",
+      platform: "x" as const,
+      sourcePlatform: "xiaohongshu" as const,
+      containerRevision: 3,
+      versionRevision: 4,
+      coreRevision: 2,
+      draftRevision: 0,
+      sourceDraftRevision: 5,
+      intentRevision: 6,
+      contextRevision: 0,
+    };
+    const first = computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope,
+      payload: { targetPlatform: "x" },
+    });
+    expect(first).toMatch(/^pto2-[a-f0-9]{32}$/);
+    expect(computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope: { ...scope },
+      payload: { targetPlatform: "x" },
+    })).toBe(first);
+    expect(computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope: { ...scope, sourceDraftRevision: 6 },
+      payload: { targetPlatform: "x" },
+    })).not.toBe(first);
   });
 });
 

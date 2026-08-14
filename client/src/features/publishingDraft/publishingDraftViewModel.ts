@@ -1,10 +1,12 @@
 import {
   PUBLISHING_PLATFORM_IDS,
   buildXPublishableText,
+  resolvePublishingActiveVersion,
   type PublishingDraftContent,
   type PublishingDraftState,
   type PublishingPlatformDraft,
   type PublishingPlatformId,
+  type PublishingTextOperationScope,
 } from "@shared/publishingDraft";
 import {
   getPublishingBuffer,
@@ -57,6 +59,48 @@ export function publishingOperationScopeMatches(
     request.versionRevision === current.versionRevision &&
     request.operationToken === current.operationToken &&
     request.requestHash === current.requestHash;
+}
+
+export function publishingTextOperationScope(params: {
+  storyId: number;
+  state: PublishingDraftState;
+  platform: PublishingPlatformId;
+  sourcePlatform?: PublishingPlatformId;
+}): PublishingTextOperationScope {
+  const version = resolvePublishingActiveVersion(params.state);
+  return {
+    storyId: params.storyId,
+    versionId: version.versionId,
+    platform: params.platform,
+    ...(params.sourcePlatform ? { sourcePlatform: params.sourcePlatform } : {}),
+    containerRevision: params.state.containerRevision ?? params.state.revision,
+    versionRevision: version.versionRevision,
+    coreRevision: version.core?.revision ?? 0,
+    draftRevision: version.drafts[params.platform]?.revision ?? 0,
+    ...(params.sourcePlatform
+      ? { sourceDraftRevision: version.drafts[params.sourcePlatform]?.revision ?? 0 }
+      : {}),
+    intentRevision: version.intentSnapshot?.revision ?? 0,
+    contextRevision: 0,
+  };
+}
+
+export function publishingTextOperationScopeMatches(
+  request: PublishingTextOperationScope,
+  current: Parameters<typeof publishingTextOperationScope>[0]
+): boolean {
+  const actual = publishingTextOperationScope(current);
+  return request.storyId === actual.storyId &&
+    request.versionId === actual.versionId &&
+    request.platform === actual.platform &&
+    request.sourcePlatform === actual.sourcePlatform &&
+    request.containerRevision === actual.containerRevision &&
+    request.versionRevision === actual.versionRevision &&
+    request.coreRevision === actual.coreRevision &&
+    request.draftRevision === actual.draftRevision &&
+    request.sourceDraftRevision === actual.sourceDraftRevision &&
+    request.intentRevision === actual.intentRevision &&
+    request.contextRevision === actual.contextRevision;
 }
 
 export function publishingContentEquals(

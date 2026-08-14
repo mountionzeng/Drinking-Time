@@ -417,6 +417,8 @@ export type PublishingStoryVersion = {
   intentProposals?: IntentProposal[];
   /** Version-scoped paid recovery receipt; never follows active selection. */
   coverGeneration?: PublishingCoverGeneration | null;
+  /** Durable text-operation claims/results; always owned by this exact version. */
+  textOperations?: Record<string, PublishingTextOperationReceipt>;
   platformStatuses?: Partial<Record<PublishingPlatformId,
     "inherited" | "carried" | "awaiting_generation" | "generation_failed" | "ready">>;
   cover: PublishingCoverReference | null;
@@ -452,6 +454,42 @@ export type PublishingDraftState = {
 };
 
 export type PublishingBufferDisposition = "leave" | "carry" | "cancel";
+export type PublishingTextOperationKind =
+  | "generate"
+  | "convert"
+  | "rewrite"
+  | "format_repair";
+export type PublishingTextOperationScope = {
+  storyId: number;
+  versionId: string;
+  platform: PublishingPlatformId;
+  sourcePlatform?: PublishingPlatformId;
+  containerRevision: number;
+  versionRevision: number;
+  coreRevision: number;
+  draftRevision: number;
+  sourceDraftRevision?: number;
+  intentRevision: number;
+  contextRevision: number;
+};
+export type PublishingTextOperationReceipt = {
+  status: "pending" | "completed" | "failed";
+  kind: PublishingTextOperationKind;
+  operationToken: string;
+  requestHash: string;
+  scope: PublishingTextOperationScope;
+  claimedAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  result?: {
+    status: "created" | "candidate" | "preview" | "repaired";
+    content: PublishingDraftContent;
+    core?: PublishingStoryCoreContent;
+    modelLabel: string;
+    draftRevision?: number;
+  };
+  error?: string;
+};
 export type PublishingVersionOperationReceipt = {
   status: "committed";
   operationKind: "create_version" | "select_version" | "rename_version";
@@ -493,6 +531,12 @@ export type PublishingSimpleVersionRequestHashInput = {
   displayName?: string;
   baseContainerRevision: number;
   baseVersionRevision?: number;
+};
+
+export type PublishingTextOperationRequestHashInput = {
+  kind: PublishingTextOperationKind;
+  scope: PublishingTextOperationScope;
+  payload: unknown;
 };
 
 function canonicalHashJson(value: unknown): string {
@@ -554,6 +598,16 @@ export function computePublishingSimpleVersionRequestHash(
     displayName: input.type === "rename_version" ? input.displayName : undefined,
     baseContainerRevision: input.baseContainerRevision,
     baseVersionRevision: input.baseVersionRevision,
+  }))}`;
+}
+
+export function computePublishingTextOperationRequestHash(
+  input: PublishingTextOperationRequestHashInput
+): string {
+  return `pto2-${stableFingerprint128(canonicalHashJson({
+    kind: input.kind,
+    scope: input.scope,
+    payload: input.payload,
   }))}`;
 }
 
@@ -712,6 +766,63 @@ function normalizeVersionOperationReceipt(
     ) return null;
   }
   return structuredClone(value) as PublishingVersionOperationReceipt;
+}
+
+function normalizeTextOperationReceipt(
+  token: string,
+  value: unknown,
+  versionId: string
+): PublishingTextOperationReceipt | null {
+  const cleanToken = token.trim();
+  const receipt = record(value);
+  const scope = record(receipt?.scope);
+  if (
+    !cleanToken ||
+    !receipt ||
+    !scope ||
+    receipt.operationToken !== cleanToken ||
+    !["pending", "completed", "failed"].includes(String(receipt.status)) ||
+    !["generate", "convert", "rewrite", "format_repair"].includes(String(receipt.kind)) ||
+    !cleanString(receipt.requestHash).trim() ||
+    scope.versionId !== versionId ||
+    !isFiniteNonNegativeInteger(scope.storyId) ||
+    !isPublishingPlatformId(scope.platform) ||
+    (scope.sourcePlatform !== undefined && !isPublishingPlatformId(scope.sourcePlatform)) ||
+    !isFiniteNonNegativeInteger(scope.containerRevision) ||
+    !isFiniteNonNegativeInteger(scope.versionRevision) ||
+    !isFiniteNonNegativeInteger(scope.coreRevision) ||
+    !isFiniteNonNegativeInteger(scope.draftRevision) ||
+    (scope.sourceDraftRevision !== undefined && !isFiniteNonNegativeInteger(scope.sourceDraftRevision)) ||
+    !isFiniteNonNegativeInteger(scope.intentRevision) ||
+    !isFiniteNonNegativeInteger(scope.contextRevision) ||
+    !isFiniteNonNegativeInteger(receipt.claimedAt) ||
+    !isFiniteNonNegativeInteger(receipt.updatedAt) ||
+    !isFiniteNonNegativeInteger(receipt.expiresAt)
+  ) return null;
+  if (receipt.status === "completed") {
+    const result = record(receipt.result);
+    const rawContent = record(result?.content);
+    const content = rawContent ? {
+      title: cleanString(rawContent.title),
+      body: cleanString(rawContent.body),
+      tags: cleanStringList(rawContent.tags),
+    } : null;
+    const resultStatusMatches =
+      (receipt.kind === "generate" && result?.status === "created") ||
+      (receipt.kind === "convert" && (result?.status === "created" || result?.status === "candidate")) ||
+      (receipt.kind === "rewrite" && result?.status === "preview") ||
+      (receipt.kind === "format_repair" && result?.status === "repaired");
+    if (
+      !result ||
+      !content ||
+      !resultStatusMatches ||
+      !cleanString(result.modelLabel).trim() ||
+      getPublishingContentError(scope.platform as PublishingPlatformId, content) ||
+      (result.draftRevision !== undefined && !isFiniteNonNegativeInteger(result.draftRevision)) ||
+      (receipt.kind === "generate" && !cleanString(record(result.core)?.thesis).trim())
+    ) return null;
+  }
+  return structuredClone(value) as PublishingTextOperationReceipt;
 }
 
 function boundedStringList(
@@ -1210,6 +1321,7 @@ function versionFromLegacyState(
     coverGeneration: state.coverGeneration
       ? structuredClone(state.coverGeneration)
       : null,
+    textOperations: {},
     platformStatuses: Object.fromEntries(
       Object.keys(state.drafts).map(platform => [platform, "ready"])
     ) as PublishingStoryVersion["platformStatuses"],
@@ -1260,6 +1372,13 @@ function normalizeStoryVersion(
         return proposal ? [proposal] : [];
       })
     : [];
+  const rawTextOperations = record(obj.textOperations);
+  const textOperations = rawTextOperations
+    ? Object.fromEntries(Object.entries(rawTextOperations).flatMap(([token, value]) => {
+        const receipt = normalizeTextOperationReceipt(token, value, versionId);
+        return receipt ? [[token.trim(), receipt]] : [];
+      }))
+    : {};
   return {
     versionId,
     sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
@@ -1281,6 +1400,7 @@ function normalizeStoryVersion(
     intentSnapshot: intentSnapshot ?? undefined,
     intentProposals,
     coverGeneration: normalizeCoverGeneration(obj.coverGeneration, now),
+    textOperations,
     platformStatuses: record(obj.platformStatuses)
       ? Object.fromEntries(Object.entries(record(obj.platformStatuses)!).filter(([platform, status]) =>
           isPublishingPlatformId(platform) && ["inherited", "carried", "awaiting_generation", "generation_failed", "ready"].includes(String(status))))

@@ -5,6 +5,7 @@ import {
   estimatePublishingCoverFallbackCost,
   estimateStoryboardImageCost,
 } from "../shared/imageRenderCost";
+import { computePublishingTextOperationRequestHash } from "../shared/publishingDraft";
 
 // Read the live estimate: the cover round runs in MJ draft mode, and a price
 // change must not turn every cost-confirmation test red.
@@ -126,6 +127,32 @@ const publishing = {
   coverRounds: [],
   updatedAt: 1,
 };
+
+function emptyPublishingForGeneration() {
+  return {
+    ...publishing,
+    revision: 0,
+    containerRevision: 0,
+    activeVersionId: "v1",
+    core: null,
+    drafts: {},
+    versions: [{
+      versionId: "v1",
+      sequence: 1,
+      displayName: "V1",
+      parentId: null,
+      versionRevision: 0,
+      core: null,
+      drafts: {},
+      activePlatform: "xiaohongshu" as const,
+      selectedPlatforms: ["xiaohongshu" as const],
+      narrativeIntent: {},
+      cover: null,
+      coverRounds: [],
+      conversationSnapshot: null,
+    }],
+  };
+}
 
 describe("publishingDraft router", () => {
   beforeEach(() => {
@@ -293,6 +320,11 @@ describe("publishingDraft router", () => {
   });
 
   it("generates from owner-scoped conversation and persists only the active platform", async () => {
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 1,
+      publishing: emptyPublishingForGeneration(),
+    });
     const caller = publishingDraftRouter.createCaller(context());
     const result = await caller.generate({
       storyId: 7,
@@ -345,6 +377,11 @@ describe("publishingDraft router", () => {
     });
     conversationMocks.listStoryConversation.mockResolvedValueOnce({
       messages: [],
+    });
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 1,
+      publishing: emptyPublishingForGeneration(),
     });
     const caller = publishingDraftRouter.createCaller(context());
 
@@ -606,7 +643,7 @@ describe("publishingDraft router", () => {
     expect(modelMocks.generatePublishingDraft).not.toHaveBeenCalled();
   });
 
-  it("returns an existing target without regenerating or overwriting it", async () => {
+  it("returns a conversion candidate without overwriting an existing target", async () => {
     persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
       storyId: 7,
       storyRevision: 2,
@@ -643,9 +680,12 @@ describe("publishingDraft router", () => {
       targetPlatform: "x",
     });
 
-    expect(result.status).toBe("existing");
-    expect(modelMocks.convertPublishingDraft).not.toHaveBeenCalled();
-    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+    expect(result.status).toBe("candidate");
+    expect(result.content.body).toBe("X target");
+    expect(modelMocks.convertPublishingDraft).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: expect.objectContaining({ type: "upsert_draft" }) })
+    );
   });
 
   it("converts only one missing target with one model call", async () => {
@@ -726,6 +766,278 @@ describe("publishingDraft router", () => {
       platform: "xiaohongshu",
       instruction: "太矫情了，改得克制直接一点",
     });
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledTimes(2);
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: expect.objectContaining({ type: "upsert_draft" }),
+      })
+    );
+    expect(result.operationScope).toMatchObject({
+      storyId: 7,
+      versionId: "v1",
+      platform: "xiaohongshu",
+      draftRevision: 3,
+    });
+  });
+
+  it("repairs formatting locally with a durable scoped receipt and no model call", async () => {
+    const draft = {
+      platform: "xiaohongshu" as const,
+      content: { title: "用户标题", body: "第一段\n第二段", tags: ["AI"] },
+      appliedBaseline: { title: "用户标题", body: "第一段\n第二段", tags: ["AI"] },
+      sourceCoreRevision: 1,
+      revision: 3,
+      needsReview: false,
+      updatedAt: 1,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: { ...publishing, drafts: { xiaohongshu: draft } },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    const result = await caller.repairFormatting({
+      storyId: 7,
+      platform: "xiaohongshu",
+      content: {
+        title: "用户标题",
+        body: "  第一段  \n\n\n  第二段  ",
+        tags: ["#AI", " AI "],
+      },
+      baseDraftRevision: 3,
+      operationToken: "format-op",
+    });
+    expect(result).toMatchObject({
+      status: "repaired",
+      content: { title: "用户标题", body: "第一段\n\n第二段", tags: ["AI"] },
+      operationToken: "format-op",
+      operationScope: { storyId: 7, versionId: "v1", platform: "xiaohongshu", draftRevision: 3 },
+    });
+    expect(modelMocks.generatePublishingDraft).not.toHaveBeenCalled();
+    expect(modelMocks.convertPublishingDraft).not.toHaveBeenCalled();
+    expect(modelMocks.revisePublishingDraft).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).toHaveBeenCalledTimes(2);
+  });
+
+  it("replays a completed rewrite receipt without another model call or persistence write", async () => {
+    const draft = {
+      platform: "xiaohongshu" as const,
+      content: { title: "用户标题", body: "旧正文", tags: [] },
+      appliedBaseline: { title: "用户标题", body: "旧正文", tags: [] },
+      sourceCoreRevision: 1,
+      revision: 3,
+      needsReview: false,
+      updatedAt: 1,
+    };
+    const scope = {
+      storyId: 7,
+      versionId: "v1",
+      platform: "xiaohongshu" as const,
+      containerRevision: 2,
+      versionRevision: 4,
+      coreRevision: 1,
+      draftRevision: 3,
+      intentRevision: 0,
+      contextRevision: 0,
+    };
+    const payload = { instruction: "更直接", content: draft.content };
+    const receipt = {
+      status: "completed" as const,
+      kind: "rewrite" as const,
+      operationToken: "rewrite-replay",
+      requestHash: computePublishingTextOperationRequestHash({ kind: "rewrite", scope, payload }),
+      scope,
+      claimedAt: 10,
+      updatedAt: 20,
+      expiresAt: 1_000,
+      result: {
+        status: "preview" as const,
+        content: { title: "用户标题", body: "已改写正文", tags: [] },
+        modelLabel: "saved-model",
+        draftRevision: 3,
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 9,
+      publishing: {
+        ...publishing,
+        containerRevision: 4,
+        activeVersionId: "v1",
+        drafts: { xiaohongshu: draft },
+        versions: [{
+          versionId: "v1",
+          sequence: 1,
+          displayName: "V1",
+          parentId: null,
+          versionRevision: 6,
+          core: publishing.core,
+          drafts: { xiaohongshu: draft },
+          activePlatform: "xiaohongshu" as const,
+          selectedPlatforms: ["xiaohongshu" as const],
+          narrativeIntent: {},
+          textOperations: { "rewrite-replay": receipt },
+          cover: null,
+          coverRounds: [],
+          conversationSnapshot: null,
+        }],
+      },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    const result = await caller.rewrite({
+      storyId: 7,
+      platform: "xiaohongshu",
+      instruction: "更直接",
+      content: draft.content,
+      baseDraftRevision: 3,
+      operationToken: "rewrite-replay",
+      requestHash: receipt.requestHash,
+      scope,
+    });
+    expect(result).toMatchObject({
+      status: "preview",
+      content: { body: "已改写正文" },
+      modelLabel: "saved-model",
+      replayed: true,
+    });
+    expect(modelMocks.revisePublishingDraft).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it("does not replay a receipt from a version that is no longer active", async () => {
+    const draft = {
+      platform: "xiaohongshu" as const,
+      content: { title: "用户标题", body: "旧正文", tags: [] },
+      appliedBaseline: { title: "用户标题", body: "旧正文", tags: [] },
+      sourceCoreRevision: 1,
+      revision: 3,
+      needsReview: false,
+      updatedAt: 1,
+    };
+    const scope = {
+      storyId: 7,
+      versionId: "v1",
+      platform: "xiaohongshu" as const,
+      containerRevision: 2,
+      versionRevision: 4,
+      coreRevision: 1,
+      draftRevision: 3,
+      intentRevision: 0,
+      contextRevision: 0,
+    };
+    const payload = { instruction: "更直接", content: draft.content };
+    const receipt = {
+      status: "completed" as const,
+      kind: "rewrite" as const,
+      operationToken: "rewrite-old-version",
+      requestHash: computePublishingTextOperationRequestHash({ kind: "rewrite", scope, payload }),
+      scope,
+      claimedAt: 10,
+      updatedAt: 20,
+      expiresAt: 1_000,
+      result: {
+        status: "preview" as const,
+        content: { title: "用户标题", body: "已改写正文", tags: [] },
+        modelLabel: "saved-model",
+        draftRevision: 3,
+      },
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 9,
+      publishing: {
+        ...publishing,
+        containerRevision: 5,
+        activeVersionId: "v2",
+        activePlatform: "xiaohongshu" as const,
+        selectedPlatforms: ["xiaohongshu" as const],
+        drafts: { xiaohongshu: draft },
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            parentId: null,
+            versionRevision: 6,
+            core: publishing.core,
+            drafts: { xiaohongshu: draft },
+            activePlatform: "xiaohongshu" as const,
+            selectedPlatforms: ["xiaohongshu" as const],
+            narrativeIntent: {},
+            textOperations: { "rewrite-old-version": receipt },
+            cover: null,
+            coverRounds: [],
+            conversationSnapshot: null,
+          },
+          {
+            versionId: "v2",
+            sequence: 2,
+            displayName: "V2",
+            parentId: "v1",
+            versionRevision: 6,
+            core: publishing.core,
+            drafts: { xiaohongshu: draft },
+            activePlatform: "xiaohongshu" as const,
+            selectedPlatforms: ["xiaohongshu" as const],
+            narrativeIntent: {},
+            cover: null,
+            coverRounds: [],
+            conversationSnapshot: null,
+          },
+        ],
+      },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    await expect(caller.rewrite({
+      storyId: 7,
+      platform: "xiaohongshu",
+      instruction: "更直接",
+      content: draft.content,
+      baseDraftRevision: 3,
+      operationToken: "rewrite-old-version",
+      requestHash: receipt.requestHash,
+      scope,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(modelMocks.revisePublishingDraft).not.toHaveBeenCalled();
+    expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
+  });
+
+  it("rejects a text operation whose captured version scope is stale before any model call", async () => {
+    const draft = {
+      platform: "xiaohongshu" as const,
+      content: { title: "用户标题", body: "旧正文", tags: [] },
+      appliedBaseline: { title: "用户标题", body: "旧正文", tags: [] },
+      sourceCoreRevision: 1,
+      revision: 3,
+      needsReview: false,
+      updatedAt: 1,
+    };
+    persistenceMocks.getPublishingDraftState.mockResolvedValueOnce({
+      storyId: 7,
+      storyRevision: 2,
+      publishing: { ...publishing, drafts: { xiaohongshu: draft } },
+    });
+    const caller = publishingDraftRouter.createCaller(context());
+    await expect(caller.rewrite({
+      storyId: 7,
+      platform: "xiaohongshu",
+      instruction: "更直接",
+      content: draft.content,
+      baseDraftRevision: 3,
+      operationToken: "stale-rewrite",
+      scope: {
+        storyId: 7,
+        versionId: "v2",
+        platform: "xiaohongshu",
+        containerRevision: 1,
+        versionRevision: 1,
+        coreRevision: 1,
+        draftRevision: 3,
+        intentRevision: 0,
+        contextRevision: 0,
+      },
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(modelMocks.revisePublishingDraft).not.toHaveBeenCalled();
     expect(persistenceMocks.writePublishingDraftState).not.toHaveBeenCalled();
   });
 
