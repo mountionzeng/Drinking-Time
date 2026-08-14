@@ -9,6 +9,12 @@ import {
   type StoryIntentProfile,
   type IntentProposal,
 } from "./storyIntentProfile";
+import {
+  PUBLISHING_TREND_PLATFORM_IDS,
+  normalizePublishingPlatformContextState,
+  type PublishingPlatformContextState,
+  type PublishingTrendPlatformId,
+} from "./publishingPlatformContext";
 
 export const PUBLISHING_PLATFORM_IDS = [
   "xiaohongshu",
@@ -419,6 +425,11 @@ export type PublishingStoryVersion = {
   coverGeneration?: PublishingCoverGeneration | null;
   /** Durable text-operation claims/results; always owned by this exact version. */
   textOperations?: Record<string, PublishingTextOperationReceipt>;
+  /** Immutable provider snapshots and explicit tag selection, scoped per platform. */
+  platformContexts?: Partial<Record<
+    PublishingTrendPlatformId,
+    PublishingPlatformContextState
+  >>;
   platformStatuses?: Partial<Record<PublishingPlatformId,
     "inherited" | "carried" | "awaiting_generation" | "generation_failed" | "ready">>;
   cover: PublishingCoverReference | null;
@@ -1245,6 +1256,8 @@ export function normalizePublishingDraftState(
               ...structuredClone(legacy.drafts),
               ...structuredClone(version.drafts),
             },
+            activePlatform: legacy.activePlatform,
+            selectedPlatforms: [...legacy.selectedPlatforms],
             cover: version.cover ?? (legacy.cover ? { ...legacy.cover } : null),
             coverRounds:
               version.coverRounds.length > 0
@@ -1322,6 +1335,7 @@ function versionFromLegacyState(
       ? structuredClone(state.coverGeneration)
       : null,
     textOperations: {},
+    platformContexts: {},
     platformStatuses: Object.fromEntries(
       Object.keys(state.drafts).map(platform => [platform, "ready"])
     ) as PublishingStoryVersion["platformStatuses"],
@@ -1379,6 +1393,16 @@ function normalizeStoryVersion(
         return receipt ? [[token.trim(), receipt]] : [];
       }))
     : {};
+  const rawPlatformContexts = record(obj.platformContexts);
+  const platformContexts = rawPlatformContexts
+    ? Object.fromEntries(PUBLISHING_TREND_PLATFORM_IDS.flatMap(platform => {
+        if (!(platform in rawPlatformContexts)) return [];
+        return [[platform, normalizePublishingPlatformContextState(
+          rawPlatformContexts[platform],
+          { versionId, platform, now }
+        )]];
+      })) as Partial<Record<PublishingTrendPlatformId, PublishingPlatformContextState>>
+    : {};
   return {
     versionId,
     sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
@@ -1401,6 +1425,7 @@ function normalizeStoryVersion(
     intentProposals,
     coverGeneration: normalizeCoverGeneration(obj.coverGeneration, now),
     textOperations,
+    platformContexts,
     platformStatuses: record(obj.platformStatuses)
       ? Object.fromEntries(Object.entries(record(obj.platformStatuses)!).filter(([platform, status]) =>
           isPublishingPlatformId(platform) && ["inherited", "carried", "awaiting_generation", "generation_failed", "ready"].includes(String(status))))

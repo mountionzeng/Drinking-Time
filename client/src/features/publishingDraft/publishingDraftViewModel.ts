@@ -8,6 +8,7 @@ import {
   type PublishingPlatformId,
   type PublishingTextOperationScope,
 } from "@shared/publishingDraft";
+import type { PublishingTrendPlatformId } from "@shared/publishingPlatformContext";
 import {
   getPublishingBuffer,
   type PublishingDraftBufferMap,
@@ -81,7 +82,9 @@ export function publishingTextOperationScope(params: {
       ? { sourceDraftRevision: version.drafts[params.sourcePlatform]?.revision ?? 0 }
       : {}),
     intentRevision: version.intentSnapshot?.revision ?? 0,
-    contextRevision: 0,
+    contextRevision: version.platformContexts?.[
+      params.platform as PublishingTrendPlatformId
+    ]?.revision ?? 0,
   };
 }
 

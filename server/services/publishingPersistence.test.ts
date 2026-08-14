@@ -4,6 +4,7 @@ import {
   computePublishingVersionRequestHash,
   publishingDraftBufferKey,
 } from "../../shared/publishingDraft";
+import type { PublishingPlatformContextSnapshot } from "../../shared/publishingPlatformContext";
 
 const dbMocks = vi.hoisted(() => ({
   getStoryById: vi.fn(),
@@ -840,6 +841,211 @@ describe("publishingPersistence", () => {
     });
     expect(settleRetry.textOperationReceipt).toEqual(completed);
     expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(settleCalls);
+  });
+
+  it("appends immutable platform context and selects only saved candidate tags", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 100,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "AI 工具写作", tags: ["写作"] },
+        basePublishingRevision: 0,
+      },
+    });
+    const version = initialized.publishing.versions?.[0];
+    const snapshot: PublishingPlatformContextSnapshot = {
+      snapshotId: "ctx-1",
+      versionId: "v1",
+      platform: "xiaohongshu",
+      sourceRevision: 1,
+      revision: 1,
+      status: "verified_fresh",
+      capability: "verified",
+      providerId: "authorized-fixture",
+      providerLabel: "授权测试源",
+      authorization: { status: "official", reference: "console-2026-08" },
+      coverage: "公开话题榜",
+      fetchedAt: 120,
+      sourcePublishedAt: 110,
+      expiresAt: 500,
+      sourceDocument: "https://provider.example/docs",
+      parserVersion: "fixture-v1",
+      rawDigest: `sha256-${"a".repeat(64)}`,
+      candidates: [{ id: "topic-ai", label: "AI 工具", sourcePublishedAt: 110 }],
+      contentSuggestions: ["写作"],
+      message: "fresh",
+      createdAt: 120,
+    };
+    const appended = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 120,
+      operation: {
+        type: "append_platform_context_snapshot",
+        versionId: "v1",
+        platform: "xiaohongshu",
+        snapshot,
+        baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+        baseVersionRevision: version?.versionRevision ?? 0,
+        baseContextRevision: 0,
+        baseSourceRevision: 1,
+      },
+    });
+    expect(appended.publishing.versions?.[0]?.platformContexts?.xiaohongshu)
+      .toMatchObject({ revision: 1, snapshots: [{ snapshotId: "ctx-1" }] });
+    const appendCalls = dbMocks.updateStoryBodyIfRevision.mock.calls.length;
+    const replay = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 130,
+      operation: {
+        type: "append_platform_context_snapshot",
+        versionId: "v1",
+        platform: "xiaohongshu",
+        snapshot,
+        baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+        baseVersionRevision: version?.versionRevision ?? 0,
+        baseContextRevision: 0,
+        baseSourceRevision: 1,
+      },
+    });
+    expect(replay.publishing.versions?.[0]?.platformContexts?.xiaohongshu?.snapshots)
+      .toHaveLength(1);
+    expect(dbMocks.updateStoryBodyIfRevision).toHaveBeenCalledTimes(appendCalls);
+
+    const appendedVersion = appended.publishing.versions?.[0];
+    const selected = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 140,
+      operation: {
+        type: "select_platform_context_tags",
+        versionId: "v1",
+        platform: "xiaohongshu",
+        snapshotId: "ctx-1",
+        candidateIds: ["topic-ai"],
+        contentTags: ["写作"],
+        baseContainerRevision: appended.publishing.containerRevision ?? 0,
+        baseVersionRevision: appendedVersion?.versionRevision ?? 0,
+        baseContextRevision: 1,
+        baseSourceRevision: 1,
+      },
+    });
+    expect(selected.publishing.versions?.[0]?.platformContexts?.xiaohongshu)
+      .toMatchObject({
+        revision: 2,
+        selectedSnapshotId: "ctx-1",
+        selectedTags: ["AI 工具", "写作"],
+      });
+    const selectedVersion = selected.publishing.versions?.[0];
+    const scopedClaim = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 150,
+      operation: {
+        type: "claim_text_operation",
+        receipt: {
+          status: "pending",
+          kind: "rewrite",
+          operationToken: "context-scoped-text",
+          requestHash: "pto2-context",
+          scope: {
+            storyId: 7,
+            versionId: "v1",
+            platform: "xiaohongshu",
+            containerRevision: selected.publishing.containerRevision ?? 0,
+            versionRevision: selectedVersion?.versionRevision ?? 0,
+            coreRevision: 1,
+            draftRevision: 1,
+            intentRevision: 0,
+            contextRevision: 2,
+          },
+          claimedAt: 150,
+          updatedAt: 150,
+          expiresAt: 300,
+        },
+        baseContainerRevision: selected.publishing.containerRevision ?? 0,
+        baseVersionRevision: selectedVersion?.versionRevision ?? 0,
+      },
+    });
+    expect(scopedClaim.textOperationReceipt?.scope.contextRevision).toBe(2);
+    const claimedVersion = scopedClaim.publishing.versions?.[0];
+    const v2 = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      now: 160,
+      operation: {
+        type: "create_version",
+        platform: "xiaohongshu",
+        core: { ...baseCore, thesis: "新的用途" },
+        content: { title: "V2", body: "新的版本", tags: [] },
+        baseCoreRevision: 1,
+        baseDraftRevision: 1,
+        baseVersionRevision: claimedVersion?.versionRevision,
+        baseContainerRevision: scopedClaim.publishing.containerRevision ?? 0,
+      },
+    });
+    expect(v2.publishing.versions?.find(version => version.versionId === "v1")
+      ?.platformContexts?.xiaohongshu?.selectedTags).toEqual(["AI 工具", "写作"]);
+    expect(v2.publishing.versions?.find(version => version.versionId === "v2")
+      ?.platformContexts).toEqual({});
+  });
+
+  it("refuses to persist unavailable platform context as a historical snapshot", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "正文", tags: [] },
+        basePublishingRevision: 0,
+      },
+    });
+    const version = initialized.publishing.versions?.[0];
+    await expect(writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "append_platform_context_snapshot",
+        versionId: "v1",
+        platform: "xiaohongshu",
+        snapshot: {
+          snapshotId: "ctx-unavailable",
+          versionId: "v1",
+          platform: "xiaohongshu",
+          sourceRevision: 1,
+          revision: 1,
+          status: "unavailable",
+          capability: "unavailable",
+          providerId: "unavailable-xiaohongshu",
+          providerLabel: "未配置",
+          authorization: { status: "unavailable", reference: "missing" },
+          coverage: "",
+          fetchedAt: 1,
+          sourcePublishedAt: null,
+          expiresAt: 1,
+          sourceDocument: "",
+          parserVersion: "unavailable-v1",
+          rawDigest: "sha256-none",
+          candidates: [],
+          contentSuggestions: [],
+          message: "不可用",
+          createdAt: 1,
+        },
+        baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+        baseVersionRevision: version?.versionRevision ?? 0,
+        baseContextRevision: 0,
+        baseSourceRevision: 1,
+      },
+    })).rejects.toThrow(/verified context/i);
   });
 
   it("commits initial generated content and its completed text receipt in one Story CAS", async () => {

@@ -68,6 +68,25 @@ describe("publishingDraftViewModel", () => {
     })).toBe(false);
   });
 
+  it("includes the selected platform context revision in text operation scope", () => {
+    const state = emptyPublishingDraftState(1);
+    if (!state.versions?.[0]) throw new Error("expected V1");
+    state.versions[0].platformContexts = {
+      xiaohongshu: {
+        revision: 4,
+        snapshots: [],
+        selectedSnapshotId: null,
+        selectedTags: ["AI 工具"],
+        updatedAt: 2,
+      },
+    };
+    expect(publishingTextOperationScope({
+      storyId: 7,
+      state,
+      platform: "xiaohongshu",
+    }).contextRevision).toBe(4);
+  });
+
   it("only exposes drafts that actually exist as retained tabs", () => {
     const state = upsertPublishingPlatformDraft(emptyPublishingDraftState(1), {
       platform: "xiaohongshu",

@@ -19,6 +19,11 @@ import {
   type PublishingTextOperationScope,
 } from "../../shared/publishingDraft";
 import {
+  PUBLISHING_TREND_PLATFORM_IDS,
+  emptyPublishingPlatformContextState,
+  type PublishingTrendPlatformId,
+} from "../../shared/publishingPlatformContext";
+import {
   PUBLISHING_COVER_SHOT_IDENTITY,
   PUBLISHING_COVER_SHOT_NO,
 } from "../../shared/imageAsset";
@@ -61,6 +66,8 @@ import {
   revisePublishingDraft,
 } from "../services/publishingDraft";
 import { listStoryConversation } from "../services/storyConversation";
+import { buildPublishingPlatformContextSnapshot } from "../services/publishingPlatformContext";
+import { getPlatformTrendProvider } from "../services/platformTrends/registry";
 import {
   confirmPublishingVideoStoryboard,
   generateAndConfirmPublishingVideoStoryboard,
@@ -72,6 +79,7 @@ import {
 import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
+const trendPlatformSchema = z.enum(PUBLISHING_TREND_PLATFORM_IDS);
 const contentSchema = z.object({
   title: z.string().max(160),
   body: z.string().max(20_000),
@@ -180,6 +188,64 @@ function throwPublishingError(error: unknown): never {
   throw error;
 }
 
+function assertPublishingPlatformContextScope(params: {
+  publishing: PublishingDraftState;
+  versionId: string;
+  platform: PublishingTrendPlatformId;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  baseContextRevision: number;
+  baseSourceRevision: number;
+}) {
+  const version = resolvePublishingActiveVersion(params.publishing);
+  if (version.versionId !== params.versionId) {
+    throw new PublishingDraftConflictError(
+      "publishing",
+      params.baseContainerRevision,
+      params.publishing.containerRevision ?? params.publishing.revision
+    );
+  }
+  const actualContainerRevision = params.publishing.containerRevision ?? params.publishing.revision;
+  if (actualContainerRevision !== params.baseContainerRevision) {
+    throw new PublishingDraftConflictError(
+      "publishing",
+      params.baseContainerRevision,
+      actualContainerRevision
+    );
+  }
+  if (version.versionRevision !== params.baseVersionRevision) {
+    throw new PublishingDraftConflictError(
+      "publishing",
+      params.baseVersionRevision,
+      version.versionRevision
+    );
+  }
+  const draft = version.drafts[params.platform];
+  if (!draft) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "请先生成这个平台的文字稿，再查看相关平台语境",
+    });
+  }
+  if (draft.revision !== params.baseSourceRevision) {
+    throw new PublishingDraftConflictError(
+      params.platform,
+      params.baseSourceRevision,
+      draft.revision
+    );
+  }
+  const context = version.platformContexts?.[params.platform] ??
+    emptyPublishingPlatformContextState(params.publishing.updatedAt);
+  if (context.revision !== params.baseContextRevision) {
+    throw new PublishingDraftConflictError(
+      params.platform,
+      params.baseContextRevision,
+      context.revision
+    );
+  }
+  return { version, draft, context };
+}
+
 function currentPublishingTextScope(params: {
   storyId: number;
   publishing: PublishingDraftState;
@@ -200,7 +266,9 @@ function currentPublishingTextScope(params: {
       ? { sourceDraftRevision: version.drafts[params.sourcePlatform]?.revision ?? 0 }
       : {}),
     intentRevision: version.intentSnapshot?.revision ?? 0,
-    contextRevision: 0,
+    contextRevision: version.platformContexts?.[
+      params.platform as PublishingTrendPlatformId
+    ]?.revision ?? 0,
   };
 }
 
@@ -700,6 +768,119 @@ export const publishingDraftRouter = router({
           coverEstimate: estimatePublishingCoverCost(),
           coverFallbackEstimate: estimatePublishingCoverFallbackCost(),
         };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  refreshPlatformContext: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      platform: trendPlatformSchema,
+      baseContainerRevision: z.number().int().nonnegative(),
+      baseVersionRevision: z.number().int().nonnegative(),
+      baseContextRevision: z.number().int().nonnegative(),
+      baseSourceRevision: z.number().int().nonnegative(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const { version, draft } = assertPublishingPlatformContextScope({
+          publishing: current.publishing,
+          versionId: input.versionId,
+          platform: input.platform,
+          baseContainerRevision: input.baseContainerRevision,
+          baseVersionRevision: input.baseVersionRevision,
+          baseContextRevision: input.baseContextRevision,
+          baseSourceRevision: input.baseSourceRevision,
+        });
+        const contextResult = await buildPublishingPlatformContextSnapshot({
+          provider: getPlatformTrendProvider(input.platform),
+          platform: input.platform,
+          versionId: version.versionId,
+          sourceRevision: draft.revision,
+          contextRevision: input.baseContextRevision,
+          queryText: [
+            version.core?.thesis ?? "",
+            ...(version.core?.facts ?? []),
+            draft.content.title,
+            draft.content.body,
+          ].filter(Boolean).join("\n").slice(0, 20_000),
+          contentTags: draft.content.tags,
+        });
+        if (!contextResult.persistable) {
+          return {
+            ...current,
+            snapshot: contextResult.snapshot,
+            persisted: false as const,
+          };
+        }
+        const saved = await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operation: {
+            type: "append_platform_context_snapshot",
+            versionId: input.versionId,
+            platform: input.platform,
+            snapshot: contextResult.snapshot,
+            baseContainerRevision: input.baseContainerRevision,
+            baseVersionRevision: input.baseVersionRevision,
+            baseContextRevision: input.baseContextRevision,
+            baseSourceRevision: input.baseSourceRevision,
+          },
+        });
+        return {
+          ...saved,
+          snapshot: contextResult.snapshot,
+          persisted: true as const,
+        };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  selectPlatformContextTags: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      platform: trendPlatformSchema,
+      snapshotId: z.string().trim().min(1).max(160).nullable(),
+      candidateIds: z.array(z.string().trim().min(1).max(160)).max(12),
+      contentTags: z.array(z.string().trim().min(1).max(80)).max(12),
+      baseContainerRevision: z.number().int().nonnegative(),
+      baseVersionRevision: z.number().int().nonnegative(),
+      baseContextRevision: z.number().int().nonnegative(),
+      baseSourceRevision: z.number().int().nonnegative(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        assertPublishingPlatformContextScope({
+          publishing: current.publishing,
+          versionId: input.versionId,
+          platform: input.platform,
+          baseContainerRevision: input.baseContainerRevision,
+          baseVersionRevision: input.baseVersionRevision,
+          baseContextRevision: input.baseContextRevision,
+          baseSourceRevision: input.baseSourceRevision,
+        });
+        return await writePublishingDraftState({
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          operation: {
+            type: "select_platform_context_tags",
+            versionId: input.versionId,
+            platform: input.platform,
+            snapshotId: input.snapshotId,
+            candidateIds: input.candidateIds,
+            contentTags: input.contentTags,
+            baseContainerRevision: input.baseContainerRevision,
+            baseVersionRevision: input.baseVersionRevision,
+            baseContextRevision: input.baseContextRevision,
+            baseSourceRevision: input.baseSourceRevision,
+          },
+        });
       } catch (error) {
         throwPublishingError(error);
       }

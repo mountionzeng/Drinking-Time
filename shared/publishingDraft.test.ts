@@ -194,6 +194,51 @@ describe("publishing version operation identity", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("keeps version/platform context snapshots isolated in the canonical version", () => {
+    const state = normalizePublishingDraftState({
+      version: 1,
+      revision: 1,
+      activePlatform: "xiaohongshu",
+      selectedPlatforms: ["xiaohongshu"],
+      core: null,
+      drafts: {},
+      cover: null,
+      coverRounds: [],
+      updatedAt: 1,
+      activeVersionId: "v1",
+      versions: [{
+        versionId: "v1",
+        sequence: 1,
+        displayName: "V1",
+        parentId: null,
+        versionRevision: 1,
+        core: null,
+        drafts: {},
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        narrativeIntent: {},
+        platformContexts: {
+          xiaohongshu: {
+            revision: 2,
+            snapshots: [],
+            selectedSnapshotId: null,
+            selectedTags: ["AI 工具"],
+            updatedAt: 2,
+          },
+        },
+        cover: null,
+        coverRounds: [],
+        conversationSnapshot: null,
+      }],
+    }, 10);
+
+    expect(state.versions?.[0]?.platformContexts?.xiaohongshu).toMatchObject({
+      revision: 2,
+      selectedTags: ["AI 工具"],
+    });
+    expect(state.versions?.[0]?.platformContexts?.douyin_tiktok).toBeUndefined();
+  });
+
   it("keeps only well-scoped committed version receipts", () => {
     const version = (versionId: string, sequence: number) => ({
       versionId,
@@ -579,6 +624,38 @@ describe("normalizePublishingDraftState", () => {
     }, NOW);
     expect(normalized.versions?.[0]?.drafts.x?.content.body).toBe("legacy valid draft");
     expect(normalized.versions?.[0]?.cover?.assetId).toBe(91);
+  });
+
+  it("keeps legacy platform selection with its merged drafts before canonical authority", () => {
+    const normalized = normalizePublishingDraftState({
+      activeVersionId: "v1",
+      containerRevision: 1,
+      activePlatform: "x",
+      selectedPlatforms: ["x", "instagram"],
+      drafts: { x: { platform: "x", content: content("legacy X draft") } },
+      versions: [{
+        versionId: "v1",
+        sequence: 1,
+        displayName: "V1",
+        parentId: null,
+        versionRevision: 0,
+        core: null,
+        drafts: {},
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        narrativeIntent: {},
+        cover: null,
+        coverRounds: [],
+        conversationSnapshot: null,
+      }],
+    }, NOW);
+
+    expect(normalized.activePlatform).toBe("x");
+    expect(normalized.selectedPlatforms).toEqual(["x", "instagram"]);
+    expect(normalized.versions?.[0]).toMatchObject({
+      activePlatform: "x",
+      selectedPlatforms: ["x", "instagram"],
+    });
   });
 
   it("keeps rejected intent proposals version-owned and ignores production history fields", () => {

@@ -428,6 +428,11 @@
         {
           "date": "2026-08-15",
           "kind": "fix",
+          "summary": "修复 canonicalAuthority 建立前的兼容投影遗漏：旧顶层稿件并入 V1 时同步保留当前平台和已选平台，避免 reload 后从 X 跳回默认小红书；canonicalAuthority=versions 后仍只信版本权威。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
           "summary": "完成 canonical versions 单一新写、原子版本转换回执、token+payload 幂等校验、carry buffer key/hash 握手和 confirmCoreChange 零写入；底层定向测试通过，真实 UI 仍待接入，因此保持 observing。"
         },
         {
@@ -951,25 +956,49 @@
     {
       "id": "realtime-social-context",
       "name": "实时社交媒体语境适配",
-      "status": "planned",
+      "status": "observing",
       "userValue": "根据实时平台语境帮助用户调整表达，而不只是识别用途和受众。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "server/routers/publishingDraft.ts"
+      ],
+      "owners": [
+        "shared/publishingPlatformContext.ts",
+        "server/services/platformTrends/provider.ts",
+        "server/services/platformTrends/registry.ts",
+        "server/services/publishingPlatformContext.ts",
+        "server/routers/publishingDraft.ts"
+      ],
       "evidence": [
-        "docs/brainstorms/2026-08-05-publishing-draft-workspace-requirements.md"
+        "docs/brainstorms/2026-08-05-publishing-draft-workspace-requirements.md",
+        "shared/publishingPlatformContext.test.ts",
+        "server/services/platformTrends/provider.test.ts",
+        "server/services/publishingPlatformContext.test.ts",
+        "server/services/publishingPersistence.test.ts",
+        "server/routers.publishingDraft.test.ts"
       ],
       "invariants": [
         "不得把静态用途识别冒充实时趋势能力。",
-        "外部信息来源和成本必须显式。"
+        "外部信息来源和成本必须显式。",
+        "未通过官方或合同授权、来源时间、TTL 和 parser 校验时必须 fail closed。",
+        "模型或相关性排序器只能选择 provider 已返回的候选 ID，不能补造热点。",
+        "平台语境快照必须绑定版本、平台和来源稿 revision；V2 不继承 V1 快照。"
       ],
       "dependencies": [
         "publishing-narrative-intent"
       ],
       "replaces": [],
       "knownGaps": [
-        "尚未发现可执行数据源、刷新策略或生成入口。"
+        "小红书和抖音目前都没有已核验、已授权的真实趋势 adapter，默认 provider 因此保持 unavailable。",
+        "真实工作区的显式打开/刷新、候选选择和状态展示要到 U6 接入；当前没有用户可点击入口。",
+        "尚缺授权来源的脱敏真实响应、限流/熔断校准和 main:3000 reload 验收，因此不能标 working。"
       ],
-      "history": []
+      "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "建立默认 unavailable 的小红书/抖音趋势 provider、严格授权与时间/schema 门禁、候选 ID 相关性边界、10 秒 provider 超时、统一候选/标签规范化、版本/平台不可变快照和显式标签选择持久化；没有合格来源与真实 UI，保持 observing。"
+        }
+      ]
     }
   ]
 }

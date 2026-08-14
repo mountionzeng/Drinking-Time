@@ -24,7 +24,16 @@ import {
   hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
+import {
+  appendPublishingPlatformContextSnapshot,
+  emptyPublishingPlatformContextState,
+  isPersistablePublishingContextSnapshot,
+  selectPublishingPlatformContextTags,
+  type PublishingPlatformContextSnapshot,
+  type PublishingTrendPlatformId,
+} from "../../shared/publishingPlatformContext";
 import { createHash } from "node:crypto";
+import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { storyIntentProfileFromLegacy } from "../../shared/storyIntentProfile";
 import { getStoryById } from "../db";
 import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
@@ -109,6 +118,32 @@ type SettleTextOperation = {
   receipt: PublishingTextOperationReceipt;
   baseContainerRevision: number;
   baseVersionRevision: number;
+  storyId?: number;
+};
+
+type AppendPlatformContextSnapshotOperation = {
+  type: "append_platform_context_snapshot";
+  versionId: string;
+  platform: PublishingTrendPlatformId;
+  snapshot: PublishingPlatformContextSnapshot;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  baseContextRevision: number;
+  baseSourceRevision: number;
+  storyId?: number;
+};
+
+type SelectPlatformContextTagsOperation = {
+  type: "select_platform_context_tags";
+  versionId: string;
+  platform: PublishingTrendPlatformId;
+  snapshotId: string | null;
+  candidateIds: string[];
+  contentTags: string[];
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  baseContextRevision: number;
+  baseSourceRevision: number;
   storyId?: number;
 };
 
@@ -201,6 +236,8 @@ export type PublishingDraftWriteOperation =
   | CompleteCoverGenerationOperation
   | ClaimTextOperation
   | SettleTextOperation
+  | AppendPlatformContextSnapshotOperation
+  | SelectPlatformContextTagsOperation
   | SetCoverOperation
   | CreatePublishingVersionOperation
   | SelectPublishingVersionOperation
@@ -251,17 +288,9 @@ export function setPublishingLegacyReaderEnabled(enabled: boolean): void {
   legacyReaderEnabled = enabled;
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 export function publishingProjectionHash(state: PublishingDraftState): string {
   const active = resolvePublishingActiveVersion(state);
-  return `sha256:${createHash("sha256").update(stableJson({
+  return `sha256:${createHash("sha256").update(canonicalJsonStringify({
     core: active.core, drafts: active.drafts, activePlatform: active.activePlatform,
     selectedPlatforms: active.selectedPlatforms, cover: active.cover, coverRounds: active.coverRounds,
     coverGeneration: active.coverGeneration ?? null,
@@ -299,11 +328,11 @@ function normalizeStoredPublishing(raw: unknown): PublishingDraftState {
 
 function projectionEquivalent(state: PublishingDraftState): boolean {
   const active = resolvePublishingActiveVersion(state);
-  return stableJson({
+  return canonicalJsonStringify({
     core: state.core, drafts: state.drafts, activePlatform: state.activePlatform,
     selectedPlatforms: state.selectedPlatforms, cover: state.cover, coverRounds: state.coverRounds,
     coverGeneration: state.coverGeneration ?? null,
-  }) === stableJson({
+  }) === canonicalJsonStringify({
     core: active.core, drafts: active.drafts, activePlatform: active.activePlatform,
     selectedPlatforms: active.selectedPlatforms, cover: active.cover, coverRounds: active.coverRounds,
     coverGeneration: active.coverGeneration ?? null,
@@ -542,6 +571,7 @@ function applyVersionOperation(
     coverRounds: [],
     coverGeneration: null,
     textOperations: {},
+    platformContexts: {},
     platformStatuses: Object.fromEntries(
       Array.from(new Set([...parent.selectedPlatforms, op.platform])).map(platform => [
         platform,
@@ -732,9 +762,14 @@ function assertTextOperationScope(
     );
   }
   assertRevision("publishing", receipt.scope.intentRevision, version.intentSnapshot?.revision ?? 0);
-  if (receipt.scope.contextRevision !== 0) {
-    throw new Error("Publishing platform context revision is not available yet");
-  }
+  const contextRevision = version.platformContexts?.[
+    receipt.scope.platform as PublishingTrendPlatformId
+  ]?.revision ?? 0;
+  assertRevision(
+    receipt.scope.platform,
+    receipt.scope.contextRevision,
+    contextRevision
+  );
   return version;
 }
 
@@ -789,7 +824,7 @@ function attachTextOperationSettlement(
   if (
     existing.requestHash !== receipt.requestHash ||
     existing.kind !== receipt.kind ||
-    stableJson(existing.scope) !== stableJson(receipt.scope)
+    canonicalJsonStringify(existing.scope) !== canonicalJsonStringify(receipt.scope)
   ) throw new Error("Publishing text operation settlement scope does not match its claim");
   return storeTextOperationReceipt(next, version.versionId, receipt, now, false);
 }
@@ -826,6 +861,81 @@ function applyTextOperationReceipt(
     );
   }
   return storeTextOperationReceipt(state, version.versionId, receipt, now, true);
+}
+
+function applyPlatformContextOperation(
+  state: PublishingDraftState,
+  operation: AppendPlatformContextSnapshotOperation | SelectPlatformContextTagsOperation,
+  now: number
+): PublishingDraftState {
+  assertRevision(
+    "publishing",
+    operation.baseContainerRevision,
+    state.containerRevision ?? state.revision
+  );
+  if (state.activeVersionId !== operation.versionId) {
+    throw new PublishingDraftConflictError(
+      "publishing",
+      operation.baseContainerRevision,
+      state.containerRevision ?? state.revision
+    );
+  }
+  const version = state.versions?.find(candidate => candidate.versionId === operation.versionId);
+  if (!version) throw new Error(`Unknown publishing version: ${operation.versionId}`);
+  assertRevision("publishing", operation.baseVersionRevision, version.versionRevision);
+  assertRevision(
+    operation.platform,
+    operation.baseSourceRevision,
+    version.drafts[operation.platform]?.revision ?? 0
+  );
+  const currentContext = version.platformContexts?.[operation.platform] ??
+    emptyPublishingPlatformContextState(now);
+  assertRevision(
+    operation.platform,
+    operation.baseContextRevision,
+    currentContext.revision
+  );
+
+  let nextContext;
+  if (operation.type === "append_platform_context_snapshot") {
+    const snapshot = operation.snapshot;
+    if (!isPersistablePublishingContextSnapshot(snapshot)) {
+      throw new Error("Only verified context snapshots may be persisted");
+    }
+    if (
+      snapshot.versionId !== operation.versionId ||
+      snapshot.platform !== operation.platform ||
+      snapshot.sourceRevision !== operation.baseSourceRevision ||
+      snapshot.revision !== currentContext.revision + 1
+    ) {
+      throw new Error("Publishing context snapshot scope does not match its version/platform revision");
+    }
+    nextContext = appendPublishingPlatformContextSnapshot(currentContext, snapshot, now);
+  } else {
+    nextContext = selectPublishingPlatformContextTags(currentContext, {
+      snapshotId: operation.snapshotId,
+      candidateIds: operation.candidateIds,
+      contentTags: operation.contentTags,
+      now,
+    });
+  }
+
+  return {
+    ...state,
+    revision: state.revision + 1,
+    containerRevision: (state.containerRevision ?? 0) + 1,
+    versions: state.versions?.map(candidate => candidate.versionId === operation.versionId
+      ? {
+          ...candidate,
+          versionRevision: candidate.versionRevision + 1,
+          platformContexts: {
+            ...(candidate.platformContexts ?? {}),
+            [operation.platform]: nextContext,
+          },
+        }
+      : candidate),
+    updatedAt: now,
+  };
 }
 
 const storyWriteTails = new Map<string, Promise<void>>();
@@ -984,6 +1094,10 @@ function applyOperation(
     case "claim_text_operation":
     case "settle_text_operation": {
       return applyTextOperationReceipt(current, operation, now);
+    }
+    case "append_platform_context_snapshot":
+    case "select_platform_context_tags": {
+      return applyPlatformContextOperation(current, operation, now);
     }
     case "set_selection": {
       assertRevision(
@@ -1155,6 +1269,22 @@ export async function writePublishingDraftState(params: {
       ? current.versions?.find(version => version.versionId === incomingTextReceipt.scope.versionId)
           ?.textOperations?.[incomingTextReceipt.operationToken]
       : undefined;
+    if (operation.type === "append_platform_context_snapshot") {
+      const storedSnapshot = current.versions
+        ?.find(version => version.versionId === operation.versionId)
+        ?.platformContexts?.[operation.platform]
+        ?.snapshots.find(snapshot => snapshot.snapshotId === operation.snapshot.snapshotId);
+      if (storedSnapshot) {
+        if (canonicalJsonStringify(storedSnapshot) !== canonicalJsonStringify(operation.snapshot)) {
+          throw new Error("Publishing platform context snapshot id already has different content");
+        }
+        return {
+          storyId: params.storyId,
+          storyRevision: getStoryRevision(body),
+          publishing: current,
+        };
+      }
+    }
     if (storedTextReceipt && storedTextReceipt.requestHash !== incomingTextReceipt?.requestHash) {
       throw new Error("Publishing text operation token was already used with a different request hash");
     }
