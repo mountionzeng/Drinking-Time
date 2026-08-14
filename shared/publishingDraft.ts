@@ -5,7 +5,9 @@ import {
 import {
   resolveStoryIntentProfile,
   storyIntentProfileFromLegacy,
+  normalizeIntentProposal,
   type StoryIntentProfile,
+  type IntentProposal,
 } from "./storyIntentProfile";
 
 export const PUBLISHING_PLATFORM_IDS = [
@@ -410,6 +412,10 @@ export type PublishingStoryVersion = {
   narrativeIntent: PublishingNarrativeIntent;
   /** Immutable purpose/audience snapshot for this version. */
   intentSnapshot?: StoryIntentProfile;
+  /** Canonical lifecycle records; rejected/superseded ids survive refresh. */
+  intentProposals?: IntentProposal[];
+  /** Version-scoped paid recovery receipt; never follows active selection. */
+  coverGeneration?: PublishingCoverGeneration | null;
   cover: PublishingCoverReference | null;
   coverRounds: PublishingCoverRound[];
   conversationSnapshot: PublishingConversationSnapshot | null;
@@ -433,6 +439,8 @@ export type PublishingDraftState = {
   activeVersionId?: string;
   versions?: PublishingStoryVersion[];
   containerRevision?: number;
+  /** New writers set this after canonical materialization. */
+  canonicalAuthority?: "versions";
   /** Persisted idempotency receipts for version operations. */
   versionOperationReceipts?: Record<string, string>;
   /** Formal Storyboard activation is independent from the browsed publishing version. */
@@ -922,7 +930,8 @@ export function normalizePublishingDraftState(
   const hasCanonicalMarkers =
     typeof obj.activeVersionId === "string" ||
     typeof obj.containerRevision === "number";
-  const canonicalVersions =
+  const hasCanonicalAuthority = obj.canonicalAuthority === "versions";
+  let canonicalVersions =
     hasCanonicalMarkers && dedupedVersions.length > 0
       ? dedupedVersions
       : [versionFromLegacyState(legacy, "v1", 1, "V1", null)];
@@ -931,11 +940,51 @@ export function normalizePublishingDraftState(
     canonicalVersions.some(version => version.versionId === obj.activeVersionId)
       ? obj.activeVersionId
       : canonicalVersions[0].versionId;
+  if (hasCanonicalMarkers && !hasCanonicalAuthority) {
+    canonicalVersions = canonicalVersions.map(version =>
+      version.versionId !== activeVersionId
+        ? {
+            ...version,
+            coverGeneration:
+              legacy.coverGeneration?.versionId === version.versionId
+                ? structuredClone(legacy.coverGeneration)
+                : version.coverGeneration,
+          }
+        : {
+            ...version,
+            core: version.core ?? (legacy.core ? structuredClone(legacy.core) : null),
+            drafts: {
+              ...structuredClone(legacy.drafts),
+              ...structuredClone(version.drafts),
+            },
+            cover: version.cover ?? (legacy.cover ? { ...legacy.cover } : null),
+            coverRounds:
+              version.coverRounds.length > 0
+                ? version.coverRounds
+                : structuredClone(legacy.coverRounds),
+            coverGeneration:
+              legacy.coverGeneration?.versionId === version.versionId
+                ? structuredClone(legacy.coverGeneration)
+                : version.coverGeneration,
+          }
+    );
+  }
   const receipts = record(obj.versionOperationReceipts);
+  const activeVersion = canonicalVersions.find(version => version.versionId === activeVersionId) ?? canonicalVersions[0];
   return {
     ...legacy,
+    core: structuredClone(activeVersion.core),
+    drafts: structuredClone(activeVersion.drafts),
+    activePlatform: activeVersion.activePlatform,
+    selectedPlatforms: [...activeVersion.selectedPlatforms],
+    cover: activeVersion.cover ? { ...activeVersion.cover } : null,
+    coverRounds: structuredClone(activeVersion.coverRounds),
+    coverGeneration: activeVersion.coverGeneration
+      ? structuredClone(activeVersion.coverGeneration)
+      : null,
     activeVersionId,
     versions: canonicalVersions,
+    canonicalAuthority: hasCanonicalAuthority ? "versions" : undefined,
     containerRevision: finiteNonNegativeInteger(
       obj.containerRevision,
       legacy.revision
@@ -982,6 +1031,10 @@ function versionFromLegacyState(
     selectedPlatforms: [...state.selectedPlatforms],
     narrativeIntent: defaultPublishingNarrativeIntent(),
     intentSnapshot: undefined,
+    intentProposals: [],
+    coverGeneration: state.coverGeneration
+      ? structuredClone(state.coverGeneration)
+      : null,
     cover: state.cover ? { ...state.cover } : null,
     coverRounds: structuredClone(state.coverRounds),
     conversationSnapshot: null,
@@ -1023,6 +1076,12 @@ function normalizeStoryVersion(
     record(obj.intentSnapshot),
     { now, source: "version_snapshot" }
   );
+  const intentProposals = Array.isArray(obj.intentProposals)
+    ? obj.intentProposals.flatMap(value => {
+        const proposal = normalizeIntentProposal(value);
+        return proposal ? [proposal] : [];
+      })
+    : [];
   return {
     versionId,
     sequence: Math.max(1, finiteNonNegativeInteger(obj.sequence, index + 1)),
@@ -1038,6 +1097,8 @@ function normalizeStoryVersion(
       now
     ),
     intentSnapshot: intentSnapshot ?? undefined,
+    intentProposals,
+    coverGeneration: normalizeCoverGeneration(obj.coverGeneration, now),
     cover: normalizeCover(obj.cover, now),
     coverRounds: rounds,
     conversationSnapshot: snapshotObj

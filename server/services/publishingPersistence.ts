@@ -14,8 +14,11 @@ import {
   type PublishingConversationSnapshot,
   type PublishingNarrativeIntent,
   type PublishingStoryCoreContent,
+  hasPersistedPublishingVersion,
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
+import { createHash } from "node:crypto";
+import { storyIntentProfileFromLegacy } from "../../shared/storyIntentProfile";
 import { getStoryById } from "../db";
 import { derivePublishingVersionDisplayName } from "../../shared/textTitle";
 import {
@@ -50,7 +53,7 @@ type InitializeOperation = {
   selectedPlatforms: PublishingPlatformId[];
   core: PublishingStoryCoreContent;
   content: PublishingDraftContent;
-  narrativeIntent: PublishingNarrativeIntent;
+  narrativeIntent?: PublishingNarrativeIntent;
   basePublishingRevision: number;
 };
 
@@ -171,12 +174,116 @@ export type PublishingDraftPersistenceResult = {
   publishing: PublishingDraftState;
 };
 
+export const MAX_PUBLISHING_STATE_BYTES = 2 * 1024 * 1024;
+export const MAX_STORY_BODY_BYTES = 4 * 1024 * 1024;
+
+export class PublishingCapacityError extends Error {
+  constructor(public readonly scope: "publishing" | "story", public readonly bytes: number, public readonly limit: number) {
+    super(`Publishing ${scope} 容量超过限制：${bytes} > ${limit}`);
+    this.name = "PublishingCapacityError";
+  }
+}
+export class PublishingLegacyFallbackDisabledError extends Error {
+  constructor() {
+    super("Publishing legacy fallback reader is disabled; migration is required before writing");
+    this.name = "PublishingLegacyFallbackDisabledError";
+  }
+}
+
+let migrationMetrics = { fallbackReads: 0, legacyWrites: 0, projectionMismatches: 0 };
+let legacyReaderEnabled = true;
+
+export function getPublishingMigrationMetrics() {
+  return { ...migrationMetrics, legacyReaderEnabled };
+}
+
+export function resetPublishingMigrationMetricsForTest(): void {
+  migrationMetrics = { fallbackReads: 0, legacyWrites: 0, projectionMismatches: 0 };
+  legacyReaderEnabled = true;
+}
+
+export function setPublishingLegacyReaderEnabled(enabled: boolean): void {
+  legacyReaderEnabled = enabled;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+export function publishingProjectionHash(state: PublishingDraftState): string {
+  const active = resolvePublishingActiveVersion(state);
+  return `sha256:${createHash("sha256").update(stableJson({
+    core: active.core, drafts: active.drafts, activePlatform: active.activePlatform,
+    selectedPlatforms: active.selectedPlatforms, cover: active.cover, coverRounds: active.coverRounds,
+    coverGeneration: active.coverGeneration ?? null,
+  })).digest("hex")}`;
+}
+
+function assertPublishingCapacity(publishing: PublishingDraftState): void {
+  const publishingBytes = Buffer.byteLength(JSON.stringify(publishing), "utf8");
+  if (publishingBytes > MAX_PUBLISHING_STATE_BYTES) {
+    throw new PublishingCapacityError("publishing", publishingBytes, MAX_PUBLISHING_STATE_BYTES);
+  }
+}
+
+function assertStoryCapacity(body: Record<string, unknown>): void {
+  const storyBytes = Buffer.byteLength(JSON.stringify(body), "utf8");
+  if (storyBytes > MAX_STORY_BODY_BYTES) throw new PublishingCapacityError("story", storyBytes, MAX_STORY_BODY_BYTES);
+}
+
+function normalizeStoredPublishing(raw: unknown): PublishingDraftState {
+  const value = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : null;
+  const needsFallback = Boolean(
+    value &&
+      (value.canonicalAuthority !== "versions" ||
+        !Array.isArray(value.versions) ||
+        value.versions.length === 0)
+  );
+  if (needsFallback) migrationMetrics.fallbackReads += 1;
+  if (needsFallback && !legacyReaderEnabled) {
+    throw new PublishingLegacyFallbackDisabledError();
+  }
+  return normalizePublishingDraftState(raw);
+}
+
+function projectionEquivalent(state: PublishingDraftState): boolean {
+  const active = resolvePublishingActiveVersion(state);
+  return stableJson({
+    core: state.core, drafts: state.drafts, activePlatform: state.activePlatform,
+    selectedPlatforms: state.selectedPlatforms, cover: state.cover, coverRounds: state.coverRounds,
+    coverGeneration: state.coverGeneration ?? null,
+  }) === stableJson({
+    core: active.core, drafts: active.drafts, activePlatform: active.activePlatform,
+    selectedPlatforms: active.selectedPlatforms, cover: active.cover, coverRounds: active.coverRounds,
+    coverGeneration: active.coverGeneration ?? null,
+  });
+}
+
+export function inspectPublishingProjection(state: PublishingDraftState): { equivalent: boolean; hash: string } {
+  const equivalent = projectionEquivalent(state);
+  if (!equivalent) migrationMetrics.projectionMismatches += 1;
+  return { equivalent, hash: publishingProjectionHash(state) };
+}
+
+export function inspectPublishingSerializedOutput(state: PublishingDraftState): boolean {
+  const canonical = state.canonicalAuthority === "versions";
+  if (!canonical) migrationMetrics.legacyWrites += 1;
+  return canonical;
+}
+
 function canonicalize(state: PublishingDraftState): PublishingDraftState {
   const versions = state.versions ?? [];
   const active = resolvePublishingActiveVersion(state);
   return {
     ...state,
     activeVersionId: active.versionId,
+    canonicalAuthority: "versions",
     versions: versions.map(v =>
       v.versionId === active.versionId
         ? {
@@ -187,6 +294,9 @@ function canonicalize(state: PublishingDraftState): PublishingDraftState {
             selectedPlatforms: [...state.selectedPlatforms],
             cover: state.cover ? { ...state.cover } : null,
             coverRounds: structuredClone(state.coverRounds),
+            coverGeneration: state.coverGeneration
+              ? structuredClone(state.coverGeneration)
+              : null,
             versionRevision: Math.max(v.versionRevision, state.revision),
           }
         : v
@@ -211,6 +321,9 @@ function projectVersion(
     selectedPlatforms: [...version.selectedPlatforms],
     cover: version.cover ? { ...version.cover } : null,
     coverRounds: structuredClone(version.coverRounds),
+    coverGeneration: version.coverGeneration
+      ? structuredClone(version.coverGeneration)
+      : null,
   };
 }
 
@@ -369,6 +482,7 @@ function applyVersionOperation(
       : [...parent.selectedPlatforms, op.platform],
     cover: parent.cover ? { ...parent.cover } : null,
     coverRounds: [],
+    coverGeneration: null,
     conversationSnapshot: op.conversationSnapshot
       ? structuredClone(op.conversationSnapshot)
       : parent.conversationSnapshot
@@ -389,6 +503,7 @@ function applyVersionOperation(
     selectedPlatforms: [...next.selectedPlatforms],
     cover: next.cover ? { ...next.cover } : null,
     coverRounds: [],
+    coverGeneration: null,
     revision: state.revision + 1,
     containerRevision: (state.containerRevision ?? 0) + 1,
     versionOperationReceipts: operationToken
@@ -453,7 +568,8 @@ function applyOperation(
   current: PublishingDraftState,
   operation: PublishingDraftWriteOperation,
   now: number,
-  operationToken?: string
+  operationToken?: string,
+  preVersionIntent?: unknown
 ): PublishingDraftState {
   switch (operation.type) {
     case "initialize": {
@@ -476,13 +592,23 @@ function applyOperation(
         ),
       };
       const activeVersionId = initialized.activeVersionId;
+      const shouldFreezeIntent = !hasPersistedPublishingVersion(current);
+      const freezeSource = preVersionIntent ?? operation.narrativeIntent;
       return {
         ...initialized,
         versions: initialized.versions?.map(version =>
           version.versionId === activeVersionId
             ? {
                 ...version,
-                narrativeIntent: structuredClone(operation.narrativeIntent),
+                narrativeIntent: operation.narrativeIntent
+                  ? structuredClone(operation.narrativeIntent)
+                  : version.narrativeIntent,
+                intentSnapshot: shouldFreezeIntent
+                  ? storyIntentProfileFromLegacy(freezeSource as Record<string, unknown>, {
+                      source: "version_snapshot",
+                      now,
+                    }) ?? version.intentSnapshot
+                  : version.intentSnapshot,
               }
             : version
         ),
@@ -668,7 +794,7 @@ export async function getPublishingDraftState(
   return {
     storyId,
     storyRevision: getStoryRevision(body),
-    publishing: normalizePublishingDraftState(body.publishing),
+    publishing: normalizeStoredPublishing(body.publishing),
   };
 }
 
@@ -686,7 +812,9 @@ export async function writePublishingDraftState(params: {
       story.body && typeof story.body === "object" && !Array.isArray(story.body)
         ? (story.body as Record<string, unknown>)
         : {};
-    const current = normalizePublishingDraftState(body.publishing);
+    const rawPublishing = body.publishing;
+    const normalized = normalizeStoredPublishing(rawPublishing);
+    const current = projectVersion(normalized, normalized.activeVersionId ?? "v1");
     const receiptVersionId = params.operationToken
       ? current.versionOperationReceipts?.[params.operationToken]
       : undefined;
@@ -702,8 +830,13 @@ export async function writePublishingDraftState(params: {
     }
     const now = params.now ?? Date.now();
     const publishing = canonicalize(
-      applyOperation(current, params.operation, now, params.operationToken)
+      applyOperation(current, params.operation, now, params.operationToken, body.confirmedIntent)
     );
+    inspectPublishingSerializedOutput(publishing);
+    if (!inspectPublishingProjection(publishing).equivalent) {
+      throw new Error("Publishing canonical projection mismatch");
+    }
+    assertPublishingCapacity(publishing);
     const expectedStoryRevision = getStoryRevision(body);
     const storyRevision = expectedStoryRevision + 1;
     // prepareStoryBody protects publishing as a server-owned field. Supplying
@@ -715,6 +848,7 @@ export async function writePublishingDraftState(params: {
       storyRevision,
       bodyWithPublishing
     );
+    assertStoryCapacity(nextBody);
     try {
       await persistPreparedStoryBody({
         storyId: params.storyId,

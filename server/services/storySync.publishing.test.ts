@@ -60,6 +60,7 @@ describe("storySync publishing preservation", () => {
   it("cannot replace a newer version container with a stale generic story body", () => {
     const versionedPublishing = {
       ...serverPublishing,
+      canonicalAuthority: "versions",
       activeVersionId: "v2",
       containerRevision: 2,
       versions: [
@@ -112,5 +113,7 @@ describe("storySync publishing preservation", () => {
 
     expect(body.cards).toEqual([{ id: "new-card" }]);
     expect(body.publishing).toEqual(versionedPublishing);
+    expect((body.publishing as typeof versionedPublishing).canonicalAuthority).toBe("versions");
+    expect((body.publishing as typeof versionedPublishing).versionOperationReceipts).toEqual({ "create-v2": "v2" });
   });
 });

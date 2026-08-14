@@ -11,7 +11,14 @@ vi.mock("../db", () => dbMocks);
 import {
   PublishingDraftConflictError,
   PublishingDraftOwnershipError,
+  PublishingLegacyFallbackDisabledError,
   getPublishingDraftState,
+  getPublishingMigrationMetrics,
+  publishingProjectionHash,
+  inspectPublishingProjection,
+  inspectPublishingSerializedOutput,
+  resetPublishingMigrationMetricsForTest,
+  setPublishingLegacyReaderEnabled,
   writePublishingDraftState,
 } from "./publishingPersistence";
 
@@ -28,6 +35,7 @@ describe("publishingPersistence", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetPublishingMigrationMetricsForTest();
     story = {
       id: 7,
       userId: 3,
@@ -67,6 +75,189 @@ describe("publishingPersistence", () => {
         return true;
       }
     );
+  });
+
+  it("freezes the pre-version confirmed intent into V1 in the same initialize CAS", async () => {
+    story.body = {
+      cards: [], shots: [], _revision: 2,
+      confirmedIntent: {
+        purpose: "social_post", audience: "public", platform: "xiaohongshu",
+        desiredEffect: "让陌生读者愿意读完", status: "confirmed",
+      },
+    };
+    const saved = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "xiaohongshu", selectedPlatforms: ["xiaohongshu"],
+      core: baseCore, content: { title: "V1", body: "正文", tags: [] }, basePublishingRevision: 0,
+    }});
+    expect(saved.publishing.versions?.[0]?.intentSnapshot).toMatchObject({
+      primaryPurpose: "share", coreAudience: "public", channel: "xiaohongshu",
+      status: "confirmed",
+    });
+    expect((story.body as Record<string, any>).publishing.versions[0].intentSnapshot).toEqual(
+      saved.publishing.versions?.[0]?.intentSnapshot
+    );
+  });
+
+  it("does not freeze intent for selection-only writes before V1 exists", async () => {
+    story.body = { _revision: 2, confirmedIntent: { purpose: "gift", audience: "friends", platform: "private_archive", status: "confirmed" } };
+    const saved = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "set_selection", activePlatform: "x", selectedPlatforms: ["x"], basePublishingRevision: 0,
+    }});
+    expect(saved.publishing.versions?.[0]?.intentSnapshot).toBeUndefined();
+  });
+
+  it("falls back to the initialize intent and never rewrites an existing V1 snapshot", async () => {
+    const narrativeIntent = {
+      primaryPurpose: "share" as const,
+      secondaryPurposes: [],
+      coreAudience: "陌生读者",
+      secondaryAudiences: [],
+      status: "confirmed" as const,
+      updatedAt: 100,
+    };
+    const first = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "第一稿", tags: [] },
+        narrativeIntent,
+        basePublishingRevision: 0,
+      },
+    });
+    const frozen = structuredClone(
+      first.publishing.versions?.[0]?.intentSnapshot
+    );
+    (story.body as Record<string, unknown>).confirmedIntent = {
+      purpose: "gift",
+      audience: "friends",
+      platform: "private_archive",
+      status: "confirmed",
+    };
+
+    const regenerated = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: { ...baseCore, thesis: "第二次生成" },
+        content: { title: "仍是 V1", body: "第二稿", tags: [] },
+        narrativeIntent: {
+          ...narrativeIntent,
+          primaryPurpose: "gift",
+          coreAudience: "朋友",
+          updatedAt: 200,
+        },
+        basePublishingRevision: first.publishing.revision,
+      },
+    });
+
+    expect(frozen).toMatchObject({
+      primaryPurpose: "share",
+      coreAudience: "陌生读者",
+    });
+    expect(regenerated.publishing.versions?.[0]?.intentSnapshot).toEqual(
+      frozen
+    );
+  });
+
+  it("persists active top-level fields only as a projection of canonical versions", async () => {
+    const saved = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "xiaohongshu", selectedPlatforms: ["xiaohongshu"],
+      core: baseCore, content: { title: "V1", body: "canonical", tags: [] }, basePublishingRevision: 0,
+    }});
+    const active = saved.publishing.versions?.find(v => v.versionId === saved.publishing.activeVersionId)!;
+    expect(saved.publishing.core).toEqual(active.core);
+    expect(saved.publishing.drafts).toEqual(active.drafts);
+    expect(publishingProjectionHash(saved.publishing)).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(getPublishingMigrationMetrics()).toMatchObject({ legacyWrites: 0 });
+  });
+
+  it("materializes a legacy-only Story on its first mutation without changing its projection", async () => {
+    story.body = {
+      _revision: 2,
+      publishing: {
+        version: 1,
+        revision: 4,
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: {
+          revision: 1,
+          ...baseCore,
+          updatedAt: 10,
+        },
+        drafts: {
+          x: {
+            platform: "x",
+            content: { title: "Legacy", body: "legacy body", tags: [] },
+            appliedBaseline: {
+              title: "Legacy",
+              body: "legacy body",
+              tags: [],
+            },
+            sourceCoreRevision: 1,
+            revision: 1,
+            needsReview: false,
+            updatedAt: 10,
+          },
+        },
+        cover: null,
+        coverRounds: [],
+        updatedAt: 10,
+      },
+    };
+    const before = await getPublishingDraftState(7, 3);
+    const beforeHash = publishingProjectionHash(before.publishing);
+
+    const materialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "set_selection",
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        basePublishingRevision: 4,
+      },
+    });
+
+    expect(materialized.publishing.canonicalAuthority).toBe("versions");
+    expect(publishingProjectionHash(materialized.publishing)).toBe(beforeHash);
+    expect(materialized.publishing.versions?.[0]?.drafts.x?.content.body).toBe(
+      "legacy body"
+    );
+  });
+
+  it("rejects publishing state beyond the bounded Story-body budget", async () => {
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "xiaohongshu", selectedPlatforms: ["xiaohongshu"],
+      core: baseCore, content: { title: "huge", body: "字".repeat(800_000), tags: [] }, basePublishingRevision: 0,
+    }})).rejects.toThrow(/publishing.*容量|capacity/i);
+    expect(dbMocks.updateStoryBodyIfRevision).not.toHaveBeenCalled();
+  });
+
+  it("rejects an already oversized Story before CAS without a partial publishing write", async () => {
+    story.body = { _revision: 2, padding: "x".repeat(4 * 1024 * 1024 + 1) };
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "set_selection", activePlatform: "x", selectedPlatforms: ["x"], basePublishingRevision: 0,
+    }})).rejects.toThrow(/story.*容量|capacity/i);
+    expect(dbMocks.updateStoryBodyIfRevision).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the legacy fallback reader is disabled and exposes real migration counters", async () => {
+    story.body = { _revision: 2, publishing: { revision: 1, activePlatform: "x", drafts: {} } };
+    await getPublishingDraftState(7, 3);
+    expect(getPublishingMigrationMetrics().fallbackReads).toBe(1);
+    setPublishingLegacyReaderEnabled(false);
+    await expect(getPublishingDraftState(7, 3)).rejects.toBeInstanceOf(PublishingLegacyFallbackDisabledError);
+    const malformed = { ...((await import("../../shared/publishingDraft")).emptyPublishingDraftState()), core: { revision: 1 } } as any;
+    expect(inspectPublishingProjection(malformed).equivalent).toBe(false);
+    inspectPublishingSerializedOutput(malformed);
+    expect(getPublishingMigrationMetrics()).toMatchObject({ projectionMismatches: 1, legacyWrites: 1 });
   });
 
   it("initializes a core and only the requested active platform", async () => {
@@ -531,5 +722,68 @@ describe("publishingPersistence", () => {
       selectedV2.publishing.versions?.find(v => v.versionId === "v1")?.drafts
         .xiaohongshu?.content.body
     ).toBe("V1 修改后");
+  });
+
+  it("keeps a V1 paid recovery receipt out of a newly created V2", async () => {
+    const initialized = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "initialize",
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        core: baseCore,
+        content: { title: "V1", body: "原稿", tags: [] },
+        basePublishingRevision: 0,
+      },
+    });
+    const claimed = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "claim_cover_generation",
+        generation: {
+          operationToken: "paid-v1",
+          versionId: "v1",
+          status: "pending",
+          platform: "xiaohongshu",
+          provider: "midjourney",
+          referenceAssetId: null,
+          feedback: "",
+          instructions: [],
+          prompt: "cover prompt",
+          roundId: "round-v1",
+          taskId: "provider-task",
+          claimedAt: 10,
+          updatedAt: 10,
+          expiresAt: 10_000,
+        },
+        basePublishingRevision: initialized.publishing.revision,
+      },
+    });
+    const created = await writePublishingDraftState({
+      storyId: 7,
+      userId: 3,
+      operation: {
+        type: "create_version",
+        platform: "xiaohongshu",
+        core: { ...baseCore, thesis: "V2" },
+        content: { title: "V2", body: "新稿", tags: [] },
+        baseCoreRevision: 1,
+        baseDraftRevision: 1,
+        baseVersionRevision: claimed.publishing.versions?.[0]?.versionRevision,
+        baseContainerRevision: claimed.publishing.containerRevision ?? 0,
+      },
+    });
+
+    expect(
+      created.publishing.versions?.find(version => version.versionId === "v1")
+        ?.coverGeneration?.operationToken
+    ).toBe("paid-v1");
+    expect(
+      created.publishing.versions?.find(version => version.versionId === "v2")
+        ?.coverGeneration
+    ).toBeNull();
+    expect(created.publishing.coverGeneration).toBeNull();
   });
 });
