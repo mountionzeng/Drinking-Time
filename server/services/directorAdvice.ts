@@ -129,7 +129,7 @@ export async function adviseStoryImages(params: {
     return {
       status: "not_configured",
       message:
-        "视觉识别通道未配置：在 .env 里加 VISION_302_MODEL，API Key 复用 API302_KEY。",
+        "视觉识别通道未配置：请配置 OPENAI_NEXT_API_KEY，或配置 VISION_302_MODEL 并复用 API302_KEY。",
     };
   }
   const material = await getStoryMaterialState(params.storyId, params.userId);

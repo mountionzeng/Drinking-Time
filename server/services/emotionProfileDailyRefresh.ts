@@ -67,7 +67,9 @@ function isFreshDailyReference(
   return Boolean(
     reference?.todayDate === today &&
       reference.letterVersion === EMOTION_DAILY_LETTER_VERSION &&
-      (!preferAi || reference.interpretationSource === "302-deepseek")
+      (!preferAi ||
+        reference.interpretationSource === "302-deepseek" ||
+        reference.interpretationSource === "openai-next")
   );
 }
 
@@ -98,7 +100,10 @@ export async function getFreshEmotionAnalysisProfile(
   const needsBaziEnrichment = analysisSeed !== storedAnalysisSeed;
   const preferAi =
     dependencies.preferAi ??
-    Boolean(ENV.api302Key.trim() && ENV.emotion302Model.trim());
+    Boolean(
+      (ENV.openaiNextApiKey.trim() && ENV.openaiNextEmotionModel.trim()) ||
+        (ENV.api302Key.trim() && ENV.emotion302Model.trim())
+    );
 
   const today = chinaDateString(dependencies.now);
   await ensureArchive(profile);

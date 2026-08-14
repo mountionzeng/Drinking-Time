@@ -84,6 +84,9 @@ describe("generateImage", () => {
     vision302ApiKey: ENV.vision302ApiKey,
     vision302BaseUrl: ENV.vision302BaseUrl,
     vision302Model: ENV.vision302Model,
+    openaiNextApiKey: ENV.openaiNextApiKey,
+    openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+    openaiNextVisionModel: ENV.openaiNextVisionModel,
     falApiKey: ENV.falApiKey,
   };
 
@@ -106,6 +109,9 @@ describe("generateImage", () => {
     ENV.vision302ApiKey = "";
     ENV.vision302BaseUrl = "https://api.302.ai";
     ENV.vision302Model = "";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextVisionModel = "qwen3-vl-plus";
   });
 
   afterEach(() => {
@@ -125,6 +131,9 @@ describe("generateImage", () => {
     ENV.vision302ApiKey = originalEnv.vision302ApiKey;
     ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
     ENV.vision302Model = originalEnv.vision302Model;
+    ENV.openaiNextApiKey = originalEnv.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = originalEnv.openaiNextBaseUrl;
+    ENV.openaiNextVisionModel = originalEnv.openaiNextVisionModel;
     ENV.falApiKey = originalEnv.falApiKey;
   });
 
@@ -900,6 +909,9 @@ describe("editImage", () => {
     vision302ApiKey: ENV.vision302ApiKey,
     vision302BaseUrl: ENV.vision302BaseUrl,
     vision302Model: ENV.vision302Model,
+    openaiNextApiKey: ENV.openaiNextApiKey,
+    openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+    openaiNextVisionModel: ENV.openaiNextVisionModel,
     forgeApiUrl: ENV.forgeApiUrl,
     forgeApiKey: ENV.forgeApiKey,
     imageProviderDefault: ENV.imageProviderDefault,
@@ -917,6 +929,9 @@ describe("editImage", () => {
     ENV.vision302ApiKey = "";
     ENV.vision302BaseUrl = "https://api.302.ai";
     ENV.vision302Model = "";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextVisionModel = "qwen3-vl-plus";
     ENV.forgeApiUrl = "";
     ENV.forgeApiKey = "";
     // 这些用例专测 gpt-image 图生图 → Forge 的兜底链；显式钉成 gpt-image，
@@ -935,6 +950,9 @@ describe("editImage", () => {
     ENV.vision302ApiKey = originalEnv.vision302ApiKey;
     ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
     ENV.vision302Model = originalEnv.vision302Model;
+    ENV.openaiNextApiKey = originalEnv.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = originalEnv.openaiNextBaseUrl;
+    ENV.openaiNextVisionModel = originalEnv.openaiNextVisionModel;
     ENV.forgeApiUrl = originalEnv.forgeApiUrl;
     ENV.forgeApiKey = originalEnv.forgeApiKey;
     ENV.imageProviderDefault = originalEnv.imageProviderDefault;
@@ -1159,6 +1177,7 @@ describe("editImage", () => {
   });
 
   it("FLUX 参考图编辑先提取五官脸型再生成", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     ENV.vision302ApiKey = "test-vision-key";
     ENV.vision302Model = "gemini-3-pro-preview";
     const b64 = Buffer.from("kontext-image").toString("base64");
@@ -1189,13 +1208,13 @@ describe("editImage", () => {
     expect(result.status).toBe("ok");
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[0][0]).toBe(
-      "https://api.302.ai/v1/chat/completions"
+      "https://api.openai-next.com/v1/chat/completions"
     );
     expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
-      "Bearer test-vision-key"
+      "Bearer test-next-key"
     );
     const visionBody = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(visionBody.model).toBe("gemini-3-pro-preview");
+    expect(visionBody.model).toBe("qwen3-vl-plus");
     expect(visionBody.messages[0].content).toContain(
       "Prioritize lower-face geometry"
     );
@@ -1206,7 +1225,12 @@ describe("editImage", () => {
       "data:image/png;base64,aWRlbnRpdHktY3JvcA=="
     );
 
-    expect(fetcher.mock.calls[1][0]).toContain("/v1/images/generations");
+    expect(fetcher.mock.calls[1][0]).toBe(
+      "https://api.302.ai/v1/images/generations"
+    );
+    expect(fetcher.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer test-302-key"
+    );
     const body = JSON.parse(fetcher.mock.calls[1][1].body);
     expect(body.model).toBe("flux-kontext-pro");
     expect(body.input_image).toBe("data:image/png;base64,cmVmZXJlbmNlLWZyYW1l");

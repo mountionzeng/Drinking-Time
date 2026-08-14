@@ -128,7 +128,7 @@ export type ShotDirectorReferenceFrame = {
 };
 
 export type ShotDirectorResult = {
-  source: "302-vision" | "deterministic-fallback";
+  source: "302-vision" | "openai-next-vision" | "deterministic-fallback";
   model: string;
   prompt: string;
   analysis: ShotDirectorAnalysis;

@@ -32,7 +32,7 @@ const analysisPayload = {
   },
 };
 
-describe("analyzeVisionReference 302 vision", () => {
+describe("analyzeVisionReference compatible vision", () => {
   const originalEnv = {
     forgeApiKey: ENV.forgeApiKey,
     llmModel: ENV.llmModel,
@@ -45,6 +45,9 @@ describe("analyzeVisionReference 302 vision", () => {
     vision302ApiKey: ENV.vision302ApiKey,
     vision302BaseUrl: ENV.vision302BaseUrl,
     vision302Model: ENV.vision302Model,
+    openaiNextApiKey: ENV.openaiNextApiKey,
+    openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+    openaiNextVisionModel: ENV.openaiNextVisionModel,
   };
 
   beforeEach(() => {
@@ -60,6 +63,9 @@ describe("analyzeVisionReference 302 vision", () => {
     ENV.vision302ApiKey = "test-302-key";
     ENV.vision302BaseUrl = "https://api.302.ai";
     ENV.vision302Model = "gemini-3-pro-preview";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextVisionModel = "qwen3-vl-plus";
   });
 
   afterEach(() => {
@@ -74,16 +80,20 @@ describe("analyzeVisionReference 302 vision", () => {
     ENV.vision302ApiKey = originalEnv.vision302ApiKey;
     ENV.vision302BaseUrl = originalEnv.vision302BaseUrl;
     ENV.vision302Model = originalEnv.vision302Model;
+    ENV.openaiNextApiKey = originalEnv.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = originalEnv.openaiNextBaseUrl;
+    ENV.openaiNextVisionModel = originalEnv.openaiNextVisionModel;
     vi.unstubAllGlobals();
   });
 
-  it("calls 302 vision endpoint and keeps VisualCanvasAnalysis structure", async () => {
+  it("calls OpenAI Next vision and keeps VisualCanvasAnalysis structure", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: () =>
         Promise.resolve({
-          model: "gemini-3-pro-preview",
+          model: "qwen3-vl-plus",
           choices: [
             {
               message: {
@@ -102,7 +112,7 @@ describe("analyzeVisionReference 302 vision", () => {
       brief: "希望保留雨夜的感觉",
     });
 
-    expect(result.modelLabel).toBe("gemini-3-pro-preview");
+    expect(result.modelLabel).toBe("qwen3-vl-plus");
     expect(result.analysis.subject).toBe("雨夜街角");
     expect(result.analysis.visualStyle).toEqual(["电影感", "低饱和"]);
     expect(result.analysis.mood).toEqual(["怅然", "安静"]);
@@ -110,13 +120,14 @@ describe("analyzeVisionReference 302 vision", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "https://api.302.ai/v1/chat/completions"
+      "https://api.openai-next.com/v1/chat/completions"
     );
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      "Bearer test-302-key"
+      "Bearer test-next-key"
     );
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.model).toBe("gemini-3-pro-preview");
+    expect(body.model).toBe("qwen3-vl-plus");
     expect(body.messages[0].content).toContain("水印、可读文字、作者签名");
     expect(body.messages[0].content).toContain(
       "不得在 promptDraft 中写成必须复制的内容"

@@ -58,7 +58,7 @@ export interface EmotionDailyReference extends Record<string, unknown> {
   currentShichen?: string;
   letterVersion?: EmotionDailyLetterVersion;
   factSource?: string;
-  interpretationSource?: "302-deepseek" | "local-template";
+  interpretationSource?: "302-deepseek" | "openai-next" | "local-template";
   interpretationModel?: string;
   interpretationGeneratedAt?: string;
 }
@@ -610,6 +610,7 @@ function normalizeDailyReference(value: unknown): EmotionDailyReference | null {
       ? { factSource: value.factSource }
       : {}),
     ...(value.interpretationSource === "302-deepseek" ||
+    value.interpretationSource === "openai-next" ||
     value.interpretationSource === "local-template"
       ? { interpretationSource: value.interpretationSource }
       : {}),

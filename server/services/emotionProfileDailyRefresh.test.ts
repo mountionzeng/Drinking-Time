@@ -48,6 +48,8 @@ const almanac: AlmanacDay = {
 describe("getFreshEmotionAnalysisProfile", () => {
   it("当天已有回信时直接复用，不重复调用模型", async () => {
     const current = profile("2026-07-27");
+    (current.dailyReference as Record<string, unknown>).interpretationSource =
+      "openai-next";
     const personalize = vi.fn();
     const saveProfile = vi.fn();
 

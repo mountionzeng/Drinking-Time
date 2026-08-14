@@ -7,6 +7,9 @@ const saved = {
   api302BaseUrl: ENV.api302BaseUrl,
   imagePrompt302Model: ENV.imagePrompt302Model,
   imagePrompt302TimeoutMs: ENV.imagePrompt302TimeoutMs,
+  openaiNextApiKey: ENV.openaiNextApiKey,
+  openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+  openaiNextVisionModel: ENV.openaiNextVisionModel,
 };
 
 beforeEach(() => {
@@ -14,6 +17,9 @@ beforeEach(() => {
   ENV.api302BaseUrl = "https://api.302.ai";
   ENV.imagePrompt302Model = "gpt-5.4-nano-2026-03-17";
   ENV.imagePrompt302TimeoutMs = "30000";
+  ENV.openaiNextApiKey = "";
+  ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+  ENV.openaiNextVisionModel = "qwen3-vl-plus";
 });
 
 afterEach(() => {
@@ -21,16 +27,20 @@ afterEach(() => {
   ENV.api302BaseUrl = saved.api302BaseUrl;
   ENV.imagePrompt302Model = saved.imagePrompt302Model;
   ENV.imagePrompt302TimeoutMs = saved.imagePrompt302TimeoutMs;
+  ENV.openaiNextApiKey = saved.openaiNextApiKey;
+  ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
+  ENV.openaiNextVisionModel = saved.openaiNextVisionModel;
   vi.unstubAllGlobals();
 });
 
 describe("directImagePrompt", () => {
   it("uses a character reference for identity without copying its background", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
     const fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
-        model: "gpt-5.4-nano-2026-03-17",
+        model: "qwen3-vl-plus",
         choices: [
           {
             message: {
@@ -64,7 +74,7 @@ describe("directImagePrompt", () => {
       narrativePrompt: "人物坐在沙发边缘，下午暖光",
     });
 
-    expect(result.source).toBe("302-vision");
+    expect(result.source).toBe("openai-next-vision");
     expect(result.prompt).toContain("short curly hair");
     expect(result.prompt).toContain(
       "Preserve only the referenced character's identity"
@@ -75,9 +85,10 @@ describe("directImagePrompt", () => {
 
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
-    expect(url).toBe("https://api.302.ai/v1/chat/completions");
+    expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer test-next-key");
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("gpt-5.4-nano-2026-03-17");
+    expect(body.model).toBe("qwen3-vl-plus");
     expect(body.messages[1].content[1].image_url.url).toBe(
       "data:image/png;base64,AAAA"
     );

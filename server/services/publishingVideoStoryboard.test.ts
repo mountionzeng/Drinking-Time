@@ -11,6 +11,9 @@ const saved = {
   videoPrompt302TimeoutMs: ENV.videoPrompt302TimeoutMs,
   publishingVideoStoryboard302TimeoutMs:
     ENV.publishingVideoStoryboard302TimeoutMs,
+  openaiNextApiKey: ENV.openaiNextApiKey,
+  openaiNextBaseUrl: ENV.openaiNextBaseUrl,
+  openaiNextTextModel: ENV.openaiNextTextModel,
 };
 
 function mockSuccessful302() {
@@ -67,6 +70,9 @@ describe("publishing video storyboard generation", () => {
     ENV.videoPrompt302Model = "gpt-5.4-nano-2026-03-17";
     ENV.videoPrompt302TimeoutMs = "30000";
     ENV.publishingVideoStoryboard302TimeoutMs = "90000";
+    ENV.openaiNextApiKey = "";
+    ENV.openaiNextBaseUrl = "https://api.openai-next.com";
+    ENV.openaiNextTextModel = "gpt-5.6-terra";
     vi.clearAllMocks();
   });
 
@@ -77,6 +83,9 @@ describe("publishing video storyboard generation", () => {
     ENV.videoPrompt302TimeoutMs = saved.videoPrompt302TimeoutMs;
     ENV.publishingVideoStoryboard302TimeoutMs =
       saved.publishingVideoStoryboard302TimeoutMs;
+    ENV.openaiNextApiKey = saved.openaiNextApiKey;
+    ENV.openaiNextBaseUrl = saved.openaiNextBaseUrl;
+    ENV.openaiNextTextModel = saved.openaiNextTextModel;
     vi.unstubAllGlobals();
   });
 
@@ -140,6 +149,26 @@ describe("publishing video storyboard generation", () => {
         return context.paragraphs.length;
       })
     ).toEqual([3, 3]);
+  });
+
+  it("routes text storyboard compute to OpenAI Next when configured", async () => {
+    ENV.openaiNextApiKey = "test-next-key";
+    ENV.openaiNextTextModel = "gpt-5.6-terra";
+    const fetch = mockSuccessful302();
+
+    await generatePublishingVideoStoryboardPreview({
+      body,
+      platform: "xiaohongshu",
+      core: null,
+      now: 100,
+    });
+
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer test-next-key",
+    });
+    expect(JSON.parse(String(init.body)).model).toBe("gpt-5.6-terra");
   });
 
   it("sends only allowlisted rewrite context and never Story ids, asset URLs, or operation tokens", async () => {

@@ -1,5 +1,9 @@
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
+import {
+  resolveVisionComputeProvider,
+  type TextComputeProvider,
+} from "../services/textComputeProvider";
 
 type VisionAnalyzeParams = {
   imageDataUrl?: string;
@@ -88,19 +92,6 @@ function resolveClaudeUrl(): string {
   if (normalized.endsWith("/v1/messages")) return normalized;
   if (normalized.endsWith("/cc")) return `${normalized}/v1/messages`;
   return normalized;
-}
-
-function has302VisionConfig(): boolean {
-  return Boolean(ENV.vision302ApiKey && ENV.vision302Model);
-}
-
-function resolve302VisionUrl(): string {
-  const raw = (ENV.vision302BaseUrl || ENV.api302BaseUrl || "").trim();
-  if (!raw) return "";
-  const normalized = raw.replace(/\/+$/, "");
-  if (normalized.endsWith("/v1/chat/completions")) return normalized;
-  if (normalized.endsWith("/v1")) return `${normalized}/chat/completions`;
-  return `${normalized}/v1/chat/completions`;
 }
 
 function parseImageDataUrl(dataUrl: string) {
@@ -320,28 +311,26 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
   return { text, modelLabel: ENV.llmModel };
 }
 
-async function invoke302Vision(params: VisionAnalyzeParams) {
-  const apiUrl = resolve302VisionUrl();
-  if (!apiUrl) throw new Error("VISION_302_BASE_URL is not configured");
-  if (!ENV.vision302ApiKey || !ENV.vision302Model) {
-    throw new Error("VISION_302_API_KEY and VISION_302_MODEL are required");
-  }
-
+async function invokeCompatibleVision(
+  params: VisionAnalyzeParams,
+  provider: TextComputeProvider,
+) {
   if (params.imageDataUrl) {
     parseImageDataUrl(params.imageDataUrl);
   }
   const imageUrl = params.imageDataUrl || params.imageUrl;
   if (!imageUrl) throw new Error("imageDataUrl or imageUrl is required");
 
-  const response = await fetch(apiUrl, {
+  const response = await fetch(provider.chatCompletionsUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(45_000),
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${ENV.vision302ApiKey}`,
+      Authorization: `Bearer ${provider.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: ENV.vision302Model,
+      model: provider.model,
       stream: false,
       max_tokens: 1800,
       messages: [
@@ -359,7 +348,9 @@ async function invoke302Vision(params: VisionAnalyzeParams) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`302 vision invoke failed: ${response.status} ${body}`);
+    throw new Error(
+      `${provider.label} vision invoke failed: ${response.status} ${body}`
+    );
   }
 
   const data = (await response.json()) as OpenAICompatibleVisionResponse;
@@ -376,7 +367,7 @@ async function invoke302Vision(params: VisionAnalyzeParams) {
 
   return {
     text,
-    modelLabel: data.model || ENV.vision302Model,
+    modelLabel: data.model || provider.model,
   };
 }
 
@@ -410,18 +401,22 @@ function buildFallbackVisionResult(
 export async function analyzeVisionReference(
   params: VisionAnalyzeParams
 ): Promise<VisionAnalysisResult> {
-  const use302Vision = has302VisionConfig();
-  if (!use302Vision && !ENV.forgeApiKey) {
+  const visionProvider = resolveVisionComputeProvider({
+    fallback302Model: ENV.vision302Model,
+    fallback302ApiKey: ENV.vision302ApiKey,
+    fallback302BaseUrl: ENV.vision302BaseUrl,
+  });
+  if (!visionProvider && !ENV.forgeApiKey) {
     throw new Error(
-      "BUILT_IN_FORGE_API_KEY or VISION_302_API_KEY/VISION_302_MODEL is not configured"
+      "OPENAI_NEXT_API_KEY, BUILT_IN_FORGE_API_KEY, or VISION_302_API_KEY/VISION_302_MODEL is not configured"
     );
   }
   if (!params.imageDataUrl && !params.imageUrl) {
     throw new Error("imageDataUrl or imageUrl is required");
   }
 
-  const { text, modelLabel } = use302Vision
-    ? await invoke302Vision(params)
+  const { text, modelLabel } = visionProvider
+    ? await invokeCompatibleVision(params, visionProvider)
     : shouldUseClaudeChannel()
       ? await invokeClaudeVision(params)
       : await invokeOpenAICompatibleVision(params);

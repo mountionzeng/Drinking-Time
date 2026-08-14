@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
+import { resolveVisionComputeProvider } from "./textComputeProvider";
 import type {
   ShotContinuityRisk,
   ShotDirectorAnalysis,
@@ -51,7 +52,7 @@ export type VideoPromptAnalysis = ShotDirectorAnalysis;
 
 export type VideoPromptDirectorResult = {
   prompt: string;
-  source: "302-vision" | "deterministic-fallback";
+  source: "302-vision" | "openai-next-vision" | "deterministic-fallback";
   model: string;
   analysis: VideoPromptAnalysis | null;
   materialProfile: VideoMaterialProfile | null;
@@ -111,10 +112,6 @@ type DirectorPayload = {
   finalPrompt?: unknown;
   confidence?: unknown;
 };
-
-function normalizeBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "");
-}
 
 function positiveInteger(value: string, fallback: number): number {
   const parsed = Number(value);
@@ -284,12 +281,13 @@ function normalizeRisks(value: unknown): ShotContinuityRisk[] {
 function fallback(
   input: DirectVideoPromptInput,
   reason: string,
-  engineering = compileVideoPromptEngineering(input)
+  engineering = compileVideoPromptEngineering(input),
+  model = ENV.videoPrompt302Model
 ): VideoPromptDirectorResult {
   return {
     prompt: engineering.finalPrompt,
     source: "deterministic-fallback",
-    model: ENV.videoPrompt302Model,
+    model,
     analysis: null,
     materialProfile: null,
     engineering,
@@ -344,14 +342,18 @@ export async function directVideoPrompt(
   input: DirectVideoPromptInput
 ): Promise<VideoPromptDirectorResult> {
   const engineering = compileVideoPromptEngineering(input);
-  if (!ENV.videoPrompt302Model.trim()) {
-    return fallback(input, "VIDEO_PROMPT_302_MODEL 未配置", engineering);
+  const provider = resolveVisionComputeProvider({
+    fallback302Model: ENV.videoPrompt302Model,
+    fallback302ApiKey: ENV.api302Key,
+    fallback302BaseUrl: ENV.api302BaseUrl,
+  });
+  if (!provider) {
+    return fallback(
+      input,
+      "OpenAI Next / 302 视频提示词通道未配置",
+      engineering
+    );
   }
-  if (!ENV.api302Key) {
-    return fallback(input, "API302_KEY 未配置", engineering);
-  }
-
-  const url = `${normalizeBaseUrl(ENV.api302BaseUrl)}/v1/chat/completions`;
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -432,15 +434,15 @@ export async function directVideoPrompt(
         }
       );
     }
-    const response = await fetch(url, {
+    const response = await fetch(provider.chatCompletionsUrl, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${ENV.api302Key}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: ENV.videoPrompt302Model,
+        model: provider.model,
         stream: false,
         max_completion_tokens: 1400,
         reasoning_effort: "low",
@@ -460,8 +462,9 @@ export async function directVideoPrompt(
       const body = await response.text().catch(() => "");
       return fallback(
         input,
-        `302 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
-        engineering
+        `${provider.label} 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
+        engineering,
+        provider.model
       );
     }
 
@@ -476,8 +479,9 @@ export async function directVideoPrompt(
     if (!prompt) {
       return fallback(
         input,
-        "302 视频提示词分析未返回有效英文 finalPrompt",
-        engineering
+        `${provider.label} 视频提示词分析未返回有效英文 finalPrompt`,
+        engineering,
+        provider.model
       );
     }
     const directedEngineering = finalizeVideoPromptEngineering(
@@ -488,8 +492,11 @@ export async function directVideoPrompt(
 
     return {
       prompt: directedEngineering.finalPrompt,
-      source: "302-vision",
-      model: data.model || ENV.videoPrompt302Model,
+      source:
+        provider.id === "openai-next"
+          ? "openai-next-vision"
+          : "302-vision",
+      model: data.model || provider.model,
       analysis: normalizeAnalysis(raw, materialProfile),
       materialProfile,
       engineering: directedEngineering,
@@ -497,8 +504,11 @@ export async function directVideoPrompt(
   } catch (error) {
     return fallback(
       input,
-      error instanceof Error ? error.message : "302 视频提示词分析失败",
-      engineering
+      error instanceof Error
+        ? error.message
+        : `${provider.label} 视频提示词分析失败`,
+      engineering,
+      provider.model
     );
   } finally {
     clearTimeout(timeout);

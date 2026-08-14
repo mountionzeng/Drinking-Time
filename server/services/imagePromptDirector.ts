@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
+import { resolveVisionComputeProvider } from "./textComputeProvider";
 import { promptShotCode } from "../../shared/shotIdentity";
 
 export type ImageReferencePurpose =
@@ -21,7 +22,7 @@ export type ImagePromptAnalysis = {
 
 export type ImagePromptDirectorResult = {
   prompt: string;
-  source: "302-vision" | "deterministic-fallback";
+  source: "302-vision" | "openai-next-vision" | "deterministic-fallback";
   model: string;
   analysis: ImagePromptAnalysis | null;
   fallbackReason?: string;
@@ -141,12 +142,13 @@ function compilePrompt(
 
 function fallback(
   input: DirectImagePromptInput,
-  reason: string
+  reason: string,
+  model = ENV.imagePrompt302Model
 ): ImagePromptDirectorResult {
   return {
     prompt: input.fallbackPrompt,
     source: "deterministic-fallback",
-    model: ENV.imagePrompt302Model,
+    model,
     analysis: null,
     fallbackReason: reason.slice(0, 500),
   };
@@ -183,14 +185,14 @@ function userContext(input: DirectImagePromptInput): string {
 export async function directImagePrompt(
   input: DirectImagePromptInput
 ): Promise<ImagePromptDirectorResult> {
-  if (!ENV.imagePrompt302Model.trim()) {
-    return fallback(input, "IMAGE_PROMPT_302_MODEL 未配置");
+  const provider = resolveVisionComputeProvider({
+    fallback302Model: ENV.imagePrompt302Model,
+    fallback302ApiKey: ENV.api302Key,
+    fallback302BaseUrl: ENV.api302BaseUrl,
+  });
+  if (!provider) {
+    return fallback(input, "OpenAI Next / 302 视觉提示词通道未配置");
   }
-  if (!ENV.api302Key) {
-    return fallback(input, "API302_KEY 未配置");
-  }
-
-  const baseUrl = ENV.api302BaseUrl.trim().replace(/\/+$/, "");
   const timeoutMs = Number(ENV.imagePrompt302TimeoutMs);
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -201,15 +203,15 @@ export async function directImagePrompt(
   );
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(provider.chatCompletionsUrl, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${ENV.api302Key}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: ENV.imagePrompt302Model,
+        model: provider.model,
         stream: false,
         max_completion_tokens: 900,
         response_format: { type: "json_object" },
@@ -237,7 +239,8 @@ export async function directImagePrompt(
       const body = await response.text().catch(() => "");
       return fallback(
         input,
-        `302 图片提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`
+        `${provider.label} 图片提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
+        provider.model
       );
     }
 
@@ -245,19 +248,29 @@ export async function directImagePrompt(
     const raw = parseJsonLoose<DirectorPayload>(completionText(data));
     const prompt = compilePrompt(raw, input.referencePurpose);
     if (!prompt) {
-      return fallback(input, "302 图片提示词分析未返回有效英文 finalPrompt");
+      return fallback(
+        input,
+        `${provider.label} 图片提示词分析未返回有效英文 finalPrompt`,
+        provider.model
+      );
     }
 
     return {
       prompt,
-      source: "302-vision",
-      model: data.model || ENV.imagePrompt302Model,
+      source:
+        provider.id === "openai-next"
+          ? "openai-next-vision"
+          : "302-vision",
+      model: data.model || provider.model,
       analysis: normalizeAnalysis(raw, input.referencePurpose),
     };
   } catch (error) {
     return fallback(
       input,
-      error instanceof Error ? error.message : "302 图片提示词分析失败"
+      error instanceof Error
+        ? error.message
+        : `${provider.label} 图片提示词分析失败`,
+      provider.model
     );
   } finally {
     clearTimeout(timeout);

@@ -100,6 +100,18 @@ export const ENV = {
     process.env.IMAGE_PROMPT_302_MODEL ?? "gpt-5.4-nano-2026-03-17",
   imagePrompt302TimeoutMs: process.env.IMAGE_PROMPT_302_TIMEOUT_MS ?? "30000",
 
+  // ── OpenAI Next 文本/多模态算力分流（只承接 OpenAI 兼容 chat/completions）──
+  // 配置 Key 后，兼容的文本与视觉分析任务优先走此通道；媒体生成、语音和转写仍留在 302。
+  openaiNextApiKey: process.env.OPENAI_NEXT_API_KEY ?? "",
+  openaiNextBaseUrl:
+    process.env.OPENAI_NEXT_BASE_URL ?? "https://api.openai-next.com",
+  openaiNextTextModel:
+    process.env.OPENAI_NEXT_TEXT_MODEL ?? "gpt-5.6-terra",
+  openaiNextEmotionModel:
+    process.env.OPENAI_NEXT_EMOTION_MODEL ?? "deepseek-v3.2",
+  openaiNextVisionModel:
+    process.env.OPENAI_NEXT_VISION_MODEL ?? "qwen3-vl-plus",
+
   // ── 302.ai 今日回信（复用 API302_KEY；黄历事实仍由天行数据提供）──
   emotion302Model: process.env.EMOTION_302_MODEL ?? "deepseek-v3.2",
   emotion302TimeoutMs: process.env.EMOTION_302_TIMEOUT_MS ?? "30000",
