@@ -97,11 +97,58 @@ U3/U4/U5/U8 完成后，用同一方法（只数生产文件、只数尚存的�
 
 ---
 
+## 复盘：U8 第一刀（2026-08-15）
+
+按与上表**完全相同的口径**重新统计。诚实起见先说结论：**A 类触达文件数没有下降，
+重复 writer 组下降了一组。**
+
+| 代表性改动 | 触达生产文件数 | 变化 | 重复 writer/状态解释组 | 变化 |
+|---|---|---|---|---|
+| A. Story 文本字段 | 6 | 持平 | title 写入路径 3 → 2 | −1 组 |
+| B. 生成状态 | 12 | 未动 | 未动 | — |
+| C. 资产类型 | 10 | 未动 | 未动 | — |
+
+**做了什么**：`updateStoryTitle` 与 `updateStoryTitleIfUntitled` 合并为
+`writeStoryTitle({ id, userId, title, onlyIfUntitled })`。两者原先只差"标题是不是
+占位名"这一个谓词，却各自复制了所有权校验、内存/数据库双分支和返回值语义。
+`safe-story-titles` 的两条不变量（自动标题只能替换未命名标题、改名不重写 body）
+现在由同一个函数的一个参数表达，判定仍留在存储写入本身（内存分支查 `row.title`，
+数据库分支进 WHERE），不依赖调用方先读后写。
+
+**为什么文件数没降**：A 类那 6 个文件里没有任何一个从路径上消失——db.ts 仍是
+writer、storyBodyPersistence.ts 仍是 CAS 封装、storyAgent.ts 仍是 router、
+_storyShared.ts 仍在重建 DTO、两个 client Context 仍在消费。要让这个数字下降，
+必须消掉的是 **DTO 重建那一组**（`composeStoryWorkspace` 与
+`CreationEditorContext` 的 `stories`/`activeStory` useMemo 各组装一次），
+那属于 U8 的下一刀，不在本次范围内。计划里"触达文件数少于基线"这条验收标准
+本轮**没有达成**，不做粉饰。
+
+**`updateStory` 的处置（有意保留）**：它是"整 blob 覆盖"写入口、完全绕开 CAS，
+且**生产代码零调用方**，看起来是理想的删除目标。但它有一个正当用途：
+`server/services/storyBodyPersistence.test.ts` 用它模拟"另一个写入者在 CAS 之外抢
+先落库"，以验证赢家返回的仍是自洽快照——这个场景恰恰需要一个绕过 CAS 的写入口。
+删掉它会逼那个测试改成直接操作 `memoryState`，把测试和内部结构绑死，可读性更差。
+故保留，并在此登记：它是一条**随时可被误用的旁路**，若将来那个测试换了模拟方式，
+应当立刻删除。
+
+---
+
 ## D. 后续单元待收敛项（U7 补记，2026-08-15）
 
 U7 执行期间发现、但**有意留给后续单元**的重复面。记在这里是为了不让它们悄悄沉没。
 
-### D1. 两套并行的 scope 判定层（留给 U8）
+### D0. 已在 U8 第一刀关闭
+
+- **`shared/scopedResource.ts` 的悬空导出已删除**。U2 建立合同时一并预留了
+  `buildOwnerScope`、`parseScopeKey`、`parseDomainCommand`、`commitResourceRevision`、
+  `bumpAggregateForProjection`、`hasResourceRevisionConflict` 六个函数与
+  `ResourceKind`/`DomainCommand`/`OwnerScope`/`PayloadParseResult` 四个类型，设想由
+  U3~U8 接线。U8 复核确认它们**至今零生产调用方**（仅在别处的注释里被提及），
+  已全部删除；文件从 ~240 行降到 ~60 行。保留 `ScopeKey`（16 处真实引用）、
+  `ScopedRevision`（4 处）和 `scopeKeysEqual`（7 处）。
+  需要时从 git 历史取回当时的实现，好过留在原地让后来者以为它已经在用。
+
+### D1. 两套并行的 scope 判定层（留给 U8 下一刀）
 
 `client/src/features/publishingDraft/publishingOperationScope.ts`（148 行，2026-08-15 随
 publishing 生命周期收敛一起合入）与 U2 的 `shared/scopedResource.ts` 是**同一件事的两套

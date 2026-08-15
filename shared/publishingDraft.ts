@@ -1463,9 +1463,9 @@ export function resolvePublishingActiveVersion(
  * 用途：构造某个发布版本的 ScopeKey，统一 storyId + versionId 的资源身份
  *   表达，替代散落各处的 `story.id === activeStoryId && versionId === xxx`
  *   手写比较。
- * 调用入口：server 发布版本 router/service 的写入前置校验；client 发布
- *   工作台判断响应是否仍属于当前浏览版本。
- * 下游调用：@shared/scopedResource.ts 的 scopeKeysEqual/buildOwnerScope。
+ * 调用入口（至今没有生产调用方）：预期是 server 发布版本写入前置校验，以及
+ *   client 发布工作台判断响应是否仍属于当前浏览版本。
+ * 下游调用：@shared/scopedResource.ts 的 scopeKeysEqual。
  */
 export function publishingVersionScopeKey(
   storyId: number,
@@ -1476,11 +1476,11 @@ export function publishingVersionScopeKey(
 
 /**
  * 用途：把某个发布版本现有的 `versionRevision` / `containerRevision` 字段
- *   映射为跨层统一的 ScopedRevision 形状，供 U3 的资源级 CAS 直接复用，不
- *   需要新增一份平行的 revision 存储。
- * 调用入口：server 发布版本写入前置校验、client 乐观更新冲突判断。
- * 下游调用：@shared/scopedResource.ts 的 hasResourceRevisionConflict /
- *   commitResourceRevision。
+ *   映射为跨层统一的 ScopedRevision 形状，避免为"资源 revision 与聚合 revision
+ *   是两件事"这个区分再存一份平行数据。
+ * 调用入口（至今没有生产调用方）：预期是 server 发布版本写入前置校验与 client
+ *   乐观更新冲突判断。
+ * 下游调用：无（叶子纯函数）。
  */
 export function publishingVersionScopedRevision(
   state: PublishingDraftState,

@@ -12,8 +12,7 @@ import {
   listUserStories,
   getStoryById,
   createStory,
-  updateStoryTitle,
-  updateStoryTitleIfUntitled,
+  writeStoryTitle,
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
@@ -837,7 +836,11 @@ export const storyAgentRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const title = input.title.trim();
-      const updated = await updateStoryTitle(input.id, ctx.user.id, title);
+      const updated = await writeStoryTitle({
+        id: input.id,
+        userId: ctx.user.id,
+        title,
+      });
       if (!updated) {
         return { status: "error" as const, error: "故事不存在" };
       }
@@ -861,11 +864,12 @@ export const storyAgentRouter = router({
       if (!title) {
         return { status: "error" as const, error: "未生成有效名称" };
       }
-      const updated = await updateStoryTitleIfUntitled(
-        input.id,
-        ctx.user.id,
-        title
-      );
+      const updated = await writeStoryTitle({
+        id: input.id,
+        userId: ctx.user.id,
+        title,
+        onlyIfUntitled: true,
+      });
       if (updated) {
         return {
           status: "ok" as const,

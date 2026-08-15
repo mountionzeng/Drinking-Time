@@ -646,8 +646,16 @@
         "story-ownership"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "writeStoryTitle 的数据库分支（drizzle UPDATE 的条件 WHERE 组装）没有测试执行过：仓库里全部测试都强制 DATABASE_URL=\"\" 跑内存分支，这是项目级既有状况、非本次引入。两条不变量目前只在内存分支有测试证据；数据库分支的等价性是靠审查逐条比对 drizzle and() 源码确认的（空条件展开不会让 WHERE 丢失或放宽），不是靠测试保证。",
+        "内存分支用 JS .trim() 判占位标题、数据库分支用 MySQL TRIM()，前者会去掉 \\n/\\t/全角空格而后者不会，因此形如「未命名\\n」的标题在两种模式下判定不同。此分歧在合并前就存在，合并成一个函数后更容易被误当成单一行为，故登记。"
+      ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "refactor",
+          "summary": "U8：updateStoryTitle 与 updateStoryTitleIfUntitled 合并为唯一直写入口 writeStoryTitle({id,userId,title,onlyIfUntitled})。两者原先只差「标题是否占位名」这一个谓词，却各自复制了所有权校验、内存/数据库双分支与返回值语义。两条不变量（自动标题只能替换未命名标题、改名不重写 body）行为不变，且判定仍在存储写入本身完成（内存查 row.title、数据库进 WHERE），不依赖调用方先读后写。"
+        },
         {
           "date": "2026-08-09",
           "kind": "feature",

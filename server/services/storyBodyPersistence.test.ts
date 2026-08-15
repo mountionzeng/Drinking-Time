@@ -108,7 +108,7 @@ describe("story body persistence boundary", () => {
   it("lets a title rename and a publishing V2 draft edit on the same Story both persist without either clobbering the other", async () => {
     // Plan's U3 "Integration" test scenario: two tabs, one editing the
     // title, one editing a publishing platform draft, concurrently. title
-    // lives in a dedicated DB column (server/db.ts:updateStoryTitle) and
+    // lives in a dedicated DB column (server/db.ts:writeStoryTitle) and
     // publishing lives inside the CAS-protected body
     // (writePublishingDraftState -> persistPreparedStoryBody). These two
     // writers touch disjoint columns, so neither's CAS/lack-of-CAS should
@@ -120,7 +120,11 @@ describe("story body persistence boundary", () => {
     });
 
     await Promise.all([
-      db.updateStoryTitle(id, 30, "Renamed While Publishing"),
+      db.writeStoryTitle({
+        id,
+        userId: 30,
+        title: "Renamed While Publishing",
+      }),
       publishingPersistence.writePublishingDraftState({
         storyId: id,
         userId: 30,

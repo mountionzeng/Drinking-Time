@@ -2120,53 +2120,48 @@ export async function updateStory(
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
-export async function updateStoryTitle(
-  id: number,
-  userId: number,
-  title: string
-): Promise<boolean> {
+/**
+ * 用途：Story 标题的唯一直写入口——只改 title 列，不碰 body，因此不参与 body 的
+ *   CAS（`updateStoryBodyIfRevision` 才是 body 的写入口）。`onlyIfUntitled` 为
+ *   true 时只在盘上标题仍是占位名的情况下才写入，用来兜住"自动命名不得覆盖用户
+ *   手工改过的名字"这条不变量；判定放在存储写入本身（内存分支查 row.title、
+ *   数据库分支进 WHERE），不依赖调用方先读一次再写。
+ *   这里合并了原先的 `updateStoryTitle` 与 `updateStoryTitleIfUntitled`：两者只差
+ *   这一个谓词，却各自复制了一遍所有权校验、内存/数据库双分支和返回值语义。
+ * 调用入口：server/routers/storyAgent.ts 的 `storyRename`（onlyIfUntitled 省略）
+ *   与 `storyAutoRename`（onlyIfUntitled: true）。
+ * 下游调用：persistMemoryState（内存模式）；drizzle UPDATE（数据库模式）。
+ * @returns 是否真的写入了一行——false 表示故事不存在、不属于该用户，或
+ *   （onlyIfUntitled 时）标题已被人工命名过。
+ */
+export async function writeStoryTitle(input: {
+  id: number;
+  userId: number;
+  title: string;
+  onlyIfUntitled?: boolean;
+}): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     const row = memoryState.stories.find(
-      story => story.id === id && story.userId === userId
+      story => story.id === input.id && story.userId === input.userId
     );
     if (!row) return false;
-    row.title = title;
+    if (input.onlyIfUntitled && !isUntitledStoryTitle(row.title)) return false;
+    row.title = input.title;
     row.updatedAt = now();
     await persistMemoryState();
     return true;
   }
   const result = await db
     .update(stories)
-    .set({ title })
-    .where(and(eq(stories.id, id), eq(stories.userId, userId)));
-  return result[0].affectedRows === 1;
-}
-
-export async function updateStoryTitleIfUntitled(
-  id: number,
-  userId: number,
-  title: string
-): Promise<boolean> {
-  const db = await getDb();
-  if (!db) {
-    const row = memoryState.stories.find(
-      story => story.id === id && story.userId === userId
-    );
-    if (!row || !isUntitledStoryTitle(row.title)) return false;
-    row.title = title;
-    row.updatedAt = now();
-    await persistMemoryState();
-    return true;
-  }
-  const result = await db
-    .update(stories)
-    .set({ title })
+    .set({ title: input.title })
     .where(
       and(
-        eq(stories.id, id),
-        eq(stories.userId, userId),
-        sql`TRIM(${stories.title}) IN ('', '未命名', '未命名故事')`
+        eq(stories.id, input.id),
+        eq(stories.userId, input.userId),
+        ...(input.onlyIfUntitled
+          ? [sql`TRIM(${stories.title}) IN ('', '未命名', '未命名故事')`]
+          : [])
       )
     );
   return result[0].affectedRows === 1;
@@ -2192,7 +2187,7 @@ function persistedStoryBodyRevision(body: unknown): number {
  *   （对应 U2 合同里的 story ScopeKey + OwnerScope 概念，这里先不引入类型，
  *   概念对齐即可）。内存模式下写盘失败会按字段把 `row` 恢复到调用前的值——
  *   只回滚仍然等于本次调用写入结果的字段，绝不用整行快照覆盖，因为并发的
- *   另一次写入（哪怕是完全不同的函数，比如 `updateStoryTitle`）可能已经在
+ *   另一次写入（哪怕是完全不同的函数，比如 `writeStoryTitle`）可能已经在
  *   本次调用等待磁盘落盘期间，合法地改动了同一行对象上的其它字段。
  * 调用入口：server/services/storyBodyPersistence.ts 的 `persistPreparedStoryBody`
  *   （Story 文本字段与 publishing 写入都经此唯一入口）。
@@ -2229,7 +2224,7 @@ export async function updateStoryBodyIfRevision(input: {
     // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
     // between our mutation and the disk flush settling, a concurrent writer
     // (another CAS call once this call's optimistic revision makes it look
-    // like a legal base, or an unrelated writer like updateStoryTitle
+    // like a legal base, or an unrelated writer like writeStoryTitle
     // touching only `title`) can legitimately mutate a *different* field on
     // the same object and already succeed. A blanket restore would silently
     // erase that already-committed change. So: only roll back a field if it
