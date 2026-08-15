@@ -532,4 +532,29 @@ describe("publishingPersistence", () => {
         .xiaohongshu?.content.body
     ).toBe("V1 修改后");
   });
+
+  it("propagates a local persistence write failure unchanged, not as a revision conflict", async () => {
+    // A disk/db-layer failure (not a stale-revision rejection) must surface
+    // as-is to the caller — writePublishingDraftState only translates
+    // StoryBodyRevisionConflictError into PublishingDraftConflictError, it
+    // must not swallow or misclassify other failures.
+    dbMocks.updateStoryBodyIfRevision.mockRejectedValueOnce(
+      new Error("ENOSPC: no space left on device")
+    );
+
+    await expect(
+      writePublishingDraftState({
+        storyId: 7,
+        userId: 3,
+        operation: {
+          type: "initialize",
+          activePlatform: "xiaohongshu",
+          selectedPlatforms: ["xiaohongshu"],
+          core: baseCore,
+          content: { title: "", body: "source", tags: [] },
+          basePublishingRevision: 0,
+        },
+      })
+    ).rejects.toThrow("ENOSPC");
+  });
 });
