@@ -188,11 +188,12 @@ describe("Story body revision compare-and-swap", () => {
       expectedRevision: 1,
       body: { _revision: 2, shots: [], marker: "A-failed" },
     });
-    const titleWrite = db.updateStoryTitleIfUntitled(
+    const titleWrite = db.writeStoryTitle({
       id,
-      9,
-      "Real Title From User"
-    );
+      userId: 9,
+      title: "Real Title From User",
+      onlyIfUntitled: true,
+    });
 
     await expect(bodyWrite).rejects.toThrow();
     await expect(titleWrite).resolves.toBe(true);
