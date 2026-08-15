@@ -2614,8 +2614,10 @@ export function StoryAgentProvider({
             toast.error("关键帧草稿生成失败，剧本和提示词已保留");
           });
         }
-        if (projectId !== null) {
-          await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
+        // 只失效这个 Story 的镜头缓存。不带参数的 invalidate() 会把每个
+        // Story 的 shot.list 缓存一起清掉——正是"改一个地方，别处跟着变"。
+        if (storyboardStoryId) {
+          await utils.shot.list.invalidate({ storyId: storyboardStoryId });
         }
         toast.success(
           storyboardStoryId
