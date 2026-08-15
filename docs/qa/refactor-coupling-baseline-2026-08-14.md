@@ -1,9 +1,24 @@
-# 耦合基线：U2（2026-08-14）
+# 耦合基线：U2（2026-08-14，2026-08-15 更正）
 
 > 给 U3、U4、U5、U8 用的同一套统计口径。三类代表性改动分别记录"这件事目前
 > 要触达多少个生产文件、有哪些重复的 writer/DTO 重建点/状态解释点/
 > direct-db seam"。后续单元完成对应重构后，用同一方法重新统计，与本文档
 > 的数字对比作为验收证据（见各单元 Success Metrics）。
+
+> ## ⚠️ 2026-08-15 重要更正：本文档原先的"重复"判断大部分不成立
+>
+> 本文档初版（2026-08-14）的**文件触达清单**是可靠的，但其中六条
+> "这是重复、应该收敛"的结论，只有一条经得起核对。初版是基于一次调研汇总
+> 写成的，我没有逐条打开代码验证就把结论写进了文档——而这份文档正是 U4/U5/U8
+> 的验收标尺。
+>
+> 逐条复核结果见文末[「重复判断复核」](#重复判断复核2026-08-15)。**在读下面
+> 任何一条"重复例子"之前，先看那一节**：五条已被推翻，照着它们做收敛会破坏
+> 真实存在的语义区分（尤其是 B 类视频失败态那条——五处问的根本不是同一个
+> 问题，合并会丢掉区分）。
+>
+> 教训与 U7 那次豁免名单同源：一份断言错误的文档比没有文档更糟，因为后来者
+> 会拿它当已经想清楚的结论。
 
 ## 方法
 
@@ -32,8 +47,8 @@
 **触达生产文件数：6**
 
 **重复例子**
-1. **title 有三条独立写入路径**，各自决定"能不能写、要不要校验 revision"，没有共用一个 title 写入函数：`storyUpsert`（经 `persistPreparedStoryBody` → `updateStoryBodyIfRevision`，有 CAS）、`storyRename`（直接调 `server/db.ts:updateStoryTitle`，无 CAS）、`storyAutoRename`（直接调 `updateStoryTitleIfUntitled`，带隐式"仅未命名才写"条件）。
-2. **DTO 重组两次**：`composeStoryWorkspace`（server 端一次）与 `CreationEditorContext.tsx` 的 `stories`/`activeStory` useMemo（client 端又一次，字段集更窄）。
+1. ✅ **（复核成立，已在 U8 修复）** **title 有三条独立写入路径**，各自决定"能不能写、要不要校验 revision"，没有共用一个 title 写入函数：`storyUpsert`（经 `persistPreparedStoryBody` → `updateStoryBodyIfRevision`，有 CAS）、`storyRename`（直接调 `server/db.ts:updateStoryTitle`，无 CAS）、`storyAutoRename`（直接调 `updateStoryTitleIfUntitled`，带隐式"仅未命名才写"条件）。
+2. ❌ **（复核不成立，见文末复核第 2 条：服务端投影 vs 客户端视图收窄，不是同一个 DTO）** ~~**DTO 重组两次**~~：`composeStoryWorkspace`（server 端一次）与 `CreationEditorContext.tsx` 的 `stories`/`activeStory` useMemo（client 端又一次，字段集更窄）。
 
 ---
 
@@ -57,8 +72,8 @@
 **触达生产文件数：12**
 
 **重复例子**
-1. **"cover 生成能否用 fallback / 可否恢复"被判断了至少 3 次**：`shared/publishingDraft.ts:isRecoverablePublishingCoverGeneration`（官方）、`server/routers/publishingDraft.ts` 的 `resuming`/`recoveringAcceptedTask`（自拼一套条件）、`PublishingDraftWorkspace.tsx:canUseCoverFallback`（按 provider+status 组合再判一次）。三处对同一个 `status` 字段的"能否重试/恢复"给出不完全一致的条件表达式。
-2. **video take 的失败态在 5 个文件里各自 if 判断**，`MaterialWarehousePanel.tsx` 甚至多判了一个 `"timeout"` 值，没有共用一个"take 是否失败"的判定函数。
+1. ❌ **（复核不成立，见文末第 3 条：router 是复用后组合，client 问的是互补情况）** ~~**"cover 生成能否用 fallback / 可否恢复"被判断了至少 3 次**~~：`shared/publishingDraft.ts:isRecoverablePublishingCoverGeneration`（官方）、`server/routers/publishingDraft.ts` 的 `resuming`/`recoveringAcceptedTask`（自拼一套条件）、`PublishingDraftWorkspace.tsx:canUseCoverFallback`（按 provider+status 组合再判一次）。三处对同一个 `status` 字段的"能否重试/恢复"给出不完全一致的条件表达式。
+2. ❌ **（复核不成立且合并有害，见文末第 4 条：五处问的是五个不同问题，其中一处把「成功」也算终态）** ~~**video take 的失败态在 5 个文件里各自 if 判断**~~，`MaterialWarehousePanel.tsx` 甚至多判了一个 `"timeout"` 值，没有共用一个"take 是否失败"的判定函数。
 
 ---
 
@@ -80,18 +95,21 @@
 **触达生产文件数：10**（复核 `promoteStoryImageToCurrent` 实际调用点时，在最初调研基础上额外确认了 `server/routers/creationAgent.ts` 与 `server/services/directorAdvice.ts` 两个文件，均绕过 `imageAssets.ts`）
 
 **重复例子**
-1. **"候选图转正式"（promote to current）目前有 6 个独立调用点、分布在 5 个文件**（`server/routers/storyAgent.ts` 的 `recordSignal`、`server/routers/publishingDraft.ts` 的封面确认流程、`server/routers/creationAgent.ts` 的 3 处、`server/services/directorAdvice.ts` 1 处），全部直接调 `server/db.ts:promoteStoryImageToCurrent`、都不经过 `server/services/imageAssets.ts`。`publishingDraft.ts` 的确认流程还额外维护了 `writePublishingDraftState` 里 `cover.assetId` 这个第二份"哪张是官方封面"的真相源——一次操作要在两处（story 行的 `isCurrent` 列 + publishing draft JSON 的 `cover` 字段）分别写入才算完整转正。
-2. **"这是候选还是正式资产"被至少 4 个地方各自判断**：server 端权威口径是 `imageAssets.ts:projectImageAssets` 算出的 `assignment`/`status`/`isPrimary`；但 `StoryboardReviewBoard.tsx`（`kind === "candidate"`）、`CreationEditorContext.tsx`（`isCurrentMaterialImage`）、`imageAssetViewModel.ts`（`assetRank`）三个 client 文件各自用不同字段组合重新定义了一遍"候选 vs 正式"，彼此不共用同一个判定函数。
+1. ⚠️ **（复核后表述误导，见文末第 5 条：6 个调用点调的是同一个函数，逻辑只有一份）** **"候选图转正式"（promote to current）目前有 6 个独立调用点、分布在 5 个文件**（`server/routers/storyAgent.ts` 的 `recordSignal`、`server/routers/publishingDraft.ts` 的封面确认流程、`server/routers/creationAgent.ts` 的 3 处、`server/services/directorAdvice.ts` 1 处），全部直接调 `server/db.ts:promoteStoryImageToCurrent`、都不经过 `server/services/imageAssets.ts`。`publishingDraft.ts` 的确认流程还额外维护了 `writePublishingDraftState` 里 `cover.assetId` 这个第二份"哪张是官方封面"的真相源——一次操作要在两处（story 行的 `isCurrent` 列 + publishing draft JSON 的 `cover` 字段）分别写入才算完整转正。
+2. ❌ **（复核不成立，见文末第 6 条：实际 2 处且职责不同，另两处一个是排序权重、一个是本地 UI 标记）** ~~**"这是候选还是正式资产"被至少 4 个地方各自判断**~~：server 端权威口径是 `imageAssets.ts:projectImageAssets` 算出的 `assignment`/`status`/`isPrimary`；但 `StoryboardReviewBoard.tsx`（`kind === "candidate"`）、`CreationEditorContext.tsx`（`isCurrentMaterialImage`）、`imageAssetViewModel.ts`（`assetRank`）三个 client 文件各自用不同字段组合重新定义了一遍"候选 vs 正式"，彼此不共用同一个判定函数。
 
 ---
 
 ## 汇总
 
-| 代表性改动 | 触达生产文件数（基线） | 已确认的重复 writer/状态解释组数 |
-|---|---|---|
-| A. Story 文本字段 | 6 | 1 组重复 writer（title 三条路径）+ 1 组重复 DTO 重建 |
-| B. 生成状态 | 12 | 1 组重复"可恢复性"判断（3 处）+ 1 组重复"失败态"判断（5 处） |
-| C. 资产类型 | 10 | 1 组重复"转正"writer（6 个调用点）+ 1 组重复"候选/正式"判定（4 处） |
+> 下表"重复组数"一列是初版的判断，**其中五条已被 2026-08-15 复核推翻**，
+> 保留原文仅为留痕。以文末[复核一节](#重复判断复核2026-08-15)为准。
+
+| 代表性改动 | 触达生产文件数（基线，仍有效） | 初版声称的重复组 | 复核结论 |
+|---|---|---|---|
+| A. Story 文本字段 | 6 | title 三条写入路径 + DTO 重建两次 | 前者成立（已修，现两条）；后者不成立 |
+| B. 生成状态 | 12 | 可恢复性判断 3 处 + 失败态判断 5 处 | 两条均不成立 |
+| C. 资产类型 | 10 | 转正 writer 6 个调用点 + 候选/正式判定 4 处 | 前者表述误导（同一函数）；后者不成立 |
 
 U3/U4/U5/U8 完成后，用同一方法（只数生产文件、只数尚存的独立 writer/状态解释组）重新统计，目标是三类改动的触达文件数与重复组数都低于本表。
 
@@ -148,11 +166,29 @@ U7 执行期间发现、但**有意留给后续单元**的重复面。记在这�
   `ScopedRevision`（4 处）和 `scopeKeysEqual`（7 处）。
   需要时从 git 历史取回当时的实现，好过留在原地让后来者以为它已经在用。
 
-### D1. 两套并行的 scope 判定层（留给 U8 下一刀）
+### D1. ❌ 「两套并行的 scope 判定层」—— 复核后不成立，不要收敛
 
-`client/src/features/publishingDraft/publishingOperationScope.ts`（148 行，2026-08-15 随
+> **2026-08-15 更正**：这条和上面五条一样，是没有打开代码就下的结论。实际核对后
+> 两者是**不同机制**，不是同一件事的两套实现：
+>
+> - `scopeKeysEqual`（`shared/scopedResource.ts`）比的是**身份**：两个标识是不是
+>   指向同一个资源。只有 storyId / versionId / stableShotId 这类稳定 ID，没有 revision。
+> - `publishingOperationScopeMatches`（`publishingOperationScope.ts`）比的是**新鲜度**：
+>   我当初捕获这个快照之后，相关东西有没有变过。它的 `PublishingOperationScope` 里带了
+>   **六个 revision 计数器**（container / version / core / draft / intent / context），
+>   属于乐观并发的失效检测。
+>
+> 一个问"是不是同一个东西"，一个问"我手上的还新不新"。合并会把后者的六维失效检测
+> 压成前者的身份比较，直接丢掉并发保护。**保持两套，不要二选一。**
+>
+> 附带说明：当初决定"先只记录、不动它"是对的，但理由记错了——真正的理由不是
+> "别人的代码刚合入不便动"，而是**它本来就不该被合并**。
+
+以下为初版原文，保留留痕：
+
+~~`client/src/features/publishingDraft/publishingOperationScope.ts`（148 行，2026-08-15 随
 publishing 生命周期收敛一起合入）与 U2 的 `shared/scopedResource.ts` 是**同一件事的两套
-实现**：
+实现**~~：
 
 | 概念 | `shared/scopedResource.ts`（U2） | `publishingOperationScope.ts`（后合入） |
 |---|---|---|
@@ -160,8 +196,8 @@ publishing 生命周期收敛一起合入）与 U2 的 `shared/scopedResource.ts
 | 同一资源判定 | `scopeKeysEqual` | `publishingOperationScopeMatches` |
 | 版本身份 | `publishingVersionScopeKey`（在 publishingDraft.ts） | `publishingVersionTransitionIdentity` / `publishingSimpleVersionIdentity` |
 
-两者互不引用。**本轮没有动它**：它是刚合入、带完整测试的功能代码，在别人成果还没稳定
-时做收敛手术风险高于收益。U8 做 seam 收敛时应当二选一，删掉另一套。
+~~两者互不引用。本轮没有动它……U8 做 seam 收敛时应当二选一，删掉另一套。~~
+（上述结论已作废，见本节开头的更正。）
 
 ### D2. 已在 U7 关闭的项
 
@@ -184,3 +220,103 @@ publishing 生命周期收敛一起合入）与 U2 的 `shared/scopedResource.ts
   100+ 个调用点；U2 为此预留的 `deriveClientCacheScopeKey` 因此在 U7 删除。
   相关放大风险（U8 处理）：`reference.list` 只按 `projectId` 过滤、不校验 `userId`，
   所以一份过期的 `project.list` 缓存可能把新会话无权访问的 projectId 喂进去。
+
+---
+
+## 重复判断复核（2026-08-15）
+
+初版列了六条"重复例子"，另有 U7 补记的 D1 一条。**逐条打开代码核对后，
+七条里只有第 1 条成立。**下面每条都附了可自行复验的判据（D1 的复核写在 D1 那一节）。
+
+### ✅ 1. A 类：Story 标题曾有三条独立写入路径 —— 成立，已修复
+
+`storyUpsert`（经 CAS）、`storyRename`（直调 `updateStoryTitle`）、
+`storyAutoRename`（直调 `updateStoryTitleIfUntitled`）。后两个函数只差
+"标题是否占位名"一个谓词，却各自复制了所有权校验、内存/数据库双分支和返回值
+语义。**已在 U8 第一刀合并为 `writeStoryTitle({ ..., onlyIfUntitled })`**，
+三条路径变两条。
+
+### ❌ 2. A 类："DTO 重组两次" —— 不成立
+
+初版称 `composeStoryWorkspace`（server）与 `CreationEditorContext` 的
+`stories`/`activeStory` useMemo 重复组装同一个 DTO。实际上：
+
+- `composeStoryWorkspace`（`server/routers/_storyShared.ts`）做的是**投影**：
+  拉取图片资产、按 `kind`/`assignment`/`isPrimary`/`availability` 层层过滤，
+  派生出 `mobileImages` 等字段。
+- client 那两个 useMemo 只是从**另外两个 query**（`storyListQuery`、
+  `storyQuery`）里各取 `{ id, title, logline }` 三个字段做视图模型收窄。
+
+不同数据源、不同产出、不同职责。这是"服务端投影 + 客户端视图模型"，不是同一
+个 DTO 拼两遍。**没有可收敛项。**
+
+### ❌ 3. B 类："封面可恢复性被判断了 3 次" —— 不成立
+
+- `shared/publishingDraft.ts:isRecoverablePublishingCoverGeneration` —— 权威判定。
+- `server/routers/publishingDraft.ts` 的 `recoveringAcceptedTask` ——
+  **直接调用**上面那个函数，再与 `matchingOperation`、pending 状态组合。
+  是复用后再组合，不是另写一套。
+- `client/.../PublishingDraftWorkspace.tsx:canUseCoverFallback` —— 问的是
+  **相反的情况**：它要求 `!persistedCoverGeneration.taskId`（没有 taskId），
+  而 `isRecoverable` 的前提恰恰是**有** taskId。两者是互补分支。
+
+**没有可收敛项。**
+
+### ❌ 4. B 类："视频失败态在 5 个文件里各自判断" —— 不成立，且合并有害
+
+五处都出现了 `status === "failed"`，但问的是五个不同问题：
+
+| 位置 | 实际在问 | 取值集合 |
+|---|---|---|
+| `startEndShotVideoWorkflow.ts` | 这条 take 能不能作为复用候选 | failed / timeout / unfollowable |
+| `localMotionVideo.ts` | 这条 take 是否已到**终态** | available（成功！）/ failed |
+| `videoAssetViewModel.ts` | 该显示什么标签 | failed，再按错误信息细分 |
+| `views/Timeline.tsx` | 有没有失败 take 来解释"主图兜底" | failed |
+| `views/MaterialWarehousePanel.tsx` | 归到哪个素材状态桶 | failed / timeout |
+
+`localMotionVideo.ts` 那处把**成功**（available）和失败一起算作终态——它根本
+不是"是否失败"。抽一个共用的 `isTakeFailed()` 会把这些区分抹平。
+**不要合并。**
+
+### ❌ 5. C 类："转正有 6 个独立调用点各自维护" —— 表述误导
+
+6 个调用点是真的（`storyAgent.ts`、`publishingDraft.ts`、`creationAgent.ts` ×3、
+`directorAdvice.ts`），但它们**调用的是同一个函数**
+`server/db.ts:promoteStoryImageToCurrent`——"取消同镜头其它图的 isCurrent、
+把这张设为 current"的逻辑只有一份。初版把"调用点多"写成了"各自维护"。
+
+真正值得记的是它们都不经过 `server/services/imageAssets.ts`（权威投影层），
+这属于分层问题，不是逻辑重复。
+
+至于"封面转正要写两处才算数"：确有两个真相源（`generatedImages.isCurrent` 与
+publishing JSON 的 `cover.assetId`），但代码里**已经有补偿回滚**——
+`promoteStoryImageToCurrent` 失败时会把旧封面写回去
+（`server/routers/publishingDraft.ts` set_cover 回滚分支）。残留风险只剩
+"回滚本身也失败"这个窄窗口。要做到真原子需要跨 `generatedImages` 与 `stories`
+两张表的事务，属于对付费链路的大手术，**不建议顺手做**。
+
+### ❌ 6. C 类："候选还是正式被 4 个地方各自判断" —— 不成立
+
+- server `imageAssets.ts:projectImageAssets` —— 权威投影，算出
+  `assignment`/`status`/`isPrimary`。
+- `CreationEditorContext.tsx:isCurrentMaterialImage` —— 确实是一个基于上述字段
+  的**布尔谓词**，勉强算第二处解释。
+- `creationAgent/imageAssetViewModel.ts:assetRank` —— **排序权重**
+  （primary 0 / pending 1 / selected 2 / 其它 3），不是候选/正式的二分判断。
+- `StoryboardReviewBoard.tsx` 的 `kind === "candidate"` —— 是**本地 UI 标记**，
+  标记用户在预览控件里点中的是哪一类媒体，与服务端字段无关。
+
+实际是 2 处而非 4 处，且这 2 处职责不同（服务端投影 vs 客户端谓词）。
+
+---
+
+## 给后续单元的结论
+
+- **文件触达清单可以继续用**（A=6 / B=12 / C=10），那部分是照着代码数出来的。
+- **"重复例子"只剩第 1 条，且已修复**。不要再拿第 2~6 条、也不要拿 D1 当重构依据。
+  其中三条如果照做会造成实质损害：B 类失败态（合并会抹平五个不同问题）、
+  D1（合并会把六维失效检测压成身份比较，丢掉并发保护）、
+  C 类转正（"减少调用点"会诱导去动付费链路的两阶段写入，而那里已有补偿回滚）。
+- 真正剩下的、经核实的耦合面是**分层问题**而非逻辑重复：多处绕过
+  `imageAssets.ts` 直调 `server/db.ts`。要收敛就从这里入手，且应当先确认
+  收敛后行为不变，而不是以"减少调用点数量"为目标。
