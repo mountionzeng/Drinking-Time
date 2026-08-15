@@ -20,13 +20,15 @@
         "server/services/storyMaterials.test.ts",
         "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md",
         "server/db.storyRevision.test.ts",
-        "server/db.localPersistenceFailure.test.ts"
+        "server/db.localPersistenceFailure.test.ts",
+        "client/src/architecture-boundaries.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
         "不得使用 latest Story 作为写入回退。",
         "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。",
-        "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。"
+        "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。",
+        "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。"
       ],
       "dependencies": [],
       "replaces": [
@@ -36,6 +38,11 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U7：收窄跨 Story 缓存污染。shot.list 是唯一带 storyId 输入却被无参 invalidate() 的查询，4 个调用点（StoryAgentContext、CreationAgentContext、CreationPage、useAnalysisOrchestration）全部改为 invalidate({ storyId })；其中 3 处原本留着「按 storyId 后无差别失效（U5）」这类注释，把无参失效写成既定行为而非疏漏，因此改用会失败的静态守卫而不是再加一条注释。守卫按「先命中全部未收窄的 invalidate、再减去已核实不带 scope 输入的 5 个 procedure」实现，新增的带 scope 查询会直接让构建失败；已验证清空减法名单后确实能命中全部 5 个，且匹配器自身有断言锁定。同时修复跨身份缓存串数据：邀请码登录走 SPA 跳转、会话过期重定向也是 SPA，二者都不销毁 react-query 缓存，新身份首屏会读到上一身份缓存的 project.list/storyList/getProfile；改为在身份切换点清一次缓存（useAuth.refreshAfterIdentityChange）。"
+        },
         {
           "date": "2026-08-14",
           "kind": "fix",

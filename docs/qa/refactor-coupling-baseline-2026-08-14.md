@@ -94,3 +94,46 @@
 | C. 资产类型 | 10 | 1 组重复"转正"writer（6 个调用点）+ 1 组重复"候选/正式"判定（4 处） |
 
 U3/U4/U5/U8 完成后，用同一方法（只数生产文件、只数尚存的独立 writer/状态解释组）重新统计，目标是三类改动的触达文件数与重复组数都低于本表。
+
+---
+
+## D. 后续单元待收敛项（U7 补记，2026-08-15）
+
+U7 执行期间发现、但**有意留给后续单元**的重复面。记在这里是为了不让它们悄悄沉没。
+
+### D1. 两套并行的 scope 判定层（留给 U8）
+
+`client/src/features/publishingDraft/publishingOperationScope.ts`（148 行，2026-08-15 随
+publishing 生命周期收敛一起合入）与 U2 的 `shared/scopedResource.ts` 是**同一件事的两套
+实现**：
+
+| 概念 | `shared/scopedResource.ts`（U2） | `publishingOperationScope.ts`（后合入） |
+|---|---|---|
+| 资源身份 | `ScopeKey` 判别联合 | `PublishingOperationScope` |
+| 同一资源判定 | `scopeKeysEqual` | `publishingOperationScopeMatches` |
+| 版本身份 | `publishingVersionScopeKey`（在 publishingDraft.ts） | `publishingVersionTransitionIdentity` / `publishingSimpleVersionIdentity` |
+
+两者互不引用。**本轮没有动它**：它是刚合入、带完整测试的功能代码，在别人成果还没稳定
+时做收敛手术风险高于收益。U8 做 seam 收敛时应当二选一，删掉另一套。
+
+### D2. 已在 U7 关闭的项
+
+- **跨 Story 缓存污染**：`shot.list` 是唯一带 scope 输入却被无参 `invalidate()` 的查询，
+  4 个调用点（`StoryAgentContext`、`CreationAgentContext`、`CreationPage`、
+  `useAnalysisOrchestration`）已全部收窄为 `invalidate({ storyId })`，并由
+  `architecture-boundaries.test.ts` 的静态守卫防回归。其中 3 处原本还留着
+  `// 按 storyId 后无差别失效（U5）` 这类注释，把无参失效写成既定行为而非疏漏——
+  正因为它被当成设计写了下来，才更需要一个会失败的守卫而不是又一条注释。
+- **经核查不是缺陷、不要改的**：`storyAgent.storyList`、`emotionAnalysis.getProfile`、
+  `project.list`、`auth.me` 都不接收 scope 输入（每用户只有一条该查询），无参失效已经是
+  最精确的做法；`emotionAnalysis.listDailyLetters` 的 `limit` 是分页参数而非 scope。
+- **跨身份 query cache 串数据（U7 期间发现的真实缺陷，已修）**：最初以为"每条身份切换
+  路径都整页跳转所以不可能串"，深度审查证明这是错的。只有登出走
+  `window.location.href`；邀请码登录是 wouter SPA 跳转，会话过期后的重定向是
+  `<Redirect to="/login" />`，两者都不销毁 react-query 缓存。可复现序列：A 的会话过期 →
+  SPA 跳到登录页 → 以 B 登录 → B 的首屏读到 A 缓存的 `project.list`、`storyAgent.storyList`、
+  `emotionAnalysis.getProfile`（这些查询不带输入，key 与用户无关）。修法是在身份切换那
+  一个点清一次缓存（`useAuth.refreshAfterIdentityChange`），而不是把 `cacheUserId` 穿进
+  100+ 个调用点；U2 为此预留的 `deriveClientCacheScopeKey` 因此在 U7 删除。
+  相关放大风险（U8 处理）：`reference.list` 只按 `projectId` 过滤、不校验 `userId`，
+  所以一份过期的 `project.list` 缓存可能把新会话无权访问的 projectId 喂进去。

@@ -3,7 +3,6 @@ import {
   buildOwnerScope,
   bumpAggregateForProjection,
   commitResourceRevision,
-  deriveClientCacheScopeKey,
   hasResourceRevisionConflict,
   parseDomainCommand,
   parseScopeKey,
@@ -211,14 +210,6 @@ describe("buildOwnerScope — ownership", () => {
     expect(owned.ownerUserId).toBe(1);
     expect(owned.scope).not.toHaveProperty("userId");
     expect(owned.scope).toEqual({ resourceKind: "story", storyId: 7 });
-  });
-});
-
-describe("deriveClientCacheScopeKey — client cache is not authorization", () => {
-  it("attaches cacheUserId only for cache partitioning", () => {
-    const scope: ScopeKey = { resourceKind: "story", storyId: 7 };
-    const cacheScope = deriveClientCacheScopeKey(scope, 5);
-    expect(cacheScope).toEqual({ resourceKind: "story", storyId: 7, cacheUserId: 5 });
   });
 });
 
