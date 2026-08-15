@@ -18,19 +18,29 @@
       "evidence": [
         "server/routers.storyAgent.test.ts",
         "server/services/storyMaterials.test.ts",
-        "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md"
+        "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md",
+        "server/db.storyRevision.test.ts",
+        "server/db.localPersistenceFailure.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
         "不得使用 latest Story 作为写入回退。",
-        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。"
+        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。",
+        "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。"
       ],
       "dependencies": [],
       "replaces": [
         "legacy-project-scoped-shots"
       ],
-      "knownGaps": [],
+      "knownGaps": [
+        "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
+      ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "U3：server/db.ts 的 persistMemoryState/persistMemoryStateToDisk 不再吞掉写盘失败——改用 LocalPersistenceWriteError 向调用方传播（全部约 55 处本地模式写入口受益），同时保留串行队列在单次失败后仍能继续为后续写入服务。updateStoryBodyIfRevision 的内存分支额外加按字段 copy-on-write 回滚（仅回滚仍等于本次写入值的字段，避免覆盖并发写入者已经合法生效的字段——深度审查发现并修复了最初实现里「整行快照覆盖」会误删并发写入的 P0 缺陷，已加两条回归测试锁定）。回滚保护范围仅限这一个函数，其余 53 处写函数的范围限制记入 knownGaps。"
+        },
         {
           "date": "2026-06-13",
           "kind": "feature",
@@ -412,7 +422,9 @@
         "shared/publishingDraft.test.ts",
         "server/routers.publishingDraft.test.ts",
         "shared/scopedResource.test.ts",
-        "client/src/features/creationEditor/publishingHandoffScope.test.ts"
+        "client/src/features/creationEditor/publishingHandoffScope.test.ts",
+        "server/services/publishingPersistence.test.ts",
+        "server/services/storyBodyPersistence.test.ts"
       ],
       "invariants": [
         "V2 写入不得改变 V1。",
@@ -428,6 +440,11 @@
         "版本转换与本地 buffer 尚无原子握手，刷新和失败恢复的全链路证据不足。"
       ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "U3：publishing 写入唯一经过的 story body CAS 入口（updateStoryBodyIfRevision）现在对本地磁盘写失败有可观察、可传播的语义，writePublishingDraftState 的 try/catch 只转译 revision 冲突、原样透传磁盘失败，不再有静默丢更新的风险。version/platform 级 revision 校验（assertRevision）本身不受影响，本卡 knownGaps 未变。"
+        },
         {
           "date": "2026-08-14",
           "kind": "refactor",
