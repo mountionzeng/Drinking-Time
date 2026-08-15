@@ -117,6 +117,9 @@ process.env.LOCAL_PERSIST_PATH = path.join(
 // The router graph is intentionally large. Loading it in a 10s beforeAll hook made
 // this suite fail before any behavior ran on slower or contended machines.
 const { appRouter } = await import("./routers");
+// Project ownership is enforced on projectId-keyed procedures, so tests that
+// name a projectId must actually own one.
+const { seedProjectForTesting } = await import("./db");
 
 function createAuthContext(userId = 42): TrpcContext {
   return {
@@ -182,6 +185,7 @@ describe("storyAgent tRPC router", () => {
 
   it("wraps chat with the archive Story Agent response shape", async () => {
     const caller = appRouter.createCaller(createAuthContext());
+    seedProjectForTesting({ id: 7, userId: 42 });
 
     const result = await caller.storyAgent.chat({
       message: "今天晚上有点安静",
@@ -1047,6 +1051,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/storyboard-locked.png",
     });
     const caller = appRouter.createCaller(createAuthContext(396));
+    seedProjectForTesting({ id: 7396, userId: 396 });
     const story = await caller.storyAgent.storyUpsert({
       title: "故事版连续性故事",
       projectId: 7396,
@@ -1138,6 +1143,7 @@ describe("storyAgent tRPC router", () => {
   it("故事版图片可直接读取时，公网锚点失败也继续使用原图生成", async () => {
     imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
     const caller = appRouter.createCaller(createAuthContext(397));
+    seedProjectForTesting({ id: 7397, userId: 397 });
     const story = await caller.storyAgent.storyUpsert({
       title: "连续性保护故事",
       projectId: 7397,
@@ -1206,6 +1212,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/agent-anchor.png",
     });
     const caller = appRouter.createCaller(createAuthContext(395));
+    seedProjectForTesting({ id: 7395, userId: 395 });
 
     const story = await caller.storyAgent.storyUpsert({
       title: "对话设锚点故事",
@@ -1401,6 +1408,7 @@ describe("storyAgent tRPC router", () => {
 
   it("故事版原文改图必须先确认人民币费用，并原样送入最终提示词", async () => {
     const caller = appRouter.createCaller(createAuthContext(302));
+    seedProjectForTesting({ id: 7302, userId: 302 });
     const story = await caller.storyAgent.storyUpsert({
       title: "故事版原文改图",
       projectId: 7302,
@@ -2240,6 +2248,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/mobile-inpaint.png",
     });
     const caller = appRouter.createCaller(createAuthContext(303));
+    seedProjectForTesting({ id: 7303, userId: 303 });
 
     const story = await caller.storyAgent.storyUpsert({
       title: "手机修图故事",

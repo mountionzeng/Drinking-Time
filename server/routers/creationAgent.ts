@@ -16,6 +16,7 @@ import {
   SHOT_VIDEO_ASPECT_RATIO,
 } from "@shared/shotDirector";
 import { protectedProcedure, router } from "../_core/trpc";
+import { assertOptionalProjectOwner } from "./_projectAccess";
 import {
   assignStoryImageToShot as assignStoryImageToShotDb,
   createVideoTake,
@@ -312,6 +313,9 @@ export const creationAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // projectId 会被喂进 renderGate 去捞该项目的编辑偏好与聊天修正，是访问键
+      // 而不是标签；不校验归属就会把别人项目的文字带进本次出图提示词。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       // 故事来源改为传入的当前故事（U3），getStoryById 带 userId 验归属。
       // assets：图片资产层（codex 合并）按 projectId 取，与镜头(storyId)正交。
       const [story, assets] = await Promise.all([
@@ -1820,6 +1824,9 @@ export const creationAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // projectId 会被喂进 renderGate 去捞该项目的编辑偏好与聊天修正，是访问键
+      // 而不是标签；不校验归属就会把别人项目的文字带进本次出图提示词。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const [story, assets] = await Promise.all([
         getStoryById(input.storyId, ctx.user.id),
         getStoryImageAssets(input.storyId, ctx.user.id),
@@ -1876,6 +1883,10 @@ export const creationAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // getProjectImageAssets 内部已经 getProjectById 校验过归属，这里再显式挡一道：
+      // 让"收 projectId 的 procedure 必须自证归属"这条不变量在本文件里没有例外，
+      // 静态守卫也就不需要为它开豁免口子。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const assets = await getProjectImageAssets(input.projectId, ctx.user.id);
       if (!assets.some(asset => asset.id === input.imageId)) {
         return { success: false as const };
@@ -1912,6 +1923,9 @@ export const creationAgentRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // projectId 会被喂进 renderGate 去捞该项目的编辑偏好与聊天修正，是访问键
+      // 而不是标签；不校验归属就会把别人项目的文字带进本次出图提示词。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       const story = input.storyId
         ? await getStoryById(input.storyId, ctx.user.id)
         : null;
