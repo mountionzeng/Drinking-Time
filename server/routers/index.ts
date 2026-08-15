@@ -10,6 +10,7 @@ import {
   protectedProcedure,
   router,
 } from "../_core/trpc";
+import { assertProjectOwner } from "./_projectAccess";
 import { invokeLLM } from "../_core/llm";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -434,6 +435,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         const buffer = Buffer.from(input.fileBase64, "base64");
         const storageKey = `refs/${ctx.user.id}/${input.projectId}/${nanoid()}-${input.fileName}`;
         let fileKey = storageKey;
@@ -464,7 +466,8 @@ export const appRouter = router({
 
     list: protectedProcedure
       .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         return getProjectReferences(input.projectId);
       }),
 
@@ -496,6 +499,7 @@ export const appRouter = router({
     run: protectedProcedure
       .input(z.object({ projectId: z.number() }))
       .mutation(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         // Gather all references for the project
         const refs = await getProjectReferences(input.projectId);
         if (refs.length === 0) {
@@ -831,7 +835,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
     /** Get the latest analysis result for a project */
     get: protectedProcedure
       .input(z.object({ projectId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         return getProjectAnalysis(input.projectId);
       }),
   }),
@@ -1146,7 +1151,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
             .optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         try {
           const result = await saveSnapshot({
             projectId: input.projectId,
@@ -1169,7 +1175,8 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
           limit: z.number().min(1).max(20).optional().default(5),
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await assertProjectOwner(input.projectId, ctx.user.id);
         try {
           const annotations = await getRecentAnnotations(
             input.projectId,

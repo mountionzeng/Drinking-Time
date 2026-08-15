@@ -66,6 +66,44 @@
       ]
     },
     {
+      "id": "project-ownership",
+      "name": "项目归属与访问控制",
+      "status": "working",
+      "userValue": "别人拿到你的项目 id 也读不到你的素材、分析和批注，也写不进你的项目。",
+      "entryPoints": [
+        "server/routers/_projectAccess.ts"
+      ],
+      "owners": [
+        "server/routers/_projectAccess.ts",
+        "server/routers/index.ts",
+        "server/routers/storyAgent.ts",
+        "server/routers/creationAgent.ts",
+        "server/db.ts"
+      ],
+      "evidence": [
+        "server/routers.projectOwnership.test.ts",
+        "server/routers.ownershipBoundaries.test.ts",
+        "server/routers.project.test.ts"
+      ],
+      "invariants": [
+        "凡是把 projectId 当作访问键读写数据的 procedure，都必须先用 getProjectById(projectId, userId) 校验归属；protectedProcedure 只证明「登录了」，不证明「是你的」。",
+        "projectId 仅作标签、归属由 storyId 或写入行的 userId 保证的 procedure，必须在 routers.ownershipBoundaries.test.ts 的豁免名单里带理由登记，不得静默豁免。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "storyAgent.selectionEdit/classify/storyUpsert 与 index.saveBirthProfile 仍把 projectId 当标签用：传别人的 projectId 只会给自己的行打错标签，不构成越权读写，但数据完整性上仍是瑕疵，未收敛。豁免已在 routers.ownershipBoundaries.test.ts 逐条登记理由。",
+        "/api/images/:file 与 /local-images 静态挂载完全不鉴权（同文件里 /api/videos/:file 却做了鉴权+归属校验），靠文件名猜测难度兜底，属弱密钥 URL 而非访问控制。本轮范围外，另开条目处理。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "补齐项目级水平越权防护。projects 表有 userId，但 protectedProcedure 只验登录不验归属。第一批修了 6 个以 projectId 为访问键的 procedure：reference.list/upload、analysis.get/run、editContext.saveSnapshot/getRecentAnnotations——任何登录用户传别人的 projectId 就能读到其素材、分析、批注，或往其项目里写引用和快照。深度安全审查随后证明第一版并不完整：storyAgent.chat/mobileChat 把 projectId 传进 getRecentAnnotations、creationAgent.chat/generateNextImage/inpaint 传进 renderGate 的编辑偏好与聊天修正查询，这些底层读取只按 projectId 过滤——同一批数据经兄弟接口仍可跨账号读出，并进入攻击者的模型上下文/出图提示词。审查方用可复现探针实证了这条路径。已补齐这 5 个（外加 reassignImage 显式补一道），统一走 _projectAccess.ts 的 assertProjectOwner/assertOptionalProjectOwner。更严重的是第一版静态守卫的豁免名单把这 5 个错误地认证为「projectId 仅作标签」——一个把漏洞写成安全的守卫比没有守卫更糟，已删除并只保留 4 条经逐条追踪确认的豁免。测试：11 条拒绝/正向路径 + 3 条静态边界断言，全部用「去掉守卫必须失败」验证过；守卫改为 fail-closed，publicProcedure 收 projectId 一律违规、不可豁免，且要求校验调用真的带上 ctx.user.id（不再接受字符串出现即通过）。"
+        }
+      ]
+    },
+    {
       "id": "legacy-project-scoped-shots",
       "name": "历史项目级镜头归属",
       "status": "superseded",

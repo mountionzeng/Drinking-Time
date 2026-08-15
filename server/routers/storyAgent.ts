@@ -4,6 +4,7 @@ import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
 import { protectedProcedure, router } from "../_core/trpc";
+import { assertOptionalProjectOwner } from "./_projectAccess";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
 import {
@@ -303,6 +304,9 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
+      // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       return replyFromStoryAgent({
         message: input.message,
         history: input.history,
@@ -1499,6 +1503,9 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
+      // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       return replyFromStoryAgent({
         message: input.message,
         history: input.history,
