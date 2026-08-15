@@ -62,6 +62,8 @@ type StorySpineData = {
   isGeneratingScript: boolean;
   confirmedIntent: StoryIntent | null;
   pendingIntentDraft: StoryIntent | null;
+  /** Proposal id currently being committed into a publishing version. */
+  pendingIntentCommitProposalId: string | null;
   activeStoryId: number | null;
   visibleStoryPanels: StoryPanel[];
   saveStatus: StorySaveStatus;
@@ -136,6 +138,7 @@ type StorySpineActions = {
   setIsGeneratingScript: StorySpineSetter<boolean>;
   setConfirmedIntent: StorySpineSetter<StoryIntent | null>;
   setPendingIntentDraft: StorySpineSetter<StoryIntent | null>;
+  setPendingIntentCommitProposalId: StorySpineSetter<string | null>;
   setActiveStoryId: StorySpineSetter<number | null>;
   setVisibleStoryPanels: StorySpineSetter<StoryPanel[]>;
   toggleVisibleStoryPanel: (panelId: StoryPanel) => void;
@@ -189,6 +192,7 @@ function initialData(): StorySpineData {
     isGeneratingScript: false,
     confirmedIntent: null,
     pendingIntentDraft: null,
+    pendingIntentCommitProposalId: null,
     activeStoryId: null,
     visibleStoryPanels: [
       "materialWarehouse",
@@ -260,6 +264,7 @@ export const useStorySpine = create<StorySpineState>()(set => {
     setIsGeneratingScript: setField("isGeneratingScript"),
     setConfirmedIntent: setField("confirmedIntent"),
     setPendingIntentDraft: setField("pendingIntentDraft"),
+    setPendingIntentCommitProposalId: setField("pendingIntentCommitProposalId"),
     setActiveStoryId: setField("activeStoryId"),
     setVisibleStoryPanels: setField("visibleStoryPanels"),
     toggleVisibleStoryPanel: panelId =>
@@ -295,6 +300,7 @@ export const useStorySpine = create<StorySpineState>()(set => {
         replaced = true;
         return {
           ...replacement,
+          pendingIntentCommitProposalId: null,
           storyShots: ensureShotIdentities(replacement.storyShots),
           storyScopeEpoch: state.storyScopeEpoch + 1,
           lastArchiveSaveHash: "",

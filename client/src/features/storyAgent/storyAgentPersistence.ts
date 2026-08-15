@@ -256,6 +256,12 @@ export function reconcilePublishingBufferReceipt(
     receipt.sourceVersionId
   );
   if (!source) return { committed: true, buffers };
+  // A receipt only closes the short crash window after its server commit. A
+  // later local edit may happen to hash to the same content, but it belongs to
+  // the source version and must never be moved by an old receipt on reload.
+  if (source.updatedAt > receipt.committedAt) {
+    return { committed: true, conflict: "buffer_changed", buffers };
+  }
   if (!receipt.sourceBufferHash || publishingBufferContentHash(source.content) !== receipt.sourceBufferHash) {
     return { committed: true, conflict: "buffer_changed", buffers };
   }
@@ -266,6 +272,27 @@ export function reconcilePublishingBufferReceipt(
   let next = setPublishingBuffer(buffers, { ...source, versionId: receipt.versionId });
   next = removePublishingBuffer(next, source.storyId, source.platform, receipt.sourceVersionId);
   return { committed: true, buffers: next };
+}
+
+/**
+ * Replays committed server receipts against local buffers after a reload.
+ * A browser can crash after the server commits a carry operation but before
+ * React removes the source buffer; applying the receipt is idempotent and
+ * keeps that window from duplicating or hiding the draft.
+ */
+export function reconcilePublishingBuffersFromState(
+  buffers: PublishingDraftBufferMap,
+  publishing: PublishingDraftState
+): PublishingDraftBufferMap {
+  let next = buffers;
+  for (const receipt of Object.values(publishing.versionOperationReceipts ?? {})) {
+    if (!receipt || typeof receipt !== "object") continue;
+    next = reconcilePublishingBufferReceipt(
+      next,
+      receipt as PublishingVersionOperationReceipt
+    ).buffers;
+  }
+  return next;
 }
 
 export function persistPublishingBuffersSafely(

@@ -62,6 +62,7 @@ import {
   activeStoryIdFrom,
   hasLiveStoryWork,
   remapPublishingBuffers,
+  reconcilePublishingBuffersFromState,
   setPublishingBuffer as putPublishingBuffer,
   removePublishingBuffer,
 } from "./storyAgentPersistence";
@@ -460,8 +461,11 @@ interface StoryAgentContextValue {
   setConfirmedIntent: (intent: StoryIntent | null) => void;
   clearIntent: () => void;
   pendingIntentDraft: StoryIntent | null;
+  pendingIntentCommitProposalId: string | null;
   confirmPendingIntent: () => void;
   dismissPendingIntent: () => void;
+  beginPendingIntentCommit: (proposalId: string) => boolean;
+  finishPendingIntentCommit: (proposalId: string, committed: boolean) => void;
   confirmFictionStoryCards: () => void;
   sendMessage: (
     text: string,
@@ -556,6 +560,8 @@ type StoryAgentActionKey =
   | "clearIntent"
   | "confirmPendingIntent"
   | "dismissPendingIntent"
+  | "beginPendingIntentCommit"
+  | "finishPendingIntentCommit"
   | "confirmFictionStoryCards"
   | "sendMessage"
   | "reorderCards"
@@ -601,6 +607,8 @@ const storyAgentActionKeys = [
   "clearIntent",
   "confirmPendingIntent",
   "dismissPendingIntent",
+  "beginPendingIntentCommit",
+  "finishPendingIntentCommit",
   "confirmFictionStoryCards",
   "sendMessage",
   "reorderCards",
@@ -1070,6 +1078,9 @@ export function StoryAgentProvider({
   const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
   const confirmedIntent = useStorySpine(state => state.confirmedIntent);
   const pendingIntentDraft = useStorySpine(state => state.pendingIntentDraft);
+  const pendingIntentCommitProposalId = useStorySpine(
+    state => state.pendingIntentCommitProposalId
+  );
   const activeStoryId = useStorySpine(state => state.activeStoryId);
   const saveStatus = useStorySpine(state => state.saveStatus);
   const lastSavedAt = useStorySpine(state => state.lastSavedAt);
@@ -1187,8 +1198,14 @@ export function StoryAgentProvider({
     setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? "default");
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
-    setPublishing(normalizePublishingDraftState(persisted.publishing));
-    setPublishingBuffers(persisted.publishingBuffers ?? {});
+    const restoredPublishing = normalizePublishingDraftState(persisted.publishing);
+    setPublishing(restoredPublishing);
+    setPublishingBuffers(
+      reconcilePublishingBuffersFromState(
+        persisted.publishingBuffers ?? {},
+        restoredPublishing
+      )
+    );
     setConfirmedIntent(persisted.confirmedIntent ?? null);
     setPendingIntentDraft(null);
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
@@ -2888,7 +2905,10 @@ export function StoryAgentProvider({
             imageProvider: restoredImageProvider,
             artDirection: restoredArtDirection,
             publishing: restoredPublishing,
-            publishingBuffers: storySpineStore.getState().publishingBuffers,
+            publishingBuffers: reconcilePublishingBuffersFromState(
+              storySpineStore.getState().publishingBuffers,
+              restoredPublishing
+            ),
             confirmedIntent: restoredConfirmedIntent,
             pendingIntentDraft: null,
             activeStoryId: id,
@@ -3994,18 +4014,50 @@ export function StoryAgentProvider({
   }, []);
 
   const confirmPendingIntent = useCallback(() => {
+    if (pendingIntentCommitProposalId) return;
     if (pendingIntentDraft) {
       setConfirmedIntent(confirmIntentProposalDraft(pendingIntentDraft));
     }
     setPendingIntentDraft(null);
-  }, [pendingIntentDraft]);
+  }, [pendingIntentCommitProposalId, pendingIntentDraft]);
 
   const dismissPendingIntent = useCallback(() => {
+    if (pendingIntentCommitProposalId) return;
     if (pendingIntentDraft?.proposal?.id) {
       rejectedIntentProposalIdsRef.current.add(pendingIntentDraft.proposal.id);
     }
     setPendingIntentDraft(null);
-  }, [pendingIntentDraft, setPendingIntentDraft]);
+  }, [pendingIntentCommitProposalId, pendingIntentDraft, setPendingIntentDraft]);
+
+  const beginPendingIntentCommit = useCallback((proposalId: string) => {
+    const current = storySpineStore.getState();
+    if (
+      current.pendingIntentCommitProposalId ||
+      current.pendingIntentDraft?.proposal?.id !== proposalId
+    ) {
+      return false;
+    }
+    current.setPendingIntentCommitProposalId(proposalId);
+    return true;
+  }, []);
+
+  const finishPendingIntentCommit = useCallback(
+    (proposalId: string, committed: boolean) => {
+      const current = storySpineStore.getState();
+      if (current.pendingIntentCommitProposalId !== proposalId) return;
+      if (
+        committed &&
+        current.pendingIntentDraft?.proposal?.id === proposalId
+      ) {
+        current.setConfirmedIntent(
+          confirmIntentProposalDraft(current.pendingIntentDraft)
+        );
+        current.setPendingIntentDraft(null);
+      }
+      current.setPendingIntentCommitProposalId(null);
+    },
+    []
+  );
 
   const value = useMemo<StoryAgentContextValue>(
     () => ({
@@ -4027,8 +4079,11 @@ export function StoryAgentProvider({
       setConfirmedIntent,
       clearIntent,
       pendingIntentDraft,
+      pendingIntentCommitProposalId,
       confirmPendingIntent,
       dismissPendingIntent,
+      beginPendingIntentCommit,
+      finishPendingIntentCommit,
       confirmFictionStoryCards,
       sendMessage,
       reorderCards,
@@ -4092,8 +4147,11 @@ export function StoryAgentProvider({
       confirmedIntent,
       clearIntent,
       pendingIntentDraft,
+      pendingIntentCommitProposalId,
       confirmPendingIntent,
       dismissPendingIntent,
+      beginPendingIntentCommit,
+      finishPendingIntentCommit,
       confirmFictionStoryCards,
       sendMessage,
       reorderCards,
@@ -4150,6 +4208,8 @@ export function StoryAgentProvider({
     clearIntent,
     confirmPendingIntent,
     dismissPendingIntent,
+    beginPendingIntentCommit,
+    finishPendingIntentCommit,
     confirmFictionStoryCards,
     sendMessage,
     reorderCards,

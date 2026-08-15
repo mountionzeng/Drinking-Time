@@ -74,6 +74,8 @@ vi.mock("@/lib/trpc", () => {
         createVersion: { useMutation: mutation },
         selectVersion: { useMutation: mutation },
         renameVersion: { useMutation: mutation },
+        refreshPlatformContext: { useMutation: mutation },
+        selectPlatformContextTags: { useMutation: mutation },
         generateCover: { useMutation: mutation },
         adoptCoverCandidate: { useMutation: mutation },
         buildVideoStoryboard: {

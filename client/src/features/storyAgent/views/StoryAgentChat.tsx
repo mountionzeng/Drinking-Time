@@ -64,6 +64,14 @@ import {
 } from "../storyConversationStore";
 import { tokenizeChatMessageText } from "../chatMessageFormat";
 import type { StoryIntent } from "../intentTypes";
+import {
+  defaultPublishingNarrativeIntent,
+  hasPersistedPublishingVersion,
+} from "@shared/publishingDraft";
+import {
+  PublishingIntentProposalDialog,
+  publishingNarrativeIntentFromStoryIntent,
+} from "@/features/publishingDraft/PublishingIntentProposalDialog";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
   buildImportedMediaPrompt,
@@ -171,41 +179,6 @@ function materialAdviceLabel(verdict: MaterialAdvice["verdict"]): string {
   return "可以考虑";
 }
 
-function getPendingIntentCopy(intent: StoryIntent) {
-  switch (intent.purpose) {
-    case "personal_memory":
-      return {
-        body: "听起来你是想记录这段经历，留给自己回看，对吗？",
-        confirmLabel: "对，先记录下来",
-      };
-    case "gift":
-      return {
-        body: "听起来你是想把这段故事做成送给一位亲友的礼物，对吗？",
-        confirmLabel: "对，送给亲友",
-      };
-    case "social_post":
-      return {
-        body: "听起来你是想把这段故事整理成社交文案，对吗？",
-        confirmLabel: "对，发社交文案",
-      };
-    case "portfolio":
-      return {
-        body: "听起来你是想用真实经历介绍自己，让别人更懂你，对吗？",
-        confirmLabel: "对，介绍自己",
-      };
-    case "fiction":
-      return {
-        body: "听起来你是想创造一个虚构故事世界，对吗？",
-        confirmLabel: "对，创造另一个世界",
-      };
-    default:
-      return {
-        body: "听起来你是想做求职片，给招聘者看，对吗？",
-        confirmLabel: "对，按求职片来",
-      };
-  }
-}
-
 function intentLabel(intent: StoryIntent | null): string {
   if (!intent) return "未定意图";
   if (intent.purpose === "fiction") return "虚构故事";
@@ -222,9 +195,11 @@ function intentLabel(intent: StoryIntent | null): string {
 export default function StoryAgentChat({
   showHeader = true,
   interactionMode = "story",
+  onOpenPublishingWorkspace,
 }: {
   showHeader?: boolean;
   interactionMode?: "story" | "publishing";
+  onOpenPublishingWorkspace?: () => void;
 }) {
   const {
     messages,
@@ -240,6 +215,8 @@ export default function StoryAgentChat({
     returningGreeting,
     confirmedIntent,
     pendingIntentDraft,
+    pendingIntentCommitProposalId,
+    publishing,
     activeSelection,
   } = useStoryAgentChatSlice();
   const {
@@ -318,6 +295,9 @@ export default function StoryAgentChat({
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [closedIntentProposalId, setClosedIntentProposalId] = useState<
+    string | null
+  >(null);
   const [materialAdvices, setMaterialAdvices] = useState<MaterialAdvice[]>([]);
   const [applyingAdviceImageId, setApplyingAdviceImageId] = useState<
     number | null
@@ -328,10 +308,24 @@ export default function StoryAgentChat({
   const draftStoryIdRef = useRef<number | null>(null);
   const pendingMediaRef = useRef<PendingChatMedia[]>([]);
   const dragDepthRef = useRef(0);
-  const pendingIntentCopy = pendingIntentDraft
-    ? getPendingIntentCopy(pendingIntentDraft)
-    : null;
   const currentIntent = confirmedIntent ?? pendingIntentDraft;
+  const currentNarrativeIntent = confirmedIntent
+    ? publishingNarrativeIntentFromStoryIntent(
+        confirmedIntent,
+        defaultPublishingNarrativeIntent(),
+        0
+      )
+    : defaultPublishingNarrativeIntent(0);
+  const proposedNarrativeIntent = pendingIntentDraft
+    ? publishingNarrativeIntentFromStoryIntent(
+        pendingIntentDraft,
+        currentNarrativeIntent,
+        0
+      )
+    : null;
+  const hasPublishingVersion = Boolean(
+    publishing && hasPersistedPublishingVersion(publishing)
+  );
   const storyDisplayTitle =
     storyTitle?.trim() ||
     (remoteStoryId || (activeStoryId && activeStoryId > 0)
@@ -490,6 +484,12 @@ export default function StoryAgentChat({
   useEffect(() => {
     pendingMediaRef.current = pendingMedia;
   }, [pendingMedia]);
+
+  useEffect(() => {
+    if (pendingIntentDraft?.proposal?.id !== closedIntentProposalId) {
+      setClosedIntentProposalId(null);
+    }
+  }, [closedIntentProposalId, pendingIntentDraft?.proposal?.id]);
 
   useEffect(
     () => () => {
@@ -1308,57 +1308,50 @@ export default function StoryAgentChat({
         {showCapabilityMenu && <StoryCapabilityMenu />}
         {showJobIntake && <StoryJobIntakePrompt />}
 
-        {pendingIntentDraft && !isReplying && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex justify-start"
-          >
-            <div
-              className="max-w-[85%] rounded-2xl rounded-tl-sm border px-3 py-2.5 text-[12.5px] leading-relaxed"
-              style={{
-                background: "var(--nayin-glow)",
-                borderColor: "var(--nayin-accent-dim)",
-                color: "var(--foreground)",
+        {interactionMode === "story" &&
+        pendingIntentDraft &&
+        proposedNarrativeIntent &&
+        !isReplying ? (
+          <>
+            <PublishingIntentProposalDialog
+              presentation="inline"
+              open={closedIntentProposalId !== pendingIntentDraft.proposal?.id}
+              current={currentNarrativeIntent}
+              proposed={proposedNarrativeIntent}
+              evidence={pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence}
+              hasPublishingVersion={hasPublishingVersion}
+              busy={
+                pendingIntentCommitProposalId ===
+                pendingIntentDraft.proposal?.id
+              }
+              acceptLabel={hasPublishingVersion ? "到发布工作区确认新版本" : undefined}
+              onOpenChange={open => {
+                if (!open && pendingIntentDraft.proposal?.id) {
+                  setClosedIntentProposalId(pendingIntentDraft.proposal.id);
+                }
               }}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <EmotiveWuxingIcon
-                  element={element}
-                  size={26}
-                  mood="thinking"
-                />
-                <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-muted-foreground opacity-80">
-                  聊聊
-                </span>
-              </div>
-              <p className="whitespace-pre-wrap">{pendingIntentCopy?.body}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={confirmPendingIntent}
-                  className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-opacity hover:opacity-90"
-                  style={{
-                    background: "var(--nayin-accent)",
-                    color: "var(--background)",
-                  }}
-                >
-                  <Check className="h-3 w-3" />
-                  {pendingIntentCopy?.confirmLabel}
-                </button>
-                <button
-                  type="button"
-                  onClick={dismissPendingIntent}
-                  className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                  style={{ borderColor: "var(--panel-border)" }}
-                >
-                  <X className="h-3 w-3" />
-                  先不，继续聊
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
+              onAccept={() => {
+                if (hasPublishingVersion) {
+                  if (onOpenPublishingWorkspace) onOpenPublishingWorkspace();
+                  else toast.info("请到发布工作区确认并创建新版本");
+                  return;
+                }
+                confirmPendingIntent();
+              }}
+              onReject={dismissPendingIntent}
+            />
+            {closedIntentProposalId === pendingIntentDraft.proposal?.id ? (
+              <button
+                type="button"
+                onClick={() => setClosedIntentProposalId(null)}
+                className="self-start rounded-md border px-2.5 py-1.5 text-[11px] text-[var(--nayin-accent)] hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                style={{ borderColor: "var(--nayin-accent-dim)" }}
+              >
+                查看用途或观众变化建议
+              </button>
+            ) : null}
+          </>
+        ) : null}
 
         {/* 第二步：老用户点回旧故事时，聊聊「我还记得上次……」的再问候。
             轻染色背景 + 「接着上次聊」分隔线，读起来是「聊聊此刻刚说的」，区别于上面恢复的历史。

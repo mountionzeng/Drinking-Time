@@ -28,6 +28,10 @@ describe("storyAgent publishing persistence", () => {
     expect(reconcilePublishingBufferReceipt(edited, { ...baseReceipt, bufferDisposition: "carry" })).toMatchObject({
       conflict: "buffer_changed", buffers: edited,
     });
+    const laterSameContent = setPublishingBuffer(buffers, { ...source, updatedAt: 3 });
+    expect(reconcilePublishingBufferReceipt(laterSameContent, { ...baseReceipt, bufferDisposition: "carry" })).toMatchObject({
+      conflict: "buffer_changed", buffers: laterSameContent,
+    });
     const withTarget = setPublishingBuffer(buffers, { ...source, versionId: "v2", content: { ...source.content, body: "existing v2" } });
     expect(reconcilePublishingBufferReceipt(withTarget, { ...baseReceipt, bufferDisposition: "carry" })).toMatchObject({
       conflict: "target_buffer_exists", buffers: withTarget,

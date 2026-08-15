@@ -317,6 +317,16 @@
         {
           "date": "2026-08-15",
           "kind": "fix",
+          "summary": "审查修复：版本重命名失败会保留编辑框；历史 carry receipt 只可恢复提交时的同一草稿，不能移动之后重新编辑的同内容 buffer。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 将版本栏、意图提案、dirty 草稿处置和小红书/抖音语境入口接入同一工作区；实时趋势仍显式按用户操作触发，provider 失败不替换旧标签。真实 main:3000 全链路尚未验收，因此保持 observing。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
           "summary": "统一首次生成、转换、改写和格式修复的版本作用域与字段策略；增加 pending/completed/failed 持久文字操作回执、完成重放、已有目标候选保护、人工标题保留和本地格式修复入口。真实交互仍待 U6/U9 验收，因此保持 observing。"
         },
         {
@@ -420,11 +430,21 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "renameVersion 后端操作缺少真实 UI 入口。",
-        "底层 committed receipt 与本地 buffer 恢复握手已建立，但真实工作区尚未接入 dirty 三选、冲突恢复和 reload 验收。",
+        "版本重命名已有工作区入口，但真实 main:3000 交互与失败重试仍待验收。",
+        "底层 committed receipt 与本地 buffer 恢复握手已接入 hydrate/loadStory；版本切换带草稿仍是 server select 与 local buffer 两步，尚无跨端原子提交。",
         "版本转换 CAS 冲突目前仍由调用方重新读取最新 projection，统一冲突响应将在工作区作用域接入时完成。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "审查修复：用途提案提交期间以共享 proposal lock 禁用聊天 inline 与工作区 dialog 的接受/拒绝，迟到版本创建响应不能反向确认或清空另一条提案。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 增加可见版本重命名、稳定 token/hash 的切换与创建、dirty 草稿留在当前/带到目标/取消三选，并在刷新与云端加载时按 committed receipt 幂等恢复 carry buffer；仍保持 observing。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -481,11 +501,21 @@
       ],
       "replaces": [],
       "knownGaps": [
-        "共享 profile、proposal 与活动版本 snapshot 权威已建立，但聊天和发布工作区尚未接入同一套 proposal 接受/拒绝/切版交互。",
+        "共享 profile、proposal 与活动版本 snapshot 权威已建立，聊天与发布工作区已复用同一提案组件；确认后的多状态持久化仍缺真实 main:3000 全链路验收。",
         "切换用途与受众后的命名、dirty buffer 选择、生成状态和刷新恢复仍缺真实 UI 全链路验收。",
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "审查修复：平台热点刷新和标签保存按请求编号释放 busy 状态，旧版本的迟到请求不能解除新版本请求的互斥。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 让聊天端使用 inline、发布工作区使用 dialog，但共享同一意图提案对比与接受/拒绝语义；接受发布用途变化时写入新版本，proposal 的展示时间保持稳定，提交时才生成更新时间。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
