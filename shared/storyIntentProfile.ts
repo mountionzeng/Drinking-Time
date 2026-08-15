@@ -184,6 +184,125 @@ export function storyIntentProfileFromLegacy(
   };
 }
 
+export function normalizeIntentProposal(value: unknown): IntentProposal | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const proposal = value as Record<string, unknown>;
+  const source = proposal.source;
+  const changes = proposal.changes;
+  if (
+    typeof proposal.id !== "string" ||
+    !proposal.id.trim() ||
+    !["pending", "rejected", "superseded", "accepted"].includes(
+      String(proposal.status)
+    ) ||
+    !source ||
+    typeof source !== "object" ||
+    Array.isArray(source) ||
+    !changes ||
+    typeof changes !== "object" ||
+    Array.isArray(changes) ||
+    !Array.isArray(proposal.evidence) ||
+    !proposal.evidence.every(item => typeof item === "string") ||
+    typeof proposal.createdAt !== "number" ||
+    !Number.isFinite(proposal.createdAt) ||
+    proposal.createdAt < 0 ||
+    (proposal.resolvedAt !== undefined &&
+      (typeof proposal.resolvedAt !== "number" ||
+        !Number.isFinite(proposal.resolvedAt) ||
+        proposal.resolvedAt < 0))
+  ) {
+    return null;
+  }
+
+  const sourceRecord = source as Record<string, unknown>;
+  if (
+    ![
+      "recognition",
+      "legacy_pre_version",
+      "legacy_confirmed_intent",
+      "legacy_opening_intent",
+    ].includes(String(sourceRecord.kind)) ||
+    typeof sourceRecord.storyId !== "number" ||
+    !Number.isInteger(sourceRecord.storyId) ||
+    sourceRecord.storyId < 0 ||
+    !(
+      sourceRecord.versionId === null ||
+      (typeof sourceRecord.versionId === "string" &&
+        sourceRecord.versionId.trim().length > 0)
+    ) ||
+    typeof sourceRecord.intentRevision !== "number" ||
+    !Number.isInteger(sourceRecord.intentRevision) ||
+    sourceRecord.intentRevision < 0
+  ) {
+    return null;
+  }
+
+  const changesRecord = changes as Record<string, unknown>;
+  const allowedChangeKeys = new Set([
+    "primaryPurpose",
+    "secondaryPurposes",
+    "coreAudience",
+    "secondaryAudiences",
+    "channel",
+    "expression",
+  ]);
+  if (
+    Object.keys(changesRecord).length === 0 ||
+    Object.keys(changesRecord).some(key => !allowedChangeKeys.has(key)) ||
+    (changesRecord.primaryPurpose !== undefined &&
+      !(
+        typeof changesRecord.primaryPurpose === "string" &&
+        (STORY_INTENT_PURPOSES as readonly string[]).includes(
+          changesRecord.primaryPurpose
+        )
+      )) ||
+    (changesRecord.secondaryPurposes !== undefined &&
+      !(
+        Array.isArray(changesRecord.secondaryPurposes) &&
+        changesRecord.secondaryPurposes.every(
+          item =>
+            typeof item === "string" &&
+            (STORY_INTENT_PURPOSES as readonly string[]).includes(item)
+        )
+      )) ||
+    (changesRecord.coreAudience !== undefined &&
+      typeof changesRecord.coreAudience !== "string") ||
+    (changesRecord.secondaryAudiences !== undefined &&
+      !(
+        Array.isArray(changesRecord.secondaryAudiences) &&
+        changesRecord.secondaryAudiences.every(item => typeof item === "string")
+      )) ||
+    (changesRecord.channel !== undefined &&
+      typeof changesRecord.channel !== "string")
+  ) {
+    return null;
+  }
+
+  if (changesRecord.expression !== undefined) {
+    if (
+      !changesRecord.expression ||
+      typeof changesRecord.expression !== "object" ||
+      Array.isArray(changesRecord.expression)
+    ) {
+      return null;
+    }
+    const expression = changesRecord.expression as Record<string, unknown>;
+    if (
+      Object.keys(expression).length === 0 ||
+      Object.keys(expression).some(
+        key => key !== "tone" && key !== "desiredEffect"
+      ) ||
+      (expression.tone !== undefined && typeof expression.tone !== "string") ||
+      (expression.desiredEffect !== undefined &&
+        typeof expression.desiredEffect !== "string")
+    ) {
+      return null;
+    }
+  }
+
+  return structuredClone(value) as IntentProposal;
+}
+
 export function storyIntentScopeRevision(value: unknown): number {
   const profile = storyIntentProfileFromLegacy(
     value && typeof value === "object" ? value as LegacyIntent : null,

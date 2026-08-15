@@ -6,13 +6,10 @@ import {
   Clipboard,
   Download,
   FilePenLine,
-  GitBranch,
   Image as ImageIcon,
   ImagePlus,
   Loader2,
   MessageCircleMore,
-  Pencil,
-  Plus,
   RefreshCcw,
   Sparkles,
   Undo2,
@@ -34,14 +31,17 @@ import {
 } from "@/features/storyAgent/StoryAgentContext";
 import { useStoryAgentChatSlice } from "@/features/storyAgent/spine/selectors";
 import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
+import { getPublishingBuffer } from "@/features/storyAgent/storyAgentPersistence";
 import { trpc } from "@/lib/trpc";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
   PUBLISHING_NARRATIVE_PURPOSES,
+  computePublishingTextOperationRequestHash,
   defaultPublishingNarrativeIntent,
   getPublishingContentError,
   getXThreadStats,
+  hasPersistedPublishingVersion,
   type PublishingDraftContent,
   type PublishingEditAssessment,
   type PublishingCoverArtReference,
@@ -50,8 +50,16 @@ import {
   type PublishingNarrativeIntent,
   type PublishingNarrativePurpose,
   type PublishingStoryCoreContent,
+  type PublishingTextOperationKind,
+  type PublishingTextOperationScope,
   publishingNarrativePurposeLabel,
 } from "@shared/publishingDraft";
+import {
+  PUBLISHING_TREND_PLATFORM_IDS,
+  emptyPublishingPlatformContextState,
+  type PublishingPlatformContextSnapshot,
+  type PublishingTrendPlatformId,
+} from "@shared/publishingPlatformContext";
 import {
   estimatePublishingCoverCost,
   estimatePublishingCoverFallbackCost,
@@ -72,7 +80,36 @@ import {
   publishingConvertTargets,
   publishingErrorMessage,
   publishingStoryScopeMatches,
+  publishingTextOperationScope,
+  publishingTextOperationScopeMatches,
 } from "./publishingDraftViewModel";
+import { PublishingVersionControls } from "./PublishingVersionControls";
+import {
+  PublishingIntentProposalDialog,
+  publishingNarrativeIntentFromStoryIntent,
+} from "./PublishingIntentProposalDialog";
+import { PublishingTrendTagPicker } from "./PublishingTrendTagPicker";
+import {
+  publishingOperationScope,
+  publishingOperationScopeMatches,
+  publishingSimpleVersionIdentity,
+  publishingTrendWriteScope,
+  publishingVersionTransitionIdentity,
+} from "./publishingOperationScope";
+
+function createPublishingTextOperationIdentity(
+  kind: PublishingTextOperationKind,
+  scope: PublishingTextOperationScope,
+  payload: unknown
+) {
+  const nonce = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    operationToken: `${kind}-${nonce}`,
+    requestHash: computePublishingTextOperationRequestHash({ kind, scope, payload }),
+  };
+}
 
 type PendingEditDecision = {
   platform: PublishingPlatformId;
@@ -80,6 +117,23 @@ type PendingEditDecision = {
   baseDraftRevision: number;
   assessment: PublishingEditAssessment;
   proposedCore: PublishingStoryCoreContent | null;
+};
+
+type PendingVersionAction =
+  | { kind: "switch"; targetVersionId: string }
+  | {
+      kind: "create";
+      displayName?: string;
+      narrativeIntent?: PublishingNarrativeIntent;
+      acceptIntentProposal?: boolean;
+    };
+
+type ScopedPlatformSnapshot = {
+  storyId: number;
+  versionId: string;
+  platform: PublishingTrendPlatformId;
+  sourceRevision: number;
+  snapshot: PublishingPlatformContextSnapshot;
 };
 
 type PublishingCoverAssetView = {
@@ -225,7 +279,14 @@ export default function PublishingDraftWorkspace({
 }: {
   onContinueToVideo?: () => void;
 }) {
-  const { activeStoryId, publishing, publishingBuffers } = useStoryAgent();
+  const {
+    activeStoryId,
+    publishing,
+    publishingBuffers,
+    confirmedIntent,
+    pendingIntentDraft,
+    pendingIntentCommitProposalId,
+  } = useStoryAgent();
   const { storyTitle } = useStoryAgentChatSlice();
   const {
     setPublishing,
@@ -233,6 +294,10 @@ export default function PublishingDraftWorkspace({
     discardPublishingBuffer,
     ensureActiveStoryPersisted,
     loadStory,
+    confirmPendingIntent,
+    dismissPendingIntent,
+    beginPendingIntentCommit,
+    finishPendingIntentCommit,
   } = useStoryAgentActions();
   const selection = usePublishingPlatformSelection();
   const readQuery = trpc.publishingDraft.read.useQuery(
@@ -242,6 +307,7 @@ export default function PublishingDraftWorkspace({
   const generateMut = trpc.publishingDraft.generate.useMutation();
   const convertMut = trpc.publishingDraft.convert.useMutation();
   const rewriteMut = trpc.publishingDraft.rewrite.useMutation();
+  const repairFormattingMut = trpc.publishingDraft.repairFormatting.useMutation();
   const applyMut = trpc.publishingDraft.applyEdit.useMutation();
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
@@ -249,6 +315,10 @@ export default function PublishingDraftWorkspace({
   const createVersionMut = trpc.publishingDraft.createVersion.useMutation();
   const selectVersionMut = trpc.publishingDraft.selectVersion.useMutation();
   const renameVersionMut = trpc.publishingDraft.renameVersion.useMutation();
+  const refreshPlatformContextMut =
+    trpc.publishingDraft.refreshPlatformContext.useMutation();
+  const selectPlatformContextTagsMut =
+    trpc.publishingDraft.selectPlatformContextTags.useMutation();
   const generateCoverMut = trpc.publishingDraft.generateCover.useMutation();
   const adoptCoverMut = trpc.publishingDraft.adoptCoverCandidate.useMutation();
   const analyzeReferenceMut = trpc.artAgent.analyzeReference.useMutation();
@@ -291,12 +361,24 @@ export default function PublishingDraftWorkspace({
     useState<StoryScopedPublishingCover | null>(null);
   const [generatedCoverRounds, setGeneratedCoverRounds] =
     useState<StoryScopedPublishingCoverRounds | null>(null);
-  const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
-  const [newVersionName, setNewVersionName] = useState("");
+  const [pendingVersionAction, setPendingVersionAction] =
+    useState<PendingVersionAction | null>(null);
+  const [loadingVersionId, setLoadingVersionId] = useState<string | null>(null);
   const [intentEditorOpen, setIntentEditorOpen] = useState(false);
   const [intentDraft, setIntentDraft] = useState<PublishingNarrativeIntent>(
     () => defaultPublishingNarrativeIntent()
   );
+  const [closedIntentProposalId, setClosedIntentProposalId] = useState<
+    string | null
+  >(null);
+  const [platformSnapshot, setPlatformSnapshot] =
+    useState<ScopedPlatformSnapshot | null>(null);
+  const [platformContextBusy, setPlatformContextBusy] = useState<
+    { kind: "refresh" | "save"; requestId: number } | null
+  >(null);
+  const platformContextRequestRef = useRef(0);
+  const publishingStateRef = useRef(publishing);
+  publishingStateRef.current = publishing;
   const versionId = publishing.activeVersionId ?? "v1";
   coverReferenceAnalysisScopeRef.current = {
     storyId: activeStoryId,
@@ -320,7 +402,16 @@ export default function PublishingDraftWorkspace({
     videoBuildOperationRef.current = null;
     setGeneratedCover(null);
     setGeneratedCoverRounds(null);
+    setPlatformSnapshot(null);
+    platformContextRequestRef.current += 1;
+    setPlatformContextBusy(null);
   }, [activeStoryId, versionId]);
+
+  useEffect(() => {
+    if (pendingIntentDraft?.proposal?.id !== closedIntentProposalId) {
+      setClosedIntentProposalId(null);
+    }
+  }, [closedIntentProposalId, pendingIntentDraft?.proposal?.id]);
 
   useEffect(() => {
     const readData = readQuery.data;
@@ -348,9 +439,47 @@ export default function PublishingDraftWorkspace({
     null;
   const activeNarrativeIntent =
     activeVersion?.narrativeIntent ?? defaultPublishingNarrativeIntent();
+  const hasPublishingVersion = hasPersistedPublishingVersion(publishing);
+  const currentProposalIntent = confirmedIntent
+    ? publishingNarrativeIntentFromStoryIntent(
+        confirmedIntent,
+        activeNarrativeIntent,
+        activeNarrativeIntent.updatedAt
+      )
+    : activeNarrativeIntent;
+  const proposedNarrativeIntent = pendingIntentDraft
+    ? publishingNarrativeIntentFromStoryIntent(
+        pendingIntentDraft,
+        currentProposalIntent,
+        pendingIntentDraft.revision ?? currentProposalIntent.updatedAt
+      )
+    : null;
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
+  const trendPlatform = (PUBLISHING_TREND_PLATFORM_IDS as readonly string[])
+    .includes(platform)
+    ? platform as PublishingTrendPlatformId
+    : null;
+  const platformContext = trendPlatform
+    ? activeVersion?.platformContexts?.[trendPlatform] ??
+      emptyPublishingPlatformContextState(publishing.updatedAt)
+    : null;
+  const scopedPlatformSnapshot =
+    platformSnapshot &&
+    platformSnapshot.storyId === activeStoryId &&
+    platformSnapshot.versionId === versionId &&
+    platformSnapshot.platform === trendPlatform &&
+    platformSnapshot.sourceRevision === (draft?.revision ?? 0)
+      ? platformSnapshot.snapshot
+      : null;
+  const currentPlatformSnapshot = scopedPlatformSnapshot ??
+    (platformContext?.selectedSnapshotId
+      ? platformContext.snapshots.find(
+          snapshot => snapshot.snapshotId === platformContext.selectedSnapshotId
+        )
+      : platformContext?.snapshots.at(-1)) ??
+    null;
   const editorContent =
     activeStoryId == null
       ? null
@@ -374,6 +503,7 @@ export default function PublishingDraftWorkspace({
     generateMut.isPending ||
     convertMut.isPending ||
     rewriteMut.isPending ||
+    repairFormattingMut.isPending ||
     applyMut.isPending ||
     confirmWordingMut.isPending ||
     confirmCoreMut.isPending ||
@@ -451,10 +581,20 @@ export default function PublishingDraftWorkspace({
     try {
       const storyId = await ensureActiveStoryPersisted();
       if (publishing.core && sourcePlatform) {
+        const scope = publishingTextOperationScope({
+          storyId,
+          state: publishing,
+          platform,
+          sourcePlatform,
+        });
+        const payload = { sourcePlatform, targetPlatform: platform };
+        const identity = createPublishingTextOperationIdentity("convert", scope, payload);
         const result = await convertMut.mutateAsync({
           storyId,
           sourcePlatform,
           targetPlatform: platform,
+          scope,
+          ...identity,
         });
         if (
           !publishingStoryScopeMatches(
@@ -463,18 +603,39 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
+        if (!publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })) return;
         setPublishing(result.publishing);
+        if (result.status === "candidate") {
+          setPublishingBuffer(storyId, platform, result.content, versionId);
+        }
         toast.success(
-          result.status === "existing"
-            ? `${adapter.label}版本已经存在`
+          result.status === "candidate"
+            ? `${adapter.label}已有稿件，转换结果已放入编辑器等待应用`
             : `已转换为 ${adapter.label}`
         );
       } else {
+        const scope = publishingTextOperationScope({
+          storyId,
+          state: publishing,
+          platform,
+        });
+        const payload = {
+          activePlatform: platform,
+          selectedPlatforms: publishing.selectedPlatforms,
+        };
+        const identity = createPublishingTextOperationIdentity("generate", scope, payload);
         const result = await generateMut.mutateAsync({
           storyId,
           activePlatform: platform,
           selectedPlatforms: publishing.selectedPlatforms,
           basePublishingRevision: publishing.revision,
+          scope,
+          ...identity,
         });
         if (
           !publishingStoryScopeMatches(
@@ -483,6 +644,12 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
+        if (!publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })) return;
         setPublishing(result.publishing);
         toast.success(`${adapter.label}文字稿已生成`);
       }
@@ -500,10 +667,20 @@ export default function PublishingDraftWorkspace({
     if (activeStoryId == null || !draft || busy) return;
     try {
       const storyId = await ensureActiveStoryPersisted();
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform: targetPlatform,
+        sourcePlatform: platform,
+      });
+      const payload = { sourcePlatform: platform, targetPlatform };
+      const identity = createPublishingTextOperationIdentity("convert", scope, payload);
       const result = await convertMut.mutateAsync({
         storyId,
         sourcePlatform: platform,
         targetPlatform,
+        scope,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
@@ -512,10 +689,22 @@ export default function PublishingDraftWorkspace({
         )
       )
         return;
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, targetPlatform, versionId);
+      if (result.status === "candidate") {
+        setPublishingBuffer(storyId, targetPlatform, result.content, versionId);
+      } else {
+        discardPublishingBuffer(storyId, targetPlatform, versionId);
+      }
       toast.success(
-        `已转为 ${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}`
+        result.status === "candidate"
+          ? `${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}已有稿件，候选已放入编辑器`
+          : `已转为 ${PUBLISHING_PLATFORM_REGISTRY[targetPlatform].label}`
       );
     } catch (error) {
       toast.error(publishingErrorMessage(error, "平台转换失败，原稿没有变化"));
@@ -534,12 +723,24 @@ export default function PublishingDraftWorkspace({
     }
     const storyId = activeStoryId;
     try {
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform,
+      });
+      const payload = {
+        instruction: rewriteInstruction.trim(),
+        content: editorContent,
+      };
+      const identity = createPublishingTextOperationIdentity("rewrite", scope, payload);
       const result = await rewriteMut.mutateAsync({
         storyId,
         platform,
         instruction: rewriteInstruction.trim(),
         content: editorContent,
         baseDraftRevision: draft.revision,
+        scope,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
@@ -549,6 +750,12 @@ export default function PublishingDraftWorkspace({
       ) {
         return;
       }
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
       setPublishingBuffer(storyId, platform, result.content, versionId);
       setRewriteInstruction("");
       toast.success("改写预览已放进编辑器；看完后再决定是否应用");
@@ -556,6 +763,50 @@ export default function PublishingDraftWorkspace({
       toast.error(
         publishingErrorMessage(error, "文案改写失败，当前稿件没有变化")
       );
+    }
+  };
+
+  const repairFormatting = async () => {
+    if (!draft || !editorContent || activeStoryId == null || busy) return;
+    const storyId = activeStoryId;
+    try {
+      const scope = publishingTextOperationScope({
+        storyId,
+        state: publishing,
+        platform,
+      });
+      const payload = { content: editorContent };
+      const identity = createPublishingTextOperationIdentity(
+        "format_repair",
+        scope,
+        payload
+      );
+      const result = await repairFormattingMut.mutateAsync({
+        storyId,
+        platform,
+        content: editorContent,
+        baseDraftRevision: draft.revision,
+        scope,
+        ...identity,
+      });
+      if (!publishingStoryScopeMatches(
+        storyId,
+        storySpineStore.getState().activeStoryId
+      )) return;
+      if (!publishingTextOperationScopeMatches(result.operationScope, {
+        storyId,
+        state: publishingStateRef.current,
+        platform: result.operationScope.platform,
+        sourcePlatform: result.operationScope.sourcePlatform,
+      })) return;
+      replaceContent(result.content);
+      toast.success(
+        publishingContentEquals(result.content, editorContent)
+          ? "当前格式已经符合平台要求"
+          : "格式修复预览已放进编辑器；确认后再应用"
+      );
+    } catch (error) {
+      toast.error(publishingErrorMessage(error, "格式修复失败，当前内容没有变化"));
     }
   };
 
@@ -659,9 +910,8 @@ export default function PublishingDraftWorkspace({
       )
         return;
       setPublishing(result.publishing);
-      discardPublishingBuffer(storyId, pendingDecision.platform, versionId);
       setPendingDecision(null);
-      toast.success("故事内核已更新，其他平台已标记为建议复核");
+      toast.info("这次修改涉及故事内核，当前版本未被覆盖；请创建新版本继续，编辑内容已保留");
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "故事内核暂时没有更新，编辑内容仍在")
@@ -1089,12 +1339,39 @@ export default function PublishingDraftWorkspace({
     return latest;
   };
 
-  const performVersionSwitch = async (targetVersionId: string) => {
+  const performVersionSwitch = async (
+    targetVersionId: string,
+    carryContent?: PublishingDraftContent
+  ) => {
     if (activeStoryId == null || targetVersionId === versionId) return;
     const target = publishing.versions?.find(
       candidate => candidate.versionId === targetVersionId
     );
     if (!target) return;
+    if (carryContent) {
+      const targetBuffer = getPublishingBuffer(
+        publishingBuffers,
+        activeStoryId,
+        platform,
+        targetVersionId
+      );
+      if (
+        targetBuffer &&
+        !publishingContentEquals(targetBuffer.content, carryContent)
+      ) {
+        toast.error("目标版本已有另一份未应用修改；先到目标版本处理，当前修改仍保留");
+        return;
+      }
+    }
+    const identity = publishingSimpleVersionIdentity({
+      type: "select_version",
+      storyId: activeStoryId,
+      versionId: targetVersionId,
+      baseContainerRevision:
+        publishing.containerRevision ?? publishing.revision,
+      baseVersionRevision: target.versionRevision,
+    });
+    setLoadingVersionId(targetVersionId);
     try {
       const result = await selectVersionMut.mutateAsync({
         storyId: activeStoryId,
@@ -1102,128 +1379,231 @@ export default function PublishingDraftWorkspace({
         baseContainerRevision:
           publishing.containerRevision ?? publishing.revision,
         baseVersionRevision: target.versionRevision,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
           activeStoryId,
           storySpineStore.getState().activeStoryId
         )
-      )
+        )
         return;
       setPublishing(result.publishing);
+      if (carryContent) {
+        setPublishingBuffer(
+          activeStoryId,
+          platform,
+          carryContent,
+          targetVersionId
+        );
+        discardPublishingBuffer(activeStoryId, platform, versionId);
+      }
       await refreshPublishingRead(activeStoryId);
       setPendingDecision(null);
-      setPendingVersionId(null);
+      setPendingVersionAction(null);
       setRewriteInstruction("");
-      setPendingDecision(null);
       toast.success(`已切换到 ${target.displayName}`);
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "版本切换失败，当前版本仍然保留")
       );
+    } finally {
+      setLoadingVersionId(null);
     }
   };
 
   const requestVersionSwitch = (targetVersionId: string) => {
     if (targetVersionId === versionId || busy) return;
     if (dirty) {
-      setPendingVersionId(targetVersionId);
+      setPendingVersionAction({ kind: "switch", targetVersionId });
       return;
     }
     void performVersionSwitch(targetVersionId);
   };
 
-  const keepBufferAndSwitchVersion = () => {
-    if (!pendingVersionId) return;
-    void performVersionSwitch(pendingVersionId);
-  };
-
-  const applyBufferAndSwitchVersion = async () => {
-    if (
-      !pendingVersionId ||
-      !editorContent ||
-      !draft ||
-      activeStoryId == null
-    ) {
-      return;
-    }
-    try {
-      const result = await applyMut.mutateAsync({
-        storyId: activeStoryId,
-        platform,
-        content: editorContent,
-        baseDraftRevision: draft.revision,
-      });
-      if (result.status !== "applied") {
-        setPendingDecision({
-          platform,
-          content: editorContent,
-          baseDraftRevision: draft.revision,
-          assessment: result.assessment,
-          proposedCore: result.proposedCore,
-        });
-        toast.error("这次修改涉及故事内核，请先在当前版本确认它");
+  const performCreateVersion = async (input: {
+    displayName?: string;
+    narrativeIntent?: PublishingNarrativeIntent;
+    disposition: "leave" | "carry";
+    content: PublishingDraftContent;
+    acceptIntentProposal?: boolean;
+  }) => {
+    if (activeStoryId == null || !publishing.core || !draft || busy) return;
+    let acceptedProposalId: string | null = null;
+    if (input.acceptIntentProposal) {
+      const intentState = storySpineStore.getState();
+      const proposalId = intentState.pendingIntentDraft?.proposal?.id;
+      if (!proposalId) return;
+      if (
+        intentState.pendingIntentCommitProposalId !== proposalId &&
+        !beginPendingIntentCommit(proposalId)
+      ) {
         return;
       }
-      setPublishing(result.publishing);
-      discardPublishingBuffer(activeStoryId, platform, versionId);
-      await performVersionSwitch(pendingVersionId);
-    } catch (error) {
-      toast.error(
-        publishingErrorMessage(error, "修改没有保存，仍保留在当前版本")
-      );
+      acceptedProposalId = proposalId;
     }
-  };
-
-  const createVersion = async (narrativeIntent?: PublishingNarrativeIntent) => {
-    if (
-      activeStoryId == null ||
-      !publishing.core ||
-      !draft ||
-      !editorContent ||
-      dirty ||
-      busy
-    ) {
-      if (dirty) toast.error("请先应用或保留当前未应用修改，再创建新版本");
-      return;
-    }
-    const activeVersionRevision =
-      activeVersion?.versionRevision ?? publishing.revision;
+    const scope = publishingOperationScope({
+      storyId: activeStoryId,
+      publishing,
+      platform,
+    });
+    const core: PublishingStoryCoreContent = {
+      facts: [...publishing.core.facts],
+      thesis: publishing.core.thesis,
+      emotion: publishing.core.emotion,
+      voiceTraits: [...publishing.core.voiceTraits],
+      visualConcept: publishing.core.visualConcept,
+    };
+    const identity = publishingVersionTransitionIdentity({
+      scope,
+      core,
+      content: input.content,
+      narrativeIntent: input.narrativeIntent,
+      bufferDisposition: input.disposition,
+    });
     try {
       const result = await createVersionMut.mutateAsync({
         storyId: activeStoryId,
         platform,
-        core: publishing.core,
-        content: editorContent,
-        baseCoreRevision: publishing.core.revision,
+        core,
+        content: input.content,
+        baseCoreRevision: scope.coreRevision,
         baseDraftRevision: draft.revision,
-        baseVersionRevision: activeVersionRevision,
-        baseContainerRevision:
-          publishing.containerRevision ?? publishing.revision,
-        displayName: newVersionName.trim() || undefined,
-        narrativeIntent,
-        operationToken: `create-${versionId}-${Date.now()}`,
+        baseVersionRevision: scope.versionRevision,
+        baseContainerRevision: scope.containerRevision,
+        displayName: input.displayName,
+        narrativeIntent: input.narrativeIntent,
+        ...identity,
       });
       if (
         !publishingStoryScopeMatches(
           activeStoryId,
           storySpineStore.getState().activeStoryId
         )
-      )
+      ) {
         return;
+      }
       setPublishing(result.publishing);
+      const targetVersionId = result.publishing.activeVersionId;
+      if (input.disposition === "carry" && targetVersionId) {
+        setPublishingBuffer(
+          activeStoryId,
+          platform,
+          input.content,
+          targetVersionId
+        );
+        discardPublishingBuffer(activeStoryId, platform, versionId);
+      }
+      if (acceptedProposalId) {
+        finishPendingIntentCommit(acceptedProposalId, true);
+        acceptedProposalId = null;
+      }
       await refreshPublishingRead(activeStoryId);
-      setNewVersionName("");
+      setPendingVersionAction(null);
       toast.success(
-        narrativeIntent
+        input.narrativeIntent
           ? "已按新用途创建版本，旧版本仍完整保留"
           : "已创建新版本，其他平台保留原稿并标记为待更新"
       );
     } catch (error) {
       toast.error(
-        publishingErrorMessage(error, "新版本创建失败，当前版本没有变化")
+        publishingErrorMessage(error, "新版本创建失败，当前版本和未应用修改都还在")
       );
+    } finally {
+      if (acceptedProposalId) {
+        finishPendingIntentCommit(acceptedProposalId, false);
+      }
     }
+  };
+
+  const requestCreateVersion = (input: {
+    displayName?: string;
+    narrativeIntent?: PublishingNarrativeIntent;
+    acceptIntentProposal?: boolean;
+  } = {}) => {
+    if (
+      activeStoryId == null ||
+      !publishing.core ||
+      !draft ||
+      !editorContent ||
+      busy
+    ) {
+      if (input.acceptIntentProposal) {
+        const proposalId = storySpineStore.getState().pendingIntentDraft?.proposal?.id;
+        if (proposalId) finishPendingIntentCommit(proposalId, false);
+      }
+      return;
+    }
+    if (dirty) {
+      setPendingVersionAction({ kind: "create", ...input });
+      return;
+    }
+    void performCreateVersion({
+      ...input,
+      disposition: "leave",
+      content: draft.content,
+    });
+  };
+
+  const renameCurrentVersion = async (displayName: string) => {
+    if (activeStoryId == null || !activeVersion || busy) return;
+    const identity = publishingSimpleVersionIdentity({
+      type: "rename_version",
+      storyId: activeStoryId,
+      versionId: activeVersion.versionId,
+      displayName,
+      baseContainerRevision:
+        publishing.containerRevision ?? publishing.revision,
+      baseVersionRevision: activeVersion.versionRevision,
+    });
+    try {
+      const result = await renameVersionMut.mutateAsync({
+        storyId: activeStoryId,
+        versionId: activeVersion.versionId,
+        displayName,
+        baseContainerRevision:
+          publishing.containerRevision ?? publishing.revision,
+        baseVersionRevision: activeVersion.versionRevision,
+        ...identity,
+      });
+      if (!publishingStoryScopeMatches(
+        activeStoryId,
+        storySpineStore.getState().activeStoryId
+      )) return;
+      setPublishing(result.publishing);
+      toast.success("版本名称已修改");
+    } catch (error) {
+      toast.error(publishingErrorMessage(error, "版本名称没有修改"));
+      throw error;
+    }
+  };
+
+  const leaveBufferForPendingVersionAction = () => {
+    const action = pendingVersionAction;
+    if (!action || !draft) return;
+    if (action.kind === "switch") {
+      void performVersionSwitch(action.targetVersionId);
+      return;
+    }
+    void performCreateVersion({
+      ...action,
+      disposition: "leave",
+      content: draft.content,
+    });
+  };
+
+  const carryBufferForPendingVersionAction = () => {
+    const action = pendingVersionAction;
+    if (!action || !editorContent) return;
+    if (action.kind === "switch") {
+      void performVersionSwitch(action.targetVersionId, editorContent);
+      return;
+    }
+    void performCreateVersion({
+      ...action,
+      disposition: "carry",
+      content: editorContent,
+    });
   };
 
   const openIntentEditor = () => {
@@ -1241,7 +1621,7 @@ export default function PublishingDraftWorkspace({
       toast.error("请写下这版最优先给谁看");
       return;
     }
-    await createVersion({
+    const narrativeIntent = {
       ...intentDraft,
       coreAudience,
       secondaryAudiences: intentDraft.secondaryAudiences
@@ -1251,8 +1631,118 @@ export default function PublishingDraftWorkspace({
         .slice(0, 5),
       status: "confirmed",
       updatedAt: Date.now(),
-    });
+    } satisfies PublishingNarrativeIntent;
     setIntentEditorOpen(false);
+    requestCreateVersion({ narrativeIntent });
+  };
+
+  const acceptIntentProposal = () => {
+    if (!pendingIntentDraft || !proposedNarrativeIntent) return;
+    if (!hasPublishingVersion) {
+      confirmPendingIntent();
+      return;
+    }
+    const proposalId = pendingIntentDraft.proposal?.id;
+    if (!proposalId || !beginPendingIntentCommit(proposalId)) return;
+    requestCreateVersion({
+      narrativeIntent: {
+        ...proposedNarrativeIntent,
+        updatedAt: Date.now(),
+      },
+      acceptIntentProposal: true,
+    });
+  };
+
+  const refreshPlatformContext = async () => {
+    if (
+      activeStoryId == null ||
+      !trendPlatform ||
+      !draft ||
+      platformContextBusy
+    ) return;
+    const scope = publishingOperationScope({
+      storyId: activeStoryId,
+      publishing,
+      platform: trendPlatform,
+    });
+    const requestId = ++platformContextRequestRef.current;
+    setPlatformContextBusy({ kind: "refresh", requestId });
+    try {
+      const result = await refreshPlatformContextMut.mutateAsync({
+        storyId: activeStoryId,
+        ...publishingTrendWriteScope(scope),
+      });
+      if (!publishingOperationScopeMatches(scope, {
+        storyId: storySpineStore.getState().activeStoryId,
+        publishing: publishingStateRef.current,
+      })) return;
+      if (result.persisted) setPublishing(result.publishing);
+      setPlatformSnapshot({
+        storyId: activeStoryId,
+        versionId: scope.versionId,
+        platform: trendPlatform,
+        sourceRevision: scope.draftRevision,
+        snapshot: result.snapshot,
+      });
+      if (!result.persisted) {
+        toast.info("没有可验证的实时热点；上次已选标签仍保留");
+      }
+    } catch (error) {
+      if (publishingOperationScopeMatches(scope, {
+        storyId: storySpineStore.getState().activeStoryId,
+        publishing: publishingStateRef.current,
+      })) {
+        toast.error(publishingErrorMessage(error, "平台热点刷新失败，已选标签仍保留"));
+      }
+    } finally {
+      setPlatformContextBusy(current =>
+        current?.requestId === requestId ? null : current
+      );
+    }
+  };
+
+  const savePlatformContextTags = async (input: {
+    snapshotId: string | null;
+    candidateIds: string[];
+    contentTags: string[];
+  }) => {
+    if (
+      activeStoryId == null ||
+      !trendPlatform ||
+      !draft ||
+      platformContextBusy
+    ) return;
+    const scope = publishingOperationScope({
+      storyId: activeStoryId,
+      publishing,
+      platform: trendPlatform,
+    });
+    const requestId = ++platformContextRequestRef.current;
+    setPlatformContextBusy({ kind: "save", requestId });
+    try {
+      const result = await selectPlatformContextTagsMut.mutateAsync({
+        storyId: activeStoryId,
+        ...publishingTrendWriteScope(scope),
+        ...input,
+      });
+      if (!publishingOperationScopeMatches(scope, {
+        storyId: storySpineStore.getState().activeStoryId,
+        publishing: publishingStateRef.current,
+      })) return;
+      setPublishing(result.publishing);
+      toast.success("标签已保存到当前版本和平台");
+    } catch (error) {
+      if (publishingOperationScopeMatches(scope, {
+        storyId: storySpineStore.getState().activeStoryId,
+        publishing: publishingStateRef.current,
+      })) {
+        toast.error(publishingErrorMessage(error, "标签没有保存，当前选择仍在"));
+      }
+    } finally {
+      setPlatformContextBusy(current =>
+        current?.requestId === requestId ? null : current
+      );
+    }
   };
 
   const targetOptions = useMemo(
@@ -1301,69 +1791,33 @@ export default function PublishingDraftWorkspace({
             <h1 className="font-chat-brand mt-1 text-xl text-foreground">
               {storyTitle?.trim() || "未命名故事"}
             </h1>
-            <div
-              className="mt-3 flex flex-wrap items-center gap-2"
-              aria-label="故事发布版本"
-              data-testid="publishing-version-selector"
-            >
-              <GitBranch className="h-3.5 w-3.5 text-[var(--nayin-accent)]" />
-              <select
-                value={versionId}
-                onChange={event => requestVersionSwitch(event.target.value)}
-                disabled={busy || (publishing.versions?.length ?? 0) < 2}
-                className="h-8 rounded-md border bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/25 disabled:opacity-60"
-                style={{ borderColor: "var(--panel-border)" }}
-                aria-label="选择发布版本"
-              >
-                {(publishing.versions ?? []).map(version => (
-                  <option key={version.versionId} value={version.versionId}>
-                    {version.displayName}
-                  </option>
-                ))}
-              </select>
+            <PublishingVersionControls
+              versions={publishing.versions ?? []}
+              activeVersionId={versionId}
+              activeIntent={activeNarrativeIntent}
+              busy={busy}
+              loadingVersionId={loadingVersionId}
+              canCreate={Boolean(draft && publishing.core && editorContent)}
+              disabledReason={
+                !draft || !publishing.core || !editorContent
+                  ? "先生成并确认当前平台文字稿，再创建版本"
+                  : null
+              }
+              onSwitch={requestVersionSwitch}
+              onRename={renameCurrentVersion}
+              onCreate={displayName => requestCreateVersion({ displayName })}
+              onEditIntent={openIntentEditor}
+            />
+            {pendingIntentDraft?.proposal?.id &&
+            closedIntentProposalId === pendingIntentDraft.proposal.id ? (
               <button
                 type="button"
-                onClick={openIntentEditor}
-                disabled={busy || !draft || !publishing.core || dirty}
-                className="inline-flex h-8 max-w-[min(100%,19rem)] items-center gap-1.5 rounded-md border px-2 text-left text-[11px] text-foreground transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/25 disabled:cursor-not-allowed disabled:opacity-55"
-                style={{ borderColor: "var(--panel-border)" }}
-                aria-label="修改这版的用途和观众"
-                title="修改用途或观众会创建新版本，原版本不会改变"
+                onClick={() => setClosedIntentProposalId(null)}
+                className="mt-2 text-[11px] font-medium text-[var(--nayin-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
               >
-                <span className="truncate">
-                  {publishingNarrativePurposeLabel(
-                    activeNarrativeIntent.primaryPurpose
-                  )}
-                  {" · "}
-                  {activeNarrativeIntent.coreAudience}
-                  {activeNarrativeIntent.secondaryAudiences.length > 0
-                    ? ` / ${activeNarrativeIntent.secondaryAudiences.join("、")}`
-                    : ""}
-                </span>
-                <Pencil className="h-3 w-3 shrink-0 text-muted-foreground" />
+                有一条用途或观众变化建议，点击查看
               </button>
-              <input
-                value={newVersionName}
-                onChange={event => setNewVersionName(event.target.value)}
-                disabled={busy || !draft || !publishing.core || dirty}
-                placeholder={`V${Math.max(0, ...(publishing.versions ?? []).map(v => v.sequence)) + 1}`}
-                maxLength={80}
-                className="h-8 w-28 rounded-md border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-[var(--nayin-accent)]/25 disabled:opacity-60"
-                style={{ borderColor: "var(--panel-border)" }}
-                aria-label="新版本名称"
-              />
-              <ActionButton
-                onClick={() => void createVersion()}
-                disabled={busy || !draft || !publishing.core || dirty}
-              >
-                {createVersionMut.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Plus className="h-3.5 w-3.5" />
-                )}
-                新建版本
-              </ActionButton>
-            </div>
+            ) : null}
           </div>
           <p className="max-w-md text-right text-[11px] leading-5 text-muted-foreground">
             AI 帮你整理结构和措辞，但事实、判断与锋芒仍属于你。
@@ -1410,7 +1864,20 @@ export default function PublishingDraftWorkspace({
             )}
           </div>
 
-          {!draft || !editorContent ? (
+          {loadingVersionId ? (
+            <div
+              className="flex flex-1 items-center justify-center px-6 py-16 text-center"
+              aria-label="版本内容加载中"
+            >
+              <div>
+                <Loader2 className="mx-auto h-6 w-6 animate-spin text-[var(--nayin-accent)]" />
+                <p className="mt-3 text-sm text-foreground">正在读取目标版本</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  加载完成前不会拿上一版的文字、意图或来源占位。
+                </p>
+              </div>
+            </div>
+          ) : !draft || !editorContent ? (
             <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
               <div className="max-w-md">
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--nayin-glow)] text-[var(--nayin-accent)]">
@@ -1476,6 +1943,17 @@ export default function PublishingDraftWorkspace({
                 ) : null}
               </div>
 
+              {trendPlatform && platformContext ? (
+                <PublishingTrendTagPicker
+                  platform={trendPlatform}
+                  context={platformContext}
+                  snapshot={currentPlatformSnapshot}
+                  busy={platformContextBusy?.kind ?? null}
+                  onRefresh={() => void refreshPlatformContext()}
+                  onSave={input => void savePlatformContextTags(input)}
+                />
+              ) : null}
+
               <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 py-6 sm:px-10 sm:py-8">
                 <section
                   className="mb-7 border-b border-[var(--panel-border)] pb-5"
@@ -1530,6 +2008,17 @@ export default function PublishingDraftWorkspace({
                       placeholder="例如：太矫情了，改得克制直接一点，少用比喻，保留我的判断。"
                       className="min-h-[68px] flex-1 resize-y rounded-lg border border-[var(--panel-border)] bg-[var(--nayin-surface)]/45 px-3 py-2 text-xs leading-5 text-foreground outline-none focus:ring-2 focus:ring-[var(--nayin-accent)]/20 disabled:opacity-60"
                     />
+                    <ActionButton
+                      onClick={() => void repairFormatting()}
+                      disabled={busy}
+                    >
+                      {repairFormattingMut.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-4 w-4" />
+                      )}
+                      只修格式
+                    </ActionButton>
                     <ActionButton
                       onClick={() => void rewriteDraft()}
                       disabled={
@@ -1779,6 +2268,27 @@ export default function PublishingDraftWorkspace({
         </article>
       </div>
 
+      {pendingIntentDraft && proposedNarrativeIntent ? (
+        <PublishingIntentProposalDialog
+          open={closedIntentProposalId !== pendingIntentDraft.proposal?.id}
+          current={currentProposalIntent}
+          proposed={proposedNarrativeIntent}
+          evidence={pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence}
+          hasPublishingVersion={hasPublishingVersion}
+          busy={
+            busy ||
+            pendingIntentCommitProposalId === pendingIntentDraft.proposal?.id
+          }
+          onOpenChange={open => {
+            if (!open && pendingIntentDraft.proposal?.id) {
+              setClosedIntentProposalId(pendingIntentDraft.proposal.id);
+            }
+          }}
+          onAccept={acceptIntentProposal}
+          onReject={dismissPendingIntent}
+        />
+      ) : null}
+
       <Dialog open={intentEditorOpen} onOpenChange={setIntentEditorOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1906,37 +2416,39 @@ export default function PublishingDraftWorkspace({
       </Dialog>
 
       <Dialog
-        open={Boolean(pendingVersionId)}
-        onOpenChange={open => !open && setPendingVersionId(null)}
+        open={Boolean(pendingVersionAction)}
+        onOpenChange={open => !open && setPendingVersionAction(null)}
       >
         <DialogContent showCloseButton={!busy}>
           <DialogHeader>
             <DialogTitle>当前版本还有未应用修改</DialogTitle>
             <DialogDescription>
-              切换到其他版本前，选择如何处理这份修改。保留后它会留在当前版本，稍后可以回来继续应用。
+              {pendingVersionAction?.kind === "create"
+                ? "创建新版本前，决定这份修改留在当前版本，还是作为候选带到新版本。两种选择都不会静默覆盖已应用正文。"
+                : "切换版本前，决定这份修改留在当前版本，还是作为候选带到目标版本。目标版本已有另一份修改时会停止，不会覆盖。"}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <button
               type="button"
-              onClick={() => setPendingVersionId(null)}
+              onClick={() => setPendingVersionAction(null)}
               disabled={busy}
               className="h-9 rounded-md px-3 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
               取消
             </button>
-            <ActionButton onClick={keepBufferAndSwitchVersion} disabled={busy}>
-              保留稍后处理
+            <ActionButton
+              onClick={leaveBufferForPendingVersionAction}
+              disabled={busy}
+            >
+              留在当前版本
             </ActionButton>
             <ActionButton
-              onClick={() => void applyBufferAndSwitchVersion()}
-              disabled={busy || Boolean(contentError)}
+              onClick={carryBufferForPendingVersionAction}
+              disabled={busy}
               primary
             >
-              {applyMut.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : null}
-              应用并切换
+              带到{pendingVersionAction?.kind === "create" ? "新版本" : "目标版本"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>

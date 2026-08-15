@@ -412,6 +412,7 @@ function EditingStudioBody({
               <StoryAgentChat
                 showHeader={false}
                 interactionMode={interactionMode}
+                onOpenPublishingWorkspace={() => onWorkspaceChange("publishing")}
               />
             ) : (
               <StoryListView />

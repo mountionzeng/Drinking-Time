@@ -4,6 +4,9 @@ import {
   PUBLISHING_PLATFORM_IDS,
   PUBLISHING_PLATFORM_REGISTRY,
   applyPublishingWordingEdit,
+  computePublishingDraftContentHash,
+  computePublishingTextOperationRequestHash,
+  computePublishingVersionRequestHash,
   confirmPublishingCoreChange,
   emptyPublishingDraftState,
   getPublishingContentError,
@@ -11,6 +14,7 @@ import {
   numberXThreadPosts,
   normalizePublishingDraftState,
   normalizePublishingNarrativeIntent,
+  publishingDraftBufferKey,
   resolvePublishingIntentProfile,
   resolvePublishingActiveVersion,
   publishingVersionScopeKey,
@@ -131,7 +135,166 @@ describe("publishing platform registry", () => {
   });
 });
 
+describe("publishing version operation identity", () => {
+  it("uses stable 128-bit fingerprints and version-scoped buffer keys", () => {
+    const input = {
+      storyId: 7,
+      sourceVersionId: "v1",
+      platform: "x" as const,
+      baseContainerRevision: 2,
+      baseVersionRevision: 3,
+      baseCoreRevision: 4,
+      baseDraftRevision: 5,
+      core: core(),
+      content: content("draft"),
+      bufferDisposition: "carry" as const,
+      sourceBufferKey: publishingDraftBufferKey(7, "x", "v1"),
+      sourceBufferHash: computePublishingDraftContentHash(content("draft")),
+    };
+    expect(computePublishingVersionRequestHash(input)).toMatch(/^pv2-[a-f0-9]{32}$/);
+    expect(computePublishingVersionRequestHash({ ...input })).toBe(
+      computePublishingVersionRequestHash(input)
+    );
+    expect(computePublishingVersionRequestHash({ ...input, storyId: 8 })).not.toBe(
+      computePublishingVersionRequestHash(input)
+    );
+    expect(input.sourceBufferHash).toMatch(/^pb2-[a-f0-9]{32}$/);
+    expect(publishingDraftBufferKey(7, "x", "v2")).toBe("7:v2:x");
+  });
+
+  it("binds text operations to the complete immutable version scope", () => {
+    const scope = {
+      storyId: 7,
+      versionId: "v2",
+      platform: "x" as const,
+      sourcePlatform: "xiaohongshu" as const,
+      containerRevision: 3,
+      versionRevision: 4,
+      coreRevision: 2,
+      draftRevision: 0,
+      sourceDraftRevision: 5,
+      intentRevision: 6,
+      contextRevision: 0,
+    };
+    const first = computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope,
+      payload: { targetPlatform: "x" },
+    });
+    expect(first).toMatch(/^pto2-[a-f0-9]{32}$/);
+    expect(computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope: { ...scope },
+      payload: { targetPlatform: "x" },
+    })).toBe(first);
+    expect(computePublishingTextOperationRequestHash({
+      kind: "convert",
+      scope: { ...scope, sourceDraftRevision: 6 },
+      payload: { targetPlatform: "x" },
+    })).not.toBe(first);
+  });
+});
+
 describe("normalizePublishingDraftState", () => {
+  it("keeps version/platform context snapshots isolated in the canonical version", () => {
+    const state = normalizePublishingDraftState({
+      version: 1,
+      revision: 1,
+      activePlatform: "xiaohongshu",
+      selectedPlatforms: ["xiaohongshu"],
+      core: null,
+      drafts: {},
+      cover: null,
+      coverRounds: [],
+      updatedAt: 1,
+      activeVersionId: "v1",
+      versions: [{
+        versionId: "v1",
+        sequence: 1,
+        displayName: "V1",
+        parentId: null,
+        versionRevision: 1,
+        core: null,
+        drafts: {},
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        narrativeIntent: {},
+        platformContexts: {
+          xiaohongshu: {
+            revision: 2,
+            snapshots: [],
+            selectedSnapshotId: null,
+            selectedTags: ["AI 工具"],
+            updatedAt: 2,
+          },
+        },
+        cover: null,
+        coverRounds: [],
+        conversationSnapshot: null,
+      }],
+    }, 10);
+
+    expect(state.versions?.[0]?.platformContexts?.xiaohongshu).toMatchObject({
+      revision: 2,
+      selectedTags: ["AI 工具"],
+    });
+    expect(state.versions?.[0]?.platformContexts?.douyin_tiktok).toBeUndefined();
+  });
+
+  it("keeps only well-scoped committed version receipts", () => {
+    const version = (versionId: string, sequence: number) => ({
+      versionId,
+      sequence,
+      displayName: versionId.toUpperCase(),
+      parentId: sequence === 1 ? null : "v1",
+      versionRevision: 1,
+      core: core(),
+      drafts: {},
+      activePlatform: "x",
+      selectedPlatforms: ["x"],
+      narrativeIntent: {},
+      cover: null,
+      coverRounds: [],
+      conversationSnapshot: null,
+    });
+    const valid = {
+      status: "committed",
+      operationKind: "create_version",
+      operationToken: "valid",
+      requestHash: "pv2-1234567890abcdef1234567890abcdef",
+      versionId: "v2",
+      resultActiveVersionId: "v2",
+      sourceVersionId: "v1",
+      storyId: 7,
+      platform: "x",
+      bufferDisposition: "carry",
+      sourceBufferKey: "7:x",
+      sourceBufferHash: "pb2-1234567890abcdef1234567890abcdef",
+      committedAt: NOW,
+      baseContainerRevision: 1,
+      baseVersionRevision: 1,
+    };
+    const normalized = normalizePublishingDraftState({
+      canonicalAuthority: "versions",
+      activeVersionId: "v2",
+      containerRevision: 2,
+      versions: [version("v1", 1), version("v2", 2)],
+      versionOperationReceipts: {
+        valid,
+        "bad-active": { ...valid, operationToken: "bad-active", resultActiveVersionId: "v9" },
+        "bad-story": { ...valid, operationToken: "bad-story", storyId: Number.NaN },
+        "bad-time": { ...valid, operationToken: "bad-time", committedAt: 1.5 },
+        "bad-token": { ...valid, operationToken: "another-token" },
+        "legacy-valid": "v1",
+        "legacy-missing": "v9",
+      },
+    }, NOW);
+    expect(normalized.versionOperationReceipts).toEqual({
+      valid,
+      "legacy-valid": "v1",
+    });
+  });
+
   it("resolves publishing intent from the active version snapshot instead of a conflicting pre-version profile", () => {
     const normalized = normalizePublishingDraftState(
       {
@@ -449,6 +612,147 @@ describe("normalizePublishingDraftState", () => {
     );
     expect(normalized.cover?.assetId).toBe(7);
     expect(normalized.versions?.[0].cover?.assetId).toBe(7);
+  });
+
+  it("fills missing canonical V1 fields from valid legacy formal cover and draft", () => {
+    const normalized = normalizePublishingDraftState({
+      activeVersionId: "v1", containerRevision: 1,
+      activePlatform: "x", selectedPlatforms: ["x"],
+      drafts: { x: { platform: "x", content: content("legacy valid draft") } },
+      cover: { assetId: 91, sourceCoreRevision: 1, createdAt: NOW },
+      versions: [{ versionId: "v1", sequence: 1, displayName: "V1", parentId: null,
+        versionRevision: 1, core: null, drafts: {}, activePlatform: "x", selectedPlatforms: ["x"],
+        narrativeIntent: {}, cover: null, coverRounds: [], conversationSnapshot: null }],
+    }, NOW);
+    expect(normalized.versions?.[0]?.drafts.x?.content.body).toBe("legacy valid draft");
+    expect(normalized.versions?.[0]?.cover?.assetId).toBe(91);
+  });
+
+  it("keeps legacy platform selection with its merged drafts before canonical authority", () => {
+    const normalized = normalizePublishingDraftState({
+      activeVersionId: "v1",
+      containerRevision: 1,
+      activePlatform: "x",
+      selectedPlatforms: ["x", "instagram"],
+      drafts: { x: { platform: "x", content: content("legacy X draft") } },
+      versions: [{
+        versionId: "v1",
+        sequence: 1,
+        displayName: "V1",
+        parentId: null,
+        versionRevision: 0,
+        core: null,
+        drafts: {},
+        activePlatform: "xiaohongshu",
+        selectedPlatforms: ["xiaohongshu"],
+        narrativeIntent: {},
+        cover: null,
+        coverRounds: [],
+        conversationSnapshot: null,
+      }],
+    }, NOW);
+
+    expect(normalized.activePlatform).toBe("x");
+    expect(normalized.selectedPlatforms).toEqual(["x", "instagram"]);
+    expect(normalized.versions?.[0]).toMatchObject({
+      activePlatform: "x",
+      selectedPlatforms: ["x", "instagram"],
+    });
+  });
+
+  it("keeps rejected intent proposals version-owned and ignores production history fields", () => {
+    const normalized = normalizePublishingDraftState({
+      activeVersionId: "v1", containerRevision: 1,
+      versions: [{
+        versionId: "v1", sequence: 1, displayName: "V1", parentId: null, versionRevision: 1,
+        activePlatform: "x", selectedPlatforms: ["x"], drafts: {}, core: null,
+        narrativeIntent: {}, cover: null, coverRounds: [], conversationSnapshot: null,
+        intentProposals: [{ id: "p-rejected", status: "rejected", changes: { coreAudience: "public" }, evidence: [],
+          createdAt: NOW, resolvedAt: NOW, source: { kind: "recognition", storyId: 7, versionId: "v1", intentRevision: 2 } }],
+        productionFields: [{ id: 1 }], imageTakes: [{ id: 2 }], timelineHistory: [{ id: 3 }],
+      }],
+    }, NOW);
+    expect(normalized.versions?.[0]?.intentProposals?.[0]).toMatchObject({ id: "p-rejected", status: "rejected" });
+    expect(normalized.versions?.[0]).not.toHaveProperty("productionFields");
+    expect(normalized.versions?.[0]).not.toHaveProperty("imageTakes");
+    expect(normalized.versions?.[0]).not.toHaveProperty("timelineHistory");
+  });
+
+  it("does not resurrect an intentionally cleared canonical cover from stale top-level projection", () => {
+    const normalized = normalizePublishingDraftState({
+      canonicalAuthority: "versions", activeVersionId: "v1", containerRevision: 2,
+      cover: { assetId: 99, sourceCoreRevision: 1, createdAt: NOW },
+      versions: [{ versionId: "v1", sequence: 1, displayName: "V1", parentId: null,
+        versionRevision: 2, core: null, drafts: {}, activePlatform: "x", selectedPlatforms: ["x"],
+        narrativeIntent: {}, cover: null, coverRounds: [], conversationSnapshot: null }],
+    }, NOW);
+    expect(normalized.cover).toBeNull();
+    expect(normalized.versions?.[0]?.cover).toBeNull();
+  });
+
+  it("derives every active top-level field from the canonical version", () => {
+    const normalized = normalizePublishingDraftState(
+      {
+        canonicalAuthority: "versions",
+        activeVersionId: "v1",
+        containerRevision: 3,
+        activePlatform: "x",
+        selectedPlatforms: ["x"],
+        core: { ...core(9), thesis: "stale top-level core" },
+        drafts: {
+          x: { platform: "x", content: content("stale top-level draft") },
+        },
+        cover: { assetId: 99, sourceCoreRevision: 9, createdAt: NOW },
+        versions: [
+          {
+            versionId: "v1",
+            sequence: 1,
+            displayName: "V1",
+            parentId: null,
+            versionRevision: 3,
+            core: { ...core(3), thesis: "canonical core" },
+            drafts: {
+              xiaohongshu: {
+                platform: "xiaohongshu",
+                content: content("canonical draft"),
+              },
+            },
+            activePlatform: "xiaohongshu",
+            selectedPlatforms: ["xiaohongshu"],
+            narrativeIntent: {},
+            cover: null,
+            coverRounds: [],
+            conversationSnapshot: null,
+          },
+        ],
+      },
+      NOW
+    );
+
+    expect(normalized.core?.thesis).toBe("canonical core");
+    expect(normalized.drafts.x).toBeUndefined();
+    expect(normalized.drafts.xiaohongshu?.content.body).toBe("canonical draft");
+    expect(normalized.activePlatform).toBe("xiaohongshu");
+    expect(normalized.cover).toBeNull();
+  });
+
+  it("migrates a non-active pending paid receipt to its owning version without projecting it", () => {
+    const receipt = {
+      operationToken: "paid-v1", versionId: "v1", status: "pending" as const,
+      platform: "xiaohongshu" as const, referenceAssetId: null, feedback: "", prompt: "p", roundId: "r",
+      taskId: "provider-task", claimedAt: NOW, updatedAt: NOW, expiresAt: NOW + 1000,
+    };
+    const version = (id: string, sequence: number) => ({
+      versionId: id, sequence, displayName: id.toUpperCase(), parentId: sequence === 1 ? null : "v1",
+      versionRevision: 1, core: null, drafts: {}, activePlatform: "x", selectedPlatforms: ["x"],
+      narrativeIntent: {}, cover: null, coverRounds: [], conversationSnapshot: null,
+    });
+    const normalized = normalizePublishingDraftState({
+      activeVersionId: "v2", containerRevision: 2, versions: [version("v1", 1), version("v2", 2)],
+      coverGeneration: receipt,
+    }, NOW);
+    expect(normalized.versions?.find(v => v.versionId === "v1")?.coverGeneration).toMatchObject({ operationToken: "paid-v1", taskId: "provider-task" });
+    expect(normalized.coverGeneration).toBeNull();
   });
 
   it("retains independent drafts, core revisions, active platform, and cover", () => {

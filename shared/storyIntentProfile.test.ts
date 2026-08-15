@@ -4,6 +4,7 @@ import {
   acceptIntentProposal,
   createIntentProposal,
   migrateLegacyStoryIntent,
+  normalizeIntentProposal,
   rejectIntentProposal,
   resolveStoryIntentProfile,
   supersedeIntentProposal,
@@ -91,6 +92,33 @@ describe("story intent authority", () => {
 });
 
 describe("intent proposal lifecycle", () => {
+  it("rejects malformed persisted proposal lifecycle records", () => {
+    const valid = {
+      id: "recognition-1",
+      source: {
+        kind: "recognition",
+        storyId: 12,
+        versionId: "v1",
+        intentRevision: 7,
+      },
+      changes: { coreAudience: "陌生读者" },
+      evidence: ["用户提到公开发布"],
+      status: "rejected",
+      createdAt: NOW,
+      resolvedAt: NOW + 1,
+    };
+    expect(normalizeIntentProposal(valid)).toEqual(valid);
+    expect(
+      normalizeIntentProposal({ ...valid, evidence: ["ok", 1] })
+    ).toBeNull();
+    expect(
+      normalizeIntentProposal({ ...valid, changes: { unknown: true } })
+    ).toBeNull();
+    expect(
+      normalizeIntentProposal({ ...valid, createdAt: "yesterday" })
+    ).toBeNull();
+  });
+
   it("never reactivates rejected, superseded, duplicate, old-revision, or late-scope proposals", () => {
     const current = profile("preserve", "自己", 7);
     const proposal = createIntentProposal({

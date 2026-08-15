@@ -11,6 +11,9 @@ import {
   publishingContentEquals,
   publishingConvertTargets,
   publishingStoryScopeMatches,
+  publishingOperationScopeMatches,
+  publishingTextOperationScope,
+  publishingTextOperationScopeMatches,
   updatePublishingSelection,
 } from "./publishingDraftViewModel";
 
@@ -25,6 +28,63 @@ describe("publishingDraftViewModel", () => {
     expect(publishingStoryScopeMatches(7, 7)).toBe(true);
     expect(publishingStoryScopeMatches(7, 8)).toBe(false);
     expect(publishingStoryScopeMatches(7, null)).toBe(false);
+  });
+
+  it("rejects a late version response after any operation scope component changes", () => {
+    const scope = { storyId: 7, versionId: "v1", platform: "x" as const, containerRevision: 2,
+      versionRevision: 3, operationToken: "op", requestHash: "hash" };
+    expect(publishingOperationScopeMatches(scope, scope)).toBe(true);
+    expect(publishingOperationScopeMatches(scope, { ...scope, versionId: "v2" })).toBe(false);
+    expect(publishingOperationScopeMatches(scope, { ...scope, requestHash: "late" })).toBe(false);
+  });
+
+  it("captures all text-operation revisions and rejects a response after a version transition", () => {
+    const state = emptyPublishingDraftState(1);
+    const scope = publishingTextOperationScope({
+      storyId: 7,
+      state,
+      platform: "x",
+    });
+    expect(scope).toEqual({
+      storyId: 7,
+      versionId: "v1",
+      platform: "x",
+      containerRevision: 0,
+      versionRevision: 0,
+      coreRevision: 0,
+      draftRevision: 0,
+      intentRevision: 0,
+      contextRevision: 0,
+    });
+    expect(publishingTextOperationScopeMatches(scope, {
+      storyId: 7,
+      state,
+      platform: "x",
+    })).toBe(true);
+    expect(publishingTextOperationScopeMatches(scope, {
+      storyId: 7,
+      state: { ...state, containerRevision: 1 },
+      platform: "x",
+    })).toBe(false);
+  });
+
+  it("includes the selected platform context revision in text operation scope", () => {
+    const state = emptyPublishingDraftState(1);
+    if (!state.versions?.[0]) throw new Error("expected V1");
+    state.versions[0].platformContexts = {
+      xiaohongshu: {
+        revision: 4,
+        snapshots: [],
+        selectedSnapshotId: null,
+        selectedTags: ["AI 工具"],
+        updatedAt: 2,
+      },
+    };
+    expect(publishingTextOperationScope({
+      storyId: 7,
+      state,
+      platform: "xiaohongshu",
+    }).contextRevision).toBe(4);
   });
 
   it("only exposes drafts that actually exist as retained tabs", () => {
