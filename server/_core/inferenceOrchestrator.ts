@@ -90,6 +90,8 @@ export type InferenceRequest = {
   toolChoice?: ToolChoice;
   maxTokens?: number;
   temperature?: number;
+  /** 推理强度，只在能力档位登记了该档位时下发。 */
+  reasoningEffort?: string;
   responseFormat?: ResponseFormat;
   thinkingBudgetTokens?: number;
   /**
@@ -316,6 +318,16 @@ export function buildOpenAiPayload(
 
   if (typeof request.temperature === "number" && capabilities.supportsTemperature) {
     payload.temperature = request.temperature;
+  }
+
+  // 未登记的档位一律不发：把 reasoning_effort 送给不认识它的模型，轻则被忽略，
+  // 重则整个请求 400。
+  if (
+    request.reasoningEffort &&
+    capabilities.supportsReasoningEffort &&
+    capabilities.reasoningEfforts.includes(request.reasoningEffort)
+  ) {
+    payload.reasoning_effort = request.reasoningEffort;
   }
 
   if (request.responseFormat) {
@@ -696,6 +708,13 @@ function hasDowngradableFields(
   capabilities: ModelCapabilities
 ): boolean {
   if (typeof request.temperature === "number" && capabilities.supportsTemperature) {
+    return true;
+  }
+  if (
+    request.reasoningEffort &&
+    capabilities.supportsReasoningEffort &&
+    capabilities.reasoningEfforts.includes(request.reasoningEffort)
+  ) {
     return true;
   }
   if (request.responseFormat) return true;

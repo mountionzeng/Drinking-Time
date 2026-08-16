@@ -5,12 +5,12 @@
  * failures (10-minute cooldown).
  */
 
-import { invokeLLM, type InvokeParams, type InvokeResult } from '../_core/llm';
+import { type InvokeResult, type Message, type ResponseFormat } from '../_core/llm';
 import { ENV } from '../_core/env';
 import { createSemanticAnnotation } from '../db';
 import type { SemanticAnnotation } from '../db';
 import { type EditDiff } from '../_core/editDiff';
-import { resolveTextComputeProvider } from './textComputeProvider';
+import { runInference } from '../_core/inferenceOrchestrator';
 
 const ANNOTATION_TIMEOUT_MS = 30_000;
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -168,38 +168,30 @@ export interface GenerateAnnotationParams {
   inlineCorrection?: InlineCorrection;
 }
 
-async function invokeAnnotationLLM(params: InvokeParams): Promise<InvokeResult> {
-  const provider = resolveTextComputeProvider(ENV.llmModel);
-  if (provider?.id !== 'openai-next') {
-    return invokeLLM(params);
-  }
-
-  const response = await fetch(provider.chatCompletionsUrl, {
-    method: 'POST',
-    signal: AbortSignal.timeout(ANNOTATION_TIMEOUT_MS),
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${provider.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      stream: false,
-      max_completion_tokens: params.maxTokens ?? params.max_tokens ?? 1024,
-      reasoning_effort: 'low',
-      response_format: params.responseFormat ?? params.response_format,
-      messages: params.messages,
-    }),
+/**
+ * 这里原本有一段「Next 就自己 fetch、否则走 invokeLLM」的特判——修好一次
+ * 之后又长出了第二套客户端。现在只声明这次推理要什么，供应商选择、参数适配、
+ * 失败分类和回退都由 orchestrator 负责。
+ */
+async function invokeAnnotationLLM(params: {
+  messages: Message[];
+  responseFormat: ResponseFormat;
+  maxTokens: number;
+  temperature: number;
+}): Promise<InvokeResult> {
+  const outcome = await runInference({
+    useCase: 'text',
+    messages: params.messages,
+    candidates: { fallback302Model: ENV.llmModel },
+    responseFormat: params.responseFormat,
+    maxTokens: params.maxTokens,
+    temperature: params.temperature,
+    reasoningEffort: 'low',
+    // 标注是纯分析，没有工具调用也没有业务写入，可以安全重发。
+    replaySafe: true,
+    deadlineMs: ANNOTATION_TIMEOUT_MS,
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(
-      `${provider.label} annotation failed: HTTP ${response.status}${body ? ` ${body.slice(0, 240)}` : ''}`,
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
+  return outcome.result;
 }
 
 export async function generateAnnotation(
@@ -225,7 +217,7 @@ export async function generateAnnotation(
           content: buildUserPrompt(diff, previousAnnotations, inlineCorrection),
         },
       ],
-      response_format: { type: 'json_object' },
+      responseFormat: { type: 'json_object' },
       maxTokens: 1024,
       temperature: 0.3,
     });

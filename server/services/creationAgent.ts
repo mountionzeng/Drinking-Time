@@ -5,7 +5,7 @@
  * focus shot, determines when to generate images, and calls imageGen / segmentation.
  */
 
-import { ENV } from "../_core/env";
+import { hasStoryAgentCompute } from "../_core/agentChannel";
 import { runJsonAgent } from "./agentRuntime";
 import { goalGuidance, type CreationGoal } from "./creationGoal";
 import {
@@ -699,12 +699,12 @@ export async function generateNextImage(
 export async function replyFromCreationAgent(
   input: CreationAgentInput
 ): Promise<CreationAgentResult> {
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return {
       configured: false,
       modelLabel: "未配置 API",
       reply:
-        "创作引擎已准备就绪，但还没配置 API Key。请在 .env 中补上 BUILT_IN_FORGE_API_KEY 和 BUILT_IN_FORGE_API_URL，然后重启服务。",
+        "创作引擎已准备就绪，但还没配置可用的模型 API。请在 .env 中补上 OPENAI_NEXT_API_KEY（推荐），或旧的 BUILT_IN_FORGE_API_KEY + BUILT_IN_FORGE_API_URL，然后重启服务。",
       toolCalls: [],
       focusShotNo: null,
       generatedImage: null,

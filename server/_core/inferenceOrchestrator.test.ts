@@ -179,6 +179,57 @@ describe("runInference — message and parameter contracts (AE2)", () => {
   });
 });
 
+describe("runInference — reasoning effort (R4)", () => {
+  it("sends a registered effort tier for a model that supports it", async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await runInference(baseRequest({ fetchImpl: impl, reasoningEffort: "low" }));
+
+    expect(calls[0].payload.reasoning_effort).toBe("low");
+  });
+
+  it("omits an effort tier the model does not declare", async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await runInference(
+      baseRequest({ fetchImpl: impl, reasoningEffort: "ultra" })
+    );
+
+    expect(calls[0].payload.reasoning_effort).toBeUndefined();
+  });
+
+  it("omits it entirely for an unregistered model", async () => {
+    ENV.openaiNextApiKey = "";
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await runInference(
+      baseRequest({
+        fetchImpl: impl,
+        reasoningEffort: "low",
+        candidates: { fallback302Model: "some-unlisted-model" },
+      })
+    );
+
+    expect(calls[0].url).toBe(LEGACY_URL);
+    expect(calls[0].payload.reasoning_effort).toBeUndefined();
+  });
+
+  it("drops it on the deterministic downgrade after a 400", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { impl, calls } = recordingFetch((_call, index) =>
+      index === 0
+        ? jsonResponse(400, { error: { code: "unsupported_parameter" } })
+        : jsonResponse(200, okBody())
+    );
+
+    await runInference(baseRequest({ fetchImpl: impl, reasoningEffort: "low" }));
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].payload.reasoning_effort).toBe("low");
+    expect(calls[1].payload.reasoning_effort).toBeUndefined();
+  });
+});
+
 describe("runInference — replay boundary", () => {
   it("does not switch providers when the caller never declared replay safety", async () => {
     const { impl, calls } = recordingFetch(() => jsonResponse(503, { error: {} }));

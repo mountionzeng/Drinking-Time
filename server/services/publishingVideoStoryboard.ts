@@ -12,7 +12,8 @@ import {
 } from "../../shared/publishingVideoStoryboard";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
-import { resolveTextComputeProvider } from "./textComputeProvider";
+import { runInference } from "../_core/inferenceOrchestrator";
+import { resolveComputeCandidates } from "../_core/textComputeProvider";
 
 export class PublishingVideoStoryboardModelOutputError extends Error {
   constructor(readonly reasons: string[]) {
@@ -287,73 +288,59 @@ async function runPublishingVideoStoryboardTextCompute(input: {
   systemPrompt: string;
   context: unknown;
 }): Promise<{ parsed: unknown; modelLabel: string }> {
-  const provider = resolveTextComputeProvider(ENV.videoPrompt302Model);
-  if (!provider) {
+  const candidates = resolveComputeCandidates("text", {
+    fallback302Model: ENV.videoPrompt302Model,
+  });
+  if (candidates.length === 0) {
     return {
       parsed: null,
       modelLabel: "文本算力未配置（本地保底补全）",
     };
   }
+  const label = candidates[0].label;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    positiveInteger(ENV.publishingVideoStoryboard302TimeoutMs, 90_000)
-  );
   try {
-    const response = await fetch(
-      provider.chatCompletionsUrl,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${provider.apiKey}`,
-          "Content-Type": "application/json",
+    const outcome = await runInference({
+      useCase: "text",
+      messages: [
+        { role: "system", content: input.systemPrompt },
+        {
+          role: "user",
+          content: `请按要求逐段生成剧本、图片提示词与视频提示词。上下文：${JSON.stringify(input.context)}`,
         },
-        body: JSON.stringify({
-          model: provider.model,
-          stream: false,
-          max_completion_tokens: 4_500,
-          reasoning_effort: "low",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: input.systemPrompt },
-            {
-              role: "user",
-              content: `请按要求逐段生成剧本、图片提示词与视频提示词。上下文：${JSON.stringify(input.context)}`,
-            },
-          ],
-        }),
-        signal: controller.signal,
-      }
-    );
-    if (!response.ok) {
-      return {
-        parsed: null,
-        modelLabel: `${provider.label} HTTP ${response.status}（本地保底补全）`,
-      };
-    }
-    const data = (await response.json()) as CompletionResponse;
+      ],
+      candidates: { fallback302Model: ENV.videoPrompt302Model },
+      maxTokens: 4_500,
+      reasoningEffort: "low",
+      responseFormat: { type: "json_object" },
+      // 转写是纯生成，没有工具调用也没有业务写入，可以安全重发。
+      replaySafe: true,
+      deadlineMs: positiveInteger(
+        ENV.publishingVideoStoryboard302TimeoutMs,
+        90_000
+      ),
+    });
+
+    const data = outcome.result as CompletionResponse;
     try {
       return {
         parsed: parseJsonLoose<unknown>(completionText(data)),
-        modelLabel: data.model || provider.model,
+        modelLabel: data.model || outcome.model,
       };
     } catch {
+      // 模型答错格式是业务问题，不是供应商故障——保持原有的本地补全语义。
       return {
         parsed: null,
-        modelLabel: `${provider.label} 返回不是有效 JSON（本地保底补全）`,
+        modelLabel: `${outcome.providerLabel} 返回不是有效 JSON（本地保底补全）`,
       };
     }
   } catch (error) {
     return {
       parsed: null,
-      modelLabel: `${provider.label} 转写失败：${
+      modelLabel: `${label} 转写失败：${
         error instanceof Error ? error.message.slice(0, 120) : "未知错误"
       }（本地保底补全）`,
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

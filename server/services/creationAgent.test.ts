@@ -24,8 +24,11 @@ const mocks = vi.hoisted(() => ({
   })),
 }));
 
+// llmModel 不是可选的：配置判据现在问路由「有没有可用候选」，而一个只有
+// Key、没有模型名的网关服务不了任何请求。真实 ENV 一直都有默认值，这里
+// 补上只是让 mock 与之一致。
 vi.mock("../_core/env", () => ({
-  ENV: { forgeApiKey: "test-key" },
+  ENV: { forgeApiKey: "test-key", llmModel: "test-model" },
 }));
 vi.mock("./agentRuntime", () => ({
   runJsonAgent: mocks.runJsonAgent,

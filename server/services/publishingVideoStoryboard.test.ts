@@ -165,8 +165,9 @@ describe("publishing video storyboard generation", () => {
 
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    // orchestrator 统一用小写 header 名（HTTP 头本身大小写不敏感）
     expect(init.headers).toMatchObject({
-      Authorization: "Bearer test-next-key",
+      authorization: "Bearer test-next-key",
     });
     expect(JSON.parse(String(init.body)).model).toBe("gpt-5.6-terra");
   });
