@@ -529,6 +529,65 @@ describe("runInference — claude-messages protocol", () => {
     expect(outcome.result.model).toBe("cc-opus-4-7");
   });
 
+  it("runs a mixed-protocol chain: Next chat/completions first, Claude Messages as fallback", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const claude = {
+      id: "302" as const,
+      label: "302" as const,
+      apiKey: "cc-key",
+      baseUrl: "https://api.302ai.cn/cc",
+      chatCompletionsUrl: "https://api.302ai.cn/cc/v1/messages",
+      endpointUrl: "https://api.302ai.cn/cc/v1/messages",
+      protocol: "claude-messages" as const,
+      model: "cc-opus-4-7",
+    };
+    const next = {
+      id: "openai-next" as const,
+      label: "OpenAI Next" as const,
+      apiKey: "next-key",
+      baseUrl: "https://api.openai-next.com",
+      chatCompletionsUrl: NEXT_URL,
+      protocol: "openai-compatible" as const,
+      model: "gpt-5.6-terra",
+    };
+
+    const { impl, calls } = recordingFetch((_call, index) =>
+      index === 0
+        ? jsonResponse(503, { error: {} })
+        : jsonResponse(200, {
+            model: "cc-opus-4-7",
+            content: [{ type: "text", text: "claude picked it up" }],
+          })
+    );
+
+    const outcome = await runInference(
+      baseRequest({
+        fetchImpl: impl,
+        explicitCandidates: [next, claude],
+        replaySafe: true,
+        messages: [
+          { role: "system", content: "be kind" },
+          { role: "user", content: "hi" },
+        ],
+      })
+    );
+
+    // 第一跳走 OpenAI 兼容协议：Bearer + chat/completions
+    expect(calls[0].url).toBe(NEXT_URL);
+    expect((calls[0].init.headers as Record<string, string>).authorization).toBe(
+      "Bearer next-key"
+    );
+    expect(calls[0].payload.max_completion_tokens).toBeDefined();
+
+    // 第二跳自动切成 Anthropic 协议：x-api-key + system 抽离 + /v1/messages
+    expect(calls[1].url).toBe("https://api.302ai.cn/cc/v1/messages");
+    expect((calls[1].init.headers as Record<string, string>)["x-api-key"]).toBe("cc-key");
+    expect(calls[1].payload.system).toBe("be kind");
+    expect(calls[1].payload.max_tokens).toBeDefined();
+
+    expect(outcome.result.choices[0].message.content).toBe("claude picked it up");
+  });
+
   it("retries the same endpoint once when the chain lists it twice", async () => {
     const candidate = {
       id: "302" as const,

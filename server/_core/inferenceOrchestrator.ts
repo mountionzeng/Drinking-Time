@@ -67,8 +67,14 @@ export type InferenceProtocol = "openai-compatible" | "claude-messages";
 /**
  * `endpointUrl` 让非 chat/completions 协议（Anthropic Messages 走 `/v1/messages`）
  * 复用同一条编排链；不填时用 U1 解析出的 chat/completions 地址。
+ *
+ * `protocol` 挂在候选上而不是整个请求上，这样一条链里可以混放不同协议的
+ * 供应商——「Next 的 chat/completions 打头，Claude Messages 兜底」正是这种形状。
  */
-export type InferenceCandidate = TextComputeProvider & { endpointUrl?: string };
+export type InferenceCandidate = TextComputeProvider & {
+  endpointUrl?: string;
+  protocol?: InferenceProtocol;
+};
 
 export type InferenceRequest = {
   useCase: TextComputeUseCase;
@@ -609,8 +615,9 @@ export async function runInference(
       remainingMs === undefined ? undefined : AbortSignal.timeout(remainingMs);
     const signal = mergeSignals(request.signal, timeoutSignal);
 
+    const candidateProtocol = candidate.protocol ?? protocol;
     const attempt =
-      protocol === "claude-messages"
+      candidateProtocol === "claude-messages"
         ? await attemptClaudeMessages(request, candidate, signal)
         : await attemptOpenAiCompatible(
             request,
@@ -655,7 +662,7 @@ export async function runInference(
     if (
       attempt.error.category === "invalid_request" &&
       !minimalPayload &&
-      protocol === "openai-compatible" &&
+      candidateProtocol === "openai-compatible" &&
       hasDowngradableFields(request, capabilities)
     ) {
       minimalPayload = true;

@@ -12,6 +12,7 @@ import {
   runInference,
   type InferenceCandidate,
 } from "./inferenceOrchestrator";
+import { resolveComputeCandidates } from "./textComputeProvider";
 
 function shouldUseClaudeChannel(): boolean {
   return Boolean(
@@ -29,8 +30,9 @@ function resolveClaudeUrl(): string {
   return normalized;
 }
 
-function claudeCandidate(): InferenceCandidate {
+function claudeCandidate(): InferenceCandidate | null {
   const endpointUrl = resolveClaudeUrl();
+  if (!endpointUrl) return null;
   const model = ENV.dropZoneModel || ENV.llmModel;
   return {
     id: "302",
@@ -39,38 +41,72 @@ function claudeCandidate(): InferenceCandidate {
     baseUrl: endpointUrl,
     chatCompletionsUrl: endpointUrl,
     endpointUrl,
+    protocol: "claude-messages",
     model,
   };
 }
 
-async function invokeViaClaudeChannel(
+/**
+ * 故事 Agent 的候选链：OpenAI Next 打头，配置了的话 Claude Messages 兜底。
+ *
+ * 顺序是这次改动的全部要点。Claude 通道打在 302 网关上，而那条链路的 TLS
+ * 会中途断开，于是每一轮回话和意图识别都退到本地兜底——用户看到的「切换
+ * 意图很不顺畅」其实是模型压根没被调用到。
+ */
+function storyAgentCandidates(): InferenceCandidate[] {
+  const chain: InferenceCandidate[] = [];
+
+  // fallback302Model 留空 = 只取 Next，302 的 chat/completions 不进这条链；
+  // 这条链上的降级对象是下面的 Claude 通道。
+  for (const candidate of resolveComputeCandidates("text", {
+    fallback302Model: "",
+  })) {
+    if (candidate.id === "openai-next") {
+      chain.push({ ...candidate, protocol: "openai-compatible" });
+    }
+  }
+
+  const claude = claudeCandidate();
+  if (claude) chain.push(claude);
+
+  return chain;
+}
+
+async function invokeViaStoryAgentChain(
   messages: Message[],
   maxTokens: number,
+  responseFormat?: ResponseFormat,
 ): Promise<{ text: string; modelLabel: string }> {
-  const candidate = claudeCandidate();
-  if (!candidate.endpointUrl) {
+  const chain = storyAgentCandidates();
+  if (chain.length === 0) {
     throw new Error("Claude messages endpoint is not configured");
   }
 
   const outcome = await runInference({
     useCase: "text",
-    protocol: "claude-messages",
     messages,
     maxTokens,
-    candidates: { fallback302Model: candidate.model },
-    // 单候选链由 orchestrator 自动排成两次尝试，等价于收敛前
-    // AGENT_RETRY_DELAYS_MS 的单次重试。U3 会在前面接上 OpenAI Next，
-    // 届时这条链自然变成真正的跨供应商回退。
-    explicitCandidates: [candidate],
+    // Claude Messages 没有 response_format，adapter 会忽略它；Next 承接时
+    // 则真正用得上，JSON 模式因此从「靠 prompt 约定」变成协议级保证。
+    responseFormat,
+    candidates: { fallback302Model: "" },
+    explicitCandidates: chain,
     // 故事回复是纯文本生成，没有工具调用也没有副作用，可以安全重发。
     replaySafe: true,
   });
 
   const content = outcome.result.choices[0]?.message?.content;
-  return {
-    text: typeof content === "string" ? content : "",
-    modelLabel: outcome.result.model || candidate.model,
-  };
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map(c => (c.type === "text" ? c.text : ""))
+            .filter(Boolean)
+            .join("\n")
+        : "";
+
+  return { text, modelLabel: outcome.result.model || outcome.model };
 }
 
 export async function invokeAgent(
@@ -79,9 +115,7 @@ export async function invokeAgent(
   responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
 ): Promise<{ text: string; modelLabel: string }> {
   if (shouldUseClaudeChannel()) {
-    // Claude Messages API 没有 OpenAI 那套 response_format 参数，这里只能忽略它，
-    // 改由 prompt 约定 + 上层「解析失败再重试」来保证 JSON（见 storyAgent.replyFromStoryAgent）。
-    return invokeViaClaudeChannel(messages, maxTokens);
+    return invokeViaStoryAgentChain(messages, maxTokens, responseFormat);
   }
 
   const result = await invokeLLM({
