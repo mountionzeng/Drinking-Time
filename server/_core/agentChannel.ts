@@ -2,14 +2,16 @@
  * Intelligent LLM channel selection — Claude Messages vs OpenAI-compatible.
  *
  * Only `invokeAgent` is exported; the rest are module-private utilities.
+ *
+ * 网络执行、错误分类和重试全部由 `inferenceOrchestrator` 拥有。这里只负责
+ * 「选哪条通道、怎么把结果读成文本」。
  */
 import { ENV } from "./env";
 import { invokeLLM, type Message, type ResponseFormat } from "./llm";
-
-type ClaudeMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  model?: string;
-};
+import {
+  runInference,
+  type InferenceCandidate,
+} from "./inferenceOrchestrator";
 
 function shouldUseClaudeChannel(): boolean {
   return Boolean(
@@ -27,88 +29,68 @@ function resolveClaudeUrl(): string {
   return normalized;
 }
 
-async function invokeClaudeMessages(
+function claudeCandidate(): InferenceCandidate {
+  const endpointUrl = resolveClaudeUrl();
+  const model = ENV.dropZoneModel || ENV.llmModel;
+  return {
+    id: "302",
+    label: "302",
+    apiKey: ENV.forgeApiKey,
+    baseUrl: endpointUrl,
+    chatCompletionsUrl: endpointUrl,
+    endpointUrl,
+    model,
+  };
+}
+
+async function invokeViaClaudeChannel(
   messages: Message[],
   maxTokens: number,
 ): Promise<{ text: string; modelLabel: string }> {
-  const apiUrl = resolveClaudeUrl();
-  if (!apiUrl) throw new Error("Claude messages endpoint is not configured");
-
-  const system = messages
-    .filter(m => m.role === "system")
-    .map(m => String(m.content))
-    .join("\n\n");
-
-  const anthropicMessages = messages
-    .filter(m => m.role !== "system")
-    .map(m => {
-      const role = m.role === "assistant" ? "assistant" : "user";
-      // 多模态内容（含图片）：转换为 Anthropic Messages API 格式
-      if (Array.isArray(m.content)) {
-        const parts = m.content.map(part => {
-          if (typeof part === "string") return { type: "text" as const, text: part };
-          if (part.type === "text") return part;
-          if (part.type === "image_url") {
-            const url = part.image_url.url;
-            // data URL → base64 source；远程 URL → url source
-            if (url.startsWith("data:")) {
-              const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
-              if (match) {
-                return { type: "image" as const, source: { type: "base64" as const, media_type: match[1], data: match[2] } };
-              }
-            }
-            return { type: "image" as const, source: { type: "url" as const, url } };
-          }
-          return { type: "text" as const, text: JSON.stringify(part) };
-        });
-        return { role, content: parts };
-      }
-      return { role, content: String(m.content) };
-    });
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ENV.forgeApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: ENV.dropZoneModel || ENV.llmModel,
-      max_tokens: maxTokens,
-      system,
-      messages: anthropicMessages,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Claude messages invoke failed: ${response.status} ${body}`);
+  const candidate = claudeCandidate();
+  if (!candidate.endpointUrl) {
+    throw new Error("Claude messages endpoint is not configured");
   }
 
-  const data = (await response.json()) as ClaudeMessageResponse;
-  const text =
-    data.content
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
-      .join("\n")
-      .trim() || "";
+  const outcome = await runInference({
+    useCase: "text",
+    protocol: "claude-messages",
+    messages,
+    maxTokens,
+    candidates: { fallback302Model: candidate.model },
+    // 单候选链由 orchestrator 自动排成两次尝试，等价于收敛前
+    // AGENT_RETRY_DELAYS_MS 的单次重试。U3 会在前面接上 OpenAI Next，
+    // 届时这条链自然变成真正的跨供应商回退。
+    explicitCandidates: [candidate],
+    // 故事回复是纯文本生成，没有工具调用也没有副作用，可以安全重发。
+    replaySafe: true,
+  });
 
-  return { text, modelLabel: data.model || ENV.dropZoneModel || ENV.llmModel };
+  const content = outcome.result.choices[0]?.message?.content;
+  return {
+    text: typeof content === "string" ? content : "",
+    modelLabel: outcome.result.model || candidate.model,
+  };
 }
 
-async function invokeAgentOnce(
+export async function invokeAgent(
   messages: Message[],
   maxTokens: number,
-  responseFormat?: ResponseFormat, // 可选：OpenAI 兼容通道下要求结构化 JSON 输出（如 json_object）
+  responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
 ): Promise<{ text: string; modelLabel: string }> {
   if (shouldUseClaudeChannel()) {
     // Claude Messages API 没有 OpenAI 那套 response_format 参数，这里只能忽略它，
     // 改由 prompt 约定 + 上层「解析失败再重试」来保证 JSON（见 storyAgent.replyFromStoryAgent）。
-    return invokeClaudeMessages(messages, maxTokens);
+    return invokeViaClaudeChannel(messages, maxTokens);
   }
 
-  const result = await invokeLLM({ messages, maxTokens, responseFormat });
+  const result = await invokeLLM({
+    messages,
+    maxTokens,
+    responseFormat,
+    replaySafe: true,
+  });
+
   const content = result.choices[0]?.message?.content;
   const text =
     typeof content === "string"
@@ -119,52 +101,7 @@ async function invokeAgentOnce(
             .filter(Boolean)
             .join("\n")
         : "";
-  return { text, modelLabel: ENV.llmModel };
-}
 
-// 网关偶发抖动（502/503、超时、网络层）会让一次本可成功的请求平白失败。
-// 只对「临时性」错误自动重试，确定性错误（鉴权 / 参数 / 模型不存在）不重试——重试也没用，只会拖慢真实报错。
-const AGENT_RETRY_DELAYS_MS = [700];
-
-function isTransientError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  // 端点没配置 → 确定性
-  if (/not configured/i.test(msg)) return false;
-  // 两条通道的 HTTP 错误都形如 "...failed: <status> ..."，取状态码判断
-  const m = msg.match(/failed:\s*(\d{3})\b/);
-  if (m) {
-    const status = Number(m[1]);
-    // 429 限流 / 408 超时 / 5xx 服务端错误 → 临时；其余 4xx（鉴权 / 参数 / 模型）→ 确定性
-    return status === 429 || status === 408 || status >= 500;
-  }
-  // 没有状态码 → 多为网络层错误（cannot reach / fetch failed / timeout），按临时处理
-  return true;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-export async function invokeAgent(
-  messages: Message[],
-  maxTokens: number,
-  responseFormat?: ResponseFormat, // 透传给 OpenAI 兼容通道（如 { type: "json_object" }）；Claude 通道会忽略
-): Promise<{ text: string; modelLabel: string }> {
-  let lastErr: unknown;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await invokeAgentOnce(messages, maxTokens, responseFormat);
-    } catch (err) {
-      lastErr = err;
-      const canRetry =
-        attempt < AGENT_RETRY_DELAYS_MS.length && isTransientError(err);
-      if (!canRetry) break;
-      console.warn(
-        `[invokeAgent] 临时失败，第 ${attempt + 1} 次重试中…`,
-        err instanceof Error ? err.message : err,
-      );
-      await delay(AGENT_RETRY_DELAYS_MS[attempt]);
-    }
-  }
-  throw lastErr;
+  // 优先报网关回报的实际模型——发生回退时它和配置里写的那个不是一回事。
+  return { text, modelLabel: result.model || ENV.llmModel };
 }

@@ -107,6 +107,29 @@ const MODEL_CAPABILITIES: Readonly<Record<string, CapabilityTier>> = {
     supportsToolCalls: false,
     supportsVisionInput: false,
   },
+  // 旧 Forge/302 通用模型（LLM_MODEL）。登记它不是为了启用新能力，而是为了
+  // 让回退通道继续收到和今天一模一样的字段——不登记就会按最小集发送，
+  // 等于在回退路径上悄悄改了模型行为。
+  "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
+    tokenLimitField: "max_tokens",
+    supportsReasoningEffort: false,
+    reasoningEfforts: [],
+    supportsTemperature: true,
+    supportsStructuredOutputs: true,
+    supportsToolCalls: true,
+    supportsVisionInput: false,
+  },
+  // 故事 Agent 的 Claude 通道模型（DROP_ZONE_MODEL）。Anthropic Messages 协议
+  // 没有 OpenAI 那套 response_format / tools 参数，所以两项都是 false。
+  "cc-opus-4-7": {
+    tokenLimitField: "max_tokens",
+    supportsReasoningEffort: false,
+    reasoningEfforts: [],
+    supportsTemperature: false,
+    supportsStructuredOutputs: false,
+    supportsToolCalls: false,
+    supportsVisionInput: true,
+  },
 };
 
 export function describeModelCapabilities(model: string): ModelCapabilities {
