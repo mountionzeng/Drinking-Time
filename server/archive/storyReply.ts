@@ -1,7 +1,6 @@
-import { ENV } from "../_core/env";
 import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
-import { invokeAgent } from "../_core/agentChannel";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import { getRecentAnnotations } from "../services/editContext";
 import {
   formatRecurringEditSignalBlock,
@@ -211,12 +210,12 @@ export async function replyFromStoryAgent(params: {
   const allowStoryTitleSuggestion =
     params.allowStoryTitleSuggestion ?? userTurnNumber === 1;
 
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return {
       configured: false,
       modelLabel: "未配置 API",
       reply:
-        "我已经准备好了，但本地还没配 API Key。请在项目根目录配置 .env，至少补上 BUILT_IN_FORGE_API_KEY、BUILT_IN_FORGE_API_URL 和 LLM_MODEL，然后重启 4321 服务。",
+        "我已经准备好了，但本地还没配可用的模型 API。请在项目根目录的 .env 里配置 OPENAI_NEXT_API_KEY（推荐），或旧的 BUILT_IN_FORGE_API_KEY + BUILT_IN_FORGE_API_URL + LLM_MODEL，然后重启服务。",
       card: null,
       read: null,
       toolCalls: [],
@@ -652,7 +651,7 @@ export async function deriveMobileImagePrompt(params: {
   storyTheme?: string;
   artStyle?: string;
 }): Promise<string> {
-  if (!ENV.forgeApiKey) return "";
+  if (!hasStoryAgentCompute()) return "";
   const recent = (params.history ?? [])
     .filter(t => t.content?.trim())
     .slice(-12);

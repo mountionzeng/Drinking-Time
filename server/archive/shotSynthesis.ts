@@ -2,6 +2,11 @@ import { ENV } from "../_core/env";
 import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
 import { invokeAgent } from "../_core/agentChannel";
+import {
+  runInference,
+  type InferenceCandidate,
+} from "../_core/inferenceOrchestrator";
+import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import { applyShotPromptComposition } from "../services/shotPromptComposer";
 import { annotateScriptShotReasons } from "../services/scriptAgent";
 import type { ShotBeat, ShotCharacter, ShotEntry, ShotListPayload, VisualAnchorPayload } from "./storyAgent.types";
@@ -71,20 +76,6 @@ type GenerationProfileInput = {
   } | null;
 };
 
-type ClaudeMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  model?: string;
-};
-
-type OpenAICompatibleMessageResponse = {
-  model?: string;
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-};
-
 function cleanText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -123,21 +114,6 @@ function resolveScriptStructureChatUrl(): string {
   return `${normalized}/v1/chat/completions`;
 }
 
-function textFromMessageContent(content: Message["content"]): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) {
-    if (content.type === "text") return content.text;
-    return JSON.stringify(content);
-  }
-  return content
-    .map(part => {
-      if (typeof part === "string") return part;
-      if (part.type === "text") return part.text;
-      return JSON.stringify(part);
-    })
-    .join("\n");
-}
-
 function textFromLLMContent(
   content: string | Array<{ type?: string; text?: string }> | undefined
 ): string {
@@ -149,120 +125,75 @@ function textFromLLMContent(
     .join("\n");
 }
 
-async function invokeScriptStructureClaudeMessages(
-  messages: Message[],
-  maxTokens: number
-): Promise<{ text: string; modelLabel: string }> {
-  const apiUrl = resolveScriptStructureClaudeUrl();
+/**
+ * 专用剧本结构 Agent 的候选链：OpenAI Next 打头，专用端点兜底。
+ *
+ * 这里原本自己 fetch 两种协议、自己拼 URL、自己解析错误——等于在编排器之外
+ * 又养了一条路由。现在只负责描述「这个 Agent 有哪些落点」，怎么试、试几次、
+ * 什么错能换下家全部交给 orchestrator。
+ */
+function scriptStructureCandidates(): InferenceCandidate[] {
+  const chain: InferenceCandidate[] = [];
+
+  for (const candidate of resolveComputeCandidates("text", {
+    fallback302Model: "",
+  })) {
+    if (candidate.id === "openai-next") {
+      chain.push({ ...candidate, protocol: "openai-compatible" });
+    }
+  }
+
   const apiKey = ENV.scriptStructureAgentApiKey?.trim();
-  if (!apiUrl) throw new Error("SCRIPT_STRUCTURE_AGENT_API_URL is not configured");
-  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
-
-  const system = messages
-    .filter(message => message.role === "system")
-    .map(message => textFromMessageContent(message.content))
-    .join("\n\n");
-  const anthropicMessages = messages
-    .filter(message => message.role !== "system")
-    .map(message => ({
-      role: message.role === "assistant" ? "assistant" : "user",
-      content: textFromMessageContent(message.content),
-    }));
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model:
-        ENV.scriptStructureAgentModel ||
-        ENV.dropZoneModel ||
-        ENV.llmModel,
-      max_tokens: maxTokens,
-      system,
-      messages: anthropicMessages,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Script structure agent invoke failed: ${response.status} ${body}`
-    );
+  if (apiKey) {
+    const useClaude = shouldUseScriptStructureClaudeChannel();
+    const endpointUrl = useClaude
+      ? resolveScriptStructureClaudeUrl()
+      : resolveScriptStructureChatUrl();
+    if (endpointUrl) {
+      chain.push({
+        id: "302",
+        label: "302",
+        apiKey,
+        baseUrl: endpointUrl,
+        chatCompletionsUrl: endpointUrl,
+        endpointUrl,
+        protocol: useClaude ? "claude-messages" : "openai-compatible",
+        model:
+          ENV.scriptStructureAgentModel ||
+          (useClaude ? ENV.dropZoneModel : "") ||
+          ENV.llmModel,
+      });
+    }
   }
 
-  const data = (await response.json()) as ClaudeMessageResponse;
-  const text =
-    data.content
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
-      .join("\n")
-      .trim() || "";
-
-  return {
-    text,
-    modelLabel:
-      data.model ||
-      ENV.scriptStructureAgentModel ||
-      ENV.dropZoneModel ||
-      ENV.llmModel,
-  };
-}
-
-async function invokeScriptStructureOpenAICompatible(
-  messages: Message[],
-  maxTokens: number
-): Promise<{ text: string; modelLabel: string }> {
-  const apiKey = ENV.scriptStructureAgentApiKey?.trim();
-  if (!apiKey) throw new Error("SCRIPT_STRUCTURE_AGENT_API_KEY is not configured");
-  const model = ENV.scriptStructureAgentModel || ENV.llmModel;
-  const payload: Record<string, unknown> = {
-    model,
-    messages: messages.map(message => ({
-      role: message.role,
-      content: textFromMessageContent(message.content),
-    })),
-    max_tokens: maxTokens,
-  };
-  if (ENV.llmSupportsResponseFormat) {
-    payload.response_format = { type: "json_object" };
-  }
-
-  const response = await fetch(resolveScriptStructureChatUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Script structure agent invoke failed: ${response.status} ${body}`
-    );
-  }
-
-  const data = (await response.json()) as OpenAICompatibleMessageResponse;
-  const text = textFromLLMContent(data.choices?.[0]?.message?.content).trim();
-  return { text, modelLabel: data.model || model };
+  return chain;
 }
 
 async function invokeScriptStructureAgent(
   messages: Message[],
   maxTokens: number
 ): Promise<{ text: string; modelLabel: string }> {
-  if (!hasScriptStructureAgentConfig()) {
-    return invokeAgent(messages, maxTokens);
-  }
-  if (shouldUseScriptStructureClaudeChannel()) {
-    return invokeScriptStructureClaudeMessages(messages, maxTokens);
-  }
-  return invokeScriptStructureOpenAICompatible(messages, maxTokens);
+  const chain = scriptStructureCandidates();
+  // 没有任何专用落点时，回到通用故事 Agent 链（它自己也是 Next 优先）。
+  if (chain.length === 0) return invokeAgent(messages, maxTokens);
+
+  const outcome = await runInference({
+    useCase: "text",
+    messages,
+    maxTokens,
+    candidates: { fallback302Model: "" },
+    explicitCandidates: chain,
+    responseFormat: ENV.llmSupportsResponseFormat
+      ? { type: "json_object" }
+      : undefined,
+    // 镜头拆解是纯生成，没有工具调用也没有业务写入，可以安全重发。
+    replaySafe: true,
+  });
+
+  return {
+    text: textFromLLMContent(outcome.result.choices?.[0]?.message?.content).trim(),
+    modelLabel: outcome.result.model || outcome.model,
+  };
 }
 
 function cleanList(values: unknown, limit = 8): string[] {

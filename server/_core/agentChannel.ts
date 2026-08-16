@@ -72,6 +72,25 @@ function storyAgentCandidates(): InferenceCandidate[] {
   return chain;
 }
 
+/**
+ * 故事 Agent 这条链上是否存在可用供应商。
+ *
+ * 判据必须是「路由能解析出候选」，而不是「某个历史环境变量非空」。各业务原来
+ * 用 `ENV.forgeApiKey` 当作「有没有配模型」的开关，那是 Forge 独占主路由时代
+ * 的遗留；现在 Next 配好而旧 Forge Key 为空是完全正常的状态，此时功能可用，
+ * 不该再报「未配置 API」并退到本地兜底。
+ */
+export function hasStoryAgentCompute(): boolean {
+  if (shouldUseClaudeChannel()) return storyAgentCandidates().length > 0;
+  return (
+    resolveComputeCandidates("text", {
+      fallback302Model: ENV.llmModel,
+      fallback302ApiKey: ENV.forgeApiKey,
+      fallback302BaseUrl: ENV.forgeApiUrl || "https://forge.manus.im",
+    }).length > 0
+  );
+}
+
 async function invokeViaStoryAgentChain(
   messages: Message[],
   maxTokens: number,

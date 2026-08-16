@@ -1,7 +1,6 @@
-import { ENV } from "../_core/env";
 import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
-import { invokeAgent } from "../_core/agentChannel";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import {
   storyIntentProfileFromLegacy,
   type StoryIntentProfile,
@@ -536,7 +535,7 @@ export async function recognizeStoryIntent(params: {
     .filter(Boolean)
     .join("\n");
 
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return {
       ...localIntentFallback(fallbackText),
       configured: false,

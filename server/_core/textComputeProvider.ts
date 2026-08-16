@@ -142,17 +142,27 @@ export function describeModelCapabilities(model: string): ModelCapabilities {
   };
 }
 
+/**
+ * 缺字段一律读成空串。
+ *
+ * 这个解析器现在是各业务「有没有配模型」的唯一判据，被大量调用点间接触发，
+ * 而那些调用点的测试通常只 mock 出自己关心的几个 ENV 字段。一个没 mock 到的
+ * 字段应当解释成「这条通道没配」，而不是抛 TypeError 把整条判断炸掉——判据
+ * 崩溃比判据答错更难排查。
+ */
+const str = (value: string | undefined | null): string => value?.trim() ?? "";
+
 function defaultNextModel(useCase: TextComputeUseCase): string {
   switch (useCase) {
     case "vision":
-      return ENV.openaiNextVisionModel;
+      return str(ENV.openaiNextVisionModel);
     case "emotion":
-      return ENV.openaiNextEmotionModel;
+      return str(ENV.openaiNextEmotionModel);
     case "login-guest":
-      return ENV.openaiNextLoginGuestModel;
+      return str(ENV.openaiNextLoginGuestModel);
     case "text":
     default:
-      return ENV.openaiNextTextModel;
+      return str(ENV.openaiNextTextModel);
   }
 }
 
@@ -160,11 +170,11 @@ function nextCandidate(
   useCase: TextComputeUseCase,
   options: ComputeCandidateOptions
 ): TextComputeProvider | null {
-  const apiKey = ENV.openaiNextApiKey.trim();
-  const model = (options.preferredNextModel ?? defaultNextModel(useCase)).trim();
+  const apiKey = str(ENV.openaiNextApiKey);
+  const model = str(options.preferredNextModel) || defaultNextModel(useCase);
   if (!apiKey || !model) return null;
 
-  const baseUrl = normalizeBaseUrl(ENV.openaiNextBaseUrl);
+  const baseUrl = normalizeBaseUrl(str(ENV.openaiNextBaseUrl));
   return {
     id: "openai-next",
     label: "OpenAI Next",
@@ -180,18 +190,17 @@ function legacy302Candidate(
   options: ComputeCandidateOptions
 ): TextComputeProvider | null {
   const isVision = useCase === "vision";
-  const apiKey = (
-    options.fallback302ApiKey ||
-    (isVision ? ENV.vision302ApiKey : "") ||
-    ENV.api302Key
-  ).trim();
-  const model = options.fallback302Model.trim();
+  const apiKey =
+    str(options.fallback302ApiKey) ||
+    (isVision ? str(ENV.vision302ApiKey) : "") ||
+    str(ENV.api302Key);
+  const model = str(options.fallback302Model);
   if (!apiKey || !model) return null;
 
   const baseUrl = normalizeBaseUrl(
-    options.fallback302BaseUrl ||
-      (isVision ? ENV.vision302BaseUrl : "") ||
-      ENV.api302BaseUrl
+    str(options.fallback302BaseUrl) ||
+      (isVision ? str(ENV.vision302BaseUrl) : "") ||
+      str(ENV.api302BaseUrl)
   );
   return {
     id: "302",
