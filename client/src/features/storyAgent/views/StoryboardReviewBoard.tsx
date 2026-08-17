@@ -212,6 +212,12 @@ import {
   StoryboardMediaDropOverlay,
 } from "./SimpleStoryboardBoard";
 
+/**
+ * 用户自己滚看板的时候，播放跟随让出这么久再接着跟。
+ * 一镜通常几秒，太短等于没让、太长又会让人以为跟随坏了。
+ */
+const MANUAL_BOARD_SCROLL_GRACE_MS = 2_500;
+
 function StoryboardMediaSelectionIndicator({
   selected,
 }: {
@@ -721,6 +727,8 @@ export function StoryboardReviewBoard({
   );
   const boardRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  /** 手动滚动的宽限截止时间戳；0 表示跟随照常。 */
+  const manualBoardScrollUntilRef = useRef(0);
   const dragScrollFrameRef = useRef<number | null>(null);
   const dragScrollClientYRef = useRef<number | null>(null);
   const dragScrollStartedAtRef = useRef<number | null>(null);
@@ -777,11 +785,34 @@ export function StoryboardReviewBoard({
   }, [creationShots]);
   const shouldShow =
     frames.length > 0 || isGeneratingScript || shots.length > 0 || latestScript;
+  // 滚轮/触摸滑动是「我自己在翻表格」，跟随先让开；按下去点某一镜是
+  // 明确要定位到它，立刻把宽限收回来，否则点完还得等两秒才滚过去。
+  useEffect(() => {
+    const scroller = boardScrollRef.current;
+    if (!scroller) return;
+    const holdAutoFollow = () => {
+      manualBoardScrollUntilRef.current =
+        Date.now() + MANUAL_BOARD_SCROLL_GRACE_MS;
+    };
+    const releaseAutoFollow = () => {
+      manualBoardScrollUntilRef.current = 0;
+    };
+    scroller.addEventListener("wheel", holdAutoFollow, { passive: true });
+    scroller.addEventListener("touchmove", holdAutoFollow, { passive: true });
+    scroller.addEventListener("pointerdown", releaseAutoFollow);
+    return () => {
+      scroller.removeEventListener("wheel", holdAutoFollow);
+      scroller.removeEventListener("touchmove", holdAutoFollow);
+      scroller.removeEventListener("pointerdown", releaseAutoFollow);
+    };
+  }, [shouldShow, viewMode]);
+
   useEffect(() => {
     if (selectedShotNo == null) return;
     let nestedFrame = 0;
     const frame = window.requestAnimationFrame(() => {
       nestedFrame = window.requestAnimationFrame(() => {
+        if (Date.now() < manualBoardScrollUntilRef.current) return;
         const target = boardRef.current?.querySelector<HTMLElement>(
           `[data-storyboard-shot-no="${selectedShotNo}"]`
         );
@@ -819,6 +850,7 @@ export function StoryboardReviewBoard({
     const keepSelectedShotVisible = () => {
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
+        if (Date.now() < manualBoardScrollUntilRef.current) return;
         const target = boardRef.current?.querySelector<HTMLElement>(
           `[data-storyboard-shot-no="${selectedShotNo}"]`
         );
