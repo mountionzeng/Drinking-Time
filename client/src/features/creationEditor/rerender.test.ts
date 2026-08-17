@@ -179,6 +179,7 @@ describe("creation editor rerender", () => {
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         imageProvider: "midjourney",
+        autoSelect: false,
         explicitInstruction: "保持人物和材质，给我四张独立构图备选。",
         costConfirmation: {
           accepted: true,

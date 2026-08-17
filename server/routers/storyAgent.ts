@@ -2134,6 +2134,19 @@ export const storyAgentRouter = router({
           parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
           isCurrent: false,
         });
+        // 重渲链路明确要求 autoSelect 时，新图要成为当前版本；旧图仍保留在历史中。
+        // 之前这里只保存了新资产但没有执行 promote，导致“生成成功却仍停在旧图”。
+        if (input.autoSelect) {
+          await promoteStoryImageToCurrent({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: image.id,
+            metadata: {
+              source: "generate_for_mobile_auto_select",
+              shotNo: input.shotNo,
+            },
+          });
+        }
         return {
           status: "ok" as const,
           imageUrl: result.imageUrl,

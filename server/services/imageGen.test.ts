@@ -984,6 +984,58 @@ describe("editImage", () => {
     expect(form.get("image")).toBeTruthy();
   });
 
+  it("带相邻镜头参考图时走 gpt-image 多图编辑，底图排第一位", async () => {
+    // FLUX Kontext 只吃一张图，会把前后镜头悄悄丢掉 ——「不要不连镜」就永远做不到。
+    const b64 = Buffer.from("multi-ref-image").toString("base64");
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    const result = await editImage(
+      "data:image/png;base64,Y3VycmVudC1mcmFtZQ==",
+      "女主在该环境下旋转，裙子改成和图片1554一样的长裙",
+      {
+        fetcher,
+        provider: "gpt-image",
+        referenceImageUrl: "data:image/png;base64,Y3VycmVudC1mcmFtZQ==",
+        referenceContextImageUrls: [
+          "data:image/png;base64,cHJldi1zaG90",
+          "data:image/png;base64,bmV4dC1zaG90",
+        ],
+        primaryReferenceLock: true,
+      }
+    );
+
+    expect(result.status).toBe("ok");
+    expect(fetcher.mock.calls[0][0]).toContain("/v1/images/edits");
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    const images = form.getAll("image[]") as File[];
+    expect(images).toHaveLength(3);
+    await expect(
+      Promise.all(images.map(image => image.text()))
+    ).resolves.toEqual(["current-frame", "prev-shot", "next-shot"]);
+    expect(form.get("image")).toBeNull();
+  });
+
+  it("带遮罩时不追加参考图，遮罩必须和唯一底图对齐", async () => {
+    const b64 = Buffer.from("masked-image").toString("base64");
+    const fetcher = makeFetcher([
+      { ok: true, status: 200, json: { data: [{ b64_json: b64 }] } },
+    ]);
+
+    await editImage("data:image/png;base64,Y3VycmVudA==", "只延长裙摆", {
+      fetcher,
+      provider: "gpt-image",
+      editMaskImageUrl: "data:image/png;base64,bWFzaw==",
+      referenceContextImageUrls: ["data:image/png;base64,bmVpZ2hib3Vy"],
+    });
+
+    const form = fetcher.mock.calls[0][1].body as FormData;
+    expect(form.getAll("image[]")).toHaveLength(0);
+    expect(form.get("image")).toBeTruthy();
+    expect(form.get("mask")).toBeTruthy();
+  });
+
   it("未显式选择 MJ 时 referenceImageUrl 优先用 FLUX Kontext", async () => {
     const b64 = Buffer.from("kontext-image").toString("base64");
     const fetcher = makeFetcher([

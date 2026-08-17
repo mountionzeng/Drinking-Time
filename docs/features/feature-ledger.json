@@ -170,10 +170,14 @@
         "server/services/imageAssets.ts"
       ],
       "owners": [
+        "client/src/features/creationEditor/rerender.ts",
+        "server/routers/storyAgent.ts",
         "server/services/imageAssets.ts",
         "server/services/storyMaterials.ts"
       ],
       "evidence": [
+        "client/src/features/creationEditor/rerender.test.ts",
+        "server/routers.storyAgent.test.ts",
         "server/services/imageAssets.test.ts"
       ],
       "invariants": [
@@ -191,6 +195,11 @@
           "date": "2026-06-13",
           "kind": "feature",
           "summary": "统一图片资产查询、候选和采用语义。"
+        },
+        {
+          "date": "2026-08-18",
+          "kind": "fix",
+          "summary": "故事版四候选重渲明确保持未采用，单图精确重渲由服务端执行一次显式采用；删除客户端重复 promote，避免候选静默覆盖和重复写入采用信号。"
         }
       ]
     },
@@ -890,13 +899,16 @@
       "status": "working",
       "userValue": "所有静态图片遵循一致美术和安全规则，同时由故事决定具体内容与色彩。",
       "entryPoints": [
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
         "server/services/renderGate.ts"
       ],
       "owners": [
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.ts",
         "server/services/renderGate.ts",
         "server/services/imageGen.ts"
       ],
       "evidence": [
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
         "server/services/renderGate.test.ts",
         "server/services/imageGen.test.ts"
       ],
@@ -929,6 +941,11 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "统一静态图提示词、封面专用编译、故事版风格继承与候选采用保护已收敛到 main，并通过类型检查、功能账本校验和全量测试。"
+        },
+        {
+          "date": "2026-08-18",
+          "kind": "fix",
+          "summary": "故事版精确重渲会解析用户点名的图片编号、按实际发送顺序声明多图职责并限制上下文数量；动作要求不再被固定姿态或局部遮罩覆盖，参考图缺失时在付费提交前阻止请求。"
         }
       ]
     },

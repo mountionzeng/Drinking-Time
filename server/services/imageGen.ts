@@ -1314,6 +1314,23 @@ async function generate302GptImageEdit(
     const mask = options.editMaskImageUrl
       ? await readImageInput(options.editMaskImageUrl, fetcher)
       : null;
+    // 遮罩必须和唯一的底图逐像素对齐，带遮罩时不能再追加参考图。
+    // 没有遮罩时，相邻镜头与用户点名的图片都要一起送进去：提示词里写了
+    // 「图2 的裙子」「和前后镜头不要跳戏」，模型就必须真的看得到那几张图。
+    // primaryReferenceLock 是 MJ 等权垫图的顾虑，这里每张图的职责由提示词指明，不受它限制。
+    const contextSources = mask
+      ? []
+      : await Promise.all(
+          Array.from(
+            new Set(
+              (options.referenceContextImageUrls ?? [])
+                .filter(Boolean)
+                .filter(url => url !== imageUrl)
+            )
+          )
+            .slice(0, 3)
+            .map(url => readImageInput(url, fetcher))
+        );
     const endpoint = new URL(
       "/v1/images/edits",
       `${normalizeBaseUrl(ENV.api302BaseUrl)}/`
@@ -1341,11 +1358,25 @@ async function generate302GptImageEdit(
         : gptQualityFor(options.fidelity)
     );
     form.append("output_format", "png");
-    form.append(
-      "image",
-      new Blob([source.bytes as any], { type: source.mimeType }),
-      source.filename
-    );
+    if (contextSources.length > 0) {
+      // 多图编辑：底图必须排在第一位，提示词里的「图1」指的就是它。
+      for (const input of [source, ...contextSources]) {
+        form.append(
+          "image[]",
+          new Blob([input.bytes as any], { type: input.mimeType }),
+          input.filename
+        );
+      }
+      console.log(
+        `[imageGen] gpt-image edit with ${contextSources.length + 1} reference images`
+      );
+    } else {
+      form.append(
+        "image",
+        new Blob([source.bytes as any], { type: source.mimeType }),
+        source.filename
+      );
+    }
     if (mask) {
       form.append(
         "mask",
@@ -1507,6 +1538,22 @@ export async function editImage(
       };
     }
     console.log("[imageGen] using gpt-image masked edit");
+    return generate302GptImageEdit(imageUrl, prompt, options, fetcher);
+  }
+
+  // FLUX Kontext 只吃一张参考图。一旦调用方还带了相邻镜头／点名图片，
+  // 走 Kontext 就会把它们悄悄丢掉，提示词里的「图2」「前后镜头」全落空。
+  // 这种情况改走 302 gpt-image 的多图编辑端点。
+  const hasMultipleReferences =
+    (options.referenceContextImageUrls ?? []).filter(
+      url => Boolean(url) && url !== imageUrl
+    ).length > 0;
+  if (
+    options.provider !== "midjourney" &&
+    hasMultipleReferences &&
+    ENV.api302Key
+  ) {
+    console.log("[imageGen] using gpt-image multi-reference edit");
     return generate302GptImageEdit(imageUrl, prompt, options, fetcher);
   }
 

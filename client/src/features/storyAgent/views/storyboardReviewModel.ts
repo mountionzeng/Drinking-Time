@@ -1205,9 +1205,16 @@ export function storyboardShotFrameImages(
 
 type StoryboardImageGenerationFrameReference = {
   imageUrl: string;
-  source: "current" | "previous-last" | "next-first" | "publishing-cover";
+  source:
+    | "current"
+    | "previous-last"
+    | "next-first"
+    | "publishing-cover"
+    | "instruction";
   cueCode: string | null;
   shotNo: number;
+  /** 仅 source=instruction 时存在，用于把用户点名的图片和实际参考图对应起来。 */
+  imageId?: number;
 };
 
 export type StoryboardImageGenerationReferences = {

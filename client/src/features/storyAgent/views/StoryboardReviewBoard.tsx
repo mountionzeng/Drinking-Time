@@ -102,7 +102,6 @@ import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import {
   createStoryboardEditMaskDataUrl,
-  requiresStoryboardExactEditMask,
   storyboardExactEditMaskPlan,
 } from "@/features/creationEditor/editMask";
 import {
@@ -203,7 +202,11 @@ import {
   buildSheSelf02ImageEditInstruction,
   isSheSelf02ImageEditTemplateEnabled,
   SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL,
+  storyboardExactEditConstraint,
   storyboardImageRenderBlockReason,
+  storyboardInstructionImageIds,
+  storyboardReferenceContext,
+  storyboardReferenceManifest,
 } from "./storyboardImageRenderPlan";
 import {
   AddShotButton,
@@ -1549,6 +1552,40 @@ export function StoryboardReviewBoard({
     });
   };
 
+  /** 把用户在指令里点名的图片编号翻成真正的参考图。 */
+  const instructionNamedImageReferences = (ids: readonly number[]) => {
+    if (ids.length === 0) return [];
+    const byId = new Map<
+      number,
+      { imageUrl: string; cueCode: string | null; shotNo: number }
+    >();
+    for (const shot of creationShots) {
+      for (const frame of storyboardShotFrameImages(shot)) {
+        if (!byId.has(frame.id)) {
+          byId.set(frame.id, {
+            imageUrl: frame.imageUrl,
+            cueCode: shot.cueCode ?? null,
+            shotNo: shot.shotNo,
+          });
+        }
+      }
+    }
+    return ids.flatMap(id => {
+      const found = byId.get(id);
+      return found
+        ? [
+            {
+              imageUrl: found.imageUrl,
+              source: "instruction" as const,
+              cueCode: found.cueCode,
+              shotNo: found.shotNo,
+              imageId: id,
+            },
+          ]
+        : [];
+    });
+  };
+
   const resolvePersistedNeighborImageReferences = async (
     creationShot: CreationEditorShot
   ) => {
@@ -1828,23 +1865,31 @@ export function StoryboardReviewBoard({
       : null;
     const exactEditInstruction = request?.instruction?.trim();
     const isExactFrameEdit = Boolean(selectedFrame && exactEditInstruction);
+    const instructionImageIds = storyboardInstructionImageIds(
+      exactEditInstruction ?? ""
+    );
+    const instructionReferences =
+      instructionNamedImageReferences(instructionImageIds);
+    const foundInstructionImageIds = new Set(
+      instructionReferences.map(reference => reference.imageId)
+    );
+    const missingInstructionImageIds = instructionImageIds.filter(
+      imageId => !foundInstructionImageIds.has(imageId)
+    );
+    if (missingInstructionImageIds.length > 0) {
+      const message = `找不到用户点名的图片 #${missingInstructionImageIds.join("、#")}，本次不会提交付费生成`;
+      toast.error(message);
+      return { status: "error", message };
+    }
     const editMaskPlan =
-      isExactFrameEdit && exactEditInstruction
+      isExactFrameEdit &&
+      exactEditInstruction &&
+      instructionReferences.length === 0
         ? storyboardExactEditMaskPlan(exactEditInstruction, {
             cueCode: label,
             frameRole: selectedFrameRole,
           })
         : undefined;
-    if (
-      isExactFrameEdit &&
-      exactEditInstruction &&
-      requiresStoryboardExactEditMask(exactEditInstruction, label) &&
-      !editMaskPlan
-    ) {
-      const message = `${label} 裙摆局部重绘只允许选择已标记的首帧或尾帧；本次未提交付费生成`;
-      toast.error(message);
-      return { status: "error", message };
-    }
     let editMaskImageUrl: string | undefined;
     if (selectedFrame && editMaskPlan) {
       try {
@@ -1853,10 +1898,9 @@ export function StoryboardReviewBoard({
           editMaskPlan
         );
       } catch (error) {
-        const message =
+        const reason =
           error instanceof Error ? error.message : "裙子区域遮罩创建失败";
-        toast.error(message);
-        return { status: "error", message };
+        toast.warning(`${reason}，已改用整帧参考编辑；尚未提交付费任务`);
       }
     }
     const templateEnabled = isSheSelf02ImageEditTemplateEnabled(
@@ -1883,23 +1927,14 @@ export function StoryboardReviewBoard({
         ? "单帧参考编辑保护：只生成一张完整的电影静帧；禁止四宫格、分屏、拼贴、漫画格和联系表。"
         : "",
       isExactFrameEdit
-        ? "精确编辑约束：只修改用户明确点名的内容；人物身份、发型、姿态、构图、场景、光线、色彩、物体和原图材质全部保持不变。"
+        ? storyboardExactEditConstraint(exactEditInstruction ?? "")
         : "",
     ]
       .filter(Boolean)
       .join("\n");
-    const storyboardReferences = selectedFrame
-      ? {
-          primary: {
-            imageUrl: selectedFrame.imageUrl,
-            source: "current" as const,
-            cueCode: creationShot.cueCode ?? null,
-            shotNo: creationShot.shotNo,
-          },
-          context: [],
-        }
-      : ((await resolvePersistedNeighborImageReferences(creationShot)) ??
-        storyboardImageGenerationReferences(creationShot, creationShots));
+    const neighborReferences =
+      (await resolvePersistedNeighborImageReferences(creationShot)) ??
+      storyboardImageGenerationReferences(creationShot, creationShots);
     const coverReference = inheritedPublishingCover?.imageUrl
       ? {
           imageUrl: inheritedPublishingCover.imageUrl,
@@ -1908,26 +1943,46 @@ export function StoryboardReviewBoard({
           shotNo: creationShot.shotNo,
         }
       : null;
-    const imageReferences = storyboardReferences
+    const primaryReference = selectedFrame
       ? {
-          ...storyboardReferences,
-          context: coverReference
-            ? [...storyboardReferences.context, coverReference].filter(
-                (reference, index, all) =>
-                  all.findIndex(
-                    item => item.imageUrl === reference.imageUrl
-                  ) === index
-              )
-            : storyboardReferences.context,
+          imageUrl: selectedFrame.imageUrl,
+          source: "current" as const,
+          cueCode: creationShot.cueCode ?? null,
+          shotNo: creationShot.shotNo,
         }
-      : coverReference
-        ? { primary: coverReference, context: [] }
-        : null;
-    if (!imageReferences) {
+      : (neighborReferences?.primary ?? coverReference);
+    if (!primaryReference) {
       const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
       toast.error(message);
       return { status: "error", message };
     }
+    const imageReferences = {
+      primary: primaryReference,
+      context: storyboardReferenceContext({
+        primaryImageUrl: primaryReference.imageUrl,
+        instructionReferences: selectedFrame ? instructionReferences : [],
+        continuityReferences: selectedFrame
+          ? neighborReferences
+            ? [neighborReferences.primary, ...neighborReferences.context]
+            : []
+          : (neighborReferences?.context ?? []),
+        coverReference,
+      }),
+    };
+    const imageProvider =
+      isExactFrameEdit || useSingleImageFallback
+        ? ("gpt-image" as const)
+        : ("midjourney" as const);
+    // MJ 的主图锁会主动舍弃上下文图，带遮罩的 GPT 编辑也只发送底图；
+    // 只有真正走多图编辑时才附清单，避免提示词引用模型没收到的「图2」。
+    const instructionWithReferences = [
+      imageProvider === "gpt-image" && !editMaskImageUrl
+        ? storyboardReferenceManifest(imageReferences)
+        : "",
+      explicitInstruction,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const providerBlockReason =
       storyboardImageRenderBlockReason(imageProviderStatus);
     if (providerBlockReason) {
@@ -1999,12 +2054,9 @@ export function StoryboardReviewBoard({
       const generation = await onGenerateShotImages({
         shotNo: shot.shotNo,
         rows,
-        explicitInstruction,
+        explicitInstruction: instructionWithReferences,
         candidateCount: imageRenderPlan.candidateCount,
-        imageProvider:
-          isExactFrameEdit || useSingleImageFallback
-            ? "gpt-image"
-            : "midjourney",
+        imageProvider,
         editMaskImageUrl,
         reference: {
           imageUrl:
@@ -2015,9 +2067,9 @@ export function StoryboardReviewBoard({
             imageReferences.primary.source === "publishing-cover"
               ? undefined
               : imageReferences.primary.imageUrl,
-          contextImageUrls: imageReferences.context
-            .filter(reference => reference.source !== "publishing-cover")
-            .map(reference => reference.imageUrl),
+          contextImageUrls: imageReferences.context.map(
+            reference => reference.imageUrl
+          ),
           storyStyleImageUrl: inheritedPublishingCover?.imageUrl,
         },
         costConfirmation: {

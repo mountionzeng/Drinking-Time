@@ -89,6 +89,7 @@ export function createGenerateForMobileInput(params: {
   storyId: number;
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
+  autoSelect?: boolean;
   reference?: RerenderReference;
   explicitInstruction?: string;
   costConfirmation?: {
@@ -110,7 +111,7 @@ export function createGenerateForMobileInput(params: {
     explicitInstruction: params.explicitInstruction?.trim() || undefined,
     costConfirmation: params.costConfirmation,
     styleHint: params.shot.styleRef || undefined,
-    autoSelect: true,
+    autoSelect: params.autoSelect ?? true,
     referenceImageUrl: safeReferenceUrl(params.reference?.imageUrl),
     referenceIdentityImageUrl: safeReferenceUrl(
       params.reference?.identityImageUrl
@@ -129,6 +130,7 @@ export async function rerenderShotImage(params: {
   storyId: number;
   shot: CreationEditorShot;
   rows: readonly PromptRow[];
+  autoSelect?: boolean;
   reference?: RerenderReference;
   explicitInstruction?: string;
   costConfirmation?: {
@@ -187,6 +189,7 @@ export async function rerenderShotImageCandidates(params: {
     storyId: params.storyId,
     shot: params.shot,
     rows: params.rows,
+    autoSelect: false,
     reference: params.reference,
     explicitInstruction: params.explicitInstruction,
     costConfirmation: params.costConfirmation,

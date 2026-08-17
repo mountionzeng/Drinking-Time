@@ -119,7 +119,7 @@ process.env.LOCAL_PERSIST_PATH = path.join(
 const { appRouter } = await import("./routers");
 // Project ownership is enforced on projectId-keyed procedures, so tests that
 // name a projectId must actually own one.
-const { seedProjectForTesting } = await import("./db");
+const { getStoryGeneratedImages, seedProjectForTesting } = await import("./db");
 
 function createAuthContext(userId = 42): TrpcContext {
   return {
@@ -1102,6 +1102,46 @@ describe("storyAgent tRPC router", () => {
         primaryReferenceLock: true,
       })
     );
+  });
+
+  it("generateForMobile 只在 autoSelect 时把新图提升为当前版本", async () => {
+    const userId = 497;
+    const projectId = 7497;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    seedProjectForTesting({ id: projectId, userId });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "重渲后立即采用",
+      projectId,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, cueCode: "0101", subject: "主角" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角站在窗边",
+      autoSelect: true,
+    });
+
+    const candidate = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角仍站在窗边，作为未采用候选",
+      autoSelect: false,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(candidate.status).toBe("ok");
+    const images = await getStoryGeneratedImages(story!.id, userId);
+    expect(images.find(image => image.id === result.imageId)?.isCurrent).toBe(
+      true
+    );
+    expect(
+      images.find(image => image.id === candidate.imageId)?.isCurrent
+    ).toBe(false);
   });
 
   it("正式封面只作为故事风格参考，不冒充人物身份", async () => {

@@ -2182,18 +2182,6 @@ export function CreationEditorProvider({
       }
       const result = batch.results.at(-1);
       if (!result) throw new Error("图片生成没有返回候选结果");
-      // 单图升级链路必须让新版本立刻成为当前图。服务端正式链路也会
-      // autoSelect；这里再做一次幂等兜底，避免旧服务进程或网络中断只把
-      // 资产写进历史、却让看板继续显示旧图。
-      if (options?.candidateCount !== 4 && result.imageId != null) {
-        const promoted = await promoteStoryImageMut.mutateAsync({
-          storyId: activeId,
-          imageId: result.imageId,
-        });
-        if (promoted.status !== "ok") {
-          throw new Error(promoted.error || "新图片已生成，但设为当前版本失败");
-        }
-      }
       if (promptLineageQuery.data?.mode !== "lineage") {
         const compiled = compilePromptRecipe({ shot, rows });
         const patch = Object.fromEntries(
