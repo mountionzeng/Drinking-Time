@@ -71,6 +71,10 @@ type CapabilityTier = Omit<ModelCapabilities, "model" | "registered">;
  * 字段发送——宁可少发参数被网关接受，也不要发一个它不认的字段整轮失败。
  */
 const MODEL_CAPABILITIES: Readonly<Record<string, CapabilityTier>> = {
+  // input_modalities 在 OpenAI Next 的模型目录里确认为 ["text","image"]。
+  // U1 最初把这项错登记成 false；storyReply.ts 早就在给这个模型发用户上传的
+  // 照片（image_url，text use case），U7 加上视觉输入边界检查后这个错误
+  // 登记会当场拒绝所有带照片的故事回复——先在这里改对，而不是绕过检查。
   "gpt-5.6-terra": {
     tokenLimitField: "max_completion_tokens",
     supportsReasoningEffort: true,
@@ -78,9 +82,26 @@ const MODEL_CAPABILITIES: Readonly<Record<string, CapabilityTier>> = {
     supportsTemperature: false,
     supportsStructuredOutputs: true,
     supportsToolCalls: true,
-    supportsVisionInput: false,
+    supportsVisionInput: true,
   },
+  // 2026-08-17 用真实网关验证过：接受 max_tokens（max_completion_tokens 也
+  // 被接受，但 max_tokens 是 Qwen 生态原生约定）；reasoning_effort="low"
+  // 被接受且确实驱动了 reasoning_content/reasoning_tokens——U1 最初把这两项
+  // 都登记错了（分别错登记成 max_completion_tokens 和不支持推理强度）。
+  // 只登记验证过的 "low"，未验证 medium/high 前不敢声称支持。
   "qwen3-vl-plus": {
+    tokenLimitField: "max_tokens",
+    supportsReasoningEffort: true,
+    reasoningEfforts: ["low"],
+    supportsTemperature: true,
+    supportsStructuredOutputs: true,
+    supportsToolCalls: false,
+    supportsVisionInput: true,
+  },
+  // 旧 302 视觉模型（VISION_302_MODEL）。必须登记：视觉档位会拒绝「已登记且
+  // 声明不支持图片」的模型，而未登记模型按最小集放行——不登记它就等于让
+  // 回退通道永远走最小字段，白白丢掉 temperature 和结构化输出。
+  "gemini-3-pro-preview": {
     tokenLimitField: "max_tokens",
     supportsReasoningEffort: false,
     reasoningEfforts: [],

@@ -219,6 +219,19 @@ export function isStructurallyReplaySafe(request: InferenceRequest): boolean {
 
 const SAFE_ERROR_CODE = /^[a-z0-9_.-]{1,64}$/i;
 
+/**
+ * 只在真正需要重放决策（可重放的失败分类）时才有意义读取，其余场景不必
+ * 依赖响应对象是一个完整的 `Response` 实例——这条链路的 `fetchImpl` 本身
+ * 就是为测试开的注入点，测试里常用最小对象字面量代替真实 `Response`，
+ * 没有 `.headers`。跳过缺失的 header 比要求每个调用方都伪造一个完整
+ * `Response` 更贴近这个接缝的实际用法。
+ */
+function readRetryAfterHeader(response: Response): string | null {
+  return typeof response.headers?.get === "function"
+    ? response.headers.get("retry-after")
+    : null;
+}
+
 function parseRetryAfterMs(header: string | null): number | undefined {
   if (!header) return undefined;
   const seconds = Number(header.trim());
@@ -291,12 +304,53 @@ type PayloadOptions = {
   minimal: boolean;
 };
 
+/**
+ * 多模态输入边界。
+ *
+ * 这条链只负责文本与 `image_url` 的内容理解。音频、PDF、视频有各自的专用通道
+ * 和计费语义，混进来会被当成普通聊天补全发出去——网关那边多半只是忽略，于是
+ * 模型对着不存在的素材编答案，比直接报错难查得多。
+ *
+ * 图片只在模型「已登记且明确声明不支持视觉」时才拒绝。未登记的模型放行，
+ * 因为登记表不全不该变成拒绝用户自有配置的理由。
+ */
+function assertSupportedContent(
+  request: InferenceRequest,
+  candidate: InferenceCandidate,
+  capabilities: ModelCapabilities
+): void {
+  let hasImage = false;
+
+  for (const message of request.messages) {
+    const parts = Array.isArray(message.content)
+      ? message.content
+      : [message.content];
+    for (const part of parts) {
+      if (typeof part === "string") continue;
+      if (part.type === "file_url") {
+        throw new Error(
+          `Inference rejected: file_url input is not supported on the ${request.useCase} lane; use the dedicated media channel`
+        );
+      }
+      if (part.type === "image_url") hasImage = true;
+    }
+  }
+
+  if (hasImage && capabilities.registered && !capabilities.supportsVisionInput) {
+    throw new Error(
+      `Inference rejected: model ${candidate.model} is registered as text-only but the request carries images`
+    );
+  }
+}
+
 export function buildOpenAiPayload(
   request: InferenceRequest,
-  candidate: TextComputeProvider,
+  candidate: InferenceCandidate,
   capabilities: ModelCapabilities,
   options: PayloadOptions
 ): Record<string, unknown> {
+  assertSupportedContent(request, candidate, capabilities);
+
   const payload: Record<string, unknown> = {
     model: candidate.model,
     messages: request.messages.map(normalizeMessage),
@@ -415,7 +469,7 @@ async function attemptOpenAiCompatible(
         status: response.status,
         category: refineCategory(response.status, errorCode),
         errorCode,
-        retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after")),
+        retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
         // 网关明确拒绝 = 未受理。
         acceptanceUnknown: false,
@@ -517,7 +571,7 @@ async function attemptClaudeMessages(
         status: response.status,
         category: refineCategory(response.status, errorCode),
         errorCode,
-        retryAfterMs: parseRetryAfterMs(response.headers.get("retry-after")),
+        retryAfterMs: parseRetryAfterMs(readRetryAfterHeader(response)),
         aborted: false,
         acceptanceUnknown: false,
       },

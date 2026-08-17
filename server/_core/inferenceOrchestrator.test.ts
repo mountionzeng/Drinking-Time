@@ -230,6 +230,106 @@ describe("runInference — reasoning effort (R4)", () => {
   });
 });
 
+describe("runInference — multimodal input boundary (U7)", () => {
+  it("rejects file_url content before it reaches the network", async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await expect(
+      runInference(
+        baseRequest({
+          fetchImpl: impl,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "listen" },
+                {
+                  type: "file_url",
+                  file_url: { url: "https://cdn.example/a.mp3", mime_type: "audio/mpeg" },
+                },
+              ],
+            },
+          ],
+        })
+      )
+    ).rejects.toThrow(/file_url input is not supported/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects image_url when the resolved model is registered as text-only", async () => {
+    // 关掉 Next（默认 gpt-5.6-terra，已登记为支持视觉），逼候选链落到
+    // 302 的这个已登记且明确不支持视觉的模型上。
+    ENV.openaiNextApiKey = "";
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await expect(
+      runInference(
+        baseRequest({
+          fetchImpl: impl,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "look" },
+                { type: "image_url", image_url: { url: "https://cdn.example/a.png" } },
+              ],
+            },
+          ],
+          candidates: { fallback302Model: "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B" },
+        })
+      )
+    ).rejects.toThrow(/registered as text-only/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("allows image_url through an unregistered model — an incomplete registry should not block a user's own config", async () => {
+    ENV.openaiNextApiKey = "";
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await runInference(
+      baseRequest({
+        fetchImpl: impl,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "look" },
+              { type: "image_url", image_url: { url: "https://cdn.example/a.png" } },
+            ],
+          },
+        ],
+        candidates: { fallback302Model: "some-unlisted-vision-model" },
+      })
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(LEGACY_URL);
+  });
+
+  it("allows image_url through a model explicitly registered as vision-capable", async () => {
+    const { impl, calls } = recordingFetch(() => jsonResponse(200, okBody()));
+
+    await runInference(
+      baseRequest({
+        fetchImpl: impl,
+        useCase: "vision",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "look" },
+              { type: "image_url", image_url: { url: "https://cdn.example/a.png" } },
+            ],
+          },
+        ],
+        candidates: { fallback302Model: "qwen3-vl-plus" },
+      })
+    );
+
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe("runInference — replay boundary", () => {
   it("does not switch providers when the caller never declared replay safety", async () => {
     const { impl, calls } = recordingFetch(() => jsonResponse(503, { error: {} }));

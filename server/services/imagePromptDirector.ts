@@ -1,6 +1,7 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
-import { resolveVisionComputeProvider } from "./textComputeProvider";
+import { resolveComputeCandidates } from "../_core/textComputeProvider";
+import { runInference } from "../_core/inferenceOrchestrator";
 import { promptShotCode } from "../../shared/shotIdentity";
 
 export type ImageReferencePurpose =
@@ -185,83 +186,61 @@ function userContext(input: DirectImagePromptInput): string {
 export async function directImagePrompt(
   input: DirectImagePromptInput
 ): Promise<ImagePromptDirectorResult> {
-  const provider = resolveVisionComputeProvider({
+  const candidates = {
     fallback302Model: ENV.imagePrompt302Model,
     fallback302ApiKey: ENV.api302Key,
     fallback302BaseUrl: ENV.api302BaseUrl,
-  });
-  if (!provider) {
+  };
+  const firstCandidate = resolveComputeCandidates("vision", candidates)[0];
+  if (!firstCandidate) {
     return fallback(input, "OpenAI Next / 302 视觉提示词通道未配置");
   }
   const timeoutMs = Number(ENV.imagePrompt302TimeoutMs);
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    Number.isFinite(timeoutMs) && timeoutMs > 0
-      ? Math.floor(timeoutMs)
-      : 30_000
-  );
+  const deadlineMs =
+    Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 30_000;
 
   try {
-    const response = await fetch(provider.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        stream: false,
-        max_completion_tokens: 900,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt() },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `请分析参考图并生成图片提示词。上下文：${userContext(input)}`,
-              },
-              {
-                type: "image_url",
-                image_url: { url: input.imageInput, detail: "high" },
-              },
-            ],
-          },
-        ],
-      }),
-      signal: controller.signal,
+    const outcome = await runInference({
+      useCase: "vision",
+      messages: [
+        { role: "system", content: systemPrompt() },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `请分析参考图并生成图片提示词。上下文：${userContext(input)}`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: input.imageInput, detail: "high" },
+            },
+          ],
+        },
+      ],
+      candidates,
+      maxTokens: 900,
+      responseFormat: { type: "json_object" },
+      // 图片提示词导演是纯分析，没有工具调用也没有业务写入，可以安全重发。
+      replaySafe: true,
+      deadlineMs,
     });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return fallback(
-        input,
-        `${provider.label} 图片提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
-        provider.model
-      );
-    }
-
-    const data = (await response.json()) as CompletionResponse;
-    const raw = parseJsonLoose<DirectorPayload>(completionText(data));
+    const raw = parseJsonLoose<DirectorPayload>(completionText(outcome.result));
     const prompt = compilePrompt(raw, input.referencePurpose);
     if (!prompt) {
       return fallback(
         input,
-        `${provider.label} 图片提示词分析未返回有效英文 finalPrompt`,
-        provider.model
+        `${outcome.providerLabel} 图片提示词分析未返回有效英文 finalPrompt`,
+        outcome.model
       );
     }
 
     return {
       prompt,
       source:
-        provider.id === "openai-next"
-          ? "openai-next-vision"
-          : "302-vision",
-      model: data.model || provider.model,
+        outcome.provider === "openai-next" ? "openai-next-vision" : "302-vision",
+      model: outcome.result.model || outcome.model,
       analysis: normalizeAnalysis(raw, input.referencePurpose),
     };
   } catch (error) {
@@ -269,10 +248,8 @@ export async function directImagePrompt(
       input,
       error instanceof Error
         ? error.message
-        : `${provider.label} 图片提示词分析失败`,
-      provider.model
+        : `${firstCandidate.label} 图片提示词分析失败`,
+      firstCandidate.model
     );
-  } finally {
-    clearTimeout(timeout);
   }
 }

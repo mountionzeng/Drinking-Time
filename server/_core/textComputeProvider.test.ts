@@ -165,12 +165,14 @@ describe("describeModelCapabilities", () => {
     );
   });
 
-  it("marks only the vision tier as accepting image input", () => {
+  it("marks vision-capable tiers as accepting image input, text-only tiers as not", () => {
     expect(describeModelCapabilities("qwen3-vl-plus").supportsVisionInput).toBe(
       true
     );
+    // gpt-5.6-terra 的 input_modalities 在 OpenAI Next 目录里是 ["text","image"]，
+    // 且 storyReply.ts 已经在给它发用户上传的照片——它是多模态模型。
     expect(describeModelCapabilities("gpt-5.6-terra").supportsVisionInput).toBe(
-      false
+      true
     );
     expect(
       describeModelCapabilities("deepseek-v4-flash").supportsVisionInput

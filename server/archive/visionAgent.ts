@@ -1,29 +1,16 @@
 import { ENV } from "../_core/env";
 import { invokeLLM, type Message } from "../_core/llm";
+import { resolveComputeCandidates } from "../_core/textComputeProvider";
 import {
-  resolveVisionComputeProvider,
-  type TextComputeProvider,
-} from "../services/textComputeProvider";
+  runInference,
+  type InferenceCandidate,
+} from "../_core/inferenceOrchestrator";
 
 type VisionAnalyzeParams = {
   imageDataUrl?: string;
   imageUrl?: string;
   fileName?: string;
   brief?: string;
-};
-
-type ClaudeMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  model?: string;
-};
-
-type OpenAICompatibleVisionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
-    };
-  }>;
-  model?: string;
 };
 
 export type VisionAnalysisResult = {
@@ -200,6 +187,20 @@ function buildSystemPrompt() {
   ].join("\n");
 }
 
+function extractText(result: {
+  choices: Array<{ message: { content: string | Array<{ type?: string; text?: string }> } }>;
+}): string {
+  const content = result.choices[0]?.message?.content;
+  return typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content
+          .map(part => (part.type === "text" ? (part.text ?? "") : ""))
+          .filter(Boolean)
+          .join("\n")
+      : "";
+}
+
 function buildUserText(params: VisionAnalyzeParams) {
   return [
     params.fileName ? `文件名：${params.fileName}` : "",
@@ -208,64 +209,6 @@ function buildUserText(params: VisionAnalyzeParams) {
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-async function invokeClaudeVision(params: VisionAnalyzeParams) {
-  const apiUrl = resolveClaudeUrl();
-  if (!apiUrl) throw new Error("Claude messages endpoint is not configured");
-  if (!params.imageDataUrl) {
-    throw new Error("Claude vision analysis requires imageDataUrl");
-  }
-
-  const image = parseImageDataUrl(params.imageDataUrl);
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ENV.forgeApiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: ENV.visionModel || ENV.dropZoneModel || ENV.llmModel,
-      max_tokens: 1800,
-      system: buildSystemPrompt(),
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildUserText(params) },
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: image.mediaType,
-                data: image.data,
-              },
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Claude vision invoke failed: ${response.status} ${body}`);
-  }
-
-  const data = (await response.json()) as ClaudeMessageResponse;
-  const text =
-    data.content
-      ?.filter(block => block.type === "text" && block.text)
-      .map(block => block.text)
-      .join("\n")
-      .trim() || "";
-
-  return {
-    text,
-    modelLabel:
-      data.model || ENV.visionModel || ENV.dropZoneModel || ENV.llmModel,
-  };
 }
 
 async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
@@ -297,78 +240,80 @@ async function invokeOpenAICompatibleVision(params: VisionAnalyzeParams) {
       : undefined,
   });
 
-  const content = result.choices[0]?.message?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content
-            .map(part => (part.type === "text" ? part.text : ""))
-            .filter(Boolean)
-            .join("\n")
-        : "";
-
-  return { text, modelLabel: ENV.llmModel };
+  return { text: extractText(result), modelLabel: ENV.llmModel };
 }
 
-async function invokeCompatibleVision(
-  params: VisionAnalyzeParams,
-  provider: TextComputeProvider,
-) {
+/**
+ * 统一视觉候选链：Next/302 视觉档位打头，配置了的话 Claude Messages 兜底。
+ *
+ * 这两条原本是各自独立的直连 fetch，且互不回退——Next 视觉瞬时失败时今天
+ * 没有任何机会退到 Claude。现在它们进同一条编排链，瞬时失败可以在预算内
+ * 跨协议回退到 Claude；两者都没配置时返回 null，交给调用方走 tier-3 的
+ * 通用文本模型兜底（该兜底本就通过 invokeLLM 走 orchestrator，无需改动）。
+ */
+async function invokeUnifiedVisionChannel(
+  params: VisionAnalyzeParams
+): Promise<{ text: string; modelLabel: string } | null> {
   if (params.imageDataUrl) {
+    // 只做格式与体积校验，转换成 image_url 消息内容仍统一走下面的 Message。
     parseImageDataUrl(params.imageDataUrl);
   }
   const imageUrl = params.imageDataUrl || params.imageUrl;
   if (!imageUrl) throw new Error("imageDataUrl or imageUrl is required");
 
-  const response = await fetch(provider.chatCompletionsUrl, {
-    method: "POST",
-    signal: AbortSignal.timeout(45_000),
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${provider.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      stream: false,
-      max_tokens: 1800,
-      messages: [
-        { role: "system", content: buildSystemPrompt() },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildUserText(params) },
-            { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
-          ],
-        },
-      ],
-    }),
-  });
+  const chain: InferenceCandidate[] = [];
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `${provider.label} vision invoke failed: ${response.status} ${body}`
-    );
+  for (const candidate of resolveComputeCandidates("vision", {
+    fallback302Model: ENV.vision302Model,
+    fallback302ApiKey: ENV.vision302ApiKey,
+    fallback302BaseUrl: ENV.vision302BaseUrl,
+  })) {
+    chain.push({ ...candidate, protocol: "openai-compatible" });
   }
 
-  const data = (await response.json()) as OpenAICompatibleVisionResponse;
-  const content = data.choices?.[0]?.message?.content;
-  const text =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content
-            .map(part => (part.type === "text" ? part.text : ""))
-            .filter(Boolean)
-            .join("\n")
-        : "";
+  if (shouldUseClaudeChannel()) {
+    const endpointUrl = resolveClaudeUrl();
+    if (endpointUrl) {
+      chain.push({
+        id: "302",
+        label: "302",
+        apiKey: ENV.forgeApiKey,
+        baseUrl: endpointUrl,
+        chatCompletionsUrl: endpointUrl,
+        endpointUrl,
+        protocol: "claude-messages",
+        model: ENV.visionModel || ENV.dropZoneModel || ENV.llmModel,
+      });
+    }
+  }
 
-  return {
-    text,
-    modelLabel: data.model || provider.model,
-  };
+  if (chain.length === 0) return null;
+
+  const messages: Message[] = [
+    { role: "system", content: buildSystemPrompt() },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: buildUserText(params) },
+        { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+      ],
+    },
+  ];
+
+  const outcome = await runInference({
+    useCase: "vision",
+    messages,
+    candidates: { fallback302Model: ENV.vision302Model },
+    explicitCandidates: chain,
+    maxTokens: 1800,
+    // 原直连实现两条通道都不下发 response_format，靠 prompt 约定 JSON——
+    // 这里保持一致，不引入未经真实网关验证的行为变化。
+    // 视觉分析是纯读取，没有工具调用也没有业务写入，可以安全重发。
+    replaySafe: true,
+    deadlineMs: 45_000,
+  });
+
+  return { text: extractText(outcome.result), modelLabel: outcome.result.model || outcome.model };
 }
 
 // 视觉模型没吐出合法 JSON 时的兜底（视觉模型经常直接说大白话，而不是严格 JSON）。
@@ -401,25 +346,16 @@ function buildFallbackVisionResult(
 export async function analyzeVisionReference(
   params: VisionAnalyzeParams
 ): Promise<VisionAnalysisResult> {
-  const visionProvider = resolveVisionComputeProvider({
-    fallback302Model: ENV.vision302Model,
-    fallback302ApiKey: ENV.vision302ApiKey,
-    fallback302BaseUrl: ENV.vision302BaseUrl,
-  });
-  if (!visionProvider && !ENV.forgeApiKey) {
-    throw new Error(
-      "OPENAI_NEXT_API_KEY, BUILT_IN_FORGE_API_KEY, or VISION_302_API_KEY/VISION_302_MODEL is not configured"
-    );
-  }
   if (!params.imageDataUrl && !params.imageUrl) {
     throw new Error("imageDataUrl or imageUrl is required");
   }
 
-  const { text, modelLabel } = visionProvider
-    ? await invokeCompatibleVision(params, visionProvider)
-    : shouldUseClaudeChannel()
-      ? await invokeClaudeVision(params)
-      : await invokeOpenAICompatibleVision(params);
+  // 判据是「路由能不能解析出候选」，而不是某个历史环境变量——两者都没配置时
+  // invokeUnifiedVisionChannel 返回 null，退到 tier-3；tier-3 自己的 ENV.llmSupportsImage
+  // 守卫和 invokeLLM 的「无可用文本算力」错误已经能给出清晰、及时的配置报错。
+  const unified = await invokeUnifiedVisionChannel(params);
+  const { text, modelLabel } =
+    unified ?? (await invokeOpenAICompatibleVision(params));
 
   let parsed: {
     reply?: unknown;

@@ -1,6 +1,8 @@
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
-import { resolveVisionComputeProvider } from "./textComputeProvider";
+import { resolveComputeCandidates } from "../_core/textComputeProvider";
+import { runInference } from "../_core/inferenceOrchestrator";
+import type { Message } from "../_core/llm";
 import type {
   ShotContinuityRisk,
   ShotDirectorAnalysis,
@@ -342,23 +344,19 @@ export async function directVideoPrompt(
   input: DirectVideoPromptInput
 ): Promise<VideoPromptDirectorResult> {
   const engineering = compileVideoPromptEngineering(input);
-  const provider = resolveVisionComputeProvider({
+  const candidates = {
     fallback302Model: ENV.videoPrompt302Model,
     fallback302ApiKey: ENV.api302Key,
     fallback302BaseUrl: ENV.api302BaseUrl,
-  });
-  if (!provider) {
+  };
+  const firstCandidate = resolveComputeCandidates("vision", candidates)[0];
+  if (!firstCandidate) {
     return fallback(
       input,
       "OpenAI Next / 302 视频提示词通道未配置",
       engineering
     );
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    positiveInteger(ENV.videoPrompt302TimeoutMs, 30_000)
-  );
 
   try {
     const visualContent: Array<
@@ -434,42 +432,24 @@ export async function directVideoPrompt(
         }
       );
     }
-    const response = await fetch(provider.chatCompletionsUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        stream: false,
-        max_completion_tokens: 1400,
-        reasoning_effort: "low",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt() },
-          {
-            role: "user",
-            content: visualContent,
-          },
-        ],
-      }),
-      signal: controller.signal,
+    const messages: Message[] = [
+      { role: "system", content: systemPrompt() },
+      { role: "user", content: visualContent },
+    ];
+
+    const outcome = await runInference({
+      useCase: "vision",
+      messages,
+      candidates,
+      maxTokens: 1400,
+      reasoningEffort: "low",
+      responseFormat: { type: "json_object" },
+      // 视频提示词导演是纯分析，没有工具调用也没有业务写入，可以安全重发。
+      replaySafe: true,
+      deadlineMs: positiveInteger(ENV.videoPrompt302TimeoutMs, 30_000),
     });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      return fallback(
-        input,
-        `${provider.label} 视频提示词分析失败 HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`,
-        engineering,
-        provider.model
-      );
-    }
-
-    const data = (await response.json()) as CompletionResponse;
-    const raw = parseJsonLoose<DirectorPayload>(completionText(data));
+    const raw = parseJsonLoose<DirectorPayload>(completionText(outcome.result));
     const materialProfile = normalizeVideoMaterialProfile(raw.materialProfile);
     const prompt = compileDirectedPrompt(
       raw,
@@ -479,9 +459,9 @@ export async function directVideoPrompt(
     if (!prompt) {
       return fallback(
         input,
-        `${provider.label} 视频提示词分析未返回有效英文 finalPrompt`,
+        `${outcome.providerLabel} 视频提示词分析未返回有效英文 finalPrompt`,
         engineering,
-        provider.model
+        outcome.model
       );
     }
     const directedEngineering = finalizeVideoPromptEngineering(
@@ -493,10 +473,8 @@ export async function directVideoPrompt(
     return {
       prompt: directedEngineering.finalPrompt,
       source:
-        provider.id === "openai-next"
-          ? "openai-next-vision"
-          : "302-vision",
-      model: data.model || provider.model,
+        outcome.provider === "openai-next" ? "openai-next-vision" : "302-vision",
+      model: outcome.result.model || outcome.model,
       analysis: normalizeAnalysis(raw, materialProfile),
       materialProfile,
       engineering: directedEngineering,
@@ -506,11 +484,9 @@ export async function directVideoPrompt(
       input,
       error instanceof Error
         ? error.message
-        : `${provider.label} 视频提示词分析失败`,
+        : `${firstCandidate.label} 视频提示词分析失败`,
       engineering,
-      provider.model
+      firstCandidate.model
     );
-  } finally {
-    clearTimeout(timeout);
   }
 }
