@@ -121,3 +121,8 @@ client/public/__manus__/version.json
 # imported screenshots must not be added to git or shipped in public builds.
 art-repository/references/*
 !art-repository/references/.gitkeep
+
+# Private business documents (investor briefs, accelerator applications).
+# Keep these outside the repo; this is a public remote.
+docs/*投资人*
+docs/*奇绩*
