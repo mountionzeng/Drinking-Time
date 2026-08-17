@@ -11,7 +11,15 @@ import {
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
 import {
+  allocateShotDurations,
+  fitBudgetToBeats,
+  isNarrativeSpecId,
+  planRhythmBudget,
+  rhythmProfileFromIntent,
+} from "../../shared/narrativeRhythm";
+import {
   canonicalizePublishingVideoParagraphs,
+  isPublishingVideoBeat,
   emptyPublishingVideoStoryboardAggregate,
   publishingVideoContentHash,
   validatePublishingVideoPreview,
@@ -637,6 +645,44 @@ function confirmedShotSnapshot(
   return { ...structuredClone(shot), stableShotId };
 }
 
+/**
+ * 按整片预算给确认后的镜头分配时长。
+ *
+ * 规格缺省按 30 秒档 —— 用户还没被问过时不该阻塞生成。意图识别不出来时
+ * rhythmProfileFromIntent 会退回中性基线，同样不阻塞。
+ */
+function planConfirmedShotDurations(input: {
+  shots: ReadonlyArray<{ beat?: string }>;
+  narrativeSpec?: unknown;
+  narrativeIntent?: { primaryPurpose?: unknown; tone?: unknown } | null;
+}): Array<number | null> {
+  const specId = isNarrativeSpecId(input.narrativeSpec)
+    ? input.narrativeSpec
+    : "video30";
+  const profile = rhythmProfileFromIntent({
+    primaryPurpose: (input.narrativeIntent?.primaryPurpose ?? null) as never,
+    tone:
+      typeof input.narrativeIntent?.tone === "string"
+        ? input.narrativeIntent.tone
+        : null,
+  });
+  const beats = input.shots.map((shot, index) =>
+    isPublishingVideoBeat(shot.beat)
+      ? shot.beat
+      : index === 0
+        ? "开场"
+        : index === input.shots.length - 1
+          ? "收束"
+          : "起势"
+  );
+  const budget = fitBudgetToBeats(planRhythmBudget(specId, profile), beats);
+  if (budget.mode === "album") return input.shots.map(() => null);
+  // 段落没有情绪标注时，segmentWeight 会退化为等权 —— 仍能排出合规节奏
+  return allocateShotDurations(budget, beats, beats.map(() => undefined)).map(
+    plan => plan.durationMs
+  );
+}
+
 function formalShotFromPreview(input: {
   shot: PublishingVideoStoryboardShot;
   stableShotId: string;
@@ -645,17 +691,22 @@ function formalShotFromPreview(input: {
   sourcePlatform: string;
   groupId: string;
   confirmedRevision: number;
+  /** 由节奏引擎按整片预算算出；缺省时留给 storyboardTiming 用默认值 */
+  durationMs?: number | null;
 }): Record<string, unknown> {
   return {
     stableShotId: input.stableShotId,
     shotIdentity: input.stableShotId,
     shotNo: input.shotNo,
+    ...(typeof input.durationMs === "number"
+      ? { durationMs: input.durationMs }
+      : {}),
     subject: input.shot.subject || "按剧本呈现主体",
     action: input.shot.action || "按剧本完成动作",
     scriptText: input.shot.scriptText,
     dialogue: input.shot.voiceText,
     shotType: "剧本镜头",
-    beat: "正文推进",
+    beat: input.shot.beat ?? "正文推进",
     cameraAngle: "",
     cameraMove: "",
     location: "",
@@ -949,6 +1000,18 @@ export async function confirmPublishingVideoStoryboard(input: {
       usedStableIds.add(stableShotId);
       return confirmedShotSnapshot(shot, stableShotId);
     });
+    // 整片节奏：按目标规格 + 已识别意图算出每镜时长。
+    // 这里是「文字 → 影视」这一跳唯一持有整片视角的地方 —— 逐镜独立判断
+    // 得不到总时长，只有在这儿一次性分配才谈得上节奏。
+    const rhythmDurations = planConfirmedShotDurations({
+      shots: confirmedShots,
+      // TODO(规格入口)：等「进入视频制作」的小界面落地后，narrativeSpec 会随
+      // version 持久化并从这里读出。在那之前一律按 30 秒档 —— 用户还没被
+      // 问过，不该因为缺规格而阻塞生成。
+      narrativeSpec: undefined,
+      narrativeIntent: context.version.narrativeIntent,
+    });
+
     const formalConfirmed = confirmedShots.map((shot, index) => {
       const generated = formalShotFromPreview({
         shot,
@@ -959,6 +1022,7 @@ export async function confirmPublishingVideoStoryboard(input: {
           preview.source?.platform ?? context.version.activePlatform,
         groupId,
         confirmedRevision,
+        durationMs: rhythmDurations[index],
       });
       const previous = previousByDraftShotId.get(shot.draftShotId);
       const current = previous?.stableShotId
