@@ -7,7 +7,9 @@ import { defaultPublishingNarrativeIntent } from "../../shared/publishingDraft";
 import {
   buildPublishingVideoPreview,
   canonicalizePublishingVideoParagraphs,
+  isPublishingVideoBeat,
   validatePublishingVideoPreview,
+  type PublishingVideoBeat,
   type PublishingVideoStoryboardPreview,
 } from "../../shared/publishingVideoStoryboard";
 import { ENV } from "../_core/env";
@@ -29,6 +31,7 @@ type ModelParagraph = {
   scriptText: string;
   visualTreatment: string;
   treatmentReason?: string | null;
+  beat?: PublishingVideoBeat;
   shots: Array<{
     subject: string;
     action: string;
@@ -111,6 +114,7 @@ function normalizeModelParagraphs(value: unknown): ModelParagraph[] {
         paragraphId,
         scriptText,
         visualTreatment,
+        beat: isPublishingVideoBeat(item.beat) ? item.beat : undefined,
         treatmentReason:
           typeof item.treatmentReason === "string"
             ? text(item.treatmentReason, 1_000)
@@ -206,8 +210,11 @@ function allowlistedContext(input: {
   const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
   return {
     platform: input.platform,
+    totalParagraphs: paragraphs.length,
     paragraphs: paragraphs.map(paragraph => ({
       paragraphId: paragraph.paragraphId,
+      // 分批处理时模型只看得见本批 3 段，位置信息是它判断叙事位置的唯一依据
+      ordinal: paragraph.ordinal,
       text: paragraph.text,
       classification: paragraph.classification,
     })),
@@ -250,9 +257,52 @@ function generationPrompt(intent: PublishingNarrativeIntent): string {
     `【本版本意图】主用途=${intent.primaryPurpose}；核心观众=${intent.coreAudience}。${narrativeDirection}`,
     "所有镜头仍以人的基本诉求为底层线索（被看见、被理解、归属、尊严、安全、成长、爱或创造）；把它落实为人物关系、物件、动作和选择，绝不写成抽象口号。",
     "本次请求会分批处理：每个正文段落至少一镜、单段最多 6 镜。最终短片总镜头数由系统在合并所有批次后校验。",
+    "每段还要给 beat，标明这一段在**整片**里承担的位置，只能是：开场 / 起势 / 转折 / 收束。",
+    "判断依据是 ordinal（本段序号）和 totalParagraphs（全片段落总数）—— 你每批只看得到其中几段，务必按整片位置判断，不要按本批位置判断。",
+    "开场用于建立处境；起势是事情展开；转折是整片最重的那一下，通常只有一到两段；收束是落点。第一段一般是开场，最后一段一般是收束，中间按内容分配。",
     "严格返回 JSON，不要 markdown：",
-    '{"paragraphs":[{"paragraphId":"原样键","scriptText":"视觉剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"纯视觉动作与运镜要求","soundRequirement":"背景音、环境声、音乐和音效要求；没有则为空字符串"}]}]}',
+    '{"paragraphs":[{"paragraphId":"原样键","beat":"开场|起势|转折|收束","scriptText":"视觉剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"纯视觉动作与运镜要求","soundRequirement":"背景音、环境声、音乐和音效要求；没有则为空字符串"}]}]}',
   ].join("\n");
+}
+
+/**
+ * 合并各批次后归一叙事位置。
+ *
+ * 模型一批只看 3 段，即使给了 ordinal 也可能出现：多批各自 claim 转折、
+ * 首段不是开场、末段不是收束。这些都得在拿到全局视图后修掉 ——
+ * 段预算依赖「首开场、尾收束、中间有转折」这个骨架成立。
+ */
+export function assignNarrativeBeats(
+  paragraphs: ReturnType<typeof canonicalizePublishingVideoParagraphs>,
+  rewrites: ModelParagraph[]
+): ModelParagraph[] {
+  const byId = new Map(rewrites.map(rewrite => [rewrite.paragraphId, rewrite]));
+  const ordered = paragraphs
+    .map(paragraph => byId.get(paragraph.paragraphId))
+    .filter((rewrite): rewrite is ModelParagraph => Boolean(rewrite));
+  const total = ordered.length;
+  if (total === 0) return rewrites;
+
+  ordered.forEach((rewrite, index) => {
+    // 不信任入参：非法值一律当作未标注处理
+    const claimed = isPublishingVideoBeat(rewrite.beat) ? rewrite.beat : undefined;
+    if (index === 0) rewrite.beat = "开场";
+    else if (index === total - 1) rewrite.beat = "收束";
+    else if (!claimed || claimed === "开场" || claimed === "收束") {
+      rewrite.beat = "起势";
+    } else {
+      rewrite.beat = claimed;
+    }
+  });
+
+  // 中间段一个转折都没有：把靠后位置那段提为转折。否则转折段预算为 0，
+  // 整片没有承重点 —— 那不是一个故事。
+  const middle = ordered.slice(1, Math.max(1, total - 1));
+  if (middle.length > 0 && !middle.some(rewrite => rewrite.beat === "转折")) {
+    middle[Math.floor(middle.length * 0.6)].beat = "转折";
+  }
+
+  return rewrites;
 }
 
 function batches<T>(items: readonly T[], size: number): T[][] {
@@ -382,7 +432,7 @@ export async function generatePublishingVideoStoryboardPreview(input: {
   });
   const preview = buildPublishingVideoPreview({
     paragraphs,
-    rewrites: completed.rewrites,
+    rewrites: assignNarrativeBeats(paragraphs, completed.rewrites),
     now: input.now,
   });
   const issues = validatePublishingVideoPreview(preview);

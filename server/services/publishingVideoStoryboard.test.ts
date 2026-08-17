@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 
-import { generatePublishingVideoStoryboardPreview } from "./publishingVideoStoryboard";
-import { validatePublishingVideoPreview } from "../../shared/publishingVideoStoryboard";
+import {
+  assignNarrativeBeats,
+  generatePublishingVideoStoryboardPreview,
+} from "./publishingVideoStoryboard";
+import {
+  canonicalizePublishingVideoParagraphs,
+  validatePublishingVideoPreview,
+} from "../../shared/publishingVideoStoryboard";
 
 const saved = {
   api302Key: ENV.api302Key,
@@ -309,5 +315,79 @@ describe("publishing video storyboard generation", () => {
     expect(
       generated.preview.segments.map(segment => segment.scriptText)
     ).not.toContain("正文 A");
+  });
+});
+
+describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
+  const paras = (n: number) =>
+    canonicalizePublishingVideoParagraphs(
+      Array.from({ length: n }, (_, i) => `第 ${i + 1} 段正文内容。`).join("\n\n")
+    );
+  const rewritesFor = (
+    ps: ReturnType<typeof canonicalizePublishingVideoParagraphs>,
+    beats: Array<string | undefined>
+  ) =>
+    ps.map((p, i) => ({
+      paragraphId: p.paragraphId,
+      scriptText: "s",
+      visualTreatment: "v",
+      beat: beats[i] as never,
+      shots: [],
+    }));
+
+  it("首段强制开场、末段强制收束，覆盖模型的错误标注", () => {
+    const ps = paras(5);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, ["转折", "起势", "转折", "起势", "开场"])
+    );
+    expect(out[0].beat).toBe("开场");
+    expect(out[4].beat).toBe("收束");
+  });
+
+  it("模型完全没标时，中间段兜底为起势并补出一个转折", () => {
+    const ps = paras(6);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, undefined, undefined, undefined, undefined, undefined])
+    );
+    expect(out[0].beat).toBe("开场");
+    expect(out[5].beat).toBe("收束");
+    const middle = out.slice(1, 5).map(r => r.beat);
+    expect(middle).toContain("转折");
+    expect(middle.every(b => b === "起势" || b === "转折")).toBe(true);
+  });
+
+  it("多批各自 claim 转折时全部保留 —— 转折段可以有多镜", () => {
+    const ps = paras(6);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, "转折", "起势", "转折", "起势", undefined])
+    );
+    expect(out.filter(r => r.beat === "转折")).toHaveLength(2);
+  });
+
+  it("已有转折时不再额外补", () => {
+    const ps = paras(5);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, "起势", "转折", "起势", undefined])
+    );
+    expect(out.filter(r => r.beat === "转折")).toHaveLength(1);
+  });
+
+  it("极短正文（1-2 段）不抛错", () => {
+    const one = paras(1);
+    expect(assignNarrativeBeats(one, rewritesFor(one, [undefined]))[0].beat).toBe("开场");
+    const two = paras(2);
+    const out = assignNarrativeBeats(two, rewritesFor(two, [undefined, undefined]));
+    expect(out[0].beat).toBe("开场");
+    expect(out[1].beat).toBe("收束");
+  });
+
+  it("四段之外的值被当作未标注处理", () => {
+    const ps = paras(4);
+    const out = assignNarrativeBeats(ps, rewritesFor(ps, [undefined, "高潮", "乱写", undefined]));
+    expect(out.every(r => ["开场", "起势", "转折", "收束"].includes(r.beat as string))).toBe(true);
   });
 });

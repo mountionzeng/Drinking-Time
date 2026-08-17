@@ -15,9 +15,33 @@ export type PublishingVideoSourceParagraph = {
   classification: PublishingVideoParagraphClassification;
 };
 
+/**
+ * 段落在整片里承担的位置。由文字稿转写时顺带标注 —— 靠位置猜「转折在哪」
+ * 会把意图这层信息丢掉，而模型转写时本来就在读这一段。
+ */
+export type PublishingVideoBeat = "开场" | "起势" | "转折" | "收束";
+
+export const PUBLISHING_VIDEO_BEATS: readonly PublishingVideoBeat[] = [
+  "开场",
+  "起势",
+  "转折",
+  "收束",
+] as const;
+
+export function isPublishingVideoBeat(
+  value: unknown
+): value is PublishingVideoBeat {
+  return (
+    typeof value === "string" &&
+    (PUBLISHING_VIDEO_BEATS as readonly string[]).includes(value)
+  );
+}
+
 export type PublishingVideoScriptSegment = {
   segmentId: string;
   sourceParagraphId: string;
+  /** 叙事位置；旧数据没有，读取时按位置兜底 */
+  beat?: PublishingVideoBeat;
   scriptText: string;
   visualTreatment: string;
   treatmentReason: string | null;
@@ -289,6 +313,7 @@ function normalizeSegment(value: unknown): PublishingVideoScriptSegment | null {
   return {
     segmentId,
     sourceParagraphId,
+    beat: isPublishingVideoBeat(record.beat) ? record.beat : undefined,
     scriptText,
     visualTreatment: normalizedText(stringValue(record.visualTreatment)),
     treatmentReason:
@@ -505,6 +530,7 @@ export function buildPublishingVideoPreview(input: {
     scriptText: string;
     visualTreatment: string;
     treatmentReason?: string | null;
+    beat?: PublishingVideoBeat;
     shots?: Array<
       Partial<
         Pick<
@@ -558,6 +584,7 @@ export function buildPublishingVideoPreview(input: {
     segments.push({
       segmentId,
       sourceParagraphId: paragraph.paragraphId,
+      beat: rewrite.beat,
       scriptText: normalizedText(rewrite.scriptText),
       visualTreatment: normalizedText(rewrite.visualTreatment),
       treatmentReason:
