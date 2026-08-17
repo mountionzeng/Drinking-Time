@@ -8,6 +8,7 @@ import {
   storyboardEditEdgeMs,
   storyboardEditMarkedRange,
   storyboardEditMenuItems,
+  storyboardEditNeedsRowFocus,
   storyboardEditNeighborShotId,
   storyboardEditNudgedDurationMs,
   storyboardEditPlayheadPct,
@@ -17,6 +18,8 @@ import {
   storyboardEditSelectionSummary,
   storyboardEditSeekMs,
   storyboardEditShortcut,
+  storyboardEditShouldFollowSelectionToShot,
+  storyboardEditShouldHandleKey,
   storyboardEditTimingAt,
   storyboardEditTrackMs,
   storyboardTrimmedDurationMs,
@@ -429,5 +432,61 @@ describe("storyboard edit in/out marking", () => {
 
   it("ignores an out point set on top of the in point", () => {
     expect(storyboardEditMarkedRange(1_000, 1_020)).toBeNull();
+  });
+});
+
+describe("storyboard edit key routing", () => {
+  const gate = (
+    overrides: Partial<Parameters<typeof storyboardEditShouldHandleKey>[0]> = {}
+  ) =>
+    storyboardEditShouldHandleKey({
+      key: "ArrowRight",
+      defaultPrevented: false,
+      isEditableTarget: false,
+      isButtonTarget: false,
+      rowVisible: true,
+      ...overrides,
+    });
+
+  it("still fires when focus has moved off the time bar onto a button", () => {
+    // 这就是「点了看板上的按钮之后快捷键全失灵」的那个场景。
+    expect(gate({ isButtonTarget: true })).toBe(true);
+  });
+
+  it("never steals keys from the chat box or any other text field", () => {
+    expect(gate({ isEditableTarget: true })).toBe(false);
+    expect(gate({ key: " ", isEditableTarget: true })).toBe(false);
+  });
+
+  it("lets space and enter activate the button they are aimed at", () => {
+    expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
+    expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);
+    expect(gate({ key: "s", isButtonTarget: true })).toBe(true);
+  });
+
+  it("stays out of the way when the edit row is not on screen", () => {
+    expect(gate({ rowVisible: false })).toBe(false);
+  });
+
+  it("yields to whoever already handled the key", () => {
+    expect(gate({ defaultPrevented: true })).toBe(false);
+  });
+
+  it("requires row focus only for the actions that change the shot list", () => {
+    expect(storyboardEditNeedsRowFocus("delete")).toBe(true);
+    expect(storyboardEditNeedsRowFocus("insertAfter")).toBe(true);
+    expect(storyboardEditNeedsRowFocus("split")).toBe(false);
+    expect(storyboardEditNeedsRowFocus("moveLeft")).toBe(false);
+    expect(storyboardEditNeedsRowFocus("trimPlusFrame")).toBe(false);
+  });
+
+  it("keeps a timeline range as the active chat selection", () => {
+    expect(storyboardEditShouldFollowSelectionToShot("timeline-range")).toBe(
+      false
+    );
+    expect(storyboardEditShouldFollowSelectionToShot("shot")).toBe(true);
+    expect(storyboardEditShouldFollowSelectionToShot("storyboard-image")).toBe(
+      true
+    );
   });
 });

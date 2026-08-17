@@ -12,7 +12,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
@@ -34,7 +33,9 @@ import {
   storyboardEditSeekMs,
   storyboardEditSegments,
   storyboardEditSelectionRange,
+  storyboardEditNeedsRowFocus,
   storyboardEditShortcut,
+  storyboardEditShouldHandleKey,
   storyboardEditTimingAt,
   storyboardEditTrackMs,
   storyboardTrimmedDurationMs,
@@ -304,7 +305,6 @@ function StoryboardEditTrack({
   selectedShotNo,
   onSelectShot,
   onOpenMenu,
-  onKeyDown,
   trackRef,
   markInMs,
   pendingLabel,
@@ -314,7 +314,6 @@ function StoryboardEditTrack({
   selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
   onOpenMenu: (menu: MenuState) => void;
-  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   trackRef: React.MutableRefObject<HTMLDivElement | null>;
   markInMs: number | null;
   pendingLabel: string | null;
@@ -495,7 +494,6 @@ function StoryboardEditTrack({
         onPointerMove={moveRangeDrag}
         onPointerUp={endRangeDrag}
         onPointerCancel={endRangeDrag}
-        onKeyDown={onKeyDown}
       >
         {blocks.map(({ timing, leftPct, widthPct }) => {
           const shot = shots.find(
@@ -662,7 +660,6 @@ function StoryboardEditTrack({
             className="group absolute bottom-0 top-0 z-40 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
             style={{ left: `${playheadPct}%` }}
             data-testid="storyboard-edit-playhead"
-            onKeyDown={onKeyDown}
             onPointerDown={event => {
               if (event.button !== 0) return;
               event.preventDefault();
@@ -746,9 +743,24 @@ export function StoryboardEditRow({
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [markInMs, setMarkInMs] = useState<number | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
 
   const timings = shots.map(shot => shot.timing);
   const closeMenu = useCallback(() => setMenu(null), []);
+
+  // onSeek 要过一轮 state 才落到 timeline.playheadMs 上，所以连着敲
+  // 「I → ↓ → O」时后一个键会读到上一个键之前的位置。这里自己记住"我要它去哪"，
+  // 时间线报告的位置一变（播放、拖播放头、底部时间线）就跟着它重新对齐。
+  const headRef = useRef(timeline.playheadMs);
+  const reportedHeadRef = useRef(timeline.playheadMs);
+  if (reportedHeadRef.current !== timeline.playheadMs) {
+    reportedHeadRef.current = timeline.playheadMs;
+    headRef.current = timeline.playheadMs;
+  }
+  const seekTo = (ms: number) => {
+    headRef.current = ms;
+    timeline.onSeek(ms);
+  };
 
   /** 键盘用的「当前镜头」：先看选中的，没选就看播放头压在哪一镜上。 */
   const activeShot =
@@ -756,7 +768,7 @@ export function StoryboardEditRow({
     shots.find(
       shot =>
         shot.stableShotId ===
-        storyboardEditTimingAt(timings, timeline.playheadMs)?.stableShotId
+        storyboardEditTimingAt(timings, headRef.current)?.stableShotId
     ) ??
     null;
 
@@ -803,7 +815,7 @@ export function StoryboardEditRow({
           stableShotId: shot.stableShotId,
           shotNo: shot.shotNo,
         });
-        timeline.onSeek(shot.timing.startMs);
+        seekTo(shot.timing.startMs);
         break;
       case "trimMinusFrame":
         done = trim(-STORYBOARD_EDIT_FRAME_MS);
@@ -856,12 +868,19 @@ export function StoryboardEditRow({
       stableShotId: timing.stableShotId,
       shotNo: timing.shotNo,
     });
-    timeline.onSeek(range.startMs);
+    // 打出点后留在出点；跳回入点会触发底部时间线自动选镜，覆盖刚建立的片段卡。
   };
 
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const handleShortcut = (event: KeyboardEvent) => {
     const shortcut = storyboardEditShortcut(event);
     if (!shortcut) return;
+    if (
+      shortcut.kind === "action" &&
+      storyboardEditNeedsRowFocus(shortcut.action) &&
+      !rowRef.current?.contains(document.activeElement)
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     switch (shortcut.kind) {
@@ -876,9 +895,9 @@ export function StoryboardEditRow({
         return;
       case "seekBy":
         timeline.onTogglePlay(false);
-        timeline.onSeek(
+        seekTo(
           storyboardEditSeekMs(
-            timeline.playheadMs,
+            headRef.current,
             shortcut.deltaMs,
             timeline.totalMs
           )
@@ -886,26 +905,26 @@ export function StoryboardEditRow({
         return;
       case "seekTo":
         timeline.onTogglePlay(false);
-        timeline.onSeek(shortcut.position === "start" ? 0 : timeline.totalMs);
+        seekTo(shortcut.position === "start" ? 0 : timeline.totalMs);
         return;
       case "seekEdge": {
         const edgeMs = storyboardEditEdgeMs(
           timings,
-          timeline.playheadMs,
+          headRef.current,
           shortcut.direction
         );
         if (edgeMs == null) return;
         timeline.onTogglePlay(false);
-        timeline.onSeek(edgeMs);
+        seekTo(edgeMs);
         const timing = storyboardEditTimingAt(timings, edgeMs);
         if (timing) onSelectShot(timing.shotNo);
         return;
       }
       case "markIn":
-        setMarkInMs(timeline.playheadMs);
+        setMarkInMs(headRef.current);
         return;
       case "markOut":
-        markRange(timeline.playheadMs);
+        markRange(headRef.current);
         return;
       case "clearSelection":
         setMarkInMs(null);
@@ -913,10 +932,35 @@ export function StoryboardEditRow({
         timeline.onSelectRange(null);
         return;
       case "action":
-        runAction(shortcut.action, activeShot, timeline.playheadMs);
+        runAction(shortcut.action, activeShot, headRef.current);
         return;
     }
   };
+
+  // 快捷键挂在 window 上（捕获阶段，先于剪辑台自己那套方向键/空格），
+  // 否则点过看板上任意一个按钮，焦点就离开时间条，快捷键跟着全部失灵。
+  const shortcutRef = useRef(handleShortcut);
+  shortcutRef.current = handleShortcut;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const allowed = storyboardEditShouldHandleKey({
+        key: event.key,
+        defaultPrevented: event.defaultPrevented,
+        isEditableTarget: Boolean(
+          target?.closest(
+            'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+          )
+        ),
+        isButtonTarget: Boolean(target?.closest("button, a, [role='button']")),
+        rowVisible: rowRef.current?.offsetParent != null,
+      });
+      if (!allowed) return;
+      shortcutRef.current(event);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   return (
     <>
@@ -929,6 +973,7 @@ export function StoryboardEditRow({
       />
       <div
         role="cell"
+        ref={rowRef}
         style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
       >
         <StoryboardEditTrack
@@ -937,7 +982,6 @@ export function StoryboardEditRow({
           selectedShotNo={selectedShotNo}
           onSelectShot={onSelectShot}
           onOpenMenu={setMenu}
-          onKeyDown={handleKeyDown}
           trackRef={trackRef}
           markInMs={markInMs}
           pendingLabel={pendingAction ? ACTION_LABELS[pendingAction] : null}

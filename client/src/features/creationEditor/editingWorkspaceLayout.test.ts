@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   fitProjectCanvas,
   resolveTimelineVideoSource,
+  shouldHandleEditingShortcut,
   shouldForwardPreviewPause,
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
@@ -109,6 +110,29 @@ describe("editing workspace project canvas", () => {
     expect(shouldForwardPreviewPause({ ...directPause, nowMs: 3_000 })).toBe(
       false
     );
+  });
+
+  it("lets hover shortcuts escape stale button focus without stealing typing", () => {
+    const base = {
+      key: " ",
+      zoneActive: true,
+      defaultPrevented: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      targetKind: "button" as const,
+    };
+
+    expect(shouldHandleEditingShortcut(base)).toBe(true);
+    expect(
+      shouldHandleEditingShortcut({ ...base, targetKind: "text" })
+    ).toBe(false);
+    expect(shouldHandleEditingShortcut({ ...base, zoneActive: false })).toBe(
+      false
+    );
+    expect(
+      shouldHandleEditingShortcut({ ...base, defaultPrevented: true })
+    ).toBe(false);
   });
 
   it("matches video playback speed to the stretched timeline duration", () => {

@@ -411,6 +411,51 @@ export function storyboardEditMenuItems(input: {
   return items;
 }
 
+/**
+ * 会改动故事结构的两个动作。它们要求焦点还在剪辑行里，
+ * 免得你在别处按了退格（想「返回」）就弹出删镜头的确认框。
+ */
+const STRUCTURAL_ACTIONS = new Set<StoryboardEditAction>([
+  "insertAfter",
+  "delete",
+]);
+
+export function storyboardEditNeedsRowFocus(action: StoryboardEditAction) {
+  return STRUCTURAL_ACTIONS.has(action);
+}
+
+/**
+ * 这次按键该不该被剪辑行接走。剪辑台里点过任何一个按钮之后焦点就不在时间条上了，
+ * 所以快捷键挂在 window 上，用这个函数把不该抢的场合排掉：
+ * 正在输入、别人已经处理过、或者空格键正落在某个按钮上（那是在按那个按钮）。
+ */
+export function storyboardEditShouldHandleKey(input: {
+  key: string;
+  defaultPrevented: boolean;
+  isEditableTarget: boolean;
+  isButtonTarget: boolean;
+  rowVisible: boolean;
+}): boolean {
+  if (!input.rowVisible) return false;
+  if (input.defaultPrevented) return false;
+  if (input.isEditableTarget) return false;
+  // 空格在按钮上就是「按下这个按钮」，别抢。
+  if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 剪辑台只跟随普通镜头/素材选中；时间轴片段本身已经是聊聊要操作的对象，
+ * 不能再把它降级成入点所在镜头的选中卡。
+ */
+export function storyboardEditShouldFollowSelectionToShot(
+  sourceType: string | null | undefined
+): boolean {
+  return sourceType !== "timeline-range";
+}
+
 /** 键盘敲下去要干的事。 */
 export type StoryboardEditShortcut =
   | { kind: "togglePlay" }

@@ -93,6 +93,7 @@ import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
 import {
   storyboardEditSelectionSummary,
+  storyboardEditShouldFollowSelectionToShot,
   type StoryboardEditRange,
 } from "../storyboardEditRow";
 
@@ -193,6 +194,32 @@ export function shouldForwardPreviewPause(input: {
     interactionAgeMs != null &&
     interactionAgeMs >= 0 &&
     interactionAgeMs <= PREVIEW_CONTROL_PAUSE_WINDOW_MS
+  );
+}
+
+export type EditingShortcutTargetKind = "text" | "button" | "other";
+
+/** Preview/时间线悬停快捷键：按钮焦点可以接管，文字输入始终让开。 */
+export function shouldHandleEditingShortcut(input: {
+  key: string;
+  zoneActive: boolean;
+  defaultPrevented: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  targetKind: EditingShortcutTargetKind;
+}): boolean {
+  const isArrowKey =
+    input.key === "ArrowLeft" || input.key === "ArrowRight";
+  const isSpaceKey = input.key === " " || input.key === "Spacebar";
+  return (
+    (isArrowKey || isSpaceKey) &&
+    input.zoneActive &&
+    !input.defaultPrevented &&
+    !input.metaKey &&
+    !input.ctrlKey &&
+    !input.altKey &&
+    input.targetKind !== "text"
   );
 }
 
@@ -1486,6 +1513,8 @@ function MultiTrackTimeline({
     let previousTime = performance.now();
 
     const tick = (currentTime: number) => {
+      // 停止请求可能和已经排队的这一帧交错；旧帧不能再把父层 isPlaying 写回 true。
+      if (!isPlayingRef.current) return;
       const next = advanceTimelinePlayhead(
         playheadMsRef.current,
         currentTime - previousTime,
@@ -2616,6 +2645,11 @@ export default function EditingNleWorkspace({
   // 聊聊生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
   // 定位，而不是依赖会因插入而变化的 SH 序号。
   useEffect(() => {
+    if (
+      !storyboardEditShouldFollowSelectionToShot(activeSelection?.sourceType)
+    ) {
+      return;
+    }
     const stableShotId = activeSelection?.stableShotId;
     if (!stableShotId) return;
     const shot = shots.find(
@@ -2623,7 +2657,13 @@ export default function EditingNleWorkspace({
     );
     if (!shot || shot.shotNo === selectedShotNo) return;
     selectShot(shot.shotNo);
-  }, [activeSelection?.stableShotId, selectShot, selectedShotNo, shots]);
+  }, [
+    activeSelection?.sourceType,
+    activeSelection?.stableShotId,
+    selectShot,
+    selectedShotNo,
+    shots,
+  ]);
 
   const relinkFiles = async (files: File[]) => {
     const visualFiles = files.filter(isVisualFile);
@@ -2930,24 +2970,25 @@ export default function EditingNleWorkspace({
 
   useEffect(() => {
     const handleEditingShortcut = (event: KeyboardEvent) => {
-      const isArrowKey =
-        event.key === "ArrowLeft" || event.key === "ArrowRight";
       const isSpaceKey = event.key === " " || event.key === "Spacebar";
-      if (!isArrowKey && !isSpaceKey) return;
-      if (!keyboardShortcutZoneRef.current) return;
-      if (
-        event.defaultPrevented ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
-        return;
-      }
       const target = event.target instanceof HTMLElement ? event.target : null;
+      const targetKind: EditingShortcutTargetKind = target?.closest(
+        'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+      )
+        ? "text"
+        : target?.closest("button, a, [role='button']")
+          ? "button"
+          : "other";
       if (
-        target?.closest(
-          'input, textarea, select, button, [contenteditable="true"], [role="textbox"]'
-        )
+        !shouldHandleEditingShortcut({
+          key: event.key,
+          zoneActive: keyboardShortcutZoneRef.current,
+          defaultPrevented: event.defaultPrevented,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          targetKind,
+        })
       ) {
         return;
       }
