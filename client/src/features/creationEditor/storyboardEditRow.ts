@@ -1,4 +1,5 @@
 import type { StoryTimelineVisualClip } from "@shared/storyMaterial";
+import type { SelectionSourceType } from "@shared/selectionContext";
 
 import {
   clampStoryboardDurationMs,
@@ -7,7 +8,7 @@ import {
 } from "@/features/storyAgent/storyboardTiming";
 
 /** 短于这个长度的拖拽当成「点一下定位」，而不是「选一段」。 */
-export const STORYBOARD_EDIT_MIN_SELECTION_MS = 80;
+const STORYBOARD_EDIT_MIN_SELECTION_MS = 80;
 
 /** 走带和微调时长的最小步长，按 30fps 算一帧。 */
 export const STORYBOARD_EDIT_FRAME_MS = 1000 / 30;
@@ -451,7 +452,7 @@ export function storyboardEditShouldHandleKey(input: {
  * 不能再把它降级成入点所在镜头的选中卡。
  */
 export function storyboardEditShouldFollowSelectionToShot(
-  sourceType: string | null | undefined
+  sourceType: SelectionSourceType | null | undefined
 ): boolean {
   return sourceType !== "timeline-range";
 }
@@ -471,7 +472,7 @@ export type StoryboardEditShortcut =
 
 /**
  * 快捷键照搬主流剪辑软件：空格走带、JKL、左右一帧、上下跳切点、
- * I/O 打入出点、S 切割、⌫ 删除。只在剪辑条拿到焦点时生效，所以不会抢聊天框的输入。
+ * I/O 打入出点、S 切割、⌫ 删除。按键路由层负责避让聊天框等文字输入。
  */
 export function storyboardEditShortcut(event: {
   key: string;
