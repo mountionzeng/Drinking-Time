@@ -34,6 +34,7 @@ import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { getPublishingBuffer } from "@/features/storyAgent/storyAgentPersistence";
 import { trpc } from "@/lib/trpc";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
+import type { NarrativeSpecId } from "@shared/narrativeRhythm";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
   PUBLISHING_NARRATIVE_PURPOSES,
@@ -1199,7 +1200,7 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const continueToVideo = async () => {
+  const continueToVideo = async (narrativeSpec?: NarrativeSpecId) => {
     if (
       activeStoryId == null ||
       coverBusy ||
@@ -1221,6 +1222,7 @@ export default function PublishingDraftWorkspace({
         storyId,
         versionId,
         operationToken,
+        narrativeSpec,
       });
       if (
         !publishingStoryScopeMatches(
