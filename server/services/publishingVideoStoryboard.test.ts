@@ -323,6 +323,7 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
     canonicalizePublishingVideoParagraphs(
       Array.from({ length: n }, (_, i) => `第 ${i + 1} 段正文内容。`).join("\n\n")
     );
+  // 每段一镜，beat 标在镜头上
   const rewritesFor = (
     ps: ReturnType<typeof canonicalizePublishingVideoParagraphs>,
     beats: Array<string | undefined>
@@ -331,9 +332,19 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
       paragraphId: p.paragraphId,
       scriptText: "s",
       visualTreatment: "v",
-      beat: beats[i] as never,
-      shots: [],
+      shots: [
+        {
+          beat: beats[i] as never,
+          subject: "s",
+          action: "a",
+          imageRequirement: "i",
+          videoRequirement: "v",
+          soundRequirement: "",
+        },
+      ],
     }));
+  const beatsOf = (out: ReturnType<typeof rewritesFor>) =>
+    out.flatMap(r => r.shots.map(sh => sh.beat as string | undefined));
 
   it("首段强制开场、末段强制收束，覆盖模型的错误标注", () => {
     const ps = paras(5);
@@ -341,8 +352,9 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
       ps,
       rewritesFor(ps, ["转折", "起势", "转折", "起势", "开场"])
     );
-    expect(out[0].beat).toBe("开场");
-    expect(out[4].beat).toBe("收束");
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[4]).toBe("收束");
   });
 
   it("模型完全没标时，中间段兜底为起势并补出一个转折", () => {
@@ -351,9 +363,10 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
       ps,
       rewritesFor(ps, [undefined, undefined, undefined, undefined, undefined, undefined])
     );
-    expect(out[0].beat).toBe("开场");
-    expect(out[5].beat).toBe("收束");
-    const middle = out.slice(1, 5).map(r => r.beat);
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[5]).toBe("收束");
+    const middle = bs.slice(1, 5);
     expect(middle).toContain("转折");
     expect(middle.every(b => b === "起势" || b === "转折")).toBe(true);
   });
@@ -364,7 +377,7 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
       ps,
       rewritesFor(ps, [undefined, "转折", "起势", "转折", "起势", undefined])
     );
-    expect(out.filter(r => r.beat === "转折")).toHaveLength(2);
+    expect(beatsOf(out).filter(b => b === "转折")).toHaveLength(2);
   });
 
   it("已有转折时不再额外补", () => {
@@ -373,21 +386,22 @@ describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
       ps,
       rewritesFor(ps, [undefined, "起势", "转折", "起势", undefined])
     );
-    expect(out.filter(r => r.beat === "转折")).toHaveLength(1);
+    expect(beatsOf(out).filter(b => b === "转折")).toHaveLength(1);
   });
 
   it("极短正文（1-2 段）不抛错", () => {
     const one = paras(1);
-    expect(assignNarrativeBeats(one, rewritesFor(one, [undefined]))[0].beat).toBe("开场");
+    expect(beatsOf(assignNarrativeBeats(one, rewritesFor(one, [undefined])))[0]).toBe("开场");
     const two = paras(2);
     const out = assignNarrativeBeats(two, rewritesFor(two, [undefined, undefined]));
-    expect(out[0].beat).toBe("开场");
-    expect(out[1].beat).toBe("收束");
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[1]).toBe("收束");
   });
 
   it("四段之外的值被当作未标注处理", () => {
     const ps = paras(4);
     const out = assignNarrativeBeats(ps, rewritesFor(ps, [undefined, "高潮", "乱写", undefined]));
-    expect(out.every(r => ["开场", "起势", "转折", "收束"].includes(r.beat as string))).toBe(true);
+    expect(beatsOf(out).every(b => ["开场", "起势", "转折", "收束"].includes(b as string))).toBe(true);
   });
 });

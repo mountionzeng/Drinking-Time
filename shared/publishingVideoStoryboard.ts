@@ -53,6 +53,11 @@ export type PublishingVideoScriptSegment = {
 export type PublishingVideoStoryboardShot = {
   draftShotId: string;
   stableShotId?: string;
+  /**
+   * 这一镜在整片里承担的位置。属于**镜头**而非段落 —— 同一段正文拆出的
+   * 多镜可以分属不同 beat，多段也可以并进同一镜。
+   */
+  beat?: PublishingVideoBeat;
   segmentIds: string[];
   sourceParagraphIds: string[];
   scriptText: string;
@@ -337,6 +342,7 @@ function normalizeShot(value: unknown): PublishingVideoStoryboardShot | null {
   return {
     draftShotId,
     ...(stableShotId ? { stableShotId } : {}),
+    ...(isPublishingVideoBeat(record.beat) ? { beat: record.beat } : {}),
     segmentIds: stringArray(record.segmentIds),
     sourceParagraphIds: stringArray(record.sourceParagraphIds),
     scriptText: normalizedText(stringValue(record.scriptText)),
@@ -535,6 +541,7 @@ export function buildPublishingVideoPreview(input: {
       Partial<
         Pick<
           PublishingVideoStoryboardShot,
+          | "beat"
           | "subject"
           | "action"
           | "imageRequirement"
@@ -566,6 +573,7 @@ export function buildPublishingVideoPreview(input: {
       shotIds.push(draftShotId);
       shots.push({
         draftShotId,
+        ...(isPublishingVideoBeat(requested.beat) ? { beat: requested.beat } : {}),
         segmentIds: [segmentId],
         sourceParagraphIds: [paragraph.paragraphId],
         scriptText: normalizedText(rewrite.scriptText),
@@ -685,17 +693,10 @@ export function validatePublishingVideoPreview(
     }
   }
   for (const paragraph of preview.paragraphs) {
-    if (
-      !preview.segments.some(
-        segment => segment.sourceParagraphId === paragraph.paragraphId
-      )
-    ) {
-      issues.push({
-        code: "missing_paragraph_segment",
-        message: "正文段落没有对应剧本片段",
-        targetId: paragraph.paragraphId,
-      });
-    }
+    // 段落不再强制各自成镜。文字是阅读单位、镜头是观看单位，两者不是一回事：
+    // 一段长自省可能就是一个静止长镜头，过渡句在影视里往往一个转场就过去了。
+    // 10 秒档尤其明显 —— 装不下的正文会被丢掉，用户想要可自行粘回镜头表。
+    void paragraph;
   }
   for (const shot of preview.shots) {
     if (shotIds.has(shot.draftShotId)) {
@@ -726,14 +727,15 @@ export function validatePublishingVideoPreview(
       });
     }
   }
+  // 下限只保证「还是一支片子」，不再要求覆盖每一段正文 ——
+  // 镜头数由节奏预算决定，不由文字长度决定。
   if (
     preview.paragraphs.length > 0 &&
-    preview.shots.length <
-      Math.max(PUBLISHING_VIDEO_MINIMUM_SHOT_COUNT, preview.paragraphs.length)
+    preview.shots.length < PUBLISHING_VIDEO_MINIMUM_SHOT_COUNT
   ) {
     issues.push({
       code: "too_few_shots",
-      message: "镜头数量不足以覆盖正文",
+      message: "镜头数量不足以构成一支短片",
       targetId: null,
     });
   }

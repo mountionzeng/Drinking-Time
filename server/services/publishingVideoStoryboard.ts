@@ -12,6 +12,10 @@ import {
   type PublishingVideoBeat,
   type PublishingVideoStoryboardPreview,
 } from "../../shared/publishingVideoStoryboard";
+import {
+  NARRATIVE_SPECS,
+  type NarrativeSpecId,
+} from "../../shared/narrativeRhythm";
 import { ENV } from "../_core/env";
 import { parseJsonLoose } from "../_core/llmJson";
 import { runInference } from "../_core/inferenceOrchestrator";
@@ -33,6 +37,7 @@ type ModelParagraph = {
   treatmentReason?: string | null;
   beat?: PublishingVideoBeat;
   shots: Array<{
+    beat?: PublishingVideoBeat;
     subject: string;
     action: string;
     imageRequirement: string;
@@ -94,6 +99,7 @@ function normalizeModelParagraphs(value: unknown): ModelParagraph[] {
           const shot = record(rawShot);
           if (!shot) return [];
           const normalized = {
+            ...(isPublishingVideoBeat(shot.beat) ? { beat: shot.beat } : {}),
             subject: text(shot.subject, 2_000),
             action: text(shot.action, 2_000),
             imageRequirement: text(shot.imageRequirement, 4_000),
@@ -206,6 +212,7 @@ function allowlistedContext(input: {
   core: PublishingStoryCore | null;
   narrativeIntent?: PublishingNarrativeIntent;
   coverVisualDescription?: string | null;
+  narrativeSpec?: NarrativeSpecId;
 }) {
   const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
   return {
@@ -233,7 +240,10 @@ function allowlistedContext(input: {
   };
 }
 
-function generationPrompt(intent: PublishingNarrativeIntent): string {
+function generationPrompt(
+  intent: PublishingNarrativeIntent,
+  specId: NarrativeSpecId
+): string {
   const narrativeDirection = (() => {
     switch (intent.primaryPurpose) {
       case "gift":
@@ -248,9 +258,19 @@ function generationPrompt(intent: PublishingNarrativeIntent): string {
         return "留存版：优先保存真实物件、动作、时间关系和未完成感；不要为了好看或传播性强行制造戏剧冲突。";
     }
   })();
+  const spec = NARRATIVE_SPECS[specId];
+  const budgetLine =
+    spec.mode === "album"
+      ? `【成片规格】静态画册，最多 ${spec.pageCount} 张图。每张必须单独成立，不能依赖运动才讲得明白。`
+      : `【成片规格】约 ${Math.round((spec.totalMs ?? 0) / 1000)} 秒，全片 ${spec.shotRange[0]}–${spec.shotRange[1]} 镜，单镜 ${(spec.shotClampMs[0] / 1000).toFixed(1)}–${(spec.shotClampMs[1] / 1000).toFixed(1)} 秒。`;
+
   return [
-    "你是短片编剧兼分镜导演。把用户已确认的发布正文转成可说、可演、可拍的短片剧本，不补写正文之外的新事实。",
-    "输入中的 paragraphId 必须原样返回且每个只出现一次。每个正文段落都必须有 scriptText、visualTreatment 和至少一个 shots 项。",
+    "你是短片编剧兼分镜导演。把用户已确认的发布正文**改编**成短片剧本 —— 不是逐段转写。",
+    "文字是阅读单位，镜头是观看单位，两者不是一回事：读者能停下来回看，观众不能。一段长自省在影视里可能就是一个静止长镜头；「后来」「那天之后」这类过渡句往往一个转场就过去了，不需要单独一镜。",
+    budgetLine,
+    "**镜头总数由上面的规格决定，不由段落数决定。** 允许多段合成一镜，允许某些段落完全不进入成片 —— 时间不够时，优先保住最能打动人的那几个具体时刻，砍掉铺垫、过渡和重复表达。不要为了覆盖所有段落而把每一镜都压得看不清。",
+    "shots 里的每一镜都要给 beat（开场/起势/转折/收束），标明它在整片里承担的位置；同一段落拆出的多镜可以属于不同 beat。",
+    "输入中的 paragraphId 必须原样返回且每个只出现一次；但**允许某个段落的 shots 为空数组**，表示这段不进入成片。",
     "scriptText 是可表演、可执行的视觉剧本，不承载旁白或声音制作；CTA/格式段也必须覆盖，但不能机械呈现‘点赞关注’。旁白文字由系统直接继承文字稿原文。",
     "用户只提供情绪时，用景别、视角、动作节拍、主体与环境关系补足基础镜头语言；不要写具体视频模型参数，也不要发起图片或视频生成。",
     "每个 shot 必须完整提供 subject、action、imageRequirement、videoRequirement，并单独提供 soundRequirement（没有声音要求时返回空字符串）；前四项任一为空即视为无效。图片要求写清单帧主体、场景、构图、光线、材质；视频要求只写动作三拍、表演、摄影机承载与路径、结尾状态及衔接，不得写旁白、对白、音乐、环境声或音效；声音内容全部写入 soundRequirement。保持人物、色板、油画颜料或纸张纤维等材质连续，但让每镜构图服从本段内容，不复制封面构图，也不得复用其他镜头的句子。",
@@ -261,7 +281,7 @@ function generationPrompt(intent: PublishingNarrativeIntent): string {
     "判断依据是 ordinal（本段序号）和 totalParagraphs（全片段落总数）—— 你每批只看得到其中几段，务必按整片位置判断，不要按本批位置判断。",
     "开场用于建立处境；起势是事情展开；转折是整片最重的那一下，通常只有一到两段；收束是落点。第一段一般是开场，最后一段一般是收束，中间按内容分配。",
     "严格返回 JSON，不要 markdown：",
-    '{"paragraphs":[{"paragraphId":"原样键","beat":"开场|起势|转折|收束","scriptText":"视觉剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"纯视觉动作与运镜要求","soundRequirement":"背景音、环境声、音乐和音效要求；没有则为空字符串"}]}]}',
+    '{"paragraphs":[{"paragraphId":"原样键","scriptText":"视觉剧本转写","visualTreatment":"画面/表演处理","treatmentReason":"可选分类理由","shots":[{"beat":"开场|起势|转折|收束","subject":"主体","action":"动作","imageRequirement":"静帧画面要求","videoRequirement":"纯视觉动作与运镜要求","soundRequirement":"背景音、环境声、音乐和音效要求；没有则为空字符串"}]}]}',
   ].join("\n");
 }
 
@@ -277,28 +297,30 @@ export function assignNarrativeBeats(
   rewrites: ModelParagraph[]
 ): ModelParagraph[] {
   const byId = new Map(rewrites.map(rewrite => [rewrite.paragraphId, rewrite]));
-  const ordered = paragraphs
-    .map(paragraph => byId.get(paragraph.paragraphId))
-    .filter((rewrite): rewrite is ModelParagraph => Boolean(rewrite));
+  // 按正文顺序展平成整片镜头序列 —— beat 属于镜头，段落只是它的来源
+  const ordered = paragraphs.flatMap(paragraph => {
+    const rewrite = byId.get(paragraph.paragraphId);
+    return rewrite ? rewrite.shots : [];
+  });
   const total = ordered.length;
   if (total === 0) return rewrites;
 
-  ordered.forEach((rewrite, index) => {
+  ordered.forEach((shot, index) => {
     // 不信任入参：非法值一律当作未标注处理
-    const claimed = isPublishingVideoBeat(rewrite.beat) ? rewrite.beat : undefined;
-    if (index === 0) rewrite.beat = "开场";
-    else if (index === total - 1) rewrite.beat = "收束";
+    const claimed = isPublishingVideoBeat(shot.beat) ? shot.beat : undefined;
+    if (index === 0) shot.beat = "开场";
+    else if (index === total - 1) shot.beat = "收束";
     else if (!claimed || claimed === "开场" || claimed === "收束") {
-      rewrite.beat = "起势";
+      shot.beat = "起势";
     } else {
-      rewrite.beat = claimed;
+      shot.beat = claimed;
     }
   });
 
-  // 中间段一个转折都没有：把靠后位置那段提为转折。否则转折段预算为 0，
+  // 中间一个转折都没有：把靠后位置那镜提为转折。否则转折段预算为 0，
   // 整片没有承重点 —— 那不是一个故事。
   const middle = ordered.slice(1, Math.max(1, total - 1));
-  if (middle.length > 0 && !middle.some(rewrite => rewrite.beat === "转折")) {
+  if (middle.length > 0 && !middle.some(shot => shot.beat === "转折")) {
     middle[Math.floor(middle.length * 0.6)].beat = "转折";
   }
 
@@ -400,8 +422,11 @@ export async function generatePublishingVideoStoryboardPreview(input: {
   core: PublishingStoryCore | null;
   narrativeIntent?: PublishingNarrativeIntent;
   coverVisualDescription?: string | null;
+  /** 目标成片规格；缺省按 30 秒档，不阻塞既有调用方 */
+  narrativeSpec?: NarrativeSpecId;
   now?: number;
 }): Promise<{ preview: PublishingVideoStoryboardPreview; modelLabel: string }> {
+  const specId: NarrativeSpecId = input.narrativeSpec ?? "video30";
   const context = allowlistedContext(input);
   const paragraphs = canonicalizePublishingVideoParagraphs(input.body);
   if (paragraphs.length === 0) {
@@ -413,7 +438,8 @@ export async function generatePublishingVideoStoryboardPreview(input: {
     task: batch =>
       runPublishingVideoStoryboardTextCompute({
         systemPrompt: generationPrompt(
-          input.narrativeIntent ?? defaultPublishingNarrativeIntent()
+          input.narrativeIntent ?? defaultPublishingNarrativeIntent(),
+          specId
         ),
         context: { ...context, paragraphs: batch },
       }),
