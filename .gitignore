@@ -115,3 +115,8 @@ client/public/__manus__/version.json
 .claude/
 .env.server
 .worktrees
+
+# Private business documents (investor briefs, accelerator applications).
+# Keep these outside the repo; this is a public remote.
+docs/*投资人*
+docs/*奇绩*
