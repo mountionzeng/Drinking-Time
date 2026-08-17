@@ -123,6 +123,11 @@ type CreationEditorContextValue = {
   addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
   removeShotFromTimeline: (shotId: string) => void;
   moveShotInTimeline: (shotId: string, direction: -1 | 1) => void;
+  /** 把一个镜头整体拖到另一个镜头的位置上（故事版看板里的顺序重排）。 */
+  reorderShotInTimeline: (
+    sourceShotId: string,
+    targetShotId: string
+  ) => Promise<void>;
   resetTimelineShots: () => void;
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
@@ -1595,6 +1600,30 @@ export function CreationEditorProvider({
     [saveTimelineItems, timelineItems]
   );
 
+  const reorderShotInTimeline = useCallback(
+    async (sourceShotId: string, targetShotId: string) => {
+      const ordered = [...timelineItems].sort(
+        (left, right) => left.position - right.position
+      );
+      const sourceIndex = ordered.findIndex(
+        item => item.stableShotId === sourceShotId
+      );
+      const targetIndex = ordered.findIndex(
+        item => item.stableShotId === targetShotId
+      );
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+        return;
+      }
+      const [moved] = ordered.splice(sourceIndex, 1);
+      ordered.splice(targetIndex, 0, moved);
+      await saveTimelineItems(
+        ordered.map((item, position) => ({ ...item, position })),
+        { throwOnError: true }
+      );
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
   const resetTimelineShots = useCallback(() => {
     void saveTimelineItems(
       timelineItems.map((item, position) => ({
@@ -2153,6 +2182,18 @@ export function CreationEditorProvider({
       }
       const result = batch.results.at(-1);
       if (!result) throw new Error("图片生成没有返回候选结果");
+      // 单图升级链路必须让新版本立刻成为当前图。服务端正式链路也会
+      // autoSelect；这里再做一次幂等兜底，避免旧服务进程或网络中断只把
+      // 资产写进历史、却让看板继续显示旧图。
+      if (options?.candidateCount !== 4 && result.imageId != null) {
+        const promoted = await promoteStoryImageMut.mutateAsync({
+          storyId: activeId,
+          imageId: result.imageId,
+        });
+        if (promoted.status !== "ok") {
+          throw new Error(promoted.error || "新图片已生成，但设为当前版本失败");
+        }
+      }
       if (promptLineageQuery.data?.mode !== "lineage") {
         const compiled = compilePromptRecipe({ shot, rows });
         const patch = Object.fromEntries(
@@ -3290,6 +3331,7 @@ export function CreationEditorProvider({
       addShotToTimeline,
       removeShotFromTimeline,
       moveShotInTimeline,
+      reorderShotInTimeline,
       resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
@@ -3389,6 +3431,7 @@ export function CreationEditorProvider({
       addShotToTimeline,
       removeShotFromTimeline,
       moveShotInTimeline,
+      reorderShotInTimeline,
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,

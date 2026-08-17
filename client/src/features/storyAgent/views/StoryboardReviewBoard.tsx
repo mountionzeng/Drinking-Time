@@ -112,6 +112,13 @@ import {
 } from "./videoTakeDrag";
 import { buildStoryboardTimingRows } from "../storyboardTiming";
 import {
+  StoryboardEditRow,
+  StoryboardEditTransport,
+  type StoryboardBoardTimeline,
+  type StoryboardEditShot,
+  type StoryboardEditShotActions,
+} from "@/features/creationEditor/views/StoryboardEditRow";
+import {
   StoryboardFieldVersionSelect,
   StoryboardCostCell,
   StoryboardMatrixFieldCell,
@@ -193,6 +200,9 @@ import {
 } from "./storyboardReviewModel";
 import {
   buildStoryboardImageRenderPlan,
+  buildSheSelf02ImageEditInstruction,
+  isSheSelf02ImageEditTemplateEnabled,
+  SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL,
   storyboardImageRenderBlockReason,
 } from "./storyboardImageRenderPlan";
 import {
@@ -224,6 +234,7 @@ export function StoryboardReviewBoard({
   shots,
   latestScript,
   isGeneratingScript,
+  storyTitle = null,
   onRegisterImageRerenderRunner,
   selectedShotNo = null,
   onSelectShot,
@@ -271,11 +282,13 @@ export function StoryboardReviewBoard({
   candidatesByShot,
   onConfirmCandidate,
   onRejectCandidate,
+  boardTimeline,
 }: {
   images: GeneratedImageItem[];
   shots: StoryShot[];
   latestScript: GeneratedScript | null;
   isGeneratingScript: boolean;
+  storyTitle?: string | null;
   onRegisterImageRerenderRunner?: (
     runner: StoryboardImageRerenderRunner
   ) => () => void;
@@ -298,6 +311,8 @@ export function StoryboardReviewBoard({
   ) => Promise<void>;
   creationShots?: CreationEditorShot[];
   timelineShotIds?: string[];
+  /** 传进来就在完整视图里长出「剪辑」行；不传就是纯故事版看板。 */
+  boardTimeline?: StoryboardBoardTimeline;
   onAddShotToTimeline?: (shotNo: number, stableShotId?: string | null) => void;
   onInsertShotAfter?: (
     shotNo: number,
@@ -447,6 +462,27 @@ export function StoryboardReviewBoard({
     useState<StoryboardMediaPreview | null>(null);
   const [selectedStoryboardMedia, setSelectedStoryboardMedia] =
     useState<ReturnType<typeof storyboardMediaSelection> | null>(null);
+  const [imageEditDialog, setImageEditDialog] = useState<{
+    shotNo: number;
+    shotIndex: number;
+    imageId: number;
+    imageUrl: string;
+    label: string;
+  } | null>(null);
+  const [imageEditInstruction, setImageEditInstruction] = useState("");
+  const [imageEditSubmitting, setImageEditSubmitting] = useState(false);
+  const [imageRenderMonitor, setImageRenderMonitor] = useState<{
+    id: string;
+    label: string;
+    imageUrl: string;
+    startedAt: number;
+    estimatedSeconds: number;
+    status: "running" | "success" | "error";
+    message?: string;
+  } | null>(null);
+  const [imageRenderMonitorNow, setImageRenderMonitorNow] = useState(() =>
+    Date.now()
+  );
   const [restoringStoryboardField, setRestoringStoryboardField] =
     useState<StoryboardVersionedField | null>(null);
   const [hoveredImagePreview, setHoveredImagePreview] = useState<{
@@ -504,6 +540,8 @@ export function StoryboardReviewBoard({
   const [previewVideoTakeByShot, setPreviewVideoTakeByShot] = useState<
     Record<string, number>
   >({});
+  const [expandedVideoCandidatesByShot, setExpandedVideoCandidatesByShot] =
+    useState<Record<string, boolean>>({});
   const [removingVideoKey, setRemovingVideoKey] = useState<string | null>(null);
   const [rerenderingShotNos, setRerenderingShotNos] = useState<number[]>([]);
   const [oneClickVideoProgress, setOneClickVideoProgress] = useState<{
@@ -566,6 +604,7 @@ export function StoryboardReviewBoard({
       removeShotFromRenderSlots(current, shotNo)
     );
   }, []);
+
   const beginContinuityCheck = useCallback(
     (shotNo: number, renderKind: "image" | "video") => {
       setContinuityCheckingByShot(current => ({
@@ -586,6 +625,14 @@ export function StoryboardReviewBoard({
     sourceIndex: number;
     field: StoryboardMatrixField;
   } | null>(null);
+
+  useEffect(() => {
+    if (imageRenderMonitor?.status !== "running") return;
+    const timer = window.setInterval(() => {
+      setImageRenderMonitorNow(Date.now());
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [imageRenderMonitor?.status]);
   const [matrixDropTarget, setMatrixDropTarget] = useState<{
     targetIndex: number;
     field: StoryboardMatrixField;
@@ -698,6 +745,27 @@ export function StoryboardReviewBoard({
     [creationShots, timelineShotIds]
   );
   const storyboardTimelineDurationMs = storyboardTimingRows.at(-1)?.endMs ?? 0;
+  // 剪辑时间条按成片顺序铺开，所以这里用时间线顺序而不是镜头列顺序。
+  const storyboardEditShots = useMemo<StoryboardEditShot[]>(
+    () =>
+      storyboardTimingRows.flatMap(timing => {
+        const creationShot = creationShots.find(
+          shot => creationTimelineShotId(shot) === timing.stableShotId
+        );
+        if (!creationShot) return [];
+        return [
+          {
+            timing,
+            shotLabel: displayShotCode(creationShot),
+            shotNo: creationShot.shotNo,
+            stableShotId: timing.stableShotId,
+            timelineItem: creationShot.timelineItem ?? null,
+            posterUrl: creationShot.imageUrl ?? null,
+          },
+        ];
+      }),
+    [creationShots, storyboardTimingRows]
+  );
   const previousCreationShotsByNo = useMemo(() => {
     const byShotNo = new Map<number, CreationEditorShot[]>();
     const previous: CreationEditorShot[] = [];
@@ -721,7 +789,8 @@ export function StoryboardReviewBoard({
           scrollElementHorizontallyIntoView(
             boardScrollRef.current,
             target ?? null,
-            76
+            76,
+            boardTimeline?.isPlaying ? "smooth-nearest" : "nearest"
           );
           return;
         }
@@ -735,7 +804,7 @@ export function StoryboardReviewBoard({
       window.cancelAnimationFrame(frame);
       if (nestedFrame) window.cancelAnimationFrame(nestedFrame);
     };
-  }, [selectedShotNo, viewMode]);
+  }, [boardTimeline?.isPlaying, selectedShotNo, viewMode]);
   useEffect(() => {
     if (
       viewMode !== "full" ||
@@ -984,6 +1053,33 @@ export function StoryboardReviewBoard({
       setDeletingShotId(null);
     }
   };
+
+  // 剪辑行右键菜单里的「加一镜 / 删掉这一镜」，复用镜头行上那两个按钮的逻辑。
+  // 增删镜头认的是 storyShotInsertIdentity，跟时间线用的 stableShotId 不是一个，
+  // 所以这里按镜号回查一次。
+  // 不 memo：insertShotAfter / deleteShot 闭包里读的是本次渲染的进行中状态，
+  // 缓存住反而会拿到过期的守卫值。
+  const storyboardEditShotActions: StoryboardEditShotActions = (() => {
+    const insertIdentityByShotNo = new Map(
+      shots.map((shot, index) => [
+        shot.shotNo,
+        storyShotInsertIdentity(shot, index),
+      ])
+    );
+    return {
+      onInsertShotAfter: onInsertShotAfter
+        ? (input: { shotNo: number }) =>
+            insertShotAfter(
+              input.shotNo,
+              insertIdentityByShotNo.get(input.shotNo)
+            )
+        : undefined,
+      onDeleteShot: onDeleteShot
+        ? (input: { shotNo: number }) =>
+            deleteShot(input.shotNo, insertIdentityByShotNo.get(input.shotNo))
+        : undefined,
+    };
+  })();
 
   const importLocalMediaToShot = async (input: {
     shot: StoryShot;
@@ -1731,7 +1827,19 @@ export function StoryboardReviewBoard({
         return { status: "error", message };
       }
     }
-    const boardInstruction = storyboardExplicitImageInstruction(effectiveShot);
+    const templateEnabled = isSheSelf02ImageEditTemplateEnabled(
+      storyTitle,
+      label
+    );
+    const imageInstruction = buildSheSelf02ImageEditInstruction({
+      storyTitle,
+      shotCode: label,
+      currentInstruction: imageRequirement,
+    });
+    const boardInstruction = storyboardExplicitImageInstruction({
+      ...effectiveShot,
+      promptDraft: imageInstruction,
+    });
     const useSingleImageFallback =
       !isExactFrameEdit && shouldUseSingleImageFallback(imageProviderStatus);
     const explicitInstruction = [
@@ -1806,6 +1914,9 @@ export function StoryboardReviewBoard({
       useSingleImageFallback,
       imageReferences,
       explicitInstruction,
+      templateLabel: templateEnabled
+        ? SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL
+        : undefined,
     });
     const { editRoleLabel, estimate: imageEstimate } = imageRenderPlan;
     const confirmed =
@@ -1945,6 +2056,76 @@ export function StoryboardReviewBoard({
       finishShotRender(shot.shotNo);
     }
   };
+
+  const submitSelectedImageEdit = useCallback(async () => {
+    const dialog = imageEditDialog;
+    const instruction = imageEditInstruction.trim();
+    if (!dialog || !instruction || imageEditSubmitting) return;
+    const shot = shots[dialog.shotIndex];
+    const creationShot = creationShots.find(
+      candidate => candidate.shotNo === dialog.shotNo
+    );
+    if (!shot || !creationShot) {
+      toast.error("当前镜头还没有可升级的图像版本");
+      return;
+    }
+    const monitorId = `${dialog.shotNo}-${Date.now()}`;
+    const monitorStartedAt = Date.now();
+    setImageRenderMonitor({
+      id: monitorId,
+      label: dialog.label,
+      imageUrl: dialog.imageUrl,
+      startedAt: monitorStartedAt,
+      // 这是基于当前 GPT-image 编辑链路的保守估算，不代表供应商承诺时长。
+      estimatedSeconds: 90,
+      status: "running",
+    });
+    setImageRenderMonitorNow(monitorStartedAt);
+    setImageEditSubmitting(true);
+    try {
+      const renderPromise = renderShotImageCandidates(
+        shot,
+        creationShot,
+        dialog.shotIndex,
+        {
+          storyId: null,
+          stableShotId:
+            creationShot.stableShotId ?? creationShot.shotIdentity ?? null,
+          shotNo: dialog.shotNo,
+          cueCode: creationShot.cueCode ?? null,
+          imageId: dialog.imageId,
+          instruction,
+        }
+      );
+      // 费用确认通过后立即收起大弹窗；任务继续由右下角监控条承载。
+      setImageEditDialog(null);
+      setImageEditInstruction("");
+      const result = await renderPromise;
+      if (result.status === "cancelled") {
+        setImageRenderMonitor(null);
+        return;
+      }
+      setImageRenderMonitor(current =>
+        current?.id === monitorId
+          ? {
+              ...current,
+              imageUrl: result.imageUrl ?? current.imageUrl,
+              status: result.status === "success" ? "success" : "error",
+              message: result.message,
+            }
+          : current
+      );
+    } finally {
+      setImageEditSubmitting(false);
+    }
+  }, [
+    creationShots,
+    imageEditDialog,
+    imageEditInstruction,
+    imageEditSubmitting,
+    renderShotImageCandidates,
+    shots,
+  ]);
 
   useEffect(() => {
     if (!onRegisterImageRerenderRunner) return;
@@ -2564,6 +2745,9 @@ export function StoryboardReviewBoard({
               {MAX_CONCURRENT_STORYBOARD_RENDERS}
             </span>
           ) : null}
+          {boardTimeline && shots.length > 0 && viewMode === "full" ? (
+            <StoryboardEditTransport timeline={boardTimeline} />
+          ) : null}
           {shots.length > 0 ? (
             <span
               className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
@@ -2892,6 +3076,17 @@ export function StoryboardReviewBoard({
                   );
                 })}
 
+                {boardTimeline ? (
+                  <StoryboardEditRow
+                    timeline={boardTimeline}
+                    shots={storyboardEditShots}
+                    selectedShotNo={selectedShotNo}
+                    onSelectShot={shotNo => onSelectShot?.(shotNo)}
+                    columnSpan={shots.length}
+                    shotActions={storyboardEditShotActions}
+                  />
+                ) : null}
+
                 <div
                   role="rowheader"
                   className="sticky left-0 z-20 flex items-start border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
@@ -2952,6 +3147,17 @@ export function StoryboardReviewBoard({
                   const readyCandidate = videoTakeCandidateToAdopt(
                     playableTakes,
                     explicitlySelectedTakeId
+                  );
+                  const selectedPlayableTakes = playableTakes.filter(
+                    take =>
+                      take.isTimelineSelected ||
+                      creationShot?.selectedVideoTake?.id === take.id
+                  );
+                  const unselectedPlayableTakes = playableTakes.filter(
+                    take => !selectedPlayableTakes.includes(take)
+                  );
+                  const videoCandidatesExpanded = Boolean(
+                    expandedVideoCandidatesByShot[mediaShotIdentity]
                   );
                   const isSubmittingVideo =
                     rerenderingShotNos.includes(shot.shotNo) ||
@@ -3584,6 +3790,35 @@ export function StoryboardReviewBoard({
                                   <Trash2 className="h-3 w-3" />
                                 </button>
                               ) : null}
+                              {imageSelected && onGenerateShotImages ? (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    isUpdating ||
+                                    imageEditSubmitting ||
+                                    !imageProviderStatus?.ready ||
+                                    !canStartRenderForShot(shot.shotNo)
+                                  }
+                                  onClick={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setImageEditInstruction("");
+                                    setImageEditDialog({
+                                      shotNo: shot.shotNo,
+                                      shotIndex: index,
+                                      imageId: frame.id,
+                                      imageUrl: frame.imageUrl,
+                                      label: `${displayShotCode(shot)} · ${frameRole}`,
+                                    });
+                                  }}
+                                  className="absolute bottom-0.5 right-0.5 z-10 flex h-6 items-center gap-1 rounded-sm bg-[var(--nayin-accent)] px-1.5 text-[9px] font-semibold text-background shadow-sm transition-colors hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-45"
+                                  aria-label={`基于 ${displayShotCode(shot)} 当前图像修改`}
+                                  title="保留当前图像，基于它生成并升级一个新版本"
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  修改这张
+                                </button>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -3774,7 +4009,36 @@ export function StoryboardReviewBoard({
                             </Fragment>
                           );
                         })}
-                        {playableTakes.map(take => {
+                        {unselectedPlayableTakes.length > 0 ? (
+                          <button
+                            type="button"
+                            className="order-2 flex h-[59px] min-w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm border border-dashed border-emerald-500/35 bg-emerald-500/5 px-1 text-emerald-700 transition-colors hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 dark:text-emerald-300"
+                            aria-expanded={videoCandidatesExpanded}
+                            aria-label={`${displayShotCode(shot)} 待选择视频 ${unselectedPlayableTakes.length} 个`}
+                            title="这些视频仍属于当前镜头，点击展开查看"
+                            onClick={() =>
+                              setExpandedVideoCandidatesByShot(current => ({
+                                ...current,
+                                [mediaShotIdentity]: !videoCandidatesExpanded,
+                              }))
+                            }
+                          >
+                            <Video className="h-3.5 w-3.5" />
+                            <span className="text-[7px] font-semibold">
+                              {videoCandidatesExpanded
+                                ? "收起候选"
+                                : `待选择 ${unselectedPlayableTakes.length}`}
+                            </span>
+                          </button>
+                        ) : null}
+                        {(timelineVisualClips.length > 0
+                          ? videoCandidatesExpanded
+                            ? unselectedPlayableTakes
+                            : []
+                          : videoCandidatesExpanded
+                            ? playableTakes
+                            : selectedPlayableTakes
+                        ).map(take => {
                           if (!take.videoUrl) return null;
                           const variantLabel = mjVideoVariantLabel(take);
                           const previewSelected = Boolean(
@@ -4057,7 +4321,8 @@ export function StoryboardReviewBoard({
                               className={`h-[59px] min-w-8 flex-1 text-left text-[8px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--nayin-accent)]/35 ${
                                 frameImages.length === 0 &&
                                 timelineVisualClips.length === 0 &&
-                                playableTakes.length === 0
+                                selectedPlayableTakes.length === 0 &&
+                                unselectedPlayableTakes.length === 0
                                   ? "flex items-center gap-1.5 px-1"
                                   : ""
                               }`}
@@ -4070,7 +4335,8 @@ export function StoryboardReviewBoard({
                             >
                               {frameImages.length === 0 &&
                               timelineVisualClips.length === 0 &&
-                              playableTakes.length === 0 ? (
+                              selectedPlayableTakes.length === 0 &&
+                              unselectedPlayableTakes.length === 0 ? (
                                 <>
                                   {isGeneratingScript ? (
                                     <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -4376,14 +4642,14 @@ export function StoryboardReviewBoard({
                                   );
                                 }}
                                 className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-sm border border-[var(--nayin-accent)]/35 bg-[var(--nayin-glow)] px-2 text-[9px] font-semibold text-foreground transition hover:border-[var(--nayin-accent)] hover:text-[var(--nayin-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:cursor-wait disabled:opacity-55"
-                                aria-label={`按图片要求渲染 ${shotLabel} 的四张候选图`}
+                                aria-label={`按图片要求${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "并套用长裙连续性模板" : ""}渲染 ${shotLabel} 的四张候选图`}
                                 title={
                                   imageProviderStatus?.ready
                                     ? shouldUseSingleImageFallback(
                                         imageProviderStatus
                                       )
-                                      ? "四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用"
-                                      : "原文要求优先，生成四张同风格候选图，提交前会显示费用"
+                                      ? `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}四张候选通道刚刚超时；将生成一张完整单帧，提交前会显示费用`
+                                      : `${isSheSelf02ImageEditTemplateEnabled(storyTitle, shotLabel) ? "已启用长裙连续性模板；" : ""}原文要求优先，生成四张同风格候选图，提交前会显示费用`
                                     : (imageProviderStatus?.reason ??
                                       "正在确认图片供应商状态")
                                 }
@@ -4403,6 +4669,12 @@ export function StoryboardReviewBoard({
                                       )
                                     ? "渲染 1 张"
                                     : "渲染 4 张"}
+                                {isSheSelf02ImageEditTemplateEnabled(
+                                  storyTitle,
+                                  shotLabel
+                                )
+                                  ? " · 长裙模板"
+                                  : ""}
                               </button>
                             ) : row.field === "videoPrompt" &&
                               creationShot &&
@@ -4497,6 +4769,221 @@ export function StoryboardReviewBoard({
           </div>
         )}
       </div>
+      {imageEditDialog
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="storyboard-image-edit-title"
+            >
+              <div className="w-full max-w-md rounded-lg border border-border bg-background p-4 shadow-2xl">
+                <div className="flex items-start gap-3">
+                  <img
+                    src={imageEditDialog.imageUrl}
+                    alt={imageEditDialog.label}
+                    className="h-16 w-16 shrink-0 rounded-md object-cover"
+                  />
+                  <div className="min-w-0">
+                    <h2
+                      id="storyboard-image-edit-title"
+                      className="text-sm font-semibold text-foreground"
+                    >
+                      基于当前图像修改
+                    </h2>
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                      {imageEditDialog.label} · 图片 #{imageEditDialog.imageId}{" "}
+                      · 原图会保留，生成结果会成为新版本
+                    </p>
+                  </div>
+                </div>
+                <textarea
+                  autoFocus
+                  value={imageEditInstruction}
+                  onChange={event =>
+                    setImageEditInstruction(event.target.value)
+                  }
+                  onKeyDown={event => {
+                    if (
+                      (event.metaKey || event.ctrlKey) &&
+                      event.key === "Enter"
+                    ) {
+                      event.preventDefault();
+                      void submitSelectedImageEdit();
+                    }
+                  }}
+                  placeholder="例如：保留人物和构图，把红色空间改成更深的暗红，增加压迫感。"
+                  className="mt-4 min-h-24 w-full resize-y rounded-md border border-border bg-muted/20 px-3 py-2 text-xs leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                  disabled={imageEditSubmitting}
+                />
+                <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                  提交前会显示费用确认；不会覆盖当前图像，也不会自动改动视频。
+                </p>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] text-muted-foreground transition hover:text-foreground disabled:opacity-45"
+                    onClick={() => {
+                      setImageEditDialog(null);
+                      setImageEditInstruction("");
+                    }}
+                    disabled={imageEditSubmitting}
+                  >
+                    取消
+                  </button>
+                  {imageEditSubmitting ? (
+                    <button
+                      type="button"
+                      className="h-8 rounded-md border border-[var(--nayin-accent)]/35 px-3 text-[11px] text-[var(--nayin-accent)] transition hover:bg-[var(--nayin-accent)]/8"
+                      onClick={() => {
+                        setImageEditDialog(null);
+                        setImageEditInstruction("");
+                      }}
+                    >
+                      后台运行
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-3 text-[11px] font-medium text-background transition hover:brightness-105 disabled:cursor-wait disabled:opacity-45"
+                    onClick={() => void submitSelectedImageEdit()}
+                    disabled={
+                      imageEditSubmitting || !imageEditInstruction.trim()
+                    }
+                  >
+                    {imageEditSubmitting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    生成新版本
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+      {imageRenderMonitor
+        ? createPortal(
+            <aside
+              className={`fixed bottom-4 right-4 z-[150] w-[min(360px,calc(100vw-2rem))] rounded-xl border border-border bg-background/95 p-3 shadow-2xl backdrop-blur ${
+                imageRenderMonitor.status === "success"
+                  ? "cursor-pointer transition hover:border-[var(--nayin-accent)]/50 hover:shadow-[0_12px_35px_-18px_var(--nayin-accent)]"
+                  : ""
+              }`}
+              aria-live="polite"
+              aria-label="图片渲染监控"
+              data-testid="storyboard-image-render-monitor"
+              role={
+                imageRenderMonitor.status === "success" ? "button" : undefined
+              }
+              tabIndex={imageRenderMonitor.status === "success" ? 0 : undefined}
+              onClick={() => {
+                if (imageRenderMonitor.status !== "success") return;
+                setPreviewMedia({
+                  kind: "image",
+                  url: imageRenderMonitor.imageUrl,
+                  label: `${imageRenderMonitor.label} · 新版本`,
+                });
+              }}
+              onKeyDown={event => {
+                if (
+                  imageRenderMonitor.status === "success" &&
+                  (event.key === "Enter" || event.key === " ")
+                ) {
+                  event.preventDefault();
+                  setPreviewMedia({
+                    kind: "image",
+                    url: imageRenderMonitor.imageUrl,
+                    label: `${imageRenderMonitor.label} · 新版本`,
+                  });
+                }
+              }}
+            >
+              <div className="flex items-start gap-2.5">
+                <img
+                  src={imageRenderMonitor.imageUrl}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded-md object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-xs font-semibold text-foreground">
+                      {imageRenderMonitor.status === "running"
+                        ? "图片正在后台渲染"
+                        : imageRenderMonitor.status === "success"
+                          ? "图片渲染完成"
+                          : "图片渲染失败"}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="关闭渲染提醒"
+                      className="shrink-0 text-muted-foreground transition hover:text-foreground"
+                      onClick={event => {
+                        event.stopPropagation();
+                        setImageRenderMonitor(null);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                    {imageRenderMonitor.label}
+                  </p>
+                </div>
+              </div>
+              {imageRenderMonitor.status === "running" ? (
+                <>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-[var(--nayin-accent)] transition-[width] duration-700"
+                      style={{
+                        width: `${Math.min(
+                          94,
+                          Math.max(
+                            4,
+                            ((imageRenderMonitorNow -
+                              imageRenderMonitor.startedAt) /
+                              (imageRenderMonitor.estimatedSeconds * 1_000)) *
+                              100
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-muted-foreground">
+                    预计还需约{" "}
+                    {Math.max(
+                      1,
+                      Math.ceil(
+                        imageRenderMonitor.estimatedSeconds -
+                          (imageRenderMonitorNow -
+                            imageRenderMonitor.startedAt) /
+                            1_000
+                      )
+                    )}{" "}
+                    秒 · 你可以继续编辑其他内容
+                  </p>
+                </>
+              ) : (
+                <p
+                  className={`mt-2 text-[10px] ${
+                    imageRenderMonitor.status === "success"
+                      ? "text-emerald-700"
+                      : "text-destructive"
+                  }`}
+                >
+                  {imageRenderMonitor.message ??
+                    (imageRenderMonitor.status === "success"
+                      ? "新版本已回到对应镜头"
+                      : "请检查错误信息后再试")}
+                </p>
+              )}
+            </aside>,
+            document.body
+          )
+        : null}
       <StoryboardMediaPreviewDialog
         preview={previewMedia}
         onClose={() => setPreviewMedia(null)}

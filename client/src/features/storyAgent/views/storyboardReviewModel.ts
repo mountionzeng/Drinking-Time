@@ -154,11 +154,26 @@ export function autoScrollElementHorizontallyAtPoint(
 export function scrollElementHorizontallyIntoView(
   scroller: HTMLElement | null,
   target: HTMLElement | null,
-  leftInset = 0
+  leftInset = 0,
+  align: "nearest" | "smooth-nearest" | "center" = "nearest"
 ): number {
   if (!scroller || !target) return 0;
   const scrollerRect = scroller.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
+  if (align === "center") {
+    const visibleLeft = scrollerRect.left + Math.max(0, leftInset);
+    const visibleWidth = Math.max(
+      0,
+      scrollerRect.width - Math.max(0, leftInset)
+    );
+    const targetCenter = (targetRect.left + targetRect.right) / 2;
+    const visibleCenter = visibleLeft + visibleWidth / 2;
+    const delta = targetCenter - visibleCenter;
+    if (Math.abs(delta) < 1) return 0;
+    const scrollBehavior: ScrollBehavior = "smooth";
+    scroller.scrollBy({ left: delta, behavior: scrollBehavior });
+    return delta;
+  }
   const visibleLeft = scrollerRect.left + Math.max(0, leftInset);
   let delta = 0;
   if (targetRect.left < visibleLeft) {
@@ -166,7 +181,11 @@ export function scrollElementHorizontallyIntoView(
   } else if (targetRect.right > scrollerRect.right) {
     delta = targetRect.right - scrollerRect.right;
   }
-  if (delta !== 0) scroller.scrollBy({ left: delta, behavior: "auto" });
+  if (delta !== 0) {
+    const scrollBehavior: ScrollBehavior =
+      align === "smooth-nearest" ? "smooth" : "auto";
+    scroller.scrollBy({ left: delta, behavior: scrollBehavior });
+  }
   return delta;
 }
 
