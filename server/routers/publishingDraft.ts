@@ -913,6 +913,10 @@ export const publishingDraftRouter = router({
         storyId: z.number().int().positive(),
         versionId: z.string().trim().min(1).max(64).optional(),
         operationToken: z.string().trim().min(1).max(160).optional(),
+        /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
+        narrativeSpec: z
+          .enum(["album9", "video10", "video30", "video50"])
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -922,6 +926,7 @@ export const publishingDraftRouter = router({
           userId: ctx.user.id,
           versionId: input.versionId,
           operationToken: input.operationToken,
+          narrativeSpec: input.narrativeSpec,
         });
       } catch (error) {
         throwPublishingError(error);

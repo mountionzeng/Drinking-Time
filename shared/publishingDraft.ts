@@ -1,4 +1,8 @@
 import {
+  isNarrativeSpecId,
+  type NarrativeSpecId,
+} from "./narrativeRhythm";
+import {
   normalizePublishingVideoStoryboardAggregate,
   type PublishingVideoStoryboardAggregate,
 } from "./publishingVideoStoryboard";
@@ -418,6 +422,11 @@ export type PublishingStoryVersion = {
   selectedPlatforms: PublishingPlatformId[];
   /** The purpose and audience that generated this version. */
   narrativeIntent: PublishingNarrativeIntent;
+  /**
+   * 目标成片形态（画册 / 10s / 30s / 50s）。用户在「进入视频制作」时选定，
+   * 决定整片时间预算。未选时下游按 30 秒档处理，不阻塞生成。
+   */
+  narrativeSpec?: NarrativeSpecId;
   /** Immutable purpose/audience snapshot for this version. */
   intentSnapshot?: StoryIntentProfile;
   /** Canonical lifecycle records; rejected/superseded ids survive refresh. */
@@ -1418,6 +1427,9 @@ function normalizeStoryVersion(
     drafts,
     activePlatform,
     selectedPlatforms,
+    narrativeSpec: isNarrativeSpecId(obj.narrativeSpec)
+      ? obj.narrativeSpec
+      : undefined,
     narrativeIntent: normalizePublishingNarrativeIntent(
       obj.narrativeIntent,
       now

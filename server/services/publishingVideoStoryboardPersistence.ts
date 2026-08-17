@@ -16,6 +16,7 @@ import {
   isNarrativeSpecId,
   planRhythmBudget,
   rhythmProfileFromIntent,
+  type NarrativeSpecId,
 } from "../../shared/narrativeRhythm";
 import {
   canonicalizePublishingVideoParagraphs,
@@ -484,6 +485,7 @@ async function failPreviewOperation(input: {
 export async function generateAndPersistPublishingVideoPreview(input: {
   storyId: number;
   userId: number;
+  narrativeSpec?: NarrativeSpecId;
   operationToken?: string;
   versionId?: string;
   now?: number;
@@ -529,6 +531,10 @@ export async function generateAndPersistPublishingVideoPreview(input: {
       platform: claim.context.version.activePlatform,
       core: claim.context.core,
       narrativeIntent: claim.context.version.narrativeIntent,
+      // 规格决定镜头总数区间与单镜区间，模型据此改编而非逐段转写。
+      // 本次传入的优先于 version 上的存量值 —— 用户刚在小界面选的就该立刻生效。
+      narrativeSpec:
+        input.narrativeSpec ?? claim.context.version.narrativeSpec,
       coverVisualDescription: claim.context.core?.visualConcept ?? null,
       now,
     });
@@ -554,6 +560,8 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
   userId: number;
   versionId?: string;
   operationToken?: string;
+  /** 用户在「进入视频制作」时选的规格；不传则沿用 version 上已存的 */
+  narrativeSpec?: NarrativeSpecId;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
 }): Promise<PublishingVideoBuildResult> {
@@ -575,6 +583,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
     userId: input.userId,
     versionId: generated.preview.source?.versionId ?? input.versionId ?? "",
     previewId: generated.preview.previewId,
+    narrativeSpec: input.narrativeSpec,
     operationToken: `${operationToken}:confirm`,
     now: input.now,
   });
@@ -841,6 +850,8 @@ export async function confirmPublishingVideoStoryboard(input: {
   userId: number;
   versionId: string;
   previewId: string;
+  /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
+  narrativeSpec?: NarrativeSpecId;
   operationToken?: string;
   now?: number;
 }): Promise<PublishingVideoConfirmationResult> {
@@ -1005,10 +1016,7 @@ export async function confirmPublishingVideoStoryboard(input: {
     // 得不到总时长，只有在这儿一次性分配才谈得上节奏。
     const rhythmDurations = planConfirmedShotDurations({
       shots: confirmedShots,
-      // TODO(规格入口)：等「进入视频制作」的小界面落地后，narrativeSpec 会随
-      // version 持久化并从这里读出。在那之前一律按 30 秒档 —— 用户还没被
-      // 问过，不该因为缺规格而阻塞生成。
-      narrativeSpec: undefined,
+      narrativeSpec: input.narrativeSpec ?? context.version.narrativeSpec,
       narrativeIntent: context.version.narrativeIntent,
     });
 
