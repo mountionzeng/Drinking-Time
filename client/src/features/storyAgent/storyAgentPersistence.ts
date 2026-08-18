@@ -6,7 +6,6 @@
  * 状态按 projectId 分键存储，刷新后对话还在。一律纯函数 + 直接读 localStorage，不碰 React。
  */
 import {
-  OPENING_MESSAGE,
   type ChatMessage,
   type StoryCard,
   type GeneratedScript,
@@ -79,17 +78,11 @@ export interface PersistedState {
 export const storageKey = (projectId: number | null) =>
   projectId ? `dt:storyAgent:${projectId}` : null;
 
-// 全新空状态：只放一条聊聊的开场白，其余清空。
+// 全新空状态：不放开场白。原先这里会先播一条聊聊的自我介绍 + 邀请，
+// 但下方「新故事 · 第一步」卡已经在引导用户选方向，开场白只是把第一屏占满。
 export function emptyState(): PersistedState {
   return {
-    messages: [
-      {
-        id: "first-question",
-        role: "assistant",
-        content: OPENING_MESSAGE,
-        timestamp: Date.now(),
-      },
-    ],
+    messages: [],
     cards: [],
     scripts: [],
     storyShots: [],

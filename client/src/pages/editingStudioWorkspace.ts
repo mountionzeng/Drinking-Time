@@ -8,9 +8,8 @@ export const STUDIO_WORKSPACE_OPTIONS: ReadonlyArray<{
   id: StudioWorkspace;
   label: string;
 }> = [
-  { id: "publishing", label: "文字稿" },
-  ...STORY_PANELS,
-  { id: "editing", label: "剪辑台" },
+  { id: "publishing", label: "文字" },
+  { id: "editing", label: "图像和声音" },
 ];
 
 export function isStoryPanelWorkspace(

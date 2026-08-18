@@ -1464,6 +1464,20 @@ export const creationAgentRouter = router({
             included: z.boolean(),
             position: z.number().int().min(0),
             plannedDurationMs: z.number().min(100),
+            durationFrames: z.number().int().min(1).optional(),
+            timelineStartFrame: z.number().int().min(0).optional(),
+            stackOrder: z.number().int().min(0).optional(),
+            anchors: z
+              .array(
+                z.object({
+                  id: z.string().min(1).max(160),
+                  timelineFrame: z.number().int().min(0),
+                  sourceType: z.enum(["primary-video", "visual-clip", "image"]),
+                  sourceId: z.string().min(1).max(240),
+                  sourceTimeSec: z.number().min(0).nullable(),
+                })
+              )
+              .optional(),
             transform: z.object({
               cropX: z.number().min(0).max(1),
               cropY: z.number().min(0).max(1),

@@ -21,6 +21,8 @@ import {
   hasStoryboardScrollableDragPayload,
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
+  storyboardPlaybackCenterInset,
+  storyboardPlaybackFollowDelta,
   storyboardCharacterContinuityGenerationParams,
   storyboardCharacterContinuityMatchesTarget,
   storyboardCharacterContinuityReference,
@@ -276,6 +278,44 @@ describe("StoryCardsBoard intent entry", () => {
     expect(deltas).toEqual([-76]);
   });
 
+  it("keeps the storyboard playhead fixed while playback moves the table", () => {
+    const centerInset = storyboardPlaybackCenterInset(444, 76);
+    expect(centerInset).toBe(260);
+
+    expect(
+      storyboardPlaybackFollowDelta({
+        scrollerLeft: 64,
+        trackLeft: 140,
+        trackWidth: 896,
+        playheadMs: 0,
+        totalMs: 8_000,
+        leftInset: centerInset,
+      })
+    ).toBe(-184);
+
+    expect(
+      storyboardPlaybackFollowDelta({
+        scrollerLeft: 64,
+        trackLeft: 140,
+        trackWidth: 896,
+        playheadMs: 2_000,
+        totalMs: 8_000,
+        leftInset: centerInset,
+      })
+    ).toBe(40);
+
+    expect(
+      storyboardPlaybackFollowDelta({
+        scrollerLeft: 64,
+        trackLeft: 100,
+        trackWidth: 896,
+        playheadMs: 2_000,
+        totalMs: 8_000,
+        leftInset: centerInset,
+      })
+    ).toBe(0);
+  });
+
   it("keeps only user-actionable rows editable in the full storyboard", () => {
     expect(STORYBOARD_MATRIX_ROWS.map(row => row.field)).toEqual([
       "scriptText",
@@ -289,13 +329,11 @@ describe("StoryCardsBoard intent entry", () => {
       "dialogue",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.field)).toEqual([
-      "scriptText",
       "promptDraft",
       "videoPrompt",
       "dialogue",
     ]);
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.description)).toEqual([
-      "文字稿转写 · 可表演/可执行",
       "主体 · 画面动作 · 构图",
       "表演 · 运镜 · 动作节拍 · 衔接",
       "旁白 / 对白 · 背景音 / 音效",

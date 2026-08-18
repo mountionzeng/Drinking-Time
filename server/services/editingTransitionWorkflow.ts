@@ -15,6 +15,7 @@ import {
 import type { VideoTake } from "../../drizzle/schema";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  timelineMsToFrames,
   type StoryTimelineItem,
 } from "../../shared/storyMaterial";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
@@ -843,11 +844,15 @@ async function applyGeneratedTransition(
   if (targetTimelineIndex < 0) {
     throw new Error("视频已生成，但目标镜头已经不在时间轴中");
   }
+  const targetItem = timelineItems[targetTimelineIndex];
+  const durationMs = candidate.durationSec * 1000;
   timelineItems.splice(targetTimelineIndex, 0, {
     stableShotId: candidate.provisionalStableShotId,
     included: true,
     position: targetTimelineIndex,
-    plannedDurationMs: candidate.durationSec * 1000,
+    plannedDurationMs: durationMs,
+    durationFrames: timelineMsToFrames(durationMs),
+    timelineStartFrame: targetItem?.timelineStartFrame ?? 0,
     transform: { ...DEFAULT_TIMELINE_TRANSFORM },
   });
   const nextTimelineItems = timelineItems.map((item, position) => ({

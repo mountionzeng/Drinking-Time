@@ -173,9 +173,9 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("<PublishingVideoHandoffBanner");
     expect(editingPage).toContain("shouldShowPublishingHandoff(workspace)");
     expect(editingPage).toContain("STUDIO_WORKSPACE_OPTIONS.map");
-    expect(studioWorkspaces).toContain('label: "文字稿"');
-    expect(studioWorkspaces).toContain('label: "剪辑台"');
-    expect(studioWorkspaces).toContain("...STORY_PANELS");
+    expect(studioWorkspaces).toContain('label: "文字"');
+    expect(studioWorkspaces).toContain('label: "图像和声音"');
+    expect(studioWorkspaces).not.toContain("...STORY_PANELS");
     expect(editingPage).toContain('useState<StudioWorkspace>("publishing")');
     expect(editingPage).toContain("<MaterialWarehousePanel />");
     expect(editingPage).toContain(
@@ -189,8 +189,10 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).toContain("开启新故事");
     expect(editingPage).toContain("backToList();");
     expect(editingPage).toContain("createNewStory();");
+    expect(editingPage).toContain("素材仓库");
     expect(editingPage).toContain("Timeline");
-    expect(editingPage).toContain("setTimelineVisible(value => !value)");
+    expect(editingPage).toContain("if (next) setTimelineVisible(false)");
+    expect(editingPage).toContain("if (next) setMaterialVisible(false)");
     expect(editingPage).toContain(
       "const [timelineVisible, setTimelineVisible] = useState(false)"
     );

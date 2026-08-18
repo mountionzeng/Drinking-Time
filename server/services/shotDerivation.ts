@@ -15,7 +15,10 @@ import { materializeImageInput } from "./imageAssets";
 import { renderViaGate } from "./renderGate";
 import { getStoryMaterialState } from "./storyMaterials";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
-import { DEFAULT_TIMELINE_TRANSFORM } from "../../shared/storyMaterial";
+import {
+  DEFAULT_TIMELINE_TRANSFORM,
+  timelineMsToFrames,
+} from "../../shared/storyMaterial";
 import { normalizeStoryArtDirection } from "../../shared/artDirection";
 
 type ReferenceRole = "person" | "scene" | "object" | "composition";
@@ -303,11 +306,19 @@ export async function confirmDerivedShot(
   const timelineSourceIndex = timelineItems.findIndex(
     item => item.stableShotId === draft.sourceStableShotId
   );
+  const sourceItem = timelineItems[timelineSourceIndex];
+  const durationMs = Number(proposal.durationMs) || 2400;
+  const durationFrames = timelineMsToFrames(durationMs);
+  const sourceStartFrame = sourceItem?.timelineStartFrame ?? 0;
+  const sourceDurationFrames =
+    sourceItem?.durationFrames ?? timelineMsToFrames(sourceItem?.plannedDurationMs ?? 3000);
   timelineItems.splice(Math.max(0, timelineSourceIndex + 1), 0, {
     stableShotId: draft.provisionalStableShotId,
     included: true,
     position: timelineSourceIndex + 1,
-    plannedDurationMs: Number(proposal.durationMs) || 2400,
+    plannedDurationMs: durationMs,
+    durationFrames,
+    timelineStartFrame: sourceStartFrame + sourceDurationFrames,
     transform: { ...DEFAULT_TIMELINE_TRANSFORM },
   });
   const normalizedTimeline = timelineItems.map((item, position) => ({

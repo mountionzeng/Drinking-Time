@@ -189,6 +189,37 @@ export function scrollElementHorizontallyIntoView(
   return delta;
 }
 
+export function storyboardPlaybackFollowDelta({
+  scrollerLeft,
+  trackLeft,
+  trackWidth,
+  playheadMs,
+  totalMs,
+  leftInset = 0,
+}: {
+  scrollerLeft: number;
+  trackLeft: number;
+  trackWidth: number;
+  playheadMs: number;
+  totalMs: number;
+  leftInset?: number;
+}): number {
+  if (!(trackWidth > 0) || !(totalMs > 0)) return 0;
+  const progress = Math.max(0, Math.min(1, playheadMs / totalMs));
+  const playheadLeft = trackLeft + trackWidth * progress;
+  const fixedLeft = scrollerLeft + Math.max(0, leftInset);
+  const delta = playheadLeft - fixedLeft;
+  return Math.abs(delta) < 0.5 ? 0 : delta;
+}
+
+export function storyboardPlaybackCenterInset(
+  scrollerWidth: number,
+  leftInset = 0
+): number {
+  const visibleLeft = Math.max(0, leftInset);
+  return visibleLeft + Math.max(0, scrollerWidth - visibleLeft) / 2;
+}
+
 export function storyShotInsertIdentity(
   shot: StoryShot,
   index: number

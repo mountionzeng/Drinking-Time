@@ -276,7 +276,6 @@ const isTestEnv = () =>
 
 let memoryLoaded = false;
 let memoryLoadPromise: Promise<void> | null = null;
-let memoryPersistQueue: Promise<void> = Promise.resolve();
 let memoryVideoTakeSubmissionClaimQueue: Promise<void> = Promise.resolve();
 let memoryInviteClaimQueue: Promise<void> = Promise.resolve();
 let memoryEmailOtps: EmailOtp[] = [];
@@ -616,7 +615,9 @@ async function persistLocalEditSnapshotsToDisk(next: EditSnapshot[]) {
   }
   const dir = path.dirname(LOCAL_EDIT_SNAPSHOTS_PATH);
   await mkdir(dir, { recursive: true });
-  const payload = JSON.stringify(normalizeLoadedEditSnapshots(next), null, 2);
+  // 紧凑序列化：这份文件曾到 24MB+，缩进只服务于人眼但每次写都要多付 ~1/3 的
+  // 序列化时间和磁盘 IO。要看内容用 `jq .` 即可。
+  const payload = JSON.stringify(normalizeLoadedEditSnapshots(next));
   const tmpPath = localTempPath(LOCAL_EDIT_SNAPSHOTS_PATH);
   await writeFile(tmpPath, payload, "utf-8");
   await rename(tmpPath, LOCAL_EDIT_SNAPSHOTS_PATH);
@@ -763,7 +764,8 @@ async function persistMemoryStateToDisk() {
       editSnapshots: _editSnapshots,
       ...mainState
     } = memoryState;
-    const payload = JSON.stringify(mainState, null, 2);
+    // 紧凑序列化，理由同 persistLocalEditSnapshotsToDisk：省掉 ~1/3 的序列化与写盘开销。
+    const payload = JSON.stringify(mainState);
     const nextBytes = Buffer.byteLength(payload, "utf-8");
     // ② 写前滚动备份 + 骤减告警（自身失败不影响主写入，backupBeforeWrite 内部已吞错误）
     await backupBeforeWrite(nextBytes);
@@ -783,12 +785,71 @@ async function persistMemoryStateToDisk() {
   }
 }
 
+type PendingWrite = {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+};
+
+const createPendingWrite = (): PendingWrite => {
+  let resolve!: () => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
 /**
- * 用途：把本次写盘请求接入串行队列，并如实把这次写盘的成功/失败反馈给调用方——
- *   不再像过去那样吞掉磁盘错误、让调用方误以为已经落盘。队列本身继续沿用一条
- *   共享 promise 链保证磁盘写按顺序执行，但队列内部对每一步都吞错误续接，
- *   这样某一次写盘失败不会永久卡住后面排队的写入；每个调用方拿到的是"只属于
- *   自己这次写盘"的 promise，失败与否互不影响。
+ * 用途：把「短时间内的多次写盘请求」合并成一次真正的磁盘写。
+ *   文件模式下每次写盘都是「序列化整个 state + 原子替换」，几十到上百毫秒起步；
+ *   而一次对话往往在同一瞬间触发十几次写。原来的串行队列会把它们排成十几次全量
+ *   重写，接口延迟按队列长度线性累积——这正是"接外部 API 时很卡"的一部分成因。
+ *
+ * 正确性：调用方总是先把变更同步应用到内存态、再调用本函数，所以只要有一次
+ *   **在本次调用之后才开始**的写盘成功，调用方的变更就一定落了盘。因此新请求只能
+ *   合并进「下一批尚未开始的写」，绝不能搭正在跑的那次便车——后者可能在本次变更
+ *   之前就已经序列化完了。合并只改变"写几次"，不改变"何时算落盘"。
+ *
+ * 失败语义与过去一致：某一批写盘失败，只有这一批的调用方拿到异常，不会卡死
+ *   后面排队的写入。
+ */
+function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
+  let running = false;
+  let pending: PendingWrite | null = null;
+
+  async function pump(): Promise<void> {
+    running = true;
+    try {
+      while (pending) {
+        const batch = pending;
+        pending = null;
+        try {
+          await write();
+          batch.resolve();
+        } catch (error) {
+          batch.reject(error);
+        }
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  return function schedule(): Promise<void> {
+    pending ??= createPendingWrite();
+    const joined = pending.promise;
+    if (!running) void pump();
+    return joined;
+  };
+}
+
+/**
+ * 用途：把本次写盘请求接入合并器，并如实把这次写盘的成功/失败反馈给调用方——
+ *   不再像过去那样吞掉磁盘错误、让调用方误以为已经落盘。同一瞬间涌进来的多次
+ *   请求会合并成一次全量重写（见 createWriteCoalescer），每个调用方拿到的仍是
+ *   "覆盖了自己这次变更"的 promise，失败与否互不影响。
  *   注意：本函数只保证"失败会向调用方抛出"，不保证"调用方已经应用到
  *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前只有
  *   `updateStoryBodyIfRevision` 在失败时做了按字段回滚（见其定义处注释）；其余
@@ -799,11 +860,15 @@ async function persistMemoryStateToDisk() {
  * 调用入口：db.ts 内所有本地模式写函数（Story、User、Shot 等约 50+ 处）。
  * 下游调用：persistMemoryStateToDisk。
  */
-async function persistMemoryState(): Promise<void> {
-  const attempt = memoryPersistQueue.then(() => persistMemoryStateToDisk());
-  memoryPersistQueue = attempt.catch(() => {});
-  return attempt;
-}
+const persistMemoryState = createWriteCoalescer(persistMemoryStateToDisk);
+
+/**
+ * 编辑快照走独立文件、独立合并器：它是三份本地文件里最大的一份（曾涨到 24MB+），
+ * 和主 state 分开合并，避免一次大快照写把主 state 的写也拖住。
+ */
+const persistLocalEditSnapshots = createWriteCoalescer(() =>
+  persistLocalEditSnapshotsToDisk(memoryState.editSnapshots)
+);
 
 // 防呆：强制连接用 utf8mb4。mysql2 默认连接字符集是 3 字节的 utf8，
 // 中文存得下、但 emoji（4 字节）会乱码。已写了 charset 的连接串则原样保留。
@@ -3313,7 +3378,7 @@ export async function createEditSnapshot(
         s => !dropIds.has(s.id)
       );
     }
-    await persistLocalEditSnapshotsToDisk(memoryState.editSnapshots);
+    await persistLocalEditSnapshots();
     return snapshot;
   }
   const [result] = await db.insert(editSnapshots).values(data);

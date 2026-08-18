@@ -3,7 +3,9 @@ import { canonicalizeShotNo } from "../../shared/imageAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   DEFAULT_TIMELINE_VIDEO_EFFECTS,
+  timelineMsToFrames,
   type StoryMaterialState,
+  type StoryTimelineAnchor,
   type StoryTimelinePrimaryVideoEdit,
   type StoryTimelineItem,
   type StoryTimelineVisualClip,
@@ -35,6 +37,58 @@ type StoryShotFact = {
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  return rounded >= 0 ? rounded : null;
+}
+
+function timelineAnchors(value: unknown): StoryTimelineAnchor[] {
+  if (!Array.isArray(value)) return [];
+  const anchors: StoryTimelineAnchor[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const timelineFrame = nonNegativeInteger(record.timelineFrame);
+    const sourceId =
+      typeof record.sourceId === "string" ? record.sourceId.trim() : "";
+    const sourceType = record.sourceType;
+    const sourceTimeSec =
+      record.sourceTimeSec == null
+        ? null
+        : typeof record.sourceTimeSec === "number" &&
+            Number.isFinite(record.sourceTimeSec) &&
+            record.sourceTimeSec >= 0
+          ? record.sourceTimeSec
+          : -1;
+    if (
+      !id ||
+      seen.has(id) ||
+      timelineFrame == null ||
+      !sourceId ||
+      (sourceType !== "primary-video" &&
+        sourceType !== "visual-clip" &&
+        sourceType !== "image") ||
+      sourceTimeSec === -1
+    ) {
+      continue;
+    }
+    seen.add(id);
+    anchors.push({
+      id,
+      timelineFrame,
+      sourceType,
+      sourceId,
+      sourceTimeSec,
+    });
+  }
+  return anchors.sort(
+    (left, right) => left.timelineFrame - right.timelineFrame || left.id.localeCompare(right.id)
+  );
 }
 
 function shotNoFromCanonical(value: unknown): number | null {
@@ -269,8 +323,18 @@ export function normalizeTimelineItems(
 ): StoryTimelineItem[] {
   const known = new Map(facts.map(fact => [fact.stableShotId, fact]));
   const source = Array.isArray(value) ? value : [];
+  const hasExplicitPlacement = source.some(
+    raw =>
+      raw &&
+      typeof raw === "object" &&
+      !Array.isArray(raw) &&
+      nonNegativeInteger((raw as Record<string, unknown>).timelineStartFrame) != null
+  );
   const normalized: StoryTimelineItem[] = [];
   const seen = new Set<string>();
+  let legacyCursorFrame = 0;
+  let maximumEndFrame = 0;
+  let nextStackOrder = 0;
   for (const raw of source) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const item = raw as Record<string, unknown>;
@@ -278,29 +342,58 @@ export function normalizeTimelineItems(
     const fact = stableShotId ? known.get(stableShotId) : undefined;
     if (!stableShotId || !fact || seen.has(stableShotId)) continue;
     seen.add(stableShotId);
+    const plannedDurationMs = Math.max(
+      100,
+      finite(item.plannedDurationMs, fact.plannedDurationMs)
+    );
+    const durationFrames = Math.max(
+      1,
+      nonNegativeInteger(item.durationFrames) ?? timelineMsToFrames(plannedDurationMs)
+    );
+    const explicitStartFrame = nonNegativeInteger(item.timelineStartFrame);
+    const timelineStartFrame =
+      explicitStartFrame ??
+      (hasExplicitPlacement ? maximumEndFrame : legacyCursorFrame);
+    const stackOrder =
+      nonNegativeInteger(item.stackOrder) ?? nextStackOrder;
+    const anchors = timelineAnchors(item.anchors);
     normalized.push({
       stableShotId,
       included: item.included !== false,
       position: normalized.length,
-      plannedDurationMs: Math.max(
-        100,
-        finite(item.plannedDurationMs, fact.plannedDurationMs)
-      ),
+      plannedDurationMs,
+      durationFrames,
+      timelineStartFrame,
+      stackOrder,
+      ...(anchors.length > 0 ? { anchors } : {}),
       transform: transform(item.transform),
       primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),
       visualClips: visualClips(item.visualClips),
       visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
     });
+    legacyCursorFrame = timelineStartFrame + durationFrames;
+    maximumEndFrame = Math.max(maximumEndFrame, timelineStartFrame + durationFrames);
+    nextStackOrder = Math.max(nextStackOrder, stackOrder + 1);
   }
   for (const fact of facts) {
     if (seen.has(fact.stableShotId)) continue;
+    const durationFrames = timelineMsToFrames(fact.plannedDurationMs);
+    const timelineStartFrame = hasExplicitPlacement
+      ? maximumEndFrame
+      : legacyCursorFrame;
     normalized.push({
       stableShotId: fact.stableShotId,
       included: true,
       position: normalized.length,
       plannedDurationMs: fact.plannedDurationMs,
+      durationFrames,
+      timelineStartFrame,
+      stackOrder: nextStackOrder,
       transform: { ...DEFAULT_TIMELINE_TRANSFORM },
     });
+    legacyCursorFrame = timelineStartFrame + durationFrames;
+    maximumEndFrame = Math.max(maximumEndFrame, timelineStartFrame + durationFrames);
+    nextStackOrder += 1;
   }
   return normalized.map((item, position) => ({ ...item, position }));
 }

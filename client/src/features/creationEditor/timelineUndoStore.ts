@@ -21,6 +21,7 @@ function cloneTimelineItems(
       effects: clip.effects ? { ...clip.effects } : undefined,
       transform: clip.transform ? { ...clip.transform } : undefined,
     })),
+    anchors: item.anchors?.map(anchor => ({ ...anchor })),
   }));
 }
 

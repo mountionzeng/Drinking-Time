@@ -45,6 +45,7 @@ import {
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
+import type { StoryboardAudioClip } from "./StoryboardAudioWaveform";
 import {
   buildStoryboardTimingRows,
   formatStoryboardTimestamp,
@@ -1043,6 +1044,32 @@ export function timelineVoiceLaneLabel(
       ? "法语旁白"
       : "旁白";
   return trackLabel === "旁白" ? trackLabel : `${trackLabel} ${languageLabel}`;
+}
+
+export function storyboardAudioClipsFromManifest(
+  manifest: ChatCutTimelineManifest | null,
+  storyId: number | null = null
+): StoryboardAudioClip[] {
+  if (!manifest) return [];
+  return chatCutPlaybackAudioTracks(manifest).flatMap(track =>
+    track.clips.map(clip => ({
+      id: clip.id,
+      name: clip.name,
+      kind: chatCutCueCode(clip.name)
+        ? "voice"
+        : /bgm|music|配乐|音乐/i.test(clip.name)
+          ? "music"
+          : "source",
+      audioUrl:
+        storyId != null && clip.audioUrl
+          ? `/api/story-audio/${storyId}/${encodeURIComponent(clip.id)}`
+          : clip.audioUrl,
+      startMs: clip.startMs,
+      endMs: clip.endMs,
+      sourceInMs: clip.sourceInMs,
+      sourceOutMs: clip.sourceOutMs,
+    }))
+  );
 }
 
 function findShotAtTime(
@@ -2348,6 +2375,10 @@ export default function EditingNleWorkspace({
       ),
     [shots, timelinePlayback.playheadMs, timelineShotIds]
   );
+  const storyboardAudioClips = useMemo(
+    () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
+    [activeStoryId, chatCutTimeline]
+  );
 
   useEffect(() => {
     if (selectedShotNo == null && selectedShot) {
@@ -2841,6 +2872,7 @@ export default function EditingNleWorkspace({
       playheadMs: timelinePlayback.playheadMs,
       isPlaying: timelinePlayback.isPlaying,
       totalMs: timings.at(-1)?.endMs ?? 0,
+      audioClips: storyboardAudioClips,
       selectedRange: boardSelectedRange,
       // 切割和提帧都要拿到那一处的视频，没有视频就让菜单和按钮提前灰掉。
       canSplitAt: playheadMs =>
@@ -2959,6 +2991,7 @@ export default function EditingNleWorkspace({
       reorderShotInTimeline,
       setActiveSelection,
       shots,
+      storyboardAudioClips,
       splitAtPlayhead,
       timelinePlayback.isPlaying,
       timelinePlayback.playheadMs,

@@ -53,11 +53,38 @@ export type StoryTimelineVisualClip = {
   transform?: TimelineTransform;
 };
 
+export const STORY_TIMELINE_FPS = 30;
+
+export function timelineMsToFrames(valueMs: number): number {
+  if (!Number.isFinite(valueMs)) return 1;
+  return Math.max(1, Math.round((valueMs * STORY_TIMELINE_FPS) / 1000));
+}
+
+export function timelineFramesToMs(frames: number): number {
+  if (!Number.isFinite(frames)) return 0;
+  return Math.round((Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS);
+}
+
+export type StoryTimelineAnchor = {
+  id: string;
+  timelineFrame: number;
+  sourceType: "primary-video" | "visual-clip" | "image";
+  sourceId: string;
+  sourceTimeSec: number | null;
+};
+
 export type StoryTimelineItem = {
   stableShotId: string;
   included: boolean;
   position: number;
   plannedDurationMs: number;
+  /** Canonical structural duration on the 30 fps timeline. */
+  durationFrames?: number;
+  /** Canonical absolute start on the 30 fps timeline. */
+  timelineStartFrame?: number;
+  /** Durable overlap priority; larger values win among unanchored items. */
+  stackOrder?: number;
+  anchors?: StoryTimelineAnchor[];
   transform: TimelineTransform;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];

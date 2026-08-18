@@ -43,6 +43,23 @@ describe("timelineUndoStore", () => {
     expect(takeTimelineUndoSnapshot(7)?.[0].transform.rotationDeg).toBe(0);
   });
 
+  it("clones anchors so later marker edits cannot corrupt undo", () => {
+    const source = timeline(1_000);
+    source[0].anchors = [
+      {
+        id: "anchor-1",
+        timelineFrame: 3,
+        sourceType: "image",
+        sourceId: "image-1",
+        sourceTimeSec: null,
+      },
+    ];
+    recordTimelineUndoSnapshot(7, source);
+    source[0].anchors![0].timelineFrame = 30;
+
+    expect(takeTimelineUndoSnapshot(7)?.[0].anchors?.[0].timelineFrame).toBe(3);
+  });
+
   it("lets chat call the same registered undo executor as the editor", async () => {
     const unregister = registerTimelineUndoExecutor(7, async () => true);
 

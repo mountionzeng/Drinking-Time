@@ -1,10 +1,8 @@
 import {
   GripVertical,
-  ImagePlus,
   Loader2,
   Pause,
   Play,
-  Scissors,
   SkipBack,
 } from "lucide-react";
 import {
@@ -42,6 +40,10 @@ import {
   type StoryboardEditAction,
   type StoryboardEditRange,
 } from "../storyboardEditRow";
+import {
+  StoryboardAudioTrack,
+  type StoryboardAudioClip,
+} from "./StoryboardAudioWaveform";
 
 /**
  * 故事版看板里的「剪辑」行：不跟镜头列对齐，自己按时间等比铺成一整条，
@@ -53,6 +55,7 @@ export type StoryboardBoardTimeline = {
   playheadMs: number;
   isPlaying: boolean;
   totalMs: number;
+  audioClips: StoryboardAudioClip[];
   /** 全片绝对毫秒 */
   onSeek: (ms: number) => void;
   onTogglePlay: (playing: boolean) => void;
@@ -140,63 +143,35 @@ export function StoryboardEditTransport({
   );
 }
 
-/** 行首那一格：标题 + 在播放头处切割 / 提帧两个按钮。 */
-function StoryboardEditRowHeader({
-  timeline,
-  pendingAction,
-  onRunAction,
-}: {
-  timeline: StoryboardBoardTimeline;
-  pendingAction: StoryboardEditAction | null;
-  onRunAction: (action: "split" | "extract") => void;
-}) {
-  const at = formatStoryboardTimestamp(timeline.playheadMs);
-  // 播放头停在还没出视频的镜头上时，按钮直接灰掉并把原因写在 title 上，
-  // 免得点了「没反应」——真实原因其实是报错被别的横幅盖住了。
-  const noVideo = timeline.canSplitAt(timeline.playheadMs)
-    ? null
-    : "这一处还没有视频，先给这一镜生成或采用视频";
+/** 行首保持纯标签；切割和提帧仍保留在右键菜单与 S / F 快捷键里。 */
+function StoryboardEditRowHeader() {
   return (
     <div
       role="rowheader"
-      className="sticky left-0 z-20 flex flex-col justify-center gap-1 border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+      className="sticky left-0 z-20 flex items-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
       }}
     >
       <span>剪辑</span>
-      <span className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => onRunAction("split")}
-          disabled={pendingAction != null || noVideo != null}
-          className="flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-          aria-label={`在 ${at} 切割`}
-          title={noVideo ?? `在播放头 ${at} 处切割 · S`}
-          data-testid="storyboard-edit-split"
-        >
-          {pendingAction === "split" ? (
-            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          ) : (
-            <Scissors className="h-2.5 w-2.5" />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => onRunAction("extract")}
-          disabled={pendingAction != null || noVideo != null}
-          className="flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-          aria-label={`提取 ${at} 这一帧`}
-          title={noVideo ?? `把播放头 ${at} 这一帧存成素材 · F`}
-          data-testid="storyboard-edit-extract"
-        >
-          {pendingAction === "extract" ? (
-            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          ) : (
-            <ImagePlus className="h-2.5 w-2.5" />
-          )}
-        </button>
+    </div>
+  );
+}
+
+function StoryboardAudioRowHeader() {
+  return (
+    <div
+      role="rowheader"
+      className="sticky left-0 z-20 flex flex-col justify-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+      style={{
+        borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+        background: "var(--background)",
+      }}
+    >
+      <span>音轨</span>
+      <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
+        强弱 · 停顿
       </span>
     </div>
   );
@@ -323,6 +298,8 @@ function StoryboardEditTrack({
     clientX: number;
     trackWidthPx: number;
     baseDurationMs: number;
+    maxDurationMs?: number;
+    edge: "start" | "end";
     shotNo: number;
     stableShotId: string;
   } | null>(null);
@@ -332,6 +309,7 @@ function StoryboardEditTrack({
   const [draftTrim, setDraftTrim] = useState<{
     stableShotId: string;
     durationMs: number;
+    edge: "start" | "end";
   } | null>(null);
   const [dropTargetShotId, setDropTargetShotId] = useState<string | null>(null);
 
@@ -411,7 +389,8 @@ function StoryboardEditTrack({
 
   const startTrim = (
     event: ReactPointerEvent<HTMLButtonElement>,
-    shot: StoryboardEditShot
+    shot: StoryboardEditShot,
+    edge: "start" | "end"
   ) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -424,12 +403,15 @@ function StoryboardEditTrack({
       clientX: event.clientX,
       trackWidthPx,
       baseDurationMs: shot.timing.durationMs,
+      maxDurationMs: edge === "start" ? shot.timing.endMs : undefined,
+      edge,
       shotNo: shot.shotNo,
       stableShotId: shot.stableShotId,
     };
     setDraftTrim({
       stableShotId: shot.stableShotId,
       durationMs: shot.timing.durationMs,
+      edge,
     });
   };
 
@@ -443,7 +425,10 @@ function StoryboardEditTrack({
         trackWidthPx: start.trackWidthPx,
         totalMs,
         deltaPx: event.clientX - start.clientX,
+        edge: start.edge,
+        maxDurationMs: start.maxDurationMs,
       }),
+      edge: start.edge,
     });
   };
 
@@ -506,6 +491,10 @@ function StoryboardEditTrack({
           const durationMs = trimming?.durationMs ?? timing.durationMs;
           const drawnWidthPct =
             totalMs > 0 ? (durationMs / totalMs) * 100 : widthPct;
+          const drawnLeftPct =
+            trimming?.edge === "start"
+              ? leftPct + widthPct - drawnWidthPct
+              : leftPct;
           const segments = storyboardEditSegments({
             durationMs,
             label: shot.shotLabel,
@@ -525,7 +514,7 @@ function StoryboardEditTrack({
                   ? "outline-dashed outline-2 outline-primary"
                   : ""
               }`}
-              style={{ left: `${leftPct}%`, width: `${drawnWidthPct}%` }}
+              style={{ left: `${drawnLeftPct}%`, width: `${drawnWidthPct}%` }}
               title={`${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
               data-storyboard-edit-shot-no={shot.shotNo}
@@ -595,6 +584,17 @@ function StoryboardEditTrack({
                 <>
                   <button
                     type="button"
+                    onPointerDown={event => startTrim(event, shot, "start")}
+                    onPointerMove={moveTrim}
+                    onPointerUp={event => void endTrim(event)}
+                    onPointerCancel={event => void endTrim(event)}
+                    className="absolute bottom-0 left-0 top-0 z-20 w-2 cursor-ew-resize touch-none bg-primary/70"
+                    aria-label={`拖动左边缘修剪 ${shot.shotLabel} 的时长`}
+                    title={`拖动左边缘修剪时长 · 当前 ${(durationMs / 1000).toFixed(1)}s`}
+                    data-testid={`storyboard-edit-trim-start-${shot.stableShotId}`}
+                  />
+                  <button
+                    type="button"
                     draggable
                     onDragStart={event => {
                       event.dataTransfer.effectAllowed = "move";
@@ -606,7 +606,7 @@ function StoryboardEditTrack({
                     }}
                     onDragEnd={() => setDropTargetShotId(null)}
                     onPointerDown={event => event.stopPropagation()}
-                    className="absolute bottom-0 left-0 top-0 z-10 flex w-2.5 cursor-grab items-center justify-center bg-primary/70 text-[var(--background)] active:cursor-grabbing"
+                    className="absolute bottom-0 left-2 top-0 z-10 flex w-2.5 cursor-grab items-center justify-center bg-primary/55 text-[var(--background)] active:cursor-grabbing"
                     aria-label={`拖动 ${shot.shotLabel} 调整镜头顺序`}
                     title="拖到别的镜头上改顺序 · ⌥← / ⌥→"
                     data-testid={`storyboard-edit-reorder-${shot.stableShotId}`}
@@ -615,7 +615,7 @@ function StoryboardEditTrack({
                   </button>
                   <button
                     type="button"
-                    onPointerDown={event => startTrim(event, shot)}
+                    onPointerDown={event => startTrim(event, shot, "end")}
                     onPointerMove={moveTrim}
                     onPointerUp={event => void endTrim(event)}
                     onPointerCancel={event => void endTrim(event)}
@@ -689,18 +689,18 @@ function StoryboardEditTrack({
           </div>
         ) : null}
       </div>
-      <div className="mt-1 flex items-center justify-between font-mono text-[8.5px] tabular-nums text-muted-foreground">
-        <span>00:00.000</span>
-        <span data-testid="storyboard-edit-status">
-          {pendingLabel ??
-            (draftTrim
-              ? `${(draftTrim.durationMs / 1000).toFixed(1)}s`
-              : markInMs != null
-                ? `入点 ${formatStoryboardTimestamp(markInMs)} · 按 O 打出点`
-                : `${shots.length} 镜`)}
-        </span>
-        <span>{formatStoryboardTimestamp(totalMs)}</span>
-      </div>
+      <span
+        className="sr-only"
+        aria-live="polite"
+        data-testid="storyboard-edit-status"
+      >
+        {pendingLabel ??
+          (draftTrim
+            ? `${(draftTrim.durationMs / 1000).toFixed(1)}s`
+            : markInMs != null
+              ? `入点 ${formatStoryboardTimestamp(markInMs)} · 按 O 打出点`
+              : `${shots.length} 镜`)}
+      </span>
     </div>
   );
 }
@@ -964,13 +964,7 @@ export function StoryboardEditRow({
 
   return (
     <>
-      <StoryboardEditRowHeader
-        timeline={timeline}
-        pendingAction={pendingAction}
-        onRunAction={action =>
-          runAction(action, activeShot, timeline.playheadMs)
-        }
-      />
+      <StoryboardEditRowHeader />
       <div
         role="cell"
         ref={rowRef}
@@ -985,6 +979,18 @@ export function StoryboardEditRow({
           trackRef={trackRef}
           markInMs={markInMs}
           pendingLabel={pendingAction ? ACTION_LABELS[pendingAction] : null}
+        />
+      </div>
+      <StoryboardAudioRowHeader />
+      <div
+        role="cell"
+        className="px-2"
+        style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+      >
+        <StoryboardAudioTrack
+          clips={timeline.audioClips}
+          totalMs={timeline.totalMs}
+          playheadMs={timeline.playheadMs}
         />
       </div>
       {menu ? (
