@@ -90,6 +90,12 @@ import {
 } from "../imageClipEditorModel";
 import ImageClipEditorPanel from "./ImageClipEditorPanel";
 import VideoClipEditorPanel from "./VideoClipEditorPanel";
+import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
+import {
+  storyboardEditSelectionSummary,
+  storyboardEditShouldFollowSelectionToShot,
+  type StoryboardEditRange,
+} from "../storyboardEditRow";
 
 const MIN_TIMELINE_SCALE = 8;
 const MAX_TIMELINE_SCALE = 42;
@@ -188,6 +194,32 @@ export function shouldForwardPreviewPause(input: {
     interactionAgeMs != null &&
     interactionAgeMs >= 0 &&
     interactionAgeMs <= PREVIEW_CONTROL_PAUSE_WINDOW_MS
+  );
+}
+
+export type EditingShortcutTargetKind = "text" | "button" | "other";
+
+/** Preview/时间线悬停快捷键：按钮焦点可以接管，文字输入始终让开。 */
+export function shouldHandleEditingShortcut(input: {
+  key: string;
+  zoneActive: boolean;
+  defaultPrevented: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  targetKind: EditingShortcutTargetKind;
+}): boolean {
+  const isArrowKey =
+    input.key === "ArrowLeft" || input.key === "ArrowRight";
+  const isSpaceKey = input.key === " " || input.key === "Spacebar";
+  return (
+    (isArrowKey || isSpaceKey) &&
+    input.zoneActive &&
+    !input.defaultPrevented &&
+    !input.metaKey &&
+    !input.ctrlKey &&
+    !input.altKey &&
+    input.targetKind !== "text"
   );
 }
 
@@ -431,7 +463,9 @@ function EditingStoryboardPanel({
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel,
+  boardTimeline,
 }: {
+  boardTimeline: StoryboardBoardTimeline;
   onRelink: (files: File[]) => Promise<void>;
   relinkProgress: string | null;
   onAttachXml: (file: File) => Promise<void>;
@@ -482,6 +516,7 @@ function EditingStoryboardPanel({
         <StoryboardPanel
           defaultViewMode="full"
           embeddedEditorMode
+          boardTimeline={boardTimeline}
           onEditVideo={onEditVideo}
           onEditImage={onEditImage}
           onCopyVideo={onCopyVideo}
@@ -540,6 +575,7 @@ function ShotPreview({
   timelinePlaying,
   format,
   onRequestTimelinePlaying,
+  keyboardShortcutZoneRef,
 }: {
   shot: CreationEditorShot | null;
   timing?: { startMs: number; endMs: number; durationMs: number };
@@ -551,6 +587,7 @@ function ShotPreview({
   timelinePlaying: boolean;
   format: ChatCutTimelineManifest | null;
   onRequestTimelinePlaying: (isPlaying: boolean) => void;
+  keyboardShortcutZoneRef: { current: boolean };
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const ignoreNextVideoPauseRef = useRef(false);
@@ -719,6 +756,15 @@ function ShotPreview({
     <section
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--panel-header)]"
       aria-label="Preview"
+      onPointerEnter={() => {
+        keyboardShortcutZoneRef.current = true;
+      }}
+      onPointerMove={() => {
+        keyboardShortcutZoneRef.current = true;
+      }}
+      onPointerLeave={() => {
+        keyboardShortcutZoneRef.current = false;
+      }}
     >
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="min-w-0">
@@ -1219,6 +1265,12 @@ type TimelinePlaybackRequest = {
   isPlaying: boolean;
 };
 
+/** 故事版看板点一下剪辑条时，把播放头搬过去。 */
+type TimelineSeekRequest = {
+  id: number;
+  playheadMs: number;
+};
+
 export function timelineAudioTargetSeconds(
   clip: Pick<
     ChatCutTimelineClip,
@@ -1319,6 +1371,7 @@ function MultiTrackTimeline({
   onSelectShot,
   onPlaybackChange,
   playbackRequest,
+  seekRequest,
   onSplitAtPlayhead,
   onExtractFrameAtPlayhead,
   onMoveTimelineClip,
@@ -1327,6 +1380,7 @@ function MultiTrackTimeline({
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel,
+  keyboardShortcutZoneRef,
 }: {
   visible: boolean;
   shots: CreationEditorShot[];
@@ -1336,6 +1390,7 @@ function MultiTrackTimeline({
   onSelectShot: (shotNo: number) => void;
   onPlaybackChange: (playback: TimelinePlaybackState) => void;
   playbackRequest: TimelinePlaybackRequest;
+  seekRequest: TimelineSeekRequest;
   onSplitAtPlayhead: (playheadMs: number) => Promise<void>;
   onExtractFrameAtPlayhead: (playheadMs: number) => Promise<void>;
   onMoveTimelineClip: (input: {
@@ -1354,6 +1409,7 @@ function MultiTrackTimeline({
     targetOffsetMs?: number;
   }) => Promise<void>;
   videoClipboardLabel: string | null;
+  keyboardShortcutZoneRef: { current: boolean };
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
@@ -1388,6 +1444,7 @@ function MultiTrackTimeline({
   const playheadMsRef = useRef(initialPlayheadMs);
   const isPlayingRef = useRef(false);
   const handledPlaybackRequestIdRef = useRef(0);
+  const handledSeekRequestIdRef = useRef(0);
   const selectionFromPlayheadRef = useRef<number | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
   const timelineViewportRef = useRef<HTMLDivElement | null>(null);
@@ -1407,9 +1464,7 @@ function MultiTrackTimeline({
     [onPlaybackChange]
   );
 
-  useEffect(() => {
-    if (!visible) setPlaybackRunning(false);
-  }, [setPlaybackRunning, visible]);
+  // 这条时间线即使被折叠也继续当时钟用：故事版看板的走带和播放头读的是同一份状态。
 
   const commitPlayhead = useCallback(
     (
@@ -1458,44 +1513,34 @@ function MultiTrackTimeline({
     let previousTime = performance.now();
 
     const tick = (currentTime: number) => {
+      // 停止请求可能和已经排队的这一帧交错；旧帧不能再把父层 isPlaying 写回 true。
+      if (!isPlayingRef.current) return;
       const next = advanceTimelinePlayhead(
         playheadMsRef.current,
         currentTime - previousTime,
         totalMs
       );
       previousTime = currentTime;
+
+      // 先登记下一帧，再提交播放头/镜头选择状态。提交状态可能触发
+      // effect 清理；如果顺序相反，旧循环会在清理之后又偷偷预约一帧，
+      // 每次切镜头都会多出一条 rAF，最终表现为时间线加速和画面闪烁。
+      animationFrame = requestAnimationFrame(tick);
       commitPlayhead(next.timeMs, {
         selectShot: true,
         playing: !next.ended,
       });
       if (next.ended) {
+        cancelAnimationFrame(animationFrame);
         isPlayingRef.current = false;
         setIsPlaying(false);
         return;
       }
-      animationFrame = requestAnimationFrame(tick);
     };
 
     animationFrame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrame);
   }, [commitPlayhead, isPlaying, totalMs]);
-
-  useEffect(() => {
-    const viewport = timelineViewportRef.current;
-    if (!viewport) return;
-    const playheadLeft = (playheadMs / 1000) * scale;
-    const visibleLeft = viewport.scrollLeft;
-    const visibleRight = viewport.scrollLeft + viewport.clientWidth;
-    const margin = Math.min(60, viewport.clientWidth * 0.15);
-    if (playheadLeft < visibleLeft + margin) {
-      viewport.scrollLeft = Math.max(0, playheadLeft - margin);
-    } else if (playheadLeft > visibleRight - margin) {
-      viewport.scrollLeft = Math.max(
-        0,
-        playheadLeft - viewport.clientWidth * 0.35
-      );
-    }
-  }, [playheadMs, scale]);
 
   const seekFromPointer = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -1559,6 +1604,17 @@ function MultiTrackTimeline({
     }
     setPlaybackRunning(playbackRequest.isPlaying);
   }, [commitPlayhead, playbackRequest, setPlaybackRunning, totalMs]);
+
+  useEffect(() => {
+    if (
+      seekRequest.id === 0 ||
+      seekRequest.id === handledSeekRequestIdRef.current
+    ) {
+      return;
+    }
+    handledSeekRequestIdRef.current = seekRequest.id;
+    commitPlayhead(seekRequest.playheadMs, { selectShot: true });
+  }, [commitPlayhead, seekRequest]);
 
   const stepPlayheadByKeyboard = useCallback(
     (direction: -1 | 1, accelerated = false) => {
@@ -1711,36 +1767,6 @@ function MultiTrackTimeline({
     ]
   );
 
-  useEffect(() => {
-    if (!visible) return;
-    const handleTimelineArrowKey = (event: KeyboardEvent) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      if (
-        event.defaultPrevented ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (
-        target?.closest(
-          'input, textarea, select, [contenteditable="true"], [role="textbox"]'
-        )
-      ) {
-        return;
-      }
-      event.preventDefault();
-      stepPlayheadByKeyboard(
-        event.key === "ArrowRight" ? 1 : -1,
-        event.shiftKey
-      );
-    };
-    window.addEventListener("keydown", handleTimelineArrowKey);
-    return () => window.removeEventListener("keydown", handleTimelineArrowKey);
-  }, [stepPlayheadByKeyboard, visible]);
-
   return (
     <section
       hidden={!visible}
@@ -1748,6 +1774,15 @@ function MultiTrackTimeline({
       className={`${visible ? "flex" : "hidden"} min-h-[230px] flex-[0_0_42%] flex-col border-t border-border bg-background`}
       aria-label="多轨剪辑时间轴"
       aria-hidden={!visible}
+      onPointerEnter={() => {
+        keyboardShortcutZoneRef.current = true;
+      }}
+      onPointerMove={() => {
+        keyboardShortcutZoneRef.current = true;
+      }}
+      onPointerLeave={() => {
+        keyboardShortcutZoneRef.current = false;
+      }}
     >
       <TimelineAudioPlayback
         manifest={manifest}
@@ -2241,6 +2276,8 @@ export default function EditingNleWorkspace({
     moveTimelineVideoClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
+    updateShotDuration,
+    reorderShotInTimeline,
     attachChatCutXml,
     isLoading,
   } = useCreationEditor();
@@ -2260,6 +2297,11 @@ export default function EditingNleWorkspace({
     useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
   const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
     useState<TimelinePlaybackRequest>({ id: 0, isPlaying: false });
+  const [timelineSeekRequest, setTimelineSeekRequest] =
+    useState<TimelineSeekRequest>({ id: 0, playheadMs: 0 });
+  const [boardSelectedRange, setBoardSelectedRange] =
+    useState<StoryboardEditRange | null>(null);
+  const keyboardShortcutZoneRef = useRef(false);
   const timelineShots = useMemo(
     () => resolveTimelineShots(shots, timelineShotIds),
     [shots, timelineShotIds]
@@ -2603,6 +2645,11 @@ export default function EditingNleWorkspace({
   // 聊聊生成并插入镜头后会把该镜头设为活动选区；剪辑台跟随这个稳定 ID
   // 定位，而不是依赖会因插入而变化的 SH 序号。
   useEffect(() => {
+    if (
+      !storyboardEditShouldFollowSelectionToShot(activeSelection?.sourceType)
+    ) {
+      return;
+    }
     const stableShotId = activeSelection?.stableShotId;
     if (!stableShotId) return;
     const shot = shots.find(
@@ -2610,7 +2657,13 @@ export default function EditingNleWorkspace({
     );
     if (!shot || shot.shotNo === selectedShotNo) return;
     selectShot(shot.shotNo);
-  }, [activeSelection?.stableShotId, selectShot, selectedShotNo, shots]);
+  }, [
+    activeSelection?.sourceType,
+    activeSelection?.stableShotId,
+    selectShot,
+    selectedShotNo,
+    shots,
+  ]);
 
   const relinkFiles = async (files: File[]) => {
     const visualFiles = files.filter(isVisualFile);
@@ -2781,6 +2834,197 @@ export default function EditingNleWorkspace({
     [importStoryMaterial, shots, timelineShotIds]
   );
 
+  // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
+  // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
+  const boardTimeline = useMemo<StoryboardBoardTimeline>(
+    () => ({
+      playheadMs: timelinePlayback.playheadMs,
+      isPlaying: timelinePlayback.isPlaying,
+      totalMs: timings.at(-1)?.endMs ?? 0,
+      selectedRange: boardSelectedRange,
+      // 切割和提帧都要拿到那一处的视频，没有视频就让菜单和按钮提前灰掉。
+      canSplitAt: playheadMs =>
+        resolveTimelineVideoSource(shots, timelineShotIds, playheadMs) != null,
+      onSeek: playheadMs =>
+        setTimelineSeekRequest(current => ({
+          id: current.id + 1,
+          playheadMs,
+        })),
+      onTogglePlay: isPlaying =>
+        setTimelinePlaybackRequest(current => ({
+          id: current.id + 1,
+          isPlaying,
+        })),
+      onSelectRange: range => {
+        setBoardSelectedRange(
+          range ? { startMs: range.startMs, endMs: range.endMs } : null
+        );
+        if (!range) {
+          // 取消选区（Esc 或空点一下）要连聊聊那张卡一起撤掉，不然时间条上高亮没了，
+          // 下一条消息却还挂着上一个选区。只撤自己那张，别顺手把划词选中也清了。
+          if (activeSelection?.sourceType === "timeline-range") {
+            setActiveSelection(null);
+          }
+          return;
+        }
+        const timing = timings.find(
+          item => item.stableShotId === range.stableShotId
+        );
+        const shot = shots.find(item => item.shotNo === range.shotNo);
+        if (!timing) return;
+        // 选区可以横跨几个镜头，把跨到的镜头都点名再交给聊聊。
+        const coveredLabels = timings
+          .filter(
+            item => item.startMs < range.endMs && item.endMs > range.startMs
+          )
+          .map(item => {
+            const covered = shots.find(
+              candidate => candidate.shotNo === item.shotNo
+            );
+            return covered ? shotLabel(covered) : `镜头 ${item.shotNo}`;
+          });
+        const summary = storyboardEditSelectionSummary({
+          shotLabels:
+            coveredLabels.length > 0
+              ? coveredLabels
+              : [shot ? shotLabel(shot) : `镜头 ${range.shotNo}`],
+          range,
+          timing,
+        });
+        setActiveSelection({
+          sourceType: "timeline-range",
+          sourceId: `${range.stableShotId}:${Math.round(range.startMs)}-${Math.round(range.endMs)}`,
+          selectedText: summary.selectedText,
+          fullText: summary.fullText,
+          storyId: activeStoryId,
+          stableShotId: range.stableShotId,
+          shotNo: range.shotNo,
+          cueCode: shot?.cueCode ?? null,
+          selection: {
+            kind: "time",
+            startSec: range.startMs / 1000,
+            endSec: range.endMs / 1000,
+          },
+          objectVersion: `storyboard-range:${range.stableShotId}`,
+          materialStatus: "timeline-range",
+        });
+        toast.success("已选中这一段，在左边对话框说要怎么改就行");
+      },
+      onTrimShotDuration: async input => {
+        try {
+          await updateShotDuration(input.shotNo, input.durationMs);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "时长未保存");
+        }
+      },
+      onSplitAt: async playheadMs => {
+        try {
+          await splitAtPlayhead(playheadMs);
+          toast.success("已在当前帧切割视频");
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : "切割当前帧失败"
+          );
+        }
+      },
+      onExtractFrameAt: async playheadMs => {
+        try {
+          await extractFrameAtPlayhead(playheadMs);
+          toast.success("当前帧已加入该镜头的画面");
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : "提取当前帧失败"
+          );
+        }
+      },
+      onReorderShot: async input => {
+        try {
+          await reorderShotInTimeline(
+            input.sourceStableShotId,
+            input.targetStableShotId
+          );
+          toast.success("镜头顺序已保存");
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : "镜头顺序未保存"
+          );
+        }
+      },
+    }),
+    [
+      activeSelection?.sourceType,
+      activeStoryId,
+      boardSelectedRange,
+      extractFrameAtPlayhead,
+      reorderShotInTimeline,
+      setActiveSelection,
+      shots,
+      splitAtPlayhead,
+      timelinePlayback.isPlaying,
+      timelinePlayback.playheadMs,
+      timelineShotIds,
+      timings,
+      updateShotDuration,
+    ]
+  );
+
+  useEffect(() => {
+    const handleEditingShortcut = (event: KeyboardEvent) => {
+      const isSpaceKey = event.key === " " || event.key === "Spacebar";
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const targetKind: EditingShortcutTargetKind = target?.closest(
+        'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+      )
+        ? "text"
+        : target?.closest("button, a, [role='button']")
+          ? "button"
+          : "other";
+      if (
+        !shouldHandleEditingShortcut({
+          key: event.key,
+          zoneActive: keyboardShortcutZoneRef.current,
+          defaultPrevented: event.defaultPrevented,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          altKey: event.altKey,
+          targetKind,
+        })
+      ) {
+        return;
+      }
+      event.preventDefault();
+      if (isSpaceKey) {
+        setTimelinePlaybackRequest(current => ({
+          id: current.id + 1,
+          isPlaying: !timelinePlayback.isPlaying,
+        }));
+        return;
+      }
+      setTimelinePlaybackRequest(current => ({
+        id: current.id + 1,
+        isPlaying: false,
+      }));
+      setTimelineSeekRequest(current => ({
+        id: current.id + 1,
+        playheadMs: stepTimelinePlayheadByFrames(
+          timelinePlayback.playheadMs,
+          event.key === "ArrowRight" ? 1 : -1,
+          chatCutTimeline?.fps ?? 30,
+          timings.at(-1)?.endMs ?? 0,
+          event.shiftKey ? 10 : 1
+        ),
+      }));
+    };
+    window.addEventListener("keydown", handleEditingShortcut);
+    return () => window.removeEventListener("keydown", handleEditingShortcut);
+  }, [
+    chatCutTimeline?.fps,
+    keyboardShortcutZoneRef,
+    timelinePlayback.isPlaying,
+    timelinePlayback.playheadMs,
+    timings,
+  ]);
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -2888,6 +3132,7 @@ export default function EditingNleWorkspace({
           className="min-w-0"
         >
           <EditingStoryboardPanel
+            boardTimeline={boardTimeline}
             onRelink={relinkFiles}
             relinkProgress={relinkProgress}
             onAttachXml={attachXml}
@@ -2942,6 +3187,7 @@ export default function EditingNleWorkspace({
                 isPlaying,
               }));
             }}
+            keyboardShortcutZoneRef={keyboardShortcutZoneRef}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
@@ -2954,6 +3200,7 @@ export default function EditingNleWorkspace({
         onSelectShot={selectShot}
         onPlaybackChange={setTimelinePlayback}
         playbackRequest={timelinePlaybackRequest}
+        seekRequest={timelineSeekRequest}
         onSplitAtPlayhead={splitAtPlayhead}
         onExtractFrameAtPlayhead={extractFrameAtPlayhead}
         onMoveTimelineClip={moveTimelineVideoClip}
@@ -2962,6 +3209,7 @@ export default function EditingNleWorkspace({
         onCopyVideo={copyVideo}
         onPasteVideo={pasteVideo}
         videoClipboardLabel={videoClipboard?.label ?? null}
+        keyboardShortcutZoneRef={keyboardShortcutZoneRef}
       />
       {videoEditorTarget ? (
         <VideoClipEditorPanel

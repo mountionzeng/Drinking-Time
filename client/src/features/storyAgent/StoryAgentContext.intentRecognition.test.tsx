@@ -72,6 +72,59 @@ const fixtures = vi.hoisted(() => {
 });
 
 describe("StoryAgentContext background intent recognition", () => {
+  it("keeps a user-confirmed intent authoritative and exposes recognition only as a proposal", async () => {
+    const { recognitionResultToIntentState } = await import(
+      "./StoryAgentContext"
+    );
+    const confirmed = { ...fixtures.jobIntent, status: "confirmed" as const };
+    const recognized = {
+      ...fixtures.jobIntent,
+      purpose: "social_post",
+      audience: "public",
+      platform: "xiaohongshu",
+      confidence: 0.9,
+    };
+
+    expect(
+      recognitionResultToIntentState({
+        recognized,
+        confirmedIntent: confirmed,
+        pendingIntentDraft: null,
+        scopeMatches: true,
+      })
+    ).toEqual({ confirmedIntent: confirmed, pendingIntentDraft: recognized });
+  });
+
+  it("ignores a recognition response that arrives after its Story scope changed", async () => {
+    const { recognitionResultToIntentState } = await import(
+      "./StoryAgentContext"
+    );
+    expect(
+      recognitionResultToIntentState({
+        recognized: fixtures.jobIntent,
+        confirmedIntent: null,
+        pendingIntentDraft: null,
+        scopeMatches: false,
+      })
+    ).toEqual({ confirmedIntent: null, pendingIntentDraft: null });
+  });
+
+  it("invalidates a response when active version or intent revision changed", async () => {
+    const { recognitionProposalScopeMatches } = await import("./StoryAgentContext");
+    const expected = { storyId: 7, versionId: "v1", intentRevision: 3 };
+    expect(recognitionProposalScopeMatches(expected, expected)).toBe(true);
+    expect(recognitionProposalScopeMatches(expected, { ...expected, versionId: "v2" })).toBe(false);
+    expect(recognitionProposalScopeMatches(expected, { ...expected, intentRevision: 4 })).toBe(false);
+  });
+
+  it("uses pre-version scope for an empty synthesized publishing V1", async () => {
+    const { publishingRecognitionScope } = await import("./StoryAgentContext");
+    const { emptyPublishingDraftState } = await import("@shared/publishingDraft");
+    expect(publishingRecognitionScope(7, emptyPublishingDraftState(), fixtures.jobIntent)).toMatchObject({
+      storyId: 7,
+      versionId: null,
+    });
+  });
   it("keeps listening through a short uncertain opening", async () => {
     const { shouldTriggerIntentRecognition } = await import(
       "./StoryAgentContext"
@@ -112,6 +165,7 @@ describe("StoryAgentContext background intent recognition", () => {
         messages: [fixtures.openingMessage],
         confirmedIntent: { ...fixtures.jobIntent, status: "confirmed" },
         pendingIntentDraft: null,
+        latestUserMessage: "继续写刚才的经历",
       })
     ).toBe(false);
     expect(
@@ -121,6 +175,45 @@ describe("StoryAgentContext background intent recognition", () => {
         pendingIntentDraft: fixtures.jobIntent,
       })
     ).toBe(false);
+  });
+
+  it.each([
+    "我原来给自己看，现在想公开发给陌生人",
+    "这篇改成小红书发布",
+  ])("triggers a proposal check for explicit confirmed-intent changes: %s", async latestUserMessage => {
+    const { shouldTriggerIntentRecognition } = await import("./StoryAgentContext");
+    expect(shouldTriggerIntentRecognition({
+      messages: [fixtures.openingMessage],
+      confirmedIntent: { ...fixtures.jobIntent, status: "confirmed" },
+      pendingIntentDraft: null,
+      latestUserMessage,
+    })).toBe(true);
+  });
+
+  it.each(["朋友说那天雨很大", "这是我们团队经历过最难的一晚", "家人当时都在场"])(
+    "does not spend recognition on ordinary narrative mentions: %s",
+    async latestUserMessage => {
+      const { shouldTriggerIntentRecognition } = await import("./StoryAgentContext");
+      expect(shouldTriggerIntentRecognition({
+        messages: [fixtures.openingMessage],
+        confirmedIntent: { ...fixtures.jobIntent, status: "confirmed" },
+        pendingIntentDraft: null,
+        latestUserMessage,
+      })).toBe(false);
+    }
+  );
+
+  it("suppresses a locally rejected stable proposal id", async () => {
+    const { recognitionResultToIntentState } = await import("./StoryAgentContext");
+    const recognized = { ...fixtures.jobIntent, proposal: {
+      id: "stable-proposal", status: "pending" as const,
+      source: { kind: "recognition" as const, storyId: 1, versionId: "v1", intentRevision: 2 },
+      evidence: [],
+    }};
+    expect(recognitionResultToIntentState({
+      recognized, confirmedIntent: null, pendingIntentDraft: null,
+      scopeMatches: true, rejectedProposalIds: new Set(["stable-proposal"]),
+    })).toEqual({ confirmedIntent: null, pendingIntentDraft: null });
   });
 
   it("turns high-confidence job-search recognition into a soft-confirm draft", async () => {

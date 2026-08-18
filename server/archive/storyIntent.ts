@@ -1,7 +1,10 @@
-import { ENV } from "../_core/env";
 import { type Message } from "../_core/llm";
 import { parseJsonLoose } from "../_core/llmJson";
-import { invokeAgent } from "../_core/agentChannel";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
+import {
+  storyIntentProfileFromLegacy,
+  type StoryIntentProfile,
+} from "../../shared/storyIntentProfile";
 import type {
   ChatTurn,
   StoryCardPayload,
@@ -26,6 +29,23 @@ const VALID_PURPOSES: StoryIntentPurpose[] = [
   "creative_expression",
   "exploration",
 ];
+
+export function recognizedIntentToProfile(
+  intent: Pick<
+    StoryIntentPayload,
+    "purpose" | "audience" | "platform" | "tone" | "desiredEffect" | "primaryPurpose" | "secondaryPurposes" | "coreAudience" | "secondaryAudiences"
+  >,
+  options: { revision: number; now?: number }
+): StoryIntentProfile {
+  return storyIntentProfileFromLegacy(
+    { ...intent, status: "provisional" },
+    {
+      revision: options.revision,
+      source: "recognition",
+      now: options.now,
+    }
+  )!;
+}
 
 const VALID_AUDIENCES: StoryIntentAudience[] = [
   "self",
@@ -515,7 +535,7 @@ export async function recognizeStoryIntent(params: {
     .filter(Boolean)
     .join("\n");
 
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return {
       ...localIntentFallback(fallbackText),
       configured: false,

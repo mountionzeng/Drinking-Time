@@ -127,6 +127,42 @@ function requestDeadline(timeoutMs: number) {
   };
 }
 
+function providerErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) return fallback;
+  const cause = error.cause ? String(error.cause).trim() : "";
+  return cause ? `${error.message}（${cause}）` : error.message;
+}
+
+function isRequestAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+/**
+ * Vidu 的图片上传不会创建付费视频任务，可以在网关瞬时断连时补一次。
+ * 每次都重建 deadline，避免第一次失败后沿用已 abort 的 signal。
+ */
+async function runUploadRequest<T>(input: {
+  stage: string;
+  timeoutMs: number;
+  request: (signal: AbortSignal) => Promise<T>;
+}): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const deadline = requestDeadline(input.timeoutMs);
+    try {
+      return await input.request(deadline.signal);
+    } catch (error) {
+      lastError = error;
+      if (attempt > 0 || isRequestAbort(error)) break;
+    } finally {
+      deadline.clear();
+    }
+  }
+  throw new Error(
+    `${input.stage}：${providerErrorMessage(lastError, "网络请求失败")}`
+  );
+}
+
 function temporarySiblingPath(outputPath: string) {
   const extension = path.extname(outputPath) || ".tmp";
   const stem = path.basename(outputPath, path.extname(outputPath));
@@ -275,23 +311,25 @@ export async function uploadFileToVidu(
 
   const fetcher = (options.fetcher ?? globalThis.fetch) as Fetcher;
   const timeoutMs = options.timeoutMs ?? 60_000;
-  const createDeadline = requestDeadline(timeoutMs);
   let createResponse: Response;
   let createJson: unknown;
-  try {
-    createResponse = await fetcher(
-      endpoint(VIDU_UPLOAD_CREATE_PATH).toString(),
-      {
-        method: "POST",
-        headers: bearerHeaders("application/json"),
-        body: JSON.stringify({ scene: "vidu" }),
-        signal: createDeadline.signal,
-      }
-    );
-    createJson = await createResponse.json().catch(() => ({}));
-  } finally {
-    createDeadline.clear();
-  }
+  ({ response: createResponse, json: createJson } = await runUploadRequest({
+    stage: "Vidu 创建图片上传会话失败",
+    timeoutMs,
+    request: async signal => {
+      const response = await fetcher(
+        endpoint(VIDU_UPLOAD_CREATE_PATH).toString(),
+        {
+          method: "POST",
+          headers: bearerHeaders("application/json"),
+          body: JSON.stringify({ scene: "vidu" }),
+          signal,
+        }
+      );
+      const json = await response.json().catch(() => ({}));
+      return { response, json };
+    },
+  }));
   if (!createResponse.ok) {
     throw new Error(
       failureMessage(
@@ -321,48 +359,51 @@ export async function uploadFileToVidu(
     throw new Error("Vidu 图片上传地址必须使用 HTTPS");
   }
 
-  const uploadDeadline = requestDeadline(timeoutMs);
   let uploadResponse: Response;
-  try {
-    const copy = new Uint8Array(input.bytes.byteLength);
-    copy.set(input.bytes);
-    uploadResponse = await fetcher(putUrl, {
-      method: "PUT",
-      headers: { "Content-Type": input.contentType },
-      body: copy,
-      signal: uploadDeadline.signal,
-    });
-  } finally {
-    uploadDeadline.clear();
-  }
+  uploadResponse = await runUploadRequest({
+    stage: "Vidu 图片二进制上传失败",
+    timeoutMs,
+    request: async signal => {
+      const copy = new Uint8Array(input.bytes.byteLength);
+      copy.set(input.bytes);
+      return fetcher(putUrl, {
+        method: "PUT",
+        headers: { "Content-Type": input.contentType },
+        body: copy,
+        signal,
+      });
+    },
+  });
   if (!uploadResponse.ok) {
     throw new Error(`Vidu 图片二进制上传失败 HTTP ${uploadResponse.status}`);
   }
   const etag = uploadResponse.headers.get("etag")?.trim() ?? "";
   if (!etag) throw new Error("Vidu 图片上传成功，但响应缺少 ETag");
 
-  const finishDeadline = requestDeadline(timeoutMs);
   let finishResponse: Response;
   let finishJson: unknown;
-  try {
-    finishResponse = await fetcher(
-      endpoint(
-        VIDU_UPLOAD_FINISH_PATH.replace(
-          "{resourceId}",
-          encodeURIComponent(resourceId)
-        )
-      ).toString(),
-      {
-        method: "PUT",
-        headers: bearerHeaders("application/json"),
-        body: JSON.stringify({ etag }),
-        signal: finishDeadline.signal,
-      }
-    );
-    finishJson = await finishResponse.json().catch(() => ({}));
-  } finally {
-    finishDeadline.clear();
-  }
+  ({ response: finishResponse, json: finishJson } = await runUploadRequest({
+    stage: "Vidu 完成图片上传失败",
+    timeoutMs,
+    request: async signal => {
+      const response = await fetcher(
+        endpoint(
+          VIDU_UPLOAD_FINISH_PATH.replace(
+            "{resourceId}",
+            encodeURIComponent(resourceId)
+          )
+        ).toString(),
+        {
+          method: "PUT",
+          headers: bearerHeaders("application/json"),
+          body: JSON.stringify({ etag }),
+          signal,
+        }
+      );
+      const json = await response.json().catch(() => ({}));
+      return { response, json };
+    },
+  }));
   if (!finishResponse.ok) {
     throw new Error(
       failureMessage(
@@ -408,7 +449,7 @@ export async function submitViduTransition(
     json = await response.json();
   } catch (error) {
     throw new ViduSubmissionError(
-      error instanceof Error ? error.message : "Vidu 提交请求失败",
+      providerErrorMessage(error, "Vidu 提交请求失败"),
       "unknown"
     );
   } finally {

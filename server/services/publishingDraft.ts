@@ -11,6 +11,7 @@ import {
   type PublishingNarrativeIntent,
   type PublishingStoryCore,
   type PublishingStoryCoreContent,
+  type PublishingTextOperationKind,
   defaultPublishingNarrativeIntent,
 } from "../../shared/publishingDraft";
 import {
@@ -54,6 +55,65 @@ export type PublishingEditClassification = {
   usedModel: boolean;
   modelLabel: string;
 };
+
+const PUBLISHING_TEXT_OPERATION_POLICIES = {
+  generate: {
+    allowedFields: ["core", "title", "body", "tags"],
+    preservesAppliedTitle: false,
+    writesCanonicalDraft: true,
+  },
+  convert: {
+    allowedFields: ["title", "body", "tags"],
+    preservesAppliedTitle: false,
+    writesCanonicalDraft: true,
+  },
+  rewrite: {
+    allowedFields: ["title", "body", "tags"],
+    preservesAppliedTitle: true,
+    writesCanonicalDraft: false,
+  },
+  format_repair: {
+    allowedFields: ["body", "tags"],
+    preservesAppliedTitle: true,
+    writesCanonicalDraft: false,
+  },
+} as const satisfies Record<PublishingTextOperationKind, {
+  allowedFields: readonly ("core" | "title" | "body" | "tags")[];
+  preservesAppliedTitle: boolean;
+  writesCanonicalDraft: boolean;
+}>;
+
+export function publishingTextOperationPolicy(kind: PublishingTextOperationKind) {
+  return PUBLISHING_TEXT_OPERATION_POLICIES[kind];
+}
+
+function normalizeFormattingTags(tags: readonly string[], limit: number): string[] {
+  return Array.from(new Set(tags
+    .map(tag => tag.trim().replace(/^#+\s*/, ""))
+    .filter(Boolean)))
+    .slice(0, limit);
+}
+
+export function repairPublishingDraftFormatting(params: {
+  platform: PublishingPlatformId;
+  content: PublishingDraftContent;
+}): PublishingDraftContent {
+  const body = params.content.body
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map(line => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const content: PublishingDraftContent = {
+    title: params.platform === "x" ? "" : params.content.title,
+    body: params.platform === "x" ? numberXThreadPosts(body) : body,
+    tags: normalizeFormattingTags(params.content.tags, params.platform === "x" ? 3 : 12),
+  };
+  const error = getPublishingContentError(params.platform, content);
+  if (error) throw new PublishingDraftModelOutputError("revise", error);
+  return content;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -344,6 +404,7 @@ export async function convertPublishingDraft(params: {
   core: PublishingStoryCore;
   sourceDraft: PublishingPlatformDraft;
   targetPlatform: PublishingPlatformId;
+  currentTarget?: PublishingDraftContent;
 }): Promise<ConvertedPublishingDraft> {
   const sourceAdapter =
     PUBLISHING_PLATFORM_REGISTRY[params.sourceDraft.platform];
@@ -416,6 +477,13 @@ export async function convertPublishingDraft(params: {
     throw new PublishingDraftModelOutputError(
       "convert",
       invalidContentReason(root?.draft, params.targetPlatform)
+    );
+  }
+  if (params.currentTarget) {
+    content = preserveAppliedPublishingTitle(
+      content,
+      params.currentTarget,
+      params.targetPlatform
     );
   }
   return {

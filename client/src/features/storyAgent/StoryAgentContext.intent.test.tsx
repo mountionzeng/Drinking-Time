@@ -252,6 +252,26 @@ describe('StoryAgentContext intent state', () => {
     });
   });
 
+  it('drops malformed persisted proposal metadata instead of trusting a cast', async () => {
+    const { normalizeStoryIntent } = await import('./intentTypes');
+    expect(normalizeStoryIntent({
+      purpose: 'social_post', audience: 'public', platform: 'x',
+      proposal: { id: 7, status: 'hacked', source: { storyId: 'other-user' } },
+    })?.proposal).toBeUndefined();
+  });
+
+  it('strips proposal metadata before saving a user-confirmed intent', async () => {
+    const { confirmIntentProposalDraft } = await import('./StoryAgentContext');
+    expect(confirmIntentProposalDraft({ ...jobIntent, proposal: {
+      id: 'p1', status: 'pending', evidence: [],
+      source: { kind: 'recognition', storyId: 2, versionId: 'v1', intentRevision: 1 },
+    }})).toEqual(expect.objectContaining({ status: 'confirmed' }));
+    expect(confirmIntentProposalDraft({ ...jobIntent, proposal: {
+      id: 'p1', status: 'pending', evidence: [],
+      source: { kind: 'recognition', storyId: 2, versionId: 'v1', intentRevision: 1 },
+    }}).proposal).toBeUndefined();
+  });
+
   it('tracks fiction story-card confirmation on the shared intent', async () => {
     const {
       confirmFictionStoryCardsForIntent,

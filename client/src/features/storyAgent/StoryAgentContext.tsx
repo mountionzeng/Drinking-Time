@@ -62,6 +62,7 @@ import {
   activeStoryIdFrom,
   hasLiveStoryWork,
   remapPublishingBuffers,
+  reconcilePublishingBuffersFromState,
   setPublishingBuffer as putPublishingBuffer,
   removePublishingBuffer,
 } from "./storyAgentPersistence";
@@ -73,13 +74,16 @@ import {
 } from "@shared/artDirection";
 import {
   emptyPublishingDraftState,
+  hasPersistedPublishingVersion,
   normalizePublishingDraftState,
+  resolvePublishingActiveVersion,
   type PublishingDraftContent,
   type PublishingDraftState,
   type PublishingPlatformId,
 } from "@shared/publishingDraft";
 import { buildStoryArtReferences } from "./storyArtReferences";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
+import { storyIntentScopeRevision } from "@shared/storyIntentProfile";
 import {
   storySpineStore,
   useStorySpine,
@@ -266,13 +270,19 @@ export function shouldTriggerIntentRecognition({
   messages,
   confirmedIntent,
   pendingIntentDraft,
+  latestUserMessage = "",
 }: {
   messages: ChatMessage[];
   confirmedIntent: StoryIntent | null;
   pendingIntentDraft: StoryIntent | null;
+  latestUserMessage?: string;
 }): boolean {
-  if (pendingIntentDraft || confirmedIntent?.status === "confirmed")
-    return false;
+  if (pendingIntentDraft) return false;
+  if (confirmedIntent?.status === "confirmed") {
+    const hasChangeAction = /(?:想|要|准备|请|帮我).{0,8}(?:公开|发布|发给|发到|改成|换成|转成|给.+看)|改成|换成|转成|公开发布|发给|发到/i.test(latestUserMessage);
+    const hasIntentTarget = /给自己|自己看|公开|陌生人|亲友|家人|朋友|招聘|客户|投资人|团队|发布|小红书|领英|linkedin|twitter|\bx\b|instagram|朋友圈|抖音|tiktok|视频号/i.test(latestUserMessage);
+    return hasChangeAction && hasIntentTarget;
+  }
   const userMessageCount = messages.filter(
     message =>
       message.role === "user" && (message.content.trim() || message.photoUrl)
@@ -297,6 +307,79 @@ export function recognitionToPendingJobIntent(
 ): StoryIntent | null {
   const pending = recognitionToPendingIntent(intent);
   return pending?.purpose === "linkedin_job_search" ? pending : null;
+}
+
+export function recognitionResultToIntentState({
+  recognized,
+  confirmedIntent,
+  pendingIntentDraft,
+  scopeMatches,
+  rejectedProposalIds,
+}: {
+  recognized: StoryIntent;
+  confirmedIntent: StoryIntent | null;
+  pendingIntentDraft: StoryIntent | null;
+  scopeMatches: boolean;
+  rejectedProposalIds?: ReadonlySet<string>;
+}): {
+  confirmedIntent: StoryIntent | null;
+  pendingIntentDraft: StoryIntent | null;
+} {
+  if (
+    !scopeMatches ||
+    pendingIntentDraft ||
+    (recognized.proposal?.id && rejectedProposalIds?.has(recognized.proposal.id))
+  ) {
+    return { confirmedIntent, pendingIntentDraft };
+  }
+  const proposal = recognitionToPendingIntent(recognized);
+  return {
+    confirmedIntent,
+    pendingIntentDraft: proposal,
+  };
+}
+
+type RecognitionScope = {
+  storyId: number;
+  versionId: string | null;
+  intentRevision: number;
+};
+
+export function recognitionProposalScopeMatches(
+  expected: RecognitionScope | null | undefined,
+  current: RecognitionScope | null | undefined
+): boolean {
+  return Boolean(
+    expected && current &&
+    expected.storyId === current.storyId &&
+    expected.versionId === current.versionId &&
+    expected.intentRevision === current.intentRevision
+  );
+}
+
+export function publishingRecognitionScope(
+  storyId: number,
+  publishing: PublishingDraftState,
+  intent: StoryIntent | null
+): RecognitionScope {
+  const version = resolvePublishingActiveVersion(publishing);
+  const hasVersion = hasPersistedPublishingVersion(publishing);
+  return {
+    storyId,
+    versionId: hasVersion
+      ? publishing.activeVersionId ?? version.versionId
+      : null,
+    intentRevision: storyIntentScopeRevision(
+      version.intentSnapshot ??
+      (hasVersion ? version.narrativeIntent : intent ?? version.narrativeIntent)
+    ),
+  };
+}
+
+export function confirmIntentProposalDraft(intent: StoryIntent): StoryIntent {
+  const { proposal, ...profile } = intent;
+  void proposal;
+  return { ...profile, status: "confirmed" };
 }
 
 export function warnIntentRecognitionError(error: unknown) {
@@ -378,8 +461,11 @@ interface StoryAgentContextValue {
   setConfirmedIntent: (intent: StoryIntent | null) => void;
   clearIntent: () => void;
   pendingIntentDraft: StoryIntent | null;
+  pendingIntentCommitProposalId: string | null;
   confirmPendingIntent: () => void;
   dismissPendingIntent: () => void;
+  beginPendingIntentCommit: (proposalId: string) => boolean;
+  finishPendingIntentCommit: (proposalId: string, committed: boolean) => void;
   confirmFictionStoryCards: () => void;
   sendMessage: (
     text: string,
@@ -474,6 +560,8 @@ type StoryAgentActionKey =
   | "clearIntent"
   | "confirmPendingIntent"
   | "dismissPendingIntent"
+  | "beginPendingIntentCommit"
+  | "finishPendingIntentCommit"
   | "confirmFictionStoryCards"
   | "sendMessage"
   | "reorderCards"
@@ -519,6 +607,8 @@ const storyAgentActionKeys = [
   "clearIntent",
   "confirmPendingIntent",
   "dismissPendingIntent",
+  "beginPendingIntentCommit",
+  "finishPendingIntentCommit",
   "confirmFictionStoryCards",
   "sendMessage",
   "reorderCards",
@@ -955,6 +1045,7 @@ export function StoryAgentProvider({
   const classifyMut = trpc.storyAgent.classify.useMutation();
   const storyboardImageMut = trpc.storyAgent.generateForMobile.useMutation();
   const recognizeIntentMut = trpc.storyAgent.recognizeIntent.useMutation();
+  const rejectedIntentProposalIdsRef = useRef(new Set<string>());
   const storyUpsertMut = trpc.storyAgent.storyUpsert.useMutation();
   const storyAutoRenameMut = trpc.storyAgent.storyAutoRename.useMutation();
   const storyRenameMut = trpc.storyAgent.storyRename.useMutation();
@@ -987,6 +1078,9 @@ export function StoryAgentProvider({
   const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
   const confirmedIntent = useStorySpine(state => state.confirmedIntent);
   const pendingIntentDraft = useStorySpine(state => state.pendingIntentDraft);
+  const pendingIntentCommitProposalId = useStorySpine(
+    state => state.pendingIntentCommitProposalId
+  );
   const activeStoryId = useStorySpine(state => state.activeStoryId);
   const saveStatus = useStorySpine(state => state.saveStatus);
   const lastSavedAt = useStorySpine(state => state.lastSavedAt);
@@ -1104,8 +1198,14 @@ export function StoryAgentProvider({
     setStoryImages(persisted.mobileImages ?? []);
     setImageProvider(persisted.imageProvider ?? "default");
     setArtDirection(normalizeStoryArtDirection(persisted.artDirection));
-    setPublishing(normalizePublishingDraftState(persisted.publishing));
-    setPublishingBuffers(persisted.publishingBuffers ?? {});
+    const restoredPublishing = normalizePublishingDraftState(persisted.publishing);
+    setPublishing(restoredPublishing);
+    setPublishingBuffers(
+      reconcilePublishingBuffersFromState(
+        persisted.publishingBuffers ?? {},
+        restoredPublishing
+      )
+    );
     setConfirmedIntent(persisted.confirmedIntent ?? null);
     setPendingIntentDraft(null);
     // Option A：进门先看「继续 vs 开新」选择屏，不再把老用户自动塞回上次那篇。
@@ -1640,6 +1740,15 @@ export function StoryAgentProvider({
     async (history: ChatMessage[], requestStoryId: number | null) => {
       try {
         const existingIntent = storySpineStore.getState().confirmedIntent;
+        const requestPublishing = storySpineStore.getState().publishing;
+        const sourceScope =
+          requestStoryId != null
+            ? publishingRecognitionScope(
+                requestStoryId,
+                requestPublishing,
+                existingIntent
+              )
+            : undefined;
         const result = await recognizeIntentMut.mutateAsync({
           history: history
             .filter(message => message.content.trim())
@@ -1648,27 +1757,38 @@ export function StoryAgentProvider({
               content: message.content,
             })),
           existingIntent: existingIntent ? { ...existingIntent } : null,
+          sourceScope,
         });
-        if (
-          !storyScopeMatches(
-            requestStoryId,
-            storySpineStore.getState().activeStoryId
-          )
-        ) {
-          return;
-        }
-        const pending = recognitionToPendingIntent(result as StoryIntent);
-        if (!pending) return;
         const { confirmedIntent, pendingIntentDraft } =
           storySpineStore.getState();
-        if (pendingIntentDraft || confirmedIntent?.status === "confirmed")
-          return;
-        setConfirmedIntent({ ...pending, status: "provisional" });
+        const currentPublishing = storySpineStore.getState().publishing;
+        const returnedScope = (result as StoryIntent).proposal?.source;
+        const currentScope = publishingRecognitionScope(
+          storySpineStore.getState().activeStoryId ?? 0,
+          currentPublishing,
+          confirmedIntent
+        );
+        const scopeMatches = Boolean(
+          recognitionProposalScopeMatches(sourceScope, returnedScope) &&
+          recognitionProposalScopeMatches(sourceScope, currentScope) &&
+          storyScopeMatches(requestStoryId, storySpineStore.getState().activeStoryId) &&
+          sourceScope
+        );
+        const next = recognitionResultToIntentState({
+          recognized: result as StoryIntent,
+          confirmedIntent,
+          pendingIntentDraft,
+          scopeMatches,
+          rejectedProposalIds: rejectedIntentProposalIdsRef.current,
+        });
+        if (next.pendingIntentDraft !== pendingIntentDraft) {
+          setPendingIntentDraft(next.pendingIntentDraft);
+        }
       } catch (error) {
         warnIntentRecognitionError(error);
       }
     },
-    [recognizeIntentMut, setConfirmedIntent]
+    [recognizeIntentMut, setPendingIntentDraft]
   );
 
   const sendMessage = useCallback(
@@ -1686,6 +1806,7 @@ export function StoryAgentProvider({
           messages,
           confirmedIntent,
           pendingIntentDraft,
+          latestUserMessage: trimmed,
         });
       if (
         confirmedIntent?.purpose === "linkedin_job_search" &&
@@ -2493,8 +2614,10 @@ export function StoryAgentProvider({
             toast.error("关键帧草稿生成失败，剧本和提示词已保留");
           });
         }
-        if (projectId !== null) {
-          await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
+        // 只失效这个 Story 的镜头缓存。不带参数的 invalidate() 会把每个
+        // Story 的 shot.list 缓存一起清掉——正是"改一个地方，别处跟着变"。
+        if (storyboardStoryId) {
+          await utils.shot.list.invalidate({ storyId: storyboardStoryId });
         }
         toast.success(
           storyboardStoryId
@@ -2784,7 +2907,10 @@ export function StoryAgentProvider({
             imageProvider: restoredImageProvider,
             artDirection: restoredArtDirection,
             publishing: restoredPublishing,
-            publishingBuffers: storySpineStore.getState().publishingBuffers,
+            publishingBuffers: reconcilePublishingBuffersFromState(
+              storySpineStore.getState().publishingBuffers,
+              restoredPublishing
+            ),
             confirmedIntent: restoredConfirmedIntent,
             pendingIntentDraft: null,
             activeStoryId: id,
@@ -3890,14 +4016,50 @@ export function StoryAgentProvider({
   }, []);
 
   const confirmPendingIntent = useCallback(() => {
-    if (pendingIntentDraft)
-      setConfirmedIntent({ ...pendingIntentDraft, status: "confirmed" });
+    if (pendingIntentCommitProposalId) return;
+    if (pendingIntentDraft) {
+      setConfirmedIntent(confirmIntentProposalDraft(pendingIntentDraft));
+    }
     setPendingIntentDraft(null);
-  }, [pendingIntentDraft]);
+  }, [pendingIntentCommitProposalId, pendingIntentDraft]);
 
   const dismissPendingIntent = useCallback(() => {
+    if (pendingIntentCommitProposalId) return;
+    if (pendingIntentDraft?.proposal?.id) {
+      rejectedIntentProposalIdsRef.current.add(pendingIntentDraft.proposal.id);
+    }
     setPendingIntentDraft(null);
+  }, [pendingIntentCommitProposalId, pendingIntentDraft, setPendingIntentDraft]);
+
+  const beginPendingIntentCommit = useCallback((proposalId: string) => {
+    const current = storySpineStore.getState();
+    if (
+      current.pendingIntentCommitProposalId ||
+      current.pendingIntentDraft?.proposal?.id !== proposalId
+    ) {
+      return false;
+    }
+    current.setPendingIntentCommitProposalId(proposalId);
+    return true;
   }, []);
+
+  const finishPendingIntentCommit = useCallback(
+    (proposalId: string, committed: boolean) => {
+      const current = storySpineStore.getState();
+      if (current.pendingIntentCommitProposalId !== proposalId) return;
+      if (
+        committed &&
+        current.pendingIntentDraft?.proposal?.id === proposalId
+      ) {
+        current.setConfirmedIntent(
+          confirmIntentProposalDraft(current.pendingIntentDraft)
+        );
+        current.setPendingIntentDraft(null);
+      }
+      current.setPendingIntentCommitProposalId(null);
+    },
+    []
+  );
 
   const value = useMemo<StoryAgentContextValue>(
     () => ({
@@ -3919,8 +4081,11 @@ export function StoryAgentProvider({
       setConfirmedIntent,
       clearIntent,
       pendingIntentDraft,
+      pendingIntentCommitProposalId,
       confirmPendingIntent,
       dismissPendingIntent,
+      beginPendingIntentCommit,
+      finishPendingIntentCommit,
       confirmFictionStoryCards,
       sendMessage,
       reorderCards,
@@ -3984,8 +4149,11 @@ export function StoryAgentProvider({
       confirmedIntent,
       clearIntent,
       pendingIntentDraft,
+      pendingIntentCommitProposalId,
       confirmPendingIntent,
       dismissPendingIntent,
+      beginPendingIntentCommit,
+      finishPendingIntentCommit,
       confirmFictionStoryCards,
       sendMessage,
       reorderCards,
@@ -4042,6 +4210,8 @@ export function StoryAgentProvider({
     clearIntent,
     confirmPendingIntent,
     dismissPendingIntent,
+    beginPendingIntentCommit,
+    finishPendingIntentCommit,
     confirmFictionStoryCards,
     sendMessage,
     reorderCards,

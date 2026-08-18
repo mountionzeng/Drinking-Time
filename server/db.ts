@@ -726,6 +726,22 @@ async function backupBeforeWrite(nextBytes: number): Promise<void> {
   }
 }
 
+/**
+ * 用途：标记本地 JSON 持久化写盘失败——磁盘/文件系统层面出了问题（目录不可写、
+ *   磁盘满、rename 失败等），区别于 `StoryBodyRevisionConflictError` 这类"业务上
+ *   合理的拒绝"。`cause` 保留原始 Node fs 错误，便于日志排查。
+ * 调用入口：`persistMemoryStateToDisk` 在 mkdir/writeFile/rename 任一步失败时抛出。
+ * 下游调用：经 `persistMemoryState` 传播给 db.ts 全部本地模式写函数的调用方
+ *   （tRPC procedure 会把它转成一次 500，调用方应当当作基础设施故障处理并可重试）。
+ */
+export class LocalPersistenceWriteError extends Error {
+  constructor(path: string, cause: unknown) {
+    super(`Failed to persist local state to ${path}: ${String(cause)}`);
+    this.name = "LocalPersistenceWriteError";
+    this.cause = cause;
+  }
+}
+
 async function persistMemoryStateToDisk() {
   // ① 测试防误写：测试环境下，绝不往默认真文件写——哪怕 vitest.setup.ts 被删/没生效。
   //    要在测试里持久化，必须在导入前显式设 LOCAL_PERSIST_PATH（指向临时文件）。
@@ -738,29 +754,55 @@ async function persistMemoryStateToDisk() {
     }
     return;
   }
-  const dir = path.dirname(LOCAL_PERSIST_PATH);
-  await mkdir(dir, { recursive: true });
-  const {
-    promptLineage: _promptLineage,
-    editSnapshots: _editSnapshots,
-    ...mainState
-  } = memoryState;
-  const payload = JSON.stringify(mainState, null, 2);
-  const nextBytes = Buffer.byteLength(payload, "utf-8");
-  // ② 写前滚动备份 + 骤减告警
-  await backupBeforeWrite(nextBytes);
-  const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
-  await writeFile(tmpPath, payload, "utf-8");
-  await rename(tmpPath, LOCAL_PERSIST_PATH);
+  let tmpPathWritten: string | null = null;
+  try {
+    const dir = path.dirname(LOCAL_PERSIST_PATH);
+    await mkdir(dir, { recursive: true });
+    const {
+      promptLineage: _promptLineage,
+      editSnapshots: _editSnapshots,
+      ...mainState
+    } = memoryState;
+    const payload = JSON.stringify(mainState, null, 2);
+    const nextBytes = Buffer.byteLength(payload, "utf-8");
+    // ② 写前滚动备份 + 骤减告警（自身失败不影响主写入，backupBeforeWrite 内部已吞错误）
+    await backupBeforeWrite(nextBytes);
+    const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
+    await writeFile(tmpPath, payload, "utf-8");
+    tmpPathWritten = tmpPath;
+    await rename(tmpPath, LOCAL_PERSIST_PATH);
+  } catch (error) {
+    // rename 失败时 tmp 文件已经写完但没被消费掉，best-effort 清理一下，
+    // 避免每次失败都在磁盘上留一个孤儿文件；清理本身失败不能盖过原始错误。
+    if (tmpPathWritten) {
+      await unlink(tmpPathWritten).catch(() => {});
+    }
+    const wrapped = new LocalPersistenceWriteError(LOCAL_PERSIST_PATH, error);
+    console.error("[LocalPersist]", wrapped.message);
+    throw wrapped;
+  }
 }
 
-async function persistMemoryState() {
-  memoryPersistQueue = memoryPersistQueue
-    .then(() => persistMemoryStateToDisk())
-    .catch(error => {
-      console.warn("[LocalPersist] Failed to persist local data:", error);
-    });
-  return memoryPersistQueue;
+/**
+ * 用途：把本次写盘请求接入串行队列，并如实把这次写盘的成功/失败反馈给调用方——
+ *   不再像过去那样吞掉磁盘错误、让调用方误以为已经落盘。队列本身继续沿用一条
+ *   共享 promise 链保证磁盘写按顺序执行，但队列内部对每一步都吞错误续接，
+ *   这样某一次写盘失败不会永久卡住后面排队的写入；每个调用方拿到的是"只属于
+ *   自己这次写盘"的 promise，失败与否互不影响。
+ *   注意：本函数只保证"失败会向调用方抛出"，不保证"调用方已经应用到
+ *   memoryState 的内存态变更会自动回滚"——那是每个调用方自己的责任。目前只有
+ *   `updateStoryBodyIfRevision` 在失败时做了按字段回滚（见其定义处注释）；其余
+ *   本地模式写函数（User、Shot 等约 50+ 处）在磁盘失败后会正确抛出异常，但它们
+ *   已经生效的内存态变更不会被撤销，且可能被后续任意一次成功的写盘操作顺带落
+ *   盘（因为 persistMemoryStateToDisk 每次都是序列化当前完整的 memoryState）。
+ *   这是已知的、有意收窄的范围，不是遗漏。
+ * 调用入口：db.ts 内所有本地模式写函数（Story、User、Shot 等约 50+ 处）。
+ * 下游调用：persistMemoryStateToDisk。
+ */
+async function persistMemoryState(): Promise<void> {
+  const attempt = memoryPersistQueue.then(() => persistMemoryStateToDisk());
+  memoryPersistQueue = attempt.catch(() => {});
+  return attempt;
 }
 
 // 防呆：强制连接用 utf8mb4。mysql2 默认连接字符集是 3 字节的 utf8，
@@ -2078,53 +2120,48 @@ export async function updateStory(
     .where(and(eq(stories.id, id), eq(stories.userId, userId)));
 }
 
-export async function updateStoryTitle(
-  id: number,
-  userId: number,
-  title: string
-): Promise<boolean> {
+/**
+ * 用途：Story 标题的唯一直写入口——只改 title 列，不碰 body，因此不参与 body 的
+ *   CAS（`updateStoryBodyIfRevision` 才是 body 的写入口）。`onlyIfUntitled` 为
+ *   true 时只在盘上标题仍是占位名的情况下才写入，用来兜住"自动命名不得覆盖用户
+ *   手工改过的名字"这条不变量；判定放在存储写入本身（内存分支查 row.title、
+ *   数据库分支进 WHERE），不依赖调用方先读一次再写。
+ *   这里合并了原先的 `updateStoryTitle` 与 `updateStoryTitleIfUntitled`：两者只差
+ *   这一个谓词，却各自复制了一遍所有权校验、内存/数据库双分支和返回值语义。
+ * 调用入口：server/routers/storyAgent.ts 的 `storyRename`（onlyIfUntitled 省略）
+ *   与 `storyAutoRename`（onlyIfUntitled: true）。
+ * 下游调用：persistMemoryState（内存模式）；drizzle UPDATE（数据库模式）。
+ * @returns 是否真的写入了一行——false 表示故事不存在、不属于该用户，或
+ *   （onlyIfUntitled 时）标题已被人工命名过。
+ */
+export async function writeStoryTitle(input: {
+  id: number;
+  userId: number;
+  title: string;
+  onlyIfUntitled?: boolean;
+}): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     const row = memoryState.stories.find(
-      story => story.id === id && story.userId === userId
+      story => story.id === input.id && story.userId === input.userId
     );
     if (!row) return false;
-    row.title = title;
+    if (input.onlyIfUntitled && !isUntitledStoryTitle(row.title)) return false;
+    row.title = input.title;
     row.updatedAt = now();
     await persistMemoryState();
     return true;
   }
   const result = await db
     .update(stories)
-    .set({ title })
-    .where(and(eq(stories.id, id), eq(stories.userId, userId)));
-  return result[0].affectedRows === 1;
-}
-
-export async function updateStoryTitleIfUntitled(
-  id: number,
-  userId: number,
-  title: string
-): Promise<boolean> {
-  const db = await getDb();
-  if (!db) {
-    const row = memoryState.stories.find(
-      story => story.id === id && story.userId === userId
-    );
-    if (!row || !isUntitledStoryTitle(row.title)) return false;
-    row.title = title;
-    row.updatedAt = now();
-    await persistMemoryState();
-    return true;
-  }
-  const result = await db
-    .update(stories)
-    .set({ title })
+    .set({ title: input.title })
     .where(
       and(
-        eq(stories.id, id),
-        eq(stories.userId, userId),
-        sql`TRIM(${stories.title}) IN ('', '未命名', '未命名故事')`
+        eq(stories.id, input.id),
+        eq(stories.userId, input.userId),
+        ...(input.onlyIfUntitled
+          ? [sql`TRIM(${stories.title}) IN ('', '未命名', '未命名故事')`]
+          : [])
       )
     );
   return result[0].affectedRows === 1;
@@ -2144,6 +2181,17 @@ function persistedStoryBodyRevision(body: unknown): number {
  * Owner-scoped Story-body compare-and-swap. The revision predicate is checked
  * by the storage write itself; callers must not treat an earlier read or an
  * in-process mutex as the correctness boundary.
+ *
+ * 用途：Story body 唯一的资源级 CAS 写入口——目标资源（这个 Story 的 body）
+ *   当前 revision 是唯一的写入冲突判定依据；owner 由 `id`+`userId` 同时校验
+ *   （对应 U2 合同里的 story ScopeKey + OwnerScope 概念，这里先不引入类型，
+ *   概念对齐即可）。内存模式下写盘失败会按字段把 `row` 恢复到调用前的值——
+ *   只回滚仍然等于本次调用写入结果的字段，绝不用整行快照覆盖，因为并发的
+ *   另一次写入（哪怕是完全不同的函数，比如 `writeStoryTitle`）可能已经在
+ *   本次调用等待磁盘落盘期间，合法地改动了同一行对象上的其它字段。
+ * 调用入口：server/services/storyBodyPersistence.ts 的 `persistPreparedStoryBody`
+ *   （Story 文本字段与 publishing 写入都经此唯一入口）。
+ * 下游调用：persistMemoryState（内存模式）；drizzle CAS UPDATE（数据库模式）。
  */
 export async function updateStoryBodyIfRevision(input: {
   id: number;
@@ -2169,15 +2217,49 @@ export async function updateStoryBodyIfRevision(input: {
     ) {
       return false;
     }
+    // Copy-on-write snapshot: mutate optimistically, but if the disk flush
+    // fails, restore this row to what it was before this call so a failed
+    // write never leaves memoryState in a "succeeded in RAM, lost on disk"
+    // state. This restore must be per-field, not a blanket
+    // `Object.assign(row, previousRow)`: `row` is a live, shared object, and
+    // between our mutation and the disk flush settling, a concurrent writer
+    // (another CAS call once this call's optimistic revision makes it look
+    // like a legal base, or an unrelated writer like writeStoryTitle
+    // touching only `title`) can legitimately mutate a *different* field on
+    // the same object and already succeed. A blanket restore would silently
+    // erase that already-committed change. So: only roll back a field if it
+    // still holds exactly the value *this call* set — if something else has
+    // since changed it, that's a newer write we must not clobber.
+    const previousRow = { ...row };
+    const writtenFields: Record<string, unknown> = { body: input.body };
     if (input.data) {
       applyDefinedValues(
         row as unknown as Record<string, unknown>,
         input.data as unknown as Record<string, unknown>
       );
+      Object.assign(writtenFields, input.data);
     }
     row.body = input.body;
     row.updatedAt = now();
-    await persistMemoryState();
+    writtenFields.updatedAt = row.updatedAt;
+    try {
+      await persistMemoryState();
+    } catch (error) {
+      const rowRecord = row as unknown as Record<string, unknown>;
+      const previousRecord = previousRow as unknown as Record<string, unknown>;
+      // Known narrow limitation: for primitive `data` fields this compares by
+      // value, so a concurrent writer that legitimately set the same field to
+      // an identical value would still be rolled back here. `body` and
+      // `updatedAt` are immune (always freshly constructed per call, so this
+      // is a reference comparison). Accepted for now — closing it needs
+      // per-field write tokens, which is out of scope for this unit.
+      for (const key of Object.keys(writtenFields)) {
+        if (rowRecord[key] === writtenFields[key]) {
+          rowRecord[key] = previousRecord[key];
+        }
+      }
+      throw error;
+    }
     return true;
   }
   const result = await db
@@ -5562,6 +5644,34 @@ export async function undoDerivedShotAtomic(
  * Reset in-memory state and loaded flag — for use in tests only.
  * Prevents accumulated state from prior test runs from leaking between tests.
  */
+/**
+ * 用途：测试专用——按指定 id 直接种一行归属明确的 project。项目级归属校验落地后，
+ *   拿一个凭空的 projectId 调接口会被正确拒绝，而不少既有测试正是这么写的（断言
+ *   里还钉着那个字面量 id）。与其改掉这些断言，不如让测试先把这行数据真正建出来，
+ *   保持"接口只接受属于自己的 project"这条不变量在测试里也成立。
+ * 调用入口：server/*.test.ts（仅测试）。
+ * 下游调用：无，直接写 memoryState.projects。
+ */
+export function seedProjectForTesting(input: {
+  id: number;
+  userId: number;
+  name?: string;
+}): void {
+  const current = now();
+  memoryState.projects = memoryState.projects.filter(
+    project => project.id !== input.id
+  );
+  memoryState.projects.push({
+    id: input.id,
+    userId: input.userId,
+    name: input.name ?? `测试项目 ${input.id}`,
+    deadline: null,
+    autoRender: false,
+    createdAt: current,
+    updatedAt: current,
+  });
+}
+
 export function resetMemoryStateForTesting(): void {
   memoryState.users = [];
   memoryState.accessSessions = [];

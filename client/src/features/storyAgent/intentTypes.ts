@@ -21,10 +21,52 @@ export interface StoryIntent {
   secondaryAudiences?: string[];
   /** Auto-detected intent is useful immediately, but may still change as the story unfolds. */
   status?: "provisional" | "confirmed";
+  /** Revision of the profile this value was derived from. */
+  revision?: number;
+  /** Automatic recognition is a proposal, never another confirmed authority. */
+  proposal?: {
+    id: string;
+    status: "pending" | "rejected" | "superseded" | "accepted";
+    source: {
+      kind: "recognition";
+      storyId: number;
+      versionId: string | null;
+      intentRevision: number;
+    };
+    evidence: string[];
+  };
 }
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function normalizeIntentProposal(value: unknown): StoryIntent["proposal"] {
+  if (!value || typeof value !== "object") return undefined;
+  const proposal = value as Record<string, unknown>;
+  const source = proposal.source && typeof proposal.source === "object"
+    ? proposal.source as Record<string, unknown>
+    : null;
+  if (
+    typeof proposal.id !== "string" || !proposal.id.trim() ||
+    !["pending", "rejected", "superseded", "accepted"].includes(String(proposal.status)) ||
+    source?.kind !== "recognition" ||
+    typeof source.storyId !== "number" || !Number.isInteger(source.storyId) ||
+    !(source.versionId === null || (typeof source.versionId === "string" && source.versionId.length > 0)) ||
+    typeof source.intentRevision !== "number" || !Number.isInteger(source.intentRevision) || source.intentRevision < 0 ||
+    !Array.isArray(proposal.evidence) || !proposal.evidence.every(item => typeof item === "string")
+  ) return undefined;
+  return {
+    id: proposal.id,
+    status: proposal.status as NonNullable<StoryIntent["proposal"]>["status"],
+    source: {
+      kind: "recognition",
+      storyId: source.storyId,
+      versionId: source.versionId as string | null,
+      intentRevision: source.intentRevision,
+    },
+    evidence: [...proposal.evidence] as string[],
+  };
 }
 
 export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
@@ -86,6 +128,11 @@ export function normalizeStoryIntent(raw: unknown): StoryIntent | null {
         )
       : undefined,
     status: obj.status === "confirmed" ? "confirmed" : "provisional",
+    revision:
+      typeof obj.revision === "number" && Number.isFinite(obj.revision)
+        ? Math.max(0, Math.floor(obj.revision))
+        : undefined,
+    proposal: normalizeIntentProposal(obj.proposal),
   };
 }
 

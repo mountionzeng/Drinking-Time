@@ -122,7 +122,7 @@ describe("analyzeVisionReference compatible vision", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       "https://api.openai-next.com/v1/chat/completions"
     );
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+    expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(
       "Bearer test-next-key"
     );
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);

@@ -7,8 +7,7 @@
  * buildUnifiedPrompt 保留作为 fallback（LLM 不可用时降级）。
  */
 
-import { invokeAgent } from "../_core/agentChannel";
-import { ENV } from "../_core/env";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import type { PromptContext } from "../../shared/promptContext";
 import { buildUnifiedPrompt } from "../../shared/promptContext";
 import { promptShotCode } from "../../shared/shotIdentity";
@@ -34,7 +33,7 @@ type SynthesizeInput = {
  */
 export async function synthesizeShotPrompt(input: SynthesizeInput): Promise<string> {
   // LLM 不可用时降级
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return buildUnifiedPrompt(input.ctx);
   }
 

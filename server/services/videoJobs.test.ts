@@ -723,7 +723,7 @@ Negative: no floating objects, characters obey physics.
     expect(fetch.mock.calls[0][0]).toBe(
       "https://api.openai-next.com/v1/chat/completions"
     );
-    expect(fetch.mock.calls[0][1].headers.Authorization).toBe(
+    expect(fetch.mock.calls[0][1].headers.authorization).toBe(
       "Bearer test-next-key"
     );
     const directorBody = JSON.parse(String(fetch.mock.calls[0][1].body));

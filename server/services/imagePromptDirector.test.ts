@@ -86,7 +86,7 @@ describe("directImagePrompt", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer test-next-key");
+    expect(init.headers.authorization).toBe("Bearer test-next-key");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("qwen3-vl-plus");
     expect(body.messages[1].content[1].image_url.url).toBe(

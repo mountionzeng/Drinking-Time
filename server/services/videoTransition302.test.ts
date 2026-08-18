@@ -214,6 +214,65 @@ describe("videoTransition302", () => {
     );
   });
 
+  it("retries one transient transport failure while creating a Vidu upload session", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const responses = [
+      new Response(
+        JSON.stringify({
+          id: "resource/retried",
+          put_url: "https://storage.example.test/upload?signature=secret",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      ),
+      new Response(null, {
+        status: 200,
+        headers: { etag: '"retried-etag"' },
+      }),
+      new Response(JSON.stringify({ uri: "ssupload:?id=resource-retried" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ];
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      if (fetcher.mock.calls.length === 1) {
+        throw Object.assign(new Error("fetch failed"), {
+          cause: new Error("other side closed"),
+        });
+      }
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+
+    await expect(
+      uploadFileToVidu(
+        { bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" },
+        { fetcher }
+      )
+    ).resolves.toBe("ssupload:?id=resource-retried");
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves the upload stage and undici cause after retry exhaustion", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      throw Object.assign(new Error("fetch failed"), {
+        cause: new Error("other side closed"),
+      });
+    });
+
+    await expect(
+      uploadFileToVidu(
+        { bytes: new Uint8Array([1]), contentType: "image/png" },
+        { fetcher }
+      )
+    ).rejects.toThrow(
+      "Vidu 创建图片上传会话失败：fetch failed（Error: other side closed）"
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects unsafe Vidu upload URLs before sending image bytes", async () => {
     ENV.api302Key = "test-302-key";
     ENV.api302BaseUrl = "https://api.302.ai";
@@ -293,6 +352,31 @@ describe("videoTransition302", () => {
     });
     expect(viduSubmissionStateForHttpStatus(400)).toBe("not_submitted");
     expect(viduSubmissionStateForHttpStatus(503)).toBe("unknown");
+  });
+
+  it("preserves the undici cause for an ambiguous paid submission", async () => {
+    ENV.api302Key = "test-302-key";
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      throw Object.assign(new Error("fetch failed"), {
+        cause: new Error("other side closed"),
+      });
+    });
+
+    await expect(
+      submitViduTransition(
+        {
+          prompt: "woman turns quickly",
+          firstImageUrl: "https://file.302.ai/first.png",
+          lastImageUrl: "https://file.302.ai/last.webp",
+          durationSec: 2,
+          resolution: "720p",
+        },
+        { fetcher }
+      )
+    ).rejects.toMatchObject({
+      message: "fetch failed（Error: other side closed）",
+      submissionState: "unknown",
+    });
   });
 
   it("reads the completed creation url from the Vidu task endpoint", async () => {

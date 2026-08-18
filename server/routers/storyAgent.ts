@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import { normalizeSuggestedStoryTitle } from "@shared/storyTitle";
 import { protectedProcedure, router } from "../_core/trpc";
+import { assertOptionalProjectOwner } from "./_projectAccess";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
 import {
@@ -10,8 +12,7 @@ import {
   listUserStories,
   getStoryById,
   createStory,
-  updateStoryTitle,
-  updateStoryTitleIfUntitled,
+  writeStoryTitle,
   deleteStory,
   createGeneratedImage,
   getGeneratedImageById,
@@ -302,6 +303,9 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
+      // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       return replyFromStoryAgent({
         message: input.message,
         history: input.history,
@@ -584,18 +588,41 @@ export const storyAgentRouter = router({
           })
         ),
         existingIntent: z.record(z.string(), z.unknown()).nullish(),
+        sourceScope: z
+          .object({
+            storyId: z.number().int(),
+            versionId: z.string().min(1).nullable(),
+            intentRevision: z.number().int().nonnegative(),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ input }) => {
       const turns = input.history.filter(t => t.content.trim());
       const message = turns.length ? turns[turns.length - 1].content : "";
-      return recognizeStoryIntent({
+      const recognized = await recognizeStoryIntent({
         message,
         history: turns.slice(0, -1),
         existingIntent:
           (input.existingIntent as StoryIntentPayload | null | undefined) ??
           null,
       });
+      if (!input.sourceScope) return recognized;
+      return {
+        ...recognized,
+        proposal: {
+          id: intentProposalId({
+            source: input.sourceScope,
+            candidate: recognized,
+          }),
+          status: "pending" as const,
+          source: {
+            kind: "recognition" as const,
+            ...input.sourceScope,
+          },
+          evidence: recognized.evidence ?? [],
+        },
+      };
     }),
 
   /** 读取 ChatCut / Premiere XMEML，只返回导入预览，不写故事。 */
@@ -809,7 +836,11 @@ export const storyAgentRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const title = input.title.trim();
-      const updated = await updateStoryTitle(input.id, ctx.user.id, title);
+      const updated = await writeStoryTitle({
+        id: input.id,
+        userId: ctx.user.id,
+        title,
+      });
       if (!updated) {
         return { status: "error" as const, error: "故事不存在" };
       }
@@ -833,11 +864,12 @@ export const storyAgentRouter = router({
       if (!title) {
         return { status: "error" as const, error: "未生成有效名称" };
       }
-      const updated = await updateStoryTitleIfUntitled(
-        input.id,
-        ctx.user.id,
-        title
-      );
+      const updated = await writeStoryTitle({
+        id: input.id,
+        userId: ctx.user.id,
+        title,
+        onlyIfUntitled: true,
+      });
       if (updated) {
         return {
           status: "ok" as const,
@@ -1475,6 +1507,9 @@ export const storyAgentRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // projectId 会被用来捞该项目的编辑标注/重复修正信号喂给模型——是访问键，
+      // 不是标签。不校验归属就能把别人项目的编辑上下文读进自己的对话里。
+      await assertOptionalProjectOwner(input.projectId, ctx.user.id);
       return replyFromStoryAgent({
         message: input.message,
         history: input.history,
@@ -2099,6 +2134,19 @@ export const storyAgentRouter = router({
           parentImageId: input.draftImageId ?? null, // 由草稿确认而来时，链回草稿
           isCurrent: false,
         });
+        // 重渲链路明确要求 autoSelect 时，新图要成为当前版本；旧图仍保留在历史中。
+        // 之前这里只保存了新资产但没有执行 promote，导致“生成成功却仍停在旧图”。
+        if (input.autoSelect) {
+          await promoteStoryImageToCurrent({
+            userId: ctx.user.id,
+            storyId: input.storyId,
+            imageId: image.id,
+            metadata: {
+              source: "generate_for_mobile_auto_select",
+              shotNo: input.shotNo,
+            },
+          });
+        }
         return {
           status: "ok" as const,
           imageUrl: result.imageUrl,

@@ -66,6 +66,13 @@ describe("publishing draft acceptance flow", () => {
       content: { title: "另一个 Story", body: "不能串过来", tags: [] },
       updatedAt: 3,
     });
+    buffers = setPublishingBuffer(buffers, {
+      storyId: 17,
+      versionId: "v2",
+      platform: "xiaohongshu",
+      content: { title: "V2 buffer", body: "不能覆盖 V1 buffer", tags: [] },
+      updatedAt: 3,
+    });
     const accepted = getPublishingBuffer(buffers, 17, "xiaohongshu")!;
     publishing = applyPublishingWordingEdit(
       publishing,
@@ -118,6 +125,14 @@ describe("publishing draft acceptance flow", () => {
     expect(restored.cover?.assetId).toBe(91);
     expect(restored.coverRounds[0]?.assetIds).toEqual([91, 92, 93, 94]);
     expect(getPublishingBuffer(restoredBuffers, 17, "x")).toBeUndefined();
+    expect(
+      getPublishingBuffer(restoredBuffers, 17, "xiaohongshu", "v1")?.content
+        .body
+    ).toContain("决定权");
+    expect(
+      getPublishingBuffer(restoredBuffers, 17, "xiaohongshu", "v2")?.content
+        .body
+    ).toBe("不能覆盖 V1 buffer");
     expect(getPublishingBuffer(restoredBuffers, 23, "x")?.content.body).toBe(
       "不能串过来"
     );

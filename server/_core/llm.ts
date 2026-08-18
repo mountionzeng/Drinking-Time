@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { runInference } from "./inferenceOrchestrator";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -67,6 +68,14 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /**
+   * 显式声明这次推理跨供应商重放是安全的（无副作用、可重复执行）。
+   * 默认 false：不声明就绝不换供应商重发。
+   */
+  replaySafe?: boolean;
+  /** 整条候选链的外层预算（毫秒）。 */
+  deadlineMs?: number;
+  signal?: AbortSignal;
 };
 
 export type ToolCall = {
@@ -111,125 +120,12 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: JsonSchema };
 
-const ensureArray = (
-  value: MessageContent | MessageContent[]
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
-
-const normalizeContentPart = (
-  part: MessageContent
-): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
-  }
-
-  if (part.type === "text") {
-    return part;
-  }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
-  throw new Error("Unsupported message content part");
-};
-
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
-
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map(part => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
-
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
-
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
-  }
-
-  return {
-    role,
-    name,
-    content: contentParts,
-  };
-};
-
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
-  tools: Tool[] | undefined
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
-
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
-  }
-
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error(
-        "tool_choice 'required' was provided but no tools were configured"
-      );
-    }
-
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly"
-      );
-    }
-
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = () =>
-  (() => {
-    const baseUrl = ENV.forgeApiUrl?.trim();
-    if (!baseUrl) {
-      return "https://forge.manus.im/v1/chat/completions";
-    }
-
-    const normalizedBase = baseUrl.replace(/\/+$/, "");
-    if (normalizedBase.endsWith("/v1")) {
-      return `${normalizedBase}/chat/completions`;
-    }
-
-    return `${normalizedBase}/v1/chat/completions`;
-  })();
-
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
-  }
-};
+/**
+ * 旧的 Forge 配置现在只作为候选链末端的兼容通道：Key 和网关原样传给
+ * orchestrator，回退路径因此与改动前逐字节一致，变的只是「Next 排在它前面」。
+ */
+const legacyFallbackBaseUrl = () =>
+  ENV.forgeApiUrl?.trim() || "https://forge.manus.im";
 
 const normalizeResponseFormat = ({
   responseFormat,
@@ -280,9 +176,11 @@ const normalizeResponseFormat = ({
 // 统一封装了 OpenAI 兼容格式的 chat/completions 请求
 // 支持：多模态消息、function calling (tools)、structured output (json_schema)
 // 所有 Agent 最终都通过这个函数发请求
+//
+// 网络执行、候选顺序、参数适配、错误分类和回退全部由
+// `inferenceOrchestrator` 负责；这里只保留旧签名和 InvokeResult 契约，
+// 让既有调用点不必改一行就能吃到 OpenAI Next 优先。
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
-
   const {
     messages,
     tools,
@@ -295,70 +193,86 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    replaySafe,
+    deadlineMs,
+    signal,
   } = params;
-
-  const payload: Record<string, unknown> = {
-    model: ENV.llmModel,
-    messages: messages.map(normalizeMessage),
-  };
-
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  payload.max_tokens = maxTokens ?? max_tokens ?? 8192;
-
-  if (typeof temperature === "number") {
-    payload.temperature = temperature;
-  }
 
   const thinkingBudgetRaw = process.env.LLM_THINKING_BUDGET;
   const thinkingBudget = thinkingBudgetRaw ? Number(thinkingBudgetRaw) : NaN;
-  if (Number.isFinite(thinkingBudget) && thinkingBudget > 0) {
-    payload.thinking = { budget_tokens: Math.floor(thinkingBudget) };
-  }
 
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
+  const outcome = await runInference({
+    useCase: "text",
+    messages,
+    candidates: {
+      fallback302Model: ENV.llmModel,
+      fallback302ApiKey: ENV.forgeApiKey,
+      fallback302BaseUrl: legacyFallbackBaseUrl(),
+    },
+    tools,
+    toolChoice: toolChoice || tool_choice,
+    maxTokens: maxTokens ?? max_tokens,
+    temperature,
+    responseFormat: normalizeResponseFormat({
+      responseFormat,
+      response_format,
+      outputSchema,
+      output_schema,
+    }),
+    thinkingBudgetTokens:
+      Number.isFinite(thinkingBudget) && thinkingBudget > 0
+        ? thinkingBudget
+        : undefined,
+    replaySafe,
+    deadlineMs,
+    signal,
   });
 
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
+  return outcome.result;
+}
 
-  const apiUrl = resolveApiUrl();
-  let response: Response;
-  try {
-    response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`LLM network error: cannot reach ${apiUrl}. ${message}`);
-  }
+/**
+ * 与 `invokeLLM` 相同，但额外返回实际命中的供应商与模型，供 `modelLabel`
+ * 和安全诊断使用。新调用点优先用它。
+ */
+export async function invokeLLMWithProvider(params: InvokeParams) {
+  const {
+    messages,
+    tools,
+    toolChoice,
+    tool_choice,
+    maxTokens,
+    max_tokens,
+    temperature,
+    outputSchema,
+    output_schema,
+    responseFormat,
+    response_format,
+    replaySafe,
+    deadlineMs,
+    signal,
+  } = params;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
+  return runInference({
+    useCase: "text",
+    messages,
+    candidates: {
+      fallback302Model: ENV.llmModel,
+      fallback302ApiKey: ENV.forgeApiKey,
+      fallback302BaseUrl: legacyFallbackBaseUrl(),
+    },
+    tools,
+    toolChoice: toolChoice || tool_choice,
+    maxTokens: maxTokens ?? max_tokens,
+    temperature,
+    responseFormat: normalizeResponseFormat({
+      responseFormat,
+      response_format,
+      outputSchema,
+      output_schema,
+    }),
+    replaySafe,
+    deadlineMs,
+    signal,
+  });
 }

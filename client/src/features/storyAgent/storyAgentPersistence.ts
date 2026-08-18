@@ -27,11 +27,14 @@ import type { GeneratedImageItem } from "@/features/storyAgent/storyTypes";
 import { normalizeStoryIntent, type StoryIntent } from "./intentTypes";
 import {
   emptyPublishingDraftState,
+  computePublishingDraftContentHash,
   isPublishingPlatformId,
   normalizePublishingDraftState,
+  publishingDraftBufferKey,
   type PublishingDraftContent,
   type PublishingDraftState,
   type PublishingPlatformId,
+  type PublishingVersionOperationReceipt,
 } from "@shared/publishingDraft";
 
 export type PublishingDraftBuffer = {
@@ -132,9 +135,7 @@ export function publishingBufferKey(
   platform: PublishingPlatformId,
   versionId = "v1"
 ): string {
-  return versionId === "v1"
-    ? `${storyId}:${platform}`
-    : `${storyId}:${versionId}:${platform}`;
+  return publishingDraftBufferKey(storyId, platform, versionId);
 }
 
 export function normalizePublishingBuffers(
@@ -232,6 +233,81 @@ export function remapPublishingBuffers(
     changed = true;
   }
   return changed ? next : buffers;
+}
+
+export function publishingBufferContentHash(content: PublishingDraftContent): string {
+  return computePublishingDraftContentHash(content);
+}
+
+export function reconcilePublishingBufferReceipt(
+  buffers: PublishingDraftBufferMap,
+  receipt: PublishingVersionOperationReceipt
+): { committed: true; conflict?: "receipt_kind" | "buffer_changed" | "buffer_key_mismatch" | "target_buffer_exists"; buffers: PublishingDraftBufferMap } {
+  if (receipt.operationKind !== "create_version" || !receipt.sourceVersionId || !receipt.bufferDisposition) {
+    return { committed: true, conflict: "receipt_kind", buffers };
+  }
+  if (receipt.bufferDisposition === "leave") return { committed: true, buffers };
+  const expectedKey = publishingBufferKey(receipt.storyId, receipt.platform, receipt.sourceVersionId);
+  if (receipt.sourceBufferKey !== expectedKey) return { committed: true, conflict: "buffer_key_mismatch", buffers };
+  const source = getPublishingBuffer(
+    buffers,
+    receipt.storyId,
+    receipt.platform,
+    receipt.sourceVersionId
+  );
+  if (!source) return { committed: true, buffers };
+  // A receipt only closes the short crash window after its server commit. A
+  // later local edit may happen to hash to the same content, but it belongs to
+  // the source version and must never be moved by an old receipt on reload.
+  if (source.updatedAt > receipt.committedAt) {
+    return { committed: true, conflict: "buffer_changed", buffers };
+  }
+  if (!receipt.sourceBufferHash || publishingBufferContentHash(source.content) !== receipt.sourceBufferHash) {
+    return { committed: true, conflict: "buffer_changed", buffers };
+  }
+  const target = getPublishingBuffer(buffers, receipt.storyId, receipt.platform, receipt.versionId);
+  if (target && publishingBufferContentHash(target.content) !== publishingBufferContentHash(source.content)) {
+    return { committed: true, conflict: "target_buffer_exists", buffers };
+  }
+  let next = setPublishingBuffer(buffers, { ...source, versionId: receipt.versionId });
+  next = removePublishingBuffer(next, source.storyId, source.platform, receipt.sourceVersionId);
+  return { committed: true, buffers: next };
+}
+
+/**
+ * Replays committed server receipts against local buffers after a reload.
+ * A browser can crash after the server commits a carry operation but before
+ * React removes the source buffer; applying the receipt is idempotent and
+ * keeps that window from duplicating or hiding the draft.
+ */
+export function reconcilePublishingBuffersFromState(
+  buffers: PublishingDraftBufferMap,
+  publishing: PublishingDraftState
+): PublishingDraftBufferMap {
+  let next = buffers;
+  for (const receipt of Object.values(publishing.versionOperationReceipts ?? {})) {
+    if (!receipt || typeof receipt !== "object") continue;
+    next = reconcilePublishingBufferReceipt(
+      next,
+      receipt as PublishingVersionOperationReceipt
+    ).buffers;
+  }
+  return next;
+}
+
+export function persistPublishingBuffersSafely(
+  storage: Pick<Storage, "setItem">,
+  key: string,
+  state: PersistedState,
+  next: PublishingDraftBufferMap,
+  previous: PublishingDraftBufferMap
+): { ok: true; buffers: PublishingDraftBufferMap } | { ok: false; buffers: PublishingDraftBufferMap } {
+  try {
+    storage.setItem(key, JSON.stringify({ ...state, publishingBuffers: next }));
+    return { ok: true, buffers: next };
+  } catch {
+    return { ok: false, buffers: previous };
+  }
 }
 
 // 把读回来的「未知形状」清洗成合法 PersistedState（缺字段一律给安全默认值）。

@@ -144,10 +144,14 @@ describe("directVideoPrompt", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer test-next-key");
+    expect(init.headers.authorization).toBe("Bearer test-next-key");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("qwen3-vl-plus");
-    expect(body.max_completion_tokens).toBe(1400);
+    // qwen3-vl-plus 走 max_tokens 档位——按真实网关验证过：两个字段名网关
+    // 都接受，选 max_tokens 匹配 Qwen 生态原生约定；旧手写客户端曾硬编码
+    // max_completion_tokens，只是没触发网关的宽容处理。
+    expect(body.max_tokens).toBe(1400);
+    expect(body.max_completion_tokens).toBeUndefined();
     expect(body.reasoning_effort).toBe("low");
     expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.messages[1].content[1]).toEqual({

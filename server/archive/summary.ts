@@ -1,5 +1,5 @@
 import { ENV } from "../_core/env";
-import { invokeAgent } from "../_core/agentChannel";
+import { hasStoryAgentCompute, invokeAgent } from "../_core/agentChannel";
 import type { ChatTurn, SummaryPayload } from "./storyAgent.types";
 
 // ── 历史压缩 ──
@@ -9,7 +9,7 @@ export async function summarizeHistory(params: {
   priorSummary?: string;
   turnsToAbsorb: ChatTurn[];
 }): Promise<SummaryPayload | { error: string; configured: boolean; modelLabel: string }> {
-  if (!ENV.forgeApiKey) {
+  if (!hasStoryAgentCompute()) {
     return {
       error: "本地未配置 LLM API Key，无法压缩历史。",
       configured: false,

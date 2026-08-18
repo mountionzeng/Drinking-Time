@@ -972,9 +972,15 @@ describe("storyAgent 收尾留线头 (U3：R10-R11)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 网关抖动韧性 · 临时失败自动重试 + 优雅兜底
 // 真实环境里 302 网关偶发 5xx/超时。旧实现把任何失败都抛成前端一句吞掉真实原因的
-// 「Agent 暂时没接上，再试一次？」并断掉对话。现在：通道层对临时错误自动重试一次；
+// 「Agent 暂时没接上，再试一次？」并断掉对话。现在：传输层对临时错误自动重试一次；
 // 仍失败则 replyFromStoryAgent 优雅兜底（configured:true + 一句聊聊口吻的「没接住」回复，
 // 不抛错、不断对话）。确定性错误（鉴权 401 等）不重试，免得白白拖慢真实报错。
+//
+// U2 起「重试一次」发生在 invokeLLM **内部**的 inferenceOrchestrator，不再由
+// invokeAgent 包一层——全仓只允许一条核心 retry 链。所以这里 mock 掉 invokeLLM
+// 就等于连重试一起 mock 掉了，本块只能断言「传输层已经用尽预算之后」storyAgent
+// 是否优雅兜底。重试次数、候选顺序和退避本身由
+// server/_core/inferenceOrchestrator.test.ts 覆盖。
 // ─────────────────────────────────────────────────────────────────────────────
 describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", () => {
   function isExtractionRequest(
@@ -994,38 +1000,36 @@ describe("storyAgent 网关抖动韧性 (临时失败重试 + 优雅兜底)", ()
     mockInvokeLLM.mockReset();
   });
 
-  it("临时失败（502）自动重试一次后成功，返回真实回复", async () => {
+  it("传输层重试成功后，回话原样返回真实回复", async () => {
     let replyAttempts = 0;
     mockInvokeLLM.mockImplementation(async input => {
       if (isExtractionRequest(input)) return makeAgentResponse();
       replyAttempts += 1;
-      if (replyAttempts === 1) {
-        throw new Error("LLM invoke failed: 502 Bad Gateway – upstream");
-      }
+      // invokeLLM 成功返回 = 传输层内部无论重试了几次，最终拿到了结果
       return makeAgentResponse("我在，你接着说");
     });
 
     const result = await replyFromStoryAgent({ message: "今天有点累" });
 
-    // B 改造后一轮正常 = 两次调用；这里回话先 502 重试一次才成功，故共 3 次
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(1 失败 + 1 重试) + 抽取(1)
-    expect(replyAttempts).toBe(2);
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
+    expect(replyAttempts).toBe(1);
     expect(result.configured).toBe(true);
     expect(result.reply).toBe("我在，你接着说");
   });
 
-  it("重试后仍失败 → 优雅兜底，不抛错、不断对话", async () => {
+  it("传输层用尽重试预算后 → 优雅兜底，不抛错、不断对话", async () => {
     let replyAttempts = 0;
     mockInvokeLLM.mockImplementation(async input => {
       if (isExtractionRequest(input)) return makeAgentResponse();
       replyAttempts += 1;
-      throw new Error("LLM invoke failed: 503 Service Unavailable");
+      // orchestrator 把 2 次尝试用完后抛出的形状
+      throw new Error("LLM invoke failed: openai-next/gpt-5.6-terra 503 (server_error)");
     });
 
     const result = await replyFromStoryAgent({ message: "今天有点累" });
 
-    expect(replyAttempts).toBe(2); // 1 次 + 1 次重试
-    expect(mockInvokeLLM).toHaveBeenCalledTimes(3); // 回话(2) + 并行抽取(1)
+    expect(replyAttempts).toBe(1); // invokeAgent 不再叠加第二条 retry 链
+    expect(mockInvokeLLM).toHaveBeenCalledTimes(2); // 回话(1) + 并行抽取(1)
     // configured 必须是 true：若返回 false 前端会误弹「接口还没配置模型 API」
     expect(result.configured).toBe(true);
     expect(result.modelLabel).toBe("请求失败");

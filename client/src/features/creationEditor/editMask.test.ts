@@ -1,20 +1,42 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  requiresStoryboardExactEditMask,
+  storyboardExactEditChangesPose,
+  storyboardExactEditMaskEligible,
   storyboardExactEditMaskPlan,
   STORYBOARD_0201_FIRST_SKIRT_MASK_PLAN,
   STORYBOARD_0201_LAST_SKIRT_MASK_PLAN,
 } from "./editMask";
 
 describe("storyboard exact edit mask", () => {
-  it("requires a mask for 0201 skirt edits", () => {
+  it("treats a 0201 skirt-only edit as mask eligible", () => {
     expect(
-      requiresStoryboardExactEditMask("把短裙改成及地长裙。", "0201")
+      storyboardExactEditMaskEligible("把短裙改成及地长裙。", "0201")
     ).toBe(true);
-    expect(requiresStoryboardExactEditMask("只把背景调亮。", "0201")).toBe(
+    expect(storyboardExactEditMaskEligible("只把背景调亮。", "0201")).toBe(
       false
     );
+  });
+
+  it("drops mask eligibility once the instruction moves the body", () => {
+    // 遮罩只重画腰线以下的像素，搬不动身体；这种指令必须走整帧编辑。
+    expect(
+      storyboardExactEditChangesPose(
+        "女主在该环境下旋转，裙子改成和图片1554一样的长裙"
+      )
+    ).toBe(true);
+    expect(
+      storyboardExactEditMaskEligible(
+        "女主在该环境下旋转，裙子改成和图片1554一样的长裙",
+        "0201"
+      )
+    ).toBe(false);
+    expect(
+      storyboardExactEditMaskPlan(
+        "女主在该环境下旋转，裙子改成和图片1554一样的长裙",
+        { cueCode: "0201", frameRole: "first" }
+      )
+    ).toBeUndefined();
   });
 
   it("uses a lower-body polygon for a skirt-length edit", () => {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13",
+  "updatedAt": "2026-08-14",
   "features": [
     {
       "id": "story-ownership",
@@ -18,19 +18,36 @@
       "evidence": [
         "server/routers.storyAgent.test.ts",
         "server/services/storyMaterials.test.ts",
-        "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md"
+        "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md",
+        "server/db.storyRevision.test.ts",
+        "server/db.localPersistenceFailure.test.ts",
+        "client/src/architecture-boundaries.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
         "不得使用 latest Story 作为写入回退。",
-        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。"
+        "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。",
+        "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。",
+        "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。"
       ],
       "dependencies": [],
       "replaces": [
         "legacy-project-scoped-shots"
       ],
-      "knownGaps": [],
+      "knownGaps": [
+        "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
+      ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U7：收窄跨 Story 缓存污染。shot.list 是唯一带 storyId 输入却被无参 invalidate() 的查询，4 个调用点（StoryAgentContext、CreationAgentContext、CreationPage、useAnalysisOrchestration）全部改为 invalidate({ storyId })；其中 3 处原本留着「按 storyId 后无差别失效（U5）」这类注释，把无参失效写成既定行为而非疏漏，因此改用会失败的静态守卫而不是再加一条注释。守卫按「先命中全部未收窄的 invalidate、再减去已核实不带 scope 输入的 5 个 procedure」实现，新增的带 scope 查询会直接让构建失败；已验证清空减法名单后确实能命中全部 5 个，且匹配器自身有断言锁定。同时修复跨身份缓存串数据：邀请码登录走 SPA 跳转、会话过期重定向也是 SPA，二者都不销毁 react-query 缓存，新身份首屏会读到上一身份缓存的 project.list/storyList/getProfile；改为在身份切换点清一次缓存（useAuth.refreshAfterIdentityChange）。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "U3：server/db.ts 的 persistMemoryState/persistMemoryStateToDisk 不再吞掉写盘失败——改用 LocalPersistenceWriteError 向调用方传播（全部约 55 处本地模式写入口受益），同时保留串行队列在单次失败后仍能继续为后续写入服务。updateStoryBodyIfRevision 的内存分支额外加按字段 copy-on-write 回滚（仅回滚仍等于本次写入值的字段，避免覆盖并发写入者已经合法生效的字段——深度审查发现并修复了最初实现里「整行快照覆盖」会误删并发写入的 P0 缺陷，已加两条回归测试锁定）。回滚保护范围仅限这一个函数，其余 53 处写函数的范围限制记入 knownGaps。"
+        },
         {
           "date": "2026-06-13",
           "kind": "feature",
@@ -45,6 +62,44 @@
           "date": "2026-08-13",
           "kind": "fix",
           "summary": "素材仓库后端停止聚合其他故事的视频，并在前端按当前 storyId 过滤全部 Take 来源。"
+        }
+      ]
+    },
+    {
+      "id": "project-ownership",
+      "name": "项目归属与访问控制",
+      "status": "working",
+      "userValue": "别人拿到你的项目 id 也读不到你的素材、分析和批注，也写不进你的项目。",
+      "entryPoints": [
+        "server/routers/_projectAccess.ts"
+      ],
+      "owners": [
+        "server/routers/_projectAccess.ts",
+        "server/routers/index.ts",
+        "server/routers/storyAgent.ts",
+        "server/routers/creationAgent.ts",
+        "server/db.ts"
+      ],
+      "evidence": [
+        "server/routers.projectOwnership.test.ts",
+        "server/routers.ownershipBoundaries.test.ts",
+        "server/routers.project.test.ts"
+      ],
+      "invariants": [
+        "凡是把 projectId 当作访问键读写数据的 procedure，都必须先用 getProjectById(projectId, userId) 校验归属；protectedProcedure 只证明「登录了」，不证明「是你的」。",
+        "projectId 仅作标签、归属由 storyId 或写入行的 userId 保证的 procedure，必须在 routers.ownershipBoundaries.test.ts 的豁免名单里带理由登记，不得静默豁免。"
+      ],
+      "dependencies": [],
+      "replaces": [],
+      "knownGaps": [
+        "storyAgent.selectionEdit/classify/storyUpsert 与 index.saveBirthProfile 仍把 projectId 当标签用：传别人的 projectId 只会给自己的行打错标签，不构成越权读写，但数据完整性上仍是瑕疵，未收敛。豁免已在 routers.ownershipBoundaries.test.ts 逐条登记理由。",
+        "/api/images/:file 与 /local-images 静态挂载完全不鉴权（同文件里 /api/videos/:file 却做了鉴权+归属校验），靠文件名猜测难度兜底，属弱密钥 URL 而非访问控制。本轮范围外，另开条目处理。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "补齐项目级水平越权防护。projects 表有 userId，但 protectedProcedure 只验登录不验归属。第一批修了 6 个以 projectId 为访问键的 procedure：reference.list/upload、analysis.get/run、editContext.saveSnapshot/getRecentAnnotations——任何登录用户传别人的 projectId 就能读到其素材、分析、批注，或往其项目里写引用和快照。深度安全审查随后证明第一版并不完整：storyAgent.chat/mobileChat 把 projectId 传进 getRecentAnnotations、creationAgent.chat/generateNextImage/inpaint 传进 renderGate 的编辑偏好与聊天修正查询，这些底层读取只按 projectId 过滤——同一批数据经兄弟接口仍可跨账号读出，并进入攻击者的模型上下文/出图提示词。审查方用可复现探针实证了这条路径。已补齐这 5 个（外加 reassignImage 显式补一道），统一走 _projectAccess.ts 的 assertProjectOwner/assertOptionalProjectOwner。更严重的是第一版静态守卫的豁免名单把这 5 个错误地认证为「projectId 仅作标签」——一个把漏洞写成安全的守卫比没有守卫更糟，已删除并只保留 4 条经逐条追踪确认的豁免。测试：11 条拒绝/正向路径 + 3 条静态边界断言，全部用「去掉守卫必须失败」验证过；守卫改为 fail-closed，publicProcedure 收 projectId 一律违规、不可豁免，且要求校验调用真的带上 ctx.user.id（不再接受字符串出现即通过）。"
         }
       ]
     },
@@ -115,10 +170,14 @@
         "server/services/imageAssets.ts"
       ],
       "owners": [
+        "client/src/features/creationEditor/rerender.ts",
+        "server/routers/storyAgent.ts",
         "server/services/imageAssets.ts",
         "server/services/storyMaterials.ts"
       ],
       "evidence": [
+        "client/src/features/creationEditor/rerender.test.ts",
+        "server/routers.storyAgent.test.ts",
         "server/services/imageAssets.test.ts"
       ],
       "invariants": [
@@ -136,6 +195,11 @@
           "date": "2026-06-13",
           "kind": "feature",
           "summary": "统一图片资产查询、候选和采用语义。"
+        },
+        {
+          "date": "2026-08-18",
+          "kind": "fix",
+          "summary": "故事版四候选重渲明确保持未采用，单图精确重渲由服务端执行一次显式采用；删除客户端重复 promote，避免候选静默覆盖和重复写入采用信号。"
         }
       ]
     },
@@ -181,7 +245,7 @@
     {
       "id": "single-dev-environment",
       "name": "单一开发服务与数据隔离",
-      "status": "broken",
+      "status": "working",
       "userValue": "所有本地页面读取同一份故事数据，避免多 worktree 数据分裂。",
       "entryPoints": [
         "scripts/env-status.ts",
@@ -190,21 +254,25 @@
       "owners": [
         "scripts/env-status.ts",
         "scripts/dev-preflight.ts",
+        "server/_core/devServerPreflight.ts",
+        "server/_core/portPolicy.ts",
         "server/db.ts"
       ],
       "evidence": [
-        "scripts/env-status.test.ts"
+        "scripts/env-status.test.ts",
+        "scripts/dev-preflight.test.ts",
+        "server/_core/portPolicy.test.ts",
+        "command:pnpm env:check"
       ],
       "invariants": [
         "只有主仓库可运行端口 3000。",
+        "worktree 只用于修改代码，不运行 dev/preview server，也不保存业务持久化文件。",
+        "环境状态无法确认时，严格门禁必须失败关闭且不得自动清理数据。",
         "测试必须使用临时 LOCAL_PERSIST_PATH。"
       ],
       "dependencies": [],
       "replaces": [],
-      "knownGaps": [
-        "login-copy-refer worktree 正在端口 3050 运行第二个 dev server，违反单一服务铁律。",
-        "当前 5 个 worktree 含 local-persist.json，存在数据分裂风险。"
-      ],
+      "knownGaps": [],
       "history": [
         {
           "date": "2026-06-12",
@@ -225,6 +293,16 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "env:status 发现 login-copy-refer 在端口 3050 运行第二个服务，实际环境已违反单一服务约束；按自动化限制只报告，未停止进程。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "新增 fail-closed env:check，监听或业务数据采集不完整时阻断；predev 只终止二次核验通过的主仓进程组，并等待整个进程组退出。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "环境规则测试与真实 env:check 通过：主仓仅有端口 3000 服务，其他 worktree 不含业务持久化文件。"
         }
       ]
     },
@@ -266,13 +344,14 @@
     {
       "id": "publishing-workspace",
       "name": "个人社交发布工作台",
-      "status": "working",
+      "status": "observing",
       "userValue": "把同一个故事整理成多个平台文字稿并管理封面与后续视频入口。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
       ],
       "owners": [
         "server/routers/publishingDraft.ts",
+        "server/services/publishingDraft.ts",
         "shared/publishingDraft.ts",
         "server/services/imageGen.ts",
         "server/services/staticImageQualityGate.ts",
@@ -282,6 +361,8 @@
       "evidence": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.test.tsx",
         "server/routers.publishingDraft.test.ts",
+        "server/services/publishingDraft.test.ts",
+        "server/services/publishingPersistence.test.ts",
         "server/services/imageGen.test.ts",
         "server/services/staticImageQualityGate.test.ts",
         "client/src/features/publishingDraft/publishingCoverGenerationState.test.ts"
@@ -296,7 +377,9 @@
         "供应商失败必须保留 error.cause，断连不得被误判为不可恢复。",
         "改写供应商失败文案时必须转发 providerTaskId 与 submissionUncertain，不得把可能已扣费的提交呈现为安全重试。",
         "原文未明写的人物外观属于美术空缺，用户对外观的指定优先于模型默认想象。",
-        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。"
+        "像素质检不可用必须显式标记，不得让「未检查」等同于「检查通过」。",
+        "首次生成、转换、改写和格式修复必须绑定 Story/version/revision scope；已完成同 token 请求不得重复调用模型。",
+        "人工标题不能被转换、改写、格式修复或无效标题结果清空。"
       ],
       "dependencies": [
         "story-ownership",
@@ -304,9 +387,31 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "尚未完成版本、意图、封面和视频故事版统一生命周期的真实 UI 全链路验收。",
+        "四类文字操作的 scope、持久 receipt、候选保护和格式入口已接入，但尚未完成可点击 DOM 交互、冲突恢复及 reload 证据。",
         "极速备用通道实跑 flux-schnell，估价却复用 gpt-image-1.5 的 token 算法（¥1.49），需要 302 后台的真实单价才能标定。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "审查修复：版本重命名失败会保留编辑框；历史 carry receipt 只可恢复提交时的同一草稿，不能移动之后重新编辑的同内容 buffer。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 将版本栏、意图提案、dirty 草稿处置和小红书/抖音语境入口接入同一工作区；实时趋势仍显式按用户操作触发，provider 失败不替换旧标签。真实 main:3000 全链路尚未验收，因此保持 observing。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "统一首次生成、转换、改写和格式修复的版本作用域与字段策略；增加 pending/completed/failed 持久文字操作回执、完成重放、已有目标候选保护、人工标题保留和本地格式修复入口。真实交互仍待 U6/U9 验收，因此保持 observing。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：保留六平台隔离、人工标题保护、四图候选与付费恢复等表征证据，但不再用分层测试冒充真实 UI 全链路可用。"
+        },
         {
           "date": "2026-08-05",
           "kind": "feature",
@@ -377,7 +482,7 @@
     {
       "id": "publishing-versions",
       "name": "发布文字稿版本",
-      "status": "working",
+      "status": "observing",
       "userValue": "核心内容变化创建新版本，旧文字稿、封面和视频交接不会被覆盖。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx"
@@ -389,18 +494,63 @@
       ],
       "evidence": [
         "shared/publishingDraft.test.ts",
-        "server/routers.publishingDraft.test.ts"
+        "server/routers.publishingDraft.test.ts",
+        "shared/scopedResource.test.ts",
+        "client/src/features/creationEditor/publishingHandoffScope.test.ts",
+        "server/services/publishingPersistence.test.ts",
+        "server/services/storyBodyPersistence.test.ts"
       ],
       "invariants": [
         "V2 写入不得改变 V1。",
-        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。"
+        "版本操作通过预期 revision 和幂等 receipt 防止重复或丢更新。",
+        "versions[] 是发布内容的唯一持久权威，顶层字段只能由活动版本派生。",
+        "核心变化只能提出版本转换，不能原地改写当前版本。"
       ],
       "dependencies": [
         "publishing-workspace"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "版本重命名已有工作区入口，但真实 main:3000 交互与失败重试仍待验收。",
+        "底层 committed receipt 与本地 buffer 恢复握手已接入 hydrate/loadStory；版本切换带草稿仍是 server select 与 local buffer 两步，尚无跨端原子提交。",
+        "版本转换 CAS 冲突目前仍由调用方重新读取最新 projection，统一冲突响应将在工作区作用域接入时完成。"
+      ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "审查修复：用途提案提交期间以共享 proposal lock 禁用聊天 inline 与工作区 dialog 的接受/拒绝，迟到版本创建响应不能反向确认或清空另一条提案。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 增加可见版本重命名、稳定 token/hash 的切换与创建、dirty 草稿留在当前/带到目标/取消三选，并在刷新与云端加载时按 committed receipt 幂等恢复 carry buffer；仍保持 observing。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "修复 canonicalAuthority 建立前的兼容投影遗漏：旧顶层稿件并入 V1 时同步保留当前平台和已选平台，避免 reload 后从 X 跳回默认小红书；canonicalAuthority=versions 后仍只信版本权威。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "完成 canonical versions 单一新写、原子版本转换回执、token+payload 幂等校验、carry buffer key/hash 握手和 confirmCoreChange 零写入；底层定向测试通过，真实 UI 仍待接入，因此保持 observing。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "fix",
+          "summary": "U3：publishing 写入唯一经过的 story body CAS 入口（updateStoryBodyIfRevision）现在对本地磁盘写失败有可观察、可传播的语义，writePublishingDraftState 的 try/catch 只转译 revision 冲突、原样透传磁盘失败，不再有静默丢更新的风险。version/platform 级 revision 校验（assertRevision）本身不受影响，本卡 knownGaps 未变。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "refactor",
+          "summary": "U2：新增 shared/scopedResource.ts（ScopeKey/ScopedRevision/领域命令信封合同），为 shared/publishingDraft.ts 追加 publishingVersionScopeKey/publishingVersionScopedRevision 纯访问器，publishingHandoffScope.ts 改用共享 scopeKeysEqual 替代手写 storyId 比较。只固定类型/解析/静态边界合同，不改变现有 writer 行为；本卡 knownGaps 不受影响，留给 U3 处理。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：CAS、幂等 receipt 和 V1/V2 隔离已有表征，但核心变化、重命名入口及 buffer 握手仍待修复和验收。"
+        },
         {
           "date": "2026-08-06",
           "kind": "feature",
@@ -416,7 +566,7 @@
     {
       "id": "publishing-narrative-intent",
       "name": "版本化用途与受众识别",
-      "status": "working",
+      "status": "observing",
       "userValue": "系统知道用户为什么写、写给谁，并让不同用途版本互不覆盖。",
       "entryPoints": [
         "server/archive/storyIntent.ts",
@@ -424,11 +574,14 @@
       ],
       "owners": [
         "server/archive/storyIntent.ts",
-        "shared/publishingDraft.ts"
+        "shared/publishingDraft.ts",
+        "shared/storyIntentProfile.ts"
       ],
       "evidence": [
         "server/archive/storyIntent.test.ts",
-        "shared/publishingDraft.test.ts"
+        "shared/publishingDraft.test.ts",
+        "shared/storyIntentProfile.test.ts",
+        "client/src/features/storyAgent/StoryAgentContext.intentRecognition.test.tsx"
       ],
       "invariants": [
         "用途与平台是不同维度。",
@@ -439,9 +592,31 @@
       ],
       "replaces": [],
       "knownGaps": [
+        "共享 profile、proposal 与活动版本 snapshot 权威已建立，聊天与发布工作区已复用同一提案组件；确认后的多状态持久化仍缺真实 main:3000 全链路验收。",
+        "切换用途与受众后的命名、dirty buffer 选择、生成状态和刷新恢复仍缺真实 UI 全链路验收。",
         "实时社交媒体趋势适配不在当前可运行能力内。"
       ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "审查修复：平台热点刷新和标签保存按请求编号释放 busy 状态，旧版本的迟到请求不能解除新版本请求的互斥。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "U6 让聊天端使用 inline、发布工作区使用 dialog，但共享同一意图提案对比与接受/拒绝语义；接受发布用途变化时写入新版本，proposal 的展示时间保持稳定，提交时才生成更新时间。"
+        },
+        {
+          "date": "2026-08-15",
+          "kind": "fix",
+          "summary": "自动识别收敛为非权威 proposal，V1 前使用 pre-version profile，V1 后由活动版本 intent snapshot 解析；接受实质意图变化只产生版本转换，真实双入口交互仍待完成。"
+        },
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：用途与平台分离已有表征，但三份意图状态尚未统一为版本快照权威。"
+        },
         {
           "date": "2026-08-09",
           "kind": "feature",
@@ -480,8 +655,16 @@
         "story-ownership"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "writeStoryTitle 的数据库分支（drizzle UPDATE 的条件 WHERE 组装）没有测试执行过：仓库里全部测试都强制 DATABASE_URL=\"\" 跑内存分支，这是项目级既有状况、非本次引入。两条不变量目前只在内存分支有测试证据；数据库分支的等价性是靠审查逐条比对 drizzle and() 源码确认的（空条件展开不会让 WHERE 丢失或放宽），不是靠测试保证。",
+        "内存分支用 JS .trim() 判占位标题、数据库分支用 MySQL TRIM()，前者会去掉 \\n/\\t/全角空格而后者不会，因此形如「未命名\\n」的标题在两种模式下判定不同。此分歧在合并前就存在，合并成一个函数后更容易被误当成单一行为，故登记。"
+      ],
       "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "refactor",
+          "summary": "U8：updateStoryTitle 与 updateStoryTitleIfUntitled 合并为唯一直写入口 writeStoryTitle({id,userId,title,onlyIfUntitled})。两者原先只差「标题是否占位名」这一个谓词，却各自复制了所有权校验、内存/数据库双分支与返回值语义。两条不变量（自动标题只能替换未命名标题、改名不重写 body）行为不变，且判定仍在存储写入本身完成（内存查 row.title、数据库进 WHERE），不依赖调用方先读后写。"
+        },
         {
           "date": "2026-08-09",
           "kind": "feature",
@@ -497,7 +680,7 @@
     {
       "id": "publishing-video-storyboard",
       "name": "文字稿转确认式视频故事版",
-      "status": "working",
+      "status": "observing",
       "userValue": "将完整发布文字稿转成可检查剧本和镜头，确认后再写入正式故事版。",
       "entryPoints": [
         "client/src/features/publishingDraft/PublishingVideoScriptReview.tsx"
@@ -526,8 +709,17 @@
         "text-compute-provider-routing"
       ],
       "replaces": [],
-      "knownGaps": [],
+      "knownGaps": [
+        "尚未完成从版本文字稿预览、影响分析、确认到刷新恢复的真实 UI 全链路验收。",
+        "Story body 与外部资产/材料索引跨存储写入缺少 staged record、指针 CAS 和幂等对账边界。",
+        "旧封面占位镜头与正式版本级封面来源仍需更完整的历史数据兼容盘点。"
+      ],
       "history": [
+        {
+          "date": "2026-08-14",
+          "kind": "verification",
+          "summary": "生命周期收敛前降为 observing：preview 无正式副作用和 confirm CAS 已有表征，跨存储边界与真实 UI 生命周期仍待验收。"
+        },
         {
           "date": "2026-08-08",
           "kind": "feature",
@@ -707,13 +899,16 @@
       "status": "working",
       "userValue": "所有静态图片遵循一致美术和安全规则，同时由故事决定具体内容与色彩。",
       "entryPoints": [
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx",
         "server/services/renderGate.ts"
       ],
       "owners": [
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.ts",
         "server/services/renderGate.ts",
         "server/services/imageGen.ts"
       ],
       "evidence": [
+        "client/src/features/storyAgent/views/storyboardImageRenderPlan.test.ts",
         "server/services/renderGate.test.ts",
         "server/services/imageGen.test.ts"
       ],
@@ -746,6 +941,11 @@
           "date": "2026-08-14",
           "kind": "verification",
           "summary": "统一静态图提示词、封面专用编译、故事版风格继承与候选采用保护已收敛到 main，并通过类型检查、功能账本校验和全量测试。"
+        },
+        {
+          "date": "2026-08-18",
+          "kind": "fix",
+          "summary": "故事版精确重渲会解析用户点名的图片编号、按实际发送顺序声明多图职责并限制上下文数量；动作要求不再被固定姿态或局部遮罩覆盖，参考图缺失时在付费提交前阻止请求。"
         }
       ]
     },
@@ -893,25 +1093,49 @@
     {
       "id": "realtime-social-context",
       "name": "实时社交媒体语境适配",
-      "status": "planned",
+      "status": "observing",
       "userValue": "根据实时平台语境帮助用户调整表达，而不只是识别用途和受众。",
-      "entryPoints": [],
-      "owners": [],
+      "entryPoints": [
+        "server/routers/publishingDraft.ts"
+      ],
+      "owners": [
+        "shared/publishingPlatformContext.ts",
+        "server/services/platformTrends/provider.ts",
+        "server/services/platformTrends/registry.ts",
+        "server/services/publishingPlatformContext.ts",
+        "server/routers/publishingDraft.ts"
+      ],
       "evidence": [
-        "docs/brainstorms/2026-08-05-publishing-draft-workspace-requirements.md"
+        "docs/brainstorms/2026-08-05-publishing-draft-workspace-requirements.md",
+        "shared/publishingPlatformContext.test.ts",
+        "server/services/platformTrends/provider.test.ts",
+        "server/services/publishingPlatformContext.test.ts",
+        "server/services/publishingPersistence.test.ts",
+        "server/routers.publishingDraft.test.ts"
       ],
       "invariants": [
         "不得把静态用途识别冒充实时趋势能力。",
-        "外部信息来源和成本必须显式。"
+        "外部信息来源和成本必须显式。",
+        "未通过官方或合同授权、来源时间、TTL 和 parser 校验时必须 fail closed。",
+        "模型或相关性排序器只能选择 provider 已返回的候选 ID，不能补造热点。",
+        "平台语境快照必须绑定版本、平台和来源稿 revision；V2 不继承 V1 快照。"
       ],
       "dependencies": [
         "publishing-narrative-intent"
       ],
       "replaces": [],
       "knownGaps": [
-        "尚未发现可执行数据源、刷新策略或生成入口。"
+        "小红书和抖音目前都没有已核验、已授权的真实趋势 adapter，默认 provider 因此保持 unavailable。",
+        "真实工作区的显式打开/刷新、候选选择和状态展示要到 U6 接入；当前没有用户可点击入口。",
+        "尚缺授权来源的脱敏真实响应、限流/熔断校准和 main:3000 reload 验收，因此不能标 working。"
       ],
-      "history": []
+      "history": [
+        {
+          "date": "2026-08-15",
+          "kind": "feature",
+          "summary": "建立默认 unavailable 的小红书/抖音趋势 provider、严格授权与时间/schema 门禁、候选 ID 相关性边界、10 秒 provider 超时、统一候选/标签规范化、版本/平台不可变快照和显式标签选择持久化；没有合格来源与真实 UI，保持 observing。"
+        }
+      ]
     }
   ]
 }

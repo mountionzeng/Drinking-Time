@@ -11,7 +11,16 @@ import {
   resolvePublishingActiveVersion,
 } from "../../shared/publishingDraft";
 import {
+  allocateShotDurations,
+  fitBudgetToBeats,
+  isNarrativeSpecId,
+  planRhythmBudget,
+  rhythmProfileFromIntent,
+  type NarrativeSpecId,
+} from "../../shared/narrativeRhythm";
+import {
   canonicalizePublishingVideoParagraphs,
+  isPublishingVideoBeat,
   emptyPublishingVideoStoryboardAggregate,
   publishingVideoContentHash,
   validatePublishingVideoPreview,
@@ -476,6 +485,7 @@ async function failPreviewOperation(input: {
 export async function generateAndPersistPublishingVideoPreview(input: {
   storyId: number;
   userId: number;
+  narrativeSpec?: NarrativeSpecId;
   operationToken?: string;
   versionId?: string;
   now?: number;
@@ -521,6 +531,10 @@ export async function generateAndPersistPublishingVideoPreview(input: {
       platform: claim.context.version.activePlatform,
       core: claim.context.core,
       narrativeIntent: claim.context.version.narrativeIntent,
+      // 规格决定镜头总数区间与单镜区间，模型据此改编而非逐段转写。
+      // 本次传入的优先于 version 上的存量值 —— 用户刚在小界面选的就该立刻生效。
+      narrativeSpec:
+        input.narrativeSpec ?? claim.context.version.narrativeSpec,
       coverVisualDescription: claim.context.core?.visualConcept ?? null,
       now,
     });
@@ -546,6 +560,8 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
   userId: number;
   versionId?: string;
   operationToken?: string;
+  /** 用户在「进入视频制作」时选的规格；不传则沿用 version 上已存的 */
+  narrativeSpec?: NarrativeSpecId;
   now?: number;
   generate?: typeof generatePublishingVideoStoryboardPreview;
 }): Promise<PublishingVideoBuildResult> {
@@ -567,6 +583,7 @@ export async function generateAndConfirmPublishingVideoStoryboard(input: {
     userId: input.userId,
     versionId: generated.preview.source?.versionId ?? input.versionId ?? "",
     previewId: generated.preview.previewId,
+    narrativeSpec: input.narrativeSpec,
     operationToken: `${operationToken}:confirm`,
     now: input.now,
   });
@@ -637,6 +654,44 @@ function confirmedShotSnapshot(
   return { ...structuredClone(shot), stableShotId };
 }
 
+/**
+ * 按整片预算给确认后的镜头分配时长。
+ *
+ * 规格缺省按 30 秒档 —— 用户还没被问过时不该阻塞生成。意图识别不出来时
+ * rhythmProfileFromIntent 会退回中性基线，同样不阻塞。
+ */
+function planConfirmedShotDurations(input: {
+  shots: ReadonlyArray<{ beat?: string }>;
+  narrativeSpec?: unknown;
+  narrativeIntent?: { primaryPurpose?: unknown; tone?: unknown } | null;
+}): Array<number | null> {
+  const specId = isNarrativeSpecId(input.narrativeSpec)
+    ? input.narrativeSpec
+    : "video30";
+  const profile = rhythmProfileFromIntent({
+    primaryPurpose: (input.narrativeIntent?.primaryPurpose ?? null) as never,
+    tone:
+      typeof input.narrativeIntent?.tone === "string"
+        ? input.narrativeIntent.tone
+        : null,
+  });
+  const beats = input.shots.map((shot, index) =>
+    isPublishingVideoBeat(shot.beat)
+      ? shot.beat
+      : index === 0
+        ? "开场"
+        : index === input.shots.length - 1
+          ? "收束"
+          : "起势"
+  );
+  const budget = fitBudgetToBeats(planRhythmBudget(specId, profile), beats);
+  if (budget.mode === "album") return input.shots.map(() => null);
+  // 段落没有情绪标注时，segmentWeight 会退化为等权 —— 仍能排出合规节奏
+  return allocateShotDurations(budget, beats, beats.map(() => undefined)).map(
+    plan => plan.durationMs
+  );
+}
+
 function formalShotFromPreview(input: {
   shot: PublishingVideoStoryboardShot;
   stableShotId: string;
@@ -645,17 +700,22 @@ function formalShotFromPreview(input: {
   sourcePlatform: string;
   groupId: string;
   confirmedRevision: number;
+  /** 由节奏引擎按整片预算算出；缺省时留给 storyboardTiming 用默认值 */
+  durationMs?: number | null;
 }): Record<string, unknown> {
   return {
     stableShotId: input.stableShotId,
     shotIdentity: input.stableShotId,
     shotNo: input.shotNo,
+    ...(typeof input.durationMs === "number"
+      ? { durationMs: input.durationMs }
+      : {}),
     subject: input.shot.subject || "按剧本呈现主体",
     action: input.shot.action || "按剧本完成动作",
     scriptText: input.shot.scriptText,
     dialogue: input.shot.voiceText,
     shotType: "剧本镜头",
-    beat: "正文推进",
+    beat: input.shot.beat ?? "正文推进",
     cameraAngle: "",
     cameraMove: "",
     location: "",
@@ -790,6 +850,8 @@ export async function confirmPublishingVideoStoryboard(input: {
   userId: number;
   versionId: string;
   previewId: string;
+  /** 必须与生成时用的规格一致，否则会出现「按 10 秒出镜头、按 30 秒分时长」 */
+  narrativeSpec?: NarrativeSpecId;
   operationToken?: string;
   now?: number;
 }): Promise<PublishingVideoConfirmationResult> {
@@ -949,6 +1011,15 @@ export async function confirmPublishingVideoStoryboard(input: {
       usedStableIds.add(stableShotId);
       return confirmedShotSnapshot(shot, stableShotId);
     });
+    // 整片节奏：按目标规格 + 已识别意图算出每镜时长。
+    // 这里是「文字 → 影视」这一跳唯一持有整片视角的地方 —— 逐镜独立判断
+    // 得不到总时长，只有在这儿一次性分配才谈得上节奏。
+    const rhythmDurations = planConfirmedShotDurations({
+      shots: confirmedShots,
+      narrativeSpec: input.narrativeSpec ?? context.version.narrativeSpec,
+      narrativeIntent: context.version.narrativeIntent,
+    });
+
     const formalConfirmed = confirmedShots.map((shot, index) => {
       const generated = formalShotFromPreview({
         shot,
@@ -959,6 +1030,7 @@ export async function confirmPublishingVideoStoryboard(input: {
           preview.source?.platform ?? context.version.activePlatform,
         groupId,
         confirmedRevision,
+        durationMs: rhythmDurations[index],
       });
       const previous = previousByDraftShotId.get(shot.draftShotId);
       const current = previous?.stableShotId

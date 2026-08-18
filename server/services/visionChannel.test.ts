@@ -55,7 +55,8 @@ describe("visionChannel", () => {
     });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer test-next-key");
+    // orchestrator 统一用小写 header 名（HTTP 头本身大小写不敏感）
+    expect(init.headers.authorization).toBe("Bearer test-next-key");
     expect(JSON.parse(String(init.body)).model).toBe("qwen3-vl-plus");
   });
 
@@ -77,6 +78,6 @@ describe("visionChannel", () => {
 
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.302.ai/v1/chat/completions");
-    expect(init.headers.Authorization).toBe("Bearer test-302-vision-key");
+    expect(init.headers.authorization).toBe("Bearer test-302-vision-key");
   });
 });

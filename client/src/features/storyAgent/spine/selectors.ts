@@ -114,6 +114,8 @@ export type StoryAgentChatSlice = {
   returningGreeting: string | null;
   confirmedIntent: StorySpineState["confirmedIntent"];
   pendingIntentDraft: StorySpineState["pendingIntentDraft"];
+  pendingIntentCommitProposalId: StorySpineState["pendingIntentCommitProposalId"];
+  publishing: StorySpineState["publishing"];
   activeSelection: SelectionState | null;
 };
 
@@ -134,6 +136,8 @@ export function selectStoryAgentChatSlice(
     returningGreeting: state.returningGreeting,
     confirmedIntent: state.confirmedIntent,
     pendingIntentDraft: state.pendingIntentDraft,
+    pendingIntentCommitProposalId: state.pendingIntentCommitProposalId,
+    publishing: state.publishing,
     activeSelection: state.activeSelection,
   };
 }

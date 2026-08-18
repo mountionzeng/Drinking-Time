@@ -19,6 +19,7 @@ process.env.LOCAL_PERSIST_PATH = path.join(tempDir, "local-persist.json");
 
 const db = await import("../db");
 const persistence = await import("./storyBodyPersistence");
+const publishingPersistence = await import("./publishingPersistence");
 
 describe("story body persistence boundary", () => {
   beforeEach(() => {
@@ -102,5 +103,76 @@ describe("story body persistence boundary", () => {
       _revision: 3,
       value: "competitor",
     });
+  });
+
+  it("lets a title rename and a publishing V2 draft edit on the same Story both persist without either clobbering the other", async () => {
+    // Plan's U3 "Integration" test scenario: two tabs, one editing the
+    // title, one editing a publishing platform draft, concurrently. title
+    // lives in a dedicated DB column (server/db.ts:writeStoryTitle) and
+    // publishing lives inside the CAS-protected body
+    // (writePublishingDraftState -> persistPreparedStoryBody). These two
+    // writers touch disjoint columns, so neither's CAS/lack-of-CAS should
+    // cause the other's change to be lost.
+    const { id } = await db.createStory({
+      userId: 30,
+      title: "未命名",
+      body: { _revision: 0, shots: [] },
+    });
+
+    await Promise.all([
+      db.writeStoryTitle({
+        id,
+        userId: 30,
+        title: "Renamed While Publishing",
+      }),
+      publishingPersistence.writePublishingDraftState({
+        storyId: id,
+        userId: 30,
+        operation: {
+          type: "initialize",
+          activePlatform: "xiaohongshu",
+          selectedPlatforms: ["xiaohongshu"],
+          core: {
+            facts: ["事实"],
+            thesis: "判断",
+            emotion: "克制",
+            voiceTraits: ["直接"],
+            visualConcept: "一个居中的人物",
+          },
+          content: { title: "", body: "V2 平台稿", tags: [] },
+          basePublishingRevision: 0,
+        },
+      }),
+    ]);
+
+    const story = await db.getStoryById(id, 30);
+    expect(story?.title).toBe("Renamed While Publishing");
+    const publishing = await publishingPersistence.getPublishingDraftState(
+      id,
+      30
+    );
+    expect(publishing.publishing.drafts.xiaohongshu?.content.body).toBe(
+      "V2 平台稿"
+    );
+  });
+
+  it("propagates a local persistence write failure unchanged, not as a revision conflict", async () => {
+    const { id } = await db.createStory({
+      userId: 23,
+      title: "disk failure",
+      body: { _revision: 1, shots: [], value: "base" },
+    });
+    vi.spyOn(db, "updateStoryBodyIfRevision").mockRejectedValueOnce(
+      new db.LocalPersistenceWriteError("/tmp/fake-path.json", new Error("ENOSPC"))
+    );
+
+    await expect(
+      persistence.persistPreparedStoryBody({
+        storyId: id,
+        userId: 23,
+        expectedRevision: 1,
+        body: { _revision: 2, shots: [], value: "should-not-land" },
+      })
+    ).rejects.toMatchObject({ name: "LocalPersistenceWriteError" });
   });
 });

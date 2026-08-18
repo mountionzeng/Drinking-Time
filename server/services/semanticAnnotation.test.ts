@@ -6,24 +6,65 @@ import { ENV } from '../_core/env';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-vi.mock('../_core/llm', () => ({
-  invokeLLM: vi.fn(),
-}));
-
 vi.mock('../db', () => ({
   createSemanticAnnotation: vi.fn(),
 }));
 
-import { invokeLLM } from '../_core/llm';
 import { createSemanticAnnotation } from '../db';
 
-const mockInvokeLLM = vi.mocked(invokeLLM);
 const mockCreateAnnotation = vi.mocked(createSemanticAnnotation);
 const originalOpenAINext = {
   apiKey: ENV.openaiNextApiKey,
   baseUrl: ENV.openaiNextBaseUrl,
   textModel: ENV.openaiNextTextModel,
+  api302Key: ENV.api302Key,
+  api302BaseUrl: ENV.api302BaseUrl,
+  llmModel: ENV.llmModel,
 };
+
+const NEXT_URL = 'https://api.openai-next.com/v1/chat/completions';
+const LEGACY_URL = 'https://api.302.ai/v1/chat/completions';
+
+/**
+ * 这个服务不再有 `invokeLLM` 这个接缝——供应商选择和网络执行都归
+ * inferenceOrchestrator。因此这里改在真正的传输层（fetch）打桩，顺带把
+ * 实际发出的 payload 也纳入断言范围。
+ */
+function stubTransport(
+  responder: (index: number) => unknown | Promise<unknown>
+) {
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    const index = calls.length;
+    calls.push({ url: String(url), init: init ?? {} });
+    const body = await responder(index);
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return calls;
+}
+
+function stubTransportFailure(status = 500) {
+  const calls: Array<{ url: string }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string | URL) => {
+      calls.push({ url: String(url) });
+      return new Response(JSON.stringify({ error: {} }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    })
+  );
+  return calls;
+}
+
+function sentBody(init: RequestInit): Record<string, unknown> {
+  return JSON.parse(String(init.body));
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -73,28 +114,32 @@ describe('generateAnnotation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetCircuitBreaker();
+    // 默认「Next 未配置」，让回退通道成为被测路径；需要 Next 的用例自行打开。
     ENV.openaiNextApiKey = '';
     ENV.openaiNextBaseUrl = 'https://api.openai-next.com';
     ENV.openaiNextTextModel = 'gpt-5.6-terra';
+    ENV.api302Key = 'test-302-key';
+    ENV.api302BaseUrl = 'https://api.302.ai';
+    ENV.llmModel = 'legacy-text-model';
   });
 
   afterEach(() => {
-    ENV.openaiNextApiKey = originalOpenAINext.apiKey;
-    ENV.openaiNextBaseUrl = originalOpenAINext.baseUrl;
-    ENV.openaiNextTextModel = originalOpenAINext.textModel;
+    Object.assign(ENV, {
+      openaiNextApiKey: originalOpenAINext.apiKey,
+      openaiNextBaseUrl: originalOpenAINext.baseUrl,
+      openaiNextTextModel: originalOpenAINext.textModel,
+      api302Key: originalOpenAINext.api302Key,
+      api302BaseUrl: originalOpenAINext.api302BaseUrl,
+      llmModel: originalOpenAINext.llmModel,
+    });
     vi.unstubAllGlobals();
   });
 
   it('routes semantic annotation through OpenAI Next when configured', async () => {
     ENV.openaiNextApiKey = 'test-next-key';
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () =>
-        makeLLMResponse(['修改了故事文字'], ['偏好更克制的表达']),
-      text: async () => '',
-    });
-    vi.stubGlobal('fetch', fetchMock);
+    const calls = stubTransport(() =>
+      makeLLMResponse(['修改了故事文字'], ['偏好更克制的表达'])
+    );
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
 
     const result = await generateAnnotation({
@@ -105,19 +150,38 @@ describe('generateAnnotation', () => {
     });
 
     expect(result.status).toBe('active');
-    expect(mockInvokeLLM).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://api.openai-next.com/v1/chat/completions',
-    );
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      'Bearer test-next-key',
-    );
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(NEXT_URL);
+    expect(
+      (calls[0].init.headers as Record<string, string>).authorization
+    ).toBe('Bearer test-next-key');
+
+    const body = sentBody(calls[0].init);
     expect(body.model).toBe('gpt-5.6-terra');
     expect(body.max_completion_tokens).toBe(1024);
     expect(body.reasoning_effort).toBe('low');
     expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('falls back to the 302 gateway when Next is not configured', async () => {
+    const calls = stubTransport(() => makeLLMResponse(['改了标题'], []));
+    mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
+
+    const result = await generateAnnotation({
+      diff: makeDiff(),
+      snapshotId: 10,
+      previousSnapshotId: 5,
+      previousAnnotations: [],
+    });
+
+    expect(result.status).toBe('active');
+    expect(calls[0].url).toBe(LEGACY_URL);
+    const body = sentBody(calls[0].init);
+    expect(body.model).toBe('legacy-text-model');
+    // 未登记的旧模型只收最小兼容字段，不会被塞进 Next 档位的参数
+    expect(body.max_tokens).toBe(1024);
+    expect(body.max_completion_tokens).toBeUndefined();
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   it('returns LLM-generated annotation on success', async () => {
@@ -126,8 +190,8 @@ describe('generateAnnotation', () => {
       inferredPreferences: JSON.stringify(['倾向于克制的情感表达']),
       status: 'active',
     });
-    mockInvokeLLM.mockResolvedValueOnce(
-      makeLLMResponse(['删除了 2 张卡片'], ['倾向于克制的情感表达']),
+    stubTransport(() =>
+      makeLLMResponse(['删除了 2 张卡片'], ['倾向于克制的情感表达'])
     );
     mockCreateAnnotation.mockResolvedValueOnce(savedAnnotation);
 
@@ -161,7 +225,7 @@ describe('generateAnnotation', () => {
       factualChanges: JSON.stringify(['修改了对白']),
       inferredPreferences: JSON.stringify(['偏好简洁对白']),
     });
-    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(['删除了场景'], []));
+    const calls = stubTransport(() => makeLLMResponse(['删除了场景'], []));
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation());
 
     await generateAnnotation({
@@ -171,14 +235,17 @@ describe('generateAnnotation', () => {
       previousAnnotations: [prevAnnotation],
     });
 
-    const callArgs = mockInvokeLLM.mock.calls[0][0];
-    const userMessage = callArgs.messages.find((m) => m.role === 'user');
+    const messages = sentBody(calls[0].init).messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    const userMessage = messages.find((m) => m.role === 'user');
     expect(typeof userMessage?.content).toBe('string');
-    expect(userMessage?.content as string).toContain('偏好简洁对白');
+    expect(userMessage?.content).toContain('偏好简洁对白');
   });
 
   it('falls back to raw diff summary on malformed LLM JSON', async () => {
-    mockInvokeLLM.mockResolvedValueOnce({
+    stubTransport(() => ({
       id: 'mock',
       created: 0,
       model: 'mock',
@@ -189,7 +256,7 @@ describe('generateAnnotation', () => {
           finish_reason: 'stop',
         },
       ],
-    });
+    }));
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
@@ -210,21 +277,19 @@ describe('generateAnnotation', () => {
   });
 
   it('falls back when LLM response is missing required arrays', async () => {
-    mockInvokeLLM.mockResolvedValueOnce(
-      // valid JSON but wrong structure
-      {
-        id: 'mock',
-        created: 0,
-        model: 'mock',
-        choices: [
-          {
-            index: 0,
-            message: { role: 'assistant', content: JSON.stringify({ result: 'ok' }) },
-            finish_reason: 'stop',
-          },
-        ],
-      },
-    );
+    // valid JSON but wrong structure
+    stubTransport(() => ({
+      id: 'mock',
+      created: 0,
+      model: 'mock',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: JSON.stringify({ result: 'ok' }) },
+          finish_reason: 'stop',
+        },
+      ],
+    }));
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
@@ -239,7 +304,7 @@ describe('generateAnnotation', () => {
   });
 
   it('falls back on LLM call rejection', async () => {
-    mockInvokeLLM.mockRejectedValueOnce(new Error('Network error'));
+    stubTransportFailure(500);
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
     mockCreateAnnotation.mockResolvedValueOnce(fallbackAnnotation);
 
@@ -255,7 +320,7 @@ describe('generateAnnotation', () => {
 
   it('opens circuit breaker after 3 consecutive failures', async () => {
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+    stubTransportFailure(500);
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     const diff = makeDiff();
@@ -271,7 +336,7 @@ describe('generateAnnotation', () => {
 
   it('skips LLM call when circuit breaker is open', async () => {
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+    stubTransportFailure(500);
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     // Trip the breaker
@@ -283,12 +348,13 @@ describe('generateAnnotation', () => {
     expect(isCircuitOpen()).toBe(true);
 
     vi.clearAllMocks();
+    // 重新打桩：断路器打开后一次网络调用都不该发生
+    const callsAfterOpen = stubTransportFailure(500);
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     await generateAnnotation({ diff, ...base });
 
-    // LLM should not have been called
-    expect(mockInvokeLLM).not.toHaveBeenCalled();
+    expect(callsAfterOpen).toHaveLength(0);
     expect(mockCreateAnnotation).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'pending' }),
     );
@@ -296,7 +362,7 @@ describe('generateAnnotation', () => {
 
   it('resets circuit breaker on successful annotation', async () => {
     const fallbackAnnotation = makeAnnotation({ status: 'pending' });
-    mockInvokeLLM.mockRejectedValue(new Error('LLM down'));
+    stubTransportFailure(500);
     mockCreateAnnotation.mockResolvedValue(fallbackAnnotation);
 
     // Trip the breaker
@@ -312,7 +378,7 @@ describe('generateAnnotation', () => {
     expect(isCircuitOpen()).toBe(false);
 
     // Successful call
-    mockInvokeLLM.mockResolvedValueOnce(makeLLMResponse(['变更'], ['偏好']));
+    stubTransport(() => makeLLMResponse(['变更'], ['偏好']));
     mockCreateAnnotation.mockResolvedValueOnce(makeAnnotation({ status: 'active' }));
 
     const result = await generateAnnotation({ diff, ...base });
@@ -321,7 +387,7 @@ describe('generateAnnotation', () => {
   });
 
   it('fallback diff summary lists all change types', async () => {
-    mockInvokeLLM.mockRejectedValueOnce(new Error('fail'));
+    stubTransportFailure(500);
     mockCreateAnnotation.mockImplementationOnce(async (data) => makeAnnotation(data as Partial<SemanticAnnotation>));
 
     await generateAnnotation({

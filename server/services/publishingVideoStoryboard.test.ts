@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../_core/env";
 
-import { generatePublishingVideoStoryboardPreview } from "./publishingVideoStoryboard";
-import { validatePublishingVideoPreview } from "../../shared/publishingVideoStoryboard";
+import {
+  assignNarrativeBeats,
+  generatePublishingVideoStoryboardPreview,
+} from "./publishingVideoStoryboard";
+import {
+  canonicalizePublishingVideoParagraphs,
+  validatePublishingVideoPreview,
+} from "../../shared/publishingVideoStoryboard";
 
 const saved = {
   api302Key: ENV.api302Key,
@@ -165,8 +171,9 @@ describe("publishing video storyboard generation", () => {
 
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("https://api.openai-next.com/v1/chat/completions");
+    // orchestrator 统一用小写 header 名（HTTP 头本身大小写不敏感）
     expect(init.headers).toMatchObject({
-      Authorization: "Bearer test-next-key",
+      authorization: "Bearer test-next-key",
     });
     expect(JSON.parse(String(init.body)).model).toBe("gpt-5.6-terra");
   });
@@ -308,5 +315,93 @@ describe("publishing video storyboard generation", () => {
     expect(
       generated.preview.segments.map(segment => segment.scriptText)
     ).not.toContain("正文 A");
+  });
+});
+
+describe("assignNarrativeBeats —— 分批标注后的全局归一", () => {
+  const paras = (n: number) =>
+    canonicalizePublishingVideoParagraphs(
+      Array.from({ length: n }, (_, i) => `第 ${i + 1} 段正文内容。`).join("\n\n")
+    );
+  // 每段一镜，beat 标在镜头上
+  const rewritesFor = (
+    ps: ReturnType<typeof canonicalizePublishingVideoParagraphs>,
+    beats: Array<string | undefined>
+  ) =>
+    ps.map((p, i) => ({
+      paragraphId: p.paragraphId,
+      scriptText: "s",
+      visualTreatment: "v",
+      shots: [
+        {
+          beat: beats[i] as never,
+          subject: "s",
+          action: "a",
+          imageRequirement: "i",
+          videoRequirement: "v",
+          soundRequirement: "",
+        },
+      ],
+    }));
+  const beatsOf = (out: ReturnType<typeof rewritesFor>) =>
+    out.flatMap(r => r.shots.map(sh => sh.beat as string | undefined));
+
+  it("首段强制开场、末段强制收束，覆盖模型的错误标注", () => {
+    const ps = paras(5);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, ["转折", "起势", "转折", "起势", "开场"])
+    );
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[4]).toBe("收束");
+  });
+
+  it("模型完全没标时，中间段兜底为起势并补出一个转折", () => {
+    const ps = paras(6);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, undefined, undefined, undefined, undefined, undefined])
+    );
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[5]).toBe("收束");
+    const middle = bs.slice(1, 5);
+    expect(middle).toContain("转折");
+    expect(middle.every(b => b === "起势" || b === "转折")).toBe(true);
+  });
+
+  it("多批各自 claim 转折时全部保留 —— 转折段可以有多镜", () => {
+    const ps = paras(6);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, "转折", "起势", "转折", "起势", undefined])
+    );
+    expect(beatsOf(out).filter(b => b === "转折")).toHaveLength(2);
+  });
+
+  it("已有转折时不再额外补", () => {
+    const ps = paras(5);
+    const out = assignNarrativeBeats(
+      ps,
+      rewritesFor(ps, [undefined, "起势", "转折", "起势", undefined])
+    );
+    expect(beatsOf(out).filter(b => b === "转折")).toHaveLength(1);
+  });
+
+  it("极短正文（1-2 段）不抛错", () => {
+    const one = paras(1);
+    expect(beatsOf(assignNarrativeBeats(one, rewritesFor(one, [undefined])))[0]).toBe("开场");
+    const two = paras(2);
+    const out = assignNarrativeBeats(two, rewritesFor(two, [undefined, undefined]));
+    const bs = beatsOf(out);
+    expect(bs[0]).toBe("开场");
+    expect(bs[1]).toBe("收束");
+  });
+
+  it("四段之外的值被当作未标注处理", () => {
+    const ps = paras(4);
+    const out = assignNarrativeBeats(ps, rewritesFor(ps, [undefined, "高潮", "乱写", undefined]));
+    expect(beatsOf(out).every(b => ["开场", "起势", "转折", "收束"].includes(b as string))).toBe(true);
   });
 });

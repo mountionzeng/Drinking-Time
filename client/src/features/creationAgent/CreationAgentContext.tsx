@@ -248,9 +248,12 @@ export function CreationAgentProvider({
         setPendingPromptUpdate(result.promptUpdate);
       }
 
-      // buildShotList：聊聊铺了整张镜头表 → 刷新镜头表查询，让 Shot Table 立即显示
+      // buildShotList：聊聊铺了整张镜头表 → 刷新镜头表查询，让 Shot Table 立即显示。
+      // 只失效当前 Story，不带参数会连别的 Story 的镜头缓存一起清掉。
       if (result.builtShotCount && result.builtShotCount > 0) {
-        utils.shot.list.invalidate();
+        if (storyId !== null && storyId !== undefined) {
+          utils.shot.list.invalidate({ storyId });
+        }
         toast.success(`已根据你说的铺了 ${result.builtShotCount} 个镜头到镜头表`);
       }
 

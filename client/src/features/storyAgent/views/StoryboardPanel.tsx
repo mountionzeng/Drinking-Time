@@ -16,6 +16,7 @@ import { displayShotCode, shotIdentityFromShot } from "@shared/shotIdentity";
 import { summarizeShotCandidates } from "@/features/storyAgent/shotCandidateSummary";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import type { ImageClipEditorTarget } from "@/features/creationEditor/imageClipEditorModel";
+import type { StoryboardBoardTimeline } from "@/features/creationEditor/views/StoryboardEditRow";
 import { withStoryboardVoiceTextFallbacks } from "./storyboardVoiceText";
 
 export function currentStoryboardImages(
@@ -47,9 +48,11 @@ export default function StoryboardPanel({
   onCopyVideo,
   onPasteVideo,
   videoClipboardLabel = null,
+  boardTimeline,
 }: {
   defaultViewMode?: "full" | "simple";
   embeddedEditorMode?: boolean;
+  boardTimeline?: StoryboardBoardTimeline;
   headerAction?: ReactNode;
   onEditVideo?: (target: VideoClipEditorTarget) => void;
   onEditImage?: (target: ImageClipEditorTarget) => void;
@@ -67,6 +70,7 @@ export default function StoryboardPanel({
   const { artDirection } = useStoryboardPanelArtSlice();
   const { loadStory, setActiveSelection, registerImageRerenderRunner } =
     useStoryAgentActions();
+  const storyTitle = useStorySpine(state => state.storyTitle);
   const setStoryShots = useStorySpine(state => state.setStoryShots);
   const setSaveStatus = useStorySpine(state => state.setSaveStatus);
   const setLastSavedAt = useStorySpine(state => state.setLastSavedAt);
@@ -209,6 +213,7 @@ export default function StoryboardPanel({
       shots={displayShots}
       latestScript={latestScript}
       isGeneratingScript={isGeneratingScript}
+      storyTitle={storyTitle}
       onRegisterImageRerenderRunner={registerImageRerenderRunner}
       selectedShotNo={selectedShotNo}
       onSelectShot={shotNo => {
@@ -336,6 +341,7 @@ export default function StoryboardPanel({
       onCopyVideo={onCopyVideo}
       onPasteVideo={onPasteVideo}
       videoClipboardLabel={videoClipboardLabel}
+      boardTimeline={boardTimeline}
       onMoveStoryImage={assignStoryImageToShot}
       onDeleteStoryImage={deleteStoryImage}
       onMoveVideoTake={moveVideoTake}

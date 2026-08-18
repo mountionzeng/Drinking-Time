@@ -90,14 +90,17 @@ function CreationWorkspaceInner({
       if (projectId === null) return;
       try {
         await updateShotMut.mutateAsync({ id: shotId, promptDraft });
-        await utils.shot.list.invalidate(); // 按 storyId 后无差别失效（U5）
+        // 只失效当前 Story 的镜头缓存；不带参数会连别的 Story 一起清掉。
+        if (activeStoryId !== null) {
+          await utils.shot.list.invalidate({ storyId: activeStoryId });
+        }
         toast.success('镜头 prompt 已保存');
       } catch (error) {
         console.error('creation.updateShotPrompt failed', error);
         toast.error('保存镜头 prompt 失败');
       }
     },
-    [projectId, updateShotMut, utils.shot.list],
+    [projectId, activeStoryId, updateShotMut, utils.shot.list],
   );
 
   return (

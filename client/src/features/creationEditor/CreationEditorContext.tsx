@@ -123,6 +123,11 @@ type CreationEditorContextValue = {
   addShotToTimeline: (shotNo: number, stableShotId?: string | null) => void;
   removeShotFromTimeline: (shotId: string) => void;
   moveShotInTimeline: (shotId: string, direction: -1 | 1) => void;
+  /** 把一个镜头整体拖到另一个镜头的位置上（故事版看板里的顺序重排）。 */
+  reorderShotInTimeline: (
+    sourceShotId: string,
+    targetShotId: string
+  ) => Promise<void>;
   resetTimelineShots: () => void;
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
@@ -1590,6 +1595,30 @@ export function CreationEditorProvider({
       [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
       void saveTimelineItems(
         ordered.map((item, position) => ({ ...item, position }))
+      );
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
+  const reorderShotInTimeline = useCallback(
+    async (sourceShotId: string, targetShotId: string) => {
+      const ordered = [...timelineItems].sort(
+        (left, right) => left.position - right.position
+      );
+      const sourceIndex = ordered.findIndex(
+        item => item.stableShotId === sourceShotId
+      );
+      const targetIndex = ordered.findIndex(
+        item => item.stableShotId === targetShotId
+      );
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+        return;
+      }
+      const [moved] = ordered.splice(sourceIndex, 1);
+      ordered.splice(targetIndex, 0, moved);
+      await saveTimelineItems(
+        ordered.map((item, position) => ({ ...item, position })),
+        { throwOnError: true }
       );
     },
     [saveTimelineItems, timelineItems]
@@ -3290,6 +3319,7 @@ export function CreationEditorProvider({
       addShotToTimeline,
       removeShotFromTimeline,
       moveShotInTimeline,
+      reorderShotInTimeline,
       resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
@@ -3389,6 +3419,7 @@ export function CreationEditorProvider({
       addShotToTimeline,
       removeShotFromTimeline,
       moveShotInTimeline,
+      reorderShotInTimeline,
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,

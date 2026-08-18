@@ -8,6 +8,8 @@ import {
   classifyPublishingDraftEdit,
   convertPublishingDraft,
   generatePublishingDraft,
+  publishingTextOperationPolicy,
+  repairPublishingDraftFormatting,
   revisePublishingDraft,
 } from "./publishingDraft";
 
@@ -284,6 +286,40 @@ describe("publishing draft model operations", () => {
     expect(runtimeMocks.runJsonAgent).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an existing target's applied title when conversion returns a candidate", async () => {
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        draft: {
+          title: "模型新标题",
+          titleAnchor: "模型",
+          body: "转换后的候选正文",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+    const result = await convertPublishingDraft({
+      core: { ...core, facts: ["模型新标题", "转换后的候选正文"] },
+      sourceDraft: {
+        platform: "x",
+        content: { title: "", body: "source", tags: [] },
+        appliedBaseline: { title: "", body: "source", tags: [] },
+        sourceCoreRevision: 1,
+        revision: 1,
+        needsReview: false,
+        updatedAt: 1,
+      },
+      targetPlatform: "xiaohongshu",
+      currentTarget: { title: "用户手写标题", body: "旧正文", tags: [] },
+    });
+    expect(result.content).toEqual({
+      title: "用户手写标题",
+      body: "转换后的候选正文",
+      tags: [],
+    });
+  });
+
   it("normalizes a valid X thread and removes the unsupported title", async () => {
     runtimeMocks.runJsonAgent.mockResolvedValue({
       parsed: {
@@ -487,6 +523,54 @@ describe("publishing draft model operations", () => {
     expect(runtimeMocks.runJsonAgent).not.toHaveBeenCalled();
     expect(result.assessment.outcome).toBe("wording_only");
     expect(result.usedModel).toBe(false);
+  });
+
+  it.each([
+    ["generate", ["core", "title", "body", "tags"], false],
+    ["convert", ["title", "body", "tags"], false],
+    ["rewrite", ["title", "body", "tags"], true],
+    ["format_repair", ["body", "tags"], true],
+  ] as const)(
+    "declares the %s field policy instead of sharing an unrestricted mutation",
+    (operation, allowedFields, preservesAppliedTitle) => {
+      expect(publishingTextOperationPolicy(operation)).toEqual({
+        allowedFields,
+        preservesAppliedTitle,
+        writesCanonicalDraft: operation === "generate" || operation === "convert",
+      });
+    }
+  );
+
+  it("repairs formatting deterministically without changing words or the applied title", () => {
+    const repaired = repairPublishingDraftFormatting({
+      platform: "xiaohongshu",
+      content: {
+        title: "用户手写标题",
+        body: "  第一段  \r\n\r\n\r\n  第二段  ",
+        tags: ["#AI 工具", " AI 工具 ", "#效率"],
+      },
+    });
+    expect(repaired).toEqual({
+      title: "用户手写标题",
+      body: "第一段\n\n第二段",
+      tags: ["AI 工具", "效率"],
+    });
+    expect(runtimeMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+
+  it("numbers an X thread locally and never invents an independent title", () => {
+    expect(repairPublishingDraftFormatting({
+      platform: "x",
+      content: {
+        title: "不该保留",
+        body: "第一条\n\n第二条",
+        tags: ["#AI"],
+      },
+    })).toEqual({
+      title: "",
+      body: "1/2 第一条\n\n2/2 第二条",
+      tags: ["AI"],
+    });
   });
 
   it("uses one classifier call for a changed conclusion and proposes no implicit save", async () => {

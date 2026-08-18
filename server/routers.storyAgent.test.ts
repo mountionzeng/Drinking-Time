@@ -4,6 +4,13 @@ import path from "node:path";
 import type { TrpcContext } from "./_core/context";
 
 const storyAgentMocks = vi.hoisted(() => ({
+  recognizeStoryIntent: vi.fn(async () => ({
+    purpose: "social_post",
+    audience: "public",
+    platform: "xiaohongshu",
+    confidence: 0.9,
+    evidence: ["提到公开发布"],
+  })),
   replyFromStoryAgent: vi.fn(async () => ({
     reply: "我在，继续说。",
     card: {
@@ -110,6 +117,9 @@ process.env.LOCAL_PERSIST_PATH = path.join(
 // The router graph is intentionally large. Loading it in a 10s beforeAll hook made
 // this suite fail before any behavior ran on slower or contended machines.
 const { appRouter } = await import("./routers");
+// Project ownership is enforced on projectId-keyed procedures, so tests that
+// name a projectId must actually own one.
+const { getStoryGeneratedImages, seedProjectForTesting } = await import("./db");
 
 function createAuthContext(userId = 42): TrpcContext {
   return {
@@ -150,8 +160,32 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("returns recognition as a proposal bound to the request Story/version/revision scope", async () => {
+    const caller = appRouter.createCaller(createAuthContext());
+    const result = await caller.storyAgent.recognizeIntent({
+      history: [{ role: "user", content: "我要发给陌生人看" }],
+      existingIntent: null,
+      sourceScope: { storyId: 17, versionId: "v2", intentRevision: 4 },
+    });
+
+    expect(result).toMatchObject({
+      purpose: "social_post",
+      proposal: {
+        status: "pending",
+        source: { storyId: 17, versionId: "v2", intentRevision: 4 },
+      },
+    });
+    const repeated = await caller.storyAgent.recognizeIntent({
+      history: [{ role: "user", content: "我要发给陌生人看" }],
+      existingIntent: null,
+      sourceScope: { storyId: 17, versionId: "v2", intentRevision: 4 },
+    });
+    expect(repeated.proposal?.id).toBe(result.proposal?.id);
+  });
+
   it("wraps chat with the archive Story Agent response shape", async () => {
     const caller = appRouter.createCaller(createAuthContext());
+    seedProjectForTesting({ id: 7, userId: 42 });
 
     const result = await caller.storyAgent.chat({
       message: "今天晚上有点安静",
@@ -1017,6 +1051,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/storyboard-locked.png",
     });
     const caller = appRouter.createCaller(createAuthContext(396));
+    seedProjectForTesting({ id: 7396, userId: 396 });
     const story = await caller.storyAgent.storyUpsert({
       title: "故事版连续性故事",
       projectId: 7396,
@@ -1069,6 +1104,46 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("generateForMobile 只在 autoSelect 时把新图提升为当前版本", async () => {
+    const userId = 497;
+    const projectId = 7497;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    seedProjectForTesting({ id: projectId, userId });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "重渲后立即采用",
+      projectId,
+      body: {
+        cards: [],
+        characters: [],
+        shots: [{ shotNo: 1, cueCode: "0101", subject: "主角" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角站在窗边",
+      autoSelect: true,
+    });
+
+    const candidate = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 1,
+      prompt: "主角仍站在窗边，作为未采用候选",
+      autoSelect: false,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(candidate.status).toBe("ok");
+    const images = await getStoryGeneratedImages(story!.id, userId);
+    expect(images.find(image => image.id === result.imageId)?.isCurrent).toBe(
+      true
+    );
+    expect(
+      images.find(image => image.id === candidate.imageId)?.isCurrent
+    ).toBe(false);
+  });
+
   it("正式封面只作为故事风格参考，不冒充人物身份", async () => {
     const coverUrl = "https://file.302.ai/publishing-cover.webp";
     const caller = appRouter.createCaller(createAuthContext(496));
@@ -1108,6 +1183,7 @@ describe("storyAgent tRPC router", () => {
   it("故事版图片可直接读取时，公网锚点失败也继续使用原图生成", async () => {
     imageGenMocks.toPublicImageUrl.mockResolvedValue(undefined);
     const caller = appRouter.createCaller(createAuthContext(397));
+    seedProjectForTesting({ id: 7397, userId: 397 });
     const story = await caller.storyAgent.storyUpsert({
       title: "连续性保护故事",
       projectId: 7397,
@@ -1176,6 +1252,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/agent-anchor.png",
     });
     const caller = appRouter.createCaller(createAuthContext(395));
+    seedProjectForTesting({ id: 7395, userId: 395 });
 
     const story = await caller.storyAgent.storyUpsert({
       title: "对话设锚点故事",
@@ -1371,6 +1448,7 @@ describe("storyAgent tRPC router", () => {
 
   it("故事版原文改图必须先确认人民币费用，并原样送入最终提示词", async () => {
     const caller = appRouter.createCaller(createAuthContext(302));
+    seedProjectForTesting({ id: 7302, userId: 302 });
     const story = await caller.storyAgent.storyUpsert({
       title: "故事版原文改图",
       projectId: 7302,
@@ -2210,6 +2288,7 @@ describe("storyAgent tRPC router", () => {
       imageKey: "generated/mobile-inpaint.png",
     });
     const caller = appRouter.createCaller(createAuthContext(303));
+    seedProjectForTesting({ id: 7303, userId: 303 });
 
     const story = await caller.storyAgent.storyUpsert({
       title: "手机修图故事",
