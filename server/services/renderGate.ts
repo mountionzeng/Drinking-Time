@@ -59,6 +59,12 @@ export type RenderContext = {
   storyboardReferenceTruth?: boolean;
   /** 上游已经复制正式采用封面的美术原文；网关不得再追加或改写美术方向。 */
   preservePrompt?: boolean;
+  /**
+   * 目标 provider 支持长提示词（gpt-image 等）。3500 字上限本来是 Midjourney 的
+   * 限制，却被套在所有 provider 上：精确改图那条路会因此把用户要求截断到 1800 字，
+   * 服装、质感这类写在后面的连续性规格整段丢掉，模型收到的是半句话。
+   */
+  longPrompt?: boolean;
 };
 
 /** 用户明确选中的库风格是覆盖项；自动美术判断走下方的文本艺术谱系。 */
@@ -323,6 +329,9 @@ function handmadeLineageBlocks(lineage: ArtLineage): string[] {
 }
 
 function cleanInstructions(ctx: RenderContext): string[] {
+  const budget = ctx.longPrompt
+    ? LONG_INSTRUCTION_BUDGET
+    : MJ_INSTRUCTION_BUDGET;
   const normalized = [...(ctx.userInstructions ?? []), ctx.intent ?? ""]
     .map(value => value.trim())
     .filter(Boolean);
@@ -330,7 +339,7 @@ function cleanInstructions(ctx: RenderContext): string[] {
     (value, index) => normalized.lastIndexOf(value) === index
   );
   const kept: string[] = [];
-  let remaining = 1_800;
+  let remaining = budget;
   for (let index = unique.length - 1; index >= 0; index -= 1) {
     const value = unique[index]!;
     const separatorLength = kept.length > 0 ? 1 : 0;
@@ -395,7 +404,7 @@ function productConstraintBlock(ctx: RenderContext): string[] {
 /** 编译最终提示词；所有静态图片入口必须直接或通过 renderViaGate 使用它。 */
 export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   if (ctx.preservePrompt) {
-    return ctx.prompt.trim().slice(0, MJ_PROMPT_MAX_LENGTH);
+    return ctx.prompt.trim().slice(0, promptMaxLengthFor(ctx));
   }
   const additions: string[] = [];
   const instructions = cleanInstructions(ctx);
@@ -462,7 +471,7 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   ].join("\n");
   const bodyBudget = Math.max(
     0,
-    MJ_PROMPT_MAX_LENGTH - hardConstraints.length - 1
+    promptMaxLengthFor(ctx) - hardConstraints.length - 1
   );
   const body = [ctx.prompt.trim(), additions.join("\n")]
     .filter(Boolean)
@@ -618,6 +627,14 @@ async function buildEditPreferenceBlock(
  * @returns      render 的返回值原样透传（泛型 R，保留各生成器自己的返回形）
  */
 const MJ_PROMPT_MAX_LENGTH = 3500;
+/** gpt-image 接受的提示词远长于 MJ；这里留足余量，仍然防住无限增长。 */
+const LONG_PROMPT_MAX_LENGTH = 12_000;
+const MJ_INSTRUCTION_BUDGET = 1_800;
+const LONG_INSTRUCTION_BUDGET = 6_000;
+
+function promptMaxLengthFor(ctx: RenderContext): number {
+  return ctx.longPrompt ? LONG_PROMPT_MAX_LENGTH : MJ_PROMPT_MAX_LENGTH;
+}
 
 export async function renderViaGate<R>(
   ctx: RenderContext,

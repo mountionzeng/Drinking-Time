@@ -24,6 +24,7 @@ export type GenerateForMobileInput = {
   prompt: string;
   imageProvider?: ImageProvider;
   explicitInstruction?: string;
+  exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
     estimatedCny: number;
@@ -92,6 +93,7 @@ export function createGenerateForMobileInput(params: {
   autoSelect?: boolean;
   reference?: RerenderReference;
   explicitInstruction?: string;
+  exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
     estimatedCny: number;
@@ -109,6 +111,7 @@ export function createGenerateForMobileInput(params: {
     imageProvider: params.imageProvider ?? "midjourney",
     prompt: basePrompt,
     explicitInstruction: params.explicitInstruction?.trim() || undefined,
+    exactFrameEdit: params.exactFrameEdit,
     costConfirmation: params.costConfirmation,
     styleHint: params.shot.styleRef || undefined,
     autoSelect: params.autoSelect ?? true,
@@ -133,6 +136,7 @@ export async function rerenderShotImage(params: {
   autoSelect?: boolean;
   reference?: RerenderReference;
   explicitInstruction?: string;
+  exactFrameEdit?: boolean;
   costConfirmation?: {
     accepted: true;
     estimatedCny: number;
@@ -167,6 +171,7 @@ export async function rerenderShotImageCandidates(params: {
   rows: readonly PromptRow[];
   reference?: RerenderReference;
   explicitInstruction: string;
+  exactFrameEdit?: boolean;
   candidateCount: typeof STORYBOARD_IMAGE_CANDIDATE_COUNT;
   costConfirmation: {
     accepted: true;
@@ -192,6 +197,7 @@ export async function rerenderShotImageCandidates(params: {
     autoSelect: false,
     reference: params.reference,
     explicitInstruction: params.explicitInstruction,
+    exactFrameEdit: params.exactFrameEdit,
     costConfirmation: params.costConfirmation,
     generate: params.generate,
   });

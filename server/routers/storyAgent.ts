@@ -1607,6 +1607,9 @@ export const storyAgentRouter = router({
         referenceImageUrl: z.string().optional(), // FLUX Kontext 参考图 URL，跨镜头保角色/场景一致
         referenceIdentityImageUrl: z.string().optional(), // 人物身份锚点图，优先用来提取五官/脸型
         referenceContextImageUrls: z.array(z.string()).max(3).optional(), // 当前故事的相邻镜头画面，仅用于视觉连续性
+        // 精确改图：用户选中某一帧、只改点名的内容。此时画面事实来自那张图本身，
+        // 不能再让美术库按故事设定重新描述一遍场景。
+        exactFrameEdit: z.boolean().optional(),
         storyStyleReferenceImageUrl: z.string().optional(), // 正式封面：只继承色板、材质、光线与情绪
         editMaskImageUrl: z
           .string()
@@ -1951,16 +1954,24 @@ export const storyAgentRouter = router({
         const injection =
           referencePlan.usesStoryboardFrames ||
           referencePlan.usesStoryStyleReference
-          ? await deriveStoryboardReferenceInjection(story, {
-              identityImageUrl: input.referenceIdentityImageUrl,
-              sceneImageUrl: referencePlan.primaryImage,
-              styleImageUrl: input.storyStyleReferenceImageUrl,
-              analysis: input.sceneAnalysis,
-              allowSceneIdentity:
-                referencePlan.referencePurpose !== "scene-style",
-            })
-          : await deriveInjection(story, input.sceneAnalysis);
-        if (referenceImageInput) {
+            ? await deriveStoryboardReferenceInjection(story, {
+                identityImageUrl: input.referenceIdentityImageUrl,
+                sceneImageUrl: referencePlan.primaryImage,
+                styleImageUrl: input.storyStyleReferenceImageUrl,
+                analysis: input.sceneAnalysis,
+                allowSceneIdentity:
+                  referencePlan.referencePurpose !== "scene-style",
+              })
+            : await deriveInjection(story, input.sceneAnalysis);
+        if (input.exactFrameEdit) {
+          // 精确改图时，选中的那张图就是场景本身。美术库改写出来的场景段落会
+          // 在提示词开头重述一个「应该长什么样」的画面（配色、姿势全都写死），
+          // 于是模型照着它重画，用户的原图当场被换掉。这里换成一句短引导。
+          prompt =
+            `Edit the supplied base image (图1) for shot ${input.shotNo ?? ""}. ` +
+            "The base image defines the scene, location, background content, lighting, camera and composition; keep all of it. " +
+            "Apply only the user's named changes below.";
+        } else if (referenceImageInput) {
           try {
             const directed = await directImagePrompt({
               imageInput: referenceImageInput,
@@ -1998,6 +2009,11 @@ export const storyAgentRouter = router({
           userInstructions: input.explicitInstruction
             ? [input.explicitInstruction]
             : undefined,
+          // gpt-image 没有 MJ 的 3500 字上限；不放开的话，参考图清单加连续性规格
+          // 会把用户要求挤过 1800 字预算，后半段被整段切掉。
+          longPrompt:
+            input.imageProvider === "gpt-image" ||
+            Boolean(input.editMaskImageUrl),
           referenceImages: referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
