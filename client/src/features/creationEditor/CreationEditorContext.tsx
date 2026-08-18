@@ -177,6 +177,7 @@ type CreationEditorContextValue = {
     reference?: RerenderReference,
     options?: {
       explicitInstruction?: string;
+      exactFrameEdit?: boolean;
       candidateCount?: 4;
       costConfirmation?: {
         accepted: true;
@@ -2127,6 +2128,7 @@ export function CreationEditorProvider({
     reference?: RerenderReference,
     options?: {
       explicitInstruction?: string;
+      exactFrameEdit?: boolean;
       candidateCount?: 4;
       costConfirmation?: {
         accepted: true;
@@ -2157,6 +2159,7 @@ export function CreationEditorProvider({
           rows,
           reference,
           explicitInstruction: options.explicitInstruction,
+          exactFrameEdit: options.exactFrameEdit,
           candidateCount: options.candidateCount,
           costConfirmation: options.costConfirmation,
           generate: input => generateForMobileMut.mutateAsync(input),
@@ -2170,6 +2173,7 @@ export function CreationEditorProvider({
               rows,
               reference,
               explicitInstruction: options?.explicitInstruction,
+              exactFrameEdit: options?.exactFrameEdit,
               costConfirmation: options?.costConfirmation,
               imageProvider: options?.imageProvider,
               editMaskImageUrl: options?.editMaskImageUrl,

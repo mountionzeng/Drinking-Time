@@ -13,22 +13,14 @@ import {
   type StoryboardImageCostEstimate,
   type StoryboardMaskedEditCostEstimate,
 } from "@shared/imageRenderCost";
+import {
+  findStoryVisualContinuity,
+  SHE_SELF_02_CONTINUITY,
+  storyVisualContinuityInstruction,
+} from "./storyVisualContinuity";
 
 export const SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE_LABEL =
-  "SheSelf02 / 0201 服饰连续性模板";
-
-// 这个模板只负责「连续性」——服装形制、颜料质感、配色。动作一律交给用户当次的
-// 图片要求：模板里再写死一个姿势，就会和「女主在该环境下旋转」这类指令直接打架。
-const SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE = `【连续性模板｜服装与质感，不规定动作】
-人物连续性：保持当前镜头图像里的人物身份、脸型、短黑发和身体比例；场景、机位、景别、构图和画幅同样以当前镜头图像为准。
-
-服饰连续性：女主穿与相邻镜头一致的象牙白及地长裙 —— 窄身直筒的长鞘裙，从肩到脚踝几乎垂直垂落、贴合身体，腰部只轻微收束；长袖盖到手腕；领口高、素面无装饰；裙长必须到地，完全盖住小腿和脚踝，最多只露出脚尖。不是伞裙、A 字裙、蓬裙、舞裙、雪纺或半透明纱裙，裙摆不外扩。白裙是画面中最亮的冷象牙白块面。
-
-质感连续性：厚涂颜料＋刮版印痕的手绘质感 —— 可见画布织纹、画刀与硬毛笔笔触、颜料堆叠的高光、边缘干裂剥落、垂直流淌的颜料痕，裙子下半段和裙摆带黑色斑驳颗粒与渗色。禁止光滑照片写实、CG／3D 塑料光泽、柔焦发光的数字质感和 airbrush。皮肤和手臂也要是画出来的。
-
-配色连续性：冷青灰绿的光、纯正的红、冷黑与蓝黑的暗部，低饱和。整幅画不要偏黄偏棕，不要暖褐色的旧油画罩染或做旧清漆感。
-
-动作由用户这次的图片要求决定，本模板不规定姿势。除服装、质感、配色和用户点名要改的内容之外，人物身份、场景结构、光线方向、构图和画幅全部保持不变。画面不出现文字、水印或额外人物。`;
+  SHE_SELF_02_CONTINUITY.label;
 
 /**
  * 用户在图片要求里点名的图片编号 —— 「和图片1554一样的长裙」「参考 #1554」。
@@ -63,8 +55,10 @@ export function isSheSelf02ImageEditTemplateEnabled(
   shotCode: string
 ): boolean {
   return (
-    storyTitle?.trim() === "SheSelf02" &&
-    normalizedStoryboardShotCode(shotCode) === "0201"
+    findStoryVisualContinuity(
+      storyTitle,
+      normalizedStoryboardShotCode(shotCode)
+    ) != null
   );
 }
 
@@ -74,14 +68,16 @@ export function buildSheSelf02ImageEditInstruction(input: {
   currentInstruction: string;
 }): string {
   const currentInstruction = input.currentInstruction.trim();
-  if (!isSheSelf02ImageEditTemplateEnabled(input.storyTitle, input.shotCode)) {
-    return currentInstruction;
-  }
+  const spec = findStoryVisualContinuity(
+    input.storyTitle,
+    normalizedStoryboardShotCode(input.shotCode)
+  );
+  if (!spec) return currentInstruction;
   return [
     currentInstruction
       ? `用户原始图片要求（保留并执行）：${currentInstruction}`
       : "",
-    SHE_SELF_02_0201_IMAGE_EDIT_TEMPLATE,
+    storyVisualContinuityInstruction(spec),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -96,7 +92,7 @@ export function storyboardReferenceManifest(
 ): string {
   if (imageReferences.context.length === 0) return "";
   const lines = [
-    `图1＝${storyboardImageReferenceLabel(imageReferences.primary)}。这是画面基准：人物身份、场景、机位、景别、构图、明暗和画幅都以它为准。`,
+    `图1＝${storyboardImageReferenceLabel(imageReferences.primary)}。这是唯一的画面基准，也是要改的那张：人物身份、场景与环境内容、背景里正在发生的画面、光线方向、机位、景别、构图和画幅全部原样保留，只改用户明确点名的部分。`,
     ...imageReferences.context.map((reference, index) => {
       const label = storyboardImageReferenceLabel(reference);
       const role =
@@ -104,14 +100,15 @@ export function storyboardReferenceManifest(
           ? "只用来执行用户明确点名的参考要求；不要复制它的人物身份、场景、机位或构图。"
           : reference.source === "publishing-cover"
             ? "只用来对齐故事的整体风格与配色，不要复制它的构图或人物。"
-            : "只用来对齐配色、材质质感和人物明度，保证前后镜头剪在一起不跳戏；不要复制它的构图、姿势或场景陈设。";
+            : "只借它的颜料质感、笔触语言和人物明度，用来保证前后镜头剪在一起不跳戏。严禁把它的场景、环境、构图、色块分布、背景元素或人物姿势搬进这一镜。";
       return `图${index + 2}＝${label}。${role}`;
     }),
   ];
   return [
     "参考图清单（按顺序对应发给你的图片）：",
     ...lines,
-    "连镜要求：改完这一镜要能和相邻镜头直接剪在一起 —— 同一套配色、同一种材质质感、同一个人物明度和服装状态。",
+    "连镜要求：改完这一镜要能和相邻镜头直接剪在一起 —— 同一种材质质感、同一个人物明度和服装状态。",
+    "但连镜只作用在质感和服装上：图1 的场景和环境绝对不能被任何一张参考图替换掉。如果改完之后画面里的地点变了、背景内容变了，就是错的。",
   ].join("\n");
 }
 
@@ -193,8 +190,13 @@ export function buildStoryboardImageRenderPlan(input: {
   templateLabel?: string;
 }): StoryboardImageRenderPlan {
   const editRoleLabel = storyboardFrameRoleLabel(input.selectedFrameRole);
+  // 估价口径必须和服务端一致，否则会被「费用预估已变化」挡下来。服务端只看
+  // 「有遮罩 或 provider 是 gpt-image」，而精确改图这条路一律走 gpt-image ——
+  // 以前 0201 改裙必带遮罩，两边碰巧对得上，遮罩变成可选后这个错位就暴露了。
   const estimate =
-    input.editMaskImageUrl || input.useSingleImageFallback
+    input.editMaskImageUrl ||
+    input.useSingleImageFallback ||
+    input.isExactFrameEdit
       ? estimateStoryboardMaskedEditCost()
       : estimateStoryboardImageCost();
   const candidateCount =

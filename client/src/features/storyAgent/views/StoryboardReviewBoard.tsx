@@ -336,6 +336,7 @@ export function StoryboardReviewBoard({
     shotNo: number;
     rows: PromptRow[];
     explicitInstruction: string;
+    exactFrameEdit?: boolean;
     candidateCount?: 4;
     imageProvider?: ImageProvider;
     editMaskImageUrl?: string;
@@ -2055,6 +2056,7 @@ export function StoryboardReviewBoard({
         shotNo: shot.shotNo,
         rows,
         explicitInstruction: instructionWithReferences,
+        exactFrameEdit: isExactFrameEdit,
         candidateCount: imageRenderPlan.candidateCount,
         imageProvider,
         editMaskImageUrl,

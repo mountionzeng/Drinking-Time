@@ -132,6 +132,9 @@ const TIMEOUT_MS = 30_000;
 const GPT_IMAGE_GENERATION_TIMEOUT_MS = 600_000;
 const GPT_IMAGE_POLL_INTERVAL_MS = 2_000;
 const GPT_MASKED_EDIT_TIMEOUT_MS = 120_000;
+// 无遮罩的 gpt-image 编辑以前借用通用的 30 秒上限，因为这条路总是带遮罩才走到。
+// 遮罩变可选、又开始一次发多张参考图之后，实测单次要 45～55 秒，30 秒必然 timeout。
+const GPT_IMAGE_EDIT_TIMEOUT_MS = 180_000;
 // MJ 图生图参考图的编码上限：长边 1024 + JPEG，够 MJ 读懂构图与配色，
 // 又能把请求体从数 MB 压到百 KB 级，避开会掐大请求的网络。
 const MJ_IMAGE_PROMPT_MAX_EDGE = 1024;
@@ -1391,7 +1394,7 @@ async function generate302GptImageEdit(
         headers: build302MultipartHeaders(),
         body: form,
       }),
-      mask ? GPT_MASKED_EDIT_TIMEOUT_MS : TIMEOUT_MS
+      mask ? GPT_MASKED_EDIT_TIMEOUT_MS : GPT_IMAGE_EDIT_TIMEOUT_MS
     );
 
     if (!response.ok) {

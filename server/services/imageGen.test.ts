@@ -1186,6 +1186,48 @@ describe("editImage", () => {
     ]);
   });
 
+  it("无遮罩的多图编辑同样允许超过 30 秒", async () => {
+    // 实测一次多图编辑要 45～55 秒；这条路以前借用通用 30 秒上限，必然 timeout。
+    vi.useFakeTimers();
+    try {
+      const generated = await makeSolidPng(0, 0, 255);
+      const fetcher = vi.fn().mockImplementation(
+        () =>
+          new Promise(resolve => {
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: () =>
+                    Promise.resolve({
+                      data: [{ b64_json: generated.toString("base64") }],
+                    }),
+                  arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+                }),
+              50_000
+            );
+          })
+      );
+
+      const resultPromise = editImage(
+        "data:image/png;base64,Y3VycmVudA==",
+        "女主在该环境下旋转，裙子改成和图片1554一样的长裙",
+        {
+          fetcher,
+          provider: "gpt-image",
+          referenceContextImageUrls: ["data:image/png;base64,bmVpZ2hib3Vy"],
+        }
+      );
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      const result = await resultPromise;
+      expect(result.status).toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("遮罩编辑允许 GPT-image 响应超过通用 30 秒上限", async () => {
     vi.useFakeTimers();
     try {

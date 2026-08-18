@@ -323,6 +323,7 @@ export default function StoryboardPanel({
       onGenerateShotImages={input =>
         rerenderShot(input.shotNo, input.rows, input.reference, {
           explicitInstruction: input.explicitInstruction,
+          exactFrameEdit: input.exactFrameEdit,
           candidateCount: input.candidateCount,
           costConfirmation: input.costConfirmation,
           imageProvider: input.imageProvider,
