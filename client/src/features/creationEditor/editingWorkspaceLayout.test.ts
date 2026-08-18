@@ -5,6 +5,7 @@ import {
   resolveTimelineVideoSource,
   shouldHandleEditingShortcut,
   shouldForwardPreviewPause,
+  storyboardAudioClipsFromManifest,
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
   timelineVideoSourceForSelectedShot,
@@ -242,6 +243,15 @@ describe("editing workspace project canvas", () => {
       "我的一切都需要改造。"
     );
     expect(timelineVoiceLaneLabel(manifest)).toBe("A3 法语旁白");
+    expect(storyboardAudioClipsFromManifest(manifest, 1184)).toEqual([
+      expect.objectContaining({
+        id: "voice-fr-0104",
+        kind: "voice",
+        audioUrl: "/api/story-audio/1184/voice-fr-0104",
+        startMs: 1_000,
+        endMs: 3_000,
+      }),
+    ]);
     expect(timelineSubtitleText(null, 1_500, "临时镜头台词")).toBe(
       "临时镜头台词"
     );

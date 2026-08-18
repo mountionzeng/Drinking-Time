@@ -1,5 +1,8 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import type { StoryTimelineItem } from "../../shared/storyMaterial";
+import {
+  timelineMsToFrames,
+  type StoryTimelineItem,
+} from "../../shared/storyMaterial";
 import {
   createStory,
   deleteStory,
@@ -773,12 +776,19 @@ export function buildChatCutStoryPayload(plan: ChatCutImportPlan) {
     };
   });
 
+  let timelineCursorFrame = 0;
   const timelineItems: StoryTimelineItem[] = clips.map((clip, index) => {
+    const plannedDurationMs = shots[index].durationMs;
+    const durationFrames = timelineMsToFrames(plannedDurationMs);
+    const timelineStartFrame = timelineCursorFrame;
+    timelineCursorFrame += durationFrames;
     return {
       stableShotId: shots[index].stableShotId,
       included: true,
       position: index,
-      plannedDurationMs: shots[index].durationMs,
+      plannedDurationMs,
+      durationFrames,
+      timelineStartFrame,
       transform: timelineTransformOf(clip),
     };
   });

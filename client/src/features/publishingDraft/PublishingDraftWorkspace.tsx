@@ -34,7 +34,11 @@ import { storySpineStore } from "@/features/storyAgent/spine/storySpine";
 import { getPublishingBuffer } from "@/features/storyAgent/storyAgentPersistence";
 import { trpc } from "@/lib/trpc";
 import { optimizeImageForUpload } from "@/lib/imageUpload";
-import type { NarrativeSpecId } from "@shared/narrativeRhythm";
+import {
+  NARRATIVE_SPEC_IDS,
+  NARRATIVE_SPEC_LABELS,
+  type NarrativeSpecId,
+} from "@shared/narrativeRhythm";
 import {
   PUBLISHING_PLATFORM_REGISTRY,
   PUBLISHING_NARRATIVE_PURPOSES,
@@ -103,12 +107,17 @@ function createPublishingTextOperationIdentity(
   scope: PublishingTextOperationScope,
   payload: unknown
 ) {
-  const nonce = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const nonce =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return {
     operationToken: `${kind}-${nonce}`,
-    requestHash: computePublishingTextOperationRequestHash({ kind, scope, payload }),
+    requestHash: computePublishingTextOperationRequestHash({
+      kind,
+      scope,
+      payload,
+    }),
   };
 }
 
@@ -308,7 +317,8 @@ export default function PublishingDraftWorkspace({
   const generateMut = trpc.publishingDraft.generate.useMutation();
   const convertMut = trpc.publishingDraft.convert.useMutation();
   const rewriteMut = trpc.publishingDraft.rewrite.useMutation();
-  const repairFormattingMut = trpc.publishingDraft.repairFormatting.useMutation();
+  const repairFormattingMut =
+    trpc.publishingDraft.repairFormatting.useMutation();
   const applyMut = trpc.publishingDraft.applyEdit.useMutation();
   const confirmWordingMut =
     trpc.publishingDraft.confirmWordingChange.useMutation();
@@ -366,6 +376,11 @@ export default function PublishingDraftWorkspace({
     useState<PendingVersionAction | null>(null);
   const [loadingVersionId, setLoadingVersionId] = useState<string | null>(null);
   const [intentEditorOpen, setIntentEditorOpen] = useState(false);
+  const [videoSetupOpen, setVideoSetupOpen] = useState(false);
+  const [selectedNarrativeSpec, setSelectedNarrativeSpec] =
+    useState<NarrativeSpecId>("video30");
+  const [selectedNarrativePurpose, setSelectedNarrativePurpose] =
+    useState<PublishingNarrativePurpose>("create");
   const [intentDraft, setIntentDraft] = useState<PublishingNarrativeIntent>(
     () => defaultPublishingNarrativeIntent()
   );
@@ -374,9 +389,10 @@ export default function PublishingDraftWorkspace({
   >(null);
   const [platformSnapshot, setPlatformSnapshot] =
     useState<ScopedPlatformSnapshot | null>(null);
-  const [platformContextBusy, setPlatformContextBusy] = useState<
-    { kind: "refresh" | "save"; requestId: number } | null
-  >(null);
+  const [platformContextBusy, setPlatformContextBusy] = useState<{
+    kind: "refresh" | "save";
+    requestId: number;
+  } | null>(null);
   const platformContextRequestRef = useRef(0);
   const publishingStateRef = useRef(publishing);
   publishingStateRef.current = publishing;
@@ -458,13 +474,14 @@ export default function PublishingDraftWorkspace({
   useEffect(() => setRewriteInstruction(""), [platform]);
   const adapter = PUBLISHING_PLATFORM_REGISTRY[platform];
   const draft = publishing.drafts[platform] ?? null;
-  const trendPlatform = (PUBLISHING_TREND_PLATFORM_IDS as readonly string[])
-    .includes(platform)
-    ? platform as PublishingTrendPlatformId
+  const trendPlatform = (
+    PUBLISHING_TREND_PLATFORM_IDS as readonly string[]
+  ).includes(platform)
+    ? (platform as PublishingTrendPlatformId)
     : null;
   const platformContext = trendPlatform
-    ? activeVersion?.platformContexts?.[trendPlatform] ??
-      emptyPublishingPlatformContextState(publishing.updatedAt)
+    ? (activeVersion?.platformContexts?.[trendPlatform] ??
+      emptyPublishingPlatformContextState(publishing.updatedAt))
     : null;
   const scopedPlatformSnapshot =
     platformSnapshot &&
@@ -474,7 +491,8 @@ export default function PublishingDraftWorkspace({
     platformSnapshot.sourceRevision === (draft?.revision ?? 0)
       ? platformSnapshot.snapshot
       : null;
-  const currentPlatformSnapshot = scopedPlatformSnapshot ??
+  const currentPlatformSnapshot =
+    scopedPlatformSnapshot ??
     (platformContext?.selectedSnapshotId
       ? platformContext.snapshots.find(
           snapshot => snapshot.snapshotId === platformContext.selectedSnapshotId
@@ -589,7 +607,11 @@ export default function PublishingDraftWorkspace({
           sourcePlatform,
         });
         const payload = { sourcePlatform, targetPlatform: platform };
-        const identity = createPublishingTextOperationIdentity("convert", scope, payload);
+        const identity = createPublishingTextOperationIdentity(
+          "convert",
+          scope,
+          payload
+        );
         const result = await convertMut.mutateAsync({
           storyId,
           sourcePlatform,
@@ -604,12 +626,15 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
-        if (!publishingTextOperationScopeMatches(result.operationScope, {
-          storyId,
-          state: publishingStateRef.current,
-          platform: result.operationScope.platform,
-          sourcePlatform: result.operationScope.sourcePlatform,
-        })) return;
+        if (
+          !publishingTextOperationScopeMatches(result.operationScope, {
+            storyId,
+            state: publishingStateRef.current,
+            platform: result.operationScope.platform,
+            sourcePlatform: result.operationScope.sourcePlatform,
+          })
+        )
+          return;
         setPublishing(result.publishing);
         if (result.status === "candidate") {
           setPublishingBuffer(storyId, platform, result.content, versionId);
@@ -629,7 +654,11 @@ export default function PublishingDraftWorkspace({
           activePlatform: platform,
           selectedPlatforms: publishing.selectedPlatforms,
         };
-        const identity = createPublishingTextOperationIdentity("generate", scope, payload);
+        const identity = createPublishingTextOperationIdentity(
+          "generate",
+          scope,
+          payload
+        );
         const result = await generateMut.mutateAsync({
           storyId,
           activePlatform: platform,
@@ -645,12 +674,15 @@ export default function PublishingDraftWorkspace({
           )
         )
           return;
-        if (!publishingTextOperationScopeMatches(result.operationScope, {
-          storyId,
-          state: publishingStateRef.current,
-          platform: result.operationScope.platform,
-          sourcePlatform: result.operationScope.sourcePlatform,
-        })) return;
+        if (
+          !publishingTextOperationScopeMatches(result.operationScope, {
+            storyId,
+            state: publishingStateRef.current,
+            platform: result.operationScope.platform,
+            sourcePlatform: result.operationScope.sourcePlatform,
+          })
+        )
+          return;
         setPublishing(result.publishing);
         toast.success(`${adapter.label}文字稿已生成`);
       }
@@ -675,7 +707,11 @@ export default function PublishingDraftWorkspace({
         sourcePlatform: platform,
       });
       const payload = { sourcePlatform: platform, targetPlatform };
-      const identity = createPublishingTextOperationIdentity("convert", scope, payload);
+      const identity = createPublishingTextOperationIdentity(
+        "convert",
+        scope,
+        payload
+      );
       const result = await convertMut.mutateAsync({
         storyId,
         sourcePlatform: platform,
@@ -690,12 +726,15 @@ export default function PublishingDraftWorkspace({
         )
       )
         return;
-      if (!publishingTextOperationScopeMatches(result.operationScope, {
-        storyId,
-        state: publishingStateRef.current,
-        platform: result.operationScope.platform,
-        sourcePlatform: result.operationScope.sourcePlatform,
-      })) return;
+      if (
+        !publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })
+      )
+        return;
       setPublishing(result.publishing);
       if (result.status === "candidate") {
         setPublishingBuffer(storyId, targetPlatform, result.content, versionId);
@@ -733,7 +772,11 @@ export default function PublishingDraftWorkspace({
         instruction: rewriteInstruction.trim(),
         content: editorContent,
       };
-      const identity = createPublishingTextOperationIdentity("rewrite", scope, payload);
+      const identity = createPublishingTextOperationIdentity(
+        "rewrite",
+        scope,
+        payload
+      );
       const result = await rewriteMut.mutateAsync({
         storyId,
         platform,
@@ -751,12 +794,15 @@ export default function PublishingDraftWorkspace({
       ) {
         return;
       }
-      if (!publishingTextOperationScopeMatches(result.operationScope, {
-        storyId,
-        state: publishingStateRef.current,
-        platform: result.operationScope.platform,
-        sourcePlatform: result.operationScope.sourcePlatform,
-      })) return;
+      if (
+        !publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })
+      )
+        return;
       setPublishingBuffer(storyId, platform, result.content, versionId);
       setRewriteInstruction("");
       toast.success("改写预览已放进编辑器；看完后再决定是否应用");
@@ -790,16 +836,22 @@ export default function PublishingDraftWorkspace({
         scope,
         ...identity,
       });
-      if (!publishingStoryScopeMatches(
-        storyId,
-        storySpineStore.getState().activeStoryId
-      )) return;
-      if (!publishingTextOperationScopeMatches(result.operationScope, {
-        storyId,
-        state: publishingStateRef.current,
-        platform: result.operationScope.platform,
-        sourcePlatform: result.operationScope.sourcePlatform,
-      })) return;
+      if (
+        !publishingStoryScopeMatches(
+          storyId,
+          storySpineStore.getState().activeStoryId
+        )
+      )
+        return;
+      if (
+        !publishingTextOperationScopeMatches(result.operationScope, {
+          storyId,
+          state: publishingStateRef.current,
+          platform: result.operationScope.platform,
+          sourcePlatform: result.operationScope.sourcePlatform,
+        })
+      )
+        return;
       replaceContent(result.content);
       toast.success(
         publishingContentEquals(result.content, editorContent)
@@ -807,7 +859,9 @@ export default function PublishingDraftWorkspace({
           : "格式修复预览已放进编辑器；确认后再应用"
       );
     } catch (error) {
-      toast.error(publishingErrorMessage(error, "格式修复失败，当前内容没有变化"));
+      toast.error(
+        publishingErrorMessage(error, "格式修复失败，当前内容没有变化")
+      );
     }
   };
 
@@ -912,7 +966,9 @@ export default function PublishingDraftWorkspace({
         return;
       setPublishing(result.publishing);
       setPendingDecision(null);
-      toast.info("这次修改涉及故事内核，当前版本未被覆盖；请创建新版本继续，编辑内容已保留");
+      toast.info(
+        "这次修改涉及故事内核，当前版本未被覆盖；请创建新版本继续，编辑内容已保留"
+      );
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "故事内核暂时没有更新，编辑内容仍在")
@@ -1155,7 +1211,8 @@ export default function PublishingDraftWorkspace({
       );
       setCoverArtReference(result.coverRound.artReference ?? coverArtReference);
       setCoverFeedback("");
-      const flaggedCount = result.coverRound.qualityFlaggedAssetIds?.length ?? 0;
+      const flaggedCount =
+        result.coverRound.qualityFlaggedAssetIds?.length ?? 0;
       toast.success(
         result.coverRound.qualityCheckUnavailable
           ? `新一轮 ${result.coverRound.candidates.length} 张候选已就绪，但本轮未经过像素质检，请自行确认有无文字`
@@ -1200,7 +1257,10 @@ export default function PublishingDraftWorkspace({
     publishing.activeVersionId,
   ]);
 
-  const continueToVideo = async (narrativeSpec?: NarrativeSpecId) => {
+  const continueToVideo = async (
+    narrativeSpec?: NarrativeSpecId,
+    targetVersionId = versionId
+  ) => {
     if (
       activeStoryId == null ||
       coverBusy ||
@@ -1209,7 +1269,7 @@ export default function PublishingDraftWorkspace({
     )
       return;
     const storyId = activeStoryId;
-    const scope = `${storyId}:${versionId}`;
+    const scope = `${storyId}:${targetVersionId}`;
     const existingOperation = videoBuildOperationRef.current;
     const operationToken =
       existingOperation?.scope === scope
@@ -1220,7 +1280,7 @@ export default function PublishingDraftWorkspace({
     try {
       const result = await buildVideoStoryboardMut.mutateAsync({
         storyId,
-        versionId,
+        versionId: targetVersionId,
         operationToken,
         narrativeSpec,
       });
@@ -1269,6 +1329,80 @@ export default function PublishingDraftWorkspace({
     }
   };
 
+  const openVideoSetup = () => {
+    if (activeStoryId == null || coverBusy || dirty || videoBusy) return;
+    setSelectedNarrativeSpec(activeVersion?.narrativeSpec ?? "video30");
+    setSelectedNarrativePurpose(activeNarrativeIntent.primaryPurpose);
+    setVideoSetupOpen(true);
+  };
+
+  const confirmVideoSetup = () => {
+    setVideoSetupOpen(false);
+    const narrativeIntent = {
+      ...activeNarrativeIntent,
+      primaryPurpose: selectedNarrativePurpose,
+      secondaryPurposes: activeNarrativeIntent.secondaryPurposes.filter(
+        purpose => purpose !== selectedNarrativePurpose
+      ),
+      status: "confirmed" as const,
+      updatedAt: Date.now(),
+    };
+    if (activeStoryId == null || !publishing.core || !draft || !editorContent) {
+      return;
+    }
+    const storyId = activeStoryId;
+    const scope = publishingOperationScope({ storyId, publishing, platform });
+    const core: PublishingStoryCoreContent = {
+      facts: [...publishing.core.facts],
+      thesis: publishing.core.thesis,
+      emotion: publishing.core.emotion,
+      voiceTraits: [...publishing.core.voiceTraits],
+      visualConcept: publishing.core.visualConcept,
+    };
+    const identity = publishingVersionTransitionIdentity({
+      scope,
+      core,
+      content: draft.content,
+      narrativeIntent,
+      bufferDisposition: "leave",
+    });
+    void createVersionMut
+      .mutateAsync({
+        storyId,
+        platform,
+        core,
+        content: draft.content,
+        baseCoreRevision: scope.coreRevision,
+        baseDraftRevision: draft.revision,
+        baseVersionRevision: scope.versionRevision,
+        baseContainerRevision: scope.containerRevision,
+        displayName: `视频版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`,
+        narrativeIntent,
+        ...identity,
+      })
+      .then(async result => {
+        if (
+          !publishingStoryScopeMatches(
+            storyId,
+            storySpineStore.getState().activeStoryId
+          )
+        ) {
+          return;
+        }
+        setPublishing(result.publishing);
+        await refreshPublishingRead(storyId);
+        await continueToVideo(
+          selectedNarrativeSpec,
+          result.publishing.activeVersionId ?? versionId
+        );
+      })
+      .catch(error => {
+        toast.error(
+          publishingErrorMessage(error, "新的视频版本创建失败，原版本仍然保留")
+        );
+      });
+  };
+
   const adoptCoverCandidate = async (shouldContinueToVideo = false) => {
     if (!selectedCoverAsset || activeStoryId == null || coverBusy || dirty) {
       return;
@@ -1304,7 +1438,7 @@ export default function PublishingDraftWorkspace({
       setSelectedCoverAssetId(null);
       setCoverFeedback("");
       toast.success("已采用这张正式封面，其他工作区会继承它");
-      if (shouldContinueToVideo) await continueToVideo();
+      if (shouldContinueToVideo) openVideoSetup();
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "封面采用失败，原封面仍然保留")
@@ -1361,7 +1495,9 @@ export default function PublishingDraftWorkspace({
         targetBuffer &&
         !publishingContentEquals(targetBuffer.content, carryContent)
       ) {
-        toast.error("目标版本已有另一份未应用修改；先到目标版本处理，当前修改仍保留");
+        toast.error(
+          "目标版本已有另一份未应用修改；先到目标版本处理，当前修改仍保留"
+        );
         return;
       }
     }
@@ -1388,7 +1524,7 @@ export default function PublishingDraftWorkspace({
           activeStoryId,
           storySpineStore.getState().activeStoryId
         )
-        )
+      )
         return;
       setPublishing(result.publishing);
       if (carryContent) {
@@ -1509,7 +1645,10 @@ export default function PublishingDraftWorkspace({
       );
     } catch (error) {
       toast.error(
-        publishingErrorMessage(error, "新版本创建失败，当前版本和未应用修改都还在")
+        publishingErrorMessage(
+          error,
+          "新版本创建失败，当前版本和未应用修改都还在"
+        )
       );
     } finally {
       if (acceptedProposalId) {
@@ -1518,11 +1657,13 @@ export default function PublishingDraftWorkspace({
     }
   };
 
-  const requestCreateVersion = (input: {
-    displayName?: string;
-    narrativeIntent?: PublishingNarrativeIntent;
-    acceptIntentProposal?: boolean;
-  } = {}) => {
+  const requestCreateVersion = (
+    input: {
+      displayName?: string;
+      narrativeIntent?: PublishingNarrativeIntent;
+      acceptIntentProposal?: boolean;
+    } = {}
+  ) => {
     if (
       activeStoryId == null ||
       !publishing.core ||
@@ -1531,7 +1672,8 @@ export default function PublishingDraftWorkspace({
       busy
     ) {
       if (input.acceptIntentProposal) {
-        const proposalId = storySpineStore.getState().pendingIntentDraft?.proposal?.id;
+        const proposalId =
+          storySpineStore.getState().pendingIntentDraft?.proposal?.id;
         if (proposalId) finishPendingIntentCommit(proposalId, false);
       }
       return;
@@ -1568,10 +1710,13 @@ export default function PublishingDraftWorkspace({
         baseVersionRevision: activeVersion.versionRevision,
         ...identity,
       });
-      if (!publishingStoryScopeMatches(
-        activeStoryId,
-        storySpineStore.getState().activeStoryId
-      )) return;
+      if (
+        !publishingStoryScopeMatches(
+          activeStoryId,
+          storySpineStore.getState().activeStoryId
+        )
+      )
+        return;
       setPublishing(result.publishing);
       toast.success("版本名称已修改");
     } catch (error) {
@@ -1661,7 +1806,8 @@ export default function PublishingDraftWorkspace({
       !trendPlatform ||
       !draft ||
       platformContextBusy
-    ) return;
+    )
+      return;
     const scope = publishingOperationScope({
       storyId: activeStoryId,
       publishing,
@@ -1674,10 +1820,13 @@ export default function PublishingDraftWorkspace({
         storyId: activeStoryId,
         ...publishingTrendWriteScope(scope),
       });
-      if (!publishingOperationScopeMatches(scope, {
-        storyId: storySpineStore.getState().activeStoryId,
-        publishing: publishingStateRef.current,
-      })) return;
+      if (
+        !publishingOperationScopeMatches(scope, {
+          storyId: storySpineStore.getState().activeStoryId,
+          publishing: publishingStateRef.current,
+        })
+      )
+        return;
       if (result.persisted) setPublishing(result.publishing);
       setPlatformSnapshot({
         storyId: activeStoryId,
@@ -1690,11 +1839,15 @@ export default function PublishingDraftWorkspace({
         toast.info("没有可验证的实时热点；上次已选标签仍保留");
       }
     } catch (error) {
-      if (publishingOperationScopeMatches(scope, {
-        storyId: storySpineStore.getState().activeStoryId,
-        publishing: publishingStateRef.current,
-      })) {
-        toast.error(publishingErrorMessage(error, "平台热点刷新失败，已选标签仍保留"));
+      if (
+        publishingOperationScopeMatches(scope, {
+          storyId: storySpineStore.getState().activeStoryId,
+          publishing: publishingStateRef.current,
+        })
+      ) {
+        toast.error(
+          publishingErrorMessage(error, "平台热点刷新失败，已选标签仍保留")
+        );
       }
     } finally {
       setPlatformContextBusy(current =>
@@ -1713,7 +1866,8 @@ export default function PublishingDraftWorkspace({
       !trendPlatform ||
       !draft ||
       platformContextBusy
-    ) return;
+    )
+      return;
     const scope = publishingOperationScope({
       storyId: activeStoryId,
       publishing,
@@ -1727,18 +1881,25 @@ export default function PublishingDraftWorkspace({
         ...publishingTrendWriteScope(scope),
         ...input,
       });
-      if (!publishingOperationScopeMatches(scope, {
-        storyId: storySpineStore.getState().activeStoryId,
-        publishing: publishingStateRef.current,
-      })) return;
+      if (
+        !publishingOperationScopeMatches(scope, {
+          storyId: storySpineStore.getState().activeStoryId,
+          publishing: publishingStateRef.current,
+        })
+      )
+        return;
       setPublishing(result.publishing);
       toast.success("标签已保存到当前版本和平台");
     } catch (error) {
-      if (publishingOperationScopeMatches(scope, {
-        storyId: storySpineStore.getState().activeStoryId,
-        publishing: publishingStateRef.current,
-      })) {
-        toast.error(publishingErrorMessage(error, "标签没有保存，当前选择仍在"));
+      if (
+        publishingOperationScopeMatches(scope, {
+          storyId: storySpineStore.getState().activeStoryId,
+          publishing: publishingStateRef.current,
+        })
+      ) {
+        toast.error(
+          publishingErrorMessage(error, "标签没有保存，当前选择仍在")
+        );
       }
     } finally {
       setPlatformContextBusy(current =>
@@ -2247,7 +2408,7 @@ export default function PublishingDraftWorkspace({
                     </span>
                   ) : null}
                   <ActionButton
-                    onClick={() => void continueToVideo()}
+                    onClick={openVideoSetup}
                     disabled={busy || videoBusy || dirty}
                     primary={Boolean(coverAsset)}
                   >
@@ -2275,7 +2436,9 @@ export default function PublishingDraftWorkspace({
           open={closedIntentProposalId !== pendingIntentDraft.proposal?.id}
           current={currentProposalIntent}
           proposed={proposedNarrativeIntent}
-          evidence={pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence}
+          evidence={
+            pendingIntentDraft.proposal?.evidence ?? pendingIntentDraft.evidence
+          }
           hasPublishingVersion={hasPublishingVersion}
           busy={
             busy ||
@@ -2290,6 +2453,119 @@ export default function PublishingDraftWorkspace({
           onReject={dismissPendingIntent}
         />
       ) : null}
+
+      <Dialog open={videoSetupOpen} onOpenChange={setVideoSetupOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>先定一下这支片子的节奏</DialogTitle>
+            <DialogDescription>
+              这是一次新的故事版生成，不会覆盖当前文字和已有故事版。模型会按你的选择重新编排镜头。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-1">
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-foreground">
+                成片形态
+              </legend>
+              <div
+                className="grid grid-cols-2 gap-2"
+                role="radiogroup"
+                aria-label="成片形态"
+              >
+                {NARRATIVE_SPEC_IDS.map(spec => {
+                  const selected = selectedNarrativeSpec === spec;
+                  return (
+                    <button
+                      key={spec}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setSelectedNarrativeSpec(spec)}
+                      className={`rounded-lg border px-3 py-3 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                        selected
+                          ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)] text-foreground"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                      style={
+                        selected
+                          ? undefined
+                          : { borderColor: "var(--panel-border)" }
+                      }
+                    >
+                      <span className="block font-medium">
+                        {NARRATIVE_SPEC_LABELS[spec]}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-muted-foreground">
+                        {spec === "album9"
+                          ? "适合只看画面的故事"
+                          : "按整片预算分配镜头"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-foreground">
+                这版故事的调子
+              </legend>
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                已按当前识别结果预填，你也可以改成这次更想要的方向。
+              </p>
+              <div
+                className="flex flex-wrap gap-2"
+                role="radiogroup"
+                aria-label="故事调子"
+              >
+                {PUBLISHING_NARRATIVE_PURPOSES.map(purpose => {
+                  const selected = selectedNarrativePurpose === purpose;
+                  return (
+                    <button
+                      key={purpose}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setSelectedNarrativePurpose(purpose)}
+                      className={`rounded-full border px-3 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                        selected
+                          ? "border-[var(--nayin-accent)] bg-[var(--nayin-glow)] text-foreground"
+                          : "text-muted-foreground hover:bg-muted/40"
+                      }`}
+                      style={
+                        selected
+                          ? undefined
+                          : { borderColor: "var(--panel-border)" }
+                      }
+                    >
+                      {publishingNarrativePurposeLabel(purpose)}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          </div>
+          <DialogFooter>
+            <ActionButton
+              onClick={() => setVideoSetupOpen(false)}
+              disabled={busy || videoPreparing}
+            >
+              先不生成
+            </ActionButton>
+            <ActionButton
+              onClick={confirmVideoSetup}
+              disabled={busy || videoPreparing}
+              primary
+            >
+              {videoPreparing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
+              按这个节奏生成
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={intentEditorOpen} onOpenChange={setIntentEditorOpen}>
         <DialogContent className="max-w-md">
@@ -2450,7 +2726,8 @@ export default function PublishingDraftWorkspace({
               disabled={busy}
               primary
             >
-              带到{pendingVersionAction?.kind === "create" ? "新版本" : "目标版本"}
+              带到
+              {pendingVersionAction?.kind === "create" ? "新版本" : "目标版本"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
@@ -2652,7 +2929,8 @@ export default function PublishingDraftWorkspace({
                     本轮没有经过像素质检（质检通道当时不可用），画面里的文字、Logo
                     或水印不会被标出来，请自己确认后再采用。
                   </p>
-                ) : (activeCoverRound.qualityFlaggedAssetIds?.length ?? 0) > 0 ? (
+                ) : (activeCoverRound.qualityFlaggedAssetIds?.length ?? 0) >
+                  0 ? (
                   <p className="mt-2 text-[11px] leading-5 text-amber-700">
                     {`本轮 ${activeCoverRound.candidates.length} 张全部保留可选；其中 ${activeCoverRound.qualityFlaggedAssetIds!.length} 张被像素质检标记为疑似含文字、Logo 或水印，仅作提示，是否采用由你决定。`}
                   </p>
@@ -2939,7 +3217,7 @@ export default function PublishingDraftWorkspace({
               <ActionButton
                 onClick={() => {
                   setCoverStudioOpen(false);
-                  void continueToVideo();
+                  openVideoSetup();
                 }}
                 disabled={coverBusy}
                 primary

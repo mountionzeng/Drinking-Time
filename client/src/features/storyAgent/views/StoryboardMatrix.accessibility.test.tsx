@@ -38,7 +38,6 @@ describe("StoryboardMatrixFieldCell accessibility", () => {
 
   it("shows one voice row with separate narration and sound editing", () => {
     expect(STORYBOARD_MATRIX_VISIBLE_ROWS.map(row => row.field)).toEqual([
-      "scriptText",
       "promptDraft",
       "videoPrompt",
       "dialogue",

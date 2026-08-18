@@ -35,15 +35,10 @@ describe("resolveStudioInteractionMode", () => {
     );
   });
 
-  it("restores publishing, the five story panels, and editing as seven peer workspaces", () => {
+  it("keeps story navigation hidden while leaving writing and editing entry points", () => {
     expect(STUDIO_WORKSPACE_OPTIONS.map(option => option.label)).toEqual([
-      "文字稿",
-      "素材仓库",
-      "故事版看板",
-      "动态分镜",
-      "镜头设计表",
-      "故事卡片",
-      "剪辑台",
+      "文字",
+      "图像和声音",
     ]);
   });
 

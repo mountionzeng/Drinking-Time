@@ -56,12 +56,44 @@ start() {
   # 只有改了 server 端代码，才需要 `restart`。
   nohup bash -c '
     export PATH="/opt/homebrew/bin:$PATH"
-    # 让 server 的 Node fetch 走本机代理（Clash/Surge 等）。否则像 api.302.ai 这类
-    # 解析到代理 FakeIP（198.18.x.x）的域名，Node 直连会「fetch failed」。
-    # 已设则沿用；未设默认 Clash 的 127.0.0.1:7890。本机地址不走代理。
-    export HTTP_PROXY="${HTTP_PROXY:-http://127.0.0.1:7890}"
-    export HTTPS_PROXY="${HTTPS_PROXY:-http://127.0.0.1:7890}"
-    export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
+    # 让 server 的出站请求走本机代理（Clash/Surge 等）。否则像 api.302.ai 这类
+    # 解析到代理 FakeIP（198.18.x.x）的域名，直连会「fetch failed」。
+    #
+    # 这里踩过两个坑，改之前先读完：
+    # ① 光 export 代理变量是不够的：Node 的全局 fetch(undici) **默认不读**
+    #    HTTP_PROXY/HTTPS_PROXY，必须显式打开 NODE_USE_ENV_PROXY=1（Node ≥ 24）。
+    #    而同进程里的 axios（oauth.ts / sdk.ts）**默认就读**。结果是同一份环境变量下
+    #    两个 HTTP 客户端各走各的：fetch 直连、axios 走代理——只要代理没在监听，
+    #    axios 那条路就 ECONNREFUSED 秒挂，fetch 那条路却正常。表现就是"环境很不稳定"。
+    # ② 所以不能无脑写死 7890：开关一旦打开，代理地址就成了硬约束，没人监听时所有
+    #    外部请求全废。先探测端口，探得到才启用，探不到就干脆全部直连——两个客户端
+    #    始终保持一致，这才是这段代码的目的。
+    # 默认直连：2026-08-16 实测本机直连与走代理没有实质差别（两条路都被 TLS 握手
+    # 主导），而直连少一跳、也少一个会挂的依赖。需要靠代理解 FakeIP 的机器，显式
+    # 用 DEV_USE_PROXY=1 打开即可。
+    if [ "${DEV_USE_PROXY:-0}" = "1" ]; then
+      PROXY_URL="${HTTPS_PROXY:-${HTTP_PROXY:-http://127.0.0.1:7890}}"
+      PROXY_HOSTPORT="${PROXY_URL#*://}"
+      PROXY_HOSTPORT="${PROXY_HOSTPORT%%/*}"
+      PROXY_HOST="${PROXY_HOSTPORT%%:*}"
+      PROXY_PORT="${PROXY_HOSTPORT##*:}"
+      [ "$PROXY_PORT" = "$PROXY_HOST" ] && PROXY_PORT=80
+      if nc -z -G 1 -w 1 "$PROXY_HOST" "$PROXY_PORT" 2>/dev/null; then
+        export HTTP_PROXY="$PROXY_URL"
+        export HTTPS_PROXY="$PROXY_URL"
+        export NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}"
+        export NODE_USE_ENV_PROXY=1
+        echo "[supervisor] proxy $PROXY_URL 有响应，fetch 与 axios 统一走代理"
+      else
+        unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+        echo "[supervisor] 要求用代理，但 $PROXY_URL 无人监听——改为统一直连"
+      fi
+    else
+      # 关键：主动清掉继承来的代理变量。留着的话就是上面说的分裂状态：
+      # axios 走代理、fetch 直连，代理一旦没在监听，axios 那条路秒挂而 fetch 正常。
+      unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+      echo "[supervisor] fetch 与 axios 统一直连（要走代理设 DEV_USE_PROXY=1）"
+    fi
     while true; do
       echo "[supervisor $(date "+%F %T")] starting dev server ..."
       node_modules/.bin/tsx server/_core/index.ts

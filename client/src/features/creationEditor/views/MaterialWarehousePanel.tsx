@@ -2,6 +2,7 @@ import {
   Archive,
   Ban,
   Check,
+  ChevronDown,
   Clapperboard,
   Image as ImageIcon,
   Loader2,
@@ -23,10 +24,7 @@ import type { ImageAsset } from "@shared/imageAsset";
 import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
-import {
-  displayShotCode,
-  type ShotDisplayLike,
-} from "@shared/shotIdentity";
+import { displayShotCode, type ShotDisplayLike } from "@shared/shotIdentity";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
@@ -81,8 +79,10 @@ type DirectorAdviceItem = {
 };
 
 function adviceVerdictTone(verdict: DirectorAdviceItem["verdict"]) {
-  if (verdict === "use") return "border-emerald-300/60 bg-emerald-50 text-emerald-700";
-  if (verdict === "skip") return "border-border bg-muted/70 text-muted-foreground";
+  if (verdict === "use")
+    return "border-emerald-300/60 bg-emerald-50 text-emerald-700";
+  if (verdict === "skip")
+    return "border-border bg-muted/70 text-muted-foreground";
   return "border-amber-300/70 bg-amber-50 text-amber-800";
 }
 
@@ -132,7 +132,9 @@ function DirectorAdviceSection({
       if (result.status === "ok") {
         setAdvices(result.advices);
         const usable = result.advices.filter(a => a.verdict !== "skip").length;
-        toast.success(`导演看完了 ${result.advices.length} 张图，${usable} 张有安排`);
+        toast.success(
+          `导演看完了 ${result.advices.length} 张图，${usable} 张有安排`
+        );
       } else {
         toast.error(result.message);
       }
@@ -236,14 +238,18 @@ function DirectorAdviceSection({
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-[11px] leading-relaxed">{advice.reason}</p>
+                <p className="mt-1 text-[11px] leading-relaxed">
+                  {advice.reason}
+                </p>
                 {advice.videoDirection ? (
                   <p className="mt-1 truncate text-[10px] text-muted-foreground">
                     视频提示：{advice.videoDirection.videoPrompt}
                   </p>
                 ) : null}
                 {advice.note ? (
-                  <p className="mt-1 text-[10px] text-muted-foreground">{advice.note}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {advice.note}
+                  </p>
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-col gap-1">
@@ -430,7 +436,13 @@ function plannedDurationSec(
     : 3;
 }
 
-export default function MaterialWarehousePanel() {
+export default function MaterialWarehousePanel({
+  variant = "page",
+  onClose,
+}: {
+  variant?: "page" | "drawer";
+  onClose?: () => void;
+} = {}) {
   const { setActiveSelection } = useStoryAgentActions();
   const {
     activeStoryId,
@@ -460,10 +472,9 @@ export default function MaterialWarehousePanel() {
   const [panelError, setPanelError] = useState<string | null>(null);
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
+  const [drawerTab, setDrawerTab] = useState<"images" | "videos">("images");
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
-  const [pendingImports, setPendingImports] = useState<PendingImportItem[]>(
-    []
-  );
+  const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
 
   const currentShot = selectedShot ?? shots[0] ?? null;
   const currentStableShotId =
@@ -755,6 +766,220 @@ export default function MaterialWarehousePanel() {
       setBusyKey(null);
     }
   };
+
+  if (variant === "drawer") {
+    const drawerItems = drawerTab === "images" ? imageItems : videoItems;
+    return (
+      <section
+        id="editing-material-warehouse"
+        className="flex min-h-[230px] flex-[0_0_42%] flex-col overflow-hidden border-t border-border bg-background"
+        aria-label="素材仓库抽屉"
+        data-testid="material-warehouse-drawer"
+      >
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Archive className="h-4 w-4 text-primary" />
+              <h2 className="text-xs font-semibold">素材仓库</h2>
+            </div>
+            <div className="flex h-7 items-center gap-1 border-l border-border pl-2">
+              <button
+                type="button"
+                onClick={() => setDrawerTab("images")}
+                aria-pressed={drawerTab === "images"}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "images" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <ImageIcon className="h-3.5 w-3.5" /> 图片 {imageItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDrawerTab("videos")}
+                aria-pressed={drawerTab === "videos"}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Video className="h-3.5 w-3.5" /> 视频 {videoItems.length}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={importing}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
+            >
+              {importing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              导入素材
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,.mov,.m4v"
+              className="hidden"
+              onChange={event =>
+                event.currentTarget.files &&
+                stageFiles(event.currentTarget.files)
+              }
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              aria-label="收起素材仓库"
+              title="收起素材仓库"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-3 custom-scrollbar">
+          {panelError || error ? (
+            <div className="mb-2 text-xs text-destructive">
+              {panelError ?? error?.message}
+            </div>
+          ) : null}
+          {drawerItems.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              {isLoading
+                ? "正在读取素材"
+                : drawerTab === "images"
+                  ? "暂无图片素材"
+                  : "暂无视频素材"}
+            </div>
+          ) : (
+            <div className="flex h-full min-w-max gap-3">
+              {drawerTab === "images"
+                ? imageItems.map(item => {
+                    const busy = busyKey === `image:${item.image.id}`;
+                    const belongsToCurrent =
+                      currentStableShotId != null &&
+                      item.stableShotId === currentStableShotId;
+                    return (
+                      <article
+                        key={item.image.id}
+                        className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => selectImageMaterial(item)}
+                          className="min-h-0 flex-1 bg-muted text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                        >
+                          <img
+                            src={item.image.imageUrl}
+                            alt={
+                              item.shotNo
+                                ? `${shotLabel(item)} 图片`
+                                : "未绑定图片"
+                            }
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </button>
+                        <div className="flex shrink-0 items-center gap-2 p-2">
+                          <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                            {item.shotNo ? shotLabel(item) : "未绑定"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void bindImage(item.image)}
+                            disabled={busy || !currentStableShotId}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : belongsToCurrent ? (
+                              <Check className="h-3 w-3" />
+                            ) : (
+                              <Link2 className="h-3 w-3" />
+                            )}
+                            {belongsToCurrent ? "设为首帧" : "绑定到当前镜头"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                : videoItems.map(item => {
+                    const busy = busyKey === `video:${item.take.id}`;
+                    const playable =
+                      item.take.status === "available" &&
+                      Boolean(item.take.videoUrl);
+                    const action = videoWarehouseActionState({
+                      item,
+                      activeStoryId,
+                      currentStableShotId,
+                      playable,
+                      busy,
+                    });
+                    return (
+                      <article
+                        key={item.take.id}
+                        className="flex h-full w-56 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => selectVideoMaterial(item)}
+                          className="min-h-0 flex-1 bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                        >
+                          {item.take.videoUrl ? (
+                            <video
+                              src={item.take.videoUrl}
+                              muted
+                              preload="metadata"
+                              onMouseEnter={event => {
+                                event.currentTarget.muted = true;
+                                void event.currentTarget
+                                  .play()
+                                  .catch(() => undefined);
+                              }}
+                              onMouseLeave={event => {
+                                event.currentTarget.pause();
+                                event.currentTarget.currentTime = 0;
+                              }}
+                              className="h-full w-full object-contain"
+                            />
+                          ) : (
+                            <span className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                              {item.take.status}
+                            </span>
+                          )}
+                        </button>
+                        <div className="flex shrink-0 items-center gap-2 p-2">
+                          <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                            {videoSourceLabel(item)} · Take {item.take.id}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void useVideo(item.take)}
+                            disabled={action.disabled}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : action.icon === "check" ? (
+                              <Check className="h-3 w-3" />
+                            ) : (
+                              <Link2 className="h-3 w-3" />
+                            )}
+                            {action.label === "已采用"
+                              ? "已绑定当前镜头"
+                              : "绑定到当前镜头"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -1097,9 +1322,7 @@ export default function MaterialWarehousePanel() {
                           </div>
                           <div className="space-y-2 p-3">
                             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <span>
-                                {shotNo ? shotLabel(item) : "未绑定"}
-                              </span>
+                              <span>{shotNo ? shotLabel(item) : "未绑定"}</span>
                               {isCurrent ? (
                                 <span className="inline-flex items-center gap-1 text-primary">
                                   <Check className="h-3 w-3" />
@@ -1190,6 +1413,16 @@ export default function MaterialWarehousePanel() {
                               className="aspect-video w-full bg-black object-contain"
                               controls
                               preload="metadata"
+                              onMouseEnter={event => {
+                                event.currentTarget.muted = true;
+                                void event.currentTarget
+                                  .play()
+                                  .catch(() => undefined);
+                              }}
+                              onMouseLeave={event => {
+                                event.currentTarget.pause();
+                                event.currentTarget.currentTime = 0;
+                              }}
                               onClick={() => selectVideoMaterial(item)}
                             />
                           ) : (

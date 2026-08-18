@@ -226,6 +226,96 @@ describe("normalizeTimelineItems", () => {
       ],
     });
   });
+
+  it("derives canonical frame placement for legacy contiguous timelines", () => {
+    const items = normalizeTimelineItems(undefined, facts);
+
+    expect(items.map(item => item.durationFrames)).toEqual([54, 72]);
+    expect(items.map(item => item.timelineStartFrame)).toEqual([0, 54]);
+    expect(items.map(item => item.stackOrder)).toEqual([0, 1]);
+  });
+
+  it("preserves explicit placement and appends a mixed legacy item at max end", () => {
+    const items = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          plannedDurationMs: 1800,
+          durationFrames: 54,
+          timelineStartFrame: 90,
+          stackOrder: 8,
+          anchors: [
+            {
+              id: "anchor-a",
+              timelineFrame: 100,
+              sourceType: "primary-video",
+              sourceId: "take-12",
+              sourceTimeSec: 1 / 3,
+            },
+            {
+              id: "anchor-a",
+              timelineFrame: 101,
+              sourceType: "primary-video",
+              sourceId: "take-12",
+              sourceTimeSec: 0.4,
+            },
+          ],
+        },
+      ],
+      facts
+    );
+
+    expect(items.map(item => item.timelineStartFrame)).toEqual([90, 144]);
+    expect(items[0].anchors).toEqual([
+      {
+        id: "anchor-a",
+        timelineFrame: 100,
+        sourceType: "primary-video",
+        sourceId: "take-12",
+        sourceTimeSec: 1 / 3,
+      },
+    ]);
+    expect(items[0].stackOrder).toBe(8);
+  });
+
+  it("drops malformed anchors without disturbing valid placement", () => {
+    const [item] = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          timelineStartFrame: 12,
+          anchors: [
+            {
+              id: "valid",
+              timelineFrame: 13,
+              sourceType: "image",
+              sourceId: "image-1",
+              sourceTimeSec: null,
+            },
+            {
+              id: "bad-type",
+              timelineFrame: 14,
+              sourceType: "marker",
+              sourceId: "x",
+              sourceTimeSec: null,
+            },
+          ],
+        },
+      ],
+      facts
+    );
+
+    expect(item.timelineStartFrame).toBe(12);
+    expect(item.anchors).toEqual([
+      {
+        id: "valid",
+        timelineFrame: 13,
+        sourceType: "image",
+        sourceId: "image-1",
+        sourceTimeSec: null,
+      },
+    ]);
+  });
 });
 
 describe("getStoryMaterialState", () => {

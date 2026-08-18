@@ -44,11 +44,23 @@ import type {
 import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  timelineMsToFrames,
   type StoryMaterialState,
+  type StoryTimelineAnchor,
   type StoryTimelineItem,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import {
+  addTimelineAnchor,
+  removeTimelineAnchor,
+  trimTimelineItem,
+} from "@shared/timelineEditing";
+import {
+  buildTimelineLayout,
+  moveTimelineGroup as moveTimelineGroupItems,
+  selectDirectionalGroup,
+} from "@shared/timelineLayout";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
@@ -128,6 +140,24 @@ type CreationEditorContextValue = {
     sourceShotId: string,
     targetShotId: string
   ) => Promise<void>;
+  moveTimelineGroup: (
+    sourceShotId: string,
+    direction: "left" | "right",
+    deltaFrames: number
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  addTimelineAnchor: (
+    stableShotId: string,
+    anchor: StoryTimelineAnchor
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  removeTimelineAnchor: (
+    stableShotId: string,
+    anchorId: string
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  trimTimelineItemEdge: (
+    stableShotId: string,
+    edge: "start" | "end",
+    requestedBoundaryFrame: number
+  ) => Promise<{ applied: boolean; reason?: string }>;
   resetTimelineShots: () => void;
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
@@ -1507,6 +1537,14 @@ export function CreationEditorProvider({
         included: true,
         position,
         plannedDurationMs: shot.durationMs ?? 3000,
+        durationFrames: timelineMsToFrames(shot.durationMs ?? 3000),
+        timelineStartFrame: shots
+          .slice(0, position)
+          .reduce(
+            (total, previous) => total + timelineMsToFrames(previous.durationMs ?? 3000),
+            0
+          ),
+        stackOrder: position,
         transform: { ...DEFAULT_TIMELINE_TRANSFORM },
       })),
     [shots, storyMaterialQuery.data?.timeline.items]
@@ -1520,10 +1558,19 @@ export function CreationEditorProvider({
       if (activeId == null) return;
       const previousIds = timelineShotIds;
       const previousItems = timelineItems;
-      const normalized = items.map((item, position) => ({
-        ...item,
-        position,
-      }));
+      const projectedRows = buildTimelineLayout(items);
+      const projectedById = new Map(
+        projectedRows.map(row => [row.item.stableShotId, row] as const)
+      );
+      const normalized = items.map((item, position) => {
+        const row = projectedById.get(item.stableShotId);
+        return {
+          ...item,
+          position,
+          durationFrames: row?.durationFrames ?? timelineMsToFrames(item.plannedDurationMs),
+          timelineStartFrame: row?.startFrame ?? 0,
+        };
+      });
       setTimelineShotIds(
         normalized.filter(item => item.included).map(item => item.stableShotId)
       );
@@ -1621,6 +1668,130 @@ export function CreationEditorProvider({
         ordered.map((item, position) => ({ ...item, position })),
         { throwOnError: true }
       );
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
+  const moveTimelineGroup = useCallback(
+    async (
+      sourceShotId: string,
+      direction: "left" | "right",
+      deltaFrames: number
+    ): Promise<{ applied: boolean; reason?: string }> => {
+      const rows = buildTimelineLayout(timelineItems);
+      const selection = selectDirectionalGroup(rows, sourceShotId, direction);
+      if (selection.kind !== "ok") return { applied: false, reason: selection.reason };
+      if (Math.round(deltaFrames) === 0) return { applied: false };
+      try {
+        await saveTimelineItems(moveTimelineGroupItems(timelineItems, selection, deltaFrames), {
+          throwOnError: true,
+        });
+        return { applied: true };
+      } catch (error) {
+        return {
+          applied: false,
+          reason: error instanceof Error ? error.message : "批量移动失败",
+        };
+      }
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
+  const addTimelineAnchorToShot = useCallback(
+    async (
+      stableShotId: string,
+      anchor: StoryTimelineAnchor
+    ): Promise<{ applied: boolean; reason?: string }> => {
+      const current = timelineItems.find(item => item.stableShotId === stableShotId);
+      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
+      const result = addTimelineAnchor({
+        item: current,
+        anchor,
+        resolved: {
+          kind: "source",
+          sourceType: anchor.sourceType,
+          sourceId: anchor.sourceId,
+          localFrame:
+            anchor.timelineFrame - (current.timelineStartFrame ?? 0),
+          sourceTimeSec: anchor.sourceTimeSec,
+          effects: null,
+          transform: null,
+        },
+      });
+      if (result.kind !== "ok") return { applied: false, reason: result.reason };
+      try {
+        await saveTimelineItems(
+          timelineItems.map(item =>
+            item.stableShotId === stableShotId ? result.item : item
+          ),
+          { throwOnError: true }
+        );
+        return { applied: true };
+      } catch (error) {
+        return {
+          applied: false,
+          reason: error instanceof Error ? error.message : "打标失败",
+        };
+      }
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
+  const removeTimelineAnchorFromShot = useCallback(
+    async (
+      stableShotId: string,
+      anchorId: string
+    ): Promise<{ applied: boolean; reason?: string }> => {
+      const current = timelineItems.find(item => item.stableShotId === stableShotId);
+      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
+      const result = removeTimelineAnchor(current, anchorId);
+      if (result.kind !== "ok") return { applied: false, reason: result.reason };
+      try {
+        await saveTimelineItems(
+          timelineItems.map(item =>
+            item.stableShotId === stableShotId ? result.item : item
+          ),
+          { throwOnError: true }
+        );
+        return { applied: true };
+      } catch (error) {
+        return {
+          applied: false,
+          reason: error instanceof Error ? error.message : "取消锚点失败",
+        };
+      }
+    },
+    [saveTimelineItems, timelineItems]
+  );
+
+  const trimTimelineItemEdge = useCallback(
+    async (
+      stableShotId: string,
+      edge: "start" | "end",
+      requestedBoundaryFrame: number
+    ): Promise<{ applied: boolean; reason?: string }> => {
+      const current = timelineItems.find(item => item.stableShotId === stableShotId);
+      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
+      const result = trimTimelineItem({
+        item: current,
+        edge,
+        requestedBoundaryFrame,
+      });
+      if (result.kind !== "ok") return { applied: false, reason: result.reason };
+      try {
+        await saveTimelineItems(
+          timelineItems.map(item =>
+            item.stableShotId === stableShotId ? result.item : item
+          ),
+          { throwOnError: true }
+        );
+        return { applied: true };
+      } catch (error) {
+        return {
+          applied: false,
+          reason: error instanceof Error ? error.message : "裁剪失败",
+        };
+      }
     },
     [saveTimelineItems, timelineItems]
   );
@@ -3324,6 +3495,10 @@ export function CreationEditorProvider({
       removeShotFromTimeline,
       moveShotInTimeline,
       reorderShotInTimeline,
+      moveTimelineGroup,
+      addTimelineAnchor: addTimelineAnchorToShot,
+      removeTimelineAnchor: removeTimelineAnchorFromShot,
+      trimTimelineItemEdge,
       resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
@@ -3424,6 +3599,10 @@ export function CreationEditorProvider({
       removeShotFromTimeline,
       moveShotInTimeline,
       reorderShotInTimeline,
+      moveTimelineGroup,
+      addTimelineAnchorToShot,
+      removeTimelineAnchorFromShot,
+      trimTimelineItemEdge,
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,

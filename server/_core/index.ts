@@ -18,8 +18,17 @@ import {
   findAvailablePort,
 } from "./portPolicy";
 import { validateDevelopmentServerStartup } from "./devServerPreflight";
+import { configureHttpConnectionPool } from "./httpConnectionPool";
+import {
+  isAllowedStoryAudioUrl,
+  storyAudioUrl,
+} from "../services/storyAudioProxy";
 
 async function startServer() {
+  // 先于任何对外请求配置连接池：外部 API 的耗时几乎全在 TLS 握手上，
+  // 连接复用能把一次调用从 3–11s 降到 ~0.6s。详见 httpConnectionPool.ts。
+  configureHttpConnectionPool();
+
   const preferredPort = parseInt(process.env.PORT || "3000");
   if (process.env.NODE_ENV === "development") {
     validateDevelopmentServerStartup({ port: preferredPort });
@@ -122,6 +131,55 @@ async function startServer() {
     }
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.sendFile(full);
+  });
+  // 浏览器直接播放 S3 音频不需要 CORS，但解码真实波形必须读取音频字节。
+  // 这里按故事归属和片段 ID 校验后同源转发，绝不接受客户端传入的任意 URL。
+  app.get("/api/story-audio/:storyId/:clipId", async (req, res) => {
+    const storyId = Number(req.params.storyId);
+    const clipId = String(req.params.clipId ?? "");
+    if (!Number.isInteger(storyId) || storyId <= 0 || !clipId) {
+      res.status(400).end();
+      return;
+    }
+    let userId: number | null = null;
+    try {
+      userId = await resolveMediaRouteUserId(req);
+    } catch {
+      res.status(401).end();
+      return;
+    }
+    if (userId == null) {
+      res.status(401).end();
+      return;
+    }
+    const story = await getStoryById(storyId, userId);
+    const audioUrl = storyAudioUrl(story?.body, clipId);
+    if (!audioUrl || !isAllowedStoryAudioUrl(audioUrl)) {
+      res.status(404).end();
+      return;
+    }
+    try {
+      const upstream = await fetch(audioUrl);
+      if (!upstream.ok) {
+        res.status(502).end();
+        return;
+      }
+      const contentType = upstream.headers.get("content-type") ?? "audio/mpeg";
+      if (!contentType.toLowerCase().startsWith("audio/")) {
+        res.status(502).end();
+        return;
+      }
+      const bytes = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.end(bytes);
+    } catch (error) {
+      console.warn(
+        "[/api/story-audio] 音频回源失败：",
+        error instanceof Error ? error.message : String(error)
+      );
+      res.status(502).end();
+    }
   });
   // 聊聊衔接确认卡：从用户有权访问的当前 Take 中抽取精确端点帧。
   // URL 里的时间只用于预览；真正付费提交前会按当前时间轴重新推导并校验。

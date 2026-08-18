@@ -206,11 +206,17 @@ function EditingStudioBody({
   interactionMode,
   onWorkspaceChange,
   timelineVisible,
+  onTimelineVisibleChange,
+  materialVisible,
+  onMaterialVisibleChange,
 }: {
   workspace: StudioWorkspace;
   interactionMode: StudioInteractionMode;
   onWorkspaceChange: (workspace: StudioWorkspace) => void;
   timelineVisible: boolean;
+  onTimelineVisibleChange: (visible: boolean) => void;
+  materialVisible: boolean;
+  onMaterialVisibleChange: (visible: boolean) => void;
 }) {
   const activeStoryId = useActiveStoryId();
   const { publishingBuffers } = useStoryAgent();
@@ -412,7 +418,9 @@ function EditingStudioBody({
               <StoryAgentChat
                 showHeader={false}
                 interactionMode={interactionMode}
-                onOpenPublishingWorkspace={() => onWorkspaceChange("publishing")}
+                onOpenPublishingWorkspace={() =>
+                  onWorkspaceChange("publishing")
+                }
               />
             ) : (
               <StoryListView />
@@ -425,7 +433,12 @@ function EditingStudioBody({
           {workspace === "publishing" ? (
             <div id="publishing-draft-workspace" className="h-full">
               <PublishingDraftWorkspace
-                onContinueToVideo={() => onWorkspaceChange("storyboard")}
+                onContinueToVideo={() => {
+                  // 成片生成完成后直接落到可连续播放的剪辑台，避免用户还要
+                  // 从故事版看板再找一次完整时间线。
+                  onTimelineVisibleChange(true);
+                  onWorkspaceChange("editing");
+                }}
               />
             </div>
           ) : activeStoryId !== null ? (
@@ -463,6 +476,12 @@ function EditingStudioBody({
                   />
                 ) : null}
               </div>
+              {workspace === "editing" && materialVisible ? (
+                <MaterialWarehousePanel
+                  variant="drawer"
+                  onClose={() => onMaterialVisibleChange(false)}
+                />
+              ) : null}
             </div>
           ) : (
             <div
@@ -528,6 +547,7 @@ export default function EditingStudioPage() {
   const utils = trpc.useUtils();
   const timelineEditMut = trpc.creationAgent.timelineEditCommand.useMutation();
   const [timelineVisible, setTimelineVisible] = useState(false);
+  const [materialVisible, setMaterialVisible] = useState(false);
   const [dailyLetterOpen, setDailyLetterOpen] = useState(false);
   const [workspace, setWorkspace] = useState<StudioWorkspace>("publishing");
   const interactionMode = resolveStudioInteractionMode(
@@ -626,15 +646,40 @@ export default function EditingStudioPage() {
                 ? "editing-nle-workspace"
                 : `studio-${option.id}-workspace`,
           testId: `topbar-${option.id}-workspace-toggle`,
-          onToggle: () => setWorkspace(option.id),
+          onToggle: () => {
+            setWorkspace(option.id);
+          },
         }))}
         panelActions={
           workspace === "editing" && activeStoryId !== null ? (
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                aria-pressed={materialVisible}
+                aria-controls="editing-material-warehouse"
+                onClick={() =>
+                  setMaterialVisible(value => {
+                    const next = !value;
+                    if (next) setTimelineVisible(false);
+                    return next;
+                  })
+                }
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+                style={{ borderColor: "var(--panel-border)" }}
+              >
+                <LibraryBig className="h-3.5 w-3.5" />
+                素材仓库
+              </button>
+              <button
+                type="button"
                 aria-pressed={timelineVisible}
-                onClick={() => setTimelineVisible(value => !value)}
+                onClick={() =>
+                  setTimelineVisible(value => {
+                    const next = !value;
+                    if (next) setMaterialVisible(false);
+                    return next;
+                  })
+                }
                 className="inline-flex h-9 items-center rounded-lg border px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                 style={{ borderColor: "var(--panel-border)" }}
               >
@@ -683,6 +728,9 @@ export default function EditingStudioPage() {
             interactionMode={interactionMode}
             onWorkspaceChange={setWorkspace}
             timelineVisible={timelineVisible}
+            onTimelineVisibleChange={setTimelineVisible}
+            materialVisible={materialVisible}
+            onMaterialVisibleChange={setMaterialVisible}
           />
         </StoryAgentProvider>
       </div>

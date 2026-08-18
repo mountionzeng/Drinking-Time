@@ -18,6 +18,7 @@ function boardTimeline(
     playheadMs: 0,
     isPlaying: false,
     totalMs: 8_000,
+    audioClips: [],
     selectedRange: null,
     canSplitAt: () => true,
     onSeek: vi.fn(),
@@ -97,22 +98,56 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain(">0102<");
   });
 
-  it("puts split and extract in the row header, aimed at the playhead", () => {
+  it("keeps the row header clean without duplicate split and extract icons", () => {
     const html = renderRow(boardTimeline({ playheadMs: 3_500 }));
-    expect(html).toContain('data-testid="storyboard-edit-split"');
-    expect(html).toContain('data-testid="storyboard-edit-extract"');
-    expect(html).toContain('aria-label="在 00:03.500 切割"');
-    expect(html).toContain('aria-label="提取 00:03.500 这一帧"');
+    expect(html).not.toContain('data-testid="storyboard-edit-split"');
+    expect(html).not.toContain('data-testid="storyboard-edit-extract"');
+    expect(html).toContain(">剪辑<");
   });
 
-  it("reveals the trim and reorder handles only on the selected shot", () => {
+  it("adds an aligned audio waveform row below the edit track", () => {
+    const html = renderRow(
+      boardTimeline({
+        playheadMs: 2_000,
+        audioClips: [
+          {
+            id: "voice-1",
+            name: "VO-0101.mp3",
+            kind: "voice",
+            audioUrl: "/voice.mp3",
+            startMs: 1_000,
+            endMs: 3_000,
+            sourceInMs: 0,
+            sourceOutMs: 2_000,
+          },
+        ],
+      })
+    );
+    expect(html).toContain('data-testid="storyboard-audio-track"');
+    expect(html).toContain('data-testid="storyboard-audio-clip-voice-1"');
+    expect(html).toContain('data-testid="storyboard-audio-playhead"');
+    expect(html).toContain("left:12.5%;width:25%");
+    expect(html).toContain("left:25%");
+    expect(html).toContain("强弱 · 停顿");
+  });
+
+  it("reveals both trim edges and the reorder handle only on the selected shot", () => {
     const unselected = renderRow(boardTimeline());
     expect(unselected).not.toContain(
       'data-testid="storyboard-edit-trim-sh-02"'
     );
+    expect(unselected).not.toContain(
+      'data-testid="storyboard-edit-trim-start-sh-02"'
+    );
 
     const selected = renderRow(boardTimeline(), 2);
     expect(selected).toContain('data-testid="storyboard-edit-trim-sh-02"');
+    expect(selected).toContain(
+      'data-testid="storyboard-edit-trim-start-sh-02"'
+    );
+    expect(selected).toContain(
+      'aria-label="拖动左边缘修剪 0102 的时长"'
+    );
     expect(selected).toContain('data-testid="storyboard-edit-reorder-sh-02"');
     expect(selected).not.toContain('data-testid="storyboard-edit-trim-sh-01"');
   });
@@ -133,9 +168,12 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain("left:12.5%;width:50%");
   });
 
-  it("reports the total running time on the track footer", () => {
+  it("removes the visible timecode footer without losing live status", () => {
     const html = renderRow(boardTimeline());
-    expect(html).toContain("00:08.000");
+    expect(html).not.toContain(">00:00.000<");
+    expect(html).not.toContain(">00:08.000<");
+    expect(html).toContain('data-testid="storyboard-edit-status"');
+    expect(html).toContain('class="sr-only"');
     expect(html).toContain("2 镜");
   });
 });
@@ -169,23 +207,7 @@ describe("StoryboardEditTransport", () => {
   });
 });
 
-describe("StoryboardEditRow header buttons", () => {
-  it("greys out cut and extract when the playhead sits on a shot with no video", () => {
-    const html = renderRow(boardTimeline({ canSplitAt: () => false }));
-    expect(html).toContain(
-      'title="这一处还没有视频，先给这一镜生成或采用视频"'
-    );
-    const splitButton = /<button[^>]*storyboard-edit-split[^>]*>/.exec(html);
-    expect(splitButton?.[0]).toContain("disabled");
-  });
-
-  it("keeps them live, with their shortcut in the tooltip, when video is there", () => {
-    const html = renderRow(boardTimeline({ playheadMs: 1_000 }));
-    expect(html).toContain("在播放头 00:01.000 处切割 · S");
-    expect(html).toContain("这一帧存成素材 · F");
-    expect(html).not.toContain("还没有视频");
-  });
-
+describe("StoryboardEditRow shortcuts", () => {
   it("advertises the keyboard shortcuts on the track itself", () => {
     expect(renderRow(boardTimeline())).toContain("aria-keyshortcuts");
   });

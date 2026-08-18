@@ -34,6 +34,33 @@ export type StoryboardEditBlock = {
   widthPct: number;
 };
 
+/**
+ * 把真实 PCM 振幅压成少量波形柱。每段先取峰值，再按整段最大峰值归一化，
+ * 这样能看清停顿、重音和渐强，而不会因为录音整体偏小只剩一条细线。
+ */
+export function storyboardAudioPeaks(
+  samples: Float32Array,
+  requestedBarCount: number
+): number[] {
+  const barCount = Math.max(1, Math.round(requestedBarCount));
+  if (samples.length === 0) return Array.from({ length: barCount }, () => 0);
+  const peaks = Array.from({ length: barCount }, (_, index) => {
+    const start = Math.floor((index / barCount) * samples.length);
+    const end = Math.max(
+      start + 1,
+      Math.floor(((index + 1) / barCount) * samples.length)
+    );
+    let peak = 0;
+    for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+      peak = Math.max(peak, Math.abs(samples[sampleIndex] ?? 0));
+    }
+    return peak;
+  });
+  const maxPeak = Math.max(...peaks);
+  if (!(maxPeak > 0)) return peaks;
+  return peaks.map(peak => Number((peak / maxPeak).toFixed(4)));
+}
+
 /** 把鼠标横坐标换算成整条时间线上的绝对毫秒。 */
 export function storyboardEditTrackMs(input: {
   clientX: number;
@@ -65,18 +92,25 @@ export function storyboardEditBlocks(
   }));
 }
 
-/** 拖右边缘改时长：时间条上横向走多少像素，就等价于多少毫秒。 */
+/** 拖任一边缘改时长：左边缘的拖动方向与右边缘相反。 */
 export function storyboardTrimmedDurationMs(input: {
   baseDurationMs: number;
   trackWidthPx: number;
   totalMs: number;
   deltaPx: number;
+  edge?: "start" | "end";
+  maxDurationMs?: number;
 }): number {
   if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) {
     return clampStoryboardDurationMs(input.baseDurationMs);
   }
   const deltaMs = (input.deltaPx / input.trackWidthPx) * input.totalMs;
-  return clampStoryboardDurationMs(input.baseDurationMs + deltaMs);
+  const durationMs = clampStoryboardDurationMs(
+    input.baseDurationMs + (input.edge === "start" ? -deltaMs : deltaMs)
+  );
+  return input.maxDurationMs == null
+    ? durationMs
+    : Math.min(durationMs, input.maxDurationMs);
 }
 
 /**

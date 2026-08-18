@@ -4,6 +4,7 @@ import type { StoryboardTimingRow } from "@/features/storyAgent/storyboardTiming
 
 import {
   STORYBOARD_EDIT_FRAME_MS,
+  storyboardAudioPeaks,
   storyboardEditBlocks,
   storyboardEditEdgeMs,
   storyboardEditMarkedRange,
@@ -65,6 +66,15 @@ const timings = [
 ];
 
 describe("storyboard edit track", () => {
+  it("samples real audio amplitude into a normalized waveform", () => {
+    expect(
+      storyboardAudioPeaks(
+        new Float32Array([0, 0, 1, -1, 0.5, -0.5, 0, 0]),
+        4
+      )
+    ).toEqual([0, 1, 0.5, 0]);
+  });
+
   it("maps a pointer position to an absolute time on the whole track", () => {
     const input = { rectLeft: 100, rectWidth: 400, totalMs: 8_000 };
     expect(storyboardEditTrackMs({ ...input, clientX: 200 })).toBe(2_000);
@@ -91,6 +101,33 @@ describe("storyboard edit track", () => {
     };
     expect(storyboardTrimmedDurationMs({ ...base, deltaPx: 100 })).toBe(3_000);
     expect(storyboardTrimmedDurationMs({ ...base, deltaPx: -100 })).toBe(1_000);
+    expect(
+      storyboardTrimmedDurationMs({
+        ...base,
+        deltaPx: 100,
+        edge: "start",
+      })
+    ).toBe(1_000);
+    expect(
+      storyboardTrimmedDurationMs({
+        ...base,
+        deltaPx: -100,
+        edge: "start",
+      })
+    ).toBe(3_000);
+  });
+
+  it("does not let a left trim extend before the timeline starts", () => {
+    expect(
+      storyboardTrimmedDurationMs({
+        baseDurationMs: 2_000,
+        trackWidthPx: 800,
+        totalMs: 8_000,
+        deltaPx: -400,
+        edge: "start",
+        maxDurationMs: 2_000,
+      })
+    ).toBe(2_000);
   });
 
   it("clamps trimming to the storyboard duration bounds", () => {

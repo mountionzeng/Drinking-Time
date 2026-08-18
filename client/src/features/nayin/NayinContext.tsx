@@ -167,3 +167,11 @@ export function useNayin() {
   if (!ctx) throw new Error("useNayin must be used within NayinProvider");
   return ctx;
 }
+
+/**
+ * 给「有纳音就用、没有也能渲染」的组件用：只拿来点缀（比如加个当天的饮品图标）
+ * 时不该强制整棵子树包 Provider，也不该在单独渲染该组件的测试里崩掉。
+ */
+export function useOptionalNayin() {
+  return useContext(NayinContext);
+}

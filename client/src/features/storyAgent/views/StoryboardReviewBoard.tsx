@@ -6,6 +6,7 @@ import React, {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -166,6 +167,8 @@ import {
   quickShotVideoRenderPlan,
   scrollElementHorizontallyIntoView,
   shortText,
+  storyboardPlaybackCenterInset,
+  storyboardPlaybackFollowDelta,
   storyboardCandidateImageStyle,
   storyboardCharacterContinuityGenerationParams,
   storyboardCharacterContinuityMatchesTarget,
@@ -811,8 +814,41 @@ export function StoryboardReviewBoard({
     };
   }, [shouldShow, viewMode]);
 
+  // 播放时让整张表逐帧从固定播放头下面滑过。用几何位置算本帧差值，
+  // 不依赖镜头切点；因此短镜头、长镜头都保持相同的连续滚动节奏。
+  useLayoutEffect(() => {
+    if (
+      viewMode !== "full" ||
+      !boardTimeline?.isPlaying ||
+      Date.now() < manualBoardScrollUntilRef.current
+    ) {
+      return;
+    }
+    const scroller = boardScrollRef.current;
+    const track = boardRef.current?.querySelector<HTMLElement>(
+      '[data-testid="storyboard-edit-track"]'
+    );
+    if (!scroller || !track) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const trackRect = track.getBoundingClientRect();
+    const delta = storyboardPlaybackFollowDelta({
+      scrollerLeft: scrollerRect.left,
+      trackLeft: trackRect.left,
+      trackWidth: trackRect.width,
+      playheadMs: boardTimeline.playheadMs,
+      totalMs: boardTimeline.totalMs,
+      leftInset: storyboardPlaybackCenterInset(scrollerRect.width, 76),
+    });
+    if (delta !== 0) scroller.scrollBy({ left: delta, behavior: "auto" });
+  }, [
+    boardTimeline?.isPlaying,
+    boardTimeline?.playheadMs,
+    boardTimeline?.totalMs,
+    viewMode,
+  ]);
+
   useEffect(() => {
-    if (selectedShotNo == null) return;
+    if (selectedShotNo == null || boardTimeline?.isPlaying) return;
     let nestedFrame = 0;
     const frame = window.requestAnimationFrame(() => {
       nestedFrame = window.requestAnimationFrame(() => {
@@ -824,8 +860,7 @@ export function StoryboardReviewBoard({
           scrollElementHorizontallyIntoView(
             boardScrollRef.current,
             target ?? null,
-            76,
-            boardTimeline?.isPlaying ? "smooth-nearest" : "nearest"
+            76
           );
           return;
         }
@@ -844,6 +879,7 @@ export function StoryboardReviewBoard({
     if (
       viewMode !== "full" ||
       selectedShotNo == null ||
+      boardTimeline?.isPlaying ||
       typeof ResizeObserver === "undefined"
     ) {
       return;
@@ -867,7 +903,7 @@ export function StoryboardReviewBoard({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [selectedShotNo, shots.length, viewMode]);
+  }, [boardTimeline?.isPlaying, selectedShotNo, shots.length, viewMode]);
 
   const stopStoryboardDragScroll = useCallback(() => {
     dragScrollClientYRef.current = null;
@@ -1072,10 +1108,9 @@ export function StoryboardReviewBoard({
       return;
     }
     const label = labelForShotNo(shotNo);
-    const confirmed = window.confirm(
-      `删除 ${label}？这会移除该镜头，并重新编号后面的镜头。`
-    );
-    if (!confirmed) return;
+    // 不使用 window.confirm：剪辑台嵌入式页面中的原生确认框会阻塞渲染，
+    // 用户看不到确认按钮，最终表现为点击删除没有反应。删除前的最后一道
+    // 业务保护仍由服务端的“至少保留一个镜头”校验负责。
     const shotId = stableShotId ?? `shot-${shotNo}`;
     setDeletingShotId(shotId);
     try {

@@ -97,7 +97,6 @@ export const STORYBOARD_MATRIX_ROWS: readonly StoryboardMatrixRow[] = [
 export const STORYBOARD_MATRIX_VISIBLE_ROWS: readonly StoryboardMatrixRow[] =
   STORYBOARD_MATRIX_ROWS.filter(
     row =>
-      row.field === "scriptText" ||
       row.field === "promptDraft" ||
       row.field === "videoPrompt" ||
       row.field === "dialogue"

@@ -8,6 +8,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
+import { useOptionalNayin } from "@/features/nayin/NayinContext";
+import WuxingDrinkIcon from "@/features/nayin/views/WuxingDrinkIcon";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import type { ChatMessage } from "@/features/storyAgent/types";
 import { PURPOSE_LABELS, type StoryIntent } from "../intentTypes";
@@ -264,6 +266,7 @@ export function shouldShowCapabilityMenu({
 
 export default function StoryCapabilityMenu() {
   const { setConfirmedIntent } = useStoryAgentActions();
+  const nayin = useOptionalNayin();
   const [selectedGroupId, setSelectedGroupId] =
     useState<StoryCapabilityGroupId | null>(null);
   const selectedGroup = selectedGroupId
@@ -289,14 +292,8 @@ export default function StoryCapabilityMenu() {
           color: "var(--foreground)",
         }}
       >
-        <header
-          className="border-b px-3 py-2"
-          style={{
-            borderColor: "var(--panel-border)",
-            background: "var(--nayin-glow)",
-          }}
-        >
-          <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-[0.18em] text-nayin-bright">
+        <header className="px-3 pb-2.5 pt-3">
+          <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-[0.18em] text-nayin-bright">
             {selectedGroup ? (
               <button
                 type="button"
@@ -306,13 +303,22 @@ export default function StoryCapabilityMenu() {
                 <ArrowLeft className="h-3 w-3" />
                 返回
               </button>
-            ) : null}
+            ) : (
+              // 当天五行的饮品图标：这张卡是新故事的第一屏，用 logo 认领它属于聊会儿。
+              nayin ? (
+                <WuxingDrinkIcon
+                  element={nayin.element}
+                  size={16}
+                  className="-ml-0.5 shrink-0"
+                />
+              ) : null
+            )}
             <span>{selectedGroup ? "聊聊 · 再选一个" : "新故事 · 第一步"}</span>
           </div>
-          <h2 className="mt-1 text-[14px] font-semibold tracking-tight text-foreground">
+          <h2 className="mt-1.5 text-[14px] font-semibold tracking-tight text-foreground">
             {selectedGroup ? selectedGroup.label : "你想从哪一种故事开始？"}
           </h2>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
             {selectedGroup
               ? "聊聊想再确认一下，你更接近下面哪一种？"
               : "先选一个大方向，聊聊会接着问。"}
@@ -355,7 +361,10 @@ export default function StoryCapabilityMenu() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-px bg-border/60">
+          // 单列：卡片实宽约 214px，两列时每格只剩 ~65px 放文字，
+          // 「创造另外一个世界」会被挤成三行。单列让标题一行放得下，
+          // 也腾出位置把原本只给读屏的 description 显出来。
+          <div className="flex flex-col gap-1 px-2 pb-1">
             {CAPABILITY_GROUPS.map(group => {
               const Icon = group.icon;
               return (
@@ -369,24 +378,31 @@ export default function StoryCapabilityMenu() {
                       setSelectedGroupId
                     )
                   }
-                  className="group flex min-h-[64px] items-center gap-2.5 bg-card px-3 py-2 text-left transition-[background-color,transform] duration-150 hover:bg-[var(--nayin-glow)] focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--nayin-accent)] active:scale-[0.985]"
-                  aria-description={group.description}
+                  className="group flex items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--nayin-glow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)] active:scale-[0.99]"
                 >
                   <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors"
                     style={{ background: "var(--nayin-glow)" }}
                   >
                     <Icon className="h-3.5 w-3.5 text-nayin-bright" />
                   </span>
-                  <span className="text-[11px] font-semibold leading-tight text-foreground">
-                    {group.label}
+                  <span className="min-w-0">
+                    <span className="block text-[11.5px] font-semibold leading-tight text-foreground">
+                      {group.label}
+                    </span>
+                    <span className="mt-0.5 block text-[9.5px] leading-snug text-muted-foreground">
+                      {group.description}
+                    </span>
                   </span>
                 </button>
               );
             })}
           </div>
         )}
-        <footer className="px-3 py-1.5 text-[9.5px] text-muted-foreground">
+        <footer
+          className="mt-0.5 border-t px-3 py-2 text-[9.5px] leading-relaxed text-muted-foreground"
+          style={{ borderColor: "var(--panel-border)" }}
+        >
           不想选？直接说你的事也可以，聊聊会自己判断。
         </footer>
       </div>
