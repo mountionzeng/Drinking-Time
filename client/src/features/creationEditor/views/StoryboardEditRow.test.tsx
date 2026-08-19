@@ -110,7 +110,7 @@ describe("StoryboardEditRow", () => {
     const html = renderRow(boardTimeline({ playheadMs: 3_500 }));
     expect(html).not.toContain('data-testid="storyboard-edit-split"');
     expect(html).not.toContain('data-testid="storyboard-edit-extract"');
-    expect(html).toContain(">剪辑<");
+    expect(html).toContain(">视觉 · 剪辑<");
   });
 
   it("adds an aligned audio waveform row below the edit track", () => {
