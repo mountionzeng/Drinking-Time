@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-14",
+  "updatedAt": "2026-08-18",
   "features": [
     {
       "id": "story-ownership",
@@ -1134,6 +1134,63 @@
           "date": "2026-08-15",
           "kind": "feature",
           "summary": "建立默认 unavailable 的小红书/抖音趋势 provider、严格授权与时间/schema 门禁、候选 ID 相关性边界、10 秒 provider 超时、统一候选/标签规范化、版本/平台不可变快照和显式标签选择持久化；没有合格来源与真实 UI，保持 observing。"
+        }
+      ]
+    },
+    {
+      "id": "storyboard-position-anchors",
+      "name": "剪辑行方向批量移动与位置锚点",
+      "status": "observing",
+      "userValue": "可以按住六点把手把一整串镜头整体前后挪出空档或叠化，并用位置锚点把某一帧钉死在绝对时间上，之后的裁剪、移动、预览和导出都不会让它漂走。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx"
+      ],
+      "owners": [
+        "shared/timelineLayout.ts",
+        "shared/timelineSource.ts",
+        "shared/timelineEditing.ts",
+        "client/src/features/creationEditor/timelineActions.ts",
+        "client/src/features/storyAgent/storyboardTiming.ts",
+        "server/services/storyMaterials.ts",
+        "server/services/videoExport.ts"
+      ],
+      "evidence": [
+        "shared/timelineLayout.test.ts",
+        "shared/timelineSource.test.ts",
+        "shared/timelineEditing.test.ts",
+        "client/src/features/creationEditor/timelineActions.test.ts",
+        "client/src/features/creationEditor/storyboardEditRow.test.ts",
+        "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
+        "client/src/features/storyAgent/storyboardTiming.test.ts",
+        "server/services/storyMaterials.test.ts",
+        "server/services/videoExport.test.ts"
+      ],
+      "invariants": [
+        "所有结构性时间统一走 30fps 整数帧，毫秒只是显示投影。",
+        "整条片长等于最大结束时间，不是故事顺序上最后一镜的结尾。",
+        "重叠时有锚点的镜头永远优先，其次最近移动过的，最后按 stableShotId 稳定兜底；剪辑行、预览和导出必须选出同一个赢家。",
+        "空档必须画黑场并导出等长黑画面加静音，不能残留上一镜也不能被跳过压短。",
+        "裁剪可以贴到锚点，但不能越过锚点或改变锚定的那一帧画面。",
+        "一次批量移动、打标、取消锚点或锚点安全裁剪各自只保存一次，一次 ⌘Z 完整撤销。",
+        "position 仍然只表示故事顺序，批量移动不改它。",
+        "音轨不随视觉镜头批量移动。"
+      ],
+      "dependencies": [
+        "publishing-video-storyboard",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "素材切换时的原子事务（兼容素材 rebind 锚点、不兼容时先确认再一次事务删除并激活）尚未实现。",
+        "叠放优先级接近安全整数上限时只报错，不做整表压缩。",
+        "重叠时下层镜头的可访问编辑 strip 尚未实现，目前只有赢家可直接操作。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-18",
+          "kind": "feature",
+          "summary": "新增绝对帧放置、叠放优先级与位置锚点的持久化契约，共享布局/来源/编辑规则模块，剪辑行方向批量拖动与锚点标记，预览与看板统一 resolver，导出改为区间计划并生成真实空档。"
         }
       ]
     }

@@ -1104,6 +1104,42 @@ describe("storyAgent tRPC router", () => {
     );
   });
 
+  it("generateForMobile 不丢失已受理任务号，避免网络中断后重复付费", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "error",
+      message: "结果轮询连接中断",
+      providerTaskId: "task-0207",
+      submissionUncertain: false,
+    });
+    const userId = 3967;
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    seedProjectForTesting({ id: 73967, userId });
+    const story = await caller.storyAgent.storyUpsert({
+      title: "任务收据透传故事",
+      projectId: 73967,
+      body: {
+        cards: [],
+        characters: [{ name: "SheSelf", role: "主角" }],
+        shots: [{ shotNo: 7, cueCode: "0207", subject: "SheSelf" }],
+      },
+    });
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      shotNo: 7,
+      prompt: "SheSelf 保持原有构图",
+      imageProvider: "gpt-image",
+      referenceImageUrl: "data:image/webp;base64,UklGRg==",
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      providerTaskId: "task-0207",
+      error: expect.stringContaining("请勿重复提交"),
+    });
+    expect(result.error).toContain("task-0207");
+  });
+
   it("generateForMobile 只在 autoSelect 时把新图提升为当前版本", async () => {
     const userId = 497;
     const projectId = 7497;

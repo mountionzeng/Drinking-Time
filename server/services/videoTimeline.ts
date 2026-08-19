@@ -294,8 +294,15 @@ export async function reuseVideoTakeForShot(
   if (!sourceTake || sourceTake.userId !== userId) {
     throw new Error("视频素材不存在或无权复用");
   }
-  if (sourceTake.status !== "available" || !sourceTake.videoUrl) {
-    throw new Error("只有已生成且可播放的视频素材才能复用");
+  // 旧素材可能被标记为 unfollowable，但只要仍保留可播放文件，
+  // 用户仍可以明确把它复用到另一个镜头；复用会创建新的 available Take，
+  // 不会改变源素材的不可跟随状态。
+  if (
+    !sourceTake.videoUrl ||
+    (sourceTake.status !== "available" &&
+      sourceTake.status !== "unfollowable")
+  ) {
+    throw new Error("只有带有可播放文件的视频素材才能复用");
   }
 
   const sourceSnapshot =
@@ -443,13 +450,20 @@ export async function appendVideoTakeToTimeline(
   if (
     !originalSourceTake ||
     originalSourceTake.userId !== userId ||
-    originalSourceTake.status !== "available" ||
+    (originalSourceTake.status !== "available" &&
+      originalSourceTake.status !== "unfollowable") ||
     !originalSourceTake.videoUrl
   ) {
     throw new Error("只有可播放的视频才能追加到镜头");
   }
   let sourceTake = originalSourceTake;
-  if (sourceTake.storyId !== input.storyId) {
+  // A manually marked-unusable take can still contain a valid playable file.
+  // Clone it before timeline use so the source keeps its audit/status meaning,
+  // while the timeline always references an explicitly available take.
+  if (
+    sourceTake.storyId !== input.storyId ||
+    sourceTake.status === "unfollowable"
+  ) {
     sourceTake = await cloneTakeIntoStory({
       storyId: input.storyId,
       targetStableShotId,

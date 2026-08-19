@@ -4,6 +4,8 @@ import type { SelectionSourceType } from "@shared/selectionContext";
 import {
   clampStoryboardDurationMs,
   formatStoryboardTimestamp,
+  storyboardTimingBoundariesMs,
+  storyboardTimingWinnerAt,
   type StoryboardTimingRow,
 } from "@/features/storyAgent/storyboardTiming";
 
@@ -90,6 +92,27 @@ export function storyboardEditBlocks(
     leftPct: (timing.startMs / totalMs) * 100,
     widthPct: (timing.durationMs / totalMs) * 100,
   }));
+}
+
+/**
+ * 拖边缘拿到的新时长，换算成另一头锚定不动时对应的绝对帧边界。
+ * edge="start" 时右端（尾）不动，只有左端（首）在移动；edge="end" 反过来。
+ * 帧数字的意义就在这里：旧的按毫秒改时长会被 durationFrames 优先级盖掉，
+ * 所以裁剪必须落到帧边界上才真的生效，而不是松手就被弹回原状。
+ */
+export function storyboardTrimmedBoundaryFrame(input: {
+  startFrame: number;
+  durationFrames: number;
+  edge: "start" | "end";
+  newDurationMs: number;
+}): number {
+  const newDurationFrames = Math.max(
+    1,
+    Math.round((input.newDurationMs * 30) / 1000)
+  );
+  return input.edge === "start"
+    ? input.startFrame + input.durationFrames - newDurationFrames
+    : input.startFrame + newDurationFrames;
 }
 
 /** 拖任一边缘改时长：左边缘的拖动方向与右边缘相反。 */
@@ -226,12 +249,9 @@ export function storyboardEditEdgeMs(
   playheadMs: number,
   direction: "prev" | "next"
 ): number | null {
-  const edges = [
-    ...timings.map(timing => timing.startMs),
-    timings.at(-1)?.endMs,
-  ]
-    .filter((edge): edge is number => typeof edge === "number")
-    .sort((left, right) => left - right);
+  // 每一镜的头和尾都是切点。移动之后靠前的镜头可能结束得最晚，
+  // 所以不能只拿「最后一镜的结尾」当收尾边界。
+  const edges = storyboardTimingBoundariesMs(timings);
   if (direction === "next") {
     return edges.find(edge => edge > playheadMs + 1) ?? null;
   }
@@ -262,10 +282,14 @@ export function storyboardEditTimingAt(
   timings: readonly StoryboardTimingRow[],
   timeMs: number
 ): StoryboardTimingRow | null {
-  return (
-    timings.find(timing => timeMs >= timing.startMs && timeMs < timing.endMs) ??
-    (timings.at(-1)?.endMs === timeMs ? (timings.at(-1) ?? null) : null)
-  );
+  const winner = storyboardTimingWinnerAt(timings, timeMs);
+  if (winner) return winner;
+  // 正好停在整条的收尾上时仍然算作最后结束的那一镜；其余空档一律 null。
+  const endingHere = timings.filter(timing => timing.endMs === timeMs);
+  if (endingHere.length === 0) return null;
+  return [...endingHere].sort(
+    (left, right) => right.stackOrder - left.stackOrder
+  )[0];
 }
 
 /**
@@ -307,8 +331,57 @@ export function storyboardEditSelectionSummary(input: {
   };
 }
 
+/**
+ * 六点把手要挪多远才算「开始拖」。低于这个距离一律当成误触，
+ * 免得想右键或想选中的时候整组镜头跟着抖一下。
+ */
+export const STORYBOARD_GROUP_DRAG_THRESHOLD_PX = 4;
+
+/**
+ * 方向在越过阈值的那一刻锁死：往左拖就带上左边一串，往右拖就带上右边一串。
+ * 锁定之后即使指针又划回起点另一侧，组员也不再换人。
+ */
+export function storyboardGroupDragDirection(
+  deltaPx: number
+): "left" | "right" | null {
+  if (Math.abs(deltaPx) < STORYBOARD_GROUP_DRAG_THRESHOLD_PX) return null;
+  return deltaPx < 0 ? "left" : "right";
+}
+
+/** 一次拖动只量化一次：像素 → 整数帧。 */
+export function storyboardGroupDragDeltaFrames(input: {
+  deltaPx: number;
+  trackWidthPx: number;
+  totalMs: number;
+}): number {
+  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) return 0;
+  const deltaMs = (input.deltaPx / input.trackWidthPx) * input.totalMs;
+  return Math.round((deltaMs * 30) / 1000);
+}
+
+/** 拖动过程中念给用户听的一句话：方向、带上了谁、挪多远、被谁挡住。 */
+export function storyboardGroupDragSummary(input: {
+  direction: "left" | "right";
+  shotLabels: readonly string[];
+  deltaFrames: number;
+  boundaryLabel: string | null;
+}): string {
+  const deltaSec = (input.deltaFrames / 30).toFixed(2);
+  const sign = input.deltaFrames > 0 ? "+" : "";
+  const extent =
+    input.shotLabels.length > 1
+      ? `${input.shotLabels[0]}–${input.shotLabels.at(-1)}（${input.shotLabels.length} 镜）`
+      : (input.shotLabels[0] ?? "这一镜");
+  const boundary = input.boundaryLabel
+    ? ` · 到 ${input.boundaryLabel} 为止，它有位置锚点`
+    : "";
+  return `${input.direction === "left" ? "向左" : "向右"}整体移动 ${extent} · ${sign}${deltaSec}s${boundary}`;
+}
+
 /** 右键菜单里能做的事。 */
 export type StoryboardEditAction =
+  | "addAnchor"
+  | "removeAnchor"
   | "split"
   | "extract"
   | "selectShot"
@@ -345,11 +418,47 @@ export function storyboardEditMenuItems(input: {
   shotCount: number;
   canInsert: boolean;
   canDelete: boolean;
+  /** 位置锚点相关；不传就当这套能力还没接上，菜单里不出现。 */
+  anchors?: {
+    /** 播放头这一刻是不是空档；空档不能打标。 */
+    inGap: boolean;
+    /** 播放头这一帧已经有锚点了。 */
+    alreadyAnchored: boolean;
+    /** 有没有一个可删的锚点（焦点上的或播放头这一帧的）。 */
+    removableAnchorLabel: string | null;
+  };
 }): StoryboardEditMenuItem[] {
   const noVideo = input.canSplitHere
     ? null
     : "这一处还没有视频，先给这一镜生成或采用视频";
-  const items: StoryboardEditMenuItem[] = [
+  const items: StoryboardEditMenuItem[] = [];
+  if (input.anchors) {
+    items.push({
+      action: "addAnchor",
+      label: "在播放头钉一个位置锚点",
+      shortcut: "M",
+      disabledReason: input.anchors.inGap
+        ? "这一刻是空档，没有可标记的画面"
+        : input.anchors.alreadyAnchored
+          ? "这一帧已经有位置锚点"
+          : null,
+      danger: false,
+      groupStart: false,
+    });
+    items.push({
+      action: "removeAnchor",
+      label: input.anchors.removableAnchorLabel
+        ? `取消位置锚点 ${input.anchors.removableAnchorLabel}`
+        : "取消位置锚点",
+      shortcut: "⌫",
+      disabledReason: input.anchors.removableAnchorLabel
+        ? null
+        : "这一帧没有位置锚点",
+      danger: false,
+      groupStart: false,
+    });
+  }
+  items.push(
     {
       action: "split",
       label: "在这里切一刀",
@@ -421,8 +530,8 @@ export function storyboardEditMenuItems(input: {
       disabledReason: input.isLast ? "已经是最后一镜" : null,
       danger: false,
       groupStart: false,
-    },
-  ];
+    }
+  );
   if (input.canInsert) {
     items.push({
       action: "insertAfter",
@@ -501,6 +610,7 @@ export type StoryboardEditShortcut =
   | { kind: "seekEdge"; direction: "prev" | "next" }
   | { kind: "markIn" }
   | { kind: "markOut" }
+  | { kind: "addAnchor" }
   | { kind: "clearSelection" }
   | { kind: "action"; action: StoryboardEditAction };
 
@@ -581,6 +691,8 @@ export function storyboardEditShortcut(event: {
       return { kind: "markIn" };
     case "o":
       return { kind: "markOut" };
+    case "m":
+      return { kind: "addAnchor" };
     case "x":
       return { kind: "action", action: "selectShot" };
     case "s":

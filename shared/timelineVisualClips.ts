@@ -1,6 +1,7 @@
-import type {
-  StoryTimelineItem,
-  StoryTimelineVisualClip,
+import {
+  withTimelineDurationMs,
+  type StoryTimelineItem,
+  type StoryTimelineVisualClip,
 } from "./storyMaterial";
 
 function clipEndMs(clip: StoryTimelineVisualClip): number {
@@ -63,8 +64,7 @@ export function insertTimelineVisualClip(input: {
     0
   );
   return {
-    ...input.item,
-    plannedDurationMs: Math.max(100, endMs),
+    ...withTimelineDurationMs(input.item, endMs),
     visualClips,
     visualClipsReplacePrimary: true,
   };

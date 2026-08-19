@@ -1492,6 +1492,9 @@ describe("StoryCardsBoard intent entry", () => {
     expect(boardSource).toContain("删除这组候选");
     expect(boardSource).toContain('data-storyboard-hover-preview="image"');
     expect(boardSource).toContain("showImageHoverPreview");
+    expect(boardSource).toContain("document.addEventListener(\"pointerdown\"");
+    expect(boardSource).toContain("window.addEventListener(\"scroll\"");
+    expect(boardSource).toContain('if (event.key !== "Escape") return;');
     expect(boardSource).toContain("从画面移除");
     expect(boardSource).toContain("onRemoveTimelineVideoClip");
     expect(panelSource).toContain(

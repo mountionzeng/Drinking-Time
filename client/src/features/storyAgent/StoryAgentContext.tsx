@@ -543,6 +543,16 @@ interface StoryAgentContextValue {
   ) => () => void;
   confirmEditingTransitionCandidate: (messageId: string) => Promise<void>;
   rejectEditingTransitionCandidate: (messageId: string) => Promise<void>;
+  /**
+   * 时间轴空档右键「自动创建镜头」：跳过打字，直接给两个相邻镜头身份，
+   * 生成和聊天里说「衔接」完全同一张待确认卡片，注入到聊天消息里。
+   * 只创建提案，真正调用模型仍然要等用户点卡片上的确认按钮。
+   */
+  proposeGapTransitionCard: (input: {
+    storyId: number;
+    beforeStableShotId: string;
+    afterStableShotId: string;
+  }) => Promise<{ applied: boolean; reason?: string }>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
   promptPool: import("./promptPool").PromptFragment[];
   /** 更新某镜引用的片段 ID 列表 */
@@ -590,6 +600,7 @@ type StoryAgentActionKey =
   | "registerImageRerenderRunner"
   | "confirmEditingTransitionCandidate"
   | "rejectEditingTransitionCandidate"
+  | "proposeGapTransitionCard"
   | "removeStoryImage"
   | "updateShotFragmentRefs";
 
@@ -637,6 +648,7 @@ const storyAgentActionKeys = [
   "registerImageRerenderRunner",
   "confirmEditingTransitionCandidate",
   "rejectEditingTransitionCandidate",
+  "proposeGapTransitionCard",
   "removeStoryImage",
   "updateShotFragmentRefs",
 ] as const satisfies readonly StoryAgentActionKey[];
@@ -1052,6 +1064,8 @@ export function StoryAgentProvider({
   const storyDeleteMut = trpc.storyAgent.storyDelete.useMutation();
   const confirmEditingTransitionMut =
     trpc.creationAgent.confirmTimelineTransition.useMutation();
+  const proposeGapTransitionMut =
+    trpc.creationAgent.proposeGapTransition.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
   const appendConversationTurnMut =
     trpc.storyConversation.appendTurn.useMutation();
@@ -3807,6 +3821,98 @@ export function StoryAgentProvider({
     });
   }, [saveArchiveStory]);
 
+  const proposeGapTransitionCard = useCallback(
+    async (input: {
+      storyId: number;
+      beforeStableShotId: string;
+      afterStableShotId: string;
+    }): Promise<{ applied: boolean; reason?: string }> => {
+      if (
+        !storyScopeMatches(
+          input.storyId,
+          storySpineStore.getState().activeStoryId
+        )
+      ) {
+        return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
+      }
+      const current = storySpineStore.getState();
+      const userMsg: ChatMessage = {
+        id: newId("msg"),
+        role: "user",
+        content: "在时间轴空档处自动创建过渡镜头",
+        timestamp: Date.now(),
+      };
+      const nextMessages = [...current.messages, userMsg];
+      setMessages(nextMessages);
+      try {
+        const result = await proposeGapTransitionMut.mutateAsync({
+          storyId: input.storyId,
+          beforeStableShotId: input.beforeStableShotId,
+          afterStableShotId: input.afterStableShotId,
+        });
+        const replyMsg: ChatMessage = {
+          id: newId("msg"),
+          role: "assistant",
+          content: result.reply,
+          timestamp: Date.now(),
+          editingTransitionCandidate:
+            result.status === "ok"
+              ? { ...result.proposal, status: "pending" }
+              : undefined,
+        };
+        const finalMessages = [...nextMessages, replyMsg];
+        setMessages(finalMessages);
+        const conversationStoryId = resolvePersistedStoryId(
+          current.activeStoryId,
+          current.remoteStoryId
+        );
+        if (conversationStoryId != null) {
+          try {
+            await appendConversationTurnMut.mutateAsync({
+              storyId: conversationStoryId,
+              userMessage: {
+                clientMessageId: userMsg.id,
+                content: userMsg.content,
+                selection: null,
+              },
+              assistantMessage: {
+                clientMessageId: replyMsg.id,
+                content: replyMsg.content,
+              },
+            });
+          } catch (error) {
+            console.warn(
+              "[storyConversation] persist gap-transition turn failed:",
+              error
+            );
+          }
+        }
+        await saveArchiveStory({
+          messages: finalMessages,
+          cards: current.cards,
+          scripts: current.scripts,
+          storyShots: current.storyShots,
+          characters: current.characters,
+          remoteStoryId: current.remoteStoryId,
+          title: current.storyTitle,
+          logline: current.storyLogline,
+          theme: current.storyTheme,
+          arc: current.storyArc,
+        });
+        return result.status === "ok"
+          ? { applied: true }
+          : { applied: false, reason: result.reply };
+      } catch (error) {
+        return {
+          applied: false,
+          reason:
+            error instanceof Error ? error.message : "创建过渡镜头提案失败",
+        };
+      }
+    },
+    [appendConversationTurnMut, proposeGapTransitionMut, saveArchiveStory, setMessages]
+  );
+
   const confirmEditingTransitionCandidate = useCallback(
     async (messageId: string) => {
       const message = storySpineStore
@@ -4129,6 +4235,7 @@ export function StoryAgentProvider({
       registerImageRerenderRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
+      proposeGapTransitionCard,
       promptPool,
       updateShotFragmentRefs,
     }),
@@ -4196,6 +4303,7 @@ export function StoryAgentProvider({
       registerImageRerenderRunner,
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
+      proposeGapTransitionCard,
       promptPool,
       updateShotFragmentRefs,
     ]
@@ -4240,6 +4348,7 @@ export function StoryAgentProvider({
     registerImageRerenderRunner,
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
+    proposeGapTransitionCard,
     removeStoryImage,
     updateShotFragmentRefs,
   };

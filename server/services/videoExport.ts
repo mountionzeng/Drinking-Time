@@ -17,10 +17,20 @@ import {
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   DEFAULT_TIMELINE_VIDEO_EFFECTS,
+  STORY_TIMELINE_FPS,
+  timelineMsToFrames,
+  timelineOffsetMsToFrames,
   type StoryMaterialState,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "../../shared/storyMaterial";
+import {
+  buildTimelineLayout,
+  resolveTimelineFrame,
+  timelineTotalFrames,
+  type TimelineLayoutRow,
+} from "../../shared/timelineLayout";
+import { resolveTimelineItemSource } from "../../shared/timelineSource";
 import { getStoryMaterialState } from "./storyMaterials";
 import { videoFileName } from "./videoConform";
 import { localVideoDir } from "./videoMedia";
@@ -36,8 +46,36 @@ export type ExportSegment = {
   transform: TimelineTransform;
 };
 
+/**
+ * 时间轴切成的一个区间。三种变体分得很清：真有素材的段、创作者有意留的空档、
+ * 素材找不到的占位。后两种都要占满同样长的时间，否则后面所有镜头的绝对时间
+ * 都会被压回去。
+ */
+export type ExportPart =
+  | ({ kind: "source" } & ExportSegment)
+  | {
+      kind: "gap";
+      startFrame: number;
+      durationFrames: number;
+      durationSec: number;
+    }
+  | {
+      kind: "missing";
+      shotNo: number;
+      stableShotId: string;
+      reason: string;
+      startFrame: number;
+      durationFrames: number;
+      durationSec: number;
+    };
+
 export type ExportPlan = {
+  /** 只含真有素材的段；旧调用点和旧测试仍按这个读。 */
   segments: ExportSegment[];
+  /** 完整的区间序列，含空档与缺素材占位。 */
+  parts: ExportPart[];
+  /** 解析出来的成片长度 = 最大结束时间。 */
+  totalSec: number;
   skipped: Array<{ shotNo: number; reason: string }>;
 };
 
@@ -51,8 +89,6 @@ export type ExportResult =
       skipped: Array<{ shotNo: number; reason: string }>;
     }
   | { status: "error"; error: string };
-
-const MAX_SEGMENT_SEC = 30;
 
 type ShotVideoLike = {
   id: number;
@@ -105,58 +141,52 @@ function inferredEffects(input: {
   };
 }
 
-function exportSegment(input: {
-  shotNo: number;
-  stableShotId: string;
-  video: ShotVideoLike;
-  sourceStartSec: number;
-  sourceEndSec: number;
-  plannedDurationMs: number;
-  effects: TimelineVideoEffects;
-  transform: TimelineTransform;
-}): ExportSegment | null {
-  const file = videoFileName({
-    id: input.video.id,
-    videoKey: input.video.videoKey ?? null,
+/** 一个镜头内部所有会改变画面来源的边界，换算成绝对帧。 */
+function internalBoundaryFrames(row: TimelineLayoutRow): number[] {
+  return (row.item.visualClips ?? []).flatMap(clip => {
+    const offsetFrame = timelineOffsetMsToFrames(clip.offsetMs);
+    const durationFrames = timelineMsToFrames(clip.durationMs);
+    return [
+      row.startFrame + offsetFrame,
+      row.startFrame + offsetFrame + durationFrames,
+    ];
   });
-  if (!file) return null;
-  const availableSourceSec = Math.max(
-    1 / 30,
-    input.sourceEndSec - input.sourceStartSec
-  );
-  const maximumOutputSec = availableSourceSec / input.effects.playbackRate;
-  const durationSec = Math.min(
-    MAX_SEGMENT_SEC,
-    Math.max(0.1, Math.min(maximumOutputSec, input.plannedDurationMs / 1_000))
-  );
-  return {
-    shotNo: input.shotNo,
-    stableShotId: input.stableShotId,
-    file,
-    startSec: input.sourceStartSec,
-    sourceDurationSec: Math.min(
-      availableSourceSec,
-      durationSec * input.effects.playbackRate
-    ),
-    durationSec,
-    effects: input.effects,
-    transform: input.transform,
-  };
 }
 
-/** 纯函数：从素材状态推导导出计划（每镜头一段：文件 + 入点 + 时长）。 */
+function framesToSec(frames: number): number {
+  return frames / STORY_TIMELINE_FPS;
+}
+
+/** 两段能不能合成一段：同一个源、而且源时间接得上。 */
+function continuous(previous: ExportSegment, next: ExportSegment): boolean {
+  if (previous.file !== next.file) return false;
+  if (previous.effects.reverse !== next.effects.reverse) return false;
+  if (previous.effects.playbackRate !== next.effects.playbackRate) return false;
+  const expected = previous.effects.reverse
+    ? next.startSec + next.sourceDurationSec
+    : previous.startSec + previous.sourceDurationSec;
+  const actual = previous.effects.reverse ? previous.startSec : next.startSec;
+  return Math.abs(expected - actual) < 1 / (STORY_TIMELINE_FPS * 4);
+}
+
+/**
+ * 纯函数：把时间轴切成区间导出计划。
+ *
+ * 先按所有结构边界（每一镜的头尾、镜头内部每个视频切片的头尾）把时间轴切开，
+ * 每个区间问一次共享 resolver「这一刻播的是谁」，因此预览里看到的 gap、
+ * overlap 和锚点优先级，导出时会一模一样。
+ */
 export function buildExportPlan(
   material: StoryMaterialState,
-  opts: { fallbackToLatestTake?: boolean } = {}
+  opts: {
+    fallbackToLatestTake?: boolean;
+    /** strict 时缺素材直接失败，不出半成品。 */
+    missingSourceMode?: "strict" | "relaxed";
+  } = {}
 ): ExportPlan {
   const byIdentity = new Map(
     material.shots.map(shot => [shot.stableShotId, shot] as const)
   );
-  const items = [...material.timeline.items].sort(
-    (left, right) => left.position - right.position
-  );
-  const segments: ExportSegment[] = [];
-  const skipped: ExportPlan["skipped"] = [];
   const takesById = new Map<number, ShotVideoLike>();
   for (const shot of material.shots) {
     for (const take of shot.videoTakes ?? []) takesById.set(take.id, take);
@@ -164,84 +194,224 @@ export function buildExportPlan(
       takesById.set(shot.currentVideo.id, shot.currentVideo);
   }
 
-  for (const item of items) {
-    const shot = byIdentity.get(item.stableShotId);
-    const shotNo = shot?.shotNo ?? segments.length + skipped.length + 1;
-    if (!item.included) {
-      skipped.push({ shotNo, reason: "已从成片移除" });
+  const skipped: ExportPlan["skipped"] = [];
+  const rows = buildTimelineLayout(
+    material.timeline.items.filter(item => item.included !== false)
+  );
+  const totalFrames = timelineTotalFrames(rows);
+  const boundaries = Array.from(
+    new Set(
+      rows
+        .flatMap(row => [
+          row.startFrame,
+          row.endFrame,
+          ...internalBoundaryFrames(row),
+        ])
+        .filter(frame => frame >= 0 && frame <= totalFrames)
+        .concat(totalFrames > 0 ? [0, totalFrames] : [])
+    )
+  ).sort((left, right) => left - right);
+
+  const parts: ExportPart[] = [];
+  const reported = new Set<string>();
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const startFrame = boundaries[index];
+    const endFrame = boundaries[index + 1];
+    const durationFrames = endFrame - startFrame;
+    if (durationFrames <= 0) continue;
+    const durationSec = framesToSec(durationFrames);
+
+    const resolved = resolveTimelineFrame(rows, startFrame);
+    if (resolved.kind === "gap") {
+      parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
       continue;
     }
-    if (item.visualClipsReplacePrimary && item.visualClips?.length) {
-      let exportedClipCount = 0;
-      for (const clip of [...item.visualClips].sort(
-        (left, right) => left.offsetMs - right.offsetMs
-      )) {
-        const clipVideo = takesById.get(clip.takeId);
-        if (!clipVideo || clipVideo.status !== "available") continue;
-        const effects = inferredEffects({
+    const item = resolved.row.item;
+    const shot = byIdentity.get(item.stableShotId);
+    const shotNo = shot?.shotNo ?? 0;
+    const missing = (reason: string): void => {
+      const key = `${item.stableShotId}:${reason}`;
+      if (!reported.has(key)) {
+        reported.add(key);
+        skipped.push({ shotNo, reason });
+      }
+      parts.push({
+        kind: "missing",
+        shotNo,
+        stableShotId: item.stableShotId,
+        reason,
+        startFrame,
+        durationFrames,
+        durationSec,
+      });
+    };
+
+    // 镜头没写 primaryVideoEdit 时，它显示的就是「当前视频」加上被选中的片段范围。
+    // 把它当成兜底来源交给共享 resolver，选谁播由 resolver 一家说了算。
+    const currentVideo =
+      shot?.currentVideo ??
+      (opts.fallbackToLatestTake ? fallbackTakeForShot(shot) : null);
+    const range =
+      currentVideo?.selectedSelectionType === "range" &&
+      currentVideo.selectedRangeId != null
+        ? currentVideo.ranges.find(
+            entry => entry.id === currentVideo.selectedRangeId
+          )
+        : null;
+    const source = resolveTimelineItemSource({
+      item,
+      localFrame: resolved.localFrame,
+      durationFrames: resolved.row.durationFrames,
+      fallback: currentVideo
+        ? {
+            sourceType: "primary-video",
+            sourceId: `take-${currentVideo.id}`,
+            offsetFrame: 0,
+            durationFrames: resolved.row.durationFrames,
+            sourceStartSec: range?.startSec ?? 0,
+            sourceEndSec:
+              range?.endSec ??
+              currentVideo.durationSec ??
+              framesToSec(resolved.row.durationFrames),
+            effects: { ...DEFAULT_TIMELINE_VIDEO_EFFECTS },
+            transform: item.transform,
+          }
+        : null,
+    });
+    if (source.kind === "gap" || source.sourceTimeSec == null) {
+      // 镜头里有切片、只是没盖住这一刻——那是创作者有意留的空档。
+      // 整个镜头一点素材都没有则是缺素材，两者的诊断必须分开。
+      if ((item.visualClips?.length ?? 0) > 0) {
+        parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
+      } else {
+        missing("没有可用的当前视频");
+      }
+      continue;
+    }
+
+    const clip =
+      source.sourceType === "visual-clip"
+        ? (item.visualClips ?? []).find(entry => entry.id === source.sourceId)
+        : null;
+    const takeId =
+      clip?.takeId ??
+      (source.sourceType === "primary-video"
+        ? (item.primaryVideoEdit?.takeId ?? currentVideo?.id)
+        : null);
+    const video = (takeId != null ? takesById.get(takeId) : null) ?? currentVideo;
+    if (!video || video.status !== "available") {
+      missing("没有可用的当前视频");
+      continue;
+    }
+    const file = videoFileName({
+      id: video.id,
+      videoKey: video.videoKey ?? null,
+    });
+    if (!file) {
+      missing("视频缺少本地文件");
+      continue;
+    }
+
+    const effects = clip
+      ? inferredEffects({
           sourceStartSec: clip.sourceStartSec,
           sourceEndSec: clip.sourceEndSec,
           durationMs: clip.durationMs,
           effects: clip.effects,
+        })
+      : (item.primaryVideoEdit?.effects ?? {
+          ...DEFAULT_TIMELINE_VIDEO_EFFECTS,
+          playbackRate: source.rate,
         });
-        const segment = exportSegment({
-          shotNo,
-          stableShotId: item.stableShotId,
-          video: clipVideo,
-          sourceStartSec: clip.sourceStartSec,
-          sourceEndSec: clip.sourceEndSec,
-          plannedDurationMs: clip.durationMs,
-          effects,
-          transform: clip.transform ?? item.transform,
-        });
-        if (!segment) continue;
-        segments.push(segment);
-        exportedClipCount += 1;
-      }
-      if (exportedClipCount === 0) {
-        skipped.push({ shotNo, reason: "视频切片缺少本地文件" });
-      }
-      continue;
-    }
-    const video: ShotVideoLike | null | undefined =
-      shot?.currentVideo ??
-      (opts.fallbackToLatestTake ? fallbackTakeForShot(shot) : null);
-    if (!video || video.status !== "available") {
-      skipped.push({ shotNo, reason: "没有可用的当前视频" });
-      continue;
-    }
-    // 修剪：选中了片段范围就用范围，否则从头播；计划时长封顶。
-    const range =
-      video.selectedSelectionType === "range" && video.selectedRangeId != null
-        ? video.ranges.find(r => r.id === video.selectedRangeId)
-        : null;
-    const edit =
-      item.primaryVideoEdit?.takeId === video.id ? item.primaryVideoEdit : null;
-    const startSec = Math.max(0, edit?.sourceStartSec ?? range?.startSec ?? 0);
-    const sourceEnd = Math.max(
-      startSec + 1 / 30,
-      edit?.sourceEndSec ??
-        range?.endSec ??
-        video.durationSec ??
-        MAX_SEGMENT_SEC
+    // 区间两端的源时间；倒放时画面从大往小走，所以取点在小的那头。
+    // 源不够长就只取剩下的那点，区间长度不变——余下的时间冻在最后一帧，
+    // 绝不把后面镜头的绝对时间压回去。
+    const remainingSec = source.sourceWindow
+      ? effects.reverse
+        ? source.sourceTimeSec - source.sourceWindow.startSec
+        : source.sourceWindow.endSec - source.sourceTimeSec
+      : durationSec * source.rate;
+    const spanSec = Math.max(
+      0,
+      Math.min(durationSec * source.rate, remainingSec)
     );
-    const segment = exportSegment({
+    if (spanSec <= 0) {
+      // 画面已经停在窗口尽头：这一段没有新素材可取，按空档补等长黑场。
+      parts.push({ kind: "gap", startFrame, durationFrames, durationSec });
+      continue;
+    }
+    const startSec = effects.reverse
+      ? Math.max(0, source.sourceTimeSec - spanSec)
+      : Math.max(0, source.sourceTimeSec);
+    parts.push({
+      kind: "source",
       shotNo,
       stableShotId: item.stableShotId,
-      video,
-      sourceStartSec: startSec,
-      sourceEndSec: sourceEnd,
-      plannedDurationMs: item.plannedDurationMs,
-      effects: edit?.effects ?? DEFAULT_TIMELINE_VIDEO_EFFECTS,
-      transform: item.transform ?? DEFAULT_TIMELINE_TRANSFORM,
+      file,
+      startSec,
+      sourceDurationSec: spanSec,
+      durationSec,
+      effects,
+      transform: clip?.transform ?? item.transform ?? DEFAULT_TIMELINE_TRANSFORM,
     });
-    if (!segment) {
-      skipped.push({ shotNo, reason: "视频缺少本地文件" });
+  }
+
+  for (const item of material.timeline.items) {
+    if (item.included !== false) continue;
+    skipped.push({
+      shotNo: byIdentity.get(item.stableShotId)?.shotNo ?? 0,
+      reason: "已从成片移除",
+    });
+  }
+
+  // 连续同源的区间合成一段；跨 winner、跨锚点或源时间接不上的一律不合。
+  const coalesced: ExportPart[] = [];
+  for (const part of parts) {
+    const previous = coalesced.at(-1);
+    if (
+      part.kind === "source" &&
+      previous?.kind === "source" &&
+      previous.stableShotId === part.stableShotId &&
+      continuous(previous, part)
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...previous,
+        startSec: previous.effects.reverse ? part.startSec : previous.startSec,
+        sourceDurationSec: previous.sourceDurationSec + part.sourceDurationSec,
+        durationSec: previous.durationSec + part.durationSec,
+      };
       continue;
     }
-    segments.push(segment);
+    if (
+      part.kind !== "source" &&
+      previous?.kind === part.kind &&
+      (part.kind === "gap" ||
+        (previous.kind === "missing" &&
+          previous.stableShotId === part.stableShotId))
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...previous,
+        durationFrames: previous.durationFrames + part.durationFrames,
+        durationSec: previous.durationSec + part.durationSec,
+      } as ExportPart;
+      continue;
+    }
+    coalesced.push(part);
   }
-  return { segments, skipped };
+
+  return {
+    parts: coalesced,
+    segments: coalesced.flatMap(part =>
+      part.kind === "source" ? [stripKind(part)] : []
+    ),
+    totalSec: framesToSec(totalFrames),
+    skipped,
+  };
+}
+
+function stripKind(part: { kind: "source" } & ExportSegment): ExportSegment {
+  const { kind: _kind, ...segment } = part;
+  return segment;
 }
 
 function atempoFilters(rate: number): string[] {
@@ -289,6 +459,8 @@ function videoFilters(
     heartbeatScale,
     segment.effects.reverse ? "reverse" : null,
     `setpts=(PTS-STARTPTS)/${segment.effects.playbackRate.toFixed(5)}`,
+    // 源比区间短时冻在最后一帧补满，绝不允许把后面镜头的绝对时间压回去。
+    `tpad=stop_mode=clone:stop_duration=${segment.durationSec.toFixed(3)}`,
     "fps=30",
     "format=yuv420p",
     "setsar=1",
@@ -306,6 +478,43 @@ function audioFilters(segment: ExportSegment): string {
   ]
     .filter(Boolean)
     .join(",");
+}
+
+/** 等长黑画面 + 静音，规格与真实片段完全一致，供空档和缺素材占位使用。 */
+function blackSilenceArgs(input: {
+  durationSec: number;
+  dims: { width: number; height: number };
+  output: string;
+}): string[] {
+  const duration = Math.max(1 / 30, input.durationSec).toFixed(3);
+  return [
+    "-y",
+    "-f",
+    "lavfi",
+    "-t",
+    duration,
+    "-i",
+    `color=c=black:s=${input.dims.width}x${input.dims.height}:r=30`,
+    "-f",
+    "lavfi",
+    "-t",
+    duration,
+    "-i",
+    "anullsrc=channel_layout=stereo:sample_rate=48000",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "19",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-t",
+    duration,
+    input.output,
+  ];
 }
 
 function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
@@ -338,17 +547,30 @@ export async function exportStoryTimeline(params: {
   userId: number;
   targetAspectRatio?: VideoTargetAspectRatio;
   fallbackToLatestTake?: boolean;
+  /** strict 时缺素材直接失败；relaxed 补等长黑场并记录诊断。 */
+  missingSourceMode?: "strict" | "relaxed";
 }): Promise<ExportResult> {
   const material = await getStoryMaterialState(params.storyId, params.userId);
   if (!material) return { status: "error", error: "故事不存在或无权访问" };
 
+  const missingSourceMode = params.missingSourceMode ?? "relaxed";
   const plan = buildExportPlan(material, {
     fallbackToLatestTake: params.fallbackToLatestTake,
+    missingSourceMode,
   });
   if (plan.segments.length === 0) {
     return {
       status: "error",
       error: "时间轴上没有可导出的镜头（每个镜头需要有可用的当前视频）",
+    };
+  }
+  const missingParts = plan.parts.filter(part => part.kind === "missing");
+  if (missingSourceMode === "strict" && missingParts.length > 0) {
+    return {
+      status: "error",
+      error: `有 ${missingParts.length} 段缺少素材，严格模式不出半成品：${plan.skipped
+        .map(entry => `镜头 ${entry.shotNo} ${entry.reason}`)
+        .join("；")}`,
     };
   }
 
@@ -379,17 +601,44 @@ export async function exportStoryTimeline(params: {
 
   try {
     const parts: string[] = [];
-    for (let index = 0; index < plan.segments.length; index += 1) {
-      const seg = plan.segments[index];
-      const src = path.join(dir, seg.file);
-      if (!fs.existsSync(src)) {
-        plan.skipped.push({ shotNo: seg.shotNo, reason: "本地文件缺失" });
-        continue;
-      }
+    for (let index = 0; index < plan.parts.length; index += 1) {
+      const planned = plan.parts[index];
       const part = path.join(
         workDir,
         `part-${String(index).padStart(3, "0")}.mp4`
       );
+      // 有意的空档和缺素材占位都不去摸文件系统：直接生成等长的黑画面加静音，
+      // 规格和真实片段完全一致，concat 时才不会串流失败。
+      if (planned.kind !== "source") {
+        await runFfmpeg(
+          blackSilenceArgs({
+            durationSec: planned.durationSec,
+            dims,
+            output: part,
+          }),
+          120_000
+        );
+        parts.push(part);
+        continue;
+      }
+      const seg = planned;
+      const src = path.join(dir, seg.file);
+      if (!fs.existsSync(src)) {
+        plan.skipped.push({ shotNo: seg.shotNo, reason: "本地文件缺失" });
+        if (missingSourceMode === "strict") {
+          throw new Error(`镜头 ${seg.shotNo} 的本地文件缺失`);
+        }
+        await runFfmpeg(
+          blackSilenceArgs({
+            durationSec: seg.durationSec,
+            dims,
+            output: part,
+          }),
+          120_000
+        );
+        parts.push(part);
+        continue;
+      }
       // 归一化：统一分辨率（等比缩放+补边）、30fps、yuv420p、48k 立体声（缺音补静音）。
       await runFfmpeg(
         [
@@ -423,7 +672,8 @@ export async function exportStoryTimeline(params: {
           "19",
           "-c:a",
           "aac",
-          "-shortest",
+          "-t",
+          seg.durationSec.toFixed(3),
           part,
         ],
         120_000
@@ -458,7 +708,8 @@ export async function exportStoryTimeline(params: {
             "19",
             "-c:a",
             "aac",
-            "-shortest",
+            "-t",
+            seg.durationSec.toFixed(3),
             part,
           ],
           120_000
@@ -493,7 +744,8 @@ export async function exportStoryTimeline(params: {
       120_000
     );
 
-    const totalSec = plan.segments.reduce((sum, s) => sum + s.durationSec, 0);
+    // 成片长度就是解析出来的最大结束时间——空档和占位都占满了它们那份时间。
+    const totalSec = plan.totalSec;
     return {
       status: "ok",
       videoUrl: `/api/videos/${key}`,

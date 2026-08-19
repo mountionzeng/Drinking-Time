@@ -110,7 +110,10 @@ import {
   readVideoTakeDragPayload,
   writeVideoTakeDragPayload,
 } from "./videoTakeDrag";
-import { buildStoryboardTimingRows } from "../storyboardTiming";
+import {
+  buildStoryboardTimingRows,
+  storyboardTimingTotalMs,
+} from "../storyboardTiming";
 import {
   StoryboardEditRow,
   StoryboardEditTransport,
@@ -756,10 +759,19 @@ export function StoryboardReviewBoard({
     [timelineShotIds]
   );
   const storyboardTimingRows = useMemo(
-    () => buildStoryboardTimingRows(creationShots, timelineShotIds),
+    () =>
+      buildStoryboardTimingRows(
+        creationShots,
+        timelineShotIds,
+        creationShots.flatMap(shot =>
+          shot.timelineItem ? [shot.timelineItem] : []
+        )
+      ),
     [creationShots, timelineShotIds]
   );
-  const storyboardTimelineDurationMs = storyboardTimingRows.at(-1)?.endMs ?? 0;
+  // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
+  const storyboardTimelineDurationMs =
+    storyboardTimingTotalMs(storyboardTimingRows);
   // 剪辑时间条按成片顺序铺开，所以这里用时间线顺序而不是镜头列顺序。
   const storyboardEditShots = useMemo<StoryboardEditShot[]>(
     () =>
@@ -1555,6 +1567,20 @@ export function StoryboardReviewBoard({
   };
 
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
+  const matrixGridTemplateColumns = useMemo(() => {
+    const timingByShotNo = new Map(
+      storyboardTimingRows.map(timing => [timing.shotNo, timing.durationMs])
+    );
+    const durations = shots.map(shot =>
+      Math.max(1, timingByShotNo.get(shot.shotNo) ?? 1)
+    );
+    const totalDurationMs = durations.reduce((sum, duration) => sum + duration, 0);
+    const targetWidth = matrixShotColumnWidth * Math.max(1, shots.length);
+    const columns = durations.map(duration =>
+      Math.max(1, (duration / totalDurationMs) * targetWidth)
+    );
+    return `76px ${columns.map(width => `${width}px`).join(" ")}`;
+  }, [matrixShotColumnWidth, shots, storyboardTimingRows]);
 
   const showImageHoverPreview = (
     event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
@@ -1587,6 +1613,26 @@ export function StoryboardReviewBoard({
       cropStyle,
     });
   };
+
+  // Hover 预览是辅助信息，不应在焦点切换、滚动或窗口失焦后继续遮挡编辑器。
+  useEffect(() => {
+    if (!hoveredImagePreview) return;
+    const clearHoverPreview = () => setHoveredImagePreview(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      clearHoverPreview();
+    };
+    document.addEventListener("pointerdown", clearHoverPreview, true);
+    window.addEventListener("scroll", clearHoverPreview, true);
+    window.addEventListener("blur", clearHoverPreview);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", clearHoverPreview, true);
+      window.removeEventListener("scroll", clearHoverPreview, true);
+      window.removeEventListener("blur", clearHoverPreview);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [hoveredImagePreview]);
 
   /** 把用户在指令里点名的图片编号翻成真正的参考图。 */
   const instructionNamedImageReferences = (ids: readonly number[]) => {
@@ -2978,12 +3024,7 @@ export function StoryboardReviewBoard({
                 aria-label="完整故事版横向分镜表"
                 className="grid min-w-max"
                 style={{
-                  gridTemplateColumns:
-                    "76px repeat(" +
-                    shots.length +
-                    ", " +
-                    matrixShotColumnWidth +
-                    "px)",
+                  gridTemplateColumns: matrixGridTemplateColumns,
                 }}
               >
                 <div

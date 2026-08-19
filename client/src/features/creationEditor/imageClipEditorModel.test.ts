@@ -70,4 +70,42 @@ describe("imageClipEditorModel", () => {
       })?.transform
     ).toContain("rotate(0deg)");
   });
+
+  it("uses the selected image transform instead of linking sibling frames", () => {
+    const shot = {
+      shotNo: 5,
+      shotKey: "shot-0305",
+      stableShotId: "shot-0305",
+      timelineItem: {
+        stableShotId: "shot-0305",
+        included: true,
+        position: 0,
+        plannedDurationMs: 3000,
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM, zoom: 1.1 },
+        imageTransforms: {
+          "1604": { ...DEFAULT_TIMELINE_TRANSFORM, zoom: 1.8 },
+          "1612": { ...DEFAULT_TIMELINE_TRANSFORM, zoom: 0.7 },
+        },
+      },
+    };
+
+    expect(
+      imageClipEditorTargetForShot({
+        shot,
+        stableShotId: "shot-0305",
+        imageId: 1604,
+        imageUrl: "/first.png",
+        label: "0305 · 首帧",
+      }).transform.zoom
+    ).toBe(1.8);
+    expect(
+      imageClipEditorTargetForShot({
+        shot,
+        stableShotId: "shot-0305",
+        imageId: 1612,
+        imageUrl: "/last.png",
+        label: "0305 · 尾帧",
+      }).transform.zoom
+    ).toBe(0.7);
+  });
 });

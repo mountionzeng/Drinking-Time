@@ -4,6 +4,8 @@ import {
   ClipboardPaste,
   Copy,
   FileUp,
+  Eye,
+  EyeOff,
   ImagePlus,
   Loader2,
   Mic2,
@@ -15,6 +17,7 @@ import {
   Upload,
   Video,
   Volume2,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -35,6 +38,7 @@ import type {
   StoryTimelineVisualClip,
   TimelineTransform,
   TimelineVideoEffects,
+  StoryTimelineItem,
 } from "@shared/storyMaterial";
 
 import {
@@ -45,9 +49,14 @@ import {
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
-import type { StoryboardAudioClip } from "./StoryboardAudioWaveform";
+import {
+  storyboardAudioTimelineTotalMs,
+  type StoryboardAudioClip,
+} from "./StoryboardAudioWaveform";
 import {
   buildStoryboardTimingRows,
+  storyboardTimingTotalMs,
+  storyboardTimingWinnerAt,
   formatStoryboardTimestamp,
 } from "@/features/storyAgent/storyboardTiming";
 import {
@@ -287,20 +296,30 @@ export function timelineVisualClipFrameUrl(
   return `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
 }
 
+/**
+ * 镜头列表里带着的时间线条目。绝对帧位置和位置锚点都在这里面，
+ * 没有它就只能退回「按时长依次累加」，画不出 gap 和 overlap。
+ */
+function timelineItemsForShots(
+  shots: readonly CreationEditorShot[]
+): StoryTimelineItem[] {
+  return shots.flatMap(shot => (shot.timelineItem ? [shot.timelineItem] : []));
+}
+
 export function resolveTimelineVideoSource(
   shots: CreationEditorShot[],
   timelineShotIds: string[],
   playheadMs: number
 ): TimelineVideoSource | null {
-  const timings = buildStoryboardTimingRows(shots, timelineShotIds);
-  const finalEndMs = timings.at(-1)?.endMs ?? 0;
-  const lookupMs = Math.min(
-    Math.max(0, playheadMs),
-    Math.max(0, finalEndMs - 1)
+  const timings = buildStoryboardTimingRows(
+    shots,
+    timelineShotIds,
+    timelineItemsForShots(shots)
   );
-  const timing = timings.find(
-    item => lookupMs >= item.startMs && lookupMs < item.endMs
-  );
+  const totalMs = storyboardTimingTotalMs(timings);
+  const lookupMs = Math.min(Math.max(0, playheadMs), Math.max(0, totalMs - 1));
+  // 空档就是空档：返回 null，让预览画黑场，不要退回上一镜的画面。
+  const timing = storyboardTimingWinnerAt(timings, lookupMs);
   if (!timing) return null;
   const shot = shots.find(item => item.shotNo === timing.shotNo);
   if (!shot) return null;
@@ -943,7 +962,12 @@ function ShotPreview({
                   src={imageUrl}
                   alt={`${shot ? shotLabel(shot) : "当前镜头"} 预览`}
                   className="h-full w-full object-cover"
-                  style={timelineTransformStyle(shot?.timelineItem?.transform)}
+                  style={timelineTransformStyle(
+                    shot?.imageId != null
+                      ? shot.timelineItem?.imageTransforms?.[String(shot.imageId)] ??
+                          shot.timelineItem?.transform
+                      : shot?.timelineItem?.transform
+                  )}
                 />
                 <span className="absolute left-2 top-2 rounded bg-black/70 px-2 py-1 text-[9px] font-medium text-white">
                   静态首帧占位 · 尚未采用视频
@@ -983,6 +1007,7 @@ type TimelineLane = {
   id: string;
   label: string;
   icon: "captions" | "video" | "voice" | "music" | "audio";
+  domain: "visual" | "audio";
   tone: "blue" | "green" | "teal" | "amber" | "gray";
   clips: Array<{
     id: string;
@@ -998,6 +1023,15 @@ type TimelineLane = {
     imageEditTarget?: ImageClipEditorTarget;
   }>;
 };
+
+/** 字幕、旁白、音乐和原声只属于听觉编辑域，不跟随视觉镜头选中。 */
+export function timelineLaneDomain(
+  laneId: string
+): TimelineLane["domain"] {
+  return ["captions", "voice", "music", "source-audio"].includes(laneId)
+    ? "audio"
+    : "visual";
+}
 
 function laneIcon(icon: TimelineLane["icon"]) {
   if (icon === "captions") return <Captions className="h-3 w-3" />;
@@ -1076,9 +1110,8 @@ function findShotAtTime(
   timings: ReturnType<typeof buildStoryboardTimingRows>,
   timeMs: number
 ) {
-  return timings.find(
-    timing => timeMs >= timing.startMs && timeMs < timing.endMs
-  )?.shotNo;
+  // 重叠时跟着统一的 winner 走，别只挑故事顺序上第一个盖住这一刻的镜头。
+  return storyboardTimingWinnerAt(timings, timeMs)?.shotNo;
 }
 
 function buildTimelineLanes(
@@ -1086,7 +1119,11 @@ function buildTimelineLanes(
   timelineShotIds: string[],
   manifest: ChatCutTimelineManifest | null
 ): TimelineLane[] {
-  const timings = buildStoryboardTimingRows(shots, timelineShotIds);
+  const timings = buildStoryboardTimingRows(
+    shots,
+    timelineShotIds,
+    timelineItemsForShots(shots)
+  );
   const shotsByNo = new Map(shots.map(shot => [shot.shotNo, shot]));
   const lanes: TimelineLane[] = [];
   const playbackAudioTracks = manifest
@@ -1100,6 +1137,7 @@ function buildTimelineLanes(
       id: "captions",
       label: "台词",
       icon: "captions",
+      domain: "audio",
       tone: "blue",
       clips: voiceClips.map(clip => ({
         id: `cue-${clip.id}`,
@@ -1107,7 +1145,6 @@ function buildTimelineLanes(
         title: cueText(clip, manifest),
         startMs: clip.startMs,
         endMs: clip.endMs,
-        shotNo: findShotAtTime(timings, clip.startMs),
       })),
     });
   }
@@ -1122,6 +1159,7 @@ function buildTimelineLanes(
       id: `video-${track.index}`,
       label: `V${track.index}`,
       icon: "video",
+      domain: "visual",
       tone: "gray",
       clips: track.clips.map(clip => ({
         id: clip.id,
@@ -1138,6 +1176,7 @@ function buildTimelineLanes(
     id: "primary-video",
     label: primaryIndex ? `V${primaryIndex}` : "画面",
     icon: "video",
+    domain: "visual",
     tone: "green",
     clips: timings.flatMap(timing => {
       const shot = shotsByNo.get(timing.shotNo);
@@ -1226,6 +1265,7 @@ function buildTimelineLanes(
       id: "voice",
       label: manifest ? timelineVoiceLaneLabel(manifest) : "旁白",
       icon: "voice",
+      domain: "audio",
       tone: "green",
       clips: voiceClips.map(clip => ({
         id: clip.id,
@@ -1233,7 +1273,6 @@ function buildTimelineLanes(
         title: manifest ? cueText(clip, manifest) : clip.name,
         startMs: clip.startMs,
         endMs: clip.endMs,
-        shotNo: findShotAtTime(timings, clip.startMs),
       })),
     });
   }
@@ -1246,6 +1285,7 @@ function buildTimelineLanes(
       id: "music",
       label: "A2 音乐",
       icon: "music",
+      domain: "audio",
       tone: "teal",
       clips: musicClips.map(clip => ({
         id: clip.id,
@@ -1268,6 +1308,7 @@ function buildTimelineLanes(
       id: "source-audio",
       label: "A3 原声",
       icon: "audio",
+      domain: "audio",
       tone: "amber",
       clips: sourceAudio.map(clip => ({
         id: clip.id,
@@ -1275,7 +1316,6 @@ function buildTimelineLanes(
         title: clip.name,
         startMs: clip.startMs,
         endMs: clip.endMs,
-        shotNo: findShotAtTime(timings, clip.startMs),
       })),
     });
   }
@@ -1440,7 +1480,12 @@ function MultiTrackTimeline({
 }) {
   const [scale, setScale] = useState(16);
   const timings = useMemo(
-    () => buildStoryboardTimingRows(shots, timelineShotIds),
+    () =>
+      buildStoryboardTimingRows(
+        shots,
+        timelineShotIds,
+        timelineItemsForShots(shots)
+      ),
     [shots, timelineShotIds]
   );
   const lanes = useMemo(
@@ -1463,6 +1508,12 @@ function MultiTrackTimeline({
     clipId: string;
     sourceStableShotId: string;
   } | null>(null);
+  const [hiddenLaneIds, setHiddenLaneIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [removedLaneIds, setRemovedLaneIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [timelinePasteTarget, setTimelinePasteTarget] = useState<{
     stableShotId: string;
     shotNo: number;
@@ -1478,6 +1529,25 @@ function MultiTrackTimeline({
   const timelineWidth = Math.max(720, Math.ceil((totalMs / 1000) * scale));
   const tickStepSec = scale >= 24 ? 5 : 10;
   const tickCount = Math.ceil(totalMs / 1000 / tickStepSec);
+  // 保留隐藏层的行高与名称，左右两侧始终对齐；隐藏只移除该层内容。
+  const visibleLanes = lanes.filter(lane => !removedLaneIds.has(lane.id));
+
+  const toggleLaneVisibility = useCallback((laneId: string) => {
+    setHiddenLaneIds(current => {
+      const next = new Set(current);
+      if (next.has(laneId)) next.delete(laneId);
+      else next.add(laneId);
+      return next;
+    });
+  }, []);
+
+  const removeLane = useCallback((laneId: string) => {
+    setRemovedLaneIds(current => {
+      const next = new Set(current);
+      next.add(laneId);
+      return next;
+    });
+  }, []);
 
   const setPlaybackRunning = useCallback(
     (nextPlaying: boolean) => {
@@ -1890,15 +1960,39 @@ function MultiTrackTimeline({
       </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="w-[76px] shrink-0 border-r border-border bg-muted/30 pt-6">
-          {lanes.map(lane => (
+          {visibleLanes.map(lane => {
+            const hidden = hiddenLaneIds.has(lane.id);
+            return (
             <div
               key={lane.id}
-              className="flex h-[27px] items-center gap-1.5 border-b border-border/70 px-2 text-[10px] font-semibold text-muted-foreground"
+              className={`group flex items-center gap-1 border-b border-border/70 px-1.5 text-[10px] font-semibold text-muted-foreground ${hidden ? "opacity-40" : ""}`}
+              style={{ height: 27 }}
             >
-              {laneIcon(lane.icon)}
-              <span className="truncate">{lane.label}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-1">
+                {laneIcon(lane.icon)}
+                <span className="truncate">{lane.label}</span>
+              </span>
+              <button
+                type="button"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                onClick={() => toggleLaneVisibility(lane.id)}
+                aria-label={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
+                title={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
+              >
+                {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              </button>
+              <button
+                type="button"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                onClick={() => removeLane(lane.id)}
+                aria-label={`删除 ${lane.label}轨道`}
+                title={`删除 ${lane.label}轨道`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
             </div>
-          ))}
+            );
+          })}
         </div>
         <div
           ref={timelineViewportRef}
@@ -1930,10 +2024,13 @@ function MultiTrackTimeline({
                 );
               })}
             </div>
-            {lanes.map(lane => (
+            {visibleLanes.map(lane => {
+              const hidden = hiddenLaneIds.has(lane.id);
+              return (
               <div
                 key={lane.id}
-                className="relative h-[27px] cursor-crosshair border-b border-border/70 bg-background"
+                className="relative cursor-crosshair border-b border-border/70 bg-background"
+                style={{ height: 27 }}
                 onPointerDown={seekFromPointer}
                 onDragOver={event => {
                   if (lane.id !== "primary-video" || !draggedVisualClip) return;
@@ -1947,7 +2044,7 @@ function MultiTrackTimeline({
                 }}
                 aria-label={`${lane.label} 轨道`}
               >
-                {lane.id === "primary-video" ? (
+                {!hidden && lane.id === "primary-video" ? (
                   <ContextMenu.Root>
                     <ContextMenu.Trigger asChild>
                       <button
@@ -2014,13 +2111,14 @@ function MultiTrackTimeline({
                     </ContextMenu.Portal>
                   </ContextMenu.Root>
                 ) : null}
-                {lane.clips.map(clip => {
+                {!hidden && lane.clips.map(clip => {
                   const left = (clip.startMs / 1000) * scale;
                   const width = Math.max(
                     4,
                     ((clip.endMs - clip.startMs) / 1000) * scale
                   );
-                  const selected = clip.shotNo === selectedShotNo;
+                  const selected =
+                    lane.domain === "visual" && clip.shotNo === selectedShotNo;
                   const clipButton = (
                     <button
                       key={`${lane.id}-${clip.id}`}
@@ -2029,7 +2127,8 @@ function MultiTrackTimeline({
                       onClick={() => {
                         setPlaybackRunning(false);
                         commitPlayhead(clip.startMs, {
-                          selectShot: true,
+                          // 听觉轨道只定位声音播放头，不反向切换视觉镜头。
+                          selectShot: lane.domain === "visual",
                           playing: false,
                         });
                       }}
@@ -2173,7 +2272,8 @@ function MultiTrackTimeline({
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
                 <div
@@ -2278,7 +2378,8 @@ export default function EditingNleWorkspace({
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
 }) {
-  const { generateScript, setActiveSelection } = useStoryAgentActions();
+  const { generateScript, setActiveSelection, proposeGapTransitionCard } =
+    useStoryAgentActions();
   const activeSelection = useStorySpine(state => state.activeSelection);
   const confirmedIntent = useStorySpine(state => state.confirmedIntent);
   const isGeneratingScript = useStorySpine(state => state.isGeneratingScript);
@@ -2306,6 +2407,13 @@ export default function EditingNleWorkspace({
     updateShotDuration,
     reorderShotInTimeline,
     attachChatCutXml,
+    timelineItems,
+    previewTimelineGroup,
+    moveTimelineGroup,
+    addTimelineAnchorAtFrame,
+    removeTimelineAnchor,
+    trimTimelineItemEdge,
+    timelineWritePending,
     isLoading,
   } = useCreationEditor();
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
@@ -2334,8 +2442,20 @@ export default function EditingNleWorkspace({
     [shots, timelineShotIds]
   );
   const timings = useMemo(
-    () => buildStoryboardTimingRows(shots, timelineShotIds),
-    [shots, timelineShotIds]
+    () => buildStoryboardTimingRows(shots, timelineShotIds, timelineItems),
+    [shots, timelineItems, timelineShotIds]
+  );
+  /** 时间尺上要画的位置锚点，按绝对帧排好。 */
+  const timelineAnchors = useMemo(
+    () =>
+      timelineItems.flatMap(item =>
+        (item.anchors ?? []).map(anchor => ({
+          id: anchor.id,
+          stableShotId: item.stableShotId,
+          timelineFrame: anchor.timelineFrame,
+        }))
+      ),
+    [timelineItems]
   );
   const timingByShotNo = useMemo(
     () => new Map(timings.map(timing => [timing.shotNo, timing])),
@@ -2605,6 +2725,7 @@ export default function EditingNleWorkspace({
       try {
         await updateTimelineImageTransform({
           stableShotId: target.stableShotId,
+          imageId: target.imageId,
           transform: draft,
         });
         const nextTarget = { ...target, transform: draft };
@@ -2871,8 +2992,52 @@ export default function EditingNleWorkspace({
     () => ({
       playheadMs: timelinePlayback.playheadMs,
       isPlaying: timelinePlayback.isPlaying,
-      totalMs: timings.at(-1)?.endMs ?? 0,
+      // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
+      totalMs: storyboardTimingTotalMs(timings),
       audioClips: storyboardAudioClips,
+      audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
+      anchors: timelineAnchors,
+      writePending: timelineWritePending,
+      previewGroupMove: ({ stableShotId, direction }) =>
+        previewTimelineGroup(stableShotId, direction),
+      onMoveTimelineGroup: async ({ stableShotId, direction, deltaFrames }) => {
+        const result = await moveTimelineGroup(
+          stableShotId,
+          direction,
+          deltaFrames
+        );
+        if (result.applied) toast.success("已整体移动这一组镜头");
+        else if (result.reason) toast.error(result.reason);
+        return result;
+      },
+      onAddAnchor: async timelineFrame => {
+        const result = await addTimelineAnchorAtFrame(timelineFrame);
+        if (result.applied) toast.success("已钉下位置锚点");
+        else if (result.reason) toast.error(result.reason);
+        return result;
+      },
+      onRemoveAnchor: async ({ stableShotId, anchorId }) => {
+        const result = await removeTimelineAnchor(stableShotId, anchorId);
+        if (result.applied) toast.success("已取消位置锚点");
+        else if (result.reason) toast.error(result.reason);
+        return result;
+      },
+      onCreateGapTransition: async ({ beforeStableShotId, afterStableShotId }) => {
+        if (activeStoryId == null) {
+          return { applied: false, reason: "故事未加载" };
+        }
+        const result = await proposeGapTransitionCard({
+          storyId: activeStoryId,
+          beforeStableShotId,
+          afterStableShotId,
+        });
+        if (result.applied) {
+          toast.success("已在聊天里生成待确认的过渡镜头卡片");
+        } else if (result.reason) {
+          toast.error(result.reason);
+        }
+        return result;
+      },
       selectedRange: boardSelectedRange,
       // 切割和提帧都要拿到那一处的视频，没有视频就让菜单和按钮提前灰掉。
       canSplitAt: playheadMs =>
@@ -2949,6 +3114,18 @@ export default function EditingNleWorkspace({
           toast.error(error instanceof Error ? error.message : "时长未保存");
         }
       },
+      // 帧级、锚点安全的裁剪：另一头锚定不动，裁边贴到位置锚点为止。
+      // 有它就走它——旧的 onTrimShotDuration 只改 plannedDurationMs，
+      // 会被已经写死的 durationFrames 盖掉，松手瞬间又弹回原状。
+      onTrimTimelineEdge: async ({ stableShotId, edge, requestedBoundaryFrame }) => {
+        const result = await trimTimelineItemEdge(
+          stableShotId,
+          edge,
+          requestedBoundaryFrame
+        );
+        if (!result.applied && result.reason) toast.error(result.reason);
+        return result;
+      },
       onSplitAt: async playheadMs => {
         try {
           await splitAtPlayhead(playheadMs);
@@ -2986,17 +3163,25 @@ export default function EditingNleWorkspace({
     [
       activeSelection?.sourceType,
       activeStoryId,
+      addTimelineAnchorAtFrame,
       boardSelectedRange,
       extractFrameAtPlayhead,
+      moveTimelineGroup,
+      previewTimelineGroup,
+      removeTimelineAnchor,
       reorderShotInTimeline,
       setActiveSelection,
       shots,
       storyboardAudioClips,
       splitAtPlayhead,
+      timelineAnchors,
       timelinePlayback.isPlaying,
       timelinePlayback.playheadMs,
       timelineShotIds,
+      proposeGapTransitionCard,
+      timelineWritePending,
       timings,
+      trimTimelineItemEdge,
       updateShotDuration,
     ]
   );

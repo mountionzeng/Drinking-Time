@@ -11,6 +11,7 @@ import {
   timelineVideoSourceForSelectedShot,
   timelineAudioTargetSeconds,
   timelineAudioVolume,
+  timelineLaneDomain,
   timelineSubtitleText,
   timelineVoiceLaneLabel,
 } from "./views/EditingNleWorkspace";
@@ -18,6 +19,15 @@ import type { CreationEditorShot } from "./types";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
 
 describe("editing workspace project canvas", () => {
+  it("keeps subtitle and audio lanes outside visual shot selection", () => {
+    expect(timelineLaneDomain("captions")).toBe("audio");
+    expect(timelineLaneDomain("voice")).toBe("audio");
+    expect(timelineLaneDomain("music")).toBe("audio");
+    expect(timelineLaneDomain("source-audio")).toBe("audio");
+    expect(timelineLaneDomain("primary-video")).toBe("visual");
+    expect(timelineLaneDomain("video-2")).toBe("visual");
+  });
+
   it("fits a square project inside the preview stage without changing aspect", () => {
     expect(
       fitProjectCanvas({

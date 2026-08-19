@@ -1202,6 +1202,83 @@ function asEntryNumber(value: unknown, max: number): number | null {
   return num;
 }
 
+export type GapTransitionProposalResult =
+  | { status: "ok"; proposal: TimelineTransitionCandidate; reply: string }
+  | { status: "blocked"; reply: string };
+
+/**
+ * 右键空档「自动创建镜头」的直接入口：跳过自然语言解析，直接拿两个明确的
+ * 相邻镜头身份去建同一份衔接提案。复用 buildTransitionProposal，
+ * 因此和聊天里打字触发的「衔接/转场」走的是完全同一条付费确认链路——
+ * 这里只负责生成待确认卡片，真正调用模型仍然要等用户在卡片上点确认。
+ */
+export async function proposeGapTransition(params: {
+  storyId: number;
+  userId: number;
+  beforeStableShotId: string;
+  afterStableShotId: string;
+}): Promise<GapTransitionProposalResult> {
+  const material = await getStoryMaterialState(params.storyId, params.userId);
+  if (!material) {
+    return { status: "blocked", reply: "故事不存在或无权访问，暂时无法创建过渡镜头。" };
+  }
+  const byIdentity = new Map(
+    material.shots.map(shot => [shot.stableShotId, shot] as const)
+  );
+  const items = [...material.timeline.items].sort(
+    (left, right) => left.position - right.position
+  );
+  const sourceIndex = items.findIndex(
+    item => item.stableShotId === params.beforeStableShotId
+  );
+  const targetIndex = items.findIndex(
+    item => item.stableShotId === params.afterStableShotId
+  );
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return { status: "blocked", reply: "这两镜不在时间轴中，暂时无法创建过渡镜头。" };
+  }
+  // 空档右键只该对着紧挨的两镜生效；故事顺序不相邻就没有稳定的「前后」可言。
+  if (targetIndex !== sourceIndex + 1) {
+    return {
+      status: "blocked",
+      reply: "这处空档两侧的镜头故事顺序不相邻，暂不支持自动创建过渡镜头。",
+    };
+  }
+  const built = buildTransitionProposal({
+    storyId: params.storyId,
+    instruction: "在时间轴空档处自动创建过渡镜头",
+    expectedTimelineVersion: material.timeline.version,
+    sourceItem: items[sourceIndex],
+    targetItem: items[targetIndex],
+    byIdentity,
+    agentPrompt: null,
+  });
+  if (!built.proposal) {
+    const missing = built.missingShotNos
+      .map(shotNo =>
+        displayShotCode(
+          material.shots.find(shot => shot.shotNo === shotNo) ?? { shotNo }
+        )
+      )
+      .join("、");
+    return {
+      status: "blocked",
+      reply: `${missing || "这两镜"} 还没有可用的当前画面。先为两端各采用一张图片或一条视频，再来这里创建过渡镜头；现在不会调用模型或改时间轴。`,
+    };
+  }
+  return {
+    status: "ok",
+    proposal: built.proposal,
+    reply: `已锁定 ${displayShotCode(
+      byIdentity.get(built.proposal.source.stableShotId) ??
+        built.proposal.source
+    )} → ${displayShotCode(
+      byIdentity.get(built.proposal.target.stableShotId) ??
+        built.proposal.target
+    )} 的空档。先确认这张 2 秒 / 720p 的衔接卡片；确认后才会调用模型，预计约 ¥0.35。`,
+  };
+}
+
 export async function runTimelineEditCommand(params: {
   storyId: number;
   userId: number;

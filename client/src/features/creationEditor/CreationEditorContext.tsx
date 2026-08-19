@@ -45,22 +45,29 @@ import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
+  withTimelineDurationMs,
   type StoryMaterialState,
-  type StoryTimelineAnchor,
   type StoryTimelineItem,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import {
-  addTimelineAnchor,
-  removeTimelineAnchor,
-  trimTimelineItem,
-} from "@shared/timelineEditing";
-import {
   buildTimelineLayout,
-  moveTimelineGroup as moveTimelineGroupItems,
-  selectDirectionalGroup,
+  type TimelineLayoutRow,
 } from "@shared/timelineLayout";
+import {
+  createTimelineWriteLock,
+  planTimelineAnchorAdd,
+  planTimelineAnchorRemove,
+  planTimelineGroupMove,
+  planTimelineTrim,
+  previewTimelineGroup as previewTimelineGroupFrom,
+  resolveTimelineFrameSource as resolveTimelineFrameSourceFrom,
+  type CreationTimelineFrameResolution,
+  type TimelineGroupPreview,
+  type TimelinePlan,
+  type TimelineResolverShot,
+} from "./timelineActions";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
@@ -119,6 +126,8 @@ export type {
   VideoConformBatchResult,
 } from "./types";
 
+export type { CreationTimelineFrameResolution } from "./timelineActions";
+
 type CreationEditorContextValue = {
   stories: CreationEditorStory[];
   activeStoryId: number | null;
@@ -145,10 +154,32 @@ type CreationEditorContextValue = {
     direction: "left" | "right",
     deltaFrames: number
   ) => Promise<{ applied: boolean; reason?: string }>;
-  addTimelineAnchor: (
-    stableShotId: string,
-    anchor: StoryTimelineAnchor
-  ) => Promise<{ applied: boolean; reason?: string }>;
+  /**
+   * Absolute rows for the current story, already resolved for gaps and
+   * overlaps. Every surface should read placement from here.
+   */
+  timelineLayoutRows: TimelineLayoutRow[];
+  /** 当前故事的时间线条目，绝对帧位置和锚点都在里面。 */
+  timelineItems: StoryTimelineItem[];
+  /** 方向批量移动的预览：这次会带上谁、被谁挡住。 */
+  previewTimelineGroup: (
+    sourceShotId: string,
+    direction: "left" | "right"
+  ) => TimelineGroupPreview;
+  /** What the timeline actually shows at an absolute frame. */
+  resolveTimelineFrameSource: (
+    timelineFrame: number
+  ) => CreationTimelineFrameResolution;
+  /** True while a timeline write is in flight; conflicting edits are ignored. */
+  timelineWritePending: boolean;
+  /**
+   * Create a position anchor at an absolute frame. The visible source is
+   * resolved here rather than trusted from the caller, so a gap can never be
+   * marked and the anchor always records the picture it locks.
+   */
+  addTimelineAnchorAtFrame: (
+    timelineFrame: number
+  ) => Promise<{ applied: boolean; reason?: string; anchorId?: string }>;
   removeTimelineAnchor: (
     stableShotId: string,
     anchorId: string
@@ -401,6 +432,7 @@ type CreationEditorContextValue = {
   }) => Promise<void>;
   updateTimelineImageTransform: (input: {
     stableShotId: string;
+    imageId: number;
     transform: TimelineTransform;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
@@ -1672,128 +1704,128 @@ export function CreationEditorProvider({
     [saveTimelineItems, timelineItems]
   );
 
-  const moveTimelineGroup = useCallback(
-    async (
-      sourceShotId: string,
-      direction: "left" | "right",
-      deltaFrames: number
-    ): Promise<{ applied: boolean; reason?: string }> => {
-      const rows = buildTimelineLayout(timelineItems);
-      const selection = selectDirectionalGroup(rows, sourceShotId, direction);
-      if (selection.kind !== "ok") return { applied: false, reason: selection.reason };
-      if (Math.round(deltaFrames) === 0) return { applied: false };
-      try {
-        await saveTimelineItems(moveTimelineGroupItems(timelineItems, selection, deltaFrames), {
-          throwOnError: true,
-        });
-        return { applied: true };
-      } catch (error) {
-        return {
-          applied: false,
-          reason: error instanceof Error ? error.message : "批量移动失败",
-        };
-      }
-    },
-    [saveTimelineItems, timelineItems]
+  const timelineLayoutRows = useMemo(
+    () => buildTimelineLayout(timelineItems),
+    [timelineItems]
   );
 
-  const addTimelineAnchorToShot = useCallback(
+  const timelineResolverShots = useMemo(
+    () =>
+      new Map<string, TimelineResolverShot>(
+        (storyMaterialQuery.data?.shots ?? []).map(shot => [
+          shot.stableShotId,
+          {
+            currentImageId: shot.currentImage?.id ?? null,
+            currentVideoDurationSec: shot.currentVideo?.durationSec ?? null,
+          },
+        ])
+      ),
+    [storyMaterialQuery.data?.shots]
+  );
+
+  const resolveTimelineFrameSource = useCallback(
+    (timelineFrame: number): CreationTimelineFrameResolution =>
+      resolveTimelineFrameSourceFrom({
+        rows: timelineLayoutRows,
+        shotsById: timelineResolverShots,
+        timelineFrame,
+      }),
+    [timelineLayoutRows, timelineResolverShots]
+  );
+
+  const [timelineWritePending, setTimelineWritePending] = useState(false);
+  const timelineWriteLockRef = useRef(
+    createTimelineWriteLock(setTimelineWritePending)
+  );
+
+  const commitTimelinePlan = useCallback(
     async (
-      stableShotId: string,
-      anchor: StoryTimelineAnchor
-    ): Promise<{ applied: boolean; reason?: string }> => {
-      const current = timelineItems.find(item => item.stableShotId === stableShotId);
-      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
-      const result = addTimelineAnchor({
-        item: current,
-        anchor,
-        resolved: {
-          kind: "source",
-          sourceType: anchor.sourceType,
-          sourceId: anchor.sourceId,
-          localFrame:
-            anchor.timelineFrame - (current.timelineStartFrame ?? 0),
-          sourceTimeSec: anchor.sourceTimeSec,
-          effects: null,
-          transform: null,
+      plan: TimelinePlan,
+      failureReason: string
+    ): Promise<{ applied: boolean; reason?: string; anchorId?: string }> => {
+      if (plan.kind !== "ok") return { applied: false, reason: plan.reason };
+      return timelineWriteLockRef.current.run(
+        async () => {
+          try {
+            await saveTimelineItems(plan.items, { throwOnError: true });
+            return { applied: true, anchorId: plan.anchorId };
+          } catch (error) {
+            return {
+              applied: false,
+              reason: error instanceof Error ? error.message : failureReason,
+            };
+          }
         },
-      });
-      if (result.kind !== "ok") return { applied: false, reason: result.reason };
-      try {
-        await saveTimelineItems(
-          timelineItems.map(item =>
-            item.stableShotId === stableShotId ? result.item : item
-          ),
-          { throwOnError: true }
-        );
-        return { applied: true };
-      } catch (error) {
-        return {
-          applied: false,
-          reason: error instanceof Error ? error.message : "打标失败",
-        };
-      }
+        { applied: false, reason: "上一步剪辑还在保存中" }
+      );
     },
-    [saveTimelineItems, timelineItems]
+    [saveTimelineItems]
+  );
+
+  const previewTimelineGroup = useCallback(
+    (sourceShotId: string, direction: "left" | "right"): TimelineGroupPreview =>
+      previewTimelineGroupFrom({
+        rows: timelineLayoutRows,
+        sourceShotId,
+        direction,
+      }),
+    [timelineLayoutRows]
+  );
+
+  const moveTimelineGroup = useCallback(
+    (sourceShotId: string, direction: "left" | "right", deltaFrames: number) =>
+      commitTimelinePlan(
+        planTimelineGroupMove({
+          items: timelineItems,
+          rows: timelineLayoutRows,
+          sourceShotId,
+          direction,
+          deltaFrames,
+        }),
+        "批量移动失败"
+      ),
+    [commitTimelinePlan, timelineItems, timelineLayoutRows]
+  );
+
+  const addTimelineAnchorAtFrame = useCallback(
+    (timelineFrame: number) =>
+      commitTimelinePlan(
+        planTimelineAnchorAdd({
+          items: timelineItems,
+          resolution: resolveTimelineFrameSource(timelineFrame),
+        }),
+        "打标失败"
+      ),
+    [commitTimelinePlan, resolveTimelineFrameSource, timelineItems]
   );
 
   const removeTimelineAnchorFromShot = useCallback(
-    async (
-      stableShotId: string,
-      anchorId: string
-    ): Promise<{ applied: boolean; reason?: string }> => {
-      const current = timelineItems.find(item => item.stableShotId === stableShotId);
-      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
-      const result = removeTimelineAnchor(current, anchorId);
-      if (result.kind !== "ok") return { applied: false, reason: result.reason };
-      try {
-        await saveTimelineItems(
-          timelineItems.map(item =>
-            item.stableShotId === stableShotId ? result.item : item
-          ),
-          { throwOnError: true }
-        );
-        return { applied: true };
-      } catch (error) {
-        return {
-          applied: false,
-          reason: error instanceof Error ? error.message : "取消锚点失败",
-        };
-      }
-    },
-    [saveTimelineItems, timelineItems]
+    (stableShotId: string, anchorId: string) =>
+      commitTimelinePlan(
+        planTimelineAnchorRemove({ items: timelineItems, stableShotId, anchorId }),
+        "取消锚点失败"
+      ),
+    [commitTimelinePlan, timelineItems]
   );
 
   const trimTimelineItemEdge = useCallback(
-    async (
+    (
       stableShotId: string,
       edge: "start" | "end",
       requestedBoundaryFrame: number
-    ): Promise<{ applied: boolean; reason?: string }> => {
-      const current = timelineItems.find(item => item.stableShotId === stableShotId);
-      if (!current) return { applied: false, reason: "镜头不在时间轴中" };
-      const result = trimTimelineItem({
-        item: current,
-        edge,
-        requestedBoundaryFrame,
-      });
-      if (result.kind !== "ok") return { applied: false, reason: result.reason };
-      try {
-        await saveTimelineItems(
-          timelineItems.map(item =>
-            item.stableShotId === stableShotId ? result.item : item
-          ),
-          { throwOnError: true }
-        );
-        return { applied: true };
-      } catch (error) {
-        return {
-          applied: false,
-          reason: error instanceof Error ? error.message : "裁剪失败",
-        };
-      }
-    },
-    [saveTimelineItems, timelineItems]
+    ) =>
+      commitTimelinePlan(
+        planTimelineTrim({
+          items: timelineItems,
+          stableShotId,
+          edge,
+          requestedBoundaryFrame,
+          sourceLimitSec:
+            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ?? null,
+        }),
+        "裁剪失败"
+      ),
+    [commitTimelinePlan, timelineItems, timelineResolverShots]
   );
 
   const resetTimelineShots = useCallback(() => {
@@ -2237,12 +2269,13 @@ export function CreationEditorProvider({
     const timelineShotId = creationTimelineShotId(targetShot);
     const nextTimelineItems = timelineItems.map(item =>
       item.stableShotId === timelineShotId
-        ? { ...item, plannedDurationMs: normalizedDurationMs }
+        ? withTimelineDurationMs(item, normalizedDurationMs)
         : item
     );
     const timelineChanged = nextTimelineItems.some(
       (item, index) =>
-        item.plannedDurationMs !== timelineItems[index]?.plannedDurationMs
+        item.plannedDurationMs !== timelineItems[index]?.plannedDurationMs ||
+        item.durationFrames !== timelineItems[index]?.durationFrames
     );
     if (timelineChanged) {
       await saveTimelineItems(nextTimelineItems);
@@ -3159,10 +3192,12 @@ export function CreationEditorProvider({
       if (input.sourceStableShotId === input.targetStableShotId) {
         if (item.stableShotId !== input.sourceStableShotId) return item;
         return {
-          ...item,
-          plannedDurationMs: Math.max(
-            item.plannedDurationMs,
-            movedClip.offsetMs + movedClip.durationMs
+          ...withTimelineDurationMs(
+            item,
+            Math.max(
+              item.plannedDurationMs,
+              movedClip.offsetMs + movedClip.durationMs
+            )
           ),
           visualClips: (item.visualClips ?? [])
             .map(clip => (clip.id === input.clipId ? movedClip : clip))
@@ -3179,10 +3214,12 @@ export function CreationEditorProvider({
       }
       if (item.stableShotId === input.targetStableShotId) {
         return {
-          ...item,
-          plannedDurationMs: Math.max(
-            item.plannedDurationMs,
-            movedClip.offsetMs + movedClip.durationMs
+          ...withTimelineDurationMs(
+            item,
+            Math.max(
+              item.plannedDurationMs,
+              movedClip.offsetMs + movedClip.durationMs
+            )
           ),
           visualClips: [...(item.visualClips ?? []), movedClip].sort(
             (left, right) => left.offsetMs - right.offsetMs
@@ -3265,8 +3302,7 @@ export function CreationEditorProvider({
       if (item.stableShotId !== input.stableShotId) return item;
       if (!input.clipId) {
         return {
-          ...item,
-          plannedDurationMs: durationMs,
+          ...withTimelineDurationMs(item, durationMs),
           transform: input.transform,
           primaryVideoEdit: {
             takeId: input.takeId,
@@ -3310,10 +3346,12 @@ export function CreationEditorProvider({
         0
       );
       return {
-        ...item,
-        plannedDurationMs: item.visualClipsReplacePrimary
-          ? Math.max(100, clipEndMs)
-          : Math.max(item.plannedDurationMs, clipEndMs),
+        ...withTimelineDurationMs(
+          item,
+          item.visualClipsReplacePrimary
+            ? Math.max(100, clipEndMs)
+            : Math.max(item.plannedDurationMs, clipEndMs)
+        ),
         visualClips,
       };
     });
@@ -3323,6 +3361,7 @@ export function CreationEditorProvider({
 
   const updateTimelineImageTransform = async (input: {
     stableShotId: string;
+    imageId: number;
     transform: TimelineTransform;
   }) => {
     if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
@@ -3331,7 +3370,13 @@ export function CreationEditorProvider({
     await saveTimelineItems(
       timelineItems.map(item =>
         item.stableShotId === input.stableShotId
-          ? { ...item, transform: input.transform }
+          ? {
+              ...item,
+              imageTransforms: {
+                ...(item.imageTransforms ?? {}),
+                [String(input.imageId)]: input.transform,
+              },
+            }
           : item
       ),
       { throwOnError: true }
@@ -3496,7 +3541,12 @@ export function CreationEditorProvider({
       moveShotInTimeline,
       reorderShotInTimeline,
       moveTimelineGroup,
-      addTimelineAnchor: addTimelineAnchorToShot,
+      timelineLayoutRows,
+      timelineItems,
+      previewTimelineGroup,
+      resolveTimelineFrameSource,
+      timelineWritePending,
+      addTimelineAnchorAtFrame,
       removeTimelineAnchor: removeTimelineAnchorFromShot,
       trimTimelineItemEdge,
       resetTimelineShots,
@@ -3600,7 +3650,12 @@ export function CreationEditorProvider({
       moveShotInTimeline,
       reorderShotInTimeline,
       moveTimelineGroup,
-      addTimelineAnchorToShot,
+      timelineLayoutRows,
+      timelineItems,
+      previewTimelineGroup,
+      resolveTimelineFrameSource,
+      timelineWritePending,
+      addTimelineAnchorAtFrame,
       removeTimelineAnchorFromShot,
       trimTimelineItemEdge,
       resetTimelineShots,

@@ -42,6 +42,10 @@ const shots: StoryboardEditShot[] = [
       startMs: 0,
       endMs: 2_000,
       durationMs: 2_000,
+      startFrame: 0,
+      durationFrames: 60,
+      stackOrder: 0,
+      anchorFrames: [],
     },
     shotLabel: "0101",
     shotNo: 1,
@@ -57,6 +61,10 @@ const shots: StoryboardEditShot[] = [
       startMs: 2_000,
       endMs: 8_000,
       durationMs: 6_000,
+      startFrame: 60,
+      durationFrames: 180,
+      stackOrder: 1,
+      anchorFrames: [],
     },
     shotLabel: "0102",
     shotNo: 2,
@@ -210,5 +218,123 @@ describe("StoryboardEditTransport", () => {
 describe("StoryboardEditRow shortcuts", () => {
   it("advertises the keyboard shortcuts on the track itself", () => {
     expect(renderRow(boardTimeline())).toContain("aria-keyshortcuts");
+  });
+
+  it("turns the six-dot grip into the directional group-move entry and says so", () => {
+    const html = renderRow(
+      boardTimeline({
+        previewGroupMove: () => ({
+          kind: "ok",
+          stableShotIds: ["sh-01"],
+          boundaryStableShotId: null,
+        }),
+        onMoveTimelineGroup: vi.fn(),
+      }),
+      1
+    );
+    expect(html).toContain('data-testid="storyboard-edit-group-grip-sh-01"');
+    // 单镜换顺序不再抢这个手势，只留在 ⌥←/⌥→ 和右键菜单里。
+    expect(html).not.toContain('data-testid="storyboard-edit-reorder-sh-01"');
+    expect(html).toContain("整体移动它和同侧连续的镜头");
+    expect(html).toContain("⌥← / ⌥→");
+  });
+
+  it("keeps the old single-shot reorder drag when the group action is not wired", () => {
+    const html = renderRow(boardTimeline(), 1);
+    expect(html).toContain('data-testid="storyboard-edit-reorder-sh-01"');
+    expect(html).not.toContain('data-testid="storyboard-edit-group-grip-sh-01"');
+  });
+
+  it("draws each anchor on the ruler and inside its shot but keeps one keyboard stop", () => {
+    const html = renderRow(
+      boardTimeline({
+        anchors: [
+          { id: "anchor-a", stableShotId: "sh-01", timelineFrame: 30 },
+          { id: "anchor-b", stableShotId: "sh-02", timelineFrame: 120 },
+        ],
+        onAddAnchor: vi.fn(),
+        onRemoveAnchor: vi.fn(),
+      })
+    );
+    expect(html).toContain('data-testid="storyboard-edit-anchor-anchor-a"');
+    expect(html).toContain('data-testid="storyboard-edit-anchor-anchor-b"');
+    // 镜头块里那道是视觉副本，读屏和 Tab 都不该再停一次。
+    const inShotMark = html.match(
+      /<span[^>]*data-testid="storyboard-edit-shot-anchor-anchor-a"[^>]*>/
+    )?.[0];
+    expect(inShotMark).toContain('aria-hidden="true"');
+
+    // 时间尺上的锚点走 roving focus：只有一个能被 Tab 到，其余靠方向键走。
+    const anchorButtons =
+      html.match(/<button[^>]*data-testid="storyboard-edit-anchor-[^"]*"[^>]*>/g) ??
+      [];
+    expect(anchorButtons).toHaveLength(2);
+    expect(
+      anchorButtons.filter(button => button.includes('tabindex="0"'))
+    ).toHaveLength(1);
+    expect(
+      anchorButtons.filter(button => button.includes('tabindex="-1"'))
+    ).toHaveLength(1);
+    expect(html).toContain("按 Delete 取消");
+  });
+
+  it("marks an anchored shot as position-locked in its block label", () => {
+    const anchoredShots = shots.map((shot, index) =>
+      index === 0
+        ? { ...shot, timing: { ...shot.timing, anchorFrames: [30] } }
+        : shot
+    );
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({
+          anchors: [{ id: "anchor-a", stableShotId: "sh-01", timelineFrame: 30 }],
+          onAddAnchor: vi.fn(),
+        })}
+        shots={anchoredShots}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain("0101");
+    expect(html).toContain("· 锁");
+  });
+
+  it("uses the maximum end as the track length so a moved-back shot is not clipped", () => {
+    const movedShots = [
+      {
+        ...shots[0],
+        timing: {
+          ...shots[0].timing,
+          startMs: 0,
+          endMs: 8_000,
+          durationMs: 8_000,
+          startFrame: 0,
+          durationFrames: 240,
+        },
+      },
+      {
+        ...shots[1],
+        timing: {
+          ...shots[1].timing,
+          startMs: 2_000,
+          endMs: 4_000,
+          durationMs: 2_000,
+          startFrame: 60,
+          durationFrames: 60,
+        },
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ totalMs: 4_000 })}
+        shots={movedShots}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain("left:0%;width:100%");
+    expect(html).toContain("left:25%;width:25%");
   });
 });

@@ -1,9 +1,18 @@
 import {
+  STORY_TIMELINE_FPS,
   timelineFramesToMs,
+  timelineMsToFrames,
+  timelineOffsetMsToFrames,
   type StoryTimelineAnchor,
   type StoryTimelineItem,
+  type StoryTimelinePrimaryVideoEdit,
+  type StoryTimelineVisualClip,
 } from "./storyMaterial";
-import type { TimelineSourceResolution } from "./timelineSource";
+import {
+  retimeSourceWindow,
+  timelineSourceRate,
+  type TimelineSourceResolution,
+} from "./timelineSource";
 import {
   buildTimelineLayout,
   durationFramesForItem,
@@ -53,30 +62,185 @@ export function removeTimelineAnchor(
   };
 }
 
-export function trimTimelineItem(input: {
+/**
+ * Move a shot's primary source window so every surviving timeline frame keeps
+ * showing the same source frame after a trim.
+ */
+function retimePrimaryVideoEdit(input: {
+  edit: StoryTimelinePrimaryVideoEdit;
+  previousDurationFrames: number;
+  startShiftFrames: number;
+  durationFrames: number;
+}): StoryTimelinePrimaryVideoEdit {
+  const window = retimeSourceWindow({
+    window: {
+      sourceStartSec: input.edit.sourceStartSec,
+      sourceEndSec: input.edit.sourceEndSec,
+    },
+    rate: timelineSourceRate({
+      sourceStartSec: input.edit.sourceStartSec,
+      sourceEndSec: input.edit.sourceEndSec,
+      durationFrames: input.previousDurationFrames,
+      effects: input.edit.effects,
+    }),
+    reverse: input.edit.effects?.reverse === true,
+    startShiftFrames: input.startShiftFrames,
+    durationFrames: input.durationFrames,
+  });
+  return {
+    ...input.edit,
+    sourceStartSec: window.sourceStartSec,
+    sourceEndSec: window.sourceEndSec,
+  };
+}
+
+/**
+ * Re-place internal visual clips against the shot's new head, cutting the
+ * head/tail of any clip the trim partially removed and moving its source
+ * window by the same amount. Clips outside the new range are dropped.
+ */
+function retimeVisualClips(input: {
+  clips: readonly StoryTimelineVisualClip[];
+  startShiftFrames: number;
+  durationFrames: number;
+}): StoryTimelineVisualClip[] {
+  const retimed: StoryTimelineVisualClip[] = [];
+  for (const clip of input.clips) {
+    const clipDurationFrames = timelineMsToFrames(clip.durationMs);
+    const offsetFrame =
+      timelineOffsetMsToFrames(clip.offsetMs) - input.startShiftFrames;
+    const headCutFrames = Math.max(0, -offsetFrame);
+    const tailCutFrames = Math.max(
+      0,
+      offsetFrame + clipDurationFrames - input.durationFrames
+    );
+    const remainingFrames = clipDurationFrames - headCutFrames - tailCutFrames;
+    if (remainingFrames <= 0) continue;
+    const window = retimeSourceWindow({
+      window: {
+        sourceStartSec: clip.sourceStartSec,
+        sourceEndSec: clip.sourceEndSec,
+      },
+      rate: timelineSourceRate({
+        sourceStartSec: clip.sourceStartSec,
+        sourceEndSec: clip.sourceEndSec,
+        durationFrames: clipDurationFrames,
+        effects: clip.effects,
+      }),
+      reverse: clip.effects?.reverse === true,
+      startShiftFrames: headCutFrames,
+      durationFrames: remainingFrames,
+    });
+    retimed.push({
+      ...clip,
+      offsetMs: timelineFramesToMs(Math.max(0, offsetFrame)),
+      durationMs: timelineFramesToMs(remainingFrames),
+      sourceStartSec: window.sourceStartSec,
+      sourceEndSec: window.sourceEndSec,
+    });
+  }
+  return retimed.sort(
+    (left, right) =>
+      left.offsetMs - right.offsetMs || left.id.localeCompare(right.id)
+  );
+}
+
+/**
+ * How many extra frames the primary source can still supply beyond the current
+ * window at each edge. `null` means the edge is unconstrained by what we know.
+ */
+function primaryHeadroomFrames(input: {
+  item: StoryTimelineItem;
+  durationFrames: number;
+  edge: "start" | "end";
+  sourceLimitSec?: number | null;
+}): number | null {
+  const edit = input.item.primaryVideoEdit;
+  if (!edit || input.item.visualClipsReplacePrimary) return null;
+  const rate = timelineSourceRate({
+    sourceStartSec: edit.sourceStartSec,
+    sourceEndSec: edit.sourceEndSec,
+    durationFrames: input.durationFrames,
+    effects: edit.effects,
+  });
+  const reverse = edit.effects?.reverse === true;
+  // Extending the head consumes source before the in point (forward) or after
+  // the out point (reverse); extending the tail mirrors that.
+  const availableSec =
+    input.edge === "start"
+      ? reverse
+        ? input.sourceLimitSec == null
+          ? null
+          : input.sourceLimitSec - edit.sourceEndSec
+        : edit.sourceStartSec
+      : reverse
+        ? edit.sourceStartSec
+        : input.sourceLimitSec == null
+          ? null
+          : input.sourceLimitSec - edit.sourceEndSec;
+  if (availableSec == null) return null;
+  return Math.max(0, Math.floor((availableSec * STORY_TIMELINE_FPS) / rate));
+}
+
+export type TimelineTrimInput = {
   item: StoryTimelineItem;
   edge: "start" | "end";
   requestedBoundaryFrame: number;
-}): TimelineEditResult<StoryTimelineItem> {
+  /** Length of the underlying media, when the caller knows it. */
+  sourceLimitSec?: number | null;
+};
+
+/**
+ * Move one edge of a shot. The opposite edge, every anchor's absolute frame,
+ * and every anchor's visible source frame are preserved; the shot's source
+ * window and internal clips move with the edge.
+ */
+export function trimTimelineItem(
+  input: TimelineTrimInput
+): TimelineEditResult<StoryTimelineItem> {
   const row = buildTimelineLayout([input.item])[0];
   const anchors = [...(input.item.anchors ?? [])].sort(
     (left, right) => left.timelineFrame - right.timelineFrame
   );
-  const oldEndFrame = row.endFrame;
+  const previousDurationFrames = row.durationFrames;
+
   if (input.edge === "start") {
-    const requestedStart = Math.max(0, Math.round(input.requestedBoundaryFrame));
-    const firstAnchor = anchors[0];
-    const maximumStart = firstAnchor
-      ? firstAnchor.timelineFrame
-      : oldEndFrame - 1;
+    const requestedStart = Math.round(input.requestedBoundaryFrame);
+    const firstAnchorFrame = anchors[0]?.timelineFrame ?? null;
+    const contentLimit = row.endFrame - 1;
+    const maximumStart =
+      firstAnchorFrame == null
+        ? contentLimit
+        : Math.min(firstAnchorFrame, contentLimit);
     if (requestedStart > maximumStart) {
       return {
         kind: "blocked",
-        reason: "不能越过位置锚点",
+        reason:
+          firstAnchorFrame != null && firstAnchorFrame <= contentLimit
+            ? "不能越过位置锚点"
+            : "镜头至少要保留一帧",
         boundaryFrame: maximumStart,
       };
     }
-    const durationFrames = oldEndFrame - requestedStart;
+    const headroomFrames = primaryHeadroomFrames({
+      item: input.item,
+      durationFrames: previousDurationFrames,
+      edge: "start",
+      sourceLimitSec: input.sourceLimitSec,
+    });
+    const minimumStart = Math.max(
+      0,
+      headroomFrames == null ? 0 : row.startFrame - headroomFrames
+    );
+    if (requestedStart < minimumStart) {
+      return {
+        kind: "blocked",
+        reason: requestedStart < 0 ? "不能移到时间轴起点之前" : "没有更多可用素材",
+        boundaryFrame: minimumStart,
+      };
+    }
+    const startShiftFrames = requestedStart - row.startFrame;
+    const durationFrames = row.endFrame - requestedStart;
     return {
       kind: "ok",
       item: {
@@ -84,18 +248,58 @@ export function trimTimelineItem(input: {
         timelineStartFrame: requestedStart,
         durationFrames,
         plannedDurationMs: timelineFramesToMs(durationFrames),
+        ...(input.item.primaryVideoEdit
+          ? {
+              primaryVideoEdit: retimePrimaryVideoEdit({
+                edit: input.item.primaryVideoEdit,
+                previousDurationFrames,
+                startShiftFrames,
+                durationFrames,
+              }),
+            }
+          : {}),
+        ...(input.item.visualClips
+          ? {
+              visualClips: retimeVisualClips({
+                clips: input.item.visualClips,
+                startShiftFrames,
+                durationFrames,
+              }),
+            }
+          : {}),
       },
     };
   }
 
-  const requestedEnd = Math.max(row.startFrame + 1, Math.round(input.requestedBoundaryFrame));
-  const lastAnchor = anchors.at(-1);
-  const minimumEnd = lastAnchor ? lastAnchor.timelineFrame + 1 : row.startFrame + 1;
+  const requestedEnd = Math.round(input.requestedBoundaryFrame);
+  const lastAnchorFrame = anchors.at(-1)?.timelineFrame ?? null;
+  const minimumEnd = Math.max(
+    row.startFrame + 1,
+    lastAnchorFrame == null ? row.startFrame + 1 : lastAnchorFrame + 1
+  );
   if (requestedEnd < minimumEnd) {
     return {
       kind: "blocked",
-      reason: "不能裁掉位置锚点所在画面",
+      reason:
+        lastAnchorFrame != null && lastAnchorFrame >= row.startFrame
+          ? "不能裁掉位置锚点所在画面"
+          : "镜头至少要保留一帧",
       boundaryFrame: minimumEnd,
+    };
+  }
+  const headroomFrames = primaryHeadroomFrames({
+    item: input.item,
+    durationFrames: previousDurationFrames,
+    edge: "end",
+    sourceLimitSec: input.sourceLimitSec,
+  });
+  const maximumEnd =
+    headroomFrames == null ? null : row.endFrame + headroomFrames;
+  if (maximumEnd != null && requestedEnd > maximumEnd) {
+    return {
+      kind: "blocked",
+      reason: "没有更多可用素材",
+      boundaryFrame: maximumEnd,
     };
   }
   const durationFrames = requestedEnd - row.startFrame;
@@ -103,12 +307,37 @@ export function trimTimelineItem(input: {
     kind: "ok",
     item: {
       ...input.item,
+      timelineStartFrame: row.startFrame,
       durationFrames,
       plannedDurationMs: timelineFramesToMs(durationFrames),
+      ...(input.item.primaryVideoEdit
+        ? {
+            primaryVideoEdit: retimePrimaryVideoEdit({
+              edit: input.item.primaryVideoEdit,
+              previousDurationFrames,
+              startShiftFrames: 0,
+              durationFrames,
+            }),
+          }
+        : {}),
+      ...(input.item.visualClips
+        ? {
+            visualClips: retimeVisualClips({
+              clips: input.item.visualClips,
+              startShiftFrames: 0,
+              durationFrames,
+            }),
+          }
+        : {}),
     },
   };
 }
 
+/**
+ * Cut a shot in two at an absolute frame. Each anchor lands in exactly one
+ * child: the cut frame itself belongs to the right child because timeline
+ * ranges are half-open.
+ */
 export function splitTimelineItem(input: {
   item: StoryTimelineItem;
   cutFrame: number;
@@ -122,35 +351,32 @@ export function splitTimelineItem(input: {
   if (cutFrame <= row.startFrame || cutFrame >= row.endFrame) {
     return { kind: "blocked", reason: "切点必须位于镜头内部" };
   }
-  const crossingAnchor = (input.item.anchors ?? []).some(
-    anchor => anchor.timelineFrame === cutFrame
-  );
-  if (crossingAnchor) {
-    return { kind: "blocked", reason: "切点不能落在位置锚点帧上" };
-  }
   const anchors = input.item.anchors ?? [];
-  const leftDuration = cutFrame - row.startFrame;
-  const rightDuration = row.endFrame - cutFrame;
-  const base = { ...input.item, anchors: undefined };
   const leftAnchors = anchors.filter(anchor => anchor.timelineFrame < cutFrame);
   const rightAnchors = anchors.filter(anchor => anchor.timelineFrame >= cutFrame);
+
+  const left = trimTimelineItem({
+    item: {
+      ...input.item,
+      ...(leftAnchors.length > 0 ? { anchors: leftAnchors } : { anchors: undefined }),
+    },
+    edge: "end",
+    requestedBoundaryFrame: cutFrame,
+  });
+  const right = trimTimelineItem({
+    item: {
+      ...input.item,
+      ...(rightAnchors.length > 0 ? { anchors: rightAnchors } : { anchors: undefined }),
+    },
+    edge: "start",
+    requestedBoundaryFrame: cutFrame,
+  });
+  if (left.kind === "blocked") return { kind: "blocked", reason: left.reason };
+  if (right.kind === "blocked") return { kind: "blocked", reason: right.reason };
   return {
     kind: "ok",
-    left: {
-      ...base,
-      stableShotId: input.leftStableShotId,
-      durationFrames: leftDuration,
-      plannedDurationMs: timelineFramesToMs(leftDuration),
-      ...(leftAnchors.length > 0 ? { anchors: leftAnchors } : {}),
-    },
-    right: {
-      ...base,
-      stableShotId: input.rightStableShotId,
-      timelineStartFrame: cutFrame,
-      durationFrames: rightDuration,
-      plannedDurationMs: timelineFramesToMs(rightDuration),
-      ...(rightAnchors.length > 0 ? { anchors: rightAnchors } : {}),
-    },
+    left: { ...left.item, stableShotId: input.leftStableShotId },
+    right: { ...right.item, stableShotId: input.rightStableShotId },
   };
 }
 

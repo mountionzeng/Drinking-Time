@@ -2128,9 +2128,19 @@ export const storyAgentRouter = router({
               });
         });
         if (result.status === "error" || !result.imageUrl) {
+          const providerTaskId = result.providerTaskId?.trim() || "";
+          const submissionUncertain =
+            result.submissionUncertain === true && !providerTaskId;
+          const error = providerTaskId
+            ? `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`
+            : submissionUncertain
+              ? `图片提交过程中连接中断，未拿到 302 任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
+              : result.message ?? "图片生成返回空结果";
           return {
             status: "error" as const,
-            error: result.message ?? "图片生成返回空结果",
+            error,
+            ...(providerTaskId ? { providerTaskId } : {}),
+            ...(submissionUncertain ? { submissionUncertain: true } : {}),
           };
         }
         // 写入 generatedImages 表（shotNo 转为字符串，统一表结构）

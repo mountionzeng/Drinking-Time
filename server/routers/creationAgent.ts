@@ -46,7 +46,10 @@ import {
 } from "../services/creationGoal";
 import { segmentAtPoint } from "../services/segmentation";
 import { analyzeStoryShotConsistency } from "../services/shotConsistency";
-import { runTimelineEditCommand } from "../services/timelineEditAgent";
+import {
+  proposeGapTransition,
+  runTimelineEditCommand,
+} from "../services/timelineEditAgent";
 import { confirmEditingTransition } from "../services/editingTransitionWorkflow";
 import { exportStoryTimeline } from "../services/videoExport";
 import {
@@ -1218,6 +1221,28 @@ export const creationAgentRouter = router({
       });
     }),
 
+  /**
+   * 时间轴空档右键「自动创建镜头」的直接入口：跳过聊天里的自然语言解析，
+   * 直接拿两个相邻镜头身份建同一份衔接提案卡片。只生成待确认卡片，
+   * 真正调用模型和扣费仍然要走下面 confirmTimelineTransition。
+   */
+  proposeGapTransition: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number().int().positive(),
+        beforeStableShotId: z.string().min(1).max(200),
+        afterStableShotId: z.string().min(1).max(200),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return proposeGapTransition({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        beforeStableShotId: input.beforeStableShotId,
+        afterStableShotId: input.afterStableShotId,
+      });
+    }),
+
   /** 用户明确确认后才进入的付费衔接生成入口；candidateId 负责续查同一任务。 */
   confirmTimelineTransition: protectedProcedure
     .input(z.object({ candidate: timelineTransitionCandidateInput }))
@@ -1490,6 +1515,23 @@ export const creationAgentRouter = router({
               flipX: z.boolean().optional(),
               flipY: z.boolean().optional(),
             }),
+            imageTransforms: z
+              .record(
+                z.string(),
+                z.object({
+                  cropX: z.number().min(0).max(1),
+                  cropY: z.number().min(0).max(1),
+                  cropWidth: z.number().min(0.01).max(1),
+                  cropHeight: z.number().min(0.01).max(1),
+                  zoom: z.number().min(0.25).max(8),
+                  panX: z.number().min(-1).max(1),
+                  panY: z.number().min(-1).max(1),
+                  rotationDeg: z.number().min(-180).max(180).optional(),
+                  flipX: z.boolean().optional(),
+                  flipY: z.boolean().optional(),
+                })
+              )
+              .optional(),
             primaryVideoEdit: z
               .object({
                 takeId: z.number().int().positive(),

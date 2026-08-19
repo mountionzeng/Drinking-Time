@@ -55,14 +55,47 @@ export type StoryTimelineVisualClip = {
 
 export const STORY_TIMELINE_FPS = 30;
 
+/**
+ * Convert a structural *duration* to frames. A visible duration is never
+ * shorter than one frame, so the result is clamped to at least 1.
+ */
 export function timelineMsToFrames(valueMs: number): number {
   if (!Number.isFinite(valueMs)) return 1;
   return Math.max(1, Math.round((valueMs * STORY_TIMELINE_FPS) / 1000));
 }
 
+/**
+ * Convert a *position* (absolute start or intra-shot offset) to frames.
+ * Unlike a duration, zero is a legitimate value and must survive the
+ * conversion, otherwise a clip pinned to the head of its shot drifts a frame.
+ */
+export function timelineOffsetMsToFrames(valueMs: number): number {
+  if (!Number.isFinite(valueMs)) return 0;
+  return Math.max(0, Math.round((valueMs * STORY_TIMELINE_FPS) / 1000));
+}
+
 export function timelineFramesToMs(frames: number): number {
   if (!Number.isFinite(frames)) return 0;
   return Math.round((Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS);
+}
+
+/**
+ * Change a shot's duration on both representations at once.
+ *
+ * Frames are the canonical structural truth and milliseconds are their
+ * projection, so a writer that only sets `plannedDurationMs` leaves a stale
+ * `durationFrames` behind — and the stale value silently wins in layout, which
+ * looks to the user like the edit snapped back.
+ */
+export function withTimelineDurationMs<
+  T extends { plannedDurationMs: number; durationFrames?: number },
+>(item: T, durationMs: number): T {
+  const plannedDurationMs = Math.max(100, Math.round(durationMs));
+  return {
+    ...item,
+    plannedDurationMs,
+    durationFrames: timelineMsToFrames(plannedDurationMs),
+  };
 }
 
 export type StoryTimelineAnchor = {
@@ -86,6 +119,8 @@ export type StoryTimelineItem = {
   stackOrder?: number;
   anchors?: StoryTimelineAnchor[];
   transform: TimelineTransform;
+  /** Per-storyboard-frame transforms. The legacy item transform remains the fallback. */
+  imageTransforms?: Record<string, TimelineTransform>;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
   visualClipsReplacePrimary?: boolean;

@@ -310,9 +310,21 @@ export default function StoryboardPanel({
           setSelectedShotNo(shotNo + 1);
         }
       }}
-      onDeleteShot={async (_shotNo, stableShotId) => {
-        if (!stableShotId) return null;
-        const nextSelectedShotNo = await deletePersistedShot(stableShotId);
+      onDeleteShot={async (shotNo, stableShotId) => {
+        const fallbackIndex = displayShots.findIndex(
+          shot => shot.shotNo === shotNo
+        );
+        const resolvedStableShotId =
+          stableShotId ??
+          (fallbackIndex >= 0
+            ? shotIdentityFromShot(displayShots[fallbackIndex], fallbackIndex)
+            : null);
+        if (!resolvedStableShotId) {
+          throw new Error("镜头身份缺失，请刷新故事后重试");
+        }
+        const nextSelectedShotNo = await deletePersistedShot(
+          resolvedStableShotId
+        );
         if (activeStoryId) {
           await loadStory(activeStoryId);
         }

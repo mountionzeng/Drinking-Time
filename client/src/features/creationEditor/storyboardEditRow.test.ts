@@ -23,6 +23,10 @@ import {
   storyboardEditShouldHandleKey,
   storyboardEditTimingAt,
   storyboardEditTrackMs,
+  storyboardGroupDragDeltaFrames,
+  storyboardGroupDragDirection,
+  storyboardGroupDragSummary,
+  storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
 } from "./storyboardEditRow";
 
@@ -525,5 +529,199 @@ describe("storyboard edit key routing", () => {
     expect(storyboardEditShouldFollowSelectionToShot("storyboard-image")).toBe(
       true
     );
+  });
+});
+
+describe("方向批量移动手势", () => {
+  it("小抖动不算拖动，越过阈值才锁定方向", () => {
+    expect(storyboardGroupDragDirection(3)).toBeNull();
+    expect(storyboardGroupDragDirection(-3)).toBeNull();
+    expect(storyboardGroupDragDirection(-9)).toBe("left");
+    expect(storyboardGroupDragDirection(9)).toBe("right");
+  });
+
+  it("把像素位移量化成整数帧", () => {
+    expect(
+      storyboardGroupDragDeltaFrames({
+        deltaPx: 50,
+        trackWidthPx: 1000,
+        totalMs: 8000,
+      })
+    ).toBe(12);
+    expect(
+      storyboardGroupDragDeltaFrames({ deltaPx: 50, trackWidthPx: 0, totalMs: 8000 })
+    ).toBe(0);
+  });
+
+  it("拖动说明里点名方向、范围和挡路的锚定镜头", () => {
+    expect(
+      storyboardGroupDragSummary({
+        direction: "left",
+        shotLabels: ["0101", "0102", "0103"],
+        deltaFrames: -15,
+        boundaryLabel: "0100",
+      })
+    ).toBe("向左整体移动 0101–0103（3 镜） · -0.50s · 到 0100 为止，它有位置锚点");
+    expect(
+      storyboardGroupDragSummary({
+        direction: "right",
+        shotLabels: ["0104"],
+        deltaFrames: 30,
+        boundaryLabel: null,
+      })
+    ).toBe("向右整体移动 0104 · +1.00s");
+  });
+});
+
+describe("位置锚点的快捷键与菜单", () => {
+  const key = (overrides: Partial<Parameters<typeof storyboardEditShortcut>[0]>) =>
+    storyboardEditShortcut({
+      key: "m",
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      ...overrides,
+    });
+
+  it("M 打位置锚点，⌘M 留给系统", () => {
+    expect(key({})).toEqual({ kind: "addAnchor" });
+    expect(key({ key: "M" })).toEqual({ kind: "addAnchor" });
+    expect(key({ metaKey: true })).toBeNull();
+  });
+
+  it("没接锚点能力时菜单里不出现打标项", () => {
+    const items = storyboardEditMenuItems({
+      shotLabel: "0101",
+      canSplitHere: true,
+      isFirst: true,
+      isLast: false,
+      shotCount: 2,
+      canInsert: false,
+      canDelete: false,
+    });
+    expect(items.map(item => item.action)).not.toContain("addAnchor");
+  });
+
+  it("空档和重复打标都给出写明原因的灰项", () => {
+    const inGap = storyboardEditMenuItems({
+      shotLabel: "0101",
+      canSplitHere: true,
+      isFirst: true,
+      isLast: false,
+      shotCount: 2,
+      canInsert: false,
+      canDelete: false,
+      anchors: { inGap: true, alreadyAnchored: false, removableAnchorLabel: null },
+    });
+    expect(inGap.find(item => item.action === "addAnchor")?.disabledReason).toBe(
+      "这一刻是空档，没有可标记的画面"
+    );
+    expect(
+      inGap.find(item => item.action === "removeAnchor")?.disabledReason
+    ).toBe("这一帧没有位置锚点");
+
+    const duplicate = storyboardEditMenuItems({
+      shotLabel: "0101",
+      canSplitHere: true,
+      isFirst: true,
+      isLast: false,
+      shotCount: 2,
+      canInsert: false,
+      canDelete: false,
+      anchors: {
+        inGap: false,
+        alreadyAnchored: true,
+        removableAnchorLabel: "00:01.000",
+      },
+    });
+    expect(
+      duplicate.find(item => item.action === "addAnchor")?.disabledReason
+    ).toBe("这一帧已经有位置锚点");
+    expect(
+      duplicate.find(item => item.action === "removeAnchor")?.disabledReason
+    ).toBeNull();
+  });
+});
+
+describe("空档与重叠下的时间查询", () => {
+  const row = (
+    stableShotId: string,
+    position: number,
+    startFrame: number,
+    durationFrames: number,
+    extra: Partial<StoryboardTimingRow> = {}
+  ): StoryboardTimingRow => ({
+    stableShotId,
+    shotNo: position + 1,
+    position,
+    startMs: Math.round((startFrame * 1000) / 30),
+    endMs: Math.round(((startFrame + durationFrames) * 1000) / 30),
+    durationMs: Math.round((durationFrames * 1000) / 30),
+    startFrame,
+    durationFrames,
+    stackOrder: position,
+    anchorFrames: [],
+    ...extra,
+  });
+
+  it("空档返回 null，不残留上一镜", () => {
+    const rows = [row("a", 0, 0, 30), row("b", 1, 90, 30)];
+    expect(storyboardEditTimingAt(rows, 500)?.stableShotId).toBe("a");
+    expect(storyboardEditTimingAt(rows, 2000)).toBeNull();
+    expect(storyboardEditTimingAt(rows, 4000)?.stableShotId).toBe("b");
+  });
+
+  it("重叠时锚定镜头压过最近移动过的镜头", () => {
+    const rows = [
+      row("anchored", 0, 0, 60, { anchorFrames: [10], stackOrder: 0 }),
+      row("recent", 1, 0, 60, { stackOrder: 99 }),
+    ];
+    expect(storyboardEditTimingAt(rows, 500)?.stableShotId).toBe("anchored");
+  });
+
+  it("切点导航走遍所有结构边界，包括空档两侧", () => {
+    const rows = [row("a", 0, 0, 30), row("b", 1, 90, 30)];
+    expect(storyboardEditEdgeMs(rows, 0, "next")).toBe(1000);
+    expect(storyboardEditEdgeMs(rows, 1000, "next")).toBe(3000);
+    expect(storyboardEditEdgeMs(rows, 3000, "next")).toBe(4000);
+    expect(storyboardEditEdgeMs(rows, 4000, "prev")).toBe(3000);
+  });
+});
+
+describe("裁边换算成锚点安全的绝对帧边界", () => {
+  it("裁左边缘时，右端（尾）锚定不动", () => {
+    // 60 帧的镜头从第 30 帧开始，把左边缘拖到只剩 1.0 秒（30 帧）：
+    // 尾部必须还在第 90 帧，不能跟着挪。
+    expect(
+      storyboardTrimmedBoundaryFrame({
+        startFrame: 30,
+        durationFrames: 60,
+        edge: "start",
+        newDurationMs: 1000,
+      })
+    ).toBe(60);
+  });
+
+  it("裁右边缘时，左端（头）锚定不动", () => {
+    expect(
+      storyboardTrimmedBoundaryFrame({
+        startFrame: 30,
+        durationFrames: 60,
+        edge: "end",
+        newDurationMs: 500,
+      })
+    ).toBe(45);
+  });
+
+  it("时长不足一帧也至少按一帧算，不会把边界算到反面去", () => {
+    expect(
+      storyboardTrimmedBoundaryFrame({
+        startFrame: 0,
+        durationFrames: 30,
+        edge: "end",
+        newDurationMs: 1,
+      })
+    ).toBe(1);
   });
 });

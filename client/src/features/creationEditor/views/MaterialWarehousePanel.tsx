@@ -92,6 +92,25 @@ function adviceVerdictLabel(verdict: DirectorAdviceItem["verdict"]) {
   return "可以用";
 }
 
+function startWarehouseVideo(video: HTMLVideoElement) {
+  video.dataset.warehouseHover = "true";
+  video.muted = true;
+  video.playsInline = true;
+  void video.play().catch(() => undefined);
+}
+
+function resumeWarehouseVideoIfHovered(video: HTMLVideoElement) {
+  if (video.dataset.warehouseHover === "true") {
+    void video.play().catch(() => undefined);
+  }
+}
+
+function stopWarehouseVideo(video: HTMLVideoElement) {
+  delete video.dataset.warehouseHover;
+  video.pause();
+  video.currentTime = 0;
+}
+
 /**
  * 导演顾问区：把仓库里待安排的图片交给聊聊（导演视角）逐图判断——
  * 服务哪一镜、为什么、怎么渲染成视频；采纳后图进故事版看板成为首帧，
@@ -291,16 +310,18 @@ export function videoWarehouseActionState(input: {
   playable: boolean;
   busy?: boolean;
 }) {
-  if (input.item.isCurrent) {
+  const sameCurrentStoryShot =
+    input.item.take.storyId === input.activeStoryId &&
+    input.item.take.stableShotId === input.currentStableShotId;
+  // 只有素材已经是“当前选中镜头”的当前视频时才禁用；
+  // 它属于别的镜头但仍可播放时，应该允许复用到当前镜头。
+  if (input.item.isCurrent && sameCurrentStoryShot) {
     return {
       disabled: true,
       icon: "check" as const,
       label: "已采用",
     };
   }
-  const sameCurrentStoryShot =
-    input.item.take.storyId === input.activeStoryId &&
-    input.item.take.stableShotId === input.currentStableShotId;
   return {
     disabled:
       Boolean(input.busy) || !input.playable || !input.currentStableShotId,
@@ -907,8 +928,9 @@ export default function MaterialWarehousePanel({
                 : videoItems.map(item => {
                     const busy = busyKey === `video:${item.take.id}`;
                     const playable =
-                      item.take.status === "available" &&
-                      Boolean(item.take.videoUrl);
+                      Boolean(item.take.videoUrl) &&
+                      (item.take.status === "available" ||
+                        item.take.status === "unfollowable");
                     const action = videoWarehouseActionState({
                       item,
                       activeStoryId,
@@ -930,16 +952,16 @@ export default function MaterialWarehousePanel({
                             <video
                               src={item.take.videoUrl}
                               muted
+                              playsInline
                               preload="metadata"
                               onMouseEnter={event => {
-                                event.currentTarget.muted = true;
-                                void event.currentTarget
-                                  .play()
-                                  .catch(() => undefined);
+                                startWarehouseVideo(event.currentTarget);
+                              }}
+                              onCanPlay={event => {
+                                resumeWarehouseVideoIfHovered(event.currentTarget);
                               }}
                               onMouseLeave={event => {
-                                event.currentTarget.pause();
-                                event.currentTarget.currentTime = 0;
+                                stopWarehouseVideo(event.currentTarget);
                               }}
                               className="h-full w-full object-contain"
                             />
@@ -1376,7 +1398,9 @@ export default function MaterialWarehousePanel({
                     {videoItems.map(item => {
                       const { take, isCurrent } = item;
                       const playable =
-                        take.status === "available" && Boolean(take.videoUrl);
+                        Boolean(take.videoUrl) &&
+                        (take.status === "available" ||
+                          take.status === "unfollowable");
                       const busy = busyKey === `video:${take.id}`;
                       const unusableBusy =
                         busyKey === `video:${take.id}:unusable`;
@@ -1410,18 +1434,19 @@ export default function MaterialWarehousePanel({
                           {take.videoUrl ? (
                             <video
                               src={take.videoUrl}
+                              muted
+                              playsInline
                               className="aspect-video w-full bg-black object-contain"
                               controls
                               preload="metadata"
                               onMouseEnter={event => {
-                                event.currentTarget.muted = true;
-                                void event.currentTarget
-                                  .play()
-                                  .catch(() => undefined);
+                                startWarehouseVideo(event.currentTarget);
+                              }}
+                              onCanPlay={event => {
+                                resumeWarehouseVideoIfHovered(event.currentTarget);
                               }}
                               onMouseLeave={event => {
-                                event.currentTarget.pause();
-                                event.currentTarget.currentTime = 0;
+                                stopWarehouseVideo(event.currentTarget);
                               }}
                               onClick={() => selectVideoMaterial(item)}
                             />

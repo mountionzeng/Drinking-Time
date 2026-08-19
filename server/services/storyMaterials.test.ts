@@ -278,6 +278,38 @@ describe("normalizeTimelineItems", () => {
     expect(items[0].stackOrder).toBe(8);
   });
 
+  it("appends a placement-less item after the global maximum end, not a running one", () => {
+    // shot-a carries no start but is listed first; it must still land after
+    // shot-b's explicit range rather than at frame 0.
+    const items = normalizeTimelineItems(
+      [
+        { stableShotId: "shot-a", plannedDurationMs: 1800, durationFrames: 54 },
+        {
+          stableShotId: "shot-b",
+          plannedDurationMs: 2400,
+          durationFrames: 72,
+          timelineStartFrame: 300,
+        },
+      ],
+      facts
+    );
+
+    expect(items.map(item => item.stableShotId)).toEqual(["shot-a", "shot-b"]);
+    expect(items.map(item => item.timelineStartFrame)).toEqual([372, 300]);
+  });
+
+  it("keeps stack orders above every explicit value regardless of listing order", () => {
+    const items = normalizeTimelineItems(
+      [
+        { stableShotId: "shot-a", timelineStartFrame: 0 },
+        { stableShotId: "shot-b", timelineStartFrame: 60, stackOrder: 40 },
+      ],
+      facts
+    );
+
+    expect(items.map(item => item.stackOrder)).toEqual([41, 40]);
+  });
+
   it("drops malformed anchors without disturbing valid placement", () => {
     const [item] = normalizeTimelineItems(
       [

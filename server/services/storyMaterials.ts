@@ -317,24 +317,27 @@ function visualClips(value: unknown): StoryTimelineVisualClip[] {
   );
 }
 
+type PreparedTimelineItem = {
+  stableShotId: string;
+  raw: Record<string, unknown> | null;
+  plannedDurationMs: number;
+  durationFrames: number;
+  explicitStartFrame: number | null;
+  explicitStackOrder: number | null;
+};
+
 export function normalizeTimelineItems(
   value: unknown,
   facts: readonly StoryShotFact[]
 ): StoryTimelineItem[] {
   const known = new Map(facts.map(fact => [fact.stableShotId, fact]));
   const source = Array.isArray(value) ? value : [];
-  const hasExplicitPlacement = source.some(
-    raw =>
-      raw &&
-      typeof raw === "object" &&
-      !Array.isArray(raw) &&
-      nonNegativeInteger((raw as Record<string, unknown>).timelineStartFrame) != null
-  );
-  const normalized: StoryTimelineItem[] = [];
+
+  // Pass 1 reads the placement each item already carries. A second pass is
+  // required because an item missing a start must be appended after the
+  // *global* maximum end, including explicit items that come after it.
+  const prepared: PreparedTimelineItem[] = [];
   const seen = new Set<string>();
-  let legacyCursorFrame = 0;
-  let maximumEndFrame = 0;
-  let nextStackOrder = 0;
   for (const raw of source) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const item = raw as Record<string, unknown>;
@@ -346,23 +349,83 @@ export function normalizeTimelineItems(
       100,
       finite(item.plannedDurationMs, fact.plannedDurationMs)
     );
-    const durationFrames = Math.max(
-      1,
-      nonNegativeInteger(item.durationFrames) ?? timelineMsToFrames(plannedDurationMs)
-    );
-    const explicitStartFrame = nonNegativeInteger(item.timelineStartFrame);
-    const timelineStartFrame =
-      explicitStartFrame ??
-      (hasExplicitPlacement ? maximumEndFrame : legacyCursorFrame);
-    const stackOrder =
-      nonNegativeInteger(item.stackOrder) ?? nextStackOrder;
-    const anchors = timelineAnchors(item.anchors);
-    normalized.push({
+    prepared.push({
       stableShotId,
-      included: item.included !== false,
-      position: normalized.length,
+      raw: item,
       plannedDurationMs,
-      durationFrames,
+      durationFrames: Math.max(
+        1,
+        nonNegativeInteger(item.durationFrames) ?? timelineMsToFrames(plannedDurationMs)
+      ),
+      explicitStartFrame: nonNegativeInteger(item.timelineStartFrame) ?? null,
+      explicitStackOrder: nonNegativeInteger(item.stackOrder) ?? null,
+    });
+  }
+  for (const fact of facts) {
+    if (seen.has(fact.stableShotId)) continue;
+    prepared.push({
+      stableShotId: fact.stableShotId,
+      raw: null,
+      plannedDurationMs: fact.plannedDurationMs,
+      durationFrames: timelineMsToFrames(fact.plannedDurationMs),
+      explicitStartFrame: null,
+      explicitStackOrder: null,
+    });
+  }
+
+  const hasExplicitPlacement = prepared.some(
+    entry => entry.explicitStartFrame != null
+  );
+  const hasExplicitStackOrder = prepared.some(
+    entry => entry.explicitStackOrder != null
+  );
+  let appendCursorFrame = prepared.reduce(
+    (maximum, entry) =>
+      entry.explicitStartFrame == null
+        ? maximum
+        : Math.max(maximum, entry.explicitStartFrame + entry.durationFrames),
+    0
+  );
+  let nextStackOrder = prepared.reduce(
+    (maximum, entry) =>
+      entry.explicitStackOrder == null
+        ? maximum
+        : Math.max(maximum, entry.explicitStackOrder + 1),
+    0
+  );
+  let legacyCursorFrame = 0;
+
+  return prepared.map((entry, position) => {
+    const timelineStartFrame =
+      entry.explicitStartFrame ??
+      (hasExplicitPlacement ? appendCursorFrame : legacyCursorFrame);
+    if (entry.explicitStartFrame == null && hasExplicitPlacement) {
+      appendCursorFrame = timelineStartFrame + entry.durationFrames;
+    }
+    legacyCursorFrame = timelineStartFrame + entry.durationFrames;
+    const stackOrder =
+      entry.explicitStackOrder ??
+      (hasExplicitStackOrder ? nextStackOrder++ : position);
+    const item = entry.raw;
+    if (!item) {
+      return {
+        stableShotId: entry.stableShotId,
+        included: true,
+        position,
+        plannedDurationMs: entry.plannedDurationMs,
+        durationFrames: entry.durationFrames,
+        timelineStartFrame,
+        stackOrder,
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      } satisfies StoryTimelineItem;
+    }
+    const anchors = timelineAnchors(item.anchors);
+    return {
+      stableShotId: entry.stableShotId,
+      included: item.included !== false,
+      position,
+      plannedDurationMs: entry.plannedDurationMs,
+      durationFrames: entry.durationFrames,
       timelineStartFrame,
       stackOrder,
       ...(anchors.length > 0 ? { anchors } : {}),
@@ -370,32 +433,8 @@ export function normalizeTimelineItems(
       primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),
       visualClips: visualClips(item.visualClips),
       visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
-    });
-    legacyCursorFrame = timelineStartFrame + durationFrames;
-    maximumEndFrame = Math.max(maximumEndFrame, timelineStartFrame + durationFrames);
-    nextStackOrder = Math.max(nextStackOrder, stackOrder + 1);
-  }
-  for (const fact of facts) {
-    if (seen.has(fact.stableShotId)) continue;
-    const durationFrames = timelineMsToFrames(fact.plannedDurationMs);
-    const timelineStartFrame = hasExplicitPlacement
-      ? maximumEndFrame
-      : legacyCursorFrame;
-    normalized.push({
-      stableShotId: fact.stableShotId,
-      included: true,
-      position: normalized.length,
-      plannedDurationMs: fact.plannedDurationMs,
-      durationFrames,
-      timelineStartFrame,
-      stackOrder: nextStackOrder,
-      transform: { ...DEFAULT_TIMELINE_TRANSFORM },
-    });
-    legacyCursorFrame = timelineStartFrame + durationFrames;
-    maximumEndFrame = Math.max(maximumEndFrame, timelineStartFrame + durationFrames);
-    nextStackOrder += 1;
-  }
-  return normalized.map((item, position) => ({ ...item, position }));
+    } satisfies StoryTimelineItem;
+  });
 }
 
 export async function getStoryMaterialState(

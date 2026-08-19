@@ -226,6 +226,31 @@ describe("videoTimeline", () => {
     ]);
   });
 
+  it("can explicitly reuse an unfollowable take when its video file still exists", async () => {
+    const { story, take } = await seedStory();
+    await markVideoTakeUnusable({ storyId: story.id, takeId: take.id }, 1);
+
+    const reused = await reuseVideoTakeForShot(
+      {
+        storyId: story.id,
+        sourceTakeId: take.id,
+        targetStableShotId: "shot-07",
+        plannedDurationSec: 2.4,
+      },
+      1
+    );
+
+    expect(reused.take).toMatchObject({
+      stableShotId: "shot-07",
+      status: "available",
+      videoUrl: take.videoUrl,
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      status: "unfollowable",
+      stableShotId: "shot-06",
+    });
+  });
+
   it("keeps the current video and appends another segment in the same shot", async () => {
     const { story, take } = await seedStory();
     await adoptVideoTake(
@@ -288,6 +313,66 @@ describe("videoTimeline", () => {
       { sourceStartSec: 0, sourceEndSec: 2, offsetMs: 0 },
       { sourceStartSec: 2, sourceEndSec: 3, offsetMs: 3_000 },
     ]);
+  });
+
+  it("clones a playable unfollowable take before appending it", async () => {
+    const { story } = await seedStory();
+    const take = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-06",
+      sourceImageId: null,
+      status: "unfollowable",
+      provider: "302",
+      model: "video-model",
+      prompt: "move",
+      durationSec: 5,
+      aspectRatio: "16:9",
+      videoUrl: "/api/video/take-1555.mp4",
+      errorMessage: "用户标记为不可用。",
+      extractionCapability: "available",
+    });
+
+    const result = await appendVideoTakeToTimeline(
+      {
+        storyId: story.id,
+        sourceTakeId: take.id,
+        targetStableShotId: "shot-06",
+        sourceStartSec: 0,
+        sourceEndSec: 2,
+        effects: {
+          playbackRate: 1,
+          reverse: false,
+          volume: 1,
+          muted: false,
+        },
+        transform: {
+          cropX: 0,
+          cropY: 0,
+          cropWidth: 1,
+          cropHeight: 1,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+          rotationDeg: 0,
+          flipX: false,
+          flipY: false,
+        },
+        expectedTimelineVersion: 0,
+      },
+      1
+    );
+
+    expect(result.clip.videoUrl).toBe(take.videoUrl);
+    expect(result.clip.takeId).not.toBe(take.id);
+    expect(await getVideoTakeById(result.clip.takeId, 1)).toMatchObject({
+      status: "available",
+      stableShotId: "shot-06",
+      videoUrl: take.videoUrl,
+    });
+    expect(await getVideoTakeById(take.id, 1)).toMatchObject({
+      status: "unfollowable",
+    });
   });
 
   it("reuses a take from another story into the current story", async () => {

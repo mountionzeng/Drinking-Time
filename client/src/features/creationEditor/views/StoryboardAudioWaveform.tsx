@@ -13,6 +13,12 @@ export type StoryboardAudioClip = {
   sourceOutMs: number;
 };
 
+export function storyboardAudioTimelineTotalMs(
+  clips: readonly StoryboardAudioClip[]
+): number {
+  return clips.reduce((total, clip) => Math.max(total, clip.endMs), 0);
+}
+
 const decodedAudioCache = new Map<string, Promise<AudioBuffer>>();
 let audioDecodeContext: AudioContext | null = null;
 

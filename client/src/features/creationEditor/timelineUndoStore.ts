@@ -10,6 +10,14 @@ function cloneTimelineItems(
   return items.map(item => ({
     ...item,
     transform: { ...item.transform },
+    imageTransforms: item.imageTransforms
+      ? Object.fromEntries(
+          Object.entries(item.imageTransforms).map(([imageId, transform]) => [
+            imageId,
+            { ...transform },
+          ])
+        )
+      : undefined,
     primaryVideoEdit: item.primaryVideoEdit
       ? {
           ...item.primaryVideoEdit,

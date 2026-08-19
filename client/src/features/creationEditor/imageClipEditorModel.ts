@@ -58,6 +58,7 @@ export function imageClipEditorTargetForShot(input: {
     transform: normalizeImageClipEditDraft({
       ...DEFAULT_TIMELINE_TRANSFORM,
       ...(input.shot.timelineItem?.transform ?? {}),
+      ...(input.shot.timelineItem?.imageTransforms?.[String(input.imageId)] ?? {}),
     }),
   };
 }

@@ -98,7 +98,11 @@ function compareRows(left: TimelineLayoutRow, right: TimelineLayoutRow): number 
   if (left.stackOrder !== right.stackOrder) {
     return left.stackOrder - right.stackOrder;
   }
-  return right.item.position - left.item.position;
+  if (left.item.position !== right.item.position) {
+    return right.item.position - left.item.position;
+  }
+  // Final tie-break so client preview and server export can never disagree.
+  return right.item.stableShotId.localeCompare(left.item.stableShotId);
 }
 
 export function resolveTimelineFrame(
@@ -155,38 +159,71 @@ export function selectDirectionalGroup(
   return { kind: "ok", direction, itemIds, boundaryItemId };
 }
 
+/**
+ * Overlap priority is allocated in ever-increasing bands. Refuse the move
+ * rather than silently rewriting every item's priority once the band would
+ * leave the safe-integer range.
+ */
+const MAXIMUM_STACK_ORDER = Number.MAX_SAFE_INTEGER - 1024;
+
+export type TimelineMoveResult =
+  | {
+      kind: "ok";
+      items: StoryTimelineItem[];
+      appliedDeltaFrames: number;
+      clampedAtZero: boolean;
+    }
+  | { kind: "blocked"; reason: string };
+
 export function moveTimelineGroup(
   items: readonly StoryTimelineItem[],
   selection: TimelineGroupSelection,
   requestedDeltaFrames: number
-): StoryTimelineItem[] {
+): TimelineMoveResult {
   const selected = new Set(selection.itemIds);
   const rows = buildTimelineLayout(items);
   const selectedRows = rows.filter(row => selected.has(row.item.stableShotId));
-  if (selectedRows.length === 0) return items.map(item => ({ ...item }));
+  if (selectedRows.length === 0) {
+    return { kind: "blocked", reason: "没有可移动的镜头" };
+  }
   const deltaFrames = Math.round(requestedDeltaFrames);
   const minimumStart = Math.min(...selectedRows.map(row => row.startFrame));
-  const clampedDelta = Math.max(-minimumStart, deltaFrames);
+  // `|| 0` normalizes the -0 `Math.max` yields when the group already sits at
+  // frame zero, so callers comparing against 0 behave predictably.
+  const clampedDelta = Math.max(-minimumStart, deltaFrames) || 0;
   const maximumStackOrder = Math.max(-1, ...rows.map(row => row.stackOrder));
   const priorityBase = maximumStackOrder + 1;
+  if (priorityBase + selectedRows.length - 1 > MAXIMUM_STACK_ORDER) {
+    return {
+      kind: "blocked",
+      reason: "叠放优先级已达上限，请先整理这条时间轴",
+    };
+  }
   const selectedByPosition = [...selectedRows].sort(
     (left, right) => left.item.position - right.item.position
   );
   const priorityById = new Map(
     selectedByPosition.map((row, index) => [row.item.stableShotId, priorityBase + index])
   );
-  return items.map(item => {
-    if (!selected.has(item.stableShotId)) return { ...item };
-    const row = selectedRows.find(candidate => candidate.item.stableShotId === item.stableShotId)!;
-    const startFrame = row.startFrame + clampedDelta;
-    return {
-      ...item,
-      timelineStartFrame: startFrame,
-      durationFrames: row.durationFrames,
-      plannedDurationMs: timelineFramesToMs(row.durationFrames),
-      stackOrder: priorityById.get(item.stableShotId),
-    };
-  });
+  return {
+    kind: "ok",
+    appliedDeltaFrames: clampedDelta,
+    clampedAtZero: clampedDelta !== deltaFrames,
+    items: items.map(item => {
+      if (!selected.has(item.stableShotId)) return { ...item };
+      const row = selectedRows.find(
+        candidate => candidate.item.stableShotId === item.stableShotId
+      )!;
+      const startFrame = row.startFrame + clampedDelta;
+      return {
+        ...item,
+        timelineStartFrame: startFrame,
+        durationFrames: row.durationFrames,
+        plannedDurationMs: timelineFramesToMs(row.durationFrames),
+        stackOrder: priorityById.get(item.stableShotId),
+      };
+    }),
+  };
 }
 
 export function timelineFrameToMs(frame: number): number {

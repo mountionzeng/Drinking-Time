@@ -107,6 +107,23 @@ describe("creation editor rerender", () => {
     expect(generate.mock.calls[0][0].prompt).toContain("水彩");
   });
 
+  it("客户端等待超时会解除等待并提醒不要重复提交", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = rerenderShotImage({
+        storyId: 1,
+        shot,
+        rows: [row({ value: "水彩" })],
+        generate: () => new Promise<GenerateForMobileResult>(() => {}),
+      });
+      const assertion = expect(pending).rejects.toThrow("避免重复付费");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the 302 reference-image editor for an exact selected-frame edit", async () => {
     const generate = vi.fn(async () => ({
       status: "ok" as const,

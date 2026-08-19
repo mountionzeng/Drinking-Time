@@ -10,7 +10,10 @@ import {
   selectInitialShotNo,
   type CreationEditorShot,
 } from "./CreationEditorContext";
-import { buildMaterialWarehouseVideoItems } from "./views/MaterialWarehousePanel";
+import {
+  buildMaterialWarehouseVideoItems,
+  videoWarehouseActionState,
+} from "./views/MaterialWarehousePanel";
 import type { ImageAsset } from "@shared/imageAsset";
 import type { VideoTakeAsset } from "@shared/videoAsset";
 
@@ -299,6 +302,36 @@ describe("creation editor route and shell", () => {
       isCurrent: false,
       isUnmatched: true,
       isReusable: false,
+    });
+  });
+
+  it("allows a current video to be reused for a different selected shot", () => {
+    const take = videoTake(1405, {
+      storyId: 1,
+      stableShotId: "shot-0206",
+      status: "unfollowable",
+      videoUrl: "/api/videos/take-1405.mp4",
+    });
+    const item = {
+      take,
+      shotNo: 206,
+      cueCode: "0206",
+      stableShotId: "shot-0206",
+      isCurrent: true,
+      isUnmatched: false,
+      isReusable: false,
+    };
+
+    expect(
+      videoWarehouseActionState({
+        item,
+        activeStoryId: 1,
+        currentStableShotId: "shot-0107-2",
+        playable: true,
+      })
+    ).toMatchObject({
+      disabled: false,
+      label: "复用",
     });
   });
 

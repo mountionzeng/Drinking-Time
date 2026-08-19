@@ -45,9 +45,41 @@ export type GenerateForMobileResult = {
   imageId?: number;
   prompt?: string;
   error?: string;
+  /** 已被服务商受理但结果尚未回传的任务收据；禁止盲目重复提交。 */
+  providerTaskId?: string;
+  /** 连接在拿到服务商任务号前中断，无法确认是否已受理。 */
+  submissionUncertain?: boolean;
 };
 
 const MAX_INLINE_REFERENCE_URL_CHARS = 2_500_000;
+const RERENDER_CLIENT_TIMEOUT_MS = 20_000;
+
+/**
+ * Provider generation can outlive the browser request. Keep the editor
+ * responsive, but make the timeout explicitly non-retryable so a late paid
+ * task is not accidentally submitted a second time.
+ */
+async function generateWithClientTimeout<T>(
+  generate: () => Promise<T>
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      generate(),
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            new Error(
+              "图片任务仍可能在服务端处理中，但浏览器等待已超时。请先检查当前镜头是否出现新候选；确认没有结果后再决定是否重试，避免重复付费。"
+            )
+          );
+        }, RERENDER_CLIENT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function isNetworkFetchError(message: string): boolean {
   const normalized = message.trim().toLowerCase();
@@ -148,7 +180,7 @@ export async function rerenderShotImage(params: {
   const input = createGenerateForMobileInput(params);
   let result: GenerateForMobileResult;
   try {
-    result = await params.generate(input);
+    result = await generateWithClientTimeout(() => params.generate(input));
   } catch (error) {
     throw new Error(readableRerenderError(error, "重渲请求失败"));
   }

@@ -26,7 +26,7 @@ const videoTimelineMocks = vi.hoisted(() => ({
 
 vi.mock("./videoTimeline", () => videoTimelineMocks);
 
-import { runTimelineEditCommand } from "./timelineEditAgent";
+import { proposeGapTransition, runTimelineEditCommand } from "./timelineEditAgent";
 
 function item(stableShotId: string, position: number) {
   return {
@@ -864,5 +864,118 @@ describe("runTimelineEditCommand", () => {
     if (result.handled) expect(result.reply).toContain("还不知道要改哪一镜");
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
     expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe("proposeGapTransition", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("直接建提案，不经过自然语言解析", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 5,
+        items: [item("shot-a", 0), item("shot-b", 1)],
+      },
+      shots: [
+        {
+          stableShotId: "shot-a",
+          shotNo: 1,
+          cueCode: "0101",
+          currentVideo: null,
+          currentImage: currentImage(101, "https://example.com/a.png", "首帧"),
+        },
+        {
+          stableShotId: "shot-b",
+          shotNo: 2,
+          cueCode: "0102",
+          currentVideo: null,
+          currentImage: currentImage(102, "https://example.com/b.png", "尾帧"),
+        },
+      ],
+    });
+
+    const result = await proposeGapTransition({
+      storyId: 7,
+      userId: 1,
+      beforeStableShotId: "shot-a",
+      afterStableShotId: "shot-b",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.proposal.source.stableShotId).toBe("shot-a");
+    expect(result.proposal.target.stableShotId).toBe("shot-b");
+    expect(result.proposal.expectedTimelineVersion).toBe(5);
+    expect(agentMocks.runJsonAgent).not.toHaveBeenCalled();
+    expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
+  });
+
+  it("两侧故事顺序不相邻时拒绝，不生成提案", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 1,
+        items: [item("shot-a", 0), item("shot-b", 1), item("shot-c", 2)],
+      },
+      shots: [
+        { stableShotId: "shot-a", shotNo: 1, currentVideo: null, currentImage: currentImage(1, "u", "p") },
+        { stableShotId: "shot-b", shotNo: 2, currentVideo: null, currentImage: currentImage(2, "u", "p") },
+        { stableShotId: "shot-c", shotNo: 3, currentVideo: null, currentImage: currentImage(3, "u", "p") },
+      ],
+    });
+
+    const result = await proposeGapTransition({
+      storyId: 7,
+      userId: 1,
+      beforeStableShotId: "shot-a",
+      afterStableShotId: "shot-c",
+    });
+
+    expect(result.status).toBe("blocked");
+    if (result.status !== "blocked") return;
+    expect(result.reply).toContain("不相邻");
+  });
+
+  it("缺当前画面时拒绝并说明原因", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 1,
+        items: [item("shot-a", 0), item("shot-b", 1)],
+      },
+      shots: [
+        { stableShotId: "shot-a", shotNo: 1, currentVideo: null, currentImage: currentImage(1, "u", "p") },
+        { stableShotId: "shot-b", shotNo: 2, currentVideo: null, currentImage: null },
+      ],
+    });
+
+    const result = await proposeGapTransition({
+      storyId: 7,
+      userId: 1,
+      beforeStableShotId: "shot-a",
+      afterStableShotId: "shot-b",
+    });
+
+    expect(result.status).toBe("blocked");
+    if (result.status !== "blocked") return;
+    expect(result.reply).toContain("还没有可用的当前画面");
+  });
+
+  it("镜头不在时间轴里时拒绝", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 1, items: [item("shot-a", 0)] },
+      shots: [
+        { stableShotId: "shot-a", shotNo: 1, currentVideo: null, currentImage: currentImage(1, "u", "p") },
+      ],
+    });
+
+    const result = await proposeGapTransition({
+      storyId: 7,
+      userId: 1,
+      beforeStableShotId: "shot-a",
+      afterStableShotId: "shot-missing",
+    });
+
+    expect(result.status).toBe("blocked");
   });
 });
