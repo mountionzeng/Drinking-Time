@@ -572,6 +572,8 @@ interface StoryAgentContextValue {
     storyId: number;
     leftImageId: number;
     rightImageId: number;
+    instruction?: string;
+    movementAmplitude?: "auto" | "small" | "medium" | "large";
   }) => Promise<{ applied: boolean; reason?: string }>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
   promptPool: import("./promptPool").PromptFragment[];
@@ -3981,6 +3983,8 @@ export function StoryAgentProvider({
       storyId: number;
       leftImageId: number;
       rightImageId: number;
+      instruction?: string;
+      movementAmplitude?: "auto" | "small" | "medium" | "large";
     }): Promise<{ applied: boolean; reason?: string }> => {
       if (!storyScopeMatches(input.storyId, storySpineStore.getState().activeStoryId)) {
         return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
@@ -3989,7 +3993,7 @@ export function StoryAgentProvider({
       const userMsg: ChatMessage = {
         id: newId("msg"),
         role: "user",
-        content: "用这两张时间线抽帧生成上层覆盖视频",
+        content: input.instruction?.trim() || "用这两张时间线抽帧生成上层覆盖视频",
         timestamp: Date.now(),
       };
       const nextMessages = [...current.messages, userMsg];

@@ -145,11 +145,12 @@ function candidate(
 function overlayCandidate(expectedTimelineVersion = 3): TimelineTransitionCandidate {
   return {
     ...candidate(),
-    candidateId: "transition-198f9c714db280e1",
-    provisionalStableShotId: "transition-shot-198f9c714db280e1",
+    candidateId: "transition-27f2b410aab537ef",
+    provisionalStableShotId: "transition-shot-27f2b410aab537ef",
     prompt:
-      "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。",
+      "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。 运动幅度：自动幅度。",
     instruction: "用两张时间线抽帧生成上层覆盖视频",
+    movementAmplitude: "auto",
     durationSec: 3,
     cutAtSec: null,
     estimatedCredits: 20,
@@ -476,6 +477,28 @@ afterEach(() => {
 });
 
 describe("confirmEditingTransition", () => {
+  it("revalidates and submits a user-authored overlay motion request", async () => {
+    const requested = {
+      ...overlayCandidate(),
+      candidateId: "transition-b20be14fadac325d",
+      provisionalStableShotId: "transition-shot-b20be14fadac325d",
+      instruction: "镜头缓慢向前推进并轻微右摇",
+      movementAmplitude: "medium" as const,
+      prompt:
+        "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。 运动幅度：中幅度。 用户的相机运动要求：镜头缓慢向前推进并轻微右摇",
+    };
+
+    const result = await confirmEditingTransition(requested, USER_ID);
+
+    expect(result).toMatchObject({ status: "error", retryable: true });
+    expect(videoMocks.submitViduTransition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: requested.prompt,
+        movementAmplitude: "medium",
+      })
+    );
+  });
+
   it("turns an abandoned submission claim into an explicit unknown state instead of waiting forever", async () => {
     storedTake = videoTake({
       parameterSnapshot: {

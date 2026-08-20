@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   applyStoryTimelineOverlayAtomic,
   claimEditingTransitionSubmission,
@@ -263,7 +264,7 @@ function overlayCandidateMatchesCanonical(
     source: { ...requested.source, imageUrl: canonical.source.imageUrl },
     target: { ...requested.target, imageUrl: canonical.target.imageUrl },
   };
-  return JSON.stringify(requestedWithTrustedFields) === JSON.stringify(canonical);
+  return isDeepStrictEqual(requestedWithTrustedFields, canonical);
 }
 
 function storedCandidateForTake(
@@ -332,6 +333,11 @@ async function validateBeforePaidSubmission(
       userId,
       leftImageId: candidate.placement.leftImageId,
       rightImageId: candidate.placement.rightImageId,
+      instruction:
+        candidate.instruction === "用两张时间线抽帧生成上层覆盖视频"
+          ? undefined
+          : candidate.instruction,
+      movementAmplitude: candidate.movementAmplitude,
     });
     if (canonicalResult.status !== "ok") {
       throw new Error(canonicalResult.reply);
@@ -1222,6 +1228,11 @@ async function finishAndApply(params: {
           userId: params.userId,
           leftImageId: candidate.placement.leftImageId,
           rightImageId: candidate.placement.rightImageId,
+          instruction:
+            candidate.instruction === "用两张时间线抽帧生成上层覆盖视频"
+              ? undefined
+              : candidate.instruction,
+          movementAmplitude: candidate.movementAmplitude,
         });
         if (
           refreshed.status !== "ok" ||
@@ -1439,7 +1450,7 @@ async function runConfirmation(
         lastImageUrl,
         durationSec: candidate.durationSec,
         resolution: candidate.resolution,
-        movementAmplitude: "auto",
+        movementAmplitude: candidate.movementAmplitude ?? "auto",
       });
       taskId = submitted.taskId;
       take = await patchTake(

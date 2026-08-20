@@ -44,6 +44,7 @@ import type {
 import { timelineMsToFrames } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
 import { resolveTimelineDocumentFrame } from "@shared/timelineLayout";
+import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 
 import {
   ResizableHandle,
@@ -105,6 +106,7 @@ import {
 import ImageClipEditorPanel from "./ImageClipEditorPanel";
 import VideoClipEditorPanel from "./VideoClipEditorPanel";
 import type { StoryboardBoardTimeline } from "./StoryboardEditRow";
+import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransitionRequirementsDialog";
 import {
   storyboardEditSelectionSummary,
   storyboardEditShouldFollowSelectionToShot,
@@ -2488,6 +2490,10 @@ export default function EditingNleWorkspace({
     useState<TimelineSeekRequest>({ id: 0, playheadMs: 0 });
   const [boardSelectedRange, setBoardSelectedRange] =
     useState<StoryboardEditRange | null>(null);
+  const [extractedFrameRequirements, setExtractedFrameRequirements] = useState<{
+    left: { id: string; imageId: number; atMs: number; imageUrl: string };
+    right: { id: string; imageId: number; atMs: number; imageUrl: string };
+  } | null>(null);
   const keyboardShortcutZoneRef = useRef(false);
   const timelineShots = useMemo(
     () => resolveTimelineShots(shots, timelineShotIds),
@@ -3109,17 +3115,25 @@ export default function EditingNleWorkspace({
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
-        const result = await proposeExtractedFrameTransitionCard({
-          storyId: activeStoryId,
-          leftImageId,
-          rightImageId,
-        });
-        if (result.applied) {
-          toast.success("已在聊天里生成待确认的覆盖视频卡片");
-        } else if (result.reason) {
-          toast.error(result.reason);
+        const extracted = shots.flatMap(shot =>
+          ((shot as typeof shot & {
+            imageVersions?: Array<{ id: number; imageUrl: string; prompt: string | null }>;
+          }).imageVersions ?? []).flatMap(image => {
+            const atMs = extractedFrameTimeMs(image.prompt);
+            return atMs == null
+              ? []
+              : [{ id: `image-${image.id}`, imageId: image.id, atMs, imageUrl: image.imageUrl }];
+          })
+        );
+        const left = extracted.find(frame => frame.imageId === leftImageId);
+        const right = extracted.find(frame => frame.imageId === rightImageId);
+        if (!left || !right) {
+          return { applied: false, reason: "抽帧已失效，请重新选择" };
         }
-        return result;
+        setExtractedFrameRequirements(
+          left.atMs <= right.atMs ? { left, right } : { left: right, right: left }
+        );
+        return { applied: true };
       },
       onDeleteExtractedFrame: async imageId => {
         try {
@@ -3548,6 +3562,30 @@ export default function EditingNleWorkspace({
           saving={savingImageEdit}
           onClose={() => setImageEditorTarget(null)}
           onApply={applyImageEdit}
+        />
+      ) : null}
+      {extractedFrameRequirements ? (
+        <ExtractedFrameTransitionRequirementsDialog
+          left={extractedFrameRequirements.left}
+          right={extractedFrameRequirements.right}
+          onCancel={() => setExtractedFrameRequirements(null)}
+          onContinue={async ({ instruction, movementAmplitude }) => {
+            if (activeStoryId == null) {
+              return { applied: false, reason: "故事未加载" };
+            }
+            const result = await proposeExtractedFrameTransitionCard({
+              storyId: activeStoryId,
+              leftImageId: extractedFrameRequirements.left.imageId,
+              rightImageId: extractedFrameRequirements.right.imageId,
+              instruction,
+              movementAmplitude,
+            });
+            if (result.applied) {
+              setExtractedFrameRequirements(null);
+              toast.success("已在聊天里生成待确认的覆盖视频卡片");
+            }
+            return result;
+          }}
         />
       ) : null}
     </div>

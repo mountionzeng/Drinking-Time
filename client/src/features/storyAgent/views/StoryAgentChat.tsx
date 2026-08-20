@@ -1174,6 +1174,8 @@ export default function StoryAgentChat({
                         lastImageUrl:
                           m.editingTransitionCandidate.target.imageUrl,
                         instruction: m.editingTransitionCandidate.instruction,
+                        movementAmplitude:
+                          m.editingTransitionCandidate.movementAmplitude,
                         prompt: m.editingTransitionCandidate.prompt,
                         durationSec: m.editingTransitionCandidate.durationSec,
                         resolution: m.editingTransitionCandidate.resolution,

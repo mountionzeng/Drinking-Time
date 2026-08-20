@@ -19,6 +19,59 @@ export type ExtractedFramePairResult =
   | { kind: "ok"; pair: ExtractedFramePair }
   | { kind: "blocked"; reason: string };
 
+export type ExtractedFrameCandidate = {
+  frame: ExtractedTimelineFrame;
+  side: "left" | "right";
+  pair: ExtractedFramePair;
+};
+
+export type ExtractedFrameCandidateResult =
+  | { kind: "ok"; candidate: ExtractedTimelineFrame; pair: ExtractedFramePair }
+  | { kind: "blocked"; reason: string };
+
+function validExtractedFrames(
+  frames: readonly ExtractedTimelineFrame[]
+): ExtractedTimelineFrame[] {
+  return [...frames]
+    .filter(
+      frame =>
+        Number.isInteger(frame.imageId) &&
+        frame.imageId > 0 &&
+        Number.isFinite(frame.atMs) &&
+        frame.atMs >= 0
+    )
+    .sort((left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id));
+}
+
+export function selectExtractedFrameCandidate(input: {
+  frames: readonly ExtractedTimelineFrame[];
+  start: ExtractedTimelineFrame;
+  atMs: number;
+}): ExtractedFrameCandidateResult {
+  if (!Number.isFinite(input.atMs) || input.atMs < 0) {
+    return { kind: "blocked", reason: "点击位置无效" };
+  }
+  const frames = validExtractedFrames(input.frames);
+  const start = frames.find(
+    frame => frame.id === input.start.id && frame.imageId === input.start.imageId
+  );
+  if (!start) return { kind: "blocked", reason: "起始抽帧已失效" };
+  const candidates = frames
+    .filter(frame => frame.id !== start.id && frame.atMs !== start.atMs)
+    .map(candidate => ({ candidate, distance: Math.abs(candidate.atMs - input.atMs) }))
+    .sort((left, right) => left.distance - right.distance || left.candidate.atMs - right.candidate.atMs);
+  for (const { candidate } of candidates) {
+    const pairResult = selectExtractedFramePair({
+      frames: [start, candidate],
+      atMs: Math.min(start.atMs, candidate.atMs) + 0.5,
+    });
+    if (pairResult.kind === "ok") {
+      return { kind: "ok", candidate, pair: pairResult.pair };
+    }
+  }
+  return { kind: "blocked", reason: "起始抽帧附近没有间隔至少 1 秒的抽帧" };
+}
+
 /** Strictly recognizes prompts written by the timeline frame-extraction flow. */
 export function extractedFrameTimeMs(
   prompt: string | null | undefined
@@ -47,15 +100,7 @@ export function selectExtractedFramePair(input: {
   if (!Number.isFinite(input.atMs) || input.atMs < 0) {
     return { kind: "blocked", reason: "点击位置无效" };
   }
-  const frames = [...input.frames]
-    .filter(
-      frame =>
-        Number.isInteger(frame.imageId) &&
-        frame.imageId > 0 &&
-        Number.isFinite(frame.atMs) &&
-        frame.atMs >= 0
-    )
-    .sort((left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id));
+  const frames = validExtractedFrames(input.frames);
   const left = [...frames].reverse().find(frame => frame.atMs < input.atMs);
   const right = frames.find(frame => frame.atMs > input.atMs);
   if (!left || !right) {
@@ -77,4 +122,35 @@ export function selectExtractedFramePair(input: {
       requestedDurationSec,
     },
   };
+}
+
+export function selectExtractedFrameCandidates(input: {
+  frames: readonly ExtractedTimelineFrame[];
+  start: ExtractedTimelineFrame;
+}): ExtractedFrameCandidate[] {
+  const frames = validExtractedFrames(input.frames).filter(
+    frame => frame.id !== input.start.id && frame.imageId !== input.start.imageId
+  );
+  const candidates: ExtractedFrameCandidate[] = [];
+  for (const side of ["left", "right"] as const) {
+    const nearby = frames
+      .filter(frame =>
+        side === "left"
+          ? frame.atMs < input.start.atMs
+          : frame.atMs > input.start.atMs
+      )
+      .sort((left, right) =>
+        Math.abs(left.atMs - input.start.atMs) - Math.abs(right.atMs - input.start.atMs) ||
+        left.id.localeCompare(right.id)
+      )[0];
+    if (!nearby) continue;
+    const pairResult = selectExtractedFramePair({
+      frames: [input.start, nearby],
+      atMs: Math.min(input.start.atMs, nearby.atMs) + 0.5,
+    });
+    if (pairResult.kind === "ok") {
+      candidates.push({ frame: nearby, side, pair: pairResult.pair });
+    }
+  }
+  return candidates;
 }

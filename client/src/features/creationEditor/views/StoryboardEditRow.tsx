@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   ArrowDown,
   ArrowUp,
   Eye,
@@ -20,7 +22,12 @@ import {
 } from "react";
 
 import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
-import { selectExtractedFramePair } from "@shared/extractedFrameTransition";
+import {
+  selectExtractedFrameCandidate,
+  selectExtractedFrameCandidates,
+  selectExtractedFramePair,
+  type ExtractedFrameCandidateResult,
+} from "@shared/extractedFrameTransition";
 import {
   formatStoryboardTimestamp,
   storyboardTimingTotalMs,
@@ -445,6 +452,13 @@ function StoryboardExtractedFrameRows({
   } | null>(null);
   const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pairingStart, setPairingStart] = useState<{
+    id: string;
+    imageId: number;
+    atMs: number;
+  } | null>(null);
+  const [pairingCandidate, setPairingCandidate] =
+    useState<ExtractedFrameCandidateResult | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const playheadPct = storyboardEditPlayheadPct(timeline.playheadMs, totalMs);
   const seekFromClientX = (clientX: number) => {
@@ -458,12 +472,19 @@ function StoryboardExtractedFrameRows({
     );
   };
   useEffect(() => {
-    if (!transitionMenu && !frameMenu) return;
-    const close = () => {
+    if (!transitionMenu && !frameMenu && !pairingStart) return;
+    const close = (event?: Event) => {
       if (deletingImageId != null) return;
+      if (
+        pairingStart &&
+        event?.target instanceof Node &&
+        trackRef.current?.contains(event.target)
+      ) return;
       setTransitionMenu(null);
       setFrameMenu(null);
       setDeleteError(null);
+      setPairingStart(null);
+      setPairingCandidate(null);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
@@ -478,7 +499,48 @@ function StoryboardExtractedFrameRows({
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", close, true);
     };
-  }, [deletingImageId, frameMenu, transitionMenu]);
+  }, [deletingImageId, frameMenu, pairingStart, transitionMenu]);
+  const startPairing = (frame: { id: string; imageId: number; atMs: number }) => {
+    setTransitionMenu(null);
+    setFrameMenu(null);
+    setDeleteError(null);
+    setPairingStart(frame);
+    const nearest = selectExtractedFrameCandidates({ frames, start: frame })
+      .sort((left, right) =>
+        Math.abs(left.frame.atMs - frame.atMs) - Math.abs(right.frame.atMs - frame.atMs) ||
+        left.frame.atMs - right.frame.atMs
+      )[0];
+    setPairingCandidate(
+      nearest
+        ? { kind: "ok", candidate: nearest.frame, pair: nearest.pair }
+        : { kind: "blocked", reason: "起始抽帧附近没有间隔至少 1 秒的抽帧" }
+    );
+  };
+  const updatePairingCandidate = (clientX: number) => {
+    if (!pairingStart) return;
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const atMs = Math.max(
+      0,
+      Math.min(totalMs, ((clientX - rect.left) / rect.width) * totalMs)
+    );
+    setPairingCandidate(
+      selectExtractedFrameCandidate({ frames, start: pairingStart, atMs })
+    );
+  };
+  const finishPairing = async (pair: { leftImageId: number; rightImageId: number }) => {
+    if (!timeline.onCreateExtractedFrameTransition) return;
+    setPending(true);
+    try {
+      const result = await timeline.onCreateExtractedFrameTransition(pair);
+      if (result.applied) {
+        setPairingStart(null);
+        setPairingCandidate(null);
+      }
+    } finally {
+      setPending(false);
+    }
+  };
   const openAtMs = (atMs: number, clientX: number, clientY: number) => {
     const selected = selectExtractedFramePair({ frames, atMs });
     if (selected.kind !== "ok") return;
@@ -537,6 +599,16 @@ function StoryboardExtractedFrameRows({
               event.clientY
             );
           }}
+          onPointerMove={event => updatePairingCandidate(event.clientX)}
+          onPointerLeave={() => {
+            if (pairingStart) setPairingCandidate(null);
+          }}
+          onClick={event => {
+            if (pairingStart && event.target === event.currentTarget) {
+              setPairingStart(null);
+              setPairingCandidate(null);
+            }
+          }}
           onKeyDown={event => {
             if (
               !timeline.onCreateExtractedFrameTransition ||
@@ -571,9 +643,26 @@ function StoryboardExtractedFrameRows({
                 }`}
                 style={{ left: `${leftPct}%` }}
                 onClick={() => {
+                  if (pairingStart) {
+                    if (pairingStart.id === frame.id) {
+                      setPairingStart(null);
+                      setPairingCandidate(null);
+                      return;
+                    }
+                    const candidate = selectExtractedFrameCandidates({
+                      frames,
+                      start: pairingStart,
+                    }).find(item => item.frame.id === frame.id);
+                    if (candidate) void finishPairing({
+                      leftImageId: candidate.pair.left.imageId,
+                      rightImageId: candidate.pair.right.imageId,
+                    });
+                    return;
+                  }
                   onSelectShot(shot.shotNo);
                   timeline.onTogglePlay(false);
                   timeline.onSeek(frame.atMs);
+                  startPairing({ id: frame.id, imageId: frame.imageId, atMs: frame.atMs });
                 }}
                 onContextMenu={event => {
                   event.preventDefault();
@@ -639,6 +728,31 @@ function StoryboardExtractedFrameRows({
               </button>
             );
           })}
+          {pairingStart && pairingCandidate?.kind === "ok" ? (
+            <button
+              type="button"
+              aria-label={`选择候选抽帧 ${formatStoryboardTimestamp(pairingCandidate.candidate.atMs)}`}
+              data-testid="storyboard-extracted-frame-pair-candidate"
+              className="absolute z-[30] -translate-x-1/2 rounded-full border border-primary bg-primary p-1 text-primary-foreground shadow-lg"
+              style={{
+                left: `${(pairingCandidate.candidate.atMs / Math.max(1, totalMs)) * 100}%`,
+                top: "0.1rem",
+              }}
+              onClick={event => {
+                event.stopPropagation();
+                void finishPairing({
+                  leftImageId: pairingCandidate.pair.left.imageId,
+                  rightImageId: pairingCandidate.pair.right.imageId,
+                });
+              }}
+            >
+              {pairingCandidate.candidate.atMs < pairingStart.atMs ? (
+                <ArrowLeft className="h-3 w-3" />
+              ) : (
+                <ArrowRight className="h-3 w-3" />
+              )}
+            </button>
+          ) : null}
           {(timeline.overlays ?? []).map(overlay => {
             const leftPct = totalMs > 0 ? ((overlay.startFrame * 1000) / 30 / totalMs) * 100 : 0;
             const mediaWidthPct = totalMs > 0 ? (((overlay.mediaEndFrame - overlay.startFrame) * 1000) / 30 / totalMs) * 100 : 0;

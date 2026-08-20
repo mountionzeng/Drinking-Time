@@ -48,6 +48,7 @@ export type EditingTransitionCandidateReference = {
   source: EditingTransitionEndpointReference;
   target: EditingTransitionEndpointReference;
   instruction: string;
+  movementAmplitude?: "auto" | "small" | "medium" | "large";
   prompt: string;
   durationSec: number;
   resolution: "720p";
@@ -468,6 +469,12 @@ function normalizeEditingTransitionCandidate(
     source,
     target,
     instruction: candidate.instruction,
+    ...(candidate.movementAmplitude === "auto" ||
+    candidate.movementAmplitude === "small" ||
+    candidate.movementAmplitude === "medium" ||
+    candidate.movementAmplitude === "large"
+      ? { movementAmplitude: candidate.movementAmplitude }
+      : {}),
     prompt: candidate.prompt,
     durationSec: candidate.durationSec,
     resolution: "720p",

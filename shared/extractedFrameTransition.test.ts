@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   extractedFrameTimeMs,
   requestedExtractedFrameVideoDurationSec,
+  selectExtractedFrameCandidate,
+  selectExtractedFrameCandidates,
   selectExtractedFramePair,
 } from "./extractedFrameTransition";
 
@@ -10,6 +12,33 @@ describe("extractedFrameTimeMs", () => {
     expect(extractedFrameTimeMs("时间线抽帧 · 3400ms · 0101")).toBe(3400);
     expect(extractedFrameTimeMs("从时间线 1:02.003 提取帧")).toBe(62_003);
     expect(extractedFrameTimeMs("普通图片 3400ms")).toBeNull();
+  });
+});
+
+describe("selectExtractedFrameCandidates", () => {
+  const start = { id: "b", imageId: 2, atMs: 4_000 };
+  const frames = [
+    { id: "a", imageId: 1, atMs: 1_000 },
+    start,
+    { id: "c", imageId: 3, atMs: 9_000 },
+  ];
+
+  it("returns the nearest valid candidate on each side", () => {
+    expect(
+      selectExtractedFrameCandidates({ frames, start }).map(candidate => [
+        candidate.side,
+        candidate.frame.imageId,
+      ])
+    ).toEqual([["left", 1], ["right", 3]]);
+  });
+
+  it("does not expose sub-second candidates", () => {
+    expect(
+      selectExtractedFrameCandidates({
+        start,
+        frames: [start, { id: "near", imageId: 8, atMs: 4_900 }],
+      })
+    ).toEqual([]);
   });
 });
 
@@ -63,5 +92,46 @@ describe("requestedExtractedFrameVideoDurationSec", () => {
     expect(requestedExtractedFrameVideoDurationSec(3_400)).toBe(3);
     expect(requestedExtractedFrameVideoDurationSec(8_000)).toBe(8);
     expect(requestedExtractedFrameVideoDurationSec(12_700)).toBe(8);
+  });
+});
+
+describe("selectExtractedFrameCandidate", () => {
+  const frames = [
+    { id: "a", imageId: 1, atMs: 1_000 },
+    { id: "b", imageId: 2, atMs: 4_000 },
+    { id: "c", imageId: 3, atMs: 9_000 },
+  ];
+
+  it("returns the nearest usable candidate and chronological pair", () => {
+    const result = selectExtractedFrameCandidate({
+      frames,
+      start: frames[1],
+      atMs: 8_500,
+    });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.candidate).toEqual(frames[2]);
+    expect(result.pair.left).toEqual(frames[1]);
+    expect(result.pair.right).toEqual(frames[2]);
+  });
+
+  it("rejects invalid starts and too-short endpoints", () => {
+    expect(
+      selectExtractedFrameCandidate({
+        frames: [{ id: "start", imageId: 1, atMs: 2_000 }],
+        start: { id: "gone", imageId: 99, atMs: 2_000 },
+        atMs: 2_500,
+      }).kind
+    ).toBe("blocked");
+    expect(
+      selectExtractedFrameCandidate({
+        frames: [
+          { id: "start", imageId: 1, atMs: 2_000 },
+          { id: "near", imageId: 2, atMs: 2_900 },
+        ],
+        start: { id: "start", imageId: 1, atMs: 2_000 },
+        atMs: 2_500,
+      }).kind
+    ).toBe("blocked");
   });
 });

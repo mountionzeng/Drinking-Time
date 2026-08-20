@@ -1040,6 +1040,23 @@ describe("proposeExtractedFrameTransition", () => {
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
   });
 
+  it("keeps the user's camera motion and amplitude in the canonical proposal", async () => {
+    const result = await proposeExtractedFrameTransition({
+      storyId: 7,
+      userId: 1,
+      leftImageId: 11,
+      rightImageId: 12,
+      instruction: "镜头缓慢向前推进并轻微右摇",
+      movementAmplitude: "medium",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.proposal.instruction).toContain("向前推进");
+    expect(result.proposal.movementAmplitude).toBe("medium");
+    expect(result.proposal.prompt).toContain("中幅度");
+    expect(result.proposal.prompt).toContain("向前推进");
+  });
+
   it("blocks sub-second pairs and anchored target ranges before payment", async () => {
     imageAssetMocks.getStoryImageAssets.mockResolvedValueOnce([
       image(11, 1_000, "shot-a", "SH01"),

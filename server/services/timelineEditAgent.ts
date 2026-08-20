@@ -84,6 +84,7 @@ export type TimelineTransitionCandidate = {
   source: TimelineTransitionEndpoint;
   target: TimelineTransitionEndpoint;
   instruction: string;
+  movementAmplitude?: "auto" | "small" | "medium" | "large";
   prompt: string;
   durationSec: number;
   resolution: "720p";
@@ -1228,6 +1229,8 @@ export async function proposeExtractedFrameTransition(params: {
   userId: number;
   leftImageId: number;
   rightImageId: number;
+  instruction?: string;
+  movementAmplitude?: "auto" | "small" | "medium" | "large";
 }): Promise<GapTransitionProposalResult> {
   const [material, images] = await Promise.all([
     getStoryMaterialState(params.storyId, params.userId),
@@ -1290,11 +1293,22 @@ export async function proposeExtractedFrameTransition(params: {
     resolution: "720p",
     uploadCount: 2,
   });
+  const userInstruction = params.instruction?.trim().slice(0, 500) || "";
+  const amplitudeLabel =
+    params.movementAmplitude === "small"
+      ? "小幅度"
+      : params.movementAmplitude === "medium"
+        ? "中幅度"
+        : params.movementAmplitude === "large"
+          ? "大幅度"
+          : "自动幅度";
   const prompt = [
     `以两张抽帧为硬首尾帧，生成 ${durationSec} 秒、1:1 方形的连续运动镜头。`,
     "保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。",
     "动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。",
-  ].join(" ");
+    `运动幅度：${amplitudeLabel}。`,
+    userInstruction ? `用户的相机运动要求：${userInstruction}` : "",
+  ].filter(Boolean).join(" ");
   const digest = createHash("sha256")
     .update(
       [
@@ -1334,7 +1348,8 @@ export async function proposeExtractedFrameTransition(params: {
         imageId: right!.id,
         imageUrl: right!.imageUrl,
       },
-      instruction: "用两张时间线抽帧生成上层覆盖视频",
+      instruction: userInstruction || "用两张时间线抽帧生成上层覆盖视频",
+      movementAmplitude: params.movementAmplitude ?? "auto",
       prompt,
       durationSec,
       resolution: "720p",

@@ -152,6 +152,7 @@ const timelineTransitionCandidateInput = z.object({
   source: timelineTransitionEndpointInput,
   target: timelineTransitionEndpointInput,
   instruction: z.string().trim().min(1).max(500),
+  movementAmplitude: z.enum(["auto", "small", "medium", "large"]).optional(),
   prompt: z.string().trim().min(1).max(5_000),
   durationSec: z.number().int().min(1).max(8),
   resolution: z.literal("720p"),
@@ -1260,6 +1261,8 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         leftImageId: z.number().int().positive(),
         rightImageId: z.number().int().positive(),
+        instruction: z.string().trim().max(500).optional(),
+        movementAmplitude: z.enum(["auto", "small", "medium", "large"]).optional(),
       })
     )
     .mutation(({ ctx, input }) =>
