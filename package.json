@@ -20,6 +20,7 @@
     "code:health:weekly": "tsx scripts/code-health-report.ts --snapshot --measure-commands --out .code-health/weekly.md --json .code-health/weekly.json",
     "code:health:v8-report": "tsx scripts/code-health-report.ts --coverage .code-health/v8 --out .code-health/runtime.md --json .code-health/runtime.json",
     "feature:validate": "tsx scripts/validate-feature-ledger.ts",
+    "fonts:verify:album": "tsx scripts/verify-publishing-album-fonts.ts",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
