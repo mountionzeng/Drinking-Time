@@ -42,6 +42,15 @@ import {
   StoryBodyRevisionConflictError,
 } from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
+import {
+  PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS,
+  PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS,
+  normalizePublishingAlbumAggregate,
+  normalizePublishingAlbumTypographyLayout,
+  publishingAlbumCodePointCount,
+  type PublishingAlbumAggregate,
+  type PublishingAlbumTypographyLayout,
+} from "../../shared/publishingAlbum";
 
 export class PublishingDraftOwnershipError extends Error {
   constructor(storyId: number) {
@@ -224,6 +233,37 @@ type CompleteCoverGenerationOperation = {
   round: PublishingCoverRound;
 };
 
+export type InitializePublishingAlbumOperation = {
+  type: "initialize_album";
+  versionId: string;
+  album: PublishingAlbumAggregate;
+  requestHash: string;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  storyId?: number;
+};
+
+export type UpdatePublishingAlbumPageTextOperation = {
+  type: "update_album_page_text";
+  versionId: string;
+  pageId: string;
+  text: string;
+  requestHash: string;
+  baseTextRevision: number;
+  storyId?: number;
+};
+
+export type UpdatePublishingAlbumPageTypographyOperation = {
+  type: "update_album_page_typography";
+  versionId: string;
+  pageId: string;
+  typography: PublishingAlbumTypographyLayout;
+  requestHash: string;
+  baseTextRevision: number;
+  baseTypographyRevision: number;
+  storyId?: number;
+};
+
 export type PublishingDraftWriteOperation =
   | InitializeOperation
   | UpsertDraftOperation
@@ -238,6 +278,9 @@ export type PublishingDraftWriteOperation =
   | SettleTextOperation
   | AppendPlatformContextSnapshotOperation
   | SelectPlatformContextTagsOperation
+  | InitializePublishingAlbumOperation
+  | UpdatePublishingAlbumPageTextOperation
+  | UpdatePublishingAlbumPageTypographyOperation
   | SetCoverOperation
   | CreatePublishingVersionOperation
   | SelectPublishingVersionOperation
@@ -987,6 +1030,171 @@ function normalizeSelection(
   return selected;
 }
 
+function appendAlbumReceipt(
+  album: PublishingAlbumAggregate,
+  input: {
+    operationToken: string;
+    requestHash: string;
+    kind: "initialize" | "update_text" | "update_typography";
+    pageId: string | null;
+    resultRevision: number;
+    completedAt: number;
+  }
+): PublishingAlbumAggregate {
+  const entries = Object.entries({
+    ...album.operationReceipts,
+    [input.operationToken]: input,
+  }).sort((left, right) => left[1].completedAt - right[1].completedAt);
+  return {
+    ...album,
+    operationReceipts: Object.fromEntries(
+      entries.slice(-PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS)
+    ),
+  };
+}
+
+function applyAlbumOperation(
+  current: PublishingDraftState,
+  operation:
+    | InitializePublishingAlbumOperation
+    | UpdatePublishingAlbumPageTextOperation
+    | UpdatePublishingAlbumPageTypographyOperation,
+  now: number,
+  operationToken?: string
+): PublishingDraftState {
+  const token = operationToken?.trim();
+  if (!token) throw new Error("画册写入缺少幂等操作标识");
+  const versions = current.versions ?? [];
+  const target = versions.find(version => version.versionId === operation.versionId);
+  if (!target) throw new Error("画册版本不存在或已切换");
+  const existingReceipt = target.album?.operationReceipts[token];
+  if (existingReceipt) {
+    if (existingReceipt.requestHash !== operation.requestHash) {
+      throw new Error("画册操作标识已用于不同请求");
+    }
+    return current;
+  }
+
+  let nextAlbum: PublishingAlbumAggregate;
+  if (operation.type === "initialize_album") {
+    assertRevision(
+      "publishing",
+      operation.baseContainerRevision,
+      current.containerRevision ?? current.revision
+    );
+    assertRevision("publishing", operation.baseVersionRevision, target.versionRevision);
+    if (target.album) {
+      if (target.album.source.contentHash !== operation.album.source.contentHash) {
+        throw new Error("当前版本已经有画册；正文变化请创建新发布版本");
+      }
+      nextAlbum = appendAlbumReceipt(target.album, {
+        operationToken: token,
+        requestHash: operation.requestHash,
+        kind: "initialize",
+        pageId: null,
+        resultRevision: target.album.revision,
+        completedAt: now,
+      });
+    } else {
+      const normalized = normalizePublishingAlbumAggregate(operation.album, now);
+      if (!normalized) throw new Error("画册草稿不符合持久化约束");
+      nextAlbum = appendAlbumReceipt(normalized, {
+        operationToken: token,
+        requestHash: operation.requestHash,
+        kind: "initialize",
+        pageId: null,
+        resultRevision: normalized.revision,
+        completedAt: now,
+      });
+    }
+  } else {
+    if (!target.album) throw new Error("当前版本还没有画册草稿");
+    const pageIndex = target.album.pages.findIndex(page => page.pageId === operation.pageId);
+    if (pageIndex < 0) throw new Error("画册页面不存在或已经更新");
+    const page = target.album.pages[pageIndex];
+    let nextPage = page;
+    if (operation.type === "update_album_page_text") {
+      if (operation.baseTextRevision !== page.textRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTextRevision,
+          page.textRevision
+        );
+      }
+      if (publishingAlbumCodePointCount(operation.text) > PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS) {
+        throw new Error(`单页文字不能超过 ${PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS} 个字符`);
+      }
+      nextPage = {
+        ...page,
+        revision: page.revision + 1,
+        textRevision: page.textRevision + 1,
+        text: operation.text,
+        sourceStale: operation.text !== page.text,
+        typography: null,
+        typographyRevision: page.typographyRevision + (page.typography ? 1 : 0),
+        updatedAt: now,
+      };
+    } else {
+      if (operation.baseTextRevision !== page.textRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTextRevision,
+          page.textRevision
+        );
+      }
+      if (operation.baseTypographyRevision !== page.typographyRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTypographyRevision,
+          page.typographyRevision
+        );
+      }
+      const typography = normalizePublishingAlbumTypographyLayout(operation.typography);
+      if (!typography) throw new Error("文字排版路径无效，请重新绘制");
+      nextPage = {
+        ...page,
+        revision: page.revision + 1,
+        typographyRevision: page.typographyRevision + 1,
+        typography,
+        updatedAt: now,
+      };
+    }
+    const pages = target.album.pages.map((candidate, index) =>
+      index === pageIndex ? nextPage : candidate
+    );
+    const baseAlbum = {
+      ...target.album,
+      revision: target.album.revision + 1,
+      status: pages.every(candidate =>
+        candidate.adoptedBackgroundAssetId != null && candidate.typography != null
+      ) ? "ready" as const : "draft" as const,
+      pages,
+      updatedAt: now,
+    };
+    nextAlbum = appendAlbumReceipt(baseAlbum, {
+      operationToken: token,
+      requestHash: operation.requestHash,
+      kind: operation.type === "update_album_page_text" ? "update_text" : "update_typography",
+      pageId: operation.pageId,
+      resultRevision: baseAlbum.revision,
+      completedAt: now,
+    });
+  }
+
+  const nextVersionRevision = target.versionRevision + 1;
+  return {
+    ...current,
+    revision: current.revision + 1,
+    containerRevision: (current.containerRevision ?? current.revision) + 1,
+    versions: versions.map(version =>
+      version.versionId === target.versionId
+        ? { ...version, versionRevision: nextVersionRevision, album: nextAlbum }
+        : version
+    ),
+    updatedAt: now,
+  };
+}
+
 function applyOperation(
   current: PublishingDraftState,
   operation: PublishingDraftWriteOperation,
@@ -995,6 +1203,10 @@ function applyOperation(
   preVersionIntent?: unknown
 ): PublishingDraftState {
   switch (operation.type) {
+    case "initialize_album":
+    case "update_album_page_text":
+    case "update_album_page_typography":
+      return applyAlbumOperation(current, operation, now, operationToken);
     case "initialize": {
       assertRevision(
         "publishing",

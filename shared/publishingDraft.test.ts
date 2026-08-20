@@ -246,6 +246,7 @@ describe("normalizePublishingDraftState", () => {
             createdAt: NOW,
             updatedAt: NOW,
           }],
+          operationReceipts: {},
           createdAt: NOW,
           updatedAt: NOW,
         },

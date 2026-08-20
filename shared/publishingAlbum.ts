@@ -7,8 +7,10 @@ export const PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS = 2_000;
 export const PUBLISHING_ALBUM_MAX_POINTS = 256;
 export const PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE = 20;
 export const PUBLISHING_ALBUM_MAX_CANDIDATES_PER_ROUND = 4;
+export const PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS = 200;
 export const PUBLISHING_ALBUM_MAX_FEEDBACK_LENGTH = 2_000;
 export const PUBLISHING_ALBUM_MAX_AGGREGATE_BYTES = 1_000_000;
+export const PUBLISHING_ALBUM_LAYOUT_PAGE_CODE_POINTS = 280;
 
 export type PublishingAlbumPoint = { x: number; y: number };
 
@@ -114,6 +116,14 @@ export type PublishingAlbumAggregate = {
     createdAt: number;
   };
   pages: PublishingAlbumPage[];
+  operationReceipts: Record<string, {
+    operationToken: string;
+    requestHash: string;
+    kind: "initialize" | "update_text" | "update_typography" | "background" | "adopt_background";
+    pageId: string | null;
+    resultRevision: number;
+    completedAt: number;
+  }>;
   createdAt: number;
   updatedAt: number;
 };
@@ -187,7 +197,9 @@ function normalizeContrast(value: unknown): PublishingAlbumContrastStyle {
   };
 }
 
-function normalizeTypography(value: unknown): PublishingAlbumTypographyLayout | null {
+export function normalizePublishingAlbumTypographyLayout(
+  value: unknown
+): PublishingAlbumTypographyLayout | null {
   const obj = record(value);
   if (!obj || (obj.kind !== "region" && obj.kind !== "path")) return null;
   const fontId = cleanString(obj.fontId, 80);
@@ -374,7 +386,7 @@ function normalizePage(value: unknown, index: number, now: number): PublishingAl
     adoptedBackgroundAssetId,
     backgroundRounds: rounds,
     backgroundGeneration: normalizeGeneration(obj.backgroundGeneration, pageId, now),
-    typography: normalizeTypography(obj.typography),
+    typography: normalizePublishingAlbumTypographyLayout(obj.typography),
     createdAt: timestamp(obj.createdAt, now),
     updatedAt: timestamp(obj.updatedAt, now),
   };
@@ -409,6 +421,28 @@ export function normalizePublishingAlbumAggregate(
       createdAt: timestamp(source.createdAt, now),
     },
     pages: normalizedPages.sort((left, right) => left.ordinal - right.ordinal),
+    operationReceipts: (() => {
+      const receipts = record(obj.operationReceipts);
+      if (!receipts) return {};
+      return Object.fromEntries(Object.entries(receipts).flatMap(([token, value]) => {
+        const receipt = record(value);
+        const operationToken = cleanString(receipt?.operationToken, 200);
+        const requestHash = cleanString(receipt?.requestHash, 160);
+        const kind = String(receipt?.kind);
+        if (
+          !token.trim() || operationToken !== token.trim() || !requestHash ||
+          !["initialize", "update_text", "update_typography", "background", "adopt_background"].includes(kind)
+        ) return [];
+        return [[token.trim(), {
+          operationToken,
+          requestHash,
+          kind,
+          pageId: cleanString(receipt?.pageId, 120) || null,
+          resultRevision: finiteInteger(receipt?.resultRevision),
+          completedAt: timestamp(receipt?.completedAt, now),
+        }]];
+      }).slice(-PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS));
+    })() as PublishingAlbumAggregate["operationReceipts"],
     createdAt: timestamp(obj.createdAt, now),
     updatedAt: timestamp(obj.updatedAt, now),
   };

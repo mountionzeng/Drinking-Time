@@ -72,6 +72,7 @@ function albumFixture() {
         updatedAt: NOW,
       },
     ],
+    operationReceipts: {},
     createdAt: NOW,
     updatedAt: NOW,
   };
