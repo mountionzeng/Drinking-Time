@@ -1,7 +1,7 @@
 ---
 title: "feat: 独立静态画册、中文路径排版与字体仓库"
 type: feat
-status: active
+status: completed
 date: 2026-08-20
 ---
 

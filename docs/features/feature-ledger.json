@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-20T14:00:00+08:00",
+  "updatedAt": "2026-08-20T20:10:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -490,6 +490,11 @@
           "date": "2026-08-12",
           "kind": "fix",
           "summary": "图生图用 --iw 1.4 提交，参考图权重压过提示词，「按意见修改这张」只能调氛围、无法执行用户真正写的指令（去掉文字、把人物换成女性），因为参考图每轮把文字和原人物重新灌回去；降到 0.5 让提示词主导、参考图仍提供构图与配色。另增 pnpm check:images 只读体检命令（域名 fake-IP 劫持、TCP 耗时、空请求延迟），出图前可自查环境，不提交任务不扣费。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "发布工作台新增独立静态画册子视图和“正文 / 封面 / 画册”导航；album9 创建画册版本后留在发布区，只有 video10/30/50 继续调用原视频交接并进入剪辑台。"
         }
       ]
     },
@@ -788,6 +793,11 @@
           "date": "2026-08-14",
           "kind": "feature",
           "summary": "发布视频故事板的文本转写支持优先分流到 OpenAI Next，未配置时保持 302 与本地保底路径。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "verification",
+          "summary": "静态画册分流后视频 router 输入明确收窄为 video10、video30、video50；album9 在进入视频服务前被拒绝，原视频预览、生成和确认回归测试保持通过。"
         }
       ]
     },
@@ -976,6 +986,11 @@
           "date": "2026-08-19",
           "kind": "fix",
           "summary": "一个 MJ turbo 任务产出的四宫格候选全部入库并回传，不再只留第一张——此前另外三张付过钱的候选在 generateForMobile 里被丢弃。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "统一静态图片网关新增 publishing-album 产品用途：继承正式封面美术 DNA、为后续中文层保留自然安静空间，并强制无文字/数字/Logo/水印；provider adapter 不追加第二套美术规则。"
         }
       ]
     },
@@ -1040,6 +1055,11 @@
           "date": "2026-08-11",
           "kind": "verification",
           "summary": "误杀边界、部分污染、整轮失败、无自动重复付费和恢复路径通过全量测试。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "画册底图复用同一像素质检；所有已付费候选仍完整交给用户，疑似含字和质检不可用只做页面级标记，不自动重提或自动采用。"
         }
       ]
     },
@@ -1358,6 +1378,72 @@
           "date": "2026-08-20",
           "kind": "fix",
           "summary": "在 main:3000 验收真实已付费 Take 1596：供应商成片为 4.125 秒、960×960 连续视频；幂等重放确认补齐历史缺失的 story shot 与 timeline item，镜头总数从 31 变为 32，供应商 taskId 保持唯一。确认卡重复点击不再因端点镜头重编号误报位置变化，成功状态会立即刷新 story revision 与镜头列。"
+        }
+      ]
+    },
+    {
+      "id": "publishing-static-album",
+      "name": "发布稿静态中文画册",
+      "status": "observing",
+      "userValue": "把发布稿制作成最多九页的静态画册，底图继承正式封面风格，中文作为可选择字体、可勾画区域或路径、可再次编辑和导出的产品文字层。",
+      "entryPoints": [
+        "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx",
+        "client/src/features/publishingAlbum/PublishingAlbumWorkspace.tsx"
+      ],
+      "owners": [
+        "shared/publishingAlbum.ts",
+        "shared/publishingAlbumFonts.ts",
+        "server/services/publishingAlbumPersistence.ts",
+        "server/services/publishingAlbumBackgroundPrompt.ts",
+        "server/services/publishingAlbumBackgroundGeneration.ts",
+        "client/src/features/publishingAlbum/PublishingAlbumTypographyEditor.tsx",
+        "client/src/features/publishingAlbum/publishingAlbumLayout.ts",
+        "client/src/features/publishingAlbum/publishingAlbumExport.ts"
+      ],
+      "evidence": [
+        "shared/publishingAlbum.test.ts",
+        "server/services/publishingAlbumPersistence.test.ts",
+        "server/services/publishingAlbumBackgroundPrompt.test.ts",
+        "server/services/publishingAlbumBackgroundGeneration.test.ts",
+        "client/src/features/publishingAlbum/PublishingAlbumWorkspace.test.tsx",
+        "client/src/features/publishingAlbum/PublishingAlbumTypographyEditor.test.tsx",
+        "client/src/features/publishingAlbum/publishingAlbumGeometry.test.ts",
+        "client/src/features/publishingAlbum/publishingAlbumLayout.test.ts",
+        "client/src/features/publishingAlbum/publishingAlbumFontRepository.test.ts",
+        "client/src/features/publishingAlbum/publishingAlbumFontRecommendation.test.ts",
+        "client/src/features/publishingAlbum/publishingAlbumExport.test.ts",
+        "scripts/verify-publishing-album-fonts.test.ts",
+        "command:pnpm fonts:verify:album"
+      ],
+      "invariants": [
+        "画册 aggregate 按发布版本隔离，不能创建或修改 Story shots、timeline、activeVideoStoryboardVersionId 或 videoStoryboard。",
+        "album9 只能进入画册 API；视频 router 只接受 video10、video30 和 video50，原视频工作流不得因画册分支改变。",
+        "底图只继承当前版本正式采用封面的美术 DNA，不读取当前或相邻视频镜头；无正式封面时必须在付费提交前阻止。",
+        "底图像素禁止文字；中文由产品以可编辑字体层排版，保存完整 Unicode，不截字、不用省略号掩盖溢出。",
+        "已受理的付费任务必须保存不可变 taskId；pending、unknown 或有 taskId 的失败只能恢复同一任务，不能自动重复购买。",
+        "生成结果先进入页面候选轮次，像素质检只标记风险；只有用户明确采用 exact assetId 才改变该页底图，Story current image 不得改变。",
+        "字体必须来自固定不可变来源并随附 OFL、SHA-256 和字形覆盖证据；仓库原始文件总量不超过 60 MiB，页面只按当前选择和最多三个推荐候选懒加载。",
+        "字体推荐只提供首选与最多两个备选；用户明确选择始终优先，文字或底图变化不得自动覆盖已保存 fontId。",
+        "预览和 PNG 导出使用同一布局计划；导出是只读操作，不改变页面 revision、采用状态或视频数据。"
+      ],
+      "dependencies": [
+        "publishing-workspace",
+        "publishing-versions",
+        "image-asset-history",
+        "unified-static-image-prompt",
+        "static-image-quality-quarantine"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "自动化已覆盖独立分流、付费恢复、候选采用、排版、字体和导出；合并后仍需在 main:3000 完成不触发真实付费的浏览器入口与页面布局验收。",
+        "真实图片供应商的画册底图付费链路尚未点击验收；必须由用户另行明确同意后才能消费。",
+        "整册导出当前由浏览器逐页触发下载，浏览器若限制多文件下载需要用户允许本站多文件下载后重试。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "新增独立 version-scoped 静态画册：最多九页确定性分页；正式封面风格驱动的无字底图签名报价、同 taskId 恢复、候选质检标记与显式采用；五款固定来源 OFL 中文字体与可解释推荐；双击或按钮进入的一笔区域/路径排版；共享 Unicode 布局计划的 SVG 预览、单页和整册 PNG 导出。album9 不再进入视频 router。"
         }
       ]
     },
