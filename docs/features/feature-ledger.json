@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18",
+  "updatedAt": "2026-08-20",
   "features": [
     {
       "id": "story-ownership",
@@ -1191,6 +1191,46 @@
           "date": "2026-08-18",
           "kind": "feature",
           "summary": "新增绝对帧放置、叠放优先级与位置锚点的持久化契约，共享布局/来源/编辑规则模块，剪辑行方向批量拖动与锚点标记，预览与看板统一 resolver，导出改为区间计划并生成真实空档。"
+        }
+      ]
+    },
+    {
+      "id": "recent-story-entry",
+      "name": "登录后直达最近故事",
+      "status": "working",
+      "userValue": "登录进入工作台后直接继续最近写过的故事，并按故事进度打开文字或图像和声音页面。",
+      "entryPoints": [
+        "client/src/features/storyAgent/StoryAgentContext.tsx",
+        "client/src/pages/EditingStudioPage.tsx"
+      ],
+      "owners": [
+        "client/src/features/storyAgent/recentStoryEntry.ts"
+      ],
+      "evidence": [
+        "client/src/features/storyAgent/recentStoryEntry.test.ts",
+        "client/src/features/storyAgent/StoryAgentContext.recentStoryRetry.test.tsx",
+        "client/src/features/creationEditor/spine-bridge.test.ts",
+        "client/src/pages/editingStudioWorkspace.test.ts"
+      ],
+      "invariants": [
+        "最近故事沿用服务端按 updatedAt 倒序返回的第一条，不在客户端另造排序口径。",
+        "已有镜头（shotCount > 0）表示故事已进入图像和声音阶段，否则进入文字阶段。",
+        "自动进入不得覆盖当前已打开的故事或尚未保存的新草稿。",
+        "故事加载期间若用户切换或新建故事，迟到结果不得覆盖用户的新选择。",
+        "空故事库仍显示现有空状态，不自动创建故事。"
+      ],
+      "dependencies": [
+        "story-ownership",
+        "publishing-video-storyboard",
+        "storyboard-voice-lane"
+      ],
+      "replaces": [],
+      "knownGaps": [],
+      "history": [
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "登录进入工作台时刷新故事列表并自动打开最近更新的一篇；纯文字故事落到文字页，已有镜头的故事落到图像和声音页。初次列表加载遇到瞬时失败会重试一次；同一故事从列表重新打开时会恢复匹配页面，未保存故事首次取得正式 ID 时保留用户当前页面，并继续保证空库、未保存草稿和迟到加载隔离。"
         }
       ]
     }

@@ -14,7 +14,7 @@ import {
   PanelLeftOpen,
   Plus,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import TopBar from "@/app/shell/TopBar";
 import {
@@ -64,6 +64,10 @@ import { buildCapabilityIntent } from "@/features/storyAgent/views/StoryCapabili
 import StoryCardsBoard from "@/features/storyAgent/views/StoryCardsBoard";
 import StoryListView from "@/features/storyAgent/views/StoryListView";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
+import {
+  shouldRouteWorkspaceForStoryTransition,
+  workspaceForStoryStage,
+} from "@/features/storyAgent/recentStoryEntry";
 import type { VideoClipEditorTarget } from "@/features/creationEditor/videoClipEditorModel";
 import { trpc } from "@/lib/trpc";
 import { displayShotCode } from "@shared/shotIdentity";
@@ -219,6 +223,7 @@ function EditingStudioBody({
   onMaterialVisibleChange: (visible: boolean) => void;
 }) {
   const activeStoryId = useActiveStoryId();
+  const storyShotCount = useStorySpine(state => state.storyShots.length);
   const { publishingBuffers } = useStoryAgent();
   const {
     backToList,
@@ -234,9 +239,20 @@ function EditingStudioBody({
   >(null);
   const [videoEditorHandoffTarget, setVideoEditorHandoffTarget] =
     useState<VideoClipEditorTarget | null>(null);
+  const previousStoryIdRef = useRef<number | null>(null);
   const dirtyBuffers = Object.values(publishingBuffers).filter(
     buffer => buffer.storyId === activeStoryId
   );
+
+  useEffect(() => {
+    const previousStoryId = previousStoryIdRef.current;
+    previousStoryIdRef.current = activeStoryId;
+    if (
+      !shouldRouteWorkspaceForStoryTransition(previousStoryId, activeStoryId)
+    )
+      return;
+    onWorkspaceChange(workspaceForStoryStage(storyShotCount));
+  }, [activeStoryId, onWorkspaceChange, storyShotCount]);
 
   useEffect(() => {
     const startDailyThoughtConversation = (event: Event) => {

@@ -7,6 +7,20 @@ function source(path: string) {
 }
 
 describe("creation editor spine boundary", () => {
+  it("opens the recent story only while the entry scope is still empty", () => {
+    const storyContext = source(
+      "client/src/features/storyAgent/StoryAgentContext.tsx"
+    );
+
+    expect(storyContext).toContain("resolveRecentStoryEntry(");
+    expect(storyContext).toMatch(
+      /loadStory\(entry\.storyId, \{[\s\S]*?silent: true,[\s\S]*?expectedActiveStoryId: null/
+    );
+    expect(storyContext).toContain(
+      'options !== undefined && "expectedActiveStoryId" in options'
+    );
+  });
+
   it("keeps shot field persistence on the dedicated command path", () => {
     const storyContext = source(
       "client/src/features/storyAgent/StoryAgentContext.tsx"

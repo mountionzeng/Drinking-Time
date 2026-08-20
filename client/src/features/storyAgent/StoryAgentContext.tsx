@@ -102,6 +102,7 @@ import {
   canApplyAutomaticStoryTitle,
   suggestAutomaticStoryTitleFromState,
 } from "./storyTitle";
+import { resolveRecentStoryEntry } from "./recentStoryEntry";
 import {
   buildPromptAttribution,
   encodeAttributionReason,
@@ -207,6 +208,16 @@ export function shouldStoreStoryCard(
   confirmedIntent: StoryIntent | null | undefined
 ): boolean {
   return !confirmedIntent;
+}
+
+export async function refreshRecentStoryListWithRetry(
+  refreshStoryList: () => Promise<boolean>,
+  isCancelled: () => boolean
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 2 && !isCancelled(); attempt += 1) {
+    if (await refreshStoryList()) return true;
+  }
+  return false;
 }
 
 type StoryCardConfirmationInput = Pick<StoryCard, "id" | "content">;
@@ -490,7 +501,7 @@ interface StoryAgentContextValue {
   isLoadingStories: boolean;
   loadStory: (
     id: number,
-    options?: { silent?: boolean; expectedActiveStoryId?: number }
+    options?: { silent?: boolean; expectedActiveStoryId?: number | null }
   ) => Promise<void>;
   createNewStory: () => void;
   backToList: () => void;
@@ -1171,6 +1182,7 @@ export function StoryAgentProvider({
     );
   }, [activeStoryId, onActiveStoryChange]);
   const storySaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const recentStoryOpenedForProjectRef = useRef<number | null>(null);
 
   // Hydrate from localStorage when projectId becomes available / changes
   useEffect(() => {
@@ -2744,13 +2756,6 @@ export function StoryAgentProvider({
     return true;
   }, [utils.storyAgent.storyList]);
 
-  // Fetch story list on mount
-  useEffect(() => {
-    if (projectId !== null) {
-      refreshStoryList();
-    }
-  }, [projectId, refreshStoryList]);
-
   const clearCurrentStory = useCallback(() => {
     const fresh = emptyState();
     setMessages(fresh.messages);
@@ -2780,10 +2785,12 @@ export function StoryAgentProvider({
   const loadStory = useCallback(
     async (
       id: number,
-      options?: { silent?: boolean; expectedActiveStoryId?: number }
+      options?: { silent?: boolean; expectedActiveStoryId?: number | null }
     ) => {
+      const hasExpectedStory =
+        options !== undefined && "expectedActiveStoryId" in options;
       if (
-        options?.expectedActiveStoryId != null &&
+        hasExpectedStory &&
         storySpineStore.getState().activeStoryId !==
           options.expectedActiveStoryId
       ) {
@@ -2802,6 +2809,13 @@ export function StoryAgentProvider({
           return;
         }
         if (storySpineStore.getState().storyLoadEpoch !== loadEpoch) {
+          return;
+        }
+        if (
+          hasExpectedStory &&
+          storySpineStore.getState().activeStoryId !==
+            options.expectedActiveStoryId
+        ) {
           return;
         }
         const body =
@@ -2988,6 +3002,43 @@ export function StoryAgentProvider({
   );
 
   useEffect(() => {
+    if (
+      projectId === null ||
+      hydratedFor !== projectId ||
+      recentStoryOpenedForProjectRef.current === projectId
+    ) {
+      return;
+    }
+
+    recentStoryOpenedForProjectRef.current = projectId;
+    let cancelled = false;
+
+    void (async () => {
+      const refreshed = await refreshRecentStoryListWithRetry(
+        refreshStoryList,
+        () => cancelled
+      );
+      if (!refreshed || cancelled) return;
+
+      const state = storySpineStore.getState();
+      const entry = resolveRecentStoryEntry(
+        state.storyList,
+        state.activeStoryId
+      );
+      if (entry) {
+        await loadStory(entry.storyId, {
+          silent: true,
+          expectedActiveStoryId: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydratedFor, loadStory, projectId, refreshStoryList]);
+
+  useEffect(() => {
     if (!activeStoryId || activeStoryId < 1) return;
 
     const syncActiveStory = () => {
@@ -3011,11 +3062,6 @@ export function StoryAgentProvider({
       document.removeEventListener("visibilitychange", syncActiveStory);
     };
   }, [activeStoryId, isGeneratingScript, isReplying, loadStory, saveStatus]);
-
-  // 不再自动加载最近一篇：老用户进门先看「继续 vs 开新」选择屏（StoryListView），
-  // 由 loadStory() / createNewStory() 显式进入对话。（Option A：开头直接问）
-  // 注意：刷新时仍会通过上面的 hydrate 恢复「显式打开过的」activeStoryId，
-  // 这里只移除「自动替用户挑最近一篇」的行为。
 
   const createNewStory = useCallback(() => {
     storySpineStore.getState().beginStoryLoad();
