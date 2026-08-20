@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   recommendPublishingAlbumFonts,
@@ -13,13 +13,16 @@ const repository = {
 
 describe("publishing album font recommendation", () => {
   it("prefers readable serif faces for long quiet literary copy", async () => {
+    const missingCharacters = vi.fn(repository.missingCharacters);
     const recommendations = await recommendPublishingAlbumFonts({
       text: "雨落在旧纸上。".repeat(20), role: "body",
-      artDirectionTags: ["quiet", "paper", "painting", "literary"], repository,
+      artDirectionTags: ["quiet", "paper", "painting", "literary"],
+      repository: { missingCharacters },
     });
     expect(recommendations[0]?.fontId).toBe("noto-serif-sc");
     expect(recommendations[0]?.reason).toContain("长段正文可读性");
     expect(recommendations).toHaveLength(3);
+    expect(missingCharacters).toHaveBeenCalledTimes(3);
   });
 
   it("prefers sans for modern mixed text and brush/script faces for short paths", async () => {

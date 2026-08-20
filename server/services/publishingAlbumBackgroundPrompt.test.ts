@@ -10,6 +10,7 @@ vi.mock("../db", () => ({
 import {
   compilePublishingAlbumBackgroundPrompt,
   composePublishingAlbumBackgroundBrief,
+  publishingAlbumFontTagsFromCoverPrompt,
 } from "./publishingAlbumBackgroundPrompt";
 
 describe("publishing album background prompt", () => {
@@ -55,5 +56,14 @@ describe("publishing album background prompt", () => {
       pageCount: 1,
       coverPrompt: "ordinary legacy prompt",
     })).rejects.toThrow("没有可继承的美术方向");
+  });
+
+  it("maps the adopted cover art DNA to font recommendation signals", () => {
+    expect(publishingAlbumFontTagsFromCoverPrompt([
+      "【艺术谱系】克制的水墨与手写笔触。",
+      "【手作完成度】保留宣纸纤维和大面积安静留白。",
+    ].join("\n"))).toEqual(expect.arrayContaining([
+      "ink", "painting", "paper", "handwritten", "quiet", "minimal",
+    ]));
   });
 });

@@ -87,6 +87,7 @@ import {
   generatePublishingAlbumBackground,
   quotePublishingAlbumBackground,
 } from "../services/publishingAlbumBackgroundGeneration";
+import { publishingAlbumFontTagsFromCoverPrompt } from "../services/publishingAlbumBackgroundPrompt";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
 const trendPlatformSchema = z.enum(PUBLISHING_TREND_PLATFORM_IDS);
@@ -961,11 +962,19 @@ export const publishingDraftRouter = router({
           if (!image || image.storyId !== input.storyId || image.userId !== ctx.user.id) return null;
           return { id: image.id, imageUrl: image.imageUrl, imageKey: image.imageKey };
         }));
+        const coverImage = version.cover?.assetId
+          ? await getGeneratedImageById(version.cover.assetId)
+          : null;
+        const artDirectionTags = coverImage &&
+          coverImage.storyId === input.storyId && coverImage.userId === ctx.user.id
+          ? publishingAlbumFontTagsFromCoverPrompt(coverImage.prompt ?? "")
+          : [];
         return {
           storyId: input.storyId,
           versionId: version.versionId,
           versionRevision: version.versionRevision,
           album: version.album,
+          artDirectionTags,
           assets: assets.filter((asset): asset is NonNullable<typeof asset> => asset != null),
         };
       } catch (error) {

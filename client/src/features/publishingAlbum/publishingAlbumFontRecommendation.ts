@@ -61,18 +61,21 @@ export async function recommendPublishingAlbumFonts(input: {
 }): Promise<PublishingAlbumFontRecommendation[]> {
   const signals = normalizedSignals(input.artDirectionTags);
   contentSignals(input.text).forEach(signal => signals.add(signal));
-  const compatible: Array<{ font: PublishingAlbumFontManifestEntry; score: number; matches: string[] }> = [];
-  for (const font of installedPublishingAlbumFonts()) {
-    if ((await input.repository.missingCharacters(font.fontId, input.text)).length > 0) continue;
+  const ranked = installedPublishingAlbumFonts().map(font => {
     const matches = font.tags.filter(tag => signals.has(tag));
     let score = font.roles[input.role] * 10 + matches.length * 9;
     const length = Array.from(input.text).length;
     if (length >= 100) score += font.roles.body * 3;
     if (length <= 24 && input.role !== "body") score += font.roles.title * 2;
     if (/[0-9A-Za-z]/.test(input.text) && font.fontId === "noto-sans-sc") score += 8;
-    compatible.push({ font, score, matches });
+    return { font, score, matches };
+  }).sort((left, right) => right.score - left.score || left.font.fontId.localeCompare(right.font.fontId));
+  const compatible: typeof ranked = [];
+  for (const candidate of ranked) {
+    if ((await input.repository.missingCharacters(candidate.font.fontId, input.text)).length > 0) continue;
+    compatible.push(candidate);
+    if (compatible.length === 3) break;
   }
-  compatible.sort((left, right) => right.score - left.score || left.font.fontId.localeCompare(right.font.fontId));
   return compatible.slice(0, 3).map(({ font, score, matches }) => ({
     fontId: font.fontId,
     score,

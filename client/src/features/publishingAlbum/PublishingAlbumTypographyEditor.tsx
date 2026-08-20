@@ -42,6 +42,7 @@ export function PublishingAlbumTypographyEditor({
   initialLayout,
   artDirectionTags = [],
   saving = false,
+  saveBlocked = false,
   onSave,
 }: {
   text: string;
@@ -49,6 +50,7 @@ export function PublishingAlbumTypographyEditor({
   initialLayout: PublishingAlbumTypographyLayout | null;
   artDirectionTags?: readonly string[];
   saving?: boolean;
+  saveBlocked?: boolean;
   onSave(layout: PublishingAlbumTypographyLayout): Promise<void> | void;
 }) {
   const savedGeometry = useMemo(() => initialGeometry(initialLayout), [initialLayout]);
@@ -258,7 +260,7 @@ export function PublishingAlbumTypographyEditor({
         <button
           type="button"
           onClick={() => void save()}
-          disabled={!plan || saving}
+          disabled={!plan || saving || saveBlocked}
           className="ml-auto rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs font-medium text-[var(--background)] disabled:opacity-40"
         ><Check className="mr-1 inline h-4 w-4" />{saving ? "保存中…" : "保存"}</button>
       </div>
@@ -268,7 +270,9 @@ export function PublishingAlbumTypographyEditor({
         </ul>
       ) : null}
       <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
-        {layoutResult?.status === "overflow" ? layoutResult.suggestion : message}
+        {saveBlocked
+          ? "请先保存这一页文字，再保存与这份文字对应的排版"
+          : layoutResult?.status === "overflow" ? layoutResult.suggestion : message}
       </p>
     </section>
   );

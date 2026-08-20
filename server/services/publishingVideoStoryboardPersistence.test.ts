@@ -113,6 +113,39 @@ afterAll(async () => {
 });
 
 describe("publishing video preview persistence", () => {
+  it("rejects a static album version before invoking video generation", async () => {
+    const publishing = publishingState();
+    const withAlbum = {
+      ...publishing,
+      versions: publishing.versions?.map(version => ({
+        ...version,
+        album: {
+          version: 1, revision: 0, status: "draft",
+          source: { platform: "xiaohongshu", draftRevision: 1, contentHash: "album", createdAt: 100 },
+          pages: [{
+            pageId: "album-v1-01", ordinal: 1, revision: 0, textRevision: 0,
+            backgroundRevision: 0, typographyRevision: 0, sourceParagraphIds: [],
+            sourceTextHash: "album", sourceStale: false, text: "画册正文",
+            adoptedBackgroundAssetId: null, backgroundRounds: [], backgroundGeneration: null,
+            typography: null, createdAt: 100, updatedAt: 100,
+          }],
+          operationReceipts: {}, createdAt: 100, updatedAt: 100,
+        },
+      })),
+    };
+    const { id } = await db.createStory({
+      userId: 30,
+      title: "album must not enter video",
+      body: { _revision: 1, shots: [], publishing: withAlbum },
+    });
+    const generate = vi.fn(async () => generatedPreview("画册正文"));
+
+    await expect(persistence.generateAndPersistPublishingVideoPreview({
+      storyId: id, userId: 30, operationToken: "album-video-attempt", generate,
+    })).rejects.toThrow("静态画册版本不能进入视频故事版流程");
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("claims before generation, deduplicates retries, and never mutates formal shots", async () => {
     const publishing = publishingState();
     const bodyText = publishing.drafts.xiaohongshu!.content.body;

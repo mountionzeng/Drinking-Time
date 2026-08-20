@@ -13,17 +13,17 @@ const plan = {
   fontFamily: "Publishing Album Zhi Mang Xing",
   fontSize: 42,
   alignment: "center" as const,
-  graphemes: [{ grapheme: "风", index: 0, x: 100, y: 200, rotation: 10 }],
+  graphemes: [{ grapheme: "<无字>&", index: 0, x: 100, y: 200, rotation: 10 }],
   contrast: { textColor: "#fff", outlineColor: "#000", outlineWidth: 1, backdropColor: null },
   svgPath: "M10 100 L890 200",
 };
 
 describe("PublishingAlbumPagePreview", () => {
-  it("renders adopted background and editable SVG textPath without unsafe interpolation", () => {
+  it("renders the exact positioned glyph plan used by export without unsafe interpolation", () => {
     const html = renderToStaticMarkup(<PublishingAlbumPagePreview backgroundUrl="/image.png" plan={plan} />);
-    expect(html).toContain("<textPath");
+    expect(html).not.toContain("<textPath");
     expect(html).toContain("M10 100 L890 200");
-    expect(html).toContain("风起&lt;无字&gt;&amp;归来");
+    expect(html).toContain("&lt;无字&gt;&amp;");
     expect(html).not.toContain("<无字>");
   });
 

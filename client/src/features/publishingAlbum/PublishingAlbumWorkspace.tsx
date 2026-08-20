@@ -62,6 +62,7 @@ export function PublishingAlbumWorkspace({
   const recoveredOperationRef = useRef<string | null>(null);
   const assets = useMemo(() => new Map((albumQuery.data?.assets ?? []).map(asset => [asset.id, asset])), [albumQuery.data?.assets]);
   const adoptedAsset = page?.adoptedBackgroundAssetId ? assets.get(page.adoptedBackgroundAssetId) ?? null : null;
+  const pageTextDirty = Boolean(page && text !== page.text);
 
   useEffect(() => {
     setPageId(album?.pages[0]?.pageId ?? null);
@@ -127,6 +128,10 @@ export function PublishingAlbumWorkspace({
     }
   };
   const requestQuote = async () => {
+    if (pageTextDirty) {
+      toast.error("请先保存这一页文字，再按最新文字生成底图");
+      return;
+    }
     try {
       const result = await quoteMut.mutateAsync({
         storyId, versionId: version.versionId, pageId: page.pageId,
@@ -168,6 +173,10 @@ export function PublishingAlbumWorkspace({
     }
   };
   const exportPages = async (wholeAlbum: boolean) => {
+    if (pageTextDirty) {
+      toast.error("请先保存这一页文字，再导出画册");
+      return;
+    }
     const targets = wholeAlbum ? album.pages : [page];
     try {
       const prepared = await Promise.all(targets.map(async target => {
@@ -205,8 +214,8 @@ export function PublishingAlbumWorkspace({
           <button type="button" aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-2 text-xs font-medium">画册</button>
         </nav>
         <div className="flex gap-2">
-          <button type="button" onClick={() => void exportPages(false)} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs"><Download className="mr-1 inline h-4 w-4" />导出本页</button>
-          <button type="button" onClick={() => void exportPages(true)} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs"><Download className="mr-1 inline h-4 w-4" />{exportProgress ? `导出 ${exportProgress}` : "导出整册"}</button>
+          <button type="button" onClick={() => void exportPages(false)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />导出本页</button>
+          <button type="button" onClick={() => void exportPages(true)} disabled={pageTextDirty} className="rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="mr-1 inline h-4 w-4" />{exportProgress ? `导出 ${exportProgress}` : "导出整册"}</button>
         </div>
       </header>
       <div className="grid min-h-0 flex-1 grid-cols-[104px_minmax(0,1fr)]">
@@ -235,7 +244,9 @@ export function PublishingAlbumWorkspace({
               text={text}
               backgroundUrl={adoptedAsset?.imageUrl ?? null}
               initialLayout={page.typography}
+              artDirectionTags={albumQuery.data?.artDirectionTags ?? []}
               saving={saveTypographyMut.isPending}
+              saveBlocked={pageTextDirty}
               onSave={saveTypography}
             />
             <div className="space-y-4">
@@ -272,7 +283,7 @@ export function PublishingAlbumWorkspace({
                     </div>
                   </div>
                 ) : (
-                  <button type="button" onClick={() => void requestQuote()} disabled={!coverAvailable || quoteMut.isPending || generateMut.isPending} className="mt-2 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40">
+                  <button type="button" onClick={() => void requestQuote()} disabled={!coverAvailable || pageTextDirty || quoteMut.isPending || generateMut.isPending} className="mt-2 rounded-lg border border-[var(--panel-border)] px-3 py-2 text-xs disabled:opacity-40">
                     {quoteMut.isPending || generateMut.isPending ? <Loader2 className="mr-1 inline h-4 w-4 animate-spin" /> : <ImagePlus className="mr-1 inline h-4 w-4" />}生成底图
                   </button>
                 )}

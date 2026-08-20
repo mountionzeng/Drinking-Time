@@ -19,7 +19,7 @@ describe("PublishingAlbumFontRepository", () => {
     for (const character of "中国，。！？2026ABC") {
       expect(fontBufferSupportsCodePoint(buffer, character.codePointAt(0)!)).toBe(true);
     }
-    expect(fontBufferMissingCharacters(buffer, "中文A1，")).toEqual([]);
+    expect(fontBufferMissingCharacters(buffer, "中文A1，\n第二段\r\n")).toEqual([]);
   });
 
   it("lists only installed fonts and caches one selected font load", async () => {

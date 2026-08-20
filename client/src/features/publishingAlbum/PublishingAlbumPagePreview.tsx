@@ -35,25 +35,7 @@ export function PublishingAlbumPagePreview({
           aria-label="中文文字排版层"
         >
           {plan.svgPath ? <path id={pathId} d={plan.svgPath} fill="none" /> : null}
-          {plan.kind === "path" && plan.svgPath ? (
-            <text
-              fill={plan.contrast.textColor}
-              stroke={plan.contrast.outlineColor ?? "none"}
-              strokeWidth={plan.contrast.outlineWidth}
-              paintOrder="stroke"
-              fontFamily={plan.fontFamily}
-              fontSize={plan.fontSize}
-            >
-              <textPath
-                href={`#${pathId}`}
-                startOffset={plan.alignment === "center" ? "50%" : plan.alignment === "end" ? "100%" : "0%"}
-                textAnchor={plan.alignment === "center" ? "middle" : plan.alignment === "end" ? "end" : "start"}
-              >
-                {plan.text.replace(/\r?\n/g, "　")}
-              </textPath>
-            </text>
-          ) : (
-            plan.graphemes.map(glyph => (
+          {plan.graphemes.map(glyph => glyph.grapheme === "\n" ? null : (
               <text
                 key={`${glyph.index}-${glyph.x}-${glyph.y}`}
                 x={glyph.x}
@@ -69,8 +51,7 @@ export function PublishingAlbumPagePreview({
               >
                 {glyph.grapheme}
               </text>
-            ))
-          )}
+            ))}
         </svg>
       ) : null}
       {candidate ? (

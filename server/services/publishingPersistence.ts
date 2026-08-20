@@ -1301,6 +1301,9 @@ function applyAlbumBackgroundOperation(
     if (!generation || generation.operationToken !== operation.operationToken) {
       throw new Error("找不到可恢复的画册底图任务");
     }
+    if (generation.status === "completed") {
+      return current;
+    }
     if (operation.taskId && generation.taskId && operation.taskId !== generation.taskId) {
       throw new Error("底图任务编号一经确认不可替换");
     }

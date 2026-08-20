@@ -112,9 +112,10 @@ export function fontBufferSupportsCodePoint(buffer: ArrayBuffer, codePoint: numb
 }
 
 export function fontBufferMissingCharacters(buffer: ArrayBuffer, text: string): string[] {
-  return Array.from(new Set(Array.from(text))).filter(character =>
-    !fontBufferSupportsCodePoint(buffer, character.codePointAt(0) ?? 0)
-  );
+  return Array.from(new Set(Array.from(text))).filter(character => {
+    if (character === "\n" || character === "\r") return false;
+    return !fontBufferSupportsCodePoint(buffer, character.codePointAt(0) ?? 0);
+  });
 }
 
 export class PublishingAlbumFontRepository {

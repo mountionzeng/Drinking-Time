@@ -84,3 +84,21 @@ export function publishingAlbumArtReferenceFromCoverPrompt(
     mood: section("文本美术信号"),
   };
 }
+
+export function publishingAlbumFontTagsFromCoverPrompt(coverPrompt: string): string[] {
+  const artDirection = extractPublishingCoverArtDirection(coverPrompt) ?? "";
+  const rules: ReadonlyArray<[RegExp, readonly string[]]> = [
+    [/水墨|笔墨|墨色|毛笔/, ["ink", "painting", "brush"]],
+    [/纸|纤维|宣纸|书页/, ["paper", "editorial"]],
+    [/安静|克制|留白|清淡/, ["quiet", "minimal"]],
+    [/复古|民国|旧时|怀旧/, ["retro", "republic-era"]],
+    [/手写|手作|书写/, ["handwritten"]],
+    [/现代|当代/, ["modern"]],
+    [/几何|秩序|网格/, ["geometric"]],
+    [/科技|未来|数字/, ["technology"]],
+    [/戏剧|强烈|张力/, ["dramatic"]],
+  ];
+  return Array.from(new Set(rules.flatMap(([pattern, tags]) =>
+    pattern.test(artDirection) ? tags : []
+  )));
+}

@@ -27,4 +27,18 @@ describe("PublishingAlbumTypographyEditor", () => {
     expect(html).not.toContain("逐字编辑");
     expect(html).not.toContain("节点编辑");
   });
+
+  it("blocks layout persistence until locally edited page text is saved", () => {
+    const html = renderToStaticMarkup(
+      <PublishingAlbumTypographyEditor
+        text="尚未保存的新文字"
+        backgroundUrl="/page.png"
+        initialLayout={null}
+        saveBlocked
+        onSave={vi.fn()}
+      />
+    );
+    expect(html).toContain("请先保存这一页文字");
+    expect(html).toContain("disabled");
+  });
 });

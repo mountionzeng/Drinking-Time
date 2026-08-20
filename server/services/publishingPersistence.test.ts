@@ -288,6 +288,14 @@ describe("publishingPersistence", () => {
     expect(candidatePage.backgroundRounds[0]?.assetIds).toEqual([501, 502]);
     expect(candidatePage.adoptedBackgroundAssetId).toBeNull();
 
+    const afterLateUpdate = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "update_album_background", versionId: version.versionId, pageId: page.pageId,
+      operationToken: generation.operationToken, status: "unknown", error: "late callback",
+    }});
+    expect(afterLateUpdate.publishing.versions?.[0]?.album?.pages[0].backgroundGeneration?.status)
+      .toBe("completed");
+    expect(afterLateUpdate.publishing.containerRevision).toBe(completed.publishing.containerRevision);
+
     const adopted = await writePublishingDraftState({ storyId: 7, userId: 3,
       operationToken: "adopt-page-background-1", operation: {
         type: "adopt_album_background", versionId: version.versionId, pageId: page.pageId,
