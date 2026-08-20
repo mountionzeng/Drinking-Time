@@ -2839,6 +2839,17 @@ describe("publishingDraft router", () => {
     });
   });
 
+  it("rejects album9 at the video endpoint before the video service runs", async () => {
+    const caller = publishingDraftRouter.createCaller(context());
+    videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard.mockClear();
+    await expect(caller.buildVideoStoryboard({
+      storyId: 7,
+      versionId: "v1",
+      narrativeSpec: "album9",
+    } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(videoPreviewMocks.generateAndConfirmPublishingVideoStoryboard).not.toHaveBeenCalled();
+  });
+
   it("confirms a reviewed preview through the owner-scoped endpoint", async () => {
     videoPreviewMocks.confirmPublishingVideoStoryboard.mockResolvedValue({
       status: "confirmed",

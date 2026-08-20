@@ -42,6 +42,19 @@ import {
   StoryBodyRevisionConflictError,
 } from "./storyBodyPersistence";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
+import {
+  PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS,
+  PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS,
+  PUBLISHING_ALBUM_MAX_CANDIDATES_PER_ROUND,
+  PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE,
+  normalizePublishingAlbumAggregate,
+  normalizePublishingAlbumTypographyLayout,
+  publishingAlbumCodePointCount,
+  type PublishingAlbumAggregate,
+  type PublishingAlbumBackgroundGeneration,
+  type PublishingAlbumBackgroundRound,
+  type PublishingAlbumTypographyLayout,
+} from "../../shared/publishingAlbum";
 
 export class PublishingDraftOwnershipError extends Error {
   constructor(storyId: number) {
@@ -224,6 +237,77 @@ type CompleteCoverGenerationOperation = {
   round: PublishingCoverRound;
 };
 
+export type InitializePublishingAlbumOperation = {
+  type: "initialize_album";
+  versionId: string;
+  album: PublishingAlbumAggregate;
+  requestHash: string;
+  baseContainerRevision: number;
+  baseVersionRevision: number;
+  storyId?: number;
+};
+
+export type UpdatePublishingAlbumPageTextOperation = {
+  type: "update_album_page_text";
+  versionId: string;
+  pageId: string;
+  text: string;
+  requestHash: string;
+  baseTextRevision: number;
+  storyId?: number;
+};
+
+export type UpdatePublishingAlbumPageTypographyOperation = {
+  type: "update_album_page_typography";
+  versionId: string;
+  pageId: string;
+  typography: PublishingAlbumTypographyLayout;
+  requestHash: string;
+  baseTextRevision: number;
+  baseTypographyRevision: number;
+  storyId?: number;
+};
+
+export type ClaimPublishingAlbumBackgroundOperation = {
+  type: "claim_album_background";
+  versionId: string;
+  pageId: string;
+  generation: PublishingAlbumBackgroundGeneration;
+  baseBackgroundRevision: number;
+  storyId?: number;
+};
+
+export type UpdatePublishingAlbumBackgroundOperation = {
+  type: "update_album_background";
+  versionId: string;
+  pageId: string;
+  operationToken: string;
+  taskId?: string | null;
+  status?: PublishingAlbumBackgroundGeneration["status"];
+  error?: string;
+  expiresAt?: number;
+  storyId?: number;
+};
+
+export type CompletePublishingAlbumBackgroundOperation = {
+  type: "complete_album_background";
+  versionId: string;
+  pageId: string;
+  operationToken: string;
+  round: PublishingAlbumBackgroundRound;
+  storyId?: number;
+};
+
+export type AdoptPublishingAlbumBackgroundOperation = {
+  type: "adopt_album_background";
+  versionId: string;
+  pageId: string;
+  assetId: number;
+  requestHash: string;
+  baseBackgroundRevision: number;
+  storyId?: number;
+};
+
 export type PublishingDraftWriteOperation =
   | InitializeOperation
   | UpsertDraftOperation
@@ -238,6 +322,13 @@ export type PublishingDraftWriteOperation =
   | SettleTextOperation
   | AppendPlatformContextSnapshotOperation
   | SelectPlatformContextTagsOperation
+  | InitializePublishingAlbumOperation
+  | UpdatePublishingAlbumPageTextOperation
+  | UpdatePublishingAlbumPageTypographyOperation
+  | ClaimPublishingAlbumBackgroundOperation
+  | UpdatePublishingAlbumBackgroundOperation
+  | CompletePublishingAlbumBackgroundOperation
+  | AdoptPublishingAlbumBackgroundOperation
   | SetCoverOperation
   | CreatePublishingVersionOperation
   | SelectPublishingVersionOperation
@@ -302,6 +393,10 @@ function assertPublishingCapacity(publishing: PublishingDraftState): void {
   if (publishingBytes > MAX_PUBLISHING_STATE_BYTES) {
     throw new PublishingCapacityError("publishing", publishingBytes, MAX_PUBLISHING_STATE_BYTES);
   }
+}
+
+function publishingAlbumValueHash(value: unknown): string {
+  return createHash("sha256").update(canonicalJsonStringify(value)).digest("hex");
 }
 
 function assertStoryCapacity(body: Record<string, unknown>): void {
@@ -586,6 +681,7 @@ function applyVersionOperation(
         ? structuredClone(parent.conversationSnapshot)
         : null,
     videoStoryboard: null,
+    album: null,
     narrativeIntent: op.narrativeIntent
       ? structuredClone(op.narrativeIntent)
       : structuredClone(parent.narrativeIntent),
@@ -986,6 +1082,351 @@ function normalizeSelection(
   return selected;
 }
 
+function appendAlbumReceipt(
+  album: PublishingAlbumAggregate,
+  input: PublishingAlbumAggregate["operationReceipts"][string]
+): PublishingAlbumAggregate {
+  const entries = Object.entries({
+    ...album.operationReceipts,
+    [input.operationToken]: input,
+  }).sort((left, right) => left[1].completedAt - right[1].completedAt);
+  return {
+    ...album,
+    operationReceipts: Object.fromEntries(
+      entries.slice(-PUBLISHING_ALBUM_MAX_OPERATION_RECEIPTS)
+    ),
+  };
+}
+
+function applyAlbumOperation(
+  current: PublishingDraftState,
+  operation:
+    | InitializePublishingAlbumOperation
+    | UpdatePublishingAlbumPageTextOperation
+    | UpdatePublishingAlbumPageTypographyOperation,
+  now: number,
+  operationToken?: string
+): PublishingDraftState {
+  const token = operationToken?.trim();
+  if (!token) throw new Error("画册写入缺少幂等操作标识");
+  const versions = current.versions ?? [];
+  const target = versions.find(version => version.versionId === operation.versionId);
+  if (!target) throw new Error("画册版本不存在或已切换");
+  const existingReceipt = target.album?.operationReceipts[token];
+  if (existingReceipt) {
+    if (existingReceipt.requestHash !== operation.requestHash) {
+      throw new Error("画册操作标识已用于不同请求");
+    }
+    return current;
+  }
+
+  let nextAlbum: PublishingAlbumAggregate;
+  if (operation.type === "initialize_album") {
+    assertRevision(
+      "publishing",
+      operation.baseContainerRevision,
+      current.containerRevision ?? current.revision
+    );
+    assertRevision("publishing", operation.baseVersionRevision, target.versionRevision);
+    if (target.album) {
+      if (target.album.source.contentHash !== operation.album.source.contentHash) {
+        throw new Error("当前版本已经有画册；正文变化请创建新发布版本");
+      }
+      nextAlbum = appendAlbumReceipt(target.album, {
+        operationToken: token,
+        requestHash: operation.requestHash,
+        kind: "initialize",
+        pageId: null,
+        resultRevision: target.album.revision,
+        completedAt: now,
+      });
+    } else {
+      const normalized = normalizePublishingAlbumAggregate(operation.album, now);
+      if (!normalized) throw new Error("画册草稿不符合持久化约束");
+      nextAlbum = appendAlbumReceipt(normalized, {
+        operationToken: token,
+        requestHash: operation.requestHash,
+        kind: "initialize",
+        pageId: null,
+        resultRevision: normalized.revision,
+        completedAt: now,
+      });
+    }
+  } else {
+    if (!target.album) throw new Error("当前版本还没有画册草稿");
+    const pageIndex = target.album.pages.findIndex(page => page.pageId === operation.pageId);
+    if (pageIndex < 0) throw new Error("画册页面不存在或已经更新");
+    const page = target.album.pages[pageIndex];
+    let nextPage = page;
+    if (operation.type === "update_album_page_text") {
+      if (operation.baseTextRevision !== page.textRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTextRevision,
+          page.textRevision
+        );
+      }
+      if (publishingAlbumCodePointCount(operation.text) > PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS) {
+        throw new Error(`单页文字不能超过 ${PUBLISHING_ALBUM_MAX_PAGE_CODE_POINTS} 个字符`);
+      }
+      nextPage = {
+        ...page,
+        revision: page.revision + 1,
+        textRevision: page.textRevision + 1,
+        text: operation.text,
+        sourceStale: operation.text !== page.text,
+        typography: null,
+        typographyRevision: page.typographyRevision + (page.typography ? 1 : 0),
+        updatedAt: now,
+      };
+    } else {
+      if (operation.baseTextRevision !== page.textRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTextRevision,
+          page.textRevision
+        );
+      }
+      if (operation.baseTypographyRevision !== page.typographyRevision) {
+        throw new PublishingDraftConflictError(
+          "publishing",
+          operation.baseTypographyRevision,
+          page.typographyRevision
+        );
+      }
+      const typography = normalizePublishingAlbumTypographyLayout(operation.typography);
+      if (!typography) throw new Error("文字排版路径无效，请重新绘制");
+      nextPage = {
+        ...page,
+        revision: page.revision + 1,
+        typographyRevision: page.typographyRevision + 1,
+        typography,
+        updatedAt: now,
+      };
+    }
+    const pages = target.album.pages.map((candidate, index) =>
+      index === pageIndex ? nextPage : candidate
+    );
+    const baseAlbum = {
+      ...target.album,
+      revision: target.album.revision + 1,
+      status: pages.every(candidate =>
+        candidate.adoptedBackgroundAssetId != null && candidate.typography != null
+      ) ? "ready" as const : "draft" as const,
+      pages,
+      updatedAt: now,
+    };
+    nextAlbum = appendAlbumReceipt(baseAlbum, {
+      operationToken: token,
+      requestHash: operation.requestHash,
+      kind: operation.type === "update_album_page_text" ? "update_text" : "update_typography",
+      pageId: operation.pageId,
+      resultRevision: baseAlbum.revision,
+      completedAt: now,
+    });
+  }
+
+  const nextVersionRevision = target.versionRevision + 1;
+  return {
+    ...current,
+    revision: current.revision + 1,
+    containerRevision: (current.containerRevision ?? current.revision) + 1,
+    versions: versions.map(version =>
+      version.versionId === target.versionId
+        ? { ...version, versionRevision: nextVersionRevision, album: nextAlbum }
+        : version
+    ),
+    updatedAt: now,
+  };
+}
+
+function applyAlbumBackgroundOperation(
+  current: PublishingDraftState,
+  operation:
+    | ClaimPublishingAlbumBackgroundOperation
+    | UpdatePublishingAlbumBackgroundOperation
+    | CompletePublishingAlbumBackgroundOperation
+    | AdoptPublishingAlbumBackgroundOperation,
+  now: number,
+  writeOperationToken?: string
+): PublishingDraftState {
+  const versions = current.versions ?? [];
+  const target = versions.find(version => version.versionId === operation.versionId);
+  if (!target?.album) throw new Error("当前版本还没有画册草稿");
+  const pageIndex = target.album.pages.findIndex(page => page.pageId === operation.pageId);
+  if (pageIndex < 0) throw new Error("画册页面不存在或已经更新");
+  const page = target.album.pages[pageIndex]!;
+  let nextPage = page;
+  let receipt: PublishingAlbumAggregate["operationReceipts"][string] | null = null;
+
+  if (operation.type === "claim_album_background") {
+    if (page.backgroundRevision !== operation.baseBackgroundRevision) {
+      throw new PublishingDraftConflictError(
+        "publishing",
+        operation.baseBackgroundRevision,
+        page.backgroundRevision
+      );
+    }
+    const completedReceipt = target.album.operationReceipts[operation.generation.operationToken];
+    if (completedReceipt) {
+      if (completedReceipt.requestHash !== operation.generation.requestHash) {
+        throw new Error("画册操作标识已用于不同请求");
+      }
+      return current;
+    }
+    if (
+      page.backgroundGeneration &&
+      page.backgroundGeneration.status !== "completed" &&
+      page.backgroundGeneration.status !== "failed"
+    ) {
+      if (
+        page.backgroundGeneration.operationToken === operation.generation.operationToken &&
+        page.backgroundGeneration.requestHash === operation.generation.requestHash
+      ) return current;
+      throw new Error("这一页已有未结算的底图任务，请先恢复原任务");
+    }
+    if (
+      operation.generation.versionId !== operation.versionId ||
+      operation.generation.pageId !== operation.pageId
+    ) throw new Error("底图任务作用域与当前页面不一致");
+    nextPage = {
+      ...page,
+      revision: page.revision + 1,
+      backgroundRevision: page.backgroundRevision + 1,
+      backgroundGeneration: operation.generation,
+      updatedAt: now,
+    };
+  } else if (operation.type === "update_album_background") {
+    const generation = page.backgroundGeneration;
+    if (!generation || generation.operationToken !== operation.operationToken) {
+      throw new Error("找不到可恢复的画册底图任务");
+    }
+    if (generation.status === "completed") {
+      return current;
+    }
+    if (operation.taskId && generation.taskId && operation.taskId !== generation.taskId) {
+      throw new Error("底图任务编号一经确认不可替换");
+    }
+    nextPage = {
+      ...page,
+      backgroundGeneration: {
+        ...generation,
+        ...(operation.taskId !== undefined ? { taskId: operation.taskId } : {}),
+        ...(operation.status !== undefined ? { status: operation.status } : {}),
+        ...(operation.error !== undefined
+          ? operation.error.trim()
+            ? { error: operation.error.trim().slice(0, 2_000) }
+            : { error: undefined }
+          : {}),
+        ...(operation.expiresAt !== undefined ? { expiresAt: operation.expiresAt } : {}),
+        updatedAt: now,
+      },
+      updatedAt: now,
+    };
+  } else if (operation.type === "complete_album_background") {
+    const generation = page.backgroundGeneration;
+    if (!generation || generation.operationToken !== operation.operationToken) {
+      throw new Error("找不到待完成的画册底图任务");
+    }
+    if (generation.requestHash !== operation.round.requestHash) {
+      throw new Error("底图候选与原付费请求不一致");
+    }
+    if (page.backgroundRounds.length >= PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE) {
+      throw new Error(`单页底图候选轮次不能超过 ${PUBLISHING_ALBUM_MAX_ROUNDS_PER_PAGE}`);
+    }
+    if (
+      operation.round.assetIds.length < 1 ||
+      operation.round.assetIds.length > PUBLISHING_ALBUM_MAX_CANDIDATES_PER_ROUND ||
+      new Set(operation.round.assetIds).size !== operation.round.assetIds.length
+    ) throw new Error("底图候选数量或资产编号无效");
+    const round: PublishingAlbumBackgroundRound = {
+      ...operation.round,
+      stale:
+        operation.round.stale ||
+        (generation.inputSnapshot.pageRevision !== page.revision - 1 &&
+          generation.inputSnapshot.pageRevision !== page.revision) ||
+        generation.inputSnapshot.pageTextHash !== publishingAlbumValueHash(page.text) ||
+        generation.inputSnapshot.coverAssetId !== target.cover?.assetId,
+    };
+    nextPage = {
+      ...page,
+      revision: page.revision + 1,
+      backgroundRevision: page.backgroundRevision + 1,
+      backgroundRounds: [...page.backgroundRounds, round],
+      backgroundGeneration: { ...generation, status: "completed", updatedAt: now },
+      updatedAt: now,
+    };
+    receipt = {
+      operationToken: operation.operationToken,
+      requestHash: generation.requestHash,
+      kind: "background",
+      pageId: page.pageId,
+      resultRevision: target.album.revision + 1,
+      completedAt: now,
+    };
+  } else {
+    const token = writeOperationToken?.trim();
+    if (!token) throw new Error("采用底图缺少幂等操作标识");
+    const existingReceipt = target.album.operationReceipts[token];
+    if (existingReceipt) {
+      if (existingReceipt.requestHash !== operation.requestHash) {
+        throw new Error("画册操作标识已用于不同请求");
+      }
+      return current;
+    }
+    if (page.backgroundRevision !== operation.baseBackgroundRevision) {
+      throw new PublishingDraftConflictError(
+        "publishing",
+        operation.baseBackgroundRevision,
+        page.backgroundRevision
+      );
+    }
+    if (!page.backgroundRounds.some(round => round.assetIds.includes(operation.assetId))) {
+      throw new Error("选择的底图不属于这一页的候选轮次");
+    }
+    nextPage = {
+      ...page,
+      revision: page.revision + 1,
+      backgroundRevision: page.backgroundRevision + 1,
+      adoptedBackgroundAssetId: operation.assetId,
+      updatedAt: now,
+    };
+    receipt = {
+      operationToken: token,
+      requestHash: operation.requestHash,
+      kind: "adopt_background",
+      pageId: page.pageId,
+      resultRevision: target.album.revision + 1,
+      completedAt: now,
+    };
+  }
+
+  const pages = target.album.pages.map((candidate, index) =>
+    index === pageIndex ? nextPage : candidate
+  );
+  let nextAlbum: PublishingAlbumAggregate = {
+    ...target.album,
+    revision: target.album.revision + 1,
+    status: pages.every(candidate =>
+      candidate.adoptedBackgroundAssetId != null && candidate.typography != null
+    ) ? "ready" : "draft",
+    pages,
+    updatedAt: now,
+  };
+  if (receipt) nextAlbum = appendAlbumReceipt(nextAlbum, receipt);
+  return {
+    ...current,
+    revision: current.revision + 1,
+    containerRevision: (current.containerRevision ?? current.revision) + 1,
+    versions: versions.map(version =>
+      version.versionId === target.versionId
+        ? { ...version, versionRevision: version.versionRevision + 1, album: nextAlbum }
+        : version
+    ),
+    updatedAt: now,
+  };
+}
+
 function applyOperation(
   current: PublishingDraftState,
   operation: PublishingDraftWriteOperation,
@@ -994,6 +1435,15 @@ function applyOperation(
   preVersionIntent?: unknown
 ): PublishingDraftState {
   switch (operation.type) {
+    case "initialize_album":
+    case "update_album_page_text":
+    case "update_album_page_typography":
+      return applyAlbumOperation(current, operation, now, operationToken);
+    case "claim_album_background":
+    case "update_album_background":
+    case "complete_album_background":
+    case "adopt_album_background":
+      return applyAlbumBackgroundOperation(current, operation, now, operationToken);
     case "initialize": {
       assertRevision(
         "publishing",

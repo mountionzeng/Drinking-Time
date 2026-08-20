@@ -193,6 +193,11 @@ async function loadPreviewContext(input: {
   if (!version) {
     throw new PublishingVideoStoryboardEligibilityError("文字稿版本不存在");
   }
+  if (version.album) {
+    throw new PublishingVideoStoryboardEligibilityError(
+      "静态画册版本不能进入视频故事版流程"
+    );
+  }
   const draft = version.drafts[version.activePlatform];
   if (!draft || !draft.content.body.trim()) {
     throw new PublishingVideoStoryboardEligibilityError(

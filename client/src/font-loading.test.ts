@@ -21,4 +21,10 @@ describe("brand font loading", () => {
     );
     expect(statSync(subsetPath).size).toBeLessThan(20_000);
   });
+
+  it("does not globally load the publishing album font repository", () => {
+    const css = readFileSync(resolve(process.cwd(), "client/src/index.css"), "utf8");
+    expect(css).not.toContain("fonts/publishing-album");
+    expect(css).not.toContain("Publishing Album Noto");
+  });
 });

@@ -1,0 +1,8 @@
+{
+  "fontId": "noto-serif-sc",
+  "upstream": "google/fonts",
+  "commit": "3b1480ea4b6e15fed70a42f4cb29216476a044ed",
+  "url": "https://raw.githubusercontent.com/google/fonts/3b1480ea4b6e15fed70a42f4cb29216476a044ed/ofl/notoserifsc/NotoSerifSC%5Bwght%5D.ttf",
+  "sha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9",
+  "license": "SIL Open Font License 1.1"
+}

@@ -17,6 +17,7 @@ import { artRepositoryPromptBlocks } from "./artRepository";
 export type ImageOutputPurpose =
   | "story-frame"
   | "publishing-cover"
+  | "publishing-album"
   | "image-edit";
 export type ImageReferencePolicy =
   | "none"
@@ -387,6 +388,11 @@ function productConstraintBlock(ctx: RenderContext): string[] {
         `【整轮否决·第${round}轮】上一轮四张都没有被选中，视为上一轮的整套视觉方案被拒绝。本轮不得延续或微调上一轮；必须更换核心主体类别、主要物件、空间机制、构图骨架、媒介组合与色彩逻辑。不要把“换一波”做成同一物件的换色、换机位或换背景。本轮指定探索方法：${method}。`
       );
     }
+  }
+  if (ctx.outputPurpose === "publishing-album") {
+    blocks.push(
+      "【画册底图产品约束】生成无文字的完整单幅底图，不做海报、书页或字幕排版。构图必须为本页内容重新设计，只继承正式封面的风格、色板、光线、材质和情绪，不复制封面的主体位置或版式。为后续产品文字层保留由环境、光线、雾气、墙面、天空或低细节材质自然形成的安静空间；安静空间不能是空白卡片或人工文本框。禁止任何可读文字、伪文字、字母、数字、Logo、水印、签名、账号、界面、边框和分栏；钟面、日历、书页、报纸、招牌、包装和屏幕必须避开，或呈现为无字且不可读的纯材质。"
+    );
   }
   if (ctx.referencePolicy === "style-only") {
     blocks.push(

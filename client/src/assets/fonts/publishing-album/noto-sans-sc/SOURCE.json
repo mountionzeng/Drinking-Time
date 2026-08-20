@@ -1,0 +1,8 @@
+{
+  "fontId": "noto-sans-sc",
+  "upstream": "google/fonts",
+  "commit": "3b1480ea4b6e15fed70a42f4cb29216476a044ed",
+  "url": "https://raw.githubusercontent.com/google/fonts/3b1480ea4b6e15fed70a42f4cb29216476a044ed/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+  "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  "license": "SIL Open Font License 1.1"
+}

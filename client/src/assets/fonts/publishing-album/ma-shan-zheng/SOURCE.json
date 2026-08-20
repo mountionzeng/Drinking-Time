@@ -1,0 +1,8 @@
+{
+  "fontId": "ma-shan-zheng",
+  "upstream": "google/fonts",
+  "commit": "3b1480ea4b6e15fed70a42f4cb29216476a044ed",
+  "url": "https://raw.githubusercontent.com/google/fonts/3b1480ea4b6e15fed70a42f4cb29216476a044ed/ofl/mashanzheng/MaShanZheng-Regular.ttf",
+  "sha256": "6d2546bb189c732a8ca29af9e22457b152387d158aa459e4ac2ce1e51788b7fb",
+  "license": "SIL Open Font License 1.1"
+}

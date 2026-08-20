@@ -7,6 +7,10 @@ import {
   type PublishingVideoStoryboardAggregate,
 } from "./publishingVideoStoryboard";
 import {
+  normalizePublishingAlbumAggregate,
+  type PublishingAlbumAggregate,
+} from "./publishingAlbum";
+import {
   resolveStoryIntentProfile,
   storyIntentProfileFromLegacy,
   normalizeIntentProposal,
@@ -447,6 +451,8 @@ export type PublishingStoryVersion = {
   conversationSnapshot: PublishingConversationSnapshot | null;
   /** Version-local preview/confirmed script state. Never projected across versions. */
   videoStoryboard: PublishingVideoStoryboardAggregate | null;
+  /** Version-local static album state. Never projected into Story shots/timeline. */
+  album: PublishingAlbumAggregate | null;
 };
 
 export type PublishingDraftState = {
@@ -1353,6 +1359,7 @@ function versionFromLegacyState(
     coverRounds: structuredClone(state.coverRounds),
     conversationSnapshot: null,
     videoStoryboard: null,
+    album: null,
   };
 }
 
@@ -1456,6 +1463,7 @@ function normalizeStoryVersion(
     videoStoryboard: normalizePublishingVideoStoryboardAggregate(
       obj.videoStoryboard
     ),
+    album: normalizePublishingAlbumAggregate(obj.album, now),
   };
 }
 
@@ -1523,7 +1531,8 @@ export function hasPersistedPublishingVersion(
     active.cover ||
     active.coverRounds.length > 0 ||
     active.conversationSnapshot ||
-    active.videoStoryboard
+    active.videoStoryboard ||
+    active.album
   );
 }
 

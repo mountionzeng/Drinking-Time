@@ -101,6 +101,7 @@ import {
   publishingTrendWriteScope,
   publishingVersionTransitionIdentity,
 } from "./publishingOperationScope";
+import { PublishingAlbumWorkspace } from "../publishingAlbum/PublishingAlbumWorkspace";
 
 function createPublishingTextOperationIdentity(
   kind: PublishingTextOperationKind,
@@ -335,6 +336,7 @@ export default function PublishingDraftWorkspace({
   const analyzeReferenceMut = trpc.artAgent.analyzeReference.useMutation();
   const buildVideoStoryboardMut =
     trpc.publishingDraft.buildVideoStoryboard.useMutation();
+  const initializeAlbumMut = trpc.publishingDraft.initializeAlbum.useMutation();
   const utils = trpc.useUtils();
   const [pendingDecision, setPendingDecision] =
     useState<PendingEditDecision | null>(null);
@@ -377,6 +379,8 @@ export default function PublishingDraftWorkspace({
   const [loadingVersionId, setLoadingVersionId] = useState<string | null>(null);
   const [intentEditorOpen, setIntentEditorOpen] = useState(false);
   const [videoSetupOpen, setVideoSetupOpen] = useState(false);
+  const [albumWorkspaceOpen, setAlbumWorkspaceOpen] = useState(false);
+  const [coverStudioReturnToAlbum, setCoverStudioReturnToAlbum] = useState(false);
   const [selectedNarrativeSpec, setSelectedNarrativeSpec] =
     useState<NarrativeSpecId>("video30");
   const [selectedNarrativePurpose, setSelectedNarrativePurpose] =
@@ -405,6 +409,7 @@ export default function PublishingDraftWorkspace({
   useEffect(() => {
     coverReferenceAnalysisRequestRef.current += 1;
     setCoverStudioOpen(false);
+    setCoverStudioReturnToAlbum(false);
     setRewriteInstruction("");
     setActiveCoverRoundId(null);
     setSelectedCoverAssetId(null);
@@ -454,6 +459,9 @@ export default function PublishingDraftWorkspace({
     publishing.versions?.find(version => version.versionId === versionId) ??
     publishing.versions?.[0] ??
     null;
+  useEffect(() => {
+    if (activeVersion?.album) setAlbumWorkspaceOpen(true);
+  }, [activeVersion?.versionId]);
   const activeNarrativeIntent =
     activeVersion?.narrativeIntent ?? defaultPublishingNarrativeIntent();
   const hasPublishingVersion = hasPersistedPublishingVersion(publishing);
@@ -534,7 +542,7 @@ export default function PublishingDraftWorkspace({
     generateCoverMut.isPending ||
     adoptCoverMut.isPending ||
     analyzeReferenceMut.isPending;
-  const videoPreparing = buildVideoStoryboardMut.isPending;
+  const videoPreparing = buildVideoStoryboardMut.isPending || initializeAlbumMut.isPending;
   const videoBusy = videoPreparing;
   const coverGenerationPresentation =
     getCoverGenerationPresentation(coverGenerationMode);
@@ -990,7 +998,7 @@ export default function PublishingDraftWorkspace({
     }
   };
 
-  const openCoverStudio = () => {
+  const openCoverStudio = (returnToAlbum = false) => {
     const latestRound = coverRounds.at(-1) ?? null;
     setActiveCoverRoundId(latestRound?.id ?? null);
     setSelectedCoverAssetId(null);
@@ -998,6 +1006,7 @@ export default function PublishingDraftWorkspace({
     setCoverInstructions(instructionsFromRound(latestRound));
     setCoverArtReference(latestRound?.artReference ?? null);
     setCoverReferencePreview(latestRound?.artReference?.imageUrl ?? null);
+    setCoverStudioReturnToAlbum(returnToAlbum);
     setCoverStudioOpen(true);
   };
 
@@ -1258,7 +1267,7 @@ export default function PublishingDraftWorkspace({
   ]);
 
   const continueToVideo = async (
-    narrativeSpec?: NarrativeSpecId,
+    narrativeSpec?: Exclude<NarrativeSpecId, "album9">,
     targetVersionId = versionId
   ) => {
     if (
@@ -1376,7 +1385,9 @@ export default function PublishingDraftWorkspace({
         baseDraftRevision: draft.revision,
         baseVersionRevision: scope.versionRevision,
         baseContainerRevision: scope.containerRevision,
-        displayName: `视频版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`,
+        displayName: selectedNarrativeSpec === "album9"
+          ? `画册版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`
+          : `视频版 · ${NARRATIVE_SPEC_LABELS[selectedNarrativeSpec]}`,
         narrativeIntent,
         ...identity,
       })
@@ -1391,14 +1402,41 @@ export default function PublishingDraftWorkspace({
         }
         setPublishing(result.publishing);
         await refreshPublishingRead(storyId);
-        await continueToVideo(
-          selectedNarrativeSpec,
-          result.publishing.activeVersionId ?? versionId
-        );
+        const createdVersionId = result.publishing.activeVersionId ?? versionId;
+        if (selectedNarrativeSpec === "album9") {
+          const createdVersion = result.publishing.versions?.find(
+            candidate => candidate.versionId === createdVersionId
+          );
+          if (!createdVersion) throw new Error("新画册版本没有保存成功");
+          const initialized = await initializeAlbumMut.mutateAsync({
+            storyId,
+            versionId: createdVersionId,
+            platform,
+            baseContainerRevision:
+              result.publishing.containerRevision ?? result.publishing.revision,
+            baseVersionRevision: createdVersion.versionRevision,
+            operationToken: `album-initialize-${crypto.randomUUID()}`,
+          });
+          if (!publishingStoryScopeMatches(
+            storyId,
+            storySpineStore.getState().activeStoryId
+          )) return;
+          setPublishing(initialized.publishing);
+          await refreshPublishingRead(storyId);
+          setAlbumWorkspaceOpen(true);
+          toast.success("画册页面已建立；视频故事版和剪辑台没有改变");
+          return;
+        }
+        await continueToVideo(selectedNarrativeSpec, createdVersionId);
       })
       .catch(error => {
         toast.error(
-          publishingErrorMessage(error, "新的视频版本创建失败，原版本仍然保留")
+          publishingErrorMessage(
+            error,
+            selectedNarrativeSpec === "album9"
+              ? "新的画册版本创建失败，原版本和视频流程仍然保留"
+              : "新的视频版本创建失败，原版本仍然保留"
+          )
         );
       });
   };
@@ -1438,7 +1476,11 @@ export default function PublishingDraftWorkspace({
       setSelectedCoverAssetId(null);
       setCoverFeedback("");
       toast.success("已采用这张正式封面，其他工作区会继承它");
-      if (shouldContinueToVideo) openVideoSetup();
+      if (coverStudioReturnToAlbum) {
+        setAlbumWorkspaceOpen(true);
+      } else if (shouldContinueToVideo) {
+        openVideoSetup();
+      }
     } catch (error) {
       toast.error(
         publishingErrorMessage(error, "封面采用失败，原封面仍然保留")
@@ -1936,6 +1978,23 @@ export default function PublishingDraftWorkspace({
     );
   }
 
+  if (albumWorkspaceOpen && activeVersion?.album) {
+    return (
+      <PublishingAlbumWorkspace
+        key={`${activeStoryId}:${activeVersion.versionId}`}
+        storyId={activeStoryId}
+        version={activeVersion}
+        coverAvailable={Boolean(activeVersion.cover?.assetId)}
+        onPublishingChange={setPublishing}
+        onBackToDraft={() => setAlbumWorkspaceOpen(false)}
+        onOpenCoverStudio={() => {
+          setAlbumWorkspaceOpen(false);
+          openCoverStudio(true);
+        }}
+      />
+    );
+  }
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 4 }}
@@ -1971,6 +2030,13 @@ export default function PublishingDraftWorkspace({
               onCreate={displayName => requestCreateVersion({ displayName })}
               onEditIntent={openIntentEditor}
             />
+            {activeVersion?.album ? (
+              <nav className="mt-2 flex gap-1" aria-label="发布工作区子导航">
+                <span aria-current="page" className="rounded-lg bg-[var(--nayin-glow)] px-3 py-1.5 text-[11px]">正文</span>
+                <button type="button" onClick={() => openCoverStudio(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">封面</button>
+                <button type="button" onClick={() => setAlbumWorkspaceOpen(true)} className="rounded-lg px-3 py-1.5 text-[11px] hover:bg-muted">画册</button>
+              </nav>
+            ) : null}
             {pendingIntentDraft?.proposal?.id &&
             closedIntentProposalId === pendingIntentDraft.proposal.id ? (
               <button
@@ -2369,7 +2435,7 @@ export default function PublishingDraftWorkspace({
                   复制文案
                 </ActionButton>
                 <ActionButton
-                  onClick={openCoverStudio}
+                  onClick={() => openCoverStudio(false)}
                   disabled={busy || coverBusy || videoBusy || dirty}
                 >
                   {coverBusy ? (
@@ -2457,9 +2523,13 @@ export default function PublishingDraftWorkspace({
       <Dialog open={videoSetupOpen} onOpenChange={setVideoSetupOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>先定一下这支片子的节奏</DialogTitle>
+            <DialogTitle>
+              {selectedNarrativeSpec === "album9" ? "先定一下这套画册" : "先定一下这支片子的节奏"}
+            </DialogTitle>
             <DialogDescription>
-              这是一次新的故事版生成，不会覆盖当前文字和已有故事版。模型会按你的选择重新编排镜头。
+              {selectedNarrativeSpec === "album9"
+                ? "会新建独立画册版本，把中文作为可编辑文字层叠在底图上；不会建立镜头、时间线或进入剪辑台。"
+                : "这是一次新的视频故事版生成，不会覆盖当前文字和已有故事版。模型会按你的选择重新编排镜头。"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-1">
@@ -2561,7 +2631,7 @@ export default function PublishingDraftWorkspace({
               ) : (
                 <ArrowRight className="h-4 w-4" />
               )}
-              按这个节奏生成
+              {selectedNarrativeSpec === "album9" ? "制作画册" : "按这个节奏生成"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
@@ -3211,18 +3281,19 @@ export default function PublishingDraftWorkspace({
                 ) : (
                   <ArrowRight className="h-4 w-4" />
                 )}
-                采用并进入视频
+                {coverStudioReturnToAlbum ? "采用并返回画册" : "采用并进入视频"}
               </ActionButton>
             ) : coverAsset ? (
               <ActionButton
                 onClick={() => {
                   setCoverStudioOpen(false);
-                  openVideoSetup();
+                  if (coverStudioReturnToAlbum) setAlbumWorkspaceOpen(true);
+                  else openVideoSetup();
                 }}
                 disabled={coverBusy}
                 primary
               >
-                使用当前封面进入视频
+                {coverStudioReturnToAlbum ? "使用当前封面返回画册" : "使用当前封面进入视频"}
                 <ArrowRight className="h-4 w-4" />
               </ActionButton>
             ) : null}

@@ -196,6 +196,68 @@ describe("publishing version operation identity", () => {
 });
 
 describe("normalizePublishingDraftState", () => {
+  it("keeps album state version-local without projecting it into video storyboard", () => {
+    const input = stateWithDrafts();
+    const normalized = normalizePublishingDraftState({
+      ...input,
+      activeVersionId: "v1",
+      containerRevision: 1,
+      canonicalAuthority: "versions",
+      versions: [{
+        versionId: "v1",
+        sequence: 1,
+        displayName: "画册版",
+        parentId: null,
+        versionRevision: 1,
+        core: input.core,
+        drafts: input.drafts,
+        activePlatform: input.activePlatform,
+        selectedPlatforms: input.selectedPlatforms,
+        narrativeIntent: {},
+        cover: null,
+        coverRounds: [],
+        conversationSnapshot: null,
+        videoStoryboard: null,
+        album: {
+          version: 1,
+          revision: 0,
+          status: "draft",
+          source: {
+            platform: "xiaohongshu",
+            draftRevision: 1,
+            contentHash: "album-source",
+            createdAt: NOW,
+          },
+          pages: [{
+            pageId: "page-001",
+            ordinal: 1,
+            revision: 0,
+            textRevision: 0,
+            backgroundRevision: 0,
+            typographyRevision: 0,
+            sourceParagraphIds: ["paragraph-1"],
+            sourceTextHash: "page-text",
+            sourceStale: false,
+            text: "这一页属于画册，不是视频镜头。",
+            adoptedBackgroundAssetId: null,
+            backgroundRounds: [],
+            backgroundGeneration: null,
+            typography: null,
+            createdAt: NOW,
+            updatedAt: NOW,
+          }],
+          operationReceipts: {},
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      }],
+    }, NOW);
+
+    expect(normalized.versions?.[0]?.album?.pages[0]?.text).toContain("画册");
+    expect(normalized.versions?.[0]?.videoStoryboard).toBeNull();
+    expect(normalized.activeVideoStoryboardVersionId).toBeNull();
+  });
+
   it("keeps version/platform context snapshots isolated in the canonical version", () => {
     const state = normalizePublishingDraftState({
       version: 1,
