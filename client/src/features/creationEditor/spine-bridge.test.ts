@@ -14,10 +14,17 @@ describe("creation editor spine boundary", () => {
 
     expect(storyContext).toContain("resolveRecentStoryEntry(");
     expect(storyContext).toMatch(
-      /loadStory\(entry\.storyId, \{[\s\S]*?silent: true,[\s\S]*?expectedActiveStoryId: null/
+      /loadStoryRef\.current\(entry\.storyId, \{[\s\S]*?silent: true,[\s\S]*?expectedActiveStoryId: null/
     );
     expect(storyContext).toContain(
       'options !== undefined && "expectedActiveStoryId" in options'
+    );
+    expect(storyContext).toContain(
+      "const refreshRecentStoryListRef = useRef(refreshStoryList)"
+    );
+    expect(storyContext).toContain("const loadStoryRef = useRef(loadStory)");
+    expect(storyContext).toMatch(
+      /refreshRecentStoryListRef\.current[\s\S]*?loadStoryRef\.current[\s\S]*?\}, \[hydratedFor, projectId\]\);/
     );
   });
 

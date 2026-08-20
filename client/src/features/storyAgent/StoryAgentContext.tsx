@@ -102,7 +102,10 @@ import {
   canApplyAutomaticStoryTitle,
   suggestAutomaticStoryTitleFromState,
 } from "./storyTitle";
-import { resolveRecentStoryEntry } from "./recentStoryEntry";
+import {
+  refreshRecentStoryListWithRetry,
+  resolveRecentStoryEntry,
+} from "./recentStoryEntry";
 import {
   buildPromptAttribution,
   encodeAttributionReason,
@@ -219,16 +222,6 @@ export function shouldStoreStoryCard(
   confirmedIntent: StoryIntent | null | undefined
 ): boolean {
   return !confirmedIntent;
-}
-
-export async function refreshRecentStoryListWithRetry(
-  refreshStoryList: () => Promise<boolean>,
-  isCancelled: () => boolean
-): Promise<boolean> {
-  for (let attempt = 0; attempt < 2 && !isCancelled(); attempt += 1) {
-    if (await refreshStoryList()) return true;
-  }
-  return false;
 }
 
 type StoryCardConfirmationInput = Pick<StoryCard, "id" | "content">;
@@ -3020,6 +3013,10 @@ export function StoryAgentProvider({
     },
     [setStoryList, storyAutoRenameMut, utils.storyAgent.storyGet]
   );
+  const refreshRecentStoryListRef = useRef(refreshStoryList);
+  const loadStoryRef = useRef(loadStory);
+  refreshRecentStoryListRef.current = refreshStoryList;
+  loadStoryRef.current = loadStory;
 
   useEffect(() => {
     if (
@@ -3030,12 +3027,11 @@ export function StoryAgentProvider({
       return;
     }
 
-    recentStoryOpenedForProjectRef.current = projectId;
     let cancelled = false;
 
     void (async () => {
       const refreshed = await refreshRecentStoryListWithRetry(
-        refreshStoryList,
+        () => refreshRecentStoryListRef.current(),
         () => cancelled
       );
       if (!refreshed || cancelled) return;
@@ -3045,18 +3041,19 @@ export function StoryAgentProvider({
         state.storyList,
         state.activeStoryId
       );
-      if (entry) {
-        await loadStory(entry.storyId, {
-          silent: true,
-          expectedActiveStoryId: null,
-        });
-      }
+      if (!entry) return;
+
+      recentStoryOpenedForProjectRef.current = projectId;
+      await loadStoryRef.current(entry.storyId, {
+        silent: true,
+        expectedActiveStoryId: null,
+      });
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [hydratedFor, loadStory, projectId, refreshStoryList]);
+  }, [hydratedFor, projectId]);
 
   useEffect(() => {
     if (!activeStoryId || activeStoryId < 1) return;

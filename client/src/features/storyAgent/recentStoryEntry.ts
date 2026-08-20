@@ -8,6 +8,16 @@ type StoryEntryCandidate = {
   shotCount?: number;
 };
 
+export async function refreshRecentStoryListWithRetry(
+  refreshStoryList: () => Promise<boolean>,
+  isCancelled: () => boolean
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 2 && !isCancelled(); attempt += 1) {
+    if (await refreshStoryList()) return true;
+  }
+  return false;
+}
+
 export function workspaceForStoryStage(
   shotCount: number | undefined
 ): RecentStoryEntry["workspace"] {
