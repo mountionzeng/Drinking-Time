@@ -78,6 +78,7 @@ vi.mock("@/lib/trpc", () => {
         selectPlatformContextTags: { useMutation: mutation },
         generateCover: { useMutation: mutation },
         adoptCoverCandidate: { useMutation: mutation },
+        initializeAlbum: { useMutation: mutation },
         buildVideoStoryboard: {
           useMutation: () => ({
             isPending: api.buildVideoStoryboardPending,

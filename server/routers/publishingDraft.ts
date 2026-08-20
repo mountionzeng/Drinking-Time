@@ -943,6 +943,36 @@ export const publishingDraftRouter = router({
       }
     }),
 
+  readAlbum: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const current = await getPublishingDraftState(input.storyId, ctx.user.id);
+        const version = current.publishing.versions?.find(candidate => candidate.versionId === input.versionId);
+        if (!version) throw new Error("发布版本不存在或已经切换");
+        const assetIds = Array.from(new Set(version.album?.pages.flatMap(page =>
+          page.backgroundRounds.flatMap(round => round.assetIds)
+        ) ?? []));
+        const assets = await Promise.all(assetIds.map(async assetId => {
+          const image = await getGeneratedImageById(assetId);
+          if (!image || image.storyId !== input.storyId || image.userId !== ctx.user.id) return null;
+          return { id: image.id, imageUrl: image.imageUrl, imageKey: image.imageKey };
+        }));
+        return {
+          storyId: input.storyId,
+          versionId: version.versionId,
+          versionRevision: version.versionRevision,
+          album: version.album,
+          assets: assets.filter((asset): asset is NonNullable<typeof asset> => asset != null),
+        };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
   initializeAlbum: protectedProcedure
     .input(z.object({
       storyId: z.number().int().positive(),
@@ -1075,7 +1105,7 @@ export const publishingDraftRouter = router({
         operationToken: z.string().trim().min(1).max(160).optional(),
         /** 目标成片形态；不传则沿用 version 上已存的，仍没有就按 30 秒档 */
         narrativeSpec: z
-          .enum(["album9", "video10", "video30", "video50"])
+          .enum(["video10", "video30", "video50"])
           .optional(),
       })
     )
