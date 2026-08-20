@@ -6,6 +6,8 @@ import {
   PUBLISHING_ALBUM_MAX_PAGES,
   publishingAlbumCodePointCount,
   type PublishingAlbumAggregate,
+  type PublishingAlbumBackgroundGeneration,
+  type PublishingAlbumBackgroundRound,
   type PublishingAlbumPage,
   type PublishingAlbumTypographyLayout,
 } from "../../shared/publishingAlbum";
@@ -234,6 +236,113 @@ export async function updatePublishingAlbumPageTypography(input: {
         typography: input.typography,
         baseTextRevision: input.baseTextRevision,
         baseTypographyRevision: input.baseTypographyRevision,
+      }),
+    },
+  });
+}
+
+export async function claimPublishingAlbumBackground(input: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+  pageId: string;
+  generation: PublishingAlbumBackgroundGeneration;
+  baseBackgroundRevision: number;
+  now?: number;
+}): Promise<PublishingDraftPersistenceResult> {
+  return writePublishingDraftState({
+    storyId: input.storyId,
+    userId: input.userId,
+    now: input.now,
+    operation: {
+      type: "claim_album_background",
+      versionId: input.versionId,
+      pageId: input.pageId,
+      generation: input.generation,
+      baseBackgroundRevision: input.baseBackgroundRevision,
+    },
+  });
+}
+
+export async function updatePublishingAlbumBackground(input: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+  pageId: string;
+  operationToken: string;
+  taskId?: string | null;
+  status?: PublishingAlbumBackgroundGeneration["status"];
+  error?: string;
+  expiresAt?: number;
+  now?: number;
+}): Promise<PublishingDraftPersistenceResult> {
+  return writePublishingDraftState({
+    storyId: input.storyId,
+    userId: input.userId,
+    now: input.now,
+    operation: {
+      type: "update_album_background",
+      versionId: input.versionId,
+      pageId: input.pageId,
+      operationToken: input.operationToken,
+      taskId: input.taskId,
+      status: input.status,
+      error: input.error,
+      expiresAt: input.expiresAt,
+    },
+  });
+}
+
+export async function completePublishingAlbumBackground(input: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+  pageId: string;
+  operationToken: string;
+  round: PublishingAlbumBackgroundRound;
+  now?: number;
+}): Promise<PublishingDraftPersistenceResult> {
+  return writePublishingDraftState({
+    storyId: input.storyId,
+    userId: input.userId,
+    now: input.now,
+    operation: {
+      type: "complete_album_background",
+      versionId: input.versionId,
+      pageId: input.pageId,
+      operationToken: input.operationToken,
+      round: input.round,
+    },
+  });
+}
+
+export async function adoptPublishingAlbumBackground(input: {
+  storyId: number;
+  userId: number;
+  versionId: string;
+  pageId: string;
+  assetId: number;
+  baseBackgroundRevision: number;
+  operationToken: string;
+  now?: number;
+}): Promise<PublishingDraftPersistenceResult> {
+  return writePublishingDraftState({
+    storyId: input.storyId,
+    userId: input.userId,
+    operationToken: input.operationToken,
+    now: input.now,
+    operation: {
+      type: "adopt_album_background",
+      versionId: input.versionId,
+      pageId: input.pageId,
+      assetId: input.assetId,
+      baseBackgroundRevision: input.baseBackgroundRevision,
+      requestHash: hash({
+        kind: "adopt_background",
+        versionId: input.versionId,
+        pageId: input.pageId,
+        assetId: input.assetId,
+        baseBackgroundRevision: input.baseBackgroundRevision,
       }),
     },
   });

@@ -77,6 +77,16 @@ import {
   PublishingVideoStoryboardOperationConflictError,
 } from "../services/publishingVideoStoryboardPersistence";
 import { PublishingVideoStoryboardModelOutputError } from "../services/publishingVideoStoryboard";
+import {
+  initializePublishingAlbum,
+  updatePublishingAlbumPageText,
+  updatePublishingAlbumPageTypography,
+} from "../services/publishingAlbumPersistence";
+import {
+  adoptPublishingAlbumBackgroundCandidate,
+  generatePublishingAlbumBackground,
+  quotePublishingAlbumBackground,
+} from "../services/publishingAlbumBackgroundGeneration";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
 const trendPlatformSchema = z.enum(PUBLISHING_TREND_PLATFORM_IDS);
@@ -84,6 +94,53 @@ const contentSchema = z.object({
   title: z.string().max(160),
   body: z.string().max(20_000),
   tags: z.array(z.string().max(80)).max(12),
+});
+const albumPointSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+});
+const albumContrastSchema = z.object({
+  textColor: z.string().trim().min(1).max(32),
+  outlineColor: z.string().trim().max(32).nullable(),
+  outlineWidth: z.number().min(0).max(8),
+  backdropColor: z.string().trim().max(32).nullable(),
+});
+const albumTypographyBaseSchema = z.object({
+  layoutVersion: z.literal(1),
+  fontId: z.string().trim().min(1).max(80),
+  alignment: z.enum(["start", "center", "end"]),
+  fontSize: z.number().min(8).max(240),
+  letterSpacing: z.number().min(-5).max(20),
+  lineSpacing: z.number().min(0.8).max(3),
+  contrast: albumContrastSchema,
+});
+const albumTypographySchema = z.discriminatedUnion("kind", [
+  albumTypographyBaseSchema.extend({
+    kind: z.literal("region"),
+    shape: z.enum(["rectangle", "ellipse"]),
+    direction: z.enum(["horizontal", "vertical"]),
+    region: z.object({
+      x: z.number().min(0).max(1), y: z.number().min(0).max(1),
+      width: z.number().positive().max(1), height: z.number().positive().max(1),
+    }),
+  }),
+  albumTypographyBaseSchema.extend({
+    kind: z.literal("path"),
+    points: z.array(albumPointSchema).min(2).max(256),
+  }),
+]);
+const albumBackgroundProviderSchema = z.enum(["midjourney", "gpt-image"]);
+const albumBackgroundQuoteSchema = z.object({
+  quoteId: z.string().regex(/^[a-f0-9]{64}$/),
+  storyId: z.number().int().positive(),
+  versionId: z.string().trim().min(1).max(64),
+  pageId: z.string().trim().min(1).max(120),
+  provider: albumBackgroundProviderSchema,
+  inputHash: z.string().regex(/^[a-f0-9]{64}$/),
+  currency: z.literal("CNY"),
+  estimatedCny: z.number().nonnegative(),
+  candidateCount: z.number().int().min(1).max(4),
+  expiresAt: z.number().int().nonnegative(),
 });
 const coreSchema = z.object({
   facts: z.array(z.string().max(2_000)).max(20),
@@ -881,6 +938,109 @@ export const publishingDraftRouter = router({
             baseSourceRevision: input.baseSourceRevision,
           },
         });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  initializeAlbum: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      platform: platformSchema.optional(),
+      baseContainerRevision: z.number().int().nonnegative(),
+      baseVersionRevision: z.number().int().nonnegative(),
+      operationToken: z.string().trim().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await initializePublishingAlbum({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  updateAlbumPageText: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      pageId: z.string().trim().min(1).max(120),
+      text: z.string().max(2_000),
+      baseTextRevision: z.number().int().nonnegative(),
+      operationToken: z.string().trim().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await updatePublishingAlbumPageText({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  saveAlbumPageTypography: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      pageId: z.string().trim().min(1).max(120),
+      typography: albumTypographySchema,
+      baseTextRevision: z.number().int().nonnegative(),
+      baseTypographyRevision: z.number().int().nonnegative(),
+      operationToken: z.string().trim().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await updatePublishingAlbumPageTypography({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  quoteAlbumPageBackground: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      pageId: z.string().trim().min(1).max(120),
+      provider: albumBackgroundProviderSchema.optional(),
+      feedback: z.string().trim().max(2_000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await quotePublishingAlbumBackground({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  generateAlbumPageBackground: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      pageId: z.string().trim().min(1).max(120),
+      provider: albumBackgroundProviderSchema.optional(),
+      feedback: z.string().trim().max(2_000).optional(),
+      operationToken: z.string().trim().min(1).max(200).optional(),
+      confirmation: albumBackgroundQuoteSchema.optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await generatePublishingAlbumBackground({ ...input, userId: ctx.user.id });
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  adoptAlbumPageBackground: protectedProcedure
+    .input(z.object({
+      storyId: z.number().int().positive(),
+      versionId: z.string().trim().min(1).max(64),
+      pageId: z.string().trim().min(1).max(120),
+      assetId: z.number().int().positive(),
+      baseBackgroundRevision: z.number().int().nonnegative(),
+      operationToken: z.string().trim().min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await adoptPublishingAlbumBackgroundCandidate({ ...input, userId: ctx.user.id });
       } catch (error) {
         throwPublishingError(error);
       }

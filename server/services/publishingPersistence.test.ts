@@ -214,6 +214,101 @@ describe("publishingPersistence", () => {
     })).rejects.toBeInstanceOf(PublishingDraftConflictError);
   });
 
+  it("keeps paid album results as candidates and adopts only an exact page asset", async () => {
+    const initialized = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "initialize", activePlatform: "xiaohongshu", selectedPlatforms: ["xiaohongshu"],
+      core: baseCore, content: { title: "画册", body: "这一页的正文", tags: [] }, basePublishingRevision: 0,
+    }});
+    const version = initialized.publishing.versions?.[0]!;
+    const draft = version.drafts.xiaohongshu!;
+    const withAlbum = await writePublishingDraftState({
+      storyId: 7, userId: 3, operationToken: "album-init-background-test",
+      operation: {
+        type: "initialize_album", versionId: version.versionId,
+        album: buildPublishingAlbumDraft({ versionId: version.versionId, platform: "xiaohongshu", draftRevision: draft.revision, content: draft.content, now: 10 }),
+        requestHash: "album-init-background-hash",
+        baseContainerRevision: initialized.publishing.containerRevision ?? 0,
+        baseVersionRevision: version.versionRevision,
+      },
+    });
+    const page = withAlbum.publishing.versions?.[0]?.album?.pages[0]!;
+    const generation = {
+      operationToken: "paid-background-1",
+      requestHash: "paid-request-hash",
+      versionId: version.versionId,
+      pageId: page.pageId,
+      status: "pending" as const,
+      provider: "midjourney" as const,
+      taskId: null,
+      inputSnapshot: {
+        pageTextHash: "original-page-hash",
+        pageRevision: page.revision,
+        coverAssetId: 41,
+        coverSourceCoreRevision: version.core?.revision ?? 0,
+        artDirectionHash: "art-hash",
+        artReference: null,
+        promptCompilerVersion: 1,
+        prompt: "compiled no-text prompt",
+        aspectRatio: "3:4",
+      },
+      feedback: "",
+      claimedAt: 20,
+      updatedAt: 20,
+      expiresAt: 1_000,
+    };
+    const claimed = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "claim_album_background", versionId: version.versionId, pageId: page.pageId,
+      generation, baseBackgroundRevision: page.backgroundRevision,
+    }});
+    const claimedPage = claimed.publishing.versions?.[0]?.album?.pages[0]!;
+    expect(claimedPage.adoptedBackgroundAssetId).toBeNull();
+
+    const withTask = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "update_album_background", versionId: version.versionId, pageId: page.pageId,
+      operationToken: generation.operationToken, taskId: "provider-task-7",
+    }});
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "update_album_background", versionId: version.versionId, pageId: page.pageId,
+      operationToken: generation.operationToken, taskId: "different-task",
+    }})).rejects.toThrow("不可替换");
+
+    const completed = await writePublishingDraftState({ storyId: 7, userId: 3, operation: {
+      type: "complete_album_background", versionId: version.versionId, pageId: page.pageId,
+      operationToken: generation.operationToken,
+      round: {
+        roundId: "round-1", requestHash: generation.requestHash,
+        sourcePageRevision: generation.inputSnapshot.pageRevision,
+        sourceCoverAssetId: 41, feedback: "", assetIds: [501, 502],
+        qualityFlaggedAssetIds: [502], qualityCheckUnavailable: false,
+        stale: false, createdAt: 30,
+      },
+    }});
+    const candidatePage = completed.publishing.versions?.[0]?.album?.pages[0]!;
+    expect(candidatePage.backgroundGeneration?.taskId).toBe("provider-task-7");
+    expect(candidatePage.backgroundRounds[0]?.assetIds).toEqual([501, 502]);
+    expect(candidatePage.adoptedBackgroundAssetId).toBeNull();
+
+    const adopted = await writePublishingDraftState({ storyId: 7, userId: 3,
+      operationToken: "adopt-page-background-1", operation: {
+        type: "adopt_album_background", versionId: version.versionId, pageId: page.pageId,
+        assetId: 501, requestHash: "adopt-501-hash",
+        baseBackgroundRevision: candidatePage.backgroundRevision,
+      },
+    });
+    expect(adopted.publishing.versions?.[0]?.album?.pages[0].adoptedBackgroundAssetId).toBe(501);
+    expect(adopted.publishing.versions?.[0]?.videoStoryboard).toBeNull();
+    expect((story.body as Record<string, any>).shots).toEqual([]);
+    expect(withTask.publishing.activeVideoStoryboardVersionId).toBeNull();
+
+    await expect(writePublishingDraftState({ storyId: 7, userId: 3,
+      operationToken: "adopt-wrong-page-asset", operation: {
+        type: "adopt_album_background", versionId: version.versionId, pageId: page.pageId,
+        assetId: 999, requestHash: "adopt-999-hash",
+        baseBackgroundRevision: candidatePage.backgroundRevision + 1,
+      },
+    })).rejects.toThrow("不属于这一页");
+  });
+
   it("keeps pending claims and the 32 most recently updated terminal text receipts", () => {
     const scope = {
       storyId: 7,
