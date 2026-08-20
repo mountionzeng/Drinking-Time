@@ -321,7 +321,7 @@ describe("StoryboardEditRow shortcuts", () => {
     expect(renderRow(boardTimeline())).toContain("aria-keyshortcuts");
   });
 
-  it("turns the six-dot grip into the directional group-move entry and says so", () => {
+  it("uses the six-dot grip for one shot by default and reserves Shift-drag for a group", () => {
     const html = renderRow(
       boardTimeline({
         previewGroupMove: () => ({
@@ -330,13 +330,15 @@ describe("StoryboardEditRow shortcuts", () => {
           boundaryStableShotId: null,
         }),
         onMoveTimelineGroup: vi.fn(),
+        onMoveTimelineShot: vi.fn(),
       }),
       1
     );
     expect(html).toContain('data-testid="storyboard-edit-group-grip-sh-01"');
     // 单镜换顺序不再抢这个手势，只留在 ⌥←/⌥→ 和右键菜单里。
     expect(html).not.toContain('data-testid="storyboard-edit-reorder-sh-01"');
-    expect(html).toContain("整体移动它和同侧连续的镜头");
+    expect(html).toContain("拖动只移动 0101");
+    expect(html).toContain("按住 Shift 拖动才整体移动连续镜头");
     expect(html).toContain("⌥← / ⌥→");
     // 短镜头的两侧已经留给裁剪，把批量抓手放到镜头上方，
     // 不再覆盖中间用于“只移动这一镜”的画面区域。
@@ -347,6 +349,27 @@ describe("StoryboardEditRow shortcuts", () => {
     expect(html).toMatch(
       /<button[^>]*draggable="false"[^>]*data-testid="storyboard-edit-group-grip-sh-01"/
     );
+  });
+
+  it("marks an enabled shared seam as magnetic", () => {
+    const html = renderRow(
+      boardTimeline({
+        magneticJoins: [
+          {
+            leftStableShotId: "sh-01",
+            rightStableShotId: "sh-02",
+            boundaryFrame: 60,
+          },
+        ],
+        onRollTimelineJoin: vi.fn(),
+        onDetachTimelineMagnet: vi.fn(),
+      }),
+      1
+    );
+    expect(html).toContain(
+      'data-testid="storyboard-magnetic-join-sh-01-sh-02"'
+    );
+    expect(html).toContain("left:25%");
   });
 
   it("keeps the old single-shot reorder drag when the group action is not wired", () => {

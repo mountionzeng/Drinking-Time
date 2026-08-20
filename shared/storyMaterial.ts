@@ -117,6 +117,12 @@ export type StoryTimelineItem = {
   timelineStartFrame?: number;
   /** Durable overlap priority; larger values win among unanchored items. */
   stackOrder?: number;
+  /**
+   * Explicitly keeps this shot detached from the named shot immediately to
+   * its left. The id (rather than a boolean "previous") prevents a reorder
+   * from accidentally carrying the opt-out to a different neighbour.
+   */
+  detachedFromPreviousShotId?: string;
   anchors?: StoryTimelineAnchor[];
   transform: TimelineTransform;
   /** Per-storyboard-frame transforms. The legacy item transform remains the fallback. */

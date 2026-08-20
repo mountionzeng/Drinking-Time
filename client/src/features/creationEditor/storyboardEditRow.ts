@@ -14,6 +14,51 @@ const STORYBOARD_EDIT_MIN_SELECTION_MS = 80;
 
 /** 走带和微调时长的最小步长，按 30fps 算一帧。 */
 export const STORYBOARD_EDIT_FRAME_MS = 1000 / 30;
+export const STORYBOARD_MAGNET_THRESHOLD_PX = 8;
+
+/** Keep the magnetic feel stable on screen even when the timeline zoom changes. */
+export function storyboardMagnetThresholdFrames(input: {
+  trackWidthPx: number;
+  totalMs: number;
+  thresholdPx?: number;
+}): number {
+  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) return 0;
+  return Math.max(
+    1,
+    Math.round(
+      (((input.thresholdPx ?? STORYBOARD_MAGNET_THRESHOLD_PX) /
+        input.trackWidthPx) *
+        input.totalMs *
+        30) /
+        1000
+    )
+  );
+}
+
+/** Compute from the current pointer coordinate so release never commits stale React state. */
+export function storyboardRollingBoundaryFrame(input: {
+  baseBoundaryFrame: number;
+  leftStartFrame: number;
+  rightEndFrame: number;
+  startClientX: number;
+  currentClientX: number;
+  trackWidthPx: number;
+  totalMs: number;
+}): number {
+  if (!(input.trackWidthPx > 0) || !(input.totalMs > 0)) {
+    return input.baseBoundaryFrame;
+  }
+  const deltaFrames = Math.round(
+    (((input.currentClientX - input.startClientX) / input.trackWidthPx) *
+      input.totalMs *
+      30) /
+      1000
+  );
+  return Math.max(
+    input.leftStartFrame + 1,
+    Math.min(input.rightEndFrame - 1, input.baseBoundaryFrame + deltaFrames)
+  );
+}
 
 export type StoryboardEditSegment = {
   id: string;
@@ -381,6 +426,18 @@ export function storyboardEditSelectionSummary(input: {
  */
 export const STORYBOARD_GROUP_DRAG_THRESHOLD_PX = 4;
 
+/** 抓手默认服从当前单镜选择；整组移动必须由 Shift 明确触发。 */
+export function storyboardGripDragMode(input: {
+  shiftKey: boolean;
+  singleMoveEnabled: boolean;
+  groupMoveEnabled: boolean;
+}): "single" | "group" | null {
+  if (input.shiftKey && input.groupMoveEnabled) return "group";
+  if (input.singleMoveEnabled) return "single";
+  if (input.groupMoveEnabled) return "group";
+  return null;
+}
+
 /**
  * 方向在越过阈值的那一刻锁死：往左拖就带上左边一串，往右拖就带上右边一串。
  * 锁定之后即使指针又划回起点另一侧，组员也不再换人。
@@ -470,6 +527,7 @@ export function storyboardGroupDragSummary(input: {
 export type StoryboardEditAction =
   | "addAnchor"
   | "removeAnchor"
+  | "detachMagnet"
   | "split"
   | "extract"
   | "selectShot"
@@ -515,6 +573,8 @@ export function storyboardEditMenuItems(input: {
     /** 有没有一个可删的锚点（焦点上的或播放头这一帧的）。 */
     removableAnchorLabel: string | null;
   };
+  /** The context click landed on an enabled magnetic seam. */
+  canDetachMagnet?: boolean;
 }): StoryboardEditMenuItem[] {
   const noVideo = input.canSplitHere
     ? null
@@ -544,6 +604,16 @@ export function storyboardEditMenuItems(input: {
         : "这一帧没有位置锚点",
       danger: false,
       groupStart: false,
+    });
+  }
+  if (input.canDetachMagnet) {
+    items.push({
+      action: "detachMagnet",
+      label: "取消这两个镜头的吸附",
+      shortcut: "",
+      disabledReason: null,
+      danger: false,
+      groupStart: items.length > 0,
     });
   }
   items.push(

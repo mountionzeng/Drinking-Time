@@ -279,6 +279,21 @@ describe("normalizeTimelineItems", () => {
     expect(items[0].stackOrder).toBe(8);
   });
 
+  it("preserves an explicit magnetic detachment only for a named neighbour", () => {
+    const items = normalizeTimelineItems(
+      [
+        { stableShotId: "shot-a" },
+        {
+          stableShotId: "shot-b",
+          detachedFromPreviousShotId: "shot-a",
+        },
+      ],
+      facts
+    );
+
+    expect(items[1].detachedFromPreviousShotId).toBe("shot-a");
+  });
+
   it("appends a placement-less item after the global maximum end, not a running one", () => {
     // shot-a carries no start but is listed first; it must still land after
     // shot-b's explicit range rather than at frame 0.

@@ -12,6 +12,8 @@ import {
   storyboardEditMenuItems,
   storyboardEditNeedsRowFocus,
   storyboardEditNeighborShotId,
+  storyboardMagnetThresholdFrames,
+  storyboardRollingBoundaryFrame,
   storyboardEditNudgedDurationMs,
   storyboardEditPlayheadPct,
   storyboardEditRangePct,
@@ -26,6 +28,7 @@ import {
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
   storyboardGroupDragDirection,
+  storyboardGripDragMode,
   storyboardReleasedDragDeltaFrames,
   storyboardGroupDragStep,
   storyboardGroupDragSummary,
@@ -403,6 +406,40 @@ describe("storyboard edit shortcuts", () => {
 });
 
 describe("storyboard edit navigation", () => {
+  it("keeps the magnet threshold at eight screen pixels across timeline scales", () => {
+    expect(
+      storyboardMagnetThresholdFrames({ trackWidthPx: 800, totalMs: 10_000 })
+    ).toBe(3);
+    expect(
+      storyboardMagnetThresholdFrames({ trackWidthPx: 400, totalMs: 10_000 })
+    ).toBe(6);
+  });
+
+  it("computes a rolling boundary from the release coordinate and clamps both shots", () => {
+    expect(
+      storyboardRollingBoundaryFrame({
+        baseBoundaryFrame: 60,
+        leftStartFrame: 0,
+        rightEndFrame: 120,
+        startClientX: 200,
+        currentClientX: 220,
+        trackWidthPx: 600,
+        totalMs: 4_000,
+      })
+    ).toBe(64);
+    expect(
+      storyboardRollingBoundaryFrame({
+        baseBoundaryFrame: 60,
+        leftStartFrame: 0,
+        rightEndFrame: 120,
+        startClientX: 200,
+        currentClientX: 2_000,
+        trackWidthPx: 600,
+        totalMs: 4_000,
+      })
+    ).toBe(119);
+  });
+
   it("clamps seeking to the running time", () => {
     expect(storyboardEditSeekMs(1_000, -5_000, 8_000)).toBe(0);
     expect(storyboardEditSeekMs(1_000, 99_000, 8_000)).toBe(8_000);
@@ -468,6 +505,20 @@ describe("storyboard edit context menu", () => {
     canInsert: true,
     canDelete: true,
   };
+
+  it("offers detaching only when the click is on a magnetic seam", () => {
+    expect(
+      menu({ ...base, canDetachMagnet: true }).find(
+        item => item.action === "detachMagnet"
+      )
+    ).toMatchObject({
+      label: "取消这两个镜头的吸附",
+      disabledReason: null,
+    });
+    expect(
+      menu(base).some(item => item.action === "detachMagnet")
+    ).toBe(false);
+  });
 
   it("explains why cutting is unavailable rather than failing silently", () => {
     const items = menu({ ...base, canSplitHere: false });
@@ -626,6 +677,23 @@ describe("storyboard edit key routing", () => {
 });
 
 describe("方向批量移动手势", () => {
+  it("抓手默认只移动一镜，只有按住 Shift 才进入整组模式", () => {
+    expect(
+      storyboardGripDragMode({
+        shiftKey: false,
+        singleMoveEnabled: true,
+        groupMoveEnabled: true,
+      })
+    ).toBe("single");
+    expect(
+      storyboardGripDragMode({
+        shiftKey: true,
+        singleMoveEnabled: true,
+        groupMoveEnabled: true,
+      })
+    ).toBe("group");
+  });
+
   it("松手直接按最终指针位置提交，不依赖动画 state 是否已经刷新", () => {
     expect(
       storyboardReleasedDragDeltaFrames({

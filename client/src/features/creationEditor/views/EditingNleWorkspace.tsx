@@ -43,7 +43,10 @@ import type {
 } from "@shared/storyMaterial";
 import { timelineMsToFrames } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
-import { resolveTimelineDocumentFrame } from "@shared/timelineLayout";
+import {
+  buildTimelineLayout,
+  resolveTimelineDocumentFrame,
+} from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 
 import {
@@ -77,6 +80,7 @@ import {
   resolveTimelineShots,
   useCreationEditor,
 } from "../CreationEditorContext";
+import { timelineMagneticJoins } from "../timelineActions";
 import type { CreationEditorShot } from "../types";
 import {
   advanceTimelinePlayhead,
@@ -2467,6 +2471,8 @@ export default function EditingNleWorkspace({
     addTimelineAnchorAtFrame,
     removeTimelineAnchor,
     trimTimelineItemEdge,
+    rollTimelineJoin,
+    detachTimelineMagnet,
     timelineWritePending,
     isLoading,
   } = useCreationEditor();
@@ -3064,6 +3070,7 @@ export default function EditingNleWorkspace({
       anchors: timelineAnchors,
       overlays: timelineOverlays,
       writePending: timelineWritePending,
+      magneticJoins: timelineMagneticJoins(buildTimelineLayout(timelineItems)),
       previewGroupMove: ({ stableShotId, direction }) =>
         previewTimelineGroup(stableShotId, direction),
       onMoveTimelineGroup: async ({ stableShotId, direction, deltaFrames }) => {
@@ -3078,8 +3085,16 @@ export default function EditingNleWorkspace({
       },
       // 拖镜头本体：只移动这一镜，同方向的邻居原地不动。批量移动仍然
       // 走上面的 onMoveTimelineGroup，由六点抓手触发。
-      onMoveTimelineShot: async ({ stableShotId, deltaFrames }) => {
-        const result = await moveTimelineShot(stableShotId, deltaFrames);
+      onMoveTimelineShot: async ({
+        stableShotId,
+        deltaFrames,
+        snapThresholdFrames,
+      }) => {
+        const result = await moveTimelineShot(
+          stableShotId,
+          deltaFrames,
+          snapThresholdFrames
+        );
         if (result.reason) toast.error(result.reason);
         return result;
       },
@@ -3241,6 +3256,30 @@ export default function EditingNleWorkspace({
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
+      onRollTimelineJoin: async ({
+        leftStableShotId,
+        rightStableShotId,
+        requestedBoundaryFrame,
+      }) => {
+        const result = await rollTimelineJoin(
+          leftStableShotId,
+          rightStableShotId,
+          requestedBoundaryFrame
+        );
+        if (!result.applied && result.reason) toast.error(result.reason);
+        return result;
+      },
+      onDetachTimelineMagnet: async ({
+        leftStableShotId,
+        rightStableShotId,
+      }) => {
+        const result = await detachTimelineMagnet(
+          leftStableShotId,
+          rightStableShotId
+        );
+        if (!result.applied && result.reason) toast.error(result.reason);
+        return result;
+      },
       onSplitAt: async playheadMs => {
         try {
           await splitAtPlayhead(playheadMs);
@@ -3281,11 +3320,13 @@ export default function EditingNleWorkspace({
       addTimelineAnchorAtFrame,
       boardSelectedRange,
       extractFrameAtPlayhead,
+      detachTimelineMagnet,
       moveTimelineGroup,
       moveTimelineShot,
       previewTimelineGroup,
       removeTimelineAnchor,
       reorderShotInTimeline,
+      rollTimelineJoin,
       setActiveSelection,
       shots,
       storyboardAudioClips,
@@ -3293,6 +3334,7 @@ export default function EditingNleWorkspace({
       timelineAnchors,
       timelinePlayback.isPlaying,
       timelinePlayback.playheadMs,
+      timelineItems,
       timelineShotIds,
       proposeGapTransitionCard,
       proposeExtractedFrameTransitionCard,

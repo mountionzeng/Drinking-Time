@@ -7,6 +7,7 @@ import {
   EyeOff,
   GripVertical,
   Loader2,
+  Magnet,
   Pause,
   Play,
   SkipBack,
@@ -40,6 +41,8 @@ import {
   storyboardEditEdgeMs,
   storyboardEditFilmstripFrameUrls,
   storyboardEditMenuItems,
+  storyboardMagnetThresholdFrames,
+  storyboardRollingBoundaryFrame,
   storyboardEditNeighborShotId,
   storyboardEditNudgedDurationMs,
   storyboardEditPlayheadPct,
@@ -53,6 +56,7 @@ import {
   storyboardEditTimingAt,
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
+  storyboardGripDragMode,
   storyboardReleasedDragDeltaFrames,
   storyboardGroupDragStep,
   storyboardGroupDragSummary,
@@ -107,6 +111,13 @@ export type StoryboardBoardTimeline = {
     edge: "start" | "end";
     requestedBoundaryFrame: number;
   }) => Promise<{ applied: boolean; reason?: string }>;
+  magneticJoins?: readonly StoryboardMagneticJoin[];
+  onRollTimelineJoin?: (input: StoryboardMagneticJoin & {
+    requestedBoundaryFrame: number;
+  }) => Promise<{ applied: boolean; reason?: string }>;
+  onDetachTimelineMagnet?: (
+    input: Pick<StoryboardMagneticJoin, "leftStableShotId" | "rightStableShotId">
+  ) => Promise<{ applied: boolean; reason?: string }>;
   onSplitAt: (ms: number) => Promise<void>;
   onExtractFrameAt: (ms: number) => Promise<void>;
   onReorderShot: (input: {
@@ -115,7 +126,7 @@ export type StoryboardBoardTimeline = {
   }) => Promise<void> | void;
   /**
    * 位置锚点与方向批量移动。都是可选的：还没接上的调用点保持原有行为，
-   * 六点把手仍然只做单镜换顺序。
+   * 抓手默认移动单镜；按住 Shift 才进入方向批量移动。
    */
   anchors?: readonly StoryboardTimelineAnchor[];
   /** 拖之前先问一句：这次会带上哪些镜头、被谁挡住。 */
@@ -135,6 +146,7 @@ export type StoryboardBoardTimeline = {
   onMoveTimelineShot?: (input: {
     stableShotId: string;
     deltaFrames: number;
+    snapThresholdFrames: number;
   }) => Promise<{ applied: boolean; reason?: string }>;
   onAddAnchor?: (
     timelineFrame: number
@@ -162,6 +174,12 @@ export type StoryboardBoardTimeline = {
   }) => Promise<{ applied: boolean; reason?: string }>;
   /** 正在保存时忽略新的时间线改动，避免用过期位置算下一步。 */
   writePending?: boolean;
+};
+
+export type StoryboardMagneticJoin = {
+  leftStableShotId: string;
+  rightStableShotId: string;
+  boundaryFrame: number;
 };
 
 export type StoryboardTimelineAnchor = {
@@ -927,6 +945,7 @@ type MenuState = {
   atMs: number;
   clientX: number;
   clientY: number;
+  magneticJoin: StoryboardMagneticJoin | null;
 };
 
 const MAIN_VISUAL_LAYER_ID = "main-visual-layer";
@@ -1002,7 +1021,9 @@ function StoryboardEditContextMenu({
   canInsert,
   canDelete,
   anchorState,
+  magneticJoin,
   pendingAction,
+  writePending,
   onPick,
   onClose,
 }: {
@@ -1016,7 +1037,9 @@ function StoryboardEditContextMenu({
     alreadyAnchored: boolean;
     removableAnchorLabel: string | null;
   };
+  magneticJoin: StoryboardMagneticJoin | null;
   pendingAction: StoryboardEditAction | null;
+  writePending: boolean;
   onPick: (action: StoryboardEditAction) => void;
   onClose: () => void;
 }) {
@@ -1029,6 +1052,7 @@ function StoryboardEditContextMenu({
     canInsert,
     canDelete,
     anchors: anchorState,
+    canDetachMagnet: magneticJoin != null,
   });
 
   useEffect(() => {
@@ -1064,7 +1088,9 @@ function StoryboardEditContextMenu({
           key={item.action}
           type="button"
           role="menuitem"
-          disabled={item.disabledReason != null || pendingAction != null}
+          disabled={
+            item.disabledReason != null || pendingAction != null || writePending
+          }
           title={item.disabledReason ?? undefined}
           onClick={() => onPick(item.action)}
           data-testid={`storyboard-edit-menu-${item.action}`}
@@ -1139,6 +1165,9 @@ function StoryboardEditTrack({
     stableShotId: string;
     startFrame: number;
     durationFrames: number;
+    rollingJoin: StoryboardMagneticJoin | null;
+    rollingLeftStartFrame: number | null;
+    rollingRightEndFrame: number | null;
   } | null>(null);
   const [draftRange, setDraftRange] = useState<StoryboardEditRange | null>(
     null
@@ -1148,6 +1177,13 @@ function StoryboardEditTrack({
     durationMs: number;
     edge: "start" | "end";
   } | null>(null);
+  const [draftRollingJoin, setDraftRollingJoin] = useState<
+    (StoryboardMagneticJoin & {
+      requestedBoundaryFrame: number;
+      leftStartFrame: number;
+      rightEndFrame: number;
+    }) | null
+  >(null);
   const [dropTargetShotId, setDropTargetShotId] = useState<string | null>(null);
   const groupDragRef = useRef<{
     clientX: number;
@@ -1168,6 +1204,7 @@ function StoryboardEditTrack({
     trackWidthPx: number;
     stableShotId: string;
   } | null>(null);
+  const gripDragModeRef = useRef<"single" | "group" | null>(null);
   const [singleDrag, setSingleDrag] = useState<{
     stableShotId: string;
     deltaFrames: number;
@@ -1265,13 +1302,27 @@ function StoryboardEditTrack({
     shot: StoryboardEditShot,
     edge: "start" | "end"
   ) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || timeline.writePending) return;
     event.preventDefault();
     event.stopPropagation();
     const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
     if (trackWidthPx <= 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     timeline.onTogglePlay(false);
+    const rollingJoin =
+      timeline.onRollTimelineJoin
+        ? (timeline.magneticJoins ?? []).find(join =>
+            edge === "end"
+              ? join.leftStableShotId === shot.stableShotId
+              : join.rightStableShotId === shot.stableShotId
+          ) ?? null
+        : null;
+    const rollingLeft = rollingJoin
+      ? shots.find(item => item.stableShotId === rollingJoin.leftStableShotId)
+      : null;
+    const rollingRight = rollingJoin
+      ? shots.find(item => item.stableShotId === rollingJoin.rightStableShotId)
+      : null;
     trimStartRef.current = {
       clientX: event.clientX,
       trackWidthPx,
@@ -1282,17 +1333,56 @@ function StoryboardEditTrack({
       stableShotId: shot.stableShotId,
       startFrame: shot.timing.startFrame,
       durationFrames: shot.timing.durationFrames,
+      rollingJoin,
+      rollingLeftStartFrame: rollingLeft?.timing.startFrame ?? null,
+      rollingRightEndFrame:
+        rollingRight == null
+          ? null
+          : rollingRight.timing.startFrame + rollingRight.timing.durationFrames,
     };
-    setDraftTrim({
-      stableShotId: shot.stableShotId,
-      durationMs: shot.timing.durationMs,
-      edge,
-    });
+    if (rollingJoin && rollingLeft && rollingRight) {
+      setDraftTrim(null);
+      setDraftRollingJoin({
+        ...rollingJoin,
+        requestedBoundaryFrame: rollingJoin.boundaryFrame,
+        leftStartFrame: rollingLeft.timing.startFrame,
+        rightEndFrame:
+          rollingRight.timing.startFrame + rollingRight.timing.durationFrames,
+      });
+    } else {
+      setDraftRollingJoin(null);
+      setDraftTrim({
+        stableShotId: shot.stableShotId,
+        durationMs: shot.timing.durationMs,
+        edge,
+      });
+    }
   };
 
   const moveTrim = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const start = trimStartRef.current;
     if (!start) return;
+    if (
+      start.rollingJoin &&
+      start.rollingLeftStartFrame != null &&
+      start.rollingRightEndFrame != null
+    ) {
+      setDraftRollingJoin({
+        ...start.rollingJoin,
+        requestedBoundaryFrame: storyboardRollingBoundaryFrame({
+          baseBoundaryFrame: start.rollingJoin.boundaryFrame,
+          leftStartFrame: start.rollingLeftStartFrame,
+          rightEndFrame: start.rollingRightEndFrame,
+          startClientX: start.clientX,
+          currentClientX: event.clientX,
+          trackWidthPx: start.trackWidthPx,
+          totalMs,
+        }),
+        leftStartFrame: start.rollingLeftStartFrame,
+        rightEndFrame: start.rollingRightEndFrame,
+      });
+      return;
+    }
     setDraftTrim({
       stableShotId: start.stableShotId,
       durationMs: storyboardTrimmedDurationMs({
@@ -1313,9 +1403,63 @@ function StoryboardEditTrack({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    const trim = draftTrim;
+    const trim =
+      start && !start.rollingJoin
+        ? {
+            stableShotId: start.stableShotId,
+            durationMs: storyboardTrimmedDurationMs({
+              baseDurationMs: start.baseDurationMs,
+              trackWidthPx: start.trackWidthPx,
+              totalMs,
+              deltaPx: event.clientX - start.clientX,
+              edge: start.edge,
+              maxDurationMs: start.maxDurationMs,
+            }),
+            edge: start.edge,
+          }
+        : draftTrim;
+    const rolling =
+      start?.rollingJoin &&
+      start.rollingLeftStartFrame != null &&
+      start.rollingRightEndFrame != null
+        ? {
+            ...start.rollingJoin,
+            requestedBoundaryFrame: storyboardRollingBoundaryFrame({
+              baseBoundaryFrame: start.rollingJoin.boundaryFrame,
+              leftStartFrame: start.rollingLeftStartFrame,
+              rightEndFrame: start.rollingRightEndFrame,
+              startClientX: start.clientX,
+              currentClientX: event.clientX,
+              trackWidthPx: start.trackWidthPx,
+              totalMs,
+            }),
+            leftStartFrame: start.rollingLeftStartFrame,
+            rightEndFrame: start.rollingRightEndFrame,
+          }
+        : draftRollingJoin;
+    if (
+      start?.rollingJoin &&
+      rolling &&
+      rolling.requestedBoundaryFrame !== start.rollingJoin.boundaryFrame
+    ) {
+      try {
+        const result = await timeline.onRollTimelineJoin?.({
+          leftStableShotId: rolling.leftStableShotId,
+          rightStableShotId: rolling.rightStableShotId,
+          boundaryFrame: rolling.boundaryFrame,
+          requestedBoundaryFrame: rolling.requestedBoundaryFrame,
+        });
+        if (result && !result.applied && result.reason) {
+          onStatusMessage(result.reason);
+        }
+      } finally {
+        setDraftRollingJoin(null);
+      }
+      return;
+    }
     if (!start || !trim || trim.durationMs === start.baseDurationMs) {
       setDraftTrim(null);
+      setDraftRollingJoin(null);
       return;
     }
     try {
@@ -1340,7 +1484,14 @@ function StoryboardEditTrack({
       });
     } finally {
       setDraftTrim(null);
+      setDraftRollingJoin(null);
     }
+  };
+
+  const cancelTrim = () => {
+    trimStartRef.current = null;
+    setDraftTrim(null);
+    setDraftRollingJoin(null);
   };
 
   const clearGroupDrag = useCallback(() => {
@@ -1352,7 +1503,7 @@ function StoryboardEditTrack({
     event: ReactPointerEvent<HTMLElement>,
     shot: StoryboardEditShot
   ) => {
-    if (event.button !== 0 || !groupEnabled) return;
+    if (event.button !== 0 || !groupEnabled || timeline.writePending) return;
     event.preventDefault();
     event.stopPropagation();
     const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
@@ -1479,7 +1630,7 @@ function StoryboardEditTrack({
     event: ReactPointerEvent<HTMLElement>,
     shot: StoryboardEditShot
   ) => {
-    if (event.button !== 0 || !singleMoveEnabled) return;
+    if (event.button !== 0 || !singleMoveEnabled || timeline.writePending) return;
     event.preventDefault();
     event.stopPropagation();
     const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
@@ -1537,6 +1688,10 @@ function StoryboardEditTrack({
     await timeline.onMoveTimelineShot?.({
       stableShotId: start.stableShotId,
       deltaFrames,
+      snapThresholdFrames: storyboardMagnetThresholdFrames({
+        trackWidthPx: start.trackWidthPx,
+        totalMs,
+      }),
     });
   };
 
@@ -1551,6 +1706,46 @@ function StoryboardEditTrack({
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [clearSingleDrag, singleDrag]);
+
+  const clearGripDrag = useCallback(() => {
+    const mode = gripDragModeRef.current;
+    gripDragModeRef.current = null;
+    if (mode === "group") clearGroupDrag();
+    if (mode === "single") clearSingleDrag();
+  }, [clearGroupDrag, clearSingleDrag]);
+
+  const startGripDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    shot: StoryboardEditShot
+  ) => {
+    // 抓手的日常动作必须与用户选中的对象一致：默认只动这一镜。
+    // 批量移动保留为明确的 Shift 修饰手势，避免一次普通拖动带走整串。
+    const mode = storyboardGripDragMode({
+      shiftKey: event.shiftKey,
+      singleMoveEnabled,
+      groupMoveEnabled: groupEnabled,
+    });
+    gripDragModeRef.current = mode;
+    if (mode === "group") {
+      startGroupDrag(event, shot);
+      return;
+    }
+    if (mode === "single") {
+      startSingleDrag(event, shot);
+    }
+  };
+
+  const moveGripDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (gripDragModeRef.current === "group") moveGroupDrag(event);
+    if (gripDragModeRef.current === "single") moveSingleDrag(event);
+  };
+
+  const endGripDrag = async (event: ReactPointerEvent<HTMLElement>) => {
+    const mode = gripDragModeRef.current;
+    gripDragModeRef.current = null;
+    if (mode === "group") await endGroupDrag(event);
+    if (mode === "single") await endSingleDrag(event);
+  };
 
   const groupGhostShotIds =
     groupDrag?.direction && groupDrag.deltaFrames !== 0
@@ -1576,7 +1771,7 @@ function StoryboardEditTrack({
         tabIndex={0}
         aria-label={
           singleMoveEnabled
-            ? "剪辑时间条，拖动镜头只移动它自己，六点抓手整体移动同方向连续的镜头，按住 Shift 拖动改为选中一段交给聊聊，右键出剪辑菜单"
+            ? "剪辑时间条，拖动镜头或六点抓手只移动这一镜，按住 Shift 拖六点抓手才整体移动连续镜头，按住 Shift 拖镜头画面则选中一段交给聊聊，右键出剪辑菜单"
             : "剪辑时间条，拖动选中一段交给聊聊，右键出剪辑菜单"
         }
         aria-keyshortcuts="Space ArrowLeft ArrowRight ArrowUp ArrowDown S F X I O Delete"
@@ -1634,11 +1829,32 @@ function StoryboardEditTrack({
           const selected = shot.shotNo === selectedShotNo;
           const trimming =
             draftTrim?.stableShotId === shot.stableShotId ? draftTrim : null;
-          const durationMs = trimming?.durationMs ?? timing.durationMs;
+          const rollingSide =
+            draftRollingJoin?.leftStableShotId === shot.stableShotId
+              ? "left"
+              : draftRollingJoin?.rightStableShotId === shot.stableShotId
+                ? "right"
+                : null;
+          const rollingDurationFrames =
+            rollingSide === "left" && draftRollingJoin
+              ? draftRollingJoin.requestedBoundaryFrame -
+                draftRollingJoin.leftStartFrame
+              : rollingSide === "right" && draftRollingJoin
+                ? draftRollingJoin.rightEndFrame -
+                  draftRollingJoin.requestedBoundaryFrame
+                : null;
+          const durationMs =
+            rollingDurationFrames == null
+              ? (trimming?.durationMs ?? timing.durationMs)
+              : (rollingDurationFrames * 1000) / 30;
           const drawnWidthPct =
             totalMs > 0 ? (durationMs / totalMs) * 100 : widthPct;
           const drawnLeftPct =
-            trimming?.edge === "start"
+            rollingSide === "right" && draftRollingJoin
+              ? (((draftRollingJoin.requestedBoundaryFrame * 1000) / 30) /
+                  totalMs) *
+                100
+              : trimming?.edge === "start"
               ? leftPct + widthPct - drawnWidthPct
               : leftPct;
           const segments = storyboardEditSegments({
@@ -1663,7 +1879,7 @@ function StoryboardEditTrack({
               style={{ left: `${drawnLeftPct}%`, width: `${drawnWidthPct}%` }}
               title={
                 singleMoveEnabled
-                  ? `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 拖动只移动这一镜 · 六点抓手整体移动 · ⇧拖动改选一段 · 右键出剪辑菜单`
+                  ? `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 拖动或六点抓手只移动这一镜 · ⇧拖六点抓手才整体移动 · ⇧拖画面改选一段 · 右键出剪辑菜单`
                   : `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`
               }
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
@@ -1693,11 +1909,26 @@ function StoryboardEditTrack({
                 trackRef.current?.focus();
                 timeline.onTogglePlay(false);
                 onSelectShot(shot.shotNo);
+                const atMs = trackMsFromPointer(event.clientX);
+                const atFrame = Math.round((atMs * 30) / 1000);
+                const thresholdFrames = storyboardMagnetThresholdFrames({
+                  trackWidthPx:
+                    trackRef.current?.getBoundingClientRect().width ?? 0,
+                  totalMs,
+                });
+                const magneticJoin =
+                  (timeline.magneticJoins ?? []).find(
+                    join =>
+                      (join.leftStableShotId === shot.stableShotId ||
+                        join.rightStableShotId === shot.stableShotId) &&
+                      Math.abs(join.boundaryFrame - atFrame) <= thresholdFrames
+                  ) ?? null;
                 onOpenMenu({
                   shot,
-                  atMs: trackMsFromPointer(event.clientX),
+                  atMs,
                   clientX: event.clientX,
                   clientY: event.clientY,
+                  magneticJoin,
                 });
               }}
               onDragOver={event => {
@@ -1797,7 +2028,7 @@ function StoryboardEditTrack({
                     onPointerDown={event => startTrim(event, shot, "start")}
                     onPointerMove={moveTrim}
                     onPointerUp={event => void endTrim(event)}
-                    onPointerCancel={event => void endTrim(event)}
+                    onPointerCancel={cancelTrim}
                     className="absolute bottom-0 left-0 top-0 z-20 w-2 cursor-ew-resize touch-none bg-primary/70"
                     aria-label={`拖动左边缘修剪 ${shot.shotLabel} 的时长`}
                     title={`拖动左边缘修剪时长 · 当前 ${(durationMs / 1000).toFixed(1)}s`}
@@ -1819,35 +2050,40 @@ function StoryboardEditTrack({
                     onDragEnd={
                       groupEnabled ? undefined : () => setDropTargetShotId(null)
                     }
-                    onPointerDown={event => {
-                      event.stopPropagation();
-                      if (groupEnabled) startGroupDrag(event, shot);
-                    }}
-                    onPointerMove={groupEnabled ? moveGroupDrag : undefined}
+                    onPointerDown={event => startGripDrag(event, shot)}
+                    onPointerMove={
+                      groupEnabled || singleMoveEnabled ? moveGripDrag : undefined
+                    }
                     onPointerUp={
-                      groupEnabled
-                        ? event => void endGroupDrag(event)
+                      groupEnabled || singleMoveEnabled
+                        ? event => void endGripDrag(event)
                         : undefined
                     }
                     onPointerCancel={
-                      groupEnabled
-                        ? () => clearGroupDrag()
+                      groupEnabled || singleMoveEnabled
+                        ? () => clearGripDrag()
                         : undefined
                     }
                     onLostPointerCapture={
-                      groupEnabled ? () => clearGroupDrag() : undefined
+                      groupEnabled || singleMoveEnabled
+                        ? () => clearGripDrag()
+                        : undefined
                     }
-                    disabled={groupEnabled && timeline.writePending === true}
+                    disabled={timeline.writePending === true}
                     className="absolute -top-4 left-0 z-30 flex h-4 w-4 cursor-grab touch-none items-center justify-center rounded-t-sm bg-primary/70 text-[var(--background)] shadow-sm active:cursor-grabbing disabled:cursor-wait"
                     aria-label={
-                      groupEnabled
-                        ? `拖动 ${shot.shotLabel} 整体移动它和同侧连续的镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
+                      singleMoveEnabled
+                        ? `拖动只移动 ${shot.shotLabel}；按住 Shift 拖动才整体移动连续镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
+                        : groupEnabled
+                          ? `拖动 ${shot.shotLabel} 整体移动它和同侧连续的镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
                         : `拖动 ${shot.shotLabel} 调整镜头顺序`
                     }
                     aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
                     title={
-                      groupEnabled
-                        ? "向左/向右拖：整体移动这一镜和同侧连续的镜头，遇到锚定镜头为止 · 改顺序用 ⌥← / ⌥→"
+                      singleMoveEnabled
+                        ? "拖动：只移动这一镜 · Shift+拖动：整体移动连续镜头 · 改顺序用 ⌥← / ⌥→"
+                        : groupEnabled
+                          ? "向左/向右拖：整体移动这一镜和同侧连续的镜头，遇到锚定镜头为止 · 改顺序用 ⌥← / ⌥→"
                         : "拖到别的镜头上改顺序 · ⌥← / ⌥→"
                     }
                     data-testid={
@@ -1863,7 +2099,7 @@ function StoryboardEditTrack({
                     onPointerDown={event => startTrim(event, shot, "end")}
                     onPointerMove={moveTrim}
                     onPointerUp={event => void endTrim(event)}
-                    onPointerCancel={event => void endTrim(event)}
+                    onPointerCancel={cancelTrim}
                     className="absolute bottom-0 right-0 top-0 z-10 w-2 cursor-ew-resize touch-none bg-primary/70"
                     aria-label={`拖动修剪 ${shot.shotLabel} 的时长`}
                     title={`拖动修剪时长 · 当前 ${(durationMs / 1000).toFixed(1)}s · , / .`}
@@ -1872,6 +2108,24 @@ function StoryboardEditTrack({
                 </>
               ) : null}
             </div>
+          );
+        })}
+        {(timeline.magneticJoins ?? []).map(join => {
+          const leftPct =
+            totalMs > 0
+              ? (((join.boundaryFrame * 1000) / 30) / totalMs) * 100
+              : 0;
+          if (leftPct < 0 || leftPct > 100) return null;
+          return (
+            <span
+              key={`${join.leftStableShotId}-${join.rightStableShotId}`}
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0 z-40 -ml-1 flex h-4 w-2 items-center justify-center text-primary"
+              style={{ left: `${leftPct}%` }}
+              data-testid={`storyboard-magnetic-join-${join.leftStableShotId}-${join.rightStableShotId}`}
+            >
+              <Magnet className="h-2.5 w-2.5" />
+            </span>
           );
         })}
         {groupDrag
@@ -2067,6 +2321,7 @@ function StoryboardEditTrack({
 const ACTION_LABELS: Record<StoryboardEditAction, string> = {
   addAnchor: "打标中…",
   removeAnchor: "取消锚点…",
+  detachMagnet: "取消吸附…",
   split: "切割中…",
   extract: "提帧中…",
   selectShot: "选中中…",
@@ -2314,7 +2569,8 @@ export function StoryboardEditRow({
   const runAction = (
     action: StoryboardEditAction,
     shot: StoryboardEditShot | null,
-    atMs: number
+    atMs: number,
+    magneticJoin: StoryboardMagneticJoin | null = null
   ) => {
     if (action === "addAnchor") {
       closeMenu();
@@ -2327,7 +2583,31 @@ export function StoryboardEditRow({
       if (anchor) removeAnchor(anchor);
       return;
     }
-    if (pendingAction || !shot) return;
+    if (action === "detachMagnet") {
+      closeMenu();
+      if (
+        !magneticJoin ||
+        !timeline.onDetachTimelineMagnet ||
+        pendingAction ||
+        timeline.writePending
+      ) {
+        return;
+      }
+      setPendingAction("detachMagnet");
+      void timeline
+        .onDetachTimelineMagnet({
+          leftStableShotId: magneticJoin.leftStableShotId,
+          rightStableShotId: magneticJoin.rightStableShotId,
+        })
+        .then(result => {
+          setStatusMessage(
+            result.applied ? "已取消这两个镜头的吸附" : (result.reason ?? "取消吸附失败")
+          );
+        })
+        .finally(() => setPendingAction(null));
+      return;
+    }
+    if (pendingAction || timeline.writePending || !shot) return;
     // 快捷键/菜单里的微调时长历来只动结尾（开头锚定不动），所以这里固定用 "end" 边。
     const trim = (deltaMs: number) => {
       const newDurationMs = storyboardEditNudgedDurationMs(
@@ -2627,8 +2907,12 @@ export function StoryboardEditRow({
                 }
               : undefined
           }
+          magneticJoin={menu.magneticJoin}
           pendingAction={pendingAction}
-          onPick={action => runAction(action, menu.shot, menu.atMs)}
+          writePending={timeline.writePending === true}
+          onPick={action =>
+            runAction(action, menu.shot, menu.atMs, menu.magneticJoin)
+          }
           onClose={closeMenu}
         />
       ) : null}

@@ -6,10 +6,14 @@ import {
   planTimelineAnchorAdd,
   planTimelineAnchorRemove,
   planTimelineGroupMove,
+  planTimelineMagnetDetach,
+  planTimelineRollingTrim,
   planTimelineSingleMove,
   planTimelineTrim,
   resolveTimelineFrameSource,
   timelineAnchorId,
+  timelineMagneticJoins,
+  snappedTimelineSingleMove,
   type TimelineResolverShot,
 } from "./timelineActions";
 
@@ -240,6 +244,218 @@ describe("planTimelineSingleMove", () => {
     expect(plan.kind).toBe("ok");
     if (plan.kind !== "ok") return;
     expect(plan.items[0].timelineStartFrame).toBe(0);
+  });
+
+  it("snaps a moved shot to a neighbour inside the magnetic threshold", () => {
+    const items = [item("a", 0, 0), item("b", 1, 34)];
+    const rows = buildTimelineLayout(items);
+    expect(
+      snappedTimelineSingleMove({
+        rows,
+        stableShotId: "b",
+        deltaFrames: -2,
+        snapThresholdFrames: 3,
+      })
+    ).toMatchObject({
+      deltaFrames: -4,
+      join: { leftStableShotId: "a", rightStableShotId: "b", boundaryFrame: 30 },
+    });
+    const plan = planTimelineSingleMove({
+      items,
+      rows,
+      stableShotId: "b",
+      deltaFrames: -2,
+      snapThresholdFrames: 3,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[1].timelineStartFrame).toBe(30);
+  });
+
+  it("snaps a moved shot's end to the following visible start", () => {
+    const items = [item("a", 0, 0), item("b", 1, 34)];
+    const rows = buildTimelineLayout(items);
+    expect(
+      snappedTimelineSingleMove({
+        rows,
+        stableShotId: "a",
+        deltaFrames: 2,
+        snapThresholdFrames: 3,
+      })
+    ).toMatchObject({
+      deltaFrames: 4,
+      join: { leftStableShotId: "a", rightStableShotId: "b", boundaryFrame: 34 },
+    });
+  });
+
+  it("does not snap across a different visible shot covering the candidate seam", () => {
+    const items = [
+      item("a", 0, 0),
+      item("cover", 1, 25, 15, { stackOrder: 10 }),
+      item("b", 2, 44),
+    ];
+    expect(
+      snappedTimelineSingleMove({
+        rows: buildTimelineLayout(items),
+        stableShotId: "b",
+        deltaFrames: -12,
+        snapThresholdFrames: 3,
+      })
+    ).toEqual({ deltaFrames: -12, join: null });
+  });
+
+  it("does not reattach a pair the user explicitly detached", () => {
+    const items = [
+      item("a", 0, 0),
+      item("b", 1, 34, 30, { detachedFromPreviousShotId: "a" }),
+    ];
+    const rows = buildTimelineLayout(items);
+    expect(
+      snappedTimelineSingleMove({
+        rows,
+        stableShotId: "b",
+        deltaFrames: -2,
+        snapThresholdFrames: 3,
+      })
+    ).toEqual({ deltaFrames: -2, join: null });
+    const plan = planTimelineSingleMove({
+      items,
+      rows,
+      stableShotId: "b",
+      deltaFrames: -2,
+      snapThresholdFrames: 3,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[1].timelineStartFrame).toBe(32);
+    expect(plan.items[1].detachedFromPreviousShotId).toBeUndefined();
+  });
+});
+
+describe("magnetic timeline joins", () => {
+  it("recognizes only exact, enabled seams", () => {
+    const items = [
+      item("a", 0, 0),
+      item("b", 1, 30),
+      item("c", 2, 60, 30, { detachedFromPreviousShotId: "b" }),
+    ];
+    expect(timelineMagneticJoins(buildTimelineLayout(items))).toEqual([
+      { leftStableShotId: "a", rightStableShotId: "b", boundaryFrame: 30 },
+    ]);
+  });
+
+  it("uses visual placement rather than story position after a shot moves across another", () => {
+    const items = [item("story-first", 0, 30), item("story-second", 1, 0)];
+    expect(timelineMagneticJoins(buildTimelineLayout(items))).toEqual([
+      {
+        leftStableShotId: "story-second",
+        rightStableShotId: "story-first",
+        boundaryFrame: 30,
+      },
+    ]);
+  });
+
+  it("finds the visible seam even when a shorter overlapping shot started between it", () => {
+    const items = [
+      item("left", 0, 0, 100),
+      item("middle", 1, 50, 10, { stackOrder: 10 }),
+      item("right", 2, 100, 30),
+    ];
+    expect(timelineMagneticJoins(buildTimelineLayout(items))).toContainEqual({
+      leftStableShotId: "left",
+      rightStableShotId: "right",
+      boundaryFrame: 100,
+    });
+  });
+
+  it("rolls both sides of a seam in one plan while keeping the total end fixed", () => {
+    const items = [item("a", 0, 0), item("b", 1, 30)];
+    const plan = planTimelineRollingTrim({
+      items,
+      rows: buildTimelineLayout(items),
+      leftStableShotId: "a",
+      rightStableShotId: "b",
+      requestedBoundaryFrame: 36,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items.map(entry => ({
+      start: entry.timelineStartFrame,
+      duration: entry.durationFrames,
+    }))).toEqual([
+      { start: 0, duration: 36 },
+      { start: 36, duration: 24 },
+    ]);
+  });
+
+  it("keeps a rolling edit atomic when either side hits an anchor", () => {
+    const items = [
+      item("a", 0, 0, 30, { anchors: [anchorOn(28)] }),
+      item("b", 1, 30),
+    ];
+    expect(
+      planTimelineRollingTrim({
+        items,
+        rows: buildTimelineLayout(items),
+        leftStableShotId: "a",
+        rightStableShotId: "b",
+        requestedBoundaryFrame: 27,
+      })
+    ).toEqual({ kind: "blocked", reason: "不能裁掉位置锚点所在画面", boundaryFrame: 29 });
+  });
+
+  it("keeps a rolling edit atomic when the right shot has no source headroom", () => {
+    const items = [
+      item("a", 0, 0),
+      item("b", 1, 30, 30, {
+        primaryVideoEdit: {
+          takeId: 8,
+          sourceStartSec: 0,
+          sourceEndSec: 1,
+        },
+      }),
+    ];
+    expect(
+      planTimelineRollingTrim({
+        items,
+        rows: buildTimelineLayout(items),
+        leftStableShotId: "a",
+        rightStableShotId: "b",
+        requestedBoundaryFrame: 25,
+        rightSourceLimitSec: 1,
+      })
+    ).toEqual({ kind: "blocked", reason: "没有更多可用素材", boundaryFrame: 30 });
+    expect(items.map(entry => entry.timelineStartFrame)).toEqual([0, 30]);
+  });
+
+  it("persists a named opt-out on the right shot", () => {
+    const items = [item("a", 0, 0), item("b", 1, 30)];
+    const plan = planTimelineMagnetDetach({
+      items,
+      rows: buildTimelineLayout(items),
+      leftStableShotId: "a",
+      rightStableShotId: "b",
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[1].detachedFromPreviousShotId).toBe("a");
+    expect(timelineMagneticJoins(buildTimelineLayout(plan.items))).toEqual([]);
+  });
+
+  it("clears a detachment after an ordinary trim physically separates the pair", () => {
+    const items = [
+      item("a", 0, 0),
+      item("b", 1, 30, 30, { detachedFromPreviousShotId: "a" }),
+    ];
+    const plan = planTimelineTrim({
+      items,
+      stableShotId: "a",
+      edge: "end",
+      requestedBoundaryFrame: 25,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[1].detachedFromPreviousShotId).toBeUndefined();
   });
 });
 

@@ -500,6 +500,10 @@ export function normalizeTimelineItems(
       durationFrames: entry.durationFrames,
       timelineStartFrame,
       stackOrder,
+      ...(typeof item.detachedFromPreviousShotId === "string" &&
+      item.detachedFromPreviousShotId.trim()
+        ? { detachedFromPreviousShotId: item.detachedFromPreviousShotId.trim() }
+        : {}),
       ...(anchors.length > 0 ? { anchors } : {}),
       transform: transform(item.transform),
       primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),

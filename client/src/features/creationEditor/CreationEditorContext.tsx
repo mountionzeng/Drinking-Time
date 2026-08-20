@@ -62,6 +62,8 @@ import {
   planTimelineAnchorAdd,
   planTimelineAnchorRemove,
   planTimelineGroupMove,
+  planTimelineMagnetDetach,
+  planTimelineRollingTrim,
   planTimelineSingleMove,
   planTimelineTrim,
   previewTimelineGroup as previewTimelineGroupFrom,
@@ -159,7 +161,8 @@ type CreationEditorContextValue = {
   /** 拖镜头本体：只移动这一镜，同方向的邻居原地不动。 */
   moveTimelineShot: (
     stableShotId: string,
-    deltaFrames: number
+    deltaFrames: number,
+    snapThresholdFrames?: number
   ) => Promise<{ applied: boolean; reason?: string }>;
   moveTimelineGroup: (
     sourceShotId: string,
@@ -201,6 +204,15 @@ type CreationEditorContextValue = {
     stableShotId: string,
     edge: "start" | "end",
     requestedBoundaryFrame: number
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  rollTimelineJoin: (
+    leftStableShotId: string,
+    rightStableShotId: string,
+    requestedBoundaryFrame: number
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  detachTimelineMagnet: (
+    leftStableShotId: string,
+    rightStableShotId: string
   ) => Promise<{ applied: boolean; reason?: string }>;
   resetTimelineShots: () => void;
   selectedShotNo: number | null;
@@ -1858,13 +1870,18 @@ export function CreationEditorProvider({
   );
 
   const moveTimelineShot = useCallback(
-    (stableShotId: string, deltaFrames: number) =>
+    (
+      stableShotId: string,
+      deltaFrames: number,
+      snapThresholdFrames?: number
+    ) =>
       commitTimelinePlan(
         planTimelineSingleMove({
           items: timelineItems,
           rows: timelineLayoutRows,
           stableShotId,
           deltaFrames,
+          snapThresholdFrames,
         }),
         "移动镜头失败"
       ),
@@ -1910,6 +1927,48 @@ export function CreationEditorProvider({
         "裁剪失败"
       ),
     [commitTimelinePlan, timelineItems, timelineResolverShots]
+  );
+
+  const rollTimelineJoin = useCallback(
+    (
+      leftStableShotId: string,
+      rightStableShotId: string,
+      requestedBoundaryFrame: number
+    ) =>
+      commitTimelinePlan(
+        planTimelineRollingTrim({
+          items: timelineItems,
+          rows: timelineLayoutRows,
+          leftStableShotId,
+          rightStableShotId,
+          requestedBoundaryFrame,
+          leftSourceLimitSec:
+            timelineResolverShots.get(leftStableShotId)?.currentVideoDurationSec ?? null,
+          rightSourceLimitSec:
+            timelineResolverShots.get(rightStableShotId)?.currentVideoDurationSec ?? null,
+        }),
+        "滚动剪辑失败"
+      ),
+    [
+      commitTimelinePlan,
+      timelineItems,
+      timelineLayoutRows,
+      timelineResolverShots,
+    ]
+  );
+
+  const detachTimelineMagnet = useCallback(
+    (leftStableShotId: string, rightStableShotId: string) =>
+      commitTimelinePlan(
+        planTimelineMagnetDetach({
+          items: timelineItems,
+          rows: timelineLayoutRows,
+          leftStableShotId,
+          rightStableShotId,
+        }),
+        "取消吸附失败"
+      ),
+    [commitTimelinePlan, timelineItems, timelineLayoutRows]
   );
 
   const resetTimelineShots = useCallback(() => {
@@ -3694,6 +3753,8 @@ export function CreationEditorProvider({
       addTimelineAnchorAtFrame,
       removeTimelineAnchor: removeTimelineAnchorFromShot,
       trimTimelineItemEdge,
+      rollTimelineJoin,
+      detachTimelineMagnet,
       resetTimelineShots,
       selectedShotNo,
       setSelectedShotNo,
@@ -3806,6 +3867,8 @@ export function CreationEditorProvider({
       addTimelineAnchorAtFrame,
       removeTimelineAnchorFromShot,
       trimTimelineItemEdge,
+      rollTimelineJoin,
+      detachTimelineMagnet,
       resetTimelineShots,
       insertPersistedShotAfter,
       deletePersistedShot,
