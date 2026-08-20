@@ -79,13 +79,11 @@ import DailyLetterWelcome from "@/features/analysis/views/DailyLetterWelcome";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useNayin } from "@/features/nayin/NayinContext";
 import PublishingDraftWorkspace from "@/features/publishingDraft/PublishingDraftWorkspace";
-import PublishingVideoHandoffBanner from "@/features/publishingDraft/PublishingVideoHandoffBanner";
 import {
   STUDIO_WORKSPACE_OPTIONS,
   isStoryPanelWorkspace,
   resolveStudioInteractionMode,
   resolveTimelineCommandStoryId,
-  shouldShowPublishingHandoff,
   type StudioInteractionMode,
   type StudioWorkspace,
 } from "./editingStudioWorkspace";
@@ -473,9 +471,6 @@ function EditingStudioBody({
                   ?.label
               }
             >
-              {shouldShowPublishingHandoff(workspace) ? (
-                <PublishingVideoHandoffBanner />
-              ) : null}
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {workspace === "editing" ? (
                   <EditingNleWorkspace
