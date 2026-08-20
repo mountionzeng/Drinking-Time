@@ -1454,6 +1454,15 @@ export function CreationEditorProvider({
       retry: false,
     }
   );
+  const storyboardCoverReferencesQuery =
+    trpc.publishingDraft.storyboardCoverReferences.useQuery(
+      { storyId: activeId ?? 1 },
+      {
+        enabled: activeId != null && activeId > 0,
+        refetchOnWindowFocus: false,
+        retry: false,
+      }
+    );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
     { storyId: activeId ?? 0 },
     {
@@ -1531,21 +1540,25 @@ export function CreationEditorProvider({
   }, [storyQuery.data]);
   const publishingHandoff = useMemo(() => {
     if (activeId == null || activeId <= 0) return null;
-    const { publishing, coverAsset } = resolveScopedPublishingHandoff({
-      activeStoryId: activeId,
-      spinePublishing,
-      story: storyQuery.data,
-      publishingRead: publishingDraftQuery.data,
-    });
+    const { publishing, coverAsset, coverCandidates } =
+      resolveScopedPublishingHandoff({
+        activeStoryId: activeId,
+        spinePublishing,
+        story: storyQuery.data,
+        publishingRead: publishingDraftQuery.data,
+        storyboardCoverRead: storyboardCoverReferencesQuery.data,
+      });
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
       coverAsset,
+      coverCandidates,
     });
   }, [
     activeId,
     publishingDraftQuery.data?.coverAsset,
     publishingDraftQuery.data?.publishing,
+    storyboardCoverReferencesQuery.data,
     spinePublishing,
     storyQuery.data?.body,
     storyQuery.data?.id,
@@ -3702,6 +3715,7 @@ export function CreationEditorProvider({
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
         publishingDraftQuery.isLoading ||
+        storyboardCoverReferencesQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
@@ -3830,6 +3844,7 @@ export function CreationEditorProvider({
       storyListQuery,
       storyQuery,
       publishingDraftQuery,
+      storyboardCoverReferencesQuery,
     ]
   );
 
