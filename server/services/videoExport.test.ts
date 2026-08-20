@@ -5,13 +5,21 @@ import type { StoryMaterialState } from "../../shared/storyMaterial";
 function material(overrides: {
   shots: Array<Record<string, unknown>>;
   items: Array<Record<string, unknown>>;
+  overlays?: Array<Record<string, unknown>>;
+  reusableVideoTakes?: Array<Record<string, unknown>>;
 }): StoryMaterialState {
   return {
     storyId: 1,
-    timeline: { storyId: 1, version: 1, items: overrides.items },
+    timeline: {
+      storyId: 1,
+      version: 1,
+      items: overrides.items,
+      overlays: overrides.overlays,
+    },
     shots: overrides.shots,
     unassignedImages: [],
     unassignedVideos: [],
+    reusableVideoTakes: overrides.reusableVideoTakes ?? [],
   } as unknown as StoryMaterialState;
 }
 
@@ -40,6 +48,49 @@ function video(id: number, extra: Record<string, unknown> = {}) {
 }
 
 describe("buildExportPlan", () => {
+  it("exports complete overlay media and an explicit gap tail without deleting the underlying shot", () => {
+    const plan = buildExportPlan(
+      material({
+        shots: [{ stableShotId: "a", shotNo: 1, currentVideo: video(11) }],
+        items: [
+          {
+            stableShotId: "a",
+            included: true,
+            position: 0,
+            plannedDurationMs: 5_000,
+            durationFrames: 150,
+            timelineStartFrame: 0,
+            transform,
+          },
+        ],
+        reusableVideoTakes: [video(99, { durationSec: 3 })],
+        overlays: [
+          {
+            id: "overlay-a",
+            kind: "generated-video",
+            takeId: 99,
+            sourceStableShotId: "a",
+            videoUrl: "/api/videos/take-99.mp4",
+            startFrame: 30,
+            targetEndFrame: 150,
+            mediaEndFrame: 120,
+            endFrame: 150,
+            stackOrder: 10,
+            leftImageId: 1,
+            rightImageId: 2,
+            transform,
+          },
+        ],
+      })
+    );
+    expect(plan.parts).toMatchObject([
+      { kind: "source", stableShotId: "a", file: "take-11.mp4", durationSec: 1 },
+      { kind: "source", stableShotId: "a", file: "take-99.mp4", durationSec: 3 },
+      { kind: "gap", durationSec: 1 },
+    ]);
+    expect(plan.totalSec).toBe(5);
+  });
+
   it("按时间轴顺序出段：计划时长封顶、range 修剪生效、移除与缺视频跳过", () => {
     const plan = buildExportPlan(
       material({

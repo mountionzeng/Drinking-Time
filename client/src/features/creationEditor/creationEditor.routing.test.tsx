@@ -861,6 +861,34 @@ describe("creation editor route and shell", () => {
     expect(merged[0].videoTakes?.map(take => take.id)).toEqual([1, 2]);
   });
 
+  it("keeps a timeline-bound repository take on a retained shot after its source shot is deleted", () => {
+    const take = videoTake(1498, {
+      stableShotId: "deleted-source-shot",
+      status: "available",
+      isTimelineSelected: true,
+      videoUrl: "/api/videos/take-1498.mp4",
+    });
+    const merged = mergeShotsWithVideos(
+      [
+        shot(8, {
+          stableShotId: "retained-shot",
+          shotIdentity: "retained-shot",
+        }),
+      ],
+      [take],
+      [
+        {
+          stableShotId: "retained-shot",
+          videoTakes: [take],
+          currentVideo: take,
+        },
+      ]
+    );
+
+    expect(merged[0].videoTakes?.map(item => item.id)).toEqual([1498]);
+    expect(merged[0].selectedVideoTake?.id).toBe(1498);
+  });
+
   it("attaches imported genji video takes to legacy shot identities", () => {
     const merged = mergeShotsWithVideos(
       [

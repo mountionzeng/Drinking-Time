@@ -5,6 +5,7 @@ import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import {
+  applyStoryTimelineOverlayAtomic,
   claimEditingTransitionSubmission,
   createVideoTakeIdempotently,
   findVideoTakeByIdempotencyKey,
@@ -15,9 +16,12 @@ import {
 import type { VideoTake } from "../../drizzle/schema";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  DEFAULT_TIMELINE_VIDEO_EFFECTS,
   timelineMsToFrames,
   type StoryTimelineItem,
+  type StoryTimelineOverlay,
 } from "../../shared/storyMaterial";
+import { buildTimelineLayout } from "../../shared/timelineLayout";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { getStoryImageAssets, localImagePathForUrl } from "./imageAssets";
 import { getStoryMaterialState } from "./storyMaterials";
@@ -25,6 +29,7 @@ import { localVideoDir } from "./videoMedia";
 import { probeVideoFileMetadata } from "./videoConform";
 import { selectVideoTimelineSegment } from "./videoTimeline";
 import {
+  proposeExtractedFrameTransition,
   transitionEndpointForShot,
   type TimelineTransitionCandidate,
   type TimelineTransitionEndpoint,
@@ -32,6 +37,8 @@ import {
 import { renderTransitionVideoFrame } from "./videoEndpointFrames";
 import {
   downloadVideoToFile,
+  estimateViduQ2TransitionCny,
+  estimateViduQ2TransitionCost,
   hardCutToLastFrame,
   submitViduTransition,
   uploadFileToVidu,
@@ -74,6 +81,7 @@ const activeConfirmations = new Map<
 
 const MAX_TRANSITION_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_REDIRECTS = 3;
+const SUBMISSION_CLAIM_STALE_MS = 10 * 60 * 1_000;
 
 function record(value: unknown): RecordValue {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -179,18 +187,45 @@ async function patchTake(
 }
 
 function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
-  if (
+  const placement = candidate.placement;
+  const overlay = placement?.kind === "timeline-overlay";
+  if (overlay) {
+    const estimate = estimateViduQ2TransitionCost({
+      durationSec: candidate.durationSec,
+      resolution: candidate.resolution,
+      uploadCount: 2,
+    });
+    const cny = estimateViduQ2TransitionCny({
+      durationSec: candidate.durationSec,
+      resolution: candidate.resolution,
+      uploadCount: 2,
+    });
+    if (
+      candidate.cutAtSec !== null ||
+      candidate.estimatedCredits !== estimate.credits ||
+      candidate.estimatedCny !== cny.estimatedCny ||
+      placement!.startFrame < 0 ||
+      placement!.targetEndFrame <= placement!.startFrame ||
+      candidate.source.mediaKind !== "image" ||
+      candidate.target.mediaKind !== "image" ||
+      candidate.source.imageId !== placement!.leftImageId ||
+      candidate.target.imageId !== placement!.rightImageId
+    ) {
+      throw new Error("覆盖视频参数已经变化，请重新生成确认卡");
+    }
+  } else if (
     candidate.durationSec !== 2 ||
     candidate.resolution !== "720p" ||
     candidate.cutAtSec !== 1.4 ||
-    candidate.estimatedCredits !== 10
+    candidate.estimatedCredits !== 10 ||
+    candidate.estimatedCny !== 0.35
   ) {
     throw new Error("衔接参数已经变化，请让聊聊重新生成确认卡");
   }
   if (
     !candidate.candidateId.startsWith("transition-") ||
     !candidate.provisionalStableShotId.startsWith("transition-shot-") ||
-    candidate.source.stableShotId === candidate.target.stableShotId
+    (!overlay && candidate.source.stableShotId === candidate.target.stableShotId)
   ) {
     throw new Error("衔接确认卡无效，请重新选择镜头");
   }
@@ -215,6 +250,22 @@ function verifyCandidateShape(candidate: TimelineTransitionCandidate) {
   }
 }
 
+function overlayCandidateMatchesCanonical(
+  requested: TimelineTransitionCandidate,
+  canonical: TimelineTransitionCandidate,
+  allowTimelineVersionRefresh: boolean
+): boolean {
+  const requestedWithTrustedFields = {
+    ...requested,
+    ...(allowTimelineVersionRefresh
+      ? { expectedTimelineVersion: canonical.expectedTimelineVersion }
+      : {}),
+    source: { ...requested.source, imageUrl: canonical.source.imageUrl },
+    target: { ...requested.target, imageUrl: canonical.target.imageUrl },
+  };
+  return JSON.stringify(requestedWithTrustedFields) === JSON.stringify(canonical);
+}
+
 function storedCandidateForTake(
   take: VideoTake,
   requested: TimelineTransitionCandidate
@@ -232,6 +283,19 @@ function storedCandidateForTake(
     normalized.provisionalStableShotId !== take.stableShotId
   ) {
     throw new Error("衔接任务与确认卡不一致，为避免串用视频已停止处理");
+  }
+  if (normalized.placement?.kind === "timeline-overlay") {
+    const requestedPlacement = requested.placement;
+    if (
+      requestedPlacement?.kind !== "timeline-overlay" ||
+      JSON.stringify(normalized.placement) !== JSON.stringify(requestedPlacement)
+    ) {
+      throw new Error("覆盖视频落点与已付费任务不一致，已停止采用");
+    }
+    return {
+      ...normalized,
+      expectedTimelineVersion: requested.expectedTimelineVersion,
+    };
   }
   return normalized;
 }
@@ -261,6 +325,22 @@ async function validateBeforePaidSubmission(
   if (!material) throw new Error("故事不存在或无权操作");
   if (material.timeline.version !== candidate.expectedTimelineVersion) {
     throw new Error("时间轴已经更新，请让聊聊重新确认衔接位置");
+  }
+  if (candidate.placement?.kind === "timeline-overlay") {
+    const canonicalResult = await proposeExtractedFrameTransition({
+      storyId: candidate.storyId,
+      userId,
+      leftImageId: candidate.placement.leftImageId,
+      rightImageId: candidate.placement.rightImageId,
+    });
+    if (canonicalResult.status !== "ok") {
+      throw new Error(canonicalResult.reply);
+    }
+    const canonical = normalizeCandidate(canonicalResult.proposal);
+    if (!overlayCandidateMatchesCanonical(candidate, canonical, false)) {
+      throw new Error("覆盖视频参数已经变化，请重新生成确认卡");
+    }
+    return canonical;
   }
   if (
     !adjacentIncludedPair(
@@ -786,6 +866,134 @@ async function applyGeneratedTransition(
   if (!story || !material) throw new Error("故事不存在或无权操作");
   const body = record(story.body);
   const shots = storyShots(story.body);
+  if (candidate.placement?.kind === "timeline-overlay") {
+    const placement = candidate.placement;
+    const actualDurationSec =
+      typeof take.durationSec === "number" && take.durationSec > 0
+        ? take.durationSec
+        : candidate.durationSec;
+    const mediaEndFrame =
+      placement.startFrame + Math.max(1, Math.round(actualDurationSec * 30));
+    const anchoredConflict = buildTimelineLayout(material.timeline.items).find(
+      row =>
+        (row.item.anchors?.length ?? 0) > 0 &&
+        row.startFrame < mediaEndFrame &&
+        row.endFrame > placement.startFrame
+    );
+    if (anchoredConflict) {
+      throw new Error(
+        "视频已经生成，但实际完整时长碰到位置锚点；已保留素材，没有自动覆盖"
+      );
+    }
+    const existingOverlays = material.timeline.overlays ?? [];
+    const stackOrder =
+      Math.max(
+        -1,
+        ...material.timeline.items.map(item => item.stackOrder ?? item.position),
+        ...existingOverlays.map(overlay => overlay.stackOrder)
+      ) + 1;
+    const overlay: StoryTimelineOverlay = {
+      id: `overlay-${candidate.candidateId.slice("transition-".length)}`,
+      kind: "generated-video",
+      takeId: take.id,
+      sourceStableShotId: candidate.provisionalStableShotId,
+      videoUrl: take.videoUrl!,
+      startFrame: placement.startFrame,
+      targetEndFrame: placement.targetEndFrame,
+      mediaEndFrame,
+      endFrame: Math.max(placement.targetEndFrame, mediaEndFrame),
+      stackOrder,
+      leftImageId: placement.leftImageId,
+      rightImageId: placement.rightImageId,
+      transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+    };
+
+    const existing = shots.find(
+      shot => stableShotIdOf(shot) === candidate.provisionalStableShotId
+    );
+    let nextBody = story.body;
+    if (!existing) {
+      const sourceIndex = shots.findIndex(
+        shot => stableShotIdOf(shot) === candidate.source.stableShotId
+      );
+      const targetIndex = shots.findIndex(
+        shot => stableShotIdOf(shot) === candidate.target.stableShotId
+      );
+      if (sourceIndex < 0 || targetIndex < 0) {
+        throw new Error("视频已生成，但故事版中的来源或目标镜头已经不存在");
+      }
+      const inserted = insertedTransitionShot({
+        candidate,
+        source: shots[sourceIndex],
+        target: shots[targetIndex],
+        shotNo: targetIndex + 1,
+        takeId: take.id,
+      });
+      const nextShots = [
+        ...shots.slice(0, targetIndex),
+        inserted,
+        ...shots.slice(targetIndex),
+      ].map((shot, index) => ({ ...shot, shotNo: index + 1 }));
+      nextBody = prepareStoryBody(
+        { ...body, shots: nextShots },
+        getStoryRevision(story.body) + 1,
+        story.body
+      );
+    }
+    const timelineItems = [...material.timeline.items].sort(
+      (left, right) => left.position - right.position
+    );
+    const timelineItemExists = timelineItems.some(
+      item => item.stableShotId === candidate.provisionalStableShotId
+    );
+    if (!timelineItemExists) {
+      const targetTimelineIndex = timelineItems.findIndex(
+        item => item.stableShotId === candidate.target.stableShotId
+      );
+      if (targetTimelineIndex < 0) {
+        throw new Error("视频已生成，但目标镜头已经不在时间轴中");
+      }
+      const durationMs = Math.max(100, Math.round(actualDurationSec * 1000));
+      timelineItems.splice(targetTimelineIndex, 0, {
+        stableShotId: candidate.provisionalStableShotId,
+        included: true,
+        position: targetTimelineIndex,
+        plannedDurationMs: durationMs,
+        durationFrames: mediaEndFrame - placement.startFrame,
+        timelineStartFrame: placement.startFrame,
+        stackOrder: Math.max(0, stackOrder - 1),
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+        primaryVideoEdit: {
+          takeId: take.id,
+          sourceStartSec: 0,
+          sourceEndSec: actualDurationSec,
+          effects: { ...DEFAULT_TIMELINE_VIDEO_EFFECTS },
+        },
+      });
+    }
+    const nextTimelineItems = timelineItems.map((item, position) => ({
+      ...item,
+      position,
+    }));
+    const saved = await applyStoryTimelineOverlayAtomic({
+      storyId: candidate.storyId,
+      userId,
+      takeId: take.id,
+      stableShotId: candidate.provisionalStableShotId,
+      expectedStoryRevision: getStoryRevision(story.body),
+      expectedVersion: candidate.expectedTimelineVersion,
+      nextStoryBody: nextBody,
+      nextTimelineItems,
+      overlay,
+    });
+    return {
+      storyShots: storyShots(saved.story.body),
+      storyRevision: getStoryRevision(saved.story.body),
+      timelineVersion: saved.timeline.version,
+      applied: saved.applied,
+      overlay: true,
+    };
+  }
   const existing = shots.find(
     shot => stableShotIdOf(shot) === candidate.provisionalStableShotId
   );
@@ -795,6 +1003,7 @@ async function applyGeneratedTransition(
       storyRevision: getStoryRevision(story.body),
       timelineVersion: material.timeline.version,
       applied: false,
+      overlay: false,
     };
   }
 
@@ -873,6 +1082,7 @@ async function applyGeneratedTransition(
     storyRevision: getStoryRevision(saved.story.body),
     timelineVersion: saved.timeline.version,
     applied: saved.applied,
+    overlay: false,
   };
 }
 
@@ -883,6 +1093,7 @@ async function finishAndApply(params: {
   providerVideoUrl?: string;
 }): Promise<ConfirmEditingTransitionResult> {
   let take = params.take;
+  let candidate = params.candidate;
   const outputName = `take-${take.id}.mp4`;
   const outputPath = path.join(localVideoDir(), outputName);
   if (take.status !== "available" || !take.videoUrl || !take.videoKey) {
@@ -894,21 +1105,22 @@ async function finishAndApply(params: {
         retryable: Boolean(take.taskId),
       };
     }
-    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null =
-      null;
+    let frames: Awaited<ReturnType<typeof prepareCandidateFrames>> | null = null;
+    const isOverlay = candidate.placement?.kind === "timeline-overlay";
     const savedLastFrame = durableLastFramePath(take.id);
-    let lastFramePath = await editingTransitionRuntime.findDurableLastFrame(
-      take.id
-    );
-    if (!lastFramePath) {
-      frames = await editingTransitionRuntime.prepareCandidateFrames(
-        params.candidate,
-        params.userId
-      );
-      lastFramePath = await editingTransitionRuntime.persistDurableLastFrame(
-        take.id,
-        frames.lastFrame.path
-      );
+    let lastFramePath: string | null = null;
+    if (!isOverlay) {
+      lastFramePath = await editingTransitionRuntime.findDurableLastFrame(take.id);
+      if (!lastFramePath) {
+        frames = await editingTransitionRuntime.prepareCandidateFrames(
+          candidate,
+          params.userId
+        );
+        lastFramePath = await editingTransitionRuntime.persistDurableLastFrame(
+          take.id,
+          frames.lastFrame.path
+        );
+      }
     }
     const rawPath = path.join(
       localVideoDir(),
@@ -916,22 +1128,25 @@ async function finishAndApply(params: {
     );
     try {
       await downloadVideoToFile(params.providerVideoUrl, rawPath);
-      await hardCutToLastFrame({
-        generatedVideoPath: rawPath,
-        lastFramePath,
-        outputPath,
-        totalDurationSec: params.candidate.durationSec,
-        cutAtSec: params.candidate.cutAtSec,
-        size: 720,
-        fps: 30,
-      });
+      if (isOverlay) {
+        await fs.promises.copyFile(rawPath, outputPath);
+      } else {
+        await hardCutToLastFrame({
+          generatedVideoPath: rawPath,
+          lastFramePath: lastFramePath!,
+          outputPath,
+          totalDurationSec: candidate.durationSec,
+          cutAtSec: candidate.cutAtSec!,
+          fps: 30,
+        });
+      }
       const metadata = await probeVideoFileMetadata(outputPath);
       if (
         Math.abs(metadata.width - metadata.height) > 2 ||
-        (metadata.durationSec != null &&
-          Math.abs(metadata.durationSec - params.candidate.durationSec) > 0.15)
+        (!isOverlay && metadata.durationSec != null &&
+          Math.abs(metadata.durationSec - candidate.durationSec) > 0.15)
       ) {
-        throw new Error("生成结果没有通过 1:1 / 2 秒成片校验");
+        throw new Error("生成结果没有通过 1:1 / 时长成片校验");
       }
       take = await patchTake(
         take,
@@ -940,7 +1155,7 @@ async function finishAndApply(params: {
           status: "available",
           videoKey: outputName,
           videoUrl: `/api/videos/${outputName}`,
-          durationSec: metadata.durationSec ?? params.candidate.durationSec,
+          durationSec: metadata.durationSec ?? candidate.durationSec,
           aspectRatio: "1:1",
           extractionCapability: "available",
           errorMessage: null,
@@ -953,7 +1168,9 @@ async function finishAndApply(params: {
       );
       await Promise.all([
         fs.promises.rm(rawPath, { force: true }),
-        fs.promises.rm(savedLastFrame, { force: true }),
+        ...(isOverlay
+          ? []
+          : [fs.promises.rm(savedLastFrame, { force: true })]),
       ]).catch(() => undefined);
     } catch (error) {
       take = await patchTake(
@@ -977,15 +1194,57 @@ async function finishAndApply(params: {
   }
 
   try {
+    if (candidate.placement?.kind === "timeline-overlay") {
+      const material = await getStoryMaterialState(
+        candidate.storyId,
+        params.userId
+      );
+      if (!material) throw new Error("故事不存在或无权操作");
+      const overlayId = `overlay-${candidate.candidateId.slice("transition-".length)}`;
+      const adoptionStarted =
+        material.timeline.items.some(
+          item => item.stableShotId === candidate.provisionalStableShotId
+        ) ||
+        (material.timeline.overlays ?? []).some(
+          overlay => overlay.id === overlayId
+        ) ||
+        material.shots.some(
+          shot => shot.stableShotId === candidate.provisionalStableShotId
+        );
+      if (adoptionStarted) {
+        candidate = {
+          ...candidate,
+          expectedTimelineVersion: material.timeline.version,
+        };
+      } else {
+        const refreshed = await proposeExtractedFrameTransition({
+          storyId: candidate.storyId,
+          userId: params.userId,
+          leftImageId: candidate.placement.leftImageId,
+          rightImageId: candidate.placement.rightImageId,
+        });
+        if (
+          refreshed.status !== "ok" ||
+          !overlayCandidateMatchesCanonical(candidate, refreshed.proposal, true)
+        ) {
+          throw new Error(
+            refreshed.status === "blocked"
+              ? refreshed.reply
+              : "覆盖视频位置已经变化，请重新选择抽帧"
+          );
+        }
+        candidate = normalizeCandidate(refreshed.proposal);
+      }
+    }
     const applied = await applyGeneratedTransition(
-      params.candidate,
+      candidate,
       take,
       params.userId
     );
     await selectVideoTimelineSegment(
       {
-        storyId: params.candidate.storyId,
-        stableShotId: params.candidate.provisionalStableShotId,
+        storyId: candidate.storyId,
+        stableShotId: candidate.provisionalStableShotId,
         takeId: take.id,
         selectionType: "full_take",
       },
@@ -1000,10 +1259,14 @@ async function finishAndApply(params: {
     return {
       status: "applied",
       reply: applied.applied
-        ? "衔接视频已经生成，并放进两镜之间了。我也替你定位到了新镜头。"
-        : "这条衔接已经在两镜之间，我没有重复插入。",
+        ? applied.overlay
+          ? "覆盖视频已经生成，已放到最上层并创建对应镜头列；未生成的余段保持为空。"
+          : "衔接视频已经生成，并放进两镜之间了。我也替你定位到了新镜头。"
+        : applied.overlay
+          ? "这条覆盖视频已经在上层，我没有重复采用。"
+          : "这条衔接已经在两镜之间，我没有重复插入。",
       takeId: take.id,
-      insertedStableShotId: params.candidate.provisionalStableShotId,
+      insertedStableShotId: candidate.provisionalStableShotId,
       storyShots: applied.storyShots,
       storyRevision: applied.storyRevision,
       timelineVersion: applied.timelineVersion,
@@ -1083,6 +1346,32 @@ async function runConfirmation(
     return finishAndApply({ candidate, take, userId });
   }
   const snapshot = currentSnapshot(take);
+  const claimedAtMs =
+    typeof snapshot.submissionClaimedAt === "string"
+      ? Date.parse(snapshot.submissionClaimedAt)
+      : Number.NaN;
+  if (
+    !take.taskId &&
+    snapshot.submissionState === "submitting" &&
+    Number.isFinite(claimedAtMs) &&
+    Date.now() - claimedAtMs >= SUBMISSION_CLAIM_STALE_MS
+  ) {
+    const message =
+      "提交权已取得，但服务重启前没有保存 302 任务号；是否扣费无法确认，已停止自动重提。";
+    take = await patchTake(
+      take,
+      userId,
+      { status: "unfollowable", errorMessage: message },
+      { submissionState: "unknown" }
+    );
+    return {
+      status: "error",
+      error: message,
+      takeId: take.id,
+      retryable: false,
+      submissionUnknown: true,
+    };
+  }
   if (
     !take.taskId &&
     (take.status === "unfollowable" || snapshot.submissionState === "unknown")

@@ -30,6 +30,8 @@ import {
   SkipForward,
   Copy,
   ClipboardPaste,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import type {
@@ -122,6 +124,10 @@ import {
   type StoryboardEditShotActions,
 } from "@/features/creationEditor/views/StoryboardEditRow";
 import {
+  storyboardExtractedFrameTimeMs,
+  type StoryboardEditFrameSource,
+} from "@/features/creationEditor/storyboardEditRow";
+import {
   StoryboardFieldVersionSelect,
   StoryboardCostCell,
   StoryboardMatrixFieldCell,
@@ -191,8 +197,14 @@ import {
   storyboardRerenderRequestId,
   storyboardShotFrameImages,
   STORYBOARD_CONTINUITY_REQUEST_INTERRUPTED,
+  STORYBOARD_START_END_AMPLITUDE_OPTIONS,
+  STORYBOARD_START_END_DURATION_OPTIONS,
+  storyboardStartEndAmplitude,
+  storyboardStartEndDurationSec,
   storyboardStartEndFrameIssue,
   storyboardStartEndGenerationParams,
+  storyboardStartEndTuningGenerationParams,
+  type StoryboardStartEndAmplitude,
   storyboardVideoIntentPatch,
   storyboardVideoRenderBlockReason,
   storyboardVideoSourceFrame,
@@ -220,12 +232,55 @@ import {
   SimpleStoryboardBoard,
   StoryboardMediaDropOverlay,
 } from "./SimpleStoryboardBoard";
+import {
+  buildStoryboardMatrixLayout,
+  shouldCompactStoryboardMatrixForShot,
+} from "./storyboardMatrixLayout";
 
 /**
  * 用户自己滚看板的时候，播放跟随让出这么久再接着跟。
  * 一镜通常几秒，太短等于没让、太长又会让人以为跟随坏了。
  */
 const MANUAL_BOARD_SCROLL_GRACE_MS = 2_500;
+
+function storyboardPrimaryFrameSource(
+  shot: CreationEditorShot
+): StoryboardEditFrameSource | null {
+  const edit = shot.timelineItem?.primaryVideoEdit;
+  if (edit) {
+    return {
+      takeId: edit.takeId,
+      sourceStartSec: edit.sourceStartSec,
+      sourceEndSec: edit.sourceEndSec,
+      reverse: edit.effects.reverse,
+    };
+  }
+
+  const take = [shot.selectedVideoTake, ...(shot.videoTakes ?? [])].find(
+    candidate =>
+      Boolean(candidate?.videoUrl) &&
+      candidate != null &&
+      videoTakeAffordance(candidate.status).canPlay
+  );
+  if (!take) return null;
+  const range =
+    take.selectedSelectionType === "range" && take.selectedRangeId != null
+      ? (take.ranges.find(candidate => candidate.id === take.selectedRangeId) ??
+        null)
+      : null;
+  const sourceStartSec = Math.max(0, range?.startSec ?? 0);
+  const sourceEndSec = Math.max(
+    sourceStartSec,
+    range?.endSec ?? take.durationSec ?? sourceStartSec
+  );
+  if (!(sourceEndSec > sourceStartSec)) return null;
+  return {
+    takeId: take.id,
+    rangeId: range?.id ?? null,
+    sourceStartSec,
+    sourceEndSec,
+  };
+}
 
 function StoryboardMediaSelectionIndicator({
   selected,
@@ -521,6 +576,10 @@ export function StoryboardReviewBoard({
     new Map<string, Promise<ShotConsistencyAnalysis>>()
   );
   const [viewMode, setViewMode] = useState<"full" | "simple">(defaultViewMode);
+  const [compactShots, setCompactShots] = useState(false);
+  const [compactExpandedShotNo, setCompactExpandedShotNo] = useState<
+    number | null
+  >(null);
   const [insertingAfterShotNo, setInsertingAfterShotNo] = useState<
     number | null
   >(null);
@@ -788,6 +847,22 @@ export function StoryboardReviewBoard({
             stableShotId: timing.stableShotId,
             timelineItem: creationShot.timelineItem ?? null,
             posterUrl: creationShot.imageUrl ?? null,
+            primaryFrameSource: storyboardPrimaryFrameSource(creationShot),
+            extractedFrames: (creationShot.imageVersions ?? []).flatMap(
+              image => {
+                const atMs = storyboardExtractedFrameTimeMs(image.prompt);
+                return atMs == null
+                  ? []
+                  : [
+                      {
+                        id: `image-${image.id}`,
+                        imageId: image.id,
+                        imageUrl: image.imageUrl,
+                        atMs,
+                      },
+                    ];
+              }
+            ),
           },
         ];
       }),
@@ -1567,20 +1642,60 @@ export function StoryboardReviewBoard({
   };
 
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
-  const matrixGridTemplateColumns = useMemo(() => {
-    const timingByShotNo = new Map(
-      storyboardTimingRows.map(timing => [timing.shotNo, timing.durationMs])
-    );
-    const durations = shots.map(shot =>
-      Math.max(1, timingByShotNo.get(shot.shotNo) ?? 1)
-    );
-    const totalDurationMs = durations.reduce((sum, duration) => sum + duration, 0);
-    const targetWidth = matrixShotColumnWidth * Math.max(1, shots.length);
-    const columns = durations.map(duration =>
-      Math.max(1, (duration / totalDurationMs) * targetWidth)
-    );
-    return `76px ${columns.map(width => `${width}px`).join(" ")}`;
+  const matrixShotEntries = useMemo(() => {
+    const entries = shots.map((shot, originalIndex) => ({
+      shot,
+      originalIndex,
+      stableShotId:
+        storyShotInsertIdentity(shot, originalIndex) ??
+        `story-shot-${originalIndex}`,
+    }));
+    return buildStoryboardMatrixLayout({
+      entries,
+      timings: storyboardTimingRows.map(timing => ({
+        stableShotId: timing.stableShotId,
+        startFrame: timing.startFrame,
+        endFrame: timing.startFrame + timing.durationFrames,
+      })),
+      targetWidth: matrixShotColumnWidth * Math.max(1, shots.length),
+    });
   }, [matrixShotColumnWidth, shots, storyboardTimingRows]);
+  const matrixGridTemplateColumns = useMemo(() => {
+    if (compactShots) {
+      return `76px ${matrixShotEntries.entries
+        .map(({ shot }) =>
+          shot.shotNo === compactExpandedShotNo
+            ? `${matrixShotColumnWidth}px`
+            : "72px"
+        )
+        .join(" ")}`;
+    }
+    return `76px ${matrixShotEntries.widths
+      .map(width => `${Math.max(1, width)}px`)
+      .join(" ")}`;
+  }, [
+    compactExpandedShotNo,
+    compactShots,
+    matrixShotEntries,
+    matrixShotColumnWidth,
+  ]);
+  const selectMatrixShot = (shotNo: number) => {
+    const entryIndex = matrixShotEntries.entries.findIndex(
+      entry => entry.shot.shotNo === shotNo
+    );
+    const alignedWidth = matrixShotEntries.widths[entryIndex] ?? 0;
+    if (
+      compactShots ||
+      shouldCompactStoryboardMatrixForShot(
+        alignedWidth,
+        matrixShotColumnWidth
+      )
+    ) {
+      setCompactShots(true);
+      setCompactExpandedShotNo(shotNo);
+    }
+    onSelectShot?.(shotNo);
+  };
 
   const showImageHoverPreview = (
     event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
@@ -2374,6 +2489,57 @@ export function StoryboardReviewBoard({
     }
   };
 
+  /**
+   * 首尾帧的时长与运动幅度。以前只能从镜头时长和 motion 推导，想跑 8 秒或加大
+   * 幅度只能去脚本里改；这里让故事版直接写 generationParams，
+   * `parseStartEndVideoConfig` 本来就读这两个键。
+   *
+   * 两个下拉是挨着放的，用户会连着改。所以写入必须串行，而且每次都把这一镜
+   * **累积的**选择整体写回——只写当次改动的话，第二次写入会基于还没回读到的旧
+   * generationParams，把第一次的选择盖掉（实测：先改时长再改幅度，时长会丢）。
+   */
+  const [startEndTuningOverrides, setStartEndTuningOverrides] = useState<
+    Record<
+      string,
+      { durationSec?: number; movementAmplitude?: StoryboardStartEndAmplitude }
+    >
+  >({});
+  const startEndTuningOverridesRef = useRef(startEndTuningOverrides);
+  startEndTuningOverridesRef.current = startEndTuningOverrides;
+  const startEndTuningQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const updateStartEndTuning = (
+    creationShot: CreationEditorShot | undefined,
+    tuning: {
+      durationSec?: number;
+      movementAmplitude?: StoryboardStartEndAmplitude;
+    }
+  ) => {
+    const stableShotId =
+      creationShot?.stableShotId ?? creationShot?.shotIdentity ?? null;
+    if (!creationShot || !stableShotId || !onUpdateShotFields) return;
+    setStartEndTuningOverrides(previous => ({
+      ...previous,
+      [stableShotId]: { ...previous[stableShotId], ...tuning },
+    }));
+    startEndTuningQueueRef.current = startEndTuningQueueRef.current
+      .then(async () => {
+        const accumulated =
+          startEndTuningOverridesRef.current[stableShotId] ?? tuning;
+        await onUpdateShotFields(stableShotId, {
+          generationParams: storyboardStartEndTuningGenerationParams(
+            creationShot.generationParams,
+            accumulated
+          ),
+        });
+      })
+      .catch(error => {
+        toast.error(
+          error instanceof Error ? error.message : "保存视频时长或运动幅度失败"
+        );
+      });
+  };
+
   const rerenderShotVideo = async (
     shot: StoryShot,
     creationShot: CreationEditorShot | undefined,
@@ -2915,6 +3081,34 @@ export function StoryboardReviewBoard({
           {boardTimeline && shots.length > 0 && viewMode === "full" ? (
             <StoryboardEditTransport timeline={boardTimeline} />
           ) : null}
+          {shots.length > 0 && viewMode === "full" ? (
+            <button
+              type="button"
+              aria-pressed={compactShots}
+              aria-label={compactShots ? "恢复所有镜头完整宽度" : "缩小所有镜头"}
+              data-testid="storyboard-compact-shots-toggle"
+              onClick={() => {
+                setCompactShots(current => {
+                  if (current) setCompactExpandedShotNo(null);
+                  return !current;
+                });
+              }}
+              className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
+              style={{ borderColor: "var(--panel-border)" }}
+              title={
+                compactShots
+                  ? "恢复所有镜头的完整宽度"
+                  : "缩小所有镜头；点击某镜可单独展开"
+              }
+            >
+              {compactShots ? (
+                <Maximize2 className="h-3 w-3" />
+              ) : (
+                <Minimize2 className="h-3 w-3" />
+              )}
+              {compactShots ? "恢复" : "缩小"}
+            </button>
+          ) : null}
           {shots.length > 0 ? (
             <span
               className="inline-flex rounded-sm bg-muted/45 p-0.5 text-[10px]"
@@ -3038,7 +3232,8 @@ export function StoryboardReviewBoard({
                 >
                   镜头
                 </div>
-                {shots.map((shot, index) => {
+                {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
+                  const index = originalIndex;
                   const creationShot = creationShotByNo.get(shot.shotNo);
                   const title = shortText(
                     shot.dialogue,
@@ -3046,6 +3241,8 @@ export function StoryboardReviewBoard({
                   );
                   const shotLabel = displayShotCode(shot);
                   const selected = selectedShotNo === shot.shotNo;
+                  const shotIsCompact =
+                    compactShots && compactExpandedShotNo !== shot.shotNo;
                   const shotTimelineId = creationShot
                     ? creationTimelineShotId(creationShot)
                     : (shot.stableShotId ??
@@ -3078,6 +3275,7 @@ export function StoryboardReviewBoard({
                       role="columnheader"
                       data-storyboard-shot-no={shot.shotNo}
                       data-storyboard-shot-header="two-row"
+                      data-storyboard-shot-compact={shotIsCompact}
                       className="sticky top-0 z-30 min-w-0 border-b border-r px-2 py-1.5"
                       style={{
                         borderColor:
@@ -3089,22 +3287,26 @@ export function StoryboardReviewBoard({
                     >
                       <button
                         type="button"
-                        onClick={() => onSelectShot?.(shot.shotNo)}
+                        onClick={() => selectMatrixShot(shot.shotNo)}
                         className="flex w-full min-w-0 items-baseline gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35"
                         aria-label={`选择 ${shotLabel} ${title}`}
                       >
                         <span className="shrink-0 font-mono text-[10px] font-semibold text-foreground">
                           {shotLabel}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-[9px] leading-relaxed text-muted-foreground">
-                          {title}
-                        </span>
+                        {!shotIsCompact ? (
+                          <span className="min-w-0 flex-1 truncate text-[9px] leading-relaxed text-muted-foreground">
+                            {title}
+                          </span>
+                        ) : null}
                       </button>
                       <div
                         className="mt-1 flex h-6 items-center gap-1"
                         data-storyboard-shot-actions="true"
                       >
-                        {onConfirmCandidate && onRejectCandidate ? (
+                        {!shotIsCompact &&
+                        onConfirmCandidate &&
+                        onRejectCandidate ? (
                           <ShotCandidateBadge
                             compact
                             shotLabel={shotLabel}
@@ -3117,7 +3319,9 @@ export function StoryboardReviewBoard({
                             onReject={onRejectCandidate}
                           />
                         ) : null}
-                        {onAddShotToTimeline && !isOnTimeline ? (
+                        {!shotIsCompact &&
+                        onAddShotToTimeline &&
+                        !isOnTimeline ? (
                           <button
                             type="button"
                             onClick={event => {
@@ -3146,7 +3350,11 @@ export function StoryboardReviewBoard({
                               void insertShotAfter(
                                 shot.shotNo,
                                 insertStableShotId
-                              );
+                              ).then(() => {
+                                if (compactShots) {
+                                  setCompactExpandedShotNo(shot.shotNo + 1);
+                                }
+                              });
                             }}
                           />
                         ) : null}
@@ -3166,7 +3374,7 @@ export function StoryboardReviewBoard({
                             }}
                           />
                         ) : null}
-                        {onGenerateShotImages ? (
+                        {!shotIsCompact && onGenerateShotImages ? (
                           <button
                             type="button"
                             data-testid={`storyboard-header-generate-image-${insertStableShotId}`}
@@ -3201,7 +3409,8 @@ export function StoryboardReviewBoard({
                             )}
                           </button>
                         ) : null}
-                        {creationShot &&
+                        {!shotIsCompact &&
+                        creationShot &&
                         (onGenerateShotVideo ||
                           (onEstimateStartEndShotVideo &&
                             onGenerateStartEndShotVideo)) ? (
@@ -3243,7 +3452,7 @@ export function StoryboardReviewBoard({
                     timeline={boardTimeline}
                     shots={storyboardEditShots}
                     selectedShotNo={selectedShotNo}
-                    onSelectShot={shotNo => onSelectShot?.(shotNo)}
+                    onSelectShot={selectMatrixShot}
                     columnSpan={shots.length}
                     shotActions={storyboardEditShotActions}
                   />
@@ -3260,7 +3469,8 @@ export function StoryboardReviewBoard({
                 >
                   画面
                 </div>
-                {shots.map((shot, index) => {
+                {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
+                  const index = originalIndex;
                   const image = frameByShotNo.get(shot.shotNo);
                   const creationShot = creationShotByNo.get(shot.shotNo);
                   const selected = selectedShotNo === shot.shotNo;
@@ -3373,8 +3583,15 @@ export function StoryboardReviewBoard({
                         isOnTimeline
                       )}
                       aria-busy={isImportingMedia}
+                      data-storyboard-shot-no={shot.shotNo}
                       data-storyboard-media-drop-target={displayShotCode(shot)}
                       data-storyboard-media-expanded={mediaExpanded}
+                      onClickCapture={() => {
+                        if (compactShots) {
+                          setCompactExpandedShotNo(shot.shotNo);
+                          onSelectShot?.(shot.shotNo);
+                        }
+                      }}
                       className={`relative min-w-0 border-b border-r p-2 transition-[height] duration-200 ${
                         mediaExpanded ? "h-[164px]" : "h-[75px]"
                       }`}
@@ -4639,7 +4856,8 @@ export function StoryboardReviewBoard({
                         </span>
                       ) : null}
                     </div>
-                    {shots.map((shot, index) => {
+                    {matrixShotEntries.entries.map(({ shot, originalIndex }) => {
+                      const index = originalIndex;
                       const selected = selectedShotNo === shot.shotNo;
                       const creationShot = creationShotByNo.get(shot.shotNo);
                       const dropTarget =
@@ -4843,6 +5061,77 @@ export function StoryboardReviewBoard({
                               (onGenerateShotVideo ||
                                 (onEstimateStartEndShotVideo &&
                                   onGenerateStartEndShotVideo)) ? (
+                              <div className="flex w-full flex-col gap-1">
+                                <div className="flex flex-col gap-1">
+                                  <label className="sr-only" htmlFor={`shot-${shot.shotNo}-duration`}>
+                                    {`${shotLabel} 视频时长（秒）`}
+                                  </label>
+                                  <select
+                                    id={`shot-${shot.shotNo}-duration`}
+                                    value={
+                                      startEndTuningOverrides[
+                                        creationShot.stableShotId ??
+                                          creationShot.shotIdentity ??
+                                          ""
+                                      ]?.durationSec ??
+                                      storyboardStartEndDurationSec(
+                                        creationShot.generationParams,
+                                        creationShot.durationMs
+                                      )
+                                    }
+                                    disabled={!onUpdateShotFields}
+                                    onPointerDown={event => event.stopPropagation()}
+                                    onClick={event => event.stopPropagation()}
+                                    onChange={event => {
+                                      event.stopPropagation();
+                                      void updateStartEndTuning(creationShot, {
+                                        durationSec: Number(event.target.value),
+                                      });
+                                    }}
+                                    className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
+                                    title="首尾帧视频时长；Vidu Q2 单次上限 8 秒"
+                                  >
+                                    {STORYBOARD_START_END_DURATION_OPTIONS.map(seconds => (
+                                      <option key={seconds} value={seconds}>
+                                        {`${seconds} 秒`}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <label className="sr-only" htmlFor={`shot-${shot.shotNo}-amplitude`}>
+                                    {`${shotLabel} 运动幅度`}
+                                  </label>
+                                  <select
+                                    id={`shot-${shot.shotNo}-amplitude`}
+                                    value={
+                                      startEndTuningOverrides[
+                                        creationShot.stableShotId ??
+                                          creationShot.shotIdentity ??
+                                          ""
+                                      ]?.movementAmplitude ??
+                                      storyboardStartEndAmplitude(
+                                        creationShot.generationParams
+                                      )
+                                    }
+                                    disabled={!onUpdateShotFields}
+                                    onPointerDown={event => event.stopPropagation()}
+                                    onClick={event => event.stopPropagation()}
+                                    onChange={event => {
+                                      event.stopPropagation();
+                                      void updateStartEndTuning(creationShot, {
+                                        movementAmplitude: event.target
+                                          .value as StoryboardStartEndAmplitude,
+                                      });
+                                    }}
+                                    className="h-6 w-full min-w-0 rounded-sm border border-border bg-background px-1 text-[9px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 disabled:opacity-55"
+                                    title="画面运动幅度；变形大的镜头选「大」"
+                                  >
+                                    {STORYBOARD_START_END_AMPLITUDE_OPTIONS.map(option => (
+                                      <option key={option.value} value={option.value}>
+                                        {`幅度 ${option.label}`}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               <button
                                 type="button"
                                 disabled={
@@ -4877,6 +5166,7 @@ export function StoryboardReviewBoard({
                                   ? "检查人物"
                                   : "渲染视频"}
                               </button>
+                              </div>
                             ) : null
                           }
                         />

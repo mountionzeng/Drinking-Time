@@ -44,6 +44,7 @@ vi.mock('@/lib/trpc', () => ({
     creationAgent: {
       confirmTimelineTransition: { useMutation: makeMutation },
       proposeGapTransition: { useMutation: makeMutation },
+      proposeExtractedFrameTransition: { useMutation: makeMutation },
     },
     artAgent: {
       riff: { useMutation: makeMutation },
@@ -85,6 +86,21 @@ const fictionIntent: StoryIntent = {
 };
 
 describe('StoryAgentContext intent state', () => {
+  it('refreshes story revision and shots for every applied transition result', async () => {
+    const { applyTransitionStoryResult } = await import('./StoryAgentContext');
+    const setServerRevision = vi.fn();
+    const setStoryShots = vi.fn();
+    const storyShots = [{ shotNo: 1, stableShotId: 'generated-overlay-shot' }];
+
+    applyTransitionStoryResult(
+      { storyRevision: 12, storyShots },
+      { setServerRevision, setStoryShots },
+    );
+
+    expect(setServerRevision).toHaveBeenCalledWith(12);
+    expect(setStoryShots).toHaveBeenCalledWith(storyShots);
+  });
+
   it('exposes shared confirmedIntent state and controls from context', async () => {
     const { StoryAgentProvider, useStoryAgent } = await import('./StoryAgentContext');
 

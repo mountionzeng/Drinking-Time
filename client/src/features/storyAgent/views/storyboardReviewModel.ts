@@ -1430,3 +1430,91 @@ export function shortText(
   const text = value?.trim();
   return text && text.length > 0 ? text : fallback;
 }
+
+/**
+ * 首尾帧视频的时长与运动幅度。
+ *
+ * 2026-08-19：这两个值以前只能被推导——`durationSec` 跟着镜头时长走（0307 的
+ * 4433ms 只能得到 4 秒），`movementAmplitude` 从 `motion` 落下来。想要「跑 8 秒、
+ * 幅度大一点」就只能去脚本里手改，产品里给不了。这组读写函数把它们变成故事版上
+ * 可直接选的字段，`parseStartEndVideoConfig` 本来就认这两个键。
+ */
+export const STORYBOARD_START_END_DURATION_OPTIONS = [
+  1, 2, 3, 4, 5, 6, 7, 8,
+] as const;
+
+export const STORYBOARD_START_END_AMPLITUDE_OPTIONS = [
+  { value: "auto", label: "自动" },
+  { value: "small", label: "小" },
+  { value: "medium", label: "中" },
+  { value: "large", label: "大" },
+] as const;
+
+export type StoryboardStartEndAmplitude =
+  (typeof STORYBOARD_START_END_AMPLITUDE_OPTIONS)[number]["value"];
+
+/** Vidu Q2 首尾帧单次上限 8 秒，超过要拆段，这里直接夹住而不是提交后报错。 */
+export function clampStoryboardStartEndDurationSec(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 4;
+  return Math.max(1, Math.min(8, Math.round(parsed)));
+}
+
+/** 当前生效的时长：显式配置优先，否则退回镜头自身时长。 */
+export function storyboardStartEndDurationSec(
+  generationParams: string | null | undefined,
+  durationMs?: number | null
+): number {
+  const current = generationParamsRecord(generationParams);
+  const configured = Number(current.durationSec);
+  if (Number.isFinite(configured) && configured > 0) {
+    return clampStoryboardStartEndDurationSec(configured);
+  }
+  return clampStoryboardStartEndDurationSec(
+    durationMs != null && durationMs > 0 ? durationMs / 1_000 : 4
+  );
+}
+
+/** 当前生效的运动幅度：显式配置优先，否则沿用 motion 的旧口径。 */
+export function storyboardStartEndAmplitude(
+  generationParams: string | null | undefined
+): StoryboardStartEndAmplitude {
+  const current = generationParamsRecord(generationParams);
+  const configured = String(current.movementAmplitude);
+  if (
+    STORYBOARD_START_END_AMPLITUDE_OPTIONS.some(
+      option => option.value === configured
+    )
+  ) {
+    return configured as StoryboardStartEndAmplitude;
+  }
+  if (current.motion === "high") return "large";
+  if (current.motion === "low") return "small";
+  return "auto";
+}
+
+/**
+ * 写回时长 / 运动幅度。
+ *
+ * 显式选了幅度就要清掉 `motion`，否则 `parseStartEndVideoConfig` 里
+ * 「configuredAmplitude === "auto" 且 motion 有值」那条分支会把用户的选择丢掉。
+ */
+export function storyboardStartEndTuningGenerationParams(
+  generationParams: string | null | undefined,
+  tuning: {
+    durationSec?: number;
+    movementAmplitude?: StoryboardStartEndAmplitude;
+  }
+): string {
+  const current = generationParamsRecord(generationParams);
+  if (tuning.durationSec != null) {
+    current.durationSec = clampStoryboardStartEndDurationSec(
+      tuning.durationSec
+    );
+  }
+  if (tuning.movementAmplitude != null) {
+    current.movementAmplitude = tuning.movementAmplitude;
+    delete current.motion;
+  }
+  return Object.keys(current).length > 0 ? JSON.stringify(current) : "";
+}

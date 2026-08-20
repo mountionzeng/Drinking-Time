@@ -2,6 +2,7 @@ import {
   STORY_TIMELINE_FPS,
   timelineFramesToMs,
   type StoryTimelineItem,
+  type StoryTimelineOverlay,
 } from "./storyMaterial";
 
 export type TimelineLayoutRow = {
@@ -17,6 +18,14 @@ export type TimelineResolution =
   | {
       kind: "shot";
       row: TimelineLayoutRow;
+      localFrame: number;
+    };
+
+export type TimelineDocumentResolution =
+  | TimelineResolution
+  | {
+      kind: "overlay";
+      overlay: StoryTimelineOverlay;
       localFrame: number;
     };
 
@@ -125,6 +134,50 @@ export function resolveTimelineFrame(
   };
 }
 
+/** Resolve persisted overlays and story shots through one deterministic path. */
+export function resolveTimelineDocumentFrame(input: {
+  items: readonly StoryTimelineItem[];
+  overlays?: readonly StoryTimelineOverlay[];
+  frame: number;
+}): TimelineDocumentResolution {
+  const lookupFrame = Math.max(0, Math.floor(input.frame));
+  const rows = buildTimelineLayout(input.items);
+  const anchored = rows.filter(
+    row =>
+      (row.item.anchors?.length ?? 0) > 0 &&
+      lookupFrame >= row.startFrame &&
+      lookupFrame < row.endFrame
+  );
+  if (anchored.length > 0) {
+    const winner = [...anchored].sort((left, right) => compareRows(right, left))[0];
+    return {
+      kind: "shot",
+      row: winner,
+      localFrame: lookupFrame - winner.startFrame,
+    };
+  }
+  const overlay = [...(input.overlays ?? [])]
+    .filter(
+      candidate =>
+        lookupFrame >= candidate.startFrame && lookupFrame < candidate.endFrame
+    )
+    .sort(
+      (left, right) =>
+        right.stackOrder - left.stackOrder || right.id.localeCompare(left.id)
+    )[0];
+  if (overlay) {
+    if (lookupFrame >= overlay.mediaEndFrame) {
+      return { kind: "gap", frame: lookupFrame };
+    }
+    return {
+      kind: "overlay",
+      overlay,
+      localFrame: lookupFrame - overlay.startFrame,
+    };
+  }
+  return resolveTimelineFrame(rows, lookupFrame);
+}
+
 export function selectDirectionalGroup(
   rows: readonly TimelineLayoutRow[],
   sourceItemId: string,
@@ -174,6 +227,23 @@ export type TimelineMoveResult =
       clampedAtZero: boolean;
     }
   | { kind: "blocked"; reason: string };
+
+/**
+ * 只选中这一镜自己：拖镜头本体默认只移动它，不牵动同方向连续的邻居。
+ * 批量移动仍然可以通过 selectDirectionalGroup（六点抓手）触发。
+ */
+export function selectSingleShot(
+  rows: readonly TimelineLayoutRow[],
+  sourceItemId: string
+): TimelineGroupSelectionResult {
+  const row = rows.find(candidate => candidate.item.stableShotId === sourceItemId);
+  if (!row) return { kind: "blocked", reason: "镜头不在时间轴中" };
+  if (isAnchored(row)) {
+    return { kind: "blocked", reason: "这一镜已有位置锚点，不能移动" };
+  }
+  // direction 只影响 moveTimelineGroup 的调用签名，单镜移动本身不分方向。
+  return { kind: "ok", direction: "right", itemIds: [sourceItemId], boundaryItemId: null };
+}
 
 export function moveTimelineGroup(
   items: readonly StoryTimelineItem[],

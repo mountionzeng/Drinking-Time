@@ -49,12 +49,19 @@ export type EditingTransitionCandidateReference = {
   target: EditingTransitionEndpointReference;
   instruction: string;
   prompt: string;
-  durationSec: 2;
+  durationSec: number;
   resolution: "720p";
-  cutAtSec: 1.4;
-  estimatedCredits: 10;
-  estimatedCny: 0.35;
+  cutAtSec: 1.4 | null;
+  estimatedCredits: number;
+  estimatedCny: number;
   expectedTimelineVersion: number;
+  placement?: {
+    kind: "timeline-overlay";
+    startFrame: number;
+    targetEndFrame: number;
+    leftImageId: number;
+    rightImageId: number;
+  };
   status: EditingTransitionCandidateStatus;
   error?: string;
   retryable?: boolean;
@@ -404,6 +411,26 @@ function normalizeEditingTransitionCandidate(
   const source = normalizeEditingTransitionEndpoint(candidate.source);
   const target = normalizeEditingTransitionEndpoint(candidate.target);
   const rawStatus = candidate.status;
+  const placementRecord =
+    candidate.placement &&
+    typeof candidate.placement === "object" &&
+    !Array.isArray(candidate.placement)
+      ? (candidate.placement as Record<string, unknown>)
+      : null;
+  const placement =
+    placementRecord?.kind === "timeline-overlay" &&
+    typeof placementRecord.startFrame === "number" &&
+    typeof placementRecord.targetEndFrame === "number" &&
+    typeof placementRecord.leftImageId === "number" &&
+    typeof placementRecord.rightImageId === "number"
+      ? {
+          kind: "timeline-overlay" as const,
+          startFrame: placementRecord.startFrame,
+          targetEndFrame: placementRecord.targetEndFrame,
+          leftImageId: placementRecord.leftImageId,
+          rightImageId: placementRecord.rightImageId,
+        }
+      : undefined;
   const allowedStatus =
     rawStatus === "pending" ||
     rawStatus === "generating" ||
@@ -420,11 +447,14 @@ function normalizeEditingTransitionCandidate(
     !target ||
     typeof candidate.instruction !== "string" ||
     typeof candidate.prompt !== "string" ||
-    candidate.durationSec !== 2 ||
+    typeof candidate.durationSec !== "number" ||
+    !Number.isInteger(candidate.durationSec) ||
+    candidate.durationSec < 1 ||
+    candidate.durationSec > 8 ||
     candidate.resolution !== "720p" ||
-    candidate.cutAtSec !== 1.4 ||
-    candidate.estimatedCredits !== 10 ||
-    candidate.estimatedCny !== 0.35 ||
+    (candidate.cutAtSec !== 1.4 && candidate.cutAtSec !== null) ||
+    typeof candidate.estimatedCredits !== "number" ||
+    typeof candidate.estimatedCny !== "number" ||
     typeof candidate.expectedTimelineVersion !== "number" ||
     !allowedStatus
   ) {
@@ -439,12 +469,13 @@ function normalizeEditingTransitionCandidate(
     target,
     instruction: candidate.instruction,
     prompt: candidate.prompt,
-    durationSec: 2,
+    durationSec: candidate.durationSec,
     resolution: "720p",
-    cutAtSec: 1.4,
-    estimatedCredits: 10,
-    estimatedCny: 0.35,
+    cutAtSec: candidate.cutAtSec,
+    estimatedCredits: candidate.estimatedCredits,
+    estimatedCny: candidate.estimatedCny,
     expectedTimelineVersion: candidate.expectedTimelineVersion,
+    ...(placement ? { placement } : {}),
     status: interrupted ? "failed" : allowedStatus,
     error: interrupted
       ? "上次生成被页面刷新打断；继续会查询同一任务，不会重复提交。"

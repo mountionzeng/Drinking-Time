@@ -106,6 +106,38 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain(">0102<");
   });
 
+  it("shows time-sampled video frames inside each edit block", () => {
+    const filmstripShots = shots.map((shot, index) =>
+      index === 0
+        ? {
+            ...shot,
+            posterUrl: "/fallback.webp",
+            primaryFrameSource: {
+              takeId: 55,
+              sourceStartSec: 0,
+              sourceEndSec: 2,
+            },
+          }
+        : shot
+    );
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={filmstripShots}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain(
+      'data-testid="storyboard-edit-filmstrip-sh-01-primary"'
+    );
+    expect(html).toContain("/api/video-frames/55?atSec=0.500");
+    expect(html).toContain("/api/video-frames/55?atSec=1.500");
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('src="/fallback.webp"');
+  });
+
   it("keeps the row header clean without duplicate split and extract icons", () => {
     const html = renderRow(boardTimeline({ playheadMs: 3_500 }));
     expect(html).not.toContain('data-testid="storyboard-edit-split"');
@@ -139,6 +171,72 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain("强弱 · 停顿");
   });
 
+  it("places extracted images on their own aligned row above the edit track", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ playheadMs: 1_000 })}
+        shots={[
+          {
+            ...shots[0],
+            extractedFrames: [
+              {
+                id: "image-99",
+                imageId: 99,
+                imageUrl: "/frame-99.webp",
+                atMs: 1_000,
+              },
+            ],
+          },
+          shots[1],
+        ]}
+        selectedShotNo={1}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain('data-testid="storyboard-extracted-frame-track"');
+    expect(html).toContain('data-testid="storyboard-top-playhead"');
+    expect(html.indexOf('data-testid="storyboard-top-playhead"')).toBeLessThan(
+      html.indexOf('data-testid="storyboard-edit-playhead"')
+    );
+    expect(html).toContain('aria-label="拖动顶层播放头"');
+    expect(html).toContain('data-testid="storyboard-extracted-frame-99"');
+    expect(html).toContain('src="/frame-99.webp"');
+    expect(html).toContain("left:12.5%");
+    expect(html.indexOf("抽帧 · 上层")).toBeLessThan(
+      html.indexOf("视觉 · 剪辑")
+    );
+  });
+
+  it("renders a persisted overlay video and its explicit uncovered tail", () => {
+    const html = renderRow(
+      boardTimeline({
+        overlays: [
+          {
+            id: "overlay-a",
+            kind: "generated-video",
+            takeId: 9,
+            sourceStableShotId: "sh-01",
+            videoUrl: "/api/videos/overlay-a.mp4",
+            startFrame: 30,
+            targetEndFrame: 150,
+            mediaEndFrame: 120,
+            endFrame: 150,
+            stackOrder: 10,
+            leftImageId: 1,
+            rightImageId: 2,
+            transform: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, zoom: 1, panX: 0, panY: 0 },
+          },
+        ],
+        onCreateExtractedFrameTransition: vi.fn(),
+      })
+    );
+    expect(html).toContain('data-testid="storyboard-overlay-overlay-a"');
+    expect(html).toContain('src="/api/videos/overlay-a.mp4"');
+    expect(html).toContain('title="未生成区间 · 留空"');
+    expect(html).toContain('aria-keyshortcuts="Shift+F10 ContextMenu"');
+  });
+
   it("reveals both trim edges and the reorder handle only on the selected shot", () => {
     const unselected = renderRow(boardTimeline());
     expect(unselected).not.toContain(
@@ -163,8 +261,11 @@ describe("StoryboardEditRow", () => {
   it("draws one continuous playhead across the whole track", () => {
     const html = renderRow(boardTimeline({ playheadMs: 2_000 }));
     expect(html).toContain('data-testid="storyboard-edit-playhead"');
-    expect(html).toContain('aria-label="拖动剪辑播放头"');
-    expect(html).toContain('title="拖动播放头，预览对应时间的视频或图片"');
+    expect(html).toContain('data-testid="storyboard-top-playhead"');
+    expect(html).toContain('aria-label="拖动顶层播放头"');
+    expect(html).toMatch(
+      /<span(?=[^>]*data-testid="storyboard-edit-playhead")(?=[^>]*pointer-events-none)[^>]*>/
+    );
     expect(html).toContain("left:25%");
   });
 
@@ -237,12 +338,24 @@ describe("StoryboardEditRow shortcuts", () => {
     expect(html).not.toContain('data-testid="storyboard-edit-reorder-sh-01"');
     expect(html).toContain("整体移动它和同侧连续的镜头");
     expect(html).toContain("⌥← / ⌥→");
+    // 短镜头的两侧已经留给裁剪，把批量抓手放到镜头上方，
+    // 不再覆盖中间用于“只移动这一镜”的画面区域。
+    expect(html).toMatch(
+      /<button[^>]*-top-4[^>]*data-testid="storyboard-edit-group-grip-sh-01"/
+    );
+    // 原生 HTML drag 会接管指针并触发 pointercancel，批量移动模式必须关掉它。
+    expect(html).toMatch(
+      /<button[^>]*draggable="false"[^>]*data-testid="storyboard-edit-group-grip-sh-01"/
+    );
   });
 
   it("keeps the old single-shot reorder drag when the group action is not wired", () => {
     const html = renderRow(boardTimeline(), 1);
     expect(html).toContain('data-testid="storyboard-edit-reorder-sh-01"');
     expect(html).not.toContain('data-testid="storyboard-edit-group-grip-sh-01"');
+    expect(html).toMatch(
+      /<button[^>]*draggable="true"[^>]*data-testid="storyboard-edit-reorder-sh-01"/
+    );
   });
 
   it("draws each anchor on the ruler and inside its shot but keeps one keyboard stop", () => {

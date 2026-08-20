@@ -244,16 +244,21 @@ export default function StoryAgentChat({
   const labelForShot = (
     shotNo: number | null | undefined,
     stableShotId?: string | null
-  ) =>
-    displayShotCode(
-      creationEditor?.shots.find(
-        shot =>
-          (stableShotId &&
-            (shot.stableShotId === stableShotId ||
-              shot.shotIdentity === stableShotId)) ||
-          shot.shotNo === shotNo
-      ) ?? { shotNo }
+  ) => {
+    const stableShot = stableShotId
+      ? creationEditor?.shots.find(
+          shot =>
+            shot.stableShotId === stableShotId ||
+            shot.shotIdentity === stableShotId
+        )
+      : undefined;
+    return displayShotCode(
+      stableShot ??
+        creationEditor?.shots.find(shot => shot.shotNo === shotNo) ?? {
+          shotNo,
+        }
     );
+  };
   const handleImageRerender = useCallback(
     async (
       messageId: string,
@@ -1157,10 +1162,12 @@ export default function StoryAgentChat({
                     <EditingTransitionCandidateCard
                       candidate={{
                         sourceShotNo: labelForShot(
-                          Number(m.editingTransitionCandidate.source.shotNo)
+                          Number(m.editingTransitionCandidate.source.shotNo),
+                          m.editingTransitionCandidate.source.stableShotId
                         ),
                         targetShotNo: labelForShot(
-                          Number(m.editingTransitionCandidate.target.shotNo)
+                          Number(m.editingTransitionCandidate.target.shotNo),
+                          m.editingTransitionCandidate.target.stableShotId
                         ),
                         firstImageUrl:
                           m.editingTransitionCandidate.source.imageUrl,

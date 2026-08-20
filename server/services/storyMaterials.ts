@@ -8,6 +8,7 @@ import {
   type StoryTimelineAnchor,
   type StoryTimelinePrimaryVideoEdit,
   type StoryTimelineItem,
+  type StoryTimelineOverlay,
   type StoryTimelineVisualClip,
   type TimelineDocument,
   type TimelineTransform,
@@ -30,6 +31,7 @@ import {
 
 type StoryShotFact = {
   stableShotId: string;
+  splitSourceStableShotId: string | null;
   shotNo: number;
   cueCode: string | null;
   plannedDurationMs: number;
@@ -91,6 +93,67 @@ function timelineAnchors(value: unknown): StoryTimelineAnchor[] {
   );
 }
 
+function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
+  if (!Array.isArray(value)) return [];
+  const overlays: StoryTimelineOverlay[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const sourceStableShotId =
+      typeof record.sourceStableShotId === "string"
+        ? record.sourceStableShotId.trim()
+        : "";
+    const videoUrl = typeof record.videoUrl === "string" ? record.videoUrl.trim() : "";
+    const takeId = nonNegativeInteger(record.takeId);
+    const startFrame = nonNegativeInteger(record.startFrame);
+    const targetEndFrame = nonNegativeInteger(record.targetEndFrame);
+    const mediaEndFrame = nonNegativeInteger(record.mediaEndFrame);
+    const endFrame = nonNegativeInteger(record.endFrame);
+    const stackOrder = nonNegativeInteger(record.stackOrder);
+    const leftImageId = nonNegativeInteger(record.leftImageId);
+    const rightImageId = nonNegativeInteger(record.rightImageId);
+    if (
+      record.kind !== "generated-video" ||
+      !id ||
+      seen.has(id) ||
+      !sourceStableShotId ||
+      !videoUrl ||
+      takeId == null || takeId < 1 ||
+      startFrame == null ||
+      targetEndFrame == null || targetEndFrame <= startFrame ||
+      mediaEndFrame == null || mediaEndFrame <= startFrame ||
+      endFrame == null || endFrame !== Math.max(targetEndFrame, mediaEndFrame) ||
+      stackOrder == null ||
+      leftImageId == null || leftImageId < 1 ||
+      rightImageId == null || rightImageId < 1
+    ) {
+      continue;
+    }
+    seen.add(id);
+    overlays.push({
+      id,
+      kind: "generated-video",
+      takeId,
+      sourceStableShotId,
+      videoUrl,
+      startFrame,
+      targetEndFrame,
+      mediaEndFrame,
+      endFrame,
+      stackOrder,
+      leftImageId,
+      rightImageId,
+      transform: transform(record.transform),
+      effects: optionalVideoEffects(record.effects),
+    });
+  }
+  return overlays.sort(
+    (left, right) => left.startFrame - right.startFrame || left.id.localeCompare(right.id)
+  );
+}
+
 function shotNoFromCanonical(value: unknown): number | null {
   const canonical = canonicalizeShotNo(
     value as string | number | null | undefined
@@ -108,7 +171,14 @@ function keysOverlap(
 }
 
 function shotMaterialKeys(fact: StoryShotFact): string[] {
-  return shotIdentityMatchKeys(fact.stableShotId, fact.shotNo);
+  return Array.from(
+    new Set([
+      ...shotIdentityMatchKeys(fact.stableShotId, fact.shotNo),
+      ...(fact.splitSourceStableShotId
+        ? shotIdentityMatchKeys(fact.splitSourceStableShotId)
+        : []),
+    ])
+  );
 }
 
 function storyShots(story: Story): StoryShotFact[] {
@@ -132,6 +202,8 @@ function storyShots(story: Story): StoryShotFact[] {
     return [
       {
         stableShotId,
+        splitSourceStableShotId:
+          normalizeShotIdentity(shot.splitSourceStableShotId) ?? null,
         shotNo,
         cueCode:
           typeof shot.cueCode === "string" && shot.cueCode.trim()
@@ -455,6 +527,7 @@ export async function getStoryMaterialState(
     storyId,
     version: timelineRow?.version ?? 0,
     items: normalizeTimelineItems(timelineRow?.items, facts),
+    overlays: timelineOverlays(timelineRow?.overlays),
   };
   const timelineByShot = new Map(
     timeline.items.map(item => [item.stableShotId, item])
@@ -467,6 +540,13 @@ export async function getStoryMaterialState(
   );
 
   const shots = facts.map(fact => {
+    const timelineItem = timelineByShot.get(fact.stableShotId) ?? null;
+    const timelineTakeIds = new Set(
+      [
+        timelineItem?.primaryVideoEdit?.takeId,
+        ...(timelineItem?.visualClips ?? []).map(clip => clip.takeId),
+      ].filter((takeId): takeId is number => takeId != null)
+    );
     const imageCompilationId =
       compilationHeadByKey.get(`${fact.stableShotId}:image`) ?? null;
     const videoCompilationId =
@@ -491,6 +571,7 @@ export async function getStoryMaterialState(
     const currentImage = imageVersions.find(image => image.isPrimary) ?? null;
     const ownVideoTakes = videos
       .filter(take =>
+        timelineTakeIds.has(take.id) ||
         keysOverlap(
           shotMaterialKeys(fact),
           shotIdentityMatchKeys(take.stableShotId)
@@ -532,6 +613,12 @@ export async function getStoryMaterialState(
     const currentVideo =
       videoTakes.find(
         take =>
+          take.id === timelineItem?.primaryVideoEdit?.takeId &&
+          take.status === "available" &&
+          Boolean(take.videoUrl)
+      ) ??
+      videoTakes.find(
+        take =>
           take.isTimelineSelected &&
           take.status === "available" &&
           Boolean(take.videoUrl) &&
@@ -545,7 +632,7 @@ export async function getStoryMaterialState(
       imageVersions,
       currentVideo,
       videoTakes,
-      timelineItem: timelineByShot.get(fact.stableShotId) ?? null,
+      timelineItem,
     };
   });
   const matchedVideoTakeIds = new Set(

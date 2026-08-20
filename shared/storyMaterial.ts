@@ -126,10 +126,32 @@ export type StoryTimelineItem = {
   visualClipsReplacePrimary?: boolean;
 };
 
+export type StoryTimelineOverlay = {
+  id: string;
+  kind: "generated-video";
+  takeId: number;
+  sourceStableShotId: string;
+  videoUrl: string;
+  /** Absolute 30 fps placement of the generated media. */
+  startFrame: number;
+  /** The second extracted frame. A shorter generated video leaves a gap until here. */
+  targetEndFrame: number;
+  /** Actual complete media end; it may extend slightly past targetEndFrame. */
+  mediaEndFrame: number;
+  /** max(targetEndFrame, mediaEndFrame), so the uncovered tail remains an explicit gap. */
+  endFrame: number;
+  stackOrder: number;
+  leftImageId: number;
+  rightImageId: number;
+  transform: TimelineTransform;
+  effects?: TimelineVideoEffects;
+};
+
 export type TimelineDocument = {
   storyId: number;
   version: number;
   items: StoryTimelineItem[];
+  overlays?: StoryTimelineOverlay[];
 };
 
 export type ShotMaterialState = {

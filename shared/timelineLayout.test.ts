@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   withTimelineDurationMs,
   type StoryTimelineItem,
+  type StoryTimelineOverlay,
 } from "./storyMaterial";
 import {
   buildTimelineLayout,
   moveTimelineGroup,
+  resolveTimelineDocumentFrame,
   resolveTimelineFrame,
   selectDirectionalGroup,
+  selectSingleShot,
   timelineTotalFrames,
 } from "./timelineLayout";
 
@@ -177,6 +180,109 @@ describe("timelineLayout", () => {
     expect(withTimelineDurationMs(shortened, 0)).toMatchObject({
       plannedDurationMs: 100,
       durationFrames: 3,
+    });
+  });
+
+  it("selects only the shot itself, ignoring neighbors in either direction", () => {
+    const items = [item("a", 0, 0), item("b", 1, 30), item("c", 2, 60)];
+    const rows = buildTimelineLayout(items);
+    const selection = selectSingleShot(rows, "b");
+    expect(selection).toEqual({
+      kind: "ok",
+      direction: "right",
+      itemIds: ["b"],
+      boundaryItemId: null,
+    });
+    const moved = moveTimelineGroup(items, selection as any, 10);
+    expect(moved.kind).toBe("ok");
+    if (moved.kind !== "ok") return;
+    // 只有 b 动了；a、c 原地不动。
+    expect(moved.items.map(entry => entry.timelineStartFrame)).toEqual([0, 40, 60]);
+  });
+
+  it("blocks a single-shot drag on an anchored shot with a clear reason", () => {
+    const items = [
+      item("a", 0, 0, 30, {
+        anchors: [{ id: "x", timelineFrame: 5, sourceType: "image", sourceId: "i", sourceTimeSec: null }],
+      }),
+    ];
+    const rows = buildTimelineLayout(items);
+    expect(selectSingleShot(rows, "a")).toEqual({
+      kind: "blocked",
+      reason: "这一镜已有位置锚点，不能移动",
+    });
+  });
+
+  it("reports a missing shot rather than silently selecting nothing", () => {
+    const rows = buildTimelineLayout([item("a", 0, 0)]);
+    expect(selectSingleShot(rows, "ghost")).toEqual({
+      kind: "blocked",
+      reason: "镜头不在时间轴中",
+    });
+  });
+});
+
+describe("persisted timeline overlays", () => {
+  const overlay: StoryTimelineOverlay = {
+    id: "overlay-a",
+    kind: "generated-video",
+    takeId: 9,
+    sourceStableShotId: "a",
+    videoUrl: "/video.mp4",
+    startFrame: 15,
+    targetEndFrame: 120,
+    mediaEndFrame: 105,
+    endFrame: 120,
+    stackOrder: 99,
+    leftImageId: 1,
+    rightImageId: 2,
+    transform: {
+      cropX: 0,
+      cropY: 0,
+      cropWidth: 1,
+      cropHeight: 1,
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+    },
+  };
+
+  it("shows complete overlay media and masks its uncovered tail as a gap", () => {
+    const items = [item("a", 0, 0, 150)];
+    expect(resolveTimelineDocumentFrame({ items, overlays: [overlay], frame: 90 })).toMatchObject({
+      kind: "overlay",
+      localFrame: 75,
+    });
+    expect(resolveTimelineDocumentFrame({ items, overlays: [overlay], frame: 110 })).toEqual({
+      kind: "gap",
+      frame: 110,
+    });
+  });
+
+  it("keeps an anchored story shot above an overlapping overlay", () => {
+    const items = [
+      item("locked", 0, 0, 150, {
+        anchors: [
+          {
+            id: "anchor",
+            timelineFrame: 20,
+            sourceType: "image",
+            sourceId: "image-1",
+            sourceTimeSec: null,
+          },
+        ],
+      }),
+    ];
+    expect(resolveTimelineDocumentFrame({ items, overlays: [overlay], frame: 30 })).toMatchObject({
+      kind: "shot",
+      row: { item: { stableShotId: "locked" } },
+    });
+  });
+
+  it("allows actual media to extend past the target frame", () => {
+    const overrun = { ...overlay, targetEndFrame: 100, mediaEndFrame: 108, endFrame: 108 };
+    expect(resolveTimelineDocumentFrame({ items: [], overlays: [overrun], frame: 105 })).toMatchObject({
+      kind: "overlay",
     });
   });
 });

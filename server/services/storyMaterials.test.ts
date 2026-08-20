@@ -8,6 +8,7 @@ import {
   getStoryById,
   resetMemoryStateForTesting,
   updateStoryBodyIfRevision,
+  updateStoryTimeline,
 } from "../db";
 import {
   confirmPromptCandidateForStory,
@@ -351,6 +352,159 @@ describe("normalizeTimelineItems", () => {
 });
 
 describe("getStoryMaterialState", () => {
+  it("keeps a retained timeline segment playable after its source shot is deleted", async () => {
+    const sourceStableShotId = "shot-source";
+    const retainedStableShotId = "shot-retained";
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "删除来源镜头后保留素材",
+      body: {
+        shots: [
+          { stableShotId: sourceStableShotId, shotNo: 1 },
+          { stableShotId: retainedStableShotId, shotNo: 2 },
+        ],
+      },
+    });
+    const take = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: sourceStableShotId,
+      sourceImageId: null,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "素材仓库视频",
+      durationSec: 5,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/source-take.mp4",
+      extractionCapability: "available",
+    });
+    await selectVideoTimelineSegment(
+      {
+        storyId: story.id,
+        stableShotId: sourceStableShotId,
+        takeId: take.id,
+        selectionType: "full_take",
+      },
+      1
+    );
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [
+        {
+          stableShotId: sourceStableShotId,
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+        },
+        {
+          stableShotId: retainedStableShotId,
+          included: true,
+          position: 1,
+          plannedDurationMs: 2_000,
+          primaryVideoEdit: {
+            takeId: take.id,
+            sourceStartSec: 1,
+            sourceEndSec: 3,
+            effects: {
+              playbackRate: 1,
+              reverse: false,
+              volume: 1,
+              muted: false,
+            },
+          },
+        },
+      ],
+    });
+    expect(
+      await updateStoryBodyIfRevision({
+        id: story.id,
+        userId: 1,
+        expectedRevision: 0,
+        body: {
+          _revision: 1,
+          shots: [{ stableShotId: retainedStableShotId, shotNo: 1 }],
+        },
+      })
+    ).toBe(true);
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    const retained = materials?.shots[0];
+
+    expect(retained?.timelineItem?.primaryVideoEdit?.takeId).toBe(take.id);
+    expect(retained?.videoTakes.map(item => item.id)).toContain(take.id);
+    expect(retained?.currentVideo?.id).toBe(take.id);
+    expect(materials?.unassignedVideoTakes.map(item => item.id)).not.toContain(
+      take.id
+    );
+  });
+
+  it("projects source image and video assets onto a structurally split child shot", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "切割素材继承",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-source",
+            shotIdentity: "shot-source",
+            shotNo: 1,
+          },
+          {
+            stableShotId: "split-right",
+            shotIdentity: "split-right",
+            splitSourceStableShotId: "shot-source",
+            shotNo: 2,
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-source",
+      imageUrl: "data:image/png;base64,SPLIT",
+      imageKey: null,
+      prompt: "split source",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const take = await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-source",
+      sourceImageId: image.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "split source video",
+      durationSec: 3,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/split-source.mp4",
+      extractionCapability: "available",
+    });
+    await selectImage(story.id, image.id);
+    expect(await getStoryById(story.id, 1)).toMatchObject({
+      body: {
+        shots: [
+          {},
+          { splitSourceStableShotId: "shot-source" },
+        ],
+      },
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.shots[1]?.currentImage?.id).toBe(image.id);
+    expect(materials?.shots[1]?.videoTakes.map(item => item.id)).toContain(take.id);
+  });
+
   it("keeps publishing covers out of shots and unassigned materials", async () => {
     const story = await createStory({
       userId: 1,

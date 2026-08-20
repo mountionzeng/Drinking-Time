@@ -19,7 +19,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import type { StoryTimelineItem } from "@shared/storyMaterial";
+import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
+import { selectExtractedFramePair } from "@shared/extractedFrameTransition";
 import {
   formatStoryboardTimestamp,
   storyboardTimingTotalMs,
@@ -30,6 +31,7 @@ import {
   STORYBOARD_EDIT_FRAME_MS,
   storyboardEditBlocks,
   storyboardEditEdgeMs,
+  storyboardEditFilmstripFrameUrls,
   storyboardEditMenuItems,
   storyboardEditNeighborShotId,
   storyboardEditNudgedDurationMs,
@@ -44,11 +46,14 @@ import {
   storyboardEditTimingAt,
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
-  storyboardGroupDragDirection,
+  storyboardReleasedDragDeltaFrames,
+  storyboardGroupDragStep,
   storyboardGroupDragSummary,
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
+  storyboardVisualLayerShotIds,
   type StoryboardEditAction,
+  type StoryboardEditFrameSource,
   type StoryboardEditRange,
 } from "../storyboardEditRow";
 import {
@@ -116,6 +121,14 @@ export type StoryboardBoardTimeline = {
     direction: "left" | "right";
     deltaFrames: number;
   }) => Promise<{ applied: boolean; reason?: string }>;
+  /**
+   * 拖镜头本体：只移动这一镜，同方向的邻居原地不动。批量移动是六点抓手的
+   * 单独手势（onMoveTimelineGroup），两者不共用同一个拖动入口。
+   */
+  onMoveTimelineShot?: (input: {
+    stableShotId: string;
+    deltaFrames: number;
+  }) => Promise<{ applied: boolean; reason?: string }>;
   onAddAnchor?: (
     timelineFrame: number
   ) => Promise<{ applied: boolean; reason?: string }>;
@@ -127,6 +140,15 @@ export type StoryboardBoardTimeline = {
     beforeStableShotId: string;
     afterStableShotId: string;
   }) => Promise<{ applied: boolean; reason?: string }>;
+  onCreateExtractedFrameTransition?: (input: {
+    leftImageId: number;
+    rightImageId: number;
+  }) => Promise<{ applied: boolean; reason?: string }>;
+  onDeleteExtractedFrame?: (imageId: number) => Promise<{
+    applied: boolean;
+    reason?: string;
+  }>;
+  overlays?: readonly StoryTimelineOverlay[];
   onRemoveAnchor?: (input: {
     stableShotId: string;
     anchorId: string;
@@ -168,7 +190,64 @@ export type StoryboardEditShot = {
   stableShotId: string;
   timelineItem: StoryTimelineItem | null;
   posterUrl: string | null;
+  /** 当前主视频在成片里的真实来源范围，用来画出随时间变化的缩略帧。 */
+  primaryFrameSource?: StoryboardEditFrameSource | null;
+  /** 通过右键“抽帧”保存的时间线画面，显示在剪辑行上方的独立轨道。 */
+  extractedFrames?: readonly {
+    id: string;
+    imageId: number;
+    imageUrl: string;
+    atMs: number;
+  }[];
 };
+
+function StoryboardEditFilmstrip({
+  frameUrls,
+  posterUrl,
+  testId,
+}: {
+  frameUrls: readonly string[];
+  posterUrl?: string | null;
+  testId: string;
+}) {
+  if (frameUrls.length === 0 && !posterUrl) return null;
+  return (
+    <span
+      className="pointer-events-none absolute inset-0 overflow-hidden"
+      aria-hidden="true"
+      data-testid={testId}
+    >
+      {posterUrl ? (
+        <img
+          src={posterUrl}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 h-full w-full select-none object-cover"
+        />
+      ) : null}
+      {frameUrls.length > 0 ? (
+        <span className="absolute inset-0 flex">
+          {frameUrls.map((src, index) => (
+            <img
+              key={`${src}-${index}`}
+              src={src}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              className="h-full min-w-0 flex-1 select-none border-r border-black/15 object-cover last:border-r-0"
+              onError={event => {
+                // 抽帧暂时失败时露出底下的主图/色块，避免出现破图图标。
+                event.currentTarget.style.visibility = "hidden";
+              }}
+            />
+          ))}
+        </span>
+      ) : null}
+      <span className="absolute inset-0 bg-black/10" />
+    </span>
+  );
+}
 
 const SHOT_DRAG_MIME = "application/x-storyboard-shot";
 
@@ -323,6 +402,409 @@ function StoryboardAudioRowHeader() {
         强弱 · 停顿
       </span>
     </div>
+  );
+}
+
+function StoryboardExtractedFrameRows({
+  shots,
+  timeline,
+  columnSpan,
+  onSelectShot,
+}: {
+  shots: readonly StoryboardEditShot[];
+  timeline: StoryboardBoardTimeline;
+  columnSpan: number;
+  onSelectShot: (shotNo: number) => void;
+}) {
+  const totalMs = Math.max(
+    timeline.totalMs,
+    storyboardTimingTotalMs(shots.map(shot => shot.timing)),
+    ...(timeline.overlays ?? []).map(overlay => (overlay.endFrame * 1000) / 30)
+  );
+  const frames = shots
+    .flatMap(shot =>
+      (shot.extractedFrames ?? []).map(frame => ({ ...frame, shot }))
+    )
+    .sort((left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id));
+  const [transitionMenu, setTransitionMenu] = useState<{
+    clientX: number;
+    clientY: number;
+    leftImageId: number;
+    rightImageId: number;
+    durationSec: number;
+  } | null>(null);
+  const [pending, setPending] = useState(false);
+  const [frameMenu, setFrameMenu] = useState<{
+    clientX: number;
+    clientY: number;
+    frames: Array<{
+      imageId: number;
+      shotLabel: string;
+      atMs: number;
+    }>;
+  } | null>(null);
+  const [deletingImageId, setDeletingImageId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const playheadPct = storyboardEditPlayheadPct(timeline.playheadMs, totalMs);
+  const seekFromClientX = (clientX: number) => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    timeline.onSeek(
+      Math.max(
+        0,
+        Math.min(totalMs, ((clientX - rect.left) / rect.width) * totalMs)
+      )
+    );
+  };
+  useEffect(() => {
+    if (!transitionMenu && !frameMenu) return;
+    const close = () => {
+      if (deletingImageId != null) return;
+      setTransitionMenu(null);
+      setFrameMenu(null);
+      setDeleteError(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [deletingImageId, frameMenu, transitionMenu]);
+  const openAtMs = (atMs: number, clientX: number, clientY: number) => {
+    const selected = selectExtractedFramePair({ frames, atMs });
+    if (selected.kind !== "ok") return;
+    setFrameMenu(null);
+    setDeleteError(null);
+    setTransitionMenu({
+      clientX,
+      clientY,
+      leftImageId: selected.pair.left.imageId,
+      rightImageId: selected.pair.right.imageId,
+      durationSec: selected.pair.requestedDurationSec,
+    });
+  };
+  return (
+    <>
+      <div
+        role="rowheader"
+        className="sticky left-0 z-20 flex flex-col justify-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
+        style={{
+          borderColor:
+            "color-mix(in srgb, var(--panel-border) 62%, transparent)",
+          background: "var(--background)",
+        }}
+      >
+        <span>抽帧 · 上层</span>
+        <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
+          右键剪辑条添加
+        </span>
+      </div>
+      <div
+        role="cell"
+        className="px-2 py-1"
+        style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
+      >
+        <div
+          ref={trackRef}
+          className="relative h-12 overflow-hidden rounded-sm border border-border/70 bg-muted/15"
+          data-testid="storyboard-extracted-frame-track"
+          aria-label="抽帧上层轨道"
+          role="button"
+          tabIndex={0}
+          aria-keyshortcuts="Shift+F10 ContextMenu"
+          onContextMenu={event => {
+            if (!timeline.onCreateExtractedFrameTransition) return;
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            openAtMs(
+              Math.max(
+                0,
+                Math.min(
+                  totalMs,
+                  ((event.clientX - rect.left) / Math.max(1, rect.width)) * totalMs
+                )
+              ),
+              event.clientX,
+              event.clientY
+            );
+          }}
+          onKeyDown={event => {
+            if (
+              !timeline.onCreateExtractedFrameTransition ||
+              !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+            ) return;
+            event.preventDefault();
+            const rect = trackRef.current?.getBoundingClientRect();
+            openAtMs(
+              timeline.playheadMs,
+              rect ? rect.left + rect.width / 2 : 0,
+              rect ? rect.top + rect.height / 2 : 0
+            );
+          }}
+        >
+          {frames.length === 0 ? (
+            <span className="absolute inset-0 flex items-center px-2 text-[8px] text-muted-foreground/65">
+              在剪辑条上右键，选择“抽帧”
+            </span>
+          ) : null}
+          {frames.map(({ shot, ...frame }) => {
+            const leftPct =
+              totalMs > 0
+                ? Math.min(100, Math.max(0, (frame.atMs / totalMs) * 100))
+                : 0;
+            const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
+            return (
+              <button
+                key={frame.id}
+                type="button"
+                className={`absolute bottom-1 top-1 z-10 w-10 -translate-x-1/2 overflow-hidden rounded-sm border bg-background shadow-sm transition hover:z-20 hover:scale-105 focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  active ? "border-primary ring-1 ring-primary" : "border-white/60"
+                }`}
+                style={{ left: `${leftPct}%` }}
+                onClick={() => {
+                  onSelectShot(shot.shotNo);
+                  timeline.onTogglePlay(false);
+                  timeline.onSeek(frame.atMs);
+                }}
+                onContextMenu={event => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTransitionMenu(null);
+                  setDeleteError(null);
+                  const trackWidth = trackRef.current?.getBoundingClientRect().width ?? 0;
+                  const overlappingFrames = frames.filter(candidate => {
+                    if (trackWidth <= 0 || totalMs <= 0) {
+                      return candidate.imageId === frame.imageId;
+                    }
+                    return (
+                      (Math.abs(candidate.atMs - frame.atMs) / totalMs) * trackWidth <
+                      38
+                    );
+                  });
+                  setFrameMenu({
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    frames: overlappingFrames.map(candidate => ({
+                      imageId: candidate.imageId,
+                      shotLabel: candidate.shot.shotLabel,
+                      atMs: candidate.atMs,
+                    })),
+                  });
+                }}
+                onKeyDown={event => {
+                  if (
+                    !(event.key === "ContextMenu" ||
+                      (event.shiftKey && event.key === "F10"))
+                  ) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setTransitionMenu(null);
+                  setDeleteError(null);
+                  setFrameMenu({
+                    clientX: rect.left + rect.width / 2,
+                    clientY: rect.top + rect.height / 2,
+                    frames: [
+                      {
+                        imageId: frame.imageId,
+                        shotLabel: shot.shotLabel,
+                        atMs: frame.atMs,
+                      },
+                    ],
+                  });
+                }}
+                aria-keyshortcuts="Shift+F10 ContextMenu"
+                aria-label={`查看抽帧 ${shot.shotLabel} ${formatStoryboardTimestamp(frame.atMs)}`}
+                title={`${shot.shotLabel} · 抽帧 ${formatStoryboardTimestamp(frame.atMs)} · 图片 #${frame.imageId}`}
+                data-testid={`storyboard-extracted-frame-${frame.imageId}`}
+              >
+                <img
+                  src={frame.imageUrl}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full select-none object-cover"
+                />
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/65 px-0.5 font-mono text-[6px] leading-3 text-white">
+                  {formatStoryboardTimestamp(frame.atMs)}
+                </span>
+              </button>
+            );
+          })}
+          {(timeline.overlays ?? []).map(overlay => {
+            const leftPct = totalMs > 0 ? ((overlay.startFrame * 1000) / 30 / totalMs) * 100 : 0;
+            const mediaWidthPct = totalMs > 0 ? (((overlay.mediaEndFrame - overlay.startFrame) * 1000) / 30 / totalMs) * 100 : 0;
+            const gapWidthPct = totalMs > 0 ? (((overlay.endFrame - overlay.mediaEndFrame) * 1000) / 30 / totalMs) * 100 : 0;
+            return (
+              <div key={overlay.id} data-testid={`storyboard-overlay-${overlay.id}`}>
+                <video
+                  src={overlay.videoUrl}
+                  muted
+                  preload="metadata"
+                  className="pointer-events-none absolute bottom-1 top-1 z-[5] rounded-sm border border-cyan-400/70 bg-black object-cover"
+                  style={{ left: `${leftPct}%`, width: `${Math.max(mediaWidthPct, 0.4)}%` }}
+                />
+                {gapWidthPct > 0 ? (
+                  <span
+                    className="pointer-events-none absolute bottom-1 top-1 z-[4] border border-dashed border-cyan-500/50 bg-black"
+                    style={{ left: `${leftPct + mediaWidthPct}%`, width: `${gapWidthPct}%` }}
+                    title="未生成区间 · 留空"
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+          {playheadPct != null ? (
+            <div
+              role="slider"
+              tabIndex={0}
+              aria-label="拖动顶层播放头"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(totalMs)}
+              aria-valuenow={Math.round(timeline.playheadMs)}
+              aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
+              title="播放头位于所有视觉剪辑层最上方"
+              className="group absolute bottom-0 top-0 z-50 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
+              style={{ left: `${playheadPct}%` }}
+              data-testid="storyboard-top-playhead"
+              onPointerDown={event => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                timeline.onTogglePlay(false);
+                event.currentTarget.setPointerCapture(event.pointerId);
+                seekFromClientX(event.clientX);
+              }}
+              onPointerMove={event => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  seekFromClientX(event.clientX);
+                }
+              }}
+              onPointerUp={event => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              }}
+              onPointerCancel={event => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              }}
+            >
+              <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/80 transition group-hover:scale-110" />
+              <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
+            </div>
+          ) : null}
+        </div>
+        {transitionMenu ? (
+          <div
+            role="menu"
+            className="fixed z-[100] min-w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: transitionMenu.clientX, top: transitionMenu.clientY }}
+            onPointerDown={event => event.stopPropagation()}
+            data-testid="storyboard-extracted-frame-transition-menu"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              disabled={pending}
+              className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
+              onClick={async () => {
+                if (!timeline.onCreateExtractedFrameTransition) return;
+                setPending(true);
+                const result = await timeline.onCreateExtractedFrameTransition({
+                  leftImageId: transitionMenu.leftImageId,
+                  rightImageId: transitionMenu.rightImageId,
+                });
+                setPending(false);
+                if (result.applied) setTransitionMenu(null);
+              }}
+            >
+              {pending
+                ? "正在生成确认卡…"
+                : `用左右抽帧生成 ${transitionMenu.durationSec} 秒覆盖视频…`}
+            </button>
+          </div>
+        ) : null}
+        {frameMenu ? (
+          <div
+            role="menu"
+            aria-label="抽帧操作"
+            className="fixed z-[110] min-w-48 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{
+              left: Math.min(frameMenu.clientX, window.innerWidth - 208),
+              top: Math.min(frameMenu.clientY, window.innerHeight - 120),
+            }}
+            onPointerDown={event => event.stopPropagation()}
+            onContextMenu={event => event.preventDefault()}
+            data-testid="storyboard-extracted-frame-delete-menu"
+          >
+            <div className="border-b border-border/60 px-2 pb-1 text-[9px] text-muted-foreground">
+              {frameMenu.frames.length > 1
+                ? `此处有 ${frameMenu.frames.length} 张重叠抽帧`
+                : `${frameMenu.frames[0]?.shotLabel ?? "抽帧"} · ${formatStoryboardTimestamp(frameMenu.frames[0]?.atMs ?? 0)} · 图片 #${frameMenu.frames[0]?.imageId ?? "-"}`}
+            </div>
+            {frameMenu.frames.map(candidate => (
+              <button
+                key={candidate.imageId}
+                type="button"
+                role="menuitem"
+                disabled={deletingImageId != null || !timeline.onDeleteExtractedFrame}
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-destructive transition enabled:hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                data-testid={`storyboard-extracted-frame-delete-action-${candidate.imageId}`}
+                onClick={async () => {
+                  if (!timeline.onDeleteExtractedFrame || deletingImageId != null) return;
+                  setDeletingImageId(candidate.imageId);
+                  setDeleteError(null);
+                  try {
+                    const result = await timeline.onDeleteExtractedFrame(candidate.imageId);
+                    if (result.applied) {
+                      setFrameMenu(current => {
+                        if (!current) return null;
+                        const remaining = current.frames.filter(
+                          item => item.imageId !== candidate.imageId
+                        );
+                        return remaining.length > 0
+                          ? { ...current, frames: remaining }
+                          : null;
+                      });
+                    } else {
+                      setDeleteError(result.reason ?? "删除抽帧失败");
+                    }
+                  } finally {
+                    setDeletingImageId(null);
+                  }
+                }}
+              >
+                {deletingImageId === candidate.imageId ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                {deletingImageId === candidate.imageId
+                  ? "正在删除…"
+                  : frameMenu.frames.length > 1
+                    ? `删除 ${candidate.shotLabel} ${formatStoryboardTimestamp(candidate.atMs)} · 图片 #${candidate.imageId}`
+                    : "删除这张抽帧"}
+              </button>
+            ))}
+            {deleteError ? (
+              <p role="alert" className="max-w-52 px-2 py-1 text-[9px] text-destructive">
+                {deleteError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -567,6 +1049,16 @@ function StoryboardEditTrack({
     boundaryStableShotId: string | null;
     blockedReason: string | null;
   } | null>(null);
+  const singleDragRef = useRef<{
+    clientX: number;
+    trackWidthPx: number;
+    stableShotId: string;
+  } | null>(null);
+  const [singleDrag, setSingleDrag] = useState<{
+    stableShotId: string;
+    deltaFrames: number;
+    blockedReason: string | null;
+  } | null>(null);
 
   const timings = shots.map(shot => shot.timing);
   // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
@@ -574,6 +1066,7 @@ function StoryboardEditTrack({
   const groupEnabled =
     !disableGroupMove &&
     Boolean(timeline.previewGroupMove && timeline.onMoveTimelineGroup);
+  const singleMoveEnabled = !disableGroupMove && Boolean(timeline.onMoveTimelineShot);
   const labelByShotId = new Map(
     shots.map(shot => [shot.stableShotId, shot.shotLabel] as const)
   );
@@ -742,7 +1235,7 @@ function StoryboardEditTrack({
   }, []);
 
   const startGroupDrag = (
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLElement>,
     shot: StoryboardEditShot
   ) => {
     if (event.button !== 0 || !groupEnabled) return;
@@ -752,6 +1245,8 @@ function StoryboardEditTrack({
     if (trackWidthPx <= 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     timeline.onTogglePlay(false);
+    // 上一条结果不能盖住这次手势的反馈——尤其是「这一镜锁住了」这种拒绝原因。
+    onStatusMessage(null);
     groupDragRef.current = {
       clientX: event.clientX,
       trackWidthPx,
@@ -785,23 +1280,27 @@ function StoryboardEditTrack({
     });
   };
 
-  const moveGroupDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const moveGroupDrag = (event: ReactPointerEvent<HTMLElement>) => {
     const start = groupDragRef.current;
     if (!start) return;
-    const deltaPx = event.clientX - start.clientX;
+    const step = storyboardGroupDragStep({
+      lockedDirection: start.direction,
+      deltaPx: event.clientX - start.clientX,
+      trackWidthPx: start.trackWidthPx,
+      totalMs,
+    });
+    if (!step) return;
     if (start.direction == null) {
-      const direction = storyboardGroupDragDirection(deltaPx);
-      if (!direction) return;
       // 方向在越过阈值的这一刻锁死，之后指针划回另一侧也不换组员。
-      start.direction = direction;
+      start.direction = step.direction;
       const preview = timeline.previewGroupMove?.({
         stableShotId: start.stableShotId,
-        direction,
+        direction: step.direction,
       });
       setGroupDrag({
         stableShotId: start.stableShotId,
-        direction,
-        deltaFrames: 0,
+        direction: step.direction,
+        deltaFrames: step.deltaFrames,
         stableShotIds: preview?.kind === "ok" ? preview.stableShotIds : [],
         boundaryStableShotId:
           preview?.kind === "ok" ? preview.boundaryStableShotId : null,
@@ -809,32 +1308,39 @@ function StoryboardEditTrack({
       });
       return;
     }
-    const deltaFrames = storyboardGroupDragDeltaFrames({
-      deltaPx,
-      trackWidthPx: start.trackWidthPx,
-      totalMs,
-    });
     setGroupDrag(current =>
-      current == null || current.deltaFrames === deltaFrames
+      current == null || current.deltaFrames === step.deltaFrames
         ? current
-        : { ...current, deltaFrames }
+        : { ...current, deltaFrames: step.deltaFrames }
     );
   };
 
-  const endGroupDrag = async (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const endGroupDrag = async (event: ReactPointerEvent<HTMLElement>) => {
     const start = groupDragRef.current;
-    const drag = groupDrag;
+    const step = start
+      ? storyboardGroupDragStep({
+          lockedDirection: start.direction,
+          deltaPx: event.clientX - start.clientX,
+          trackWidthPx: start.trackWidthPx,
+          totalMs,
+        })
+      : null;
     groupDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     setGroupDrag(null);
-    if (!start?.direction || !drag || drag.deltaFrames === 0) return;
-    if (drag.blockedReason) return;
+    if (!start || !step) {
+      // 没越过拖动阈值就是点选：把播放头落到用户看中的那张缩略画面上。
+      timeline.onSelectRange(null);
+      timeline.onSeek(trackMsFromPointer(event.clientX));
+      return;
+    }
+    if (step.deltaFrames === 0) return;
     await timeline.onMoveTimelineGroup?.({
       stableShotId: start.stableShotId,
-      direction: start.direction,
-      deltaFrames: drag.deltaFrames,
+      direction: step.direction,
+      deltaFrames: step.deltaFrames,
     });
   };
 
@@ -849,6 +1355,88 @@ function StoryboardEditTrack({
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [clearGroupDrag, groupDrag]);
+
+  const clearSingleDrag = useCallback(() => {
+    singleDragRef.current = null;
+    setSingleDrag(null);
+  }, []);
+
+  const startSingleDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    shot: StoryboardEditShot
+  ) => {
+    if (event.button !== 0 || !singleMoveEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const trackWidthPx = trackRef.current?.getBoundingClientRect().width ?? 0;
+    if (trackWidthPx <= 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    timeline.onTogglePlay(false);
+    onStatusMessage(null);
+    singleDragRef.current = {
+      clientX: event.clientX,
+      trackWidthPx,
+      stableShotId: shot.stableShotId,
+    };
+    setSingleDrag({
+      stableShotId: shot.stableShotId,
+      deltaFrames: 0,
+      // 锚定的这一镜不能移动；这里立刻给出理由，不用等松手才告诉用户。
+      blockedReason:
+        shot.timing.anchorFrames.length > 0
+          ? "这一镜已有位置锚点，不能移动"
+          : null,
+    });
+  };
+
+  const moveSingleDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const start = singleDragRef.current;
+    if (!start) return;
+    const deltaFrames = storyboardGroupDragDeltaFrames({
+      deltaPx: event.clientX - start.clientX,
+      trackWidthPx: start.trackWidthPx,
+      totalMs,
+    });
+    setSingleDrag(current =>
+      current == null || current.deltaFrames === deltaFrames
+        ? current
+        : { ...current, deltaFrames }
+    );
+  };
+
+  const endSingleDrag = async (event: ReactPointerEvent<HTMLElement>) => {
+    const start = singleDragRef.current;
+    const deltaFrames = start
+      ? storyboardReleasedDragDeltaFrames({
+          startClientX: start.clientX,
+          releaseClientX: event.clientX,
+          trackWidthPx: start.trackWidthPx,
+          totalMs,
+        })
+      : 0;
+    singleDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setSingleDrag(null);
+    if (!start || deltaFrames === 0) return;
+    await timeline.onMoveTimelineShot?.({
+      stableShotId: start.stableShotId,
+      deltaFrames,
+    });
+  };
+
+  // 拖到一半按 Esc 或丢掉指针捕获都直接取消，不写任何数据。
+  useEffect(() => {
+    if (!singleDrag) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      clearSingleDrag();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [clearSingleDrag, singleDrag]);
 
   const groupGhostShotIds =
     groupDrag?.direction && groupDrag.deltaFrames !== 0
@@ -872,14 +1460,18 @@ function StoryboardEditTrack({
         ref={trackRef}
         role="slider"
         tabIndex={0}
-        aria-label="剪辑时间条，拖动选中一段交给聊聊，右键出剪辑菜单"
+        aria-label={
+          singleMoveEnabled
+            ? "剪辑时间条，拖动镜头只移动它自己，六点抓手整体移动同方向连续的镜头，按住 Shift 拖动改为选中一段交给聊聊，右键出剪辑菜单"
+            : "剪辑时间条，拖动选中一段交给聊聊，右键出剪辑菜单"
+        }
         aria-keyshortcuts="Space ArrowLeft ArrowRight ArrowUp ArrowDown S F X I O Delete"
         aria-valuemin={0}
         aria-valuemax={Math.round(totalMs)}
         aria-valuenow={Math.round(timeline.playheadMs)}
         aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
-      data-testid="storyboard-edit-track"
-        className="relative h-9 w-full cursor-text touch-none rounded-sm border border-border/70 bg-muted/30 outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+        data-testid="storyboard-edit-track"
+        className="relative h-18 w-full cursor-text touch-none rounded-sm border border-border/70 bg-muted/30 outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
         onPointerDown={startRangeDrag}
         onPointerMove={moveRangeDrag}
         onPointerUp={endRangeDrag}
@@ -945,7 +1537,7 @@ function StoryboardEditTrack({
           return (
             <div
               key={timing.stableShotId}
-              className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-[2px] border ${
+              className={`absolute bottom-0.5 top-4 overflow-visible rounded-[2px] border ${
                 selected
                   ? "z-20 border-primary ring-1 ring-primary"
                   : "z-10 border-white/40"
@@ -955,9 +1547,32 @@ function StoryboardEditTrack({
                   : ""
               }`}
               style={{ left: `${drawnLeftPct}%`, width: `${drawnWidthPct}%` }}
-              title={`${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`}
+              title={
+                singleMoveEnabled
+                  ? `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 拖动只移动这一镜 · 六点抓手整体移动 · ⇧拖动改选一段 · 右键出剪辑菜单`
+                  : `${shot.shotLabel} · ${formatStoryboardTimestamp(timing.startMs)} · ${(durationMs / 1000).toFixed(1)}s · 右键出剪辑菜单`
+              }
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
               data-storyboard-edit-shot-no={shot.shotNo}
+              // 抓住镜头本身只移动它自己——和主流剪辑软件一致。要整体移动一串
+              // 连续镜头，用选中后出现的六点抓手。按住 ⇧ 才是拉选区。
+              onPointerDown={event => {
+                if (!singleMoveEnabled || event.shiftKey || event.button !== 0) {
+                  return;
+                }
+                onSelectShot(shot.shotNo);
+                startSingleDrag(event, shot);
+              }}
+              onPointerMove={singleMoveEnabled ? moveSingleDrag : undefined}
+              onPointerUp={
+                singleMoveEnabled ? event => void endSingleDrag(event) : undefined
+              }
+              onPointerCancel={
+                singleMoveEnabled ? () => clearSingleDrag() : undefined
+              }
+              onLostPointerCapture={
+                singleMoveEnabled ? () => clearSingleDrag() : undefined
+              }
               onContextMenu={event => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -995,28 +1610,45 @@ function StoryboardEditTrack({
                 });
               }}
             >
-              {segments.map(segment => (
-                <span
-                  key={segment.id}
-                  className={`absolute bottom-0 top-0 overflow-hidden ${
-                    segment.kind === "primary"
-                      ? "bg-emerald-500/25"
-                      : "border-l border-white/40 bg-sky-500/45"
-                  }`}
-                  style={{
-                    left: `${segment.leftPct}%`,
-                    width: `${segment.widthPct}%`,
-                  }}
-                >
-                  {segment.kind === "primary" && shot.posterUrl ? (
-                    <img
-                      src={shot.posterUrl}
-                      alt=""
-                      className="h-full w-full object-cover opacity-30"
+              {segments.map(segment => {
+                const segmentDurationMs =
+                  durationMs * (segment.widthPct / 100);
+                const source: StoryboardEditFrameSource | null = segment.clip
+                  ? {
+                      takeId: segment.clip.takeId,
+                      rangeId: segment.clip.rangeId,
+                      sourceStartSec: segment.clip.sourceStartSec,
+                      sourceEndSec: segment.clip.sourceEndSec,
+                      reverse: segment.clip.effects?.reverse,
+                    }
+                  : (shot.primaryFrameSource ?? null);
+                const frameUrls = storyboardEditFilmstripFrameUrls({
+                  source,
+                  durationMs: segmentDurationMs,
+                });
+                return (
+                  <span
+                    key={segment.id}
+                    className={`absolute bottom-0 top-0 overflow-hidden ${
+                      segment.kind === "primary"
+                        ? "bg-emerald-500/25"
+                        : "border-l border-white/40 bg-sky-500/45"
+                    }`}
+                    style={{
+                      left: `${segment.leftPct}%`,
+                      width: `${segment.widthPct}%`,
+                    }}
+                  >
+                    <StoryboardEditFilmstrip
+                      frameUrls={frameUrls}
+                      posterUrl={
+                        segment.kind === "primary" ? shot.posterUrl : null
+                      }
+                      testId={`storyboard-edit-filmstrip-${shot.stableShotId}-${segment.id}`}
                     />
-                  ) : null}
-                </span>
-              ))}
+                  </span>
+                );
+              })}
               {anchors
                 .filter(anchor => anchor.stableShotId === shot.stableShotId)
                 .map(anchor => {
@@ -1038,9 +1670,11 @@ function StoryboardEditTrack({
                     />
                   );
                 })}
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate px-1 text-center font-mono text-[8px] leading-3 text-foreground/80">
-                {shot.shotLabel}
-                {timing.anchorFrames.length > 0 ? " · 锁" : ""}
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-4 items-end justify-center bg-gradient-to-t from-black/70 to-transparent px-1 pb-0.5 font-mono text-[8px] leading-none text-white drop-shadow-sm">
+                <span className="truncate">
+                  {shot.shotLabel}
+                  {timing.anchorFrames.length > 0 ? " · 锁" : ""}
+                </span>
               </span>
               {selected ? (
                 <>
@@ -1057,7 +1691,9 @@ function StoryboardEditTrack({
                   />
                   <button
                     type="button"
-                    draggable
+                    // 批量移动使用 Pointer Events；原生 drag 会触发 pointercancel，
+                    // 导致松手前清空手势。只有旧的单镜排序模式才开启原生拖放。
+                    draggable={!groupEnabled}
                     onDragStart={event => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData(
@@ -1088,7 +1724,7 @@ function StoryboardEditTrack({
                       groupEnabled ? () => clearGroupDrag() : undefined
                     }
                     disabled={groupEnabled && timeline.writePending === true}
-                    className="absolute bottom-0 left-2 top-0 z-10 flex w-2.5 cursor-grab touch-none items-center justify-center bg-primary/55 text-[var(--background)] active:cursor-grabbing disabled:cursor-wait"
+                    className="absolute -top-4 left-0 z-30 flex h-4 w-4 cursor-grab touch-none items-center justify-center rounded-t-sm bg-primary/70 text-[var(--background)] shadow-sm active:cursor-grabbing disabled:cursor-wait"
                     aria-label={
                       groupEnabled
                         ? `拖动 ${shot.shotLabel} 整体移动它和同侧连续的镜头；改顺序用 ⌥← / ⌥→ 或右键菜单`
@@ -1132,7 +1768,7 @@ function StoryboardEditTrack({
               .map(block => (
                 <span
                   key={`group-ghost-${block.timing.stableShotId}`}
-                  className={`pointer-events-none absolute bottom-0.5 top-0.5 z-30 rounded-[2px] border-2 border-dashed ${
+                  className={`pointer-events-none absolute bottom-0.5 top-4 z-30 rounded-[2px] border-2 border-dashed ${
                     groupDrag.direction
                       ? "border-primary bg-primary/20"
                       : "border-primary/50 bg-primary/10"
@@ -1144,6 +1780,29 @@ function StoryboardEditTrack({
                   data-testid={`storyboard-edit-group-ghost-${block.timing.stableShotId}`}
                 />
               ))
+          : null}
+        {singleDrag && singleDrag.deltaFrames !== 0 && !singleDrag.blockedReason
+          ? blocks
+              .filter(
+                block => block.timing.stableShotId === singleDrag.stableShotId
+              )
+              .map(block => {
+                const deltaPct =
+                  totalMs > 0
+                    ? ((singleDrag.deltaFrames * (1000 / 30)) / totalMs) * 100
+                    : 0;
+                return (
+                  <span
+                    key={`single-ghost-${block.timing.stableShotId}`}
+                    className="pointer-events-none absolute bottom-0.5 top-4 z-30 rounded-[2px] border-2 border-dashed border-primary bg-primary/20"
+                    style={{
+                      left: `${block.leftPct + deltaPct}%`,
+                      width: `${block.widthPct}%`,
+                    }}
+                    data-testid={`storyboard-edit-single-ghost-${block.timing.stableShotId}`}
+                  />
+                );
+              })
           : null}
         {anchors.map((anchor, index) => {
           const leftPct =
@@ -1167,6 +1826,7 @@ function StoryboardEditTrack({
               aria-keyshortcuts="Delete Backspace ArrowLeft ArrowRight"
               title={`${label} 位置锚点 · Delete 取消`}
               data-testid={`storyboard-edit-anchor-${anchor.id}`}
+              data-storyboard-edit-anchor="true"
               onFocus={() => onFocusAnchor(anchor.id)}
               onPointerDown={event => event.stopPropagation()}
               onClick={event => {
@@ -1198,6 +1858,37 @@ function StoryboardEditTrack({
             />
           );
         })}
+        {groupDrag?.blockedReason ? (
+          <span
+            className="pointer-events-none absolute -top-6 z-50 -translate-x-1/2 whitespace-nowrap rounded-sm bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white shadow"
+            // 轨道有几千像素宽，提示必须贴着被拖的那一镜，否则会飘到屏幕外。
+            style={{
+              left: `${
+                blocks.find(
+                  block => block.timing.stableShotId === groupDrag.stableShotId
+                )?.leftPct ?? 0
+              }%`,
+            }}
+            data-testid="storyboard-edit-group-blocked"
+          >
+            {groupDrag.blockedReason}
+          </span>
+        ) : null}
+        {singleDrag?.blockedReason ? (
+          <span
+            className="pointer-events-none absolute -top-6 z-50 -translate-x-1/2 whitespace-nowrap rounded-sm bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white shadow"
+            style={{
+              left: `${
+                blocks.find(
+                  block => block.timing.stableShotId === singleDrag.stableShotId
+                )?.leftPct ?? 0
+              }%`,
+            }}
+            data-testid="storyboard-edit-single-blocked"
+          >
+            {singleDrag.blockedReason}
+          </span>
+        ) : null}
         {highlight ? (
           <span
             className="pointer-events-none absolute bottom-0 top-0 z-30 border-x-2 border-primary bg-primary/25"
@@ -1217,45 +1908,14 @@ function StoryboardEditTrack({
           />
         ) : null}
         {playheadPct != null ? (
-          <div
-            role="slider"
-            tabIndex={0}
-            aria-label="拖动剪辑播放头"
-            aria-valuemin={0}
-            aria-valuemax={Math.round(totalMs)}
-            aria-valuenow={Math.round(timeline.playheadMs)}
-            aria-valuetext={formatStoryboardTimestamp(timeline.playheadMs)}
-            title="拖动播放头，预览对应时间的视频或图片"
-            className="group absolute bottom-0 top-0 z-40 w-5 -translate-x-1/2 cursor-ew-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-0 top-0 z-40 w-px -translate-x-1/2"
             style={{ left: `${playheadPct}%` }}
             data-testid="storyboard-edit-playhead"
-            onPointerDown={event => {
-              if (event.button !== 0) return;
-              event.preventDefault();
-              event.stopPropagation();
-              timeline.onTogglePlay(false);
-              event.currentTarget.setPointerCapture(event.pointerId);
-              timeline.onSeek(trackMsFromPointer(event.clientX));
-            }}
-            onPointerMove={event => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                timeline.onSeek(trackMsFromPointer(event.clientX));
-              }
-            }}
-            onPointerUp={event => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }
-            }}
-            onPointerCancel={event => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }
-            }}
           >
-            <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/80 transition group-hover:scale-110" />
-            <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
-          </div>
+            <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
+          </span>
         ) : null}
       </div>
       <span
@@ -1277,11 +1937,14 @@ function StoryboardEditTrack({
                     ? (labelByShotId.get(groupDrag.boundaryStableShotId) ?? null)
                     : null,
                 })
-              : draftTrim
-                ? `${(draftTrim.durationMs / 1000).toFixed(1)}s`
-                : markInMs != null
-                  ? `入点 ${formatStoryboardTimestamp(markInMs)} · 按 O 打出点`
-                  : `${shots.length} 镜`))}
+              : (singleDrag?.blockedReason ??
+                  (singleDrag
+                    ? `移动 ${labelByShotId.get(singleDrag.stableShotId) ?? singleDrag.stableShotId} · ${singleDrag.deltaFrames > 0 ? "+" : ""}${(singleDrag.deltaFrames / 30).toFixed(2)}s`
+                    : draftTrim
+                      ? `${(draftTrim.durationMs / 1000).toFixed(1)}s`
+                      : markInMs != null
+                        ? `入点 ${formatStoryboardTimestamp(markInMs)} · 按 O 打出点`
+                        : `${shots.length} 镜`))))}
       </span>
     </div>
   );
@@ -1357,9 +2020,15 @@ export function StoryboardEditRow({
   }, []);
 
   const renderExtraLayer = (layer: (typeof extraLayers)[number], index: number) => {
-    const layerShots = shots.filter(
-      shot => layerAssignments[shot.stableShotId] === layer.id
+    const layerShotIds = new Set(
+      storyboardVisualLayerShotIds({
+        stableShotIds: shots.map(shot => shot.stableShotId),
+        assignments: layerAssignments,
+        layerId: layer.id,
+        mainLayerId: MAIN_VISUAL_LAYER_ID,
+      })
     );
+    const layerShots = shots.filter(shot => layerShotIds.has(shot.stableShotId));
     return (
       <Fragment key={layer.id}>
         <StoryboardExtraLayerHeader
@@ -1423,9 +2092,10 @@ export function StoryboardEditRow({
                     event.dataTransfer.setData(SHOT_DRAG_MIME, shot.stableShotId);
                   }}
                   onClick={() => onSelectShot(shot.shotNo)}
-                  title={`拖动 ${shot.shotLabel} 到其他视觉层`}
+                  title={`${shot.shotLabel} · 覆盖画面；底层镜头顺序保持不变`}
+                  data-storyboard-overlay-shot-id={shot.stableShotId}
                 >
-                  <span className="block truncate">{shot.shotLabel}</span>
+                  <span className="block truncate">{shot.shotLabel} · 覆盖</span>
                 </button>
               );
             })}
@@ -1634,7 +2304,13 @@ export function StoryboardEditRow({
     if (done == null) return;
     timeline.onTogglePlay(false);
     setPendingAction(action);
-    void Promise.resolve(done).finally(() => setPendingAction(null));
+    void Promise.resolve(done)
+      .catch(error => {
+        setStatusMessage(
+          error instanceof Error ? error.message : "剪辑操作失败，请重试"
+        );
+      })
+      .finally(() => setPendingAction(null));
   };
 
   const markRange = (outMs: number) => {
@@ -1741,6 +2417,9 @@ export function StoryboardEditRow({
           )
         ),
         isButtonTarget: Boolean(target?.closest("button, a, [role='button']")),
+        isAnchorTarget: Boolean(
+          target?.closest('[data-storyboard-edit-anchor="true"]')
+        ),
         rowVisible: rowRef.current?.offsetParent != null,
       });
       if (!allowed) return;
@@ -1755,6 +2434,12 @@ export function StoryboardEditRow({
       {extraLayers
         .filter(layer => layer.position === "above")
         .map((layer, index) => renderExtraLayer(layer, index))}
+      <StoryboardExtractedFrameRows
+        shots={shots}
+        timeline={timeline}
+        columnSpan={columnSpan}
+        onSelectShot={onSelectShot}
+      />
       <StoryboardEditRowHeader
         hidden={mainLayerHidden}
         onToggleHidden={() => setMainLayerHidden(current => !current)}
@@ -1782,11 +2467,6 @@ export function StoryboardEditRow({
             onRemoveAnchor={removeAnchor}
             statusMessage={statusMessage}
             onStatusMessage={setStatusMessage}
-            excludedShotIds={new Set(
-              Object.entries(layerAssignments)
-                .filter(([, layerId]) => layerId !== MAIN_VISUAL_LAYER_ID)
-                .map(([shotId]) => shotId)
-            )}
             onMoveShotToLayer={moveShotToLayer}
             disableGroupMove={extraLayers.length > 0}
           />

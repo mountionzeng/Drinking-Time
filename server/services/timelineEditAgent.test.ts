@@ -13,6 +13,12 @@ const materialMocks = vi.hoisted(() => ({
 
 vi.mock("./storyMaterials", () => materialMocks);
 
+const imageAssetMocks = vi.hoisted(() => ({
+  getStoryImageAssets: vi.fn(),
+}));
+
+vi.mock("./imageAssets", () => imageAssetMocks);
+
 const agentMocks = vi.hoisted(() => ({
   runJsonAgent: vi.fn(),
 }));
@@ -26,7 +32,11 @@ const videoTimelineMocks = vi.hoisted(() => ({
 
 vi.mock("./videoTimeline", () => videoTimelineMocks);
 
-import { proposeGapTransition, runTimelineEditCommand } from "./timelineEditAgent";
+import {
+  proposeExtractedFrameTransition,
+  proposeGapTransition,
+  runTimelineEditCommand,
+} from "./timelineEditAgent";
 
 function item(stableShotId: string, position: number) {
   return {
@@ -977,5 +987,99 @@ describe("proposeGapTransition", () => {
     });
 
     expect(result.status).toBe("blocked");
+  });
+});
+
+describe("proposeExtractedFrameTransition", () => {
+  const image = (id: number, atMs: number, shotIdentity: string, shotNo: string) => ({
+    id,
+    imageUrl: `https://example.com/${id}.png`,
+    prompt: `时间线抽帧 · ${atMs}ms`,
+    assignment: "shot",
+    availability: "available",
+    shotIdentity,
+    canonicalShotNo: shotNo,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      timeline: { version: 7, items: [item("shot-a", 0), item("shot-b", 1)] },
+      shots: [
+        { stableShotId: "shot-a", shotNo: 1 },
+        { stableShotId: "shot-b", shotNo: 2 },
+      ],
+    });
+    imageAssetMocks.getStoryImageAssets.mockResolvedValue([
+      image(11, 1_000, "shot-a", "SH01"),
+      image(12, 4_400, "shot-b", "SH02"),
+    ]);
+  });
+
+  it("builds a no-side-effect three-second overlay proposal from two real extracted images", async () => {
+    const result = await proposeExtractedFrameTransition({
+      storyId: 7,
+      userId: 1,
+      leftImageId: 11,
+      rightImageId: 12,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.proposal).toMatchObject({
+      durationSec: 3,
+      cutAtSec: null,
+      expectedTimelineVersion: 7,
+      placement: {
+        kind: "timeline-overlay",
+        startFrame: 30,
+        targetEndFrame: 132,
+        leftImageId: 11,
+        rightImageId: 12,
+      },
+    });
+    expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
+  });
+
+  it("blocks sub-second pairs and anchored target ranges before payment", async () => {
+    imageAssetMocks.getStoryImageAssets.mockResolvedValueOnce([
+      image(11, 1_000, "shot-a", "SH01"),
+      image(12, 1_900, "shot-b", "SH02"),
+    ]);
+    expect(
+      await proposeExtractedFrameTransition({
+        storyId: 7,
+        userId: 1,
+        leftImageId: 11,
+        rightImageId: 12,
+      })
+    ).toMatchObject({ status: "blocked" });
+
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: {
+        version: 7,
+        items: [
+          item("shot-a", 0),
+          {
+            ...item("shot-b", 1),
+            timelineStartFrame: 60,
+            anchors: [
+              { id: "lock", timelineFrame: 70, sourceType: "image", sourceId: "i", sourceTimeSec: null },
+            ],
+          },
+        ],
+      },
+      shots: [
+        { stableShotId: "shot-a", shotNo: 1 },
+        { stableShotId: "shot-b", shotNo: 2 },
+      ],
+    });
+    expect(
+      await proposeExtractedFrameTransition({
+        storyId: 7,
+        userId: 1,
+        leftImageId: 11,
+        rightImageId: 12,
+      })
+    ).toMatchObject({ status: "blocked", reply: expect.stringContaining("锚点") });
   });
 });

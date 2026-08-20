@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-20",
+  "updatedAt": "2026-08-20T14:00:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -13,7 +13,8 @@
       ],
       "owners": [
         "server/db.ts",
-        "server/services/storySync.ts"
+        "server/services/storySync.ts",
+        "server/services/storyMaterials.ts"
       ],
       "evidence": [
         "server/routers.storyAgent.test.ts",
@@ -27,6 +28,7 @@
         "所有故事读写同时校验 storyId 与 userId。",
         "不得使用 latest Story 作为写入回退。",
         "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。",
+        "同一 Story 内的时间线视频按 takeId 直接引用素材仓库资产；Take 的 stableShotId 只记录生成来源，删除来源镜头不得让仍引用该 takeId 的其它镜头失去播放能力。",
         "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。",
         "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。"
       ],
@@ -38,6 +40,11 @@
         "除 updateStoryBodyIfRevision 外，db.ts 里其余约 53 处本地模式写函数（User/Shot/Reference 等）目前只做到写盘失败向调用方抛出，没有内存态回滚——失败后该次改动仍留在 memoryState 里，可能被后续任意一次成功的写盘操作顺带落盘。范围之外的已知限制，非本轮遗漏。"
       ],
       "history": [
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "素材投影新增时间线资产级绑定：primaryVideoEdit.takeId 与 visualClips[].takeId 直接把 Story 素材仓库中的 Take 投影到当前镜头，来源 stableShotId 仅保留追踪语义。真实 Story 1186 的 0108 保留段在来源镜头删除后重新解析到 Take 1498，且不再被列为未分配素材。"
+        },
         {
           "date": "2026-08-15",
           "kind": "fix",
@@ -167,7 +174,8 @@
       "status": "working",
       "userValue": "新生成图片不会静默覆盖已采用图片，旧候选仍可恢复。",
       "entryPoints": [
-        "server/services/imageAssets.ts"
+        "server/services/imageAssets.ts",
+        "client/src/features/creationEditor/views/StoryboardEditRow.tsx"
       ],
       "owners": [
         "client/src/features/creationEditor/rerender.ts",
@@ -182,7 +190,8 @@
       ],
       "invariants": [
         "只有明确采用事件改变当前图片。",
-        "未采用和失配素材仍可作为未分配素材找回。"
+        "未采用和失配素材仍可作为未分配素材找回。",
+        "抽帧轨删除必须按当前 Story 的 exact imageId 执行；服务端只接受带时间线抽帧标记的图片，不得删除普通镜头主图、来源视频或故事镜头。"
       ],
       "dependencies": [
         "story-ownership",
@@ -200,6 +209,11 @@
           "date": "2026-08-18",
           "kind": "fix",
           "summary": "故事版四候选重渲明确保持未采用，单图精确重渲由服务端执行一次显式采用；删除客户端重复 promote，避免候选静默覆盖和重复写入采用信号。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "抽帧上层轨新增缩略图右键删除：菜单显示真实 imageId，重叠抽帧逐张列出；删除中禁用、失败保留提示，服务端复核故事归属和抽帧标记。main:3000 以临时抽帧 #1652 验证创建、右键删除、刷新不恢复，最终仍为 8 张原抽帧、30 个故事镜头和 30 个时间线项目。"
         }
       ]
     },
@@ -924,7 +938,8 @@
         "legacy-image-render-instruction"
       ],
       "knownGaps": [
-        "当前实现仍在未提交工作区，需在提示词评测语义决策后与 main 收敛。"
+        "当前实现仍在未提交工作区，需在提示词评测语义决策后与 main 收敛。",
+        "302/Forge 存储 503 时参考图拿不到公网 URL，MJ 的 --oref 人物锁无法生效（scripts/check-302-storage.ts 可探测）。"
       ],
       "history": [
         {
@@ -946,6 +961,21 @@
           "date": "2026-08-18",
           "kind": "fix",
           "summary": "故事版精确重渲会解析用户点名的图片编号、按实际发送顺序声明多图职责并限制上下文数量；动作要求不再被固定姿态或局部遮罩覆盖，参考图缺失时在付费提交前阻止请求。"
+        },
+        {
+          "date": "2026-08-19",
+          "kind": "fix",
+          "summary": "参考图身份锁不再无条件带蒙眼措辞：按视觉分析判定遮眼/露眼/未知三态分支，露眼时反过来禁止蒙眼布、暗带与遮眼刘海。此前对未蒙眼人物连续四张被一道黑带糊住眼睛。"
+        },
+        {
+          "date": "2026-08-19",
+          "kind": "fix",
+          "summary": "MJ 拿不到公网 --oref 参考时改走单参考图 Kontext（MJ 此时没有任何人物锁定机制，重渲会换脸）；身份锁补上「只管身份不管取景」声明，避免群像被收成特写。"
+        },
+        {
+          "date": "2026-08-19",
+          "kind": "fix",
+          "summary": "一个 MJ turbo 任务产出的四宫格候选全部入库并回传，不再只留第一张——此前另外三张付过钱的候选在 generateForMobile 里被丢弃。"
         }
       ]
     },
@@ -1162,6 +1192,7 @@
         "client/src/features/creationEditor/timelineActions.test.ts",
         "client/src/features/creationEditor/storyboardEditRow.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
+        "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
         "client/src/features/storyAgent/storyboardTiming.test.ts",
         "server/services/storyMaterials.test.ts",
         "server/services/videoExport.test.ts"
@@ -1174,7 +1205,8 @@
         "裁剪可以贴到锚点，但不能越过锚点或改变锚定的那一帧画面。",
         "一次批量移动、打标、取消锚点或锚点安全裁剪各自只保存一次，一次 ⌘Z 完整撤销。",
         "position 仍然只表示故事顺序，批量移动不改它。",
-        "音轨不随视觉镜头批量移动。"
+        "音轨不随视觉镜头批量移动。",
+        "完整故事板的镜头列按时间线绝对起点排序，列起点必须与剪辑块起点一致；重叠导致列过窄时，点击镜头自动缩小其他列并展开当前可编辑列。"
       ],
       "dependencies": [
         "publishing-video-storyboard",
@@ -1191,6 +1223,141 @@
           "date": "2026-08-18",
           "kind": "feature",
           "summary": "新增绝对帧放置、叠放优先级与位置锚点的持久化契约，共享布局/来源/编辑规则模块，剪辑行方向批量拖动与锚点标记，预览与看板统一 resolver，导出改为区间计划并生成真实空档。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "完整故事板改为按 timelineStartFrame 排列，列宽按相邻绝对起点投影，使镜头标题、画面信息与剪辑块共用同一横向位置；重叠镜头列过窄时，点击剪辑块会自动缩小其他列并把当前列展开到可编辑宽度。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "修复短镜头无法单独移动：穿过剪辑块的播放头改为纯显示，实际播放头只在顶层抽帧轨拖动；六点批量抓手移到镜头上方独立控制带，不再覆盖镜头本体；单镜与批量拖动松手时按最终指针位置计算提交位移，避免只出现虚影却未保存。main:3000 以 0105 验证从 00:13.767 拖到 00:15.733 后真实落位，并用一次 ⌘Z 恢复原位。"
+        }
+      ]
+    },
+    {
+      "id": "start-end-shot-video",
+      "name": "镜头首尾帧视频",
+      "status": "working",
+      "userValue": "给一镜指定首帧和尾帧，直接在故事版上选时长与运动幅度，渲染出这一镜的视频。",
+      "entryPoints": [
+        "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx"
+      ],
+      "owners": [
+        "shared/startEndVideo.ts",
+        "client/src/features/storyAgent/views/storyboardReviewModel.ts",
+        "server/services/startEndShotVideoWorkflow.ts",
+        "server/services/videoTransition302.ts"
+      ],
+      "evidence": [
+        "client/src/features/storyAgent/views/storyboardStartEndTuning.test.ts",
+        "server/services/startEndShotVideoWorkflow.test.ts",
+        "server/services/videoTransition302.hardcut.test.ts"
+      ],
+      "invariants": [
+        "同时具备首帧和尾帧的镜头才走 Vidu 首尾帧，否则回落单图链路。",
+        "时长夹在 Vidu Q2 支持的 1 到 8 秒内，非法值不进入付费提交。",
+        "显式选择运动幅度时清除旧的 motion 字段，避免覆盖用户选择。",
+        "硬切成片沿用供应商返回的分辨率，不降级重编码。"
+      ],
+      "dependencies": [
+        "stable-shot-identity",
+        "image-asset-history"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "单次上限 8 秒，更长的镜头需要拆段或换模型。",
+        "尚不能从聊天框直接下达渲染视频指令。",
+        "镜头列宽按时长成比例，很短的镜头列里控件会被挤窄。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-19",
+          "kind": "feature",
+          "summary": "故事版新增每镜的视频时长与运动幅度下拉，写入 generationParams 供 parseStartEndVideoConfig 读取；写入串行并整体回写，避免连改两个下拉时丢更新。"
+        },
+        {
+          "date": "2026-08-19",
+          "kind": "fix",
+          "summary": "硬切不再把 viduq2-turbo 返回的 1440 见方成片压回 720：尺寸跟随源视频，探测失败才退回默认值。"
+        }
+      ]
+    },
+    {
+      "id": "extracted-frame-overlay-video",
+      "name": "抽帧区间生成上层覆盖视频",
+      "status": "working",
+      "userValue": "在剪辑线上两张已抽出的画面之间右键，用它们作为首尾帧生成一段最上层覆盖视频；采用后故事版同步出现一个对应镜头列，完整视频播完后到右侧抽帧之间明确留空，原有底层镜头和素材继续保留。",
+      "entryPoints": [
+        "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
+        "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
+        "client/src/features/storyAgent/StoryAgentContext.tsx"
+      ],
+      "owners": [
+        "shared/extractedFrameTransition.ts",
+        "shared/storyMaterial.ts",
+        "shared/timelineLayout.ts",
+        "server/services/timelineEditAgent.ts",
+        "server/services/editingTransitionWorkflow.ts",
+        "server/services/videoExport.ts",
+        "server/db.ts"
+      ],
+      "evidence": [
+        "docs/plans/2026-08-20-001-feat-extracted-frame-transition-plan.md",
+        "shared/extractedFrameTransition.test.ts",
+        "shared/timelineLayout.test.ts",
+        "server/services/timelineEditAgent.test.ts",
+        "server/services/editingTransitionWorkflow.test.ts",
+        "server/db.storyTimelineOverlay.test.ts",
+        "server/services/videoExport.test.ts",
+        "client/src/features/creationEditor/timelineActions.test.ts",
+        "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
+        "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
+        "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx"
+      ],
+      "invariants": [
+        "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
+        "Vidu Q2 Turbo 请求时长只能是 1 到 8 秒整数：按两针间隔向下取整并封顶 8 秒；不足 1 秒必须在付费前阻止。",
+        "采用成功必须在同一原子事务中创建 Timeline overlay、对应 story shot 和时间线项；重复确认按 candidate stableShotId 与 overlayId 幂等，不能产生重复镜头列。",
+        "新镜头列插在目标镜头之前并绑定生成 Take；overlay 仍按抽帧的绝对时间覆盖，原有底层镜头和素材不得删除。",
+        "红色播放头句柄必须位于最高视觉轨，主剪辑轨与音轨保留同一时间位置的贯穿线。",
+        "供应商返回的视频必须完整保留和播放，不执行旧衔接镜头的 1.4 秒硬切或冻结尾帧。",
+        "实际视频结束到右针之间是显式 gap；即使底层存在镜头也不透出，但底层数据不得删除。",
+        "锚定镜头永远优先；付费前按目标区间检查一次，拿到真实媒体时长后按实际占用区间再次检查。",
+        "提案不扣费；确认后同一 placement 最多提交一次供应商任务，Take 与 overlay 采用必须幂等。",
+        "预览、剪辑线和导出必须使用同一 overlay/gap 解析规则。"
+      ],
+      "dependencies": [
+        "storyboard-position-anchors",
+        "start-end-shot-video",
+        "image-asset-history",
+        "stable-shot-identity"
+      ],
+      "replaces": [],
+      "knownGaps": [
+        "SQL/MySQL 原子采用分支有事务测试替身覆盖，但本轮真实运行环境使用本地 JSON 持久化，尚未在真实 MySQL 实例上验收。"
+      ],
+      "history": [
+        {
+          "date": "2026-08-20",
+          "kind": "feature",
+          "summary": "初版新增抽帧轨空白处右键配对、动态 1–8 秒报价和聊天确认卡；确认后生成持久 Timeline overlay，保留完整供应商视频并把未覆盖尾段解析为 gap；预览、剪辑线和导出共享同一规则。当时采用不会创建故事镜头列，后续已按同日修复记录替换这一语义。2026-08-20 在 main:3000 真实页面验证：7 张抽帧，00:02.893 与 00:06.201 之间右键出现 3 秒菜单，并生成含两张端点图、302 点/¥0.69 的待确认卡；未点击付费确认。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "深度审查后加固付费与恢复边界：确认时用真实图片重新构造服务端标准提案，拒绝篡改时长、价格、提示词、镜头归属和 candidateId；已付费视频采用前可在落点事实未变时刷新时间线版本；无 taskId 的过期 submitting claim 转为明确 unknown，禁止自动重提；切割撤销兼容 timeline 的 {items, overlays} 包装并保留 overlay。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "按用户批准修正采用语义：抽帧覆盖视频采用时原子写入对应 story shot、绝对时间线项、overlay 与 Take 状态，故事版刷新后出现真实镜头列；重复进入会补齐历史残缺的镜头、时间线项或 overlay 且不重复插入；播放头句柄提升到最上层抽帧/覆盖轨，下面各轨保留贯穿线。"
+        },
+        {
+          "date": "2026-08-20",
+          "kind": "fix",
+          "summary": "在 main:3000 验收真实已付费 Take 1596：供应商成片为 4.125 秒、960×960 连续视频；幂等重放确认补齐历史缺失的 story shot 与 timeline item，镜头总数从 31 变为 32，供应商 taskId 保持唯一。确认卡重复点击不再因端点镜头重编号误报位置变化，成功状态会立即刷新 story revision 与镜头列。"
         }
       ]
     },

@@ -6,6 +6,7 @@ import {
   planTimelineAnchorAdd,
   planTimelineAnchorRemove,
   planTimelineGroupMove,
+  planTimelineSingleMove,
   planTimelineTrim,
   resolveTimelineFrameSource,
   timelineAnchorId,
@@ -98,6 +99,45 @@ describe("resolveTimelineFrameSource", () => {
     });
     expect(resolution).toMatchObject({ kind: "source", stableShotId: "recent" });
   });
+
+  it("resolves persisted overlay media and its uncovered tail through the same preview path", () => {
+    const items = [item("a", 0, 0, 150)];
+    const overlay = {
+      id: "overlay-a",
+      kind: "generated-video" as const,
+      takeId: 9,
+      sourceStableShotId: "a",
+      videoUrl: "/overlay.mp4",
+      startFrame: 30,
+      targetEndFrame: 150,
+      mediaEndFrame: 120,
+      endFrame: 150,
+      stackOrder: 9,
+      leftImageId: 1,
+      rightImageId: 2,
+      transform: item("x", 0, 0).transform,
+    };
+    expect(
+      resolveTimelineFrameSource({
+        rows: buildTimelineLayout(items),
+        shotsById: shotsWithImages("a"),
+        overlays: [overlay],
+        timelineFrame: 60,
+      })
+    ).toMatchObject({
+      kind: "source",
+      sourceId: "overlay-overlay-a",
+      sourceTimeSec: 1,
+    });
+    expect(
+      resolveTimelineFrameSource({
+        rows: buildTimelineLayout(items),
+        shotsById: shotsWithImages("a"),
+        overlays: [overlay],
+        timelineFrame: 135,
+      })
+    ).toEqual({ kind: "gap", timelineFrame: 135 });
+  });
 });
 
 describe("planTimelineGroupMove", () => {
@@ -160,6 +200,46 @@ describe("planTimelineGroupMove", () => {
         deltaFrames: 0.4,
       })
     ).toMatchObject({ kind: "blocked" });
+  });
+});
+
+describe("planTimelineSingleMove", () => {
+  it("moves only the dragged shot; contiguous neighbors stay put", () => {
+    const items = [item("a", 0, 0), item("b", 1, 30), item("c", 2, 60)];
+    const plan = planTimelineSingleMove({
+      items,
+      rows: buildTimelineLayout(items),
+      stableShotId: "b",
+      deltaFrames: 10,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([0, 40, 60]);
+  });
+
+  it("does not proxy to a neighbor when the dragged shot is anchored", () => {
+    const items = [item("a", 0, 0, 30, { anchors: [anchorOn(5)] }), item("b", 1, 30)];
+    expect(
+      planTimelineSingleMove({
+        items,
+        rows: buildTimelineLayout(items),
+        stableShotId: "a",
+        deltaFrames: 10,
+      })
+    ).toEqual({ kind: "blocked", reason: "这一镜已有位置锚点，不能移动" });
+  });
+
+  it("clamps at the timeline start instead of going negative", () => {
+    const items = [item("a", 0, 30)];
+    const plan = planTimelineSingleMove({
+      items,
+      rows: buildTimelineLayout(items),
+      stableShotId: "a",
+      deltaFrames: -100,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[0].timelineStartFrame).toBe(0);
   });
 });
 

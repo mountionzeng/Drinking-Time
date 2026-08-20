@@ -24,6 +24,16 @@ import {
 } from "../../shared/storyMaterial";
 import { runJsonAgent } from "./agentRuntime";
 import { getStoryMaterialState } from "./storyMaterials";
+import { getStoryImageAssets } from "./imageAssets";
+import {
+  extractedFrameTimeMs,
+  requestedExtractedFrameVideoDurationSec,
+} from "../../shared/extractedFrameTransition";
+import { buildTimelineLayout } from "../../shared/timelineLayout";
+import {
+  estimateViduQ2TransitionCny,
+  estimateViduQ2TransitionCost,
+} from "./videoTransition302";
 import {
   transitionVideoFrameTime,
   transitionVideoWindow,
@@ -75,12 +85,19 @@ export type TimelineTransitionCandidate = {
   target: TimelineTransitionEndpoint;
   instruction: string;
   prompt: string;
-  durationSec: 2;
+  durationSec: number;
   resolution: "720p";
-  cutAtSec: 1.4;
-  estimatedCredits: 10;
-  estimatedCny: 0.35;
+  cutAtSec: 1.4 | null;
+  estimatedCredits: number;
+  estimatedCny: number;
   expectedTimelineVersion: number;
+  placement?: {
+    kind: "timeline-overlay";
+    startFrame: number;
+    targetEndFrame: number;
+    leftImageId: number;
+    rightImageId: number;
+  };
 };
 
 export type TimelineEditResult =
@@ -1205,6 +1222,136 @@ function asEntryNumber(value: unknown, max: number): number | null {
 export type GapTransitionProposalResult =
   | { status: "ok"; proposal: TimelineTransitionCandidate; reply: string }
   | { status: "blocked"; reply: string };
+
+export async function proposeExtractedFrameTransition(params: {
+  storyId: number;
+  userId: number;
+  leftImageId: number;
+  rightImageId: number;
+}): Promise<GapTransitionProposalResult> {
+  const [material, images] = await Promise.all([
+    getStoryMaterialState(params.storyId, params.userId),
+    getStoryImageAssets(params.storyId, params.userId),
+  ]);
+  if (!material) {
+    return { status: "blocked", reply: "故事不存在或无权访问，暂时无法生成覆盖视频。" };
+  }
+  const left = images.find(image => image.id === params.leftImageId);
+  const right = images.find(image => image.id === params.rightImageId);
+  const valid = (image: typeof left) =>
+    Boolean(
+      image &&
+        image.assignment === "shot" &&
+        image.availability !== "missing" &&
+        image.imageUrl.trim() &&
+        extractedFrameTimeMs(image.prompt) != null
+    );
+  if (!valid(left) || !valid(right)) {
+    return { status: "blocked", reply: "首帧或尾帧已经失效，请重新选择时间线抽帧。" };
+  }
+  const leftAtMs = extractedFrameTimeMs(left!.prompt)!;
+  const rightAtMs = extractedFrameTimeMs(right!.prompt)!;
+  const intervalMs = rightAtMs - leftAtMs;
+  const durationSec = requestedExtractedFrameVideoDurationSec(intervalMs);
+  if (durationSec < 1) {
+    return { status: "blocked", reply: "两张抽帧至少需要间隔 1 秒。" };
+  }
+  const shotFor = (image: NonNullable<typeof left>) =>
+    material.shots.find(shot => shot.stableShotId === image.shotIdentity) ??
+    material.shots.find(
+      shot => image.canonicalShotNo === `SH${String(shot.shotNo).padStart(2, "0")}`
+    );
+  const sourceShot = shotFor(left!);
+  const targetShot = shotFor(right!);
+  if (!sourceShot || !targetShot) {
+    return { status: "blocked", reply: "抽帧所属镜头已经不存在，请重新抽帧。" };
+  }
+  const startFrame = Math.round((leftAtMs * 30) / 1_000);
+  const targetEndFrame = Math.round((rightAtMs * 30) / 1_000);
+  const anchoredConflict = buildTimelineLayout(material.timeline.items).find(
+    row =>
+      (row.item.anchors?.length ?? 0) > 0 &&
+      row.startFrame < targetEndFrame &&
+      row.endFrame > startFrame
+  );
+  if (anchoredConflict) {
+    return {
+      status: "blocked",
+      reply: "这段目标区间与位置锚点相交。为避免付费后不可见，已停止生成。",
+    };
+  }
+  const cost = estimateViduQ2TransitionCost({
+    durationSec,
+    resolution: "720p",
+    uploadCount: 2,
+  });
+  const cny = estimateViduQ2TransitionCny({
+    durationSec,
+    resolution: "720p",
+    uploadCount: 2,
+  });
+  const prompt = [
+    `以两张抽帧为硬首尾帧，生成 ${durationSec} 秒、1:1 方形的连续运动镜头。`,
+    "保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。",
+    "动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。",
+  ].join(" ");
+  const digest = createHash("sha256")
+    .update(
+      [
+        params.userId,
+        params.storyId,
+        left!.id,
+        right!.id,
+        leftAtMs,
+        rightAtMs,
+        durationSec,
+        prompt,
+        "302",
+        "viduq2-turbo",
+      ].join(":"),
+      "utf8"
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    status: "ok",
+    reply: `已选中两张抽帧：目标区间 ${(intervalMs / 1_000).toFixed(1)} 秒，实际请求 ${durationSec} 秒，预计 ${cost.credits} 点 / ¥${cny.estimatedCny.toFixed(2)}。确认后才会付费；未生成的余段会留空。`,
+    proposal: {
+      candidateId: `transition-${digest}`,
+      provisionalStableShotId: `transition-shot-${digest}`,
+      storyId: params.storyId,
+      source: {
+        mediaKind: "image",
+        stableShotId: sourceShot.stableShotId,
+        shotNo: sourceShot.shotNo,
+        imageId: left!.id,
+        imageUrl: left!.imageUrl,
+      },
+      target: {
+        mediaKind: "image",
+        stableShotId: targetShot.stableShotId,
+        shotNo: targetShot.shotNo,
+        imageId: right!.id,
+        imageUrl: right!.imageUrl,
+      },
+      instruction: "用两张时间线抽帧生成上层覆盖视频",
+      prompt,
+      durationSec,
+      resolution: "720p",
+      cutAtSec: null,
+      estimatedCredits: cost.credits,
+      estimatedCny: cny.estimatedCny,
+      expectedTimelineVersion: material.timeline.version,
+      placement: {
+        kind: "timeline-overlay",
+        startFrame,
+        targetEndFrame,
+        leftImageId: left!.id,
+        rightImageId: right!.id,
+      },
+    },
+  };
+}
 
 /**
  * 右键空档「自动创建镜头」的直接入口：跳过自然语言解析，直接拿两个明确的

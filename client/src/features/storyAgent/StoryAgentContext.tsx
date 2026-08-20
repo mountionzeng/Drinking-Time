@@ -114,6 +114,17 @@ export type { ImageProviderSelection };
 
 export type { StoryListItem };
 
+export function applyTransitionStoryResult(
+  result: { storyRevision: number; storyShots: unknown },
+  setters: {
+    setServerRevision: (revision: number) => void;
+    setStoryShots: (shots: StoryShot[]) => void;
+  }
+) {
+  setters.setServerRevision(result.storyRevision);
+  setters.setStoryShots(result.storyShots as StoryShot[]);
+}
+
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
 
@@ -564,6 +575,11 @@ interface StoryAgentContextValue {
     beforeStableShotId: string;
     afterStableShotId: string;
   }) => Promise<{ applied: boolean; reason?: string }>;
+  proposeExtractedFrameTransitionCard: (input: {
+    storyId: number;
+    leftImageId: number;
+    rightImageId: number;
+  }) => Promise<{ applied: boolean; reason?: string }>;
   /** 提示词片段池（从 visualCanvasItems 派生，去重后） */
   promptPool: import("./promptPool").PromptFragment[];
   /** 更新某镜引用的片段 ID 列表 */
@@ -612,6 +628,7 @@ type StoryAgentActionKey =
   | "confirmEditingTransitionCandidate"
   | "rejectEditingTransitionCandidate"
   | "proposeGapTransitionCard"
+  | "proposeExtractedFrameTransitionCard"
   | "removeStoryImage"
   | "updateShotFragmentRefs";
 
@@ -660,6 +677,7 @@ const storyAgentActionKeys = [
   "confirmEditingTransitionCandidate",
   "rejectEditingTransitionCandidate",
   "proposeGapTransitionCard",
+  "proposeExtractedFrameTransitionCard",
   "removeStoryImage",
   "updateShotFragmentRefs",
 ] as const satisfies readonly StoryAgentActionKey[];
@@ -1077,6 +1095,8 @@ export function StoryAgentProvider({
     trpc.creationAgent.confirmTimelineTransition.useMutation();
   const proposeGapTransitionMut =
     trpc.creationAgent.proposeGapTransition.useMutation();
+  const proposeExtractedFrameTransitionMut =
+    trpc.creationAgent.proposeExtractedFrameTransition.useMutation();
   const saveSnapshotMut = trpc.editContext.saveSnapshot.useMutation();
   const appendConversationTurnMut =
     trpc.storyConversation.appendTurn.useMutation();
@@ -3959,6 +3979,63 @@ export function StoryAgentProvider({
     [appendConversationTurnMut, proposeGapTransitionMut, saveArchiveStory, setMessages]
   );
 
+  const proposeExtractedFrameTransitionCard = useCallback(
+    async (input: {
+      storyId: number;
+      leftImageId: number;
+      rightImageId: number;
+    }): Promise<{ applied: boolean; reason?: string }> => {
+      if (!storyScopeMatches(input.storyId, storySpineStore.getState().activeStoryId)) {
+        return { applied: false, reason: "故事已切换，请重新打开这条时间轴再试" };
+      }
+      const current = storySpineStore.getState();
+      const userMsg: ChatMessage = {
+        id: newId("msg"),
+        role: "user",
+        content: "用这两张时间线抽帧生成上层覆盖视频",
+        timestamp: Date.now(),
+      };
+      const nextMessages = [...current.messages, userMsg];
+      setMessages(nextMessages);
+      try {
+        const result = await proposeExtractedFrameTransitionMut.mutateAsync(input);
+        const replyMsg: ChatMessage = {
+          id: newId("msg"),
+          role: "assistant",
+          content: result.reply,
+          timestamp: Date.now(),
+          editingTransitionCandidate:
+            result.status === "ok"
+              ? { ...result.proposal, status: "pending" }
+              : undefined,
+        };
+        const finalMessages = [...nextMessages, replyMsg];
+        setMessages(finalMessages);
+        await saveArchiveStory({
+          messages: finalMessages,
+          cards: current.cards,
+          scripts: current.scripts,
+          storyShots: current.storyShots,
+          characters: current.characters,
+          remoteStoryId: current.remoteStoryId,
+          title: current.storyTitle,
+          logline: current.storyLogline,
+          theme: current.storyTheme,
+          arc: current.storyArc,
+        });
+        return result.status === "ok"
+          ? { applied: true }
+          : { applied: false, reason: result.reply };
+      } catch (error) {
+        return {
+          applied: false,
+          reason: error instanceof Error ? error.message : "创建覆盖视频提案失败",
+        };
+      }
+    },
+    [proposeExtractedFrameTransitionMut, saveArchiveStory, setMessages]
+  );
+
   const confirmEditingTransitionCandidate = useCallback(
     async (messageId: string) => {
       const message = storySpineStore
@@ -4004,9 +4081,12 @@ export function StoryAgentProvider({
         });
         if (!stillOnCandidateStory()) return;
         if (result.status === "applied") {
+          const isOverlay = candidate.placement?.kind === "timeline-overlay";
           const nextShots = result.storyShots as unknown as StoryShot[];
-          setServerRevision(result.storyRevision);
-          setStoryShots(nextShots);
+          applyTransitionStoryResult(result, {
+            setServerRevision,
+            setStoryShots,
+          });
           const inserted = nextShots.find(
             shot =>
               (shot.stableShotId ?? shot.shotIdentity) ===
@@ -4017,7 +4097,7 @@ export function StoryAgentProvider({
             { status: "applied", error: undefined, retryable: false },
             result.reply
           );
-          if (inserted) {
+          if (inserted && !isOverlay) {
             setActiveSelection({
               sourceType: "animatic-video",
               sourceId: String(result.takeId),
@@ -4041,7 +4121,9 @@ export function StoryAgentProvider({
               storyId: candidate.storyId,
             }),
           ]);
-          toast.success("衔接视频已插入两镜之间");
+          toast.success(
+            isOverlay ? "覆盖视频已放到抽帧上层轨道" : "衔接视频已插入两镜之间"
+          );
         } else if (result.status === "processing") {
           patchEditingTransitionCandidate(
             messageId,
@@ -4282,6 +4364,7 @@ export function StoryAgentProvider({
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       proposeGapTransitionCard,
+      proposeExtractedFrameTransitionCard,
       promptPool,
       updateShotFragmentRefs,
     }),
@@ -4350,6 +4433,7 @@ export function StoryAgentProvider({
       confirmEditingTransitionCandidate,
       rejectEditingTransitionCandidate,
       proposeGapTransitionCard,
+      proposeExtractedFrameTransitionCard,
       promptPool,
       updateShotFragmentRefs,
     ]
@@ -4395,6 +4479,7 @@ export function StoryAgentProvider({
     confirmEditingTransitionCandidate,
     rejectEditingTransitionCandidate,
     proposeGapTransitionCard,
+    proposeExtractedFrameTransitionCard,
     removeStoryImage,
     updateShotFragmentRefs,
   };
