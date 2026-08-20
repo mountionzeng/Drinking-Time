@@ -586,6 +586,7 @@ function applyVersionOperation(
         ? structuredClone(parent.conversationSnapshot)
         : null,
     videoStoryboard: null,
+    album: null,
     narrativeIntent: op.narrativeIntent
       ? structuredClone(op.narrativeIntent)
       : structuredClone(parent.narrativeIntent),
