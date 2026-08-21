@@ -177,12 +177,13 @@ function publishingCoreTitleSources(
   core: PublishingStoryCore | PublishingStoryCoreContent | null
 ): string[] {
   if (!core) return [];
+  // visualConcept 只服务后续美术/封面，不是文字素材：标题锚点不得取自它，
+  // 否则校验器会放行「标题来自封面联想而非真实素材」的稿子。
   return [
     ...core.facts,
     core.thesis,
     core.emotion,
     ...core.voiceTraits,
-    core.visualConcept,
   ].filter(Boolean);
 }
 

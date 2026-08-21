@@ -286,6 +286,45 @@ describe("publishing draft model operations", () => {
     expect(runtimeMocks.runJsonAgent).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses a title anchored only in the visual concept", async () => {
+    runtimeMocks.runJsonAgent.mockResolvedValue({
+      parsed: {
+        draft: {
+          title: "被无数分支拖走的一天",
+          titleAnchor: "无数分支",
+          body: "上线后我删掉了功能，并写下了原因。",
+          tags: [],
+        },
+      },
+      modelLabel: "mock-model",
+      rawText: "{}",
+    });
+
+    const result = await convertPublishingDraft({
+      core,
+      sourceDraft: {
+        platform: "xiaohongshu",
+        content: { title: "", body: "上线后我删掉了功能。", tags: [] },
+        appliedBaseline: {
+          title: "",
+          body: "上线后我删掉了功能。",
+          tags: [],
+        },
+        sourceCoreRevision: 1,
+        revision: 1,
+        needsReview: false,
+        updatedAt: 1,
+      },
+      targetPlatform: "linkedin",
+    });
+
+    // “无数分支”只存在于 core.visualConcept；封面联想不是文字素材，
+    // 因此标题被丢弃，正文保留。
+    expect(core.visualConcept).toContain("无数分支");
+    expect(result.content.title).toBe("");
+    expect(result.content.body).toBe("上线后我删掉了功能，并写下了原因。");
+  });
+
   it("keeps an existing target's applied title when conversion returns a candidate", async () => {
     runtimeMocks.runJsonAgent.mockResolvedValue({
       parsed: {
