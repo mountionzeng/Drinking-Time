@@ -5,6 +5,7 @@ import type {
   TimelineTransform,
   TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import { timelineImageClipStartFrame } from "@shared/storyMaterial";
 import {
   addTimelineAnchor,
   removeTimelineAnchor,
@@ -306,6 +307,26 @@ export function previewTimelineGroup(input: {
   };
 }
 
+function withIndependentTimelineImageStarts(
+  items: readonly StoryTimelineItem[],
+  rows: readonly TimelineLayoutRow[]
+): StoryTimelineItem[] {
+  const startByShotId = new Map(
+    rows.map(row => [row.item.stableShotId, row.startFrame] as const)
+  );
+  return items.map(item => {
+    if (!item.imageClips?.length) return item;
+    const ownerStartFrame = startByShotId.get(item.stableShotId) ?? 0;
+    return {
+      ...item,
+      imageClips: item.imageClips.map(clip => ({
+        ...clip,
+        timelineStartFrame: timelineImageClipStartFrame(clip, ownerStartFrame),
+      })),
+    };
+  });
+}
+
 export function planTimelineGroupMove(input: {
   items: readonly StoryTimelineItem[];
   rows: readonly TimelineLayoutRow[];
@@ -324,7 +345,11 @@ export function planTimelineGroupMove(input: {
   if (Math.round(input.deltaFrames) === 0) {
     return { kind: "blocked", reason: "没有移动距离" };
   }
-  const moved = moveTimelineGroup(input.items, selection, input.deltaFrames);
+  const moved = moveTimelineGroup(
+    withIndependentTimelineImageStarts(input.items, input.rows),
+    selection,
+    input.deltaFrames
+  );
   if (moved.kind !== "ok") return { kind: "blocked", reason: moved.reason };
   if (moved.appliedDeltaFrames === 0) {
     return { kind: "blocked", reason: "已经到达时间轴起点" };
@@ -357,7 +382,11 @@ export function planTimelineSingleMove(input: {
   if (snapped.deltaFrames === 0) {
     return { kind: "blocked", reason: "没有移动距离" };
   }
-  const moved = moveTimelineGroup(input.items, selection, snapped.deltaFrames);
+  const moved = moveTimelineGroup(
+    withIndependentTimelineImageStarts(input.items, input.rows),
+    selection,
+    snapped.deltaFrames
+  );
   if (moved.kind !== "ok") return { kind: "blocked", reason: moved.reason };
   if (moved.appliedDeltaFrames === 0) {
     return { kind: "blocked", reason: "已经到达时间轴起点" };

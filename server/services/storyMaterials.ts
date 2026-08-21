@@ -6,6 +6,7 @@ import {
   timelineMsToFrames,
   type StoryMaterialState,
   type StoryTimelineAnchor,
+  type StoryTimelineImageClip,
   type StoryTimelinePrimaryVideoEdit,
   type StoryTimelineItem,
   type StoryTimelineOverlay,
@@ -389,6 +390,63 @@ function visualClips(value: unknown): StoryTimelineVisualClip[] {
   );
 }
 
+function timelineImageClips(value: unknown): StoryTimelineImageClip[] {
+  if (!Array.isArray(value)) return [];
+  const normalized: StoryTimelineImageClip[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const clip = raw as Record<string, unknown>;
+    const id = typeof clip.id === "string" ? clip.id.trim() : "";
+    const imageId = nonNegativeInteger(clip.imageId);
+    const imageUrl =
+      typeof clip.imageUrl === "string" ? clip.imageUrl.trim() : "";
+    const offsetFrames = nonNegativeInteger(clip.offsetFrames);
+    const timelineStartFrame = nonNegativeInteger(clip.timelineStartFrame);
+    const durationFrames = nonNegativeInteger(clip.durationFrames);
+    const visualLayer = nonNegativeInteger(clip.visualLayer);
+    if (
+      !id ||
+      seen.has(id) ||
+      imageId == null ||
+      imageId < 1 ||
+      !imageUrl ||
+      offsetFrames == null ||
+      durationFrames == null ||
+      durationFrames < 1 ||
+      visualLayer == null
+    ) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      imageId,
+      imageUrl,
+      label:
+        typeof clip.label === "string" && clip.label.trim()
+          ? clip.label.trim().slice(0, 120)
+          : `图片 ${normalized.length + 1}`,
+      offsetFrames,
+      ...(timelineStartFrame == null ? {} : { timelineStartFrame }),
+      durationFrames,
+      visualLayer,
+      transform:
+        clip.transform &&
+        typeof clip.transform === "object" &&
+        !Array.isArray(clip.transform)
+          ? transform(clip.transform)
+          : undefined,
+    });
+  }
+  return normalized.sort(
+    (left, right) =>
+      left.offsetFrames - right.offsetFrames ||
+      left.visualLayer - right.visualLayer ||
+      left.id.localeCompare(right.id)
+  );
+}
+
 type PreparedTimelineItem = {
   stableShotId: string;
   raw: Record<string, unknown> | null;
@@ -500,6 +558,7 @@ export function normalizeTimelineItems(
       durationFrames: entry.durationFrames,
       timelineStartFrame,
       stackOrder,
+      visualLayer: nonNegativeInteger(item.visualLayer) ?? 0,
       ...(typeof item.detachedFromPreviousShotId === "string" &&
       item.detachedFromPreviousShotId.trim()
         ? { detachedFromPreviousShotId: item.detachedFromPreviousShotId.trim() }
@@ -508,6 +567,7 @@ export function normalizeTimelineItems(
       transform: transform(item.transform),
       primaryVideoEdit: primaryVideoEdit(item.primaryVideoEdit),
       visualClips: visualClips(item.visualClips),
+      imageClips: timelineImageClips(item.imageClips),
       visualClipsReplacePrimary: item.visualClipsReplacePrimary === true,
     } satisfies StoryTimelineItem;
   });

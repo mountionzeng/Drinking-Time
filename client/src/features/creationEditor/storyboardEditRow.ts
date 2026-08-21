@@ -559,6 +559,8 @@ export function storyboardEditMenuItems(input: {
   shotLabel: string;
   /** 右键点下去的那个时间点上有没有可切的视频。 */
   canSplitHere: boolean;
+  /** 图片和视频都能抽取成相邻上层的一帧图片。 */
+  canExtractHere?: boolean;
   isFirst: boolean;
   isLast: boolean;
   shotCount: number;
@@ -579,6 +581,9 @@ export function storyboardEditMenuItems(input: {
   const noVideo = input.canSplitHere
     ? null
     : "这一处还没有视频，先给这一镜生成或采用视频";
+  const noVisual = (input.canExtractHere ?? input.canSplitHere)
+    ? null
+    : "这一处还没有可提取的图片或视频";
   const items: StoryboardEditMenuItem[] = [];
   if (input.anchors) {
     items.push({
@@ -629,7 +634,7 @@ export function storyboardEditMenuItems(input: {
       action: "extract",
       label: "抽帧（存成画面）",
       shortcut: "F",
-      disabledReason: noVideo,
+      disabledReason: noVisual,
       danger: false,
       groupStart: false,
     },
@@ -707,6 +712,8 @@ export function storyboardEditShouldHandleKey(input: {
   rowVisible: boolean;
   /** 焦点是否落在时间尺的位置锚点标记上。 */
   isAnchorTarget?: boolean;
+  /** 焦点是否落在可用方向键直接移动的图片/视频剪辑上。 */
+  isVisualClipMoveTarget?: boolean;
 }): boolean {
   if (!input.rowVisible) return false;
   if (input.defaultPrevented) return false;
@@ -714,6 +721,8 @@ export function storyboardEditShouldHandleKey(input: {
   // 焦点在锚点标记上时，删除键属于那个锚点，绝不能落到「删掉整个镜头」上。
   // 这条监听挂在捕获阶段，早于锚点自己的 onKeyDown，所以必须在这里让路。
   if (input.isAnchorTarget) return false;
+  // 方向键在片段上是「移动片段」，不能先被 window 捕获监听拿去移动播放头。
+  if (input.isVisualClipMoveTarget) return false;
   // 空格在按钮上就是「按下这个按钮」，别抢。
   if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
     return false;

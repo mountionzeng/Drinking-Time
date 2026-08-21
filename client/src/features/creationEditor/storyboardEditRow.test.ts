@@ -521,11 +521,19 @@ describe("storyboard edit context menu", () => {
   });
 
   it("explains why cutting is unavailable rather than failing silently", () => {
-    const items = menu({ ...base, canSplitHere: false });
+    const items = menu({ ...base, canSplitHere: false, canExtractHere: false });
     const split = items.find(item => item.action === "split");
     const extract = items.find(item => item.action === "extract");
     expect(split?.disabledReason).toContain("还没有视频");
-    expect(extract?.disabledReason).toContain("还没有视频");
+    expect(extract?.disabledReason).toContain("还没有可提取的图片或视频");
+  });
+
+  it("keeps image extraction live while video-only splitting stays disabled", () => {
+    const items = menu({ ...base, canSplitHere: false, canExtractHere: true });
+    expect(items.find(item => item.action === "split")?.disabledReason).toContain(
+      "还没有视频"
+    );
+    expect(items.find(item => item.action === "extract")?.disabledReason).toBeNull();
   });
 
   it("keeps cut and extract live when the click lands on video", () => {
@@ -647,6 +655,13 @@ describe("storyboard edit key routing", () => {
     expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "s", isButtonTarget: true })).toBe(true);
+  });
+
+  it("yields every shortcut to a focused movable image or video clip", () => {
+    expect(gate({ isButtonTarget: true, isVisualClipMoveTarget: true })).toBe(false);
+    expect(
+      gate({ key: "ArrowUp", isButtonTarget: true, isVisualClipMoveTarget: true })
+    ).toBe(false);
   });
 
   it("stays out of the way when the edit row is not on screen", () => {

@@ -36,12 +36,16 @@ import { toast } from "sonner";
 import { displayShotCode } from "@shared/shotIdentity";
 import type {
   StoryTimelineVisualClip,
+  StoryTimelineImageClip,
   StoryTimelineOverlay,
   TimelineTransform,
   TimelineVideoEffects,
   StoryTimelineItem,
 } from "@shared/storyMaterial";
-import { timelineMsToFrames } from "@shared/storyMaterial";
+import {
+  timelineImageClipStartFrame,
+  timelineOffsetMsToFrames,
+} from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
 import {
   buildTimelineLayout,
@@ -261,7 +265,14 @@ export type TimelineVideoSource = {
   effects: TimelineVideoEffects;
   transform: TimelineTransform;
   overlayId?: string;
+  visualLayer: number;
 };
+
+export function extractedFrameTargetVisualLayer(
+  source: { visualLayer: number }
+): number {
+  return Math.max(0, Math.round(source.visualLayer)) + 1;
+}
 
 const VIDEO_END_HOLD_EPSILON_SECONDS = 1 / 120;
 
@@ -306,6 +317,50 @@ export function timelineVisualClipFrameUrl(
   clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
 ): string {
   return `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
+}
+
+export function resolveTimelineImageClip(
+  items: readonly StoryTimelineItem[],
+  timelineFrame: number
+) {
+  const frame = Math.max(0, Math.round(timelineFrame));
+  return buildTimelineLayout(items)
+    .flatMap(row =>
+      (row.item.imageClips ?? []).map(clip => ({
+        clip,
+        stableShotId: row.item.stableShotId,
+        startFrame: timelineImageClipStartFrame(clip, row.startFrame),
+      }))
+    )
+    .filter(
+      candidate =>
+        frame >= candidate.startFrame &&
+        frame < candidate.startFrame + candidate.clip.durationFrames
+    )
+    .sort(
+      (left, right) =>
+        right.clip.visualLayer - left.clip.visualLayer ||
+        right.startFrame - left.startFrame ||
+        right.clip.id.localeCompare(left.clip.id)
+    )[0] ?? null;
+}
+
+export function timelineImageWinsVisualOverlap(
+  image: { clip: Pick<StoryTimelineImageClip, "visualLayer"> } | null,
+  video: Pick<TimelineVideoSource, "visualLayer"> | null
+): boolean {
+  if (!image) return false;
+  return !video || image.clip.visualLayer >= video.visualLayer;
+}
+
+export function duplicatedTimelineImageClipId(input: {
+  imageId: number;
+  timelineFrame: number;
+  visualLayer: number;
+  nonce?: string;
+}): string {
+  const nonce = input.nonce ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `image-clip-${input.imageId}-${Math.max(0, Math.round(input.timelineFrame))}-${Math.max(0, Math.round(input.visualLayer))}-${nonce}`;
 }
 
 /**
@@ -359,6 +414,7 @@ export function resolveTimelineVideoSource(
       effects: overlay.effects ?? { ...DEFAULT_TIMELINE_VIDEO_EFFECTS },
       transform: overlay.transform,
       overlayId: overlay.id,
+      visualLayer: 1,
     };
   }
   const timings = buildStoryboardTimingRows(
@@ -420,6 +476,7 @@ export function resolveTimelineVideoSource(
       label: visualClip.label,
       effects: editorTarget.effects,
       transform: editorTarget.transform,
+      visualLayer: shot.timelineItem?.visualLayer ?? 0,
     };
   }
   if (shot.timelineItem?.visualClipsReplacePrimary) return null;
@@ -462,6 +519,7 @@ export function resolveTimelineVideoSource(
     label: shotLabel(shot),
     effects: editorTarget.effects,
     transform: editorTarget.transform,
+    visualLayer: shot.timelineItem?.visualLayer ?? 0,
   };
 }
 
@@ -639,6 +697,7 @@ function ShotPreview({
   timing,
   sourceClip,
   timelineVideoSource,
+  timelineImageSource,
   editorPreview,
   suppressDefaultVideo,
   playheadMs,
@@ -651,6 +710,10 @@ function ShotPreview({
   timing?: { startMs: number; endMs: number; durationMs: number };
   sourceClip?: ChatCutTimelineClip | null;
   timelineVideoSource?: TimelineVideoSource | null;
+  timelineImageSource?: {
+    imageUrl: string;
+    transform?: TimelineTransform;
+  } | null;
   editorPreview?: VideoEditorPreview | null;
   suppressDefaultVideo?: boolean;
   playheadMs: number;
@@ -674,10 +737,15 @@ function ShotPreview({
       )
     : null;
   const videoUrl =
-    editorPreview?.target.videoUrl ??
-    timelineVideoSource?.videoUrl ??
-    (suppressDefaultVideo ? null : playableVideoUrl(shot));
-  const imageUrl = editorPreview?.target.posterUrl ?? shotImageUrl(shot);
+    timelineImageSource
+      ? null
+      : editorPreview?.target.videoUrl ??
+        timelineVideoSource?.videoUrl ??
+        (suppressDefaultVideo ? null : playableVideoUrl(shot));
+  const imageUrl =
+    timelineImageSource?.imageUrl ??
+    editorPreview?.target.posterUrl ??
+    shotImageUrl(shot);
   const aspectRatio = format ? `${format.width} / ${format.height}` : "1 / 1";
   const formatLabel = format ? `${format.width}×${format.height}` : "1080×1080";
   const canvasSize = fitProjectCanvas({
@@ -724,7 +792,9 @@ function ShotPreview({
     timelineVideoSource?.effects.muted ??
     false;
   const videoTransform =
-    normalizedEditorDraft?.transform ?? timelineVideoSource?.transform;
+    timelineImageSource?.transform ??
+    normalizedEditorDraft?.transform ??
+    timelineVideoSource?.transform;
   const videoMotionStyle = timelineVideoMotionStyle(
     normalizedEditorDraft?.effects ?? timelineVideoSource?.effects
   );
@@ -2458,6 +2528,9 @@ export default function EditingNleWorkspace({
     undoTimeline,
     splitTimelineVideoClip,
     moveTimelineVideoClip,
+    addTimelineImageClip,
+    moveTimelineItemToLayer,
+    moveTimelineImageClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
     updateShotDuration,
@@ -2560,6 +2633,18 @@ export default function EditingNleWorkspace({
       ),
     [shots, timelineOverlays, timelinePlayback.playheadMs, timelineShotIds]
   );
+  const activeTimelineImageSource = useMemo(() => {
+    const resolved = resolveTimelineImageClip(
+      timelineItems,
+      Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000))
+    );
+    return timelineImageWinsVisualOverlap(resolved, activeTimelineVideoSource)
+      ? {
+          imageUrl: resolved!.clip.imageUrl,
+          transform: resolved!.clip.transform,
+        }
+      : null;
+  }, [activeTimelineVideoSource, timelineItems, timelinePlayback.playheadMs]);
   const storyboardAudioClips = useMemo(
     () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
     [activeStoryId, chatCutTimeline]
@@ -2978,9 +3063,6 @@ export default function EditingNleWorkspace({
       if (!source) {
         throw new Error("当前帧没有可切割的视频，请先为这个镜头采用视频 Take");
       }
-      if (source.overlayId) {
-        throw new Error("上层覆盖视频暂不支持直接切割");
-      }
       const sourceDurationSec = source.sourceEndSec - source.sourceStartSec;
       if (sourceDurationSec <= 2 / 30) {
         throw new Error("当前视频片段太短，无法继续切割");
@@ -2997,7 +3079,7 @@ export default function EditingNleWorkspace({
         : sourceProgress;
       await splitTimelineVideoClip({
         stableShotId: source.stableShotId,
-        cutFrame: timelineMsToFrames(playheadMs),
+        cutFrame: timelineOffsetMsToFrames(playheadMs),
         takeStableShotId: source.takeStableShotId,
         existingClipId: source.existingClipId,
         takeId: source.takeId,
@@ -3011,6 +3093,7 @@ export default function EditingNleWorkspace({
         label: source.label,
         effects: source.effects,
         transform: source.transform,
+        overlayId: source.overlayId,
       });
     },
     [shots, splitTimelineVideoClip, timelineOverlays, timelineShotIds]
@@ -3018,14 +3101,33 @@ export default function EditingNleWorkspace({
 
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number) => {
+      const timelineFrame = timelineOffsetMsToFrames(playheadMs);
+      const imageSource = resolveTimelineImageClip(timelineItems, timelineFrame);
       const source = resolveTimelineVideoSource(
         shots,
         timelineShotIds,
         playheadMs,
         timelineOverlays
       );
+      if (timelineImageWinsVisualOverlap(imageSource, source)) {
+        const targetLayer = extractedFrameTargetVisualLayer(imageSource!.clip);
+        await addTimelineImageClip({
+          clipId: duplicatedTimelineImageClipId({
+            imageId: imageSource!.clip.imageId,
+            timelineFrame,
+            visualLayer: targetLayer,
+          }),
+          stableShotId: imageSource!.stableShotId,
+          timelineFrame,
+          imageId: imageSource!.clip.imageId,
+          imageUrl: imageSource!.clip.imageUrl,
+          label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
+          visualLayer: targetLayer,
+        });
+        return;
+      }
       if (!source) {
-        throw new Error("当前帧没有可提取的视频，请先为这个镜头采用视频 Take");
+        throw new Error("当前帧没有可提取的图片或视频");
       }
       const finalFrameInset = 1 / 30;
       const captureAtSec = Math.max(
@@ -3045,7 +3147,7 @@ export default function EditingNleWorkspace({
       const frameBase64 = await fileBase64(
         new File([frameBlob], "timeline-frame.png", { type: mimeType })
       );
-      await importStoryMaterial({
+      const imported = await importStoryMaterial({
         fileName: `${source.label.replace(/[\s\\/:*?"<>|]+/g, "-") || "shot"}-${Math.round(playheadMs)}ms.png`,
         mimeType,
         fileBase64: frameBase64,
@@ -3053,8 +3155,26 @@ export default function EditingNleWorkspace({
         preserveTimelineSelection: true,
         note: `时间线抽帧 · ${Math.round(playheadMs)}ms · ${formatStoryboardTimestamp(playheadMs)} · 来源 Take ${source.takeId}`,
       });
+      if (imported.kind !== "image") {
+        throw new Error("服务器返回的抽帧素材类型不正确");
+      }
+      await addTimelineImageClip({
+        stableShotId: source.stableShotId,
+        timelineFrame,
+        imageId: imported.imageId,
+        imageUrl: imported.imageUrl,
+        label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
+        visualLayer: extractedFrameTargetVisualLayer(source),
+      });
     },
-    [importStoryMaterial, shots, timelineOverlays, timelineShotIds]
+    [
+      addTimelineImageClip,
+      importStoryMaterial,
+      shots,
+      timelineItems,
+      timelineOverlays,
+      timelineShotIds,
+    ]
   );
 
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
@@ -3069,6 +3189,8 @@ export default function EditingNleWorkspace({
       audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
       anchors: timelineAnchors,
       overlays: timelineOverlays,
+      onMoveTimelineItemToLayer: moveTimelineItemToLayer,
+      onMoveTimelineImageClip: moveTimelineImageClip,
       writePending: timelineWritePending,
       magneticJoins: timelineMagneticJoins(buildTimelineLayout(timelineItems)),
       previewGroupMove: ({ stableShotId, direction }) =>
@@ -3089,11 +3211,13 @@ export default function EditingNleWorkspace({
         stableShotId,
         deltaFrames,
         snapThresholdFrames,
+        visualLayer,
       }) => {
         const result = await moveTimelineShot(
           stableShotId,
           deltaFrames,
-          snapThresholdFrames
+          snapThresholdFrames,
+          visualLayer
         );
         if (result.reason) toast.error(result.reason);
         return result;
@@ -3171,6 +3295,19 @@ export default function EditingNleWorkspace({
           timelineOverlays
         );
         return Boolean(source && !source.overlayId);
+      },
+      canExtractAt: playheadMs => {
+        const source = resolveTimelineVideoSource(
+          shots,
+          timelineShotIds,
+          playheadMs,
+          timelineOverlays
+        );
+        const image = resolveTimelineImageClip(
+          timelineItems,
+          timelineOffsetMsToFrames(playheadMs)
+        );
+        return Boolean(source || image);
       },
       onSeek: playheadMs =>
         setTimelineSeekRequest(current => ({
@@ -3322,6 +3459,8 @@ export default function EditingNleWorkspace({
       extractFrameAtPlayhead,
       detachTimelineMagnet,
       moveTimelineGroup,
+      moveTimelineImageClip,
+      moveTimelineItemToLayer,
       moveTimelineShot,
       previewTimelineGroup,
       removeTimelineAnchor,
@@ -3545,6 +3684,7 @@ export default function EditingNleWorkspace({
               activeTimelineVideoSource,
               selectedShot?.shotNo
             )}
+            timelineImageSource={activeTimelineImageSource}
             editorPreview={
               videoEditorTarget && videoEditorPreviewDraft
                 ? {

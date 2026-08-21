@@ -51,7 +51,40 @@ export type StoryTimelineVisualClip = {
   durationMs: number;
   effects?: TimelineVideoEffects;
   transform?: TimelineTransform;
+  /** 0 is the primary visual layer; larger values render above it. */
+  visualLayer?: number;
 };
+
+export type StoryTimelineImageClip = {
+  id: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  /** Placement relative to the owning timeline item. */
+  offsetFrames: number;
+  /**
+   * Canonical absolute placement. Once present, moving the owning video must
+   * not move this independent image clip. Legacy clips fall back to offsetFrames.
+   */
+  timelineStartFrame?: number;
+  /** Extracted stills default to exactly one structural frame. */
+  durationFrames: number;
+  /** 0 is the primary visual layer; larger values render above it. */
+  visualLayer: number;
+  transform?: TimelineTransform;
+};
+
+export function timelineImageClipStartFrame(
+  clip: Pick<StoryTimelineImageClip, "offsetFrames" | "timelineStartFrame">,
+  ownerStartFrame: number
+): number {
+  return Math.max(
+    0,
+    Math.round(
+      clip.timelineStartFrame ?? ownerStartFrame + clip.offsetFrames
+    )
+  );
+}
 
 export const STORY_TIMELINE_FPS = 30;
 
@@ -117,6 +150,8 @@ export type StoryTimelineItem = {
   timelineStartFrame?: number;
   /** Durable overlap priority; larger values win among unanchored items. */
   stackOrder?: number;
+  /** Persistent NLE layer. 0 is the main visual layer; larger values are above it. */
+  visualLayer?: number;
   /**
    * Explicitly keeps this shot detached from the named shot immediately to
    * its left. The id (rather than a boolean "previous") prevents a reorder
@@ -129,6 +164,7 @@ export type StoryTimelineItem = {
   imageTransforms?: Record<string, TimelineTransform>;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
+  imageClips?: StoryTimelineImageClip[];
   visualClipsReplacePrimary?: boolean;
 };
 

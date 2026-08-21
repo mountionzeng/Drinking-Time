@@ -152,6 +152,50 @@ describe("normalizeTimelineItems", () => {
     });
   });
 
+  it("preserves ordinary visual layers and independent image clips", () => {
+    const [item] = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          visualLayer: 4,
+          imageClips: [
+            {
+              id: "image-clip-99-first",
+              imageId: 99,
+              imageUrl: "/frame.webp",
+              label: "第一份",
+              offsetFrames: 30,
+              timelineStartFrame: 345,
+              durationFrames: 1,
+              visualLayer: 5,
+            },
+            {
+              id: "image-clip-99-second",
+              imageId: 99,
+              imageUrl: "/frame.webp",
+              label: "第二份",
+              offsetFrames: 30,
+              durationFrames: 1,
+              visualLayer: 6,
+            },
+          ],
+        },
+      ],
+      facts
+    );
+
+    expect(item.visualLayer).toBe(4);
+    expect(item.imageClips).toMatchObject([
+      {
+        id: "image-clip-99-first",
+        imageId: 99,
+        timelineStartFrame: 345,
+        visualLayer: 5,
+      },
+      { id: "image-clip-99-second", imageId: 99, visualLayer: 6 },
+    ]);
+  });
+
   it("keeps valid split video clips and discards malformed timeline clips", () => {
     const items = normalizeTimelineItems(
       [

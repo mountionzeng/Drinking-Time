@@ -221,6 +221,35 @@ describe("planTimelineSingleMove", () => {
     expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([0, 40, 60]);
   });
 
+  it("keeps an upper image clip at its absolute frame when its owning video moves", () => {
+    const items = [
+      item("bottom", 0, 30, 60, {
+        visualLayer: 0,
+        imageClips: [
+          {
+            id: "still-1",
+            imageId: 1,
+            imageUrl: "/still.webp",
+            label: "独立图片",
+            offsetFrames: 15,
+            durationFrames: 1,
+            visualLayer: 2,
+          },
+        ],
+      }),
+    ];
+    const plan = planTimelineSingleMove({
+      items,
+      rows: buildTimelineLayout(items),
+      stableShotId: "bottom",
+      deltaFrames: 10,
+    });
+    expect(plan.kind).toBe("ok");
+    if (plan.kind !== "ok") return;
+    expect(plan.items[0].timelineStartFrame).toBe(40);
+    expect(plan.items[0].imageClips?.[0].timelineStartFrame).toBe(45);
+  });
+
   it("does not proxy to a neighbor when the dragged shot is anchored", () => {
     const items = [item("a", 0, 0, 30, { anchors: [anchorOn(5)] }), item("b", 1, 30)];
     expect(

@@ -141,6 +141,33 @@ function itemKey(collection: string, value: unknown, index: number): string {
   return `index:${index}`;
 }
 
+function mergeStaleMessageState(serverValue: unknown, incomingValue: unknown) {
+  const serverMessage = asRecord(serverValue);
+  const incomingMessage = asRecord(incomingValue);
+  const serverCandidate = asRecord(serverMessage.editingTransitionCandidate);
+  const incomingCandidate = asRecord(incomingMessage.editingTransitionCandidate);
+  const serverCandidateId = stringPart(serverCandidate.candidateId);
+  const incomingCandidateId = stringPart(incomingCandidate.candidateId);
+  if (!serverCandidateId || serverCandidateId !== incomingCandidateId) {
+    return serverValue;
+  }
+
+  const terminal = new Set(["applied", "rejected"]);
+  const serverStatus = stringPart(serverCandidate.status);
+  const incomingStatus = stringPart(incomingCandidate.status);
+  if (terminal.has(serverStatus) || !terminal.has(incomingStatus)) {
+    return serverValue;
+  }
+
+  return {
+    ...serverMessage,
+    editingTransitionCandidate: {
+      ...serverCandidate,
+      ...incomingCandidate,
+    },
+  };
+}
+
 function mergeStableArray(
   collection: string,
   serverValue: unknown,
@@ -149,15 +176,21 @@ function mergeStableArray(
   const serverItems = Array.isArray(serverValue) ? serverValue : [];
   const incomingItems = Array.isArray(incomingValue) ? incomingValue : [];
   const merged = [...serverItems];
-  const known = new Set(
-    serverItems.map((item, index) => itemKey(collection, item, index))
+  const known = new Map(
+    serverItems.map((item, index) => [itemKey(collection, item, index), index])
   );
 
   incomingItems.forEach((item, index) => {
     const key = itemKey(collection, item, index);
-    if (!known.has(key)) {
-      known.add(key);
+    const existingIndex = known.get(key);
+    if (existingIndex === undefined) {
+      known.set(key, merged.length);
       merged.push(item);
+    } else if (collection === "messages") {
+      merged[existingIndex] = mergeStaleMessageState(
+        merged[existingIndex],
+        item
+      );
     }
   });
 

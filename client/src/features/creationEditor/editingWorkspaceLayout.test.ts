@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTimelineLanes,
+  duplicatedTimelineImageClipId,
+  extractedFrameTargetVisualLayer,
   fitProjectCanvas,
+  resolveTimelineImageClip,
   resolveTimelineVideoSource,
+  timelineImageWinsVisualOverlap,
   shouldHandleEditingShortcut,
   shouldForwardPreviewPause,
   storyboardAudioClipsFromManifest,
@@ -20,6 +24,81 @@ import type { CreationEditorShot } from "./types";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
 
 describe("editing workspace project canvas", () => {
+  it("extracts from any layer into the immediately adjacent upper layer", () => {
+    expect(extractedFrameTargetVisualLayer({ visualLayer: 0 })).toBe(1);
+    expect(extractedFrameTargetVisualLayer({ visualLayer: 1 })).toBe(2);
+    expect(extractedFrameTargetVisualLayer({ visualLayer: 8 })).toBe(9);
+  });
+
+  it("uses the highest visible image or video as the extraction source", () => {
+    const image = { clip: { visualLayer: 2 } };
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 1 })).toBe(true);
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 2 })).toBe(true);
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 3 })).toBe(false);
+    expect(timelineImageWinsVisualOverlap(null, { visualLayer: 3 })).toBe(false);
+  });
+
+  it("creates independent ids when the same image is extracted again", () => {
+    expect(
+      duplicatedTimelineImageClipId({
+        imageId: 99,
+        timelineFrame: 75,
+        visualLayer: 2,
+        nonce: "second-copy",
+      })
+    ).toBe("image-clip-99-75-2-second-copy");
+  });
+
+  it("resolves an extracted still as an exact one-frame movable image clip", () => {
+    const resolved = resolveTimelineImageClip(
+      [
+        {
+          stableShotId: "shot-1",
+          included: true,
+          position: 0,
+          plannedDurationMs: 3_000,
+          durationFrames: 90,
+          timelineStartFrame: 60,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+          imageClips: [
+            {
+              id: "image-clip-99",
+              imageId: 99,
+              imageUrl: "/frame.webp",
+              label: "抽帧",
+              offsetFrames: 15,
+              durationFrames: 1,
+              visualLayer: 1,
+            },
+          ],
+        },
+      ],
+      75
+    );
+    expect(resolved).toMatchObject({
+      startFrame: 75,
+      clip: { id: "image-clip-99", durationFrames: 1, visualLayer: 1 },
+    });
+    expect(resolveTimelineImageClip(resolved ? [{
+      stableShotId: "shot-1",
+      included: true,
+      position: 0,
+      plannedDurationMs: 3_000,
+      durationFrames: 90,
+      timelineStartFrame: 60,
+      transform: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, zoom: 1, panX: 0, panY: 0 },
+      imageClips: [resolved.clip],
+    }] : [], 76)).toBeNull();
+  });
+
   it("keeps subtitle and audio lanes outside visual shot selection", () => {
     expect(timelineLaneDomain("captions")).toBe("audio");
     expect(timelineLaneDomain("voice")).toBe("audio");

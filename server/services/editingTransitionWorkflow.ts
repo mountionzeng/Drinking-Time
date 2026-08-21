@@ -968,6 +968,7 @@ async function applyGeneratedTransition(
         durationFrames: mediaEndFrame - placement.startFrame,
         timelineStartFrame: placement.startFrame,
         stackOrder: Math.max(0, stackOrder - 1),
+        visualLayer: 1,
         transform: { ...DEFAULT_TIMELINE_TRANSFORM },
         primaryVideoEdit: {
           takeId: take.id,

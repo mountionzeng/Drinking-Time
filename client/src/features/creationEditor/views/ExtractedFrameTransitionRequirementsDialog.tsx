@@ -80,13 +80,13 @@ export function ExtractedFrameTransitionRequirementsDialog({
               id="extracted-frame-requirements-title"
               className="text-sm font-semibold"
             >
-              填写相机运动要求
+              描述这段视频要发生什么
             </h2>
             <p
               id="extracted-frame-requirements-description"
               className="mt-0.5 text-[11px] text-muted-foreground"
             >
-              确认首尾帧后，继续只会生成聊天待确认卡。
+              首帧和尾帧已经确定；请描述中间发生的完整画面。继续只会生成聊天待确认卡。
             </p>
           </div>
           <button
@@ -124,25 +124,32 @@ export function ExtractedFrameTransitionRequirementsDialog({
         </div>
         <label
           className="mt-3 block text-[11px] font-medium"
-          htmlFor="extracted-frame-camera-motion"
+          htmlFor="extracted-frame-video-description"
         >
-          描述相机如何运动
+          完整画面描述
         </label>
+        <p
+          id="extracted-frame-video-description-help"
+          className="mt-0.5 text-[10px] leading-4 text-muted-foreground"
+        >
+          可以写场景变化、人物动作、身体或物体形变、光线、镜头运动，以及最后要看见什么。
+        </p>
         <textarea
           ref={instructionRef}
-          id="extracted-frame-camera-motion"
+          id="extracted-frame-video-description"
+          aria-describedby="extracted-frame-video-description-help"
           value={instruction}
           onChange={event => setInstruction(event.target.value)}
-          rows={4}
-          maxLength={500}
-          placeholder="例如：镜头缓慢向前推进，接近人物时轻微向右环绕。"
+          rows={5}
+          maxLength={2000}
+          placeholder="例如：场景快速变暗，镜头推向女主的眼睛；眼睛发生变异，并在睁开的瞬间看见红色的血腥森林。"
           className="mt-1 w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
         />
         <label
           className="mt-3 block text-[11px] font-medium"
           htmlFor="extracted-frame-motion-amplitude"
         >
-          运动幅度
+          整体运动幅度（可选）
         </label>
         <select
           id="extracted-frame-motion-amplitude"
@@ -157,6 +164,9 @@ export function ExtractedFrameTransitionRequirementsDialog({
           <option value="medium">中</option>
           <option value="large">大</option>
         </select>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          仅控制整体动作强弱，不会限制或替换上面的画面描述。
+        </p>
         {error ? (
           <p role="alert" className="mt-2 text-xs text-destructive">
             {error}
