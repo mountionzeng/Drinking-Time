@@ -191,7 +191,7 @@ function publishingContentTitleSources(
   return [content.title, content.body, ...content.tags].filter(Boolean);
 }
 
-function preserveAppliedPublishingTitle(
+export function preserveAppliedPublishingTitle(
   generated: PublishingDraftContent,
   current: PublishingDraftContent,
   platform: PublishingPlatformId
@@ -317,36 +317,229 @@ function narrativeIntentContext(intent: PublishingNarrativeIntent): string {
   ].join("\n");
 }
 
+export type PublishingDraftPromptRequest = {
+  systemPrompt: string;
+  message: string;
+  history: AgentTurn[];
+  historyLimit: number;
+  maxTokens: number;
+};
+
+const GENERATE_OUTPUT_SCHEMA =
+  '{"core":{"facts":["明确事实"],"thesis":"核心判断","emotion":"真实情绪","voiceTraits":["声音特征"],"visualConcept":"无文字封面的视觉概念"},"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"完整可发布正文","tags":["可选标签"]}}';
+
+const CONVERT_OUTPUT_SCHEMA =
+  '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与来源共有的最短连续片段；X 为空","body":"目标平台完整正文","tags":["可选标签"]}}';
+
+const REVISE_OUTPUT_SCHEMA =
+  '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"改写后的完整正文","tags":["可选标签"]}}';
+
+export function compileGeneratePublishingDraftPrompt(params: {
+  platform: PublishingPlatformId;
+  conversation: AgentTurn[];
+  narrativeIntent?: PublishingNarrativeIntent;
+}): PublishingDraftPromptRequest {
+  const adapter = PUBLISHING_PLATFORM_REGISTRY[params.platform];
+  return {
+    systemPrompt: [
+      "你是个人发布稿编辑。你的工作是把用户已经说出的想法整理成大众能读懂的文字，同时保留鲜明的个人判断。",
+      "这不是批量营销稿：不要削弱批评，不要添加用户没说过的经历、数据或结论，不要把有棱角的话改成空泛鸡汤。",
+      "默认写得清楚、直接、有个人判断：不要煽情、装深沉、堆比喻、滥用反问或制造虚假的宏大感；除非用户明确就是这样说话。",
+      "优先写具体发生了什么、用户为什么不同意，再写结论。不要用“危险的信号”“背叛”“反噬”“守住……就是守住……”这类宏大措辞代替论证。",
+      "保留具体判断，但删除口号感、AI 腔和 Markdown 粗体符号。不要为了显得有力量而重复同一个结论。",
+      "先从对话提炼一份跨平台故事内核，再只写当前指定平台的一个版本。不得生成其他平台版本。",
+      narrativeIntentContext(
+        params.narrativeIntent ?? defaultPublishingNarrativeIntent()
+      ),
+      platformContext(params.platform),
+      publishingTitleContext(params.platform),
+      "返回严格 JSON，不要 markdown：",
+      GENERATE_OUTPUT_SCHEMA,
+      `当前只生成 ${adapter.label}，不要返回 drafts map。`,
+    ].join("\n"),
+    message: `请根据以上对话生成 ${adapter.label} 发布稿。`,
+    history: params.conversation,
+    historyLimit: 20,
+    maxTokens: 3_000,
+  };
+}
+
+export function compileGeneratePublishingDraftRepairPrompt(params: {
+  platform: PublishingPlatformId;
+  conversation: AgentTurn[];
+  validationError: string;
+  invalidOutput: string;
+}): PublishingDraftPromptRequest {
+  return {
+    systemPrompt: [
+      "你是发布稿结构修复器。只修复一次上次候选结果，不添加故事素材之外的新事实。",
+      platformContext(params.platform),
+      publishingTitleContext(params.platform),
+      `必须严格返回这个 JSON 结构：${GENERATE_OUTPUT_SCHEMA}`,
+      "只返回 JSON，不要解释。",
+    ].join("\n"),
+    message: JSON.stringify({
+      validationError: params.validationError,
+      invalidOutput: params.invalidOutput.slice(0, 20_000),
+    }),
+    history: params.conversation,
+    historyLimit: 20,
+    maxTokens: 3_000,
+  };
+}
+
+export function compileConvertPublishingDraftPrompt(params: {
+  core: PublishingStoryCore;
+  sourceDraft: PublishingPlatformDraft;
+  targetPlatform: PublishingPlatformId;
+}): PublishingDraftPromptRequest {
+  const sourceAdapter =
+    PUBLISHING_PLATFORM_REGISTRY[params.sourceDraft.platform];
+  const targetAdapter = PUBLISHING_PLATFORM_REGISTRY[params.targetPlatform];
+  return {
+    systemPrompt: [
+      "你是单平台文字适配编辑。只把现有稿件适配到一个目标平台。",
+      "共享内核是不可变约束：事实、核心判断、情绪、结论与个人声音都不能被改写或弱化。",
+      `来源平台：${sourceAdapter.label}`,
+      platformContext(params.targetPlatform),
+      publishingTitleContext(params.targetPlatform),
+      "返回严格 JSON，不要 markdown，也不要返回其他平台：",
+      CONVERT_OUTPUT_SCHEMA,
+    ].join("\n"),
+    message: JSON.stringify({
+      core: params.core,
+      source: params.sourceDraft.content,
+      targetPlatform: targetAdapter.label,
+    }),
+    history: [],
+    historyLimit: 0,
+    maxTokens: 2_400,
+  };
+}
+
+export function compileConvertPublishingDraftRepairPrompt(params: {
+  core: PublishingStoryCore;
+  sourceDraft: PublishingPlatformDraft;
+  targetPlatform: PublishingPlatformId;
+  validationError: string;
+  invalidOutput: string;
+}): PublishingDraftPromptRequest {
+  const targetAdapter = PUBLISHING_PLATFORM_REGISTRY[params.targetPlatform];
+  return {
+    systemPrompt: [
+      "你是发布稿结构修复器。只修复一次上次候选结果，不添加来源稿之外的新事实。",
+      platformContext(params.targetPlatform),
+      publishingTitleContext(params.targetPlatform),
+      `必须严格返回这个 JSON 结构：${CONVERT_OUTPUT_SCHEMA}`,
+      "只返回 JSON，不要解释。",
+    ].join("\n"),
+    message: JSON.stringify({
+      core: params.core,
+      source: params.sourceDraft.content,
+      targetPlatform: targetAdapter.label,
+      validationError: params.validationError,
+      invalidOutput: params.invalidOutput.slice(0, 20_000),
+    }),
+    history: [],
+    historyLimit: 0,
+    maxTokens: 2_400,
+  };
+}
+
+export function compileRevisePublishingDraftPrompt(params: {
+  core: PublishingStoryCore;
+  current: PublishingDraftContent;
+  platform: PublishingPlatformId;
+  instruction: string;
+}): PublishingDraftPromptRequest {
+  return {
+    systemPrompt: [
+      "你是用户直接指挥的发布稿改写编辑。只改当前平台的一份稿件，先准确执行用户这次提出的语言、节奏和篇幅要求。",
+      "不得添加原稿和故事内核中没有的事实；不得偷偷弱化核心观点，也不得把个人表达改成营销话术。",
+      "用户要求更克制、更直接或少一点修辞时，保留事实和具体判断即可，不必保留原稿的情绪强度、比喻或所谓“锋芒”。",
+      "这类克制改写必须把观点落回具体动作与因果，不要把一种修辞替换成另一种修辞。删除“危险的信号”“背叛”“反噬”“尸体”“物理地基”“存在的根基”“守住……就是守住……”等宏大、拟人或口号式表达，除非用户明确要求保留某一句。",
+      "严格保持原稿的事实确定程度和时态：看到、听说、报道、计划、可能等表述，不得升级成已经确认、已经执行或必然发生。",
+      "不要使用 Markdown 粗体符号。只有用户明确要求时才使用 emoji、网络热词或夸张语气。",
+      platformContext(params.platform),
+      publishingTitleContext(params.platform),
+      `严格返回 JSON，不要解释：${REVISE_OUTPUT_SCHEMA}`,
+    ].join("\n"),
+    message: JSON.stringify({
+      platform: params.platform,
+      core: params.core,
+      currentDraft: params.current,
+      userInstruction: params.instruction,
+    }),
+    history: [],
+    historyLimit: 0,
+    maxTokens: 2_400,
+  };
+}
+
+export function compileRevisePublishingDraftRepairPrompt(params: {
+  core: PublishingStoryCore;
+  current: PublishingDraftContent;
+  platform: PublishingPlatformId;
+  instruction: string;
+  validationError: string;
+  invalidOutput: string;
+}): PublishingDraftPromptRequest {
+  return {
+    systemPrompt: [
+      "你是发布稿改写结果修复器。只修复结构和平台长度，不添加新事实。",
+      platformContext(params.platform),
+      publishingTitleContext(params.platform),
+      `必须严格返回这个 JSON 结构：${REVISE_OUTPUT_SCHEMA}`,
+      "只返回 JSON，不要解释。",
+    ].join("\n"),
+    message: JSON.stringify({
+      platform: params.platform,
+      core: params.core,
+      currentDraft: params.current,
+      userInstruction: params.instruction,
+      validationError: params.validationError,
+      invalidOutput: params.invalidOutput.slice(0, 20_000),
+    }),
+    history: [],
+    historyLimit: 0,
+    maxTokens: 2_400,
+  };
+}
+
+export function compileRevisePublishingStyleRepairPrompt(params: {
+  core: PublishingStoryCore;
+  current: PublishingDraftContent;
+  platform: PublishingPlatformId;
+  instruction: string;
+  styleViolations: readonly string[];
+}): PublishingDraftPromptRequest {
+  return {
+    systemPrompt: [
+      "你是发布稿文字质检编辑。上一版没有真正做到克制，请只改措辞，不改变事实、观点或事实的确定程度。",
+      `必须删除这些已经检出的表达：${params.styleViolations.join("、")}。不要用新的宏大比喻、口号或拟人句替换它们。`,
+      "把句子改成具体动作、理由和直接判断；不添加新事实，不把可能或听说改成已经发生。",
+      platformContext(params.platform),
+      publishingTitleContext(params.platform),
+      `严格返回 JSON，不要解释：${REVISE_OUTPUT_SCHEMA}`,
+    ].join("\n"),
+    message: JSON.stringify({
+      core: params.core,
+      draftToRepair: params.current,
+      userInstruction: params.instruction,
+    }),
+    history: [],
+    historyLimit: 0,
+    maxTokens: 2_400,
+  };
+}
+
 export async function generatePublishingDraft(params: {
   platform: PublishingPlatformId;
   conversation: AgentTurn[];
   narrativeIntent?: PublishingNarrativeIntent;
 }): Promise<GeneratedPublishingDraft> {
-  const adapter = PUBLISHING_PLATFORM_REGISTRY[params.platform];
-  const outputSchema =
-    '{"core":{"facts":["明确事实"],"thesis":"核心判断","emotion":"真实情绪","voiceTraits":["声音特征"],"visualConcept":"无文字封面的视觉概念"},"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"完整可发布正文","tags":["可选标签"]}}';
-  const systemPrompt = [
-    "你是个人发布稿编辑。你的工作是把用户已经说出的想法整理成大众能读懂的文字，同时保留鲜明的个人判断。",
-    "这不是批量营销稿：不要削弱批评，不要添加用户没说过的经历、数据或结论，不要把有棱角的话改成空泛鸡汤。",
-    "默认写得清楚、直接、有个人判断：不要煽情、装深沉、堆比喻、滥用反问或制造虚假的宏大感；除非用户明确就是这样说话。",
-    "优先写具体发生了什么、用户为什么不同意，再写结论。不要用“危险的信号”“背叛”“反噬”“守住……就是守住……”这类宏大措辞代替论证。",
-    "保留具体判断，但删除口号感、AI 腔和 Markdown 粗体符号。不要为了显得有力量而重复同一个结论。",
-    "先从对话提炼一份跨平台故事内核，再只写当前指定平台的一个版本。不得生成其他平台版本。",
-    narrativeIntentContext(
-      params.narrativeIntent ?? defaultPublishingNarrativeIntent()
-    ),
-    platformContext(params.platform),
-    publishingTitleContext(params.platform),
-    "返回严格 JSON，不要 markdown：",
-    outputSchema,
-    `当前只生成 ${adapter.label}，不要返回 drafts map。`,
-  ].join("\n");
   let result = await runJsonAgent<unknown>({
-    systemPrompt,
-    message: `请根据以上对话生成 ${adapter.label} 发布稿。`,
-    history: params.conversation,
-    historyLimit: 20,
-    maxTokens: 3_000,
+    ...compileGeneratePublishingDraftPrompt(params),
     fallback: () => null,
   });
   let root = asRecord(result.parsed);
@@ -362,20 +555,12 @@ export async function generatePublishingDraft(params: {
         ? "invalid story core"
         : invalidContentReason(root.draft, params.platform);
     result = await runJsonAgent<unknown>({
-      systemPrompt: [
-        "你是发布稿结构修复器。只修复一次上次候选结果，不添加故事素材之外的新事实。",
-        platformContext(params.platform),
-        publishingTitleContext(params.platform),
-        `必须严格返回这个 JSON 结构：${outputSchema}`,
-        "只返回 JSON，不要解释。",
-      ].join("\n"),
-      message: JSON.stringify({
+      ...compileGeneratePublishingDraftRepairPrompt({
+        platform: params.platform,
+        conversation: params.conversation,
         validationError: firstReason,
-        invalidOutput: result.rawText.slice(0, 20_000),
+        invalidOutput: result.rawText,
       }),
-      history: params.conversation,
-      historyLimit: 20,
-      maxTokens: 3_000,
       fallback: () => null,
     });
     root = asRecord(result.parsed);
@@ -406,31 +591,8 @@ export async function convertPublishingDraft(params: {
   targetPlatform: PublishingPlatformId;
   currentTarget?: PublishingDraftContent;
 }): Promise<ConvertedPublishingDraft> {
-  const sourceAdapter =
-    PUBLISHING_PLATFORM_REGISTRY[params.sourceDraft.platform];
-  const targetAdapter = PUBLISHING_PLATFORM_REGISTRY[params.targetPlatform];
-  const outputSchema =
-    '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与来源共有的最短连续片段；X 为空","body":"目标平台完整正文","tags":["可选标签"]}}';
-  const source = {
-    core: params.core,
-    source: params.sourceDraft.content,
-    targetPlatform: targetAdapter.label,
-  };
-  const systemPrompt = [
-    "你是单平台文字适配编辑。只把现有稿件适配到一个目标平台。",
-    "共享内核是不可变约束：事实、核心判断、情绪、结论与个人声音都不能被改写或弱化。",
-    `来源平台：${sourceAdapter.label}`,
-    platformContext(params.targetPlatform),
-    publishingTitleContext(params.targetPlatform),
-    "返回严格 JSON，不要 markdown，也不要返回其他平台：",
-    outputSchema,
-  ].join("\n");
   let result = await runJsonAgent<unknown>({
-    systemPrompt,
-    message: JSON.stringify(source),
-    history: [],
-    historyLimit: 0,
-    maxTokens: 2_400,
+    ...compileConvertPublishingDraftPrompt(params),
     fallback: () => null,
   });
   let root = asRecord(result.parsed);
@@ -449,21 +611,13 @@ export async function convertPublishingDraft(params: {
       params.targetPlatform
     );
     result = await runJsonAgent<unknown>({
-      systemPrompt: [
-        "你是发布稿结构修复器。只修复一次上次候选结果，不添加来源稿之外的新事实。",
-        platformContext(params.targetPlatform),
-        publishingTitleContext(params.targetPlatform),
-        `必须严格返回这个 JSON 结构：${outputSchema}`,
-        "只返回 JSON，不要解释。",
-      ].join("\n"),
-      message: JSON.stringify({
-        ...source,
+      ...compileConvertPublishingDraftRepairPrompt({
+        core: params.core,
+        sourceDraft: params.sourceDraft,
+        targetPlatform: params.targetPlatform,
         validationError: firstReason,
-        invalidOutput: result.rawText.slice(0, 20_000),
+        invalidOutput: result.rawText,
       }),
-      history: [],
-      historyLimit: 0,
-      maxTokens: 2_400,
       fallback: () => null,
     });
     root = asRecord(result.parsed);
@@ -499,31 +653,8 @@ export async function revisePublishingDraft(params: {
   platform: PublishingPlatformId;
   instruction: string;
 }): Promise<RevisedPublishingDraft> {
-  const outputSchema =
-    '{"draft":{"title":"一个具体标题；X 为空","titleAnchor":"标题与输入共有的最短连续片段；X 为空","body":"改写后的完整正文","tags":["可选标签"]}}';
-  const source = {
-    platform: params.platform,
-    core: params.core,
-    currentDraft: params.current,
-    userInstruction: params.instruction,
-  };
-  const systemPrompt = [
-    "你是用户直接指挥的发布稿改写编辑。只改当前平台的一份稿件，先准确执行用户这次提出的语言、节奏和篇幅要求。",
-    "不得添加原稿和故事内核中没有的事实；不得偷偷弱化核心观点，也不得把个人表达改成营销话术。",
-    "用户要求更克制、更直接或少一点修辞时，保留事实和具体判断即可，不必保留原稿的情绪强度、比喻或所谓“锋芒”。",
-    "这类克制改写必须把观点落回具体动作与因果，不要把一种修辞替换成另一种修辞。删除“危险的信号”“背叛”“反噬”“尸体”“物理地基”“存在的根基”“守住……就是守住……”等宏大、拟人或口号式表达，除非用户明确要求保留某一句。",
-    "严格保持原稿的事实确定程度和时态：看到、听说、报道、计划、可能等表述，不得升级成已经确认、已经执行或必然发生。",
-    "不要使用 Markdown 粗体符号。只有用户明确要求时才使用 emoji、网络热词或夸张语气。",
-    platformContext(params.platform),
-    publishingTitleContext(params.platform),
-    `严格返回 JSON，不要解释：${outputSchema}`,
-  ].join("\n");
   let result = await runJsonAgent<unknown>({
-    systemPrompt,
-    message: JSON.stringify(source),
-    history: [],
-    historyLimit: 0,
-    maxTokens: 2_400,
+    ...compileRevisePublishingDraftPrompt(params),
     fallback: () => null,
   });
   let root = asRecord(result.parsed);
@@ -535,21 +666,14 @@ export async function revisePublishingDraft(params: {
   let content = normalizeContent(root?.draft, params.platform, titleSources);
   if (!content) {
     result = await runJsonAgent<unknown>({
-      systemPrompt: [
-        "你是发布稿改写结果修复器。只修复结构和平台长度，不添加新事实。",
-        platformContext(params.platform),
-        publishingTitleContext(params.platform),
-        `必须严格返回这个 JSON 结构：${outputSchema}`,
-        "只返回 JSON，不要解释。",
-      ].join("\n"),
-      message: JSON.stringify({
-        ...source,
+      ...compileRevisePublishingDraftRepairPrompt({
+        core: params.core,
+        current: params.current,
+        platform: params.platform,
+        instruction: params.instruction,
         validationError: invalidContentReason(root?.draft, params.platform),
-        invalidOutput: result.rawText.slice(0, 20_000),
+        invalidOutput: result.rawText,
       }),
-      history: [],
-      historyLimit: 0,
-      maxTokens: 2_400,
       fallback: () => null,
     });
     root = asRecord(result.parsed);
@@ -572,22 +696,13 @@ export async function revisePublishingDraft(params: {
   );
   if (styleViolations.length > 0) {
     const styleRepair = await runJsonAgent<unknown>({
-      systemPrompt: [
-        "你是发布稿文字质检编辑。上一版没有真正做到克制，请只改措辞，不改变事实、观点或事实的确定程度。",
-        `必须删除这些已经检出的表达：${styleViolations.join("、")}。不要用新的宏大比喻、口号或拟人句替换它们。`,
-        "把句子改成具体动作、理由和直接判断；不添加新事实，不把可能或听说改成已经发生。",
-        platformContext(params.platform),
-        publishingTitleContext(params.platform),
-        `严格返回 JSON，不要解释：${outputSchema}`,
-      ].join("\n"),
-      message: JSON.stringify({
+      ...compileRevisePublishingStyleRepairPrompt({
         core: params.core,
-        draftToRepair: content,
-        userInstruction: params.instruction,
+        current: content,
+        platform: params.platform,
+        instruction: params.instruction,
+        styleViolations,
       }),
-      history: [],
-      historyLimit: 0,
-      maxTokens: 2_400,
       fallback: () => null,
     });
     const repaired = normalizeContent(
