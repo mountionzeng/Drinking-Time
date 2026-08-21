@@ -8,6 +8,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
+import { useStoryImageDrop } from "../useStoryImageDrop";
 import type { CreationEditorShot } from "../types";
 import { displayShotCode } from "@shared/shotIdentity";
 import {
@@ -87,6 +88,8 @@ export default function PromptTablePanel() {
     preview: string;
   } | null>(null);
   const [localVideoDragOver, setLocalVideoDragOver] = useState(false);
+  const [storyImageDragOver, setStoryImageDragOver] = useState(false);
+  const storyImageDrop = useStoryImageDrop();
 
   const selectedShotMaterial = useMemo(() => {
     if (!selectedShot) return undefined;
@@ -513,11 +516,38 @@ export default function PromptTablePanel() {
     await rerenderShot(selectedShotNo, lineageView.rows, reference);
   }, [lineageView, rerenderShot, resolveReferenceForRerender, selectedShotNo]);
 
+  const selectedStableShotId =
+    selectedShot?.stableShotId ?? selectedShot?.shotIdentity ?? null;
+
   return (
     <aside
-      className="creation-board-panel flex h-full min-h-0 flex-col overflow-hidden"
+      className={`creation-board-panel flex h-full min-h-0 flex-col overflow-hidden ${
+        storyImageDragOver ? "ring-2 ring-primary/50" : ""
+      }`}
       aria-label="镜头设计表"
       data-testid="analysis-prompt-table-panel"
+      // 表和时间轴读同一份镜头数据：图挂到这一镜，时间轴上同一镜也跟着换。
+      onDragOver={event => {
+        if (!selectedStableShotId || !storyImageDrop.accepts(event.dataTransfer)) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setStoryImageDragOver(true);
+      }}
+      onDragLeave={() => setStoryImageDragOver(false)}
+      onDrop={event => {
+        if (!selectedStableShotId || !storyImageDrop.accepts(event.dataTransfer)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        setStoryImageDragOver(false);
+        void storyImageDrop.drop(event.dataTransfer, {
+          kind: "shot",
+          stableShotId: selectedStableShotId,
+        });
+      }}
     >
       <div className="creation-board-panel-header shrink-0 justify-between">
         <div className="creation-board-panel-title">

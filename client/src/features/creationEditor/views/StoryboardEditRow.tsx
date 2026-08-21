@@ -34,6 +34,7 @@ import {
   storyboardTimingTotalMs,
   type StoryboardTimingRow,
 } from "@/features/storyAgent/storyboardTiming";
+import { useStoryImageDrop } from "../useStoryImageDrop";
 
 import {
   STORYBOARD_EDIT_FRAME_MS,
@@ -1185,6 +1186,7 @@ function StoryboardEditTrack({
     }) | null
   >(null);
   const [dropTargetShotId, setDropTargetShotId] = useState<string | null>(null);
+  const storyImageDrop = useStoryImageDrop();
   const groupDragRef = useRef<{
     clientX: number;
     trackWidthPx: number;
@@ -1786,11 +1788,23 @@ function StoryboardEditTrack({
         onPointerUp={endRangeDrag}
         onPointerCancel={endRangeDrag}
         onDragOver={event => {
+          if (storyImageDrop.accepts(event.dataTransfer)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            return;
+          }
           if (!event.dataTransfer.types.includes(SHOT_DRAG_MIME)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
         }}
         onDrop={event => {
+          // 冒泡到轨道根说明没有落在任何一个镜头块上 —— 那是空档，新开一镜放这张图。
+          if (storyImageDrop.accepts(event.dataTransfer)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void storyImageDrop.drop(event.dataTransfer, { kind: "new-shot" });
+            return;
+          }
           const sourceStableShotId = event.dataTransfer.getData(SHOT_DRAG_MIME);
           if (!sourceStableShotId || !onMoveShotToLayer) return;
           event.preventDefault();
@@ -1932,6 +1946,13 @@ function StoryboardEditTrack({
                 });
               }}
               onDragOver={event => {
+                // 从对话框或素材仓库拖来的图片：落在哪一镜就换哪一镜的画面。
+                if (storyImageDrop.accepts(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  setDropTargetShotId(shot.stableShotId);
+                  return;
+                }
                 if (!event.dataTransfer.types.includes(SHOT_DRAG_MIME)) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
@@ -1940,6 +1961,15 @@ function StoryboardEditTrack({
               onDragLeave={() => setDropTargetShotId(null)}
               onDrop={event => {
                 setDropTargetShotId(null);
+                if (storyImageDrop.accepts(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void storyImageDrop.drop(event.dataTransfer, {
+                    kind: "shot",
+                    stableShotId: shot.stableShotId,
+                  });
+                  return;
+                }
                 const sourceStableShotId =
                   event.dataTransfer.getData(SHOT_DRAG_MIME);
                 if (

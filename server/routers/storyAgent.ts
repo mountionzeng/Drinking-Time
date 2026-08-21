@@ -2059,6 +2059,9 @@ export const storyAgentRouter = router({
         // 精确改图：用户选中某一帧、只改点名的内容。此时画面事实来自那张图本身，
         // 不能再让美术库按故事设定重新描述一遍场景。
         exactFrameEdit: z.boolean().optional(),
+        // 多图重组（对话框图生图）：用户在聊天里选了几张图，逐张说明取什么。
+        // 图号职责已经由客户端清单写死并与发送顺序对齐，服务端不得再重写画面描述。
+        remixEdit: z.boolean().optional(),
         storyStyleReferenceImageUrl: z.string().optional(), // 正式封面：只继承色板、材质、光线与情绪
         editMaskImageUrl: z
           .string()
@@ -2092,6 +2095,28 @@ export const storyAgentRouter = router({
           return {
             status: "error" as const,
             error: "遮罩局部重绘只允许使用已确认费用的正式编辑链路",
+          };
+        }
+        // 多图重组的提示词全靠「图1＝…图2＝…」清单和用户原话立住。少了底图，
+        // 图号就对不上实际发送顺序；少了原话，模型没有取舍依据，只会照抄图1。
+        // 两种情况都会烧掉一次付费任务却产出废图，所以在提交前挡住。
+        if (input.remixEdit && !input.referenceImageUrl?.trim()) {
+          return {
+            status: "error" as const,
+            error: "多图重组必须包含作为底图的第一张参考图",
+          };
+        }
+        if (input.remixEdit && !input.explicitInstruction?.trim()) {
+          return {
+            status: "error" as const,
+            error: "多图重组必须包含用户说明要从每张图里取什么",
+          };
+        }
+        if (input.remixEdit && input.editMaskImageUrl) {
+          // 遮罩要和唯一底图逐像素对齐，带遮罩时 imageGen 会丢掉全部上下文图。
+          return {
+            status: "error" as const,
+            error: "多图重组不能同时使用遮罩局部重绘",
           };
         }
         if (input.explicitInstruction || input.editMaskImageUrl) {
@@ -2412,7 +2437,19 @@ export const storyAgentRouter = router({
                   referencePlan.referencePurpose !== "scene-style",
               })
             : await deriveInjection(story, input.sceneAnalysis);
-        if (input.exactFrameEdit) {
+        if (input.remixEdit) {
+          // 多图重组时，客户端已经把「图1＝…图2＝…」的清单和用户原话拼成 prompt，
+          // 图号和实际发送顺序严格对齐。这里不能再走 directImagePrompt：它只看
+          // 底图一张，会把「取图2的那件外套」重写成对图1的整体画面描述，跨图指令
+          // 当场消失。也不能套精确改图那句「keep all of it」——用户要的正是改构图。
+          prompt = [
+            "Compose one new image from the supplied reference images.",
+            "图1 is the base: its aspect ratio and overall composition carry over unless the user asks otherwise.",
+            "Take from each reference only what the user names below; do not borrow anything else from them.",
+            "",
+            prompt,
+          ].join("\n");
+        } else if (input.exactFrameEdit) {
           // 精确改图时，选中的那张图就是场景本身。美术库改写出来的场景段落会
           // 在提示词开头重述一个「应该长什么样」的画面（配色、姿势全都写死），
           // 于是模型照着它重画，用户的原图当场被换掉。这里换成一句短引导。
