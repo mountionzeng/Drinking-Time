@@ -33,7 +33,8 @@
     "eval:titles": "tsx evals/run.ts --titles",
     "eval:weights": "tsx evals/run-weight-analysis.ts",
     "eval:retrieval": "tsx evals/run-retrieval-analysis.ts",
-    "eval:recurring": "tsx evals/run-recurring-analysis.ts"
+    "eval:recurring": "tsx evals/run-recurring-analysis.ts",
+    "eval:publishing-draft": "tsx evals/run-publishing-draft-prompt-contract.ts --offline"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
