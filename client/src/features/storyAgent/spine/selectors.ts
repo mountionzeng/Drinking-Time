@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import { scopedSelection } from "../selectionStoryScope";
 import { buildPromptPool, type PromptFragment } from "../promptPool";
 import type {
   ChatMessage,
@@ -138,7 +139,12 @@ export function selectStoryAgentChatSlice(
     pendingIntentDraft: state.pendingIntentDraft,
     pendingIntentCommitProposalId: state.pendingIntentCommitProposalId,
     publishing: state.publishing,
-    activeSelection: state.activeSelection,
+    // 不属于当前故事的选区读成「没有选区」：切故事时它可能还留在原地，
+    // 挂着别的故事的镜头，而输入框下面写的是「下一条消息会带着这个选区」。
+    activeSelection: scopedSelection(
+      state.activeSelection,
+      state.activeStoryId
+    ),
   };
 }
 
