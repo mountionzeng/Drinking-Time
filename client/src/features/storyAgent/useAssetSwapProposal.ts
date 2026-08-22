@@ -29,6 +29,8 @@ export type AssetSwapResult = {
   imageId: number;
   imageUrl: string;
   shotLabel: string;
+  /** 已经点过「用这张」——新图成了这一镜的当前画面。 */
+  adopted: boolean;
 };
 
 export type AssetSwapController = {
@@ -42,6 +44,9 @@ export type AssetSwapController = {
   arm: (instruction: string) => boolean;
   chooseCandidate: (assetId: string) => void;
   confirm: () => Promise<void>;
+  /** 把结果图定为这一镜的当前画面：时间轴和镜头设计表会同时换过来。 */
+  adopt: () => Promise<void>;
+  adopting: boolean;
   cancel: () => void;
 };
 
@@ -81,6 +86,8 @@ function operationToken(prefix: string): string {
 export function useAssetSwapProposal(input: {
   storyId: number | null;
   selection: SelectionContext | null;
+  /** 采用一张图作为所属镜头的当前画面（creationEditor.promoteStoryImage）。 */
+  onAdoptImage?: (imageId: number) => Promise<void>;
   shotLabelOf: (
     shotNo: number | null | undefined,
     stableShotId?: string | null
@@ -93,6 +100,7 @@ export function useAssetSwapProposal(input: {
   const [pendingInstruction, setPendingInstruction] = useState("");
   const [result, setResult] = useState<AssetSwapResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [adopting, setAdopting] = useState(false);
   // 一次查询同时拿到 revision（绑定要做 CAS）、已锁定资产和已有绑定。
   const assetsQuery = trpc.visualAssets.read.useQuery(
     { storyId: input.storyId ?? 0 },
@@ -252,6 +260,7 @@ export function useAssetSwapProposal(input: {
         imageId: response.imageId,
         imageUrl: response.imageUrl,
         shotLabel: proposal.shotLabel,
+        adopted: false,
       });
       setProposal(null);
       setStatus("done");
@@ -266,6 +275,29 @@ export function useAssetSwapProposal(input: {
     }
   }, [bindMut, generateMut, input, proposal, status, storyRevision, utils]);
 
+  /**
+   * 「用这张」。重渲产物落库时 isCurrent 为 false —— 生成不等于采用
+   * （功能账本 image-asset-history 的不变量：只有明确采用事件改变当前图片）。
+   * 这一步就是那个明确事件；落下去之后时间轴和镜头设计表读同一份镜头数据，一起换。
+   */
+  const adopt = useCallback(async () => {
+    if (!result || result.adopted || adopting) return;
+    if (!input.onAdoptImage) {
+      toast.error("当前页面无法直接采用，请到故事版上点这张的「已选」");
+      return;
+    }
+    setAdopting(true);
+    try {
+      await input.onAdoptImage(result.imageId);
+      setResult(current => (current ? { ...current, adopted: true } : current));
+      toast.success(`${result.shotLabel} 已换成新画面`);
+    } catch (err) {
+      toast.error(readableRerenderError(err, "采用失败"));
+    } finally {
+      setAdopting(false);
+    }
+  }, [adopting, input, result]);
+
   return {
     status,
     proposal,
@@ -276,6 +308,8 @@ export function useAssetSwapProposal(input: {
     arm,
     chooseCandidate,
     confirm,
+    adopt,
+    adopting,
     cancel,
   };
 }

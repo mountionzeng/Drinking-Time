@@ -270,6 +270,7 @@ export default function StoryAgentChat({
   const assetSwap = useAssetSwapProposal({
     storyId: creationEditor?.activeStoryId ?? remoteStoryId ?? null,
     selection: activeSelection,
+    onAdoptImage: creationEditor?.promoteStoryImage,
     shotLabelOf: (shotNo, stableShotId) => labelForShot(shotNo, stableShotId),
   });
   const handleImageRerender = useCallback(

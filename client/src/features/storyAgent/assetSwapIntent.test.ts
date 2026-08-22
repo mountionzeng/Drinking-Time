@@ -141,6 +141,8 @@ describe("assetSwapIntent", () => {
     expect(text).toContain("「人物 · 版本 2」");
     expect(text).toContain("¥1.49");
     expect(text).toContain("确认后才会提交 302");
+    // 生成不等于采用：卡上要指向那个明确的采用动作，别让用户以为出图就换好了。
+    expect(text).toContain("「用这张」");
     // 别让用户以为这条能改造型本身。
     expect(text).toContain("固定造型不会被改动");
   });

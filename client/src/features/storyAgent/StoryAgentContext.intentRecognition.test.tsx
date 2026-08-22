@@ -351,6 +351,8 @@ vi.mock("@/features/storyAgent/useAssetSwapProposal", () => ({
     arm: () => false,
     chooseCandidate: () => {},
     confirm: async () => {},
+    adopt: async () => {},
+    adopting: false,
     cancel: () => {},
   }),
 }));

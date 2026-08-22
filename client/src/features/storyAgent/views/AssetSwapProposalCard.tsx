@@ -113,10 +113,29 @@ export default function AssetSwapProposalCard({
                 {result.shotLabel} 新候选 #{result.imageId}
               </span>
             </div>
-            <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted-foreground">
-              已存进素材仓库，还没替换当前画面。到故事版上点这张的「已选」，
-              时间轴和镜头设计表会同时换过来。
-            </p>
+            {result.adopted ? (
+              <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted-foreground">
+                已成为 {result.shotLabel} 的当前画面，时间轴和镜头设计表已同步。
+                旧图仍留在素材仓库，随时可以换回去。
+              </p>
+            ) : (
+              <>
+                <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted-foreground">
+                  已存进素材仓库，还没替换当前画面。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void swap.adopt()}
+                  disabled={swap.adopting}
+                  className="mt-1 inline-flex items-center gap-1 rounded bg-[var(--nayin-accent)] px-2 py-1 text-[10px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {swap.adopting ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : null}
+                  用这张
+                </button>
+              </>
+            )}
           </div>
           <button
             type="button"
