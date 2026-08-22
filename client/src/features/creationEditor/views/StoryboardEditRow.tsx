@@ -406,6 +406,20 @@ function storyboardVisualLayerAtDocumentPoint(
 }
 
 /**
+ * 剪辑块自己渲染出来的起点（占轨道宽度的比例）。
+ *
+ * 一帧图片的抓取盒是固定 40px 并且 -translate-x-1/2 居中，所以它的
+ * getBoundingClientRect().left 比真实帧位置左半个盒子。行内 left 百分比才是
+ * 渲染时用的那个真实起点，拿它当锚点还顺带免疫拖动过程中的横向滚动。
+ */
+function clipAnchorRatio(element: HTMLElement): number | null {
+  const raw = element.style.left;
+  if (!raw.endsWith("%")) return null;
+  const percent = Number.parseFloat(raw);
+  return Number.isFinite(percent) ? percent / 100 : null;
+}
+
+/**
  * 拖拽提交的唯一出口。
  *
  * 像素 → (轨道, 绝对帧) 换算完就交给服务端命令，客户端不再决定素材归属哪个
@@ -414,6 +428,8 @@ function storyboardVisualLayerAtDocumentPoint(
  */
 export function commitVisualClipDrag(input: {
   clipId: string;
+  /** 抓取瞬间这个剪辑块渲染出来的起点比例；拿不到时回退到它的左边缘像素。 */
+  startLeftRatio: number | null;
   startRectLeft: number;
   startClientX: number;
   releaseClientX: number;
@@ -438,12 +454,14 @@ export function commitVisualClipDrag(input: {
     toast.error("没落在任何图层上，位置没有改变");
     return;
   }
-  // 保住抓取点：跟着走的是这个剪辑块的左边缘，不是鼠标。
-  const movedLeft =
-    input.startRectLeft + (input.releaseClientX - input.startClientX);
-  const startMs =
-    ((movedLeft - targetTrack.rect.left) / targetTrack.rect.width) *
-    input.totalMs;
+  // 保住抓取点：跟着走的是这个剪辑块自己的起点，不是鼠标。
+  const startRatio =
+    input.startLeftRatio ??
+    (input.startRectLeft - targetTrack.rect.left) / targetTrack.rect.width;
+  const movedRatio =
+    startRatio +
+    (input.releaseClientX - input.startClientX) / targetTrack.rect.width;
+  const startMs = movedRatio * input.totalMs;
   void move({
     clipId: input.clipId,
     toTrackId: visualTrackId(targetTrack.visualLayer),
@@ -947,6 +965,7 @@ function StoryboardUpperVisualLayerRow({
         startClientY: number;
         /** 抓取瞬间这个剪辑块自己的左边缘，用来保住抓取点的相对位置。 */
         startRectLeft: number;
+        startLeftRatio: number | null;
         moved: boolean;
         clipId: string;
         sourceStableShotId: string;
@@ -957,6 +976,7 @@ function StoryboardUpperVisualLayerRow({
         startClientX: number;
         startClientY: number;
         startRectLeft: number;
+        startLeftRatio: number | null;
         moved: boolean;
         stableShotId: string;
       }
@@ -998,6 +1018,7 @@ function StoryboardUpperVisualLayerRow({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startRectLeft: event.currentTarget.getBoundingClientRect().left,
+      startLeftRatio: clipAnchorRatio(event.currentTarget),
       moved: false,
     };
     setClipPointerPreview({
@@ -1043,6 +1064,7 @@ function StoryboardUpperVisualLayerRow({
           ? `image:${drag.clipId}`
           : `shot:${drag.stableShotId}`,
       startRectLeft: drag.startRectLeft,
+      startLeftRatio: drag.startLeftRatio,
       startClientX: drag.startClientX,
       releaseClientX: event.clientX,
       releaseClientY: event.clientY,
@@ -2066,6 +2088,7 @@ function StoryboardEditTrack({
     startClientX: number;
     startClientY: number;
     startRectLeft: number;
+    startLeftRatio: number | null;
     moved: boolean;
     clipId: string;
     sourceStableShotId: string;
@@ -2177,6 +2200,7 @@ function StoryboardEditTrack({
       startClientX: event.clientX,
       startClientY: event.clientY,
       startRectLeft: event.currentTarget.getBoundingClientRect().left,
+      startLeftRatio: clipAnchorRatio(event.currentTarget),
       moved: false,
       clipId,
       sourceStableShotId,
@@ -2209,6 +2233,7 @@ function StoryboardEditTrack({
     commitVisualClipDrag({
       clipId: `image:${drag.clipId}`,
       startRectLeft: drag.startRectLeft,
+      startLeftRatio: drag.startLeftRatio,
       startClientX: drag.startClientX,
       releaseClientX: event.clientX,
       releaseClientY: event.clientY,
