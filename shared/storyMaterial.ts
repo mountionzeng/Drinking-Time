@@ -189,11 +189,20 @@ export type StoryTimelineOverlay = {
   effects?: TimelineVideoEffects;
 };
 
+/** Persistent management state for ordinary visual layers. Layers are indexed bottom-up. */
+export type StoryTimelineVisualLayerState = {
+  /** Total number of editable visual layers, including the primary layer at index 0. */
+  count: number;
+  /** Hidden layers do not participate in preview or export resolution. */
+  hidden: number[];
+};
+
 export type TimelineDocument = {
   storyId: number;
   version: number;
   items: StoryTimelineItem[];
   overlays?: StoryTimelineOverlay[];
+  visualLayerState?: StoryTimelineVisualLayerState;
 };
 
 export type ShotMaterialState = {

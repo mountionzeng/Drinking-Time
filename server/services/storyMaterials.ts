@@ -11,10 +11,12 @@ import {
   type StoryTimelineItem,
   type StoryTimelineOverlay,
   type StoryTimelineVisualClip,
+  type StoryTimelineVisualLayerState,
   type TimelineDocument,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "../../shared/storyMaterial";
+import { normalizeTimelineVisualLayerState } from "../../shared/timelineVisualLayers";
 import {
   normalizeShotIdentity,
   shotIdentityMatchKeys,
@@ -153,6 +155,22 @@ function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
   return overlays.sort(
     (left, right) => left.startFrame - right.startFrame || left.id.localeCompare(right.id)
   );
+}
+
+function timelineVisualLayerState(value: unknown): StoryTimelineVisualLayerState | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const count = nonNegativeInteger(record.count);
+  if (count == null || count < 1) return undefined;
+  return {
+    count,
+    hidden: Array.isArray(record.hidden)
+      ? record.hidden.flatMap(value => {
+          const layer = nonNegativeInteger(value);
+          return layer == null ? [] : [layer];
+        })
+      : [],
+  };
 }
 
 function shotNoFromCanonical(value: unknown): number | null {
@@ -587,11 +605,16 @@ export async function getStoryMaterialState(
       getStoryTimeline(storyId, userId),
       getStoryPromptProjection({ storyId, userId }),
     ]);
+  const timelineItems = normalizeTimelineItems(timelineRow?.items, facts);
   const timeline: TimelineDocument = {
     storyId,
     version: timelineRow?.version ?? 0,
-    items: normalizeTimelineItems(timelineRow?.items, facts),
+    items: timelineItems,
     overlays: timelineOverlays(timelineRow?.overlays),
+    visualLayerState: normalizeTimelineVisualLayerState(
+      timelineVisualLayerState(timelineRow?.visualLayerState),
+      timelineItems
+    ),
   };
   const timelineByShot = new Map(
     timeline.items.map(item => [item.stableShotId, item])

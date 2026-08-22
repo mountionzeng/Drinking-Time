@@ -51,9 +51,15 @@ import {
   type StoryMaterialState,
   type StoryTimelineItem,
   type StoryTimelineOverlay,
+  type StoryTimelineVisualLayerState,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import {
+  applyTimelineVisualLayerAction,
+  normalizeTimelineVisualLayerState,
+  type TimelineVisualLayerAction,
+} from "@shared/timelineVisualLayers";
 import {
   buildTimelineLayout,
   type TimelineLayoutRow,
@@ -179,6 +185,10 @@ type CreationEditorContextValue = {
   /** 当前故事的时间线条目，绝对帧位置和锚点都在里面。 */
   timelineItems: StoryTimelineItem[];
   timelineOverlays: StoryTimelineOverlay[];
+  timelineVisualLayerState: StoryTimelineVisualLayerState;
+  manageTimelineVisualLayer: (
+    action: TimelineVisualLayerAction
+  ) => Promise<void>;
   /** 方向批量移动的预览：这次会带上谁、被谁挡住。 */
   previewTimelineGroup: (
     sourceShotId: string,
@@ -1680,6 +1690,14 @@ export function CreationEditorProvider({
     () => storyMaterialQuery.data?.timeline.overlays ?? [],
     [storyMaterialQuery.data?.timeline.overlays]
   );
+  const timelineVisualLayerState = useMemo(
+    () =>
+      normalizeTimelineVisualLayerState(
+        storyMaterialQuery.data?.timeline.visualLayerState,
+        timelineItems
+      ),
+    [storyMaterialQuery.data?.timeline.visualLayerState, timelineItems]
+  );
 
   const saveTimelineItems = useCallback(
     async (
@@ -1688,6 +1706,7 @@ export function CreationEditorProvider({
         throwOnError?: boolean;
         recordUndo?: boolean;
         overlays?: StoryTimelineOverlay[];
+        visualLayerState?: StoryTimelineVisualLayerState;
       } = {}
     ) => {
       if (activeId == null) return;
@@ -1719,6 +1738,9 @@ export function CreationEditorProvider({
             ...(options.overlays === undefined
               ? {}
               : { overlays: options.overlays }),
+            ...(options.visualLayerState === undefined
+              ? {}
+              : { visualLayerState: options.visualLayerState }),
           });
           if (result.status !== "ok") throw new Error(result.error);
           if (
@@ -1745,6 +1767,20 @@ export function CreationEditorProvider({
       timelineShotIds,
       updateStoryTimelineMut,
     ]
+  );
+
+  const manageTimelineVisualLayer = useCallback(
+    async (action: TimelineVisualLayerAction) => {
+      const change = applyTimelineVisualLayerAction({
+        items: timelineItems,
+        state: timelineVisualLayerState,
+        action,
+      });
+      await saveTimelineItems(change.items, {
+        throwOnError: true,
+        visualLayerState: change.state,
+      });
+    }, [saveTimelineItems, timelineItems, timelineVisualLayerState]
   );
 
   const addShotToTimeline = useCallback(
@@ -1840,9 +1876,15 @@ export function CreationEditorProvider({
         rows: timelineLayoutRows,
         shotsById: timelineResolverShots,
         overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
         timelineFrame,
       }),
-    [timelineLayoutRows, timelineOverlays, timelineResolverShots]
+    [
+      timelineLayoutRows,
+      timelineOverlays,
+      timelineResolverShots,
+      timelineVisualLayerState.hidden,
+    ]
   );
 
   const [timelineWritePending, setTimelineWritePending] = useState(false);
@@ -3936,6 +3978,8 @@ export function CreationEditorProvider({
       timelineLayoutRows,
       timelineItems,
       timelineOverlays,
+      timelineVisualLayerState,
+      manageTimelineVisualLayer,
       previewTimelineGroup,
       resolveTimelineFrameSource,
       timelineWritePending,
@@ -4053,6 +4097,8 @@ export function CreationEditorProvider({
       timelineLayoutRows,
       timelineItems,
       timelineOverlays,
+      timelineVisualLayerState,
+      manageTimelineVisualLayer,
       previewTimelineGroup,
       resolveTimelineFrameSource,
       timelineWritePending,

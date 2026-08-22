@@ -41,8 +41,13 @@ describe("story timeline overlay persistence", () => {
       expectedVersion: 0,
       items: [{ stableShotId: "shot-a", included: true, position: 0 }],
       overlays,
+      visualLayerState: { count: 4, hidden: [2] },
     });
-    expect(created).toMatchObject({ version: 1, overlays });
+    expect(created).toMatchObject({
+      version: 1,
+      overlays,
+      visualLayerState: { count: 4, hidden: [2] },
+    });
 
     const updated = await updateStoryTimeline({
       storyId: story.id,
@@ -50,8 +55,15 @@ describe("story timeline overlay persistence", () => {
       expectedVersion: 1,
       items: [{ stableShotId: "shot-a", included: true, position: 0, stackOrder: 2 }],
     });
-    expect(updated).toMatchObject({ version: 2, overlays });
-    expect(await getStoryTimeline(story.id, 1)).toMatchObject({ overlays });
+    expect(updated).toMatchObject({
+      version: 2,
+      overlays,
+      visualLayerState: { count: 4, hidden: [2] },
+    });
+    expect(await getStoryTimeline(story.id, 1)).toMatchObject({
+      overlays,
+      visualLayerState: { count: 4, hidden: [2] },
+    });
   });
 
   it("atomically marks the paid take applied while appending one idempotent overlay", async () => {

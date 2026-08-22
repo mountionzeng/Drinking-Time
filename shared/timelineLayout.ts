@@ -141,10 +141,17 @@ export function resolveTimelineFrame(
 export function resolveTimelineDocumentFrame(input: {
   items: readonly StoryTimelineItem[];
   overlays?: readonly StoryTimelineOverlay[];
+  hiddenVisualLayers?: readonly number[];
   frame: number;
 }): TimelineDocumentResolution {
   const lookupFrame = Math.max(0, Math.floor(input.frame));
-  const rows = buildTimelineLayout(input.items);
+  const hidden = new Set(
+    (input.hiddenVisualLayers ?? []).map(layer => Math.max(0, Math.round(layer)))
+  );
+  const visibleItems = input.items.filter(
+    item => !hidden.has(Math.max(0, Math.round(item.visualLayer ?? 0)))
+  );
+  const rows = buildTimelineLayout(visibleItems);
   const anchored = rows.filter(
     row =>
       (row.item.anchors?.length ?? 0) > 0 &&
@@ -162,11 +169,12 @@ export function resolveTimelineDocumentFrame(input: {
   const overlay = [...(input.overlays ?? [])]
     .filter(
       candidate =>
-        !input.items.some(
+        !visibleItems.some(
           item =>
             item.stableShotId === candidate.sourceStableShotId &&
             (item.visualLayer ?? 0) > 0
         ) &&
+        !hidden.has(1) &&
         lookupFrame >= candidate.startFrame && lookupFrame < candidate.endFrame
     )
     .sort(

@@ -321,9 +321,11 @@ export function timelineVisualClipFrameUrl(
 
 export function resolveTimelineImageClip(
   items: readonly StoryTimelineItem[],
-  timelineFrame: number
+  timelineFrame: number,
+  hiddenVisualLayers: readonly number[] = []
 ) {
   const frame = Math.max(0, Math.round(timelineFrame));
+  const hidden = new Set(hiddenVisualLayers);
   return buildTimelineLayout(items)
     .flatMap(row =>
       (row.item.imageClips ?? []).map(clip => ({
@@ -334,6 +336,7 @@ export function resolveTimelineImageClip(
     )
     .filter(
       candidate =>
+        !hidden.has(candidate.clip.visualLayer) &&
         frame >= candidate.startFrame &&
         frame < candidate.startFrame + candidate.clip.durationFrames
     )
@@ -377,13 +380,15 @@ export function resolveTimelineVideoSource(
   shots: CreationEditorShot[],
   timelineShotIds: string[],
   playheadMs: number,
-  overlays: readonly StoryTimelineOverlay[] = []
+  overlays: readonly StoryTimelineOverlay[] = [],
+  hiddenVisualLayers: readonly number[] = []
 ): TimelineVideoSource | null {
   const timelineItems = timelineItemsForShots(shots);
   const timelineFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
   const documentResolution = resolveTimelineDocumentFrame({
     items: timelineItems,
     overlays,
+    hiddenVisualLayers,
     frame: timelineFrame,
   });
   if (documentResolution.kind === "gap") return null;
@@ -2538,6 +2543,8 @@ export default function EditingNleWorkspace({
     attachChatCutXml,
     timelineItems,
     timelineOverlays,
+    timelineVisualLayerState,
+    manageTimelineVisualLayer,
     previewTimelineGroup,
     moveTimelineGroup,
     moveTimelineShot,
@@ -2629,14 +2636,22 @@ export default function EditingNleWorkspace({
         shots,
         timelineShotIds,
         timelinePlayback.playheadMs,
-        timelineOverlays
+        timelineOverlays,
+        timelineVisualLayerState.hidden
       ),
-    [shots, timelineOverlays, timelinePlayback.playheadMs, timelineShotIds]
+    [
+      shots,
+      timelineOverlays,
+      timelinePlayback.playheadMs,
+      timelineShotIds,
+      timelineVisualLayerState.hidden,
+    ]
   );
   const activeTimelineImageSource = useMemo(() => {
     const resolved = resolveTimelineImageClip(
       timelineItems,
-      Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000))
+      Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000)),
+      timelineVisualLayerState.hidden
     );
     return timelineImageWinsVisualOverlap(resolved, activeTimelineVideoSource)
       ? {
@@ -2644,7 +2659,12 @@ export default function EditingNleWorkspace({
           transform: resolved!.clip.transform,
         }
       : null;
-  }, [activeTimelineVideoSource, timelineItems, timelinePlayback.playheadMs]);
+  }, [
+    activeTimelineVideoSource,
+    timelineItems,
+    timelinePlayback.playheadMs,
+    timelineVisualLayerState.hidden,
+  ]);
   const storyboardAudioClips = useMemo(
     () => storyboardAudioClipsFromManifest(chatCutTimeline, activeStoryId),
     [activeStoryId, chatCutTimeline]
@@ -3058,7 +3078,8 @@ export default function EditingNleWorkspace({
         shots,
         timelineShotIds,
         playheadMs,
-        timelineOverlays
+        timelineOverlays,
+        timelineVisualLayerState.hidden
       );
       if (!source) {
         throw new Error("当前帧没有可切割的视频，请先为这个镜头采用视频 Take");
@@ -3096,18 +3117,29 @@ export default function EditingNleWorkspace({
         overlayId: source.overlayId,
       });
     },
-    [shots, splitTimelineVideoClip, timelineOverlays, timelineShotIds]
+    [
+      shots,
+      splitTimelineVideoClip,
+      timelineOverlays,
+      timelineShotIds,
+      timelineVisualLayerState.hidden,
+    ]
   );
 
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number) => {
       const timelineFrame = timelineOffsetMsToFrames(playheadMs);
-      const imageSource = resolveTimelineImageClip(timelineItems, timelineFrame);
+      const imageSource = resolveTimelineImageClip(
+        timelineItems,
+        timelineFrame,
+        timelineVisualLayerState.hidden
+      );
       const source = resolveTimelineVideoSource(
         shots,
         timelineShotIds,
         playheadMs,
-        timelineOverlays
+        timelineOverlays,
+        timelineVisualLayerState.hidden
       );
       if (timelineImageWinsVisualOverlap(imageSource, source)) {
         const targetLayer = extractedFrameTargetVisualLayer(imageSource!.clip);
@@ -3189,6 +3221,8 @@ export default function EditingNleWorkspace({
       audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
       anchors: timelineAnchors,
       overlays: timelineOverlays,
+      visualLayerState: timelineVisualLayerState,
+      onManageVisualLayer: manageTimelineVisualLayer,
       onMoveTimelineItemToLayer: moveTimelineItemToLayer,
       onMoveTimelineImageClip: moveTimelineImageClip,
       writePending: timelineWritePending,
@@ -3292,7 +3326,8 @@ export default function EditingNleWorkspace({
           shots,
           timelineShotIds,
           playheadMs,
-          timelineOverlays
+          timelineOverlays,
+          timelineVisualLayerState.hidden
         );
         return Boolean(source && !source.overlayId);
       },
@@ -3301,11 +3336,13 @@ export default function EditingNleWorkspace({
           shots,
           timelineShotIds,
           playheadMs,
-          timelineOverlays
+          timelineOverlays,
+          timelineVisualLayerState.hidden
         );
         const image = resolveTimelineImageClip(
           timelineItems,
-          timelineOffsetMsToFrames(playheadMs)
+          timelineOffsetMsToFrames(playheadMs),
+          timelineVisualLayerState.hidden
         );
         return Boolean(source || image);
       },
@@ -3459,6 +3496,7 @@ export default function EditingNleWorkspace({
       extractFrameAtPlayhead,
       detachTimelineMagnet,
       moveTimelineGroup,
+      manageTimelineVisualLayer,
       moveTimelineImageClip,
       moveTimelineItemToLayer,
       moveTimelineShot,
@@ -3474,6 +3512,7 @@ export default function EditingNleWorkspace({
       timelinePlayback.isPlaying,
       timelinePlayback.playheadMs,
       timelineItems,
+      timelineVisualLayerState,
       timelineShotIds,
       proposeGapTransitionCard,
       proposeExtractedFrameTransitionCard,

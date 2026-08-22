@@ -1686,6 +1686,12 @@ export const creationAgentRouter = router({
             })
           )
           .optional(),
+        visualLayerState: z
+          .object({
+            count: z.number().int().min(1),
+            hidden: z.array(z.number().int().min(0)),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1702,6 +1708,7 @@ export const creationAgentRouter = router({
             .sort((left, right) => left.position - right.position)
             .map((item, position) => ({ ...item, position })),
           overlays: input.overlays,
+          visualLayerState: input.visualLayerState,
         });
         return { status: "ok" as const, timeline };
       } catch (error) {

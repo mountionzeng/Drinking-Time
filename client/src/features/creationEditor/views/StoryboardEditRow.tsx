@@ -10,6 +10,7 @@ import {
   Magnet,
   Pause,
   Play,
+  Plus,
   SkipBack,
   Trash2,
 } from "lucide-react";
@@ -22,8 +23,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
+import type {
+  StoryTimelineItem,
+  StoryTimelineOverlay,
+  StoryTimelineVisualLayerState,
+} from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
+import {
+  countTimelineVisualLayerClips,
+  normalizeTimelineVisualLayerState,
+  type TimelineVisualLayerAction,
+} from "@shared/timelineVisualLayers";
 import {
   selectExtractedFrameCandidate,
   selectExtractedFrameCandidates,
@@ -182,6 +192,8 @@ export type StoryboardBoardTimeline = {
     visualLayer: number;
   }) => Promise<void>;
   overlays?: readonly StoryTimelineOverlay[];
+  visualLayerState?: StoryTimelineVisualLayerState;
+  onManageVisualLayer?: (action: TimelineVisualLayerAction) => Promise<void>;
   onRemoveAnchor?: (input: {
     stableShotId: string;
     anchorId: string;
@@ -494,54 +506,79 @@ export function StoryboardEditTransport({
 }
 
 /** 行首保持纯标签；切割和提帧仍保留在右键菜单与 S / F 快捷键里。 */
-function StoryboardEditRowHeader({
+const VISUAL_LAYER_DRAG_MIME = "application/x-storyboard-visual-layer";
+
+function StoryboardVisualLayerHeader({
+  visualLayer,
   hidden,
   onToggleHidden,
   onAddAbove,
   onAddBelow,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  onDelete,
+  onDropLayer,
 }: {
+  visualLayer: number;
   hidden: boolean;
   onToggleHidden: () => void;
   onAddAbove: () => void;
   onAddBelow: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onDelete: () => void;
+  onDropLayer: (sourceLayer: number) => void;
 }) {
   return (
     <div
       role="rowheader"
-      className="group sticky left-0 z-20 flex items-center gap-1 border-b border-r px-1.5 py-2 text-[9px] font-semibold text-muted-foreground"
+      className="group sticky left-0 z-20 flex flex-col justify-center gap-1 border-b border-r px-1.5 py-1 text-[9px] font-semibold text-muted-foreground"
       style={{
         borderColor: "color-mix(in srgb, var(--panel-border) 62%, transparent)",
         background: "var(--background)",
       }}
+      onDragOver={event => {
+        if (!event.dataTransfer.types.includes(VISUAL_LAYER_DRAG_MIME)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={event => {
+        const value = event.dataTransfer.getData(VISUAL_LAYER_DRAG_MIME);
+        if (!value) return;
+        event.preventDefault();
+        onDropLayer(Number(value));
+      }}
     >
-      <span className="min-w-0 flex-1 truncate">视觉 · 剪辑</span>
-      <button
-        type="button"
-        className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        onClick={onToggleHidden}
-        aria-label={`${hidden ? "显示" : "隐藏"}主视觉层`}
-        title={`${hidden ? "显示" : "隐藏"}主视觉层`}
-      >
-        {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-      </button>
-      <button
-        type="button"
-        className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        onClick={onAddAbove}
-        aria-label="在上方增加剪辑层"
-        title="在上方增加剪辑层"
-      >
-        <ArrowUp className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        className="flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        onClick={onAddBelow}
-        aria-label="在下方增加剪辑层"
-        title="在下方增加剪辑层"
-      >
-        <ArrowDown className="h-3 w-3" />
-      </button>
+      <div className="flex min-w-0 items-center gap-0.5">
+        <span
+          draggable
+          onDragStart={event => {
+            event.dataTransfer.setData(VISUAL_LAYER_DRAG_MIME, String(visualLayer));
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          className="flex min-w-0 flex-1 cursor-grab items-center gap-0.5 truncate active:cursor-grabbing"
+          title="拖动可调整整层顺序"
+        >
+          <GripVertical className="h-3 w-3 shrink-0" />
+          {visualLayer === 0 ? "视觉 · 剪辑" : `视觉层 ${visualLayer + 1}`}
+        </span>
+        <button type="button" className="flex h-5 w-5 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground" onClick={onToggleHidden} aria-label={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`} title={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}>
+          {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+        </button>
+        <button type="button" className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10" onClick={onDelete} aria-label={`删除视觉层 ${visualLayer + 1}`} title="删除图层；非空层会先确认并把素材合并到相邻层">
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="flex items-center gap-0.5" aria-label={`视觉层 ${visualLayer + 1} 排列控制`}>
+        <button type="button" className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted" onClick={onAddAbove} title="在上方插入图层"><Plus className="h-2.5 w-2.5" />上</button>
+        <button type="button" className="flex h-4 flex-1 items-center justify-center rounded-sm border border-border/60 text-[7px] transition hover:bg-muted" onClick={onAddBelow} title="在下方插入图层"><Plus className="h-2.5 w-2.5" />下</button>
+        <button type="button" disabled={!canMoveUp} className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30" onClick={onMoveUp} aria-label={`视觉层 ${visualLayer + 1} 上移`} title="整层上移"><ArrowUp className="h-2.5 w-2.5" /></button>
+        <button type="button" disabled={!canMoveDown} className="flex h-4 w-5 items-center justify-center rounded-sm border border-border/60 transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30" onClick={onMoveDown} aria-label={`视觉层 ${visualLayer + 1} 下移`} title="整层下移"><ArrowDown className="h-2.5 w-2.5" /></button>
+      </div>
     </div>
   );
 }
@@ -571,6 +608,8 @@ function StoryboardUpperVisualLayerRow({
   onSelectShot,
   visualLayer,
   showTopPlayhead,
+  hidden,
+  onManageLayer,
 }: {
   shots: readonly StoryboardEditShot[];
   timeline: StoryboardBoardTimeline;
@@ -578,6 +617,8 @@ function StoryboardUpperVisualLayerRow({
   onSelectShot: (shotNo: number) => void;
   visualLayer: number;
   showTopPlayhead: boolean;
+  hidden: boolean;
+  onManageLayer: (action: TimelineVisualLayerAction) => void;
 }) {
   const totalMs = Math.max(
     timeline.totalMs,
@@ -884,23 +925,22 @@ function StoryboardUpperVisualLayerRow({
   };
   return (
     <>
-      <div
-        role="rowheader"
-        className="sticky left-0 z-20 flex flex-col justify-center border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
-        style={{
-          borderColor:
-            "color-mix(in srgb, var(--panel-border) 62%, transparent)",
-          background: "var(--background)",
-        }}
-      >
-        <span>视觉层 {visualLayer + 1}</span>
-        <span className="mt-0.5 text-[7px] font-normal text-muted-foreground/70">
-          方向键移动 · Shift 加速
-        </span>
-      </div>
+      <StoryboardVisualLayerHeader
+        visualLayer={visualLayer}
+        hidden={hidden}
+        onToggleHidden={() => onManageLayer({ kind: "toggle-hidden", layer: visualLayer })}
+        onAddAbove={() => onManageLayer({ kind: "insert", at: visualLayer + 1 })}
+        onAddBelow={() => onManageLayer({ kind: "insert", at: visualLayer })}
+        onMoveUp={() => onManageLayer({ kind: "move", from: visualLayer, to: visualLayer + 1 })}
+        onMoveDown={() => onManageLayer({ kind: "move", from: visualLayer, to: visualLayer - 1 })}
+        canMoveUp={visualLayer < (timeline.visualLayerState?.count ?? visualLayer + 1) - 1}
+        canMoveDown={visualLayer > 0}
+        onDelete={() => onManageLayer({ kind: "remove", layer: visualLayer })}
+        onDropLayer={sourceLayer => onManageLayer({ kind: "move", from: sourceLayer, to: visualLayer })}
+      />
       <div
         role="cell"
-        className="px-2 py-1"
+        className={`px-2 py-1 transition-opacity ${hidden ? "opacity-35 grayscale" : ""}`}
         style={{ gridColumn: `span ${Math.max(1, columnSpan)}` }}
       >
         <div
@@ -3122,8 +3162,6 @@ export function StoryboardEditRow({
 }) {
   const [pendingAction, setPendingAction] =
     useState<StoryboardEditAction | null>(null);
-  const [mainLayerHidden, setMainLayerHidden] = useState(false);
-  const [requestedVisualLayerCount, setRequestedVisualLayerCount] = useState(1);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [gapMenu, setGapMenu] = useState<GapMenuState | null>(null);
   const [gapTransitionPending, setGapTransitionPending] = useState(false);
@@ -3133,24 +3171,39 @@ export function StoryboardEditRow({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
   const anchors = timeline.anchors ?? [];
-  const maxPersistedVisualLayer = Math.max(
-    0,
-    ...shots.map(shot =>
-      Math.max(
-        shot.timelineItem?.visualLayer ?? 0,
-        ...(shot.timelineItem?.imageClips ?? []).map(clip => clip.visualLayer)
-      )
-    )
+  const timelineItems = shots.flatMap(shot =>
+    shot.timelineItem ? [shot.timelineItem] : []
   );
-  const visibleVisualLayerCount = Math.max(
-    1,
-    requestedVisualLayerCount,
-    maxPersistedVisualLayer + 1
+  const visualLayerState = normalizeTimelineVisualLayerState(
+    timeline.visualLayerState,
+    timelineItems
   );
-  const addVisualLayer = () => {
-    setRequestedVisualLayerCount(current =>
-      Math.max(current, maxPersistedVisualLayer + 1) + 1
-    );
+  const mainLayerHidden = visualLayerState.hidden.includes(0);
+  const manageVisualLayer = (action: TimelineVisualLayerAction) => {
+    if (!timeline.onManageVisualLayer || timeline.writePending) return;
+    if (action.kind === "move") {
+      if (
+        action.from < 0 ||
+        action.to < 0 ||
+        action.from >= visualLayerState.count ||
+        action.to >= visualLayerState.count
+      ) return;
+    }
+    if (action.kind === "remove") {
+      const clipCount = countTimelineVisualLayerClips(timelineItems, action.layer);
+      if (
+        clipCount > 0 &&
+        !window.confirm(
+          `视觉层 ${action.layer + 1} 中有 ${clipCount} 个素材。删除图层会保留素材，并把它们合并到相邻图层。继续吗？`
+        )
+      ) return;
+    }
+    setStatusMessage("正在保存图层…");
+    void timeline.onManageVisualLayer(action)
+      .then(() => setStatusMessage("图层已更新"))
+      .catch(error =>
+        setStatusMessage(error instanceof Error ? error.message : "图层更新失败")
+      );
   };
 
   const timings = shots.map(shot => shot.timing);
@@ -3508,8 +3561,8 @@ export function StoryboardEditRow({
   return (
     <>
       {Array.from(
-        { length: visibleVisualLayerCount },
-        (_, index) => visibleVisualLayerCount - index
+        { length: Math.max(1, visualLayerState.count - 1) },
+        (_, index) => visualLayerState.count - 1 - index
       ).map((visualLayer, index) => (
           <StoryboardUpperVisualLayerRow
             key={`persisted-visual-layer-${visualLayer}`}
@@ -3519,13 +3572,22 @@ export function StoryboardEditRow({
             onSelectShot={onSelectShot}
             visualLayer={visualLayer}
             showTopPlayhead={index === 0}
+            hidden={visualLayerState.hidden.includes(visualLayer)}
+            onManageLayer={manageVisualLayer}
           />
         ))}
-      <StoryboardEditRowHeader
+      <StoryboardVisualLayerHeader
+        visualLayer={0}
         hidden={mainLayerHidden}
-        onToggleHidden={() => setMainLayerHidden(current => !current)}
-        onAddAbove={addVisualLayer}
-        onAddBelow={addVisualLayer}
+        onToggleHidden={() => manageVisualLayer({ kind: "toggle-hidden", layer: 0 })}
+        onAddAbove={() => manageVisualLayer({ kind: "insert", at: 1 })}
+        onAddBelow={() => manageVisualLayer({ kind: "insert", at: 0 })}
+        onMoveUp={() => manageVisualLayer({ kind: "move", from: 0, to: 1 })}
+        onMoveDown={() => {}}
+        canMoveUp={visualLayerState.count > 1}
+        canMoveDown={false}
+        onDelete={() => manageVisualLayer({ kind: "remove", layer: 0 })}
+        onDropLayer={sourceLayer => manageVisualLayer({ kind: "move", from: sourceLayer, to: 0 })}
       />
       <div
         role="cell"

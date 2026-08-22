@@ -218,6 +218,7 @@ export function resolveTimelineFrameSource(input: {
   rows: readonly TimelineLayoutRow[];
   shotsById: ReadonlyMap<string, TimelineResolverShot>;
   overlays?: readonly StoryTimelineOverlay[];
+  hiddenVisualLayers?: readonly number[];
   timelineFrame: number;
 }): CreationTimelineFrameResolution {
   const frame = Math.max(0, Math.round(input.timelineFrame));
@@ -225,6 +226,7 @@ export function resolveTimelineFrameSource(input: {
     ? resolveTimelineDocumentFrame({
         items: input.rows.map(row => row.item),
         overlays: input.overlays,
+        hiddenVisualLayers: input.hiddenVisualLayers,
         frame,
       })
     : resolveTimelineFrame(input.rows, frame);

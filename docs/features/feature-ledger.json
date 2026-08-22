@@ -1336,6 +1336,7 @@
         "shared/extractedFrameTransition.ts",
         "shared/storyMaterial.ts",
         "shared/timelineLayout.ts",
+        "shared/timelineVisualLayers.ts",
         "server/services/timelineEditAgent.ts",
         "server/services/editingTransitionWorkflow.ts",
         "server/routers/creationAgent.ts",
@@ -1347,6 +1348,7 @@
         "docs/plans/2026-08-20-001-feat-extracted-frame-transition-plan.md",
         "shared/extractedFrameTransition.test.ts",
         "shared/timelineLayout.test.ts",
+        "shared/timelineVisualLayers.test.ts",
         "server/services/timelineEditAgent.test.ts",
         "server/services/editingTransitionWorkflow.test.ts",
         "client/src/features/creationEditor/views/ExtractedFrameTransitionRequirementsDialog.test.tsx",
@@ -1367,6 +1369,8 @@
         "图片 clip 和视频镜头的横向位置、视觉层级都必须持久化；较大的 visualLayer 在重叠区间优先显示。",
         "图片 clip 的绝对 timelineStartFrame 独立于所属视频；移动底层视频不得改变任何上层图片的位置，旧 offsetFrames 只作为兼容回退。",
         "视觉层按需无限向上扩展，始终保留一个可投放的空白上层；跨层拖放必须在一次时间线写入中同时更新绝对时间和 visualLayer。",
+        "视觉层的插入、删除和整层排序必须在一次时间线写入中原子重映射其中全部图片和视频；删除非空层只允许在明确确认后合并到相邻层，不得删除素材。",
+        "视觉层显隐必须持久化，并由预览与导出共用同一隐藏层集合；隐藏图层不参与可见素材赢家解析。",
         "生成视频走普通镜头切割路径；历史 overlay 在首次切割、移动或换层前迁移为普通上层镜头并移除专用覆盖记录。",
         "红色播放头句柄必须位于最高视觉轨，主剪辑轨与音轨保留同一时间位置的贯穿线。",
         "供应商返回的视频必须完整保留和播放，不执行旧衔接镜头的 1.4 秒硬切或冻结尾帧。",
@@ -1448,6 +1452,11 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "修复一帧图片和上层视频难以用鼠标移动：普通视觉片段改用带实时预览的 Pointer Events，window 继续接管超出窄片段命中区后的 move/up，松手只提交一次；图片支持横向、纵向和斜向跨层，视频跨层保留抓取点偏移，纯上下拖动不改变横向时间。main:3000 已验证图片跨层和视频底层↔上层双向拖动，刷新后持久化，并恢复测试素材原位置。"
+        },
+        {
+          "date": "2026-08-22",
+          "kind": "feature",
+          "summary": "把普通视觉轨升级为可持久管理的图层：每层均可上下插入、显隐、按钮移动或拖动整层排序；插入与排序原子重映射层内图片和视频，删除非空层先确认并保留素材合并到相邻层。图层数量与隐藏集合写入时间线文档，隐藏层同时退出预览和导出解析；仍自动保留一个最高空白投放层。"
         }
       ]
     },

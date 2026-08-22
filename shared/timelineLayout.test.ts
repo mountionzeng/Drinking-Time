@@ -253,6 +253,20 @@ describe("timelineLayout", () => {
 });
 
 describe("persisted timeline overlays", () => {
+  it("excludes hidden visual layers from the shared preview/export winner", () => {
+    const items = [
+      item("bottom", 0, 0, 90, { visualLayer: 0 }),
+      item("upper", 1, 0, 90, { visualLayer: 2 }),
+    ];
+    expect(
+      resolveTimelineDocumentFrame({
+        items,
+        hiddenVisualLayers: [2],
+        frame: 10,
+      })
+    ).toMatchObject({ kind: "shot", row: { item: { stableShotId: "bottom" } } });
+  });
+
   const overlay: StoryTimelineOverlay = {
     id: "overlay-a",
     kind: "generated-video",

@@ -483,6 +483,23 @@ describe("StoryboardEditRow", () => {
     expect(html.match(/data-testid="storyboard-top-playhead"/g)).toHaveLength(1);
   });
 
+  it("renders persistent controls for hiding, inserting, deleting and moving every layer", () => {
+    const html = renderRow(
+      boardTimeline({
+        visualLayerState: { count: 3, hidden: [1] },
+        onManageVisualLayer: vi.fn(),
+      })
+    );
+    expect(html).toContain('aria-label="显示视觉层 2"');
+    expect(html).toContain('aria-label="隐藏视觉层 1"');
+    expect(html).toContain('aria-label="删除视觉层 3"');
+    expect(html).toContain('aria-label="视觉层 2 上移"');
+    expect(html).toContain("在上方插入图层");
+    expect(html).toContain("在下方插入图层");
+    expect(html).toContain("拖动可调整整层顺序");
+    expect(html).toContain("opacity-35 grayscale");
+  });
+
   it("renders a legacy overlay only once even when several visual layers exist", () => {
     const html = renderToStaticMarkup(
       <StoryboardEditRow
