@@ -15,6 +15,7 @@ import {
   shotIdentityMatchKeys,
   shotIdentityFromShot,
 } from "../../shared/shotIdentity";
+import { VISUAL_ASSET_IMAGE_SHOT_NO } from "../../shared/visualAssets";
 import { localImageDir } from "./imageGen";
 import {
   getImageSignalsForImages,
@@ -138,7 +139,9 @@ export function projectImageAssets({
     const isAuthoritativePublishingCover =
       publishingCoverAssetId != null && image.id === publishingCoverAssetId;
     const kind =
-      isAuthoritativePublishingCover || isPublishingCoverShotNo(image.shotNo)
+      image.shotNo === VISUAL_ASSET_IMAGE_SHOT_NO
+        ? "visual_asset"
+        : isAuthoritativePublishingCover || isPublishingCoverShotNo(image.shotNo)
         ? "publishing_cover"
         : isStyleReferenceShotNo(image.shotNo)
           ? "style_reference"
@@ -160,7 +163,9 @@ export function projectImageAssets({
         validShots.has(canonicalShotNo)
     );
     const assignment =
-      kind === "publishing_cover"
+      kind === "visual_asset"
+        ? "visual_asset"
+        : kind === "publishing_cover"
         ? "publishing_cover"
         : kind === "style_reference"
           ? "style_reference"

@@ -31,6 +31,8 @@ export type PublishingVideoHandoff = {
   /** Historical publishing bodies keyed by version and optional source platform. */
   draftBodiesBySource?: Record<string, string>;
   cover: PublishingVideoCover | null;
+  /** Same-story cover candidates explicitly selectable as a one-run style reference. */
+  coverCandidates: PublishingVideoCover[];
   needsReview: boolean;
   narrationCandidates: PublishingSpeechCandidate[];
   dialogueCandidates: PublishingSpeechCandidate[];
@@ -112,6 +114,7 @@ export function buildPublishingVideoHandoff(params: {
   storyId: number;
   publishing: PublishingDraftState;
   coverAsset: PublishingVideoCover | null;
+  coverCandidates?: PublishingVideoCover[];
 }): PublishingVideoHandoff | null {
   const platform = params.publishing.activePlatform;
   const platformDraft = params.publishing.drafts[platform];
@@ -151,6 +154,7 @@ export function buildPublishingVideoHandoff(params: {
     draft: platformDraft.content,
     draftBodiesBySource,
     cover: params.coverAsset,
+    coverCandidates: params.coverCandidates ?? [],
     needsReview: platformDraft.needsReview,
     narrationCandidates: speech.narration,
     dialogueCandidates: speech.dialogue,

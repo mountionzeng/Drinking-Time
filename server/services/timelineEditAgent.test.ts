@@ -1040,21 +1040,29 @@ describe("proposeExtractedFrameTransition", () => {
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
   });
 
-  it("keeps the user's camera motion and amplitude in the canonical proposal", async () => {
+  it("keeps the user's complete visual description and amplitude in the canonical proposal", async () => {
+    const visualDescription =
+      "场景快速的变暗镜头推向女主上面的眼睛眼睛变异，并且睁开眼睛的瞬间看见红色的血腥森林";
     const result = await proposeExtractedFrameTransition({
       storyId: 7,
       userId: 1,
       leftImageId: 11,
       rightImageId: 12,
-      instruction: "镜头缓慢向前推进并轻微右摇",
+      instruction: visualDescription,
       movementAmplitude: "medium",
     });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    expect(result.proposal.instruction).toContain("向前推进");
+    expect(result.proposal.instruction).toBe(visualDescription);
     expect(result.proposal.movementAmplitude).toBe("medium");
     expect(result.proposal.prompt).toContain("中幅度");
-    expect(result.proposal.prompt).toContain("向前推进");
+    expect(result.proposal.prompt).toContain(
+      `用户完整画面描述（最高优先级）：${visualDescription}`
+    );
+    expect(result.proposal.prompt).toContain(
+      "用户明确要求的新场景、物体、人物动作、形变和光线变化必须实现"
+    );
+    expect(result.proposal.prompt).not.toContain("不新增人物、物体");
   });
 
   it("blocks sub-second pairs and anchored target ranges before payment", async () => {

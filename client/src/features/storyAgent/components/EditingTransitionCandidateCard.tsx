@@ -263,7 +263,7 @@ export default function EditingTransitionCandidateCard({
 
         <section aria-label="衔接说明">
           <p className="text-[8.5px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
-            你的衔接说明
+            你的画面描述
           </p>
           <p className="mt-0.5 whitespace-pre-wrap text-[11px] leading-[1.55] text-foreground/85">
             {candidate.instruction}
@@ -302,7 +302,7 @@ export default function EditingTransitionCandidateCard({
             style={{ borderColor: "var(--panel-border)" }}
           >
             <summary className="cursor-pointer select-none text-muted-foreground outline-none transition hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35">
-              查看生成约束
+              查看完整生成提示词
             </summary>
             <p className="mt-1 whitespace-pre-wrap leading-4 text-foreground/70">
               {candidate.prompt}

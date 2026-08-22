@@ -12,6 +12,8 @@ const plan = {
   fontId: "zhi-mang-xing",
   fontFamily: "Publishing Album Zhi Mang Xing",
   fontSize: 42,
+  letterSpacing: 0,
+  lineSpacing: 1.2,
   alignment: "center" as const,
   graphemes: [{ grapheme: "<无字>&", index: 0, x: 100, y: 200, rotation: 10 }],
   contrast: { textColor: "#fff", outlineColor: "#000", outlineWidth: 1, backdropColor: null },

@@ -3,6 +3,10 @@ import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
+  normalizePublishingAlbumTypographyLayout,
+  type PublishingAlbumTypographyLayout,
+} from "@shared/publishingAlbum";
+import {
   VIDEO_CROP_ANCHORS,
   VIDEO_CONFORM_MODES,
   VIDEO_TARGET_ASPECT_RATIOS,
@@ -115,6 +119,18 @@ type StoryShotTarget = {
   stableShotId: string;
   durationSec: number;
 };
+
+const timelineImageTypographySchema = z
+  .custom<PublishingAlbumTypographyLayout>(
+    value => normalizePublishingAlbumTypographyLayout(value) != null,
+    "文字排版路径无效，请重新绘制"
+  )
+  .transform(value => normalizePublishingAlbumTypographyLayout(value)!);
+
+const timelineImageTextOverlaySchema = z.object({
+  text: z.string().min(1).max(2_000),
+  typography: timelineImageTypographySchema,
+});
 
 const timelineTransitionImageEndpointInput = z
   .object({
@@ -1261,8 +1277,10 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         leftImageId: z.number().int().positive(),
         rightImageId: z.number().int().positive(),
-        instruction: z.string().trim().max(500).optional(),
-        movementAmplitude: z.enum(["auto", "small", "medium", "large"]).optional(),
+        instruction: z.string().trim().max(2_000).optional(),
+        movementAmplitude: z
+          .enum(["auto", "small", "medium", "large"])
+          .optional(),
       })
     )
     .mutation(({ ctx, input }) =>
@@ -1521,6 +1539,8 @@ export const creationAgentRouter = router({
             durationFrames: z.number().int().min(1).optional(),
             timelineStartFrame: z.number().int().min(0).optional(),
             stackOrder: z.number().int().min(0).optional(),
+            visualLayer: z.number().int().min(0).optional(),
+            detachedFromPreviousShotId: z.string().min(1).max(160).optional(),
             anchors: z
               .array(
                 z.object({
@@ -1560,6 +1580,9 @@ export const creationAgentRouter = router({
                   flipY: z.boolean().optional(),
                 })
               )
+              .optional(),
+            imageTextOverlays: z
+              .record(z.string(), timelineImageTextOverlaySchema)
               .optional(),
             primaryVideoEdit: z
               .object({
@@ -1609,12 +1632,85 @@ export const creationAgentRouter = router({
                       flipY: z.boolean().optional(),
                     })
                     .optional(),
+                  visualLayer: z.number().int().min(0).optional(),
+                })
+              )
+              .optional(),
+            imageClips: z
+              .array(
+                z.object({
+                  id: z.string().min(1).max(160),
+                  imageId: z.number().int().positive(),
+                  imageUrl: z.string().min(1),
+                  label: z.string().min(1).max(120),
+                  offsetFrames: z.number().int().min(0),
+                  timelineStartFrame: z.number().int().min(0).optional(),
+                  durationFrames: z.number().int().min(1),
+                  visualLayer: z.number().int().min(0),
+                  transform: z
+                    .object({
+                      cropX: z.number().min(0).max(1),
+                      cropY: z.number().min(0).max(1),
+                      cropWidth: z.number().min(0.01).max(1),
+                      cropHeight: z.number().min(0.01).max(1),
+                      zoom: z.number().min(1).max(8),
+                      panX: z.number().min(-1).max(1),
+                      panY: z.number().min(-1).max(1),
+                      rotationDeg: z.number().min(-180).max(180).optional(),
+                      flipX: z.boolean().optional(),
+                      flipY: z.boolean().optional(),
+                    })
+                    .optional(),
                 })
               )
               .optional(),
             visualClipsReplacePrimary: z.boolean().optional(),
           })
         ),
+        overlays: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              kind: z.literal("generated-video"),
+              takeId: z.number().int().positive(),
+              sourceStableShotId: z.string().min(1),
+              videoUrl: z.string().min(1),
+              startFrame: z.number().int().min(0),
+              targetEndFrame: z.number().int().min(1),
+              mediaEndFrame: z.number().int().min(1),
+              endFrame: z.number().int().min(1),
+              stackOrder: z.number().int().min(0),
+              leftImageId: z.number().int().positive(),
+              rightImageId: z.number().int().positive(),
+              transform: z.object({
+                cropX: z.number().min(0).max(1),
+                cropY: z.number().min(0).max(1),
+                cropWidth: z.number().min(0.01).max(1),
+                cropHeight: z.number().min(0.01).max(1),
+                zoom: z.number().min(1).max(8),
+                panX: z.number().min(-1).max(1),
+                panY: z.number().min(-1).max(1),
+                rotationDeg: z.number().min(-180).max(180).optional(),
+                flipX: z.boolean().optional(),
+                flipY: z.boolean().optional(),
+              }),
+              effects: z
+                .object({
+                  playbackRate: z.number().min(0.25).max(4),
+                  reverse: z.boolean(),
+                  volume: z.number().min(0).max(2),
+                  muted: z.boolean(),
+                })
+                .optional(),
+            })
+          )
+          .optional(),
+        visualLayerState: z
+          .object({
+            count: z.number().int().min(1),
+            hidden: z.array(z.number().int().min(0)),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1630,6 +1726,8 @@ export const creationAgentRouter = router({
           items: [...input.items]
             .sort((left, right) => left.position - right.position)
             .map((item, position) => ({ ...item, position })),
+          overlays: input.overlays,
+          visualLayerState: input.visualLayerState,
         });
         return { status: "ok" as const, timeline };
       } catch (error) {
@@ -1906,6 +2004,13 @@ export const creationAgentRouter = router({
         rejectImageId: z.number().optional(),
         promptCompilationId: z.number().int().positive().nullable().optional(),
         imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
+        visualAssetCostConfirmation: z
+          .object({
+            accepted: z.literal(true),
+            estimatedCny: z.number().nonnegative(),
+            fingerprint: z.string().min(1).max(128),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1949,6 +2054,7 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         promptCompilationId: input.promptCompilationId ?? null,
         imageProvider: input.imageProvider,
+        visualAssetCostConfirmation: input.visualAssetCostConfirmation,
         // 锁定配方优先；未锁定时由统一美术工程按文本信号选择艺术谱系。
         artDirection: storyArtRecipe(story),
         referenceImages: storyArtReferenceImages(story),

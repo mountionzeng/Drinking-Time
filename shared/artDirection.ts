@@ -343,6 +343,28 @@ export function sceneReferencesOf(
   );
 }
 
+/**
+ * Legacy art-direction references that can seed new visual-asset drafts.
+ * This deliberately does not imply that any reference is locked or usable:
+ * ownership, durable image identity and canonical views are validated later.
+ */
+export function visualAssetDraftReferencesOf(
+  direction: StoryArtDirection
+): {
+  character?: ArtReferenceMaterial;
+  scenes: ArtReferenceMaterial[];
+  styles: ArtReferenceMaterial[];
+} {
+  const selected = direction.references.filter(
+    reference => reference.selected !== false
+  );
+  return {
+    character: selected.find(reference => reference.role === "character"),
+    scenes: selected.filter(reference => reference.role === "scene"),
+    styles: selected.filter(reference => reference.role === "story-style"),
+  };
+}
+
 export function referencesForShot(
   direction: StoryArtDirection,
   params: {

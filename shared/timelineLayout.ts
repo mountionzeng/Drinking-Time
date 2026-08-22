@@ -104,6 +104,9 @@ function compareRows(left: TimelineLayoutRow, right: TimelineLayoutRow): number 
   const leftAnchored = isAnchored(left);
   const rightAnchored = isAnchored(right);
   if (leftAnchored !== rightAnchored) return leftAnchored ? 1 : -1;
+  const leftLayer = Math.max(0, Math.round(left.item.visualLayer ?? 0));
+  const rightLayer = Math.max(0, Math.round(right.item.visualLayer ?? 0));
+  if (leftLayer !== rightLayer) return leftLayer - rightLayer;
   if (left.stackOrder !== right.stackOrder) {
     return left.stackOrder - right.stackOrder;
   }
@@ -138,10 +141,17 @@ export function resolveTimelineFrame(
 export function resolveTimelineDocumentFrame(input: {
   items: readonly StoryTimelineItem[];
   overlays?: readonly StoryTimelineOverlay[];
+  hiddenVisualLayers?: readonly number[];
   frame: number;
 }): TimelineDocumentResolution {
   const lookupFrame = Math.max(0, Math.floor(input.frame));
-  const rows = buildTimelineLayout(input.items);
+  const hidden = new Set(
+    (input.hiddenVisualLayers ?? []).map(layer => Math.max(0, Math.round(layer)))
+  );
+  const visibleItems = input.items.filter(
+    item => !hidden.has(Math.max(0, Math.round(item.visualLayer ?? 0)))
+  );
+  const rows = buildTimelineLayout(visibleItems);
   const anchored = rows.filter(
     row =>
       (row.item.anchors?.length ?? 0) > 0 &&
@@ -159,6 +169,12 @@ export function resolveTimelineDocumentFrame(input: {
   const overlay = [...(input.overlays ?? [])]
     .filter(
       candidate =>
+        !visibleItems.some(
+          item =>
+            item.stableShotId === candidate.sourceStableShotId &&
+            (item.visualLayer ?? 0) > 0
+        ) &&
+        !hidden.has(1) &&
         lookupFrame >= candidate.startFrame && lookupFrame < candidate.endFrame
     )
     .sort(
@@ -183,7 +199,12 @@ export function selectDirectionalGroup(
   sourceItemId: string,
   direction: "left" | "right"
 ): TimelineGroupSelectionResult {
-  const ordered = [...rows].sort((left, right) => left.item.position - right.item.position);
+  const source = rows.find(row => row.item.stableShotId === sourceItemId);
+  if (!source) return { kind: "blocked", reason: "镜头不在时间轴中" };
+  const sourceLayer = source.item.visualLayer ?? 0;
+  const ordered = [...rows]
+    .filter(row => (row.item.visualLayer ?? 0) === sourceLayer)
+    .sort((left, right) => left.item.position - right.item.position);
   const sourceIndex = ordered.findIndex(row => row.item.stableShotId === sourceItemId);
   if (sourceIndex < 0) return { kind: "blocked", reason: "镜头不在时间轴中" };
   if (isAnchored(ordered[sourceIndex])) {

@@ -4764,7 +4764,9 @@ export async function clearVideoTimelineSelection(
 export async function getStoryTimeline(
   storyId: number,
   userId: number
-): Promise<(StoryTimeline & { overlays?: unknown }) | null> {
+): Promise<
+  (StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }) | null
+> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -4788,7 +4790,11 @@ export async function getStoryTimeline(
   return row ? storyTimelineView(row) : null;
 }
 
-type StoryTimelinePayload = { items: unknown; overlays?: unknown };
+type StoryTimelinePayload = {
+  items: unknown;
+  overlays?: unknown;
+  visualLayerState?: unknown;
+};
 
 function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
   if (
@@ -4798,15 +4804,25 @@ function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
     "items" in value
   ) {
     const record = value as Record<string, unknown>;
-    return { items: record.items, overlays: record.overlays };
+    return {
+      items: record.items,
+      overlays: record.overlays,
+      visualLayerState: record.visualLayerState,
+    };
   }
   return { items: value };
 }
 
 function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
-  return payload.overlays === undefined
+  return payload.overlays === undefined && payload.visualLayerState === undefined
     ? payload.items
-    : { items: payload.items, overlays: payload.overlays };
+    : {
+        items: payload.items,
+        ...(payload.overlays === undefined ? {} : { overlays: payload.overlays }),
+        ...(payload.visualLayerState === undefined
+          ? {}
+          : { visualLayerState: payload.visualLayerState }),
+      };
 }
 
 function replaceStoryTimelineItemsPreservingOverlays(
@@ -4818,17 +4834,21 @@ function replaceStoryTimelineItemsPreservingOverlays(
   return encodeStoryTimelinePayload({
     items: next.items,
     overlays: current.overlays ?? next.overlays,
+    visualLayerState: current.visualLayerState ?? next.visualLayerState,
   });
 }
 
 function storyTimelineView(
   row: StoryTimeline
-): StoryTimeline & { overlays?: unknown } {
+): StoryTimeline & { overlays?: unknown; visualLayerState?: unknown } {
   const payload = decodeStoryTimelinePayload(row.items);
   return {
     ...row,
     items: payload.items,
     ...(payload.overlays === undefined ? {} : { overlays: payload.overlays }),
+    ...(payload.visualLayerState === undefined
+      ? {}
+      : { visualLayerState: payload.visualLayerState }),
   };
 }
 
@@ -4838,7 +4858,8 @@ export async function updateStoryTimeline(input: {
   expectedVersion: number;
   items: unknown;
   overlays?: unknown;
-}): Promise<StoryTimeline & { overlays?: unknown }> {
+  visualLayerState?: unknown;
+}): Promise<StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
@@ -4857,6 +4878,9 @@ export async function updateStoryTimeline(input: {
         items: encodeStoryTimelinePayload({
           items: input.items,
           ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+          ...(input.visualLayerState === undefined
+            ? {}
+            : { visualLayerState: input.visualLayerState }),
         }),
         createdAt: current,
         updatedAt: current,
@@ -4872,6 +4896,8 @@ export async function updateStoryTimeline(input: {
     existing.items = encodeStoryTimelinePayload({
       items: input.items,
       overlays: input.overlays ?? currentPayload.overlays,
+      visualLayerState:
+        input.visualLayerState ?? currentPayload.visualLayerState,
     });
     existing.version += 1;
     existing.updatedAt = now();
@@ -4900,6 +4926,9 @@ export async function updateStoryTimeline(input: {
         items: encodeStoryTimelinePayload({
           items: input.items,
           ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+          ...(input.visualLayerState === undefined
+            ? {}
+            : { visualLayerState: input.visualLayerState }),
         }),
       });
       const [created] = await tx
@@ -4918,6 +4947,8 @@ export async function updateStoryTimeline(input: {
         items: encodeStoryTimelinePayload({
           items: input.items,
           overlays: input.overlays ?? currentPayload.overlays,
+          visualLayerState:
+            input.visualLayerState ?? currentPayload.visualLayerState,
         }),
         version: existing.version + 1,
       })

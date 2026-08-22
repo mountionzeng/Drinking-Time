@@ -1,7 +1,8 @@
 export type ImageAssetKind =
   | "story_frame"
   | "style_reference"
-  | "publishing_cover";
+  | "publishing_cover"
+  | "visual_asset";
 
 export type ImageAssetStatus = "selected" | "rejected" | "pending";
 
@@ -11,7 +12,8 @@ export type ImageAssetAssignment =
   | "shot"
   | "unassigned"
   | "style_reference"
-  | "publishing_cover";
+  | "publishing_cover"
+  | "visual_asset";
 export type PromptAssetFreshness = "current" | "stale" | "legacy";
 
 export type ImageAsset = {

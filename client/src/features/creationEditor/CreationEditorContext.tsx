@@ -44,15 +44,23 @@ import type {
 import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
+  timelineImageClipStartFrame,
   timelineMsToFrames,
   withTimelineDurationMs,
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
+  type StoryTimelineImageTextOverlay,
   type StoryTimelineOverlay,
+  type StoryTimelineVisualLayerState,
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
+import {
+  applyTimelineVisualLayerAction,
+  normalizeTimelineVisualLayerState,
+  type TimelineVisualLayerAction,
+} from "@shared/timelineVisualLayers";
 import {
   buildTimelineLayout,
   type TimelineLayoutRow,
@@ -162,7 +170,8 @@ type CreationEditorContextValue = {
   moveTimelineShot: (
     stableShotId: string,
     deltaFrames: number,
-    snapThresholdFrames?: number
+    snapThresholdFrames?: number,
+    visualLayer?: number
   ) => Promise<{ applied: boolean; reason?: string }>;
   moveTimelineGroup: (
     sourceShotId: string,
@@ -177,6 +186,10 @@ type CreationEditorContextValue = {
   /** 当前故事的时间线条目，绝对帧位置和锚点都在里面。 */
   timelineItems: StoryTimelineItem[];
   timelineOverlays: StoryTimelineOverlay[];
+  timelineVisualLayerState: StoryTimelineVisualLayerState;
+  manageTimelineVisualLayer: (
+    action: TimelineVisualLayerAction
+  ) => Promise<void>;
   /** 方向批量移动的预览：这次会带上谁、被谁挡住。 */
   previewTimelineGroup: (
     sourceShotId: string,
@@ -437,12 +450,33 @@ type CreationEditorContextValue = {
     label: string;
     effects: TimelineVideoEffects;
     transform: TimelineTransform;
+    overlayId?: string;
   }) => Promise<void>;
   moveTimelineVideoClip: (input: {
     clipId: string;
     sourceStableShotId: string;
     targetStableShotId: string;
     targetOffsetMs: number;
+  }) => Promise<void>;
+  addTimelineImageClip: (input: {
+    clipId?: string;
+    stableShotId: string;
+    timelineFrame: number;
+    imageId: number;
+    imageUrl: string;
+    label: string;
+    visualLayer?: number;
+  }) => Promise<void>;
+  moveTimelineItemToLayer: (
+    stableShotId: string,
+    visualLayer: number
+  ) => Promise<void>;
+  moveTimelineImageClip: (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetFrames: number;
+    visualLayer: number;
   }) => Promise<void>;
   removeTimelineVideoClip: (input: {
     stableShotId: string;
@@ -461,6 +495,7 @@ type CreationEditorContextValue = {
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
     stableShotId: string;
@@ -979,6 +1014,7 @@ export function normalizeStoryImages(
         isPrimary:
           typeof obj.isPrimary === "boolean" ? obj.isPrimary : undefined,
         generationType,
+        parentImageId: numberValue(obj.parentImageId),
         selectionSource,
       } satisfies CreationEditorImage;
     })
@@ -997,15 +1033,35 @@ export function resolveCreationEditorImages(
   storyImages: unknown
 ): CreationEditorImage[] {
   const imagesByKey = new Map<string, CreationEditorImage>();
+  const mergeImage = (image: CreationEditorImage) => {
+    const key = imageSourceKey(image);
+    const previous = imagesByKey.get(key);
+    imagesByKey.set(key, {
+      ...previous,
+      ...image,
+      relatedShotIdentities: Array.from(
+        new Set([
+          ...(previous?.relatedShotIdentities ?? []),
+          ...(image.relatedShotIdentities ?? []),
+        ])
+      ),
+    });
+  };
   for (const image of normalizeStoryImages(storyImages)) {
-    imagesByKey.set(imageSourceKey(image), image);
+    mergeImage(image);
   }
-  const materialImages = materialState?.shots.flatMap(shot => [
-    ...(Array.isArray(shot.imageVersions) ? shot.imageVersions : []),
-    ...(shot.currentImage ? [shot.currentImage] : []),
-  ]);
-  for (const image of normalizeStoryImages(materialImages)) {
-    imagesByKey.set(imageSourceKey(image), image);
+  for (const shot of materialState?.shots ?? []) {
+    const ownedImages = [
+      ...(Array.isArray(shot.imageVersions) ? shot.imageVersions : []),
+      ...(shot.currentImage ? [shot.currentImage] : []),
+    ];
+    for (const image of normalizeStoryImages(ownedImages)) mergeImage(image);
+    for (const image of normalizeStoryImages(shot.relatedImages)) {
+      mergeImage({
+        ...image,
+        relatedShotIdentities: [shot.stableShotId],
+      });
+    }
   }
   return Array.from(imagesByKey.values());
 }
@@ -1030,6 +1086,20 @@ function shouldPreferDisplayImage(
   return candidate.id >= previous.id;
 }
 
+function imageRelatesExactlyToShot(
+  image: CreationEditorImage,
+  shotIdentity: string | null
+): boolean {
+  const normalizedShotIdentity = normalizeShotIdentity(shotIdentity);
+  return Boolean(
+    normalizedShotIdentity &&
+      image.relatedShotIdentities?.some(
+        relatedIdentity =>
+          normalizeShotIdentity(relatedIdentity) === normalizedShotIdentity
+      )
+  );
+}
+
 export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[]
@@ -1039,7 +1109,6 @@ export function mergeShotsWithImages(
     shotNoCounts.set(shot.shotNo, (shotNoCounts.get(shot.shotNo) ?? 0) + 1);
   }
   const displayByShotNo = new Map<number, CreationEditorImage>();
-  const legacyDisplayByShotNo = new Map<number, CreationEditorImage>();
   const displayByIdentity = new Map<string, CreationEditorImage>();
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
@@ -1061,22 +1130,39 @@ export function mergeShotsWithImages(
       const previous = displayByShotNo.get(image.shotNo);
       if (shouldPreferDisplayImage(previous, image))
         displayByShotNo.set(image.shotNo, image);
-      const previousLegacy = legacyDisplayByShotNo.get(image.shotNo);
-      if (shouldPreferDisplayImage(previousLegacy, image))
-        legacyDisplayByShotNo.set(image.shotNo, image);
     }
   }
 
   return shots.map(shot => {
     const identity = shotIdentityFromShot(shot);
-    const identityKeys = new Set(shotIdentityMatchKeys(identity, shot.shotNo));
+    const hasUniqueShotNo = shotNoCounts.get(shot.shotNo) === 1;
+    const identityKeys = new Set(
+      hasUniqueShotNo
+        ? shotIdentityMatchKeys(identity, shot.shotNo)
+        : [normalizeShotIdentity(identity)].filter(
+            (key): key is string => key != null
+          )
+    );
     const imageVersions = images
       .filter(image => {
         if (image.status === "rejected" || !image.imageUrl) return false;
         if (image.shotIdentity) {
-          return shotIdentityMatchKeys(image.shotIdentity, image.shotNo).some(
-            key => identityKeys.has(key)
-          );
+          const imageIdentityKeys = hasUniqueShotNo
+            ? shotIdentityMatchKeys(image.shotIdentity, image.shotNo)
+            : [normalizeShotIdentity(image.shotIdentity)].filter(
+                (key): key is string => key != null
+              );
+          if (imageIdentityKeys.some(key => identityKeys.has(key))) {
+            return true;
+          }
+        }
+        if (
+          image.relatedShotIdentities?.some(relatedIdentity =>
+            normalizeShotIdentity(relatedIdentity) ===
+            normalizeShotIdentity(identity)
+          )
+        ) {
+          return true;
         }
         return (
           image.shotNo === shot.shotNo && shotNoCounts.get(shot.shotNo) === 1
@@ -1087,22 +1173,27 @@ export function mergeShotsWithImages(
       imageVersions.length > 0 ? { ...shot, imageVersions } : shot;
     const matchedIdentityImage = shotIdentityMatchKeys(
       identity,
-      shot.shotNo
-    ).reduce<CreationEditorImage | undefined>((selected, key) => {
+      hasUniqueShotNo ? shot.shotNo : null
+    )
+      .filter(key => hasUniqueShotNo || key === normalizeShotIdentity(identity))
+      .reduce<CreationEditorImage | undefined>((selected, key) => {
       const candidate = displayByIdentity.get(key);
       if (!candidate) return selected;
       if (!selected || candidate.id >= selected.id) return candidate;
       return selected;
-    }, undefined);
+      }, undefined);
     const promptRunImage =
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
         : undefined;
-    const matchedImage =
+    const matchedImageCandidate =
       matchedIdentityImage ??
-      (shotNoCounts.get(shot.shotNo) === 1
-        ? displayByShotNo.get(shot.shotNo)
-        : legacyDisplayByShotNo.get(shot.shotNo));
+      (hasUniqueShotNo ? displayByShotNo.get(shot.shotNo) : undefined);
+    const matchedImage =
+      matchedImageCandidate &&
+      !imageRelatesExactlyToShot(matchedImageCandidate, identity)
+        ? matchedImageCandidate
+        : undefined;
     const explicitlySelectedImage =
       matchedImage?.selectionSource === "explicit" ||
       matchedImage?.status === "selected"
@@ -1466,6 +1557,15 @@ export function CreationEditorProvider({
       retry: false,
     }
   );
+  const storyboardCoverReferencesQuery =
+    trpc.publishingDraft.storyboardCoverReferences.useQuery(
+      { storyId: activeId ?? 1 },
+      {
+        enabled: activeId != null && activeId > 0,
+        refetchOnWindowFocus: false,
+        retry: false,
+      }
+    );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
     { storyId: activeId ?? 0 },
     {
@@ -1543,21 +1643,25 @@ export function CreationEditorProvider({
   }, [storyQuery.data]);
   const publishingHandoff = useMemo(() => {
     if (activeId == null || activeId <= 0) return null;
-    const { publishing, coverAsset } = resolveScopedPublishingHandoff({
-      activeStoryId: activeId,
-      spinePublishing,
-      story: storyQuery.data,
-      publishingRead: publishingDraftQuery.data,
-    });
+    const { publishing, coverAsset, coverCandidates } =
+      resolveScopedPublishingHandoff({
+        activeStoryId: activeId,
+        spinePublishing,
+        story: storyQuery.data,
+        publishingRead: publishingDraftQuery.data,
+        storyboardCoverRead: storyboardCoverReferencesQuery.data,
+      });
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
       coverAsset,
+      coverCandidates,
     });
   }, [
     activeId,
     publishingDraftQuery.data?.coverAsset,
     publishingDraftQuery.data?.publishing,
+    storyboardCoverReferencesQuery.data,
     spinePublishing,
     storyQuery.data?.body,
     storyQuery.data?.id,
@@ -1657,11 +1761,24 @@ export function CreationEditorProvider({
     () => storyMaterialQuery.data?.timeline.overlays ?? [],
     [storyMaterialQuery.data?.timeline.overlays]
   );
+  const timelineVisualLayerState = useMemo(
+    () =>
+      normalizeTimelineVisualLayerState(
+        storyMaterialQuery.data?.timeline.visualLayerState,
+        timelineItems
+      ),
+    [storyMaterialQuery.data?.timeline.visualLayerState, timelineItems]
+  );
 
   const saveTimelineItems = useCallback(
     async (
       items: StoryTimelineItem[],
-      options: { throwOnError?: boolean; recordUndo?: boolean } = {}
+      options: {
+        throwOnError?: boolean;
+        recordUndo?: boolean;
+        overlays?: StoryTimelineOverlay[];
+        visualLayerState?: StoryTimelineVisualLayerState;
+      } = {}
     ) => {
       if (activeId == null) return;
       const previousIds = timelineShotIds;
@@ -1689,6 +1806,12 @@ export function CreationEditorProvider({
             storyId: activeId,
             expectedVersion: storyMaterialQuery.data?.timeline.version ?? 0,
             items: normalized,
+            ...(options.overlays === undefined
+              ? {}
+              : { overlays: options.overlays }),
+            ...(options.visualLayerState === undefined
+              ? {}
+              : { visualLayerState: options.visualLayerState }),
           });
           if (result.status !== "ok") throw new Error(result.error);
           if (
@@ -1715,6 +1838,20 @@ export function CreationEditorProvider({
       timelineShotIds,
       updateStoryTimelineMut,
     ]
+  );
+
+  const manageTimelineVisualLayer = useCallback(
+    async (action: TimelineVisualLayerAction) => {
+      const change = applyTimelineVisualLayerAction({
+        items: timelineItems,
+        state: timelineVisualLayerState,
+        action,
+      });
+      await saveTimelineItems(change.items, {
+        throwOnError: true,
+        visualLayerState: change.state,
+      });
+    }, [saveTimelineItems, timelineItems, timelineVisualLayerState]
   );
 
   const addShotToTimeline = useCallback(
@@ -1810,9 +1947,15 @@ export function CreationEditorProvider({
         rows: timelineLayoutRows,
         shotsById: timelineResolverShots,
         overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
         timelineFrame,
       }),
-    [timelineLayoutRows, timelineOverlays, timelineResolverShots]
+    [
+      timelineLayoutRows,
+      timelineOverlays,
+      timelineResolverShots,
+      timelineVisualLayerState.hidden,
+    ]
   );
 
   const [timelineWritePending, setTimelineWritePending] = useState(false);
@@ -1823,13 +1966,17 @@ export function CreationEditorProvider({
   const commitTimelinePlan = useCallback(
     async (
       plan: TimelinePlan,
-      failureReason: string
+      failureReason: string,
+      overlays?: StoryTimelineOverlay[]
     ): Promise<{ applied: boolean; reason?: string; anchorId?: string }> => {
       if (plan.kind !== "ok") return { applied: false, reason: plan.reason };
       return timelineWriteLockRef.current.run(
         async () => {
           try {
-            await saveTimelineItems(plan.items, { throwOnError: true });
+            await saveTimelineItems(plan.items, {
+              throwOnError: true,
+              ...(overlays === undefined ? {} : { overlays }),
+            });
             return { applied: true, anchorId: plan.anchorId };
           } catch (error) {
             return {
@@ -1873,19 +2020,47 @@ export function CreationEditorProvider({
     (
       stableShotId: string,
       deltaFrames: number,
-      snapThresholdFrames?: number
-    ) =>
-      commitTimelinePlan(
-        planTimelineSingleMove({
-          items: timelineItems,
-          rows: timelineLayoutRows,
-          stableShotId,
-          deltaFrames,
-          snapThresholdFrames,
-        }),
-        "移动镜头失败"
-      ),
-    [commitTimelinePlan, timelineItems, timelineLayoutRows]
+      snapThresholdFrames?: number,
+      visualLayer?: number
+    ) => {
+      const overlay = timelineOverlays.find(
+        candidate => candidate.sourceStableShotId === stableShotId
+      );
+      const sourceItem = timelineItems.find(
+        item => item.stableShotId === stableShotId
+      );
+      const targetLayer =
+        visualLayer == null ? undefined : Math.max(0, Math.round(visualLayer));
+      const layerChanged =
+        targetLayer != null && targetLayer !== (sourceItem?.visualLayer ?? 0);
+      const plan =
+        deltaFrames === 0 && sourceItem != null && layerChanged
+          ? ({ kind: "ok", items: timelineItems } as const)
+          : planTimelineSingleMove({
+              items: timelineItems,
+              rows: timelineLayoutRows,
+              stableShotId,
+              deltaFrames,
+              snapThresholdFrames,
+            });
+      return commitTimelinePlan(
+        plan.kind === "ok" && (targetLayer != null || overlay)
+          ? {
+              ...plan,
+              items: plan.items.map(item =>
+                item.stableShotId === stableShotId
+                  ? { ...item, visualLayer: targetLayer ?? 1 }
+                  : item
+              ),
+            }
+          : plan,
+        "移动镜头失败",
+        overlay
+          ? timelineOverlays.filter(candidate => candidate.id !== overlay.id)
+          : undefined
+      );
+    },
+    [commitTimelinePlan, timelineItems, timelineLayoutRows, timelineOverlays]
   );
 
   const addTimelineAnchorAtFrame = useCallback(
@@ -3303,6 +3478,7 @@ export function CreationEditorProvider({
     label: string;
     effects: TimelineVideoEffects;
     transform: TimelineTransform;
+    overlayId?: string;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法切割视频");
     const revisionFromBody = (body: unknown) =>
@@ -3317,9 +3493,26 @@ export function CreationEditorProvider({
         expectedStoryRevision,
         expectedTimelineVersion,
       });
+    let timelineVersion = storyMaterialQuery.data?.timeline.version ?? 0;
+    if (input.overlayId) {
+      const promoted = await updateStoryTimelineMut.mutateAsync({
+        storyId: activeId,
+        expectedVersion: timelineVersion,
+        items: timelineItems.map(item =>
+          item.stableShotId === input.stableShotId
+            ? { ...item, visualLayer: 1 }
+            : item
+        ),
+        overlays: timelineOverlays.filter(overlay => overlay.id !== input.overlayId),
+      });
+      if (promoted.status !== "ok") {
+        throw new Error(promoted.error || "历史覆盖视频迁移失败");
+      }
+      timelineVersion = promoted.timeline.version;
+    }
     let result = await requestSplit(
       revisionFromBody(storyQuery.data?.body),
-      storyMaterialQuery.data?.timeline.version ?? 0
+      timelineVersion
     );
     if (
       result.status !== "ok" &&
@@ -3431,6 +3624,113 @@ export function CreationEditorProvider({
       return item;
     });
     await saveTimelineItems(nextItems, { throwOnError: true });
+  };
+
+  const addTimelineImageClip = async (input: {
+    clipId?: string;
+    stableShotId: string;
+    timelineFrame: number;
+    imageId: number;
+    imageUrl: string;
+    label: string;
+    visualLayer?: number;
+  }) => {
+    const row = buildTimelineLayout(timelineItems).find(
+      candidate => candidate.item.stableShotId === input.stableShotId
+    );
+    if (!row) throw new Error("抽帧来源镜头不在时间线上");
+    const clipId = input.clipId ?? `image-clip-${input.imageId}`;
+    await saveTimelineItems(
+      timelineItems.map(item =>
+        item.stableShotId !== input.stableShotId
+          ? item
+          : {
+              ...item,
+              imageClips: [
+                ...(item.imageClips ?? []).filter(clip => clip.id !== clipId),
+                {
+                  id: clipId,
+                  imageId: input.imageId,
+                  imageUrl: input.imageUrl,
+                  label: input.label,
+                  offsetFrames: Math.max(0, input.timelineFrame - row.startFrame),
+                  timelineStartFrame: Math.max(0, Math.round(input.timelineFrame)),
+                  durationFrames: 1,
+                  visualLayer: Math.max(0, Math.round(input.visualLayer ?? 1)),
+                  transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+                },
+              ],
+            }
+      ),
+      { throwOnError: true }
+    );
+  };
+
+  const moveTimelineItemToLayer = async (
+    stableShotId: string,
+    visualLayer: number
+  ) => {
+    const targetLayer = Math.max(0, Math.round(visualLayer));
+    if (!timelineItems.some(item => item.stableShotId === stableShotId)) {
+      throw new Error("找不到要换层的镜头");
+    }
+    await saveTimelineItems(
+      timelineItems.map(item =>
+        item.stableShotId === stableShotId
+          ? { ...item, visualLayer: targetLayer }
+          : item
+      ),
+      {
+        throwOnError: true,
+        overlays: timelineOverlays.filter(
+          overlay => overlay.sourceStableShotId !== stableShotId
+        ),
+      }
+    );
+  };
+
+  const moveTimelineImageClip = async (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetFrames: number;
+    visualLayer: number;
+  }) => {
+    const source = timelineItems.find(
+      item => item.stableShotId === input.sourceStableShotId
+    );
+    const clip = source?.imageClips?.find(candidate => candidate.id === input.clipId);
+    if (!source || !clip) throw new Error("找不到要移动的图片片段");
+    if (!timelineItems.some(item => item.stableShotId === input.targetStableShotId)) {
+      throw new Error("目标时间不在视觉时间线上");
+    }
+    const targetRow = buildTimelineLayout(timelineItems).find(
+      row => row.item.stableShotId === input.targetStableShotId
+    );
+    if (!targetRow) throw new Error("目标时间不在视觉时间线上");
+    const moved = {
+      ...clip,
+      offsetFrames: Math.max(0, Math.round(input.targetOffsetFrames)),
+      timelineStartFrame: timelineImageClipStartFrame(
+        { offsetFrames: Math.max(0, Math.round(input.targetOffsetFrames)) },
+        targetRow.startFrame
+      ),
+      visualLayer: Math.max(0, Math.round(input.visualLayer)),
+    };
+    await saveTimelineItems(
+      timelineItems.map(item => {
+        const retained = (item.imageClips ?? []).filter(
+          candidate => candidate.id !== input.clipId
+        );
+        if (item.stableShotId === input.targetStableShotId) {
+          return { ...item, imageClips: [...retained, moved] };
+        }
+        return retained.length === (item.imageClips ?? []).length
+          ? item
+          : { ...item, imageClips: retained };
+      }),
+      { throwOnError: true }
+    );
   };
 
   const removeTimelineVideoClip = async (input: {
@@ -3565,22 +3865,32 @@ export function CreationEditorProvider({
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => {
     if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
       throw new Error("当前镜头不在时间线上");
     }
     await saveTimelineItems(
-      timelineItems.map(item =>
-        item.stableShotId === input.stableShotId
-          ? {
-              ...item,
-              imageTransforms: {
-                ...(item.imageTransforms ?? {}),
-                [String(input.imageId)]: input.transform,
-              },
-            }
-          : item
-      ),
+      timelineItems.map(item => {
+        if (item.stableShotId !== input.stableShotId) return item;
+        const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
+        if (input.textOverlay) {
+          imageTextOverlays[String(input.imageId)] = input.textOverlay;
+        } else {
+          delete imageTextOverlays[String(input.imageId)];
+        }
+        return {
+          ...item,
+          imageTransforms: {
+            ...(item.imageTransforms ?? {}),
+            [String(input.imageId)]: input.transform,
+          },
+          imageTextOverlays:
+            Object.keys(imageTextOverlays).length > 0
+              ? imageTextOverlays
+              : undefined,
+        };
+      }),
       { throwOnError: true }
     );
   };
@@ -3747,6 +4057,8 @@ export function CreationEditorProvider({
       timelineLayoutRows,
       timelineItems,
       timelineOverlays,
+      timelineVisualLayerState,
+      manageTimelineVisualLayer,
       previewTimelineGroup,
       resolveTimelineFrameSource,
       timelineWritePending,
@@ -3763,6 +4075,7 @@ export function CreationEditorProvider({
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
         publishingDraftQuery.isLoading ||
+        storyboardCoverReferencesQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
@@ -3813,6 +4126,9 @@ export function CreationEditorProvider({
       createVideoTakeRange,
       splitTimelineVideoClip,
       moveTimelineVideoClip,
+      addTimelineImageClip,
+      moveTimelineItemToLayer,
+      moveTimelineImageClip,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
       updateTimelineImageTransform,
@@ -3861,6 +4177,8 @@ export function CreationEditorProvider({
       timelineLayoutRows,
       timelineItems,
       timelineOverlays,
+      timelineVisualLayerState,
+      manageTimelineVisualLayer,
       previewTimelineGroup,
       resolveTimelineFrameSource,
       timelineWritePending,
@@ -3893,6 +4211,7 @@ export function CreationEditorProvider({
       storyListQuery,
       storyQuery,
       publishingDraftQuery,
+      storyboardCoverReferencesQuery,
     ]
   );
 

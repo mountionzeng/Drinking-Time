@@ -43,6 +43,9 @@ function cloneTimelineItems(
           ])
         )
       : undefined,
+    imageTextOverlays: item.imageTextOverlays
+      ? structuredClone(item.imageTextOverlays)
+      : undefined,
     primaryVideoEdit: item.primaryVideoEdit
       ? {
           ...item.primaryVideoEdit,
@@ -72,10 +75,7 @@ export function recordTimelineUndoSnapshot(
   const stack = undoByStory.get(storyId) ?? [];
   const snapshot = cloneTimelineItems(items);
   const latest = stack[stack.length - 1];
-  if (
-    latest?.kind === "timeline" &&
-    sameTimeline(latest.items, snapshot)
-  ) {
+  if (latest?.kind === "timeline" && sameTimeline(latest.items, snapshot)) {
     return;
   }
   stack.push({ kind: "timeline", items: snapshot });

@@ -96,6 +96,19 @@ export default function PromptTablePanel() {
         : item.shotNo === selectedShot.shotNo
     );
   }, [materialState, selectedShot]);
+  const selectedShotAssetLabels = useMemo(() => {
+    const binding = selectedShotMaterial?.visualAssetBinding;
+    if (!binding) return [];
+    const assets = materialState?.visualAssets?.assets ?? [];
+    return (["character", "scene", "style"] as const).flatMap(kind => {
+      const selected = binding[kind];
+      if (!selected) return [];
+      const asset = assets.find(item => item.id === selected.assetId);
+      const version = asset?.versions.find(item => item.id === selected.versionId);
+      const kindLabel = kind === "character" ? "人物" : kind === "scene" ? "场景" : "美术风格";
+      return [`${kindLabel}：${asset?.name ?? selected.assetId}${version ? ` · 版本 ${version.version}` : ""}`];
+    });
+  }, [materialState?.visualAssets?.assets, selectedShotMaterial?.visualAssetBinding]);
 
   // 有图片或有视频的镜头列表（排除当前选中镜头），用于参考镜头下拉
   const referenceOptions = useMemo(() => {
@@ -712,6 +725,22 @@ export default function PromptTablePanel() {
                 setCandidateCompareOpen(true);
               }}
             />
+
+            {selectedShot ? (
+              <div className="mb-3 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs">
+                <div className="font-semibold text-foreground">图片 / 视频生成资产</div>
+                {selectedShotAssetLabels.length > 0 ? (
+                  <div className="mt-1 text-muted-foreground">
+                    {selectedShotAssetLabels.join("　")}
+                    <span className="ml-1 font-medium text-foreground">本镜图片和视频将共同使用这些锁定版本。</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-muted-foreground">
+                    本镜尚未关联资产。到“素材仓库 → 资产”选择当前镜头，关联人物、场景和美术风格；关联一次即可同时用于图片和视频。
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             <div className="mb-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {promptLineageMode === "lineage"

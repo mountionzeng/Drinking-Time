@@ -451,6 +451,77 @@ describe("storySync shot field preservation", () => {
     ]);
   });
 
+  it("keeps an editing transition terminal state from being lost in a stale message save", () => {
+    const candidate = {
+      candidateId: "transition-f52f77c1820d09dd",
+      provisionalStableShotId: "transition-shot-f52f77c1820d09dd",
+      storyId: 1186,
+      status: "pending",
+    };
+    const body = mergeStaleStoryBody(
+      {
+        messages: [
+          {
+            id: "msg-transition",
+            who: "s",
+            text: "确认镜头衔接",
+            editingTransitionCandidate: candidate,
+          },
+        ],
+      },
+      {
+        messages: [
+          {
+            id: "msg-transition",
+            who: "s",
+            text: "确认镜头衔接",
+            editingTransitionCandidate: {
+              ...candidate,
+              status: "applied",
+              retryable: false,
+            },
+          },
+        ],
+      },
+      12
+    );
+
+    expect(body.messages).toEqual([
+      expect.objectContaining({
+        id: "msg-transition",
+        editingTransitionCandidate: expect.objectContaining({
+          candidateId: candidate.candidateId,
+          status: "applied",
+          retryable: false,
+        }),
+      }),
+    ]);
+
+    const replayedStalePending = mergeStaleStoryBody(
+      body,
+      {
+        messages: [
+          {
+            id: "msg-transition",
+            who: "s",
+            text: "确认镜头衔接",
+            editingTransitionCandidate: candidate,
+          },
+        ],
+      },
+      13
+    );
+
+    expect(replayedStalePending.messages).toEqual([
+      expect.objectContaining({
+        editingTransitionCandidate: expect.objectContaining({
+          status: "applied",
+          retryable: false,
+        }),
+      }),
+    ]);
+  });
+
   it("drops stale re-sent copies whose content matches an existing server shot", () => {
     const serverShots = [
       {

@@ -61,6 +61,7 @@ import {
 import { storyAgentRouter } from "./storyAgent";
 import { creationAgentRouter } from "./creationAgent";
 import { publishingDraftRouter } from "./publishingDraft";
+import { visualAssetsRouter } from "./visualAssets";
 
 // ─── Nayin Five Element calculation (server-side) ─────────────────────────
 
@@ -1045,6 +1046,7 @@ Return pure JSON only with { shots: [...], analysis: {...} }`;
   // Chat, classify (shot list synthesis), summarize, and story CRUD.
   storyAgent: storyAgentRouter,
   publishingDraft: publishingDraftRouter,
+  visualAssets: visualAssetsRouter,
 
   // ─── Shot management ────────────────────────────────────────────────
   shot: router({

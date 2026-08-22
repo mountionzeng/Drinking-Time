@@ -348,6 +348,7 @@ export function StoryboardReviewBoard({
   embeddedEditorMode = false,
   headerAction,
   inheritedPublishingCover = null,
+  inheritedPublishingCoverCandidates = [],
   className = "",
   candidatesByShot,
   onConfirmCandidate,
@@ -523,6 +524,10 @@ export function StoryboardReviewBoard({
   embeddedEditorMode?: boolean;
   headerAction?: ReactNode;
   inheritedPublishingCover?: { imageUrl: string } | null;
+  inheritedPublishingCoverCandidates?: readonly {
+    id: number;
+    imageUrl: string;
+  }[];
   className?: string;
   /** 阶段 E：每个镜头（按 stableShotId）待确认候选；缺省当作没有候选。 */
   candidatesByShot?: Map<string, ShotPendingCandidate[]>;
@@ -542,6 +547,15 @@ export function StoryboardReviewBoard({
   } | null>(null);
   const [imageEditInstruction, setImageEditInstruction] = useState("");
   const [imageEditSubmitting, setImageEditSubmitting] = useState(false);
+  const [publishingCoverReferenceDialog, setPublishingCoverReferenceDialog] =
+    useState<{
+      shot: StoryShot;
+      creationShot: CreationEditorShot;
+      shotIndex: number;
+      request?: NonNullable<ChatMessage["imageRerenderAction"]>;
+    } | null>(null);
+  const [selectedPublishingCoverCandidateId, setSelectedPublishingCoverCandidateId] =
+    useState<number | null>(null);
   const [imageRenderMonitor, setImageRenderMonitor] = useState<{
     id: string;
     label: string;
@@ -2010,7 +2024,10 @@ export function StoryboardReviewBoard({
     creationShot: CreationEditorShot | undefined,
     shotIndex: number,
     request?: NonNullable<ChatMessage["imageRerenderAction"]>,
-    options: { skipCostConfirmation?: boolean } = {}
+    options: {
+      skipCostConfirmation?: boolean;
+      publishingCoverCandidate?: { id: number; imageUrl: string };
+    } = {}
   ): Promise<
     StoryboardImageRerenderResult & { imageId?: number; imageUrl?: string }
   > => {
@@ -2132,10 +2149,14 @@ export function StoryboardReviewBoard({
     const neighborReferences =
       (await resolvePersistedNeighborImageReferences(creationShot)) ??
       storyboardImageGenerationReferences(creationShot, creationShots);
-    const coverReference = inheritedPublishingCover?.imageUrl
+    const publishingCoverStyle =
+      options.publishingCoverCandidate ?? inheritedPublishingCover;
+    const coverReference = publishingCoverStyle?.imageUrl
       ? {
-          imageUrl: inheritedPublishingCover.imageUrl,
-          source: "publishing-cover" as const,
+          imageUrl: publishingCoverStyle.imageUrl,
+          source: options.publishingCoverCandidate
+            ? ("publishing-cover-candidate" as const)
+            : ("publishing-cover" as const),
           cueCode: null,
           shotNo: creationShot.shotNo,
         }
@@ -2149,6 +2170,18 @@ export function StoryboardReviewBoard({
         }
       : (neighborReferences?.primary ?? coverReference);
     if (!primaryReference) {
+      if (inheritedPublishingCoverCandidates.length > 0) {
+        setSelectedPublishingCoverCandidateId(null);
+        setPublishingCoverReferenceDialog({
+          shot,
+          creationShot,
+          shotIndex,
+          request,
+        });
+        const message = `${label} 没有镜头参考，请先选择一张已有封面候选作为本次风格参考`;
+        toast.info(message);
+        return { status: "cancelled", message };
+      }
       const message = `${label} 及相邻镜头还没有可信画面。请先拖入一张属于当前故事的图片；本次不会提交付费任务。`;
       toast.error(message);
       return { status: "error", message };
@@ -2258,17 +2291,19 @@ export function StoryboardReviewBoard({
         editMaskImageUrl,
         reference: {
           imageUrl:
-            imageReferences.primary.source === "publishing-cover"
+            imageReferences.primary.source === "publishing-cover" ||
+            imageReferences.primary.source === "publishing-cover-candidate"
               ? undefined
               : imageReferences.primary.imageUrl,
           identityImageUrl:
-            imageReferences.primary.source === "publishing-cover"
+            imageReferences.primary.source === "publishing-cover" ||
+            imageReferences.primary.source === "publishing-cover-candidate"
               ? undefined
               : imageReferences.primary.imageUrl,
           contextImageUrls: imageReferences.context.map(
             reference => reference.imageUrl
           ),
-          storyStyleImageUrl: inheritedPublishingCover?.imageUrl,
+          storyStyleImageUrl: publishingCoverStyle?.imageUrl,
         },
         costConfirmation: {
           accepted: true,
@@ -2337,6 +2372,23 @@ export function StoryboardReviewBoard({
     } finally {
       finishShotRender(shot.shotNo);
     }
+  };
+
+  const continueWithPublishingCoverCandidate = async () => {
+    const dialog = publishingCoverReferenceDialog;
+    const candidate = inheritedPublishingCoverCandidates.find(
+      item => item.id === selectedPublishingCoverCandidateId
+    );
+    if (!dialog || !candidate) return;
+    setPublishingCoverReferenceDialog(null);
+    setSelectedPublishingCoverCandidateId(null);
+    await renderShotImageCandidates(
+      dialog.shot,
+      dialog.creationShot,
+      dialog.shotIndex,
+      dialog.request,
+      { publishingCoverCandidate: candidate }
+    );
   };
 
   const submitSelectedImageEdit = useCallback(async () => {
@@ -5221,6 +5273,84 @@ export function StoryboardReviewBoard({
           </div>
         )}
       </div>
+      {publishingCoverReferenceDialog
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="storyboard-cover-reference-title"
+              data-testid="storyboard-cover-reference-dialog"
+            >
+              <div className="w-full max-w-lg rounded-lg border border-border bg-background p-4 shadow-2xl">
+                <h2
+                  id="storyboard-cover-reference-title"
+                  className="text-sm font-semibold text-foreground"
+                >
+                  选择这组画面的封面风格
+                </h2>
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                  当前镜头还没有底图。选一张属于这个故事的封面候选，只作为本次静态画面的风格参考；不会自动采用正式封面，也不会改动视频。
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {inheritedPublishingCoverCandidates.map(candidate => {
+                    const selected =
+                      candidate.id === selectedPublishingCoverCandidateId;
+                    return (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className={`overflow-hidden rounded-md border bg-muted/20 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--nayin-accent)]/35 ${
+                          selected
+                            ? "border-[var(--nayin-accent)] ring-2 ring-[var(--nayin-accent)]/20"
+                            : "border-border hover:border-[var(--nayin-accent)]/55"
+                        }`}
+                        onClick={() =>
+                          setSelectedPublishingCoverCandidateId(candidate.id)
+                        }
+                        aria-pressed={selected}
+                        aria-label={`选择封面候选 ${candidate.id}`}
+                      >
+                        <img
+                          src={candidate.imageUrl}
+                          alt=""
+                          className="aspect-[3/4] w-full object-cover"
+                        />
+                        <span className="block truncate px-2 py-1.5 text-[10px] text-muted-foreground">
+                          候选 #{candidate.id}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="h-8 rounded-md border border-border px-3 text-[11px] text-muted-foreground transition hover:text-foreground"
+                    onClick={() => {
+                      setPublishingCoverReferenceDialog(null);
+                      setSelectedPublishingCoverCandidateId(null);
+                    }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--nayin-accent)] px-3 text-[11px] font-medium text-background transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+                    disabled={selectedPublishingCoverCandidateId == null}
+                    onClick={() =>
+                      void continueWithPublishingCoverCandidate()
+                    }
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    用作风格参考并继续
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
       {imageEditDialog
         ? createPortal(
             <div

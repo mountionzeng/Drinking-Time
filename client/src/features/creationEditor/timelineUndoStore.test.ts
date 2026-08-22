@@ -49,6 +49,39 @@ describe("timelineUndoStore", () => {
     expect(takeTimelineUndoSnapshot(7)?.[0].transform.rotationDeg).toBe(0);
   });
 
+  it("clones per-image text layers so undo restores the exact saved typography", () => {
+    const source = timeline(1_000);
+    source[0].imageTextOverlays = {
+      "42": {
+        text: "午饭刚吃到一半",
+        typography: {
+          layoutVersion: 1,
+          fontId: "noto-serif-sc",
+          alignment: "center",
+          fontSize: 48,
+          letterSpacing: 0,
+          lineSpacing: 1.3,
+          contrast: {
+            textColor: "#ffffff",
+            outlineColor: "#000000",
+            outlineWidth: 1.5,
+            backdropColor: null,
+          },
+          kind: "region",
+          shape: "rectangle",
+          direction: "horizontal",
+          region: { x: 0.1, y: 0.7, width: 0.8, height: 0.2 },
+        },
+      },
+    };
+    recordTimelineUndoSnapshot(7, source);
+    source[0].imageTextOverlays["42"].text = "被后续操作改坏";
+
+    expect(
+      takeTimelineUndoSnapshot(7)?.[0].imageTextOverlays?.["42"].text
+    ).toBe("午饭刚吃到一半");
+  });
+
   it("clones anchors so later marker edits cannot corrupt undo", () => {
     const source = timeline(1_000);
     source[0].anchors = [

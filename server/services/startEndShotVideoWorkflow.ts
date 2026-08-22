@@ -780,7 +780,12 @@ export async function startEndShotVideoJob(
     const identityImageInput = resolved.characterReferenceImageUrl
       ? await materializeImageInput(resolved.characterReferenceImageUrl)
       : undefined;
-    const [promptDirector, firstImageUrl, lastImageUrl] = await Promise.all([
+    const uploadFrames = async () => {
+      const firstImageUrl = await uploadFileToVidu(frames!.firstFrame);
+      const lastImageUrl = await uploadFileToVidu(frames!.lastFrame);
+      return { firstImageUrl, lastImageUrl };
+    };
+    const [promptDirector, uploadedFrames] = await Promise.all([
       directVideoPrompt({
         imageInput: frameDataUrl(frames.firstFrame.bytes),
         endImageInput: frameDataUrl(frames.lastFrame.bytes),
@@ -794,9 +799,9 @@ export async function startEndShotVideoJob(
         storyTitle: resolved.storyTitle,
         ...context,
       }),
-      uploadFileToVidu(frames.firstFrame),
-      uploadFileToVidu(frames.lastFrame),
+      uploadFrames(),
     ]);
+    const { firstImageUrl, lastImageUrl } = uploadedFrames;
     const providerPrompt = promptDirector.prompt;
     take = await patchTake(
       take,

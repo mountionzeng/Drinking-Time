@@ -83,4 +83,38 @@ describe("publishing handoff story scope", () => {
 
     expect(result.coverAsset).toEqual(cover);
   });
+
+  it("accepts storyboard cover candidates only from the active story", () => {
+    const current = publishing("当前文字稿", 2);
+    const candidate = {
+      id: 1640,
+      imageUrl: "/api/images/candidate.webp",
+      imageKey: "candidate.webp",
+    };
+    const accepted = resolveScopedPublishingHandoff({
+      activeStoryId: 1176,
+      spinePublishing: current,
+      story: { id: 1176, body: { publishing: current } },
+      publishingRead: null,
+      storyboardCoverRead: {
+        storyId: 1176,
+        coverAsset: null,
+        candidates: [candidate],
+      },
+    });
+    const rejected = resolveScopedPublishingHandoff({
+      activeStoryId: 1176,
+      spinePublishing: current,
+      story: { id: 1176, body: { publishing: current } },
+      publishingRead: null,
+      storyboardCoverRead: {
+        storyId: 20,
+        coverAsset: null,
+        candidates: [candidate],
+      },
+    });
+
+    expect(accepted.coverCandidates).toEqual([candidate]);
+    expect(rejected.coverCandidates).toEqual([]);
+  });
 });

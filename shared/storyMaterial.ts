@@ -1,5 +1,11 @@
 import type { ImageAsset } from "./imageAsset";
+import type { PublishingAlbumTypographyLayout } from "./publishingAlbum";
 import type { VideoTakeAsset } from "./videoAsset";
+import type {
+  ShotVisualAssetBinding,
+  ShotVisualAssetBindingProposal,
+  StoryVisualAsset,
+} from "./visualAssets";
 
 export type TimelineTransform = {
   cropX: number;
@@ -12,6 +18,12 @@ export type TimelineTransform = {
   rotationDeg?: number;
   flipX?: boolean;
   flipY?: boolean;
+};
+
+/** Editable product text attached to one storyboard image, never burned into source pixels. */
+export type StoryTimelineImageTextOverlay = {
+  text: string;
+  typography: PublishingAlbumTypographyLayout;
 };
 
 export type TimelineVideoEffects = {
@@ -51,7 +63,35 @@ export type StoryTimelineVisualClip = {
   durationMs: number;
   effects?: TimelineVideoEffects;
   transform?: TimelineTransform;
+  /** 0 is the primary visual layer; larger values render above it. */
+  visualLayer?: number;
 };
+
+export type StoryTimelineImageClip = {
+  id: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  /** Placement relative to the owning timeline item. */
+  offsetFrames: number;
+  /** Canonical absolute placement; moving the owning video must not move this clip. */
+  timelineStartFrame?: number;
+  /** Extracted stills default to exactly one structural frame. */
+  durationFrames: number;
+  /** 0 is the primary visual layer; larger values render above it. */
+  visualLayer: number;
+  transform?: TimelineTransform;
+};
+
+export function timelineImageClipStartFrame(
+  clip: Pick<StoryTimelineImageClip, "offsetFrames" | "timelineStartFrame">,
+  ownerStartFrame: number
+): number {
+  return Math.max(
+    0,
+    Math.round(clip.timelineStartFrame ?? ownerStartFrame + clip.offsetFrames)
+  );
+}
 
 export const STORY_TIMELINE_FPS = 30;
 
@@ -76,7 +116,9 @@ export function timelineOffsetMsToFrames(valueMs: number): number {
 
 export function timelineFramesToMs(frames: number): number {
   if (!Number.isFinite(frames)) return 0;
-  return Math.round((Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS);
+  return Math.round(
+    (Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS
+  );
 }
 
 /**
@@ -117,6 +159,8 @@ export type StoryTimelineItem = {
   timelineStartFrame?: number;
   /** Durable overlap priority; larger values win among unanchored items. */
   stackOrder?: number;
+  /** Persistent NLE layer. 0 is the main visual layer; larger values are above it. */
+  visualLayer?: number;
   /**
    * Explicitly keeps this shot detached from the named shot immediately to
    * its left. The id (rather than a boolean "previous") prevents a reorder
@@ -127,8 +171,11 @@ export type StoryTimelineItem = {
   transform: TimelineTransform;
   /** Per-storyboard-frame transforms. The legacy item transform remains the fallback. */
   imageTransforms?: Record<string, TimelineTransform>;
+  /** Per-storyboard-frame editable text. Other images remain untouched. */
+  imageTextOverlays?: Record<string, StoryTimelineImageTextOverlay>;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
+  imageClips?: StoryTimelineImageClip[];
   visualClipsReplacePrimary?: boolean;
 };
 
@@ -153,11 +200,20 @@ export type StoryTimelineOverlay = {
   effects?: TimelineVideoEffects;
 };
 
+/** Persistent management state for ordinary visual layers. Layers are indexed bottom-up. */
+export type StoryTimelineVisualLayerState = {
+  /** Total number of editable visual layers, including the primary layer at index 0. */
+  count: number;
+  /** Hidden layers do not participate in preview or export resolution. */
+  hidden: number[];
+};
+
 export type TimelineDocument = {
   storyId: number;
   version: number;
   items: StoryTimelineItem[];
   overlays?: StoryTimelineOverlay[];
+  visualLayerState?: StoryTimelineVisualLayerState;
 };
 
 export type ShotMaterialState = {
@@ -166,9 +222,23 @@ export type ShotMaterialState = {
   cueCode?: string | null;
   currentImage: ImageAsset | null;
   imageVersions: ImageAsset[];
+  /**
+   * Existing story images used by, or derived from inputs to, this shot.
+   * They remain owned by their original shot and must not become current here
+   * merely because the relationship is projected for editing and provenance.
+   */
+  relatedImages?: ImageAsset[];
   currentVideo: VideoTakeAsset | null;
   videoTakes: VideoTakeAsset[];
   timelineItem: StoryTimelineItem | null;
+  visualAssetBinding?: ShotVisualAssetBinding | null;
+};
+
+export type StoryVisualAssetMaterialState = {
+  assets: StoryVisualAsset[];
+  proposals: ShotVisualAssetBindingProposal[];
+  bindings: ShotVisualAssetBinding[];
+  images: ImageAsset[];
 };
 
 export type StoryMaterialState = {
@@ -178,6 +248,7 @@ export type StoryMaterialState = {
   unassignedImages: ImageAsset[];
   unassignedVideoTakes: VideoTakeAsset[];
   reusableVideoTakes: VideoTakeAsset[];
+  visualAssets?: StoryVisualAssetMaterialState;
 };
 
 export const DEFAULT_TIMELINE_TRANSFORM: TimelineTransform = {

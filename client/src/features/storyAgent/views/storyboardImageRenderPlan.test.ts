@@ -160,6 +160,14 @@ describe("storyboard image render plan", () => {
     expect(storyboardImageReferenceLabel(references.context[0])).toBe(
       "上一镜 0104 尾帧"
     );
+    expect(
+      storyboardImageReferenceLabel({
+        imageUrl: "candidate.png",
+        source: "publishing-cover-candidate",
+        cueCode: null,
+        shotNo: 1,
+      })
+    ).toBe("用户本次选择的封面候选（仅作故事风格参考）");
   });
 
   it("builds the candidate render confirmation from references", () => {

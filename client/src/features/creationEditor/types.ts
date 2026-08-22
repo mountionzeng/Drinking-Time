@@ -20,6 +20,9 @@ export type CreationEditorImage = {
   isCurrent?: boolean;
   isPrimary?: boolean;
   generationType?: "generate" | "initial" | "inpaint";
+  parentImageId?: number | null;
+  /** Shots that consume this image without taking ownership of the asset. */
+  relatedShotIdentities?: string[];
   selectionSource?: "explicit" | "legacy" | "none";
 };
 

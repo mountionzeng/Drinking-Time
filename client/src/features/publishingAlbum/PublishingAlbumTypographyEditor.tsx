@@ -1,27 +1,64 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { Check, Redo2, Type, Undo2 } from "lucide-react";
 
 import type { PublishingAlbumTypographyLayout } from "../../../../shared/publishingAlbum";
-import { installedPublishingAlbumFonts, publishingAlbumFontById } from "../../../../shared/publishingAlbumFonts";
-import { classifyPublishingAlbumStroke, type PublishingAlbumCanonicalGeometry, type PublishingAlbumStrokePoint } from "./publishingAlbumGeometry";
+import {
+  installedPublishingAlbumFonts,
+  publishingAlbumFontById,
+} from "../../../../shared/publishingAlbumFonts";
+import {
+  classifyPublishingAlbumStroke,
+  type PublishingAlbumCanonicalGeometry,
+  type PublishingAlbumStrokePoint,
+} from "./publishingAlbumGeometry";
 import { PublishingAlbumFontRepository } from "./publishingAlbumFontRepository";
-import { recommendPublishingAlbumFonts, resolvePublishingAlbumFontChoice, type PublishingAlbumFontRecommendation } from "./publishingAlbumFontRecommendation";
-import { buildPublishingAlbumLayout, type PublishingAlbumFontMetrics, type PublishingAlbumLayoutPlan } from "./publishingAlbumLayout";
+import {
+  recommendPublishingAlbumFonts,
+  resolvePublishingAlbumFontChoice,
+  type PublishingAlbumFontRecommendation,
+} from "./publishingAlbumFontRecommendation";
+import {
+  buildPublishingAlbumLayout,
+  type PublishingAlbumFontMetrics,
+  type PublishingAlbumLayoutPlan,
+} from "./publishingAlbumLayout";
 import { PublishingAlbumPagePreview } from "./PublishingAlbumPagePreview";
 
 const fontRepository = new PublishingAlbumFontRepository();
+const EMPTY_ART_DIRECTION_TAGS: readonly string[] = Object.freeze([]);
 
-function initialGeometry(layout: PublishingAlbumTypographyLayout | null): PublishingAlbumCanonicalGeometry | null {
+export function resolvePublishingAlbumTypographyArtDirectionTags(
+  tags?: readonly string[]
+): readonly string[] {
+  return tags ?? EMPTY_ART_DIRECTION_TAGS;
+}
+
+function initialGeometry(
+  layout: PublishingAlbumTypographyLayout | null
+): PublishingAlbumCanonicalGeometry | null {
   if (!layout) return null;
   if (layout.kind === "path") return { kind: "path", points: layout.points };
   const { x, y, width, height } = layout.region;
   return {
-    kind: "region", shape: layout.shape, direction: layout.direction, region: layout.region,
-    points: [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }],
+    kind: "region",
+    shape: layout.shape,
+    direction: layout.direction,
+    region: layout.region,
+    points: [
+      { x, y },
+      { x: x + width, y },
+      { x: x + width, y: y + height },
+      { x, y: y + height },
+    ],
   };
 }
 
-function canvasMetrics(fontId: string, fontReady: boolean, glyphsReady: boolean): PublishingAlbumFontMetrics {
+function canvasMetrics(
+  fontId: string,
+  fontReady: boolean,
+  glyphsReady: boolean
+): PublishingAlbumFontMetrics {
   return {
     isLoaded: candidate => candidate === fontId && fontReady,
     supportsText: candidate => candidate === fontId && glyphsReady,
@@ -40,9 +77,14 @@ export function PublishingAlbumTypographyEditor({
   text,
   backgroundUrl,
   initialLayout,
-  artDirectionTags = [],
+  artDirectionTags,
   saving = false,
   saveBlocked = false,
+  canvas = { width: 900, height: 1200 },
+  backgroundStyle,
+  editorLabel = "画册文字排版编辑器",
+  saveLabel = "保存",
+  saveSuccessMessage = "排版已保存",
   onSave,
 }: {
   text: string;
@@ -51,18 +93,46 @@ export function PublishingAlbumTypographyEditor({
   artDirectionTags?: readonly string[];
   saving?: boolean;
   saveBlocked?: boolean;
+  canvas?: { width: number; height: number };
+  backgroundStyle?: CSSProperties;
+  editorLabel?: string;
+  saveLabel?: string;
+  saveSuccessMessage?: string;
   onSave(layout: PublishingAlbumTypographyLayout): Promise<void> | void;
 }) {
-  const savedGeometry = useMemo(() => initialGeometry(initialLayout), [initialLayout]);
-  const [geometry, setGeometry] = useState<PublishingAlbumCanonicalGeometry | null>(savedGeometry);
-  const [history, setHistory] = useState<Array<PublishingAlbumCanonicalGeometry | null>>([]);
+  const resolvedArtDirectionTags =
+    resolvePublishingAlbumTypographyArtDirectionTags(artDirectionTags);
+  const savedGeometry = useMemo(
+    () => initialGeometry(initialLayout),
+    [initialLayout]
+  );
+  const [geometry, setGeometry] =
+    useState<PublishingAlbumCanonicalGeometry | null>(savedGeometry);
+  const [history, setHistory] = useState<
+    Array<PublishingAlbumCanonicalGeometry | null>
+  >([]);
   const [drawing, setDrawing] = useState(false);
   const [stroke, setStroke] = useState<PublishingAlbumStrokePoint[]>([]);
-  const [fontId, setFontId] = useState(initialLayout?.fontId ?? "noto-serif-sc");
-  const [alignment, setAlignment] = useState<"start" | "center" | "end">(initialLayout?.alignment ?? "center");
+  const [fontId, setFontId] = useState(
+    initialLayout?.fontId ?? "noto-serif-sc"
+  );
+  const [alignment, setAlignment] = useState<"start" | "center" | "end">(
+    initialLayout?.alignment ?? "center"
+  );
+  const [fontSize, setFontSize] = useState<number | null>(
+    initialLayout?.fontSize ?? null
+  );
+  const [letterSpacing, setLetterSpacing] = useState(
+    initialLayout?.letterSpacing ?? 0
+  );
+  const [lineSpacing, setLineSpacing] = useState(
+    initialLayout?.lineSpacing ?? 1.3
+  );
   const [fontReady, setFontReady] = useState(false);
   const [glyphsReady, setGlyphsReady] = useState(false);
-  const [recommendations, setRecommendations] = useState<PublishingAlbumFontRecommendation[]>([]);
+  const [recommendations, setRecommendations] = useState<
+    PublishingAlbumFontRecommendation[]
+  >([]);
   const [message, setMessage] = useState("双击画面或点击“排版文字”开始");
   const drawingRef = useRef(false);
   const strokeRef = useRef<PublishingAlbumStrokePoint[]>([]);
@@ -73,6 +143,9 @@ export function PublishingAlbumTypographyEditor({
     setHistory([]);
     setFontId(initialLayout?.fontId ?? "noto-serif-sc");
     setAlignment(initialLayout?.alignment ?? "center");
+    setFontSize(initialLayout?.fontSize ?? null);
+    setLetterSpacing(initialLayout?.letterSpacing ?? 0);
+    setLineSpacing(initialLayout?.lineSpacing ?? 1.3);
     setDrawing(false);
     setStroke([]);
     strokeRef.current = [];
@@ -82,37 +155,60 @@ export function PublishingAlbumTypographyEditor({
   useEffect(() => {
     let active = true;
     void recommendPublishingAlbumFonts({
-      text, role: geometry?.kind === "path" ? "path" : "body",
-      artDirectionTags, repository: fontRepository,
-    }).then(result => {
-      if (!active) return;
-      setRecommendations(result);
-      if (!initialLayout?.fontId && !userSelectedFontRef.current) {
-        setFontId(resolvePublishingAlbumFontChoice({ savedFontId: null, recommendations: result }));
-      }
-    }).catch(() => { if (active) setRecommendations([]); });
-    return () => { active = false; };
-  }, [artDirectionTags, geometry?.kind, initialLayout?.fontId, text]);
+      text,
+      role: geometry?.kind === "path" ? "path" : "body",
+      artDirectionTags: resolvedArtDirectionTags,
+      repository: fontRepository,
+    })
+      .then(result => {
+        if (!active) return;
+        setRecommendations(result);
+        if (!initialLayout?.fontId && !userSelectedFontRef.current) {
+          setFontId(
+            resolvePublishingAlbumFontChoice({
+              savedFontId: null,
+              recommendations: result,
+            })
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setRecommendations([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [geometry?.kind, initialLayout?.fontId, resolvedArtDirectionTags, text]);
 
   useEffect(() => {
     let active = true;
     setFontReady(false);
     setGlyphsReady(false);
-    void fontRepository.load(fontId)
+    void fontRepository
+      .load(fontId)
       .then(async () => {
         const missing = await fontRepository.missingCharacters(fontId, text);
         if (!active) return;
         setFontReady(true);
         setGlyphsReady(missing.length === 0);
-        if (missing.length > 0) setMessage(`所选字体缺少：${missing.slice(0, 8).join("")}，请换一种字体`);
+        if (missing.length > 0)
+          setMessage(
+            `所选字体缺少：${missing.slice(0, 8).join("")}，请换一种字体`
+          );
       })
-      .catch(() => { if (active) setMessage("字体加载失败，请重试或换一种字体"); });
-    return () => { active = false; };
+      .catch(() => {
+        if (active) setMessage("字体加载失败，请重试或换一种字体");
+      });
+    return () => {
+      active = false;
+    };
   }, [fontId, text]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || !drawingRef.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
       drawingRef.current = false;
       setDrawing(false);
       setStroke([]);
@@ -123,11 +219,36 @@ export function PublishingAlbumTypographyEditor({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const layoutResult = useMemo(() => geometry ? buildPublishingAlbumLayout({
-    text, fontId, geometry, canvas: { width: 900, height: 1200 }, alignment,
-    metrics: canvasMetrics(fontId, fontReady, glyphsReady),
-  }) : null, [alignment, fontId, fontReady, geometry, glyphsReady, text]);
-  const plan: PublishingAlbumLayoutPlan | null = layoutResult?.status === "ok" ? layoutResult.plan : null;
+  const layoutResult = useMemo(
+    () =>
+      geometry
+        ? buildPublishingAlbumLayout({
+            text,
+            fontId,
+            geometry,
+            canvas,
+            alignment,
+            fontSize: fontSize ?? undefined,
+            letterSpacing,
+            lineSpacing,
+            metrics: canvasMetrics(fontId, fontReady, glyphsReady),
+          })
+        : null,
+    [
+      alignment,
+      canvas,
+      fontId,
+      fontReady,
+      fontSize,
+      geometry,
+      glyphsReady,
+      letterSpacing,
+      lineSpacing,
+      text,
+    ]
+  );
+  const plan: PublishingAlbumLayoutPlan | null =
+    layoutResult?.status === "ok" ? layoutResult.plan : null;
 
   const beginDrawing = () => {
     setDrawing(true);
@@ -139,44 +260,74 @@ export function PublishingAlbumTypographyEditor({
     const bounds = event.currentTarget.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   };
-  const finishStroke = (event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+  const finishStroke = (
+    event: React.PointerEvent<HTMLDivElement>,
+    cancelled = false
+  ) => {
     if (!drawingRef.current) return;
     drawingRef.current = false;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const points = cancelled ? strokeRef.current : [...strokeRef.current, pointFromEvent(event)];
+    const points = cancelled
+      ? strokeRef.current
+      : [...strokeRef.current, pointFromEvent(event)];
     const result = classifyPublishingAlbumStroke({
-      points, width: bounds.width, height: bounds.height, cancelled,
+      points,
+      width: bounds.width,
+      height: bounds.height,
+      cancelled,
     });
     setStroke([]);
     strokeRef.current = [];
     if (result.status !== "ok") {
-      setMessage(cancelled ? "绘制已取消，没有保存" : "这笔无法形成排版，请画得更长、更清楚一些");
+      setMessage(
+        cancelled
+          ? "绘制已取消，没有保存"
+          : "这笔无法形成排版，请画得更长、更清楚一些"
+      );
       return;
     }
     setHistory(current => [...current, geometry]);
     setGeometry(result.geometry);
-    setMessage(result.geometry.kind === "region" ? "已识别为文字区域" : "已识别为文字路径");
+    setMessage(
+      result.geometry.kind === "region"
+        ? "已识别为文字区域"
+        : "已识别为文字路径"
+    );
   };
 
   const save = async () => {
     if (!geometry || !plan) return;
     const base = {
-      layoutVersion: 1 as const, fontId, alignment,
-      fontSize: plan.fontSize, letterSpacing: 0, lineSpacing: 1.3,
+      layoutVersion: 1 as const,
+      fontId,
+      alignment,
+      fontSize: plan.fontSize,
+      letterSpacing: plan.letterSpacing,
+      lineSpacing: plan.lineSpacing,
       contrast: plan.contrast,
     };
-    await onSave(geometry.kind === "path"
-      ? { ...base, kind: "path", points: geometry.points }
-      : { ...base, kind: "region", shape: geometry.shape, direction: geometry.direction, region: geometry.region });
-    setMessage("排版已保存");
+    await onSave(
+      geometry.kind === "path"
+        ? { ...base, kind: "path", points: geometry.points }
+        : {
+            ...base,
+            kind: "region",
+            shape: geometry.shape,
+            direction: geometry.direction,
+            region: geometry.region,
+          }
+    );
+    setMessage(saveSuccessMessage);
   };
 
   return (
-    <section className="space-y-3" aria-label="画册文字排版编辑器">
+    <section className="space-y-3" aria-label={editorLabel}>
       <div className="relative mx-auto max-w-md">
         <PublishingAlbumPagePreview
           backgroundUrl={backgroundUrl}
           plan={plan}
+          canvas={canvas}
+          backgroundStyle={backgroundStyle}
           label="双击进入画册文字排版"
           onDoubleClick={beginDrawing}
         />
@@ -212,16 +363,65 @@ export function PublishingAlbumTypographyEditor({
             <svg className="h-full w-full" aria-hidden="true">
               <polyline
                 points={stroke.map(point => `${point.x},${point.y}`).join(" ")}
-                fill="none" stroke="var(--nayin-accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                fill="none"
+                stroke="var(--nayin-accent)"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
             </svg>
           </div>
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-background/70 p-2" aria-label="文字排版工具栏">
-        <button type="button" onClick={beginDrawing} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">
-          <Type className="mr-1 inline h-4 w-4" />排版文字
+      <div className="grid gap-2 rounded-xl border border-[var(--panel-border)] bg-background/70 p-2.5">
+        <label className="grid grid-cols-[54px_1fr_44px] items-center gap-2 text-[11px]">
+          <span className="font-medium text-foreground">字号</span>
+          <input
+            type="range"
+            min={8}
+            max={180}
+            step={1}
+            value={fontSize ?? plan?.fontSize ?? 48}
+            disabled={!geometry}
+            onChange={event => setFontSize(Number(event.target.value))}
+            className="h-1.5 w-full accent-[var(--nayin-accent)] disabled:opacity-40"
+            aria-label="字号"
+          />
+          <span className="text-right font-mono text-[10px] text-muted-foreground">
+            {Math.round(fontSize ?? plan?.fontSize ?? 48)}px
+          </span>
+        </label>
+        <label className="grid grid-cols-[54px_1fr_44px] items-center gap-2 text-[11px]">
+          <span className="font-medium text-foreground">字间距</span>
+          <input
+            type="range"
+            min={-5}
+            max={20}
+            step={1}
+            value={letterSpacing}
+            disabled={!geometry}
+            onChange={event => setLetterSpacing(Number(event.target.value))}
+            className="h-1.5 w-full accent-[var(--nayin-accent)] disabled:opacity-40"
+            aria-label="字间距"
+          />
+          <span className="text-right font-mono text-[10px] text-muted-foreground">
+            {letterSpacing > 0 ? "+" : ""}{letterSpacing}px
+          </span>
+        </label>
+      </div>
+
+      <div
+        className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--panel-border)] bg-background/70 p-2"
+        aria-label="文字排版工具栏"
+      >
+        <button
+          type="button"
+          onClick={beginDrawing}
+          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
+        >
+          <Type className="mr-1 inline h-4 w-4" />
+          排版文字
         </button>
         <button
           type="button"
@@ -234,27 +434,50 @@ export function PublishingAlbumTypographyEditor({
           }}
           disabled={history.length === 0}
           className="rounded-lg px-3 py-2 text-xs hover:bg-muted disabled:opacity-40"
-        ><Undo2 className="mr-1 inline h-4 w-4" />撤销</button>
-        <button type="button" onClick={beginDrawing} className="rounded-lg px-3 py-2 text-xs hover:bg-muted">
-          <Redo2 className="mr-1 inline h-4 w-4" />重画
+        >
+          <Undo2 className="mr-1 inline h-4 w-4" />
+          撤销
+        </button>
+        <button
+          type="button"
+          onClick={beginDrawing}
+          className="rounded-lg px-3 py-2 text-xs hover:bg-muted"
+        >
+          <Redo2 className="mr-1 inline h-4 w-4" />
+          重画
         </button>
         <label className="text-xs">
           <span className="sr-only">字体</span>
-          <select value={fontId} onChange={event => {
-            userSelectedFontRef.current = true;
-            setFontId(event.target.value);
-          }} className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2">
+          <select
+            value={fontId}
+            onChange={event => {
+              userSelectedFontRef.current = true;
+              setFontId(event.target.value);
+            }}
+            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
+          >
             {installedPublishingAlbumFonts().map(font => (
               <option key={font.fontId} value={font.fontId}>
-                {recommendations.some(item => item.fontId === font.fontId) ? "推荐 · " : ""}{font.nameZh}
+                {recommendations.some(item => item.fontId === font.fontId)
+                  ? "推荐 · "
+                  : ""}
+                {font.nameZh}
               </option>
             ))}
           </select>
         </label>
         <label className="text-xs">
           <span className="sr-only">对齐</span>
-          <select value={alignment} onChange={event => setAlignment(event.target.value as typeof alignment)} className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2">
-            <option value="start">起点对齐</option><option value="center">居中</option><option value="end">终点对齐</option>
+          <select
+            value={alignment}
+            onChange={event =>
+              setAlignment(event.target.value as typeof alignment)
+            }
+            className="rounded-lg border border-[var(--panel-border)] bg-background px-2 py-2"
+          >
+            <option value="start">起点对齐</option>
+            <option value="center">居中</option>
+            <option value="end">终点对齐</option>
           </select>
         </label>
         <button
@@ -262,17 +485,34 @@ export function PublishingAlbumTypographyEditor({
           onClick={() => void save()}
           disabled={!plan || saving || saveBlocked}
           className="ml-auto rounded-lg bg-[var(--nayin-accent)] px-3 py-2 text-xs font-medium text-[var(--background)] disabled:opacity-40"
-        ><Check className="mr-1 inline h-4 w-4" />{saving ? "保存中…" : "保存"}</button>
+        >
+          <Check className="mr-1 inline h-4 w-4" />
+          {saving ? "保存中…" : saveLabel}
+        </button>
       </div>
       {recommendations.length > 0 ? (
-        <ul className="grid gap-1 text-[11px] text-muted-foreground" aria-label="为这页推荐的字体">
-          {recommendations.map(item => <li key={item.fontId}><strong>{publishingAlbumFontById(item.fontId)?.nameZh}</strong>：{item.reason}</li>)}
+        <ul
+          className="grid gap-1 text-[11px] text-muted-foreground"
+          aria-label="为这页推荐的字体"
+        >
+          {recommendations.map(item => (
+            <li key={item.fontId}>
+              <strong>{publishingAlbumFontById(item.fontId)?.nameZh}</strong>：
+              {item.reason}
+            </li>
+          ))}
         </ul>
       ) : null}
-      <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+      <p
+        className="text-xs text-muted-foreground"
+        role="status"
+        aria-live="polite"
+      >
         {saveBlocked
           ? "请先保存这一页文字，再保存与这份文字对应的排版"
-          : layoutResult?.status === "overflow" ? layoutResult.suggestion : message}
+          : layoutResult?.status === "overflow"
+            ? layoutResult.suggestion
+            : message}
       </p>
     </section>
   );

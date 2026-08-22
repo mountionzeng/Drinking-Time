@@ -1241,6 +1241,7 @@ type StoryboardImageGenerationFrameReference = {
     | "previous-last"
     | "next-first"
     | "publishing-cover"
+    | "publishing-cover-candidate"
     | "instruction";
   cueCode: string | null;
   shotNo: number;

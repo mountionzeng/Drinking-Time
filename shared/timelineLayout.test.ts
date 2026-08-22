@@ -43,6 +43,20 @@ function item(
 }
 
 describe("timelineLayout", () => {
+  it("resolves a higher persistent visual layer above overlapping main clips", () => {
+    const resolved = resolveTimelineDocumentFrame({
+      items: [
+        item("lower", 0, 0, 90),
+        item("upper", 1, 0, 90, { visualLayer: 1 }),
+      ],
+      frame: 30,
+    });
+    expect(resolved.kind).toBe("shot");
+    if (resolved.kind === "shot") {
+      expect(resolved.row.item.stableShotId).toBe("upper");
+    }
+  });
+
   it("keeps explicit gaps and reports maximum end", () => {
     const rows = buildTimelineLayout([
       item("a", 0, 0, 30),
@@ -89,6 +103,22 @@ describe("timelineLayout", () => {
       kind: "ok",
       itemIds: ["b"],
       boundaryItemId: "locked",
+    });
+  });
+
+  it("never groups clips from another visual layer", () => {
+    const rows = buildTimelineLayout([
+      item("main-a", 0, 0, 30, { visualLayer: 0 }),
+      item("upper-video", 1, 0, 30, { visualLayer: 2 }),
+      item("main-b", 2, 30, 30, { visualLayer: 0 }),
+    ]);
+    expect(selectDirectionalGroup(rows, "main-a", "right")).toMatchObject({
+      kind: "ok",
+      itemIds: ["main-a", "main-b"],
+    });
+    expect(selectDirectionalGroup(rows, "upper-video", "left")).toMatchObject({
+      kind: "ok",
+      itemIds: ["upper-video"],
     });
   });
 
@@ -223,6 +253,20 @@ describe("timelineLayout", () => {
 });
 
 describe("persisted timeline overlays", () => {
+  it("excludes hidden visual layers from the shared preview/export winner", () => {
+    const items = [
+      item("bottom", 0, 0, 90, { visualLayer: 0 }),
+      item("upper", 1, 0, 90, { visualLayer: 2 }),
+    ];
+    expect(
+      resolveTimelineDocumentFrame({
+        items,
+        hiddenVisualLayers: [2],
+        frame: 10,
+      })
+    ).toMatchObject({ kind: "shot", row: { item: { stableShotId: "bottom" } } });
+  });
+
   const overlay: StoryTimelineOverlay = {
     id: "overlay-a",
     kind: "generated-video",

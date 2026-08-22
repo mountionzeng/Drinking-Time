@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   StoryboardEditRow,
   StoryboardEditTransport,
+  storyboardImageClipNudgePlacement,
+  storyboardShotDropPlacement,
+  storyboardVideoPointerMovePlacement,
+  storyboardVisualClipPointerPlacement,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
@@ -21,6 +25,7 @@ function boardTimeline(
     audioClips: [],
     selectedRange: null,
     canSplitAt: () => true,
+    canExtractAt: () => true,
     onSeek: vi.fn(),
     onTogglePlay: vi.fn(),
     onSelectRange: vi.fn(),
@@ -90,6 +95,121 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
+  it("moves a video in time and to any visual layer as one placement", () => {
+    expect(
+      storyboardShotDropPlacement({
+        stableShotId: "sh-02",
+        sourceStartFrame: 60,
+        targetMs: 5_000,
+        visualLayer: 7,
+      })
+    ).toEqual({
+      stableShotId: "sh-02",
+      deltaFrames: 90,
+      snapThresholdFrames: 0,
+      visualLayer: 7,
+    });
+  });
+
+  it("maps a pointer release to one absolute image placement across layers", () => {
+    expect(
+      storyboardVisualClipPointerPlacement({
+        clientX: 350,
+        rectLeft: 100,
+        rectWidth: 400,
+        totalMs: 8_000,
+        visualLayer: 3,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetMs: 5_000,
+      targetStableShotId: "sh-02",
+      targetOffsetFrames: 90,
+      visualLayer: 3,
+    });
+  });
+
+  it("keeps a video's grab offset when moving it vertically between layers", () => {
+    expect(
+      storyboardVideoPointerMovePlacement({
+        stableShotId: "sh-01",
+        startClientX: 240,
+        releaseClientX: 240,
+        trackWidthPx: 400,
+        totalMs: 8_000,
+        visualLayer: 4,
+      })
+    ).toEqual({
+      stableShotId: "sh-01",
+      deltaFrames: 0,
+      snapThresholdFrames: 0,
+      visualLayer: 4,
+    });
+  });
+
+  it("nudges an image by frames and crosses shot boundaries", () => {
+    expect(
+      storyboardImageClipNudgePlacement({
+        currentAbsoluteFrame: 59,
+        deltaFrames: 1,
+        visualLayer: 4,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetStableShotId: "sh-02",
+      targetOffsetFrames: 0,
+      visualLayer: 4,
+    });
+    expect(
+      storyboardImageClipNudgePlacement({
+        currentAbsoluteFrame: 60,
+        deltaFrames: -1,
+        visualLayer: 2,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetStableShotId: "sh-01",
+      targetOffsetFrames: 59,
+      visualLayer: 2,
+    });
+  });
+
+  it("clamps image nudges to the visible timeline and clamps layers at zero", () => {
+    expect(
+      storyboardImageClipNudgePlacement({
+        currentAbsoluteFrame: 0,
+        deltaFrames: -15,
+        visualLayer: -1,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetStableShotId: "sh-01",
+      targetOffsetFrames: 0,
+      visualLayer: 0,
+    });
+    expect(
+      storyboardImageClipNudgePlacement({
+        currentAbsoluteFrame: 239,
+        deltaFrames: 15,
+        visualLayer: 1,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetStableShotId: "sh-02",
+      targetOffsetFrames: 179,
+      visualLayer: 1,
+    });
+  });
+
+  it("advertises arrow movement on ordinary video clips", () => {
+    const html = renderRow(boardTimeline({ onMoveTimelineShot: vi.fn() }));
+    expect(html).toContain('data-visual-clip-move-target="true"');
+    expect(html).toContain(
+      'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"'
+    );
+    expect(html).toContain("方向键左右移动、上下换层");
+  });
+
   it("sizes each shot block by its duration, not by the storyboard column width", () => {
     const html = renderRow(boardTimeline());
     expect(html).toContain("left:0%;width:25%");
@@ -171,13 +291,27 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain("强弱 · 停顿");
   });
 
-  it("places extracted images on their own aligned row above the edit track", () => {
+  it("places one-frame image clips on a normal movable visual layer", () => {
     const html = renderToStaticMarkup(
       <StoryboardEditRow
         timeline={boardTimeline({ playheadMs: 1_000 })}
         shots={[
           {
             ...shots[0],
+            timelineItem: {
+              ...shots[0].timelineItem!,
+              imageClips: [
+                {
+                  id: "image-clip-99",
+                  imageId: 99,
+                  imageUrl: "/frame-99.webp",
+                  label: "抽帧 00:01.000",
+                  offsetFrames: 30,
+                  durationFrames: 1,
+                  visualLayer: 1,
+                },
+              ],
+            },
             extractedFrames: [
               {
                 id: "image-99",
@@ -194,18 +328,247 @@ describe("StoryboardEditRow", () => {
         columnSpan={2}
       />
     );
-    expect(html).toContain('data-testid="storyboard-extracted-frame-track"');
+    expect(html).not.toContain('data-testid="storyboard-extracted-frame-track"');
+    expect(html).toContain('data-testid="storyboard-visual-layer-track-2"');
+    expect(html).toContain("视觉层 2");
+    expect(html).not.toContain("抽帧 · 上层");
     expect(html).toContain('data-testid="storyboard-top-playhead"');
     expect(html.indexOf('data-testid="storyboard-top-playhead"')).toBeLessThan(
       html.indexOf('data-testid="storyboard-edit-playhead"')
     );
     expect(html).toContain('aria-label="拖动顶层播放头"');
     expect(html).toContain('data-testid="storyboard-extracted-frame-99"');
+    expect(html).toContain('data-pointer-clip-move="true"');
+    expect(html).toContain("cursor-grab");
     expect(html).toContain('src="/frame-99.webp"');
     expect(html).toContain("left:12.5%");
-    expect(html.indexOf("抽帧 · 上层")).toBeLessThan(
+    expect(html.indexOf("视觉层 2")).toBeLessThan(
       html.indexOf("视觉 · 剪辑")
     );
+  });
+
+  it("keeps repeated extracted image ids distinct across source shots", () => {
+    const repeatedFrame = {
+      id: "image-99",
+      imageId: 99,
+      imageUrl: "/frame-99.webp",
+      atMs: 1_000,
+    };
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={shots.map(shot => ({
+          ...shot,
+          extractedFrames: [repeatedFrame],
+        }))}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(2);
+  });
+
+  it("renders repeated extractions of the same image as independent movable clips", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={[
+          {
+            ...shots[0],
+            extractedFrames: [
+              {
+                id: "image-99",
+                imageId: 99,
+                imageUrl: "/frame-99.webp",
+                atMs: 1_000,
+              },
+            ],
+            timelineItem: {
+              stableShotId: "sh-01",
+              included: true,
+              position: 0,
+              plannedDurationMs: 2_000,
+              transform: {
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 1,
+                cropHeight: 1,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              },
+              imageClips: [
+                {
+                  id: "image-clip-99-first",
+                  imageId: 99,
+                  imageUrl: "/frame-99.webp",
+                  label: "第一层抽帧",
+                  offsetFrames: 30,
+                  durationFrames: 1,
+                  visualLayer: 1,
+                },
+                {
+                  id: "image-clip-99-second",
+                  imageId: 99,
+                  imageUrl: "/frame-99.webp",
+                  label: "第二层抽帧",
+                  offsetFrames: 30,
+                  durationFrames: 1,
+                  visualLayer: 2,
+                },
+              ],
+            },
+          },
+          shots[1],
+        ]}
+        selectedShotNo={1}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(2);
+    expect(html).toContain('data-testid="storyboard-visual-layer-track-2"');
+    expect(html).toContain('data-testid="storyboard-visual-layer-track-3"');
+    expect(html.match(/data-pointer-clip-move="true"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html.match(/cursor-grab/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders higher layers above lower layers and keeps an empty upper layer available", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline()}
+        shots={[
+          {
+            ...shots[0],
+            timelineItem: {
+              stableShotId: "sh-01",
+              included: true,
+              position: 0,
+              plannedDurationMs: 2_000,
+              visualLayer: 0,
+              imageClips: [
+                {
+                  id: "upper-still",
+                  imageId: 77,
+                  imageUrl: "/upper-still.webp",
+                  label: "上层图片",
+                  offsetFrames: 0,
+                  durationFrames: 1,
+                  visualLayer: 3,
+                },
+              ],
+              transform: {
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 1,
+                cropHeight: 1,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              },
+            },
+          },
+          shots[1],
+        ]}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain('data-testid="storyboard-visual-layer-track-5"');
+    expect(html.indexOf("视觉层 5")).toBeLessThan(html.indexOf("视觉层 4"));
+    expect(html.indexOf("视觉层 4")).toBeLessThan(html.indexOf("视觉层 2"));
+    expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
+    expect(html.match(/data-testid="storyboard-top-playhead"/g)).toHaveLength(1);
+  });
+
+  it("renders persistent controls for hiding, inserting, deleting and moving every layer", () => {
+    const html = renderRow(
+      boardTimeline({
+        visualLayerState: { count: 3, hidden: [1] },
+        onManageVisualLayer: vi.fn(),
+      })
+    );
+    expect(html).toContain('aria-label="显示视觉层 2"');
+    expect(html).toContain('aria-label="隐藏视觉层 1"');
+    expect(html).toContain('aria-label="删除视觉层 3"');
+    expect(html).toContain('aria-label="视觉层 2 上移"');
+    expect(html).toContain("在上方插入图层");
+    expect(html).toContain("在下方插入图层");
+    expect(html).toContain("拖动可调整整层顺序");
+    expect(html).toContain("opacity-35 grayscale");
+  });
+
+  it("renders a legacy overlay only once even when several visual layers exist", () => {
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({
+          overlays: [
+            {
+              id: "legacy-overlay",
+              kind: "generated-video",
+              takeId: 9,
+              sourceStableShotId: "sh-01",
+              videoUrl: "/overlay.mp4",
+              startFrame: 0,
+              targetEndFrame: 60,
+              mediaEndFrame: 45,
+              endFrame: 60,
+              stackOrder: 10,
+              leftImageId: 1,
+              rightImageId: 2,
+              transform: {
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 1,
+                cropHeight: 1,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              },
+            },
+          ],
+        })}
+        shots={[
+          {
+            ...shots[0],
+            timelineItem: {
+              stableShotId: "sh-01",
+              included: true,
+              position: 0,
+              plannedDurationMs: 2_000,
+              visualLayer: 0,
+              imageClips: [
+                {
+                  id: "upper-still-overlay-case",
+                  imageId: 78,
+                  imageUrl: "/upper-still.webp",
+                  label: "上层图片",
+                  offsetFrames: 0,
+                  durationFrames: 1,
+                  visualLayer: 3,
+                },
+              ],
+              transform: {
+                cropX: 0,
+                cropY: 0,
+                cropWidth: 1,
+                cropHeight: 1,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              },
+            },
+          },
+          shots[1],
+        ]}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html.match(/data-testid="storyboard-overlay-legacy-overlay"/g)).toHaveLength(1);
   });
 
   it("renders a persisted overlay video and its explicit uncovered tail", () => {

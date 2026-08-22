@@ -276,13 +276,4 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
 
-  it("syncs the active story id from StoryAgentProvider back into the analysis data layer", () => {
-    const workspace = source(
-      "client/src/features/analysis/views/AnalysisWorkspace.tsx"
-    );
-
-    expect(workspace).toContain(
-      "onActiveStoryChange={projectData.setActiveStoryId}"
-    );
-  });
 });

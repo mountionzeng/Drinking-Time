@@ -30,6 +30,8 @@ export type PublishingAlbumLayoutPlan = {
   fontId: string;
   fontFamily: string;
   fontSize: number;
+  letterSpacing: number;
+  lineSpacing: number;
   alignment: "start" | "center" | "end";
   graphemes: PublishingAlbumPositionedGrapheme[];
   contrast: PublishingAlbumContrastStyle;
@@ -99,30 +101,38 @@ function layoutHorizontal(input: {
   graphemes: string[]; fontId: string; fontSize: number;
   x: number; y: number; width: number; height: number;
   alignment: "start" | "center" | "end"; metrics: PublishingAlbumFontMetrics;
+  letterSpacing: number; lineSpacing: number;
 }): PublishingAlbumPositionedGrapheme[] | null {
   const paddingX = input.width * 0.055;
   const paddingY = input.height * 0.055;
   const availableWidth = input.width - paddingX * 2;
   const availableHeight = input.height - paddingY * 2;
-  const lineHeight = input.fontSize * 1.3;
+  const lineHeight = input.fontSize * input.lineSpacing;
   const lines: Array<Array<{ grapheme: string; index: number; width: number }>> = [[]];
   let lineWidth = 0;
   input.graphemes.forEach((grapheme, index) => {
     if (grapheme === "\n") { lines.push([]); lineWidth = 0; return; }
     const width = input.metrics.measure(grapheme, input.fontId, input.fontSize);
     if (width > availableWidth) { lines.push([{ grapheme, index, width }]); lineWidth = width; return; }
-    if (lineWidth + width > availableWidth && lines.at(-1)!.length > 0) {
+    const spacedWidth = lines.at(-1)!.length > 0
+      ? width + input.letterSpacing
+      : width;
+    if (lineWidth + spacedWidth > availableWidth && lines.at(-1)!.length > 0) {
       lines.push([]); lineWidth = 0;
     }
     lines.at(-1)!.push({ grapheme, index, width });
-    lineWidth += width;
+    lineWidth += lineWidth > 0 ? width + input.letterSpacing : width;
   });
-  if (lines.some(line => line.reduce((sum, item) => sum + item.width, 0) > availableWidth)) return null;
+  if (lines.some(line =>
+    line.reduce((sum, item) => sum + item.width, 0) +
+      Math.max(0, line.length - 1) * input.letterSpacing > availableWidth
+  )) return null;
   const usedHeight = lines.length * lineHeight;
   if (usedHeight > availableHeight) return null;
   const top = input.y + paddingY + (availableHeight - usedHeight) / 2;
   return lines.flatMap((line, lineIndex) => {
-    const usedWidth = line.reduce((sum, item) => sum + item.width, 0);
+    const usedWidth = line.reduce((sum, item) => sum + item.width, 0) +
+      Math.max(0, line.length - 1) * input.letterSpacing;
     let cursor = input.x + paddingX + alignOffset(input.alignment, availableWidth, usedWidth);
     return line.map(item => {
       const glyph = {
@@ -130,7 +140,7 @@ function layoutHorizontal(input: {
         x: rounded(cursor + item.width / 2),
         y: rounded(top + lineIndex * lineHeight + input.fontSize), rotation: 0,
       };
-      cursor += item.width;
+      cursor += item.width + input.letterSpacing;
       return glyph;
     });
   });
@@ -188,13 +198,13 @@ function pointAlongPath(points: Array<{ x: number; y: number }>, distance: numbe
 function layoutPath(input: {
   graphemes: string[]; points: PublishingAlbumPoint[]; width: number; height: number;
   fontId: string; fontSize: number; alignment: "start" | "center" | "end";
-  metrics: PublishingAlbumFontMetrics;
+  metrics: PublishingAlbumFontMetrics; letterSpacing: number;
 }): PublishingAlbumPositionedGrapheme[] | null {
   const points = input.points.map(point => ({ x: point.x * input.width, y: point.y * input.height }));
   const length = points.slice(1).reduce((sum, point, index) =>
     sum + Math.hypot(point.x - points[index]!.x, point.y - points[index]!.y), 0
   );
-  const spacing = input.fontSize * 0.04;
+  const spacing = input.fontSize * 0.04 + input.letterSpacing;
   const widths = input.graphemes.map(grapheme => grapheme === "\n" ? 0 : input.metrics.measure(grapheme, input.fontId, input.fontSize));
   const used = widths.reduce((sum, value) => sum + value, 0) + Math.max(0, widths.length - 1) * spacing;
   if (used > length) return null;
@@ -215,6 +225,9 @@ export function buildPublishingAlbumLayout(input: {
   geometry: PublishingAlbumCanonicalGeometry;
   canvas: { width: number; height: number };
   alignment?: "start" | "center" | "end";
+  fontSize?: number;
+  letterSpacing?: number;
+  lineSpacing?: number;
   metrics: PublishingAlbumFontMetrics;
   sampleBackground?: PublishingAlbumBackgroundSampler;
 }): PublishingAlbumLayoutResult {
@@ -225,9 +238,22 @@ export function buildPublishingAlbumLayout(input: {
   if (!input.metrics.supportsText(input.fontId, input.text)) return { status: "invalid", reason: "missing_glyphs", suggestion: "所选字体缺少部分字形，请换用兼容字体" };
   const graphemes = publishingAlbumGraphemes(input.text);
   const alignment = input.alignment ?? "center";
+  const requestedFontSize =
+    typeof input.fontSize === "number" && Number.isFinite(input.fontSize)
+      ? Math.min(240, Math.max(8, input.fontSize))
+      : null;
+  const letterSpacing =
+    typeof input.letterSpacing === "number" && Number.isFinite(input.letterSpacing)
+      ? Math.min(20, Math.max(-5, input.letterSpacing))
+      : 0;
+  const lineSpacing =
+    typeof input.lineSpacing === "number" && Number.isFinite(input.lineSpacing)
+      ? Math.min(3, Math.max(0.8, input.lineSpacing))
+      : 1.3;
   let positioned: PublishingAlbumPositionedGrapheme[] | null = null;
-  let fontSize = MAX_FONT_SIZE;
-  for (; fontSize >= MIN_FONT_SIZE; fontSize -= 1) {
+  let fontSize = requestedFontSize ?? MAX_FONT_SIZE;
+  const minimumFontSize = requestedFontSize ?? MIN_FONT_SIZE;
+  for (; fontSize >= minimumFontSize; fontSize -= 1) {
     if (input.geometry.kind === "region") {
       const region = {
         x: input.geometry.region.x * input.canvas.width,
@@ -237,11 +263,24 @@ export function buildPublishingAlbumLayout(input: {
       };
       positioned = input.geometry.direction === "vertical"
         ? layoutVertical({ ...region, graphemes, fontSize, alignment })
-        : layoutHorizontal({ ...region, graphemes, fontId: input.fontId, fontSize, alignment, metrics: input.metrics });
+        : layoutHorizontal({
+            ...region,
+            graphemes,
+            fontId: input.fontId,
+            fontSize,
+            alignment,
+            metrics: input.metrics,
+            letterSpacing,
+            lineSpacing,
+          });
     } else {
       positioned = layoutPath({
         graphemes, points: input.geometry.points, width: input.canvas.width, height: input.canvas.height,
-        fontId: input.fontId, fontSize, alignment, metrics: input.metrics,
+        fontId: input.fontId,
+        fontSize,
+        alignment,
+        metrics: input.metrics,
+        letterSpacing,
       });
     }
     if (positioned) break;
@@ -258,6 +297,8 @@ export function buildPublishingAlbumLayout(input: {
       fontId: input.fontId,
       fontFamily: font.family,
       fontSize,
+      letterSpacing,
+      lineSpacing,
       alignment,
       graphemes: positioned,
       contrast: publishingAlbumContrastForPoints(positioned, input.sampleBackground),

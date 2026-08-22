@@ -501,6 +501,30 @@ describe("runInference — deterministic parameter downgrade", () => {
 });
 
 describe("runInference — deadline and budget", () => {
+  it("caps one candidate so a replay-safe fallback still gets execution time", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { impl, calls } = recordingFetch((_call, index) => {
+      if (index > 0) return jsonResponse(200, okBody("fallback-ok"));
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = calls[0]?.init.signal;
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    });
+
+    const outcome = await runInference(
+      baseRequest({
+        fetchImpl: impl,
+        replaySafe: true,
+        deadlineMs: 1_000,
+        attemptTimeoutMs: 10,
+      })
+    );
+
+    expect(calls.map(call => call.url)).toEqual([NEXT_URL, LEGACY_URL]);
+    expect(outcome.provider).toBe("302");
+    expect(outcome.result.choices[0]?.message.content).toBe("fallback-ok");
+  });
+
   it("gives the second candidate only the remaining budget and never resets it", async () => {
     let clock = 1_000;
     const { impl, calls } = recordingFetch((_call, index) => {

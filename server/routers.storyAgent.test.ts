@@ -92,6 +92,11 @@ const imageGenMocks = vi.hoisted(() => ({
   })),
   resume302MidjourneyTask: vi.fn(),
   resume302GptImageTask: vi.fn(),
+  storeImageBytes: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/stored.png",
+    imageKey: "generated/stored.png",
+  })),
   toPublicImageUrl: vi.fn(async (url?: string) => url),
 }));
 

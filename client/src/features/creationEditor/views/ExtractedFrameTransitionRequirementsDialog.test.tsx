@@ -6,7 +6,7 @@ import ExtractedFrameTransitionRequirementsDialog from "./ExtractedFrameTransiti
 vi.stubGlobal("React", React);
 
 describe("ExtractedFrameTransitionRequirementsDialog", () => {
-  it("shows both endpoints, the capped duration, motion input, and amplitude choices", () => {
+  it("asks for a complete video description while keeping endpoints and amplitude visible", () => {
     const html = renderToStaticMarkup(
       <ExtractedFrameTransitionRequirementsDialog
         left={{ id: "a", imageId: 1, atMs: 1_000, imageUrl: "/a.webp" }}
@@ -18,7 +18,11 @@ describe("ExtractedFrameTransitionRequirementsDialog", () => {
     expect(html).toContain("图片 #1");
     expect(html).toContain("图片 #2");
     expect(html).toContain("实际请求：8 秒");
-    expect(html).toContain("描述相机如何运动");
+    expect(html).toContain("描述这段视频要发生什么");
+    expect(html).toContain("完整画面描述");
+    expect(html).toContain("场景快速变暗，镜头推向女主的眼睛");
+    expect(html).toContain('maxLength="2000"');
+    expect(html).toContain("整体运动幅度（可选）");
     expect(html).toContain('value="medium"');
     expect(html).toContain("继续，生成待确认卡");
   });

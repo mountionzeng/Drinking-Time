@@ -27,6 +27,7 @@ export async function invokeVisionJson(params: {
   imageUrls: string[];
   maxTokens?: number;
   timeoutMs?: number;
+  attemptTimeoutMs?: number;
 }): Promise<{ text: string; modelLabel: string }> {
   if (!visionChannelConfigured()) {
     throw new Error(
@@ -59,6 +60,7 @@ export async function invokeVisionJson(params: {
     // completion 预算：给太少会把正式回答截成空串。
     maxTokens: params.maxTokens ?? 4000,
     deadlineMs: params.timeoutMs ?? 45_000,
+    attemptTimeoutMs: params.attemptTimeoutMs,
     // 图片一致性质检是纯读取分析，没有工具调用也没有业务写入，可以安全重发。
     replaySafe: true,
   });

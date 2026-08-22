@@ -29,6 +29,7 @@ import {
   emptyPublishingDraftState,
   upsertPublishingPlatformDraft,
 } from "@shared/publishingDraft";
+import { requiredVisualAssetViewRoles } from "@shared/visualAssets";
 
 const savedDatabaseUrl = ENV.databaseUrl;
 
@@ -150,6 +151,50 @@ describe("normalizeTimelineItems", () => {
       bpm: 72,
       scaleAmount: 0.06,
     });
+  });
+
+  it("preserves ordinary visual layers and independent image clips", () => {
+    const [item] = normalizeTimelineItems(
+      [
+        {
+          stableShotId: "shot-a",
+          visualLayer: 4,
+          imageClips: [
+            {
+              id: "image-clip-99-first",
+              imageId: 99,
+              imageUrl: "/frame.webp",
+              label: "第一份",
+              offsetFrames: 30,
+              timelineStartFrame: 345,
+              durationFrames: 1,
+              visualLayer: 5,
+            },
+            {
+              id: "image-clip-99-second",
+              imageId: 99,
+              imageUrl: "/frame.webp",
+              label: "第二份",
+              offsetFrames: 30,
+              durationFrames: 1,
+              visualLayer: 6,
+            },
+          ],
+        },
+      ],
+      facts
+    );
+
+    expect(item.visualLayer).toBe(4);
+    expect(item.imageClips).toMatchObject([
+      {
+        id: "image-clip-99-first",
+        imageId: 99,
+        timelineStartFrame: 345,
+        visualLayer: 5,
+      },
+      { id: "image-clip-99-second", imageId: 99, visualLayer: 6 },
+    ]);
   });
 
   it("keeps valid split video clips and discards malformed timeline clips", () => {
@@ -366,6 +411,91 @@ describe("normalizeTimelineItems", () => {
   });
 });
 
+describe("Story visual asset material projection", () => {
+  it("projects only this Story's locked assets and stable-shot binding", async () => {
+    const views = requiredVisualAssetViewRoles("character").map(
+      (role, index) => ({
+        id: `view-${role}`,
+        role,
+        imageId: 800 + index,
+        status: "pass",
+      })
+    );
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "视觉资产投影",
+      body: {
+        _revision: 1,
+        shots: [
+          {
+            stableShotId: "shot-visual-1",
+            shotIdentity: "shot-visual-1",
+            shotNo: 1,
+          },
+        ],
+        visualAssets: {
+          schemaVersion: 1,
+          legacyMigrationVersion: 1,
+          assets: [
+            {
+              id: "character-a",
+              kind: "character",
+              name: "红外套人物",
+              currentVersionId: "character-v1",
+              createdAt: 1,
+              updatedAt: 2,
+              versions: [
+                {
+                  id: "character-v1",
+                  version: 1,
+                  status: "locked",
+                  referenceImageIds: [701],
+                  legacyReferenceIds: [],
+                  fixedFacts: {
+                    kind: "character",
+                    face: "圆脸",
+                    hair: "齐耳短发",
+                    outfit: "红色长外套",
+                    accessories: [],
+                  },
+                  allowedVariations: ["景别", "光线"],
+                  conflicts: [],
+                  boardImageId: 799,
+                  views,
+                  createdAt: 1,
+                  lockedAt: 2,
+                },
+              ],
+            },
+          ],
+          proposals: [],
+          bindings: [
+            {
+              stableShotId: "shot-visual-1",
+              character: {
+                assetId: "character-a",
+                versionId: "character-v1",
+              },
+              confirmedAt: 3,
+            },
+          ],
+          operations: [],
+        },
+      },
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+
+    expect(materials?.visualAssets?.assets).toHaveLength(1);
+    expect(materials?.shots[0]?.visualAssetBinding).toMatchObject({
+      stableShotId: "shot-visual-1",
+      character: { assetId: "character-a", versionId: "character-v1" },
+    });
+    await expect(getStoryMaterialState(story.id, 2)).resolves.toBeNull();
+  });
+});
+
 describe("getStoryMaterialState", () => {
   it("keeps a retained timeline segment playable after its source shot is deleted", async () => {
     const sourceStableShotId = "shot-source";
@@ -518,6 +648,173 @@ describe("getStoryMaterialState", () => {
 
     expect(materials?.shots[1]?.currentImage?.id).toBe(image.id);
     expect(materials?.shots[1]?.videoTakes.map(item => item.id)).toContain(take.id);
+  });
+
+  it("projects extracted-frame inputs and their image lineage onto the generated shot", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "抽帧派生镜头图片谱系",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-left",
+            shotIdentity: "shot-left",
+            shotNo: 1,
+          },
+          {
+            stableShotId: "transition-shot",
+            shotIdentity: "transition-shot",
+            shotNo: 2,
+            sourceTransition: {
+              firstImageId: 1,
+              lastImageId: 2,
+              takeId: 90,
+            },
+          },
+          {
+            stableShotId: "shot-right",
+            shotIdentity: "shot-right",
+            shotNo: 3,
+          },
+        ],
+      },
+    });
+    const first = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-left",
+      imageUrl: "data:image/png;base64,FIRST",
+      imageKey: null,
+      prompt: "时间线抽帧 · 1000ms",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const last = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH03",
+      shotIdentity: "shot-right",
+      imageUrl: "data:image/png;base64,LAST",
+      imageKey: null,
+      prompt: "时间线抽帧 · 4000ms",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const derived = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-left",
+      imageUrl: "data:image/png;base64,DERIVED",
+      imageKey: null,
+      prompt: "由首帧生成的变化图",
+      generationType: "inpaint",
+      parentImageId: first.id,
+      isCurrent: false,
+    });
+    const saved = await getStoryById(story.id, 1);
+    const body = structuredClone(saved?.body as Record<string, unknown>);
+    const transition = (body.shots as Array<Record<string, unknown>>)[1];
+    transition.sourceTransition = {
+      firstImageId: first.id,
+      lastImageId: last.id,
+      takeId: 90,
+    };
+    body._revision = 1;
+    expect(
+      await updateStoryBodyIfRevision({
+        id: story.id,
+        userId: 1,
+        expectedRevision: 0,
+        body,
+      })
+    ).toBe(true);
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    const projected = materials?.shots.find(
+      shot => shot.stableShotId === "transition-shot"
+    );
+
+    expect(projected?.currentImage).toBeNull();
+    expect(projected?.imageVersions).toEqual([]);
+    expect(new Set(projected?.relatedImages?.map(image => image.id))).toEqual(
+      new Set([first.id, last.id, derived.id])
+    );
+  });
+
+  it("keeps related video inputs scoped to the exact stable shot identity", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "相同数字别名的关联图隔离",
+      body: {
+        shots: [
+          { stableShotId: "shot-02-a", shotIdentity: "shot-02-a", shotNo: 2 },
+          { stableShotId: "shot-02-b", shotIdentity: "shot-02-b", shotNo: 2 },
+        ],
+      },
+    });
+    const source = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH02",
+      shotIdentity: "shot-02-a",
+      imageUrl: "data:image/png;base64,SCOPED",
+      imageKey: null,
+      prompt: "仅属于 A 的视频输入",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    const derived = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH02",
+      shotIdentity: "shot-02-a",
+      imageUrl: "data:image/png;base64,SCOPED-DERIVED",
+      imageKey: null,
+      prompt: "A 的派生图片",
+      generationType: "inpaint",
+      parentImageId: source.id,
+      isCurrent: false,
+    });
+    await selectImage(story.id, source.id);
+    await createVideoTake({
+      storyId: story.id,
+      userId: 1,
+      stableShotId: "shot-02-a",
+      sourceImageId: source.id,
+      status: "available",
+      provider: "local",
+      model: "imported",
+      prompt: "A 的视频",
+      durationSec: 3,
+      aspectRatio: "16:9",
+      videoUrl: "/api/videos/shot-02-a.mp4",
+      extractionCapability: "available",
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    const shotA = materials?.shots.find(
+      shot => shot.stableShotId === "shot-02-a"
+    );
+    const shotB = materials?.shots.find(
+      shot => shot.stableShotId === "shot-02-b"
+    );
+
+    expect(shotA?.currentImage?.id).toBe(source.id);
+    expect(shotA?.imageVersions.map(image => image.id)).toEqual(
+      expect.arrayContaining([source.id, derived.id])
+    );
+    expect(shotB?.currentImage).toBeNull();
+    expect(shotB?.imageVersions).toEqual([]);
+    expect(shotB?.relatedImages).toEqual([]);
   });
 
   it("keeps publishing covers out of shots and unassigned materials", async () => {

@@ -262,6 +262,155 @@ describe("creation editor route and shell", () => {
     expect(merged[0].imageId).toBe(11);
   });
 
+  it("projects related endpoint images onto a derived shot without adopting them", () => {
+    const first = materialImage(
+      31,
+      "/api/images/extracted-first.webp",
+      true,
+      "explicit"
+    );
+    const last = {
+      ...materialImage(
+        32,
+        "/api/images/extracted-last.webp",
+        true,
+        "explicit"
+      ),
+      shotIdentity: "shot-02",
+      rawShotNo: "SH02",
+      canonicalShotNo: "SH02",
+    };
+    const images = resolveCreationEditorImages(
+      {
+        storyId: 54,
+        timeline: { storyId: 54, version: 1, items: [] },
+        shots: [
+          {
+            stableShotId: "transition-shot",
+            shotNo: 2,
+            currentImage: null,
+            imageVersions: [],
+            relatedImages: [first, last],
+            currentVideo: null,
+            videoTakes: [],
+            timelineItem: null,
+          },
+        ],
+        unassignedImages: [],
+        unassignedVideoTakes: [],
+        reusableVideoTakes: [],
+      },
+      []
+    );
+    const [merged] = mergeShotsWithImages(
+      [
+        shot(2, {
+          stableShotId: "transition-shot",
+          shotIdentity: "transition-shot",
+        }),
+      ],
+      images
+    );
+
+    expect(merged.imageVersions?.map(image => image.id)).toEqual([31, 32]);
+    expect(merged.imageId).toBeUndefined();
+    expect(merged.imageUrl).toBeUndefined();
+  });
+
+  it("does not adopt a current-like legacy image related only by stable shot ID", () => {
+    const relatedLegacyImage = {
+      ...materialImage(
+        33,
+        "/api/images/legacy-related.webp",
+        true,
+        "explicit"
+      ),
+      shotIdentity: null,
+      shotNo: 2,
+      rawShotNo: "SH02",
+      canonicalShotNo: "SH02",
+      relatedShotIdentities: ["transition-shot"],
+    };
+
+    const [merged] = mergeShotsWithImages(
+      [
+        shot(2, {
+          stableShotId: "transition-shot",
+          shotIdentity: "transition-shot",
+        }),
+      ],
+      [relatedLegacyImage]
+    );
+
+    expect(merged.imageVersions?.map(image => image.id)).toEqual([33]);
+    expect(merged.imageId).toBeUndefined();
+    expect(merged.imageUrl).toBeUndefined();
+  });
+
+  it("does not spread a related image across stable IDs sharing a numeric alias", () => {
+    const related = {
+      ...materialImage(34, "/api/images/related-a.webp", false, "none"),
+      shotIdentity: "source-shot",
+      shotNo: 1,
+      relatedShotIdentities: ["shot-02-a"],
+    };
+
+    const merged = mergeShotsWithImages(
+      [
+        shot(2, { stableShotId: "shot-02-a", shotIdentity: "shot-02-a" }),
+        shot(2, { stableShotId: "shot-02-b", shotIdentity: "shot-02-b" }),
+      ],
+      [related]
+    );
+
+    expect(merged[0].imageVersions?.map(image => image.id)).toEqual([34]);
+    expect(merged[1].imageVersions).toBeUndefined();
+  });
+
+  it("does not spread an owned current image across duplicate numeric aliases", () => {
+    const owned = {
+      ...materialImage(35, "/api/images/owned-a.webp", true, "explicit"),
+      shotIdentity: "shot-02-a",
+      shotNo: 2,
+      rawShotNo: "SH02",
+      canonicalShotNo: "SH02",
+    };
+
+    const merged = mergeShotsWithImages(
+      [
+        shot(2, { stableShotId: "shot-02-a", shotIdentity: "shot-02-a" }),
+        shot(2, { stableShotId: "shot-02-b", shotIdentity: "shot-02-b" }),
+      ],
+      [owned]
+    );
+
+    expect(merged[0]).toMatchObject({ imageId: 35 });
+    expect(merged[1].imageVersions).toBeUndefined();
+    expect(merged[1].imageId).toBeUndefined();
+    expect(merged[1].imageUrl).toBeUndefined();
+  });
+
+  it("does not guess ownership for an identityless image with a duplicate shot number", () => {
+    const legacy = {
+      ...materialImage(36, "/api/images/legacy-sh02.webp", true, "explicit"),
+      shotIdentity: null,
+      shotNo: 2,
+      rawShotNo: "SH02",
+      canonicalShotNo: "SH02",
+    };
+
+    const merged = mergeShotsWithImages(
+      [
+        shot(2, { stableShotId: "shot-02-a", shotIdentity: "shot-02-a" }),
+        shot(2, { stableShotId: "shot-02-b", shotIdentity: "shot-02-b" }),
+      ],
+      [legacy]
+    );
+
+    expect(merged[0].imageId).toBeUndefined();
+    expect(merged[1].imageId).toBeUndefined();
+  });
+
   it("keeps current-story unmatched takes visible without showing other stories", () => {
     const matchedTake = videoTake(1, { stableShotId: "shot-01" });
     const oldTake = videoTake(2, { stableShotId: "old-shot-99" });

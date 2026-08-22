@@ -145,10 +145,10 @@ function candidate(
 function overlayCandidate(expectedTimelineVersion = 3): TimelineTransitionCandidate {
   return {
     ...candidate(),
-    candidateId: "transition-27f2b410aab537ef",
-    provisionalStableShotId: "transition-shot-27f2b410aab537ef",
+    candidateId: "transition-c900ad99c0e01a64",
+    provisionalStableShotId: "transition-shot-c900ad99c0e01a64",
     prompt:
-      "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。 运动幅度：自动幅度。",
+      "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 首帧和尾帧是确定的画面边界；中间过程必须完整执行用户的画面描述，并自然、连续地抵达尾帧。 用户明确要求的新场景、物体、人物动作、形变和光线变化必须实现，不得以保持连续性为由删除、替换或弱化。 用户未提及的主体身份、服装、画风和视觉质感保持稳定；不得添加用户未要求的文字或标志。 完整保留生成视频的运动，不冻结尾帧。 运动幅度：自动幅度。",
     instruction: "用两张时间线抽帧生成上层覆盖视频",
     movementAmplitude: "auto",
     durationSec: 3,
@@ -480,12 +480,12 @@ describe("confirmEditingTransition", () => {
   it("revalidates and submits a user-authored overlay motion request", async () => {
     const requested = {
       ...overlayCandidate(),
-      candidateId: "transition-b20be14fadac325d",
-      provisionalStableShotId: "transition-shot-b20be14fadac325d",
+      candidateId: "transition-91c3656921da047a",
+      provisionalStableShotId: "transition-shot-91c3656921da047a",
       instruction: "镜头缓慢向前推进并轻微右摇",
       movementAmplitude: "medium" as const,
       prompt:
-        "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。 动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。 运动幅度：中幅度。 用户的相机运动要求：镜头缓慢向前推进并轻微右摇",
+        "以两张抽帧为硬首尾帧，生成 3 秒、1:1 方形的连续运动镜头。 首帧和尾帧是确定的画面边界；中间过程必须完整执行用户的画面描述，并自然、连续地抵达尾帧。 用户明确要求的新场景、物体、人物动作、形变和光线变化必须实现，不得以保持连续性为由删除、替换或弱化。 用户未提及的主体身份、服装、画风和视觉质感保持稳定；不得添加用户未要求的文字或标志。 完整保留生成视频的运动，不冻结尾帧。 运动幅度：中幅度。 用户完整画面描述（最高优先级）：镜头缓慢向前推进并轻微右摇",
     };
 
     const result = await confirmEditingTransition(requested, USER_ID);
@@ -578,6 +578,7 @@ describe("confirmEditingTransition", () => {
           expect.objectContaining({
             stableShotId: stored.provisionalStableShotId,
             timelineStartFrame: 30,
+            visualLayer: 1,
           }),
         ]),
         overlay: expect.objectContaining({
@@ -800,6 +801,28 @@ describe("confirmEditingTransition", () => {
       },
       USER_ID
     );
+  });
+
+  it("串行上传首尾帧，避免同时建立两条易断的 TLS 连接", async () => {
+    let resolveFirstUpload: ((value: string) => void) | undefined;
+    videoMocks.uploadFileToVidu
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>(resolve => {
+            resolveFirstUpload = resolve;
+          })
+      )
+      .mockResolvedValueOnce("ssupload:?id=last");
+
+    const pending = confirmEditingTransition(candidate(), USER_ID);
+    await vi.waitFor(() =>
+      expect(videoMocks.uploadFileToVidu).toHaveBeenCalledTimes(1)
+    );
+    resolveFirstUpload?.("ssupload:?id=first");
+
+    await expect(pending).resolves.toMatchObject({ status: "applied" });
+    expect(videoMocks.uploadFileToVidu).toHaveBeenCalledTimes(2);
   });
 
   it("视频端点按当前 Take 重新校验，且不伪造 sourceImageId", async () => {

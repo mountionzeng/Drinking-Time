@@ -44,3 +44,38 @@ export function isAllowedStoryAudioUrl(rawUrl: string): boolean {
     return false;
   }
 }
+
+/**
+ * 冷启动的第一批回源常常整批失败：本机到 S3 的 TLS 握手方差极大（见
+ * httpConnectionPool.ts 的实测），连接池还没热起来时并发的几条会一起抛
+ * 「fetch failed」。而 <audio> 拿到 502 之后不会自己重试，那一条声轨在整个
+ * 剪辑页里就永久哑掉了——所以在这里把瞬时的连接错误重掉。
+ *
+ * 只重试「抛出来的」网络错误；上游明确回了状态码（403/404 等）说明地址本身有问题，
+ * 照实返回，不浪费时间重试。
+ */
+const UPSTREAM_RETRY_DELAYS_MS = [150, 500];
+
+export async function fetchStoryAudio(
+  url: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
+): Promise<Response> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= UPSTREAM_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt - 1]);
+    try {
+      return await fetchImpl(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}

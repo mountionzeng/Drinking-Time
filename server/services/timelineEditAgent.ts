@@ -1293,7 +1293,7 @@ export async function proposeExtractedFrameTransition(params: {
     resolution: "720p",
     uploadCount: 2,
   });
-  const userInstruction = params.instruction?.trim().slice(0, 500) || "";
+  const userInstruction = params.instruction?.trim().slice(0, 2_000) || "";
   const amplitudeLabel =
     params.movementAmplitude === "small"
       ? "小幅度"
@@ -1304,10 +1304,12 @@ export async function proposeExtractedFrameTransition(params: {
           : "自动幅度";
   const prompt = [
     `以两张抽帧为硬首尾帧，生成 ${durationSec} 秒、1:1 方形的连续运动镜头。`,
-    "保持人物身份、服装、场景陈设、构图和画风连续，不新增人物、物体、文字或标志。",
-    "动作自然连接首帧与尾帧，完整保留生成视频的运动，不冻结尾帧。",
+    "首帧和尾帧是确定的画面边界；中间过程必须完整执行用户的画面描述，并自然、连续地抵达尾帧。",
+    "用户明确要求的新场景、物体、人物动作、形变和光线变化必须实现，不得以保持连续性为由删除、替换或弱化。",
+    "用户未提及的主体身份、服装、画风和视觉质感保持稳定；不得添加用户未要求的文字或标志。",
+    "完整保留生成视频的运动，不冻结尾帧。",
     `运动幅度：${amplitudeLabel}。`,
-    userInstruction ? `用户的相机运动要求：${userInstruction}` : "",
+    userInstruction ? `用户完整画面描述（最高优先级）：${userInstruction}` : "",
   ].filter(Boolean).join(" ");
   const digest = createHash("sha256")
     .update(

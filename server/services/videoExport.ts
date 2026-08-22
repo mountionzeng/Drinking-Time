@@ -241,6 +241,7 @@ export function buildExportPlan(
     const resolved = resolveTimelineDocumentFrame({
       items: material.timeline.items,
       overlays,
+      hiddenVisualLayers: material.timeline.visualLayerState?.hidden,
       frame: startFrame,
     });
     if (resolved.kind === "gap") {
