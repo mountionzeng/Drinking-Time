@@ -340,6 +340,21 @@ vi.mock("@/features/storyAgent/useChatImageRemix", () => ({
   }),
 }));
 
+vi.mock("@/features/storyAgent/useAssetSwapProposal", () => ({
+  useAssetSwapProposal: () => ({
+    status: "idle" as const,
+    proposal: null,
+    proposalText: "",
+    candidates: [],
+    result: null,
+    error: null,
+    arm: () => false,
+    chooseCandidate: () => {},
+    confirm: async () => {},
+    cancel: () => {},
+  }),
+}));
+
 vi.mock("@/features/nayin/NayinContext", () => ({
   useNayin: () => ({ element: "fire" }),
 }));

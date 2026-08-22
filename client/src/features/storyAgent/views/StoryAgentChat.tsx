@@ -58,6 +58,8 @@ import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatf
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
 import ChatImageRemixTray from "./ChatImageRemixTray";
+import AssetSwapProposalCard from "./AssetSwapProposalCard";
+import { useAssetSwapProposal } from "../useAssetSwapProposal";
 import { chatImageRefsStore } from "../chatImageRefsStore";
 import { useChatImageRemix } from "../useChatImageRemix";
 import EditingTransitionCandidateCard from "../components/EditingTransitionCandidateCard";
@@ -265,6 +267,11 @@ export default function StoryAgentChat({
         }
     );
   };
+  const assetSwap = useAssetSwapProposal({
+    storyId: creationEditor?.activeStoryId ?? remoteStoryId ?? null,
+    selection: activeSelection,
+    shotLabelOf: (shotNo, stableShotId) => labelForShot(shotNo, stableShotId),
+  });
   const handleImageRerender = useCallback(
     async (
       messageId: string,
@@ -689,6 +696,13 @@ export default function StoryAgentChat({
     }
 
     if (pendingMedia.length === 0 && activeSelection) {
+      // 「换成素材里的那个人物」不是文字润色，是要绑资产 + 重画这一镜。
+      // 必须排在 sendSelectionEdit 前面，否则会被当成普通选区改写送给 LLM。
+      if (assetSwap.arm(text)) {
+        setInput("");
+        resizeAndFocusInput();
+        return;
+      }
       setInput("");
       await sendSelectionEdit(text);
       resizeAndFocusInput();
@@ -1481,6 +1495,9 @@ export default function StoryAgentChat({
         )}
 
         {interactionMode === "story" ? <ChatImageRemixTray remix={remix} /> : null}
+        {interactionMode === "story" ? (
+          <AssetSwapProposalCard swap={assetSwap} />
+        ) : null}
 
         {interactionMode === "story" && pendingMedia.length > 0 ? (
           <div
