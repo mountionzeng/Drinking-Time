@@ -22,6 +22,7 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "image:img-abs",
+      startLeftRatio: null,
       startRectLeft: 100, // 原来贴在时间线最左端
       startClientX: 150,
       releaseClientX: 400, // 向右 250px = 时间线的 250/600
@@ -44,6 +45,7 @@ describe("commitVisualClipDrag", () => {
     // 从块中间偏右 40px 处抓取，原地松手：位置不应该跳到鼠标下面。
     commitVisualClipDrag({
       clipId: "shot:sh-01",
+      startLeftRatio: null,
       startRectLeft: 250,
       startClientX: 290,
       releaseClientX: 290,
@@ -62,6 +64,7 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "shot:sh-01",
+      startLeftRatio: null,
       startRectLeft: 150,
       startClientX: 150,
       releaseClientX: 0,
@@ -80,6 +83,7 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockResolvedValue(undefined);
     commitVisualClipDrag({
       clipId: "image:img-abs",
+      startLeftRatio: null,
       startRectLeft: 100,
       startClientX: 150,
       releaseClientX: 400,
@@ -97,6 +101,7 @@ describe("commitVisualClipDrag", () => {
     const move = vi.fn().mockRejectedValue(new Error("时间轴版本已更新"));
     commitVisualClipDrag({
       clipId: "image:img-abs",
+      startLeftRatio: null,
       startRectLeft: 100,
       startClientX: 150,
       releaseClientX: 400,
@@ -107,6 +112,26 @@ describe("commitVisualClipDrag", () => {
     });
     await vi.waitFor(() =>
       expect(toastError).toHaveBeenCalledWith("时间轴版本已更新")
+    );
+  });
+
+  it("一帧图片按渲染出来的真实起点走，而不是居中命中盒的左边缘", () => {
+    const move = vi.fn().mockResolvedValue(undefined);
+    // 图片渲染在轨道 50% 处；命中盒宽 40px 且居中，rect.left 因此偏左 20px。
+    commitVisualClipDrag({
+      clipId: "image:img-abs",
+      startLeftRatio: 0.5,
+      startRectLeft: 100 + 300 - 20,
+      startClientX: 400,
+      releaseClientX: 400, // 原地松手
+      releaseClientY: 20,
+      totalMs: TOTAL_MS,
+      onMoveVisualClip: move,
+      resolveTrack: () => track(1),
+    });
+    // 0.5 * 8000ms = 4000ms = 120 帧；若误用 rect.left 会算成 116 帧。
+    expect(move).toHaveBeenCalledWith(
+      expect.objectContaining({ toStartFrame: 120 })
     );
   });
 });
