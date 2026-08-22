@@ -15,11 +15,18 @@ import {
   buildTimelineLayout,
   moveTimelineGroup,
   resolveTimelineDocumentFrame,
+  overlayVisualLayer,
   resolveTimelineFrame,
+  resolveTimelineImageClipAt,
   selectDirectionalGroup,
   selectSingleShot,
+  timelineImageBeatsVisualSource,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
+import {
+  hiddenVisualLayerSet,
+  normalizeVisualLayer,
+} from "@shared/timelineVisualPriority";
 import {
   resolveTimelineItemSource,
   timelineSourceCandidateForImage,
@@ -222,14 +229,55 @@ export function resolveTimelineFrameSource(input: {
   timelineFrame: number;
 }): CreationTimelineFrameResolution {
   const frame = Math.max(0, Math.round(input.timelineFrame));
+  const items = input.rows.map(row => row.item);
+  const hidden = hiddenVisualLayerSet(input.hiddenVisualLayers);
   const resolved = input.overlays
     ? resolveTimelineDocumentFrame({
-        items: input.rows.map(row => row.item),
+        items,
         overlays: input.overlays,
         hiddenVisualLayers: input.hiddenVisualLayers,
         frame,
       })
-    : resolveTimelineFrame(input.rows, frame);
+    : resolveTimelineFrame(
+        // 没有 overlay 也要过一遍隐藏层：锚点不能锁在看不见的素材上。
+        input.rows.filter(
+          row => !hidden.has(normalizeVisualLayer(row.item.visualLayer))
+        ),
+        frame
+      );
+  // 一帧图片和镜头走同一套层级赢家规则；界面上是图片，锚点就必须锁住这张图片。
+  const image = resolveTimelineImageClipAt({
+    items,
+    hiddenVisualLayers: input.hiddenVisualLayers,
+    frame,
+  });
+  const resolvedLayer =
+    resolved.kind === "shot"
+      ? normalizeVisualLayer(resolved.row.item.visualLayer)
+      : resolved.kind === "overlay"
+        ? overlayVisualLayer(resolved.overlay)
+        : null;
+  if (
+    image &&
+    (resolved.kind === "gap" ||
+      timelineImageBeatsVisualSource(image, resolvedLayer))
+  ) {
+    return {
+      kind: "source",
+      timelineFrame: frame,
+      stableShotId: image.stableShotId,
+      startFrame: image.startFrame,
+      durationFrames: image.clip.durationFrames,
+      localFrame: frame - image.startFrame,
+      sourceType: "image",
+      sourceId: `image-${image.clip.imageId}`,
+      sourceTimeSec: null,
+      rate: 1,
+      sourceWindow: null,
+      effects: null,
+      transform: image.clip.transform ?? null,
+    };
+  }
   if (resolved.kind === "gap") return { kind: "gap", timelineFrame: frame };
   if (resolved.kind === "overlay") {
     const overlay = resolved.overlay;

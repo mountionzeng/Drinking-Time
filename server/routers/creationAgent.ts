@@ -1661,6 +1661,7 @@ export const creationAgentRouter = router({
               mediaEndFrame: z.number().int().min(1),
               endFrame: z.number().int().min(1),
               stackOrder: z.number().int().min(0),
+              visualLayer: z.number().int().min(0).optional(),
               leftImageId: z.number().int().positive(),
               rightImageId: z.number().int().positive(),
               transform: z.object({

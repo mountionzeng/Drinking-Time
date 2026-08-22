@@ -5055,6 +5055,8 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       timeline.items = encodeStoryTimelinePayload({
         items: timelineItemExists ? payload.items : input.nextTimelineItems,
         overlays: overlayExists ? overlays : [...overlays, input.overlay],
+        // 采用抽帧生成视频不得顺手抹掉图层数量与显隐；不带上它 encode 会整个丢字段。
+        visualLayerState: payload.visualLayerState,
       });
       timeline.version += 1;
       timeline.updatedAt = now();
@@ -5170,6 +5172,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
           items: encodeStoryTimelinePayload({
             items: timelineItemExists ? payload.items : input.nextTimelineItems,
             overlays: overlayExists ? overlays : [...overlays, input.overlay],
+            visualLayerState: payload.visualLayerState,
           }),
           version: timeline.version + 1,
         })

@@ -1337,6 +1337,7 @@
         "shared/storyMaterial.ts",
         "shared/timelineLayout.ts",
         "shared/timelineVisualLayers.ts",
+        "shared/timelineVisualPriority.ts",
         "server/services/timelineEditAgent.ts",
         "server/services/editingTransitionWorkflow.ts",
         "server/routers/creationAgent.ts",
@@ -1358,7 +1359,10 @@
         "client/src/features/creationEditor/timelineActions.test.ts",
         "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
-        "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx"
+        "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx",
+        "client/src/features/creationEditor/visualLayerResolution.test.ts",
+        "client/src/features/creationEditor/timelineUndoStore.test.ts",
+        "client/src/features/storyAgent/storyboardTiming.test.ts"
       ],
       "invariants": [
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
@@ -1379,7 +1383,15 @@
         "提案不扣费；确认后同一 placement 最多提交一次供应商任务，Take 与 overlay 采用必须幂等。",
         "抽帧确认页接受最长 2000 字的完整画面描述；路由必须原样保留 instruction 与运动幅度，不能在进入服务层前剥离。",
         "首尾帧是确定边界；用户明确描述的场景、动作、形变、光线和运镜是最高优先级，未指定内容的连续性不得覆盖、删除或弱化这些要求。",
-        "预览、剪辑线和导出必须使用同一视觉层优先级；遗留 overlay 只作为兼容输入，不再是新剪辑的交互模型。"
+        "预览、剪辑线和导出必须使用同一视觉层优先级；遗留 overlay 只作为兼容输入，不再是新剪辑的交互模型。",
+        "预览、剪辑行和导出必须使用同一个视觉优先级比较器（shared/timelineVisualPriority）：锚定 > 视觉层 > stackOrder > position > 稳定 id；任何一条解析路径都不得自带排序。",
+        "visualLayerState.count 只记用户显式建出来的层数；最高那层空白投放层是派生的，不落库——把素材拖上顶层再拖回来不得留下多余空层。",
+        "遗留 overlay 带兼容图层（缺省为 1），图层插入、删除和整层排序必须把它一起重编号。",
+        "隐藏层必须在同一处退出全部可见素材解析：预览赢家、文档解析、一帧图片解析、锚点创建和导出。",
+        "隐藏或显示一层不得改变其它层任何素材的绝对时间：排版先按全部素材算完，再丢掉隐藏层的行。",
+        "图层顺序、层数和显隐必须和素材进同一条撤销记录，一次 Cmd/Ctrl+Z 全部还原。",
+        "采用抽帧生成视频的原子事务必须原样保留 visualLayerState，不得在写入 items 与 overlays 时丢字段。",
+        "最高那层派生的空白投放层删不掉：按钮必须禁用，不允许提示成功但界面无变化。"
       ],
       "dependencies": [
         "storyboard-position-anchors",
@@ -1457,6 +1469,11 @@
           "date": "2026-08-22",
           "kind": "feature",
           "summary": "把普通视觉轨升级为可持久管理的图层：每层均可上下插入、显隐、按钮移动或拖动整层排序；插入与排序原子重映射层内图片和视频，删除非空层先确认并保留素材合并到相邻层。图层数量与隐藏集合写入时间线文档，隐藏层同时退出预览和导出解析；仍自动保留一个最高空白投放层。"
+        },
+        {
+          "date": "2026-08-22",
+          "kind": "fix",
+          "summary": "系统性收敛视觉图层数据流，替换按现象打补丁：根因是同一份数据有两套赢家规则——预览走 storyboardTimingWinnerAt（只比 stackOrder），导出走 timelineLayout（比 visualLayer），而移动镜头会把 stackOrder 抬到最高，于是移动过底层视频后预览让底层盖住上层、导出仍按图层出片。新增 shared/timelineVisualPriority.ts 作为唯一比较器（锚定 > 视觉层 > stackOrder > position > 稳定 id），预览、剪辑行、文档解析和导出全部改为调用它；一帧图片解析上移到 shared/timelineLayout，锚点创建改为能看见图片并跳过隐藏层。修复隐藏层泄漏进预览赢家；隐藏一层不再改变其它层的隐式起点；遗留 overlay 改为携带可重编号的兼容图层，不再写死层 1；采用抽帧生成视频的原子事务不再抹掉 visualLayerState；图层顺序/层数/显隐进同一条撤销记录（只改显隐也会记一条）；visualLayerState.count 改为只记显式层数、空白顶层改为派生，消除「拖上顶层再拖回来多一层」的棘轮；最高空白投放层的删除按钮改为禁用。"
         }
       ]
     },

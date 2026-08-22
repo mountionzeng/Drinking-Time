@@ -34,6 +34,7 @@ describe("storyboard timing", () => {
         startFrame: 0,
         durationFrames: 26,
         stackOrder: 0,
+        visualLayer: 0,
         anchorFrames: [],
       },
       {
@@ -46,6 +47,7 @@ describe("storyboard timing", () => {
         startFrame: 26,
         durationFrames: 90,
         stackOrder: 1,
+        visualLayer: 0,
         anchorFrames: [],
       },
     ]);

@@ -1,9 +1,18 @@
 import {
   STORY_TIMELINE_FPS,
   timelineFramesToMs,
+  timelineImageClipStartFrame,
+  type StoryTimelineImageClip,
   type StoryTimelineItem,
   type StoryTimelineOverlay,
 } from "./storyMaterial";
+import {
+  compareVisualPriority,
+  hiddenVisualLayerSet,
+  normalizeVisualLayer,
+  pickVisualWinner,
+  type VisualPriority,
+} from "./timelineVisualPriority";
 
 export type TimelineLayoutRow = {
   item: StoryTimelineItem;
@@ -100,21 +109,15 @@ function isAnchored(row: TimelineLayoutRow): boolean {
   return (row.item.anchors?.length ?? 0) > 0;
 }
 
-function compareRows(left: TimelineLayoutRow, right: TimelineLayoutRow): number {
-  const leftAnchored = isAnchored(left);
-  const rightAnchored = isAnchored(right);
-  if (leftAnchored !== rightAnchored) return leftAnchored ? 1 : -1;
-  const leftLayer = Math.max(0, Math.round(left.item.visualLayer ?? 0));
-  const rightLayer = Math.max(0, Math.round(right.item.visualLayer ?? 0));
-  if (leftLayer !== rightLayer) return leftLayer - rightLayer;
-  if (left.stackOrder !== right.stackOrder) {
-    return left.stackOrder - right.stackOrder;
-  }
-  if (left.item.position !== right.item.position) {
-    return right.item.position - left.item.position;
-  }
-  // Final tie-break so client preview and server export can never disagree.
-  return right.item.stableShotId.localeCompare(left.item.stableShotId);
+/** 镜头行的统一优先级；预览、剪辑行、导出共用同一份。 */
+export function timelineRowVisualPriority(row: TimelineLayoutRow): VisualPriority {
+  return {
+    anchored: isAnchored(row),
+    visualLayer: normalizeVisualLayer(row.item.visualLayer),
+    stackOrder: row.stackOrder,
+    position: row.item.position,
+    tieId: row.item.stableShotId,
+  };
 }
 
 export function resolveTimelineFrame(
@@ -128,12 +131,37 @@ export function resolveTimelineFrame(
       lookupFrame >= row.startFrame &&
       lookupFrame < row.endFrame
   );
-  if (candidates.length === 0) return { kind: "gap", frame: lookupFrame };
-  const winner = [...candidates].sort((left, right) => compareRows(right, left))[0];
+  const winner = pickVisualWinner(candidates, timelineRowVisualPriority);
+  if (!winner) return { kind: "gap", frame: lookupFrame };
   return {
     kind: "shot",
     row: winner,
     localFrame: lookupFrame - winner.startFrame,
+  };
+}
+
+/**
+ * 遗留 overlay 的兼容图层。历史数据没有这个字段，按当初写死的上层 1 解释；
+ * 图层插入、删除和排序会把它一起重编号，所以迁移前的 overlay 也不会停在错层。
+ */
+export const LEGACY_OVERLAY_VISUAL_LAYER = 1;
+
+export function overlayVisualLayer(
+  overlay: Pick<StoryTimelineOverlay, "visualLayer">
+): number {
+  return overlay.visualLayer == null
+    ? LEGACY_OVERLAY_VISUAL_LAYER
+    : normalizeVisualLayer(overlay.visualLayer);
+}
+
+function overlayVisualPriority(overlay: StoryTimelineOverlay): VisualPriority {
+  return {
+    anchored: false,
+    visualLayer: overlayVisualLayer(overlay),
+    stackOrder: overlay.stackOrder,
+    // 遗留 overlay 一直是「压在同层镜头之上的显式覆盖」，同层同 stackOrder 时保留这个语义。
+    position: -1,
+    tieId: overlay.id,
   };
 }
 
@@ -145,43 +173,51 @@ export function resolveTimelineDocumentFrame(input: {
   frame: number;
 }): TimelineDocumentResolution {
   const lookupFrame = Math.max(0, Math.floor(input.frame));
-  const hidden = new Set(
-    (input.hiddenVisualLayers ?? []).map(layer => Math.max(0, Math.round(layer)))
+  const hidden = hiddenVisualLayerSet(input.hiddenVisualLayers);
+  // 先按全部素材排版，再丢掉隐藏层的行：隐藏一层不能改变其它层的隐式起点。
+  const allRows = buildTimelineLayout(input.items);
+  const rows = allRows.filter(
+    row => !hidden.has(normalizeVisualLayer(row.item.visualLayer))
   );
-  const visibleItems = input.items.filter(
-    item => !hidden.has(Math.max(0, Math.round(item.visualLayer ?? 0)))
-  );
-  const rows = buildTimelineLayout(visibleItems);
   const anchored = rows.filter(
     row =>
       (row.item.anchors?.length ?? 0) > 0 &&
+      row.item.included !== false &&
       lookupFrame >= row.startFrame &&
       lookupFrame < row.endFrame
   );
-  if (anchored.length > 0) {
-    const winner = [...anchored].sort((left, right) => compareRows(right, left))[0];
+  const anchoredWinner = pickVisualWinner(anchored, timelineRowVisualPriority);
+  if (anchoredWinner) {
     return {
       kind: "shot",
-      row: winner,
-      localFrame: lookupFrame - winner.startFrame,
+      row: anchoredWinner,
+      localFrame: lookupFrame - anchoredWinner.startFrame,
     };
   }
-  const overlay = [...(input.overlays ?? [])]
-    .filter(
+  const migratedOverlayShots = new Set(
+    rows
+      .filter(row => normalizeVisualLayer(row.item.visualLayer) > 0)
+      .map(row => row.item.stableShotId)
+  );
+  const overlay = pickVisualWinner(
+    (input.overlays ?? []).filter(
       candidate =>
-        !visibleItems.some(
-          item =>
-            item.stableShotId === candidate.sourceStableShotId &&
-            (item.visualLayer ?? 0) > 0
-        ) &&
-        !hidden.has(1) &&
-        lookupFrame >= candidate.startFrame && lookupFrame < candidate.endFrame
-    )
-    .sort(
-      (left, right) =>
-        right.stackOrder - left.stackOrder || right.id.localeCompare(left.id)
-    )[0];
-  if (overlay) {
+        !migratedOverlayShots.has(candidate.sourceStableShotId) &&
+        !hidden.has(overlayVisualLayer(candidate)) &&
+        lookupFrame >= candidate.startFrame &&
+        lookupFrame < candidate.endFrame
+    ),
+    overlayVisualPriority
+  );
+  const itemResolution = resolveTimelineFrame(rows, lookupFrame);
+  if (
+    overlay &&
+    (itemResolution.kind === "gap" ||
+      compareVisualPriority(
+        overlayVisualPriority(overlay),
+        timelineRowVisualPriority(itemResolution.row)
+      ) > 0)
+  ) {
     if (lookupFrame >= overlay.mediaEndFrame) {
       return { kind: "gap", frame: lookupFrame };
     }
@@ -191,7 +227,7 @@ export function resolveTimelineDocumentFrame(input: {
       localFrame: lookupFrame - overlay.startFrame,
     };
   }
-  return resolveTimelineFrame(rows, lookupFrame);
+  return itemResolution;
 }
 
 export function selectDirectionalGroup(
@@ -319,4 +355,69 @@ export function moveTimelineGroup(
 
 export function timelineFrameToMs(frame: number): number {
   return timelineFramesToMs(frame);
+}
+
+export type TimelineImageClipPlacement = {
+  clip: StoryTimelineImageClip;
+  stableShotId: string;
+  startFrame: number;
+};
+
+function imageClipVisualPriority(
+  placement: TimelineImageClipPlacement
+): VisualPriority {
+  return {
+    anchored: false,
+    visualLayer: normalizeVisualLayer(placement.clip.visualLayer),
+    // 同层里后放的一帧图片压在先放的上面。
+    stackOrder: placement.startFrame,
+    position: 0,
+    tieId: placement.clip.id,
+  };
+}
+
+/**
+ * 这一帧上胜出的一帧图片剪辑。
+ *
+ * 图片以前只有预览这一条解析路径，锚点、导出和能力判断都看不见它，于是「界面上
+ * 明明是图片，锚点却锁住了下面的视频」。解析规则和镜头、overlay 共用同一个比较器。
+ */
+export function resolveTimelineImageClipAt(input: {
+  items: readonly StoryTimelineItem[];
+  hiddenVisualLayers?: readonly number[];
+  frame: number;
+}): TimelineImageClipPlacement | null {
+  const frame = Math.max(0, Math.round(input.frame));
+  const hidden = hiddenVisualLayerSet(input.hiddenVisualLayers);
+  const placements = buildTimelineLayout(input.items).flatMap(row =>
+    (row.item.imageClips ?? []).map(clip => ({
+      clip,
+      stableShotId: row.item.stableShotId,
+      startFrame: timelineImageClipStartFrame(clip, row.startFrame),
+    }))
+  );
+  return pickVisualWinner(
+    placements.filter(
+      placement =>
+        !hidden.has(normalizeVisualLayer(placement.clip.visualLayer)) &&
+        frame >= placement.startFrame &&
+        frame < placement.startFrame + placement.clip.durationFrames
+    ),
+    imageClipVisualPriority
+  );
+}
+
+/**
+ * 同一时刻图片和视频谁在上面。相等时图片赢：一帧图片是用户显式放上去的剪辑。
+ */
+export function timelineImageBeatsVisualSource(
+  image: TimelineImageClipPlacement | null,
+  videoLayer: number | null
+): boolean {
+  if (!image) return false;
+  if (videoLayer == null) return true;
+  return (
+    normalizeVisualLayer(image.clip.visualLayer) >=
+    normalizeVisualLayer(videoLayer)
+  );
 }

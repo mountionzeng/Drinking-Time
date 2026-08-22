@@ -1,4 +1,8 @@
-import type { StoryTimelineItem } from "@shared/storyMaterial";
+import type {
+  StoryTimelineItem,
+  StoryTimelineOverlay,
+  StoryTimelineVisualLayerState,
+} from "@shared/storyMaterial";
 
 const MAX_UNDO_STEPS = 40;
 export type DeletedStoryShotUndoEntry = {
@@ -20,8 +24,19 @@ export type SplitStoryShotUndoEntry = {
   restoreShotNo: number;
 };
 
+/**
+ * 一次时间线撤销要还原的全部东西。只存 items 不够：图层顺序、图层数量和显隐
+ * 都在 `visualLayerState` 里，遗留 overlay 的兼容层在 `overlays` 里，
+ * 少存一样就会出现「Cmd+Z 之后素材回来了、图层还留在改过的状态」。
+ */
+export type TimelineUndoSnapshot = {
+  items: StoryTimelineItem[];
+  visualLayerState?: StoryTimelineVisualLayerState;
+  overlays?: StoryTimelineOverlay[];
+};
+
 export type CreationEditorUndoEntry =
-  | { kind: "timeline"; items: StoryTimelineItem[] }
+  | ({ kind: "timeline" } & TimelineUndoSnapshot)
   | DeletedStoryShotUndoEntry
   | SplitStoryShotUndoEntry;
 
@@ -67,18 +82,33 @@ function sameTimeline(
 
 export function recordTimelineUndoSnapshot(
   storyId: number,
-  items: readonly StoryTimelineItem[]
+  items: readonly StoryTimelineItem[],
+  extra: {
+    visualLayerState?: StoryTimelineVisualLayerState | null;
+    overlays?: readonly StoryTimelineOverlay[] | null;
+  } = {}
 ): void {
   const stack = undoByStory.get(storyId) ?? [];
   const snapshot = cloneTimelineItems(items);
+  const visualLayerState = extra.visualLayerState
+    ? {
+        count: extra.visualLayerState.count,
+        hidden: [...extra.visualLayerState.hidden],
+      }
+    : undefined;
+  const overlays = extra.overlays
+    ? extra.overlays.map(overlay => ({ ...overlay }))
+    : undefined;
   const latest = stack[stack.length - 1];
   if (
     latest?.kind === "timeline" &&
-    sameTimeline(latest.items, snapshot)
+    sameTimeline(latest.items, snapshot) &&
+    JSON.stringify(latest.visualLayerState) === JSON.stringify(visualLayerState) &&
+    JSON.stringify(latest.overlays) === JSON.stringify(overlays)
   ) {
     return;
   }
-  stack.push({ kind: "timeline", items: snapshot });
+  stack.push({ kind: "timeline", items: snapshot, visualLayerState, overlays });
   if (stack.length > MAX_UNDO_STEPS) {
     stack.splice(0, stack.length - MAX_UNDO_STEPS);
   }
@@ -127,7 +157,17 @@ export function takeCreationEditorUndoEntry(
   if (stack?.length === 0) undoByStory.delete(storyId);
   if (!entry) return null;
   if (entry.kind === "timeline") {
-    return { kind: "timeline", items: cloneTimelineItems(entry.items) };
+    return {
+      kind: "timeline",
+      items: cloneTimelineItems(entry.items),
+      visualLayerState: entry.visualLayerState
+        ? {
+            count: entry.visualLayerState.count,
+            hidden: [...entry.visualLayerState.hidden],
+          }
+        : undefined,
+      overlays: entry.overlays?.map(overlay => ({ ...overlay })),
+    };
   }
   if (entry.kind === "deleted-story-shot") {
     return {

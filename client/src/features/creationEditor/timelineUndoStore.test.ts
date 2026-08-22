@@ -203,3 +203,68 @@ describe("timelineUndoStore", () => {
     ).toBe(false);
   });
 });
+
+describe("图层状态进同一条撤销记录", () => {
+  beforeEach(() => clearTimelineUndoForTesting());
+
+  it("一条记录同时带上素材、图层数量、显隐和遗留 overlay", () => {
+    recordTimelineUndoSnapshot(1, timeline(2_000), {
+      visualLayerState: { count: 3, hidden: [1] },
+      overlays: [
+        {
+          id: "ov-1",
+          kind: "generated-video",
+          takeId: 9,
+          sourceStableShotId: "shot-a",
+          videoUrl: "/9.mp4",
+          startFrame: 0,
+          targetEndFrame: 30,
+          mediaEndFrame: 30,
+          endFrame: 30,
+          stackOrder: 0,
+          visualLayer: 2,
+          leftImageId: 1,
+          rightImageId: 2,
+          transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+        },
+      ],
+    });
+    const entry = takeCreationEditorUndoEntry(1);
+    expect(entry?.kind).toBe("timeline");
+    if (entry?.kind !== "timeline") return;
+    expect(entry.visualLayerState).toEqual({ count: 3, hidden: [1] });
+    expect(entry.overlays?.[0]).toMatchObject({ id: "ov-1", visualLayer: 2 });
+  });
+
+  /**
+   * 只改显隐时素材一个字节都不变。以前去重只比 items，这一步会被整条丢掉，
+   * Cmd+Z 于是跳过隐藏动作、去撤销上一次别的编辑。
+   */
+  it("素材没变、只有显隐变了，仍然记一条", () => {
+    const items = timeline(2_000);
+    recordTimelineUndoSnapshot(1, items, {
+      visualLayerState: { count: 3, hidden: [] },
+    });
+    recordTimelineUndoSnapshot(1, items, {
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    expect(takeCreationEditorUndoEntry(1)).toMatchObject({
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    expect(takeCreationEditorUndoEntry(1)).toMatchObject({
+      visualLayerState: { count: 3, hidden: [] },
+    });
+  });
+
+  it("素材和图层状态都没变才算重复", () => {
+    const items = timeline(2_000);
+    recordTimelineUndoSnapshot(1, items, {
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    recordTimelineUndoSnapshot(1, items, {
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    expect(takeCreationEditorUndoEntry(1)).not.toBeNull();
+    expect(takeCreationEditorUndoEntry(1)).toBeNull();
+  });
+});
