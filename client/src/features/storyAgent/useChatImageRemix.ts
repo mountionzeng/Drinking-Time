@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
+import { readableRerenderError } from "@/features/creationEditor/rerender";
 import { trpc } from "@/lib/trpc";
 import { buildChatImageRemixRequest, type ChatImageRef } from "./chatImageRefs";
 import { chatImageRefsStore, useChatImageRefs } from "./chatImageRefsStore";
@@ -117,8 +118,13 @@ export function useChatImageRemix(
         costConfirmation: { accepted: true, estimatedCny: draft.estimatedCny },
       });
       if (response.status !== "ok" || !response.imageId || !response.imageUrl) {
-        const message =
-          ("error" in response && response.error) || "图片生成没有返回结果";
+        // 服务端把「已受理但回传失败」「连接中断无法确认」这类措辞放在 error 里，
+        // 原样透出；只有裸的 fetch failed 才由 readableRerenderError 翻成
+        // 「先查有没有新图再重试」，否则用户看到一句 fetch failed 就会再点一次付费。
+        const message = readableRerenderError(
+          ("error" in response && response.error) || "",
+          "图片生成没有返回结果"
+        );
         setError(message);
         setStatus("error");
         return;
@@ -134,8 +140,7 @@ export function useChatImageRemix(
       void utils.storyAgent.storyMaterialState.invalidate({ storyId });
       chatImageRefsStore.getState().clear();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "图片生成失败";
-      setError(message);
+      setError(readableRerenderError(err));
       setStatus("error");
     }
   }, [draft, generateMut, status, storyId, utils]);
