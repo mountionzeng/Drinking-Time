@@ -14,7 +14,8 @@
       "owners": [
         "server/db.ts",
         "server/services/storySync.ts",
-        "server/services/storyMaterials.ts"
+        "server/services/storyMaterials.ts",
+        "client/src/features/storyAgent/selectionStoryScope.ts"
       ],
       "evidence": [
         "server/routers.storyAgent.test.ts",
@@ -22,7 +23,8 @@
         "docs/solutions/2026-06-13-故事为唯一单位-镜头按storyId.md",
         "server/db.storyRevision.test.ts",
         "server/db.localPersistenceFailure.test.ts",
-        "client/src/architecture-boundaries.test.ts"
+        "client/src/architecture-boundaries.test.ts",
+        "client/src/features/storyAgent/selectionStoryScope.test.ts"
       ],
       "invariants": [
         "所有故事读写同时校验 storyId 与 userId。",
@@ -30,7 +32,8 @@
         "素材仓库只展示当前 storyId 所属素材，不聚合其他故事的可复用候选。",
         "同一 Story 内的时间线视频按 takeId 直接引用素材仓库资产；Take 的 stableShotId 只记录生成来源，删除来源镜头不得让仍引用该 takeId 的其它镜头失去播放能力。",
         "本地 JSON 持久化写盘失败必须向调用方传播（全部本地模式写函数都适用）；Story body 的资源级 CAS 写入口（updateStoryBodyIfRevision）额外保证失败时按字段回滚到写入前快照，且回滚只作用于仍等于本次调用写入值的字段，不得覆盖并发写入者已经合法生效的其它字段。",
-        "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。"
+        "带 storyId 输入的查询（当前为 shot.list）必须按 storyId 失效，不得使用无参 invalidate() —— 否则改动一个 Story 会清掉其它 Story 的缓存。",
+        "聊天选区属于故事：切换故事必须清除 activeSelection，且读取侧按 storyId 兜底——storyId 与当前故事不符的选区一律读成「没有选区」，不渲染也不随消息发送。"
       ],
       "dependencies": [],
       "replaces": ["legacy-project-scoped-shots"],
@@ -82,6 +85,11 @@
           "date": "2026-08-13",
           "kind": "fix",
           "summary": "素材仓库后端停止聚合其他故事的视频，并在前端按当前 storyId 过滤全部 Take 来源。"
+        },
+        {
+          "date": "2026-08-22",
+          "kind": "fix",
+          "summary": "修复聊天选区跨故事串台：clearCurrentStory 逐个清了 22 个字段却漏了 activeSelection，而 loadStory 压根不走 clearCurrentStory，于是从故事 A 切到 B 后 A 的选区仍挂在输入框上，下方还提示「下一条消息会带着这个选区交给聊聊」。现在切换时真正清除，并在聊天切片选择器和 sendSelectionEdit 两处按 storyId 兜底。"
         }
       ]
     },

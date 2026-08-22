@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+import { selectionBelongsToStory } from "./selectionStoryScope";
 // normalizeImageProvider / ImageProvider 的使用已随出图渠道助手搬到 ./storyAgentImageProvider。
 import { trpc } from "@/lib/trpc";
 import {
@@ -2795,6 +2796,9 @@ export function StoryAgentProvider({
     setReturningGreeting(null);
     setConfirmedIntent(null);
     setPendingIntentDraft(null);
+    // 选区也属于「上一个故事」。漏掉它会让别的故事的镜头挂在输入框上，
+    // 而下面还写着「下一条消息会带着这个选区交给聊聊」。
+    setActiveSelection(null);
   }, [setPublishing]);
 
   const loadStory = useCallback(
@@ -3439,6 +3443,12 @@ export function StoryAgentProvider({
   const sendSelectionEdit = useCallback(
     async (instruction: string) => {
       if (!activeSelection || isReplying) return;
+      if (!selectionBelongsToStory(activeSelection, activeStoryId)) {
+        // 兜底：读取侧已经把跨故事选区读成空，能走到这里说明还有别的入口漏了清除。
+        setActiveSelection(null);
+        toast.error("刚才那个选区属于另一个故事，已经取消；请重新选一次");
+        return;
+      }
       const requestStoryId = activeStoryId;
 
       const { sourceType, sourceId, selectedText, fullText } = activeSelection;
