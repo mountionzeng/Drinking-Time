@@ -44,6 +44,9 @@ import {
   PromptLineageValidationError,
   resolveGenerationPromptCompilation,
 } from "./promptLineage";
+import { resolveVisualAssetGenerationContext } from "./visualAssetGenerationContext";
+import { inspectVisualAssetConsistency } from "./visualAssetConsistencyGate";
+import { estimateStoryboardImageCost } from "../../shared/imageRenderCost";
 
 // ── Types ──
 
@@ -452,6 +455,11 @@ export type GenerateNextImageInput = {
   sceneAnalysis?: SceneAnalysis;
   /** 当前镜头已有资产，用于风格连续性参考。 */
   assets?: ImageAsset[];
+  visualAssetCostConfirmation?: {
+    accepted: true;
+    estimatedCny: number;
+    fingerprint: string;
+  };
 };
 
 export type GenerateNextImageResult =
@@ -463,6 +471,13 @@ export type GenerateNextImageResult =
         shotNo: string;
         imageId: number;
       };
+    }
+  | {
+      status: "confirmation_required";
+      estimatedCny: number;
+      maxAttempts: 3;
+      fingerprint: string;
+      message: string;
     }
   | { status: "error"; message: string };
 
@@ -565,22 +580,72 @@ export async function generateNextImage(
       throw error;
     }
   }
+  const visualAssetContext =
+    input.storyId != null && stableShotId
+      ? await resolveVisualAssetGenerationContext({
+          storyId: input.storyId,
+          userId: input.userId,
+          stableShotId,
+          shotText: input.prompt,
+          provider: input.imageProvider,
+        })
+      : ({ status: "disabled" } as const);
+  if (visualAssetContext.status === "blocked") {
+    return {
+      status: "error",
+      message: visualAssetContext.issues.map(issue => issue.message).join("；"),
+    };
+  }
+  const lockedAssets =
+    visualAssetContext.status === "ready"
+      ? visualAssetContext.snapshot
+      : undefined;
+  if (lockedAssets) {
+    const estimatedCny = Number(
+      (estimateStoryboardImageCost().estimatedCny * 3).toFixed(2)
+    );
+    const confirmation = input.visualAssetCostConfirmation;
+    if (
+      !confirmation?.accepted ||
+      confirmation.fingerprint !== lockedAssets.fingerprint ||
+      Math.abs(confirmation.estimatedCny - estimatedCny) > 0.001
+    ) {
+      return {
+        status: "confirmation_required",
+        estimatedCny,
+        maxAttempts: 3,
+        fingerprint: lockedAssets.fingerprint,
+        message: `锁定资产生成会自动质检，最多尝试 3 次，最坏费用约 ¥${estimatedCny.toFixed(2)}`,
+      };
+    }
+  }
   const referencePlan = collectShotImageReferences({
     targetShotNo,
     assets,
-    storyReferenceImages: input.referenceImages,
-    artDirection: input.artDirection,
+    storyReferenceImages: lockedAssets ? [] : input.referenceImages,
+    artDirection: lockedAssets ? undefined : input.artDirection,
   });
   const continuityAsset = referencePlan.editSource;
   const continuitySource =
     continuityAsset && continuityAsset.availability !== "missing"
       ? await materializeImageInput(continuityAsset.imageUrl)
       : null;
-  const referenceImages = referencePlan.referenceImages;
+  const referenceImages = lockedAssets
+    ? Object.values(lockedAssets.dimensions).flatMap(dimension =>
+        dimension ? dimension.views.map(view => view.materializedUrl) : []
+      )
+    : referencePlan.referenceImages;
   const renderPrompt = [input.prompt, referencePlan.coldStartPrompt]
     .filter(Boolean)
     .join("\n\n");
-  const injection = input.story
+  const injection = lockedAssets
+    ? {
+        ...(lockedAssets.characterRef
+          ? { characterRef: lockedAssets.characterRef, characterWeight: 100 }
+          : {}),
+        ...(lockedAssets.styleRef ? { styleRef: lockedAssets.styleRef } : {}),
+      }
+    : input.story
     ? await deriveInjection(input.story, input.sceneAnalysis)
     : {};
   let directedPrompt = renderPrompt;
@@ -597,7 +662,7 @@ export async function generateNextImage(
             : ("scene-style" as const),
         }
       : null;
-  if (directorReference) {
+  if (directorReference && !lockedAssets) {
     directedPrompt = await directPromptFromReference({
       ...directorReference,
       fallbackPrompt: renderPrompt,
@@ -620,21 +685,36 @@ export async function generateNextImage(
         shotNo: targetShotNo,
         projectId: input.projectId,
         storyId: input.storyId ?? undefined,
-        artDirection: input.artDirection,
+        artDirection: lockedAssets ? undefined : input.artDirection,
         referenceImages,
         styleIndex,
         outputPurpose: "story-frame",
+        lockedVisualAssets: lockedAssets
+          ? {
+              fingerprint: lockedAssets.fingerprint,
+              kinds: Object.keys(lockedAssets.dimensions) as Array<
+                "character" | "scene" | "style"
+              >,
+              promptContract: lockedAssets.promptContract,
+            }
+          : undefined,
         referencePolicy: continuitySource
           ? injection.characterRef
             ? "preserve-identity"
             : "preserve-composition"
           : "none",
       },
-      prompt => {
-        if (continuitySource) {
-          return editImage(continuitySource, prompt, {
+      async prompt => {
+        const generateAttempt = (attemptPrompt: string) => {
+        const editBase = continuitySource ?? lockedAssets?.sceneRef;
+        if (editBase) {
+          return editImage(editBase, attemptPrompt, {
             provider: input.imageProvider,
             ...injection,
+            ...(lockedAssets?.sceneRef && continuitySource
+              ? { referenceContextImageUrls: [lockedAssets.sceneRef] }
+              : {}),
+            ...(lockedAssets ? { requireInputImage: true } : {}),
           });
         }
         const midjourneyReferencePrefix =
@@ -642,9 +722,79 @@ export async function generateNextImage(
             ? referenceImages.slice(0, 2).join(" ")
             : "";
         return generateImage(
-          [midjourneyReferencePrefix, prompt].filter(Boolean).join("\n"),
+          [midjourneyReferencePrefix, attemptPrompt].filter(Boolean).join("\n"),
           { provider: input.imageProvider, ...injection }
         );
+        };
+        if (!lockedAssets) return generateAttempt(prompt);
+
+        let retryCorrections: string[] = [];
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          const attemptPrompt = [
+            prompt,
+            retryCorrections.length > 0
+              ? `【一致性重试修正｜只修这些已证实偏差】${retryCorrections.join("；")}`
+              : "",
+          ].filter(Boolean).join("\n");
+          const generated = await generateAttempt(attemptPrompt);
+          if (generated.status !== "ok" || !generated.imageUrl) return generated;
+          const candidates = generated.candidates?.length
+            ? generated.candidates
+            : [{ imageUrl: generated.imageUrl, imageKey: generated.imageKey }];
+          retryCorrections = [];
+          for (const candidate of candidates) {
+            const inspection = await inspectVisualAssetConsistency({
+              snapshot: lockedAssets,
+              candidateImageUrl: candidate.imageUrl,
+            });
+            if (inspection.status === "pass") {
+              return {
+                ...generated,
+                imageUrl: candidate.imageUrl,
+                imageKey: candidate.imageKey,
+                candidates: [candidate],
+              };
+            }
+            const rejected = await createGeneratedImage({
+              projectId: input.projectId,
+              storyId: input.storyId ?? null,
+              userId: input.userId,
+              shotNo: targetShotNo,
+              shotIdentity: stableShotId,
+              imageKey: candidate.imageKey ?? null,
+              imageUrl: candidate.imageUrl,
+              prompt: attemptPrompt,
+              promptCompilationId,
+              parentImageId: continuityAsset?.id ?? null,
+              isCurrent: false,
+              generationType: "generate",
+              maskKey: null,
+            });
+            await createImageSignal({
+              userId: input.userId,
+              storyId: input.storyId!,
+              imageId: rejected.id,
+              action: "swipe_left",
+              metadata: {
+                source: "visual_asset_consistency_gate",
+                fingerprint: lockedAssets.fingerprint,
+                attempt,
+                dimensions: inspection.dimensions,
+              },
+            });
+            retryCorrections.push(...inspection.retryCorrections);
+            if (inspection.dimensions.some(row => row.verdict === "unknown")) {
+              return {
+                status: "error" as const,
+                message: "资产一致性检查无法确认结果，已阻止候选入库且不会继续付费重试",
+              };
+            }
+          }
+        }
+        return {
+          status: "error" as const,
+          message: "连续 3 次未通过锁定资产一致性检查，已停止生成；失败图片仅保留在审计历史",
+        };
       }
     );
   } catch (error) {
@@ -674,7 +824,7 @@ export async function generateNextImage(
       prompt: directedPrompt,
       promptCompilationId,
       parentImageId: continuityAsset?.id ?? null,
-      isCurrent: true,
+      isCurrent: !lockedAssets,
       generationType: "generate",
       maskKey: null,
     });

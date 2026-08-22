@@ -138,6 +138,8 @@ function isRequestAbort(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+class UploadTransportError extends Error {}
+
 /**
  * Vidu 的图片上传不会创建付费视频任务，可以在网关瞬时断连时补一次。
  * 每次都重建 deadline，避免第一次失败后沿用已 abort 的 signal。
@@ -159,7 +161,7 @@ async function runUploadRequest<T>(input: {
       deadline.clear();
     }
   }
-  throw new Error(
+  throw new UploadTransportError(
     `${input.stage}：${providerErrorMessage(lastError, "网络请求失败")}`
   );
 }
@@ -314,23 +316,51 @@ export async function uploadFileToVidu(
   const timeoutMs = options.timeoutMs ?? 60_000;
   let createResponse: Response;
   let createJson: unknown;
-  ({ response: createResponse, json: createJson } = await runUploadRequest({
-    stage: "Vidu 创建图片上传会话失败",
-    timeoutMs,
-    request: async signal => {
-      const response = await fetcher(
-        endpoint(VIDU_UPLOAD_CREATE_PATH).toString(),
+  try {
+    ({ response: createResponse, json: createJson } = await runUploadRequest({
+      stage: "Vidu 创建图片上传会话失败",
+      timeoutMs,
+      request: async signal => {
+        const response = await fetcher(
+          endpoint(VIDU_UPLOAD_CREATE_PATH).toString(),
+          {
+            method: "POST",
+            headers: bearerHeaders("application/json"),
+            body: JSON.stringify({ scene: "vidu" }),
+            signal,
+          }
+        );
+        const json = await response.json().catch(() => ({}));
+        return { response, json };
+      },
+    }));
+  } catch (error) {
+    if (!(error instanceof UploadTransportError)) throw error;
+    try {
+      const extension =
+        input.contentType === "image/jpeg"
+          ? "jpg"
+          : input.contentType === "image/webp"
+            ? "webp"
+            : "png";
+      return await uploadFileTo302(
         {
-          method: "POST",
-          headers: bearerHeaders("application/json"),
-          body: JSON.stringify({ scene: "vidu" }),
-          signal,
-        }
+          fileName: `vidu-frame.${extension}`,
+          bytes: input.bytes,
+          contentType: input.contentType,
+        },
+        { fetcher, timeoutMs }
       );
-      const json = await response.json().catch(() => ({}));
-      return { response, json };
-    },
-  }));
+    } catch (fallbackError) {
+      throw new Error(
+        `${providerErrorMessage(error, "Vidu 图片上传失败")}；` +
+          `备用通用上传失败：${providerErrorMessage(
+            fallbackError,
+            "网络请求失败"
+          )}`
+      );
+    }
+  }
   if (!createResponse.ok) {
     throw new Error(
       failureMessage(

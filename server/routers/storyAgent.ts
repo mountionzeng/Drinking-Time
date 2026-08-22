@@ -60,6 +60,7 @@ import {
 import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
+import { resolveVisualAssetGenerationContext } from "../services/visualAssetGenerationContext";
 import {
   applyPublishingCoverArtDirection,
   resolvePublishingCoverArtDirection,
@@ -2059,6 +2060,9 @@ export const storyAgentRouter = router({
         // 精确改图：用户选中某一帧、只改点名的内容。此时画面事实来自那张图本身，
         // 不能再让美术库按故事设定重新描述一遍场景。
         exactFrameEdit: z.boolean().optional(),
+        // 多图重组（对话框图生图）：用户在聊天里选了几张图，逐张说明取什么。
+        // 图号职责已经由客户端清单写死并与发送顺序对齐，服务端不得再重写画面描述。
+        remixEdit: z.boolean().optional(),
         storyStyleReferenceImageUrl: z.string().optional(), // 正式封面：只继承色板、材质、光线与情绪
         editMaskImageUrl: z
           .string()
@@ -2092,6 +2096,28 @@ export const storyAgentRouter = router({
           return {
             status: "error" as const,
             error: "遮罩局部重绘只允许使用已确认费用的正式编辑链路",
+          };
+        }
+        // 多图重组的提示词全靠「图1＝…图2＝…」清单和用户原话立住。少了底图，
+        // 图号就对不上实际发送顺序；少了原话，模型没有取舍依据，只会照抄图1。
+        // 两种情况都会烧掉一次付费任务却产出废图，所以在提交前挡住。
+        if (input.remixEdit && !input.referenceImageUrl?.trim()) {
+          return {
+            status: "error" as const,
+            error: "多图重组必须包含作为底图的第一张参考图",
+          };
+        }
+        if (input.remixEdit && !input.explicitInstruction?.trim()) {
+          return {
+            status: "error" as const,
+            error: "多图重组必须包含用户说明要从每张图里取什么",
+          };
+        }
+        if (input.remixEdit && input.editMaskImageUrl) {
+          // 遮罩要和唯一底图逐像素对齐，带遮罩时 imageGen 会丢掉全部上下文图。
+          return {
+            status: "error" as const,
+            error: "多图重组不能同时使用遮罩局部重绘",
           };
         }
         if (input.explicitInstruction || input.editMaskImageUrl) {
@@ -2349,6 +2375,7 @@ export const storyAgentRouter = router({
           prompt = buildUnifiedPrompt(promptContext);
         }
 
+        const promptBeforeLegacyStyleHint = prompt;
         // 风格锁：如果 prompt 里还没有风格描述，追加 styleHint
         if (input.styleHint?.trim() && !styleHintApplied) {
           const hasStyle =
@@ -2362,18 +2389,53 @@ export const storyAgentRouter = router({
           }
         }
 
-        // 出图统一经美术网关
-        const storyReferences = storyArtReferenceImages(story);
-        const rawCharacterRef = characterReferenceOf(artDirection);
+        // 资产绑定以稳定镜头身份解析。失败必须发生在任何供应商调用之前。
+        const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
+        const visualAssetContext = shotIdentity
+          ? await resolveVisualAssetGenerationContext({
+              storyId: input.storyId,
+              userId: ctx.user.id,
+              stableShotId: shotIdentity,
+              shotText: [prompt, input.explicitInstruction].filter(Boolean).join("\n"),
+              provider:
+                input.mode === "draft"
+                  ? "draft"
+                  : (input.imageProvider ?? "midjourney"),
+            })
+          : ({ status: "disabled" } as const);
+        if (visualAssetContext.status === "blocked") {
+          return {
+            status: "error" as const,
+            error: visualAssetContext.issues
+              .map(issue => issue.message)
+              .join("；"),
+          };
+        }
+        const lockedAssets =
+          visualAssetContext.status === "ready"
+            ? visualAssetContext.snapshot
+            : undefined;
+        if (lockedAssets?.dimensions.style) {
+          // 旧镜头 styleHint 只是兼容字段；新风格资产已锁定时不能再把它叠进提示词。
+          prompt = promptBeforeLegacyStyleHint;
+        }
+
+        // 出图统一经美术网关。资产镜头不再读取旧故事参考池或旧人物锚点。
+        const storyReferences = lockedAssets ? [] : storyArtReferenceImages(story);
+        const rawCharacterRef = lockedAssets
+          ? undefined
+          : characterReferenceOf(artDirection);
         const referencePlan = planImageGenerationReferences({
           shotReferenceImageUrl: input.referenceImageUrl,
           shotContextImageUrls: input.referenceContextImageUrls,
           originalImageUrl: input.originalImageUrl,
           characterReferenceImageUrl: rawCharacterRef,
           storyReferenceImageUrls: storyReferences,
-          storyStyleReferenceImageUrl: input.storyStyleReferenceImageUrl,
+          storyStyleReferenceImageUrl: lockedAssets
+            ? undefined
+            : input.storyStyleReferenceImageUrl,
         });
-        prompt = withCharacterContinuityPrompt(prompt, storyBody, {
+        if (!lockedAssets) prompt = withCharacterContinuityPrompt(prompt, storyBody, {
           hasCharacterReference: Boolean(
             referencePlan.usesStoryboardFrames
               ? (input.referenceIdentityImageUrl ?? referencePlan.primaryImage)
@@ -2381,7 +2443,7 @@ export const storyAgentRouter = router({
           ),
           sceneAnalysis: input.sceneAnalysis,
         });
-        const referenceImage = referencePlan.primaryImage;
+        const referenceImage = referencePlan.primaryImage ?? lockedAssets?.sceneRef;
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
@@ -2400,7 +2462,19 @@ export const storyAgentRouter = router({
             );
           }
         }
-        const injection =
+        const injection = lockedAssets
+          ? {
+              ...(lockedAssets.characterRef
+                ? {
+                    characterRef: lockedAssets.characterRef,
+                    characterWeight: 100,
+                  }
+                : {}),
+              ...(lockedAssets.styleRef
+                ? { styleRef: lockedAssets.styleRef }
+                : {}),
+            }
+          :
           referencePlan.usesStoryboardFrames ||
           referencePlan.usesStoryStyleReference
             ? await deriveStoryboardReferenceInjection(story, {
@@ -2412,7 +2486,19 @@ export const storyAgentRouter = router({
                   referencePlan.referencePurpose !== "scene-style",
               })
             : await deriveInjection(story, input.sceneAnalysis);
-        if (input.exactFrameEdit) {
+        if (input.remixEdit) {
+          // 多图重组时，客户端已经把「图1＝…图2＝…」的清单和用户原话拼成 prompt，
+          // 图号和实际发送顺序严格对齐。这里不能再走 directImagePrompt：它只看
+          // 底图一张，会把「取图2的那件外套」重写成对图1的整体画面描述，跨图指令
+          // 当场消失。也不能套精确改图那句「keep all of it」——用户要的正是改构图。
+          prompt = [
+            "Compose one new image from the supplied reference images.",
+            "图1 is the base: its aspect ratio and overall composition carry over unless the user asks otherwise.",
+            "Take from each reference only what the user names below; do not borrow anything else from them.",
+            "",
+            prompt,
+          ].join("\n");
+        } else if (input.exactFrameEdit) {
           // 精确改图时，选中的那张图就是场景本身。美术库改写出来的场景段落会
           // 在提示词开头重述一个「应该长什么样」的画面（配色、姿势全都写死），
           // 于是模型照着它重画，用户的原图当场被换掉。这里换成一句短引导。
@@ -2446,8 +2532,10 @@ export const storyAgentRouter = router({
           }
         }
         const explicitStyleRecipe = artRecipeFromStyleHint(input.styleHint);
-        prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
-        if (coverArtDirection) {
+        if (!lockedAssets) {
+          prompt = applyPublishingCoverArtDirection(prompt, coverArtDirection);
+        }
+        if (coverArtDirection && !lockedAssets) {
           prompt = await compilePublishingCoverStoryboardPrompt({
             prompt,
             provider: input.imageProvider ?? "midjourney",
@@ -2463,12 +2551,30 @@ export const storyAgentRouter = router({
           longPrompt:
             input.imageProvider === "gpt-image" ||
             Boolean(input.editMaskImageUrl),
-          referenceImages: referencePlan.gateReferenceImages,
+          referenceImages: lockedAssets
+            ? Array.from(new Set([
+                ...(referencePlan.gateReferenceImages ?? []),
+                ...Object.values(lockedAssets.dimensions).flatMap(dimension =>
+                  dimension
+                    ? dimension.views.map(view => view.materializedUrl)
+                    : []
+                ),
+              ]))
+            : referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
           storyId: story.id,
           preservePrompt: Boolean(coverArtDirection),
           outputPurpose: "story-frame" as const,
+          lockedVisualAssets: lockedAssets
+            ? {
+                fingerprint: lockedAssets.fingerprint,
+                kinds: Object.keys(lockedAssets.dimensions) as Array<
+                  "character" | "scene" | "style"
+                >,
+                promptContract: lockedAssets.promptContract,
+              }
+            : undefined,
           referencePolicy: referenceImage
             ? referencePlan.referencePurpose === "character"
               ? ("preserve-identity" as const)
@@ -2483,7 +2589,9 @@ export const storyAgentRouter = router({
           authoredBrief:
             Boolean(input.explicitInstruction?.trim()) &&
             referencePlan.usesStoryboardFrames,
-          artDirection: referencePlan.usesStoryboardFrames
+          artDirection: lockedAssets
+            ? undefined
+            : referencePlan.usesStoryboardFrames
             ? explicitStyleRecipe
             : (storyArtRecipe(story) ?? explicitStyleRecipe),
           styleIndex:
@@ -2494,7 +2602,6 @@ export const storyAgentRouter = router({
 
         const imageWeight =
           input.sceneWeight ?? (referencePlan.usesStoryboardFrames ? 2 : 0.5);
-        const shotIdentity = shotIdentityForStoryShot(story, input.shotNo);
         const promptCompilationId = await resolveStoryImageCompilationId({
           story,
           storyId: input.storyId,
@@ -2569,10 +2676,20 @@ export const storyAgentRouter = router({
                 imageWeight,
                 referenceImageUrl: input.referenceImageUrl,
                 referenceIdentityImageUrl: input.referenceIdentityImageUrl,
-                referenceContextImageUrls: input.referenceContextImageUrls,
+                referenceContextImageUrls: Array.from(
+                  new Set([
+                    ...(input.referenceContextImageUrls ?? []),
+                    ...(lockedAssets?.sceneRef &&
+                    lockedAssets.sceneRef !== referenceImage
+                      ? [lockedAssets.sceneRef]
+                      : []),
+                  ])
+                ).slice(0, 3),
                 editMaskImageUrl: input.editMaskImageUrl,
-                primaryReferenceLock: referencePlan.usesStoryboardFrames,
-                requireInputImage: referencePlan.usesStoryboardFrames,
+                primaryReferenceLock:
+                  referencePlan.usesStoryboardFrames && !lockedAssets,
+                requireInputImage:
+                  referencePlan.usesStoryboardFrames || Boolean(lockedAssets),
               })
             : generateMobileImage(renderedFinalPrompt, {
                 provider: input.imageProvider ?? "midjourney",

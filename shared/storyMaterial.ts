@@ -1,5 +1,11 @@
 import type { ImageAsset } from "./imageAsset";
+import type { PublishingAlbumTypographyLayout } from "./publishingAlbum";
 import type { VideoTakeAsset } from "./videoAsset";
+import type {
+  ShotVisualAssetBinding,
+  ShotVisualAssetBindingProposal,
+  StoryVisualAsset,
+} from "./visualAssets";
 
 export type TimelineTransform = {
   cropX: number;
@@ -12,6 +18,12 @@ export type TimelineTransform = {
   rotationDeg?: number;
   flipX?: boolean;
   flipY?: boolean;
+};
+
+/** Editable product text attached to one storyboard image, never burned into source pixels. */
+export type StoryTimelineImageTextOverlay = {
+  text: string;
+  typography: PublishingAlbumTypographyLayout;
 };
 
 export type TimelineVideoEffects = {
@@ -109,7 +121,9 @@ export function timelineOffsetMsToFrames(valueMs: number): number {
 
 export function timelineFramesToMs(frames: number): number {
   if (!Number.isFinite(frames)) return 0;
-  return Math.round((Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS);
+  return Math.round(
+    (Math.max(0, Math.round(frames)) * 1000) / STORY_TIMELINE_FPS
+  );
 }
 
 /**
@@ -162,6 +176,8 @@ export type StoryTimelineItem = {
   transform: TimelineTransform;
   /** Per-storyboard-frame transforms. The legacy item transform remains the fallback. */
   imageTransforms?: Record<string, TimelineTransform>;
+  /** Per-storyboard-frame editable text. Other images remain untouched. */
+  imageTextOverlays?: Record<string, StoryTimelineImageTextOverlay>;
   primaryVideoEdit?: StoryTimelinePrimaryVideoEdit;
   visualClips?: StoryTimelineVisualClip[];
   imageClips?: StoryTimelineImageClip[];
@@ -222,9 +238,23 @@ export type ShotMaterialState = {
   cueCode?: string | null;
   currentImage: ImageAsset | null;
   imageVersions: ImageAsset[];
+  /**
+   * Existing story images used by, or derived from inputs to, this shot.
+   * They remain owned by their original shot and must not become current here
+   * merely because the relationship is projected for editing and provenance.
+   */
+  relatedImages?: ImageAsset[];
   currentVideo: VideoTakeAsset | null;
   videoTakes: VideoTakeAsset[];
   timelineItem: StoryTimelineItem | null;
+  visualAssetBinding?: ShotVisualAssetBinding | null;
+};
+
+export type StoryVisualAssetMaterialState = {
+  assets: StoryVisualAsset[];
+  proposals: ShotVisualAssetBindingProposal[];
+  bindings: ShotVisualAssetBinding[];
+  images: ImageAsset[];
 };
 
 export type StoryMaterialState = {
@@ -234,6 +264,7 @@ export type StoryMaterialState = {
   unassignedImages: ImageAsset[];
   unassignedVideoTakes: VideoTakeAsset[];
   reusableVideoTakes: VideoTakeAsset[];
+  visualAssets?: StoryVisualAssetMaterialState;
 };
 
 export const DEFAULT_TIMELINE_TRANSFORM: TimelineTransform = {

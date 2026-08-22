@@ -22,6 +22,13 @@ const mocks = vi.hoisted(() => ({
     compilationId: null,
     finalText: null,
   })),
+  resolveVisualAssetGenerationContext: vi.fn(async () => ({ status: "disabled" as const })),
+  inspectVisualAssetConsistency: vi.fn(async () => ({
+    status: "pass" as const,
+    modelLabel: "vision-test",
+    dimensions: [],
+    retryCorrections: [],
+  })),
 }));
 
 // llmModel 不是可选的：配置判据现在问路由「有没有可用候选」，而一个只有
@@ -60,6 +67,12 @@ vi.mock("./imagePromptDirector", () => ({
 vi.mock("./promptLineage", () => ({
   PromptLineageValidationError: class PromptLineageValidationError extends Error {},
   resolveGenerationPromptCompilation: mocks.resolveGenerationPromptCompilation,
+}));
+vi.mock("./visualAssetGenerationContext", () => ({
+  resolveVisualAssetGenerationContext: mocks.resolveVisualAssetGenerationContext,
+}));
+vi.mock("./visualAssetConsistencyGate", () => ({
+  inspectVisualAssetConsistency: mocks.inspectVisualAssetConsistency,
 }));
 
 import { replyFromCreationAgent, generateNextImage } from "./creationAgent";
@@ -130,6 +143,7 @@ describe("replyFromCreationAgent image actions", () => {
       compilationId: null,
       finalText: null,
     });
+    mocks.resolveVisualAssetGenerationContext.mockResolvedValue({ status: "disabled" });
   });
 
   it("基于焦点主图生成待确认修改版本并保留父版本", async () => {
@@ -463,6 +477,102 @@ describe("generateNextImage（确定性单图出图，U1）", () => {
       compilationId: null,
       finalText: null,
     });
+    mocks.resolveVisualAssetGenerationContext.mockResolvedValue({ status: "disabled" });
+  });
+
+  it("资产预检失败时不调用任何图片供应商", async () => {
+    mocks.resolveVisualAssetGenerationContext.mockResolvedValue({
+      status: "blocked",
+      issues: [{
+        code: "shot-text-conflict",
+        kind: "character",
+        message: "镜头文字要求改变已锁定的人物事实",
+      }],
+    });
+
+    const result = await generateNextImage({
+      prompt: "把人物发型换成长发",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      assets: [asset({ shotIdentity: "shot-001" })],
+    });
+
+    expect(result).toEqual({
+      status: "error",
+      message: "镜头文字要求改变已锁定的人物事实",
+    });
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+    expect(mocks.editImage).not.toHaveBeenCalled();
+  });
+
+  it("资产镜头注入人物、场景和风格三种独立职责", async () => {
+    mocks.resolveVisualAssetGenerationContext.mockResolvedValue({
+      status: "ready",
+      snapshot: {
+        storyId: 8,
+        stableShotId: "shot-001",
+        provider: "midjourney",
+        fingerprint: "fixed-snapshot",
+        promptContract: "【锁定视觉资产·最高优先级】固定事实",
+        characterRef: "https://assets.test/character.png",
+        sceneRef: "data:image/png;base64,scene",
+        styleRef: "https://assets.test/style.png",
+        dimensions: {
+          character: { views: [] },
+          scene: { views: [] },
+          style: { views: [] },
+        },
+      },
+    });
+    mocks.editImage.mockResolvedValue({
+      status: "ok",
+      imageUrl: "/api/images/21.png",
+      imageKey: "generated/21.png",
+    });
+
+    const request = {
+      prompt: "夜间近景，人物回头",
+      shotNo: "SH01",
+      projectId: 7,
+      storyId: 8,
+      userId: 9,
+      imageProvider: "midjourney",
+      assets: [asset({ shotIdentity: "shot-001", isCurrent: false, isPrimary: false })],
+    } as const;
+    const quote = await generateNextImage(request);
+    expect(quote.status).toBe("confirmation_required");
+    if (quote.status !== "confirmation_required") return;
+    const result = await generateNextImage({
+      ...request,
+      visualAssetCostConfirmation: {
+        accepted: true,
+        estimatedCny: quote.estimatedCny,
+        fingerprint: quote.fingerprint,
+      },
+    });
+
+    expect(result.status).toBe("ok");
+    expect(mocks.editImage).toHaveBeenCalledWith(
+      "data:image/png;base64,/api/images/12.png",
+      "rendered prompt",
+      expect.objectContaining({
+        characterRef: "https://assets.test/character.png",
+        characterWeight: 100,
+        styleRef: "https://assets.test/style.png",
+        referenceContextImageUrls: ["data:image/png;base64,scene"],
+        requireInputImage: true,
+      })
+    );
+    expect(renderViaGate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artDirection: undefined,
+        lockedVisualAssets: expect.objectContaining({ fingerprint: "fixed-snapshot" }),
+      }),
+      expect.any(Function)
+    );
+    expect(mocks.deriveInjection).not.toHaveBeenCalled();
   });
 
   it("Happy path：无连续性资产 → 走 generateImage，落一张待确认图，返回 ok", async () => {

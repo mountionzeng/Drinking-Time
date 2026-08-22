@@ -18,6 +18,7 @@ import {
   resolveTimelineVisualFrame,
   selectDirectionalGroup,
   selectSingleShot,
+  timelineImageBeatsVisualSource,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {

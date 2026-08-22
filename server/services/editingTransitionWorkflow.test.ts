@@ -803,6 +803,28 @@ describe("confirmEditingTransition", () => {
     );
   });
 
+  it("串行上传首尾帧，避免同时建立两条易断的 TLS 连接", async () => {
+    let resolveFirstUpload: ((value: string) => void) | undefined;
+    videoMocks.uploadFileToVidu
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>(resolve => {
+            resolveFirstUpload = resolve;
+          })
+      )
+      .mockResolvedValueOnce("ssupload:?id=last");
+
+    const pending = confirmEditingTransition(candidate(), USER_ID);
+    await vi.waitFor(() =>
+      expect(videoMocks.uploadFileToVidu).toHaveBeenCalledTimes(1)
+    );
+    resolveFirstUpload?.("ssupload:?id=first");
+
+    await expect(pending).resolves.toMatchObject({ status: "applied" });
+    expect(videoMocks.uploadFileToVidu).toHaveBeenCalledTimes(2);
+  });
+
   it("视频端点按当前 Take 重新校验，且不伪造 sourceImageId", async () => {
     materialMocks.getStoryMaterialState.mockResolvedValue(videoMaterialState());
 

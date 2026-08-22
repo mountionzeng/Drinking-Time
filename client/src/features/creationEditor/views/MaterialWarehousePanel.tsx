@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Link2,
+  Layers3,
   RotateCcw,
   Upload,
   Video,
@@ -24,11 +25,18 @@ import type { ImageAsset } from "@shared/imageAsset";
 import type { SelectionContext } from "@shared/selectionContext";
 import type { StoryMaterialState } from "@shared/storyMaterial";
 import type { VideoTakeAsset } from "@shared/videoAsset";
-import { displayShotCode, type ShotDisplayLike } from "@shared/shotIdentity";
+import {
+  displayShotCode,
+  normalizeShotIdentity,
+  type ShotDisplayLike,
+} from "@shared/shotIdentity";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import ImageRefToggleButton from "@/features/storyAgent/views/ImageRefToggleButton";
+import { writeStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
 import OneClickEditAssistant from "./OneClickEditAssistant";
+import VisualAssetLibrary from "../visualAssets/VisualAssetLibrary";
 
 type WarehouseImage = Pick<
   ImageAsset,
@@ -39,6 +47,7 @@ type WarehouseImageItem = {
   shotNo: number | null;
   cueCode: string | null;
   stableShotId: string | null;
+  relatedStableShotIds: string[];
   isCurrent: boolean;
 };
 type WarehouseVideoItem = {
@@ -400,6 +409,11 @@ function shotLabel(shot: ShotDisplayLike | number | null | undefined) {
   return displayShotCode(typeof shot === "number" ? { shotNo: shot } : shot);
 }
 
+/** 引用篮子和提示词清单里显示的来源；仓库里没归位的图就叫「待归类」。 */
+function warehouseImageRefLabel(item: WarehouseImageItem) {
+  return item.shotNo != null ? shotLabel(item) : "待归类";
+}
+
 function videoSourceLabel(item: WarehouseVideoItem) {
   if (item.shotNo != null) return shotLabel(item);
   if (item.isReusable) return `素材 #${item.take.storyId}`;
@@ -432,6 +446,22 @@ function readFileBase64(file: File): Promise<string> {
 
 function imageMatchesShot(image: WarehouseImage, stableShotId: string | null) {
   return Boolean(stableShotId && image.shotIdentity === stableShotId);
+}
+
+function imageItemRelatesToShot(
+  item: WarehouseImageItem,
+  stableShotId: string | null
+) {
+  const normalizedStableShotId = normalizeShotIdentity(stableShotId);
+  return Boolean(
+    normalizedStableShotId &&
+      (normalizeShotIdentity(item.stableShotId) === normalizedStableShotId ||
+        item.relatedStableShotIds.some(
+          relatedStableShotId =>
+            normalizeShotIdentity(relatedStableShotId) ===
+            normalizedStableShotId
+        ))
+  );
 }
 
 function runOnSelectKey(event: KeyboardEvent, action: () => void) {
@@ -493,7 +523,7 @@ export default function MaterialWarehousePanel({
   const [panelError, setPanelError] = useState<string | null>(null);
   const [selectedMaterialKey, setSelectedMaterialKey] =
     useState<SelectedMaterialKey | null>(null);
-  const [drawerTab, setDrawerTab] = useState<"images" | "videos">("images");
+  const [drawerTab, setDrawerTab] = useState<"images" | "videos" | "assets">("images");
   // 导入暂存区：拖入的文件先在这里交代目标镜头 + 运动/场景/道具说明，再入库。
   const [pendingImports, setPendingImports] = useState<PendingImportItem[]>([]);
 
@@ -512,30 +542,61 @@ export default function MaterialWarehousePanel({
   }, [currentShot, currentStableShotId, materialState]);
 
   const imageItems = useMemo(() => {
-    const rows: WarehouseImageItem[] = [];
+    const rows = new Map<number, WarehouseImageItem>();
+    const addRow = (row: WarehouseImageItem) => {
+      const previous = rows.get(row.image.id);
+      if (!previous) {
+        rows.set(row.image.id, row);
+        return;
+      }
+      rows.set(row.image.id, {
+        ...(previous.stableShotId == null && row.stableShotId != null
+          ? row
+          : previous),
+        relatedStableShotIds: Array.from(
+          new Set([
+            ...previous.relatedStableShotIds,
+            ...row.relatedStableShotIds,
+          ])
+        ),
+        isCurrent: previous.isCurrent || row.isCurrent,
+      });
+    };
     for (const image of materialState?.unassignedImages ?? []) {
-      rows.push({
+      addRow({
         image,
         shotNo: null,
         cueCode: null,
         stableShotId: null,
+        relatedStableShotIds: [],
         isCurrent: false,
       });
     }
     for (const shot of materialState?.shots ?? []) {
       for (const image of shot.imageVersions) {
-        rows.push({
+        addRow({
           image,
           shotNo: shot.shotNo,
           cueCode: shot.cueCode ?? null,
           stableShotId: shot.stableShotId,
+          relatedStableShotIds: [],
           isCurrent: shot.currentImage?.id === image.id,
+        });
+      }
+      for (const image of shot.relatedImages ?? []) {
+        addRow({
+          image,
+          shotNo: null,
+          cueCode: null,
+          stableShotId: null,
+          relatedStableShotIds: [shot.stableShotId],
+          isCurrent: false,
         });
       }
     }
     for (const shot of shots) {
       if (shot.imageId == null || !shot.imageUrl) continue;
-      rows.push({
+      addRow({
         image: {
           id: shot.imageId,
           imageUrl: shot.imageUrl,
@@ -546,21 +607,36 @@ export default function MaterialWarehousePanel({
         shotNo: shot.shotNo,
         cueCode: shot.cueCode?.trim() || null,
         stableShotId: shot.stableShotId ?? shot.shotIdentity ?? null,
+        relatedStableShotIds: [],
         isCurrent: true,
       });
     }
-    const seen = new Set<number>();
-    return rows.filter(row => {
-      if (seen.has(row.image.id)) return false;
-      seen.add(row.image.id);
-      return true;
-    });
+    return Array.from(rows.values());
   }, [activeStoryId, materialState, shots]);
 
   const videoItems = useMemo(
     () => buildMaterialWarehouseVideoItems(materialState),
     [materialState]
   );
+  const visualAssetImages = useMemo(
+    () => {
+      const rows = imageItems.map(item => ({
+        id: item.image.id,
+        imageUrl: item.image.imageUrl,
+        label: `${item.shotNo ? shotLabel(item) : "未绑定"} · 图片 #${item.image.id}`,
+      }));
+      for (const image of materialState?.visualAssets?.images ?? []) {
+        rows.push({
+          id: image.id,
+          imageUrl: image.imageUrl,
+          label: `资产标准视图 · 图片 #${image.id}`,
+        });
+      }
+      return Array.from(new Map(rows.map(row => [row.id, row])).values());
+    },
+    [imageItems, materialState?.visualAssets?.images]
+  );
+  const visualAssetCount = materialState?.visualAssets?.assets.length ?? 0;
 
   const unavailableTakeCount = videoItems.filter(
     item => item.take.status === "unfollowable"
@@ -789,7 +865,8 @@ export default function MaterialWarehousePanel({
   };
 
   if (variant === "drawer") {
-    const drawerItems = drawerTab === "images" ? imageItems : videoItems;
+    const drawerItems =
+      drawerTab === "images" ? imageItems : drawerTab === "videos" ? videoItems : [];
     return (
       <section
         id="editing-material-warehouse"
@@ -819,6 +896,14 @@ export default function MaterialWarehousePanel({
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "videos" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
                 <Video className="h-3.5 w-3.5" /> 视频 {videoItems.length}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDrawerTab("assets")}
+                aria-pressed={drawerTab === "assets"}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${drawerTab === "assets" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Layers3 className="h-3.5 w-3.5" /> 资产 {visualAssetCount}
               </button>
             </div>
           </div>
@@ -865,7 +950,15 @@ export default function MaterialWarehousePanel({
               {panelError ?? error?.message}
             </div>
           ) : null}
-          {drawerItems.length === 0 ? (
+          {drawerTab === "assets" ? (
+            <VisualAssetLibrary
+              storyId={activeStoryId ?? null}
+              images={visualAssetImages}
+              compact
+              currentStableShotId={currentStableShotId}
+              onRequestImport={() => inputRef.current?.click()}
+            />
+          ) : drawerItems.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               {isLoading
                 ? "正在读取素材"
@@ -879,12 +972,11 @@ export default function MaterialWarehousePanel({
                 ? imageItems.map(item => {
                     const busy = busyKey === `image:${item.image.id}`;
                     const belongsToCurrent =
-                      currentStableShotId != null &&
-                      item.stableShotId === currentStableShotId;
+                      imageItemRelatesToShot(item, currentStableShotId);
                     return (
                       <article
                         key={item.image.id}
-                        className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                        className="relative flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
                       >
                         <button
                           type="button"
@@ -898,10 +990,25 @@ export default function MaterialWarehousePanel({
                                 ? `${shotLabel(item)} 图片`
                                 : "未绑定图片"
                             }
-                            className="h-full w-full object-cover"
+                            draggable
+                            onDragStart={event =>
+                              writeStoryImageDragPayload(event.dataTransfer, {
+                                imageId: item.image.id,
+                                imageUrl: item.image.imageUrl,
+                                label: warehouseImageRefLabel(item),
+                              })
+                            }
+                            className="h-full w-full cursor-grab object-cover active:cursor-grabbing"
                             loading="lazy"
                           />
                         </button>
+                        <ImageRefToggleButton
+                          storyId={activeStoryId}
+                          imageId={item.image.id}
+                          imageUrl={item.image.imageUrl}
+                          label={warehouseImageRefLabel(item)}
+                          className="absolute right-1.5 top-1.5"
+                        />
                         <div className="flex shrink-0 items-center gap-2 p-2">
                           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
                             {item.shotNo ? shotLabel(item) : "未绑定"}
@@ -1037,7 +1144,7 @@ export default function MaterialWarehousePanel({
 
       <div className="flex min-h-0 flex-1">
         <aside className="w-56 shrink-0 overflow-y-auto border-r border-border/70 bg-muted/20 p-3">
-          <div className="mb-3 grid grid-cols-3 gap-2 text-center text-[11px] text-muted-foreground">
+          <div className="mb-3 grid grid-cols-4 gap-2 text-center text-[11px] text-muted-foreground">
             <div>
               <div className="text-base font-semibold text-foreground">
                 {imageItems.length}
@@ -1055,6 +1162,12 @@ export default function MaterialWarehousePanel({
                 {unavailableTakeCount}
               </div>
               不可用
+            </div>
+            <div>
+              <div className="text-base font-semibold text-foreground">
+                {visualAssetCount}
+              </div>
+              资产
             </div>
           </div>
 
@@ -1276,6 +1389,15 @@ export default function MaterialWarehousePanel({
             ) : null}
           </div>
 
+          <div className="mx-4 mb-4 rounded-lg border border-border bg-background p-3">
+            <VisualAssetLibrary
+              storyId={activeStoryId ?? null}
+              images={visualAssetImages}
+              currentStableShotId={currentStableShotId}
+              onRequestImport={() => inputRef.current?.click()}
+            />
+          </div>
+
           <DirectorAdviceSection
             storyId={activeStoryId ?? null}
             unassignedCount={materialState?.unassignedImages.length ?? 0}
@@ -1305,10 +1427,9 @@ export default function MaterialWarehousePanel({
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {imageItems.map(item => {
-                      const { image, shotNo, stableShotId, isCurrent } = item;
+                      const { image, shotNo, isCurrent } = item;
                       const belongsToCurrent =
-                        currentStableShotId != null &&
-                        stableShotId === currentStableShotId;
+                        imageItemRelatesToShot(item, currentStableShotId);
                       const busy = busyKey === `image:${image.id}`;
                       const selected =
                         selectedMaterialKey === `image:${image.id}`;

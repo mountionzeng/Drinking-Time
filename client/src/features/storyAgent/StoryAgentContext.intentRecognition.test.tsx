@@ -322,6 +322,24 @@ vi.mock("@/features/storyAgent/spine/selectors", async importOriginal => {
   };
 });
 
+// 这个用例只渲染聊天壳，不接 tRPC Provider；图生图托盘要发付费请求，
+// 在这里替换成空实现，免得它把整棵树的渲染带崩。
+vi.mock("@/features/storyAgent/useChatImageRemix", () => ({
+  useChatImageRemix: () => ({
+    refs: [],
+    status: "idle" as const,
+    draft: null,
+    result: null,
+    error: null,
+    arm: () => false,
+    confirm: async () => {},
+    cancel: () => {},
+    dismissResult: () => {},
+    removeRef: () => {},
+    promoteRef: () => {},
+  }),
+}));
+
 vi.mock("@/features/nayin/NayinContext", () => ({
   useNayin: () => ({ element: "fire" }),
 }));

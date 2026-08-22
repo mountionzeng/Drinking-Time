@@ -50,6 +50,7 @@ import {
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
+  type StoryTimelineImageTextOverlay,
   type StoryTimelineOverlay,
   type StoryTimelineVisualLayerState,
   type TimelineTransform,
@@ -498,6 +499,7 @@ type CreationEditorContextValue = {
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => Promise<void>;
   selectVideoTimelineSegment: (input: {
     stableShotId: string;
@@ -1016,6 +1018,7 @@ export function normalizeStoryImages(
         isPrimary:
           typeof obj.isPrimary === "boolean" ? obj.isPrimary : undefined,
         generationType,
+        parentImageId: numberValue(obj.parentImageId),
         selectionSource,
       } satisfies CreationEditorImage;
     })
@@ -1034,15 +1037,35 @@ export function resolveCreationEditorImages(
   storyImages: unknown
 ): CreationEditorImage[] {
   const imagesByKey = new Map<string, CreationEditorImage>();
+  const mergeImage = (image: CreationEditorImage) => {
+    const key = imageSourceKey(image);
+    const previous = imagesByKey.get(key);
+    imagesByKey.set(key, {
+      ...previous,
+      ...image,
+      relatedShotIdentities: Array.from(
+        new Set([
+          ...(previous?.relatedShotIdentities ?? []),
+          ...(image.relatedShotIdentities ?? []),
+        ])
+      ),
+    });
+  };
   for (const image of normalizeStoryImages(storyImages)) {
-    imagesByKey.set(imageSourceKey(image), image);
+    mergeImage(image);
   }
-  const materialImages = materialState?.shots.flatMap(shot => [
-    ...(Array.isArray(shot.imageVersions) ? shot.imageVersions : []),
-    ...(shot.currentImage ? [shot.currentImage] : []),
-  ]);
-  for (const image of normalizeStoryImages(materialImages)) {
-    imagesByKey.set(imageSourceKey(image), image);
+  for (const shot of materialState?.shots ?? []) {
+    const ownedImages = [
+      ...(Array.isArray(shot.imageVersions) ? shot.imageVersions : []),
+      ...(shot.currentImage ? [shot.currentImage] : []),
+    ];
+    for (const image of normalizeStoryImages(ownedImages)) mergeImage(image);
+    for (const image of normalizeStoryImages(shot.relatedImages)) {
+      mergeImage({
+        ...image,
+        relatedShotIdentities: [shot.stableShotId],
+      });
+    }
   }
   return Array.from(imagesByKey.values());
 }
@@ -1067,6 +1090,20 @@ function shouldPreferDisplayImage(
   return candidate.id >= previous.id;
 }
 
+function imageRelatesExactlyToShot(
+  image: CreationEditorImage,
+  shotIdentity: string | null
+): boolean {
+  const normalizedShotIdentity = normalizeShotIdentity(shotIdentity);
+  return Boolean(
+    normalizedShotIdentity &&
+      image.relatedShotIdentities?.some(
+        relatedIdentity =>
+          normalizeShotIdentity(relatedIdentity) === normalizedShotIdentity
+      )
+  );
+}
+
 export function mergeShotsWithImages(
   shots: readonly CreationEditorShot[],
   images: readonly CreationEditorImage[]
@@ -1076,7 +1113,6 @@ export function mergeShotsWithImages(
     shotNoCounts.set(shot.shotNo, (shotNoCounts.get(shot.shotNo) ?? 0) + 1);
   }
   const displayByShotNo = new Map<number, CreationEditorImage>();
-  const legacyDisplayByShotNo = new Map<number, CreationEditorImage>();
   const displayByIdentity = new Map<string, CreationEditorImage>();
   const byImageId = new Map<number, CreationEditorImage>();
   for (const image of images) {
@@ -1098,22 +1134,39 @@ export function mergeShotsWithImages(
       const previous = displayByShotNo.get(image.shotNo);
       if (shouldPreferDisplayImage(previous, image))
         displayByShotNo.set(image.shotNo, image);
-      const previousLegacy = legacyDisplayByShotNo.get(image.shotNo);
-      if (shouldPreferDisplayImage(previousLegacy, image))
-        legacyDisplayByShotNo.set(image.shotNo, image);
     }
   }
 
   return shots.map(shot => {
     const identity = shotIdentityFromShot(shot);
-    const identityKeys = new Set(shotIdentityMatchKeys(identity, shot.shotNo));
+    const hasUniqueShotNo = shotNoCounts.get(shot.shotNo) === 1;
+    const identityKeys = new Set(
+      hasUniqueShotNo
+        ? shotIdentityMatchKeys(identity, shot.shotNo)
+        : [normalizeShotIdentity(identity)].filter(
+            (key): key is string => key != null
+          )
+    );
     const imageVersions = images
       .filter(image => {
         if (image.status === "rejected" || !image.imageUrl) return false;
         if (image.shotIdentity) {
-          return shotIdentityMatchKeys(image.shotIdentity, image.shotNo).some(
-            key => identityKeys.has(key)
-          );
+          const imageIdentityKeys = hasUniqueShotNo
+            ? shotIdentityMatchKeys(image.shotIdentity, image.shotNo)
+            : [normalizeShotIdentity(image.shotIdentity)].filter(
+                (key): key is string => key != null
+              );
+          if (imageIdentityKeys.some(key => identityKeys.has(key))) {
+            return true;
+          }
+        }
+        if (
+          image.relatedShotIdentities?.some(relatedIdentity =>
+            normalizeShotIdentity(relatedIdentity) ===
+            normalizeShotIdentity(identity)
+          )
+        ) {
+          return true;
         }
         return (
           image.shotNo === shot.shotNo && shotNoCounts.get(shot.shotNo) === 1
@@ -1124,22 +1177,27 @@ export function mergeShotsWithImages(
       imageVersions.length > 0 ? { ...shot, imageVersions } : shot;
     const matchedIdentityImage = shotIdentityMatchKeys(
       identity,
-      shot.shotNo
-    ).reduce<CreationEditorImage | undefined>((selected, key) => {
+      hasUniqueShotNo ? shot.shotNo : null
+    )
+      .filter(key => hasUniqueShotNo || key === normalizeShotIdentity(identity))
+      .reduce<CreationEditorImage | undefined>((selected, key) => {
       const candidate = displayByIdentity.get(key);
       if (!candidate) return selected;
       if (!selected || candidate.id >= selected.id) return candidate;
       return selected;
-    }, undefined);
+      }, undefined);
     const promptRunImage =
       shot.promptRun?.imageId != null
         ? byImageId.get(shot.promptRun.imageId)
         : undefined;
-    const matchedImage =
+    const matchedImageCandidate =
       matchedIdentityImage ??
-      (shotNoCounts.get(shot.shotNo) === 1
-        ? displayByShotNo.get(shot.shotNo)
-        : legacyDisplayByShotNo.get(shot.shotNo));
+      (hasUniqueShotNo ? displayByShotNo.get(shot.shotNo) : undefined);
+    const matchedImage =
+      matchedImageCandidate &&
+      !imageRelatesExactlyToShot(matchedImageCandidate, identity)
+        ? matchedImageCandidate
+        : undefined;
     const explicitlySelectedImage =
       matchedImage?.selectionSource === "explicit" ||
       matchedImage?.status === "selected"
@@ -1503,6 +1561,15 @@ export function CreationEditorProvider({
       retry: false,
     }
   );
+  const storyboardCoverReferencesQuery =
+    trpc.publishingDraft.storyboardCoverReferences.useQuery(
+      { storyId: activeId ?? 1 },
+      {
+        enabled: activeId != null && activeId > 0,
+        refetchOnWindowFocus: false,
+        retry: false,
+      }
+    );
   const storyImagesQuery = trpc.storyAgent.storyImages.useQuery(
     { storyId: activeId ?? 0 },
     {
@@ -1580,21 +1647,25 @@ export function CreationEditorProvider({
   }, [storyQuery.data]);
   const publishingHandoff = useMemo(() => {
     if (activeId == null || activeId <= 0) return null;
-    const { publishing, coverAsset } = resolveScopedPublishingHandoff({
-      activeStoryId: activeId,
-      spinePublishing,
-      story: storyQuery.data,
-      publishingRead: publishingDraftQuery.data,
-    });
+    const { publishing, coverAsset, coverCandidates } =
+      resolveScopedPublishingHandoff({
+        activeStoryId: activeId,
+        spinePublishing,
+        story: storyQuery.data,
+        publishingRead: publishingDraftQuery.data,
+        storyboardCoverRead: storyboardCoverReferencesQuery.data,
+      });
     return buildPublishingVideoHandoff({
       storyId: activeId,
       publishing,
       coverAsset,
+      coverCandidates,
     });
   }, [
     activeId,
     publishingDraftQuery.data?.coverAsset,
     publishingDraftQuery.data?.publishing,
+    storyboardCoverReferencesQuery.data,
     spinePublishing,
     storyQuery.data?.body,
     storyQuery.data?.id,
@@ -3844,22 +3915,32 @@ export function CreationEditorProvider({
     stableShotId: string;
     imageId: number;
     transform: TimelineTransform;
+    textOverlay: StoryTimelineImageTextOverlay | null;
   }) => {
     if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
       throw new Error("当前镜头不在时间线上");
     }
     await saveTimelineItems(
-      timelineItems.map(item =>
-        item.stableShotId === input.stableShotId
-          ? {
-              ...item,
-              imageTransforms: {
-                ...(item.imageTransforms ?? {}),
-                [String(input.imageId)]: input.transform,
-              },
-            }
-          : item
-      ),
+      timelineItems.map(item => {
+        if (item.stableShotId !== input.stableShotId) return item;
+        const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
+        if (input.textOverlay) {
+          imageTextOverlays[String(input.imageId)] = input.textOverlay;
+        } else {
+          delete imageTextOverlays[String(input.imageId)];
+        }
+        return {
+          ...item,
+          imageTransforms: {
+            ...(item.imageTransforms ?? {}),
+            [String(input.imageId)]: input.transform,
+          },
+          imageTextOverlays:
+            Object.keys(imageTextOverlays).length > 0
+              ? imageTextOverlays
+              : undefined,
+        };
+      }),
       { throwOnError: true }
     );
   };
@@ -4044,6 +4125,7 @@ export function CreationEditorProvider({
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
         publishingDraftQuery.isLoading ||
+        storyboardCoverReferencesQuery.isLoading ||
         storyImagesQuery.isLoading ||
         storyVideoAssetsQuery.isLoading ||
         storyMaterialQuery.isLoading ||
@@ -4179,6 +4261,7 @@ export function CreationEditorProvider({
       storyListQuery,
       storyQuery,
       publishingDraftQuery,
+      storyboardCoverReferencesQuery,
     ]
   );
 

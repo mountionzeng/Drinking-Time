@@ -57,6 +57,9 @@ import StoryCapabilityMenu, {
 import PublishingPlatformPicker from "@/features/publishingDraft/PublishingPlatformPicker";
 import StoryJobIntakePrompt, { getJobIntakeStep } from "./StoryJobIntakePrompt";
 import SelectionContextCard from "./SelectionContextCard";
+import ChatImageRemixTray from "./ChatImageRemixTray";
+import { chatImageRefsStore } from "../chatImageRefsStore";
+import { useChatImageRemix } from "../useChatImageRemix";
 import EditingTransitionCandidateCard from "../components/EditingTransitionCandidateCard";
 import {
   loadStoryConversationDraft,
@@ -241,6 +244,9 @@ export default function StoryAgentChat({
     Record<string, StoryboardImageRerenderResult>
   >({});
   const creationEditor = useOptionalCreationEditor();
+  const remix = useChatImageRemix(
+    creationEditor?.activeStoryId ?? remoteStoryId ?? null
+  );
   const labelForShot = (
     shotNo: number | null | undefined,
     stableShotId?: string | null
@@ -490,6 +496,13 @@ export default function StoryAgentChat({
     pendingMediaRef.current = pendingMedia;
   }, [pendingMedia]);
 
+  // 引用的是这个故事的图片行；换故事必须清空，否则会把上一个故事的图当参考发出去。
+  useEffect(() => {
+    chatImageRefsStore
+      .getState()
+      .scopeToStory(creationEditor?.activeStoryId ?? remoteStoryId ?? null);
+  }, [creationEditor?.activeStoryId, remoteStoryId]);
+
   useEffect(() => {
     if (pendingIntentDraft?.proposal?.id !== closedIntentProposalId) {
       setClosedIntentProposalId(null);
@@ -662,6 +675,16 @@ export default function StoryAgentChat({
       voice.isBusy ||
       isImportingMedia
     ) {
+      return;
+    }
+
+    // 篮子里有图时，这句话是在说「怎么把这几张改成一张新的」，不是聊天。
+    // 用户明确点选过图片，比一个自动跟随的选区更能代表他此刻要做什么，所以排在前面。
+    if (pendingMedia.length === 0 && remix.refs.length > 0) {
+      if (remix.arm(text)) {
+        setInput("");
+        resizeAndFocusInput();
+      }
       return;
     }
 
@@ -1456,6 +1479,8 @@ export default function StoryAgentChat({
             />
           </div>
         )}
+
+        {interactionMode === "story" ? <ChatImageRemixTray remix={remix} /> : null}
 
         {interactionMode === "story" && pendingMedia.length > 0 ? (
           <div

@@ -309,7 +309,7 @@ export function CreationAgentProvider({
     setGenerateError(null);
     setGeneratingShotNo(args.shotNo);
     try {
-      const result = await generateNextMut.mutateAsync({
+      let result = await generateNextMut.mutateAsync({
         projectId,
         storyId,
         shotNo: args.shotNo,
@@ -317,6 +317,23 @@ export function CreationAgentProvider({
         rejectImageId: args.rejectImageId,
         imageProvider: imageProviderForRequest(imageProvider),
       });
+      if (result.status === 'confirmation_required') {
+        const accepted = window.confirm(result.message);
+        if (!accepted) return;
+        result = await generateNextMut.mutateAsync({
+          projectId,
+          storyId,
+          shotNo: args.shotNo,
+          prompt: args.prompt,
+          rejectImageId: args.rejectImageId,
+          imageProvider: imageProviderForRequest(imageProvider),
+          visualAssetCostConfirmation: {
+            accepted: true,
+            estimatedCny: result.estimatedCny,
+            fingerprint: result.fingerprint,
+          },
+        });
+      }
       if (result.status === 'error') {
         setGenerateError({ shotNo: args.shotNo, message: result.message || '出图服务暂时不可用，稍后再试' });
         // 「再来一张」失败时被拒图已记 swipe_left → 刷新让它进历史（不回显被拒图）

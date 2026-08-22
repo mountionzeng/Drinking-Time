@@ -6,6 +6,7 @@ import {
   normalizeStoryArtDirection,
   referencesForShot,
   sceneReferencesOf,
+  visualAssetDraftReferencesOf,
 } from "./artDirection";
 
 describe("defaultArtRecipe", () => {
@@ -129,5 +130,46 @@ describe("artDirection 主角参照（role:'character'）", () => {
         reference => reference.id
       )
     ).toEqual(["scene-1"]);
+  });
+
+  it("只把选中的人物、场景和故事风格参考暴露为资产草案来源", () => {
+    const d = dir([
+      {
+        id: "character-1",
+        label: "人物",
+        role: "character",
+        purpose: "fact",
+      },
+      {
+        id: "scene-1",
+        label: "场景",
+        role: "scene",
+        purpose: "fact",
+      },
+      {
+        id: "style-1",
+        label: "画风",
+        role: "story-style",
+        purpose: "aesthetic",
+      },
+      {
+        id: "disabled-scene",
+        label: "停用场景",
+        role: "scene",
+        selected: false,
+        purpose: "fact",
+      },
+      {
+        id: "local-1",
+        label: "局部参考",
+        role: "local",
+        purpose: "fact",
+      },
+    ]);
+
+    const sources = visualAssetDraftReferencesOf(d);
+    expect(sources.character?.id).toBe("character-1");
+    expect(sources.scenes.map(reference => reference.id)).toEqual(["scene-1"]);
+    expect(sources.styles.map(reference => reference.id)).toEqual(["style-1"]);
   });
 });

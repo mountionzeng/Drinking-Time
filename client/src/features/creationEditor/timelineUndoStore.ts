@@ -58,6 +58,9 @@ function cloneTimelineItems(
           ])
         )
       : undefined,
+    imageTextOverlays: item.imageTextOverlays
+      ? structuredClone(item.imageTextOverlays)
+      : undefined,
     primaryVideoEdit: item.primaryVideoEdit
       ? {
           ...item.primaryVideoEdit,

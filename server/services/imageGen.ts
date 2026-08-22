@@ -112,6 +112,14 @@ export interface ImageGenOptions {
   referenceContextImageUrls?: string[];
   /** 主参考绝对锁定：相邻帧只供导演分析，不作为 MJ 等权垫图，避免人物、服装和主色被稀释 */
   primaryReferenceLock?: boolean;
+  /**
+   * 要求走「按提示词重构画面」的 gpt-image 编辑端点，而不是 FLUX Kontext。
+   *
+   * Kontext 是保留式的指令编辑模型：它会尽量维持输入图的取景、姿态和背景。
+   * 需要改机位、朝向、景别或背景时（例如人物三视图的严格侧面和背面），
+   * 必须显式要这条路，不能靠「参考图是不是多于一张」碰运气。
+   */
+  preferStructuralEdit?: boolean;
   /** GPT-image transparent mask; alpha=0 is the only editable region. */
   editMaskImageUrl?: string;
   /** Called after 302 accepts an MJ task, before the first poll. */
@@ -1603,10 +1611,14 @@ export async function editImage(
     ).length > 0;
   if (
     options.provider !== "midjourney" &&
-    hasMultipleReferences &&
+    (hasMultipleReferences || options.preferStructuralEdit) &&
     ENV.api302Key
   ) {
-    console.log("[imageGen] using gpt-image multi-reference edit");
+    console.log(
+      options.preferStructuralEdit
+        ? "[imageGen] using gpt-image structural edit"
+        : "[imageGen] using gpt-image multi-reference edit"
+    );
     return generate302GptImageEdit(imageUrl, prompt, options, fetcher);
   }
 

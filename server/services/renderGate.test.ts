@@ -18,6 +18,31 @@ vi.mock("../db", async importOriginal => {
 import { renderViaGate } from "./renderGate";
 
 describe("renderViaGate（出图网关）", () => {
+  it("资产锁进入最高优先级提示词，锁定风格时不再混入自动美术方向", async () => {
+    let seen = "";
+    await renderViaGate(
+      {
+        prompt: "夜间近景，人物回头",
+        lockedVisualAssets: {
+          fingerprint: "asset-fingerprint",
+          kinds: ["character", "scene", "style"],
+          promptContract:
+            "【锁定视觉资产·最高优先级】\n发型：黑色短发\n服饰：红外套\n媒介：水粉",
+        },
+      },
+      async prompt => {
+        seen = prompt;
+        return { ok: true };
+      }
+    );
+
+    expect(seen).toContain("【锁定视觉资产·最高优先级】");
+    expect(seen).toContain("发型：黑色短发");
+    expect(seen).not.toContain("【艺术谱系】");
+    expect(seen).not.toContain("【艺术跃迁】");
+    expect(seen).not.toContain("【私人策展库审美底线】");
+  });
+
   it("正式封面原文已锁定时原样透传，不再追加任何美术内容", async () => {
     const lockedPrompt = [
       "【正式采用封面的美术提示词｜原文复制】",

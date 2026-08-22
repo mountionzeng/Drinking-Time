@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "policy": "zero-false-accept",
+  "cases": [
+    { "id": "same-assets-night-closeup", "expected": "pass", "allowedChanges": ["shot-size", "camera", "action", "expression", "light"] },
+    { "id": "different-face", "expected": "blocked", "failedKinds": ["character"] },
+    { "id": "different-hair", "expected": "blocked", "failedKinds": ["character"] },
+    { "id": "different-outfit", "expected": "blocked", "failedKinds": ["character"] },
+    { "id": "changed-room-layout", "expected": "blocked", "failedKinds": ["scene"] },
+    { "id": "changed-fixed-prop", "expected": "blocked", "failedKinds": ["scene"] },
+    { "id": "photographic-style-drift", "expected": "blocked", "failedKinds": ["style"] },
+    { "id": "missing-dimension", "expected": "blocked", "failedKinds": ["unknown"] }
+  ]
+}

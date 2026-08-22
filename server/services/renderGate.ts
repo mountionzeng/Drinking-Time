@@ -25,6 +25,12 @@ export type ImageReferencePolicy =
   | "preserve-identity"
   | "preserve-composition";
 
+export type LockedVisualAssetPromptContract = {
+  fingerprint: string;
+  kinds: Array<"character" | "scene" | "style">;
+  promptContract: string;
+};
+
 /** 渲染上下文：prompt 只承载内容事实；美术与交互意图通过独立字段传入。 */
 export type RenderContext = {
   prompt: string;
@@ -79,6 +85,8 @@ export type RenderContext = {
    * 置为 true 时只保留内容主权、用户要求、参考边界、故事板事实与两条硬约束。
    */
   authoredBrief?: boolean;
+  /** Immutable user-confirmed asset facts; these outrank inferred art direction. */
+  lockedVisualAssets?: LockedVisualAssetPromptContract;
 };
 
 /** 用户明确选中的库风格是覆盖项；自动美术判断走下方的文本艺术谱系。 */
@@ -429,6 +437,10 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
   const instructions = cleanInstructions(ctx);
   const textSignals = inferTextArtSignals(ctx);
 
+  if (ctx.lockedVisualAssets?.promptContract.trim()) {
+    additions.push(ctx.lockedVisualAssets.promptContract.trim());
+  }
+
   // 故事事实 = 谁、发生了什么、彼此的关系与含义；不包括原文没写的长相。
   // 早期版本把两者混为一谈，于是「我希望是两个女性」这类指定会被模型当成
   // 「篡改故事事实」而悄悄忽略——要求确实送到了，同一段提示词里却另有一句
@@ -442,7 +454,8 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     );
   }
   additions.push(...productConstraintBlock(ctx));
-  if (!ctx.authoredBrief) {
+  const lockedStyle = ctx.lockedVisualAssets?.kinds.includes("style") === true;
+  if (!ctx.authoredBrief && !lockedStyle) {
     additions.push(textArtSignalBlock(textSignals));
     additions.push(
       ...(await artRepositoryPromptBlocks(
@@ -451,7 +464,7 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     );
   }
 
-  if (ctx.authoredBrief) {
+  if (ctx.authoredBrief || lockedStyle) {
     // 用户自己定了美术，不再叠加流派、谱系与跃迁指令。
   } else if (ctx.artDirection) {
     const recipe = artRecipePrompt(ctx.artDirection);
@@ -484,7 +497,7 @@ export async function engineerImagePrompt(ctx: RenderContext): Promise<string> {
     if (prefBlock) additions.push(prefBlock);
   }
 
-  if (!ctx.authoredBrief)
+  if (!ctx.authoredBrief && !lockedStyle)
     additions.push(
     "【艺术跃迁】避免把内容降格为普通摄影记录或通用“电影感”。至少做出一个相机无法直接拍到、但能让主题更准确的视觉决定：可以是非现实的空间关系、富有表现力的材质行为、象征性尺度、成为实体的光，或可读的情绪抽象。惊喜必须服务内容，不能靠无关奇观、固定暗色或固定配色制造“高级感”。",
     "艺术家与流派只能作为历史谱系、媒介和技法坐标：融合后形成新的视觉判断，不复刻任何单幅作品、标志性角色、签名或现成 IP，也不以在世艺术家的姓名下达直接模仿指令。"

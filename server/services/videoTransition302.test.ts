@@ -270,7 +270,36 @@ describe("videoTransition302", () => {
     ).rejects.toThrow(
       "Vidu 创建图片上传会话失败：fetch failed（Error: other side closed）"
     );
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls back to the generic 302 upload after Vidu session transport failures", async () => {
+    ENV.api302Key = "test-302-key";
+    ENV.api302BaseUrl = "https://api.302.ai";
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      if (fetcher.mock.calls.length <= 2) {
+        throw Object.assign(new Error("fetch failed"), {
+          cause: new Error(
+            "Client network socket disconnected before secure TLS connection was established"
+          ),
+        });
+      }
+      return new Response(
+        JSON.stringify({ data: "https://file.302.ai/vidu-frame.png" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    });
+
+    await expect(
+      uploadFileToVidu(
+        { bytes: new Uint8Array([1, 2, 3]), contentType: "image/png" },
+        { fetcher }
+      )
+    ).resolves.toBe("https://file.302.ai/vidu-frame.png");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls[2]?.[0]).toBe(
+      "https://api.302.ai/302/upload-file"
+    );
   });
 
   it("rejects unsafe Vidu upload URLs before sending image bytes", async () => {

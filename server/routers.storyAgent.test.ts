@@ -92,6 +92,11 @@ const imageGenMocks = vi.hoisted(() => ({
   })),
   resume302MidjourneyTask: vi.fn(),
   resume302GptImageTask: vi.fn(),
+  storeImageBytes: vi.fn(async () => ({
+    status: "ok" as const,
+    imageUrl: "https://storage.example/generated/stored.png",
+    imageKey: "generated/stored.png",
+  })),
   toPublicImageUrl: vi.fn(async (url?: string) => url),
 }));
 
@@ -2041,6 +2046,119 @@ describe("storyAgent tRPC router", () => {
       error: expect.stringContaining("正式编辑链路"),
     });
     expect(imageGenMocks.generateDraftImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.editImage).not.toHaveBeenCalled();
+    expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
+  });
+
+  it("对话框多图重组把图号清单原样送进编辑端点，新图落在待归类且不采用", async () => {
+    imageGenMocks.editImage.mockResolvedValueOnce({
+      status: "ok",
+      imageUrl: "https://storage.example/generated/remix.png",
+      imageKey: "generated/remix.png",
+    });
+    const caller = appRouter.createCaller(createAuthContext(314));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "对话框多图重组",
+      projectId: 7314,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const explicitInstruction = "用第一张的光线，第二张那件外套";
+    const manifest = [
+      "参考图清单（按顺序对应发给你的图片）：",
+      "图1（底图）＝0102 首帧（图片 #11）",
+      "图2＝待归类（图片 #22）",
+      "",
+      "用户要求（原话，严格执行）：",
+      explicitInstruction,
+    ].join("\n");
+
+    const result = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      // 重组不绑镜头：新图先进仓库，等用户拖到某一镜才算采用。
+      prompt: manifest,
+      explicitInstruction,
+      remixEdit: true,
+      referenceImageUrl: "https://storage.example/frames/11.png",
+      referenceContextImageUrls: ["https://storage.example/frames/22.png"],
+      imageProvider: "gpt-image",
+      costConfirmation: { accepted: true, estimatedCny: 1.49 },
+    });
+
+    expect(result).toMatchObject({ status: "ok" });
+    expect(imageGenMocks.editImage).toHaveBeenCalledWith(
+      "https://storage.example/frames/11.png",
+      expect.stringContaining("图2＝待归类（图片 #22）"),
+      expect.objectContaining({
+        provider: "gpt-image",
+        referenceContextImageUrls: ["https://storage.example/frames/22.png"],
+      })
+    );
+    const finalPrompt = imageGenMocks.editImage.mock.calls.at(-1)![1] as string;
+    expect(finalPrompt).toContain(explicitInstruction);
+    // 精确改图那句「keep all of it」会把用户点名的构图改动挡掉，不能跟到重组这条路。
+    expect(finalPrompt).not.toContain("keep all of it");
+
+    const materials = await caller.storyAgent.storyMaterialState({
+      storyId: story!.id,
+    });
+    const stored = materials.unassignedImages.find(
+      image => image.id === (result as { imageId: number }).imageId
+    );
+    expect(stored).toBeTruthy();
+    expect(stored?.shotIdentity).toBeNull();
+    expect(stored?.isCurrent).toBe(false);
+  });
+
+  it("多图重组缺底图、缺原话或叠遮罩时在付费调用前失败", async () => {
+    const caller = appRouter.createCaller(createAuthContext(315));
+    const story = await caller.storyAgent.storyUpsert({
+      title: "多图重组失败保护",
+      projectId: 7315,
+      body: { cards: [], characters: [], shots: [] },
+    });
+    const base = { accepted: true as const, estimatedCny: 1.49 };
+
+    const missingBase = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      prompt: "参考图清单",
+      explicitInstruction: "用第一张的光线",
+      remixEdit: true,
+      imageProvider: "gpt-image",
+      costConfirmation: base,
+    });
+    expect(missingBase).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("底图"),
+    });
+
+    const missingInstruction = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      prompt: "参考图清单",
+      remixEdit: true,
+      referenceImageUrl: "https://storage.example/frames/11.png",
+      imageProvider: "gpt-image",
+      costConfirmation: base,
+    });
+    expect(missingInstruction).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("取什么"),
+    });
+
+    const withMask = await caller.storyAgent.generateForMobile({
+      storyId: story!.id,
+      prompt: "参考图清单",
+      explicitInstruction: "用第一张的光线",
+      remixEdit: true,
+      referenceImageUrl: "https://storage.example/frames/11.png",
+      editMaskImageUrl: "data:image/png;base64,bWFzaw==",
+      imageProvider: "gpt-image",
+      costConfirmation: base,
+    });
+    expect(withMask).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("遮罩"),
+    });
+
     expect(imageGenMocks.editImage).not.toHaveBeenCalled();
     expect(imageGenMocks.generateImage).not.toHaveBeenCalled();
   });

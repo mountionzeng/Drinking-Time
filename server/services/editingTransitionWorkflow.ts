@@ -1430,10 +1430,11 @@ async function runConfirmation(
         take.id,
         frames.lastFrame.path
       );
-      const [firstImageUrl, lastImageUrl] = await Promise.all([
-        uploadFileToVidu(frames.firstFrame),
-        uploadFileToVidu(frames.lastFrame),
-      ]);
+      // 本机代理会把 302 域名解析到 fake-IP；并发建立两条 TLS 连接时，
+      // 两张图容易一起在握手阶段断开。上传不计视频任务费用，串行后可复用
+      // keep-alive 连接，也避免两次即时重试形成惊群。
+      const firstImageUrl = await uploadFileToVidu(frames.firstFrame);
+      const lastImageUrl = await uploadFileToVidu(frames.lastFrame);
       take = await patchTake(
         take,
         userId,

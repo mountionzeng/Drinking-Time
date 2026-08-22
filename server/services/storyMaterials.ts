@@ -21,6 +21,7 @@ import {
   normalizeShotIdentity,
   shotIdentityMatchKeys,
 } from "../../shared/shotIdentity";
+import { normalizeStoryVisualAssets } from "../../shared/visualAssets";
 import { getStoryById, getStoryTimeline } from "../db";
 import { getStoryImageAssets } from "./imageAssets";
 import { getStoryPromptProjection } from "./promptLineage";
@@ -35,10 +36,44 @@ import {
 type StoryShotFact = {
   stableShotId: string;
   splitSourceStableShotId: string | null;
+  relatedImageIds: number[];
   shotNo: number;
   cueCode: string | null;
   plannedDurationMs: number;
 };
+
+function positiveImageId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function positiveImageIds(value: unknown): number[] {
+  return Array.isArray(value)
+    ? value.map(positiveImageId).filter((id): id is number => id != null)
+    : [];
+}
+
+function imageIdsFromRecord(value: unknown): number[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  const ids: number[] = [];
+  for (const [key, child] of Object.entries(record)) {
+    if (/imageId$/i.test(key)) {
+      const id = positiveImageId(child);
+      if (id != null) ids.push(id);
+      continue;
+    }
+    if (/imageIds$/i.test(key)) {
+      ids.push(...positiveImageIds(child));
+      continue;
+    }
+    if (child && typeof child === "object") {
+      ids.push(...imageIdsFromRecord(child));
+    }
+  }
+  return Array.from(new Set(ids));
+}
 
 function finite(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -194,7 +229,25 @@ function keysOverlap(
   return left.some(key => rightKeys.has(key));
 }
 
-function shotMaterialKeys(fact: StoryShotFact): string[] {
+function identitiesMatchExactly(left: unknown, right: unknown): boolean {
+  const normalizedLeft = normalizeShotIdentity(left);
+  const normalizedRight = normalizeShotIdentity(right);
+  return normalizedLeft != null && normalizedLeft === normalizedRight;
+}
+
+function shotMaterialKeys(
+  fact: StoryShotFact,
+  allowLegacyAliases = true
+): string[] {
+  const stableShotId = normalizeShotIdentity(fact.stableShotId);
+  const splitSourceStableShotId = normalizeShotIdentity(
+    fact.splitSourceStableShotId
+  );
+  if (!allowLegacyAliases) {
+    return [stableShotId, splitSourceStableShotId].filter(
+      (identity): identity is string => identity != null
+    );
+  }
   return Array.from(
     new Set([
       ...shotIdentityMatchKeys(fact.stableShotId, fact.shotNo),
@@ -228,6 +281,7 @@ function storyShots(story: Story): StoryShotFact[] {
         stableShotId,
         splitSourceStableShotId:
           normalizeShotIdentity(shot.splitSourceStableShotId) ?? null,
+        relatedImageIds: imageIdsFromRecord(shot.sourceTransition),
         shotNo,
         cueCode:
           typeof shot.cueCode === "string" && shot.cueCode.trim()
@@ -603,6 +657,21 @@ export async function getStoryMaterialState(
   const story = await getStoryById(storyId, userId);
   if (!story) return null;
   const facts = storyShots(story);
+  const shotNoCounts = new Map<number, number>();
+  for (const fact of facts) {
+    shotNoCounts.set(fact.shotNo, (shotNoCounts.get(fact.shotNo) ?? 0) + 1);
+  }
+  const storyBody =
+    story.body && typeof story.body === "object" && !Array.isArray(story.body)
+      ? (story.body as Record<string, unknown>)
+      : {};
+  const visualAssetAggregate = normalizeStoryVisualAssets(
+    storyBody.visualAssets,
+    { legacyArtDirection: storyBody.artDirection ?? {} }
+  );
+  const visualAssetBindingByShot = new Map(
+    visualAssetAggregate.bindings.map(binding => [binding.stableShotId, binding])
+  );
   const [images, videos, timelineRow, promptProjection] =
     await Promise.all([
       getStoryImageAssets(storyId, userId),
@@ -631,6 +700,32 @@ export async function getStoryMaterialState(
       head.currentCompilationId,
     ])
   );
+  const availableImages = images.filter(
+    image => image.status !== "rejected" && image.availability !== "missing"
+  );
+  const imageById = new Map(availableImages.map(image => [image.id, image]));
+  const childImageIdsByParent = new Map<number, number[]>();
+  for (const image of availableImages) {
+    if (image.parentImageId == null) continue;
+    const children = childImageIdsByParent.get(image.parentImageId) ?? [];
+    children.push(image.id);
+    childImageIdsByParent.set(image.parentImageId, children);
+  }
+
+  const imageLineageIds = (seedIds: Iterable<number>) => {
+    const seen = new Set<number>();
+    const queue = Array.from(seedIds);
+    while (queue.length > 0) {
+      const imageId = queue.shift();
+      if (imageId == null || seen.has(imageId)) continue;
+      const image = imageById.get(imageId);
+      if (!image) continue;
+      seen.add(imageId);
+      if (image.parentImageId != null) queue.push(image.parentImageId);
+      queue.push(...(childImageIdsByParent.get(imageId) ?? []));
+    }
+    return seen;
+  };
 
   const shots = facts.map(fact => {
     const timelineItem = timelineByShot.get(fact.stableShotId) ?? null;
@@ -644,10 +739,10 @@ export async function getStoryMaterialState(
       compilationHeadByKey.get(`${fact.stableShotId}:image`) ?? null;
     const videoCompilationId =
       compilationHeadByKey.get(`${fact.stableShotId}:video`) ?? null;
-    const imageVersions = images
+    const imageVersions = availableImages
       .filter(image =>
         keysOverlap(
-          shotMaterialKeys(fact),
+          shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
           shotIdentityMatchKeys(
             image.shotIdentity,
             shotNoFromCanonical(image.canonicalShotNo ?? image.rawShotNo)
@@ -662,14 +757,53 @@ export async function getStoryMaterialState(
         ),
       }));
     const currentImage = imageVersions.find(image => image.isPrimary) ?? null;
-    const ownVideoTakes = videos
-      .filter(take =>
+    const rawOwnVideoTakes = videos.filter(take =>
         timelineTakeIds.has(take.id) ||
         keysOverlap(
-          shotMaterialKeys(fact),
+          shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
           shotIdentityMatchKeys(take.stableShotId)
         )
-      )
+      );
+    const relatedSeedIds = new Set<number>(fact.relatedImageIds);
+    for (const overlay of timeline.overlays ?? []) {
+      if (overlay.sourceStableShotId !== fact.stableShotId) continue;
+      relatedSeedIds.add(overlay.leftImageId);
+      relatedSeedIds.add(overlay.rightImageId);
+    }
+    const relatedInputTakes = rawOwnVideoTakes.filter(
+      take =>
+        timelineTakeIds.has(take.id) ||
+        identitiesMatchExactly(take.stableShotId, fact.stableShotId) ||
+        identitiesMatchExactly(
+          take.stableShotId,
+          fact.splitSourceStableShotId
+        )
+    );
+    for (const take of relatedInputTakes) {
+      if (take.sourceImageId != null) relatedSeedIds.add(take.sourceImageId);
+      for (const imageId of imageIdsFromRecord(take.parameterSnapshot)) {
+        relatedSeedIds.add(imageId);
+      }
+    }
+    for (const image of imageVersions) relatedSeedIds.add(image.id);
+    const directImageIds = new Set(imageVersions.map(image => image.id));
+    const relatedImages = Array.from(imageLineageIds(relatedSeedIds))
+      .filter(imageId => !directImageIds.has(imageId))
+      .flatMap(imageId => {
+        const image = imageById.get(imageId);
+        return image
+          ? [
+              {
+                ...image,
+                promptFreshness: resolvePromptAssetFreshness(
+                  image.promptCompilationId,
+                  imageCompilationId
+                ),
+              },
+            ]
+          : [];
+      });
+    const ownVideoTakes = rawOwnVideoTakes
       .map(take => {
         // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
         // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
@@ -723,9 +857,12 @@ export async function getStoryMaterialState(
       cueCode: fact.cueCode,
       currentImage,
       imageVersions,
+      relatedImages,
       currentVideo,
       videoTakes,
       timelineItem,
+      visualAssetBinding:
+        visualAssetBindingByShot.get(fact.stableShotId) ?? null,
     };
   });
   const matchedVideoTakeIds = new Set(
@@ -747,6 +884,12 @@ export async function getStoryMaterialState(
     // 素材仓库严格属于当前故事。保留字段兼容现有客户端结构，但绝不
     // 将同一用户其他故事的素材投影进来。
     reusableVideoTakes: [],
+    visualAssets: {
+      assets: visualAssetAggregate.assets,
+      proposals: visualAssetAggregate.proposals,
+      bindings: visualAssetAggregate.bindings,
+      images: images.filter(image => image.kind === "visual_asset"),
+    },
     shots,
   };
 }

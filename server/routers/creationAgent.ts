@@ -3,6 +3,10 @@ import { z } from "zod";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
+  normalizePublishingAlbumTypographyLayout,
+  type PublishingAlbumTypographyLayout,
+} from "@shared/publishingAlbum";
+import {
   VIDEO_CROP_ANCHORS,
   VIDEO_CONFORM_MODES,
   VIDEO_TARGET_ASPECT_RATIOS,
@@ -115,6 +119,18 @@ type StoryShotTarget = {
   stableShotId: string;
   durationSec: number;
 };
+
+const timelineImageTypographySchema = z
+  .custom<PublishingAlbumTypographyLayout>(
+    value => normalizePublishingAlbumTypographyLayout(value) != null,
+    "文字排版路径无效，请重新绘制"
+  )
+  .transform(value => normalizePublishingAlbumTypographyLayout(value)!);
+
+const timelineImageTextOverlaySchema = z.object({
+  text: z.string().min(1).max(2_000),
+  typography: timelineImageTypographySchema,
+});
 
 const timelineTransitionImageEndpointInput = z
   .object({
@@ -1565,6 +1581,9 @@ export const creationAgentRouter = router({
                 })
               )
               .optional(),
+            imageTextOverlays: z
+              .record(z.string(), timelineImageTextOverlaySchema)
+              .optional(),
             primaryVideoEdit: z
               .object({
                 takeId: z.number().int().positive(),
@@ -1986,6 +2005,13 @@ export const creationAgentRouter = router({
         rejectImageId: z.number().optional(),
         promptCompilationId: z.number().int().positive().nullable().optional(),
         imageProvider: z.enum(IMAGE_PROVIDER_VALUES).optional(),
+        visualAssetCostConfirmation: z
+          .object({
+            accepted: z.literal(true),
+            estimatedCny: z.number().nonnegative(),
+            fingerprint: z.string().min(1).max(128),
+          })
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2029,6 +2055,7 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         promptCompilationId: input.promptCompilationId ?? null,
         imageProvider: input.imageProvider,
+        visualAssetCostConfirmation: input.visualAssetCostConfirmation,
         // 锁定配方优先；未锁定时由统一美术工程按文本信号选择艺术谱系。
         artDirection: storyArtRecipe(story),
         referenceImages: storyArtReferenceImages(story),

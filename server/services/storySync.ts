@@ -78,9 +78,9 @@ const BODY_FIELDS_TO_PRESERVE = [
   "chatCutImport",
 ] as const;
 
-// Dedicated publishing mutations own this slice. Generic whole-Story saves may
-// carry an older browser snapshot and must never replace the latest server copy.
-const SERVER_OWNED_BODY_FIELDS = ["publishing"] as const;
+// Dedicated mutations own these slices. Generic whole-Story saves may carry an
+// older browser snapshot and must never replace the latest server copy.
+const SERVER_OWNED_BODY_FIELDS = ["publishing", "visualAssets"] as const;
 
 const SHOT_PROMPT_METADATA_FIELDS = [
   "promptOverrides",

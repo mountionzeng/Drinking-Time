@@ -2893,11 +2893,20 @@ export default function EditingNleWorkspace({
         await updateTimelineImageTransform({
           stableShotId: target.stableShotId,
           imageId: target.imageId,
-          transform: draft,
+          transform: draft.transform,
+          textOverlay: draft.textOverlay,
         });
-        const nextTarget = { ...target, transform: draft };
+        const nextTarget = {
+          ...target,
+          transform: draft.transform,
+          textOverlay: draft.textOverlay,
+        };
         setImageEditorTarget(nextTarget);
-        toast.success(`${target.label} 构图已保存`);
+        toast.success(
+          draft.textOverlay
+            ? `${target.label} 构图与文字已保存`
+            : `${target.label} 构图已保存`
+        );
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "图片编辑保存失败"

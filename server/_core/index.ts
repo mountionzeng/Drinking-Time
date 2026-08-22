@@ -20,6 +20,7 @@ import {
 import { validateDevelopmentServerStartup } from "./devServerPreflight";
 import { configureHttpConnectionPool } from "./httpConnectionPool";
 import {
+  fetchStoryAudio,
   isAllowedStoryAudioUrl,
   storyAudioUrl,
 } from "../services/storyAudioProxy";
@@ -159,7 +160,7 @@ async function startServer() {
       return;
     }
     try {
-      const upstream = await fetch(audioUrl);
+      const upstream = await fetchStoryAudio(audioUrl);
       if (!upstream.ok) {
         res.status(502).end();
         return;

@@ -101,6 +101,11 @@ export type InferenceRequest = {
   replaySafe?: boolean;
   /** 整个候选链的外层预算；切换候选不重置。 */
   deadlineMs?: number;
+  /**
+   * 单次候选的最长预算。与 deadlineMs 同时设置时取两者剩余预算的较小值，
+   * 避免首选候选独占整条链，使 replay-safe 的备用候选永远没有执行机会。
+   */
+  attemptTimeoutMs?: number;
   signal?: AbortSignal;
   protocol?: InferenceProtocol;
   /** 测试注入点。 */
@@ -638,6 +643,12 @@ export async function runInference(
     typeof request.deadlineMs === "number"
       ? startedAt + request.deadlineMs
       : undefined;
+  const attemptTimeoutMs =
+    typeof request.attemptTimeoutMs === "number" &&
+    Number.isFinite(request.attemptTimeoutMs) &&
+    request.attemptTimeoutMs > 0
+      ? Math.floor(request.attemptTimeoutMs)
+      : undefined;
 
   const resolved: InferenceCandidate[] =
     request.explicitCandidates ??
@@ -676,9 +687,18 @@ export async function runInference(
     const capabilities = describeModelCapabilities(candidate.model);
     const attemptStartedAt = now();
 
-    // 每次尝试只拿链上**剩余**预算，换候选不重置。
+    // 每次尝试只拿链上**剩余**预算，且可由调用方进一步限制单次候选预算。
+    // 这样首选超时后，整条链仍能为 replay-safe 的备用候选保留执行时间。
+    const attemptBudgetMs =
+      remainingMs === undefined
+        ? attemptTimeoutMs
+        : attemptTimeoutMs === undefined
+          ? remainingMs
+          : Math.min(remainingMs, attemptTimeoutMs);
     const timeoutSignal =
-      remainingMs === undefined ? undefined : AbortSignal.timeout(remainingMs);
+      attemptBudgetMs === undefined
+        ? undefined
+        : AbortSignal.timeout(Math.max(1, Math.floor(attemptBudgetMs)));
     const signal = mergeSignals(request.signal, timeoutSignal);
 
     const candidateProtocol = candidate.protocol ?? protocol;
