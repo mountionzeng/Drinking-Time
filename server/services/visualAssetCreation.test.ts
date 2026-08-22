@@ -580,6 +580,95 @@ describe("visual asset creation", () => {
     expect(retry.viewImageIds).toHaveLength(4);
   });
 
+  it("never tells a scene asset to sit on a neutral studio background", async () => {
+    const { story, asset, version } = await seedDraft("scene");
+    await creation.analyzeVisualAssetVersion({
+      storyId: story.id,
+      userId: 71,
+      expectedRevision: 2,
+      operationToken: "analyze-scene-prompt",
+      assetId: asset.id,
+      versionId: version.id,
+      dependencies: {
+        vision: async () => ({
+          modelLabel: "vision-test",
+          text: JSON.stringify({
+            fixedFacts: {
+              geometry: ["狭长阁楼", "斜屋顶开天窗"],
+              materials: ["原木地板", "白灰墙"],
+              fixedProps: ["铁架床"],
+            },
+            allowedVariations: ["机位"],
+            conflicts: [],
+          }),
+        }),
+        materialize: async value => value,
+        now: () => 20,
+      },
+    });
+
+    const viewBytes = await sharp({
+      create: { width: 512, height: 512, channels: 3, background: "#4a6b52" },
+    })
+      .png()
+      .toBuffer();
+    let storedIndex = 0;
+    const edit = vi.fn(async () => ({
+      status: "ok" as const,
+      imageUrl: `data:image/png;base64,${viewBytes.toString("base64")}`,
+      imageKey: "scene.png",
+    }));
+    const dependencies = {
+      materialize: async (value: string) => value,
+      edit: edit as never,
+      inspectStructure: (async () => ({
+        verdict: "pass" as const,
+        modelLabel: "structure-test",
+        reason: "四格同一空间",
+        checks: [],
+        confidence: 0.95,
+      })) as never,
+      storeBytes: async (bytes: ArrayBuffer | Uint8Array) => ({
+        status: "ok" as const,
+        imageUrl: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
+        imageKey: `scene-${storedIndex++}.png`,
+      }),
+      now: () => 160 + storedIndex,
+    };
+    const quote = await creation.quoteVisualAssetCanonicalBoard({
+      storyId: story.id,
+      userId: 71,
+      assetId: asset.id,
+      versionId: version.id,
+      dependencies,
+    });
+    await creation.generateVisualAssetCanonicalBoard({
+      storyId: story.id,
+      userId: 71,
+      assetId: asset.id,
+      versionId: version.id,
+      operationToken: "generate-scene-prompt",
+      confirmation: quote,
+      dependencies,
+    });
+
+    const prompts = edit.mock.calls.map(call => call[1] as string);
+    expect(prompts).toHaveLength(4);
+    for (const prompt of prompts) {
+      // 场景本身就是背景：叫它抠成中性影棚会得到一个悬空物件。
+      expect(prompt).not.toContain("纯净中性背景");
+      expect(prompt).not.toContain("中性浅灰色影棚背景");
+      expect(prompt).toContain("环境本身就是画面主体");
+      // 标准视图只锁空间，人物留给各镜头自己安排。
+      expect(prompt).toContain("不要出现任何人物");
+      // edit 底图是参考实景照，机位不写死就会原地不动。
+      expect(prompt).toContain("相机必须真的移动到本视角要求的位置");
+    }
+    // reverse 是场景版的「背面」，最容易被画成主视角的另一张构图。
+    expect(prompts[1]).toContain("必须画出主视角里位于镜头背后、看不到的那一面");
+    expect(prompts[3]).toContain("视线与地面成 90°");
+  });
+
   it("composes scene assets as a 2×2 board from four generated views", async () => {
     const { story, asset, version } = await seedDraft("scene");
     await creation.analyzeVisualAssetVersion({
@@ -992,6 +1081,33 @@ describe("visual asset creation", () => {
     });
     expect(swapped.status).toBe("confirmation_required");
     expect(edit).not.toHaveBeenCalled();
+  });
+
+  it("tells the scene analyst that people and framing are not scene facts", async () => {
+    const { story, asset, version } = await seedDraft("scene");
+    const vision = vi.fn(async () => ({
+      modelLabel: "vision-test",
+      text: JSON.stringify({
+        fixedFacts: { geometry: ["阁楼"], materials: ["原木"], fixedProps: [] },
+        allowedVariations: [],
+        conflicts: [],
+      }),
+    }));
+    await creation.analyzeVisualAssetVersion({
+      storyId: story.id,
+      userId: 71,
+      expectedRevision: 2,
+      operationToken: "analyze-scene-prompt",
+      assetId: asset.id,
+      versionId: version.id,
+      dependencies: { vision: vision as never, materialize: async v => v, now: () => 20 },
+    });
+    const system = vision.mock.calls[0]?.[0].system as string;
+    // 实测模型会把「短发女性，着露背长裙」写进场景 fixedProps，必须点名堵掉。
+    expect(system).toContain("绝不属于场景固定事实");
+    expect(system).toContain("fixedProps 只写这个空间里长期固定存在的物件");
+    // 同一空间不同机位下同一件东西的位置会变，那不是冲突。
+    expect(system).toContain("位置差异不是冲突");
   });
 
   it("refuses to pass views when the paid board is not a real three-view board", async () => {

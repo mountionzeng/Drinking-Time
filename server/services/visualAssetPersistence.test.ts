@@ -200,6 +200,74 @@ describe("visual asset persistence", () => {
     });
   });
 
+  it("keeps the rest of an array fixed fact when resolving one conflict", async () => {
+    const story = await db.createStory({
+      userId: 68,
+      title: "场景裁决",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await createOwnedImage(story.id, 68);
+    const created = await persistence.createVisualAssetDraft({
+      storyId: story.id,
+      userId: 68,
+      expectedRevision: 1,
+      operationToken: "create-scene-conflict",
+      kind: "scene",
+      name: "展厅",
+      referenceImageIds: [image.id],
+    });
+    const asset = created.aggregate.assets[0]!;
+    const version = asset.versions[0]!;
+
+    await persistence.saveVisualAssetVersionAnalysis({
+      storyId: story.id,
+      userId: 68,
+      expectedRevision: 2,
+      operationToken: "analyze-scene-conflict",
+      assetId: asset.id,
+      versionId: version.id,
+      fixedFacts: {
+        kind: "scene",
+        geometry: ["封闭矩形展厅，浅青绿墙面", "地面平整浅色", "墙面嵌一只大眼睛"],
+        materials: ["哑光涂料墙面"],
+        fixedProps: ["均匀漫射人工光"],
+      },
+      allowedVariations: ["机位"],
+      conflicts: [
+        {
+          field: "geometry",
+          descriptions: ["平台呈圆形", "平台为矩形"],
+          sourceImageIds: [image.id],
+        },
+      ],
+      views: [],
+    });
+
+    const resolved = await persistence.resolveVisualAssetVersionConflicts({
+      storyId: story.id,
+      userId: 68,
+      expectedRevision: 3,
+      operationToken: "resolve-scene-conflict",
+      assetId: asset.id,
+      versionId: version.id,
+      resolutions: [{ field: "geometry", resolution: "平台为矩形" }],
+    });
+
+    const facts = resolved.aggregate.assets[0]!.versions[0]!.fixedFacts as {
+      geometry: string[];
+    };
+    // 一条冲突只针对该字段里有争议的那一点。早先这里会把整份 geometry
+    // 塌成 ["平台为矩形"]，把分析出来的空间描述全丢掉。
+    expect(facts.geometry).toEqual([
+      "封闭矩形展厅，浅青绿墙面",
+      "地面平整浅色",
+      "墙面嵌一只大眼睛",
+      "平台为矩形",
+    ]);
+    // 落选的那条不能留在事实里。
+    expect(facts.geometry).not.toContain("平台呈圆形");
+  });
+
   it("allows only one writer for the same Story revision", async () => {
     const story = await db.createStory({
       userId: 31,

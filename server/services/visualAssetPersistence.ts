@@ -460,9 +460,23 @@ export async function resolveVisualAssetVersionConflicts(input: {
       const fixedFacts = { ...version.fixedFacts } as unknown as Record<string, unknown>;
       for (const conflict of conflicts) {
         const current = fixedFacts[conflict.field];
-        fixedFacts[conflict.field] = Array.isArray(current)
-          ? [conflict.resolution]
-          : conflict.resolution;
+        if (!Array.isArray(current)) {
+          fixedFacts[conflict.field] = conflict.resolution;
+          continue;
+        }
+        // 数组字段（场景的 geometry/materials/fixedProps、风格的 medium/brushwork…）
+        // 一条冲突只针对该字段里有争议的那一点，不是整份事实。
+        // 早先这里写成 [resolution]，会把分析出来的整份清单塌成一句图片专属描述，
+        // 多条同字段冲突还会互相覆盖 —— 人物资产没暴露是因为它的字段都是字符串。
+        const rejected = new Set(
+          conflict.descriptions.filter(item => item !== conflict.resolution)
+        );
+        const kept = current.filter(
+          (item): item is string => typeof item === "string" && !rejected.has(item)
+        );
+        fixedFacts[conflict.field] = kept.includes(conflict.resolution)
+          ? kept
+          : [...kept, conflict.resolution];
       }
       const assets = aggregate.assets.map(item =>
         item.id !== asset.id
