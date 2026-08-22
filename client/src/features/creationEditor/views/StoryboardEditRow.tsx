@@ -29,6 +29,8 @@ import type {
   StoryTimelineOverlay,
 } from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
+import { timelineOffsetMsToFrames } from "@shared/storyMaterial";
+import { visualTrackId } from "@shared/visualClipModel";
 import {
   canRemoveTimelineVisualLayer,
   countTimelineVisualLayerClips,
@@ -200,6 +202,12 @@ export type StoryboardBoardTimeline = {
     targetStableShotId: string;
     targetOffsetFrames: number;
     visualLayer: number;
+  }) => Promise<void>;
+  /** 唯一的素材移动命令：图片和视频共用同一条提交路径。 */
+  onMoveVisualClip?: (input: {
+    clipId: string;
+    toTrackId: string;
+    toStartFrame: number;
   }) => Promise<void>;
   onPlaceExternalVisual?: (
     dataTransfer: DataTransfer,
@@ -394,6 +402,54 @@ function storyboardVisualLayerAtDocumentPoint(
         },
       };
     }),
+  });
+}
+
+/**
+ * 拖拽提交的唯一出口。
+ *
+ * 像素 → (轨道, 绝对帧) 换算完就交给服务端命令，客户端不再决定素材归属哪个
+ * 镜头、也不再算相对偏移。任何一步失败都必须让用户看见，不能像以前那样直接
+ * return 掉，看上去就是「拖了没反应」。
+ */
+export function commitVisualClipDrag(input: {
+  clipId: string;
+  startRectLeft: number;
+  startClientX: number;
+  releaseClientX: number;
+  releaseClientY: number;
+  totalMs: number;
+  onMoveVisualClip?: (move: {
+    clipId: string;
+    toTrackId: string;
+    toStartFrame: number;
+  }) => Promise<void>;
+  /** 命中哪条轨道。默认查真实 DOM；测试注入几何，好让换算本身可验证。 */
+  resolveTrack?: (
+    clientX: number,
+    clientY: number
+  ) => StoryboardVisualLayerTrackGeometry | null;
+}): void {
+  const move = input.onMoveVisualClip;
+  if (!move) return;
+  const resolveTrack = input.resolveTrack ?? storyboardVisualLayerAtDocumentPoint;
+  const targetTrack = resolveTrack(input.releaseClientX, input.releaseClientY);
+  if (!targetTrack || targetTrack.rect.width <= 0) {
+    toast.error("没落在任何图层上，位置没有改变");
+    return;
+  }
+  // 保住抓取点：跟着走的是这个剪辑块的左边缘，不是鼠标。
+  const movedLeft =
+    input.startRectLeft + (input.releaseClientX - input.startClientX);
+  const startMs =
+    ((movedLeft - targetTrack.rect.left) / targetTrack.rect.width) *
+    input.totalMs;
+  void move({
+    clipId: input.clipId,
+    toTrackId: visualTrackId(targetTrack.visualLayer),
+    toStartFrame: timelineOffsetMsToFrames(Math.max(0, startMs)),
+  }).catch((error: unknown) => {
+    toast.error(error instanceof Error ? error.message : "素材没有移动成功");
   });
 }
 
@@ -889,6 +945,8 @@ function StoryboardUpperVisualLayerRow({
         pointerId: number;
         startClientX: number;
         startClientY: number;
+        /** 抓取瞬间这个剪辑块自己的左边缘，用来保住抓取点的相对位置。 */
+        startRectLeft: number;
         moved: boolean;
         clipId: string;
         sourceStableShotId: string;
@@ -898,6 +956,7 @@ function StoryboardUpperVisualLayerRow({
         pointerId: number;
         startClientX: number;
         startClientY: number;
+        startRectLeft: number;
         moved: boolean;
         stableShotId: string;
       }
@@ -938,6 +997,7 @@ function StoryboardUpperVisualLayerRow({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      startRectLeft: event.currentTarget.getBoundingClientRect().left,
       moved: false,
     };
     setClipPointerPreview({
@@ -977,40 +1037,18 @@ function StoryboardUpperVisualLayerRow({
     clipPointerDragRef.current = null;
     setClipPointerPreview(null);
     if (!drag || drag.pointerId !== event.pointerId || !drag.moved) return;
-    const targetTrack = storyboardVisualLayerAtDocumentPoint(
-      event.clientX,
-      event.clientY
-    );
-    if (!targetTrack) return;
-    const placement = storyboardVisualClipPointerPlacement({
-      clientX: event.clientX,
-      rectLeft: targetTrack.rect.left,
-      rectWidth: targetTrack.rect.width,
+    commitVisualClipDrag({
+      clipId:
+        drag.kind === "image"
+          ? `image:${drag.clipId}`
+          : `shot:${drag.stableShotId}`,
+      startRectLeft: drag.startRectLeft,
+      startClientX: drag.startClientX,
+      releaseClientX: event.clientX,
+      releaseClientY: event.clientY,
       totalMs,
-      visualLayer: targetTrack.visualLayer,
-      timings: shots.map(shot => shot.timing),
+      onMoveVisualClip: timeline.onMoveVisualClip,
     });
-    if (!placement) return;
-    if (drag.kind === "image") {
-      void timeline.onMoveTimelineImageClip?.({
-        clipId: drag.clipId,
-        sourceStableShotId: drag.sourceStableShotId,
-        targetStableShotId: placement.targetStableShotId,
-        targetOffsetFrames: placement.targetOffsetFrames,
-        visualLayer: placement.visualLayer,
-      });
-      return;
-    }
-    void timeline.onMoveTimelineShot?.(
-      storyboardVideoPointerMovePlacement({
-        stableShotId: drag.stableShotId,
-        startClientX: drag.startClientX,
-        releaseClientX: event.clientX,
-        trackWidthPx: targetTrack.rect.width,
-        totalMs,
-        visualLayer: placement.visualLayer,
-      })
-    );
   };
   const finishClipPointerDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -2027,6 +2065,7 @@ function StoryboardEditTrack({
     pointerId: number;
     startClientX: number;
     startClientY: number;
+    startRectLeft: number;
     moved: boolean;
     clipId: string;
     sourceStableShotId: string;
@@ -2137,6 +2176,7 @@ function StoryboardEditTrack({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      startRectLeft: event.currentTarget.getBoundingClientRect().left,
       moved: false,
       clipId,
       sourceStableShotId,
@@ -2166,26 +2206,14 @@ function StoryboardEditTrack({
     imagePointerDragRef.current = null;
     setImagePointerActive(false);
     if (!drag || drag.pointerId !== event.pointerId || !drag.moved) return;
-    const targetTrack = storyboardVisualLayerAtDocumentPoint(
-      event.clientX,
-      event.clientY
-    );
-    if (!targetTrack) return;
-    const placement = storyboardVisualClipPointerPlacement({
-      clientX: event.clientX,
-      rectLeft: targetTrack.rect.left,
-      rectWidth: targetTrack.rect.width,
+    commitVisualClipDrag({
+      clipId: `image:${drag.clipId}`,
+      startRectLeft: drag.startRectLeft,
+      startClientX: drag.startClientX,
+      releaseClientX: event.clientX,
+      releaseClientY: event.clientY,
       totalMs,
-      visualLayer: targetTrack.visualLayer,
-      timings,
-    });
-    if (!placement) return;
-    void timeline.onMoveTimelineImageClip?.({
-      clipId: drag.clipId,
-      sourceStableShotId: drag.sourceStableShotId,
-      targetStableShotId: placement.targetStableShotId,
-      targetOffsetFrames: placement.targetOffsetFrames,
-      visualLayer: placement.visualLayer,
+      onMoveVisualClip: timeline.onMoveVisualClip,
     });
   };
   const finishImagePointerDrag = (event: ReactPointerEvent<HTMLElement>) => {

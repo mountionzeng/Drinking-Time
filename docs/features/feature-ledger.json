@@ -1361,6 +1361,8 @@
         "client/src/features/storyAgent/StoryAgentContext.tsx"
       ],
       "owners": [
+        "server/services/visualClipEditing.ts",
+        "shared/visualClipModel.ts",
         "shared/extractedFrameTransition.ts",
         "shared/storyMaterial.ts",
         "shared/timelineLayout.ts",
@@ -1393,7 +1395,10 @@
         "client/src/features/creationEditor/timelineUndoStore.test.ts",
         "client/src/features/creationEditor/creationEditor.routing.test.tsx",
         "server/services/storyMaterials.test.ts",
-        "client/src/features/storyAgent/storyboardTiming.test.ts"
+        "client/src/features/storyAgent/storyboardTiming.test.ts",
+        "shared/visualClipModel.test.ts",
+        "server/services/visualClipEditing.test.ts",
+        "client/src/features/creationEditor/views/storyboardVisualClipDrag.test.ts"
       ],
       "invariants": [
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
@@ -1404,7 +1409,9 @@
         "图片 clip 和视频镜头的横向位置、视觉层级都必须持久化；较大的 visualLayer 在重叠区间优先显示。",
         "图片 clip 的绝对 timelineStartFrame 独立于所属视频；移动底层视频不得改变任何上层图片的位置，旧 offsetFrames 只作为兼容回退。",
         "视觉层按需无限向上扩展，始终保留一个可投放的空白上层；跨层拖放必须在一次时间线写入中同时更新绝对时间和 visualLayer。",
-        "Storyboard 与底部 Timeline 必须使用同一套视觉素材落位语义：普通镜头、抽帧图片、附加视频、素材库图片、视频 Take 和本地图片/视频都能同时改变绝对时间与 visualLayer；外部素材必须新建独立普通镜头，失败不得遗留空镜头。",
+        "只有一个多轨编辑模型和一个写入口：任何改变素材位置的操作都必须调用 moveVisualClip（服务端自己读取时间线、只改这一个 clip 的 track 与 start）；Storyboard、底部 Timeline 和镜头详情都只是同一模型的投影，不得成为第二个位置真相来源，也不得再上传整份 items 或由客户端持有 expectedVersion。",
+        "每个 clip 的位置是独立绝对值：写入前先把派生位置钉成绝对帧，移动底层视频不得改变任何其它 clip 的绝对位置（镜头自己的内部片段除外）。",
+        "移动失败必须给用户可见提示；拖拽提交路径不得再出现静默 return 或静默回弹。",
         "素材库已有图片落到新镜头时必须写入非所有权 timeline 引用；不得修改 generated image 的 shotIdentity、原镜头归属或仓库实体数量。外部素材落位完成后只进入一条撤销记录。",
         "视觉层的插入、删除和整层排序必须在一次时间线写入中原子重映射其中全部图片和视频；删除非空层只允许在明确确认后合并到相邻层，不得删除素材。",
         "视觉层显隐必须持久化，并由预览与导出共用同一隐藏层集合；隐藏图层不参与可见素材赢家解析。",
@@ -1440,6 +1447,11 @@
         "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。"
       ],
       "history": [
+        {
+          "date": "2026-08-22",
+          "kind": "refactor",
+          "summary": "替换此前「Storyboard 与底部 Timeline 双向共用落位语义」的约束，改为唯一多轨模型 + 唯一写入口。原因：之前几轮只修 Pointer Event 与命中逻辑，自动化全绿但用户在 3000 真实拖动仍然无效——根因是写模型分裂：图片是挂在 item 里的数组元素（offsetFrames 相对 owner、timelineStartFrame 绝对两套坐标并存），唯一持久化接口 updateStoryTimeline 只接受整份 items 覆盖 + 客户端 expectedVersion，客户端保存前又用 buildTimelineLayout 重算并覆写每个 item 的起点，失败还只 console.warn 后静默回弹。现在 shared/visualClipModel.ts 把镜头、图片 clip、附加片段和遗留 overlay 投影成同一种绝对帧 VisualClip，server/services/visualClipEditing.ts 做服务端读—改—写的单 clip 原子移动，creationAgent.moveVisualClip 是唯一移动命令；Storyboard 的图片与镜头两条 Pointer 拖拽合并为一个提交出口，像素只换算成 (trackId, 绝对帧)，失败弹出可见错误。领域、服务端持久化与拖拽换算三层各有定向测试；主仓库 3000 的真实拖动验收尚未进行。"
+        },
         {
           "date": "2026-08-22",
           "kind": "fix",

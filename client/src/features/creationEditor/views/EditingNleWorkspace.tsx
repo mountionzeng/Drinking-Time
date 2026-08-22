@@ -3061,6 +3061,7 @@ export default function EditingNleWorkspace({
     addTimelineImageClip,
     moveTimelineItemToLayer,
     moveTimelineImageClip,
+    moveVisualClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
     updateShotDuration,
@@ -3839,6 +3840,7 @@ export default function EditingNleWorkspace({
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveTimelineItemToLayer: moveTimelineItemToLayer,
       onMoveTimelineImageClip: moveTimelineImageClip,
+      onMoveVisualClip: moveVisualClip,
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
       magneticJoins: timelineMagneticJoins(

@@ -35,6 +35,10 @@ import {
   updateStoryTimeline as persistStoryTimeline,
   updateVideoTake,
 } from "../db";
+import {
+  listVisualClips,
+  moveVisualClipForStory,
+} from "../services/visualClipEditing";
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
   replyFromCreationAgent,
@@ -1738,6 +1742,48 @@ export const creationAgentRouter = router({
           error: error instanceof Error ? error.message : "时间轴保存失败",
         };
       }
+    }),
+
+  /**
+   * 多轨剪辑的唯一读投影。客户端不再自己从 items/imageClips/overlays 推位置。
+   */
+  visualClips: protectedProcedure
+    .input(z.object({ storyId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      return listVisualClips(input.storyId, ctx.user.id);
+    }),
+
+  /**
+   * 多轨剪辑的唯一移动命令。
+   *
+   * 一次斜向拖动只调用一次：服务端自己读取时间线、只改这一个 clip、再写回。
+   * 客户端不再上传整份 items，也不再持有 expectedVersion。
+   */
+  moveVisualClip: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        clipId: z.string().min(1).max(240),
+        toTrackId: z.string().min(1).max(64),
+        toStartFrame: z.number().int().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      return moveVisualClipForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        clipId: input.clipId,
+        toTrackId: input.toTrackId,
+        toStartFrame: input.toStartFrame,
+      });
     }),
 
   createDerivationDraft: protectedProcedure
