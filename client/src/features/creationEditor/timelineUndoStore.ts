@@ -24,6 +24,11 @@ export type SplitStoryShotUndoEntry = {
   restoreShotNo: number;
 };
 
+export type InsertedStoryShotUndoEntry = {
+  kind: "inserted-story-shot";
+  insertedStableShotId: string;
+};
+
 /**
  * 一次时间线撤销要还原的全部东西。只存 items 不够：图层顺序、图层数量和显隐
  * 都在 `visualLayerState` 里，遗留 overlay 的兼容层在 `overlays` 里，
@@ -38,6 +43,7 @@ export type TimelineUndoSnapshot = {
 export type CreationEditorUndoEntry =
   | ({ kind: "timeline" } & TimelineUndoSnapshot)
   | DeletedStoryShotUndoEntry
+  | InsertedStoryShotUndoEntry
   | SplitStoryShotUndoEntry;
 
 const undoByStory = new Map<number, CreationEditorUndoEntry[]>();
@@ -72,7 +78,21 @@ function cloneTimelineItems(
       effects: clip.effects ? { ...clip.effects } : undefined,
       transform: clip.transform ? { ...clip.transform } : undefined,
     })),
+    imageClips: item.imageClips?.map(clip => ({
+      ...clip,
+      transform: clip.transform ? { ...clip.transform } : undefined,
+    })),
     anchors: item.anchors?.map(anchor => ({ ...anchor })),
+  }));
+}
+
+function cloneTimelineOverlays(
+  overlays: readonly StoryTimelineOverlay[]
+): StoryTimelineOverlay[] {
+  return overlays.map(overlay => ({
+    ...overlay,
+    transform: { ...overlay.transform },
+    effects: overlay.effects ? { ...overlay.effects } : undefined,
   }));
 }
 
@@ -100,13 +120,14 @@ export function recordTimelineUndoSnapshot(
       }
     : undefined;
   const overlays = extra.overlays
-    ? extra.overlays.map(overlay => ({ ...overlay }))
+    ? cloneTimelineOverlays(extra.overlays)
     : undefined;
   const latest = stack[stack.length - 1];
   if (
     latest?.kind === "timeline" &&
     sameTimeline(latest.items, snapshot) &&
-    JSON.stringify(latest.visualLayerState) === JSON.stringify(visualLayerState) &&
+    JSON.stringify(latest.visualLayerState) ===
+      JSON.stringify(visualLayerState) &&
     JSON.stringify(latest.overlays) === JSON.stringify(overlays)
   ) {
     return;
@@ -152,6 +173,18 @@ export function recordSplitStoryShotUndo(
   undoByStory.set(storyId, stack);
 }
 
+export function recordInsertedStoryShotUndo(
+  storyId: number,
+  insertedStableShotId: string
+): void {
+  const stack = undoByStory.get(storyId) ?? [];
+  stack.push({ kind: "inserted-story-shot", insertedStableShotId });
+  if (stack.length > MAX_UNDO_STEPS) {
+    stack.splice(0, stack.length - MAX_UNDO_STEPS);
+  }
+  undoByStory.set(storyId, stack);
+}
+
 export function takeCreationEditorUndoEntry(
   storyId: number
 ): CreationEditorUndoEntry | null {
@@ -169,7 +202,9 @@ export function takeCreationEditorUndoEntry(
             hidden: [...entry.visualLayerState.hidden],
           }
         : undefined,
-      overlays: entry.overlays?.map(overlay => ({ ...overlay })),
+      overlays: entry.overlays
+        ? cloneTimelineOverlays(entry.overlays)
+        : undefined,
     };
   }
   if (entry.kind === "deleted-story-shot") {
@@ -179,6 +214,7 @@ export function takeCreationEditorUndoEntry(
       afterDeleteBody: structuredClone(entry.afterDeleteBody),
     };
   }
+  if (entry.kind === "inserted-story-shot") return { ...entry };
   return {
     ...entry,
     beforeStoryBody: structuredClone(entry.beforeStoryBody),

@@ -54,7 +54,9 @@ const anchorOn = (frame: number) => ({
 });
 
 function shotsWithImages(...ids: string[]): Map<string, TimelineResolverShot> {
-  return new Map(ids.map(id => [id, { currentImageId: 1 } as TimelineResolverShot]));
+  return new Map(
+    ids.map(id => [id, { currentImageId: 1 } as TimelineResolverShot])
+  );
 }
 
 describe("resolveTimelineFrameSource", () => {
@@ -88,7 +90,10 @@ describe("resolveTimelineFrameSource", () => {
       shotsById: shotsWithImages("anchored", "recent"),
       timelineFrame: 30,
     });
-    expect(resolution).toMatchObject({ kind: "source", stableShotId: "anchored" });
+    expect(resolution).toMatchObject({
+      kind: "source",
+      stableShotId: "anchored",
+    });
   });
 
   it("resolves the most recently moved shot when nothing is anchored", () => {
@@ -101,7 +106,10 @@ describe("resolveTimelineFrameSource", () => {
       shotsById: shotsWithImages("old", "recent"),
       timelineFrame: 30,
     });
-    expect(resolution).toMatchObject({ kind: "source", stableShotId: "recent" });
+    expect(resolution).toMatchObject({
+      kind: "source",
+      stableShotId: "recent",
+    });
   });
 
   it("resolves persisted overlay media and its uncovered tail through the same preview path", () => {
@@ -146,7 +154,12 @@ describe("resolveTimelineFrameSource", () => {
 
 describe("planTimelineGroupMove", () => {
   it("moves the source shot and its left run while leaving the rest untouched", () => {
-    const items = [item("a", 0, 30), item("b", 1, 60), item("c", 2, 90), item("d", 3, 120)];
+    const items = [
+      item("a", 0, 30),
+      item("b", 1, 60),
+      item("c", 2, 90),
+      item("d", 3, 120),
+    ];
     const plan = planTimelineGroupMove({
       items,
       rows: buildTimelineLayout(items),
@@ -157,8 +170,12 @@ describe("planTimelineGroupMove", () => {
     expect(plan.kind).toBe("ok");
     if (plan.kind !== "ok") return;
     // a/b/c share the delta and keep their spacing; d never joins the group.
-    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([20, 50, 80, 120]);
-    expect(plan.items.map(entry => entry.durationFrames)).toEqual([30, 30, 30, 30]);
+    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([
+      20, 50, 80, 120,
+    ]);
+    expect(plan.items.map(entry => entry.durationFrames)).toEqual([
+      30, 30, 30, 30,
+    ]);
   });
 
   it("stops a left group at the nearest anchored shot", () => {
@@ -177,11 +194,16 @@ describe("planTimelineGroupMove", () => {
     });
     expect(plan.kind).toBe("ok");
     if (plan.kind !== "ok") return;
-    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([0, 30, 72, 102]);
+    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([
+      0, 30, 72, 102,
+    ]);
   });
 
   it("blocks a group drag started from an anchored shot without proxying a neighbour", () => {
-    const items = [item("a", 0, 0), item("locked", 1, 30, 30, { anchors: [anchorOn(35)] })];
+    const items = [
+      item("a", 0, 0),
+      item("locked", 1, 30, 30, { anchors: [anchorOn(35)] }),
+    ];
     expect(
       planTimelineGroupMove({
         items,
@@ -218,7 +240,9 @@ describe("planTimelineSingleMove", () => {
     });
     expect(plan.kind).toBe("ok");
     if (plan.kind !== "ok") return;
-    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([0, 40, 60]);
+    expect(plan.items.map(entry => entry.timelineStartFrame)).toEqual([
+      0, 40, 60,
+    ]);
   });
 
   it("keeps an upper image clip at its absolute frame when its owning video moves", () => {
@@ -251,7 +275,10 @@ describe("planTimelineSingleMove", () => {
   });
 
   it("does not proxy to a neighbor when the dragged shot is anchored", () => {
-    const items = [item("a", 0, 0, 30, { anchors: [anchorOn(5)] }), item("b", 1, 30)];
+    const items = [
+      item("a", 0, 0, 30, { anchors: [anchorOn(5)] }),
+      item("b", 1, 30),
+    ];
     expect(
       planTimelineSingleMove({
         items,
@@ -287,7 +314,11 @@ describe("planTimelineSingleMove", () => {
       })
     ).toMatchObject({
       deltaFrames: -4,
-      join: { leftStableShotId: "a", rightStableShotId: "b", boundaryFrame: 30 },
+      join: {
+        leftStableShotId: "a",
+        rightStableShotId: "b",
+        boundaryFrame: 30,
+      },
     });
     const plan = planTimelineSingleMove({
       items,
@@ -313,7 +344,11 @@ describe("planTimelineSingleMove", () => {
       })
     ).toMatchObject({
       deltaFrames: 4,
-      join: { leftStableShotId: "a", rightStableShotId: "b", boundaryFrame: 34 },
+      join: {
+        leftStableShotId: "a",
+        rightStableShotId: "b",
+        boundaryFrame: 34,
+      },
     });
   });
 
@@ -408,10 +443,12 @@ describe("magnetic timeline joins", () => {
     });
     expect(plan.kind).toBe("ok");
     if (plan.kind !== "ok") return;
-    expect(plan.items.map(entry => ({
+    expect(
+      plan.items.map(entry => ({
       start: entry.timelineStartFrame,
       duration: entry.durationFrames,
-    }))).toEqual([
+      }))
+    ).toEqual([
       { start: 0, duration: 36 },
       { start: 36, duration: 24 },
     ]);
@@ -430,7 +467,11 @@ describe("magnetic timeline joins", () => {
         rightStableShotId: "b",
         requestedBoundaryFrame: 27,
       })
-    ).toEqual({ kind: "blocked", reason: "不能裁掉位置锚点所在画面", boundaryFrame: 29 });
+    ).toEqual({
+      kind: "blocked",
+      reason: "不能裁掉位置锚点所在画面",
+      boundaryFrame: 29,
+    });
   });
 
   it("keeps a rolling edit atomic when the right shot has no source headroom", () => {
@@ -453,7 +494,11 @@ describe("magnetic timeline joins", () => {
         requestedBoundaryFrame: 25,
         rightSourceLimitSec: 1,
       })
-    ).toEqual({ kind: "blocked", reason: "没有更多可用素材", boundaryFrame: 30 });
+    ).toEqual({
+      kind: "blocked",
+      reason: "没有更多可用素材",
+      boundaryFrame: 30,
+    });
     expect(items.map(entry => entry.timelineStartFrame)).toEqual([0, 30]);
   });
 
@@ -553,8 +598,14 @@ describe("planTimelineAnchorAdd", () => {
 
 describe("planTimelineAnchorRemove", () => {
   it("keeps the shot locked until the final anchor is removed", () => {
-    const items = [item("a", 0, 0, 60, { anchors: [anchorOn(10), anchorOn(40)] })];
-    const first = planTimelineAnchorRemove({ items, stableShotId: "a", anchorId: "a10" });
+    const items = [
+      item("a", 0, 0, 60, { anchors: [anchorOn(10), anchorOn(40)] }),
+    ];
+    const first = planTimelineAnchorRemove({
+      items,
+      stableShotId: "a",
+      anchorId: "a10",
+    });
     expect(first.kind).toBe("ok");
     if (first.kind !== "ok") return;
     expect(first.items[0].anchors).toHaveLength(1);
@@ -605,7 +656,11 @@ describe("planTimelineTrim", () => {
         edge: "start",
         requestedBoundaryFrame: 30,
       })
-    ).toEqual({ kind: "blocked", reason: "不能越过位置锚点", boundaryFrame: 20 });
+    ).toEqual({
+      kind: "blocked",
+      reason: "不能越过位置锚点",
+      boundaryFrame: 20,
+    });
   });
 
   it("commits a trim that stops just at the anchor", () => {
@@ -634,10 +689,13 @@ describe("createTimelineWriteLock", () => {
       release = resolve;
     });
 
-    const first = lock.run(async () => {
+    const first = lock.run(
+      async () => {
       await gate;
       return save();
-    }, { applied: false, reason: "busy" });
+      },
+      { applied: false, reason: "busy" }
+    );
     const second = await lock.run(save, { applied: false, reason: "busy" });
 
     expect(second).toEqual({ applied: false, reason: "busy" });
@@ -651,12 +709,17 @@ describe("createTimelineWriteLock", () => {
   it("releases the lock when a write throws", async () => {
     const lock = createTimelineWriteLock();
     await expect(
-      lock.run(async () => {
+      lock.run(
+        async () => {
         throw new Error("save failed");
-      }, { applied: false })
+        },
+        { applied: false }
+      )
     ).rejects.toThrow("save failed");
     expect(lock.pending).toBe(false);
-    expect(await lock.run(async () => ({ applied: true }), { applied: false })).toEqual({
+    expect(
+      await lock.run(async () => ({ applied: true }), { applied: false })
+    ).toEqual({
       applied: true,
     });
   });

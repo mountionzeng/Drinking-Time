@@ -14,13 +14,10 @@ import {
 import {
   buildTimelineLayout,
   moveTimelineGroup,
-  resolveTimelineDocumentFrame,
-  overlayVisualLayer,
   resolveTimelineFrame,
-  resolveTimelineImageClipAt,
+  resolveTimelineVisualFrame,
   selectDirectionalGroup,
   selectSingleShot,
-  timelineImageBeatsVisualSource,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {
@@ -61,10 +58,19 @@ export type TimelineMagneticJoin = {
   boundaryFrame: number;
 };
 
-/** Exact, user-enabled joins in visual timeline order. These are the seams that roll. */
+/**
+ * Exact, user-enabled joins in visual timeline order. These are the seams that roll.
+ *
+ * 隐藏层不参与吸附：看不见的镜头不该在可见镜头之间造出一条会滚动的缝。
+ */
 export function timelineMagneticJoins(
-  rows: readonly TimelineLayoutRow[]
+  allRows: readonly TimelineLayoutRow[],
+  hiddenVisualLayers: readonly number[] = []
 ): TimelineMagneticJoin[] {
+  const hidden = hiddenVisualLayerSet(hiddenVisualLayers);
+  const rows = allRows.filter(
+    row => !hidden.has(normalizeVisualLayer(row.item.visualLayer))
+  );
   const boundaries = Array.from(
     new Set(
       rows
@@ -81,16 +87,17 @@ export function timelineMagneticJoins(
       before.row.item.stableShotId === after.row.item.stableShotId ||
       before.row.endFrame !== boundaryFrame ||
       after.row.startFrame !== boundaryFrame ||
-      after.row.item.detachedFromPreviousShotId ===
-        before.row.item.stableShotId
+      after.row.item.detachedFromPreviousShotId === before.row.item.stableShotId
     ) {
       return [];
     }
-    return [{
+    return [
+      {
       leftStableShotId: before.row.item.stableShotId,
       rightStableShotId: after.row.item.stableShotId,
       boundaryFrame,
-    }];
+      },
+    ];
   });
 }
 
@@ -128,7 +135,8 @@ export function snappedTimelineSingleMove(input: {
   }
   const movedStart = current.startFrame + roundedDelta;
   const movedEnd = current.endFrame + roundedDelta;
-  const movedStackOrder = Math.max(-1, ...input.rows.map(row => row.stackOrder)) + 1;
+  const movedStackOrder =
+    Math.max(-1, ...input.rows.map(row => row.stackOrder)) + 1;
   const formsVisibleJoin = (
     deltaFrames: number,
     join: TimelineMagneticJoin
@@ -156,7 +164,9 @@ export function snappedTimelineSingleMove(input: {
     );
   };
   const candidates = input.rows
-    .filter(row => row.item.included && row.item.stableShotId !== input.stableShotId)
+    .filter(
+      row => row.item.included && row.item.stableShotId !== input.stableShotId
+    )
     .flatMap(row => {
       const joins: Array<{
         distance: number;
@@ -230,45 +240,21 @@ export function resolveTimelineFrameSource(input: {
 }): CreationTimelineFrameResolution {
   const frame = Math.max(0, Math.round(input.timelineFrame));
   const items = input.rows.map(row => row.item);
-  const hidden = hiddenVisualLayerSet(input.hiddenVisualLayers);
-  const resolved = input.overlays
-    ? resolveTimelineDocumentFrame({
-        items,
-        overlays: input.overlays,
-        hiddenVisualLayers: input.hiddenVisualLayers,
-        frame,
-      })
-    : resolveTimelineFrame(
-        // 没有 overlay 也要过一遍隐藏层：锚点不能锁在看不见的素材上。
-        input.rows.filter(
-          row => !hidden.has(normalizeVisualLayer(row.item.visualLayer))
-        ),
-        frame
-      );
-  // 一帧图片和镜头走同一套层级赢家规则；界面上是图片，锚点就必须锁住这张图片。
-  const image = resolveTimelineImageClipAt({
+  const resolved = resolveTimelineVisualFrame({
     items,
+    overlays: input.overlays,
     hiddenVisualLayers: input.hiddenVisualLayers,
     frame,
   });
-  const resolvedLayer =
-    resolved.kind === "shot"
-      ? normalizeVisualLayer(resolved.row.item.visualLayer)
-      : resolved.kind === "overlay"
-        ? overlayVisualLayer(resolved.overlay)
-        : null;
-  if (
-    image &&
-    (resolved.kind === "gap" ||
-      timelineImageBeatsVisualSource(image, resolvedLayer))
-  ) {
+  if (resolved.kind === "image") {
+    const image = resolved.placement;
     return {
       kind: "source",
       timelineFrame: frame,
       stableShotId: image.stableShotId,
       startFrame: image.startFrame,
       durationFrames: image.clip.durationFrames,
-      localFrame: frame - image.startFrame,
+      localFrame: resolved.localFrame,
       sourceType: "image",
       sourceId: `image-${image.clip.imageId}`,
       sourceTimeSec: null,
@@ -641,7 +627,9 @@ export type TimelineWriteOutcome = { applied: boolean; reason?: string };
  * pointer release, a repeated `M`, or a second gesture during a pending save
  * must not compute from placement that is already stale.
  */
-export function createTimelineWriteLock(onPendingChange?: (pending: boolean) => void) {
+export function createTimelineWriteLock(
+  onPendingChange?: (pending: boolean) => void
+) {
   let pending = false;
   return {
     get pending() {

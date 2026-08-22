@@ -7,6 +7,7 @@ import {
   clearTimelineUndoForTesting,
   executeTimelineUndo,
   recordDeletedStoryShotUndo,
+  recordInsertedStoryShotUndo,
   recordSplitStoryShotUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
@@ -99,6 +100,51 @@ describe("timelineUndoStore", () => {
     expect(takeTimelineUndoSnapshot(7)?.[0].anchors?.[0].timelineFrame).toBe(3);
   });
 
+  it("clones extracted-image and overlay transforms across the undo boundary", () => {
+    const source = timeline(1_000);
+    source[0].imageClips = [
+      {
+        id: "still-1",
+        imageId: 1,
+        imageUrl: "/1.png",
+        label: "抽帧",
+        offsetFrames: 0,
+        durationFrames: 1,
+        visualLayer: 1,
+        transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      },
+    ];
+    const overlayTransform = { ...DEFAULT_TIMELINE_TRANSFORM };
+    recordTimelineUndoSnapshot(7, source, {
+      overlays: [
+        {
+          id: "overlay-1",
+          kind: "generated-video",
+          takeId: 9,
+          sourceStableShotId: "shot-a",
+          videoUrl: "/9.mp4",
+          startFrame: 0,
+          targetEndFrame: 30,
+          mediaEndFrame: 30,
+          endFrame: 30,
+          stackOrder: 1,
+          visualLayer: 1,
+          leftImageId: 1,
+          rightImageId: 2,
+          transform: overlayTransform,
+        },
+      ],
+    });
+    source[0].imageClips[0].transform!.panX = 0.75;
+    overlayTransform.panY = -0.5;
+
+    const entry = takeCreationEditorUndoEntry(7);
+    expect(entry?.kind).toBe("timeline");
+    if (entry?.kind !== "timeline") return;
+    expect(entry.items[0].imageClips?.[0].transform?.panX).toBe(0);
+    expect(entry.overlays?.[0].transform.panY).toBe(0);
+  });
+
   it("lets chat call the same registered undo executor as the editor", async () => {
     const unregister = registerTimelineUndoExecutor(7, async () => true);
 
@@ -165,6 +211,16 @@ describe("timelineUndoStore", () => {
       kind: "timeline",
       items: [{ plannedDurationMs: 1_000 }],
     });
+  });
+
+  it("records external placement as one inserted-shot undo step", () => {
+    recordInsertedStoryShotUndo(7, "shot-external");
+
+    expect(takeCreationEditorUndoEntry(7)).toEqual({
+      kind: "inserted-story-shot",
+      insertedStableShotId: "shot-external",
+    });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
   });
 
   it("clones structural split snapshots in the shared undo history", () => {

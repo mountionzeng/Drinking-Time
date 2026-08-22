@@ -38,6 +38,14 @@ export type TimelineDocumentResolution =
       localFrame: number;
     };
 
+export type TimelineVisualResolution =
+  | TimelineDocumentResolution
+  | {
+      kind: "image";
+      placement: TimelineImageClipPlacement;
+      localFrame: number;
+    };
+
 export type TimelineGroupSelection = {
   kind: "ok";
   direction: "left" | "right";
@@ -369,6 +377,7 @@ function imageClipVisualPriority(
   return {
     anchored: false,
     visualLayer: normalizeVisualLayer(placement.clip.visualLayer),
+    sourceKindOrder: 1,
     // 同层里后放的一帧图片压在先放的上面。
     stackOrder: placement.startFrame,
     position: 0,
@@ -408,6 +417,54 @@ export function resolveTimelineImageClipAt(input: {
 }
 
 /**
+ * 解析某一绝对帧上真正可见的素材。
+ *
+ * 普通镜头、生成 overlay 和一帧图片必须在这里完成最后一次比较。调用方不能先
+ * 解析视频、再用图层数字单独盖一遍图片，否则会把「锚定优先」等更高阶规则抹掉。
+ */
+export function resolveTimelineVisualFrame(input: {
+  items: readonly StoryTimelineItem[];
+  overlays?: readonly StoryTimelineOverlay[];
+  hiddenVisualLayers?: readonly number[];
+  frame: number;
+}): TimelineVisualResolution {
+  const frame = Math.max(0, Math.floor(input.frame));
+  const document = resolveTimelineDocumentFrame({
+    items: input.items,
+    overlays: input.overlays,
+    hiddenVisualLayers: input.hiddenVisualLayers,
+    frame,
+  });
+  const image = resolveTimelineImageClipAt({
+    items: input.items,
+    hiddenVisualLayers: input.hiddenVisualLayers,
+    frame,
+  });
+  if (!image) return document;
+  if (document.kind === "gap") {
+    return {
+      kind: "image",
+      placement: image,
+      localFrame: frame - image.startFrame,
+    };
+  }
+  const documentPriority =
+    document.kind === "shot"
+      ? timelineRowVisualPriority(document.row)
+      : overlayVisualPriority(document.overlay);
+  if (
+    compareVisualPriority(imageClipVisualPriority(image), documentPriority) <= 0
+  ) {
+    return document;
+  }
+  return {
+    kind: "image",
+    placement: image,
+    localFrame: frame - image.startFrame,
+  };
+}
+
+/**
  * 同一时刻图片和视频谁在上面。相等时图片赢：一帧图片是用户显式放上去的剪辑。
  */
 export function timelineImageBeatsVisualSource(
@@ -416,8 +473,15 @@ export function timelineImageBeatsVisualSource(
 ): boolean {
   if (!image) return false;
   if (videoLayer == null) return true;
-  return (
-    normalizeVisualLayer(image.clip.visualLayer) >=
-    normalizeVisualLayer(videoLayer)
-  );
+  return compareVisualPriority(
+    imageClipVisualPriority(image),
+    {
+      anchored: false,
+      visualLayer: videoLayer,
+      sourceKindOrder: 0,
+      stackOrder: Number.MAX_SAFE_INTEGER,
+      position: Number.MIN_SAFE_INTEGER,
+      tieId: "video",
+    }
+  ) > 0;
 }

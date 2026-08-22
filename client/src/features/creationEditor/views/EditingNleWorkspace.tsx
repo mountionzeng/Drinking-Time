@@ -43,17 +43,20 @@ import type {
   StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
+  timelineFramesToMs,
+  timelineImageClipStartFrame,
   timelineOffsetMsToFrames,
 } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
 import {
   buildTimelineLayout,
   overlayVisualLayer,
-  resolveTimelineDocumentFrame,
   resolveTimelineImageClipAt,
+  resolveTimelineVisualFrame,
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
+import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
 
 import {
   ResizableHandle,
@@ -61,6 +64,14 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import {
+  hasStoryImageDragPayload,
+  readStoryImageDragPayload,
+} from "@/features/storyAgent/storyImageDrag";
+import {
+  hasVideoTakeDragPayload,
+  readVideoTakeDragPayload,
+} from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
@@ -236,8 +247,7 @@ export function shouldHandleEditingShortcut(input: {
   altKey: boolean;
   targetKind: EditingShortcutTargetKind;
 }): boolean {
-  const isArrowKey =
-    input.key === "ArrowLeft" || input.key === "ArrowRight";
+  const isArrowKey = input.key === "ArrowLeft" || input.key === "ArrowRight";
   const isSpaceKey = input.key === " " || input.key === "Spacebar";
   return (
     (isArrowKey || isSpaceKey) &&
@@ -270,9 +280,9 @@ export type TimelineVideoSource = {
   visualLayer: number;
 };
 
-export function extractedFrameTargetVisualLayer(
-  source: { visualLayer: number }
-): number {
+export function extractedFrameTargetVisualLayer(source: {
+  visualLayer: number;
+}): number {
   return Math.max(0, Math.round(source.visualLayer)) + 1;
 }
 
@@ -376,13 +386,14 @@ export function resolveTimelineVideoSource(
 ): TimelineVideoSource | null {
   const timelineItems = timelineItemsForShots(shots);
   const timelineFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
-  const documentResolution = resolveTimelineDocumentFrame({
+  const documentResolution = resolveTimelineVisualFrame({
     items: timelineItems,
     overlays,
     hiddenVisualLayers,
     frame: timelineFrame,
   });
-  if (documentResolution.kind === "gap") return null;
+  if (documentResolution.kind === "gap" || documentResolution.kind === "image")
+    return null;
   if (documentResolution.kind === "overlay") {
     const overlay = documentResolution.overlay;
     const sourceShot = shots.find(
@@ -422,7 +433,11 @@ export function resolveTimelineVideoSource(
   const lookupMs = Math.min(Math.max(0, playheadMs), Math.max(0, totalMs - 1));
   // 空档就是空档：返回 null，让预览画黑场，不要退回上一镜的画面。
   // 隐藏层不参与赢家解析，和文档解析、导出用的是同一个隐藏集合。
-  const timing = storyboardTimingWinnerAt(timings, lookupMs, hiddenVisualLayers);
+  const timing = storyboardTimingWinnerAt(
+    timings,
+    lookupMs,
+    hiddenVisualLayers
+  );
   if (!timing) return null;
   const shot = shots.find(item => item.shotNo === timing.shotNo);
   if (!shot) return null;
@@ -733,12 +748,11 @@ function ShotPreview({
         editorPreview.target.mediaDurationSec
       )
     : null;
-  const videoUrl =
-    timelineImageSource
+  const videoUrl = timelineImageSource
       ? null
-      : editorPreview?.target.videoUrl ??
+    : (editorPreview?.target.videoUrl ??
         timelineVideoSource?.videoUrl ??
-        (suppressDefaultVideo ? null : playableVideoUrl(shot));
+      (suppressDefaultVideo ? null : playableVideoUrl(shot)));
   const imageUrl =
     timelineImageSource?.imageUrl ??
     editorPreview?.target.posterUrl ??
@@ -1081,8 +1095,9 @@ function ShotPreview({
                   className="h-full w-full object-cover"
                   style={timelineTransformStyle(
                     shot?.imageId != null
-                      ? shot.timelineItem?.imageTransforms?.[String(shot.imageId)] ??
-                          shot.timelineItem?.transform
+                      ? (shot.timelineItem?.imageTransforms?.[
+                          String(shot.imageId)
+                        ] ?? shot.timelineItem?.transform)
                       : shot?.timelineItem?.transform
                   )}
                 />
@@ -1120,11 +1135,18 @@ function ShotPreview({
   );
 }
 
-type TimelineLane = {
+type TimelineClipMoveTarget =
+  | { kind: "shot"; stableShotId: string }
+  | { kind: "image"; clipId: string; sourceStableShotId: string }
+  | { kind: "video"; clipId: string; sourceStableShotId: string };
+
+export type TimelineLane = {
   id: string;
   label: string;
   icon: "captions" | "video" | "voice" | "music" | "audio";
   domain: "visual" | "audio";
+  /** Present for visual editing layers; higher values render above lower ones. */
+  visualLayer?: number;
   tone: "blue" | "green" | "teal" | "amber" | "gray";
   clips: Array<{
     id: string;
@@ -1138,13 +1160,69 @@ type TimelineLane = {
     visualClip?: StoryTimelineVisualClip;
     videoEditTarget?: VideoClipEditorTarget;
     imageEditTarget?: ImageClipEditorTarget;
+    moveTarget?: TimelineClipMoveTarget;
   }>;
 };
 
+export function timelineClipPointerPlacement(input: {
+  startClientX: number;
+  releaseClientX: number;
+  pixelsPerSecond: number;
+  targetVisualLayer: number;
+}): { deltaFrames: number; visualLayer: number } {
+  const pixelsPerSecond = Number.isFinite(input.pixelsPerSecond)
+    ? Math.max(0, input.pixelsPerSecond)
+    : 0;
+  return {
+    deltaFrames:
+      pixelsPerSecond === 0
+        ? 0
+        : Math.round(
+            ((input.releaseClientX - input.startClientX) / pixelsPerSecond) * 30
+          ),
+    visualLayer: Math.max(0, Math.round(input.targetVisualLayer)),
+  };
+}
+
+export function timelinePointerDragExceededThreshold(input: {
+  startClientX: number;
+  startClientY: number;
+  clientX: number;
+  clientY: number;
+  thresholdPx?: number;
+}): boolean {
+  const threshold = Math.max(0, input.thresholdPx ?? 4);
+  return (
+    Math.hypot(
+      input.clientX - input.startClientX,
+      input.clientY - input.startClientY
+    ) >= threshold
+  );
+}
+
+export function timelineClipKeyboardPlacement(input: {
+  key: string;
+  shiftKey: boolean;
+  visualLayer: number;
+}): { deltaFrames: number; visualLayer: number } | null {
+  const step = input.shiftKey ? 15 : 1;
+  if (input.key === "ArrowLeft") {
+    return { deltaFrames: -step, visualLayer: input.visualLayer };
+  }
+  if (input.key === "ArrowRight") {
+    return { deltaFrames: step, visualLayer: input.visualLayer };
+  }
+  if (input.key === "ArrowUp") {
+    return { deltaFrames: 0, visualLayer: input.visualLayer + 1 };
+  }
+  if (input.key === "ArrowDown") {
+    return { deltaFrames: 0, visualLayer: Math.max(0, input.visualLayer - 1) };
+  }
+  return null;
+}
+
 /** 字幕、旁白、音乐和原声只属于听觉编辑域，不跟随视觉镜头选中。 */
-export function timelineLaneDomain(
-  laneId: string
-): TimelineLane["domain"] {
+export function timelineLaneDomain(laneId: string): TimelineLane["domain"] {
   return ["captions", "voice", "music", "source-audio"].includes(laneId)
     ? "audio"
     : "visual";
@@ -1234,7 +1312,8 @@ function findShotAtTime(
 export function buildTimelineLanes(
   shots: CreationEditorShot[],
   timelineShotIds: string[],
-  manifest: ChatCutTimelineManifest | null
+  manifest: ChatCutTimelineManifest | null,
+  requestedVisualLayerCount = 0
 ): TimelineLane[] {
   const timings = buildStoryboardTimingRows(
     shots,
@@ -1289,14 +1368,12 @@ export function buildTimelineLanes(
     });
   }
 
-  lanes.push({
-    id: "primary-video",
-    label: primaryIndex ? `V${primaryIndex}` : "画面",
-    icon: "video",
-    domain: "visual",
-    tone: "green",
-    clips: timings.flatMap(timing => {
+  const visualClips = timings.flatMap(timing => {
       const shot = shotsByNo.get(timing.shotNo);
+    const baseVisualLayer = Math.max(
+      0,
+      Math.round(shot?.timelineItem?.visualLayer ?? 0)
+    );
       const baseClip = {
         id: timing.stableShotId,
         label: shot
@@ -1310,6 +1387,11 @@ export function buildTimelineLanes(
         shotNo: timing.shotNo,
         imageUrl: shot ? shotImageUrl(shot) : null,
         stableShotId: timing.stableShotId,
+      visualLayer: baseVisualLayer,
+      moveTarget: {
+        kind: "shot" as const,
+        stableShotId: timing.stableShotId,
+      },
         videoEditTarget: shot
           ? (() => {
               const take =
@@ -1343,8 +1425,8 @@ export function buildTimelineLanes(
               })
             : undefined,
       };
-      const visualClips = shot?.timelineItem?.visualClips ?? [];
-      const derivedClips = visualClips.map(clip => {
+    const derivedVideoClips = (shot?.timelineItem?.visualClips ?? []).map(
+      clip => {
         const take = shot?.videoTakes?.find(item => item.id === clip.takeId);
         const posterUrl = timelineVisualClipFrameUrl(clip);
         return {
@@ -1356,7 +1438,16 @@ export function buildTimelineLanes(
           shotNo: timing.shotNo,
           imageUrl: posterUrl,
           stableShotId: timing.stableShotId,
+          visualLayer: Math.max(
+            0,
+            Math.round(clip.visualLayer ?? baseVisualLayer)
+          ),
           visualClip: clip,
+          moveTarget: {
+            kind: "video" as const,
+            clipId: clip.id,
+            sourceStableShotId: timing.stableShotId,
+          },
           videoEditTarget: shot
             ? videoClipEditorTargetForVisualClip({
                 stableShotId: timing.stableShotId,
@@ -1370,12 +1461,60 @@ export function buildTimelineLanes(
               })
             : undefined,
         };
-      });
+      }
+    );
+    const derivedImageClips = (shot?.timelineItem?.imageClips ?? []).map(
+      clip => {
+        const startFrame = timelineImageClipStartFrame(clip, timing.startFrame);
+        return {
+          id: clip.id,
+          label: clip.label,
+          title: `${shot ? shotLabel(shot) : timing.stableShotId} · ${clip.label}`,
+          startMs: timelineFramesToMs(startFrame),
+          endMs: timelineFramesToMs(startFrame + clip.durationFrames),
+          shotNo: timing.shotNo,
+          imageUrl: clip.imageUrl,
+          stableShotId: timing.stableShotId,
+          visualLayer: Math.max(0, Math.round(clip.visualLayer)),
+          imageEditTarget: undefined,
+          moveTarget: {
+            kind: "image" as const,
+            clipId: clip.id,
+            sourceStableShotId: timing.stableShotId,
+          },
+        };
+      }
+    );
       return shot?.timelineItem?.visualClipsReplacePrimary
-        ? derivedClips
-        : [baseClip, ...derivedClips];
-    }),
+      ? [...derivedVideoClips, ...derivedImageClips]
+      : [baseClip, ...derivedVideoClips, ...derivedImageClips];
   });
+  const maxVisualLayer = Math.max(
+    0,
+    ...visualClips.map(clip => clip.visualLayer)
+  );
+  // Always leave one empty layer above the highest occupied layer. Dropping into it
+  // immediately promotes it into a normal layer, so visual stacking never has a cap.
+  const topVisualLayer = Math.max(
+    maxVisualLayer + 1,
+    Math.max(0, Math.round(requestedVisualLayerCount) - 1)
+  );
+  for (let visualLayer = topVisualLayer; visualLayer >= 0; visualLayer -= 1) {
+    lanes.push({
+      id: visualLayer === 0 ? "primary-video" : `visual-${visualLayer}`,
+      label:
+        visualLayer === 0
+          ? primaryIndex
+            ? `V${primaryIndex}`
+            : "画面 1"
+          : `画面 ${visualLayer + 1}`,
+      icon: "video",
+      domain: "visual",
+      visualLayer,
+      tone: visualLayer === 0 ? "green" : "gray",
+      clips: visualClips.filter(clip => clip.visualLayer === visualLayer),
+  });
+  }
 
   const musicClips = playbackAudioTracks.flatMap(track =>
     track.clips.filter(clip => /bgm|music|配乐|音乐/i.test(clip.name))
@@ -1560,6 +1699,11 @@ function MultiTrackTimeline({
   onSplitAtPlayhead,
   onExtractFrameAtPlayhead,
   onMoveTimelineClip,
+  onMoveTimelineShot,
+  onMoveTimelineImageClip,
+  onPlaceExternalVisual,
+  visualLayerState,
+  onManageVisualLayer,
   onEditVideo,
   onEditImage,
   onCopyVideo,
@@ -1583,7 +1727,28 @@ function MultiTrackTimeline({
     sourceStableShotId: string;
     targetStableShotId: string;
     targetOffsetMs: number;
+    visualLayer?: number;
   }) => Promise<void>;
+  onMoveTimelineShot: (
+    stableShotId: string,
+    deltaFrames: number,
+    snapThresholdFrames?: number,
+    visualLayer?: number
+  ) => Promise<{ applied: boolean; reason?: string }>;
+  onMoveTimelineImageClip: (input: {
+    clipId: string;
+    sourceStableShotId: string;
+    targetStableShotId: string;
+    targetOffsetFrames: number;
+    visualLayer: number;
+  }) => Promise<void>;
+  onPlaceExternalVisual: (
+    dataTransfer: DataTransfer,
+    timelineFrame: number,
+    visualLayer: number
+  ) => Promise<{ shotNo: number }>;
+  visualLayerState: { count: number; hidden: readonly number[] };
+  onManageVisualLayer: (action: TimelineVisualLayerAction) => Promise<void>;
   onEditVideo: (target: VideoClipEditorTarget) => void;
   onEditImage: (target: ImageClipEditorTarget) => void;
   onCopyVideo: (target: VideoClipEditorTarget) => void;
@@ -1607,8 +1772,14 @@ function MultiTrackTimeline({
     [shots, timelineShotIds]
   );
   const lanes = useMemo(
-    () => buildTimelineLanes(shots, timelineShotIds, manifest),
-    [manifest, shots, timelineShotIds]
+    () =>
+      buildTimelineLanes(
+        shots,
+        timelineShotIds,
+        manifest,
+        visualLayerState.count
+      ),
+    [manifest, shots, timelineShotIds, visualLayerState.count]
   );
   const totalMs = Math.max(
     manifest?.durationMs ?? 0,
@@ -1620,11 +1791,22 @@ function MultiTrackTimeline({
   const [playheadMs, setPlayheadMs] = useState(initialPlayheadMs);
   const [isPlaying, setIsPlaying] = useState(false);
   const [pendingAction, setPendingAction] = useState<
-    "split" | "extract" | "move" | "paste" | null
+    "split" | "extract" | "move" | "paste" | "place" | null
   >(null);
-  const [draggedVisualClip, setDraggedVisualClip] = useState<{
-    clipId: string;
-    sourceStableShotId: string;
+  const pointerDragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startMs: number;
+    sourceVisualLayer: number;
+    moveTarget: TimelineClipMoveTarget;
+    moved: boolean;
+  } | null>(null);
+  const suppressClipClickRef = useRef(false);
+  const [pointerDragPreview, setPointerDragPreview] = useState<{
+    moveId: string;
+    deltaX: number;
+    targetVisualLayer: number;
   } | null>(null);
   const [hiddenLaneIds, setHiddenLaneIds] = useState<Set<string>>(
     () => new Set()
@@ -1650,22 +1832,39 @@ function MultiTrackTimeline({
   // 保留隐藏层的行高与名称，左右两侧始终对齐；隐藏只移除该层内容。
   const visibleLanes = lanes.filter(lane => !removedLaneIds.has(lane.id));
 
-  const toggleLaneVisibility = useCallback((laneId: string) => {
+  const toggleLaneVisibility = useCallback(
+    (lane: TimelineLane) => {
+      if (lane.visualLayer != null) {
+        void onManageVisualLayer({
+          kind: "toggle-hidden",
+          layer: lane.visualLayer,
+        });
+        return;
+      }
     setHiddenLaneIds(current => {
       const next = new Set(current);
-      if (next.has(laneId)) next.delete(laneId);
-      else next.add(laneId);
+        if (next.has(lane.id)) next.delete(lane.id);
+        else next.add(lane.id);
       return next;
     });
-  }, []);
+    },
+    [onManageVisualLayer]
+  );
 
-  const removeLane = useCallback((laneId: string) => {
+  const removeLane = useCallback(
+    (lane: TimelineLane) => {
+      if (lane.visualLayer != null) {
+        void onManageVisualLayer({ kind: "remove", layer: lane.visualLayer });
+        return;
+      }
     setRemovedLaneIds(current => {
       const next = new Set(current);
-      next.add(laneId);
+        next.add(lane.id);
       return next;
     });
-  }, []);
+    },
+    [onManageVisualLayer]
+  );
 
   const setPlaybackRunning = useCallback(
     (nextPlaying: boolean) => {
@@ -1875,53 +2074,282 @@ function MultiTrackTimeline({
     [onExtractFrameAtPlayhead, onSplitAtPlayhead, setPlaybackRunning]
   );
 
-  const dropTimelineVisualClip = useCallback(
-    async (event: ReactDragEvent<HTMLDivElement>) => {
-      if (!draggedVisualClip || pendingAction) return;
+  const pointerTargetVisualLayer = useCallback(
+    (clientX: number, clientY: number, fallback: number) => {
+      const row = document
+        .elementFromPoint(clientX, clientY)
+        ?.closest<HTMLElement>("[data-visual-layer]");
+      const parsed = Number(row?.dataset.visualLayer);
+      return Number.isFinite(parsed)
+        ? Math.max(0, Math.round(parsed))
+        : fallback;
+    },
+    []
+  );
+
+  const startTimelineClipPointerDrag = useCallback(
+    (
+      event: ReactPointerEvent<HTMLButtonElement>,
+      clip: TimelineLane["clips"][number],
+      visualLayer: number
+    ) => {
+      if (event.button !== 0 || pendingAction || !clip.moveTarget) return;
+      event.stopPropagation();
+      event.currentTarget.focus();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setPlaybackRunning(false);
+      pointerDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startMs: clip.startMs,
+        sourceVisualLayer: visualLayer,
+        moveTarget: clip.moveTarget,
+        moved: false,
+      };
+      setPointerDragPreview({
+        moveId:
+          clip.moveTarget.kind === "shot"
+            ? clip.moveTarget.stableShotId
+            : clip.moveTarget.clipId,
+        deltaX: 0,
+        targetVisualLayer: visualLayer,
+      });
+    },
+    [pendingAction, setPlaybackRunning]
+      );
+
+  const moveTimelineClipPointerDrag = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = pointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (
+        !drag.moved &&
+        !timelinePointerDragExceededThreshold({
+          startClientX: drag.startClientX,
+          startClientY: drag.startClientY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        })
+      ) {
+        return;
+      }
+      drag.moved = true;
+      event.preventDefault();
+      const moveId =
+        drag.moveTarget.kind === "shot"
+          ? drag.moveTarget.stableShotId
+          : drag.moveTarget.clipId;
+      setPointerDragPreview({
+        moveId,
+        deltaX: event.clientX - drag.startClientX,
+        targetVisualLayer: pointerTargetVisualLayer(
+          event.clientX,
+          event.clientY,
+          drag.sourceVisualLayer
+        ),
+      });
+    },
+    [pointerTargetVisualLayer]
+      );
+
+  const commitTimelineClipPlacement = useCallback(
+    async (input: {
+      moveTarget: TimelineClipMoveTarget;
+      initialStartFrame: number;
+      targetStartFrame: number;
+      sourceVisualLayer: number;
+      targetVisualLayer: number;
+    }) => {
+      const targetStartFrame = Math.max(0, Math.round(input.targetStartFrame));
+      const effectiveDeltaFrames = targetStartFrame - input.initialStartFrame;
+      const targetVisualLayer = Math.max(
+        0,
+        Math.round(input.targetVisualLayer)
+      );
+      if (
+        effectiveDeltaFrames === 0 &&
+        targetVisualLayer === input.sourceVisualLayer
+      ) {
+        return;
+      }
+      const targetStartMs = timelineFramesToMs(targetStartFrame);
+      const lookupMs = Math.min(targetStartMs, Math.max(0, totalMs - 1));
+      const targetTiming = storyboardTimingWinnerAt(timings, lookupMs);
+      setPendingAction("move");
+      try {
+        if (input.moveTarget.kind === "shot") {
+          const stableShotId = input.moveTarget.stableShotId;
+          const result = await onMoveTimelineShot(
+            stableShotId,
+            effectiveDeltaFrames,
+            0,
+            targetVisualLayer
+          );
+          if (!result.applied) throw new Error(result.reason || "镜头移动失败");
+          const movedShot = shots.find(
+            shot => (shot.stableShotId ?? shot.shotIdentity) === stableShotId
+          );
+          if (movedShot) onSelectShot(movedShot.shotNo);
+        } else {
+          if (!targetTiming) throw new Error("目标时间不在视觉时间线上");
+          if (input.moveTarget.kind === "image") {
+            await onMoveTimelineImageClip({
+              clipId: input.moveTarget.clipId,
+              sourceStableShotId: input.moveTarget.sourceStableShotId,
+              targetStableShotId: targetTiming.stableShotId,
+              targetOffsetFrames: Math.max(
+                0,
+                targetStartFrame - targetTiming.startFrame
+              ),
+              visualLayer: targetVisualLayer,
+            });
+          } else {
+        await onMoveTimelineClip({
+              clipId: input.moveTarget.clipId,
+              sourceStableShotId: input.moveTarget.sourceStableShotId,
+          targetStableShotId: targetTiming.stableShotId,
+              targetOffsetMs: Math.max(0, targetStartMs - targetTiming.startMs),
+              visualLayer: targetVisualLayer,
+        });
+          }
+        onSelectShot(targetTiming.shotNo);
+        }
+        toast.success("素材位置和图层已保存");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "素材移动失败");
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [
+      onMoveTimelineClip,
+      onMoveTimelineImageClip,
+      onMoveTimelineShot,
+      onSelectShot,
+      pointerTargetVisualLayer,
+      scale,
+      shots,
+      timings,
+      totalMs,
+    ]
+  );
+
+  const finishTimelineClipPointerDrag = useCallback(
+    async (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = pointerDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      pointerDragRef.current = null;
+      setPointerDragPreview(null);
+      if (!drag.moved) return;
+      suppressClipClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClipClickRef.current = false;
+      }, 0);
+      event.preventDefault();
+      event.stopPropagation();
+      const placement = timelineClipPointerPlacement({
+        startClientX: drag.startClientX,
+        releaseClientX: event.clientX,
+        pixelsPerSecond: scale,
+        targetVisualLayer: pointerTargetVisualLayer(
+          event.clientX,
+          event.clientY,
+          drag.sourceVisualLayer
+        ),
+      });
+      const initialStartFrame = timelineOffsetMsToFrames(drag.startMs);
+      await commitTimelineClipPlacement({
+        moveTarget: drag.moveTarget,
+        initialStartFrame,
+        targetStartFrame: initialStartFrame + placement.deltaFrames,
+        sourceVisualLayer: drag.sourceVisualLayer,
+        targetVisualLayer: placement.visualLayer,
+      });
+    },
+    [commitTimelineClipPlacement, pointerTargetVisualLayer, scale]
+  );
+
+  const moveTimelineClipByKeyboard = useCallback(
+    async (
+      event: React.KeyboardEvent<HTMLButtonElement>,
+      clip: TimelineLane["clips"][number],
+      visualLayer: number
+    ) => {
+      if (!clip.moveTarget || pendingAction) return;
+      const placement = timelineClipKeyboardPlacement({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        visualLayer,
+      });
+      if (!placement) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initialStartFrame = timelineOffsetMsToFrames(clip.startMs);
+      await commitTimelineClipPlacement({
+        moveTarget: clip.moveTarget,
+        initialStartFrame,
+        targetStartFrame: initialStartFrame + placement.deltaFrames,
+        sourceVisualLayer: visualLayer,
+        targetVisualLayer: placement.visualLayer,
+      });
+    },
+    [commitTimelineClipPlacement, pendingAction]
+  );
+
+  const cancelTimelineClipPointerDrag = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (pointerDragRef.current?.pointerId !== event.pointerId) return;
+      pointerDragRef.current = null;
+      setPointerDragPreview(null);
+    },
+    []
+  );
+
+  const acceptsExternalVisual = useCallback((dataTransfer: DataTransfer) => {
+    return (
+      Array.from(dataTransfer.types).includes("Files") ||
+      hasStoryImageDragPayload(dataTransfer) ||
+      hasVideoTakeDragPayload(dataTransfer)
+    );
+  }, []);
+
+  const dropExternalVisual = useCallback(
+    async (event: ReactDragEvent<HTMLDivElement>, visualLayer: number) => {
+      if (pendingAction || !acceptsExternalVisual(event.dataTransfer)) return;
       event.preventDefault();
       event.stopPropagation();
       const timeline = timelineContentRef.current;
       if (!timeline) return;
-      const droppedMs = timelineMsFromClientX(
+      const targetMs = timelineMsFromClientX(
         event.clientX,
         timeline.getBoundingClientRect().left,
         scale,
         totalMs
       );
-      const lastTiming = timings.at(-1);
-      const lookupMs = Math.min(
-        droppedMs,
-        Math.max(0, (lastTiming?.endMs ?? totalMs) - 1)
-      );
-      const targetTiming = timings.find(
-        timing => lookupMs >= timing.startMs && lookupMs < timing.endMs
-      );
-      if (!targetTiming) return;
-      setPendingAction("move");
+      setPendingAction("place");
       try {
-        await onMoveTimelineClip({
-          ...draggedVisualClip,
-          targetStableShotId: targetTiming.stableShotId,
-          targetOffsetMs: Math.max(0, droppedMs - targetTiming.startMs),
-        });
-        onSelectShot(targetTiming.shotNo);
-        toast.success("视频片段位置已保存");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "视频片段移动失败"
+        const result = await onPlaceExternalVisual(
+          event.dataTransfer,
+          timelineOffsetMsToFrames(targetMs),
+          visualLayer
         );
+        onSelectShot(result.shotNo);
+        commitPlayhead(targetMs, { selectShot: false, playing: false });
+        toast.success("素材已新建为独立镜头并放到指定位置");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "素材落位失败");
       } finally {
         setPendingAction(null);
-        setDraggedVisualClip(null);
       }
     },
     [
-      draggedVisualClip,
-      onMoveTimelineClip,
+      acceptsExternalVisual,
+      commitPlayhead,
+      onPlaceExternalVisual,
       onSelectShot,
       pendingAction,
       scale,
-      timings,
       totalMs,
     ]
   );
@@ -2077,9 +2505,12 @@ function MultiTrackTimeline({
         </div>
       </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="w-[76px] shrink-0 border-r border-border bg-muted/30 pt-6">
+        <div className="w-[132px] shrink-0 border-r border-border bg-muted/30 pt-6">
           {visibleLanes.map(lane => {
-            const hidden = hiddenLaneIds.has(lane.id);
+            const hidden =
+              lane.visualLayer == null
+                ? hiddenLaneIds.has(lane.id)
+                : visualLayerState.hidden.includes(lane.visualLayer);
             return (
             <div
               key={lane.id}
@@ -2093,16 +2524,61 @@ function MultiTrackTimeline({
               <button
                 type="button"
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                onClick={() => toggleLaneVisibility(lane.id)}
+                  onClick={() => toggleLaneVisibility(lane)}
                 aria-label={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
                 title={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
               >
-                {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {hidden ? (
+                    <EyeOff className="h-3 w-3" />
+                  ) : (
+                    <Eye className="h-3 w-3" />
+                  )}
               </button>
+                {lane.visualLayer != null ? (
+                  <>
               <button
                 type="button"
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-                onClick={() => removeLane(lane.id)}
+                      disabled={lane.visualLayer >= visualLayerState.count - 1}
+                      className="flex h-5 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={() =>
+                        void onManageVisualLayer({
+                          kind: "move",
+                          from: lane.visualLayer!,
+                          to: lane.visualLayer! + 1,
+                        })
+                      }
+                      aria-label={`${lane.label}轨道上移`}
+                      title="整层上移"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={lane.visualLayer <= 0}
+                      className="flex h-5 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={() =>
+                        void onManageVisualLayer({
+                          kind: "move",
+                          from: lane.visualLayer!,
+                          to: lane.visualLayer! - 1,
+                        })
+                      }
+                      aria-label={`${lane.label}轨道下移`}
+                      title="整层下移"
+                    >
+                      ↓
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={
+                    lane.visualLayer != null &&
+                    lane.visualLayer === visualLayerState.count - 1 &&
+                    lane.clips.length === 0
+                  }
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => removeLane(lane)}
                 aria-label={`删除 ${lane.label}轨道`}
                 title={`删除 ${lane.label}轨道`}
               >
@@ -2143,22 +2619,29 @@ function MultiTrackTimeline({
               })}
             </div>
             {visibleLanes.map(lane => {
-              const hidden = hiddenLaneIds.has(lane.id);
+              const hidden =
+                lane.visualLayer == null
+                  ? hiddenLaneIds.has(lane.id)
+                  : visualLayerState.hidden.includes(lane.visualLayer);
               return (
               <div
                 key={lane.id}
-                className="relative cursor-crosshair border-b border-border/70 bg-background"
+                  data-visual-layer={lane.visualLayer}
+                  className={`relative cursor-crosshair border-b border-border/70 bg-background ${pointerDragPreview?.targetVisualLayer === lane.visualLayer ? "bg-primary/5 ring-1 ring-inset ring-primary/25" : ""}`}
                 style={{ height: 27 }}
                 onPointerDown={seekFromPointer}
                 onDragOver={event => {
-                  if (lane.id !== "primary-video" || !draggedVisualClip) return;
+                    if (
+                      lane.visualLayer == null ||
+                      !acceptsExternalVisual(event.dataTransfer)
+                    )
+                      return;
                   event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
+                    event.dataTransfer.dropEffect = "copy";
                 }}
                 onDrop={event => {
-                  if (lane.id === "primary-video") {
-                    void dropTimelineVisualClip(event);
-                  }
+                    if (lane.visualLayer == null) return;
+                    void dropExternalVisual(event, lane.visualLayer);
                 }}
                 aria-label={`${lane.label} 轨道`}
               >
@@ -2212,7 +2695,9 @@ function MultiTrackTimeline({
                             !timelinePasteTarget ||
                             pendingAction != null
                           }
-                          onSelect={() => void pasteVideoIntoTimeline("append")}
+                            onSelect={() =>
+                              void pasteVideoIntoTimeline("append")
+                            }
                           className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
                         >
                           <ClipboardPaste className="h-3.5 w-3.5" />
@@ -2229,20 +2714,50 @@ function MultiTrackTimeline({
                     </ContextMenu.Portal>
                   </ContextMenu.Root>
                 ) : null}
-                {!hidden && lane.clips.map(clip => {
+                  {!hidden &&
+                    lane.clips.map(clip => {
                   const left = (clip.startMs / 1000) * scale;
                   const width = Math.max(
                     4,
                     ((clip.endMs - clip.startMs) / 1000) * scale
                   );
                   const selected =
-                    lane.domain === "visual" && clip.shotNo === selectedShotNo;
+                        lane.domain === "visual" &&
+                        clip.shotNo === selectedShotNo;
                   const clipButton = (
                     <button
                       key={`${lane.id}-${clip.id}`}
                       type="button"
-                      draggable={Boolean(clip.visualClip)}
-                      onClick={() => {
+                          draggable={false}
+                          onPointerDown={event =>
+                            lane.visualLayer == null
+                              ? undefined
+                              : startTimelineClipPointerDrag(
+                                  event,
+                                  clip,
+                                  lane.visualLayer
+                                )
+                          }
+                          onPointerMove={moveTimelineClipPointerDrag}
+                          onPointerUp={event => {
+                            void finishTimelineClipPointerDrag(event);
+                          }}
+                          onPointerCancel={cancelTimelineClipPointerDrag}
+                          onKeyDown={event => {
+                            if (lane.visualLayer == null) return;
+                            void moveTimelineClipByKeyboard(
+                              event,
+                              clip,
+                              lane.visualLayer
+                            );
+                          }}
+                          onClick={event => {
+                            if (suppressClipClickRef.current) {
+                              suppressClipClickRef.current = false;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              return;
+                            }
                         setPlaybackRunning(false);
                         commitPlayhead(clip.startMs, {
                           // 听觉轨道只定位声音播放头，不反向切换视觉镜头。
@@ -2266,38 +2781,28 @@ function MultiTrackTimeline({
                           onEditImage(clip.imageEditTarget);
                         }
                       }}
-                      onDragStart={event => {
-                        if (!clip.visualClip || !clip.stableShotId) {
-                          event.preventDefault();
-                          return;
-                        }
-                        setPlaybackRunning(false);
-                        setDraggedVisualClip({
-                          clipId: clip.visualClip.id,
-                          sourceStableShotId: clip.stableShotId,
-                        });
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData(
-                          "text/plain",
-                          clip.visualClip.label
-                        );
-                      }}
-                      onDragEnd={() => setDraggedVisualClip(null)}
                       onContextMenu={event => {
                         if (clip.videoEditTarget) event.stopPropagation();
                       }}
                       data-timeline-clip="true"
-                      className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.visualClip ? "cursor-grab active:cursor-grabbing" : ""} ${laneColors(
+                          className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.moveTarget ? "touch-none cursor-grab active:cursor-grabbing" : ""} ${laneColors(
                         lane.tone
-                      )} ${selected ? "ring-2 ring-primary" : ""} ${draggedVisualClip?.clipId === clip.visualClip?.id ? "opacity-45" : ""}`}
-                      style={{ left, width }}
-                      title={
+                          )} ${selected ? "ring-2 ring-primary" : ""}`}
+                          style={{
+                            left,
+                            width,
+                            transform:
+                              pointerDragPreview?.moveId === clip.id
+                                ? `translateX(${pointerDragPreview.deltaX}px)`
+                                : undefined,
+                          }}
+                          title={`${
                         clip.videoEditTarget
                           ? `${clip.title} · 双击编辑视频`
                           : clip.imageEditTarget
                             ? `${clip.title} · 双击编辑图片`
                             : clip.title
-                      }
+                          }${clip.moveTarget ? " · 方向键左右逐帧、上下换层，Shift+左右 15 帧" : ""}`}
                       aria-label={clip.title}
                     >
                       {clip.imageUrl ? (
@@ -2336,7 +2841,9 @@ function MultiTrackTimeline({
                           data-testid={`timeline-video-copy-${clip.id}`}
                         >
                           <ContextMenu.Item
-                            onSelect={() => onCopyVideo(clip.videoEditTarget!)}
+                                onSelect={() =>
+                                  onCopyVideo(clip.videoEditTarget!)
+                                }
                             className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[highlighted]:bg-accent"
                           >
                             <Copy className="h-3.5 w-3.5" />
@@ -2356,7 +2863,8 @@ function MultiTrackTimeline({
                               const shotNo = clip.shotNo;
                               const timing = timings.find(
                                 candidate =>
-                                  candidate.stableShotId === clip.stableShotId
+                                      candidate.stableShotId ===
+                                      clip.stableShotId
                               );
                               setPlaybackRunning(false);
                               setPendingAction("paste");
@@ -2366,7 +2874,8 @@ function MultiTrackTimeline({
                                 mode: "append",
                                 targetOffsetMs: Math.max(
                                   0,
-                                  clip.endMs - (timing?.startMs ?? clip.startMs)
+                                      clip.endMs -
+                                        (timing?.startMs ?? clip.startMs)
                                 ),
                               })
                                 .then(() => onSelectShot(shotNo))
@@ -2519,6 +3028,9 @@ export default function EditingNleWorkspace({
     chatCutTimeline,
     importStoryMaterial,
     deleteExtractedFrame,
+    commitInsertedTimelineShotUndo,
+    discardPersistedShot,
+    insertTimelineShotAt,
     adoptVideoTake,
     reuseVideoTake,
     appendTimelineVideoClip,
@@ -2640,20 +3152,21 @@ export default function EditingNleWorkspace({
     ]
   );
   const activeTimelineImageSource = useMemo(() => {
-    const resolved = resolveTimelineImageClip(
-      timelineItems,
-      Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000)),
-      timelineVisualLayerState.hidden
-    );
-    return timelineImageWinsVisualOverlap(resolved, activeTimelineVideoSource)
+    const resolved = resolveTimelineVisualFrame({
+      items: timelineItems,
+      overlays: timelineOverlays,
+      hiddenVisualLayers: timelineVisualLayerState.hidden,
+      frame: Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000)),
+    });
+    return resolved.kind === "image"
       ? {
-          imageUrl: resolved!.clip.imageUrl,
-          transform: resolved!.clip.transform,
+          imageUrl: resolved.placement.clip.imageUrl,
+          transform: resolved.placement.clip.transform,
         }
       : null;
   }, [
-    activeTimelineVideoSource,
     timelineItems,
+    timelineOverlays,
     timelinePlayback.playheadMs,
     timelineVisualLayerState.hidden,
   ]);
@@ -2765,7 +3278,8 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     const handleUndoShortcut = (event: KeyboardEvent) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
-      if (!shouldHandleCreationEditorUndoShortcut({
+      if (
+        !shouldHandleCreationEditorUndoShortcut({
         key: event.key,
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
@@ -2778,7 +3292,8 @@ export default function EditingNleWorkspace({
             'input, textarea, select, [contenteditable="true"], [role="textbox"]'
           )
         ),
-      })) {
+        })
+      ) {
         return;
       }
       event.preventDefault();
@@ -2792,7 +3307,8 @@ export default function EditingNleWorkspace({
         });
     };
     window.addEventListener("keydown", handleUndoShortcut, true);
-    return () => window.removeEventListener("keydown", handleUndoShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", handleUndoShortcut, true);
   }, [undoTimeline]);
 
   const openVideoEditor = useCallback(
@@ -2988,6 +3504,80 @@ export default function EditingNleWorkspace({
     shots,
   ]);
 
+  const placeExternalVisual = useCallback(
+    async (
+      dataTransfer: DataTransfer,
+      timelineFrame: number,
+      visualLayer: number
+    ): Promise<{ shotNo: number }> => {
+      const imagePayload = readStoryImageDragPayload(dataTransfer);
+      const videoPayload = readVideoTakeDragPayload(dataTransfer);
+      const file = Array.from(dataTransfer.files).find(isVisualFile) ?? null;
+      if (!imagePayload && !videoPayload && !file) {
+        throw new Error("请拖入图片、视频或素材库里的画面");
+      }
+      const inserted = await insertTimelineShotAt({
+        timelineFrame,
+        visualLayer,
+        referencedImageId: imagePayload?.imageId,
+      });
+      try {
+        if (imagePayload) {
+          // The insertion persisted a non-owning reference. Reassigning the
+          // generated image row here would steal it from its source shot.
+        } else if (videoPayload) {
+          const take = shots
+            .flatMap(shot => shot.videoTakes ?? [])
+            .find(candidate => candidate.id === videoPayload.takeId);
+          await reuseVideoTake({
+            sourceTakeId: videoPayload.takeId,
+            targetStableShotId: inserted.stableShotId,
+            plannedDurationSec: Math.max(1 / 30, take?.durationSec ?? 3),
+          });
+        } else if (file) {
+          const imported = await importStoryMaterial({
+            fileName: file.name,
+            mimeType: mediaMime(file),
+            fileBase64: await fileBase64(file),
+            targetStableShotId: inserted.stableShotId,
+            preserveTimelineSelection: true,
+            note: `拖入时间线 · 第 ${visualLayer + 1} 层 · ${timelineFrame} 帧`,
+          });
+          if (imported.kind === "video") {
+            await adoptVideoTake({
+              stableShotId: inserted.stableShotId,
+              takeId: imported.takeId,
+              plannedDurationSec: imported.plannedDurationSec,
+            });
+          }
+        }
+        commitInsertedTimelineShotUndo(inserted.stableShotId);
+        return { shotNo: inserted.shotNo };
+      } catch (error) {
+        // 导入失败不能在故事里遗留一个看不见、没有素材的空镜头。
+        try {
+          await discardPersistedShot(inserted.stableShotId);
+        } catch (cleanupError) {
+          const reason =
+            error instanceof Error ? error.message : "素材落位失败";
+          const cleanupReason =
+            cleanupError instanceof Error ? cleanupError.message : "清理失败";
+          throw new Error(`${reason}；未完成镜头清理失败：${cleanupReason}`);
+        }
+        throw error;
+      }
+    },
+    [
+      adoptVideoTake,
+      commitInsertedTimelineShotUndo,
+      discardPersistedShot,
+      importStoryMaterial,
+      insertTimelineShotAt,
+      reuseVideoTake,
+      shots,
+    ]
+  );
+
   const relinkFiles = async (files: File[]) => {
     const visualFiles = files.filter(isVisualFile);
     if (visualFiles.length === 0) {
@@ -3130,11 +3720,12 @@ export default function EditingNleWorkspace({
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number) => {
       const timelineFrame = timelineOffsetMsToFrames(playheadMs);
-      const imageSource = resolveTimelineImageClip(
-        timelineItems,
-        timelineFrame,
-        timelineVisualLayerState.hidden
-      );
+      const visualSource = resolveTimelineVisualFrame({
+        items: timelineItems,
+        overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
+        frame: timelineFrame,
+      });
       const source = resolveTimelineVideoSource(
         shots,
         timelineShotIds,
@@ -3142,18 +3733,19 @@ export default function EditingNleWorkspace({
         timelineOverlays,
         timelineVisualLayerState.hidden
       );
-      if (timelineImageWinsVisualOverlap(imageSource, source)) {
-        const targetLayer = extractedFrameTargetVisualLayer(imageSource!.clip);
+      if (visualSource.kind === "image") {
+        const imageSource = visualSource.placement;
+        const targetLayer = extractedFrameTargetVisualLayer(imageSource.clip);
         await addTimelineImageClip({
           clipId: duplicatedTimelineImageClipId({
-            imageId: imageSource!.clip.imageId,
+            imageId: imageSource.clip.imageId,
             timelineFrame,
             visualLayer: targetLayer,
           }),
-          stableShotId: imageSource!.stableShotId,
+          stableShotId: imageSource.stableShotId,
           timelineFrame,
-          imageId: imageSource!.clip.imageId,
-          imageUrl: imageSource!.clip.imageUrl,
+          imageId: imageSource.clip.imageId,
+          imageUrl: imageSource.clip.imageUrl,
           label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
           visualLayer: targetLayer,
         });
@@ -3226,8 +3818,12 @@ export default function EditingNleWorkspace({
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveTimelineItemToLayer: moveTimelineItemToLayer,
       onMoveTimelineImageClip: moveTimelineImageClip,
+      onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
-      magneticJoins: timelineMagneticJoins(buildTimelineLayout(timelineItems)),
+      magneticJoins: timelineMagneticJoins(
+        buildTimelineLayout(timelineItems),
+        timelineVisualLayerState.hidden
+      ),
       previewGroupMove: ({ stableShotId, direction }) =>
         previewTimelineGroup(stableShotId, direction),
       onMoveTimelineGroup: async ({ stableShotId, direction, deltaFrames }) => {
@@ -3269,7 +3865,10 @@ export default function EditingNleWorkspace({
         else if (result.reason) toast.error(result.reason);
         return result;
       },
-      onCreateGapTransition: async ({ beforeStableShotId, afterStableShotId }) => {
+      onCreateGapTransition: async ({
+        beforeStableShotId,
+        afterStableShotId,
+      }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
@@ -3285,18 +3884,36 @@ export default function EditingNleWorkspace({
         }
         return result;
       },
-      onCreateExtractedFrameTransition: async ({ leftImageId, rightImageId }) => {
+      onCreateExtractedFrameTransition: async ({
+        leftImageId,
+        rightImageId,
+      }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
         const extracted = shots.flatMap(shot =>
-          ((shot as typeof shot & {
-            imageVersions?: Array<{ id: number; imageUrl: string; prompt: string | null }>;
-          }).imageVersions ?? []).flatMap(image => {
+          (
+            (
+              shot as typeof shot & {
+                imageVersions?: Array<{
+                  id: number;
+                  imageUrl: string;
+                  prompt: string | null;
+                }>;
+              }
+            ).imageVersions ?? []
+          ).flatMap(image => {
             const atMs = extractedFrameTimeMs(image.prompt);
             return atMs == null
               ? []
-              : [{ id: `image-${image.id}`, imageId: image.id, atMs, imageUrl: image.imageUrl }];
+              : [
+                  {
+                    id: `image-${image.id}`,
+                    imageId: image.id,
+                    atMs,
+                    imageUrl: image.imageUrl,
+                  },
+                ];
           })
         );
         const left = extracted.find(frame => frame.imageId === leftImageId);
@@ -3305,7 +3922,9 @@ export default function EditingNleWorkspace({
           return { applied: false, reason: "抽帧已失效，请重新选择" };
         }
         setExtractedFrameRequirements(
-          left.atMs <= right.atMs ? { left, right } : { left: right, right: left }
+          left.atMs <= right.atMs
+            ? { left, right }
+            : { left: right, right: left }
         );
         return { applied: true };
       },
@@ -3315,7 +3934,8 @@ export default function EditingNleWorkspace({
           toast.success("已删除这张抽帧");
           return { applied: true };
         } catch (error) {
-          const reason = error instanceof Error ? error.message : "删除抽帧失败";
+          const reason =
+            error instanceof Error ? error.message : "删除抽帧失败";
           toast.error(reason);
           return { applied: false, reason };
         }
@@ -3340,12 +3960,13 @@ export default function EditingNleWorkspace({
           timelineOverlays,
           timelineVisualLayerState.hidden
         );
-        const image = resolveTimelineImageClip(
-          timelineItems,
-          timelineOffsetMsToFrames(playheadMs),
-          timelineVisualLayerState.hidden
-        );
-        return Boolean(source || image);
+        const visual = resolveTimelineVisualFrame({
+          items: timelineItems,
+          overlays: timelineOverlays,
+          hiddenVisualLayers: timelineVisualLayerState.hidden,
+          frame: timelineOffsetMsToFrames(playheadMs),
+        });
+        return Boolean(source || visual.kind === "image");
       },
       onSeek: playheadMs =>
         setTimelineSeekRequest(current => ({
@@ -3422,7 +4043,11 @@ export default function EditingNleWorkspace({
       // 帧级、锚点安全的裁剪：另一头锚定不动，裁边贴到位置锚点为止。
       // 有它就走它——旧的 onTrimShotDuration 只改 plannedDurationMs，
       // 会被已经写死的 durationFrames 盖掉，松手瞬间又弹回原状。
-      onTrimTimelineEdge: async ({ stableShotId, edge, requestedBoundaryFrame }) => {
+      onTrimTimelineEdge: async ({
+        stableShotId,
+        edge,
+        requestedBoundaryFrame,
+      }) => {
         const result = await trimTimelineItemEdge(
           stableShotId,
           edge,
@@ -3501,6 +4126,7 @@ export default function EditingNleWorkspace({
       moveTimelineImageClip,
       moveTimelineItemToLayer,
       moveTimelineShot,
+      placeExternalVisual,
       previewTimelineGroup,
       removeTimelineAnchor,
       reorderShotInTimeline,
@@ -3762,6 +4388,11 @@ export default function EditingNleWorkspace({
         onSplitAtPlayhead={splitAtPlayhead}
         onExtractFrameAtPlayhead={extractFrameAtPlayhead}
         onMoveTimelineClip={moveTimelineVideoClip}
+        onMoveTimelineShot={moveTimelineShot}
+        onMoveTimelineImageClip={moveTimelineImageClip}
+        onPlaceExternalVisual={placeExternalVisual}
+        visualLayerState={timelineVisualLayerState}
+        onManageVisualLayer={manageTimelineVisualLayer}
         onEditVideo={openVideoEditor}
         onEditImage={openImageEditor}
         onCopyVideo={copyVideo}

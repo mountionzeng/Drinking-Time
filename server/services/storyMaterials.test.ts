@@ -197,6 +197,15 @@ describe("normalizeTimelineItems", () => {
     ]);
   });
 
+  it("preserves a non-owning image reference on an ordinary timeline shot", () => {
+    const [item] = normalizeTimelineItems(
+      [{ stableShotId: "shot-a", referencedImageId: 99 }],
+      facts
+    );
+
+    expect(item.referencedImageId).toBe(99);
+  });
+
   it("keeps valid split video clips and discards malformed timeline clips", () => {
     const items = normalizeTimelineItems(
       [
@@ -637,17 +646,97 @@ describe("getStoryMaterialState", () => {
     await selectImage(story.id, image.id);
     expect(await getStoryById(story.id, 1)).toMatchObject({
       body: {
-        shots: [
-          {},
-          { splitSourceStableShotId: "shot-source" },
-        ],
+        shots: [{}, { splitSourceStableShotId: "shot-source" }],
       },
     });
 
     const materials = await getStoryMaterialState(story.id, 1);
 
     expect(materials?.shots[1]?.currentImage?.id).toBe(image.id);
-    expect(materials?.shots[1]?.videoTakes.map(item => item.id)).toContain(take.id);
+    expect(materials?.shots[1]?.videoTakes.map(item => item.id)).toContain(
+      take.id
+    );
+  });
+
+  it("projects one referenced image onto two shots without changing source ownership", async () => {
+    const story = await createStory({
+      userId: 1,
+      projectId: null,
+      title: "共享时间线图片",
+      body: {
+        shots: [
+          {
+            stableShotId: "shot-source",
+            shotIdentity: "shot-source",
+            shotNo: 1,
+          },
+          {
+            stableShotId: "shot-target",
+            shotIdentity: "shot-target",
+            shotNo: 2,
+          },
+        ],
+      },
+    });
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId: story.id,
+      userId: 1,
+      shotNo: "SH01",
+      shotIdentity: "shot-source",
+      imageUrl: "data:image/png;base64,SHARED",
+      imageKey: null,
+      prompt: "shared source",
+      generationType: "initial",
+      isCurrent: true,
+    });
+    await selectImage(story.id, image.id);
+    await updateStoryTimeline({
+      storyId: story.id,
+      userId: 1,
+      expectedVersion: 0,
+      items: [
+        {
+          stableShotId: "shot-source",
+          included: true,
+          position: 0,
+          plannedDurationMs: 3000,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+        },
+        {
+          stableShotId: "shot-target",
+          included: true,
+          position: 1,
+          plannedDurationMs: 3000,
+          referencedImageId: image.id,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+        },
+      ],
+    });
+
+    const materials = await getStoryMaterialState(story.id, 1);
+    expect(materials?.shots.map(shot => shot.currentImage?.id)).toEqual([
+      image.id,
+      image.id,
+    ]);
+    expect(materials?.shots[0]?.currentImage?.shotIdentity).toBe("shot-source");
+    expect(materials?.shots[1]?.currentImage?.shotIdentity).toBe("shot-source");
   });
 
   it("projects extracted-frame inputs and their image lineage onto the generated shot", async () => {
@@ -941,7 +1030,9 @@ describe("getStoryMaterialState", () => {
       cover.id
     );
     expect(
-      materials?.shots.flatMap(shot => shot.imageVersions).map(image => image.id)
+      materials?.shots
+        .flatMap(shot => shot.imageVersions)
+        .map(image => image.id)
     ).not.toContain(cover.id);
   });
 

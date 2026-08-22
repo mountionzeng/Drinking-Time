@@ -1540,6 +1540,7 @@ export const creationAgentRouter = router({
             timelineStartFrame: z.number().int().min(0).optional(),
             stackOrder: z.number().int().min(0).optional(),
             visualLayer: z.number().int().min(0).optional(),
+            referencedImageId: z.number().int().positive().optional(),
             detachedFromPreviousShotId: z.string().min(1).max(160).optional(),
             anchors: z
               .array(

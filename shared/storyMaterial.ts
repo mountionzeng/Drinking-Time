@@ -74,7 +74,10 @@ export type StoryTimelineImageClip = {
   label: string;
   /** Placement relative to the owning timeline item. */
   offsetFrames: number;
-  /** Canonical absolute placement; moving the owning video must not move this clip. */
+  /**
+   * Canonical absolute placement. Once present, moving the owning video must
+   * not move this independent image clip. Legacy clips fall back to offsetFrames.
+   */
   timelineStartFrame?: number;
   /** Extracted stills default to exactly one structural frame. */
   durationFrames: number;
@@ -161,6 +164,11 @@ export type StoryTimelineItem = {
   stackOrder?: number;
   /** Persistent NLE layer. 0 is the main visual layer; larger values are above it. */
   visualLayer?: number;
+  /**
+   * Non-owning reference to an existing story image used as this shot's
+   * primary visual. The source image keeps its original shot identity.
+   */
+  referencedImageId?: number;
   /**
    * Explicitly keeps this shot detached from the named shot immediately to
    * its left. The id (rather than a boolean "previous") prevents a reorder

@@ -14,7 +14,10 @@ import {
   buildStoryboardTimingRows,
   storyboardTimingWinnerAt,
 } from "../storyAgent/storyboardTiming";
-import { resolveTimelineFrameSource } from "./timelineActions";
+import {
+  resolveTimelineFrameSource,
+  timelineMagneticJoins,
+} from "./timelineActions";
 import { buildTimelineLayout } from "@shared/timelineLayout";
 
 const transform = {
@@ -311,6 +314,29 @@ describe("一帧图片和视频走同一套规则", () => {
     expect(timelineImageBeatsVisualSource(image, 5)).toBe(false);
   });
 
+  it("同层显式图片通过统一解析器压过视频", () => {
+    const sameLayerItems = [
+      item("base", {
+        position: 0,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 2,
+        stackOrder: 999,
+        imageClips: [{ ...still, visualLayer: 2 }],
+      }),
+    ];
+    const resolution = resolveTimelineFrameSource({
+      rows: buildTimelineLayout(sameLayerItems),
+      shotsById: new Map([["base", { currentImageId: 42 }]]),
+      overlays: [],
+      timelineFrame: 30,
+    });
+    expect(resolution).toMatchObject({
+      kind: "source",
+      sourceId: "image-1658",
+    });
+  });
+
   it("隐藏图片所在层后它不参与解析", () => {
     expect(resolveTimelineImageClipAt({ items, frame: 30, hiddenVisualLayers: [2] })).toBe(
       null
@@ -332,6 +358,38 @@ describe("一帧图片和视频走同一套规则", () => {
     expect(resolution.durationFrames).toBe(1);
   });
 
+  it("锚定镜头仍然压过更高层的一帧图片", () => {
+    const anchoredItems = [
+      item("anchored", {
+        position: 0,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 0,
+        anchors: [
+          {
+            id: "anchor-30",
+            timelineFrame: 30,
+            sourceType: "primary-video",
+            sourceId: "take-anchored",
+            sourceTimeSec: 1,
+          },
+        ],
+        imageClips: [still],
+      }),
+    ];
+    const resolution = resolveTimelineFrameSource({
+      rows: buildTimelineLayout(anchoredItems),
+      shotsById: new Map([["anchored", { currentImageId: 42 }]]),
+      overlays: [],
+      hiddenVisualLayers: [],
+      timelineFrame: 30,
+    });
+    expect(resolution.kind).toBe("source");
+    if (resolution.kind !== "source") return;
+    expect(resolution.stableShotId).toBe("anchored");
+    expect(resolution.sourceId).toBe("image-42");
+  });
+
   it("图片所在层被隐藏时，锚点回落到下层视频", () => {
     const resolution = resolveTimelineFrameSource({
       rows: buildTimelineLayout(items),
@@ -344,5 +402,31 @@ describe("一帧图片和视频走同一套规则", () => {
     if (resolution.kind !== "source") return;
     expect(resolution.sourceId).toBe("image-42");
     expect(resolution.stableShotId).toBe("base");
+  });
+});
+
+describe("磁吸不跨隐藏层", () => {
+  it("隐藏层的镜头不再和可见镜头之间造出吸附缝", () => {
+    const items = [
+      item("base", { position: 0, startFrame: 0, durationFrames: 60 }),
+      item("next", { position: 1, startFrame: 60, durationFrames: 60 }),
+      // 上层一镜盖住 base 并在同一处收尾：可见时接缝属于它，隐藏后应还给 base。
+      item("hiddenTop", {
+        position: 2,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 1,
+      }),
+    ];
+    const rows = buildTimelineLayout(items);
+    const withHiddenVisible = timelineMagneticJoins(rows).map(
+      join => `${join.leftStableShotId}->${join.rightStableShotId}`
+    );
+    const withHidden = timelineMagneticJoins(rows, [1]).map(
+      join => `${join.leftStableShotId}->${join.rightStableShotId}`
+    );
+    expect(withHiddenVisible).toContain("hiddenTop->next");
+    expect(withHidden).not.toContain("hiddenTop->next");
+    expect(withHidden).toContain("base->next");
   });
 });

@@ -17,6 +17,9 @@ import {
   timelineAudioTargetSeconds,
   timelineAudioVolume,
   timelineLaneDomain,
+  timelineClipPointerPlacement,
+  timelineClipKeyboardPlacement,
+  timelinePointerDragExceededThreshold,
   timelineSubtitleText,
   timelineVoiceLaneLabel,
 } from "./views/EditingNleWorkspace";
@@ -24,6 +27,77 @@ import type { CreationEditorShot } from "./types";
 import type { ChatCutTimelineManifest } from "./chatCutTimeline";
 
 describe("editing workspace project canvas", () => {
+  it("ignores click jitter until a real pointer drag crosses four pixels", () => {
+    expect(
+      timelinePointerDragExceededThreshold({
+        startClientX: 100,
+        startClientY: 100,
+        clientX: 102,
+        clientY: 102,
+      })
+    ).toBe(false);
+    expect(
+      timelinePointerDragExceededThreshold({
+        startClientX: 100,
+        startClientY: 100,
+        clientX: 103,
+        clientY: 104,
+      })
+    ).toBe(true);
+  });
+
+  it("maps arrow keys to frame and visual-layer movement for every clip kind", () => {
+    expect(
+      timelineClipKeyboardPlacement({
+        key: "ArrowLeft",
+        shiftKey: false,
+        visualLayer: 2,
+      })
+    ).toEqual({ deltaFrames: -1, visualLayer: 2 });
+    expect(
+      timelineClipKeyboardPlacement({
+        key: "ArrowRight",
+        shiftKey: true,
+        visualLayer: 2,
+      })
+    ).toEqual({ deltaFrames: 15, visualLayer: 2 });
+    expect(
+      timelineClipKeyboardPlacement({
+        key: "ArrowUp",
+        shiftKey: false,
+        visualLayer: 2,
+      })
+    ).toEqual({ deltaFrames: 0, visualLayer: 3 });
+    expect(
+      timelineClipKeyboardPlacement({
+        key: "ArrowDown",
+        shiftKey: false,
+        visualLayer: 0,
+      })
+    ).toEqual({ deltaFrames: 0, visualLayer: 0 });
+  });
+  it("maps one pointer release to both a time delta and a target visual layer", () => {
+    expect(
+      timelineClipPointerPlacement({
+        startClientX: 180,
+        releaseClientX: 260,
+        pixelsPerSecond: 20,
+        targetVisualLayer: 4,
+      })
+    ).toEqual({ deltaFrames: 120, visualLayer: 4 });
+  });
+
+  it("normalizes pointer placement at the timeline and layer boundaries", () => {
+    expect(
+      timelineClipPointerPlacement({
+        startClientX: 240,
+        releaseClientX: 40,
+        pixelsPerSecond: 0,
+        targetVisualLayer: -3,
+      })
+    ).toEqual({ deltaFrames: 0, visualLayer: 0 });
+  });
+
   it("extracts from any layer into the immediately adjacent upper layer", () => {
     expect(extractedFrameTargetVisualLayer({ visualLayer: 0 })).toBe(1);
     expect(extractedFrameTargetVisualLayer({ visualLayer: 1 })).toBe(2);
@@ -32,10 +106,18 @@ describe("editing workspace project canvas", () => {
 
   it("uses the highest visible image or video as the extraction source", () => {
     const image = { clip: { visualLayer: 2 } };
-    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 1 })).toBe(true);
-    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 2 })).toBe(true);
-    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 3 })).toBe(false);
-    expect(timelineImageWinsVisualOverlap(null, { visualLayer: 3 })).toBe(false);
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 1 })).toBe(
+      true
+    );
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 2 })).toBe(
+      true
+    );
+    expect(timelineImageWinsVisualOverlap(image, { visualLayer: 3 })).toBe(
+      false
+    );
+    expect(timelineImageWinsVisualOverlap(null, { visualLayer: 3 })).toBe(
+      false
+    );
   });
 
   it("creates independent ids when the same image is extracted again", () => {
@@ -87,16 +169,33 @@ describe("editing workspace project canvas", () => {
       startFrame: 75,
       clip: { id: "image-clip-99", durationFrames: 1, visualLayer: 1 },
     });
-    expect(resolveTimelineImageClip(resolved ? [{
+    expect(
+      resolveTimelineImageClip(
+        resolved
+          ? [
+              {
       stableShotId: "shot-1",
       included: true,
       position: 0,
       plannedDurationMs: 3_000,
       durationFrames: 90,
       timelineStartFrame: 60,
-      transform: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, zoom: 1, panX: 0, panY: 0 },
+                transform: {
+                  cropX: 0,
+                  cropY: 0,
+                  cropWidth: 1,
+                  cropHeight: 1,
+                  zoom: 1,
+                  panX: 0,
+                  panY: 0,
+                },
       imageClips: [resolved.clip],
-    }] : [], 76)).toBeNull();
+              },
+            ]
+          : [],
+        76
+      )
+    ).toBeNull();
   });
 
   it("keeps subtitle and audio lanes outside visual shot selection", () => {
@@ -106,6 +205,72 @@ describe("editing workspace project canvas", () => {
     expect(timelineLaneDomain("source-audio")).toBe("audio");
     expect(timelineLaneDomain("primary-video")).toBe("visual");
     expect(timelineLaneDomain("video-2")).toBe("visual");
+  });
+
+  it("builds ordinary shots, extracted images and appended videos into their real visual layers", () => {
+    const shot = {
+      shotNo: 1,
+      shotKey: "SH01",
+      stableShotId: "shot-1",
+      durationMs: 2_000,
+      imageId: 7,
+      imageUrl: "/shot.webp",
+      timelineItem: {
+        stableShotId: "shot-1",
+        position: 0,
+        included: true,
+        plannedDurationMs: 2_000,
+        durationFrames: 60,
+        timelineStartFrame: 30,
+        visualLayer: 2,
+        imageClips: [
+          {
+            id: "image-clip-8",
+            imageId: 8,
+            imageUrl: "/frame.webp",
+            label: "抽帧",
+            offsetFrames: 0,
+            timelineStartFrame: 45,
+            durationFrames: 1,
+            visualLayer: 3,
+          },
+        ],
+        visualClips: [
+          {
+            id: "video-clip-9",
+            takeId: 9,
+            rangeId: 91,
+            sourceStableShotId: "shot-1",
+            videoUrl: "/take.mp4",
+            label: "附加视频",
+            sourceStartSec: 0,
+            sourceEndSec: 1,
+            offsetMs: 500,
+            durationMs: 1_000,
+            visualLayer: 4,
+          },
+        ],
+      },
+    } as CreationEditorShot;
+
+    const lanes = buildTimelineLanes([shot], ["shot-1"], null);
+    const visual = lanes.filter(lane => lane.domain === "visual");
+    expect(visual.map(lane => lane.visualLayer)).toEqual([5, 4, 3, 2, 1, 0]);
+    expect(
+      visual.flatMap(lane =>
+        lane.clips.map(clip => [
+          clip.id,
+          clip.moveTarget?.kind,
+          lane.visualLayer,
+        ])
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        ["shot-1", "shot", 2],
+        ["image-clip-8", "image", 3],
+        ["video-clip-9", "video", 4],
+      ])
+    );
   });
 
   it("keeps captions and voice at absolute times when visual shots move, with voice last", () => {
@@ -193,6 +358,7 @@ describe("editing workspace project canvas", () => {
     expect(audioSnapshot(after)).toEqual(audioSnapshot(before));
     expect(after.map(lane => lane.id)).toEqual([
       "captions",
+      "visual-1",
       "primary-video",
       "music",
       "source-audio",
@@ -307,9 +473,9 @@ describe("editing workspace project canvas", () => {
     };
 
     expect(shouldHandleEditingShortcut(base)).toBe(true);
-    expect(
-      shouldHandleEditingShortcut({ ...base, targetKind: "text" })
-    ).toBe(false);
+    expect(shouldHandleEditingShortcut({ ...base, targetKind: "text" })).toBe(
+      false
+    );
     expect(shouldHandleEditingShortcut({ ...base, zoneActive: false })).toBe(
       false
     );
