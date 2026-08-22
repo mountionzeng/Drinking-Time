@@ -66,6 +66,7 @@ import {
 import {
   buildTimelineLayout,
   overlayVisualLayer,
+  resolveTimelineFrame,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {
@@ -116,6 +117,7 @@ import { resolveScopedPublishingHandoff } from "./publishingHandoffScope";
 import { videoTakeIdsToRefresh } from "./videoAssetViewModel";
 import {
   recordDeletedStoryShotUndo,
+  recordInsertedStoryShotUndo,
   recordSplitStoryShotUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
@@ -268,6 +270,15 @@ type CreationEditorContextValue = {
     stableShotId: string,
     dialogue?: string
   ) => Promise<number | null>;
+  /** 新建一个独立普通镜头，并把它精确放到绝对帧和视觉层。 */
+  insertTimelineShotAt: (input: {
+    timelineFrame: number;
+    visualLayer: number;
+    dialogue?: string;
+    referencedImageId?: number;
+  }) => Promise<{ shotNo: number; stableShotId: string }>;
+  commitInsertedTimelineShotUndo: (stableShotId: string) => void;
+  discardPersistedShot: (stableShotId: string) => Promise<void>;
   deletePersistedShot: (stableShotId: string) => Promise<number | null>;
   updatePromptOverride: (
     shotNo: number,
@@ -461,6 +472,7 @@ type CreationEditorContextValue = {
     sourceStableShotId: string;
     targetStableShotId: string;
     targetOffsetMs: number;
+    visualLayer?: number;
   }) => Promise<void>;
   addTimelineImageClip: (input: {
     clipId?: string;
@@ -1161,7 +1173,8 @@ export function mergeShotsWithImages(
           }
         }
         if (
-          image.relatedShotIdentities?.some(relatedIdentity =>
+          image.relatedShotIdentities?.some(
+            relatedIdentity =>
             normalizeShotIdentity(relatedIdentity) ===
             normalizeShotIdentity(identity)
           )
@@ -1254,6 +1267,42 @@ export function mergeShotsWithImages(
       imagePrompt: image.prompt,
       imageSelectionSource: image.selectionSource,
       imageIsPrimary: image.isPrimary,
+    };
+  });
+}
+
+/** Apply non-owning timeline image references without mutating asset ownership. */
+export function applyTimelineImageReferences(
+  shots: readonly CreationEditorShot[],
+  images: readonly CreationEditorImage[],
+  items: readonly StoryTimelineItem[]
+): CreationEditorShot[] {
+  const imageById = new Map(images.map(image => [image.id, image]));
+  const itemByShotId = new Map(items.map(item => [item.stableShotId, item]));
+  return shots.map(shot => {
+    const referencedImageId = itemByShotId.get(
+      creationTimelineShotId(shot)
+    )?.referencedImageId;
+    const image =
+      referencedImageId == null
+        ? null
+        : (imageById.get(referencedImageId) ?? null);
+    if (!image || image.status === "rejected" || !image.imageUrl) return shot;
+    return {
+      ...shot,
+      imageId: image.id,
+      imageUrl: image.imageUrl,
+      imagePrompt: image.prompt,
+      imageSelectionSource: image.selectionSource,
+      imageIsPrimary: image.isPrimary,
+      imageVersions: Array.from(
+        new Map(
+          [...(shot.imageVersions ?? []), image].map(candidate => [
+            candidate.id,
+            candidate,
+          ])
+        ).values()
+      ),
     };
   });
 }
@@ -1691,7 +1740,11 @@ export function CreationEditorProvider({
       storyMaterialQuery.data as StoryMaterialState | null | undefined,
       storyImagesQuery.data
     );
-    const withImages = mergeShotsWithImages(storyShots, images);
+    const withImages = applyTimelineImageReferences(
+      mergeShotsWithImages(storyShots, images),
+      images,
+      storyMaterialQuery.data?.timeline.items ?? []
+    );
     const materialVideos = storyMaterialQuery.data?.shots.flatMap(
       shot => shot.videoTakes
     );
@@ -1753,7 +1806,8 @@ export function CreationEditorProvider({
         timelineStartFrame: shots
           .slice(0, position)
           .reduce(
-            (total, previous) => total + timelineMsToFrames(previous.durationMs ?? 3000),
+            (total, previous) =>
+              total + timelineMsToFrames(previous.durationMs ?? 3000),
             0
           ),
         stackOrder: position,
@@ -2114,7 +2168,11 @@ export function CreationEditorProvider({
   const removeTimelineAnchorFromShot = useCallback(
     (stableShotId: string, anchorId: string) =>
       commitTimelinePlan(
-        planTimelineAnchorRemove({ items: timelineItems, stableShotId, anchorId }),
+        planTimelineAnchorRemove({
+          items: timelineItems,
+          stableShotId,
+          anchorId,
+        }),
         "取消锚点失败"
       ),
     [commitTimelinePlan, timelineItems]
@@ -2133,7 +2191,8 @@ export function CreationEditorProvider({
           edge,
           requestedBoundaryFrame,
           sourceLimitSec:
-            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ??
+            null,
         }),
         "裁剪失败"
       ),
@@ -2154,9 +2213,11 @@ export function CreationEditorProvider({
           rightStableShotId,
           requestedBoundaryFrame,
           leftSourceLimitSec:
-            timelineResolverShots.get(leftStableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(leftStableShotId)
+              ?.currentVideoDurationSec ?? null,
           rightSourceLimitSec:
-            timelineResolverShots.get(rightStableShotId)?.currentVideoDurationSec ?? null,
+            timelineResolverShots.get(rightStableShotId)
+              ?.currentVideoDurationSec ?? null,
         }),
         "滚动剪辑失败"
       ),
@@ -2537,15 +2598,21 @@ export function CreationEditorProvider({
     await promptLineageQuery.refetch();
   };
 
-  const insertPersistedShotAfter = async (
+  const insertPersistedShotAfterDetailed = async (
     stableShotId: string,
-    dialogue = ""
+    dialogue = "",
+    placement?: {
+      timelineFrame: number;
+      visualLayer: number;
+      referencedImageId?: number;
+    }
   ) => {
     if (activeId == null) throw new Error("故事尚未加载，无法添加镜头");
     const result = await insertStoryShotAfterMut.mutateAsync({
       storyId: activeId,
       stableShotId,
       dialogue,
+      ...placement,
     });
     if (result.status !== "ok") {
       throw new Error(result.error || "添加镜头失败");
@@ -2568,7 +2635,55 @@ export function CreationEditorProvider({
       utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
     ]);
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
-    return result.insertedShotNo;
+    const insertedStableShotId = normalizeShotIdentity(
+      result.insertedStableShotId
+    );
+    if (!insertedStableShotId) {
+      throw new Error("新镜头已创建，但无法确认它的稳定身份");
+    }
+    return {
+      shotNo: result.insertedShotNo,
+      stableShotId: insertedStableShotId,
+    };
+  };
+
+  const insertPersistedShotAfter = async (
+    stableShotId: string,
+    dialogue = ""
+  ) => (await insertPersistedShotAfterDetailed(stableShotId, dialogue)).shotNo;
+
+  const insertTimelineShotAt = async (input: {
+    timelineFrame: number;
+    visualLayer: number;
+    dialogue?: string;
+    referencedImageId?: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法添加镜头");
+    const targetFrame = Math.max(0, Math.round(input.timelineFrame));
+    const targetLayer = Math.max(0, Math.round(input.visualLayer));
+    const resolvedTarget = resolveTimelineFrame(
+      timelineLayoutRows,
+      targetFrame
+    );
+    const previousRow = [...timelineLayoutRows]
+      .filter(row => row.endFrame <= targetFrame)
+      .sort((left, right) => right.endFrame - left.endFrame)[0];
+    const anchorStableShotId =
+      resolvedTarget.kind === "shot"
+        ? resolvedTarget.row.item.stableShotId
+        : (previousRow?.item.stableShotId ??
+          timelineLayoutRows[0]?.item.stableShotId);
+    if (!anchorStableShotId) throw new Error("故事还没有可作为插入锚点的镜头");
+    const inserted = await insertPersistedShotAfterDetailed(
+      anchorStableShotId,
+      input.dialogue ?? "",
+      {
+        timelineFrame: targetFrame,
+        visualLayer: targetLayer,
+        referencedImageId: input.referencedImageId,
+      }
+    );
+    return { shotNo: inserted.shotNo, stableShotId: inserted.stableShotId };
   };
 
   const deletePersistedShot = async (stableShotId: string) => {
@@ -2606,6 +2721,23 @@ export function CreationEditorProvider({
     ]);
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
     return result.nextSelectedShotNo;
+  };
+
+  const discardPersistedShot = async (stableShotId: string) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法清理镜头");
+    const result = await deleteStoryShotMut.mutateAsync({
+      storyId: activeId,
+      stableShotId,
+    });
+    if (result.status !== "ok") {
+      throw new Error(result.error || "清理未完成镜头失败");
+    }
+    await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+  };
+
+  const commitInsertedTimelineShotUndo = (stableShotId: string) => {
+    if (activeId == null) return;
+    recordInsertedStoryShotUndo(activeId, stableShotId);
   };
 
   /**
@@ -2957,7 +3089,10 @@ export function CreationEditorProvider({
         : storyVideoAssetsQuery.refetch()
     );
     void storyMaterialQuery.refetch().catch(error => {
-      console.warn("[creation-editor] material refresh after import failed", error);
+      console.warn(
+        "[creation-editor] material refresh after import failed",
+        error
+      );
     });
     if (result.kind === "image") {
       return {
@@ -3366,6 +3501,8 @@ export function CreationEditorProvider({
           utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
         ]);
         await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
+      } else if (entry.kind === "inserted-story-shot") {
+        await discardPersistedShot(entry.insertedStableShotId);
       } else {
         const result = await undoSplitStoryShotMut.mutateAsync({
           storyId: activeId,
@@ -3402,6 +3539,8 @@ export function CreationEditorProvider({
         recordTimelineUndoSnapshot(activeId, entry.items);
       } else if (entry.kind === "deleted-story-shot") {
         recordDeletedStoryShotUndo(activeId, entry);
+      } else if (entry.kind === "inserted-story-shot") {
+        recordInsertedStoryShotUndo(activeId, entry.insertedStableShotId);
       } else {
         recordSplitStoryShotUndo(activeId, entry);
       }
@@ -3525,7 +3664,10 @@ export function CreationEditorProvider({
       body && typeof body === "object" && !Array.isArray(body)
         ? Number((body as Record<string, unknown>)._revision) || 0
         : 0;
-    const requestSplit = (expectedStoryRevision: number, expectedTimelineVersion: number) =>
+    const requestSplit = (
+      expectedStoryRevision: number,
+      expectedTimelineVersion: number
+    ) =>
       splitStoryShotMut.mutateAsync({
         storyId: activeId,
         stableShotId: input.stableShotId,
@@ -3551,7 +3693,9 @@ export function CreationEditorProvider({
             ? { ...item, visualLayer: promotedLayer }
             : item
         ),
-        overlays: timelineOverlays.filter(overlay => overlay.id !== input.overlayId),
+        overlays: timelineOverlays.filter(
+          overlay => overlay.id !== input.overlayId
+        ),
       });
       if (promoted.status !== "ok") {
         throw new Error(promoted.error || "历史覆盖视频迁移失败");
@@ -3615,6 +3759,7 @@ export function CreationEditorProvider({
     sourceStableShotId: string;
     targetStableShotId: string;
     targetOffsetMs: number;
+    visualLayer?: number;
   }) => {
     const sourceItem = timelineItems.find(
       item => item.stableShotId === input.sourceStableShotId
@@ -3630,6 +3775,10 @@ export function CreationEditorProvider({
     const movedClip = {
       ...movingClip,
       offsetMs: Math.max(0, input.targetOffsetMs),
+      visualLayer:
+        input.visualLayer == null
+          ? movingClip.visualLayer
+          : Math.max(0, Math.round(input.visualLayer)),
     };
     const nextItems = timelineItems.map(item => {
       if (input.sourceStableShotId === input.targetStableShotId) {
@@ -3701,8 +3850,14 @@ export function CreationEditorProvider({
                   imageId: input.imageId,
                   imageUrl: input.imageUrl,
                   label: input.label,
-                  offsetFrames: Math.max(0, input.timelineFrame - row.startFrame),
-                  timelineStartFrame: Math.max(0, Math.round(input.timelineFrame)),
+                  offsetFrames: Math.max(
+                    0,
+                    input.timelineFrame - row.startFrame
+                  ),
+                  timelineStartFrame: Math.max(
+                    0,
+                    Math.round(input.timelineFrame)
+                  ),
                   durationFrames: 1,
                   visualLayer: Math.max(0, Math.round(input.visualLayer ?? 1)),
                   transform: { ...DEFAULT_TIMELINE_TRANSFORM },
@@ -3747,9 +3902,15 @@ export function CreationEditorProvider({
     const source = timelineItems.find(
       item => item.stableShotId === input.sourceStableShotId
     );
-    const clip = source?.imageClips?.find(candidate => candidate.id === input.clipId);
+    const clip = source?.imageClips?.find(
+      candidate => candidate.id === input.clipId
+    );
     if (!source || !clip) throw new Error("找不到要移动的图片片段");
-    if (!timelineItems.some(item => item.stableShotId === input.targetStableShotId)) {
+    if (
+      !timelineItems.some(
+        item => item.stableShotId === input.targetStableShotId
+      )
+    ) {
       throw new Error("目标时间不在视觉时间线上");
     }
     const targetRow = buildTimelineLayout(timelineItems).find(
@@ -4167,6 +4328,9 @@ export function CreationEditorProvider({
       refreshShotVideoStatus,
       markVideoTakeUnusable,
       insertPersistedShotAfter,
+      insertTimelineShotAt,
+      commitInsertedTimelineShotUndo,
+      discardPersistedShot,
       deletePersistedShot,
       moveVideoTake: moveVideoTakeToShot,
       adoptVideoTake: adoptVideoTakeForShot,
@@ -4239,6 +4403,9 @@ export function CreationEditorProvider({
       detachTimelineMagnet,
       resetTimelineShots,
       insertPersistedShotAfter,
+      insertTimelineShotAt,
+      commitInsertedTimelineShotUndo,
+      discardPersistedShot,
       deletePersistedShot,
       markVideoTakeUnusable,
       moveVideoTakeToShot,

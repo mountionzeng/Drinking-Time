@@ -18,7 +18,6 @@ import {
   resolveTimelineVisualFrame,
   selectDirectionalGroup,
   selectSingleShot,
-  timelineImageBeatsVisualSource,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {
@@ -88,16 +87,17 @@ export function timelineMagneticJoins(
       before.row.item.stableShotId === after.row.item.stableShotId ||
       before.row.endFrame !== boundaryFrame ||
       after.row.startFrame !== boundaryFrame ||
-      after.row.item.detachedFromPreviousShotId ===
-        before.row.item.stableShotId
+      after.row.item.detachedFromPreviousShotId === before.row.item.stableShotId
     ) {
       return [];
     }
-    return [{
+    return [
+      {
       leftStableShotId: before.row.item.stableShotId,
       rightStableShotId: after.row.item.stableShotId,
       boundaryFrame,
-    }];
+      },
+    ];
   });
 }
 
@@ -135,7 +135,8 @@ export function snappedTimelineSingleMove(input: {
   }
   const movedStart = current.startFrame + roundedDelta;
   const movedEnd = current.endFrame + roundedDelta;
-  const movedStackOrder = Math.max(-1, ...input.rows.map(row => row.stackOrder)) + 1;
+  const movedStackOrder =
+    Math.max(-1, ...input.rows.map(row => row.stackOrder)) + 1;
   const formsVisibleJoin = (
     deltaFrames: number,
     join: TimelineMagneticJoin
@@ -163,7 +164,9 @@ export function snappedTimelineSingleMove(input: {
     );
   };
   const candidates = input.rows
-    .filter(row => row.item.included && row.item.stableShotId !== input.stableShotId)
+    .filter(
+      row => row.item.included && row.item.stableShotId !== input.stableShotId
+    )
     .flatMap(row => {
       const joins: Array<{
         distance: number;
@@ -624,7 +627,9 @@ export type TimelineWriteOutcome = { applied: boolean; reason?: string };
  * pointer release, a repeated `M`, or a second gesture during a pending save
  * must not compute from placement that is already stale.
  */
-export function createTimelineWriteLock(onPendingChange?: (pending: boolean) => void) {
+export function createTimelineWriteLock(
+  onPendingChange?: (pending: boolean) => void
+) {
   let pending = false;
   return {
     get pending() {

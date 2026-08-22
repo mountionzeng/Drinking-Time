@@ -1360,6 +1360,9 @@ export const storyAgentRouter = router({
         storyId: persistedStoryIdSchema,
         stableShotId: stableShotIdSchema,
         dialogue: z.string().optional(),
+        timelineFrame: z.number().int().min(0).optional(),
+        visualLayer: z.number().int().min(0).optional(),
+        referencedImageId: z.number().int().positive().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1440,16 +1443,25 @@ export const storyAgentRouter = router({
           timelineMsToFrames(anchorTimelineItem.plannedDurationMs)
       );
       const stackOrder =
-        Math.max(-1, ...material.timeline.items.map(item => item.stackOrder ?? -1)) +
-        1;
+        Math.max(
+          -1,
+          ...material.timeline.items.map(item => item.stackOrder ?? -1)
+        ) + 1;
       const insertedTimelineItem = {
         stableShotId: inserted.insertedStableShotId,
         included: true,
         position: timelineIndex + 1,
         plannedDurationMs: durationMs,
         durationFrames: timelineMsToFrames(durationMs),
-        timelineStartFrame: anchorStartFrame + anchorDurationFrames,
+        timelineStartFrame:
+          input.timelineFrame ?? anchorStartFrame + anchorDurationFrames,
         stackOrder,
+        ...(input.visualLayer == null
+          ? {}
+          : { visualLayer: input.visualLayer }),
+        ...(input.referencedImageId == null
+          ? {}
+          : { referencedImageId: input.referencedImageId }),
         transform: { ...DEFAULT_TIMELINE_TRANSFORM },
       };
       const nextTimelineItems = [
@@ -1518,7 +1530,9 @@ export const storyAgentRouter = router({
         return { status: "error" as const, error: "故事不存在" };
       }
       const body =
-        story.body && typeof story.body === "object" && !Array.isArray(story.body)
+        story.body &&
+        typeof story.body === "object" &&
+        !Array.isArray(story.body)
           ? (story.body as Record<string, unknown>)
           : {};
       const shots = Array.isArray(body.shots)
@@ -1527,7 +1541,8 @@ export const storyAgentRouter = router({
           )
         : [];
       const targetIndex = shots.findIndex(
-        (shot, index) => shotIdentityFromShot(shot, index) === input.stableShotId
+        (shot, index) =>
+          shotIdentityFromShot(shot, index) === input.stableShotId
       );
       const timelineIndex = material.timeline.items.findIndex(
         item => item.stableShotId === input.stableShotId
@@ -1555,7 +1570,10 @@ export const storyAgentRouter = router({
         rightDurationMs: timelineSplit.right.plannedDurationMs,
       });
       if (!storySplit) {
-        return { status: "error" as const, error: "镜头拆分失败，请刷新后重试" };
+        return {
+          status: "error" as const,
+          error: "镜头拆分失败，请刷新后重试",
+        };
       }
       const expandedTimeline = [
         ...material.timeline.items.slice(0, timelineIndex),
@@ -1806,7 +1824,10 @@ export const storyAgentRouter = router({
             shotIdentityFromShot(shot, index) === input.deletedStableShotId
         )
       ) {
-        return { status: "error" as const, error: "镜头已经恢复，无需重复撤销" };
+        return {
+          status: "error" as const,
+          error: "镜头已经恢复，无需重复撤销",
+        };
       }
       const restored = restoreStoryShotAtIndex(
         shots,
@@ -2396,7 +2417,9 @@ export const storyAgentRouter = router({
               storyId: input.storyId,
               userId: ctx.user.id,
               stableShotId: shotIdentity,
-              shotText: [prompt, input.explicitInstruction].filter(Boolean).join("\n"),
+              shotText: [prompt, input.explicitInstruction]
+                .filter(Boolean)
+                .join("\n"),
               provider:
                 input.mode === "draft"
                   ? "draft"
@@ -2421,7 +2444,9 @@ export const storyAgentRouter = router({
         }
 
         // 出图统一经美术网关。资产镜头不再读取旧故事参考池或旧人物锚点。
-        const storyReferences = lockedAssets ? [] : storyArtReferenceImages(story);
+        const storyReferences = lockedAssets
+          ? []
+          : storyArtReferenceImages(story);
         const rawCharacterRef = lockedAssets
           ? undefined
           : characterReferenceOf(artDirection);
@@ -2435,15 +2460,18 @@ export const storyAgentRouter = router({
             ? undefined
             : input.storyStyleReferenceImageUrl,
         });
-        if (!lockedAssets) prompt = withCharacterContinuityPrompt(prompt, storyBody, {
+        if (!lockedAssets)
+          prompt = withCharacterContinuityPrompt(prompt, storyBody, {
           hasCharacterReference: Boolean(
             referencePlan.usesStoryboardFrames
-              ? (input.referenceIdentityImageUrl ?? referencePlan.primaryImage)
+                ? (input.referenceIdentityImageUrl ??
+                    referencePlan.primaryImage)
               : rawCharacterRef
           ),
           sceneAnalysis: input.sceneAnalysis,
         });
-        const referenceImage = referencePlan.primaryImage ?? lockedAssets?.sceneRef;
+        const referenceImage =
+          referencePlan.primaryImage ?? lockedAssets?.sceneRef;
         let referenceImageInput: string | undefined;
         if (referenceImage) {
           try {
@@ -2474,8 +2502,7 @@ export const storyAgentRouter = router({
                 ? { styleRef: lockedAssets.styleRef }
                 : {}),
             }
-          :
-          referencePlan.usesStoryboardFrames ||
+          : referencePlan.usesStoryboardFrames ||
           referencePlan.usesStoryStyleReference
             ? await deriveStoryboardReferenceInjection(story, {
                 identityImageUrl: input.referenceIdentityImageUrl,
@@ -2552,14 +2579,17 @@ export const storyAgentRouter = router({
             input.imageProvider === "gpt-image" ||
             Boolean(input.editMaskImageUrl),
           referenceImages: lockedAssets
-            ? Array.from(new Set([
+            ? Array.from(
+                new Set([
                 ...(referencePlan.gateReferenceImages ?? []),
-                ...Object.values(lockedAssets.dimensions).flatMap(dimension =>
+                  ...Object.values(lockedAssets.dimensions).flatMap(
+                    dimension =>
                   dimension
                     ? dimension.views.map(view => view.materializedUrl)
                     : []
                 ),
-              ]))
+                ])
+              )
             : referencePlan.gateReferenceImages,
           shotNo: input.shotNo != null ? String(input.shotNo) : undefined,
           projectId: story.projectId ?? undefined,
@@ -2707,7 +2737,7 @@ export const storyAgentRouter = router({
             ? `图片任务已被 302 受理（任务号 ${providerTaskId}），但结果回传失败（${result.message ?? "暂时无法取得图片"}）。请勿重复提交，稍后恢复或查询该任务。`
             : submissionUncertain
               ? `图片提交过程中连接中断，未拿到 302 任务号，无法确认上游是否已受理（${result.message ?? "网络连接异常"}）。请先检查候选或服务商后台，再决定是否重试，避免重复付费。`
-              : result.message ?? "图片生成返回空结果";
+              : (result.message ?? "图片生成返回空结果");
           return {
             status: "error" as const,
             error,
@@ -3049,7 +3079,9 @@ export const storyAgentRouter = router({
   // 抽帧轨只允许删除由时间线抽帧流程持久化的图片。单独设入口，避免前端
   // 菜单或被篡改的请求把普通镜头主图当成抽帧删除。
   deleteExtractedFrame: protectedProcedure
-    .input(z.object({ imageId: z.number().int().positive(), storyId: z.number() }))
+    .input(
+      z.object({ imageId: z.number().int().positive(), storyId: z.number() })
+    )
     .mutation(async ({ ctx, input }) => {
       const [image, story] = await Promise.all([
         getGeneratedImageById(input.imageId),

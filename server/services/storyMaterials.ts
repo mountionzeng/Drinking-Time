@@ -29,9 +29,7 @@ import {
   resolvePromptAssetFreshness,
   resolveVideoStaleReasons,
 } from "./promptMaterialProjection";
-import {
-  getStoryVideoAssets,
-} from "./videoAssets";
+import { getStoryVideoAssets } from "./videoAssets";
 
 type StoryShotFact = {
   stableShotId: string;
@@ -127,7 +125,9 @@ function timelineAnchors(value: unknown): StoryTimelineAnchor[] {
     });
   }
   return anchors.sort(
-    (left, right) => left.timelineFrame - right.timelineFrame || left.id.localeCompare(right.id)
+    (left, right) =>
+      left.timelineFrame - right.timelineFrame ||
+      left.id.localeCompare(right.id)
   );
 }
 
@@ -143,7 +143,8 @@ function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
       typeof record.sourceStableShotId === "string"
         ? record.sourceStableShotId.trim()
         : "";
-    const videoUrl = typeof record.videoUrl === "string" ? record.videoUrl.trim() : "";
+    const videoUrl =
+      typeof record.videoUrl === "string" ? record.videoUrl.trim() : "";
     const takeId = nonNegativeInteger(record.takeId);
     const startFrame = nonNegativeInteger(record.startFrame);
     const targetEndFrame = nonNegativeInteger(record.targetEndFrame);
@@ -158,14 +159,20 @@ function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
       seen.has(id) ||
       !sourceStableShotId ||
       !videoUrl ||
-      takeId == null || takeId < 1 ||
+      takeId == null ||
+      takeId < 1 ||
       startFrame == null ||
-      targetEndFrame == null || targetEndFrame <= startFrame ||
-      mediaEndFrame == null || mediaEndFrame <= startFrame ||
-      endFrame == null || endFrame !== Math.max(targetEndFrame, mediaEndFrame) ||
+      targetEndFrame == null ||
+      targetEndFrame <= startFrame ||
+      mediaEndFrame == null ||
+      mediaEndFrame <= startFrame ||
+      endFrame == null ||
+      endFrame !== Math.max(targetEndFrame, mediaEndFrame) ||
       stackOrder == null ||
-      leftImageId == null || leftImageId < 1 ||
-      rightImageId == null || rightImageId < 1
+      leftImageId == null ||
+      leftImageId < 1 ||
+      rightImageId == null ||
+      rightImageId < 1
     ) {
       continue;
     }
@@ -193,12 +200,16 @@ function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
     });
   }
   return overlays.sort(
-    (left, right) => left.startFrame - right.startFrame || left.id.localeCompare(right.id)
+    (left, right) =>
+      left.startFrame - right.startFrame || left.id.localeCompare(right.id)
   );
 }
 
-function timelineVisualLayerState(value: unknown): StoryTimelineVisualLayerState | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+function timelineVisualLayerState(
+  value: unknown
+): StoryTimelineVisualLayerState | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
   const record = value as Record<string, unknown>;
   const count = nonNegativeInteger(record.count);
   if (count == null || count < 1) return undefined;
@@ -562,7 +573,8 @@ export function normalizeTimelineItems(
       plannedDurationMs,
       durationFrames: Math.max(
         1,
-        nonNegativeInteger(item.durationFrames) ?? timelineMsToFrames(plannedDurationMs)
+        nonNegativeInteger(item.durationFrames) ??
+          timelineMsToFrames(plannedDurationMs)
       ),
       explicitStartFrame: nonNegativeInteger(item.timelineStartFrame) ?? null,
       explicitStackOrder: nonNegativeInteger(item.stackOrder) ?? null,
@@ -636,6 +648,9 @@ export function normalizeTimelineItems(
       timelineStartFrame,
       stackOrder,
       visualLayer: nonNegativeInteger(item.visualLayer) ?? 0,
+      ...(positiveImageId(item.referencedImageId) == null
+        ? {}
+        : { referencedImageId: positiveImageId(item.referencedImageId)! }),
       ...(typeof item.detachedFromPreviousShotId === "string" &&
       item.detachedFromPreviousShotId.trim()
         ? { detachedFromPreviousShotId: item.detachedFromPreviousShotId.trim() }
@@ -670,10 +685,12 @@ export async function getStoryMaterialState(
     { legacyArtDirection: storyBody.artDirection ?? {} }
   );
   const visualAssetBindingByShot = new Map(
-    visualAssetAggregate.bindings.map(binding => [binding.stableShotId, binding])
+    visualAssetAggregate.bindings.map(binding => [
+      binding.stableShotId,
+      binding,
+    ])
   );
-  const [images, videos, timelineRow, promptProjection] =
-    await Promise.all([
+  const [images, videos, timelineRow, promptProjection] = await Promise.all([
       getStoryImageAssets(storyId, userId),
       getStoryVideoAssets(storyId, userId),
       getStoryTimeline(storyId, userId),
@@ -729,6 +746,10 @@ export async function getStoryMaterialState(
 
   const shots = facts.map(fact => {
     const timelineItem = timelineByShot.get(fact.stableShotId) ?? null;
+    const referencedImage =
+      timelineItem?.referencedImageId == null
+        ? null
+        : (imageById.get(timelineItem.referencedImageId) ?? null);
     const timelineTakeIds = new Set(
       [
         timelineItem?.primaryVideoEdit?.takeId,
@@ -739,7 +760,7 @@ export async function getStoryMaterialState(
       compilationHeadByKey.get(`${fact.stableShotId}:image`) ?? null;
     const videoCompilationId =
       compilationHeadByKey.get(`${fact.stableShotId}:video`) ?? null;
-    const imageVersions = availableImages
+    const ownedImageVersions = availableImages
       .filter(image =>
         keysOverlap(
           shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
@@ -756,8 +777,29 @@ export async function getStoryMaterialState(
           imageCompilationId
         ),
       }));
-    const currentImage = imageVersions.find(image => image.isPrimary) ?? null;
-    const rawOwnVideoTakes = videos.filter(take =>
+    const imageVersions = [
+      ...ownedImageVersions,
+      ...(referencedImage &&
+      !ownedImageVersions.some(image => image.id === referencedImage.id)
+        ? [
+            {
+              ...referencedImage,
+              promptFreshness: resolvePromptAssetFreshness(
+                referencedImage.promptCompilationId,
+                imageCompilationId
+              ),
+            },
+          ]
+        : []),
+    ];
+    const currentImage =
+      (referencedImage
+        ? imageVersions.find(image => image.id === referencedImage.id)
+        : null) ??
+      imageVersions.find(image => image.isPrimary) ??
+      null;
+    const rawOwnVideoTakes = videos.filter(
+      take =>
         timelineTakeIds.has(take.id) ||
         keysOverlap(
           shotMaterialKeys(fact, shotNoCounts.get(fact.shotNo) === 1),
@@ -774,10 +816,7 @@ export async function getStoryMaterialState(
       take =>
         timelineTakeIds.has(take.id) ||
         identitiesMatchExactly(take.stableShotId, fact.stableShotId) ||
-        identitiesMatchExactly(
-          take.stableShotId,
-          fact.splitSourceStableShotId
-        )
+        identitiesMatchExactly(take.stableShotId, fact.splitSourceStableShotId)
     );
     for (const take of relatedInputTakes) {
       if (take.sourceImageId != null) relatedSeedIds.add(take.sourceImageId);
@@ -803,8 +842,7 @@ export async function getStoryMaterialState(
             ]
           : [];
       });
-    const ownVideoTakes = rawOwnVideoTakes
-      .map(take => {
+    const ownVideoTakes = rawOwnVideoTakes.map(take => {
         // 尺寸统一等派生变体（parameterSnapshot.sourceTakeId 指向源 take）：
         // 画面内容与源一致，不参与 prompt 新鲜度审判——否则统一完的方形版
         // 会因为继承源 take 的旧 promptCompilationId 被判 stale，
@@ -850,7 +888,8 @@ export async function getStoryMaterialState(
           take.status === "available" &&
           Boolean(take.videoUrl) &&
           !take.isStale
-      ) ?? null;
+      ) ??
+      null;
     return {
       stableShotId: fact.stableShotId,
       shotNo: fact.shotNo,

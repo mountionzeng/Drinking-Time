@@ -7,6 +7,7 @@ import {
   clearTimelineUndoForTesting,
   executeTimelineUndo,
   recordDeletedStoryShotUndo,
+  recordInsertedStoryShotUndo,
   recordSplitStoryShotUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
@@ -210,6 +211,16 @@ describe("timelineUndoStore", () => {
       kind: "timeline",
       items: [{ plannedDurationMs: 1_000 }],
     });
+  });
+
+  it("records external placement as one inserted-shot undo step", () => {
+    recordInsertedStoryShotUndo(7, "shot-external");
+
+    expect(takeCreationEditorUndoEntry(7)).toEqual({
+      kind: "inserted-story-shot",
+      insertedStableShotId: "shot-external",
+    });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
   });
 
   it("clones structural split snapshots in the shared undo history", () => {

@@ -24,6 +24,11 @@ export type SplitStoryShotUndoEntry = {
   restoreShotNo: number;
 };
 
+export type InsertedStoryShotUndoEntry = {
+  kind: "inserted-story-shot";
+  insertedStableShotId: string;
+};
+
 /**
  * 一次时间线撤销要还原的全部东西。只存 items 不够：图层顺序、图层数量和显隐
  * 都在 `visualLayerState` 里，遗留 overlay 的兼容层在 `overlays` 里，
@@ -38,6 +43,7 @@ export type TimelineUndoSnapshot = {
 export type CreationEditorUndoEntry =
   | ({ kind: "timeline" } & TimelineUndoSnapshot)
   | DeletedStoryShotUndoEntry
+  | InsertedStoryShotUndoEntry
   | SplitStoryShotUndoEntry;
 
 const undoByStory = new Map<number, CreationEditorUndoEntry[]>();
@@ -120,7 +126,8 @@ export function recordTimelineUndoSnapshot(
   if (
     latest?.kind === "timeline" &&
     sameTimeline(latest.items, snapshot) &&
-    JSON.stringify(latest.visualLayerState) === JSON.stringify(visualLayerState) &&
+    JSON.stringify(latest.visualLayerState) ===
+      JSON.stringify(visualLayerState) &&
     JSON.stringify(latest.overlays) === JSON.stringify(overlays)
   ) {
     return;
@@ -166,6 +173,18 @@ export function recordSplitStoryShotUndo(
   undoByStory.set(storyId, stack);
 }
 
+export function recordInsertedStoryShotUndo(
+  storyId: number,
+  insertedStableShotId: string
+): void {
+  const stack = undoByStory.get(storyId) ?? [];
+  stack.push({ kind: "inserted-story-shot", insertedStableShotId });
+  if (stack.length > MAX_UNDO_STEPS) {
+    stack.splice(0, stack.length - MAX_UNDO_STEPS);
+  }
+  undoByStory.set(storyId, stack);
+}
+
 export function takeCreationEditorUndoEntry(
   storyId: number
 ): CreationEditorUndoEntry | null {
@@ -195,6 +214,7 @@ export function takeCreationEditorUndoEntry(
       afterDeleteBody: structuredClone(entry.afterDeleteBody),
     };
   }
+  if (entry.kind === "inserted-story-shot") return { ...entry };
   return {
     ...entry,
     beforeStoryBody: structuredClone(entry.beforeStoryBody),

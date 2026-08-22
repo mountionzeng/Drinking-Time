@@ -574,6 +574,9 @@ describe("storyAgent tRPC router", () => {
       storyId: created!.id,
       stableShotId: "shot-a",
       dialogue: "承接一句话",
+      timelineFrame: 45,
+      visualLayer: 3,
+      referencedImageId: 88,
     });
 
     expect(inserted).toMatchObject({
@@ -600,7 +603,14 @@ describe("storyAgent tRPC router", () => {
       inserted.status === "ok" ? inserted.insertedStableShotId : "",
       "shot-b",
     ]);
-    expect(material?.timeline.items.map(item => item.position)).toEqual([0, 1, 2]);
+    expect(material?.timeline.items.map(item => item.position)).toEqual([
+      0, 1, 2,
+    ]);
+    expect(material?.timeline.items[1]).toMatchObject({
+      timelineStartFrame: 45,
+      visualLayer: 3,
+      referencedImageId: 88,
+    });
     expect(material?.timeline.version).toBe(2);
   });
 
@@ -831,10 +841,9 @@ describe("storyAgent tRPC router", () => {
     });
     expect(splitMaterial?.shots).toHaveLength(2);
     expect(splitMaterial?.timeline.items).toHaveLength(2);
-    expect(splitMaterial?.timeline.items.map(item => item.stableShotId)).toEqual([
-      "shot-a",
-      split.splitStableShotId,
-    ]);
+    expect(
+      splitMaterial?.timeline.items.map(item => item.stableShotId)
+    ).toEqual(["shot-a", split.splitStableShotId]);
 
     const undone = await caller.storyAgent.undoSplitStoryShot({
       storyId: created!.id,
@@ -946,7 +955,9 @@ describe("storyAgent tRPC router", () => {
       stableShotId: "shot-a",
       patch: { subject: "切割后改过" },
     });
-    const genuinelyEdited = await caller.storyAgent.storyGet({ id: created!.id });
+    const genuinelyEdited = await caller.storyAgent.storyGet({
+      id: created!.id,
+    });
     expect(
       (genuinelyEdited!.body as { shots: Array<{ subject?: string }> }).shots[0]
         ?.subject
@@ -1496,10 +1507,22 @@ describe("storyAgent tRPC router", () => {
       imageUrl: "/api/images/grid-1.png",
       imageKey: "generated/grid-1.png",
       candidates: [
-        { imageUrl: "/api/images/grid-1.png", imageKey: "generated/grid-1.png" },
-        { imageUrl: "/api/images/grid-2.png", imageKey: "generated/grid-2.png" },
-        { imageUrl: "/api/images/grid-3.png", imageKey: "generated/grid-3.png" },
-        { imageUrl: "/api/images/grid-4.png", imageKey: "generated/grid-4.png" },
+        {
+          imageUrl: "/api/images/grid-1.png",
+          imageKey: "generated/grid-1.png",
+        },
+        {
+          imageUrl: "/api/images/grid-2.png",
+          imageKey: "generated/grid-2.png",
+        },
+        {
+          imageUrl: "/api/images/grid-3.png",
+          imageKey: "generated/grid-3.png",
+        },
+        {
+          imageUrl: "/api/images/grid-4.png",
+          imageKey: "generated/grid-4.png",
+        },
       ],
     });
     const userId = 4211;
@@ -2408,7 +2431,9 @@ describe("storyAgent tRPC router", () => {
       body: {
         cards: [],
         characters: [],
-        shots: [{ shotNo: 1, stableShotId: "delete-frame-shot", subject: "窗边的人" }],
+        shots: [
+          { shotNo: 1, stableShotId: "delete-frame-shot", subject: "窗边的人" },
+        ],
       },
     });
     const extracted = await createGeneratedImage({

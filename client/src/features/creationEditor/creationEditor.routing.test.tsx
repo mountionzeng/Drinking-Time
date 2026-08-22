@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyTimelineImageReferences,
   mergeCanonicalStoryShots,
   mergeShotsWithImages,
   mergeShotsWithVideos,
@@ -181,6 +182,54 @@ describe("creation editor route and shell", () => {
     expect(merged[0].imageUrl).toBeUndefined();
   });
 
+  it("shows one shared image on a new shot without removing it from the source shot", () => {
+    const image = {
+      id: 8,
+      shotNo: 1,
+      shotIdentity: "shot-source",
+      imageUrl: "/api/images/8.png",
+      prompt: "shared frame",
+      isPrimary: true,
+    };
+    const source = shot(1, {
+      stableShotId: "shot-source",
+      shotIdentity: "shot-source",
+    });
+    const target = shot(2, {
+      stableShotId: "shot-target",
+      shotIdentity: "shot-target",
+    });
+    const merged = mergeShotsWithImages([source, target], [image]);
+    const projected = applyTimelineImageReferences(
+      merged,
+      [image],
+      [
+        {
+          stableShotId: "shot-target",
+          included: true,
+          position: 1,
+          plannedDurationMs: 3000,
+          referencedImageId: 8,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+        },
+      ]
+    );
+
+    expect(projected.map(item => item.imageId)).toEqual([8, 8]);
+    expect(projected.map(item => item.imageUrl)).toEqual([
+      "/api/images/8.png",
+      "/api/images/8.png",
+    ]);
+  });
+
   it("keeps storyImages visible when material state has no current image", () => {
     const images = resolveCreationEditorImages(
       {
@@ -270,12 +319,7 @@ describe("creation editor route and shell", () => {
       "explicit"
     );
     const last = {
-      ...materialImage(
-        32,
-        "/api/images/extracted-last.webp",
-        true,
-        "explicit"
-      ),
+      ...materialImage(32, "/api/images/extracted-last.webp", true, "explicit"),
       shotIdentity: "shot-02",
       rawShotNo: "SH02",
       canonicalShotNo: "SH02",
@@ -319,12 +363,7 @@ describe("creation editor route and shell", () => {
 
   it("does not adopt a current-like legacy image related only by stable shot ID", () => {
     const relatedLegacyImage = {
-      ...materialImage(
-        33,
-        "/api/images/legacy-related.webp",
-        true,
-        "explicit"
-      ),
+      ...materialImage(33, "/api/images/legacy-related.webp", true, "explicit"),
       shotIdentity: null,
       shotNo: 2,
       rawShotNo: "SH02",
