@@ -461,23 +461,6 @@ export function storyboardGroupDragDeltaFrames(input: {
 }
 
 /**
- * 松手时从最终指针位置重新计算位移。拖动虚影属于 React 展示 state，可能还没
- * 刷到本次 pointerup 的闭包里；真实提交不能依赖那份异步状态。
- */
-export function storyboardReleasedDragDeltaFrames(input: {
-  startClientX: number;
-  releaseClientX: number;
-  trackWidthPx: number;
-  totalMs: number;
-}): number {
-  return storyboardGroupDragDeltaFrames({
-    deltaPx: input.releaseClientX - input.startClientX,
-    trackWidthPx: input.trackWidthPx,
-    totalMs: input.totalMs,
-  });
-}
-
-/**
  * 一次 pointermove 之后这次拖动应该处于什么状态：还没越过阈值就是 null，
  * 否则给出方向和已经量化好的整数帧位移。
  *
