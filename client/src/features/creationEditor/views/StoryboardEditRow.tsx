@@ -26,12 +26,13 @@ import {
 import type {
   StoryTimelineItem,
   StoryTimelineOverlay,
-  StoryTimelineVisualLayerState,
 } from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
 import {
+  canRemoveTimelineVisualLayer,
   countTimelineVisualLayerClips,
-  normalizeTimelineVisualLayerState,
+  resolveTimelineVisualLayerState,
+  type ResolvedTimelineVisualLayerState,
   type TimelineVisualLayerAction,
 } from "@shared/timelineVisualLayers";
 import {
@@ -45,6 +46,7 @@ import {
   storyboardTimingTotalMs,
   type StoryboardTimingRow,
 } from "@/features/storyAgent/storyboardTiming";
+import { useStoryImageDrop } from "../useStoryImageDrop";
 
 import {
   STORYBOARD_EDIT_FRAME_MS,
@@ -192,7 +194,8 @@ export type StoryboardBoardTimeline = {
     visualLayer: number;
   }) => Promise<void>;
   overlays?: readonly StoryTimelineOverlay[];
-  visualLayerState?: StoryTimelineVisualLayerState;
+  /** 渲染形态的图层状态：`count` 已含派生的空白投放层，`explicitCount` 是落库值。 */
+  visualLayerState?: ResolvedTimelineVisualLayerState;
   onManageVisualLayer?: (action: TimelineVisualLayerAction) => Promise<void>;
   onRemoveAnchor?: (input: {
     stableShotId: string;
@@ -518,6 +521,7 @@ function StoryboardVisualLayerHeader({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  canDelete,
   onDelete,
   onDropLayer,
 }: {
@@ -530,6 +534,7 @@ function StoryboardVisualLayerHeader({
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  canDelete: boolean;
   onDelete: () => void;
   onDropLayer: (sourceLayer: number) => void;
 }) {
@@ -569,7 +574,7 @@ function StoryboardVisualLayerHeader({
         <button type="button" className="flex h-5 w-5 items-center justify-center rounded-sm transition hover:bg-muted hover:text-foreground" onClick={onToggleHidden} aria-label={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`} title={`${hidden ? "显示" : "隐藏"}视觉层 ${visualLayer + 1}`}>
           {hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
         </button>
-        <button type="button" className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10" onClick={onDelete} aria-label={`删除视觉层 ${visualLayer + 1}`} title="删除图层；非空层会先确认并把素材合并到相邻层">
+        <button type="button" disabled={!canDelete} className="flex h-5 w-5 items-center justify-center rounded-sm text-destructive transition hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30" onClick={onDelete} aria-label={`删除视觉层 ${visualLayer + 1}`} title={canDelete ? "删除图层；非空层会先确认并把素材合并到相邻层" : "最高的空白投放层始终保留，删不掉"}>
           <Trash2 className="h-3 w-3" />
         </button>
       </div>
@@ -609,6 +614,7 @@ function StoryboardUpperVisualLayerRow({
   visualLayer,
   showTopPlayhead,
   hidden,
+  canDelete,
   onManageLayer,
 }: {
   shots: readonly StoryboardEditShot[];
@@ -618,6 +624,7 @@ function StoryboardUpperVisualLayerRow({
   visualLayer: number;
   showTopPlayhead: boolean;
   hidden: boolean;
+  canDelete: boolean;
   onManageLayer: (action: TimelineVisualLayerAction) => void;
 }) {
   const totalMs = Math.max(
@@ -935,6 +942,7 @@ function StoryboardUpperVisualLayerRow({
         onMoveDown={() => onManageLayer({ kind: "move", from: visualLayer, to: visualLayer - 1 })}
         canMoveUp={visualLayer < (timeline.visualLayerState?.count ?? visualLayer + 1) - 1}
         canMoveDown={visualLayer > 0}
+        canDelete={canDelete}
         onDelete={() => onManageLayer({ kind: "remove", layer: visualLayer })}
         onDropLayer={sourceLayer => onManageLayer({ kind: "move", from: sourceLayer, to: visualLayer })}
       />
@@ -1723,6 +1731,7 @@ function StoryboardEditTrack({
     }) | null
   >(null);
   const [dropTargetShotId, setDropTargetShotId] = useState<string | null>(null);
+  const storyImageDrop = useStoryImageDrop();
   const groupDragRef = useRef<{
     clientX: number;
     trackWidthPx: number;
@@ -2472,6 +2481,11 @@ function StoryboardEditTrack({
         onPointerUp={endRangeDrag}
         onPointerCancel={endRangeDrag}
         onDragOver={event => {
+          if (storyImageDrop.accepts(event.dataTransfer)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            return;
+          }
           if (
             !event.dataTransfer.types.includes(SHOT_DRAG_MIME) &&
             !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME)
@@ -2480,6 +2494,14 @@ function StoryboardEditTrack({
           event.dataTransfer.dropEffect = "move";
         }}
         onDrop={event => {
+          // 冒泡到轨道根说明没有落在任何一个镜头块上 —— 那是空档，新开一镜放这张图。
+          // 搬运时间轴上已有 clip 的载荷不走这里，交给下面原有的 IMAGE_CLIP 分支。
+          if (storyImageDrop.accepts(event.dataTransfer)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void storyImageDrop.drop(event.dataTransfer, { kind: "new-shot" });
+            return;
+          }
           const imagePayload = event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
           if (imagePayload && timeline.onMoveTimelineImageClip) {
             const atMs = trackMsFromPointer(event.clientX);
@@ -2738,6 +2760,13 @@ function StoryboardEditTrack({
                 });
               }}
               onDragOver={event => {
+                // 从对话框或素材仓库拖来的图片：落在哪一镜就换哪一镜的画面。
+                if (storyImageDrop.accepts(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  setDropTargetShotId(shot.stableShotId);
+                  return;
+                }
                 if (!event.dataTransfer.types.includes(SHOT_DRAG_MIME)) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
@@ -2746,6 +2775,15 @@ function StoryboardEditTrack({
               onDragLeave={() => setDropTargetShotId(null)}
               onDrop={event => {
                 setDropTargetShotId(null);
+                if (storyImageDrop.accepts(event.dataTransfer)) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void storyImageDrop.drop(event.dataTransfer, {
+                    kind: "shot",
+                    stableShotId: shot.stableShotId,
+                  });
+                  return;
+                }
                 const sourceStableShotId =
                   event.dataTransfer.getData(SHOT_DRAG_MIME);
                 if (
@@ -3174,10 +3212,21 @@ export function StoryboardEditRow({
   const timelineItems = shots.flatMap(shot =>
     shot.timelineItem ? [shot.timelineItem] : []
   );
-  const visualLayerState = normalizeTimelineVisualLayerState(
-    timeline.visualLayerState,
-    timelineItems
-  );
+  const timelineOverlays = timeline.overlays ?? [];
+  const visualLayerState =
+    timeline.visualLayerState ??
+    resolveTimelineVisualLayerState(null, timelineItems, timelineOverlays);
+  const persistedLayerState = {
+    count: visualLayerState.explicitCount,
+    hidden: visualLayerState.hidden,
+  };
+  const canRemoveLayer = (layer: number) =>
+    canRemoveTimelineVisualLayer({
+      items: timelineItems,
+      overlays: timelineOverlays,
+      state: persistedLayerState,
+      layer,
+    });
   const mainLayerHidden = visualLayerState.hidden.includes(0);
   const manageVisualLayer = (action: TimelineVisualLayerAction) => {
     if (!timeline.onManageVisualLayer || timeline.writePending) return;
@@ -3190,7 +3239,11 @@ export function StoryboardEditRow({
       ) return;
     }
     if (action.kind === "remove") {
-      const clipCount = countTimelineVisualLayerClips(timelineItems, action.layer);
+      const clipCount = countTimelineVisualLayerClips(
+        timelineItems,
+        action.layer,
+        timelineOverlays
+      );
       if (
         clipCount > 0 &&
         !window.confirm(
@@ -3573,6 +3626,7 @@ export function StoryboardEditRow({
             visualLayer={visualLayer}
             showTopPlayhead={index === 0}
             hidden={visualLayerState.hidden.includes(visualLayer)}
+            canDelete={canRemoveLayer(visualLayer)}
             onManageLayer={manageVisualLayer}
           />
         ))}
@@ -3586,6 +3640,7 @@ export function StoryboardEditRow({
         onMoveDown={() => {}}
         canMoveUp={visualLayerState.count > 1}
         canMoveDown={false}
+        canDelete={canRemoveLayer(0)}
         onDelete={() => manageVisualLayer({ kind: "remove", layer: 0 })}
         onDropLayer={sourceLayer => manageVisualLayer({ kind: "move", from: sourceLayer, to: 0 })}
       />

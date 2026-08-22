@@ -16,7 +16,7 @@ import {
   type TimelineTransform,
   type TimelineVideoEffects,
 } from "../../shared/storyMaterial";
-import { normalizeTimelineVisualLayerState } from "../../shared/timelineVisualLayers";
+import { normalizePersistedVisualLayerState } from "../../shared/timelineVisualLayers";
 import {
   normalizeShotIdentity,
   shotIdentityMatchKeys,
@@ -181,6 +181,11 @@ function timelineOverlays(value: unknown): StoryTimelineOverlay[] {
       mediaEndFrame,
       endFrame,
       stackOrder,
+      // 没有这个字段的历史 overlay 由解析层按写死的上层 1 处理；写过就必须原样带回，
+      // 否则图层重排之后 overlay 会回到错误的层。
+      ...(nonNegativeInteger(record.visualLayer) == null
+        ? {}
+        : { visualLayer: nonNegativeInteger(record.visualLayer)! }),
       leftImageId,
       rightImageId,
       transform: transform(record.transform),
@@ -680,9 +685,10 @@ export async function getStoryMaterialState(
     version: timelineRow?.version ?? 0,
     items: timelineItems,
     overlays: timelineOverlays(timelineRow?.overlays),
-    visualLayerState: normalizeTimelineVisualLayerState(
-      timelineVisualLayerState(timelineRow?.visualLayerState),
-      timelineItems
+    // 落库形态：显式层数 + 隐藏集合。最高那层空白投放层由客户端和导出各自派生，
+    // 不写进文档——写进去就会让「拖上顶层再拖回来」永久多出一层。
+    visualLayerState: normalizePersistedVisualLayerState(
+      timelineVisualLayerState(timelineRow?.visualLayerState)
     ),
   };
   const timelineByShot = new Map(

@@ -31,6 +31,8 @@ import {
   type ShotDisplayLike,
 } from "@shared/shotIdentity";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
+import ImageRefToggleButton from "@/features/storyAgent/views/ImageRefToggleButton";
+import { writeStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
 import { trpc } from "@/lib/trpc";
 import { useCreationEditor } from "../CreationEditorContext";
 import OneClickEditAssistant from "./OneClickEditAssistant";
@@ -405,6 +407,11 @@ export function buildMaterialWarehouseVideoItems(
 function shotLabel(shot: ShotDisplayLike | number | null | undefined) {
   if (shot == null) return "未选镜头";
   return displayShotCode(typeof shot === "number" ? { shotNo: shot } : shot);
+}
+
+/** 引用篮子和提示词清单里显示的来源；仓库里没归位的图就叫「待归类」。 */
+function warehouseImageRefLabel(item: WarehouseImageItem) {
+  return item.shotNo != null ? shotLabel(item) : "待归类";
 }
 
 function videoSourceLabel(item: WarehouseVideoItem) {
@@ -969,7 +976,7 @@ export default function MaterialWarehousePanel({
                     return (
                       <article
                         key={item.image.id}
-                        className="flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
+                        className="relative flex h-full w-52 shrink-0 flex-col overflow-hidden rounded-md border border-border bg-background"
                       >
                         <button
                           type="button"
@@ -983,10 +990,25 @@ export default function MaterialWarehousePanel({
                                 ? `${shotLabel(item)} 图片`
                                 : "未绑定图片"
                             }
-                            className="h-full w-full object-cover"
+                            draggable
+                            onDragStart={event =>
+                              writeStoryImageDragPayload(event.dataTransfer, {
+                                imageId: item.image.id,
+                                imageUrl: item.image.imageUrl,
+                                label: warehouseImageRefLabel(item),
+                              })
+                            }
+                            className="h-full w-full cursor-grab object-cover active:cursor-grabbing"
                             loading="lazy"
                           />
                         </button>
+                        <ImageRefToggleButton
+                          storyId={activeStoryId}
+                          imageId={item.image.id}
+                          imageUrl={item.image.imageUrl}
+                          label={warehouseImageRefLabel(item)}
+                          className="absolute right-1.5 top-1.5"
+                        />
                         <div className="flex shrink-0 items-center gap-2 p-2">
                           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
                             {item.shotNo ? shotLabel(item) : "未绑定"}

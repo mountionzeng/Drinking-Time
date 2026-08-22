@@ -9,6 +9,11 @@ import {
   timelineTotalMs,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
+import {
+  hiddenVisualLayerSet,
+  normalizeVisualLayer,
+  pickVisualWinner,
+} from "@shared/timelineVisualPriority";
 
 export const MIN_STORYBOARD_DURATION_MS = 100;
 export const MAX_STORYBOARD_DURATION_MS = 12_000;
@@ -34,6 +39,8 @@ export type StoryboardTimingRow = {
   durationFrames: number;
   /** 越大越新移动过；重叠时用来决定谁在上面。 */
   stackOrder: number;
+  /** 持久视觉层。重叠时先比层，再比 stackOrder——和导出用的是同一条规则。 */
+  visualLayer: number;
   /** 这一镜身上的位置锚点（绝对帧）。有锚点就永远压过别人。 */
   anchorFrames: number[];
 };
@@ -96,6 +103,7 @@ function rowFromLayout(
     startFrame: row.startFrame,
     durationFrames: row.durationFrames,
     stackOrder: row.stackOrder,
+    visualLayer: normalizeVisualLayer(row.item.visualLayer),
     anchorFrames: (row.item.anchors ?? []).map(anchor => anchor.timelineFrame),
   };
 }
@@ -156,6 +164,7 @@ export function buildStoryboardTimingRows(
         startFrame,
         durationFrames,
         stackOrder: position,
+        visualLayer: 0,
         anchorFrames: [],
       },
     ];
@@ -173,27 +182,34 @@ export function storyboardTimingTotalMs(
 }
 
 /**
- * 某个时刻真正播的是哪一镜：有锚点的优先，其次最近移动过的，最后按稳定顺序。
- * 空档返回 null——不能残留上一镜。
+ * 某个时刻真正播的是哪一镜：锚定的优先，然后按视觉层从上往下，同层再看谁最近
+ * 移动过，最后按稳定顺序。空档返回 null——不能残留上一镜。
+ *
+ * 排序规则来自 `@shared/timelineVisualPriority`，和导出、剪辑行是同一份。以前这里
+ * 少比一项 visualLayer：移动过的底层视频 stackOrder 最高，于是预览让底层盖住上层，
+ * 而导出仍按图层出片，同一份数据两个答案。
  */
 export function storyboardTimingWinnerAt(
   rows: readonly StoryboardTimingRow[],
-  timeMs: number
+  timeMs: number,
+  hiddenVisualLayers: readonly number[] = []
 ): StoryboardTimingRow | null {
+  const hidden = hiddenVisualLayerSet(hiddenVisualLayers);
   const candidates = rows.filter(
-    row => timeMs >= row.startMs && timeMs < row.endMs
+    row =>
+      timeMs >= row.startMs &&
+      timeMs < row.endMs &&
+      !hidden.has(normalizeVisualLayer(row.visualLayer))
   );
-  if (candidates.length === 0) return null;
-  return [...candidates].sort((left, right) => {
-    const leftAnchored = left.anchorFrames.length > 0;
-    const rightAnchored = right.anchorFrames.length > 0;
-    if (leftAnchored !== rightAnchored) return leftAnchored ? -1 : 1;
-    if (left.stackOrder !== right.stackOrder) {
-      return right.stackOrder - left.stackOrder;
-    }
-    if (left.position !== right.position) return left.position - right.position;
-    return left.stableShotId.localeCompare(right.stableShotId);
-  })[0];
+  // 老调用点会传只填了一部分字段的行，这里对缺失字段保持宽容：
+  // 判赢家不该因为少一个 anchorFrames 就整条崩掉。
+  return pickVisualWinner(candidates, row => ({
+    anchored: (row.anchorFrames?.length ?? 0) > 0,
+    visualLayer: normalizeVisualLayer(row.visualLayer),
+    stackOrder: row.stackOrder ?? 0,
+    position: row.position,
+    tieId: row.stableShotId,
+  }));
 }
 
 /** 所有结构边界（每一镜的头和尾），排好序去重，用来做切点导航。 */

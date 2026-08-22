@@ -77,6 +77,7 @@ describe("story timeline overlay persistence", () => {
       userId: 1,
       expectedVersion: 0,
       items: [{ stableShotId: "shot-a", included: true, position: 0 }],
+      visualLayerState: { count: 3, hidden: [1] },
     });
     const take = await createVideoTake({
       storyId: story.id,
@@ -155,6 +156,14 @@ describe("story timeline overlay persistence", () => {
       overlayId: overlay.id,
     });
     expect((applied.timeline.overlays as unknown[])).toHaveLength(1);
+    // 采用生成视频不得顺手抹掉图层数量与显隐：以前这条写入不带 visualLayerState，
+    // encode 就把整个字段丢了，刷新后图层管理全部回到默认。
+    expect(applied.timeline).toMatchObject({
+      visualLayerState: { count: 3, hidden: [1] },
+    });
+    expect(await getStoryTimeline(story.id, 1)).toMatchObject({
+      visualLayerState: { count: 3, hidden: [1] },
+    });
     expect((applied.timeline.items as unknown[])).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ stableShotId: "transition-shot-a" }),

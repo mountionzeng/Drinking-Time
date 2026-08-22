@@ -58,7 +58,9 @@ import {
 } from "@shared/storyMaterial";
 import {
   applyTimelineVisualLayerAction,
-  normalizeTimelineVisualLayerState,
+  normalizePersistedVisualLayerState,
+  resolveTimelineVisualLayerState,
+  type ResolvedTimelineVisualLayerState,
   type TimelineVisualLayerAction,
 } from "@shared/timelineVisualLayers";
 import {
@@ -186,7 +188,8 @@ type CreationEditorContextValue = {
   /** 当前故事的时间线条目，绝对帧位置和锚点都在里面。 */
   timelineItems: StoryTimelineItem[];
   timelineOverlays: StoryTimelineOverlay[];
-  timelineVisualLayerState: StoryTimelineVisualLayerState;
+  /** 渲染形态：`count` 含派生的空白投放层，`explicitCount` 才是落库值。 */
+  timelineVisualLayerState: ResolvedTimelineVisualLayerState;
   manageTimelineVisualLayer: (
     action: TimelineVisualLayerAction
   ) => Promise<void>;
@@ -1761,13 +1764,23 @@ export function CreationEditorProvider({
     () => storyMaterialQuery.data?.timeline.overlays ?? [],
     [storyMaterialQuery.data?.timeline.overlays]
   );
+  /** 落库形态：显式层数 + 隐藏集合。图层操作和撤销都以它为输入。 */
+  const persistedVisualLayerState = useMemo(
+    () =>
+      normalizePersistedVisualLayerState(
+        storyMaterialQuery.data?.timeline.visualLayerState
+      ),
+    [storyMaterialQuery.data?.timeline.visualLayerState]
+  );
+  /** 渲染形态：显式层之上再算出一层空白投放层。 */
   const timelineVisualLayerState = useMemo(
     () =>
-      normalizeTimelineVisualLayerState(
-        storyMaterialQuery.data?.timeline.visualLayerState,
-        timelineItems
+      resolveTimelineVisualLayerState(
+        persistedVisualLayerState,
+        timelineItems,
+        timelineOverlays
       ),
-    [storyMaterialQuery.data?.timeline.visualLayerState, timelineItems]
+    [persistedVisualLayerState, timelineItems, timelineOverlays]
   );
 
   const saveTimelineItems = useCallback(
@@ -1783,6 +1796,8 @@ export function CreationEditorProvider({
       if (activeId == null) return;
       const previousIds = timelineShotIds;
       const previousItems = timelineItems;
+      const previousVisualLayerState = persistedVisualLayerState;
+      const previousOverlays = timelineOverlays;
       const projectedRows = buildTimelineLayout(items);
       const projectedById = new Map(
         projectedRows.map(row => [row.item.stableShotId, row] as const)
@@ -1814,11 +1829,21 @@ export function CreationEditorProvider({
               : { visualLayerState: options.visualLayerState }),
           });
           if (result.status !== "ok") throw new Error(result.error);
-          if (
-            options.recordUndo !== false &&
-            JSON.stringify(previousItems) !== JSON.stringify(normalized)
-          ) {
-            recordTimelineUndoSnapshot(activeId, previousItems);
+          const changed =
+            JSON.stringify(previousItems) !== JSON.stringify(normalized) ||
+            (options.visualLayerState !== undefined &&
+              JSON.stringify(previousVisualLayerState) !==
+                JSON.stringify(options.visualLayerState)) ||
+            (options.overlays !== undefined &&
+              JSON.stringify(previousOverlays) !==
+                JSON.stringify(options.overlays));
+          if (options.recordUndo !== false && changed) {
+            // 图层顺序、层数和显隐必须和素材一起进同一条撤销记录，
+            // 否则一次 Cmd+Z 只还原一半。
+            recordTimelineUndoSnapshot(activeId, previousItems, {
+              visualLayerState: previousVisualLayerState,
+              overlays: previousOverlays,
+            });
           }
           await storyMaterialQuery.refetch();
         } catch (error) {
@@ -1832,6 +1857,7 @@ export function CreationEditorProvider({
     },
     [
       activeId,
+      persistedVisualLayerState,
       storyMaterialQuery,
       timelineItems,
       timelineOverlays,
@@ -1842,16 +1868,25 @@ export function CreationEditorProvider({
 
   const manageTimelineVisualLayer = useCallback(
     async (action: TimelineVisualLayerAction) => {
+      // 一次操作把图片、视频、旧片段和遗留 overlay 一起重编号，再一次写入落库。
       const change = applyTimelineVisualLayerAction({
         items: timelineItems,
-        state: timelineVisualLayerState,
+        overlays: timelineOverlays,
+        state: persistedVisualLayerState,
         action,
       });
       await saveTimelineItems(change.items, {
         throwOnError: true,
+        overlays: change.overlays,
         visualLayerState: change.state,
       });
-    }, [saveTimelineItems, timelineItems, timelineVisualLayerState]
+    },
+    [
+      persistedVisualLayerState,
+      saveTimelineItems,
+      timelineItems,
+      timelineOverlays,
+    ]
   );
 
   const addShotToTimeline = useCallback(
@@ -3294,6 +3329,10 @@ export function CreationEditorProvider({
         await saveTimelineItems(entry.items, {
           throwOnError: true,
           recordUndo: false,
+          ...(entry.visualLayerState === undefined
+            ? {}
+            : { visualLayerState: entry.visualLayerState }),
+          ...(entry.overlays === undefined ? {} : { overlays: entry.overlays }),
         });
       } else if (entry.kind === "deleted-story-shot") {
         const result = await restoreDeletedStoryShotMut.mutateAsync({

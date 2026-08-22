@@ -50,6 +50,7 @@ const shots: StoryboardEditShot[] = [
       startFrame: 0,
       durationFrames: 60,
       stackOrder: 0,
+      visualLayer: 0,
       anchorFrames: [],
     },
     shotLabel: "0101",
@@ -69,6 +70,7 @@ const shots: StoryboardEditShot[] = [
       startFrame: 60,
       durationFrames: 180,
       stackOrder: 1,
+      visualLayer: 0,
       anchorFrames: [],
     },
     shotLabel: "0102",
@@ -486,7 +488,7 @@ describe("StoryboardEditRow", () => {
   it("renders persistent controls for hiding, inserting, deleting and moving every layer", () => {
     const html = renderRow(
       boardTimeline({
-        visualLayerState: { count: 3, hidden: [1] },
+        visualLayerState: { count: 3, explicitCount: 3, hidden: [1] },
         onManageVisualLayer: vi.fn(),
       })
     );
@@ -498,6 +500,22 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain("在下方插入图层");
     expect(html).toContain("拖动可调整整层顺序");
     expect(html).toContain("opacity-35 grayscale");
+  });
+
+  /**
+   * 最高那一层空白投放层是算出来的，删了会立刻按同样规则长回来。按钮必须显示为
+   * 禁用，而不是点下去提示「图层已更新」但界面纹丝不动。
+   */
+  it("disables delete on the derived blank drop layer and keeps it on real layers", () => {
+    const html = renderRow(
+      boardTimeline({
+        visualLayerState: { count: 3, explicitCount: 1, hidden: [] },
+        onManageVisualLayer: vi.fn(),
+      })
+    );
+    expect(html).toContain("最高的空白投放层始终保留，删不掉");
+    const topDelete = html.slice(html.indexOf('aria-label="删除视觉层 3"') - 400);
+    expect(topDelete.slice(0, 400)).toContain("disabled");
   });
 
   it("renders a legacy overlay only once even when several visual layers exist", () => {

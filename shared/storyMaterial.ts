@@ -194,15 +194,26 @@ export type StoryTimelineOverlay = {
   /** max(targetEndFrame, mediaEndFrame), so the uncovered tail remains an explicit gap. */
   endFrame: number;
   stackOrder: number;
+  /**
+   * 兼容图层。历史 overlay 没有这个字段，解析时按写死的上层 1 处理；一旦图层被
+   * 插入、删除或整层排序，这里会被一起重编号，overlay 不会停在错误的层上。
+   */
+  visualLayer?: number;
   leftImageId: number;
   rightImageId: number;
   transform: TimelineTransform;
   effects?: TimelineVideoEffects;
 };
 
-/** Persistent management state for ordinary visual layers. Layers are indexed bottom-up. */
+/**
+ * Persistent management state for ordinary visual layers. Layers are indexed bottom-up.
+ *
+ * `count` 只记「用户明确建出来的层数」。最高那一层空白投放层是**派生**的，不写进
+ * 数据库——否则把素材拖上顶层会让 count 永久 +1，再拖回来也退不掉，空层越攒越多。
+ * 渲染要用的层数一律走 `resolveTimelineVisualLayerState().count`。
+ */
 export type StoryTimelineVisualLayerState = {
-  /** Total number of editable visual layers, including the primary layer at index 0. */
+  /** Explicitly created layers, including the primary layer at index 0. */
   count: number;
   /** Hidden layers do not participate in preview or export resolution. */
   hidden: number[];

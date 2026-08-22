@@ -43,13 +43,15 @@ import type {
   StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
-  timelineImageClipStartFrame,
   timelineOffsetMsToFrames,
 } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
 import {
   buildTimelineLayout,
+  overlayVisualLayer,
   resolveTimelineDocumentFrame,
+  resolveTimelineImageClipAt,
+  timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 
@@ -319,33 +321,17 @@ export function timelineVisualClipFrameUrl(
   return `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
 }
 
+/** 解析实现已经收敛到 `@shared/timelineLayout`；这里只保留调用点习惯的签名。 */
 export function resolveTimelineImageClip(
   items: readonly StoryTimelineItem[],
   timelineFrame: number,
   hiddenVisualLayers: readonly number[] = []
 ) {
-  const frame = Math.max(0, Math.round(timelineFrame));
-  const hidden = new Set(hiddenVisualLayers);
-  return buildTimelineLayout(items)
-    .flatMap(row =>
-      (row.item.imageClips ?? []).map(clip => ({
-        clip,
-        stableShotId: row.item.stableShotId,
-        startFrame: timelineImageClipStartFrame(clip, row.startFrame),
-      }))
-    )
-    .filter(
-      candidate =>
-        !hidden.has(candidate.clip.visualLayer) &&
-        frame >= candidate.startFrame &&
-        frame < candidate.startFrame + candidate.clip.durationFrames
-    )
-    .sort(
-      (left, right) =>
-        right.clip.visualLayer - left.clip.visualLayer ||
-        right.startFrame - left.startFrame ||
-        right.clip.id.localeCompare(left.clip.id)
-    )[0] ?? null;
+  return resolveTimelineImageClipAt({
+    items,
+    hiddenVisualLayers,
+    frame: timelineFrame,
+  });
 }
 
 export function timelineImageWinsVisualOverlap(
@@ -353,7 +339,10 @@ export function timelineImageWinsVisualOverlap(
   video: Pick<TimelineVideoSource, "visualLayer"> | null
 ): boolean {
   if (!image) return false;
-  return !video || image.clip.visualLayer >= video.visualLayer;
+  return timelineImageBeatsVisualSource(
+    image as Parameters<typeof timelineImageBeatsVisualSource>[0],
+    video ? video.visualLayer : null
+  );
 }
 
 export function duplicatedTimelineImageClipId(input: {
@@ -421,7 +410,7 @@ export function resolveTimelineVideoSource(
       effects: overlay.effects ?? { ...DEFAULT_TIMELINE_VIDEO_EFFECTS },
       transform: overlay.transform,
       overlayId: overlay.id,
-      visualLayer: 1,
+      visualLayer: overlayVisualLayer(overlay),
     };
   }
   const timings = buildStoryboardTimingRows(
@@ -432,7 +421,8 @@ export function resolveTimelineVideoSource(
   const totalMs = storyboardTimingTotalMs(timings);
   const lookupMs = Math.min(Math.max(0, playheadMs), Math.max(0, totalMs - 1));
   // 空档就是空档：返回 null，让预览画黑场，不要退回上一镜的画面。
-  const timing = storyboardTimingWinnerAt(timings, lookupMs);
+  // 隐藏层不参与赢家解析，和文档解析、导出用的是同一个隐藏集合。
+  const timing = storyboardTimingWinnerAt(timings, lookupMs, hiddenVisualLayers);
   if (!timing) return null;
   const shot = shots.find(item => item.shotNo === timing.shotNo);
   if (!shot) return null;
