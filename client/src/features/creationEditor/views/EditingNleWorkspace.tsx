@@ -49,8 +49,8 @@ import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
 import {
   buildTimelineLayout,
   overlayVisualLayer,
-  resolveTimelineDocumentFrame,
   resolveTimelineImageClipAt,
+  resolveTimelineVisualFrame,
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
@@ -374,13 +374,16 @@ export function resolveTimelineVideoSource(
 ): TimelineVideoSource | null {
   const timelineItems = timelineItemsForShots(shots);
   const timelineFrame = Math.max(0, Math.round((playheadMs * 30) / 1_000));
-  const documentResolution = resolveTimelineDocumentFrame({
+  const documentResolution = resolveTimelineVisualFrame({
     items: timelineItems,
     overlays,
     hiddenVisualLayers,
     frame: timelineFrame,
   });
-  if (documentResolution.kind === "gap") return null;
+  if (
+    documentResolution.kind === "gap" ||
+    documentResolution.kind === "image"
+  ) return null;
   if (documentResolution.kind === "overlay") {
     const overlay = documentResolution.overlay;
     const sourceShot = shots.find(
@@ -2638,20 +2641,24 @@ export default function EditingNleWorkspace({
     ]
   );
   const activeTimelineImageSource = useMemo(() => {
-    const resolved = resolveTimelineImageClip(
-      timelineItems,
-      Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000)),
-      timelineVisualLayerState.hidden
-    );
-    return timelineImageWinsVisualOverlap(resolved, activeTimelineVideoSource)
+    const resolved = resolveTimelineVisualFrame({
+      items: timelineItems,
+      overlays: timelineOverlays,
+      hiddenVisualLayers: timelineVisualLayerState.hidden,
+      frame: Math.max(
+        0,
+        Math.round((timelinePlayback.playheadMs * 30) / 1000)
+      ),
+    });
+    return resolved.kind === "image"
       ? {
-          imageUrl: resolved!.clip.imageUrl,
-          transform: resolved!.clip.transform,
+          imageUrl: resolved.placement.clip.imageUrl,
+          transform: resolved.placement.clip.transform,
         }
       : null;
   }, [
-    activeTimelineVideoSource,
     timelineItems,
+    timelineOverlays,
     timelinePlayback.playheadMs,
     timelineVisualLayerState.hidden,
   ]);
@@ -3119,11 +3126,12 @@ export default function EditingNleWorkspace({
   const extractFrameAtPlayhead = useCallback(
     async (playheadMs: number) => {
       const timelineFrame = timelineOffsetMsToFrames(playheadMs);
-      const imageSource = resolveTimelineImageClip(
-        timelineItems,
-        timelineFrame,
-        timelineVisualLayerState.hidden
-      );
+      const visualSource = resolveTimelineVisualFrame({
+        items: timelineItems,
+        overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
+        frame: timelineFrame,
+      });
       const source = resolveTimelineVideoSource(
         shots,
         timelineShotIds,
@@ -3131,18 +3139,19 @@ export default function EditingNleWorkspace({
         timelineOverlays,
         timelineVisualLayerState.hidden
       );
-      if (timelineImageWinsVisualOverlap(imageSource, source)) {
-        const targetLayer = extractedFrameTargetVisualLayer(imageSource!.clip);
+      if (visualSource.kind === "image") {
+        const imageSource = visualSource.placement;
+        const targetLayer = extractedFrameTargetVisualLayer(imageSource.clip);
         await addTimelineImageClip({
           clipId: duplicatedTimelineImageClipId({
-            imageId: imageSource!.clip.imageId,
+            imageId: imageSource.clip.imageId,
             timelineFrame,
             visualLayer: targetLayer,
           }),
-          stableShotId: imageSource!.stableShotId,
+          stableShotId: imageSource.stableShotId,
           timelineFrame,
-          imageId: imageSource!.clip.imageId,
-          imageUrl: imageSource!.clip.imageUrl,
+          imageId: imageSource.clip.imageId,
+          imageUrl: imageSource.clip.imageUrl,
           label: `抽帧 ${formatStoryboardTimestamp(playheadMs)}`,
           visualLayer: targetLayer,
         });
@@ -3332,12 +3341,13 @@ export default function EditingNleWorkspace({
           timelineOverlays,
           timelineVisualLayerState.hidden
         );
-        const image = resolveTimelineImageClip(
-          timelineItems,
-          timelineOffsetMsToFrames(playheadMs),
-          timelineVisualLayerState.hidden
-        );
-        return Boolean(source || image);
+        const visual = resolveTimelineVisualFrame({
+          items: timelineItems,
+          overlays: timelineOverlays,
+          hiddenVisualLayers: timelineVisualLayerState.hidden,
+          frame: timelineOffsetMsToFrames(playheadMs),
+        });
+        return Boolean(source || visual.kind === "image");
       },
       onSeek: playheadMs =>
         setTimelineSeekRequest(current => ({

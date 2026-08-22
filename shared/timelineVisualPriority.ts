@@ -12,6 +12,11 @@ export type VisualPriority = {
   anchored: boolean;
   /** 越大越靠上。 */
   visualLayer: number;
+  /**
+   * 同层素材种类的显式优先级。普通镜头和 overlay 为 0；用户明确放置的一帧
+   * 图片为 1，因此保留「同层图片在视频之上」的既有交互语义。
+   */
+  sourceKindOrder?: number;
   /** 同层内越大越新移动过。 */
   stackOrder: number;
   /** 同层同优先级时位置小的在上。 */
@@ -33,6 +38,11 @@ export function compareVisualPriority(
   const leftLayer = normalizeVisualLayer(left.visualLayer);
   const rightLayer = normalizeVisualLayer(right.visualLayer);
   if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+  const leftSourceKind = left.sourceKindOrder ?? 0;
+  const rightSourceKind = right.sourceKindOrder ?? 0;
+  if (leftSourceKind !== rightSourceKind) {
+    return leftSourceKind - rightSourceKind;
+  }
   if (left.stackOrder !== right.stackOrder) {
     return left.stackOrder - right.stackOrder;
   }

@@ -314,6 +314,29 @@ describe("一帧图片和视频走同一套规则", () => {
     expect(timelineImageBeatsVisualSource(image, 5)).toBe(false);
   });
 
+  it("同层显式图片通过统一解析器压过视频", () => {
+    const sameLayerItems = [
+      item("base", {
+        position: 0,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 2,
+        stackOrder: 999,
+        imageClips: [{ ...still, visualLayer: 2 }],
+      }),
+    ];
+    const resolution = resolveTimelineFrameSource({
+      rows: buildTimelineLayout(sameLayerItems),
+      shotsById: new Map([["base", { currentImageId: 42 }]]),
+      overlays: [],
+      timelineFrame: 30,
+    });
+    expect(resolution).toMatchObject({
+      kind: "source",
+      sourceId: "image-1658",
+    });
+  });
+
   it("隐藏图片所在层后它不参与解析", () => {
     expect(resolveTimelineImageClipAt({ items, frame: 30, hiddenVisualLayers: [2] })).toBe(
       null
@@ -333,6 +356,38 @@ describe("一帧图片和视频走同一套规则", () => {
     expect(resolution.sourceType).toBe("image");
     expect(resolution.sourceId).toBe("image-1658");
     expect(resolution.durationFrames).toBe(1);
+  });
+
+  it("锚定镜头仍然压过更高层的一帧图片", () => {
+    const anchoredItems = [
+      item("anchored", {
+        position: 0,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 0,
+        anchors: [
+          {
+            id: "anchor-30",
+            timelineFrame: 30,
+            sourceType: "primary-video",
+            sourceId: "take-anchored",
+            sourceTimeSec: 1,
+          },
+        ],
+        imageClips: [still],
+      }),
+    ];
+    const resolution = resolveTimelineFrameSource({
+      rows: buildTimelineLayout(anchoredItems),
+      shotsById: new Map([["anchored", { currentImageId: 42 }]]),
+      overlays: [],
+      hiddenVisualLayers: [],
+      timelineFrame: 30,
+    });
+    expect(resolution.kind).toBe("source");
+    if (resolution.kind !== "source") return;
+    expect(resolution.stableShotId).toBe("anchored");
+    expect(resolution.sourceId).toBe("image-42");
   });
 
   it("图片所在层被隐藏时，锚点回落到下层视频", () => {

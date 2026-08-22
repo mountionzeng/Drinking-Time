@@ -1384,7 +1384,8 @@
         "抽帧确认页接受最长 2000 字的完整画面描述；路由必须原样保留 instruction 与运动幅度，不能在进入服务层前剥离。",
         "首尾帧是确定边界；用户明确描述的场景、动作、形变、光线和运镜是最高优先级，未指定内容的连续性不得覆盖、删除或弱化这些要求。",
         "预览、剪辑线和导出必须使用同一视觉层优先级；遗留 overlay 只作为兼容输入，不再是新剪辑的交互模型。",
-        "预览、剪辑行和导出必须使用同一个视觉优先级比较器（shared/timelineVisualPriority）：锚定 > 视觉层 > stackOrder > position > 稳定 id；任何一条解析路径都不得自带排序。",
+        "预览、剪辑行和导出必须使用同一个视觉优先级比较器（shared/timelineVisualPriority）：锚定 > 视觉层 > 同层素材种类（显式图片优先）> stackOrder > position > 稳定 id；任何一条解析路径都不得自带排序。",
+        "交互界面判断某一帧的可见素材必须调用 resolveTimelineVisualFrame，一次性比较普通镜头、遗留 overlay 和一帧图片；禁止先解析视频再用图片图层数字二次覆盖，否则会破坏锚定优先级。",
         "visualLayerState.count 只记用户显式建出来的层数；最高那层空白投放层是派生的，不落库——把素材拖上顶层再拖回来不得留下多余空层。",
         "遗留 overlay 带兼容图层（缺省为 1），图层插入、删除和整层排序必须把它一起重编号。",
         "隐藏层必须在同一处退出全部可见素材解析：预览赢家、文档解析、一帧图片解析、锚点创建和导出。",
@@ -1475,6 +1476,11 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "系统性收敛视觉图层数据流，替换按现象打补丁：根因是同一份数据有两套赢家规则——预览走 storyboardTimingWinnerAt（只比 stackOrder），导出走 timelineLayout（比 visualLayer），而移动镜头会把 stackOrder 抬到最高，于是移动过底层视频后预览让底层盖住上层、导出仍按图层出片。新增 shared/timelineVisualPriority.ts 作为唯一比较器（锚定 > 视觉层 > stackOrder > position > 稳定 id），预览、剪辑行、文档解析和导出全部改为调用它；一帧图片解析上移到 shared/timelineLayout，锚点创建改为能看见图片并跳过隐藏层。修复隐藏层泄漏进预览赢家；隐藏一层不再改变其它层的隐式起点；遗留 overlay 改为携带可重编号的兼容图层，不再写死层 1；采用抽帧生成视频的原子事务不再抹掉 visualLayerState；图层顺序/层数/显隐进同一条撤销记录（只改显隐也会记一条）；visualLayerState.count 改为只记显式层数、空白顶层改为派生，消除「拖上顶层再拖回来多一层」的棘轮；最高空白投放层的删除按钮改为禁用。 另补磁吸接缝的隐藏层过滤：timelineMagneticJoins 先按隐藏集合筛掉行再找接缝。 切割时把遗留 overlay 迁移成普通镜头，改为落在 overlay 当前真正所在的层，不再写死层 1。"
+        },
+        {
+          "date": "2026-08-22",
+          "kind": "fix",
+          "summary": "继续收敛帧级视觉解析：发现图片仍在 resolveTimelineDocumentFrame 之后单独按图层二次覆盖，导致高层一帧图片错误压过锚定镜头，违背既有『锚定永远优先』约束。新增 resolveTimelineVisualFrame 作为交互界面唯一入口，一次比较普通镜头、遗留 overlay 与图片；同层显式图片优先改为比较器中的明确 sourceKindOrder，不再由调用方临时判断。Preview、抽帧来源、可抽帧能力和锚点创建全部改走该入口。另补齐 undo 快照对 imageClip transform、overlay transform/effects 的深拷贝，避免保存后的对象变更污染历史记录。备份快照确认 Story 1186 的 34→35 镜头变化来自 Take 1603 的合法第三方采用，visualLayerState 始终保持 count=4、hidden=[2]，不是图层状态丢失。"
         }
       ]
     },

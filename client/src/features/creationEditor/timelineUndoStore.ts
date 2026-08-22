@@ -69,7 +69,21 @@ function cloneTimelineItems(
       effects: clip.effects ? { ...clip.effects } : undefined,
       transform: clip.transform ? { ...clip.transform } : undefined,
     })),
+    imageClips: item.imageClips?.map(clip => ({
+      ...clip,
+      transform: clip.transform ? { ...clip.transform } : undefined,
+    })),
     anchors: item.anchors?.map(anchor => ({ ...anchor })),
+  }));
+}
+
+function cloneTimelineOverlays(
+  overlays: readonly StoryTimelineOverlay[]
+): StoryTimelineOverlay[] {
+  return overlays.map(overlay => ({
+    ...overlay,
+    transform: { ...overlay.transform },
+    effects: overlay.effects ? { ...overlay.effects } : undefined,
   }));
 }
 
@@ -97,7 +111,7 @@ export function recordTimelineUndoSnapshot(
       }
     : undefined;
   const overlays = extra.overlays
-    ? extra.overlays.map(overlay => ({ ...overlay }))
+    ? cloneTimelineOverlays(extra.overlays)
     : undefined;
   const latest = stack[stack.length - 1];
   if (
@@ -166,7 +180,9 @@ export function takeCreationEditorUndoEntry(
             hidden: [...entry.visualLayerState.hidden],
           }
         : undefined,
-      overlays: entry.overlays?.map(overlay => ({ ...overlay })),
+      overlays: entry.overlays
+        ? cloneTimelineOverlays(entry.overlays)
+        : undefined,
     };
   }
   if (entry.kind === "deleted-story-shot") {
