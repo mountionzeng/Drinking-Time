@@ -1474,7 +1474,7 @@
         {
           "date": "2026-08-22",
           "kind": "fix",
-          "summary": "系统性收敛视觉图层数据流，替换按现象打补丁：根因是同一份数据有两套赢家规则——预览走 storyboardTimingWinnerAt（只比 stackOrder），导出走 timelineLayout（比 visualLayer），而移动镜头会把 stackOrder 抬到最高，于是移动过底层视频后预览让底层盖住上层、导出仍按图层出片。新增 shared/timelineVisualPriority.ts 作为唯一比较器（锚定 > 视觉层 > stackOrder > position > 稳定 id），预览、剪辑行、文档解析和导出全部改为调用它；一帧图片解析上移到 shared/timelineLayout，锚点创建改为能看见图片并跳过隐藏层。修复隐藏层泄漏进预览赢家；隐藏一层不再改变其它层的隐式起点；遗留 overlay 改为携带可重编号的兼容图层，不再写死层 1；采用抽帧生成视频的原子事务不再抹掉 visualLayerState；图层顺序/层数/显隐进同一条撤销记录（只改显隐也会记一条）；visualLayerState.count 改为只记显式层数、空白顶层改为派生，消除「拖上顶层再拖回来多一层」的棘轮；最高空白投放层的删除按钮改为禁用。 另补磁吸接缝的隐藏层过滤：timelineMagneticJoins 先按隐藏集合筛掉行再找接缝。"
+          "summary": "系统性收敛视觉图层数据流，替换按现象打补丁：根因是同一份数据有两套赢家规则——预览走 storyboardTimingWinnerAt（只比 stackOrder），导出走 timelineLayout（比 visualLayer），而移动镜头会把 stackOrder 抬到最高，于是移动过底层视频后预览让底层盖住上层、导出仍按图层出片。新增 shared/timelineVisualPriority.ts 作为唯一比较器（锚定 > 视觉层 > stackOrder > position > 稳定 id），预览、剪辑行、文档解析和导出全部改为调用它；一帧图片解析上移到 shared/timelineLayout，锚点创建改为能看见图片并跳过隐藏层。修复隐藏层泄漏进预览赢家；隐藏一层不再改变其它层的隐式起点；遗留 overlay 改为携带可重编号的兼容图层，不再写死层 1；采用抽帧生成视频的原子事务不再抹掉 visualLayerState；图层顺序/层数/显隐进同一条撤销记录（只改显隐也会记一条）；visualLayerState.count 改为只记显式层数、空白顶层改为派生，消除「拖上顶层再拖回来多一层」的棘轮；最高空白投放层的删除按钮改为禁用。 另补磁吸接缝的隐藏层过滤：timelineMagneticJoins 先按隐藏集合筛掉行再找接缝。 切割时把遗留 overlay 迁移成普通镜头，改为落在 overlay 当前真正所在的层，不再写死层 1。"
         }
       ]
     },

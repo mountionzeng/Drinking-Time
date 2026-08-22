@@ -64,6 +64,7 @@ import {
 } from "@shared/timelineVisualLayers";
 import {
   buildTimelineLayout,
+  overlayVisualLayer,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
 import {
@@ -3463,12 +3464,20 @@ export function CreationEditorProvider({
       });
     let timelineVersion = storyMaterialQuery.data?.timeline.version ?? 0;
     if (input.overlayId) {
+      // 迁移到 overlay 当前真正所在的那一层，而不是写死的 1：图层排序之后
+      // 遗留 overlay 可能已经被重编号，写死会让切割出来的镜头落在错误的层。
+      const promotedOverlay = timelineOverlays.find(
+        overlay => overlay.id === input.overlayId
+      );
+      const promotedLayer = promotedOverlay
+        ? overlayVisualLayer(promotedOverlay)
+        : 1;
       const promoted = await updateStoryTimelineMut.mutateAsync({
         storyId: activeId,
         expectedVersion: timelineVersion,
         items: timelineItems.map(item =>
           item.stableShotId === input.stableShotId
-            ? { ...item, visualLayer: 1 }
+            ? { ...item, visualLayer: promotedLayer }
             : item
         ),
         overlays: timelineOverlays.filter(overlay => overlay.id !== input.overlayId),
