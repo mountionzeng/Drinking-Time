@@ -1184,6 +1184,20 @@ export function timelineClipPointerPlacement(input: {
   };
 }
 
+export const TIMELINE_IMAGE_CLIP_MIN_INTERACTION_WIDTH_PX = 28;
+
+export function timelineClipInteractionWidth(input: {
+  renderedWidth: number;
+  moveKind?: TimelineClipMoveTarget["kind"];
+}): number {
+  const renderedWidth = Number.isFinite(input.renderedWidth)
+    ? Math.max(0, input.renderedWidth)
+    : 0;
+  return input.moveKind === "image"
+    ? Math.max(TIMELINE_IMAGE_CLIP_MIN_INTERACTION_WIDTH_PX, renderedWidth)
+    : renderedWidth;
+}
+
 export function timelinePointerDragExceededThreshold(input: {
   startClientX: number;
   startClientY: number;
@@ -2721,6 +2735,12 @@ function MultiTrackTimeline({
                     4,
                     ((clip.endMs - clip.startMs) / 1000) * scale
                   );
+                  const isMovableImageClip =
+                    clip.moveTarget?.kind === "image";
+                  const interactionWidth = timelineClipInteractionWidth({
+                    renderedWidth: width,
+                    moveKind: clip.moveTarget?.kind,
+                  });
                   const selected =
                         lane.domain === "visual" &&
                         clip.shotNo === selectedShotNo;
@@ -2785,12 +2805,13 @@ function MultiTrackTimeline({
                         if (clip.videoEditTarget) event.stopPropagation();
                       }}
                       data-timeline-clip="true"
-                          className={`absolute bottom-0.5 top-0.5 z-10 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${clip.moveTarget ? "touch-none cursor-grab active:cursor-grabbing" : ""} ${laneColors(
+                      data-timeline-clip-kind={clip.moveTarget?.kind}
+                          className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isMovableImageClip ? "z-20 hover:z-30 focus-visible:z-30" : "z-10"} ${clip.moveTarget ? "touch-none cursor-grab active:cursor-grabbing" : ""} ${laneColors(
                         lane.tone
                           )} ${selected ? "ring-2 ring-primary" : ""}`}
                           style={{
                             left,
-                            width,
+                            width: interactionWidth,
                             transform:
                               pointerDragPreview?.moveId === clip.id
                                 ? `translateX(${pointerDragPreview.deltaX}px)`

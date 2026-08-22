@@ -18,6 +18,7 @@ import {
   timelineAudioVolume,
   timelineLaneDomain,
   timelineClipPointerPlacement,
+  timelineClipInteractionWidth,
   timelineClipKeyboardPlacement,
   timelinePointerDragExceededThreshold,
   timelineSubtitleText,
@@ -85,6 +86,27 @@ describe("editing workspace project canvas", () => {
         targetVisualLayer: 4,
       })
     ).toEqual({ deltaFrames: 120, visualLayer: 4 });
+  });
+
+  it("keeps a one-frame image easy to grab without inflating its stored duration", () => {
+    expect(
+      timelineClipInteractionWidth({
+        renderedWidth: 4,
+        moveKind: "image",
+      })
+    ).toBe(28);
+    expect(
+      timelineClipInteractionWidth({
+        renderedWidth: 44,
+        moveKind: "image",
+      })
+    ).toBe(44);
+    expect(
+      timelineClipInteractionWidth({
+        renderedWidth: 4,
+        moveKind: "video",
+      })
+    ).toBe(4);
   });
 
   it("normalizes pointer placement at the timeline and layer boundaries", () => {
