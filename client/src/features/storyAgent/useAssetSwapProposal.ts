@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
-import { estimateStoryboardMaskedEditCost } from "@shared/imageRenderCost";
+import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
 import type {
   StoryVisualAsset,
   ShotVisualAssetBinding,
@@ -9,7 +9,7 @@ import type { SelectionContext } from "@shared/selectionContext";
 import { readableRerenderError } from "@/features/creationEditor/rerender";
 import { trpc } from "@/lib/trpc";
 import {
-  assetKindLabel,
+  buildAssetSwapRenderPrompt,
   detectAssetSwapIntent,
   describeAssetSwapProposal,
   type AssetSwapCandidate,
@@ -131,7 +131,7 @@ export function useAssetSwapProposal(input: {
         shotLabel: input.shotLabelOf(selection.shotNo, stableShotId),
         imageId: selection.imageId ?? null,
         instruction,
-        estimatedCny: estimateStoryboardMaskedEditCost().estimatedCny,
+        estimatedCny: estimateStoryboardImageCost().estimatedCny,
         alreadyBound,
       };
     },
@@ -227,14 +227,12 @@ export function useAssetSwapProposal(input: {
         // 必须带 shotNo：服务端据此解析这一镜绑定的资产，拿到人物身份锚点。
         // 不传就走不到 resolveVisualAssetGenerationContext，送进模型的只是一张裸图。
         ...(proposal.shotNo != null ? { shotNo: proposal.shotNo } : {}),
-        prompt: [
-          `${proposal.shotLabel}：按已绑定的${assetKindLabel(proposal.kind)}资产重画这一镜。`,
-          `用户要求（原话，严格执行）：`,
-          proposal.instruction,
-          `画面的地点、构图、机位和光线以当前这张图为准，只把${assetKindLabel(proposal.kind)}换成绑定的资产。`,
-        ].join("\n"),
-        explicitInstruction: proposal.instruction,
-        imageProvider: "gpt-image",
+        // 绑定之后，镜头文字不能再描述这一维的身份：一致性闸门会把
+        // 「把人换成…」判成「镜头文字要求改变已锁定的 character 事实」并整单拒绝。
+        // 用户那句话已经由绑定本身执行掉了，不该再原样送进提示词。
+        prompt: buildAssetSwapRenderPrompt(proposal),
+        // 不传 imageProvider：资产链路目前只验证过默认供应商，
+        // 传 gpt-image 会被 provider-role-unsupported 挡在付费之前。
         costConfirmation: {
           accepted: true,
           estimatedCny: proposal.estimatedCny,

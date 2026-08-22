@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAssetSwapRenderPrompt,
   describeAssetSwapProposal,
   detectAssetSwapIntent,
   detectAssetSwapKind,
@@ -135,10 +136,42 @@ describe("assetSwapIntent", () => {
       alreadyBound: false,
     });
     expect(text).toContain("以后这一镜每次出图都用它");
+    // 卡片按纯文本渲染，markdown 星号会原样显示给用户。
+    expect(text).not.toContain("**");
+    expect(text).toContain("「人物 · 版本 2」");
     expect(text).toContain("¥1.49");
     expect(text).toContain("确认后才会提交 302");
     // 别让用户以为这条能改造型本身。
     expect(text).toContain("固定造型不会被改动");
+  });
+
+  it("keeps the render prompt clear of the consistency gate", () => {
+    // 这两条正则抄自服务端 visualAssetGenerationContext 的 textConflicts：
+    // 「改成/换成…」加上「人物/发型/服饰…」= 判定镜头文字要在改已锁定事实，
+    // 整单拒绝、不出图。实测就是被这条挡下的，所以钉死在测试里。
+    const CHANGE_TERMS =
+      /改成|换成|变成|不要|去掉|移除|替换|不同的|change|replace|remove|without|different/i;
+    const CHARACTER_TERMS =
+      /发型|头发|脸|五官|服装|衣服|外套|裤|裙|鞋|配饰|眼镜|hair|face|outfit|clothes|wardrobe|accessor/i;
+
+    const prompt = buildAssetSwapRenderPrompt({
+      kind: "character",
+      asset: character,
+      stableShotId: "sh-0102",
+      shotNo: 2,
+      shotLabel: "0102",
+      imageId: 1723,
+      instruction: "把这张图里的人换成素材里的那个人物",
+      estimatedCny: 0.68,
+      alreadyBound: false,
+    });
+
+    // 用户原话里那句「换成…人物」绝不能跟进提示词。
+    expect(prompt).not.toContain("把这张图里的人换成素材里的那个人物");
+    expect(CHANGE_TERMS.test(prompt) && CHARACTER_TERMS.test(prompt)).toBe(false);
+    // 但仍要说明身份来自绑定，并保住这一镜原有的取景。
+    expect(prompt).toContain("已绑定的资产");
+    expect(prompt).toContain("沿用这一镜现有画面");
   });
 
   it("does not promise a new binding when the shot already has one", () => {

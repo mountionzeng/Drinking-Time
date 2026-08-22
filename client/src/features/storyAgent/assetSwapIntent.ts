@@ -165,7 +165,7 @@ export type AssetSwapProposal = {
 export function describeAssetSwapProposal(proposal: AssetSwapProposal): string {
   const kindLabel = assetKindLabel(proposal.kind);
   const lines = [
-    `${proposal.shotLabel}：把画面里的${kindLabel}换成素材库的「${proposal.asset.assetName}· ${proposal.asset.versionLabel}」。`,
+    `${proposal.shotLabel}：把画面里的${kindLabel}换成素材库的「${proposal.asset.assetName} · ${proposal.asset.versionLabel}」。`,
   ];
   if (proposal.alreadyBound) {
     lines.push(
@@ -173,7 +173,7 @@ export function describeAssetSwapProposal(proposal: AssetSwapProposal): string {
     );
   } else {
     lines.push(
-      `确认后会把这个${kindLabel}资产绑定到${proposal.shotLabel}——**以后这一镜每次出图都用它**，不只是这一次。`
+      `确认后会把这个${kindLabel}资产绑定到${proposal.shotLabel}——以后这一镜每次出图都用它，不只是这一次。`
     );
   }
   lines.push(
@@ -181,4 +181,24 @@ export function describeAssetSwapProposal(proposal: AssetSwapProposal): string {
     `预计人民币 ¥${proposal.estimatedCny.toFixed(2)}；确认后才会提交 302 并产生费用。新候选进素材仓库，选中才会替换当前画面。`
   );
   return lines.join("\n");
+}
+
+/**
+ * 绑定之后这一镜的重渲提示词。
+ *
+ * 关键约束：**不能再描述被绑定那一维的身份**。服务端一致性闸门
+ * （visualAssetGenerationContext 的 textConflicts）看到「改成/换成/替换」
+ * 加上「人物/发型/服饰/场景/画风」这类词就判定「镜头文字要求改变已锁定的事实」，
+ * 整单拒绝且不出图。用户那句「把人换成素材里的人物」已经由绑定本身执行掉了，
+ * 再原样送进提示词只会把自己挡在门外。
+ */
+export function buildAssetSwapRenderPrompt(
+  proposal: AssetSwapProposal
+): string {
+  const kindLabel = assetKindLabel(proposal.kind);
+  return [
+    `${proposal.shotLabel}：重新生成这一镜的画面。`,
+    `${kindLabel}以这一镜已绑定的资产为准，不要另行描述。`,
+    `地点、构图、机位、景别和光线沿用这一镜现有画面，不要改动。`,
+  ].join("\n");
 }
