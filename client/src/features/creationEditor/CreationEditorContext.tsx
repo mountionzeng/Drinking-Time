@@ -494,6 +494,12 @@ type CreationEditorContextValue = {
     targetOffsetFrames: number;
     visualLayer: number;
   }) => Promise<void>;
+  /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
+  moveVisualClip: (input: {
+    clipId: string;
+    toTrackId: string;
+    toStartFrame: number;
+  }) => Promise<void>;
   removeTimelineVideoClip: (input: {
     stableShotId: string;
     clipId: string;
@@ -1556,6 +1562,7 @@ export function CreationEditorProvider({
     trpc.creationAgent.appendVideoTakeToTimeline.useMutation();
   const updateStoryTimelineMut =
     trpc.creationAgent.updateStoryTimeline.useMutation();
+  const moveVisualClipMut = trpc.creationAgent.moveVisualClip.useMutation();
   const createDerivationDraftMut =
     trpc.creationAgent.createDerivationDraft.useMutation();
   const analyzeDerivationDraftMut =
@@ -3944,6 +3951,42 @@ export function CreationEditorProvider({
     );
   };
 
+  /**
+   * 唯一的素材移动入口。
+   *
+   * 只把「哪个 clip、去哪条轨、去哪一帧」交给服务端：不重建 items、不带
+   * expectedVersion，因此别处的自动保存不会再把一次拖动顶掉。失败会抛出，
+   * 由调用方明确提示，不再静默回弹。
+   */
+  const moveVisualClip = async (input: {
+    clipId: string;
+    toTrackId: string;
+    toStartFrame: number;
+  }) => {
+    if (activeId == null) throw new Error("故事尚未加载，无法移动素材");
+    const previousItems = timelineItems;
+    const previousVisualLayerState = persistedVisualLayerState;
+    const previousOverlays = timelineOverlays;
+    const result = await trackCreationEditorOperation(
+      activeId,
+      moveVisualClipMut.mutateAsync({
+        storyId: activeId,
+        clipId: input.clipId,
+        toTrackId: input.toTrackId,
+        toStartFrame: Math.max(0, Math.round(input.toStartFrame)),
+      })
+    );
+    if (result.status !== "ok") throw new Error(result.error);
+    // 没有实际位移就不该占用一次撤销。
+    if (result.changed) {
+      recordTimelineUndoSnapshot(activeId, previousItems, {
+        visualLayerState: previousVisualLayerState,
+        overlays: previousOverlays,
+      });
+    }
+    await storyMaterialQuery.refetch();
+  };
+
   const removeTimelineVideoClip = async (input: {
     stableShotId: string;
     clipId: string;
@@ -4295,7 +4338,9 @@ export function CreationEditorProvider({
         imageProviderStatusQuery.isLoading,
       error,
       isSaving:
-        updateStoryShotFieldsMut.isPending || updateStoryTimelineMut.isPending,
+        updateStoryShotFieldsMut.isPending ||
+        updateStoryTimelineMut.isPending ||
+        moveVisualClipMut.isPending,
       rerenderingShotNos,
       rerenderError,
       promotingFrameCropShotNo,
@@ -4343,6 +4388,7 @@ export function CreationEditorProvider({
       addTimelineImageClip,
       moveTimelineItemToLayer,
       moveTimelineImageClip,
+      moveVisualClip,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
       updateTimelineImageTransform,
