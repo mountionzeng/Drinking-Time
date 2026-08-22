@@ -6,7 +6,9 @@ import {
   StoryboardEditRow,
   StoryboardEditTransport,
   storyboardImageClipNudgePlacement,
+  storyboardSingleVideoReleasePlacement,
   storyboardShotDropPlacement,
+  storyboardVisualLayerAtPoint,
   storyboardVideoPointerMovePlacement,
   storyboardVisualClipPointerPlacement,
   type StoryboardBoardTimeline,
@@ -146,6 +148,87 @@ describe("StoryboardEditRow", () => {
       deltaFrames: 0,
       snapThresholdFrames: 0,
       visualLayer: 4,
+    });
+  });
+
+  it("resolves the release layer from track geometry instead of the dragged child", () => {
+    expect(
+      storyboardVisualLayerAtPoint({
+        clientX: 350,
+        clientY: 125,
+        tracks: [
+          {
+            visualLayer: 1,
+            rect: { left: 100, right: 500, top: 40, bottom: 88, width: 400 },
+          },
+          {
+            visualLayer: 2,
+            rect: { left: 100, right: 500, top: 100, bottom: 148, width: 400 },
+          },
+        ],
+      })
+    ).toEqual({
+      visualLayer: 2,
+      rect: { left: 100, right: 500, top: 100, bottom: 148, width: 400 },
+    });
+  });
+
+  it("does not reuse the source layer when the dragged child covers the pointer", () => {
+    expect(
+      storyboardVisualLayerAtPoint({
+        clientX: 350,
+        clientY: 125,
+        tracks: [
+          {
+            visualLayer: 1,
+            rect: { left: 100, right: 500, top: 40, bottom: 88, width: 400 },
+          },
+          {
+            visualLayer: 2,
+            rect: { left: 100, right: 500, top: 100, bottom: 148, width: 400 },
+          },
+        ],
+      })?.visualLayer
+    ).not.toBe(1);
+  });
+
+  it("commits a base video release before pointer capture cleanup can cancel it", () => {
+    expect(
+      storyboardSingleVideoReleasePlacement({
+        stableShotId: "sh-01",
+        startClientX: 100,
+        releaseClientX: 200,
+        sourceTrackWidthPx: 400,
+        totalMs: 8_000,
+        targetTrack: null,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      stableShotId: "sh-01",
+      deltaFrames: 60,
+      snapThresholdFrames: 5,
+    });
+  });
+
+  it("commits one base-video gesture as both horizontal and vertical movement", () => {
+    expect(
+      storyboardSingleVideoReleasePlacement({
+        stableShotId: "sh-01",
+        startClientX: 200,
+        releaseClientX: 300,
+        sourceTrackWidthPx: 400,
+        totalMs: 8_000,
+        targetTrack: {
+          visualLayer: 3,
+          rect: { left: 100, right: 500, top: 40, bottom: 88, width: 400 },
+        },
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      stableShotId: "sh-01",
+      deltaFrames: 60,
+      snapThresholdFrames: 0,
+      visualLayer: 3,
     });
   });
 
@@ -330,7 +413,9 @@ describe("StoryboardEditRow", () => {
         columnSpan={2}
       />
     );
-    expect(html).not.toContain('data-testid="storyboard-extracted-frame-track"');
+    expect(html).not.toContain(
+      'data-testid="storyboard-extracted-frame-track"'
+    );
     expect(html).toContain('data-testid="storyboard-visual-layer-track-2"');
     expect(html).toContain("视觉层 2");
     expect(html).not.toContain("抽帧 · 上层");
@@ -344,9 +429,7 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain("cursor-grab");
     expect(html).toContain('src="/frame-99.webp"');
     expect(html).toContain("left:12.5%");
-    expect(html.indexOf("视觉层 2")).toBeLessThan(
-      html.indexOf("视觉 · 剪辑")
-    );
+    expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
   });
 
   it("keeps repeated extracted image ids distinct across source shots", () => {
@@ -368,7 +451,9 @@ describe("StoryboardEditRow", () => {
         columnSpan={2}
       />
     );
-    expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(2);
+    expect(
+      html.match(/data-testid="storyboard-extracted-frame-99"/g)
+    ).toHaveLength(2);
   });
 
   it("renders repeated extractions of the same image as independent movable clips", () => {
@@ -429,10 +514,14 @@ describe("StoryboardEditRow", () => {
         columnSpan={2}
       />
     );
-    expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(2);
+    expect(
+      html.match(/data-testid="storyboard-extracted-frame-99"/g)
+    ).toHaveLength(2);
     expect(html).toContain('data-testid="storyboard-visual-layer-track-2"');
     expect(html).toContain('data-testid="storyboard-visual-layer-track-3"');
-    expect(html.match(/data-pointer-clip-move="true"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(
+      html.match(/data-pointer-clip-move="true"/g)?.length
+    ).toBeGreaterThanOrEqual(2);
     expect(html.match(/cursor-grab/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -482,7 +571,9 @@ describe("StoryboardEditRow", () => {
     expect(html.indexOf("视觉层 5")).toBeLessThan(html.indexOf("视觉层 4"));
     expect(html.indexOf("视觉层 4")).toBeLessThan(html.indexOf("视觉层 2"));
     expect(html.indexOf("视觉层 2")).toBeLessThan(html.indexOf("视觉 · 剪辑"));
-    expect(html.match(/data-testid="storyboard-top-playhead"/g)).toHaveLength(1);
+    expect(html.match(/data-testid="storyboard-top-playhead"/g)).toHaveLength(
+      1
+    );
   });
 
   it("renders persistent controls for hiding, inserting, deleting and moving every layer", () => {
@@ -514,7 +605,9 @@ describe("StoryboardEditRow", () => {
       })
     );
     expect(html).toContain("最高的空白投放层始终保留，删不掉");
-    const topDelete = html.slice(html.indexOf('aria-label="删除视觉层 3"') - 400);
+    const topDelete = html.slice(
+      html.indexOf('aria-label="删除视觉层 3"') - 400
+    );
     expect(topDelete.slice(0, 400)).toContain("disabled");
   });
 
@@ -586,7 +679,9 @@ describe("StoryboardEditRow", () => {
         columnSpan={2}
       />
     );
-    expect(html.match(/data-testid="storyboard-overlay-legacy-overlay"/g)).toHaveLength(1);
+    expect(
+      html.match(/data-testid="storyboard-overlay-legacy-overlay"/g)
+    ).toHaveLength(1);
   });
 
   it("renders a persisted overlay video and its explicit uncovered tail", () => {
@@ -606,7 +701,15 @@ describe("StoryboardEditRow", () => {
             stackOrder: 10,
             leftImageId: 1,
             rightImageId: 2,
-            transform: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, zoom: 1, panX: 0, panY: 0 },
+            transform: {
+              cropX: 0,
+              cropY: 0,
+              cropWidth: 1,
+              cropHeight: 1,
+              zoom: 1,
+              panX: 0,
+              panY: 0,
+            },
           },
         ],
         onCreateExtractedFrameTransition: vi.fn(),
@@ -632,9 +735,7 @@ describe("StoryboardEditRow", () => {
     expect(selected).toContain(
       'data-testid="storyboard-edit-trim-start-sh-02"'
     );
-    expect(selected).toContain(
-      'aria-label="拖动左边缘修剪 0102 的时长"'
-    );
+    expect(selected).toContain('aria-label="拖动左边缘修剪 0102 的时长"');
     expect(selected).toContain('data-testid="storyboard-edit-reorder-sh-02"');
     expect(selected).not.toContain('data-testid="storyboard-edit-trim-sh-01"');
   });
@@ -756,7 +857,9 @@ describe("StoryboardEditRow shortcuts", () => {
   it("keeps the old single-shot reorder drag when the group action is not wired", () => {
     const html = renderRow(boardTimeline(), 1);
     expect(html).toContain('data-testid="storyboard-edit-reorder-sh-01"');
-    expect(html).not.toContain('data-testid="storyboard-edit-group-grip-sh-01"');
+    expect(html).not.toContain(
+      'data-testid="storyboard-edit-group-grip-sh-01"'
+    );
     expect(html).toMatch(
       /<button[^>]*draggable="true"[^>]*data-testid="storyboard-edit-reorder-sh-01"/
     );
@@ -783,8 +886,9 @@ describe("StoryboardEditRow shortcuts", () => {
 
     // 时间尺上的锚点走 roving focus：只有一个能被 Tab 到，其余靠方向键走。
     const anchorButtons =
-      html.match(/<button[^>]*data-testid="storyboard-edit-anchor-[^"]*"[^>]*>/g) ??
-      [];
+      html.match(
+        /<button[^>]*data-testid="storyboard-edit-anchor-[^"]*"[^>]*>/g
+      ) ?? [];
     expect(anchorButtons).toHaveLength(2);
     expect(
       anchorButtons.filter(button => button.includes('tabindex="0"'))
@@ -804,7 +908,9 @@ describe("StoryboardEditRow shortcuts", () => {
     const html = renderToStaticMarkup(
       <StoryboardEditRow
         timeline={boardTimeline({
-          anchors: [{ id: "anchor-a", stableShotId: "sh-01", timelineFrame: 30 }],
+          anchors: [
+            { id: "anchor-a", stableShotId: "sh-01", timelineFrame: 30 },
+          ],
           onAddAnchor: vi.fn(),
         })}
         shots={anchoredShots}
