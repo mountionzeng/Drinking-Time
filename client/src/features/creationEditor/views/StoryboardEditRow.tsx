@@ -73,7 +73,6 @@ import {
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
   storyboardGripDragMode,
-  storyboardReleasedDragDeltaFrames,
   storyboardGroupDragStep,
   storyboardGroupDragSummary,
   storyboardTrimmedBoundaryFrame,
@@ -196,13 +195,6 @@ export type StoryboardBoardTimeline = {
     stableShotId: string,
     visualLayer: number
   ) => Promise<void>;
-  onMoveTimelineImageClip?: (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetFrames: number;
-    visualLayer: number;
-  }) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用同一条提交路径。 */
   onMoveVisualClip?: (input: {
     clipId: string;
@@ -225,80 +217,6 @@ export type StoryboardBoardTimeline = {
   /** 正在保存时忽略新的时间线改动，避免用过期位置算下一步。 */
   writePending?: boolean;
 };
-
-export function storyboardShotDropPlacement(input: {
-  stableShotId: string;
-  sourceStartFrame: number;
-  targetMs: number;
-  visualLayer: number;
-}) {
-  return {
-    stableShotId: input.stableShotId,
-    deltaFrames:
-      Math.round((Math.max(0, input.targetMs) * 30) / 1000) -
-      input.sourceStartFrame,
-    snapThresholdFrames: 0,
-    visualLayer: Math.max(0, Math.round(input.visualLayer)),
-  };
-}
-
-export function storyboardVideoPointerMovePlacement(input: {
-  stableShotId: string;
-  startClientX: number;
-  releaseClientX: number;
-  trackWidthPx: number;
-  totalMs: number;
-  visualLayer: number;
-}) {
-  return {
-    stableShotId: input.stableShotId,
-    deltaFrames: storyboardReleasedDragDeltaFrames({
-      startClientX: input.startClientX,
-      releaseClientX: input.releaseClientX,
-      trackWidthPx: input.trackWidthPx,
-      totalMs: input.totalMs,
-    }),
-    snapThresholdFrames: 0,
-    visualLayer: Math.max(0, Math.round(input.visualLayer)),
-  };
-}
-
-export function storyboardVisualClipPointerPlacement(input: {
-  clientX: number;
-  rectLeft: number;
-  rectWidth: number;
-  totalMs: number;
-  visualLayer: number;
-  timings: readonly StoryboardTimingRow[];
-}) {
-  if (input.rectWidth <= 0 || input.timings.length === 0) return null;
-  const targetMs = storyboardEditTrackMs({
-    clientX: input.clientX,
-    rectLeft: input.rectLeft,
-    rectWidth: input.rectWidth,
-    totalMs: input.totalMs,
-  });
-  const ordered = [...input.timings].sort(
-    (left, right) => left.startFrame - right.startFrame
-  );
-  const target =
-    ordered.find(
-      timing => targetMs >= timing.startMs && targetMs < timing.endMs
-    ) ?? ordered.at(-1)!;
-  const targetAbsoluteFrame = Math.max(
-    target.startFrame,
-    Math.min(
-      target.startFrame + target.durationFrames - 1,
-      Math.round((targetMs * 30) / 1000)
-    )
-  );
-  return {
-    targetMs,
-    targetStableShotId: target.stableShotId,
-    targetOffsetFrames: targetAbsoluteFrame - target.startFrame,
-    visualLayer: Math.max(0, Math.round(input.visualLayer)),
-  };
-}
 
 export type StoryboardVisualLayerTrackGeometry = {
   visualLayer: number;
@@ -335,51 +253,6 @@ export function storyboardVisualLayerAtPoint(input: {
   );
 }
 
-export function storyboardSingleVideoReleasePlacement(input: {
-  stableShotId: string;
-  startClientX: number;
-  releaseClientX: number;
-  sourceTrackWidthPx: number;
-  totalMs: number;
-  targetTrack: StoryboardVisualLayerTrackGeometry | null;
-  timings: readonly StoryboardTimingRow[];
-}) {
-  if (input.targetTrack && input.targetTrack.visualLayer !== 0) {
-    const placement = storyboardVisualClipPointerPlacement({
-      clientX: input.releaseClientX,
-      rectLeft: input.targetTrack.rect.left,
-      rectWidth: input.targetTrack.rect.width,
-      totalMs: input.totalMs,
-      visualLayer: input.targetTrack.visualLayer,
-      timings: input.timings,
-    });
-    if (!placement) return null;
-    return storyboardVideoPointerMovePlacement({
-      stableShotId: input.stableShotId,
-      startClientX: input.startClientX,
-      releaseClientX: input.releaseClientX,
-      trackWidthPx: input.targetTrack.rect.width,
-      totalMs: input.totalMs,
-      visualLayer: placement.visualLayer,
-    });
-  }
-  const deltaFrames = storyboardReleasedDragDeltaFrames({
-    startClientX: input.startClientX,
-    releaseClientX: input.releaseClientX,
-    trackWidthPx: input.sourceTrackWidthPx,
-    totalMs: input.totalMs,
-  });
-  if (deltaFrames === 0) return null;
-  return {
-    stableShotId: input.stableShotId,
-    deltaFrames,
-    snapThresholdFrames: storyboardMagnetThresholdFrames({
-      trackWidthPx: input.sourceTrackWidthPx,
-      totalMs: input.totalMs,
-    }),
-  };
-}
-
 function storyboardVisualLayerAtDocumentPoint(
   clientX: number,
   clientY: number
@@ -402,6 +275,53 @@ function storyboardVisualLayerAtDocumentPoint(
         },
       };
     }),
+  });
+}
+
+function storyboardVisualLayerTrackGeometry(
+  visualLayer: number
+): StoryboardVisualLayerTrackGeometry | null {
+  const track = document.querySelector<HTMLElement>(
+    `[data-storyboard-visual-layer="${visualLayer}"]`
+  );
+  if (!track) return null;
+  const rect = track.getBoundingClientRect();
+  return {
+    visualLayer,
+    rect: {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+    },
+  };
+}
+
+/**
+ * 把一次移动交给唯一命令，并保证失败一定被用户看见。
+ *
+ * 拖拽、外部拖放和键盘微调都走这里：它们各自只负责算出「哪个 clip、去哪一层、
+ * 去哪一帧」，不再各自决定素材归属哪个镜头。
+ */
+function submitVisualClipMove(input: {
+  clipId: string;
+  visualLayer: number;
+  toStartFrame: number;
+  onMoveVisualClip?: (move: {
+    clipId: string;
+    toTrackId: string;
+    toStartFrame: number;
+  }) => Promise<void>;
+}): void {
+  const move = input.onMoveVisualClip;
+  if (!move) return;
+  void move({
+    clipId: input.clipId,
+    toTrackId: visualTrackId(input.visualLayer),
+    toStartFrame: Math.max(0, Math.round(input.toStartFrame)),
+  }).catch((error: unknown) => {
+    toast.error(error instanceof Error ? error.message : "素材没有移动成功");
   });
 }
 
@@ -462,12 +382,11 @@ export function commitVisualClipDrag(input: {
     startRatio +
     (input.releaseClientX - input.startClientX) / targetTrack.rect.width;
   const startMs = movedRatio * input.totalMs;
-  void move({
+  submitVisualClipMove({
     clipId: input.clipId,
-    toTrackId: visualTrackId(targetTrack.visualLayer),
+    visualLayer: targetTrack.visualLayer,
     toStartFrame: timelineOffsetMsToFrames(Math.max(0, startMs)),
-  }).catch((error: unknown) => {
-    toast.error(error instanceof Error ? error.message : "素材没有移动成功");
+    onMoveVisualClip: move,
   });
 }
 
@@ -493,52 +412,6 @@ function useWindowPointerContinuation(input: {
       window.removeEventListener("pointercancel", cancel);
     };
   }, [input.active]);
-}
-
-export function storyboardImageClipNudgePlacement(input: {
-  currentAbsoluteFrame: number;
-  deltaFrames: number;
-  visualLayer: number;
-  timings: readonly StoryboardTimingRow[];
-}) {
-  const timings = input.timings
-    .filter(timing => timing.durationFrames > 0)
-    .sort((left, right) => left.startFrame - right.startFrame);
-  if (timings.length === 0) return null;
-  const firstFrame = timings[0].startFrame;
-  const lastFrame = Math.max(
-    ...timings.map(timing => timing.startFrame + timing.durationFrames - 1)
-  );
-  const requestedFrame = Math.max(
-    firstFrame,
-    Math.min(lastFrame, input.currentAbsoluteFrame + input.deltaFrames)
-  );
-  let target = timings.find(
-    timing =>
-      requestedFrame >= timing.startFrame &&
-      requestedFrame < timing.startFrame + timing.durationFrames
-  );
-  let targetFrame = requestedFrame;
-  if (!target && input.deltaFrames >= 0) {
-    target =
-      timings.find(timing => timing.startFrame > requestedFrame) ??
-      timings.at(-1);
-    targetFrame = target?.startFrame ?? requestedFrame;
-  } else if (!target) {
-    target =
-      [...timings]
-        .reverse()
-        .find(
-          timing => timing.startFrame + timing.durationFrames <= requestedFrame
-        ) ?? timings[0];
-    targetFrame = target.startFrame + target.durationFrames - 1;
-  }
-  if (!target) return null;
-  return {
-    targetStableShotId: target.stableShotId,
-    targetOffsetFrames: Math.max(0, targetFrame - target.startFrame),
-    visualLayer: Math.max(0, Math.round(input.visualLayer)),
-  };
 }
 
 function storyboardVisualClipArrowMove(input: {
@@ -1311,28 +1184,15 @@ function StoryboardUpperVisualLayerRow({
             }
             const imagePayload =
               event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
-            if (imagePayload && timeline.onMoveTimelineImageClip) {
-              const targetShot = shots.find(
-                shot =>
-                  targetMs >= shot.timing.startMs &&
-                  targetMs < shot.timing.endMs
-              );
-              if (!targetShot) return;
+            if (imagePayload && timeline.onMoveVisualClip) {
               event.preventDefault();
-              const parsed = JSON.parse(imagePayload) as {
-                clipId: string;
-                sourceStableShotId: string;
-              };
-              void timeline.onMoveTimelineImageClip({
-                ...parsed,
-                targetStableShotId: targetShot.stableShotId,
-                targetOffsetFrames: Math.max(
-                  0,
-                  Math.round(
-                    ((targetMs - targetShot.timing.startMs) * 30) / 1000
-                  )
-                ),
+              const parsed = JSON.parse(imagePayload) as { clipId: string };
+              // 落点就是绝对帧，不再要求那一刻恰好压在某个镜头上。
+              submitVisualClipMove({
+                clipId: `image:${parsed.clipId}`,
                 visualLayer,
+                toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
+                onMoveVisualClip: timeline.onMoveVisualClip,
               });
               return;
             }
@@ -1340,16 +1200,14 @@ function StoryboardUpperVisualLayerRow({
             const sourceShot = shots.find(
               shot => shot.stableShotId === stableShotId
             );
-            if (sourceShot && timeline.onMoveTimelineShot) {
+            if (sourceShot && timeline.onMoveVisualClip) {
               event.preventDefault();
-              void timeline.onMoveTimelineShot(
-                storyboardShotDropPlacement({
-                  stableShotId,
-                  sourceStartFrame: sourceShot.timing.startFrame,
-                  targetMs,
-                  visualLayer,
-                })
-              );
+              submitVisualClipMove({
+                clipId: `shot:${stableShotId}`,
+                visualLayer,
+                toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
+                onMoveVisualClip: timeline.onMoveVisualClip,
+              });
             }
           }}
           onPointerLeave={() => {
@@ -1430,16 +1288,12 @@ function StoryboardUpperVisualLayerRow({
                       event,
                       visualLayer,
                       onMove: (deltaFrames, nextVisualLayer) => {
-                        if (
-                          !timeline.onMoveTimelineShot ||
-                          timeline.writePending
-                        )
-                          return;
-                        void timeline.onMoveTimelineShot({
-                          stableShotId: shot.stableShotId,
-                          deltaFrames,
-                          snapThresholdFrames: 0,
+                        if (timeline.writePending) return;
+                        submitVisualClipMove({
+                          clipId: `shot:${shot.stableShotId}`,
                           visualLayer: nextVisualLayer,
+                          toStartFrame: shot.timing.startFrame + deltaFrames,
+                          onMoveVisualClip: timeline.onMoveVisualClip,
                         });
                       },
                     });
@@ -1555,26 +1409,21 @@ function StoryboardUpperVisualLayerRow({
                 onKeyDown={event => {
                   if (
                     clip &&
-                    timeline.onMoveTimelineImageClip &&
+                    timeline.onMoveVisualClip &&
                     storyboardVisualClipArrowMove({
                       event,
                       visualLayer,
                       onMove: (deltaFrames, nextVisualLayer) => {
                         if (timeline.writePending) return;
-                        const placement = storyboardImageClipNudgePlacement({
-                          currentAbsoluteFrame: timelineImageClipStartFrame(
-                            clip,
-                            shot.timing.startFrame
-                          ),
-                          deltaFrames,
+                        submitVisualClipMove({
+                          clipId: `image:${clip.id}`,
                           visualLayer: nextVisualLayer,
-                          timings: shots.map(item => item.timing),
-                        });
-                        if (!placement) return;
-                        void timeline.onMoveTimelineImageClip?.({
-                          clipId: clip.id,
-                          sourceStableShotId: shot.stableShotId,
-                          ...placement,
+                          toStartFrame:
+                            timelineImageClipStartFrame(
+                              clip,
+                              shot.timing.startFrame
+                            ) + deltaFrames,
+                          onMoveVisualClip: timeline.onMoveVisualClip,
                         });
                       },
                     })
@@ -2160,7 +2009,7 @@ function StoryboardEditTrack({
     !disableGroupMove &&
     Boolean(timeline.previewGroupMove && timeline.onMoveTimelineGroup);
   const singleMoveEnabled =
-    !disableGroupMove && Boolean(timeline.onMoveTimelineShot);
+    !disableGroupMove && Boolean(timeline.onMoveVisualClip);
   const labelByShotId = new Map(
     shots.map(shot => [shot.stableShotId, shot.shotLabel] as const)
   );
@@ -2698,20 +2547,25 @@ function StoryboardEditTrack({
     singleDragRef.current = null;
     setSingleDrag(null);
     if (!start) return;
-    const targetTrack = storyboardVisualLayerAtDocumentPoint(
-      event.clientX,
-      event.clientY
+    const sourceTiming = timings.find(
+      timing => timing.stableShotId === start.stableShotId
     );
-    const placement = storyboardSingleVideoReleasePlacement({
-      stableShotId: start.stableShotId,
+    commitVisualClipDrag({
+      clipId: `shot:${start.stableShotId}`,
+      // 镜头块渲染在 startMs/totalMs 处，用它当锚点就能保住抓取点。
+      startLeftRatio:
+        sourceTiming && totalMs > 0 ? sourceTiming.startMs / totalMs : null,
+      startRectLeft: 0,
       startClientX: start.clientX,
       releaseClientX: event.clientX,
-      sourceTrackWidthPx: start.trackWidthPx,
+      releaseClientY: event.clientY,
       totalMs,
-      targetTrack,
-      timings,
+      onMoveVisualClip: timeline.onMoveVisualClip,
+      // 松手落在所有轨道之外时保持在主轨，等同于以前的纯横移。
+      resolveTrack: (clientX, clientY) =>
+        storyboardVisualLayerAtDocumentPoint(clientX, clientY) ??
+        storyboardVisualLayerTrackGeometry(0),
     });
-    if (placement) await timeline.onMoveTimelineShot?.(placement);
   };
   const endSingleDrag = async (event: ReactPointerEvent<HTMLElement>) => {
     // Read and clear the drag synchronously before releasing capture. React's
@@ -2872,24 +2726,16 @@ function StoryboardEditTrack({
             return;
           }
           const imagePayload = event.dataTransfer.getData(IMAGE_CLIP_DRAG_MIME);
-          if (imagePayload && timeline.onMoveTimelineImageClip) {
+          if (imagePayload && timeline.onMoveVisualClip) {
             const atMs = trackMsFromPointer(event.clientX);
-            const target = storyboardEditTimingAt(timings, atMs);
-            if (!target) return;
             event.preventDefault();
             event.stopPropagation();
-            const parsed = JSON.parse(imagePayload) as {
-              clipId: string;
-              sourceStableShotId: string;
-            };
-            void timeline.onMoveTimelineImageClip({
-              ...parsed,
-              targetStableShotId: target.stableShotId,
-              targetOffsetFrames: Math.max(
-                0,
-                Math.round(((atMs - target.startMs) * 30) / 1000)
-              ),
+            const parsed = JSON.parse(imagePayload) as { clipId: string };
+            submitVisualClipMove({
+              clipId: `image:${parsed.clipId}`,
               visualLayer: 0,
+              toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
+              onMoveVisualClip: timeline.onMoveVisualClip,
             });
             return;
           }
@@ -2897,18 +2743,16 @@ function StoryboardEditTrack({
           const sourceShot = shots.find(
             shot => shot.stableShotId === sourceStableShotId
           );
-          if (!sourceShot || !timeline.onMoveTimelineShot) return;
+          if (!sourceShot || !timeline.onMoveVisualClip) return;
           event.preventDefault();
           event.stopPropagation();
           const targetMs = trackMsFromPointer(event.clientX);
-          void timeline.onMoveTimelineShot(
-            storyboardShotDropPlacement({
-              stableShotId: sourceStableShotId,
-              sourceStartFrame: sourceShot.timing.startFrame,
-              targetMs,
-              visualLayer: 0,
-            })
-          );
+          submitVisualClipMove({
+            clipId: `shot:${sourceStableShotId}`,
+            visualLayer: 0,
+            toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
+            onMoveVisualClip: timeline.onMoveVisualClip,
+          });
         }}
         onContextMenu={event => {
           // 落在某个镜头块上时，块自己的 onContextMenu 已经 stopPropagation，
@@ -2970,25 +2814,17 @@ function StoryboardEditTrack({
                   event,
                   visualLayer: 0,
                   onMove: (deltaFrames, visualLayer) => {
-                    if (
-                      !timeline.onMoveTimelineImageClip ||
-                      timeline.writePending
-                    )
+                    if (!timeline.onMoveVisualClip || timeline.writePending)
                       return;
-                    const placement = storyboardImageClipNudgePlacement({
-                      currentAbsoluteFrame: timelineImageClipStartFrame(
-                        clip,
-                        shot.timing.startFrame
-                      ),
-                      deltaFrames,
+                    submitVisualClipMove({
+                      clipId: `image:${clip.id}`,
                       visualLayer,
-                      timings,
-                    });
-                    if (!placement) return;
-                    void timeline.onMoveTimelineImageClip({
-                      clipId: clip.id,
-                      sourceStableShotId: shot.stableShotId,
-                      ...placement,
+                      toStartFrame:
+                        timelineImageClipStartFrame(
+                          clip,
+                          shot.timing.startFrame
+                        ) + deltaFrames,
+                      onMoveVisualClip: timeline.onMoveVisualClip,
                     });
                   },
                 });
@@ -3108,13 +2944,12 @@ function StoryboardEditTrack({
                   event,
                   visualLayer: 0,
                   onMove: (deltaFrames, visualLayer) => {
-                    if (!timeline.onMoveTimelineShot || timeline.writePending)
-                      return;
-                    void timeline.onMoveTimelineShot({
-                      stableShotId: shot.stableShotId,
-                      deltaFrames,
-                      snapThresholdFrames: 0,
+                    if (timeline.writePending) return;
+                    submitVisualClipMove({
+                      clipId: `shot:${shot.stableShotId}`,
                       visualLayer,
+                      toStartFrame: shot.timing.startFrame + deltaFrames,
+                      onMoveVisualClip: timeline.onMoveVisualClip,
                     });
                   },
                 });

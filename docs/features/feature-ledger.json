@@ -1448,6 +1448,11 @@
       ],
       "history": [
         {
+          "date": "2026-08-23",
+          "kind": "refactor",
+          "summary": "把剩下所有会写素材位置的交互都收敛到 moveVisualClip：底部 Timeline 的落位、Storyboard 上层与主轨的 HTML5 拖放、图片与镜头的键盘逐帧/换层、主轨单个视频的指针拖动。它们现在只负责算出「哪个 clip、去哪条轨、去哪一帧」，不再换算成「落在哪个镜头里的相对偏移」，也不再要求松手那一刻恰好压在某个镜头上（以前不满足就静默 return）。随后删除只服务旧写模型的代码：storyboardShotDropPlacement、storyboardVideoPointerMovePlacement、storyboardVisualClipPointerPlacement、storyboardSingleVideoReleasePlacement、storyboardImageClipNudgePlacement、storyboardReleasedDragDeltaFrames 六个 helper 及其定向测试，以及 CreationEditorContext 里 moveTimelineImageClip / moveTimelineVideoClip 两个整份覆盖式实现。上层图片位置不再由 owner 镜头推导，CreationEditorContext 已不再引用 timelineImageClipStartFrame。main:3000 已完成图片斜向拖动、刷新不回弹、移动底层视频不牵连上层三项真实验收。"
+        },
+        {
           "date": "2026-08-22",
           "kind": "refactor",
           "summary": "替换此前「Storyboard 与底部 Timeline 双向共用落位语义」的约束，改为唯一多轨模型 + 唯一写入口。原因：之前几轮只修 Pointer Event 与命中逻辑，自动化全绿但用户在 3000 真实拖动仍然无效——根因是写模型分裂：图片是挂在 item 里的数组元素（offsetFrames 相对 owner、timelineStartFrame 绝对两套坐标并存），唯一持久化接口 updateStoryTimeline 只接受整份 items 覆盖 + 客户端 expectedVersion，客户端保存前又用 buildTimelineLayout 重算并覆写每个 item 的起点，失败还只 console.warn 后静默回弹。现在 shared/visualClipModel.ts 把镜头、图片 clip、附加片段和遗留 overlay 投影成同一种绝对帧 VisualClip，server/services/visualClipEditing.ts 做服务端读—改—写的单 clip 原子移动，creationAgent.moveVisualClip 是唯一移动命令；Storyboard 的图片与镜头两条 Pointer 拖拽合并为一个提交出口，像素只换算成 (trackId, 绝对帧)，失败弹出可见错误。领域、服务端持久化与拖拽换算三层各有定向测试；主仓库 3000 的真实拖动验收尚未进行。"

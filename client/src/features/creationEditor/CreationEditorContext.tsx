@@ -44,7 +44,6 @@ import type {
 import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
-  timelineImageClipStartFrame,
   timelineMsToFrames,
   withTimelineDurationMs,
   type ShotMaterialState,
@@ -467,13 +466,6 @@ type CreationEditorContextValue = {
     transform: TimelineTransform;
     overlayId?: string;
   }) => Promise<void>;
-  moveTimelineVideoClip: (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetMs: number;
-    visualLayer?: number;
-  }) => Promise<void>;
   addTimelineImageClip: (input: {
     clipId?: string;
     stableShotId: string;
@@ -487,13 +479,6 @@ type CreationEditorContextValue = {
     stableShotId: string,
     visualLayer: number
   ) => Promise<void>;
-  moveTimelineImageClip: (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetFrames: number;
-    visualLayer: number;
-  }) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
   moveVisualClip: (input: {
     clipId: string;
@@ -3761,74 +3746,6 @@ export function CreationEditorProvider({
     ]);
   };
 
-  const moveTimelineVideoClip = async (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetMs: number;
-    visualLayer?: number;
-  }) => {
-    const sourceItem = timelineItems.find(
-      item => item.stableShotId === input.sourceStableShotId
-    );
-    const movingClip = sourceItem?.visualClips?.find(
-      clip => clip.id === input.clipId
-    );
-    if (!sourceItem || !movingClip) throw new Error("找不到要移动的视频片段");
-    const targetItem = timelineItems.find(
-      item => item.stableShotId === input.targetStableShotId
-    );
-    if (!targetItem) throw new Error("目标镜头不在时间线上");
-    const movedClip = {
-      ...movingClip,
-      offsetMs: Math.max(0, input.targetOffsetMs),
-      visualLayer:
-        input.visualLayer == null
-          ? movingClip.visualLayer
-          : Math.max(0, Math.round(input.visualLayer)),
-    };
-    const nextItems = timelineItems.map(item => {
-      if (input.sourceStableShotId === input.targetStableShotId) {
-        if (item.stableShotId !== input.sourceStableShotId) return item;
-        return {
-          ...withTimelineDurationMs(
-            item,
-            Math.max(
-              item.plannedDurationMs,
-              movedClip.offsetMs + movedClip.durationMs
-            )
-          ),
-          visualClips: (item.visualClips ?? [])
-            .map(clip => (clip.id === input.clipId ? movedClip : clip))
-            .sort((left, right) => left.offsetMs - right.offsetMs),
-        };
-      }
-      if (item.stableShotId === input.sourceStableShotId) {
-        return {
-          ...item,
-          visualClips: (item.visualClips ?? []).filter(
-            clip => clip.id !== input.clipId
-          ),
-        };
-      }
-      if (item.stableShotId === input.targetStableShotId) {
-        return {
-          ...withTimelineDurationMs(
-            item,
-            Math.max(
-              item.plannedDurationMs,
-              movedClip.offsetMs + movedClip.durationMs
-            )
-          ),
-          visualClips: [...(item.visualClips ?? []), movedClip].sort(
-            (left, right) => left.offsetMs - right.offsetMs
-          ),
-        };
-      }
-      return item;
-    });
-    await saveTimelineItems(nextItems, { throwOnError: true });
-  };
 
   const addTimelineImageClip = async (input: {
     clipId?: string;
@@ -3899,57 +3816,6 @@ export function CreationEditorProvider({
     );
   };
 
-  const moveTimelineImageClip = async (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetFrames: number;
-    visualLayer: number;
-  }) => {
-    const source = timelineItems.find(
-      item => item.stableShotId === input.sourceStableShotId
-    );
-    const clip = source?.imageClips?.find(
-      candidate => candidate.id === input.clipId
-    );
-    if (!source || !clip) throw new Error("找不到要移动的图片片段");
-    if (
-      !timelineItems.some(
-        item => item.stableShotId === input.targetStableShotId
-      )
-    ) {
-      throw new Error("目标时间不在视觉时间线上");
-    }
-    const targetRow = buildTimelineLayout(timelineItems).find(
-      row => row.item.stableShotId === input.targetStableShotId
-    );
-    if (!targetRow) throw new Error("目标时间不在视觉时间线上");
-    const moved = {
-      ...clip,
-      offsetFrames: Math.max(0, Math.round(input.targetOffsetFrames)),
-      timelineStartFrame: timelineImageClipStartFrame(
-        {
-          offsetFrames: Math.max(0, Math.round(input.targetOffsetFrames)),
-        },
-        targetRow.startFrame
-      ),
-      visualLayer: Math.max(0, Math.round(input.visualLayer)),
-    };
-    await saveTimelineItems(
-      timelineItems.map(item => {
-        const retained = (item.imageClips ?? []).filter(
-          candidate => candidate.id !== input.clipId
-        );
-        if (item.stableShotId === input.targetStableShotId) {
-          return { ...item, imageClips: [...retained, moved] };
-        }
-        return retained.length === (item.imageClips ?? []).length
-          ? item
-          : { ...item, imageClips: retained };
-      }),
-      { throwOnError: true }
-    );
-  };
 
   /**
    * 唯一的素材移动入口。
@@ -4384,10 +4250,8 @@ export function CreationEditorProvider({
       undoTimeline,
       createVideoTakeRange,
       splitTimelineVideoClip,
-      moveTimelineVideoClip,
       addTimelineImageClip,
       moveTimelineItemToLayer,
-      moveTimelineImageClip,
       moveVisualClip,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,

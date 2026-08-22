@@ -48,6 +48,7 @@ import {
   timelineOffsetMsToFrames,
 } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
+import { visualTrackId } from "@shared/visualClipModel";
 import {
   buildTimelineLayout,
   overlayVisualLayer,
@@ -1712,9 +1713,7 @@ function MultiTrackTimeline({
   seekRequest,
   onSplitAtPlayhead,
   onExtractFrameAtPlayhead,
-  onMoveTimelineClip,
-  onMoveTimelineShot,
-  onMoveTimelineImageClip,
+  onMoveVisualClip,
   onPlaceExternalVisual,
   visualLayerState,
   onManageVisualLayer,
@@ -1736,25 +1735,11 @@ function MultiTrackTimeline({
   seekRequest: TimelineSeekRequest;
   onSplitAtPlayhead: (playheadMs: number) => Promise<void>;
   onExtractFrameAtPlayhead: (playheadMs: number) => Promise<void>;
-  onMoveTimelineClip: (input: {
+  /** 唯一的素材移动命令：镜头、图片和附加片段共用。 */
+  onMoveVisualClip: (input: {
     clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetMs: number;
-    visualLayer?: number;
-  }) => Promise<void>;
-  onMoveTimelineShot: (
-    stableShotId: string,
-    deltaFrames: number,
-    snapThresholdFrames?: number,
-    visualLayer?: number
-  ) => Promise<{ applied: boolean; reason?: string }>;
-  onMoveTimelineImageClip: (input: {
-    clipId: string;
-    sourceStableShotId: string;
-    targetStableShotId: string;
-    targetOffsetFrames: number;
-    visualLayer: number;
+    toTrackId: string;
+    toStartFrame: number;
   }) => Promise<void>;
   onPlaceExternalVisual: (
     dataTransfer: DataTransfer,
@@ -2192,42 +2177,26 @@ function MultiTrackTimeline({
       const targetTiming = storyboardTimingWinnerAt(timings, lookupMs);
       setPendingAction("move");
       try {
+        // 底部 Timeline 和上方 Storyboard 走同一个命令：这里已经算出了绝对帧和
+        // 目标图层，不再换算成「落在哪个镜头里的相对偏移」。
+        await onMoveVisualClip({
+          clipId:
+            input.moveTarget.kind === "shot"
+              ? `shot:${input.moveTarget.stableShotId}`
+              : input.moveTarget.kind === "image"
+                ? `image:${input.moveTarget.clipId}`
+                : `video:${input.moveTarget.clipId}`,
+          toTrackId: visualTrackId(targetVisualLayer),
+          toStartFrame: targetStartFrame,
+        });
         if (input.moveTarget.kind === "shot") {
           const stableShotId = input.moveTarget.stableShotId;
-          const result = await onMoveTimelineShot(
-            stableShotId,
-            effectiveDeltaFrames,
-            0,
-            targetVisualLayer
-          );
-          if (!result.applied) throw new Error(result.reason || "镜头移动失败");
           const movedShot = shots.find(
             shot => (shot.stableShotId ?? shot.shotIdentity) === stableShotId
           );
           if (movedShot) onSelectShot(movedShot.shotNo);
-        } else {
-          if (!targetTiming) throw new Error("目标时间不在视觉时间线上");
-          if (input.moveTarget.kind === "image") {
-            await onMoveTimelineImageClip({
-              clipId: input.moveTarget.clipId,
-              sourceStableShotId: input.moveTarget.sourceStableShotId,
-              targetStableShotId: targetTiming.stableShotId,
-              targetOffsetFrames: Math.max(
-                0,
-                targetStartFrame - targetTiming.startFrame
-              ),
-              visualLayer: targetVisualLayer,
-            });
-          } else {
-        await onMoveTimelineClip({
-              clipId: input.moveTarget.clipId,
-              sourceStableShotId: input.moveTarget.sourceStableShotId,
-          targetStableShotId: targetTiming.stableShotId,
-              targetOffsetMs: Math.max(0, targetStartMs - targetTiming.startMs),
-              visualLayer: targetVisualLayer,
-        });
-          }
-        onSelectShot(targetTiming.shotNo);
+        } else if (targetTiming) {
+          onSelectShot(targetTiming.shotNo);
         }
         toast.success("素材位置和图层已保存");
       } catch (error) {
@@ -2237,9 +2206,7 @@ function MultiTrackTimeline({
       }
     },
     [
-      onMoveTimelineClip,
-      onMoveTimelineImageClip,
-      onMoveTimelineShot,
+      onMoveVisualClip,
       onSelectShot,
       pointerTargetVisualLayer,
       scale,
@@ -3057,10 +3024,8 @@ export default function EditingNleWorkspace({
     appendTimelineVideoClip,
     undoTimeline,
     splitTimelineVideoClip,
-    moveTimelineVideoClip,
     addTimelineImageClip,
     moveTimelineItemToLayer,
-    moveTimelineImageClip,
     moveVisualClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
@@ -3839,7 +3804,6 @@ export default function EditingNleWorkspace({
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveTimelineItemToLayer: moveTimelineItemToLayer,
-      onMoveTimelineImageClip: moveTimelineImageClip,
       onMoveVisualClip: moveVisualClip,
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
@@ -4146,7 +4110,6 @@ export default function EditingNleWorkspace({
       detachTimelineMagnet,
       moveTimelineGroup,
       manageTimelineVisualLayer,
-      moveTimelineImageClip,
       moveTimelineItemToLayer,
       moveTimelineShot,
       placeExternalVisual,
@@ -4410,9 +4373,7 @@ export default function EditingNleWorkspace({
         seekRequest={timelineSeekRequest}
         onSplitAtPlayhead={splitAtPlayhead}
         onExtractFrameAtPlayhead={extractFrameAtPlayhead}
-        onMoveTimelineClip={moveTimelineVideoClip}
-        onMoveTimelineShot={moveTimelineShot}
-        onMoveTimelineImageClip={moveTimelineImageClip}
+        onMoveVisualClip={moveVisualClip}
         onPlaceExternalVisual={placeExternalVisual}
         visualLayerState={timelineVisualLayerState}
         onManageVisualLayer={manageTimelineVisualLayer}

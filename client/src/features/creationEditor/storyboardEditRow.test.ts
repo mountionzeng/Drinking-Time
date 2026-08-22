@@ -29,7 +29,6 @@ import {
   storyboardGroupDragDeltaFrames,
   storyboardGroupDragDirection,
   storyboardGripDragMode,
-  storyboardReleasedDragDeltaFrames,
   storyboardGroupDragStep,
   storyboardGroupDragSummary,
   storyboardTrimmedBoundaryFrame,
@@ -709,16 +708,6 @@ describe("方向批量移动手势", () => {
     ).toBe("group");
   });
 
-  it("松手直接按最终指针位置提交，不依赖动画 state 是否已经刷新", () => {
-    expect(
-      storyboardReleasedDragDeltaFrames({
-        startClientX: 100,
-        releaseClientX: 150,
-        trackWidthPx: 1000,
-        totalMs: 8000,
-      })
-    ).toBe(12);
-  });
 
   it("小抖动不算拖动，越过阈值才锁定方向", () => {
     expect(storyboardGroupDragDirection(3)).toBeNull();

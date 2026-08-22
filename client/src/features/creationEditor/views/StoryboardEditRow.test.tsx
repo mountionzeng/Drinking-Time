@@ -5,12 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   StoryboardEditRow,
   StoryboardEditTransport,
-  storyboardImageClipNudgePlacement,
-  storyboardSingleVideoReleasePlacement,
-  storyboardShotDropPlacement,
   storyboardVisualLayerAtPoint,
-  storyboardVideoPointerMovePlacement,
-  storyboardVisualClipPointerPlacement,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
@@ -99,57 +94,8 @@ function renderRow(
 }
 
 describe("StoryboardEditRow", () => {
-  it("moves a video in time and to any visual layer as one placement", () => {
-    expect(
-      storyboardShotDropPlacement({
-        stableShotId: "sh-02",
-        sourceStartFrame: 60,
-        targetMs: 5_000,
-        visualLayer: 7,
-      })
-    ).toEqual({
-      stableShotId: "sh-02",
-      deltaFrames: 90,
-      snapThresholdFrames: 0,
-      visualLayer: 7,
-    });
-  });
 
-  it("maps a pointer release to one absolute image placement across layers", () => {
-    expect(
-      storyboardVisualClipPointerPlacement({
-        clientX: 350,
-        rectLeft: 100,
-        rectWidth: 400,
-        totalMs: 8_000,
-        visualLayer: 3,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      targetMs: 5_000,
-      targetStableShotId: "sh-02",
-      targetOffsetFrames: 90,
-      visualLayer: 3,
-    });
-  });
 
-  it("keeps a video's grab offset when moving it vertically between layers", () => {
-    expect(
-      storyboardVideoPointerMovePlacement({
-        stableShotId: "sh-01",
-        startClientX: 240,
-        releaseClientX: 240,
-        trackWidthPx: 400,
-        totalMs: 8_000,
-        visualLayer: 4,
-      })
-    ).toEqual({
-      stableShotId: "sh-01",
-      deltaFrames: 0,
-      snapThresholdFrames: 0,
-      visualLayer: 4,
-    });
-  });
 
   it("resolves the release layer from track geometry instead of the dragged child", () => {
     expect(
@@ -192,102 +138,12 @@ describe("StoryboardEditRow", () => {
     ).not.toBe(1);
   });
 
-  it("commits a base video release before pointer capture cleanup can cancel it", () => {
-    expect(
-      storyboardSingleVideoReleasePlacement({
-        stableShotId: "sh-01",
-        startClientX: 100,
-        releaseClientX: 200,
-        sourceTrackWidthPx: 400,
-        totalMs: 8_000,
-        targetTrack: null,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      stableShotId: "sh-01",
-      deltaFrames: 60,
-      snapThresholdFrames: 5,
-    });
-  });
 
-  it("commits one base-video gesture as both horizontal and vertical movement", () => {
-    expect(
-      storyboardSingleVideoReleasePlacement({
-        stableShotId: "sh-01",
-        startClientX: 200,
-        releaseClientX: 300,
-        sourceTrackWidthPx: 400,
-        totalMs: 8_000,
-        targetTrack: {
-          visualLayer: 3,
-          rect: { left: 100, right: 500, top: 40, bottom: 88, width: 400 },
-        },
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      stableShotId: "sh-01",
-      deltaFrames: 60,
-      snapThresholdFrames: 0,
-      visualLayer: 3,
-    });
-  });
 
-  it("nudges an image by frames and crosses shot boundaries", () => {
-    expect(
-      storyboardImageClipNudgePlacement({
-        currentAbsoluteFrame: 59,
-        deltaFrames: 1,
-        visualLayer: 4,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      targetStableShotId: "sh-02",
-      targetOffsetFrames: 0,
-      visualLayer: 4,
-    });
-    expect(
-      storyboardImageClipNudgePlacement({
-        currentAbsoluteFrame: 60,
-        deltaFrames: -1,
-        visualLayer: 2,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      targetStableShotId: "sh-01",
-      targetOffsetFrames: 59,
-      visualLayer: 2,
-    });
-  });
 
-  it("clamps image nudges to the visible timeline and clamps layers at zero", () => {
-    expect(
-      storyboardImageClipNudgePlacement({
-        currentAbsoluteFrame: 0,
-        deltaFrames: -15,
-        visualLayer: -1,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      targetStableShotId: "sh-01",
-      targetOffsetFrames: 0,
-      visualLayer: 0,
-    });
-    expect(
-      storyboardImageClipNudgePlacement({
-        currentAbsoluteFrame: 239,
-        deltaFrames: 15,
-        visualLayer: 1,
-        timings: shots.map(shot => shot.timing),
-      })
-    ).toEqual({
-      targetStableShotId: "sh-02",
-      targetOffsetFrames: 179,
-      visualLayer: 1,
-    });
-  });
 
   it("advertises arrow movement on ordinary video clips", () => {
-    const html = renderRow(boardTimeline({ onMoveTimelineShot: vi.fn() }));
+    const html = renderRow(boardTimeline({ onMoveVisualClip: vi.fn() }));
     expect(html).toContain('data-visual-clip-move-target="true"');
     expect(html).toContain(
       'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"'
@@ -812,7 +668,7 @@ describe("StoryboardEditRow shortcuts", () => {
           boundaryStableShotId: null,
         }),
         onMoveTimelineGroup: vi.fn(),
-        onMoveTimelineShot: vi.fn(),
+        onMoveVisualClip: vi.fn(),
       }),
       1
     );
