@@ -43,11 +43,6 @@
       "history": [
         {
           "date": "2026-08-22",
-          "kind": "fix",
-          "summary": "纠正此前把底部 Timeline 命中宽度当作 Storyboard 验收证据的范围错误：用户实际操作对象是上方 Storyboard 视觉剪辑层。根因有两处：跨层松手依赖 elementFromPoint 返回的最上层子元素，拖动预览或 pointer capture 会让它仍归属源层；底层视频先 releasePointerCapture，lostpointercapture 可抢先清空 drag ref，导致普通移动没有任何写入。现在图片、上层视频和底层视频统一按所有 Storyboard 图层轨道的可见矩形解析目标层；底层视频先原子取得并清空拖动状态，再释放 capture，同一手势可同时提交横向帧位移与 visualLayer。StoryboardEditRow 定向测试覆盖目标层几何解析、源层遮挡、底层视频横移和斜向跨层；底部 Timeline 不作为本修复验收对象。"
-        },
-        {
-          "date": "2026-08-22",
           "kind": "refactor",
           "summary": "删除已从生产路由断开的旧 /analysis 页面孤岛（AnalysisPage、AnalysisWorkspace、Timeline drawer 及其专用 hooks/views）共 667 行。/analysis 继续重定向到 /editing；活跃 Story/Creation 调用方仍按 storyId 精确失效，Story 隔离约束不变。"
         },
@@ -1364,6 +1359,11 @@
         "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。"
       ],
       "history": [
+        {
+          "date": "2026-08-22",
+          "kind": "fix",
+          "summary": "纠正此前把底部 Timeline 命中宽度当作 Storyboard 验收证据的范围错误：用户实际操作对象是上方 Storyboard 视觉剪辑层。根因有两处：跨层松手依赖 elementFromPoint 返回的最上层子元素，拖动预览或 pointer capture 会让它仍归属源层；底层视频先 releasePointerCapture，lostpointercapture 可抢先清空 drag ref，导致普通移动没有任何写入。现在图片、上层视频和底层视频统一按所有 Storyboard 图层轨道的可见矩形解析目标层；底层视频先原子取得并清空拖动状态，再释放 capture，同一手势可同时提交横向帧位移与 visualLayer。StoryboardEditRow 定向测试覆盖目标层几何解析、源层遮挡、底层视频横移和斜向跨层；底部 Timeline 不作为本修复验收对象。"
+        },
         {
           "date": "2026-08-22",
           "kind": "fix",
