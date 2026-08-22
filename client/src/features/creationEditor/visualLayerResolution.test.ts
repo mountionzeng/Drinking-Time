@@ -14,7 +14,10 @@ import {
   buildStoryboardTimingRows,
   storyboardTimingWinnerAt,
 } from "../storyAgent/storyboardTiming";
-import { resolveTimelineFrameSource } from "./timelineActions";
+import {
+  resolveTimelineFrameSource,
+  timelineMagneticJoins,
+} from "./timelineActions";
 import { buildTimelineLayout } from "@shared/timelineLayout";
 
 const transform = {
@@ -344,5 +347,31 @@ describe("一帧图片和视频走同一套规则", () => {
     if (resolution.kind !== "source") return;
     expect(resolution.sourceId).toBe("image-42");
     expect(resolution.stableShotId).toBe("base");
+  });
+});
+
+describe("磁吸不跨隐藏层", () => {
+  it("隐藏层的镜头不再和可见镜头之间造出吸附缝", () => {
+    const items = [
+      item("base", { position: 0, startFrame: 0, durationFrames: 60 }),
+      item("next", { position: 1, startFrame: 60, durationFrames: 60 }),
+      // 上层一镜盖住 base 并在同一处收尾：可见时接缝属于它，隐藏后应还给 base。
+      item("hiddenTop", {
+        position: 2,
+        startFrame: 0,
+        durationFrames: 60,
+        visualLayer: 1,
+      }),
+    ];
+    const rows = buildTimelineLayout(items);
+    const withHiddenVisible = timelineMagneticJoins(rows).map(
+      join => `${join.leftStableShotId}->${join.rightStableShotId}`
+    );
+    const withHidden = timelineMagneticJoins(rows, [1]).map(
+      join => `${join.leftStableShotId}->${join.rightStableShotId}`
+    );
+    expect(withHiddenVisible).toContain("hiddenTop->next");
+    expect(withHidden).not.toContain("hiddenTop->next");
+    expect(withHidden).toContain("base->next");
   });
 });

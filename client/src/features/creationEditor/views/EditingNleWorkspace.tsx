@@ -3216,7 +3216,10 @@ export default function EditingNleWorkspace({
       onMoveTimelineItemToLayer: moveTimelineItemToLayer,
       onMoveTimelineImageClip: moveTimelineImageClip,
       writePending: timelineWritePending,
-      magneticJoins: timelineMagneticJoins(buildTimelineLayout(timelineItems)),
+      magneticJoins: timelineMagneticJoins(
+        buildTimelineLayout(timelineItems),
+        timelineVisualLayerState.hidden
+      ),
       previewGroupMove: ({ stableShotId, direction }) =>
         previewTimelineGroup(stableShotId, direction),
       onMoveTimelineGroup: async ({ stableShotId, direction, deltaFrames }) => {

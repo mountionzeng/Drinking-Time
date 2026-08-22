@@ -88,6 +88,7 @@ import {
   quotePublishingAlbumBackground,
 } from "../services/publishingAlbumBackgroundGeneration";
 import { publishingAlbumFontTagsFromCoverPrompt } from "../services/publishingAlbumBackgroundPrompt";
+import { resolvePublishingStoryboardCoverSource } from "../services/publishingStoryboardCoverSource";
 
 const platformSchema = z.enum(PUBLISHING_PLATFORM_IDS);
 const trendPlatformSchema = z.enum(PUBLISHING_TREND_PLATFORM_IDS);
@@ -825,6 +826,48 @@ export const publishingDraftRouter = router({
           }),
           coverEstimate: estimatePublishingCoverCost(),
           coverFallbackEstimate: estimatePublishingCoverFallbackCost(),
+        };
+      } catch (error) {
+        throwPublishingError(error);
+      }
+    }),
+
+  storyboardCoverReferences: protectedProcedure
+    .input(z.object({ storyId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await getPublishingDraftState(
+          input.storyId,
+          ctx.user.id
+        );
+        const source = resolvePublishingStoryboardCoverSource(
+          result.publishing
+        );
+        const coverAsset = await loadPublishingCoverAsset({
+          assetId: source.cover?.assetId,
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+        const rounds = await loadPublishingCoverRounds({
+          publishing: {
+            ...result.publishing,
+            coverRounds: source.coverRounds,
+          },
+          storyId: input.storyId,
+          userId: ctx.user.id,
+        });
+        const candidates = Array.from(
+          new Map(
+            rounds
+              .flatMap(round => round.candidates)
+              .map(candidate => [candidate.id, candidate] as const)
+          ).values()
+        );
+        return {
+          storyId: input.storyId,
+          versionId: source.versionId,
+          coverAsset,
+          candidates,
         };
       } catch (error) {
         throwPublishingError(error);

@@ -328,6 +328,63 @@ describe("publishingDraft router", () => {
     });
   });
 
+  it("returns ancestor cover candidates for a legacy storyboard version", async () => {
+    const legacy = emptyPublishingForGeneration();
+    const v1 = legacy.versions[0]!;
+    v1.coverRounds = [
+      {
+        id: "legacy-cover-round",
+        platform: "xiaohongshu",
+        sourceCoreRevision: 0,
+        parentAssetId: null,
+        feedback: "",
+        instructions: [],
+        artReference: null,
+        assetIds: [1640, 1641, 1642, 1643],
+        createdAt: 1,
+      },
+    ];
+    legacy.versions = [
+      v1,
+      {
+        ...structuredClone(v1),
+        versionId: "v2",
+        sequence: 2,
+        parentId: "v1",
+        cover: null,
+        coverRounds: [],
+      },
+      {
+        ...structuredClone(v1),
+        versionId: "v4",
+        sequence: 4,
+        parentId: "v2",
+        cover: null,
+        coverRounds: [],
+      },
+    ];
+    legacy.activeVersionId = "v4";
+    legacy.activeVideoStoryboardVersionId = "v2";
+    persistenceMocks.getPublishingDraftState.mockResolvedValue({
+      storyId: 7,
+      storyRevision: 8,
+      publishing: legacy,
+    });
+
+    const result = await publishingDraftRouter
+      .createCaller(context())
+      .storyboardCoverReferences({ storyId: 7 });
+
+    expect(result).toMatchObject({
+      storyId: 7,
+      versionId: "v1",
+      coverAsset: null,
+    });
+    expect(result.candidates.map(candidate => candidate.id)).toEqual([
+      1640, 1641, 1642, 1643,
+    ]);
+  });
+
   it("does not fetch trends during read and returns unavailable without writing", async () => {
     const draft = {
       platform: "xiaohongshu" as const,

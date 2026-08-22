@@ -61,10 +61,19 @@ export type TimelineMagneticJoin = {
   boundaryFrame: number;
 };
 
-/** Exact, user-enabled joins in visual timeline order. These are the seams that roll. */
+/**
+ * Exact, user-enabled joins in visual timeline order. These are the seams that roll.
+ *
+ * 隐藏层不参与吸附：看不见的镜头不该在可见镜头之间造出一条会滚动的缝。
+ */
 export function timelineMagneticJoins(
-  rows: readonly TimelineLayoutRow[]
+  allRows: readonly TimelineLayoutRow[],
+  hiddenVisualLayers: readonly number[] = []
 ): TimelineMagneticJoin[] {
+  const hidden = hiddenVisualLayerSet(hiddenVisualLayers);
+  const rows = allRows.filter(
+    row => !hidden.has(normalizeVisualLayer(row.item.visualLayer))
+  );
   const boundaries = Array.from(
     new Set(
       rows

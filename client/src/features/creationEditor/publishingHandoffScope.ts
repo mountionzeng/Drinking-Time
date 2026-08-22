@@ -17,6 +17,12 @@ type PublishingReadSource = {
   coverAsset: PublishingVideoCover | null;
 };
 
+type StoryboardCoverReadSource = {
+  storyId: number;
+  coverAsset: PublishingVideoCover | null;
+  candidates: PublishingVideoCover[];
+};
+
 function storyScope(storyId: number): ScopeKey {
   return { resourceKind: "story", storyId };
 }
@@ -36,9 +42,11 @@ export function resolveScopedPublishingHandoff(input: {
   spinePublishing: PublishingDraftState | null;
   story: StoryPublishingSource | null | undefined;
   publishingRead: PublishingReadSource | null | undefined;
+  storyboardCoverRead?: StoryboardCoverReadSource | null;
 }): {
   publishing: PublishingDraftState;
   coverAsset: PublishingVideoCover | null;
+  coverCandidates: PublishingVideoCover[];
 } {
   const activeScope = storyScope(input.activeStoryId);
   const storyBody =
@@ -54,6 +62,11 @@ export function resolveScopedPublishingHandoff(input: {
     scopeKeysEqual(storyScope(input.publishingRead.storyId), activeScope)
       ? input.publishingRead
       : null;
+  const scopedStoryboardCoverRead =
+    input.storyboardCoverRead?.storyId != null &&
+    scopeKeysEqual(storyScope(input.storyboardCoverRead.storyId), activeScope)
+      ? input.storyboardCoverRead
+      : null;
   const publishing = latestPublishingDraftState([
     input.spinePublishing,
     scopedRead?.publishing,
@@ -64,8 +77,10 @@ export function resolveScopedPublishingHandoff(input: {
   return {
     publishing,
     coverAsset:
-      scopedRead && readVersionId === activeVersionId
+      scopedStoryboardCoverRead?.coverAsset ??
+      (scopedRead && readVersionId === activeVersionId
         ? scopedRead.coverAsset
-        : null,
+        : null),
+    coverCandidates: scopedStoryboardCoverRead?.candidates ?? [],
   };
 }
