@@ -7,6 +7,8 @@ import {
   StoryboardEditTransport,
   storyboardImageClipNudgePlacement,
   storyboardShotDropPlacement,
+  storyboardVideoPointerMovePlacement,
+  storyboardVisualClipPointerPlacement,
   type StoryboardBoardTimeline,
   type StoryboardEditShot,
 } from "./StoryboardEditRow";
@@ -106,6 +108,42 @@ describe("StoryboardEditRow", () => {
       deltaFrames: 90,
       snapThresholdFrames: 0,
       visualLayer: 7,
+    });
+  });
+
+  it("maps a pointer release to one absolute image placement across layers", () => {
+    expect(
+      storyboardVisualClipPointerPlacement({
+        clientX: 350,
+        rectLeft: 100,
+        rectWidth: 400,
+        totalMs: 8_000,
+        visualLayer: 3,
+        timings: shots.map(shot => shot.timing),
+      })
+    ).toEqual({
+      targetMs: 5_000,
+      targetStableShotId: "sh-02",
+      targetOffsetFrames: 90,
+      visualLayer: 3,
+    });
+  });
+
+  it("keeps a video's grab offset when moving it vertically between layers", () => {
+    expect(
+      storyboardVideoPointerMovePlacement({
+        stableShotId: "sh-01",
+        startClientX: 240,
+        releaseClientX: 240,
+        trackWidthPx: 400,
+        totalMs: 8_000,
+        visualLayer: 4,
+      })
+    ).toEqual({
+      stableShotId: "sh-01",
+      deltaFrames: 0,
+      snapThresholdFrames: 0,
+      visualLayer: 4,
     });
   });
 
@@ -300,7 +338,8 @@ describe("StoryboardEditRow", () => {
     );
     expect(html).toContain('aria-label="拖动顶层播放头"');
     expect(html).toContain('data-testid="storyboard-extracted-frame-99"');
-    expect(html).toContain('draggable="true"');
+    expect(html).toContain('data-pointer-clip-move="true"');
+    expect(html).toContain("cursor-grab");
     expect(html).toContain('src="/frame-99.webp"');
     expect(html).toContain("left:12.5%");
     expect(html.indexOf("视觉层 2")).toBeLessThan(
@@ -391,7 +430,8 @@ describe("StoryboardEditRow", () => {
     expect(html.match(/data-testid="storyboard-extracted-frame-99"/g)).toHaveLength(2);
     expect(html).toContain('data-testid="storyboard-visual-layer-track-2"');
     expect(html).toContain('data-testid="storyboard-visual-layer-track-3"');
-    expect(html.match(/draggable="true"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html.match(/data-pointer-clip-move="true"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html.match(/cursor-grab/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("renders higher layers above lower layers and keeps an empty upper layer available", () => {
