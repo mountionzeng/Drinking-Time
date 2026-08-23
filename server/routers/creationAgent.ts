@@ -36,9 +36,16 @@ import {
   updateVideoTake,
 } from "../db";
 import {
+  addTimelineAnchorForStory,
   insertVisualImageClipForStory,
+  magnetDetachForStory,
+  moveShotGroupForStory,
+  moveShotSingleForStory,
   moveVisualClipForStory,
+  removeTimelineAnchorForStory,
   removeVisualClipForStory,
+  rollingTrimForStory,
+  trimShotForStory,
 } from "../services/visualClipEditing";
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
@@ -624,7 +631,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
 
       if (input.parentImageId != null) {
@@ -752,7 +763,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       const target = resolveStoryShotTarget(story, input.targetStableShotId);
       if (!target) {
@@ -799,7 +814,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       const bytes = decodeBase64File(input.fileBase64);
       if (bytes.byteLength === 0) {
@@ -1723,7 +1742,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       try {
         const timeline = await persistStoryTimeline({
@@ -1763,7 +1786,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       return moveVisualClipForStory({
         storyId: input.storyId,
@@ -1794,7 +1821,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       return insertVisualImageClipForStory({
         storyId: input.storyId,
@@ -1824,7 +1855,11 @@ export const creationAgentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const story = await getStoryById(input.storyId, ctx.user.id);
       if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
+        return {
+          status: "error" as const,
+          error: "故事不存在或无权操作",
+          errorKind: "invalid" as const,
+        };
       }
       return removeVisualClipForStory({
         storyId: input.storyId,
@@ -1832,6 +1867,147 @@ export const creationAgentRouter = router({
         clipId: input.clipId,
       });
     }),
+
+  // ── 以下七个命令取代了「客户端跑 planner 算出整份 items 再整份写回」──
+  // 客户端只说做什么，不说算成什么：rows 与镜头素材信息全部由服务端自己取。
+
+  /** 方向整组移动：只带走与起始镜头同一视觉层的镜头。 */
+  moveShotGroup: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        sourceShotId: z.string().min(1).max(240),
+        direction: z.enum(["left", "right"]),
+        deltaFrames: z.number().int(),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      moveShotGroupForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        sourceShotId: input.sourceShotId,
+        direction: input.direction,
+        deltaFrames: input.deltaFrames,
+      })
+    ),
+
+  /** 单镜移动，带磁吸阈值。 */
+  moveShotSingle: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        deltaFrames: z.number().int(),
+        snapThresholdFrames: z.number().int().min(0).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      moveShotSingleForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        deltaFrames: input.deltaFrames,
+        ...(input.snapThresholdFrames === undefined
+          ? {}
+          : { snapThresholdFrames: input.snapThresholdFrames }),
+      })
+    ),
+
+  /** 滚动接缝：左镜结束与右镜开始必须一起改，任一侧被挡则整次不提交。 */
+  rollingTrimTimeline: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        leftStableShotId: z.string().min(1).max(240),
+        rightStableShotId: z.string().min(1).max(240),
+        requestedBoundaryFrame: z.number().int().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      rollingTrimForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        leftStableShotId: input.leftStableShotId,
+        rightStableShotId: input.rightStableShotId,
+        requestedBoundaryFrame: input.requestedBoundaryFrame,
+      })
+    ),
+
+  /** 取消两个镜头之间的吸附。 */
+  detachTimelineMagnet: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        leftStableShotId: z.string().min(1).max(240),
+        rightStableShotId: z.string().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      magnetDetachForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        leftStableShotId: input.leftStableShotId,
+        rightStableShotId: input.rightStableShotId,
+      })
+    ),
+
+  /**
+   * 在某一帧打锚点。客户端以前要先自己解析「这一帧是哪个画面」再传过来；
+   * 现在只给帧号，服务端用同一个 resolveTimelineVisualFrame 入口解析，
+   * 隐藏层规则一并生效，不会两边算出不同答案。
+   */
+  addTimelineAnchor: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        timelineFrame: z.number().int().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      addTimelineAnchorForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        timelineFrame: input.timelineFrame,
+      })
+    ),
+
+  /** 取消某个镜头上的一个锚点。 */
+  removeTimelineAnchor: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        anchorId: z.string().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      removeTimelineAnchorForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        anchorId: input.anchorId,
+      })
+    ),
+
+  /** 修剪单镜的首或尾。 */
+  trimShot: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        edge: z.enum(["start", "end"]),
+        requestedBoundaryFrame: z.number().int().min(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      trimShotForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        edge: input.edge,
+        requestedBoundaryFrame: input.requestedBoundaryFrame,
+      })
+    ),
 
   createDerivationDraft: protectedProcedure
     .input(
