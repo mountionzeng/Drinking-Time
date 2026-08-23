@@ -9,6 +9,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { trpc } from "@/lib/trpc";
+import { useTimelineCommands } from "./useTimelineCommands";
 import type { NarrativeJob, StoryShot } from "@/features/storyAgent/types";
 import {
   resolveEditCandidatePlans,
@@ -71,18 +72,10 @@ import {
 } from "@shared/timelineLayout";
 import {
   createTimelineWriteLock,
-  planTimelineAnchorAdd,
-  planTimelineAnchorRemove,
-  planTimelineGroupMove,
-  planTimelineMagnetDetach,
-  planTimelineRollingTrim,
-  planTimelineSingleMove,
-  planTimelineTrim,
   previewTimelineGroup as previewTimelineGroupFrom,
   resolveTimelineFrameSource as resolveTimelineFrameSourceFrom,
   type CreationTimelineFrameResolution,
   type TimelineGroupPreview,
-  type TimelinePlan,
   type TimelineResolverShot,
 } from "@shared/timelineCommands";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
@@ -2043,34 +2036,6 @@ export function CreationEditorProvider({
     createTimelineWriteLock(setTimelineWritePending)
   );
 
-  const commitTimelinePlan = useCallback(
-    async (
-      plan: TimelinePlan,
-      failureReason: string,
-      overlays?: StoryTimelineOverlay[]
-    ): Promise<{ applied: boolean; reason?: string; anchorId?: string }> => {
-      if (plan.kind !== "ok") return { applied: false, reason: plan.reason };
-      return timelineWriteLockRef.current.run(
-        async () => {
-          try {
-            await saveTimelineItems(plan.items, {
-              throwOnError: true,
-              ...(overlays === undefined ? {} : { overlays }),
-            });
-            return { applied: true, anchorId: plan.anchorId };
-          } catch (error) {
-            return {
-              applied: false,
-              reason: error instanceof Error ? error.message : failureReason,
-            };
-          }
-        },
-        { applied: false, reason: "上一步剪辑还在保存中" }
-      );
-    },
-    [saveTimelineItems]
-  );
-
   const previewTimelineGroup = useCallback(
     (sourceShotId: string, direction: "left" | "right"): TimelineGroupPreview =>
       previewTimelineGroupFrom({
@@ -2081,158 +2046,25 @@ export function CreationEditorProvider({
     [timelineLayoutRows]
   );
 
-  const moveTimelineGroup = useCallback(
-    (sourceShotId: string, direction: "left" | "right", deltaFrames: number) =>
-      commitTimelinePlan(
-        planTimelineGroupMove({
-          items: timelineItems,
-          rows: timelineLayoutRows,
-          sourceShotId,
-          direction,
-          deltaFrames,
-        }),
-        "批量移动失败"
-      ),
-    [commitTimelinePlan, timelineItems, timelineLayoutRows]
-  );
 
-  const moveTimelineShot = useCallback(
-    (
-      stableShotId: string,
-      deltaFrames: number,
-      snapThresholdFrames?: number,
-      visualLayer?: number
-    ) => {
-      const overlay = timelineOverlays.find(
-        candidate => candidate.sourceStableShotId === stableShotId
-      );
-      const sourceItem = timelineItems.find(
-        item => item.stableShotId === stableShotId
-      );
-      const targetLayer =
-        visualLayer == null ? undefined : Math.max(0, Math.round(visualLayer));
-      const layerChanged =
-        targetLayer != null && targetLayer !== (sourceItem?.visualLayer ?? 0);
-      const plan =
-        deltaFrames === 0 && sourceItem != null && layerChanged
-          ? ({ kind: "ok", items: timelineItems } as const)
-          : planTimelineSingleMove({
-              items: timelineItems,
-              rows: timelineLayoutRows,
-              stableShotId,
-              deltaFrames,
-              snapThresholdFrames,
-            });
-      return commitTimelinePlan(
-        plan.kind === "ok" && (targetLayer != null || overlay)
-          ? {
-              ...plan,
-              items: plan.items.map(item =>
-                item.stableShotId === stableShotId
-                  ? { ...item, visualLayer: targetLayer ?? 1 }
-                  : item
-              ),
-            }
-          : plan,
-        "移动镜头失败",
-        overlay
-          ? timelineOverlays.filter(candidate => candidate.id !== overlay.id)
-          : undefined
-      );
-    },
-    [commitTimelinePlan, timelineItems, timelineLayoutRows, timelineOverlays]
-  );
-
-  const addTimelineAnchorAtFrame = useCallback(
-    (timelineFrame: number) =>
-      commitTimelinePlan(
-        planTimelineAnchorAdd({
-          items: timelineItems,
-          resolution: resolveTimelineFrameSource(timelineFrame),
-        }),
-        "打标失败"
-      ),
-    [commitTimelinePlan, resolveTimelineFrameSource, timelineItems]
-  );
-
-  const removeTimelineAnchorFromShot = useCallback(
-    (stableShotId: string, anchorId: string) =>
-      commitTimelinePlan(
-        planTimelineAnchorRemove({
-          items: timelineItems,
-          stableShotId,
-          anchorId,
-        }),
-        "取消锚点失败"
-      ),
-    [commitTimelinePlan, timelineItems]
-  );
-
-  const trimTimelineItemEdge = useCallback(
-    (
-      stableShotId: string,
-      edge: "start" | "end",
-      requestedBoundaryFrame: number
-    ) =>
-      commitTimelinePlan(
-        planTimelineTrim({
-          items: timelineItems,
-          stableShotId,
-          edge,
-          requestedBoundaryFrame,
-          sourceLimitSec:
-            timelineResolverShots.get(stableShotId)?.currentVideoDurationSec ??
-            null,
-        }),
-        "裁剪失败"
-      ),
-    [commitTimelinePlan, timelineItems, timelineResolverShots]
-  );
-
-  const rollTimelineJoin = useCallback(
-    (
-      leftStableShotId: string,
-      rightStableShotId: string,
-      requestedBoundaryFrame: number
-    ) =>
-      commitTimelinePlan(
-        planTimelineRollingTrim({
-          items: timelineItems,
-          rows: timelineLayoutRows,
-          leftStableShotId,
-          rightStableShotId,
-          requestedBoundaryFrame,
-          leftSourceLimitSec:
-            timelineResolverShots.get(leftStableShotId)
-              ?.currentVideoDurationSec ?? null,
-          rightSourceLimitSec:
-            timelineResolverShots.get(rightStableShotId)
-              ?.currentVideoDurationSec ?? null,
-        }),
-        "滚动剪辑失败"
-      ),
-    [
-      commitTimelinePlan,
-      timelineItems,
-      timelineLayoutRows,
-      timelineResolverShots,
-    ]
-  );
-
-  const detachTimelineMagnet = useCallback(
-    (leftStableShotId: string, rightStableShotId: string) =>
-      commitTimelinePlan(
-        planTimelineMagnetDetach({
-          items: timelineItems,
-          rows: timelineLayoutRows,
-          leftStableShotId,
-          rightStableShotId,
-        }),
-        "取消吸附失败"
-      ),
-    [commitTimelinePlan, timelineItems, timelineLayoutRows]
-  );
-
+  // 时间线领域命令的客户端住在自己的文件里（见 useTimelineCommands）：
+  // 它是一层独立职责，不是本 Context 的一部分。
+  const {
+    moveTimelineGroup,
+    moveTimelineShot,
+    addTimelineAnchorAtFrame,
+    removeTimelineAnchorFromShot,
+    trimTimelineItemEdge,
+    rollTimelineJoin,
+    detachTimelineMagnet,
+  } = useTimelineCommands({
+    activeStoryId: activeId,
+    timelineItems,
+    timelineOverlays,
+    visualLayerState: persistedVisualLayerState,
+    refetchStoryMaterial: storyMaterialQuery.refetch,
+    writeLock: timelineWriteLockRef.current,
+  });
   const resetTimelineShots = useCallback(() => {
     void saveTimelineItems(
       timelineItems.map((item, position) => ({
