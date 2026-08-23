@@ -31,7 +31,7 @@
 | 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
 
 | 滚动剪辑修复 | 独立会话（由架构收敛线开卡） | `shared/timelineEditing.ts` 的 `trimTimelineItem`、`shared/timelineCommands.test.ts`。修「右镜无显式 timelineStartFrame 时滚动接缝把总片长砍短」 | 进行中 | 2026-08-23 02:10 |
-| tsconfig 类型检查 | `codex/story-visual-assets`（主仓） | **只读探测阶段**：用临时 `tsconfig.probe-*.json`（跑完即删）统计移除 `**/*.test.ts` exclude 后的既有类型错误，不改 `tsconfig.json`、不动 `server/**`、不触发 :3000 重启。若错误量可控再回来登记具体要改的测试文件；**明确避让** `shared/timelineEditing.ts`、`shared/timelineCommands.test.ts`（滚动剪辑线）与 `server/services/visualClipEditing.ts`、`client/src/features/creationEditor/CreationEditorContext.tsx`（架构收敛线 U4–U7） | 探测中 | 2026-08-24 02:20 |
+| tsconfig 类型检查 | `codex/story-visual-assets`（主仓） | **探测已完成，未改任何代码**。报告：`docs/qa/tsconfig-test-exclude-audit-2026-08-24.md`（`4cd2241`）。结论：移除 exclude 后 251 个错误，补 `target: ES2022` 后剩 208 个／58 个测试文件，**生产代码零错误**。临时探针配置已删，`tsconfig.json` 原样未动 | **待用户裁决**（分批修 / 上棘轮 / 维持现状），在此之前不动手 | 2026-08-24 02:32 |
 
 （收工时删掉自己这行。）
 
@@ -57,6 +57,7 @@
 | 08-23 18:07 | `8e85541` | 视觉资产：参考图改走自有 OSS、一致性闸门按小句判定、冲突裁决逐条配对 | **视觉资产标准板线**（08-22 完成未落库，由架构收敛会话代为提交；原作者已核对提交信息属实）。这批是真实付费验出来的，累计 ¥31.29 | `imageGen.ts`、`storyAgent.ts`、`visualAsset*` |
 | 08-23 18:12 | `6aed6d2` / `41d1797` | 补齐三份未落库交接文档；新增架构收敛需求文档与用户裁决 | **架构收敛线** | 无（纯文档） |
 | 08-23 18:25 | `414331b` | 新增本看板 | **架构收敛线** | 无（纯文档） |
+| 08-24 02:30 | `4cd2241` | tsconfig 移除 `**/*.test.ts` exclude 的摸底报告：exclude 系初始提交的模板默认值；移除后 208 个既有错误全在测试文件内，生产代码零错误 | **tsconfig 类型检查线**（reflog 为 `commit:`；只新增 `docs/qa/` 一个文件） | 无（纯文档，未动 `tsconfig.json`） |
 | 08-23 18:16 | `9ba6e2d` | 修竞态：素材库未拉回时，「换成素材里的人物」被静默放行给通用改写 | **图生图对话框线**（reflog 为 `commit:`；文件全属该链路） | 无（未动 `server/`） |
 
 ---
