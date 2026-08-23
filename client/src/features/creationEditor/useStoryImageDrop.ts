@@ -16,7 +16,7 @@ import { useOptionalCreationEditor } from "./CreationEditorContext";
  * 再挂上去。时间轴和镜头设计表读的是同一份镜头数据，所以只要图挂到了
  * stableShotId 上，两边同时更新，不需要再搭一座桥。
  */
-export type StoryImageDropTarget =
+type StoryImageDropTarget =
   | { kind: "shot"; stableShotId: string }
   | { kind: "new-shot" };
 

@@ -7,7 +7,6 @@ import {
   MAX_CHAT_IMAGE_REFS,
   promoteChatImageRefToBase,
   removeChatImageRef,
-  toggleChatImageRef,
   type ChatImageRef,
 } from "./chatImageRefs";
 
@@ -37,13 +36,16 @@ describe("chatImageRefs", () => {
   });
 
   it("rejects images that have no usable id or url", () => {
-    expect(addChatImageRef([], { ...ref(1), imageId: 0 }).rejected).toBeTruthy();
-    expect(addChatImageRef([], { ...ref(1), imageUrl: "  " }).rejected).toBeTruthy();
+    expect(
+      addChatImageRef([], { ...ref(1), imageId: 0 }).rejected
+    ).toBeTruthy();
+    expect(
+      addChatImageRef([], { ...ref(1), imageUrl: "  " }).rejected
+    ).toBeTruthy();
   });
 
-  it("toggles a reference off when it is already in the basket", () => {
-    const added = toggleChatImageRef([], ref(7)).refs;
-    expect(toggleChatImageRef(added, ref(7)).refs).toEqual([]);
+  it("removes a reference from the basket", () => {
+    const added = addChatImageRef([], ref(7)).refs;
     expect(removeChatImageRef(added, 7)).toEqual([]);
   });
 
@@ -51,9 +53,9 @@ describe("chatImageRefs", () => {
     const refs = [ref(1), ref(2), ref(3)];
     const promoted = promoteChatImageRefToBase(refs, 3);
     expect(promoted.map(item => item.imageId)).toEqual([3, 1, 2]);
-    expect(promoteChatImageRefToBase(refs, 404).map(item => item.imageId)).toEqual(
-      [1, 2, 3]
-    );
+    expect(
+      promoteChatImageRefToBase(refs, 404).map(item => item.imageId)
+    ).toEqual([1, 2, 3]);
   });
 
   it("numbers references so the manifest matches the send order", () => {

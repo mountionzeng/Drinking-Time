@@ -65,16 +65,6 @@ export function removeChatImageRef(
   return refs.filter(ref => !sameImage(ref, imageId));
 }
 
-export function toggleChatImageRef(
-  refs: readonly ChatImageRef[],
-  ref: ChatImageRef
-): ChatImageRefChange {
-  if (hasChatImageRef(refs, ref.imageId)) {
-    return { refs: removeChatImageRef(refs, ref.imageId) };
-  }
-  return addChatImageRef(refs, ref);
-}
-
 /**
  * 把某张图提成底图（图1）。底图是 302 编辑端点真正在改的那张，画幅和整体
  * 构图从它继承，所以必须让用户能改，而不是按点击顺序碰运气。

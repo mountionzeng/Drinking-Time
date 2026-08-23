@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { buildChatImageRemixRequest, type ChatImageRef } from "./chatImageRefs";
 import { chatImageRefsStore, useChatImageRefs } from "./chatImageRefsStore";
 
-export type ChatImageRemixDraft = {
+type ChatImageRemixDraft = {
   refs: ChatImageRef[];
   instruction: string;
   prompt: string;
@@ -15,13 +15,13 @@ export type ChatImageRemixDraft = {
   estimatedCny: number;
 };
 
-export type ChatImageRemixResult = {
+type ChatImageRemixResult = {
   imageId: number;
   imageUrl: string;
   instruction: string;
 };
 
-export type ChatImageRemixStatus =
+type ChatImageRemixStatus =
   | "idle"
   | "confirming"
   | "generating"

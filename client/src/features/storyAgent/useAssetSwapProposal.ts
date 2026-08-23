@@ -16,7 +16,7 @@ import {
   type AssetSwapProposal,
 } from "./assetSwapIntent";
 
-export type AssetSwapStatus =
+type AssetSwapStatus =
   | "idle"
   | "confirming"
   | "ambiguous"
@@ -25,7 +25,7 @@ export type AssetSwapStatus =
   | "done"
   | "error";
 
-export type AssetSwapResult = {
+type AssetSwapResult = {
   imageId: number;
   imageUrl: string;
   shotLabel: string;
@@ -51,7 +51,7 @@ export type AssetSwapController = {
 };
 
 /** 只有当前版本已锁定的资产才能绑定，也才该出现在提案里。 */
-export function lockedAssetCandidates(
+function lockedAssetCandidates(
   assets: readonly StoryVisualAsset[] | undefined
 ): AssetSwapCandidate[] {
   return (assets ?? []).flatMap(asset => {
@@ -92,7 +92,6 @@ export function useAssetSwapProposal(input: {
     shotNo: number | null | undefined,
     stableShotId?: string | null
   ) => string;
-  onRendered?: () => void;
 }): AssetSwapController {
   const [status, setStatus] = useState<AssetSwapStatus>("idle");
   const [proposal, setProposal] = useState<AssetSwapProposal | null>(null);
@@ -268,7 +267,6 @@ export function useAssetSwapProposal(input: {
       void utils.storyAgent.storyMaterialState.invalidate({ storyId });
       void utils.storyAgent.storyImages.invalidate({ storyId });
       void utils.visualAssets.read.invalidate({ storyId });
-      input.onRendered?.();
     } catch (err) {
       setError(readableRerenderError(err));
       setStatus("error");
