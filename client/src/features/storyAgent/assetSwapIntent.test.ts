@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAssetSwapRenderPrompt,
+  looksLikeAssetSwap,
   describeAssetSwapProposal,
   detectAssetSwapIntent,
   detectAssetSwapKind,
@@ -36,7 +37,11 @@ describe("assetSwapIntent", () => {
       instruction: "把这张图里的人换成素材里的那个人物",
       lockedAssets: [character],
     });
-    expect(intent).toEqual({ status: "ready", kind: "character", asset: character });
+    expect(intent).toEqual({
+      status: "ready",
+      kind: "character",
+      asset: character,
+    });
   });
 
   it("needs all three signals: library, kind and a swap verb", () => {
@@ -108,6 +113,25 @@ describe("assetSwapIntent", () => {
     });
   });
 
+  it("recognizes the wording without knowing what the library holds", () => {
+    // 资产列表是异步拉的。页面刚打开时列表还是空的，如果只有
+    // detectAssetSwapIntent 一条路，这句话会被判成「不是换资产请求」并
+    // 静默放行给通用改写 —— 和「本来就不是」无法区分。调用方要先靠这个
+    // 函数认出措辞、把消息接住，等列表回来再判。
+    expect(looksLikeAssetSwap("把这张图里的人换成素材里的那个人物")).toBe(true);
+    expect(
+      detectAssetSwapIntent({
+        instruction: "把这张图里的人换成素材里的那个人物",
+        lockedAssets: [], // 还没拉回来
+      }).status
+    ).toBe("none");
+
+    // 但普通改图和改固定造型仍然一眼认不出，不该被接住。
+    expect(looksLikeAssetSwap("把这个人换成一个老头")).toBe(false);
+    expect(looksLikeAssetSwap("让她光脚")).toBe(false);
+    expect(looksLikeAssetSwap("换成素材里的那个")).toBe(false);
+  });
+
   it("stays silent when nothing of that kind is locked", () => {
     expect(
       detectAssetSwapIntent({
@@ -170,7 +194,9 @@ describe("assetSwapIntent", () => {
 
     // 用户原话里那句「换成…人物」绝不能跟进提示词。
     expect(prompt).not.toContain("把这张图里的人换成素材里的那个人物");
-    expect(CHANGE_TERMS.test(prompt) && CHARACTER_TERMS.test(prompt)).toBe(false);
+    expect(CHANGE_TERMS.test(prompt) && CHARACTER_TERMS.test(prompt)).toBe(
+      false
+    );
     // 但仍要说明身份来自绑定，并保住这一镜原有的取景。
     expect(prompt).toContain("已绑定的资产");
     expect(prompt).toContain("沿用这一镜现有画面");

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { estimateStoryboardImageCost } from "@shared/imageRenderCost";
 import type {
@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 import {
   buildAssetSwapRenderPrompt,
   detectAssetSwapIntent,
+  looksLikeAssetSwap,
   describeAssetSwapProposal,
   type AssetSwapCandidate,
   type AssetSwapProposal,
@@ -18,6 +19,8 @@ import {
 
 type AssetSwapStatus =
   | "idle"
+  /** 认出是换资产请求，但素材库还没拉回来，先接住别让它掉进通用改写。 */
+  | "resolving"
   | "confirming"
   | "ambiguous"
   | "binding"
@@ -86,6 +89,11 @@ function operationToken(prefix: string): string {
 export function useAssetSwapProposal(input: {
   storyId: number | null;
   selection: SelectionContext | null;
+  /**
+   * 等到素材库回来后发现没有可用资产时，把这句话交还给通用改写路径。
+   * 不接回去的话用户那条消息就凭空消失了。
+   */
+  onFallthrough?: (instruction: string) => void;
   /** 采用一张图作为所属镜头的当前画面（creationEditor.promoteStoryImage）。 */
   onAdoptImage?: (imageId: number) => Promise<void>;
   shotLabelOf: (
@@ -109,6 +117,8 @@ export function useAssetSwapProposal(input: {
   const bindings: ShotVisualAssetBinding[] =
     assetsQuery.data?.aggregate.bindings ?? [];
   const storyRevision = assetsQuery.data?.revision ?? null;
+  /** data 为 undefined 说明这一轮资产还没拉回来，此时的空列表不能当成「没有资产」。 */
+  const assetsReady = assetsQuery.data !== undefined;
   const bindMut = trpc.visualAssets.confirmBindings.useMutation();
   const generateMut = trpc.storyAgent.generateForMobile.useMutation();
   const utils = trpc.useUtils();
@@ -145,22 +155,14 @@ export function useAssetSwapProposal(input: {
     [bindings, input]
   );
 
-  const arm = useCallback(
+  /** 素材库已就绪时的正式判定。返回 false 表示这句话该交还给通用改写路径。 */
+  const resolveIntent = useCallback(
     (instruction: string) => {
-      const selection = input.selection;
-      // 只在「选中了某一镜的画面」时接管；没有镜头就没有可绑的对象。
-      if (!selection?.stableShotId) return false;
-      const lockedAssets = lockedAssetCandidates(assets);
-      const intent = detectAssetSwapIntent({ instruction, lockedAssets });
+      const intent = detectAssetSwapIntent({
+        instruction,
+        lockedAssets: lockedAssetCandidates(assets),
+      });
       if (intent.status === "none") return false;
-      if (input.storyId == null) {
-        toast.error("故事还没加载好，稍后再试");
-        return false;
-      }
-      setError(null);
-      setResult(null);
-      bindTokenRef.current = operationToken("chat-asset-bind");
-      setPendingInstruction(instruction);
       if (intent.status === "ambiguous") {
         setCandidates(intent.candidates);
         setProposal(null);
@@ -174,8 +176,49 @@ export function useAssetSwapProposal(input: {
       setStatus("confirming");
       return true;
     },
-    [assets, buildProposal, input]
+    [assets, buildProposal]
   );
+
+  const arm = useCallback(
+    (instruction: string) => {
+      const selection = input.selection;
+      // 只在「选中了某一镜的画面」时接管；没有镜头就没有可绑的对象。
+      if (!selection?.stableShotId) return false;
+      // 先只看措辞。素材列表还没回来时也要认得出，否则会静默放行。
+      if (!looksLikeAssetSwap(instruction)) return false;
+      if (input.storyId == null) {
+        toast.error("故事还没加载好，稍后再试");
+        return false;
+      }
+      setError(null);
+      setResult(null);
+      bindTokenRef.current = operationToken("chat-asset-bind");
+      setPendingInstruction(instruction);
+      if (!assetsReady) {
+        setCandidates([]);
+        setProposal(null);
+        setStatus("resolving");
+        return true;
+      }
+      if (!resolveIntent(instruction)) {
+        setStatus("idle");
+        return false;
+      }
+      return true;
+    },
+    [assetsReady, input, resolveIntent]
+  );
+
+  // 等资产回来再补判。此时消息已经被接住了，判定不成立必须原样交还，
+  // 否则用户那句话就凭空消失。
+  useEffect(() => {
+    if (status !== "resolving" || !assetsReady) return;
+    const instruction = pendingInstruction;
+    if (!resolveIntent(instruction)) {
+      setStatus("idle");
+      input.onFallthrough?.(instruction);
+    }
+  }, [assetsReady, input, pendingInstruction, resolveIntent, status]);
 
   const chooseCandidate = useCallback(
     (assetId: string) => {

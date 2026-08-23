@@ -271,6 +271,7 @@ export default function StoryAgentChat({
     storyId: creationEditor?.activeStoryId ?? remoteStoryId ?? null,
     selection: activeSelection,
     onAdoptImage: creationEditor?.promoteStoryImage,
+    onFallthrough: instruction => void sendSelectionEdit(instruction),
     shotLabelOf: (shotNo, stableShotId) => labelForShot(shotNo, stableShotId),
   });
   const handleImageRerender = useCallback(

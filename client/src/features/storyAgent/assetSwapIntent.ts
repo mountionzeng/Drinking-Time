@@ -110,15 +110,30 @@ function isDistinctiveName(name: string, kind: VisualAssetKind): boolean {
  * 三个条件都要满足：指向素材库、点名了资产类别、有替换动作。少一个就当普通改图 ——
  * 「把她的裙子改长一点」不该触发绑定，那是改资产的固定造型，是另一条路。
  */
+/**
+ * 这句话看起来是不是在说「用素材库里的资产重画这一镜」——只看措辞，不看
+ * 素材库里到底有什么。
+ *
+ * 单独拆出来是因为资产列表是异步拉的：页面刚打开、`visualAssets.read` 还没
+ * 回来时列表是空的，光靠 detectAssetSwapIntent 会判成「这不是换资产请求」
+ * 并静默放行给通用改写路径 —— 和「这句话本来就不是」长得一模一样，用户只会
+ * 看到自己的话掉进了另一条流程。调用方要先用这个函数决定「要不要等」。
+ */
+export function looksLikeAssetSwap(instruction: string): boolean {
+  const text = instruction.trim();
+  if (!text) return false;
+  if (!mentions(text, LIBRARY_WORDS)) return false;
+  if (!mentions(text, SWAP_WORDS)) return false;
+  return detectAssetSwapKind(text) != null;
+}
+
 export function detectAssetSwapIntent(input: {
   instruction: string;
   /** 只传已锁定版本的资产：没锁定的绑不上，也不该出现在提案里。 */
   lockedAssets: readonly AssetSwapCandidate[];
 }): AssetSwapIntent {
   const text = input.instruction.trim();
-  if (!text) return { status: "none" };
-  if (!mentions(text, LIBRARY_WORDS)) return { status: "none" };
-  if (!mentions(text, SWAP_WORDS)) return { status: "none" };
+  if (!looksLikeAssetSwap(text)) return { status: "none" };
   const kind = detectAssetSwapKind(text);
   if (!kind) return { status: "none" };
 

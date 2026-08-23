@@ -86,6 +86,13 @@ export default function AssetSwapProposalCard({
         </article>
       ) : null}
 
+      {status === "resolving" ? (
+        <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          正在读取素材库…
+        </p>
+      ) : null}
+
       {status === "binding" || status === "rendering" ? (
         <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
