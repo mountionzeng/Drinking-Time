@@ -84,7 +84,7 @@ import {
   type TimelineGroupPreview,
   type TimelinePlan,
   type TimelineResolverShot,
-} from "./timelineActions";
+} from "@shared/timelineCommands";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
 import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
@@ -148,7 +148,7 @@ export type {
   VideoConformBatchResult,
 } from "./types";
 
-export type { CreationTimelineFrameResolution } from "./timelineActions";
+export type { CreationTimelineFrameResolution } from "@shared/timelineCommands";
 
 type CreationEditorContextValue = {
   stories: CreationEditorStory[];

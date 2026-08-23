@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { StoryTimelineItem } from "@shared/storyMaterial";
-import { buildTimelineLayout } from "@shared/timelineLayout";
+import type { StoryTimelineItem } from "./storyMaterial";
+import { buildTimelineLayout } from "./timelineLayout";
 import {
   createTimelineWriteLock,
   planTimelineAnchorAdd,
@@ -15,7 +15,7 @@ import {
   timelineMagneticJoins,
   snappedTimelineSingleMove,
   type TimelineResolverShot,
-} from "./timelineActions";
+} from "./timelineCommands";
 
 function item(
   id: string,

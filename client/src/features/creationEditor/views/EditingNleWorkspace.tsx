@@ -98,7 +98,7 @@ import {
   resolveTimelineShots,
   useCreationEditor,
 } from "../CreationEditorContext";
-import { timelineMagneticJoins } from "../timelineActions";
+import { timelineMagneticJoins } from "@shared/timelineCommands";
 import type { CreationEditorShot } from "../types";
 import {
   advanceTimelinePlayhead,

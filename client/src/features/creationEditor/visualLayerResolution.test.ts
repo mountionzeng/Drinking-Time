@@ -17,7 +17,7 @@ import {
 import {
   resolveTimelineFrameSource,
   timelineMagneticJoins,
-} from "./timelineActions";
+} from "@shared/timelineCommands";
 import { buildTimelineLayout } from "@shared/timelineLayout";
 
 const transform = {

@@ -4,13 +4,13 @@ import type {
   StoryTimelineOverlay,
   TimelineTransform,
   TimelineVideoEffects,
-} from "@shared/storyMaterial";
-import { timelineImageClipStartFrame } from "@shared/storyMaterial";
+} from "./storyMaterial";
+import { timelineImageClipStartFrame } from "./storyMaterial";
 import {
   addTimelineAnchor,
   removeTimelineAnchor,
   trimTimelineItem,
-} from "@shared/timelineEditing";
+} from "./timelineEditing";
 import {
   buildTimelineLayout,
   moveTimelineGroup,
@@ -19,15 +19,15 @@ import {
   selectDirectionalGroup,
   selectSingleShot,
   type TimelineLayoutRow,
-} from "@shared/timelineLayout";
+} from "./timelineLayout";
 import {
   hiddenVisualLayerSet,
   normalizeVisualLayer,
-} from "@shared/timelineVisualPriority";
+} from "./timelineVisualPriority";
 import {
   resolveTimelineItemSource,
   timelineSourceCandidateForImage,
-} from "@shared/timelineSource";
+} from "./timelineSource";
 
 /** What the timeline shows at one absolute frame, gaps included. */
 export type CreationTimelineFrameResolution =
