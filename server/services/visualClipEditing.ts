@@ -13,8 +13,11 @@ import type {
   StoryTimelineVisualLayerState,
 } from "../../shared/storyMaterial";
 import {
+  insertVisualImageClip,
   moveVisualClip,
   projectVisualClips,
+  removeVisualClip,
+  type InsertVisualImageClipInput,
   type VisualClip,
   type VisualEditDocument,
 } from "../../shared/visualClipModel";
@@ -126,6 +129,86 @@ export async function moveVisualClipForStory(input: {
     return {
       status: "error",
       error: error instanceof Error ? error.message : "移动没有保存成功",
+    };
+  }
+}
+
+export async function insertVisualImageClipForStory(input: {
+  storyId: number;
+  userId: number;
+  clip: InsertVisualImageClipInput;
+}): Promise<VisualClipEditResult> {
+  const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+  if ("error" in loaded) return { status: "error", error: loaded.error };
+
+  const inserted = insertVisualImageClip(loaded.document, input.clip);
+  if (inserted.status === "error") {
+    return { status: "error", error: inserted.message };
+  }
+  try {
+    const saved = await updateStoryTimeline({
+      storyId: input.storyId,
+      userId: input.userId,
+      expectedVersion: loaded.version,
+      items: inserted.document.items,
+      ...(inserted.document.overlays === undefined
+        ? {}
+        : { overlays: inserted.document.overlays }),
+      ...(inserted.document.visualLayerState === undefined
+        ? {}
+        : { visualLayerState: inserted.document.visualLayerState }),
+    });
+    return {
+      status: "ok",
+      clip: inserted.clip,
+      clips: projectVisualClips(inserted.document),
+      timelineVersion: saved.version,
+      changed: true,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : "素材没有放置成功",
+    };
+  }
+}
+
+export async function removeVisualClipForStory(input: {
+  storyId: number;
+  userId: number;
+  clipId: string;
+}): Promise<VisualClipEditResult> {
+  const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+  if ("error" in loaded) return { status: "error", error: loaded.error };
+
+  const removed = removeVisualClip(loaded.document, input.clipId);
+  if (removed.status === "error") {
+    return { status: "error", error: removed.message };
+  }
+  try {
+    const saved = await updateStoryTimeline({
+      storyId: input.storyId,
+      userId: input.userId,
+      expectedVersion: loaded.version,
+      items: removed.document.items,
+      ...(removed.document.overlays === undefined
+        ? {}
+        : { overlays: removed.document.overlays }),
+      ...(removed.document.visualLayerState === undefined
+        ? {}
+        : { visualLayerState: removed.document.visualLayerState }),
+    });
+    return {
+      status: "ok",
+      clip: removed.removed,
+      clips: projectVisualClips(removed.document),
+      timelineVersion: saved.version,
+      changed: true,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : "素材没有删除成功",
     };
   }
 }

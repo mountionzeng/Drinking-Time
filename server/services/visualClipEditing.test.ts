@@ -6,6 +6,7 @@ import {
   updateStoryTimeline,
 } from "../db";
 import {
+  insertVisualImageClipForStory,
   listVisualClips,
   moveVisualClipForStory,
 } from "./visualClipEditing";
@@ -212,5 +213,90 @@ describe("moveVisualClipForStory", () => {
     });
     expect(result.status).toBe("error");
     expect(await persistedPlacements(storyId)).toEqual(before);
+  });
+});
+
+describe("insertVisualImageClipForStory", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("按绝对帧落一张一帧图片，其它素材一个不动，版本只 +1", async () => {
+    const storyId = await seedStory();
+    const before = await persistedPlacements(storyId);
+    const listed = await listVisualClips(storyId, USER_ID);
+    const baseVersion =
+      listed.status === "ok" ? listed.timelineVersion : Number.NaN;
+
+    const result = await insertVisualImageClipForStory({
+      storyId,
+      userId: USER_ID,
+      clip: {
+        clipId: "img-extracted",
+        imageId: 2001,
+        imageUrl: "/2001.png",
+        label: "抽帧 00:05.000",
+        trackId: "track-1",
+        startFrame: 150,
+      },
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.timelineVersion).toBe(baseVersion + 1);
+
+    const after = await persistedPlacements(storyId);
+    expect(after["image:img-extracted"]).toBe("track-1@150+1");
+    for (const id of Object.keys(before)) {
+      expect(after[id]).toBe(before[id]);
+    }
+  });
+
+  it("落好的图片可以立刻用同一个移动命令搬走并落库", async () => {
+    const storyId = await seedStory();
+    await insertVisualImageClipForStory({
+      storyId,
+      userId: USER_ID,
+      clip: {
+        clipId: "img-extracted",
+        imageId: 2001,
+        imageUrl: "/2001.png",
+        label: "抽帧",
+        trackId: "track-1",
+        startFrame: 150,
+      },
+    });
+    const moved = await moveVisualClipForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "image:img-extracted",
+      toTrackId: "track-2",
+      toStartFrame: 400,
+    });
+    expect(moved).toMatchObject({ status: "ok", changed: true });
+    expect((await persistedPlacements(storyId))["image:img-extracted"]).toBe(
+      "track-2@400+1"
+    );
+  });
+
+  it("同一个 clipId 重复落位是替换，不会攒出重复素材", async () => {
+    const storyId = await seedStory();
+    for (const frame of [150, 150, 260]) {
+      await insertVisualImageClipForStory({
+        storyId,
+        userId: USER_ID,
+        clip: {
+          clipId: "img-extracted",
+          imageId: 2001,
+          imageUrl: "/2001.png",
+          label: "抽帧",
+          trackId: "track-1",
+          startFrame: frame,
+        },
+      });
+    }
+    const placements = await persistedPlacements(storyId);
+    const matching = Object.keys(placements).filter(
+      id => id === "image:img-extracted"
+    );
+    expect(matching).toHaveLength(1);
+    expect(placements["image:img-extracted"]).toBe("track-1@260+1");
   });
 });

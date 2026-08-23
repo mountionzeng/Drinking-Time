@@ -1450,6 +1450,11 @@
         {
           "date": "2026-08-23",
           "kind": "refactor",
+          "summary": "抽帧落位改走唯一插入命令 insertVisualImageClip：调用方只说「哪张图、去哪条轨、去哪一帧」，不再需要指定宿主镜头，也不再由客户端算相对 owner 的 offsetFrames——宿主由服务端确定性选取，只是存储细节，不影响素材出现在哪里；同一个 clipId 重复提交是替换，不会攒出重复素材。新增 removeVisualClip 命令（图片 clip、内部片段、遗留 overlay；删除整个镜头属于分镜操作，明确拒绝）。删除 CreationEditorContext 里 addTimelineImageClip 的整份覆盖实现，以及已经没人调用的 moveTimelineItemToLayer 全套管道。"
+        },
+        {
+          "date": "2026-08-23",
+          "kind": "refactor",
           "summary": "把剩下所有会写素材位置的交互都收敛到 moveVisualClip：底部 Timeline 的落位、Storyboard 上层与主轨的 HTML5 拖放、图片与镜头的键盘逐帧/换层、主轨单个视频的指针拖动。它们现在只负责算出「哪个 clip、去哪条轨、去哪一帧」，不再换算成「落在哪个镜头里的相对偏移」，也不再要求松手那一刻恰好压在某个镜头上（以前不满足就静默 return）。随后删除只服务旧写模型的代码：storyboardShotDropPlacement、storyboardVideoPointerMovePlacement、storyboardVisualClipPointerPlacement、storyboardSingleVideoReleasePlacement、storyboardImageClipNudgePlacement、storyboardReleasedDragDeltaFrames 六个 helper 及其定向测试，以及 CreationEditorContext 里 moveTimelineImageClip / moveTimelineVideoClip 两个整份覆盖式实现。上层图片位置不再由 owner 镜头推导，CreationEditorContext 已不再引用 timelineImageClipStartFrame。main:3000 已完成图片斜向拖动、刷新不回弹、移动底层视频不牵连上层三项真实验收。"
         },
         {
