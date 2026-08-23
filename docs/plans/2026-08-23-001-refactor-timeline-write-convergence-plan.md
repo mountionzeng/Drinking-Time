@@ -165,7 +165,7 @@ flowchart TD
 
 **Approach:**
 - 复用既有的 `serverSourcesPromise` / `activeSourcesPromise` / `sharedSourcesPromise`，不新建遍历。
-- 守卫一：直接 import `../db` 的生产文件数不超过基线 49（脚本除外）；超出需在豁免表登记 owner、原因、到期条件，豁免表只减不增。
+- 守卫一：直接 import `../db` 的生产文件冻结为一个 **51 项的显式集合**（`server/**`，排除 `*.test.ts`；脚本不计）。用集合而非计数，是因为计数挡不住「删一个旧的、加一个新的」把债务平移过去。**基线是 51 不是计划初稿写的 49**——`editContext.ts` 与 `semanticAnnotation.ts` 用单引号导入，被最初那次只匹配双引号的 grep 漏掉了。
 - 守卫二：tRPC procedure 的 input schema 不得出现客户端计算的位置字段（`timelineStartFrame`、`visualLayer`、`stackOrder`）与 `expectedVersion` 的组合。**本条上线时 `updateStoryTimeline` 会命中，因此先以显式豁免登记它，并在 U7 删除该豁免**——这样棘轮从第一天就指向终点，而不是等收敛完了再补。
 - 守卫三：六个热点文件行数不超过基线（`StoryboardReviewBoard` 5612 / `StoryAgentContext` 4528 / `EditingNleWorkspace` 4425 / `CreationEditorContext` 4329 / `StoryboardEditRow` 3992 / `PublishingDraftWorkspace` 3305）。
 - 守卫四：视觉赢家比较器、稳定镜头定位器、付费状态解释器各自只有一个权威实现（按导出名与调用图断言，不按字符串相似）。

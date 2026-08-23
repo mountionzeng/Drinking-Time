@@ -38,7 +38,7 @@ measured_at: 2026-08-23 主仓 codex/story-visual-assets（复测于 HEAD 6aed6d
 | 指标 | 当前值 | 测量方式 |
 | --- | --- | --- |
 | `server/db.ts` 行数 / 导出数 | 6,563 / 109 | `wc -l`；`grep -cE "^export "` |
-| 直接 import `../db` 的文件 | 53（生产 49 + 脚本 4） | `grep -rE 'from "\.\./db"'`，排除 `*.test.*` |
+| 直接 import `../db` 的生产文件 | **51**（`server/**`，排除 `*.test.ts`；脚本另计 4） | 守卫 `architecture-boundaries.test.ts` 实算。最初写的「约 49」是错的：`editContext.ts` 与 `semanticAnnotation.ts` 用单引号 `from '../db'`，被那次只匹配双引号的 grep 漏掉 |
 | 前端热点行数 | StoryboardReviewBoard 5,612；StoryAgentContext 4,528；EditingNleWorkspace 4,425；CreationEditorContext 4,329；StoryboardEditRow 3,992；PublishingDraftWorkspace 3,305 | `wc -l` |
 | 服务端热点行数 | routers/storyAgent 3,122；routers/publishingDraft 2,542；routers/creationAgent 2,277；services/imageGen 2,143 | `wc -l` |
 | 整份 timeline 写入口 | 客户端 1 条（`saveTimelineItems`，11 个调用点）；服务端 4 处（`timelineEditAgent` ×4、`videoTimeline` ×1、`chatCutXml` ×2、`editingTransitionWorkflow` 的 overlay 原子写 ×1） | `grep updateStoryTimeline\|applyStoryTimelineOverlayAtomic` |
@@ -79,8 +79,8 @@ measured_at: 2026-08-23 主仓 codex/story-visual-assets（复测于 HEAD 6aed6d
 
 **R1–R6 — 架构棘轮（只阻止新增债务）**
 
-- R1. 新增静态守卫必须先冻结当前基线（如「直接 import `../db` 的生产文件 ≤ 49」），不得因历史债务让全库立刻变红。
-- R2. 禁止新增生产文件直接 import `server/db.ts`；例外必须在守卫的豁免表里写明 owner、原因、到期条件，且豁免表只减不增。
+- R1. 新增静态守卫必须先冻结当前基线（如「直接 import `../db` 的生产文件冻结为 51 项显式集合」），不得因历史债务让全库立刻变红。
+- R2. 禁止新增生产文件直接 import `server/db.ts`（基线冻结为 51 项显式集合）；例外必须在守卫的豁免表里写明 owner、原因、到期条件，且豁免表只减不增。
 - R3. 禁止新增能覆盖整份 Story／timeline 的客户端 writer；禁止新的 tRPC procedure 接收客户端计算出的位置数组。
 - R4. 禁止新增第二套视觉赢家比较器、稳定镜头定位器或付费状态解释器；这三类语义分别只能有一个权威实现。
 - R5. 禁止新 provider 旁路统一图片／视频网关。
@@ -139,7 +139,7 @@ measured_at: 2026-08-23 主仓 codex/story-visual-assets（复测于 HEAD 6aed6d
 
 **架构指标（对照上文基线表）**
 
-- 直接 import `server/db.ts` 的生产文件数 ≤ 49，且首个持久化切片完成后实际下降。
+- 直接 import `server/db.ts` 的生产文件数 ≤ 51，且首个持久化切片完成后实际下降。
 - `server/db.ts` 导出数 ≤ 109 且不再增长。
 - 同一持久事实不存在两个生产 writer；`extracted-frame-overlay-video` 第 9 条不变量在代码里真正成立。
 - 六个热点文件行数不超过基线值。
