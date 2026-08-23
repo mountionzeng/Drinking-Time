@@ -191,10 +191,6 @@ export type StoryboardBoardTimeline = {
     applied: boolean;
     reason?: string;
   }>;
-  onMoveTimelineItemToLayer?: (
-    stableShotId: string,
-    visualLayer: number
-  ) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用同一条提交路径。 */
   onMoveVisualClip?: (input: {
     clipId: string;

@@ -6,9 +6,11 @@ import {
   type StoryTimelineOverlay,
 } from "./storyMaterial";
 import {
+  insertVisualImageClip,
   materializeAbsolutePlacements,
   moveVisualClip,
   projectVisualClips,
+  removeVisualClip,
   visualTrackId,
   type VisualClip,
   type VisualEditDocument,
@@ -257,5 +259,129 @@ describe("materializeAbsolutePlacements", () => {
     expect(placements(pinned)).toEqual(placements(doc));
     expect(pinned.items[1].timelineStartFrame).toBe(120);
     expect(pinned.items[0].imageClips?.[0].timelineStartFrame).toBe(30);
+  });
+});
+
+describe("insertVisualImageClip", () => {
+  it("按落点放置一个普通一帧图片，调用方不需要指定宿主镜头", () => {
+    const doc = fixture();
+    const result = insertVisualImageClip(doc, {
+      clipId: "img-new",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧 00:05.000",
+      trackId: visualTrackId(1),
+      startFrame: 150,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(placements(result.document)["image:img-new"]).toBe("track-1@150+1");
+  });
+
+  it("插入不移动任何已有素材", () => {
+    const doc = fixture();
+    const before = placements(doc);
+    const result = insertVisualImageClip(doc, {
+      clipId: "img-new",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(2),
+      startFrame: 60,
+    });
+    if (result.status !== "ok") return;
+    const after = placements(result.document);
+    for (const id of Object.keys(before)) {
+      expect(after[id]).toBe(before[id]);
+    }
+  });
+
+  it("同一个 clipId 重复插入是替换，不产生副本", () => {
+    const doc = fixture();
+    const first = insertVisualImageClip(doc, {
+      clipId: "img-new",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(1),
+      startFrame: 150,
+    });
+    if (first.status !== "ok") return;
+    const second = insertVisualImageClip(first.document, {
+      clipId: "img-new",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(2),
+      startFrame: 400,
+    });
+    if (second.status !== "ok") return;
+    const clips = projectVisualClips(second.document).filter(
+      clip => clip.id === "image:img-new"
+    );
+    expect(clips).toHaveLength(1);
+    expect(placements(second.document)["image:img-new"]).toBe("track-2@400+1");
+  });
+
+  it("插入后的图片可以立刻用同一个移动命令搬走", () => {
+    const doc = fixture();
+    const inserted = insertVisualImageClip(doc, {
+      clipId: "img-new",
+      imageId: 999,
+      imageUrl: "https://example.test/999.png",
+      label: "抽帧",
+      trackId: visualTrackId(1),
+      startFrame: 150,
+    });
+    if (inserted.status !== "ok") return;
+    const moved = moveOk(
+      inserted.document,
+      "image:img-new",
+      visualTrackId(2),
+      500
+    );
+    expect(placements(moved.document)["image:img-new"]).toBe("track-2@500+1");
+  });
+
+  it("时间线上没有镜头时明确失败", () => {
+    const result = insertVisualImageClip(
+      { items: [] },
+      {
+        clipId: "img-new",
+        imageId: 999,
+        imageUrl: "https://example.test/999.png",
+        label: "抽帧",
+        trackId: visualTrackId(1),
+        startFrame: 0,
+      }
+    );
+    expect(result).toMatchObject({ status: "error", error: "empty-timeline" });
+  });
+});
+
+describe("removeVisualClip", () => {
+  it("删掉一张图片，其它素材位置不受影响", () => {
+    const doc = fixture();
+    const before = placements(doc);
+    const result = removeVisualClip(doc, "image:img-abs");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const after = placements(result.document);
+    expect(after["image:img-abs"]).toBeUndefined();
+    for (const id of Object.keys(before)) {
+      if (id === "image:img-abs") continue;
+      expect(after[id]).toBe(before[id]);
+    }
+  });
+
+  it("删掉遗留 overlay", () => {
+    const result = removeVisualClip(fixture(), "overlay:ov-1");
+    if (result.status !== "ok") return;
+    expect(placements(result.document)["overlay:ov-1"]).toBeUndefined();
+  });
+
+  it("拒绝用剪辑命令删掉整个镜头", () => {
+    const result = removeVisualClip(fixture(), "shot:sh-01");
+    expect(result).toMatchObject({ status: "error", error: "unsupported-kind" });
   });
 });

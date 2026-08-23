@@ -55,6 +55,33 @@ export type VisualClip = {
   origin: VisualClipOrigin;
 };
 
+export type InsertVisualImageClipInput = {
+  /** 稳定 id；同 id 重复插入只会替换那一个 clip，不会产生副本。 */
+  clipId: string;
+  imageId: number;
+  imageUrl: string;
+  label: string;
+  trackId: string;
+  startFrame: number;
+  /** 抽帧默认严格一帧。 */
+  durationFrames?: number;
+};
+
+export type InsertVisualClipError =
+  | "invalid-track"
+  | "invalid-start"
+  | "empty-timeline";
+
+export type InsertVisualClipResult =
+  | { status: "ok"; document: VisualEditDocument; clip: VisualClip }
+  | { status: "error"; error: InsertVisualClipError; message: string };
+
+export type RemoveVisualClipError = "clip-not-found" | "unsupported-kind";
+
+export type RemoveVisualClipResult =
+  | { status: "ok"; document: VisualEditDocument; removed: VisualClip }
+  | { status: "error"; error: RemoveVisualClipError; message: string };
+
 export type MoveVisualClipInput = {
   clipId: string;
   toTrackId: string;
@@ -377,4 +404,199 @@ export function moveVisualClip(
     clip: movedClip ?? clip,
     changed,
   };
+}
+
+/**
+ * 挑一个宿主 item 存放图片 clip。
+ *
+ * 图片 clip 在存储上仍然挂在某个 item 的 imageClips 里，但位置已经是绝对帧，
+ * 所以宿主是谁**不再影响它出现在哪里**——这里只需要一个确定的、可复现的选择：
+ * 优先落在覆盖该帧的最底层镜头上，否则取它左边最近的那个，再否则取第一个。
+ */
+function hostItemForFrame(
+  doc: VisualEditDocument,
+  startFrame: number
+): string | null {
+  const rows = buildTimelineLayout(doc.items);
+  if (rows.length === 0) return null;
+  const covering = rows
+    .filter(
+      row => startFrame >= row.startFrame && startFrame < row.endFrame
+    )
+    .sort(
+      (left, right) =>
+        normalizeVisualLayer(left.item.visualLayer) -
+          normalizeVisualLayer(right.item.visualLayer) ||
+        left.startFrame - right.startFrame
+    );
+  if (covering.length > 0) return covering[0].item.stableShotId;
+  const before = rows
+    .filter(row => row.startFrame <= startFrame)
+    .sort((left, right) => right.startFrame - left.startFrame);
+  if (before.length > 0) return before[0].item.stableShotId;
+  return rows[0].item.stableShotId;
+}
+
+/**
+ * 插入一个普通图片 clip。
+ *
+ * 调用方只说「哪张图、去哪条轨、去哪一帧」，不需要（也不应该）知道它会被挂到
+ * 哪个镜头下面。同一个 clipId 再插一次就是替换，不会留下重复素材。
+ */
+export function insertVisualImageClip(
+  doc: VisualEditDocument,
+  input: InsertVisualImageClipInput
+): InsertVisualClipResult {
+  const layer = parseVisualTrackId(input.trackId);
+  if (layer === null) {
+    return {
+      status: "error",
+      error: "invalid-track",
+      message: `无法识别的轨道：${input.trackId}`,
+    };
+  }
+  if (!Number.isFinite(input.startFrame) || input.startFrame < 0) {
+    return {
+      status: "error",
+      error: "invalid-start",
+      message: "落点必须是不小于 0 的帧号",
+    };
+  }
+  const startFrame = Math.round(input.startFrame);
+  const base = materializeAbsolutePlacements(doc);
+  const hostId = hostItemForFrame(base, startFrame);
+  if (!hostId) {
+    return {
+      status: "error",
+      error: "empty-timeline",
+      message: "时间线上还没有任何镜头，无法放置素材",
+    };
+  }
+  const hostStart =
+    base.items.find(item => item.stableShotId === hostId)?.timelineStartFrame ??
+    0;
+  const inserted = {
+    id: input.clipId,
+    imageId: input.imageId,
+    imageUrl: input.imageUrl,
+    label: input.label,
+    offsetFrames: Math.max(0, startFrame - hostStart),
+    timelineStartFrame: startFrame,
+    durationFrames: positiveFrames(input.durationFrames ?? 1),
+    visualLayer: layer,
+  };
+  const next: VisualEditDocument = {
+    ...base,
+    items: base.items.map(item => {
+      // 同 id 的旧 clip 无论挂在谁下面都先摘掉，避免换宿主时留下副本。
+      const retained = (item.imageClips ?? []).filter(
+        clip => clip.id !== input.clipId
+      );
+      if (item.stableShotId === hostId) {
+        return { ...item, imageClips: [...retained, inserted] };
+      }
+      return retained.length === (item.imageClips ?? []).length
+        ? item
+        : { ...item, imageClips: retained };
+    }),
+  };
+  const clip = findVisualClip(next, `image:${input.clipId}`);
+  return {
+    status: "ok",
+    document: next,
+    clip: clip ?? {
+      id: `image:${input.clipId}`,
+      kind: "image",
+      trackId: visualTrackId(layer),
+      startFrame,
+      durationFrames: inserted.durationFrames,
+      origin: {
+        kind: "image-clip",
+        ownerStableShotId: hostId,
+        clipId: input.clipId,
+      },
+    },
+  };
+}
+
+/**
+ * 移除一个普通 clip。
+ *
+ * 只处理「素材块」：图片 clip、镜头内部片段和遗留 overlay。删除一个镜头
+ * （shot）牵涉故事分镜本身，不属于剪辑命令，这里明确拒绝而不是偷偷做掉。
+ */
+export function removeVisualClip(
+  doc: VisualEditDocument,
+  clipId: string
+): RemoveVisualClipResult {
+  const base = materializeAbsolutePlacements(doc);
+  const clip = findVisualClip(base, clipId);
+  if (!clip) {
+    return {
+      status: "error",
+      error: "clip-not-found",
+      message: `时间线上找不到这个素材：${clipId}`,
+    };
+  }
+  switch (clip.origin.kind) {
+    case "shot":
+      return {
+        status: "error",
+        error: "unsupported-kind",
+        message: "删除镜头要走分镜操作，不是剪辑块的删除",
+      };
+    case "image-clip": {
+      const clipKey = clip.origin.clipId;
+      return {
+        status: "ok",
+        removed: clip,
+        document: {
+          ...base,
+          items: base.items.map(item =>
+            item.imageClips?.some(candidate => candidate.id === clipKey)
+              ? {
+                  ...item,
+                  imageClips: item.imageClips.filter(
+                    candidate => candidate.id !== clipKey
+                  ),
+                }
+              : item
+          ),
+        },
+      };
+    }
+    case "video-clip": {
+      const clipKey = clip.origin.clipId;
+      return {
+        status: "ok",
+        removed: clip,
+        document: {
+          ...base,
+          items: base.items.map(item =>
+            item.visualClips?.some(candidate => candidate.id === clipKey)
+              ? {
+                  ...item,
+                  visualClips: item.visualClips.filter(
+                    candidate => candidate.id !== clipKey
+                  ),
+                }
+              : item
+          ),
+        },
+      };
+    }
+    case "overlay": {
+      const overlayId = clip.origin.overlayId;
+      return {
+        status: "ok",
+        removed: clip,
+        document: {
+          ...base,
+          overlays: (base.overlays ?? []).filter(
+            overlay => overlay.id !== overlayId
+          ),
+        },
+      };
+    }
+  }
 }

@@ -3025,7 +3025,6 @@ export default function EditingNleWorkspace({
     undoTimeline,
     splitTimelineVideoClip,
     addTimelineImageClip,
-    moveTimelineItemToLayer,
     moveVisualClip,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
@@ -3729,7 +3728,6 @@ export default function EditingNleWorkspace({
             timelineFrame,
             visualLayer: targetLayer,
           }),
-          stableShotId: imageSource.stableShotId,
           timelineFrame,
           imageId: imageSource.clip.imageId,
           imageUrl: imageSource.clip.imageUrl,
@@ -3771,7 +3769,6 @@ export default function EditingNleWorkspace({
         throw new Error("服务器返回的抽帧素材类型不正确");
       }
       await addTimelineImageClip({
-        stableShotId: source.stableShotId,
         timelineFrame,
         imageId: imported.imageId,
         imageUrl: imported.imageUrl,
@@ -3803,7 +3800,6 @@ export default function EditingNleWorkspace({
       overlays: timelineOverlays,
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
-      onMoveTimelineItemToLayer: moveTimelineItemToLayer,
       onMoveVisualClip: moveVisualClip,
       onPlaceExternalVisual: placeExternalVisual,
       writePending: timelineWritePending,
@@ -4110,7 +4106,6 @@ export default function EditingNleWorkspace({
       detachTimelineMagnet,
       moveTimelineGroup,
       manageTimelineVisualLayer,
-      moveTimelineItemToLayer,
       moveTimelineShot,
       placeExternalVisual,
       previewTimelineGroup,

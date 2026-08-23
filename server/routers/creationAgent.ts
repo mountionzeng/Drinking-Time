@@ -36,8 +36,10 @@ import {
   updateVideoTake,
 } from "../db";
 import {
+  insertVisualImageClipForStory,
   listVisualClips,
   moveVisualClipForStory,
+  removeVisualClipForStory,
 } from "../services/visualClipEditing";
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
@@ -1783,6 +1785,65 @@ export const creationAgentRouter = router({
         clipId: input.clipId,
         toTrackId: input.toTrackId,
         toStartFrame: input.toStartFrame,
+      });
+    }),
+
+  /**
+   * 唯一的图片落位命令。调用方只说「哪张图、去哪条轨、去哪一帧」，
+   * 不需要指定它挂在哪个镜头下面；同一个 clipId 重复提交是替换。
+   */
+  insertVisualImageClip: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        clipId: z.string().min(1).max(240),
+        imageId: z.number().int().positive(),
+        imageUrl: z.string().min(1),
+        label: z.string().min(1).max(160),
+        toTrackId: z.string().min(1).max(64),
+        toStartFrame: z.number().int().min(0),
+        durationFrames: z.number().int().min(1).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      return insertVisualImageClipForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        clip: {
+          clipId: input.clipId,
+          imageId: input.imageId,
+          imageUrl: input.imageUrl,
+          label: input.label,
+          trackId: input.toTrackId,
+          startFrame: input.toStartFrame,
+          ...(input.durationFrames === undefined
+            ? {}
+            : { durationFrames: input.durationFrames }),
+        },
+      });
+    }),
+
+  /** 移除一个普通剪辑块（图片 clip、内部片段或遗留 overlay）。 */
+  removeVisualClip: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        clipId: z.string().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await getStoryById(input.storyId, ctx.user.id);
+      if (!story) {
+        return { status: "error" as const, error: "故事不存在或无权操作" };
+      }
+      return removeVisualClipForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        clipId: input.clipId,
       });
     }),
 

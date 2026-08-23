@@ -62,6 +62,7 @@ import {
   type ResolvedTimelineVisualLayerState,
   type TimelineVisualLayerAction,
 } from "@shared/timelineVisualLayers";
+import { visualTrackId } from "@shared/visualClipModel";
 import {
   buildTimelineLayout,
   overlayVisualLayer,
@@ -468,17 +469,12 @@ type CreationEditorContextValue = {
   }) => Promise<void>;
   addTimelineImageClip: (input: {
     clipId?: string;
-    stableShotId: string;
     timelineFrame: number;
     imageId: number;
     imageUrl: string;
     label: string;
     visualLayer?: number;
   }) => Promise<void>;
-  moveTimelineItemToLayer: (
-    stableShotId: string,
-    visualLayer: number
-  ) => Promise<void>;
   /** 唯一的素材移动命令：图片和视频共用，一次调用同时定轨道和起点。 */
   moveVisualClip: (input: {
     clipId: string;
@@ -1548,6 +1544,8 @@ export function CreationEditorProvider({
   const updateStoryTimelineMut =
     trpc.creationAgent.updateStoryTimeline.useMutation();
   const moveVisualClipMut = trpc.creationAgent.moveVisualClip.useMutation();
+  const insertVisualImageClipMut =
+    trpc.creationAgent.insertVisualImageClip.useMutation();
   const createDerivationDraftMut =
     trpc.creationAgent.createDerivationDraft.useMutation();
   const analyzeDerivationDraftMut =
@@ -3747,74 +3745,43 @@ export function CreationEditorProvider({
   };
 
 
+  /**
+   * 唯一的图片落位入口：抽帧和导入都走这里。
+   *
+   * 调用方不再需要知道这张图会挂在哪个镜头下面——位置是绝对帧，宿主只是存储细节。
+   */
   const addTimelineImageClip = async (input: {
     clipId?: string;
-    stableShotId: string;
     timelineFrame: number;
     imageId: number;
     imageUrl: string;
     label: string;
     visualLayer?: number;
   }) => {
-    const row = buildTimelineLayout(timelineItems).find(
-      candidate => candidate.item.stableShotId === input.stableShotId
+    if (activeId == null) throw new Error("故事尚未加载，无法放置素材");
+    const previousItems = timelineItems;
+    const previousVisualLayerState = persistedVisualLayerState;
+    const previousOverlays = timelineOverlays;
+    const result = await trackCreationEditorOperation(
+      activeId,
+      insertVisualImageClipMut.mutateAsync({
+        storyId: activeId,
+        clipId: input.clipId ?? `image-clip-${input.imageId}`,
+        imageId: input.imageId,
+        imageUrl: input.imageUrl,
+        label: input.label,
+        toTrackId: visualTrackId(Math.max(0, Math.round(input.visualLayer ?? 1))),
+        toStartFrame: Math.max(0, Math.round(input.timelineFrame)),
+      })
     );
-    if (!row) throw new Error("抽帧来源镜头不在时间线上");
-    const clipId = input.clipId ?? `image-clip-${input.imageId}`;
-    await saveTimelineItems(
-      timelineItems.map(item =>
-        item.stableShotId !== input.stableShotId
-          ? item
-          : {
-              ...item,
-              imageClips: [
-                ...(item.imageClips ?? []).filter(clip => clip.id !== clipId),
-                {
-                  id: clipId,
-                  imageId: input.imageId,
-                  imageUrl: input.imageUrl,
-                  label: input.label,
-                  offsetFrames: Math.max(
-                    0,
-                    input.timelineFrame - row.startFrame
-                  ),
-                  timelineStartFrame: Math.max(
-                    0,
-                    Math.round(input.timelineFrame)
-                  ),
-                  durationFrames: 1,
-                  visualLayer: Math.max(0, Math.round(input.visualLayer ?? 1)),
-                  transform: { ...DEFAULT_TIMELINE_TRANSFORM },
-                },
-              ],
-            }
-      ),
-      { throwOnError: true }
-    );
+    if (result.status !== "ok") throw new Error(result.error);
+    recordTimelineUndoSnapshot(activeId, previousItems, {
+      visualLayerState: previousVisualLayerState,
+      overlays: previousOverlays,
+    });
+    await storyMaterialQuery.refetch();
   };
 
-  const moveTimelineItemToLayer = async (
-    stableShotId: string,
-    visualLayer: number
-  ) => {
-    const targetLayer = Math.max(0, Math.round(visualLayer));
-    if (!timelineItems.some(item => item.stableShotId === stableShotId)) {
-      throw new Error("找不到要换层的镜头");
-    }
-    await saveTimelineItems(
-      timelineItems.map(item =>
-        item.stableShotId === stableShotId
-          ? { ...item, visualLayer: targetLayer }
-          : item
-      ),
-      {
-        throwOnError: true,
-        overlays: timelineOverlays.filter(
-          overlay => overlay.sourceStableShotId !== stableShotId
-        ),
-      }
-    );
-  };
 
 
   /**
@@ -4251,7 +4218,6 @@ export function CreationEditorProvider({
       createVideoTakeRange,
       splitTimelineVideoClip,
       addTimelineImageClip,
-      moveTimelineItemToLayer,
       moveVisualClip,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
