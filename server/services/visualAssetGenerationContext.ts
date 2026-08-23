@@ -102,9 +102,26 @@ const DIMENSION_TERMS: Record<VisualAssetKind, RegExp> = {
 const CHANGE_TERMS =
   /改成|换成|变成|不要|去掉|移除|替换|不同的|change|replace|remove|without|different/i;
 
+/**
+ * 冲突词和维度词必须落在同一个小句里才算冲突。
+ *
+ * 原先是「全文里有改变词 且 有维度词」就拦，太松：合成出来的画面描述天然会写
+ * 「白色长裙」这类外观词，同一段里再有一句「不要出现文字水印」就被判成冲突，
+ * 于是任何绑了锁定资产又走提示词合成的镜头都会被自己挡住（2026-08-22 实测）。
+ * 要拦的是「把裙子换成红色」这种同一句话里的表述。
+ */
+function clausesOf(text: string): string[] {
+  return text
+    .split(/[。！？!?;；\n]+|，(?=\s*(?:不要|禁止|避免))/)
+    .map(clause => clause.trim())
+    .filter(Boolean);
+}
+
 function textConflicts(kind: VisualAssetKind, text: string): boolean {
-  if (!text.trim() || !CHANGE_TERMS.test(text)) return false;
-  return DIMENSION_TERMS[kind].test(text);
+  if (!text.trim()) return false;
+  return clausesOf(text).some(
+    clause => CHANGE_TERMS.test(clause) && DIMENSION_TERMS[kind].test(clause)
+  );
 }
 
 function factsLines(facts: VisualAssetFixedFacts): string[] {

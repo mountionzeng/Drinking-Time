@@ -73,6 +73,41 @@ function fixture(kinds: VisualAssetKind[] = ["character", "scene", "style"]) {
 }
 
 describe("resolveVisualAssetGenerationContext", () => {
+  it("does not treat a machine-written shot description as a user conflict", async () => {
+    const test = fixture();
+    // synthesizeShotPrompt 产出的画面描述天然会写「白色长裙」这类外观词，
+    // 也会用「不要…」做否定约束。闸门若拿这段文本去查，就会把自己挡住。
+    // 它要拦的是「用户要求和锁定契约冲突」，所以只能看用户自己写的话。
+    const synthesized = [
+      "女主身穿白色长裙站在窗边，侧身回望。",
+      "不要出现其他人物，不要出现文字水印。",
+    ].join("\n");
+    await expect(
+      resolveVisualAssetGenerationContext({
+        storyId: 1,
+        userId: 7,
+        stableShotId: "shot-a",
+        shotText: synthesized,
+        dependencies: test.dependencies,
+      })
+    ).resolves.toMatchObject({ status: "ready" });
+  });
+
+  it("still blocks when the user asks for something the lock forbids", async () => {
+    const test = fixture();
+    const result = await resolveVisualAssetGenerationContext({
+      storyId: 1,
+      userId: 7,
+      stableShotId: "shot-a",
+      shotText: "把她的裙子换成红色短裙",
+      dependencies: test.dependencies,
+    });
+    expect(result.status).toBe("blocked");
+    if (result.status !== "blocked") throw new Error("expected blocked");
+    expect(result.issues.some(issue => issue.code === "shot-text-conflict")).toBe(true);
+  });
+
+
   it("returns disabled for an unbound legacy shot", async () => {
     const test = fixture();
     await expect(resolveVisualAssetGenerationContext({

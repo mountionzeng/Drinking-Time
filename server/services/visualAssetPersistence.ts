@@ -438,24 +438,33 @@ export async function resolveVisualAssetVersionConflicts(input: {
       if (version.status === "locked" || version.status === "superseded") {
         throw new VisualAssetValidationError("锁定版本不可修改冲突裁决");
       }
-      const choices = new Map(
-        input.resolutions.map(item => [item.field.trim(), item.resolution.trim()])
-      );
+      // 同一个字段可以有多条冲突（场景分析天然会在 fixedProps 上产出好几条），
+      // 所以不能按字段名做 key —— 那样后一条会覆盖前一条，前面的永远匹配不上，
+      // 场景和风格资产就彻底裁决不了。改为把每条裁决配给「描述对得上」的那条冲突，
+      // 每条裁决只消费一次。
+      const pending = input.resolutions.map(item => ({
+        field: item.field.trim(),
+        resolution: item.resolution.trim(),
+        used: false,
+      }));
       const conflicts = version.conflicts.map(conflict => {
-        const resolution = choices.get(conflict.field);
         const currentFact = (version.fixedFacts as unknown as Record<string, unknown>)[
           conflict.field
         ];
         const allowedCurrentFacts =
           typeof currentFact === "string" ? [currentFact] : [];
-        if (
-          !resolution ||
-          (!conflict.descriptions.includes(resolution) &&
-            !allowedCurrentFacts.includes(resolution))
-        ) {
+        const match = pending.find(
+          candidate =>
+            !candidate.used &&
+            candidate.field === conflict.field &&
+            (conflict.descriptions.includes(candidate.resolution) ||
+              allowedCurrentFacts.includes(candidate.resolution))
+        );
+        if (!match) {
           throw new VisualAssetValidationError(`请选择 ${conflict.field} 的权威描述`);
         }
-        return { ...conflict, resolution };
+        match.used = true;
+        return { ...conflict, resolution: match.resolution };
       });
       const fixedFacts = { ...version.fixedFacts } as unknown as Record<string, unknown>;
       for (const conflict of conflicts) {

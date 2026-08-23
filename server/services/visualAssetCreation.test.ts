@@ -659,6 +659,12 @@ describe("visual asset creation", () => {
       expect(prompt).not.toContain("纯净中性背景");
       expect(prompt).not.toContain("中性浅灰色影棚背景");
       expect(prompt).toContain("环境本身就是画面主体");
+      // 2026-08-22 画廊首版：模型凭空加了黑色底座+白板，展台形状还逐格漂移。
+      expect(prompt).toContain("不要自行发明新的固定结构");
+      // 「宁可画成空房间」对杂陈空间是毒药，必须按固定事实的密度来画。
+      expect(prompt).toContain("必须照着固定事实描述的密度和丰富度去画");
+      expect(prompt).not.toContain("宁可画成空房间");
+      expect(prompt).toContain("同一个形状、同一个尺寸");
       // 标准视图只锁空间，人物留给各镜头自己安排。
       expect(prompt).toContain("不要出现任何人物");
       // edit 底图是参考实景照，机位不写死就会原地不动。

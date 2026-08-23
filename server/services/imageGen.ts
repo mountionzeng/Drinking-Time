@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { ENV } from "../_core/env";
+import {
+  publicReferenceKey,
+  putPublicReference,
+} from "./publicReferenceHost";
 import { storagePut } from "../storage";
 import {
   normalizeImageProvider,
@@ -740,6 +744,19 @@ export async function toPublicImageUrl(
         : lower.endsWith(".webp")
           ? "image/webp"
           : "image/png";
+    // 优先走自己的对象存储：MJ 要的是「匿名可拉取」，和「异地备份」是两件事。
+    // 原先两者共用 storagePut（BUILT_IN_FORGE_API_URL → api.302ai.cn），
+    // 那条路 2026-08-22 起持续 503（存储端点回「当前无可用模型」，说明根本没路由），
+    // 于是「绑定资产 → 出图」整条链路被一个备份服务拖死。
+    const ossUrl = await putPublicReference({
+      key: publicReferenceKey(match[1], buf),
+      bytes: buf,
+      contentType: mime,
+    });
+    if (ossUrl) {
+      publicUrlCache.set(url, ossUrl);
+      return ossUrl;
+    }
     const { url: publicUrl } = await storagePut(
       `character-refs/${match[1]}`,
       buf,

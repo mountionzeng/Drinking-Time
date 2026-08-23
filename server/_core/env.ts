@@ -33,6 +33,14 @@ export const ENV = {
   scriptStructureAgentModel: process.env.SCRIPT_STRUCTURE_AGENT_MODEL ?? "", // 剧本/台词 Agent 模型（可选）
 
   // ── DROP ZONE 聊天 Agent 专用配置 ──
+  // 阿里云 OSS：给供应商用的「公网可匿名拉取」参考图托管点。
+  // MJ 的 --oref/--sref 必须是公网 URL，由 MJ 服务端自己去拉。
+  // 不配置时回落到原来的 storagePut（BUILT_IN_FORGE_API_URL）。
+  ossRegion: process.env.OSS_REGION ?? "", // 例：oss-cn-hangzhou
+  ossBucket: process.env.OSS_BUCKET ?? "",
+  ossAccessKeyId: process.env.OSS_ACCESS_KEY_ID ?? "",
+  ossAccessKeySecret: process.env.OSS_ACCESS_KEY_SECRET ?? "",
+  ossPublicBaseUrl: process.env.OSS_PUBLIC_BASE_URL ?? "", // 可选：自定义域名
   dropZoneApiUrl: process.env.DROP_ZONE_API_URL ?? "", // 聊天 Agent 单独的 API 地址（可选，不填则用 forgeApiUrl）
   dropZoneModel: process.env.DROP_ZONE_MODEL ?? "", // 聊天 Agent 单独的模型（可选）
 

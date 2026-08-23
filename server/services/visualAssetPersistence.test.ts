@@ -268,6 +268,91 @@ describe("visual asset persistence", () => {
     expect(facts.geometry).not.toContain("平台呈圆形");
   });
 
+  it("resolves several conflicts that all sit on the same field", async () => {
+    const story = await db.createStory({
+      userId: 69,
+      title: "同字段多冲突",
+      body: { _revision: 1, shots: [] },
+    });
+    const image = await createOwnedImage(story.id, 69);
+    const created = await persistence.createVisualAssetDraft({
+      storyId: story.id,
+      userId: 69,
+      expectedRevision: 1,
+      operationToken: "create-multi-conflict",
+      kind: "scene",
+      name: "展厅",
+      referenceImageIds: [image.id],
+    });
+    const asset = created.aggregate.assets[0]!;
+    const version = asset.versions[0]!;
+    await persistence.saveVisualAssetVersionAnalysis({
+      storyId: story.id,
+      userId: 69,
+      expectedRevision: 2,
+      operationToken: "analyze-multi-conflict",
+      assetId: asset.id,
+      versionId: version.id,
+      fixedFacts: {
+        kind: "scene",
+        geometry: ["封闭展厅"],
+        materials: ["哑光涂料"],
+        fixedProps: ["均匀漫射人工光"],
+      },
+      allowedVariations: ["机位"],
+      // 场景分析天然会在同一字段上给出多条冲突。
+      conflicts: [
+        {
+          field: "fixedProps",
+          descriptions: ["有大提琴", "无大提琴"],
+          sourceImageIds: [image.id],
+        },
+        {
+          field: "fixedProps",
+          descriptions: ["墙上嵌眼球装置", "无眼球装置"],
+          sourceImageIds: [image.id],
+        },
+        {
+          field: "fixedProps",
+          descriptions: ["地面有圆形浮雕台", "地面仅有低矮展台"],
+          sourceImageIds: [image.id],
+        },
+      ],
+      views: [],
+    });
+
+    const resolved = await persistence.resolveVisualAssetVersionConflicts({
+      storyId: story.id,
+      userId: 69,
+      expectedRevision: 3,
+      operationToken: "resolve-multi-conflict",
+      assetId: asset.id,
+      versionId: version.id,
+      resolutions: [
+        { field: "fixedProps", resolution: "无大提琴" },
+        { field: "fixedProps", resolution: "无眼球装置" },
+        { field: "fixedProps", resolution: "地面仅有低矮展台" },
+      ],
+    });
+
+    const next = resolved.aggregate.assets[0]!.versions[0]!;
+    // 三条冲突各自拿到自己的裁决，不能互相覆盖。
+    expect(next.conflicts.map(c => c.resolution)).toEqual([
+      "无大提琴",
+      "无眼球装置",
+      "地面仅有低矮展台",
+    ]);
+    const props = (next.fixedFacts as { fixedProps: string[] }).fixedProps;
+    expect(props).toContain("均匀漫射人工光");
+    expect(props).toEqual(
+      expect.arrayContaining(["无大提琴", "无眼球装置", "地面仅有低矮展台"])
+    );
+    // 落选的描述一条都不能留下。
+    for (const rejected of ["有大提琴", "墙上嵌眼球装置", "地面有圆形浮雕台"]) {
+      expect(props).not.toContain(rejected);
+    }
+  });
+
   it("allows only one writer for the same Story revision", async () => {
     const story = await db.createStory({
       userId: 31,

@@ -2180,6 +2180,11 @@ export const storyAgentRouter = router({
         //   Path 2A:  LLM 写好的 imagePrompt，传入 input.prompt
         //   Path 2B:  没有 prompt，服务端从对话现编
         let prompt = input.prompt?.trim() ?? "";
+        // 一致性闸门只能看用户自己写的话。prompt 后面会被 synthesizeShotPrompt
+        // 整个替换成机器合成的画面描述，而合成器的职责就是描述「白色长裙」这类外观，
+        // 还会用「不要…」做否定约束 —— 两者一凑就命中闸门的冲突词，
+        // 结果是任何绑了锁定资产又走合成的镜头都会被自己挡住（2026-08-22 实测）。
+        const userAuthoredPrompt = prompt;
         let styleHintApplied = false;
         let sceneIntent: string | undefined;
         let sceneRationale: string | undefined;
@@ -2417,7 +2422,7 @@ export const storyAgentRouter = router({
               storyId: input.storyId,
               userId: ctx.user.id,
               stableShotId: shotIdentity,
-              shotText: [prompt, input.explicitInstruction]
+              shotText: [userAuthoredPrompt, input.explicitInstruction]
                 .filter(Boolean)
                 .join("\n"),
               provider:
