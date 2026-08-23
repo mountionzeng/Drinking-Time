@@ -14,7 +14,7 @@ const STORYBOARD_EDIT_MIN_SELECTION_MS = 80;
 
 /** 走带和微调时长的最小步长，按 30fps 算一帧。 */
 export const STORYBOARD_EDIT_FRAME_MS = 1000 / 30;
-export const STORYBOARD_MAGNET_THRESHOLD_PX = 8;
+const STORYBOARD_MAGNET_THRESHOLD_PX = 8;
 
 /** Keep the magnetic feel stable on screen even when the timeline zoom changes. */
 export function storyboardMagnetThresholdFrames(input: {
@@ -424,7 +424,7 @@ export function storyboardEditSelectionSummary(input: {
  * 六点把手要挪多远才算「开始拖」。低于这个距离一律当成误触，
  * 免得想右键或想选中的时候整组镜头跟着抖一下。
  */
-export const STORYBOARD_GROUP_DRAG_THRESHOLD_PX = 4;
+const STORYBOARD_GROUP_DRAG_THRESHOLD_PX = 4;
 
 /** 抓手默认服从当前单镜选择；整组移动必须由 Shift 明确触发。 */
 export function storyboardGripDragMode(input: {

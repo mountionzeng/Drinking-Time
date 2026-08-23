@@ -37,7 +37,6 @@ import {
 } from "../db";
 import {
   insertVisualImageClipForStory,
-  listVisualClips,
   moveVisualClipForStory,
   removeVisualClipForStory,
 } from "../services/visualClipEditing";
@@ -1744,19 +1743,6 @@ export const creationAgentRouter = router({
           error: error instanceof Error ? error.message : "时间轴保存失败",
         };
       }
-    }),
-
-  /**
-   * 多轨剪辑的唯一读投影。客户端不再自己从 items/imageClips/overlays 推位置。
-   */
-  visualClips: protectedProcedure
-    .input(z.object({ storyId: z.number() }))
-    .query(async ({ ctx, input }) => {
-      const story = await getStoryById(input.storyId, ctx.user.id);
-      if (!story) {
-        return { status: "error" as const, error: "故事不存在或无权操作" };
-      }
-      return listVisualClips(input.storyId, ctx.user.id);
     }),
 
   /**

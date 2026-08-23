@@ -7,7 +7,6 @@ import {
 } from "../db";
 import {
   insertVisualImageClipForStory,
-  listVisualClips,
   moveVisualClipForStory,
 } from "./visualClipEditing";
 import { projectVisualClips, type VisualEditDocument } from "../../shared/visualClipModel";
@@ -109,6 +108,10 @@ async function seedStory() {
   return story.id;
 }
 
+async function persistedVersion(storyId: number) {
+  return (await getStoryTimeline(storyId, USER_ID))?.version ?? 0;
+}
+
 /** 直接从库里重新读一遍，证明位置是真的落库了，而不是只活在返回值里。 */
 async function persistedPlacements(storyId: number) {
   const row = await getStoryTimeline(storyId, USER_ID);
@@ -130,10 +133,7 @@ describe("moveVisualClipForStory", () => {
   it("把一张图片移到新轨道新位置，只有它变，版本只 +1", async () => {
     const storyId = await seedStory();
     const before = await persistedPlacements(storyId);
-    const listed = await listVisualClips(storyId, USER_ID);
-    expect(listed.status).toBe("ok");
-    const baseVersion =
-      listed.status === "ok" ? listed.timelineVersion : Number.NaN;
+    const baseVersion = await persistedVersion(storyId);
 
     const result = await moveVisualClipForStory({
       storyId,
@@ -222,9 +222,7 @@ describe("insertVisualImageClipForStory", () => {
   it("按绝对帧落一张一帧图片，其它素材一个不动，版本只 +1", async () => {
     const storyId = await seedStory();
     const before = await persistedPlacements(storyId);
-    const listed = await listVisualClips(storyId, USER_ID);
-    const baseVersion =
-      listed.status === "ok" ? listed.timelineVersion : Number.NaN;
+    const baseVersion = await persistedVersion(storyId);
 
     const result = await insertVisualImageClipForStory({
       storyId,

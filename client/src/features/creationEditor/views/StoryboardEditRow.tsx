@@ -445,7 +445,7 @@ export type StoryboardTimelineAnchor = {
   timelineFrame: number;
 };
 
-export type StoryboardGroupPreview =
+type StoryboardGroupPreview =
   | {
       kind: "ok";
       stableShotIds: string[];
