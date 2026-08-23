@@ -56,31 +56,31 @@ async function loadVisualEditDocument(
   };
 }
 
-export async function moveVisualClipForStory(input: {
-  storyId: number;
-  userId: number;
-  clipId: string;
-  toTrackId: string;
-  toStartFrame: number;
-}): Promise<VisualClipEditResult> {
+/**
+ * 每个命令都是同一套动作：读文档 → 纯函数改它 → 服务端自己持有版本 CAS 写回。
+ * 三个命令时这段还能靠复制粘贴过日子，加到十个就不行了——所以在扩之前先抽出来，
+ * 让「命令」这件事只剩下「你要对文档做什么」这一个变量。
+ */
+type VisualEditMutation = (
+  document: VisualEditDocument
+) =>
+  | { status: "ok"; document: VisualEditDocument; changed?: boolean }
+  | { status: "error"; message: string };
+
+async function withVisualEditDocument(
+  input: { storyId: number; userId: number; failureMessage: string },
+  mutate: VisualEditMutation
+): Promise<VisualClipEditResult> {
   const loaded = await loadVisualEditDocument(input.storyId, input.userId);
   if ("error" in loaded) return { status: "error", error: loaded.error };
 
-  const moved = moveVisualClip(loaded.document, {
-    clipId: input.clipId,
-    toTrackId: input.toTrackId,
-    toStartFrame: input.toStartFrame,
-  });
-  if (moved.status === "error") {
-    return { status: "error", error: moved.message };
+  const result = mutate(loaded.document);
+  if (result.status === "error") {
+    return { status: "error", error: result.message };
   }
   // 目标与当前一致：不写库，也就不会因为重试把版本号越推越高。
-  if (!moved.changed) {
-    return {
-      status: "ok",
-      timelineVersion: loaded.version,
-      changed: false,
-    };
+  if (result.changed === false) {
+    return { status: "ok", timelineVersion: loaded.version, changed: false };
   }
 
   try {
@@ -89,25 +89,39 @@ export async function moveVisualClipForStory(input: {
       userId: input.userId,
       // 版本来自刚刚这次服务端读取，客户端不再持有版本号。
       expectedVersion: loaded.version,
-      items: moved.document.items,
-      ...(moved.document.overlays === undefined
+      items: result.document.items,
+      ...(result.document.overlays === undefined
         ? {}
-        : { overlays: moved.document.overlays }),
-      ...(moved.document.visualLayerState === undefined
+        : { overlays: result.document.overlays }),
+      ...(result.document.visualLayerState === undefined
         ? {}
-        : { visualLayerState: moved.document.visualLayerState }),
+        : { visualLayerState: result.document.visualLayerState }),
     });
-    return {
-      status: "ok",
-      timelineVersion: saved.version,
-      changed: true,
-    };
+    return { status: "ok", timelineVersion: saved.version, changed: true };
   } catch (error) {
     return {
       status: "error",
-      error: error instanceof Error ? error.message : "移动没有保存成功",
+      error: error instanceof Error ? error.message : input.failureMessage,
     };
   }
+}
+
+export async function moveVisualClipForStory(input: {
+  storyId: number;
+  userId: number;
+  clipId: string;
+  toTrackId: string;
+  toStartFrame: number;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    { storyId: input.storyId, userId: input.userId, failureMessage: "移动没有保存成功" },
+    document =>
+      moveVisualClip(document, {
+        clipId: input.clipId,
+        toTrackId: input.toTrackId,
+        toStartFrame: input.toStartFrame,
+      })
+  );
 }
 
 export async function insertVisualImageClipForStory(input: {
@@ -115,37 +129,10 @@ export async function insertVisualImageClipForStory(input: {
   userId: number;
   clip: InsertVisualImageClipInput;
 }): Promise<VisualClipEditResult> {
-  const loaded = await loadVisualEditDocument(input.storyId, input.userId);
-  if ("error" in loaded) return { status: "error", error: loaded.error };
-
-  const inserted = insertVisualImageClip(loaded.document, input.clip);
-  if (inserted.status === "error") {
-    return { status: "error", error: inserted.message };
-  }
-  try {
-    const saved = await updateStoryTimeline({
-      storyId: input.storyId,
-      userId: input.userId,
-      expectedVersion: loaded.version,
-      items: inserted.document.items,
-      ...(inserted.document.overlays === undefined
-        ? {}
-        : { overlays: inserted.document.overlays }),
-      ...(inserted.document.visualLayerState === undefined
-        ? {}
-        : { visualLayerState: inserted.document.visualLayerState }),
-    });
-    return {
-      status: "ok",
-      timelineVersion: saved.version,
-      changed: true,
-    };
-  } catch (error) {
-    return {
-      status: "error",
-      error: error instanceof Error ? error.message : "素材没有放置成功",
-    };
-  }
+  return withVisualEditDocument(
+    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有放置成功" },
+    document => insertVisualImageClip(document, input.clip)
+  );
 }
 
 export async function removeVisualClipForStory(input: {
@@ -153,35 +140,8 @@ export async function removeVisualClipForStory(input: {
   userId: number;
   clipId: string;
 }): Promise<VisualClipEditResult> {
-  const loaded = await loadVisualEditDocument(input.storyId, input.userId);
-  if ("error" in loaded) return { status: "error", error: loaded.error };
-
-  const removed = removeVisualClip(loaded.document, input.clipId);
-  if (removed.status === "error") {
-    return { status: "error", error: removed.message };
-  }
-  try {
-    const saved = await updateStoryTimeline({
-      storyId: input.storyId,
-      userId: input.userId,
-      expectedVersion: loaded.version,
-      items: removed.document.items,
-      ...(removed.document.overlays === undefined
-        ? {}
-        : { overlays: removed.document.overlays }),
-      ...(removed.document.visualLayerState === undefined
-        ? {}
-        : { visualLayerState: removed.document.visualLayerState }),
-    });
-    return {
-      status: "ok",
-      timelineVersion: saved.version,
-      changed: true,
-    };
-  } catch (error) {
-    return {
-      status: "error",
-      error: error instanceof Error ? error.message : "素材没有删除成功",
-    };
-  }
+  return withVisualEditDocument(
+    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有删除成功" },
+    document => removeVisualClip(document, input.clipId)
+  );
 }
