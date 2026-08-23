@@ -2,7 +2,8 @@
 
 > 探测者：tsconfig 类型检查线（由架构收敛线开卡）。
 > 本次**没有改动 `tsconfig.json`**，全部结论来自临时探针配置（跑完即删）。
-> 需要用户拍板：分批修 / 上棘轮 / 维持现状。
+> **用户已裁决（2026-08-24 02:35）：上棘轮 + 补 `target`。已实施，见文末「七、实施记录」。**
+> 本报告的探测数据保留原样，作为冻结基线的依据。
 
 ## 一句话结论
 
@@ -187,10 +188,88 @@ server/routers.shot.test.ts(11,8): TS2459
 
 ---
 
+## 七、实施记录（2026-08-24 02:45）
+
+用户选了**选项 2（上棘轮）**，并同意**单独补 `target`**。已落地：
+
+### 改了什么
+
+1. **`tsconfig.json`**
+   - `exclude` 里的 `"**/*.test.ts"` 换成 **58 个具体文件路径**的冻结清单。
+     其余 **240 个 `.test.ts` 当场纳入 `tsc --noEmit`**。
+   - 补 `"target": "ES2022"`，对齐 Node 24 / vite+esbuild 与 `tsconfig.node.json`。
+   - 补 `"useDefineForClassFields": false`（见下方「一个没预料到的坑」）。
+2. **新增 `client/src/typecheck-baseline.test.ts`** —— 棘轮守卫，5 条断言。
+   它自己不在冻结清单里，所以自身也受类型检查。
+
+### 一个没预料到的坑：`target` 会连带改运行时语义
+
+`target: ES2022` 会把 **`useDefineForClassFields` 的默认值从 `false` 翻成 `true`**，
+类字段改用 `Object.defineProperty` 定义而不是赋值——这是**运行时语义变化**，
+esbuild 也吃这个设置，不只是 tsc 的事。本仓有 30 个 class，其中大量 `extends Error`。
+
+本次目标只是统一类型检查口径，不该顺带动运行时，所以**显式钉回 `false`**，
+并逐个核对了产物：
+
+| 文件 | 新旧 tsconfig 下 esbuild 产物 |
+| --- | --- |
+| `shared/_core/errors.ts` | 逐字节相同 |
+| `client/src/features/publishingAlbum/publishingAlbumFontRepository.ts` | 逐字节相同 |
+| `client/src/components/ErrorBoundary.tsx` | 逐字节相同 |
+| `server/_core/sdk.ts` | 逐字节相同 |
+| `server/db.ts` | 逐字节相同 |
+
+**结论：这次改动的运行时产物零变化。** 想启用 define 语义要另立一卡单独评估。
+
+### 棘轮怎么工作
+
+新写的测试文件**不在**冻结清单里 → 自动进入类型检查 → 带着失效 import 就过不了 `pnpm check`。
+这是自我执行的，不需要额外机制。守卫负责堵住「改清单来绕过」这条路：
+
+| 守卫断言 | 挡住什么 |
+| --- | --- |
+| exclude 里不得有 `.test.*` 通配符 | 有人把 `**/*.test.ts` 加回来 |
+| 被豁免的测试文件必须是基线集合的子集 | 新增豁免（**清单只许变短**） |
+| 基线里的每个文件都必须还存在 | 文件删了／改名了留下僵尸豁免 |
+| `target` 必须是 `ES2022` | 有人摘掉 target，凭空退回 43 个假报 |
+| 解析器自检 | 上面几条因读到空值而假绿 |
+
+基线用**文件集合**而不是计数，理由与 U1 基线文档一致：防止「修好一个、再豁免一个新的」把债务平移。
+
+### 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `tsc --noEmit` | **0 错误** |
+| 棘轮守卫（新增） | 5/5 通过 |
+| 三种违规各自都能被挡住 | 新增豁免 ✓ / 加回通配符 ✓ / 摘掉 target ✓，还原后重新变绿 ✓ |
+| U1 架构棘轮 | 18/18 通过 |
+| `shared` + `client/src` 全量测试 | **196 个文件 / 1509 条全部通过** |
+| `feature:validate` | 29 张卡有效 |
+
+**端到端复现原始事故**：临时放一个 `client/src/__ratchet_probe.test.ts`，
+里面 import 已被搬走的 `./features/creationEditor/timelineActions`，`pnpm check` 立刻报：
+
+```
+client/src/__ratchet_probe.test.ts(4,37): error TS2307:
+  Cannot find module './features/creationEditor/timelineActions'
+```
+
+正是 08-23 那次靠人工 grep 才发现的那类问题，现在门禁能自己抓到。探针文件已删除。
+
+### 还欠着的债
+
+冻结清单里的 58 个文件、208 个错误一个没修，按设计如此——棘轮只阻止新增。
+要还债时按报告第六节的三批切分，其中 20 个真陈旧信号建议优先。
+**从清单里摘掉一个文件不需要动守卫**（子集断言允许变短），改完 `pnpm check` 绿了直接删那行即可。
+
+---
+
 ## 附录：本次没有做的事
 
-- 没有改 `tsconfig.json` 本身（含 exclude 与 target）。
+- 没有修任何一个既有类型错误（棘轮按设计不还债）。
 - 没有为了变绿去动 `strict`、`noUnusedLocals`、`noUnusedParameters`，也没有新增任何放宽项。
+  `target` 与 `useDefineForClassFields` 都不属于 strict 家族：前者对齐运行时，后者是把现状钉死。
 - 没有碰 `server/**` 的任何源码，因此没有触发共享的 :3000 `tsx watch` 重启。
 - 没有碰 `shared/timelineEditing.ts` / `shared/timelineCommands.test.ts`（滚动剪辑线在用）
   与 `server/services/visualClipEditing.ts` / `CreationEditorContext.tsx`（架构收敛线 U4–U7 在用）。
