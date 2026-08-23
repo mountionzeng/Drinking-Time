@@ -31,7 +31,7 @@
 | 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
 
 | 滚动剪辑修复 | 独立会话（由架构收敛线开卡） | `shared/timelineEditing.ts` 的 `trimTimelineItem`、`shared/timelineCommands.test.ts`。修「右镜无显式 timelineStartFrame 时滚动接缝把总片长砍短」 | 进行中 | 2026-08-23 02:10 |
-| tsconfig 类型检查 | 独立会话（由架构收敛线开卡） | `tsconfig.json` 的 exclude（`**/*.test.ts` 不参与 tsc） | 进行中 | 2026-08-23 02:10 |
+| tsconfig 类型检查 | `codex/story-visual-assets`（主仓） | **只读探测阶段**：用临时 `tsconfig.probe-*.json`（跑完即删）统计移除 `**/*.test.ts` exclude 后的既有类型错误，不改 `tsconfig.json`、不动 `server/**`、不触发 :3000 重启。若错误量可控再回来登记具体要改的测试文件；**明确避让** `shared/timelineEditing.ts`、`shared/timelineCommands.test.ts`（滚动剪辑线）与 `server/services/visualClipEditing.ts`、`client/src/features/creationEditor/CreationEditorContext.tsx`（架构收敛线 U4–U7） | 探测中 | 2026-08-24 02:20 |
 
 （收工时删掉自己这行。）
 
