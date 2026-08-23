@@ -1,9 +1,9 @@
 ---
 date: 2026-08-23
 topic: architecture-convergence
-status: 待用户确认；确认前不改产品代码
+status: 用户已确认（2026-08-23）；进入 ce-plan 前无产品代码改动
 source_handoff: docs/handoff/2026-08-23-architecture-convergence-agent-handoff.md
-measured_at: 2026-08-23 主仓 codex/story-visual-assets（HEAD 283b9f1，工作区含另一会话未提交的视觉资产修改）
+measured_at: 2026-08-23 主仓 codex/story-visual-assets（复测于 HEAD 6aed6d2；首测 283b9f1 期间另一会话合入了 8d19b94/f0ce930/1f89f5b 三次死代码清理，下表为复测值）
 ---
 
 # 渐进式架构收敛 · 需求对齐
@@ -40,7 +40,7 @@ measured_at: 2026-08-23 主仓 codex/story-visual-assets（HEAD 283b9f1，工作
 | `server/db.ts` 行数 / 导出数 | 6,563 / 109 | `wc -l`；`grep -cE "^export "` |
 | 直接 import `../db` 的文件 | 53（生产 49 + 脚本 4） | `grep -rE 'from "\.\./db"'`，排除 `*.test.*` |
 | 前端热点行数 | StoryboardReviewBoard 5,612；StoryAgentContext 4,528；EditingNleWorkspace 4,425；CreationEditorContext 4,329；StoryboardEditRow 3,992；PublishingDraftWorkspace 3,305 | `wc -l` |
-| 服务端热点行数 | routers/storyAgent 3,122；routers/publishingDraft 2,542；routers/creationAgent 2,291；services/imageGen 2,143 | `wc -l` |
+| 服务端热点行数 | routers/storyAgent 3,122；routers/publishingDraft 2,542；routers/creationAgent 2,277；services/imageGen 2,143 | `wc -l` |
 | 整份 timeline 写入口 | 客户端 1 条（`saveTimelineItems`，11 个调用点）；服务端 4 处（`timelineEditAgent` ×4、`videoTimeline` ×1、`chatCutXml` ×2、`editingTransitionWorkflow` 的 overlay 原子写 ×1） | `grep updateStoryTimeline\|applyStoryTimelineOverlayAtomic` |
 | knip 静态未用 | 未用导出 198、未用导出类型 200、重复导出 5、**未用文件 0** | `pnpm monitor` |
 | 静态健康快照（2026-08-21） | 源文件 393、函数 8,132、高风险函数 763、疑似未用局部函数 1,140、**runtime coverage 0** | `.code-health/weekly.md` |
@@ -187,17 +187,22 @@ measured_at: 2026-08-23 主仓 codex/story-visual-assets（HEAD 283b9f1，工作
 
 ## Dependencies / Assumptions
 
-- 假设视觉资产未提交工作在本轮实施期间不再变动；若它开始变动且与本任务触达同一文件，立即停止并请示。
-- 假设本会话是唯一的架构收敛负责人（`pnpm env:status` 显示 12 个 worktree 均无服务与业务数据，只有主仓 3000 在跑）。
+- 视觉资产那批未提交工作已于 2026-08-23 由本会话代为提交（`8e85541`），工作区已清空。
+- **本会话不是唯一在动这块代码的人**：另一会话（worktree `claude/multitrack-editor-reset`）在 2026-08-23 17:43 与 17:47 向主仓合入了 `8d19b94` / `f0ce930` / `1f89f5b` 三次「多轨剪辑重构死代码清理」，触达 `server/services/visualClipEditing.ts`、`shared/visualClipModel.ts`、`server/routers/creationAgent.ts` 与三个前端编辑文件——正是本试点的相邻区域。开工前必须重新确认它是否仍在运行，并与用户确认由谁负责这一片。
 - 依赖 `client/src/architecture-boundaries.test.ts` 作为守卫落点，不新建平行的守卫机制。
 - 依赖 `docs/qa/refactor-coupling-baseline-2026-08-14.md` 的口径做前后对比。
 
 ---
 
-## Outstanding Questions（需用户裁决后才进入 ce-plan）
+## 用户裁决（2026-08-23，已确认）
 
-1. **试点确认**：同意把「关闭整份 timeline 写入口、让位置只走 `moveVisualClip` 家族」作为第一个纵向切片吗？
-2. **R9 的硬度**：如果迁移到最后发现某个调用点（例如 `undoTimeline` 的整份回滚、`manageTimelineVisualLayer` 的整层重编号）天然需要批量写入，是接受「批量也必须是服务端领域命令」，还是允许保留一个受限的整份写入口并加守卫？
-3. **`server/archive/` 改名**：本轮批准，还是排到收敛之后？
-4. **三条在建功能线的检查点**：交接说要先让它们形成稳定 checkpoint 再统一调整。视觉资产那批未提交修改是否可以先由原会话提交？在它提交前，本任务只做不触碰这些文件的守卫工作。
-5. **删除的第一批目标**：是先清 knip 里非 shadcn 的真实未用导出，还是等试点完成后连同旧 writer 一起删？
+1. **试点确认** → 同意。第一刀就是关闭整份 timeline 写入口，位置只走 `moveVisualClip` 家族。
+2. **R9 的硬度** → 选 A（严格）。`undoTimeline` 的整份回滚与 `manageTimelineVisualLayer` 的整层重编号也必须表达成服务端领域命令（如「撤销到版本 N」「把第 N 层移到第 M 层」），由服务端自己读取并计算位置；不保留受限的整份写入口。
+3. **`server/archive/` 改名** → 先记着，排到收敛之后再做。本轮只登记（R25 保持，执行时机后移）。
+4. **视觉资产未提交工作** → 已由本会话代为提交（`8e85541`），并补齐三份未落库交接文档（`6aed6d2`）。工作区现已干净。
+5. **第一批删除目标** → 先拆墙。不单独清 knip 未用导出；等试点完成后，连同被替代的旧 writer 一起删，删除理由由试点本身提供。
+
+## 仍待确认
+
+- 用户表示对「当前两个编辑表面／两条写入路径」都不满意，倾向于**合并起来一起修**，但也认为这个工程可能过大，要求本会话自行判断范围。合并对象的具体所指需在进入 ce-plan 前确认（见会话记录）。
+- 与 `claude/multitrack-editor-reset` 会话的分工归属（见 Dependencies / Assumptions）。
