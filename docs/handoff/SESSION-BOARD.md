@@ -27,6 +27,7 @@
 | 会话 | 分支 / worktree | 正在动 | 状态 | 更新时间 |
 | --- | --- | --- | --- | --- |
 | 架构收敛 | `codex/story-visual-assets`（主仓，只读为主） | 需求文档已定稿，等用户拍板后进 ce-plan | 未动产品代码 | 2026-08-23 18:20 |
+| 视觉资产标准板 | `affectionate-bartik-1d9c06` | 待办：放开 `visualAssetGenerationContext.ts:226` 的 provider 白名单（现只放行 midjourney），会同时动 `server/routers/storyAgent.ts` 的估价分支 | **未动手**，等用户给 OSS 凭据 + 裁决是否放开 gpt-image | 2026-08-23 18:35 |
 
 （收工时删掉自己这行。）
 
@@ -34,12 +35,18 @@
 
 ## 最近落地
 
-| 时间 | 提交 | 内容 | 触达热区 |
-| --- | --- | --- | --- |
-| 08-23 17:43 | `8d19b94` | 删掉图生图链路里没被用上的代码 | `chatImageRefs.ts`、`useChatImageRemix.ts` |
-| 08-23 17:47 | `f0ce930` / `1f89f5b` | 清掉多轨剪辑重构留下的死代码；worktree 与分支已按规矩删除 | `visualClipEditing.ts` −27、`visualClipModel.ts`、`creationAgent.ts` −14、`EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx` |
-| 08-23 18:07 | `8e85541` | 视觉资产：参考图改走自有 OSS、一致性闸门按小句判定、冲突裁决逐条配对（由架构收敛会话代为提交，原作者 08-22 完成后未落库） | `imageGen.ts`、`storyAgent.ts`、`visualAsset*` |
-| 08-23 18:12 | `6aed6d2` / `41d1797` | 补齐三份未落库交接文档；新增架构收敛需求文档与用户裁决 | 无（纯文档） |
+> **归属怎么判**：author 字段全是 `jane-githu`，区分不出会话。可靠判据只有两条——
+> `git reflog` 里这条是 `commit:`（直接在主仓提交）还是 `merge <分支名>:`（从哪个 worktree 合入），
+> 加上触达的文件属于哪条线。**不要用「时间重合 + 刚跟谁通过信」归因**：
+> 2026-08-23 下午已经连错两次，第二次差点让人去改错的地方。
+
+| 时间 | 提交 | 内容 | 归属（判据） | 触达热区 |
+| --- | --- | --- | --- | --- |
+| 08-23 17:43 | `8d19b94` | 删掉图生图链路里没被用上的代码 | **图生图对话框线**（reflog 为 `commit:`，直接在主仓提交；文件全属图生图链路） | `chatImageRefs.ts`、`useChatImageRemix.ts`、`useAssetSwapProposal.ts` |
+| 08-23 17:47 | `f0ce930` / `1f89f5b` | 清掉多轨剪辑重构留下的死代码 | **clip-move 线**（`1f89f5b` 的第二父提交来自 `claude/multitrack-editor-reset`）。该线当日收工，worktree 与分支已按规矩删除 | `visualClipEditing.ts` −27、`visualClipModel.ts`、`creationAgent.ts` −14、`EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx` |
+| 08-23 18:07 | `8e85541` | 视觉资产：参考图改走自有 OSS、一致性闸门按小句判定、冲突裁决逐条配对 | **视觉资产标准板线**（08-22 完成未落库，由架构收敛会话代为提交；原作者已核对提交信息属实）。这批是真实付费验出来的，累计 ¥31.29 | `imageGen.ts`、`storyAgent.ts`、`visualAsset*` |
+| 08-23 18:12 | `6aed6d2` / `41d1797` | 补齐三份未落库交接文档；新增架构收敛需求文档与用户裁决 | **架构收敛线** | 无（纯文档） |
+| 08-23 18:25 | `414331b` | 新增本看板 | **架构收敛线** | 无（纯文档） |
 
 ---
 
@@ -66,3 +73,7 @@
 - 架构收敛的第一刀已获批：关闭整份 timeline 写入口，位置只走 `moveVisualClip` 家族，
   批量操作（撤销、整层重排）也必须表达成服务端领域命令（用户选了严格方案）。
   **这会改动上表前三个热区文件**，其他会话请避让或先协调。
+- `server/routers/storyAgent.ts` 上有两条线会碰面：架构收敛（timeline 写入口）与视觉资产标准板
+  （provider 白名单 + 估价分支）。后者尚未动手，动手前会先更新本看板。
+- 视觉资产标准板线在等用户两件事：OSS 凭据；是否放开 gpt-image
+  （用户一小时前在两个方案里选了另一个，图生图线希望改判——**这是用户的决定，任何会话不得代为翻案**）。
