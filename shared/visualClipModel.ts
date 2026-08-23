@@ -34,10 +34,10 @@ export type VisualEditDocument = {
   visualLayerState?: StoryTimelineVisualLayerState;
 };
 
-export type VisualClipKind = "image" | "video";
+type VisualClipKind = "image" | "video";
 
 /** clip 落在哪个持久化实体上。移动命令据此只改那一处。 */
-export type VisualClipOrigin =
+type VisualClipOrigin =
   | { kind: "shot"; stableShotId: string }
   | { kind: "image-clip"; ownerStableShotId: string; clipId: string }
   | { kind: "video-clip"; ownerStableShotId: string; clipId: string }
@@ -67,7 +67,7 @@ export type InsertVisualImageClipInput = {
   durationFrames?: number;
 };
 
-export type InsertVisualClipError =
+type InsertVisualClipError =
   | "invalid-track"
   | "invalid-start"
   | "empty-timeline";
@@ -76,7 +76,7 @@ export type InsertVisualClipResult =
   | { status: "ok"; document: VisualEditDocument; clip: VisualClip }
   | { status: "error"; error: InsertVisualClipError; message: string };
 
-export type RemoveVisualClipError = "clip-not-found" | "unsupported-kind";
+type RemoveVisualClipError = "clip-not-found" | "unsupported-kind";
 
 export type RemoveVisualClipResult =
   | { status: "ok"; document: VisualEditDocument; removed: VisualClip }
@@ -88,7 +88,7 @@ export type MoveVisualClipInput = {
   toStartFrame: number;
 };
 
-export type MoveVisualClipError =
+type MoveVisualClipError =
   | "clip-not-found"
   | "invalid-track"
   | "invalid-start"
@@ -111,7 +111,7 @@ export function visualTrackId(layer: number): string {
 }
 
 /** 非法 trackId 返回 null，绝不猜一个层号——猜出来的层会把素材放到用户没选的地方。 */
-export function parseVisualTrackId(trackId: string): number | null {
+function parseVisualTrackId(trackId: string): number | null {
   if (!trackId.startsWith(TRACK_ID_PREFIX)) return null;
   const raw = trackId.slice(TRACK_ID_PREFIX.length);
   if (!/^\d+$/.test(raw)) return null;
@@ -198,7 +198,7 @@ export function projectVisualClips(doc: VisualEditDocument): VisualClip[] {
   return clips;
 }
 
-export function findVisualClip(
+function findVisualClip(
   doc: VisualEditDocument,
   clipId: string
 ): VisualClip | null {

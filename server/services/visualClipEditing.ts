@@ -15,10 +15,8 @@ import type {
 import {
   insertVisualImageClip,
   moveVisualClip,
-  projectVisualClips,
   removeVisualClip,
   type InsertVisualImageClipInput,
-  type VisualClip,
   type VisualEditDocument,
 } from "../../shared/visualClipModel";
 import { getStoryTimeline, updateStoryTimeline } from "../db";
@@ -26,8 +24,6 @@ import { getStoryTimeline, updateStoryTimeline } from "../db";
 export type VisualClipEditResult =
   | {
       status: "ok";
-      clip: VisualClip;
-      clips: VisualClip[];
       timelineVersion: number;
       /** false 表示目标位置与当前一致，没有写入。 */
       changed: boolean;
@@ -60,21 +56,6 @@ async function loadVisualEditDocument(
   };
 }
 
-export async function listVisualClips(
-  storyId: number,
-  userId: number
-): Promise<
-  { status: "ok"; clips: VisualClip[]; timelineVersion: number } | { status: "error"; error: string }
-> {
-  const loaded = await loadVisualEditDocument(storyId, userId);
-  if ("error" in loaded) return { status: "error", error: loaded.error };
-  return {
-    status: "ok",
-    clips: projectVisualClips(loaded.document),
-    timelineVersion: loaded.version,
-  };
-}
-
 export async function moveVisualClipForStory(input: {
   storyId: number;
   userId: number;
@@ -97,8 +78,6 @@ export async function moveVisualClipForStory(input: {
   if (!moved.changed) {
     return {
       status: "ok",
-      clip: moved.clip,
-      clips: projectVisualClips(loaded.document),
       timelineVersion: loaded.version,
       changed: false,
     };
@@ -120,8 +99,6 @@ export async function moveVisualClipForStory(input: {
     });
     return {
       status: "ok",
-      clip: moved.clip,
-      clips: projectVisualClips(moved.document),
       timelineVersion: saved.version,
       changed: true,
     };
@@ -160,8 +137,6 @@ export async function insertVisualImageClipForStory(input: {
     });
     return {
       status: "ok",
-      clip: inserted.clip,
-      clips: projectVisualClips(inserted.document),
       timelineVersion: saved.version,
       changed: true,
     };
@@ -200,8 +175,6 @@ export async function removeVisualClipForStory(input: {
     });
     return {
       status: "ok",
-      clip: removed.removed,
-      clips: projectVisualClips(removed.document),
       timelineVersion: saved.version,
       changed: true,
     };

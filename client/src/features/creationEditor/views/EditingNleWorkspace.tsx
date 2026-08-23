@@ -326,7 +326,7 @@ export function timelineVideoSourceForSelectedShot(
   return source && source.shotNo === selectedShotNo ? source : null;
 }
 
-export function timelineVisualClipFrameUrl(
+function timelineVisualClipFrameUrl(
   clip: Pick<StoryTimelineVisualClip, "takeId" | "rangeId" | "sourceStartSec">
 ): string {
   return `/api/video-frames/${clip.takeId}?atSec=${clip.sourceStartSec.toFixed(3)}&rangeId=${clip.rangeId}`;
@@ -1185,7 +1185,7 @@ export function timelineClipPointerPlacement(input: {
   };
 }
 
-export const TIMELINE_IMAGE_CLIP_MIN_INTERACTION_WIDTH_PX = 28;
+const TIMELINE_IMAGE_CLIP_MIN_INTERACTION_WIDTH_PX = 28;
 
 export function timelineClipInteractionWidth(input: {
   renderedWidth: number;
