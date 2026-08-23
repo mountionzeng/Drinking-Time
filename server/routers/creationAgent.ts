@@ -1891,7 +1891,7 @@ export const creationAgentRouter = router({
       })
     ),
 
-  /** 单镜移动，带磁吸阈值。 */
+  /** 单镜移动：横向位移、换层与遗留 overlay 迁移在同一次写入里完成。 */
   moveShotSingle: protectedProcedure
     .input(
       z.object({
@@ -1899,6 +1899,7 @@ export const creationAgentRouter = router({
         stableShotId: z.string().min(1).max(240),
         deltaFrames: z.number().int(),
         snapThresholdFrames: z.number().int().min(0).optional(),
+        toVisualLayer: z.number().int().min(0).optional(),
       })
     )
     .mutation(async ({ ctx, input }) =>
@@ -1910,6 +1911,9 @@ export const creationAgentRouter = router({
         ...(input.snapThresholdFrames === undefined
           ? {}
           : { snapThresholdFrames: input.snapThresholdFrames }),
+        ...(input.toVisualLayer === undefined
+          ? {}
+          : { toVisualLayer: input.toVisualLayer }),
       })
     ),
 

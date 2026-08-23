@@ -298,29 +298,92 @@ export async function moveShotGroupForStory(input: {
   );
 }
 
+/**
+ * 单镜移动。除了横向位移，它还要在同一次写入里完成另外两件事——这两件以前
+ * 都在客户端做，是「一次拖动」在用户眼里不可分割的一部分：
+ *
+ * 1. 换层：斜向拖动一次提交，位置与视觉层一起变；帧差为 0 时也允许只换层。
+ * 2. 迁移遗留 overlay：老的 overlay 记录在镜头第一次被移动或换层时就地转成
+ *    普通上层镜头并删除专用覆盖记录（账本 extracted-frame-overlay-video 第 15 条）。
+ *
+ * 这三件必须原子：拆成两次写入的话，中途失败会留下「层改了但位置没改」或者
+ * 「overlay 删了但镜头没上去」这种没人能修的半状态。
+ */
 export async function moveShotSingleForStory(input: {
   storyId: number;
   userId: number;
   stableShotId: string;
   deltaFrames: number;
   snapThresholdFrames?: number;
+  toVisualLayer?: number;
 }): Promise<VisualClipEditResult> {
-  return withTimelinePlan(
+  return withVisualEditDocument(
     {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "移动镜头失败",
     },
-    ({ document, rows }) =>
-      planTimelineSingleMove({
-        items: document.items,
-        rows,
-        stableShotId: input.stableShotId,
-        deltaFrames: input.deltaFrames,
-        ...(input.snapThresholdFrames === undefined
-          ? {}
-          : { snapThresholdFrames: input.snapThresholdFrames }),
-      })
+    document => {
+      const rows = buildTimelineLayout(document.items);
+      const sourceItem = document.items.find(
+        item => item.stableShotId === input.stableShotId
+      );
+      if (!sourceItem) {
+        return { status: "error", message: "镜头不在时间轴中" };
+      }
+      const overlay = (document.overlays ?? []).find(
+        candidate => candidate.sourceStableShotId === input.stableShotId
+      );
+      const targetLayer =
+        input.toVisualLayer == null
+          ? undefined
+          : Math.max(0, Math.round(input.toVisualLayer));
+      const layerChanged =
+        targetLayer != null && targetLayer !== (sourceItem.visualLayer ?? 0);
+
+      // 只换层不平移：没有位移要算，直接拿当前 items 往下走。
+      const plan: TimelinePlan =
+        input.deltaFrames === 0 && layerChanged
+          ? { kind: "ok", items: [...document.items] }
+          : planTimelineSingleMove({
+              items: document.items,
+              rows,
+              stableShotId: input.stableShotId,
+              deltaFrames: input.deltaFrames,
+              ...(input.snapThresholdFrames === undefined
+                ? {}
+                : { snapThresholdFrames: input.snapThresholdFrames }),
+            });
+      if (plan.kind !== "ok") {
+        return { status: "error", message: plan.reason };
+      }
+
+      const needsLayerWrite = targetLayer != null || overlay !== undefined;
+      const items = needsLayerWrite
+        ? plan.items.map(item =>
+            item.stableShotId === input.stableShotId
+              ? // overlay 迁移时默认落在第 1 层：遗留 overlay 本来就画在
+                // 底层视频之上，不给层号会掉回底层把画面盖掉。
+                { ...item, visualLayer: targetLayer ?? 1 }
+              : item
+          )
+        : plan.items;
+
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items,
+          ...(overlay === undefined
+            ? {}
+            : {
+                overlays: (document.overlays ?? []).filter(
+                  candidate => candidate.id !== overlay.id
+                ),
+              }),
+        },
+      };
+    }
   );
 }
 

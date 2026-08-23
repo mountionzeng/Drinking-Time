@@ -523,3 +523,93 @@ describe("planner 系列命令（U3）", () => {
     expect(result.errorKind).toBe("invalid");
   });
 });
+
+describe("单镜移动的换层与 overlay 迁移（U3）", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("斜向拖动一次提交：位置与视觉层一起变，版本只 +1", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+      toVisualLayer: 2,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const moved = (row?.items as { stableShotId: string; visualLayer?: number }[]).find(
+      item => item.stableShotId === "sh-02"
+    );
+    expect(moved?.visualLayer).toBe(2);
+  });
+
+  it("帧差为 0 也能只换层，不被当成空操作跳过", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 0,
+      toVisualLayer: 3,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const moved = (row?.items as { stableShotId: string; visualLayer?: number }[]).find(
+      item => item.stableShotId === "sh-02"
+    );
+    expect(moved?.visualLayer).toBe(3);
+  });
+
+  it("移动带遗留 overlay 的镜头，会在同一次写入里迁移掉那条 overlay", async () => {
+    // 账本 extracted-frame-overlay-video 第 15 条：遗留 overlay 在首次移动或
+    // 换层时迁移为普通上层镜头并移除专用覆盖记录。
+    const storyId = await seedStory();
+    const before = await getStoryTimeline(storyId, USER_ID);
+    expect((before?.overlays as unknown[])?.length).toBe(1);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      deltaFrames: 12,
+      snapThresholdFrames: 0,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await getStoryTimeline(storyId, USER_ID);
+    expect((after?.overlays as unknown[])?.length).toBe(0);
+    const migrated = (after?.items as { stableShotId: string; visualLayer?: number }[]).find(
+      item => item.stableShotId === "sh-01"
+    );
+    // 不给层号会掉回底层把画面盖掉，所以迁移默认落在第 1 层。
+    expect(migrated?.visualLayer).toBe(1);
+  });
+
+  it("镜头不在时间轴上时返回 invalid，不写库", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-nope",
+      deltaFrames: 10,
+      toVisualLayer: 1,
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+});
