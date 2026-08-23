@@ -6,10 +6,18 @@ import {
   updateStoryTimeline,
 } from "../db";
 import {
+  addTimelineAnchorForStory,
   insertVisualImageClipForStory,
+  magnetDetachForStory,
+  moveShotGroupForStory,
+  moveShotSingleForStory,
   moveVisualClipForStory,
+  removeTimelineAnchorForStory,
+  rollingTrimForStory,
+  trimShotForStory,
 } from "./visualClipEditing";
 import { projectVisualClips, type VisualEditDocument } from "../../shared/visualClipModel";
+import { buildTimelineLayout } from "../../shared/timelineLayout";
 
 const USER_ID = 1;
 
@@ -296,5 +304,222 @@ describe("insertVisualImageClipForStory", () => {
     );
     expect(matching).toHaveLength(1);
     expect(placements["image:img-extracted"]).toBe("track-1@260+1");
+  });
+});
+
+/** 每个镜头的绝对起点与时长，用来断言「只有它变了」。 */
+async function persistedShotSpans(storyId: number) {
+  const row = await getStoryTimeline(storyId, USER_ID);
+  const items = (row?.items ?? []) as { stableShotId: string }[];
+  const rows = buildTimelineLayout(items as never);
+  return Object.fromEntries(
+    rows.map(layoutRow => [
+      layoutRow.item.stableShotId,
+      `${layoutRow.startFrame}+${layoutRow.durationFrames}`,
+    ])
+  );
+}
+
+/** 两个镜头都带显式绝对起点——多轨模型落地后的真实形状。 */
+async function seedStoryWithExplicitPositions() {
+  const story = await createStory({
+    userId: USER_ID,
+    title: "显式位置",
+    body: {
+      shots: [
+        { shotNo: 1, stableShotId: "sh-01" },
+        { shotNo: 2, stableShotId: "sh-02" },
+      ],
+    },
+  });
+  await updateStoryTimeline({
+    storyId: story.id,
+    userId: USER_ID,
+    expectedVersion: 0,
+    items: [
+      {
+        stableShotId: "sh-01",
+        included: true,
+        position: 0,
+        plannedDurationMs: 4000,
+        durationFrames: 120,
+        timelineStartFrame: 0,
+        visualLayer: 0,
+        transform: TRANSFORM,
+      },
+      {
+        stableShotId: "sh-02",
+        included: true,
+        position: 1,
+        plannedDurationMs: 4000,
+        durationFrames: 120,
+        timelineStartFrame: 120,
+        visualLayer: 0,
+        transform: TRANSFORM,
+      },
+    ],
+  });
+  return story.id;
+}
+
+/** 整条片长 = 最大结束时间，不是顺序上最后一镜的结尾。 */
+function timelineEndFrame(spans: Record<string, string>): number {
+  return Math.max(
+    0,
+    ...Object.values(spans).map(span => {
+      const [start, duration] = span.split("+").map(Number);
+      return start + duration;
+    })
+  );
+}
+
+describe("planner 系列命令（U3）", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("单镜移动只改那一个镜头的起点，版本只 +1", async () => {
+    const storyId = await seedStory();
+    const before = await persistedShotSpans(storyId);
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    const after = await persistedShotSpans(storyId);
+    expect(after["sh-01"]).toBe(before["sh-01"]);
+    expect(after["sh-02"]).not.toBe(before["sh-02"]);
+  });
+
+  it("客户端一个派生状态都不用传：只给镜头 id 和帧差就能落库", async () => {
+    // 这条守的是 U3 的核心断言——rows 与镜头素材信息全由服务端自己算。
+    // 参数里出现 items / rows / expectedVersion 就说明收敛没做干净。
+    const storyId = await seedStory();
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 12,
+    });
+    expect(result.status).toBe("ok");
+  });
+
+  it("方向整组移动不牵连上层图片的绝对位置", async () => {
+    const storyId = await seedStory();
+    const before = await persistedPlacements(storyId);
+
+    const result = await moveShotGroupForStory({
+      storyId,
+      userId: USER_ID,
+      sourceShotId: "sh-01",
+      direction: "right",
+      deltaFrames: 24,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await persistedPlacements(storyId);
+    // 上层一帧图片各自持有绝对帧，底层镜头移动不得改写它们。
+    expect(after["img-abs"]).toBe(before["img-abs"]);
+  });
+
+  it("打标返回锚点 id，取消打标能用它删掉", async () => {
+    const storyId = await seedStory();
+
+    const added = await addTimelineAnchorForStory({
+      storyId,
+      userId: USER_ID,
+      timelineFrame: 10,
+    });
+    expect(added.status).toBe("ok");
+    if (added.status !== "ok") return;
+    expect(added.anchorId).toBeTruthy();
+
+    const removed = await removeTimelineAnchorForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      anchorId: added.anchorId as string,
+    });
+    expect(removed.status).toBe("ok");
+  });
+
+  it("左右顺序反过来时没有接缝，取消吸附返回 invalid 而不是悄悄成功", async () => {
+    // sh-01 结束正好接 sh-02 开始，(sh-01, sh-02) 是真实接缝；
+    // 反过来问 (sh-02, sh-01) 就不是——命令必须拒绝，而不是当成一次空操作。
+    const storyId = await seedStory();
+    const version = await persistedVersion(storyId);
+
+    const result = await magnetDetachForStory({
+      storyId,
+      userId: USER_ID,
+      leftStableShotId: "sh-02",
+      rightStableShotId: "sh-01",
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
+    expect(result.error).toContain("吸附");
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+
+  it("镜头不在时间轴上时，修剪返回可见错误且不写库", async () => {
+    const storyId = await seedStory();
+    const version = await persistedVersion(storyId);
+
+    const result = await trimShotForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-does-not-exist",
+      edge: "end",
+      requestedBoundaryFrame: 60,
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+
+  it("滚动剪辑原子改动接缝两侧，总结束时间不变（账本 anchors 第 9 条）", async () => {
+    // 必须用「两侧都带显式 timelineStartFrame」的真实形状。
+    // 右镜是隐式位置时，planTimelineRollingTrim 会把总片长砍掉一截——那是
+    // 一个既有 bug（2026-08-23 发现，已单独立项），不在本轮写入路径收敛范围内。
+    const storyId = await seedStoryWithExplicitPositions();
+    const before = await persistedShotSpans(storyId);
+    const totalBefore = timelineEndFrame(before);
+
+    const result = await rollingTrimForStory({
+      storyId,
+      userId: USER_ID,
+      leftStableShotId: "sh-01",
+      rightStableShotId: "sh-02",
+      requestedBoundaryFrame: 90,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await persistedShotSpans(storyId);
+    // 接缝滚动：左镜变短、右镜提前开始，两侧必须一起变。
+    expect(after["sh-01"]).not.toBe(before["sh-01"]);
+    expect(after["sh-02"]).not.toBe(before["sh-02"]);
+    // 而整条片长不能因为滚动接缝而改变。
+    expect(timelineEndFrame(after)).toBe(totalBefore);
+  });
+
+  it("故事不存在时返回可见错误，不抛异常", async () => {
+    const result = await moveShotSingleForStory({
+      storyId: 999999,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      deltaFrames: 1,
+    });
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
   });
 });
