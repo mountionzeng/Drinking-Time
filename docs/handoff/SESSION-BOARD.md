@@ -31,7 +31,7 @@
 | 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
 
 | 滚动剪辑修复 | 独立会话（由架构收敛线开卡） | `shared/timelineEditing.ts` 的 `trimTimelineItem`、`shared/timelineCommands.test.ts`。修「右镜无显式 timelineStartFrame 时滚动接缝把总片长砍短」 | 进行中 | 2026-08-23 02:10 |
-| tsconfig 类型检查 | `codex/story-visual-assets`（主仓） | **探测已完成，未改任何代码**。报告：`docs/qa/tsconfig-test-exclude-audit-2026-08-24.md`（`4cd2241`）。结论：移除 exclude 后 251 个错误，补 `target: ES2022` 后剩 208 个／58 个测试文件，**生产代码零错误**。临时探针配置已删，`tsconfig.json` 原样未动 | **待用户裁决**（分批修 / 上棘轮 / 维持现状），在此之前不动手 | 2026-08-24 02:32 |
+| tsconfig 类型检查 | `codex/story-visual-assets`（主仓） | **正在实施用户裁决**（上棘轮 + 补 target）：只改 `tsconfig.json`（加 `"target": "ES2022"`；`**/*.test.ts` 换成 58 个具体文件的冻结清单）+ 新增守卫 `client/src/typecheck-baseline.test.ts` + 更新 `docs/qa/tsconfig-test-exclude-audit-2026-08-24.md`。**不动任何 `server/**` 源码、不动 `shared/**`**，不触发 :3000 重启。注意：`shared/timelineCommands.test.ts`、`shared/timelineEditing.test.ts` 会**进冻结清单但文件本身不被我修改**（滚动剪辑线正在改，清单只是不检查它们） | 实施中 | 2026-08-24 02:40 |
 
 （收工时删掉自己这行。）
 
