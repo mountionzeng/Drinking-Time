@@ -86,6 +86,7 @@ import {
   splitStoryShotAtIndex,
 } from "../../shared/storyShotEditing";
 import { splitTimelineItem } from "../../shared/timelineEditing";
+import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
@@ -1547,7 +1548,12 @@ export const storyAgentRouter = router({
       const timelineIndex = material.timeline.items.findIndex(
         item => item.stableShotId === input.stableShotId
       );
-      if (targetIndex < 0 || timelineIndex < 0) {
+      // Resolved against the full item list: a shot with an implicit position
+      // has no `timelineStartFrame` of its own.
+      const timelineRow = buildTimelineLayout(material.timeline.items).find(
+        row => row.item.stableShotId === input.stableShotId
+      );
+      if (targetIndex < 0 || timelineIndex < 0 || !timelineRow) {
         return { status: "error" as const, error: "镜头不存在或已经更新" };
       }
       const splitStableShotId = `split-${nanoid(16)
@@ -1555,6 +1561,7 @@ export const storyAgentRouter = router({
         .replace(/[^a-z0-9]/g, "")}`;
       const timelineSplit = splitTimelineItem({
         item: material.timeline.items[timelineIndex],
+        startFrame: timelineRow.startFrame,
         cutFrame: input.cutFrame,
         leftStableShotId: input.stableShotId,
         rightStableShotId: splitStableShotId,

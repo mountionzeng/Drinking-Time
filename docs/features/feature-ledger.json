@@ -1224,7 +1224,7 @@
         "shared/timelineSource.ts",
         "shared/timelineEditing.ts",
         "shared/storyMaterial.ts",
-        "client/src/features/creationEditor/timelineActions.ts",
+        "shared/timelineCommands.ts",
         "client/src/features/creationEditor/CreationEditorContext.tsx",
         "client/src/features/storyAgent/storyboardTiming.ts",
         "server/services/storyMaterials.ts",
@@ -1234,7 +1234,7 @@
         "shared/timelineLayout.test.ts",
         "shared/timelineSource.test.ts",
         "shared/timelineEditing.test.ts",
-        "client/src/features/creationEditor/timelineActions.test.ts",
+        "shared/timelineCommands.test.ts",
         "client/src/features/creationEditor/storyboardEditRow.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
@@ -1294,6 +1294,11 @@
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "为单镜移动增加约 8px 的可见接缝磁吸；吸附后拖共享接缝执行保持总结束时间不变的滚动剪辑，右键可取消明确镜头对的吸附。补齐左右吸附、重叠赢家、跨第三镜、素材与锚点阻挡、松手最终坐标、取消手势和持久化测试。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "fix",
+          "summary": "修复第 9 条不变量在隐式位置下被静默违反：trimTimelineItem 过去用 buildTimelineLayout([item]) 从单元素数组重建布局，而没有 timelineStartFrame 的镜头其起点来自整条时间线的游标，单元素数组里这个游标恒为 0，于是右镜被当成从 0 开始——对 sh-01 0+120 ｜ sh-02 120+120（sh-02 隐式）在接缝 90 处滚动剪辑，右镜算出 90+30，总长从 240 塌成 120，且无任何报错。同一处错误还让合法落点被误报「镜头至少要保留一帧」，并让 end 边把 timelineStartFrame 写成 0（隐式镜头被拽回片头）；splitTimelineItem 同样中招。改法：trimTimelineItem 与 splitTimelineItem 改为必传调用方已解析的真实 startFrame，删掉单元素数组重建；planTimelineRollingTrim 从它本来就持有的 rows 取起点，planTimelineTrim 与 storyAgent 的拆分入口按整份 items 解析。隐式与显式两种位置形状各补一条回归测试，都断言滚动剪辑前后总结束时间不变（两者现在都是 sh-01 0+90 ｜ sh-02 90+150，总长 240）。"
         }
       ]
     },
@@ -1387,7 +1392,7 @@
         "server/services/storySync.preserve-rationale.test.ts",
         "server/db.storyTimelineOverlay.test.ts",
         "server/services/videoExport.test.ts",
-        "client/src/features/creationEditor/timelineActions.test.ts",
+        "shared/timelineCommands.test.ts",
         "client/src/features/creationEditor/editingWorkspaceLayout.test.ts",
         "client/src/features/creationEditor/views/StoryboardEditRow.test.tsx",
         "client/src/features/storyAgent/StoryAgentContext.intent.test.tsx",

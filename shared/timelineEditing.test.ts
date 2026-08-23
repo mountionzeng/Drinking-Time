@@ -102,9 +102,9 @@ describe("timelineEditing", () => {
       { id: "a", timelineFrame: 20, sourceType: "image" as const, sourceId: "i", sourceTimeSec: null },
       { id: "b", timelineFrame: 40, sourceType: "image" as const, sourceId: "i", sourceTimeSec: null },
     ] };
-    expect(trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: 21 })).toMatchObject({ kind: "blocked", boundaryFrame: 20 });
-    expect(trimTimelineItem({ item, edge: "end", requestedBoundaryFrame: 40 })).toMatchObject({ kind: "blocked", boundaryFrame: 41 });
-    const trimmed = trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: 10 });
+    expect(trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: 21 })).toMatchObject({ kind: "blocked", boundaryFrame: 20 });
+    expect(trimTimelineItem({ item, startFrame: 0, edge: "end", requestedBoundaryFrame: 40 })).toMatchObject({ kind: "blocked", boundaryFrame: 41 });
+    const trimmed = trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: 10 });
     expect(trimmed.kind).toBe("ok");
     if (trimmed.kind === "ok") expect(trimmed.item.anchors).toEqual(item.anchors);
   });
@@ -114,7 +114,7 @@ describe("timelineEditing", () => {
       { id: "left", timelineFrame: 10, sourceType: "image" as const, sourceId: "i", sourceTimeSec: null },
       { id: "right", timelineFrame: 40, sourceType: "image" as const, sourceId: "i", sourceTimeSec: null },
     ] };
-    const split = splitTimelineItem({ item, cutFrame: 30, leftStableShotId: "left-shot", rightStableShotId: "right-shot" });
+    const split = splitTimelineItem({ item, startFrame: 0, cutFrame: 30, leftStableShotId: "left-shot", rightStableShotId: "right-shot" });
     expect(split.kind).toBe("ok");
     if (split.kind === "ok") {
       expect(split.left.anchors?.map(anchor => anchor.id)).toEqual(["left"]);
@@ -123,20 +123,20 @@ describe("timelineEditing", () => {
     }
     // A cut that lands exactly on an anchor is legal: timeline ranges are
     // half-open, so the anchored frame belongs to the right child alone.
-    const atAnchor = splitTimelineItem({ item, cutFrame: 40, leftStableShotId: "l", rightStableShotId: "r" });
+    const atAnchor = splitTimelineItem({ item, startFrame: 0, cutFrame: 40, leftStableShotId: "l", rightStableShotId: "r" });
     expect(atAnchor.kind).toBe("ok");
     if (atAnchor.kind === "ok") {
       expect(atAnchor.left.anchors?.map(anchor => anchor.id)).toEqual(["left"]);
       expect(atAnchor.right.anchors?.map(anchor => anchor.id)).toEqual(["right"]);
       expect(atAnchor.right.timelineStartFrame).toBe(40);
     }
-    expect(splitTimelineItem({ item, cutFrame: 0, leftStableShotId: "l", rightStableShotId: "r" })).toMatchObject({ kind: "blocked" });
-    expect(splitTimelineItem({ item, cutFrame: 60, leftStableShotId: "l", rightStableShotId: "r" })).toMatchObject({ kind: "blocked" });
+    expect(splitTimelineItem({ item, startFrame: 0, cutFrame: 0, leftStableShotId: "l", rightStableShotId: "r" })).toMatchObject({ kind: "blocked" });
+    expect(splitTimelineItem({ item, startFrame: 0, cutFrame: 60, leftStableShotId: "l", rightStableShotId: "r" })).toMatchObject({ kind: "blocked" });
   });
 
   it("keeps the combined occupied interval and source mapping across a split", () => {
     const item = forwardPrimaryItem();
-    const split = splitTimelineItem({ item, cutFrame: 30, leftStableShotId: "l", rightStableShotId: "r" });
+    const split = splitTimelineItem({ item, startFrame: 0, cutFrame: 30, leftStableShotId: "l", rightStableShotId: "r" });
     expect(split.kind).toBe("ok");
     if (split.kind !== "ok") return;
     const rows = buildTimelineLayout([split.left, split.right]);
@@ -207,6 +207,7 @@ describe("anchor-safe trim keeps the anchored picture", () => {
 
         const trimmed = trimTimelineItem({
           item: withAnchors,
+          startFrame: 0,
           edge,
           requestedBoundaryFrame: edge === "start" ? 12 : 48,
         });
@@ -239,6 +240,7 @@ describe("anchor-safe trim keeps the anchored picture", () => {
         const before = sourceTimeAt(item, 60);
         const trimmed = trimTimelineItem({
           item,
+          startFrame: 30,
           edge,
           requestedBoundaryFrame: edge === "start" ? 24 : 96,
           sourceLimitSec: 1000,
@@ -261,7 +263,7 @@ describe("anchor-safe trim keeps the anchored picture", () => {
         },
       ],
     };
-    const trimmed = trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: 15 });
+    const trimmed = trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: 15 });
     expect(trimmed.kind).toBe("ok");
     if (trimmed.kind !== "ok") return;
     const clip = trimmed.item.visualClips![0];
@@ -283,7 +285,7 @@ describe("anchor-safe trim keeps the anchored picture", () => {
         },
       ],
     };
-    const trimmed = trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: 20 });
+    const trimmed = trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: 20 });
     expect(trimmed.kind).toBe("ok");
     if (trimmed.kind === "ok") expect(trimmed.item.visualClips).toEqual([]);
   });
@@ -292,16 +294,17 @@ describe("anchor-safe trim keeps the anchored picture", () => {
     const item = forwardPrimaryItem();
     // The source in point is at 1 s, so the head can only extend 30 frames.
     expect(
-      trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: -40 })
+      trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: -40 })
     ).toMatchObject({ kind: "blocked", boundaryFrame: 0 });
 
     const shifted = { ...item, timelineStartFrame: 90 };
     expect(
-      trimTimelineItem({ item: shifted, edge: "start", requestedBoundaryFrame: 40 })
+      trimTimelineItem({ item: shifted, startFrame: 90, edge: "start", requestedBoundaryFrame: 40 })
     ).toMatchObject({ kind: "blocked", reason: "没有更多可用素材", boundaryFrame: 60 });
     expect(
       trimTimelineItem({
         item,
+        startFrame: 0,
         edge: "end",
         requestedBoundaryFrame: 200,
         sourceLimitSec: 4,
@@ -312,10 +315,10 @@ describe("anchor-safe trim keeps the anchored picture", () => {
   it("keeps at least one frame of content", () => {
     const item = forwardPrimaryItem();
     expect(
-      trimTimelineItem({ item, edge: "start", requestedBoundaryFrame: 60 })
+      trimTimelineItem({ item, startFrame: 0, edge: "start", requestedBoundaryFrame: 60 })
     ).toMatchObject({ kind: "blocked", reason: "镜头至少要保留一帧", boundaryFrame: 59 });
     expect(
-      trimTimelineItem({ item, edge: "end", requestedBoundaryFrame: 0 })
+      trimTimelineItem({ item, startFrame: 0, edge: "end", requestedBoundaryFrame: 0 })
     ).toMatchObject({ kind: "blocked", reason: "镜头至少要保留一帧", boundaryFrame: 1 });
   });
 });

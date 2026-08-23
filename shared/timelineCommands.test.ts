@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StoryTimelineItem } from "./storyMaterial";
-import { buildTimelineLayout } from "./timelineLayout";
+import { buildTimelineLayout, timelineTotalFrames } from "./timelineLayout";
 import {
   createTimelineWriteLock,
   planTimelineAnchorAdd,
@@ -453,6 +453,53 @@ describe("magnetic timeline joins", () => {
       { start: 36, duration: 24 },
     ]);
   });
+
+  // A rolling trim moves a seam; it must never move the end of the film. Both
+  // position shapes have to satisfy that, because a shot may carry no
+  // `timelineStartFrame` of its own and simply follow the shot before it.
+  for (const shape of [
+    { name: "隐式位置（右镜不带 timelineStartFrame）", rightStart: undefined },
+    { name: "显式位置", rightStart: 120 },
+  ]) {
+    it(`keeps the total end fixed across a rolling trim — ${shape.name}`, () => {
+      const items = [
+        item("sh-01", 0, 0, 120),
+        item("sh-02", 1, 120, 120, { timelineStartFrame: shape.rightStart }),
+      ];
+      const rows = buildTimelineLayout(items);
+      // Both shapes describe the same film before the edit.
+      expect(rows.map(row => [row.startFrame, row.durationFrames])).toEqual([
+        [0, 120],
+        [120, 120],
+      ]);
+      const totalBefore = timelineTotalFrames(rows);
+      expect(totalBefore).toBe(240);
+
+      const plan = planTimelineRollingTrim({
+        items,
+        rows,
+        leftStableShotId: "sh-01",
+        rightStableShotId: "sh-02",
+        requestedBoundaryFrame: 90,
+      });
+      expect(plan.kind).toBe("ok");
+      if (plan.kind !== "ok") return;
+
+      // The invariant: the seam moved, the end of the film did not.
+      expect(timelineTotalFrames(buildTimelineLayout(plan.items))).toBe(
+        totalBefore
+      );
+      expect(
+        plan.items.map(entry => ({
+          start: entry.timelineStartFrame,
+          duration: entry.durationFrames,
+        }))
+      ).toEqual([
+        { start: 0, duration: 90 },
+        { start: 90, duration: 150 },
+      ]);
+    });
+  }
 
   it("keeps a rolling edit atomic when either side hits an anchor", () => {
     const items = [

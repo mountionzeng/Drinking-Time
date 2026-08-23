@@ -452,9 +452,20 @@ export function planTimelineRollingTrim(input: {
   const right = input.items.find(
     item => item.stableShotId === input.rightStableShotId
   );
-  if (!left || !right) return { kind: "blocked", reason: "镜头不在时间轴中" };
+  // Start frames come from `rows`, the same resolved layout the join was found
+  // in. Re-deriving them per item would lose any implicit position.
+  const leftRow = input.rows.find(
+    row => row.item.stableShotId === input.leftStableShotId
+  );
+  const rightRow = input.rows.find(
+    row => row.item.stableShotId === input.rightStableShotId
+  );
+  if (!left || !right || !leftRow || !rightRow) {
+    return { kind: "blocked", reason: "镜头不在时间轴中" };
+  }
   const leftTrim = trimTimelineItem({
     item: left,
+    startFrame: leftRow.startFrame,
     edge: "end",
     requestedBoundaryFrame: input.requestedBoundaryFrame,
     sourceLimitSec: input.leftSourceLimitSec,
@@ -468,6 +479,7 @@ export function planTimelineRollingTrim(input: {
   }
   const rightTrim = trimTimelineItem({
     item: right,
+    startFrame: rightRow.startFrame,
     edge: "start",
     requestedBoundaryFrame: input.requestedBoundaryFrame,
     sourceLimitSec: input.rightSourceLimitSec,
@@ -596,9 +608,15 @@ export function planTimelineTrim(input: {
   const current = input.items.find(
     item => item.stableShotId === input.stableShotId
   );
-  if (!current) return { kind: "blocked", reason: "镜头不在时间轴中" };
+  const currentRow = buildTimelineLayout(input.items).find(
+    row => row.item.stableShotId === input.stableShotId
+  );
+  if (!current || !currentRow) {
+    return { kind: "blocked", reason: "镜头不在时间轴中" };
+  }
   const result = trimTimelineItem({
     item: current,
+    startFrame: currentRow.startFrame,
     edge: input.edge,
     requestedBoundaryFrame: input.requestedBoundaryFrame,
     sourceLimitSec: input.sourceLimitSec,

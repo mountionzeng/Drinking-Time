@@ -14,7 +14,6 @@ import {
   type TimelineSourceResolution,
 } from "./timelineSource";
 import {
-  buildTimelineLayout,
   durationFramesForItem,
   type TimelineLayoutRow,
 } from "./timelineLayout";
@@ -182,8 +181,33 @@ function primaryHeadroomFrames(input: {
   return Math.max(0, Math.floor((availableSec * STORY_TIMELINE_FPS) / rate));
 }
 
+/**
+ * Placement of a single shot, taken from a start frame the caller already
+ * resolved. Rebuilding it from the item alone cannot work: an item may carry
+ * no `timelineStartFrame`, and such an item sits wherever the running cursor
+ * left it — a position only the full item list knows.
+ */
+function timelineRowAt(
+  item: StoryTimelineItem,
+  startFrame: number
+): { startFrame: number; durationFrames: number; endFrame: number } {
+  const resolvedStart = Math.max(0, Math.round(startFrame));
+  const durationFrames = durationFramesForItem(item);
+  return {
+    startFrame: resolvedStart,
+    durationFrames,
+    endFrame: resolvedStart + durationFrames,
+  };
+}
+
 export type TimelineTrimInput = {
   item: StoryTimelineItem;
+  /**
+   * The shot's start frame resolved against the *whole* timeline. Required:
+   * items with an implicit position carry no `timelineStartFrame`, so deriving
+   * this here would silently place every one of them at frame 0.
+   */
+  startFrame: number;
   edge: "start" | "end";
   requestedBoundaryFrame: number;
   /** Length of the underlying media, when the caller knows it. */
@@ -198,7 +222,7 @@ export type TimelineTrimInput = {
 export function trimTimelineItem(
   input: TimelineTrimInput
 ): TimelineEditResult<StoryTimelineItem> {
-  const row = buildTimelineLayout([input.item])[0];
+  const row = timelineRowAt(input.item, input.startFrame);
   const anchors = [...(input.item.anchors ?? [])].sort(
     (left, right) => left.timelineFrame - right.timelineFrame
   );
@@ -340,13 +364,15 @@ export function trimTimelineItem(
  */
 export function splitTimelineItem(input: {
   item: StoryTimelineItem;
+  /** Resolved against the whole timeline, for the same reason as `TimelineTrimInput`. */
+  startFrame: number;
   cutFrame: number;
   leftStableShotId: string;
   rightStableShotId: string;
 }):
   | { kind: "ok"; left: StoryTimelineItem; right: StoryTimelineItem }
   | { kind: "blocked"; reason: string } {
-  const row = buildTimelineLayout([input.item])[0];
+  const row = timelineRowAt(input.item, input.startFrame);
   const cutFrame = Math.round(input.cutFrame);
   if (cutFrame <= row.startFrame || cutFrame >= row.endFrame) {
     return { kind: "blocked", reason: "切点必须位于镜头内部" };
@@ -360,6 +386,7 @@ export function splitTimelineItem(input: {
       ...input.item,
       ...(leftAnchors.length > 0 ? { anchors: leftAnchors } : { anchors: undefined }),
     },
+    startFrame: row.startFrame,
     edge: "end",
     requestedBoundaryFrame: cutFrame,
   });
@@ -368,6 +395,7 @@ export function splitTimelineItem(input: {
       ...input.item,
       ...(rightAnchors.length > 0 ? { anchors: rightAnchors } : { anchors: undefined }),
     },
+    startFrame: row.startFrame,
     edge: "start",
     requestedBoundaryFrame: cutFrame,
   });
