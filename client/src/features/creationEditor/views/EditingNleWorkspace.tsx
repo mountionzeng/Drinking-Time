@@ -74,6 +74,7 @@ import {
   readVideoTakeDragPayload,
 } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
+import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
   storyboardAudioTimelineTotalMs,
@@ -3060,23 +3061,26 @@ export default function EditingNleWorkspace({
   const [savingImageEdit, setSavingImageEdit] = useState(false);
   const [timelinePlayback, setTimelinePlaybackState] =
     useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
-  // 播放头同步进 spine：聊聊要靠它知道「我现在看的是哪一秒」。
-  // 用户说「把这里改一下」时，Agent 得能把「这里」解析成一个确定的时间点。
+  const setTimelinePlayback = setTimelinePlaybackState;
+  /**
+   * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
+   *
+   * 只在**暂停时**同步，有两个原因：
+   *
+   * 1. 播放中 rAF 每帧都会推一次播放头。每帧写一次全局 store 会触发整棵树
+   *    重渲染，rAF 那个 effect 被清理重建，时钟当场停摆——表现就是「播放键
+   *    亮着但时间不走」。这是 2026-08-24 实测踩到的，不是理论担心。
+   * 2. 聊聊只在用户发消息那一刻需要这个值，而那时用户必然不在播放。
+   */
   const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
-  const setTimelinePlayback = useCallback(
-    (
-      next:
-        | TimelinePlaybackState
-        | ((current: TimelinePlaybackState) => TimelinePlaybackState)
-    ) => {
-      setTimelinePlaybackState(current => {
-        const resolved = typeof next === "function" ? next(current) : next;
-        setSpinePlayheadMs(Math.max(0, Math.round(resolved.playheadMs)));
-        return resolved;
-      });
-    },
-    [setSpinePlayheadMs]
-  );
+  useEffect(() => {
+    if (timelinePlayback.isPlaying) return;
+    setSpinePlayheadMs(Math.max(0, Math.round(timelinePlayback.playheadMs)));
+  }, [
+    setSpinePlayheadMs,
+    timelinePlayback.isPlaying,
+    timelinePlayback.playheadMs,
+  ]);
   const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
     useState<TimelinePlaybackRequest>({ id: 0, isPlaying: false });
   const [timelineSeekRequest, setTimelineSeekRequest] =
@@ -3096,6 +3100,21 @@ export default function EditingNleWorkspace({
     () => buildStoryboardTimingRows(shots, timelineShotIds, timelineItems),
     [shots, timelineItems, timelineShotIds]
   );
+  /** 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。 */
+  const boardTimelineTotalMs = useMemo(
+    () => storyboardTimingTotalMs(timings),
+    [timings]
+  );
+  /**
+   * 播放时钟提到这一层。以前它长在底部时间线里，故事版的播放键只能隔着
+   * playbackRequest 这层 id 握手去「请求」它——2026-08-24 实测这条链路是断的：
+   * 按下播放后状态确实变成 playing，播放头却一帧不动。
+   *
+   * 时钟放在父层还有一个理由：底部时间线是要删的，播放不该跟着一起没。
+   */
+  const playbackClock = useTimelinePlaybackClock({
+    totalMs: boardTimelineTotalMs,
+  });
   /** 时间尺上要画的位置锚点，按绝对帧排好。 */
   const timelineAnchors = useMemo(
     () =>
@@ -3807,10 +3826,9 @@ export default function EditingNleWorkspace({
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
-      playheadMs: timelinePlayback.playheadMs,
-      isPlaying: timelinePlayback.isPlaying,
-      // 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。
-      totalMs: storyboardTimingTotalMs(timings),
+      playheadMs: playbackClock.playheadMs,
+      isPlaying: playbackClock.isPlaying,
+      totalMs: boardTimelineTotalMs,
       audioClips: storyboardAudioClips,
       audioTotalMs: storyboardAudioTimelineTotalMs(storyboardAudioClips),
       anchors: timelineAnchors,
@@ -3968,16 +3986,21 @@ export default function EditingNleWorkspace({
         });
         return Boolean(source || visual.kind === "image");
       },
-      onSeek: playheadMs =>
+      // 直接驱动时钟；底部时间线仍通过 seek/playback 请求跟随同一份状态。
+      onSeek: playheadMs => {
+        playbackClock.seek(playheadMs);
         setTimelineSeekRequest(current => ({
           id: current.id + 1,
           playheadMs,
-        })),
-      onTogglePlay: isPlaying =>
+        }));
+      },
+      onTogglePlay: isPlaying => {
+        playbackClock.setPlaying(isPlaying);
         setTimelinePlaybackRequest(current => ({
           id: current.id + 1,
           isPlaying,
-        })),
+        }));
+      },
       onSelectRange: range => {
         setBoardSelectedRange(
           range ? { startMs: range.startMs, endMs: range.endMs } : null
@@ -4134,8 +4157,7 @@ export default function EditingNleWorkspace({
       storyboardAudioClips,
       splitAtPlayhead,
       timelineAnchors,
-      timelinePlayback.isPlaying,
-      timelinePlayback.playheadMs,
+      playbackClock,
       timelineItems,
       timelineVisualLayerState,
       timelineShotIds,
