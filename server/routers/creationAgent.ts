@@ -38,6 +38,8 @@ import {
 import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
+  patchImageTransformForStory,
+  setShotDurationForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
   removeInnerVideoClipForStory,
@@ -2129,6 +2131,57 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
         stableShotId: input.stableShotId,
         clipId: input.clipId,
+      })
+    ),
+
+  /** 改镜头的计划时长。 */
+  setShotDuration: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        durationMs: z.number().min(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      setShotDurationForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        durationMs: input.durationMs,
+      })
+    ),
+
+  /** 改某张图片在镜头里的构图与文字层。 */
+  patchImageTransform: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        imageId: z.number().int().positive(),
+        transform: z.object({
+          cropX: z.number().min(0).max(1),
+          cropY: z.number().min(0).max(1),
+          cropWidth: z.number().min(0.01).max(1),
+          cropHeight: z.number().min(0.01).max(1),
+          zoom: z.number().min(0.25).max(8),
+          panX: z.number().min(-1).max(1),
+          panY: z.number().min(-1).max(1),
+          rotationDeg: z.number().min(-180).max(180).optional(),
+          flipX: z.boolean().optional(),
+          flipY: z.boolean().optional(),
+        }),
+        textOverlay: timelineImageTextOverlaySchema.nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      patchImageTransformForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        imageId: input.imageId,
+        transform: input.transform,
+        textOverlay: input.textOverlay,
       })
     ),
 

@@ -2,6 +2,10 @@ import { useCallback } from "react";
 import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
 import type { StoryTimelineVisualLayerState } from "@shared/storyMaterial";
 import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
+import type {
+  StoryTimelineImageTextOverlay,
+  TimelineTransform,
+} from "@shared/storyMaterial";
 import { trpc } from "@/lib/trpc";
 import {
   recordTimelineUndoSnapshot,
@@ -64,6 +68,9 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const includeAllMut = trpc.creationAgent.includeAllShots.useMutation();
   const removeInnerClipMut =
     trpc.creationAgent.removeInnerVideoClip.useMutation();
+  const setShotDurationMut = trpc.creationAgent.setShotDuration.useMutation();
+  const patchImageTransformMut =
+    trpc.creationAgent.patchImageTransform.useMutation();
 
   const {
     activeStoryId,
@@ -338,7 +345,41 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [removeInnerClipMut, run]
   );
 
+  const setTimelineShotDuration = useCallback(
+    async (stableShotId: string, durationMs: number) => {
+      const outcome = await run(
+        storyId =>
+          setShotDurationMut.mutateAsync({ storyId, stableShotId, durationMs }),
+        "更新镜头时长失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "更新镜头时长失败");
+      }
+    },
+    [run, setShotDurationMut]
+  );
+
+  const updateTimelineImageTransform = useCallback(
+    async (input: {
+      stableShotId: string;
+      imageId: number;
+      transform: TimelineTransform;
+      textOverlay: StoryTimelineImageTextOverlay | null;
+    }) => {
+      const outcome = await run(
+        storyId => patchImageTransformMut.mutateAsync({ storyId, ...input }),
+        "更新图片构图失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "更新图片构图失败");
+      }
+    },
+    [patchImageTransformMut, run]
+  );
+
   return {
+    setTimelineShotDuration,
+    updateTimelineImageTransform,
     manageTimelineVisualLayer,
     addShotToTimeline,
     removeShotFromTimeline,

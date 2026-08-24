@@ -8,10 +8,13 @@
  * 这里改成服务端自己读—改—写：调用方只说「哪个 clip、去哪条轨、去哪一帧」。
  */
 import type {
+  StoryTimelineImageTextOverlay,
   StoryTimelineItem,
   StoryTimelineOverlay,
   StoryTimelineVisualLayerState,
+  TimelineTransform,
 } from "../../shared/storyMaterial";
+import { withTimelineDurationMs } from "../../shared/storyMaterial";
 import {
   insertVisualImageClip,
   moveVisualClip,
@@ -746,6 +749,96 @@ export async function removeInnerVideoClipForStory(input: {
               // 否则镜头会变成一块空白。
               visualClipsReplacePrimary:
                 visualClips.length > 0 && item.visualClipsReplacePrimary,
+            };
+          }),
+        },
+      };
+    }
+  );
+}
+
+/** 改镜头的计划时长。只动这一个镜头的时长字段，不碰它的位置。 */
+export async function setShotDurationForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  durationMs: number;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "更新镜头时长失败",
+    },
+    document => {
+      if (
+        !document.items.some(item => item.stableShotId === input.stableShotId)
+      ) {
+        return { status: "error", message: "当前镜头不在时间线上" };
+      }
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: document.items.map(item =>
+            item.stableShotId === input.stableShotId
+              ? withTimelineDurationMs(item, input.durationMs)
+              : item
+          ),
+        },
+      };
+    }
+  );
+}
+
+/**
+ * 改某张图片在镜头里的构图与文字层。
+ *
+ * 文字层为空时要把这张图的记录整条删掉，而不是留一个空对象——留着会让
+ * imageTextOverlays 一直非空，导出时以为还有文字要画。
+ */
+export async function patchImageTransformForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  imageId: number;
+  transform: TimelineTransform;
+  textOverlay: StoryTimelineImageTextOverlay | null;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "更新图片构图失败",
+    },
+    document => {
+      if (
+        !document.items.some(item => item.stableShotId === input.stableShotId)
+      ) {
+        return { status: "error", message: "当前镜头不在时间线上" };
+      }
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: document.items.map(item => {
+            if (item.stableShotId !== input.stableShotId) return item;
+            const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
+            if (input.textOverlay) {
+              imageTextOverlays[String(input.imageId)] = input.textOverlay;
+            } else {
+              delete imageTextOverlays[String(input.imageId)];
+            }
+            return {
+              ...item,
+              imageTransforms: {
+                ...(item.imageTransforms ?? {}),
+                [String(input.imageId)]: input.transform,
+              },
+              imageTextOverlays:
+                Object.keys(imageTextOverlays).length > 0
+                  ? imageTextOverlays
+                  : undefined,
             };
           }),
         },

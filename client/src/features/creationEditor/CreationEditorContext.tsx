@@ -1965,6 +1965,8 @@ export function CreationEditorProvider({
     trimTimelineItemEdge,
     rollTimelineJoin,
     detachTimelineMagnet,
+    setTimelineShotDuration,
+    updateTimelineImageTransform,
     manageTimelineVisualLayer,
     addShotToTimeline: addShotToTimelineById,
     removeShotFromTimeline,
@@ -2504,20 +2506,11 @@ export function CreationEditorProvider({
     if (savedShot.durationMs !== normalizedDurationMs) {
       throw new Error("服务器没有确认镜头时长");
     }
-    const timelineShotId = creationTimelineShotId(targetShot);
-    const nextTimelineItems = timelineItems.map(item =>
-      item.stableShotId === timelineShotId
-        ? withTimelineDurationMs(item, normalizedDurationMs)
-        : item
+    // 时长那一半交给窄命令：服务端自己判断要不要写，客户端不再比对整份 items。
+    await setTimelineShotDuration(
+      creationTimelineShotId(targetShot),
+      normalizedDurationMs
     );
-    const timelineChanged = nextTimelineItems.some(
-      (item, index) =>
-        item.plannedDurationMs !== timelineItems[index]?.plannedDurationMs ||
-        item.durationFrames !== timelineItems[index]?.durationFrames
-    );
-    if (timelineChanged) {
-      await saveTimelineItems(nextTimelineItems);
-    }
   };
 
   /**
@@ -3673,40 +3666,6 @@ export function CreationEditorProvider({
     });
 
     await saveTimelineItems(nextItems, { throwOnError: true });
-  };
-
-  const updateTimelineImageTransform = async (input: {
-    stableShotId: string;
-    imageId: number;
-    transform: TimelineTransform;
-    textOverlay: StoryTimelineImageTextOverlay | null;
-  }) => {
-    if (!timelineItems.some(item => item.stableShotId === input.stableShotId)) {
-      throw new Error("当前镜头不在时间线上");
-    }
-    await saveTimelineItems(
-      timelineItems.map(item => {
-        if (item.stableShotId !== input.stableShotId) return item;
-        const imageTextOverlays = { ...(item.imageTextOverlays ?? {}) };
-        if (input.textOverlay) {
-          imageTextOverlays[String(input.imageId)] = input.textOverlay;
-        } else {
-          delete imageTextOverlays[String(input.imageId)];
-        }
-        return {
-          ...item,
-          imageTransforms: {
-            ...(item.imageTransforms ?? {}),
-            [String(input.imageId)]: input.transform,
-          },
-          imageTextOverlays:
-            Object.keys(imageTextOverlays).length > 0
-              ? imageTextOverlays
-              : undefined,
-        };
-      }),
-      { throwOnError: true }
-    );
   };
 
   const selectVideoTimelineSegment = async (input: {

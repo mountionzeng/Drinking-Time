@@ -10,6 +10,8 @@ import {
   applyVisualLayerActionForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
+  patchImageTransformForStory,
+  setShotDurationForStory,
   removeInnerVideoClipForStory,
   reorderShotToTargetForStory,
   setShotIncludedForStory,
@@ -894,5 +896,94 @@ describe("窄补丁命令（U6）", () => {
     expect(result.status).toBe("error");
     if (result.status !== "error") return;
     expect(result.error).toContain("找不到");
+  });
+});
+
+describe("时长与图片构图命令（U6）", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("改时长只动那一个镜头，别的镜头一个不变", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const before = await getStoryTimeline(storyId, USER_ID);
+    const otherBefore = (before?.items as { stableShotId: string }[]).find(
+      i => i.stableShotId === "sh-01"
+    );
+
+    const result = await setShotDurationForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      durationMs: 6000,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await getStoryTimeline(storyId, USER_ID);
+    const rows = after?.items as {
+      stableShotId: string;
+      plannedDurationMs: number;
+    }[];
+    expect(rows.find(i => i.stableShotId === "sh-02")?.plannedDurationMs).toBe(
+      6000
+    );
+    expect(rows.find(i => i.stableShotId === "sh-01")).toEqual(otherBefore);
+  });
+
+  it("文字层传 null 时整条删掉，不留空对象", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const transform = {
+      cropX: 0,
+      cropY: 0,
+      cropWidth: 1,
+      cropHeight: 1,
+      zoom: 1,
+      panX: 0,
+      panY: 0,
+    };
+
+    await patchImageTransformForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      imageId: 1702,
+      transform,
+      textOverlay: {
+        text: "标题",
+        anchor: "center",
+        sizeScale: 1,
+        color: "#fff",
+      } as never,
+    });
+    await patchImageTransformForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      imageId: 1702,
+      transform,
+      textOverlay: null,
+    });
+
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const shot = (row?.items as {
+      stableShotId: string;
+      imageTextOverlays?: Record<string, unknown>;
+      imageTransforms?: Record<string, unknown>;
+    }[]).find(i => i.stableShotId === "sh-01");
+    // 留个空对象会让导出以为还有文字要画。
+    expect(shot?.imageTextOverlays).toBeUndefined();
+    expect(shot?.imageTransforms?.["1702"]).toBeTruthy();
+  });
+
+  it("镜头不在时间线上时两条命令都返回 invalid", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const duration = await setShotDurationForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-nope",
+      durationMs: 3000,
+    });
+    expect(duration.status).toBe("error");
+    if (duration.status === "error") {
+      expect(duration.errorKind).toBe("invalid");
+    }
   });
 });
