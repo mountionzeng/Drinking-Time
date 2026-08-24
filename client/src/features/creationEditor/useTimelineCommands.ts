@@ -3,6 +3,7 @@ import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
 import type {
   StoryTimelineImageTextOverlay,
   TimelineTransform,
+  TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import { trpc } from "@/lib/trpc";
 import {
@@ -66,6 +67,7 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const patchImageTransformMut =
     trpc.creationAgent.patchImageTransform.useMutation();
   const undoVisualEditMut = trpc.creationAgent.undoVisualEdit.useMutation();
+  const updateVideoEditMut = trpc.creationAgent.updateVideoEdit.useMutation();
 
   const { activeStoryId, refetchStoryMaterial, writeLock } = deps;
 
@@ -365,7 +367,29 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [refetchStoryMaterial, undoVisualEditMut]
   );
 
+  const updateTimelineVideoEdit = useCallback(
+    async (input: {
+      stableShotId: string;
+      takeId: number;
+      clipId?: string | null;
+      sourceStartSec: number;
+      sourceEndSec: number;
+      effects: TimelineVideoEffects;
+      transform: TimelineTransform;
+    }) => {
+      const outcome = await run(
+        storyId => updateVideoEditMut.mutateAsync({ storyId, ...input }),
+        "更新视频剪辑失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "更新视频剪辑失败");
+      }
+    },
+    [run, updateVideoEditMut]
+  );
+
   return {
+    updateTimelineVideoEdit,
     undoVisualEdit,
     setTimelineShotDuration,
     updateTimelineImageTransform,

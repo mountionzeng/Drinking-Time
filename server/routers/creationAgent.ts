@@ -41,6 +41,7 @@ import {
   patchImageTransformForStory,
   setShotDurationForStory,
   undoVisualEditForStory,
+  updateVideoEditForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
   removeInnerVideoClipForStory,
@@ -2198,6 +2199,53 @@ export const creationAgentRouter = router({
         userId: ctx.user.id,
       })
     ),
+
+  /** 改一段视频的入出点、速度、音量与构图；带 clipId 时改的是镜头内部片段。 */
+  updateVideoEdit: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        takeId: z.number().int().positive(),
+        clipId: z.string().min(1).max(240).nullable().optional(),
+        sourceStartSec: z.number().min(0),
+        sourceEndSec: z.number().positive(),
+        effects: z.object({
+          playbackRate: z.number().min(0.25).max(4),
+          reverse: z.boolean(),
+          volume: z.number().min(0).max(2),
+          muted: z.boolean(),
+          motionPreset: z
+            .object({
+              kind: z.literal("heartbeat"),
+              bpm: z.number().min(36).max(180),
+              scaleAmount: z.number().min(0.01).max(0.16),
+            })
+            .nullable()
+            .optional(),
+        }),
+        transform: z.object({
+          cropX: z.number().min(0).max(1),
+          cropY: z.number().min(0).max(1),
+          cropWidth: z.number().min(0.01).max(1),
+          cropHeight: z.number().min(0.01).max(1),
+          zoom: z.number().min(0.25).max(8),
+          panX: z.number().min(-1).max(1),
+          panY: z.number().min(-1).max(1),
+          rotationDeg: z.number().min(-180).max(180).optional(),
+          flipX: z.boolean().optional(),
+          flipY: z.boolean().optional(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { storyId, ...edit } = input;
+      return updateVideoEditForStory({
+        storyId,
+        userId: ctx.user.id,
+        edit,
+      });
+    }),
 
   createDerivationDraft: protectedProcedure
     .input(

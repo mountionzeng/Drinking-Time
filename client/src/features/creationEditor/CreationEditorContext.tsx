@@ -46,7 +46,7 @@ import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
-  withTimelineDurationMs,
+
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
@@ -1976,6 +1976,7 @@ export function CreationEditorProvider({
     resetTimelineShots,
     removeTimelineVideoClip,
     undoVisualEdit,
+    updateTimelineVideoEdit,
   } = useTimelineCommands({
     activeStoryId: activeId,
     refetchStoryMaterial: storyMaterialQuery.refetch,
@@ -3572,106 +3573,6 @@ export function CreationEditorProvider({
       });
     }
     await storyMaterialQuery.refetch();
-  };
-
-  const updateTimelineVideoEdit = async (input: {
-    stableShotId: string;
-    takeId: number;
-    clipId?: string | null;
-    sourceStartSec: number;
-    sourceEndSec: number;
-    effects: TimelineVideoEffects;
-    transform: TimelineTransform;
-  }) => {
-    const sourceStartSec = Math.max(0, input.sourceStartSec);
-    const sourceEndSec = Math.max(sourceStartSec + 1 / 30, input.sourceEndSec);
-    const effects: TimelineVideoEffects = {
-      playbackRate: Math.min(4, Math.max(0.25, input.effects.playbackRate)),
-      reverse: Boolean(input.effects.reverse),
-      volume: Math.min(2, Math.max(0, input.effects.volume)),
-      muted: Boolean(input.effects.muted),
-      motionPreset:
-        input.effects.motionPreset?.kind === "heartbeat"
-          ? {
-              kind: "heartbeat",
-              bpm: Math.min(180, Math.max(36, input.effects.motionPreset.bpm)),
-              scaleAmount: Math.min(
-                0.16,
-                Math.max(0.01, input.effects.motionPreset.scaleAmount)
-              ),
-            }
-          : null,
-    };
-    const durationMs = Math.max(
-      100,
-      Math.round(
-        ((sourceEndSec - sourceStartSec) * 1_000) / effects.playbackRate
-      )
-    );
-    const currentItem = timelineItems.find(
-      item => item.stableShotId === input.stableShotId
-    );
-    if (!currentItem) throw new Error("当前镜头不在时间线上");
-
-    const nextItems = timelineItems.map(item => {
-      if (item.stableShotId !== input.stableShotId) return item;
-      if (!input.clipId) {
-        return {
-          ...withTimelineDurationMs(item, durationMs),
-          transform: input.transform,
-          primaryVideoEdit: {
-            takeId: input.takeId,
-            sourceStartSec,
-            sourceEndSec,
-            effects,
-          },
-        };
-      }
-
-      const sourceClips = item.visualClips ?? [];
-      const sourceClip = sourceClips.find(clip => clip.id === input.clipId);
-      if (!sourceClip || sourceClip.takeId !== input.takeId) {
-        throw new Error("找不到要编辑的视频片段");
-      }
-      const previousEndMs = sourceClip.offsetMs + sourceClip.durationMs;
-      const deltaMs = durationMs - sourceClip.durationMs;
-      const visualClips = sourceClips
-        .map(clip => {
-          if (clip.id === input.clipId) {
-            return {
-              ...clip,
-              sourceStartSec,
-              sourceEndSec,
-              durationMs,
-              effects,
-              transform: input.transform,
-            };
-          }
-          if (
-            item.visualClipsReplacePrimary &&
-            clip.offsetMs >= previousEndMs - 1
-          ) {
-            return { ...clip, offsetMs: Math.max(0, clip.offsetMs + deltaMs) };
-          }
-          return clip;
-        })
-        .sort((left, right) => left.offsetMs - right.offsetMs);
-      const clipEndMs = visualClips.reduce(
-        (maximum, clip) => Math.max(maximum, clip.offsetMs + clip.durationMs),
-        0
-      );
-      return {
-        ...withTimelineDurationMs(
-          item,
-          item.visualClipsReplacePrimary
-            ? Math.max(100, clipEndMs)
-            : Math.max(item.plannedDurationMs, clipEndMs)
-        ),
-        visualClips,
-      };
-    });
-
-    await saveTimelineItems(nextItems, { throwOnError: true });
   };
 
   const selectVideoTimelineSegment = async (input: {

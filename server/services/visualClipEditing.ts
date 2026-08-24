@@ -24,6 +24,10 @@ import {
 } from "../../shared/visualClipModel";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
+  applyTimelineVideoEdit,
+  type TimelineVideoEditInput,
+} from "../../shared/timelineVisualClips";
+import {
   applyTimelineVisualLayerAction,
   hiddenTimelineVisualLayers,
   type TimelineVisualLayerAction,
@@ -903,4 +907,29 @@ export async function undoVisualEditForStory(input: {
     });
   }
   return result;
+}
+
+/** 改一段视频的入出点、速度、音量与构图。纯计算住在 shared，服务端只负责读写。 */
+export async function updateVideoEditForStory(input: {
+  storyId: number;
+  userId: number;
+  edit: TimelineVideoEditInput;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "更新视频剪辑失败",
+    },
+    document => {
+      const edited = applyTimelineVideoEdit(document.items, input.edit);
+      if (edited.status === "error") {
+        return { status: "error", message: edited.message };
+      }
+      return {
+        status: "ok",
+        document: { ...document, items: edited.items },
+      };
+    }
+  );
 }
