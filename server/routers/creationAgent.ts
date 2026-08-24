@@ -40,6 +40,7 @@ import {
   applyVisualLayerActionForStory,
   patchImageTransformForStory,
   setShotDurationForStory,
+  undoVisualEditForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
   removeInnerVideoClipForStory,
@@ -2182,6 +2183,19 @@ export const creationAgentRouter = router({
         imageId: input.imageId,
         transform: input.transform,
         textOverlay: input.textOverlay,
+      })
+    ),
+
+  /**
+   * 撤销上一次视觉剪辑命令。客户端只说「撤销」，不再持有也不再写回 items。
+   * 回退的粒度是整份文档，所以图层与素材天然一起还原。
+   */
+  undoVisualEdit: protectedProcedure
+    .input(z.object({ storyId: z.number() }))
+    .mutation(async ({ ctx, input }) =>
+      undoVisualEditForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
       })
     ),
 

@@ -1,6 +1,4 @@
 import { useCallback } from "react";
-import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
-import type { StoryTimelineVisualLayerState } from "@shared/storyMaterial";
 import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
 import type {
   StoryTimelineImageTextOverlay,
@@ -8,7 +6,7 @@ import type {
 } from "@shared/storyMaterial";
 import { trpc } from "@/lib/trpc";
 import {
-  recordTimelineUndoSnapshot,
+  recordTimelineCommandUndo,
   trackCreationEditorOperation,
 } from "./timelineUndoStore";
 
@@ -42,10 +40,6 @@ type TimelineWriteLock = {
 export type TimelineCommandDeps = {
   /** 当前故事；为空时所有命令直接返回未执行。 */
   activeStoryId: number | null;
-  /** 撤销快照要用的写入前状态（U5 换成服务端日志后这三项会消失）。 */
-  timelineItems: StoryTimelineItem[];
-  timelineOverlays: StoryTimelineOverlay[];
-  visualLayerState: StoryTimelineVisualLayerState | undefined;
   /** 写入成功后重新拉取权威状态。 */
   refetchStoryMaterial: () => Promise<unknown>;
   /** 串行化：上一步剪辑还在保存时不接受下一步。 */
@@ -71,15 +65,9 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const setShotDurationMut = trpc.creationAgent.setShotDuration.useMutation();
   const patchImageTransformMut =
     trpc.creationAgent.patchImageTransform.useMutation();
+  const undoVisualEditMut = trpc.creationAgent.undoVisualEdit.useMutation();
 
-  const {
-    activeStoryId,
-    timelineItems,
-    timelineOverlays,
-    visualLayerState,
-    refetchStoryMaterial,
-    writeLock,
-  } = deps;
+  const { activeStoryId, refetchStoryMaterial, writeLock } = deps;
 
   const run = useCallback(
     async (
@@ -95,9 +83,6 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
         return { applied: false, reason: "故事尚未加载" };
       }
       const storyId = activeStoryId;
-      const previousItems = timelineItems;
-      const previousOverlays = timelineOverlays;
-      const previousVisualLayerState = visualLayerState;
       return writeLock.run(
         async () =>
           trackCreationEditorOperation(
@@ -116,12 +101,9 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
                   };
                 }
                 if (result.changed !== false) {
-                  // 图层顺序、层数和显隐必须和素材一起进同一条撤销记录，
-                  // 否则一次 Cmd+Z 只还原一半。
-                  recordTimelineUndoSnapshot(storyId, previousItems, {
-                    visualLayerState: previousVisualLayerState,
-                    overlays: previousOverlays,
-                  });
+                  // 只记一格占位：回退内容在服务端的撤销日志里。
+                  // 图层与素材本来就是同一份文档，所以一次 Cmd+Z 天然全部还原。
+                  recordTimelineCommandUndo(storyId);
                 }
                 await refetchStoryMaterial();
                 return {
@@ -143,14 +125,7 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
         { applied: false, reason: "上一步剪辑还在保存中" }
       );
     },
-    [
-      activeStoryId,
-      refetchStoryMaterial,
-      timelineItems,
-      timelineOverlays,
-      visualLayerState,
-      writeLock,
-    ]
+    [activeStoryId, refetchStoryMaterial, writeLock]
   );
 
   const moveTimelineGroup = useCallback(
@@ -377,7 +352,21 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [patchImageTransformMut, run]
   );
 
+  /**
+   * 撤销由服务端完成回退。这里刻意不走 run()——撤销不该把自己也记进撤销栈，
+   * 而 run() 的职责之一正是记录快照。
+   */
+  const undoVisualEdit = useCallback(
+    async (storyId: number): Promise<boolean> => {
+      const result = await undoVisualEditMut.mutateAsync({ storyId });
+      await refetchStoryMaterial();
+      return result.status === "ok";
+    },
+    [refetchStoryMaterial, undoVisualEditMut]
+  );
+
   return {
+    undoVisualEdit,
     setTimelineShotDuration,
     updateTimelineImageTransform,
     manageTimelineVisualLayer,

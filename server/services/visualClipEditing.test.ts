@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createStory,
   getStoryTimeline,
@@ -15,6 +15,7 @@ import {
   removeInnerVideoClipForStory,
   reorderShotToTargetForStory,
   setShotIncludedForStory,
+  undoVisualEditForStory,
   insertVisualImageClipForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
@@ -26,6 +27,8 @@ import {
 } from "./visualClipEditing";
 import { projectVisualClips, type VisualEditDocument } from "../../shared/visualClipModel";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
+import { clearVisualEditUndoForTesting } from "./visualEditUndoJournal";
+import * as dbModule from "../db";
 
 const USER_ID = 1;
 
@@ -985,5 +988,207 @@ describe("时长与图片构图命令（U6）", () => {
     if (duration.status === "error") {
       expect(duration.errorKind).toBe("invalid");
     }
+  });
+});
+
+describe("服务端撤销日志（U5）", () => {
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+    clearVisualEditUndoForTesting();
+  });
+
+  /** 整份文档快照，用来断言「逐字段回到命令前」。 */
+  async function documentSnapshot(storyId: number) {
+    const row = await getStoryTimeline(storyId, USER_ID);
+    return JSON.stringify({
+      items: row?.items,
+      overlays: row?.overlays,
+      visualLayerState: row?.visualLayerState,
+    });
+  }
+
+  it("移动之后撤销，文档逐字段回到移动前", async () => {
+    const storyId = await seedStory();
+    const before = await documentSnapshot(storyId);
+
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+    expect(await documentSnapshot(storyId)).not.toBe(before);
+
+    const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(undone.status).toBe("ok");
+    expect(await documentSnapshot(storyId)).toBe(before);
+  });
+
+  it("连续三次命令后连撤三次，逐步回到初始状态", async () => {
+    const storyId = await seedStory();
+    const snapshots = [await documentSnapshot(storyId)];
+
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+    snapshots.push(await documentSnapshot(storyId));
+
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 1 },
+    });
+    snapshots.push(await documentSnapshot(storyId));
+
+    await setShotIncludedForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      included: false,
+    });
+
+    // 倒着撤，每一步都要落在对应的历史快照上。
+    for (const expected of [...snapshots].reverse()) {
+      const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
+      expect(undone.status).toBe("ok");
+      expect(await documentSnapshot(storyId)).toBe(expected);
+    }
+  });
+
+  it("图层显隐和素材一起还原：一次撤销全部回来（账本第 30 条）", async () => {
+    const storyId = await seedStory();
+    const before = await documentSnapshot(storyId);
+
+    // 一次图层命令同时改了层状态与层内素材的层号。
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "insert", at: 1 },
+    });
+
+    const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(undone.status).toBe("ok");
+    // 一次 Cmd+Z 不能只还原一半。
+    expect(await documentSnapshot(storyId)).toBe(before);
+  });
+
+  it("没有产生实际改动的命令不占撤销栈", async () => {
+    const storyId = await seedStory();
+
+    // 源与目标相同，命令返回 changed:false，不该记一格。
+    await reorderShotToTargetForStory({
+      storyId,
+      userId: USER_ID,
+      sourceShotId: "sh-01",
+      targetShotId: "sh-01",
+    });
+
+    const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(undone.status).toBe("error");
+    if (undone.status !== "error") return;
+    expect(undone.error).toContain("没有可撤销");
+  });
+
+  it("失败的命令不进撤销栈", async () => {
+    const storyId = await seedStory();
+
+    await moveShotOrderForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      direction: -1,
+    });
+
+    const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(undone.status).toBe("error");
+  });
+
+  it("撤销本身不进撤销栈，不会在两个状态之间来回跳", async () => {
+    const storyId = await seedStory();
+    const before = await documentSnapshot(storyId);
+
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+    await undoVisualEditForStory({ storyId, userId: USER_ID });
+
+    const second = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(second.status).toBe("error");
+    expect(await documentSnapshot(storyId)).toBe(before);
+  });
+
+  it("撤销栈按用户隔离，别人的操作撤不到", async () => {
+    const storyId = await seedStory();
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+
+    const other = await undoVisualEditForStory({
+      storyId,
+      userId: USER_ID + 999,
+    });
+    expect(other.status).toBe("error");
+  });
+
+  it("撤销也是一次写入，版本继续前进而不是回退", async () => {
+    const storyId = await seedStory();
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+    const afterMove = await persistedVersion(storyId);
+
+    await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(await persistedVersion(storyId)).toBe(afterMove + 1);
+  });
+});
+
+describe("撤销失败后不吞掉那一格（U5）", () => {
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+    clearVisualEditUndoForTesting();
+  });
+
+  it("写入失败时把日志项放回去，下次还能撤", async () => {
+    const storyId = await seedStory();
+    const before = await getStoryTimeline(storyId, USER_ID);
+
+    await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      deltaFrames: 30,
+      snapThresholdFrames: 0,
+    });
+
+    // 让这一次撤销必定写失败：故事查得到、但写入时版本对不上。
+    const failing = vi
+      .spyOn(dbModule, "updateStoryTimeline")
+      .mockRejectedValue(new Error("时间轴版本已更新"));
+    const failed = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(failed.status).toBe("error");
+    failing.mockRestore();
+
+    // 那一格必须还在，否则用户永远撤不回这一步。
+    const retried = await undoVisualEditForStory({ storyId, userId: USER_ID });
+    expect(retried.status).toBe("ok");
+    const after = await getStoryTimeline(storyId, USER_ID);
+    expect(JSON.stringify(after?.items)).toBe(JSON.stringify(before?.items));
   });
 });

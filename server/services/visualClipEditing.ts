@@ -41,6 +41,10 @@ import {
   type TimelineResolverShot,
 } from "../../shared/timelineCommands";
 import { getStoryTimeline, updateStoryTimeline } from "../db";
+import {
+  recordVisualEditUndo,
+  takeVisualEditUndo,
+} from "./visualEditUndoJournal";
 import { getStoryMaterialState } from "./storyMaterials";
 
 export type VisualClipEditResult =
@@ -121,7 +125,13 @@ type VisualEditMutation = (
 const CONFLICT_RETRY_LIMIT = 1;
 
 async function withVisualEditDocument(
-  input: { storyId: number; userId: number; failureMessage: string },
+  input: {
+    storyId: number;
+    userId: number;
+    failureMessage: string;
+    /** 撤销本身不进撤销栈，否则一次 Cmd+Z 会在两个状态之间来回跳。 */
+    recordUndo?: boolean;
+  },
   mutate: VisualEditMutation
 ): Promise<VisualClipEditResult> {
   for (let attempt = 0; ; attempt += 1) {
@@ -153,6 +163,14 @@ async function withVisualEditDocument(
           ? {}
           : { visualLayerState: result.document.visualLayerState }),
       });
+      if (input.recordUndo !== false) {
+        // 写成功之后才记，否则失败的命令会在撤销栈里留下一格空转。
+        recordVisualEditUndo({
+          storyId: input.storyId,
+          userId: input.userId,
+          before: loaded.document,
+        });
+      }
       return {
         status: "ok",
         timelineVersion: saved.version,
@@ -845,4 +863,44 @@ export async function patchImageTransformForStory(input: {
       };
     }
   );
+}
+
+/**
+ * 撤销上一次视觉剪辑命令。
+ *
+ * 客户端只说「撤销」——它不再持有、也不再写回任何 items 数组。
+ * 图层顺序、层数、显隐和素材是同一份文档的一部分，所以一次撤销天然全部还原
+ * （账本 extracted-frame-overlay-video 第 30 条由结构保证，不靠调用方自觉）。
+ */
+export async function undoVisualEditForStory(input: {
+  storyId: number;
+  userId: number;
+}): Promise<VisualClipEditResult> {
+  const entry = takeVisualEditUndo(input);
+  if (!entry) {
+    return {
+      status: "error",
+      error: "没有可撤销的剪辑操作",
+      errorKind: "invalid",
+    };
+  }
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "撤销失败",
+      recordUndo: false,
+    },
+    () => ({ status: "ok", document: entry.before })
+  );
+  if (result.status === "error") {
+    // 取出来了却没写成，就得放回去——否则这一步永远撤不掉了，
+    // 而用户看到的只是一句「撤销失败」，再按一次就跳到更早的状态。
+    recordVisualEditUndo({
+      storyId: input.storyId,
+      userId: input.userId,
+      before: entry.before,
+    });
+  }
+  return result;
 }

@@ -111,6 +111,7 @@ import {
   recordDeletedStoryShotUndo,
   recordInsertedStoryShotUndo,
   recordSplitStoryShotUndo,
+  recordTimelineCommandUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
   takeCreationEditorUndoEntry,
@@ -1974,11 +1975,9 @@ export function CreationEditorProvider({
     reorderShotInTimeline: reorderShotInTimelineCommand,
     resetTimelineShots,
     removeTimelineVideoClip,
+    undoVisualEdit,
   } = useTimelineCommands({
     activeStoryId: activeId,
-    timelineItems,
-    timelineOverlays,
-    visualLayerState: persistedVisualLayerState,
     refetchStoryMaterial: storyMaterialQuery.refetch,
     writeLock: timelineWriteLockRef.current,
   });
@@ -3199,7 +3198,11 @@ export function CreationEditorProvider({
     const entry = takeCreationEditorUndoEntry(activeId);
     if (!entry) return false;
     try {
-      if (entry.kind === "timeline") {
+      if (entry.kind === "timeline-command") {
+        // 回退由服务端完成：客户端这一格只是占位，用来保住撤销顺序。
+        const ok = await undoVisualEdit(activeId);
+        if (!ok) return false;
+      } else if (entry.kind === "timeline") {
         await saveTimelineItems(entry.items, {
           throwOnError: true,
           recordUndo: false,
@@ -3273,7 +3276,10 @@ export function CreationEditorProvider({
       }
       return true;
     } catch (error) {
-      if (entry.kind === "timeline") {
+      if (entry.kind === "timeline-command") {
+        // 服务端那一格在写入失败时自己放回去了，这里只补回客户端的占位。
+        recordTimelineCommandUndo(activeId);
+      } else if (entry.kind === "timeline") {
         recordTimelineUndoSnapshot(activeId, entry.items);
       } else if (entry.kind === "deleted-story-shot") {
         recordDeletedStoryShotUndo(activeId, entry);
