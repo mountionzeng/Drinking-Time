@@ -2,6 +2,15 @@
  * Full storyboard review and directed media workflow.
  * Kept separate so card-list changes do not load the entire review workspace.
  */
+import {
+  DEFAULT_TIMELINE_SCALE,
+  MAX_TIMELINE_SCALE,
+  MIN_TIMELINE_SCALE,
+  createTimelineViewport,
+  formatTimelineTimecode,
+  msToPx,
+  tickSeconds,
+} from "@shared/timelineViewport";
 import React, {
   Fragment,
   useCallback,
@@ -1656,6 +1665,23 @@ export function StoryboardReviewBoard({
   };
 
   const matrixShotColumnWidth = embeddedEditorMode ? 196 : 248;
+  /**
+   * 分镜表的横轴一直是时间正比的（列宽 = 本镜时长 / 总时长 × 总宽），
+   * 但总宽此前由「镜头数 × 固定列宽」定，跟时间无关。于是「每秒多少像素」
+   * 这个量不存在，缩放和时间标尺都无从谈起。
+   *
+   * 改成由 shared/timelineViewport 给出总宽之后，横轴才真正是时间轴：
+   * 缩放就是改每秒像素数，标尺刻度也有了可钉住的位置。
+   */
+  const [timelineScale, setTimelineScale] = useState(DEFAULT_TIMELINE_SCALE);
+  const storyboardViewport = useMemo(
+    () =>
+      createTimelineViewport({
+        totalMs: storyboardTimelineDurationMs,
+        scale: timelineScale,
+      }),
+    [storyboardTimelineDurationMs, timelineScale]
+  );
   const matrixShotEntries = useMemo(() => {
     const entries = shots.map((shot, originalIndex) => ({
       shot,
@@ -1671,9 +1697,10 @@ export function StoryboardReviewBoard({
         startFrame: timing.startFrame,
         endFrame: timing.startFrame + timing.durationFrames,
       })),
-      targetWidth: matrixShotColumnWidth * Math.max(1, shots.length),
+      // 总宽来自时间视口，不再是「镜头数 × 固定列宽」。
+      targetWidth: storyboardViewport.contentWidth,
     });
-  }, [matrixShotColumnWidth, shots, storyboardTimingRows]);
+  }, [shots, storyboardTimingRows, storyboardViewport]);
   const matrixGridTemplateColumns = useMemo(() => {
     if (compactShots) {
       return `76px ${matrixShotEntries.entries
@@ -3260,6 +3287,47 @@ export function StoryboardReviewBoard({
           />
         ) : shots.length > 0 ? (
           <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center justify-end gap-2 border-b px-2 py-1">
+              <span className="mr-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                {formatTimelineTimecode(storyboardViewport.totalMs)}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setTimelineScale(value =>
+                    Math.max(MIN_TIMELINE_SCALE, value - 4)
+                  )
+                }
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
+                aria-label="缩小分镜表"
+              >
+                −
+              </button>
+              <input
+                type="range"
+                min={MIN_TIMELINE_SCALE}
+                max={MAX_TIMELINE_SCALE}
+                step={1}
+                value={timelineScale}
+                onChange={event =>
+                  setTimelineScale(Number(event.currentTarget.value))
+                }
+                className="w-24 accent-[var(--primary)]"
+                aria-label="分镜表缩放"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setTimelineScale(value =>
+                    Math.min(MAX_TIMELINE_SCALE, value + 4)
+                  )
+                }
+                className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
+                aria-label="放大分镜表"
+              >
+                +
+              </button>
+            </div>
             <div
               ref={boardScrollRef}
               className="min-h-0 flex-1 overflow-auto custom-scrollbar"
@@ -3273,6 +3341,41 @@ export function StoryboardReviewBoard({
                   gridTemplateColumns: matrixGridTemplateColumns,
                 }}
               >
+                <div
+                  role="rowheader"
+                  className="sticky left-0 z-30 flex items-center border-b border-r px-2 text-[9px] font-semibold text-muted-foreground"
+                  style={{
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                    background: "var(--panel-header)",
+                  }}
+                >
+                  时间
+                </div>
+                <div
+                  role="cell"
+                  aria-label="时间标尺"
+                  className="relative h-5 border-b"
+                  style={{
+                    gridColumn: `span ${Math.max(1, matrixShotEntries.entries.length)}`,
+                    borderColor:
+                      "color-mix(in srgb, var(--panel-border) 72%, transparent)",
+                  }}
+                >
+                  {tickSeconds(storyboardViewport).map(second => {
+                    const left = msToPx(storyboardViewport, second * 1000);
+                    if (left > storyboardViewport.contentWidth) return null;
+                    return (
+                      <span
+                        key={second}
+                        className="pointer-events-none absolute bottom-0 top-0 border-l border-border/70 pl-1 font-mono text-[9px] tabular-nums text-muted-foreground"
+                        style={{ left }}
+                      >
+                        {formatTimelineTimecode(second * 1000)}
+                      </span>
+                    );
+                  })}
+                </div>
                 <div
                   role="columnheader"
                   className="sticky left-0 top-0 z-40 flex min-h-14 items-end border-b border-r px-2 py-2 text-[9px] font-semibold text-muted-foreground"
