@@ -3058,8 +3058,25 @@ export default function EditingNleWorkspace({
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
-  const [timelinePlayback, setTimelinePlayback] =
+  const [timelinePlayback, setTimelinePlaybackState] =
     useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
+  // 播放头同步进 spine：聊聊要靠它知道「我现在看的是哪一秒」。
+  // 用户说「把这里改一下」时，Agent 得能把「这里」解析成一个确定的时间点。
+  const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
+  const setTimelinePlayback = useCallback(
+    (
+      next:
+        | TimelinePlaybackState
+        | ((current: TimelinePlaybackState) => TimelinePlaybackState)
+    ) => {
+      setTimelinePlaybackState(current => {
+        const resolved = typeof next === "function" ? next(current) : next;
+        setSpinePlayheadMs(Math.max(0, Math.round(resolved.playheadMs)));
+        return resolved;
+      });
+    },
+    [setSpinePlayheadMs]
+  );
   const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
     useState<TimelinePlaybackRequest>({ id: 0, isPlaying: false });
   const [timelineSeekRequest, setTimelineSeekRequest] =

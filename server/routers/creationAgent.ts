@@ -41,6 +41,7 @@ import {
   patchImageTransformForStory,
   setShotDurationForStory,
   undoVisualEditForStory,
+  withPlayheadShot,
   updateVideoEditForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
@@ -1271,14 +1272,34 @@ export const creationAgentRouter = router({
               .optional(),
           })
           .optional(),
+        /**
+         * 用户此刻看的是第几毫秒。
+         *
+         * 「把这里改一下」里的「这里」，在没有显式选中素材时就是播放头所在
+         * 的那一刻。以前播放头只活在底部时间线的局部 state 里，聊聊拿不到，
+         * 于是这类指令只能猜或者要求用户先点一下。
+         */
+        playheadMs: z.number().min(0).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // 没有显式选中素材时，用播放头所在那一帧的可见素材当作「这里」。
+      // 解析走 resolveTimelineVisualFrame——与预览、导出同一个入口，
+      // 不会出现「聊聊说的那一镜」和「你看到的那一镜」是两个的情况。
+      const selectionContext =
+        input.selectionContext?.stableShotId || input.playheadMs === undefined
+          ? input.selectionContext
+          : await withPlayheadShot(
+              input.storyId,
+              ctx.user.id,
+              input.playheadMs,
+              input.selectionContext
+            );
       return runTimelineEditCommand({
         storyId: input.storyId,
         userId: ctx.user.id,
         instruction: input.instruction,
-        selectionContext: input.selectionContext,
+        selectionContext,
       });
     }),
 

@@ -15,7 +15,9 @@ import {
   removeInnerVideoClipForStory,
   reorderShotToTargetForStory,
   setShotIncludedForStory,
+  resolveShotAtPlayhead,
   undoVisualEditForStory,
+  withPlayheadShot,
   insertVisualImageClipForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
@@ -1190,5 +1192,44 @@ describe("撤销失败后不吞掉那一格（U5）", () => {
     expect(retried.status).toBe("ok");
     const after = await getStoryTimeline(storyId, USER_ID);
     expect(JSON.stringify(after?.items)).toBe(JSON.stringify(before?.items));
+  });
+});
+
+describe("播放头解析成「这里是哪一镜」", () => {
+  beforeEach(() => {
+    resetMemoryStateForTesting();
+    clearVisualEditUndoForTesting();
+  });
+
+  // 「播放头那一帧是哪个镜头」的判定本身住在 shared/timelineCommands 的
+  // resolveTimelineFrameSource 里（预览、剪辑行、导出共用同一个入口）。
+  // 这里只断言本模块的接线契约：解析不出来时不硬猜、已有选择不被覆盖。
+  // 有素材时的 happy path 用主仓 3000 的真实故事验收，夹具造不出
+  // 「当前图片」那个状态——它由真实生成流程产生，硬造只会测到假东西。
+
+  it("播放头落在空档时如实返回 null，不硬猜最近的一镜", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const at = await resolveShotAtPlayhead({
+      storyId,
+      userId: USER_ID,
+      playheadMs: 999_000,
+    });
+    expect(at).toBeNull();
+  });
+
+  it("已经显式选中素材时不覆盖用户的选择", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const kept = await withPlayheadShot(storyId, USER_ID, 6000, {
+      stableShotId: "sh-01",
+    });
+    expect(kept.stableShotId).toBe("sh-01");
+  });
+
+  it("解析不出可见素材时，选择上下文原样返回，不塞一个猜的镜头", async () => {
+    const storyId = await seedStoryWithExplicitPositions();
+    const untouched = await withPlayheadShot(storyId, USER_ID, 6000, {
+      stableShotId: null,
+    });
+    expect(untouched.stableShotId).toBeNull();
   });
 });

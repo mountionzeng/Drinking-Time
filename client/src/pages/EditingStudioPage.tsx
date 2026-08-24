@@ -613,6 +613,9 @@ export default function EditingStudioPage() {
         storyId,
         instruction,
         selectionContext,
+        // 「把这里改一下」里的「这里」：没有显式选中素材时，就是播放头
+        // 停在的那一刻。服务端会把它解析成那一帧真正可见的镜头。
+        playheadMs: storySpineStore.getState().playheadMs,
       });
       if (!result.handled) return null;
       if (

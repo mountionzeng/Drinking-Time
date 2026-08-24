@@ -74,6 +74,14 @@ type StorySpineData = {
   storyList: StoryListItem[];
   returningGreeting: string | null;
   activeSelection: SelectionState | null;
+  /**
+   * 播放头此刻停在第几毫秒。
+   *
+   * 以前它只活在底部时间线的局部 useState 里，聊聊看不到——用户说
+   * 「把这里改一下」，Agent 并不知道「这里」是哪一秒。放进 spine 之后，
+   * 聊天上下文能带上它，剪辑指令才有确定的时间锚点。
+   */
+  playheadMs: number;
   hydratedFor: number | null;
   sessionId: string;
   lastSnapshotHash: string;
@@ -150,6 +158,7 @@ type StorySpineActions = {
   setStoryList: StorySpineSetter<StoryListItem[]>;
   setReturningGreeting: StorySpineSetter<string | null>;
   setActiveSelection: StorySpineSetter<SelectionState | null>;
+  setPlayheadMs: StorySpineSetter<number>;
   setHydratedFor: StorySpineSetter<number | null>;
   setLastSnapshotHash: StorySpineSetter<string>;
   setLastArchiveSaveHash: StorySpineSetter<string>;
@@ -208,6 +217,7 @@ function initialData(): StorySpineData {
     storyList: [],
     returningGreeting: null,
     activeSelection: null,
+    playheadMs: 0,
     hydratedFor: null,
     sessionId: sessionId(),
     lastSnapshotHash: "",
@@ -298,6 +308,7 @@ export const useStorySpine = create<StorySpineState>()(set => {
     setStoryList: setField("storyList"),
     setReturningGreeting: setField("returningGreeting"),
     setActiveSelection: setField("activeSelection"),
+    setPlayheadMs: setField("playheadMs"),
     setHydratedFor: setField("hydratedFor"),
     setLastSnapshotHash: setField("lastSnapshotHash"),
     setLastArchiveSaveHash: setField("lastArchiveSaveHash"),

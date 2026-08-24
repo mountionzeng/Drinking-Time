@@ -933,3 +933,61 @@ export async function updateVideoEditForStory(input: {
     }
   );
 }
+
+/**
+ * 把「播放头停在第几毫秒」解析成「那一刻可见的是哪个镜头」。
+ *
+ * 用户说「把这里改一下」时，「这里」指的就是他正在看的那一帧。解析走
+ * resolveTimelineVisualFrame——与预览、剪辑行和导出同一个入口，所以
+ * 聊聊认定的那一镜，就是用户眼睛看到的那一镜，隐藏层规则也一并生效。
+ */
+export async function resolveShotAtPlayhead(input: {
+  storyId: number;
+  userId: number;
+  playheadMs: number;
+}): Promise<{
+  stableShotId: string;
+  sourceType: string;
+  sourceId: string;
+} | null> {
+  const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+  if ("error" in loaded) return null;
+  const rows = buildTimelineLayout(loaded.document.items);
+  const shotsById = await loadResolverShots(input.storyId, input.userId);
+  const resolution = resolveTimelineFrameSource({
+    rows,
+    shotsById,
+    ...(loaded.document.overlays === undefined
+      ? {}
+      : { overlays: loaded.document.overlays }),
+    hiddenVisualLayers: Array.from(
+      hiddenTimelineVisualLayers(loaded.document.visualLayerState)
+    ),
+    timelineFrame: Math.round((Math.max(0, input.playheadMs) / 1000) * 30),
+  });
+  // 空档处没有可见素材，如实返回 null——不要硬猜最近的一镜，
+  // 「这里什么都没有」本身就是有意义的回答。
+  if (resolution.kind !== "source") return null;
+  return {
+    stableShotId: resolution.stableShotId,
+    sourceType: resolution.sourceType,
+    sourceId: resolution.sourceId,
+  };
+}
+
+/** 没有显式选中素材时，把播放头那一镜补进选择上下文。 */
+export async function withPlayheadShot<
+  T extends { stableShotId?: string | null } | undefined,
+>(
+  storyId: number,
+  userId: number,
+  playheadMs: number,
+  selectionContext: T
+): Promise<T | (NonNullable<T> & { stableShotId: string })> {
+  const shot = await resolveShotAtPlayhead({ storyId, userId, playheadMs });
+  if (!shot) return selectionContext;
+  return {
+    ...((selectionContext ?? {}) as NonNullable<T>),
+    stableShotId: shot.stableShotId,
+  };
+}
