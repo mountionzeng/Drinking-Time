@@ -168,14 +168,57 @@ input 仍接收整份 `items` 数组。
 **摘掉 `client/src/architecture-boundaries.test.ts` 里守卫二的豁免登记**——
 豁免表为空就是这件事完成的信号。
 
-### C. `StoryboardEditRow` 的 58 处百分比
+### C. 把 `StoryboardEditRow` 的百分比换成像素 —— 用户指定要做
 
-本轮用「换总宽来源」绕过了逐个改造，这是对的（改动小、风险低）。
-但那 58 处百分比 + 8 处 `getBoundingClientRect()` 反向换算仍在，
-它们现在是「时间正比容器内的百分比」，语义正确但绕了一圈。
+本轮用「换总宽来源」绕过了逐个改造：那 58 处百分比现在是「时间正比容器内的
+百分比」，语义正确但绕了一圈。用户要求把这一层也拉直。
 
-**不建议现在动**。等下一个真实需求逼到它（比如要做帧级吸附或者波形对齐）
-再改，那时才知道该改成什么形状。没有需求驱动的坐标重构容易改成另一套猜测。
+**先说一句保留意见，然后请照做**：这个改造没有新功能推着走，容易改成另一套
+猜测。但它确实是本轮地基收敛的最后一段——横轴已经是时间轴了，位置却还在用
+容器宽度的比例表达，下一个需要帧级精度的功能（吸附、波形对齐、逐帧微调）
+一定会再撞上它。用户判断这笔债现在还就还，是合理的。
+
+**这 58 处不是一团乱麻，有清楚的结构**：
+
+| 变量 | 处数 | 是什么 |
+| --- | --- | --- |
+| `leftPct` | 26 | 素材/镜头的横向位置 |
+| `widthPct` / `mediaWidthPct` / `gapWidthPct` / `drawnWidthPct` | 19 | 宽度 |
+| `playheadPct` / `storyboardEditPlayheadPct` | 10 | 播放头 |
+| `localPct` / `deltaPct` / `groupDeltaPct` / `markInPct` | 11 | 拖动增量与标记点 |
+
+**入手点在纯函数层，不要从 JSX 开始改。**
+`client/src/features/creationEditor/storyboardEditRow.ts` 里已经有
+`storyboardEditPlayheadPct`、`storyboardEditRangePct` 这类纯函数，而且
+`storyboardEditRow.test.ts` **有 76 个测试**。先把这些改成返回像素
+（签名从 `(ms, totalMs)` 变成 `(ms, viewport)`，用 `shared/timelineViewport`
+的 `msToPx`），让既有测试先绿——它们是这次改造唯一的安全网。
+
+**建议顺序**：
+
+1. 纯函数层改成吃 `TimelineViewport`、吐像素，跑那 76 个测试；
+2. 播放头与标记点（10 + 3 处，视觉上最容易验证对错）；
+3. 素材位置与宽度（45 处，量最大但形状统一）；
+4. 拖动增量（11 处）—— **留到最后**，见下面的坑；
+5. 最后收掉那 17 处 `getBoundingClientRect()` 的反向换算，改用
+   `pxToFrame(viewport, clientX - trackLeft)`。
+
+**三个已知的坑**：
+
+- **拖动增量最危险**。`deltaPct` / `groupDeltaPct` 是「拖了多远」的比例，
+  改成像素时必须同时确认缩放变化后手感一致：同样拖 100px，在 16px/秒 和
+  32px/秒 下应该移动**不同的帧数**（后者更精细），而不是相同帧数。
+  这一条最好先写测试再改。
+- **`localPct` 是镜头内部的相对位置**（第 3052 行那段按 `segment.widthPct`
+  切分时长的逻辑），它的分母不是总时长而是本镜时长。**不要跟着一起改成
+  绝对像素**，否则镜头内部的片段会全部错位。
+- 文件里有一条注释（约 328 行）明确写着「`getBoundingClientRect().left`
+  比真实帧位置左半个盒子，行内 left 百分比才是准的」。改造时这条经验要么
+  保留、要么在新坐标下重新验证，不要当成过时注释直接删。
+
+**验收**：`pnpm exec vitest run client/src/features/creationEditor` 全绿，
+再在主仓 3000 上逐项确认——播放头位置、素材位置、拖动落点、缩放前后一致性。
+注意隐藏页里 rAF 被冻结（见第三节坑 1），测播放头动画要先装垫片。
 
 ### D. 已登记但未做的
 
@@ -257,9 +300,12 @@ docs/handoff/2026-08-24-architecture-simplification-handoff.md
 先遵守 AGENTS.md：跑 pnpm env:status；在 docs/handoff/SESSION-BOARD.md 登记；
 改之前查 docs/features/feature-ledger.json，可能削弱已登记能力就停下来问用户。
 
-第一件事建议做「连按方向键会丢输入」：实测 4 次按键只产生 3 次写入，写锁把
-飞行中的后续请求挡下并静默返回。建议把连按合并成一次移动，而不是只把提示
-显示出来。
+工作有两件，用户都要：
+1)「连按方向键会丢输入」——实测 4 次按键只产生 3 次写入，写锁把飞行中的后续
+   请求挡下并静默返回。建议把连按合并成一次移动，而不是只把提示显示出来。
+2) 把 StoryboardEditRow 的 58 处百分比换成像素（交接第四节 C，有分类、
+   建议顺序和三个已知的坑）。从纯函数层入手，storyboardEditRow.test.ts 的
+   76 个测试是唯一的安全网；拖动增量留到最后改。
 
 验证有两个已知盲区，务必注意：无头浏览器是隐藏页面，requestAnimationFrame
 被冻结，测任何依赖动画帧的东西前先装 setTimeout 垫片；断言前确认「操作的」
