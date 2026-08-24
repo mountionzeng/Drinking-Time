@@ -26,7 +26,6 @@
 
 | 会话 | 分支 / worktree | 正在动 | 状态 | 更新时间 |
 | --- | --- | --- | --- | --- |
-| 架构收敛 | `codex/story-visual-assets`（主仓） | **正在实施** `docs/plans/2026-08-23-001-refactor-timeline-write-convergence-plan.md`。当前 U1：只改 `client/src/architecture-boundaries.test.ts` + 新增 `docs/qa/architecture-ratchet-baseline-2026-08-23.md`，不动 `server/**`，不触发 :3000 重启。后续 U2–U7 会动 `server/services/visualClipEditing.ts`、`server/routers/creationAgent.ts`、`client/src/features/creationEditor/CreationEditorContext.tsx`、`shared/timelineCommands.ts` | 实施中 | 2026-08-23 18:55 |
 | 视觉资产标准板 | `affectionate-bartik-1d9c06` | 待办：放开 `visualAssetGenerationContext.ts:226` 的 provider 白名单（现只放行 midjourney），会同时动 `server/routers/storyAgent.ts` 的估价分支 | **未动手**，等用户给 OSS 凭据 + 裁决是否放开 gpt-image | 2026-08-23 18:35 |
 | 图生图对话框 | `codex/story-visual-assets`（主仓，两个 worktree 已按规矩删除） | `client/src/features/storyAgent/`：chatImageRefs / chatImageRefsStore / storyImageDrag / useChatImageRemix / selectionStoryScope / assetSwapIntent / useAssetSwapProposal 及三个 view；`client/src/features/creationEditor/useStoryImageDrop.ts` | **已收工**，只等 OSS 凭据后跑最后一格验收；不再改 `server/` | 2026-08-23 18:45 |
 

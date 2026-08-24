@@ -1305,6 +1305,11 @@
           "date": "2026-08-24",
           "kind": "fix",
           "summary": "发现并单独立项一个既有缺陷：右侧镜头没有显式 timelineStartFrame 时，滚动接缝会把总片长从 240 帧砍到 120，静默违反第 9 条「总结束时间不变」。隐式位置是合法的旧数据形状，客户端与服务端走同一个 planner，两边都中招。已由独立会话修复（86465a1）。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "refactor",
+          "summary": "剪辑行的标尺、缩放与时间视口收敛到 shared/timelineViewport 与 StoryboardTimelineRuler；底部时间线删除后，剪辑行成为唯一可编辑表面。"
         }
       ]
     },
@@ -1388,7 +1393,10 @@
         "server/db.ts",
         "shared/timelineViewport.ts",
         "server/services/visualEditUndoJournal.ts",
-        "shared/timelineCommands.ts"
+        "shared/timelineCommands.ts",
+        "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
+        "client/src/features/creationEditor/TimelineAudioPlayback.tsx",
+        "client/src/features/storyAgent/views/StoryboardTimelineRuler.tsx"
       ],
       "evidence": [
         "docs/plans/2026-08-20-001-feat-extracted-frame-transition-plan.md",
@@ -1459,7 +1467,7 @@
       "knownGaps": [
         "SQL/MySQL 原子采用分支有事务测试替身覆盖，但本轮真实运行环境使用本地 JSON 持久化，尚未在真实 MySQL 实例上验收。",
         "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。",
-        "底部时间线（MultiTrackTimeline）与分镜表仍并存，两套标尺与缩放重复。删除前需先把播放时钟抽成无界面 hook——时钟目前住在底部时间线里，直接删会让分镜表的播放键失效。"
+        "播放推进依赖 requestAnimationFrame，无法用无头浏览器验证（隐藏页面里浏览器会冻结 rAF）。时钟的算术与「片尾按播放回到开头」有单测覆盖，真实播放需人工在浏览器确认。"
       ],
       "history": [
         {
@@ -1591,6 +1599,11 @@
           "date": "2026-08-24",
           "kind": "fix",
           "summary": "分镜表接上时间坐标。此前它的总宽由「镜头数 × 固定列宽」定，与时间无关，于是「每秒多少像素」这个量不存在——时间标尺、缩放在那个坐标系里没有定义，不是难做是做不了。总宽改由 shared/timelineViewport 给出后补上时间标尺与缩放（实测 scale 16→32 标尺宽 2027→4054）。左栏悬浮经实测本就已实现（内容 2864px / 视口 428px，滚动 600px 后左栏不动）。同时记下一个算术事实：16px/秒 时一帧只有 0.53px，这是「一帧图片点不中」的根因。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "decision",
+          "summary": "删除底部时间线（MultiTrackTimeline，1282 行），只保留上方 Storyboard。两者是同一份数据的两个可编辑投影，标尺、缩放和图层操作各做了一遍；用户决定只留 Storyboard，标尺与缩放已先搬过去。删除前把两样只住在它里面的东西搬走：播放时钟提到父层（否则播放键会哑），音频播放独立成文件由父层渲染（否则播放没有声音——故事版没有自己的音频播放，这条是第一版取舍清单漏掉的）。第 9 条不变量「其他视图只是投影」由此从约定变成结构事实：现在只剩一个可编辑表面。"
         }
       ]
     },
