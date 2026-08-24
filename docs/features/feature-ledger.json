@@ -1228,7 +1228,8 @@
         "client/src/features/creationEditor/CreationEditorContext.tsx",
         "client/src/features/storyAgent/storyboardTiming.ts",
         "server/services/storyMaterials.ts",
-        "server/services/videoExport.ts"
+        "server/services/videoExport.ts",
+        "shared/timelineViewport.ts"
       ],
       "evidence": [
         "shared/timelineLayout.test.ts",
@@ -1299,6 +1300,11 @@
           "date": "2026-08-24",
           "kind": "fix",
           "summary": "修复第 9 条不变量在隐式位置下被静默违反：trimTimelineItem 过去用 buildTimelineLayout([item]) 从单元素数组重建布局，而没有 timelineStartFrame 的镜头其起点来自整条时间线的游标，单元素数组里这个游标恒为 0，于是右镜被当成从 0 开始——对 sh-01 0+120 ｜ sh-02 120+120（sh-02 隐式）在接缝 90 处滚动剪辑，右镜算出 90+30，总长从 240 塌成 120，且无任何报错。同一处错误还让合法落点被误报「镜头至少要保留一帧」，并让 end 边把 timelineStartFrame 写成 0（隐式镜头被拽回片头）；splitTimelineItem 同样中招。改法：trimTimelineItem 与 splitTimelineItem 改为必传调用方已解析的真实 startFrame，删掉单元素数组重建；planTimelineRollingTrim 从它本来就持有的 rows 取起点，planTimelineTrim 与 storyAgent 的拆分入口按整份 items 解析。隐式与显式两种位置形状各补一条回归测试，都断言滚动剪辑前后总结束时间不变（两者现在都是 sh-01 0+90 ｜ sh-02 90+150，总长 240）。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "fix",
+          "summary": "发现并单独立项一个既有缺陷：右侧镜头没有显式 timelineStartFrame 时，滚动接缝会把总片长从 240 帧砍到 120，静默违反第 9 条「总结束时间不变」。隐式位置是合法的旧数据形状，客户端与服务端走同一个 planner，两边都中招。已由独立会话修复（86465a1）。"
         }
       ]
     },
@@ -1379,7 +1385,10 @@
         "server/routers/creationAgent.ts",
         "server/services/storySync.ts",
         "server/services/videoExport.ts",
-        "server/db.ts"
+        "server/db.ts",
+        "shared/timelineViewport.ts",
+        "server/services/visualEditUndoJournal.ts",
+        "shared/timelineCommands.ts"
       ],
       "evidence": [
         "docs/plans/2026-08-20-001-feat-extracted-frame-transition-plan.md",
@@ -1449,7 +1458,8 @@
       "replaces": [],
       "knownGaps": [
         "SQL/MySQL 原子采用分支有事务测试替身覆盖，但本轮真实运行环境使用本地 JSON 持久化，尚未在真实 MySQL 实例上验收。",
-        "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。"
+        "一帧图片 clip 已进入编辑预览和持久时间线；静态图片进入最终视频导出的专用区间编码仍待补齐。",
+        "底部时间线（MultiTrackTimeline）与分镜表仍并存，两套标尺与缩放重复。删除前需先把播放时钟抽成无界面 hook——时钟目前住在底部时间线里，直接删会让分镜表的播放键失效。"
       ],
       "history": [
         {
@@ -1571,6 +1581,16 @@
           "date": "2026-08-22",
           "kind": "fix",
           "summary": "继续收敛帧级视觉解析：发现图片仍在 resolveTimelineDocumentFrame 之后单独按图层二次覆盖，导致高层一帧图片错误压过锚定镜头，违背既有『锚定永远优先』约束。新增 resolveTimelineVisualFrame 作为交互界面唯一入口，一次比较普通镜头、遗留 overlay 与图片；同层显式图片优先改为比较器中的明确 sourceKindOrder，不再由调用方临时判断。Preview、抽帧来源、可抽帧能力和锚点创建全部改走该入口。另补齐 undo 快照对 imageClip transform、overlay transform/effects 的深拷贝，避免保存后的对象变更污染历史记录。备份快照确认 Story 1186 的 34→35 镜头变化来自 Take 1603 的合法第三方采用，visualLayerState 始终保持 count=4、hidden=[2]，不是图层状态丢失。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "refactor",
+          "summary": "把第 9 条不变量从声明兑现为代码：clip 位置、图层、撤销和窄补丁全部收敛成服务端领域命令（moveShotSingle/moveShotGroup/rollingTrim/magnetDetach/anchor 增删/trim/applyVisualLayerAction/setShotIncluded/reorder/patchImageTransform/removeInnerVideoClip/updateVideoEdit）。客户端不再跑 planner、不再拼 items、不再持有 expectedVersion，被替代的 commitTimelinePlan 与七个 planner 引用一并删除。撤销改由服务端命令日志完成，图层与素材因此天然进同一条撤销记录（第 30 条由结构保证而非调用方自觉）。错误分 conflict 与 invalid 两类并各自给出可执行出路——唯一写入口若没有人工接管，不变量成立而用户被锁在外面，那是收敛失败。"
+        },
+        {
+          "date": "2026-08-24",
+          "kind": "fix",
+          "summary": "分镜表接上时间坐标。此前它的总宽由「镜头数 × 固定列宽」定，与时间无关，于是「每秒多少像素」这个量不存在——时间标尺、缩放在那个坐标系里没有定义，不是难做是做不了。总宽改由 shared/timelineViewport 给出后补上时间标尺与缩放（实测 scale 16→32 标尺宽 2027→4054）。左栏悬浮经实测本就已实现（内容 2864px / 视口 428px，滚动 600px 后左栏不动）。同时记下一个算术事实：16px/秒 时一帧只有 0.53px，这是「一帧图片点不中」的根因。"
         }
       ]
     },
