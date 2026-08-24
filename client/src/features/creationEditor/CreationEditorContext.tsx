@@ -2490,7 +2490,7 @@ export function CreationEditorProvider({
   /**
    * 职责：同时更新镜头时长元数据和 timeline 计划时长，不发送整份 Story body。
    * 调用方：AnimaticPanel 的拖拽和时长输入控件。
-   * 下游：调用 `persistStoryShotUpdate`，timeline 变化时再调用 `saveTimelineItems`。
+   * 下游：调用 `persistStoryShotUpdate`，时长那一半走 setShotDuration 窄命令。
    */
   const updateShotDuration = async (shotNo: number, durationMs: number) => {
     const normalizedDurationMs = Math.min(
