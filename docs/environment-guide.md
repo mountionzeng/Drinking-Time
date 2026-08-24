@@ -98,3 +98,43 @@ npx tsx scripts/merge-local-persist.ts --write --out 合并.json <源…>
 | 2026-08-14 | 旧诊断只能提示，旧 `predev` 依赖宽泛进程名处理 | 增加 fail-closed `env:check`，并将旧服务终止收窄到经过二次身份核验的主仓进程组 |
 
 环境工具只负责发现风险和安全拒绝，不会自动删除 worktree、业务数据或备份。
+
+## 自动启动预览服务（2026-08-24：已停用）
+
+`~/Library/LaunchAgents/com.yuandai.drinking-time-local.preview.plist` 曾经想用
+launchd 常驻守着 3000 端口，**但它从来没成功启动过一次**。
+
+根因是 macOS TCC：launchd 拉起的子进程拿不到 `~/Documents` 的访问权限，
+于是每 2 秒失败重试一次，日志一路滚到 92MB。2026-08-24 用绝对路径、去掉
+shell 包装重测，仍然是 `Operation not permitted`——**这一点改 plist 改不掉**。
+
+当天做的处理：
+
+- 任务已 `launchctl bootout` 并在 plist 里标记 `Disabled`，不会在下次登录时回来；
+- 原 plist 备份在同目录的 `.bak-20260824-100738`；
+- 日志改到 `~/Library/Logs/drinking-time/preview-server.log`（移出仓库）；
+- 失败重试间隔 2 秒 → 60 秒；
+- 那份 92MB 的 `.webdev/preview-server.launchd.log` 已清空。
+
+### 现在怎么起服务
+
+```bash
+pnpm preview:3000
+```
+
+主 checkout 上**不要**跑 `pnpm dev`：`predev` 会对整个进程组发 SIGTERM，
+把别人的服务连锅端掉。`.claude/launch.json` 已改为指向 `preview:3000`。
+
+### 如果将来还是想要自动启动
+
+三条路，按推荐排序：
+
+1. **把仓库移出 `~/Documents`**（例如 `~/Projects/`）。TCC 只保护
+   Documents / Desktop / Downloads 这几个位置，搬出去就没这个问题。
+   代价是若干处硬编码的绝对路径要跟着改。
+2. **不要自动启动**。本项目 AGENTS.md 规定同一时间只能有一个 dev server，
+   一个 KeepAlive 常驻任务会和手动启动、和编辑器的 preview 工具争同一个端口。
+   这也是当前的选择。
+3. **给解释器授予「完全磁盘访问权限」**。系统设置 → 隐私与安全性 →
+   完全磁盘访问权限。注意要授的是 `/bin/sh` 这类解释器，授权面很宽，
+   不建议为了一个 dev server 这么做。
