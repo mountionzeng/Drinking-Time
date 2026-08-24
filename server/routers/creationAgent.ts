@@ -37,6 +37,12 @@ import {
 } from "../db";
 import {
   addTimelineAnchorForStory,
+  applyVisualLayerActionForStory,
+  includeAllShotsForStory,
+  moveShotOrderForStory,
+  removeInnerVideoClipForStory,
+  reorderShotToTargetForStory,
+  setShotIncludedForStory,
   insertVisualImageClipForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
@@ -2010,6 +2016,119 @@ export const creationAgentRouter = router({
         stableShotId: input.stableShotId,
         edge: input.edge,
         requestedBoundaryFrame: input.requestedBoundaryFrame,
+      })
+    ),
+
+  /** 图层的插入、整层移动、删除与显隐切换。 */
+  applyVisualLayerAction: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        action: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("insert"), at: z.number().int().min(0) }),
+          z.object({
+            kind: z.literal("move"),
+            from: z.number().int().min(0),
+            to: z.number().int().min(0),
+          }),
+          z.object({
+            kind: z.literal("remove"),
+            layer: z.number().int().min(0),
+          }),
+          z.object({
+            kind: z.literal("toggle-hidden"),
+            layer: z.number().int().min(0),
+          }),
+        ]),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      applyVisualLayerActionForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        action: input.action,
+      })
+    ),
+
+  /** 把某个镜头放进或移出时间线。 */
+  setShotIncluded: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        included: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      setShotIncludedForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        included: input.included,
+      })
+    ),
+
+  /** 相邻交换顺序。 */
+  moveShotOrder: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        direction: z.union([z.literal(-1), z.literal(1)]),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      moveShotOrderForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        direction: input.direction,
+      })
+    ),
+
+  /** 拖放重排：把源镜头挪到目标镜头的位置。 */
+  reorderShotToTarget: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        sourceShotId: z.string().min(1).max(240),
+        targetShotId: z.string().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      reorderShotToTargetForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        sourceShotId: input.sourceShotId,
+        targetShotId: input.targetShotId,
+      })
+    ),
+
+  /** 把所有镜头放回时间线。 */
+  includeAllShots: protectedProcedure
+    .input(z.object({ storyId: z.number() }))
+    .mutation(async ({ ctx, input }) =>
+      includeAllShotsForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+      })
+    ),
+
+  /** 移除镜头内部的一个视频片段。 */
+  removeInnerVideoClip: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.number(),
+        stableShotId: z.string().min(1).max(240),
+        clipId: z.string().min(1).max(240),
+      })
+    )
+    .mutation(async ({ ctx, input }) =>
+      removeInnerVideoClipForStory({
+        storyId: input.storyId,
+        userId: ctx.user.id,
+        stableShotId: input.stableShotId,
+        clipId: input.clipId,
       })
     ),
 

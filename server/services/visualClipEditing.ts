@@ -20,7 +20,11 @@ import {
   type VisualEditDocument,
 } from "../../shared/visualClipModel";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
-import { hiddenTimelineVisualLayers } from "../../shared/timelineVisualLayers";
+import {
+  applyTimelineVisualLayerAction,
+  hiddenTimelineVisualLayers,
+  type TimelineVisualLayerAction,
+} from "../../shared/timelineVisualLayers";
 import {
   planTimelineAnchorAdd,
   planTimelineAnchorRemove,
@@ -515,5 +519,237 @@ export async function trimShotForStory(input: {
         sourceLimitSec:
           shotsById.get(input.stableShotId)?.currentVideoDurationSec ?? null,
       })
+  );
+}
+
+/**
+ * 图层管理：插入、整层上下移动、删除、显隐切换。
+ *
+ * 这四件事都必须在一次写入里把层内**全部**素材（图片、视频、遗留 overlay）
+ * 一起重编号——账本 extracted-frame-overlay-video 第 13、27 条。
+ * 以前由客户端算好整份 items 再写回；现在服务端读了自己算。
+ *
+ * 隐藏一层不得改变其它层任何素材的绝对时间（第 29 条）：排版先按全部素材
+ * 算完，再丢掉隐藏层的行——这个规则住在 shared 的纯函数里，服务端与预览
+ * 共用同一份，不会两边走偏。
+ */
+export async function applyVisualLayerActionForStory(input: {
+  storyId: number;
+  userId: number;
+  action: TimelineVisualLayerAction;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "图层操作失败",
+    },
+    document => {
+      const change = applyTimelineVisualLayerAction({
+        items: document.items,
+        overlays: document.overlays ?? [],
+        state: document.visualLayerState ?? null,
+        action: input.action,
+      });
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: change.items,
+          overlays: change.overlays,
+          visualLayerState: change.state,
+        },
+      };
+    }
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 窄补丁命令（U6）
+//
+// 这些操作本来就不改 clip 的位置，只是以前顺手借了「整份写回」这根管子。
+// 收窄之后每条命令的爆炸半径就是它自己那一个镜头。
+// ────────────────────────────────────────────────────────────────────
+
+/** 把某个镜头放进或移出时间线。 */
+export async function setShotIncludedForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  included: boolean;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "更新镜头失败",
+    },
+    document => {
+      if (
+        !document.items.some(item => item.stableShotId === input.stableShotId)
+      ) {
+        return { status: "error", message: "当前镜头不在时间线上" };
+      }
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: document.items.map(item =>
+            item.stableShotId === input.stableShotId
+              ? { ...item, included: input.included }
+              : item
+          ),
+        },
+      };
+    }
+  );
+}
+
+/** 相邻交换：把某个镜头往前或往后挪一位。 */
+export async function moveShotOrderForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  direction: -1 | 1;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "调整顺序失败",
+    },
+    document => {
+      const ordered = [...document.items].sort(
+        (left, right) => left.position - right.position
+      );
+      const index = ordered.findIndex(
+        item => item.stableShotId === input.stableShotId
+      );
+      const target = index + input.direction;
+      if (index < 0) return { status: "error", message: "当前镜头不在时间线上" };
+      if (target < 0 || target >= ordered.length) {
+        return { status: "error", message: "已经到头了" };
+      }
+      [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: ordered.map((item, position) => ({ ...item, position })),
+        },
+      };
+    }
+  );
+}
+
+/** 拖放重排：把源镜头挪到目标镜头所在的位置。 */
+export async function reorderShotToTargetForStory(input: {
+  storyId: number;
+  userId: number;
+  sourceShotId: string;
+  targetShotId: string;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "调整顺序失败",
+    },
+    document => {
+      const ordered = [...document.items].sort(
+        (left, right) => left.position - right.position
+      );
+      const sourceIndex = ordered.findIndex(
+        item => item.stableShotId === input.sourceShotId
+      );
+      const targetIndex = ordered.findIndex(
+        item => item.stableShotId === input.targetShotId
+      );
+      if (sourceIndex < 0 || targetIndex < 0) {
+        return { status: "error", message: "镜头不在时间线上" };
+      }
+      if (sourceIndex === targetIndex) {
+        return { status: "ok", document, changed: false };
+      }
+      const [moved] = ordered.splice(sourceIndex, 1);
+      ordered.splice(targetIndex, 0, moved);
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: ordered.map((item, position) => ({ ...item, position })),
+        },
+      };
+    }
+  );
+}
+
+/** 把所有镜头重新放回时间线并按顺序编号。 */
+export async function includeAllShotsForStory(input: {
+  storyId: number;
+  userId: number;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "恢复镜头失败",
+    },
+    document => ({
+      status: "ok",
+      document: {
+        ...document,
+        items: document.items.map((item, position) => ({
+          ...item,
+          included: true,
+          position,
+        })),
+      },
+    })
+  );
+}
+
+/** 移除某个镜头内部的一个视频片段。 */
+export async function removeInnerVideoClipForStory(input: {
+  storyId: number;
+  userId: number;
+  stableShotId: string;
+  clipId: string;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "移除视频片段失败",
+    },
+    document => {
+      const sourceItem = document.items.find(
+        item => item.stableShotId === input.stableShotId
+      );
+      const sourceClips = sourceItem?.visualClips ?? [];
+      if (!sourceItem || !sourceClips.some(clip => clip.id === input.clipId)) {
+        return { status: "error", message: "找不到要移除的视频片段" };
+      }
+      return {
+        status: "ok",
+        document: {
+          ...document,
+          items: document.items.map(item => {
+            if (item.stableShotId !== input.stableShotId) return item;
+            const visualClips = sourceClips.filter(
+              clip => clip.id !== input.clipId
+            );
+            return {
+              ...item,
+              visualClips,
+              // 最后一个内部片段被移除后，「用片段替代主画面」必须回落，
+              // 否则镜头会变成一块空白。
+              visualClipsReplacePrimary:
+                visualClips.length > 0 && item.visualClipsReplacePrimary,
+            };
+          }),
+        },
+      };
+    }
   );
 }

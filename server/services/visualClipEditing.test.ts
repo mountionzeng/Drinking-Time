@@ -7,6 +7,12 @@ import {
 } from "../db";
 import {
   addTimelineAnchorForStory,
+  applyVisualLayerActionForStory,
+  includeAllShotsForStory,
+  moveShotOrderForStory,
+  removeInnerVideoClipForStory,
+  reorderShotToTargetForStory,
+  setShotIncludedForStory,
   insertVisualImageClipForStory,
   magnetDetachForStory,
   moveShotGroupForStory,
@@ -611,5 +617,282 @@ describe("单镜移动的换层与 overlay 迁移（U3）", () => {
     if (result.status !== "error") return;
     expect(result.errorKind).toBe("invalid");
     expect(await persistedVersion(storyId)).toBe(version);
+  });
+});
+
+describe("图层管理命令（U4）", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  async function layerState(storyId: number) {
+    const row = await getStoryTimeline(storyId, USER_ID);
+    return row?.visualLayerState as { count: number; hidden: number[] } | undefined;
+  }
+
+  it("隐藏一层不改变其它层任何素材的绝对时间（账本第 29 条）", async () => {
+    const storyId = await seedStory();
+    const before = await persistedPlacements(storyId);
+
+    const result = await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 1 },
+    });
+
+    expect(result.status).toBe("ok");
+    expect((await layerState(storyId))?.hidden).toContain(1);
+    // 隐藏只影响可见性解析，不得挪动任何素材。
+    expect(await persistedPlacements(storyId)).toEqual(before);
+  });
+
+  it("再切一次显隐会取消隐藏", async () => {
+    const storyId = await seedStory();
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 1 },
+    });
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 1 },
+    });
+    expect((await layerState(storyId))?.hidden ?? []).not.toContain(1);
+  });
+
+  it("插入一层把层内全部素材一起重编号，版本只 +1", async () => {
+    const storyId = await seedStory();
+    const version = await persistedVersion(storyId);
+    const before = await persistedPlacements(storyId);
+
+    const result = await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "insert", at: 1 },
+    });
+
+    expect(result.status).toBe("ok");
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    // 层号变了，但每个 clip 的绝对帧和时长一个都不能动。
+    const after = await persistedPlacements(storyId);
+    for (const [clipId, span] of Object.entries(before)) {
+      const [, startAndDuration] = span.split("@");
+      const [, afterStartAndDuration] = (after[clipId] ?? "").split("@");
+      expect(afterStartAndDuration).toBe(startAndDuration);
+    }
+  });
+
+  it("整层上下移动后素材仍在同一绝对帧上", async () => {
+    const storyId = await seedStory();
+    const before = await persistedPlacements(storyId);
+
+    const result = await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "move", from: 1, to: 2 },
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await persistedPlacements(storyId);
+    for (const [clipId, span] of Object.entries(before)) {
+      expect((after[clipId] ?? "").split("@")[1]).toBe(span.split("@")[1]);
+    }
+  });
+
+  it("故事没有时间线时返回 invalid，不抛异常", async () => {
+    const result = await applyVisualLayerActionForStory({
+      storyId: 999999,
+      userId: USER_ID,
+      action: { kind: "insert", at: 0 },
+    });
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
+  });
+});
+
+/** 带一个镜头内部视频片段，且开着「用片段替代主画面」。 */
+async function seedStoryWithInnerVideoClip() {
+  const story = await createStory({
+    userId: USER_ID,
+    title: "内部片段",
+    body: { shots: [{ shotNo: 1, stableShotId: "sh-01" }] },
+  });
+  await updateStoryTimeline({
+    storyId: story.id,
+    userId: USER_ID,
+    expectedVersion: 0,
+    items: [
+      {
+        stableShotId: "sh-01",
+        included: true,
+        position: 0,
+        plannedDurationMs: 4000,
+        durationFrames: 120,
+        timelineStartFrame: 0,
+        visualLayer: 0,
+        transform: TRANSFORM,
+        visualClipsReplacePrimary: true,
+        visualClips: [
+          {
+            id: "inner-1",
+            takeId: 11,
+            rangeId: 1,
+            sourceStableShotId: "sh-01",
+            videoUrl: "/inner.mp4",
+            label: "片段",
+            sourceStartSec: 0,
+            sourceEndSec: 2,
+            offsetMs: 0,
+            durationMs: 2000,
+          },
+        ],
+      },
+    ],
+  });
+  return story.id;
+}
+
+describe("窄补丁命令（U6）", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  async function items(storyId: number) {
+    const row = await getStoryTimeline(storyId, USER_ID);
+    return (row?.items ?? []) as {
+      stableShotId: string;
+      included?: boolean;
+      position: number;
+      visualClips?: { id: string }[];
+      visualClipsReplacePrimary?: boolean;
+    }[];
+  }
+
+  it("移出时间线只改那一个镜头的 included，位置一个不动", async () => {
+    const storyId = await seedStory();
+    const before = await persistedPlacements(storyId);
+
+    const result = await setShotIncludedForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      included: false,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await items(storyId);
+    expect(after.find(i => i.stableShotId === "sh-02")?.included).toBe(false);
+    expect(after.find(i => i.stableShotId === "sh-01")?.included).toBe(true);
+    expect(await persistedPlacements(storyId)).toEqual(before);
+  });
+
+  it("镜头不在时间线上时返回 invalid", async () => {
+    const storyId = await seedStory();
+    const result = await setShotIncludedForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-nope",
+      included: false,
+    });
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.errorKind).toBe("invalid");
+  });
+
+  it("相邻交换后 position 连续无空洞", async () => {
+    const storyId = await seedStory();
+
+    const result = await moveShotOrderForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      direction: -1,
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await items(storyId);
+    expect(after.find(i => i.stableShotId === "sh-02")?.position).toBe(0);
+    expect(after.find(i => i.stableShotId === "sh-01")?.position).toBe(1);
+    expect([...after].map(i => i.position).sort()).toEqual([0, 1]);
+  });
+
+  it("已经到头时拒绝并说明原因，不写库", async () => {
+    const storyId = await seedStory();
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotOrderForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      direction: -1,
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error).toContain("到头");
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+
+  it("源与目标相同时返回未改变，不写库不推高版本", async () => {
+    const storyId = await seedStory();
+    const version = await persistedVersion(storyId);
+
+    const result = await reorderShotToTargetForStory({
+      storyId,
+      userId: USER_ID,
+      sourceShotId: "sh-01",
+      targetShotId: "sh-01",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.changed).toBe(false);
+    expect(await persistedVersion(storyId)).toBe(version);
+  });
+
+  it("恢复全部镜头后 included 全为真且顺序连续", async () => {
+    const storyId = await seedStory();
+    await setShotIncludedForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-02",
+      included: false,
+    });
+
+    const result = await includeAllShotsForStory({ storyId, userId: USER_ID });
+
+    expect(result.status).toBe("ok");
+    const after = await items(storyId);
+    expect(after.every(i => i.included)).toBe(true);
+    expect(after.map(i => i.position).sort()).toEqual([0, 1]);
+  });
+
+  it("移除最后一个内部片段时，用片段替代主画面必须回落", async () => {
+    const storyId = await seedStoryWithInnerVideoClip();
+
+    const result = await removeInnerVideoClipForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      clipId: "inner-1",
+    });
+
+    expect(result.status).toBe("ok");
+    const after = await items(storyId);
+    const updated = after.find(i => i.stableShotId === "sh-01");
+    expect(updated?.visualClips ?? []).toHaveLength(0);
+    // 片段没了还留着「用片段替代主画面」，镜头会变成一块空白。
+    expect(updated?.visualClipsReplacePrimary).toBeFalsy();
+  });
+
+  it("找不到片段时返回可见错误，不静默成功", async () => {
+    const storyId = await seedStory();
+    const result = await removeInnerVideoClipForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      clipId: "no-such-clip",
+    });
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error).toContain("找不到");
   });
 });

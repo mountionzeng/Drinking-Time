@@ -57,7 +57,6 @@ import {
   type TimelineVideoEffects,
 } from "@shared/storyMaterial";
 import {
-  applyTimelineVisualLayerAction,
   normalizePersistedVisualLayerState,
   resolveTimelineVisualLayerState,
   type ResolvedTimelineVisualLayerState,
@@ -1904,97 +1903,6 @@ export function CreationEditorProvider({
     ]
   );
 
-  const manageTimelineVisualLayer = useCallback(
-    async (action: TimelineVisualLayerAction) => {
-      // 一次操作把图片、视频、旧片段和遗留 overlay 一起重编号，再一次写入落库。
-      const change = applyTimelineVisualLayerAction({
-        items: timelineItems,
-        overlays: timelineOverlays,
-        state: persistedVisualLayerState,
-        action,
-      });
-      await saveTimelineItems(change.items, {
-        throwOnError: true,
-        overlays: change.overlays,
-        visualLayerState: change.state,
-      });
-    },
-    [
-      persistedVisualLayerState,
-      saveTimelineItems,
-      timelineItems,
-      timelineOverlays,
-    ]
-  );
-
-  const addShotToTimeline = useCallback(
-    (shotNo: number, stableShotId?: string | null) => {
-      const shotId =
-        normalizeShotIdentity(stableShotId) ??
-        shots
-          .map(creationTimelineShotId)
-          .find((_, index) => shots[index]?.shotNo === shotNo);
-      if (!shotId) return;
-      void saveTimelineItems(
-        timelineItems.map(item =>
-          item.stableShotId === shotId ? { ...item, included: true } : item
-        )
-      );
-    },
-    [saveTimelineItems, shots, timelineItems]
-  );
-
-  const removeShotFromTimeline = useCallback(
-    (shotId: string) => {
-      void saveTimelineItems(
-        timelineItems.map(item =>
-          item.stableShotId === shotId ? { ...item, included: false } : item
-        )
-      );
-    },
-    [saveTimelineItems, timelineItems]
-  );
-
-  const moveShotInTimeline = useCallback(
-    (shotId: string, direction: -1 | 1) => {
-      const ordered = [...timelineItems].sort(
-        (left, right) => left.position - right.position
-      );
-      const index = ordered.findIndex(item => item.stableShotId === shotId);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= ordered.length) return;
-      [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
-      void saveTimelineItems(
-        ordered.map((item, position) => ({ ...item, position }))
-      );
-    },
-    [saveTimelineItems, timelineItems]
-  );
-
-  const reorderShotInTimeline = useCallback(
-    async (sourceShotId: string, targetShotId: string) => {
-      const ordered = [...timelineItems].sort(
-        (left, right) => left.position - right.position
-      );
-      const sourceIndex = ordered.findIndex(
-        item => item.stableShotId === sourceShotId
-      );
-      const targetIndex = ordered.findIndex(
-        item => item.stableShotId === targetShotId
-      );
-      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
-        return;
-      }
-      const [moved] = ordered.splice(sourceIndex, 1);
-      ordered.splice(targetIndex, 0, moved);
-      await saveTimelineItems(
-        ordered.map((item, position) => ({ ...item, position })),
-        { throwOnError: true }
-      );
-    },
-    [saveTimelineItems, timelineItems]
-  );
-
   const timelineLayoutRows = useMemo(
     () => buildTimelineLayout(timelineItems),
     [timelineItems]
@@ -2057,6 +1965,13 @@ export function CreationEditorProvider({
     trimTimelineItemEdge,
     rollTimelineJoin,
     detachTimelineMagnet,
+    manageTimelineVisualLayer,
+    addShotToTimeline: addShotToTimelineById,
+    removeShotFromTimeline,
+    moveShotInTimeline,
+    reorderShotInTimeline: reorderShotInTimelineCommand,
+    resetTimelineShots,
+    removeTimelineVideoClip,
   } = useTimelineCommands({
     activeStoryId: activeId,
     timelineItems,
@@ -2065,20 +1980,28 @@ export function CreationEditorProvider({
     refetchStoryMaterial: storyMaterialQuery.refetch,
     writeLock: timelineWriteLockRef.current,
   });
-  const resetTimelineShots = useCallback(() => {
-    void saveTimelineItems(
-      timelineItems.map((item, position) => ({
-        ...item,
-        included: true,
-        position,
-      }))
-    );
-  }, [saveTimelineItems, timelineItems]);
 
-  useEffect(() => {
-    setSelectedShotNo(current => selectInitialShotNo(current, shots));
-  }, [shots]);
+  // 这两个包一层只为保住既有消费者的签名：shotNo → stableShotId 的解析要用
+  // shots，属于本 Context 的数据；命令本身只认稳定镜头 id。
+  const addShotToTimeline = useCallback(
+    (shotNo: number, stableShotId?: string | null) => {
+      const shotId =
+        normalizeShotIdentity(stableShotId) ??
+        shots
+          .map(creationTimelineShotId)
+          .find((_, index) => shots[index]?.shotNo === shotNo);
+      if (!shotId) return;
+      void addShotToTimelineById(shotId);
+    },
+    [addShotToTimelineById, shots]
+  );
 
+  const reorderShotInTimeline = useCallback(
+    async (sourceShotId: string, targetShotId: string): Promise<void> => {
+      await reorderShotInTimelineCommand(sourceShotId, targetShotId);
+    },
+    [reorderShotInTimelineCommand]
+  );
   const selectedShot = useMemo(
     () => shots.find(shot => shot.shotNo === selectedShotNo) ?? null,
     [selectedShotNo, shots]
@@ -3650,34 +3573,6 @@ export function CreationEditorProvider({
       });
     }
     await storyMaterialQuery.refetch();
-  };
-
-  const removeTimelineVideoClip = async (input: {
-    stableShotId: string;
-    clipId: string;
-  }) => {
-    const sourceItem = timelineItems.find(
-      item => item.stableShotId === input.stableShotId
-    );
-    const sourceClips = sourceItem?.visualClips ?? [];
-    if (!sourceItem || !sourceClips.some(clip => clip.id === input.clipId)) {
-      throw new Error("找不到要移除的视频片段");
-    }
-    await saveTimelineItems(
-      timelineItems.map(item => {
-        if (item.stableShotId !== input.stableShotId) return item;
-        const visualClips = sourceClips.filter(
-          clip => clip.id !== input.clipId
-        );
-        return {
-          ...item,
-          visualClips,
-          visualClipsReplacePrimary:
-            visualClips.length > 0 && item.visualClipsReplacePrimary,
-        };
-      }),
-      { throwOnError: true }
-    );
   };
 
   const updateTimelineVideoEdit = async (input: {

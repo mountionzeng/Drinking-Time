@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { StoryTimelineItem, StoryTimelineOverlay } from "@shared/storyMaterial";
 import type { StoryTimelineVisualLayerState } from "@shared/storyMaterial";
+import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
 import { trpc } from "@/lib/trpc";
 import {
   recordTimelineUndoSnapshot,
@@ -55,6 +56,14 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const addAnchorMut = trpc.creationAgent.addTimelineAnchor.useMutation();
   const removeAnchorMut = trpc.creationAgent.removeTimelineAnchor.useMutation();
   const trimShotMut = trpc.creationAgent.trimShot.useMutation();
+  const layerActionMut = trpc.creationAgent.applyVisualLayerAction.useMutation();
+  const setIncludedMut = trpc.creationAgent.setShotIncluded.useMutation();
+  const moveOrderMut = trpc.creationAgent.moveShotOrder.useMutation();
+  const reorderToTargetMut =
+    trpc.creationAgent.reorderShotToTarget.useMutation();
+  const includeAllMut = trpc.creationAgent.includeAllShots.useMutation();
+  const removeInnerClipMut =
+    trpc.creationAgent.removeInnerVideoClip.useMutation();
 
   const {
     activeStoryId,
@@ -250,7 +259,93 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [detachMagnetMut, run]
   );
 
+  const manageTimelineVisualLayer = useCallback(
+    async (action: TimelineVisualLayerAction) => {
+      const outcome = await run(
+        storyId => layerActionMut.mutateAsync({ storyId, action }),
+        "图层操作失败"
+      );
+      // 图层操作的调用方一直靠抛错来显示失败，保持原样。
+      if (!outcome.applied) throw new Error(outcome.reason ?? "图层操作失败");
+    },
+    [layerActionMut, run]
+  );
+
+  const addShotToTimeline = useCallback(
+    (stableShotId: string) =>
+      run(
+        storyId =>
+          setIncludedMut.mutateAsync({ storyId, stableShotId, included: true }),
+        "加入时间线失败"
+      ),
+    [run, setIncludedMut]
+  );
+
+  const removeShotFromTimeline = useCallback(
+    (stableShotId: string) =>
+      run(
+        storyId =>
+          setIncludedMut.mutateAsync({ storyId, stableShotId, included: false }),
+        "移出时间线失败"
+      ),
+    [run, setIncludedMut]
+  );
+
+  const moveShotInTimeline = useCallback(
+    (stableShotId: string, direction: -1 | 1) =>
+      run(
+        storyId =>
+          moveOrderMut.mutateAsync({ storyId, stableShotId, direction }),
+        "调整顺序失败"
+      ),
+    [moveOrderMut, run]
+  );
+
+  const reorderShotInTimeline = useCallback(
+    (sourceShotId: string, targetShotId: string) =>
+      run(
+        storyId =>
+          reorderToTargetMut.mutateAsync({
+            storyId,
+            sourceShotId,
+            targetShotId,
+          }),
+        "调整顺序失败"
+      ),
+    [reorderToTargetMut, run]
+  );
+
+  const resetTimelineShots = useCallback(
+    () => run(storyId => includeAllMut.mutateAsync({ storyId }), "恢复镜头失败"),
+    [includeAllMut, run]
+  );
+
+  const removeTimelineVideoClip = useCallback(
+    async (input: { stableShotId: string; clipId: string }) => {
+      const outcome = await run(
+        storyId =>
+          removeInnerClipMut.mutateAsync({
+            storyId,
+            stableShotId: input.stableShotId,
+            clipId: input.clipId,
+          }),
+        "移除视频片段失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "移除视频片段失败");
+      }
+    },
+    [removeInnerClipMut, run]
+  );
+
   return {
+    manageTimelineVisualLayer,
+    addShotToTimeline,
+    removeShotFromTimeline,
+    moveShotInTimeline,
+    reorderShotInTimeline,
+    resetTimelineShots,
+    removeTimelineVideoClip,
     moveTimelineGroup,
     moveTimelineShot,
     addTimelineAnchorAtFrame,
