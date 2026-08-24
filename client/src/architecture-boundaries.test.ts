@@ -465,14 +465,10 @@ describe("architecture boundaries", () => {
   // 接手它的部分职责或一并瘦身，届时重新丈量并把基线压回去。
   "client/src/features/storyAgent/views/StoryboardReviewBoard.tsx": 5632,
     "client/src/features/storyAgent/StoryAgentContext.tsx": 4528,
-    // 2026-08-24：临时上调 39 行，到期条件明确且就在下一步。
-  // 这 39 行是把播放时钟从 MultiTrackTimeline 提到父层的接线——时钟不该住在
-  // 一个即将被删的界面里。删除 MultiTrackTimeline（1282 行）之后本文件会降到
-  // 约 3180 行，届时把基线直接压到那个数，不要再回到 4425。
-  //
-  // 删除前还有一件未办：TimelineAudioPlayback 也只住在 MultiTrackTimeline 里，
-  // 故事版没有自己的音频播放。不先搬走它，删完播放就没有声音。
-  "client/src/features/creationEditor/views/EditingNleWorkspace.tsx": 4464,
+    // 2026-08-24：4425 → 3014。删除 MultiTrackTimeline（1282 行）后的实测值。
+  // 上一版曾临时上调到 4464 放行时钟接线，到期条件就是这次删除——现在兑现，
+  // 直接压到实际行数，不许退回 4425。
+  "client/src/features/creationEditor/views/EditingNleWorkspace.tsx": 3014,
     "client/src/features/creationEditor/CreationEditorContext.tsx": 4329,
     "client/src/features/creationEditor/views/StoryboardEditRow.tsx": 3992,
     "client/src/features/publishingDraft/PublishingDraftWorkspace.tsx": 3305,

@@ -1,27 +1,10 @@
 import {
-  Captions,
   Clapperboard,
-  ClipboardPaste,
-  Copy,
   FileUp,
-  Eye,
-  EyeOff,
-  ImagePlus,
   Loader2,
-  Mic2,
-  Music2,
-  Pause,
-  Play,
-  Scissors,
-  SkipBack,
   Upload,
   Video,
-  Volume2,
-  Trash2,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
-import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   useCallback,
   useEffect,
@@ -29,8 +12,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type DragEvent as ReactDragEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { toast } from "sonner";
 import { displayShotCode } from "@shared/shotIdentity";
@@ -48,7 +29,6 @@ import {
   timelineOffsetMsToFrames,
 } from "@shared/storyMaterial";
 import { DEFAULT_TIMELINE_VIDEO_EFFECTS } from "@shared/storyMaterial";
-import { visualTrackId } from "@shared/visualClipModel";
 import {
   buildTimelineLayout,
   overlayVisualLayer,
@@ -57,7 +37,6 @@ import {
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
-import type { TimelineVisualLayerAction } from "@shared/timelineVisualLayers";
 
 import {
   ResizableHandle,
@@ -66,15 +45,14 @@ import {
 } from "@/components/ui/resizable";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
 import {
-  hasStoryImageDragPayload,
   readStoryImageDragPayload,
 } from "@/features/storyAgent/storyImageDrag";
 import {
-  hasVideoTakeDragPayload,
   readVideoTakeDragPayload,
 } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
   storyboardAudioTimelineTotalMs,
@@ -102,10 +80,7 @@ import {
 import { timelineMagneticJoins } from "@shared/timelineCommands";
 import type { CreationEditorShot } from "../types";
 import {
-  advanceTimelinePlayhead,
-  clampTimelinePlayheadMs,
   stepTimelinePlayheadByFrames,
-  timelineMsFromClientX,
 } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
@@ -137,8 +112,6 @@ import {
 } from "../storyboardEditRow";
 import { shouldHandleCreationEditorUndoShortcut } from "../timelineUndoStore";
 
-const MIN_TIMELINE_SCALE = 8;
-const MAX_TIMELINE_SCALE = 42;
 const DEFAULT_STORYBOARD_PANEL_SIZE = 50;
 const DEFAULT_PREVIEW_PANEL_SIZE = 50;
 const PREVIEW_CANVAS_INSET_PX = 12;
@@ -1244,23 +1217,7 @@ export function timelineLaneDomain(laneId: string): TimelineLane["domain"] {
     : "visual";
 }
 
-function laneIcon(icon: TimelineLane["icon"]) {
-  if (icon === "captions") return <Captions className="h-3 w-3" />;
-  if (icon === "voice") return <Mic2 className="h-3 w-3" />;
-  if (icon === "music") return <Music2 className="h-3 w-3" />;
-  if (icon === "audio") return <Volume2 className="h-3 w-3" />;
-  return <Video className="h-3 w-3" />;
-}
 
-function laneColors(tone: TimelineLane["tone"]) {
-  if (tone === "blue") return "border-sky-500/55 bg-sky-500/25 text-sky-950";
-  if (tone === "green")
-    return "border-emerald-500/55 bg-emerald-500/30 text-emerald-950";
-  if (tone === "teal") return "border-teal-500/55 bg-teal-500/25 text-teal-950";
-  if (tone === "amber")
-    return "border-amber-500/55 bg-amber-500/25 text-amber-950";
-  return "border-border bg-muted text-foreground";
-}
 
 function cueText(clip: ChatCutTimelineClip, manifest: ChatCutTimelineManifest) {
   const code = chatCutCueCode(clip.name);
@@ -1595,1402 +1552,13 @@ export function buildTimelineLanes(
   return lanes;
 }
 
-type TimelinePlaybackState = {
-  playheadMs: number;
-  isPlaying: boolean;
-};
 
-type TimelinePlaybackRequest = {
-  id: number;
-  isPlaying: boolean;
-};
 
-/** 故事版看板点一下剪辑条时，把播放头搬过去。 */
-type TimelineSeekRequest = {
-  id: number;
-  playheadMs: number;
-};
-
-export function timelineAudioTargetSeconds(
-  clip: Pick<
-    ChatCutTimelineClip,
-    "startMs" | "endMs" | "sourceInMs" | "sourceOutMs"
-  >,
-  playheadMs: number
-): number | null {
-  if (playheadMs < clip.startMs || playheadMs >= clip.endMs) return null;
-  const timelineOffsetMs = Math.max(0, playheadMs - clip.startMs);
-  const sourceDurationMs = Math.max(0, clip.sourceOutMs - clip.sourceInMs);
-  return (
-    (clip.sourceInMs +
-      (sourceDurationMs > 0
-        ? Math.min(timelineOffsetMs, sourceDurationMs)
-        : timelineOffsetMs)) /
-    1000
-  );
-}
-
-export function timelineAudioVolume(name: string): number {
-  return /bgm|music|配乐|音乐/i.test(name) ? 0.18 : 1;
-}
-
-function TimelineAudioPlayback({
-  manifest,
-  playheadMs,
-  isPlaying,
-}: {
-  manifest: ChatCutTimelineManifest | null;
-  playheadMs: number;
-  isPlaying: boolean;
-}) {
-  const audioRefs = useRef(new Map<string, HTMLAudioElement>());
-  const clips = useMemo(
-    () =>
-      (manifest ? chatCutPlaybackAudioTracks(manifest) : [])
-        .flatMap(track => track.clips)
-        .filter(clip => Boolean(clip.audioUrl)),
-    [manifest]
-  );
-
-  useEffect(() => {
-    for (const clip of clips) {
-      const audio = audioRefs.current.get(clip.id);
-      if (!audio) continue;
-      const targetSeconds = timelineAudioTargetSeconds(clip, playheadMs);
-      if (targetSeconds == null) {
-        audio.pause();
-        continue;
-      }
-      audio.volume = timelineAudioVolume(clip.name);
-      const drift = Math.abs(audio.currentTime - targetSeconds);
-      if (drift > (isPlaying ? 0.35 : 0.004)) {
-        try {
-          audio.currentTime = targetSeconds;
-        } catch {
-          // Metadata may still be loading; the next playback tick retries.
-        }
-      }
-      if (isPlaying) {
-        if (audio.paused) void audio.play().catch(() => undefined);
-      } else {
-        audio.pause();
-      }
-    }
-  }, [clips, isPlaying, playheadMs]);
-
-  useEffect(
-    () => () => {
-      audioRefs.current.forEach(audio => audio.pause());
-    },
-    []
-  );
-
-  return (
-    <div className="hidden" aria-hidden="true">
-      {clips.map(clip => (
-        <audio
-          key={clip.id}
-          ref={element => {
-            if (element) audioRefs.current.set(clip.id, element);
-            else audioRefs.current.delete(clip.id);
-          }}
-          src={clip.audioUrl ?? undefined}
-          preload="auto"
-        />
-      ))}
-    </div>
-  );
-}
-
-function MultiTrackTimeline({
-  visible,
-  shots,
-  timelineShotIds,
-  manifest,
-  selectedShotNo,
-  onSelectShot,
-  onPlaybackChange,
-  playbackRequest,
-  seekRequest,
-  onSplitAtPlayhead,
-  onExtractFrameAtPlayhead,
-  onMoveVisualClip,
-  onPlaceExternalVisual,
-  visualLayerState,
-  onManageVisualLayer,
-  onEditVideo,
-  onEditImage,
-  onCopyVideo,
-  onPasteVideo,
-  videoClipboardLabel,
-  keyboardShortcutZoneRef,
-}: {
-  visible: boolean;
-  shots: CreationEditorShot[];
-  timelineShotIds: string[];
-  manifest: ChatCutTimelineManifest | null;
-  selectedShotNo: number | null;
-  onSelectShot: (shotNo: number) => void;
-  onPlaybackChange: (playback: TimelinePlaybackState) => void;
-  playbackRequest: TimelinePlaybackRequest;
-  seekRequest: TimelineSeekRequest;
-  onSplitAtPlayhead: (playheadMs: number) => Promise<void>;
-  onExtractFrameAtPlayhead: (playheadMs: number) => Promise<void>;
-  /** 唯一的素材移动命令：镜头、图片和附加片段共用。 */
-  onMoveVisualClip: (input: {
-    clipId: string;
-    toTrackId: string;
-    toStartFrame: number;
-  }) => Promise<void>;
-  onPlaceExternalVisual: (
-    dataTransfer: DataTransfer,
-    timelineFrame: number,
-    visualLayer: number
-  ) => Promise<{ shotNo: number }>;
-  visualLayerState: { count: number; hidden: readonly number[] };
-  onManageVisualLayer: (action: TimelineVisualLayerAction) => Promise<void>;
-  onEditVideo: (target: VideoClipEditorTarget) => void;
-  onEditImage: (target: ImageClipEditorTarget) => void;
-  onCopyVideo: (target: VideoClipEditorTarget) => void;
-  onPasteVideo: (input: {
-    stableShotId: string;
-    shotNo: number;
-    mode?: "replace" | "append";
-    targetOffsetMs?: number;
-  }) => Promise<void>;
-  videoClipboardLabel: string | null;
-  keyboardShortcutZoneRef: { current: boolean };
-}) {
-  const [scale, setScale] = useState(16);
-  const timings = useMemo(
-    () =>
-      buildStoryboardTimingRows(
-        shots,
-        timelineShotIds,
-        timelineItemsForShots(shots)
-      ),
-    [shots, timelineShotIds]
-  );
-  const lanes = useMemo(
-    () =>
-      buildTimelineLanes(
-        shots,
-        timelineShotIds,
-        manifest,
-        visualLayerState.count
-      ),
-    [manifest, shots, timelineShotIds, visualLayerState.count]
-  );
-  const totalMs = Math.max(
-    manifest?.durationMs ?? 0,
-    timings.at(-1)?.endMs ?? 0,
-    1000
-  );
-  const initialPlayheadMs =
-    timings.find(timing => timing.shotNo === selectedShotNo)?.startMs ?? 0;
-  const [playheadMs, setPlayheadMs] = useState(initialPlayheadMs);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [pendingAction, setPendingAction] = useState<
-    "split" | "extract" | "move" | "paste" | "place" | null
-  >(null);
-  const pointerDragRef = useRef<{
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    startMs: number;
-    sourceVisualLayer: number;
-    moveTarget: TimelineClipMoveTarget;
-    moved: boolean;
-  } | null>(null);
-  const suppressClipClickRef = useRef(false);
-  const [pointerDragPreview, setPointerDragPreview] = useState<{
-    moveId: string;
-    deltaX: number;
-    targetVisualLayer: number;
-  } | null>(null);
-  const [hiddenLaneIds, setHiddenLaneIds] = useState<Set<string>>(
-    () => new Set()
-  );
-  const [removedLaneIds, setRemovedLaneIds] = useState<Set<string>>(
-    () => new Set()
-  );
-  const [timelinePasteTarget, setTimelinePasteTarget] = useState<{
-    stableShotId: string;
-    shotNo: number;
-    targetOffsetMs: number;
-  } | null>(null);
-  const playheadMsRef = useRef(initialPlayheadMs);
-  const isPlayingRef = useRef(false);
-  const handledPlaybackRequestIdRef = useRef(0);
-  const handledSeekRequestIdRef = useRef(0);
-  const selectionFromPlayheadRef = useRef<number | null>(null);
-  const timelineContentRef = useRef<HTMLDivElement | null>(null);
-  const timelineViewportRef = useRef<HTMLDivElement | null>(null);
-  const timelineWidth = Math.max(720, Math.ceil((totalMs / 1000) * scale));
-  const tickStepSec = scale >= 24 ? 5 : 10;
-  const tickCount = Math.ceil(totalMs / 1000 / tickStepSec);
-  // 保留隐藏层的行高与名称，左右两侧始终对齐；隐藏只移除该层内容。
-  const visibleLanes = lanes.filter(lane => !removedLaneIds.has(lane.id));
-
-  const toggleLaneVisibility = useCallback(
-    (lane: TimelineLane) => {
-      if (lane.visualLayer != null) {
-        void onManageVisualLayer({
-          kind: "toggle-hidden",
-          layer: lane.visualLayer,
-        });
-        return;
-      }
-    setHiddenLaneIds(current => {
-      const next = new Set(current);
-        if (next.has(lane.id)) next.delete(lane.id);
-        else next.add(lane.id);
-      return next;
-    });
-    },
-    [onManageVisualLayer]
-  );
-
-  const removeLane = useCallback(
-    (lane: TimelineLane) => {
-      if (lane.visualLayer != null) {
-        void onManageVisualLayer({ kind: "remove", layer: lane.visualLayer });
-        return;
-      }
-    setRemovedLaneIds(current => {
-      const next = new Set(current);
-        next.add(lane.id);
-      return next;
-    });
-    },
-    [onManageVisualLayer]
-  );
-
-  const setPlaybackRunning = useCallback(
-    (nextPlaying: boolean) => {
-      isPlayingRef.current = nextPlaying;
-      setIsPlaying(nextPlaying);
-      onPlaybackChange({
-        playheadMs: playheadMsRef.current,
-        isPlaying: nextPlaying,
-      });
-    },
-    [onPlaybackChange]
-  );
-
-  // 这条时间线即使被折叠也继续当时钟用：故事版看板的走带和播放头读的是同一份状态。
-
-  const commitPlayhead = useCallback(
-    (
-      requestedMs: number,
-      options: { selectShot?: boolean; playing?: boolean } = {}
-    ) => {
-      const nextMs = clampTimelinePlayheadMs(requestedMs, totalMs);
-      const nextPlaying = options.playing ?? isPlayingRef.current;
-      playheadMsRef.current = nextMs;
-      setPlayheadMs(nextMs);
-      onPlaybackChange({ playheadMs: nextMs, isPlaying: nextPlaying });
-
-      if (options.selectShot === false || timings.length === 0) return;
-      const lastTiming = timings.at(-1);
-      const lookupMs = Math.min(
-        nextMs,
-        Math.max(0, (lastTiming?.endMs ?? totalMs) - 1)
-      );
-      const nextShotNo = findShotAtTime(timings, lookupMs);
-      if (nextShotNo != null && nextShotNo !== selectedShotNo) {
-        selectionFromPlayheadRef.current = nextShotNo;
-        onSelectShot(nextShotNo);
-      }
-    },
-    [onPlaybackChange, onSelectShot, selectedShotNo, timings, totalMs]
-  );
-
-  useEffect(() => {
-    if (selectedShotNo == null) return;
-    if (selectionFromPlayheadRef.current === selectedShotNo) {
-      selectionFromPlayheadRef.current = null;
-      return;
-    }
-    const timing = timings.find(item => item.shotNo === selectedShotNo);
-    if (!timing) return;
-    isPlayingRef.current = false;
-    setIsPlaying(false);
-    playheadMsRef.current = timing.startMs;
-    setPlayheadMs(timing.startMs);
-    onPlaybackChange({ playheadMs: timing.startMs, isPlaying: false });
-  }, [onPlaybackChange, selectedShotNo, timings]);
-
-  useEffect(() => {
-    if (!isPlaying) return;
-    let animationFrame = 0;
-    let previousTime = performance.now();
-
-    const tick = (currentTime: number) => {
-      // 停止请求可能和已经排队的这一帧交错；旧帧不能再把父层 isPlaying 写回 true。
-      if (!isPlayingRef.current) return;
-      const next = advanceTimelinePlayhead(
-        playheadMsRef.current,
-        currentTime - previousTime,
-        totalMs
-      );
-      previousTime = currentTime;
-
-      // 先登记下一帧，再提交播放头/镜头选择状态。提交状态可能触发
-      // effect 清理；如果顺序相反，旧循环会在清理之后又偷偷预约一帧，
-      // 每次切镜头都会多出一条 rAF，最终表现为时间线加速和画面闪烁。
-      animationFrame = requestAnimationFrame(tick);
-      commitPlayhead(next.timeMs, {
-        selectShot: true,
-        playing: !next.ended,
-      });
-      if (next.ended) {
-        cancelAnimationFrame(animationFrame);
-        isPlayingRef.current = false;
-        setIsPlaying(false);
-        return;
-      }
-    };
-
-    animationFrame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [commitPlayhead, isPlaying, totalMs]);
-
-  const seekFromPointer = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0) return;
-      const target = event.target as HTMLElement;
-      if (target.closest("[data-timeline-clip]")) return;
-      const timeline = timelineContentRef.current;
-      if (!timeline) return;
-      setPlaybackRunning(false);
-      commitPlayhead(
-        timelineMsFromClientX(
-          event.clientX,
-          timeline.getBoundingClientRect().left,
-          scale,
-          totalMs
-        ),
-        { selectShot: true, playing: false }
-      );
-    },
-    [commitPlayhead, scale, setPlaybackRunning, totalMs]
-  );
-
-  const seekPlayheadHandle = useCallback(
-    (clientX: number) => {
-      const timeline = timelineContentRef.current;
-      if (!timeline) return;
-      commitPlayhead(
-        timelineMsFromClientX(
-          clientX,
-          timeline.getBoundingClientRect().left,
-          scale,
-          totalMs
-        ),
-        { selectShot: true, playing: false }
-      );
-    },
-    [commitPlayhead, scale, totalMs]
-  );
-
-  const togglePlayback = () => {
-    if (isPlayingRef.current) {
-      setPlaybackRunning(false);
-      return;
-    }
-    if (playheadMsRef.current >= totalMs) {
-      commitPlayhead(0, { selectShot: true, playing: false });
-    }
-    setPlaybackRunning(true);
-  };
-
-  useEffect(() => {
-    if (
-      playbackRequest.id === 0 ||
-      playbackRequest.id === handledPlaybackRequestIdRef.current
-    ) {
-      return;
-    }
-    handledPlaybackRequestIdRef.current = playbackRequest.id;
-    if (playbackRequest.isPlaying && playheadMsRef.current >= totalMs) {
-      commitPlayhead(0, { selectShot: true, playing: false });
-    }
-    setPlaybackRunning(playbackRequest.isPlaying);
-  }, [commitPlayhead, playbackRequest, setPlaybackRunning, totalMs]);
-
-  useEffect(() => {
-    if (
-      seekRequest.id === 0 ||
-      seekRequest.id === handledSeekRequestIdRef.current
-    ) {
-      return;
-    }
-    handledSeekRequestIdRef.current = seekRequest.id;
-    commitPlayhead(seekRequest.playheadMs, { selectShot: true });
-  }, [commitPlayhead, seekRequest]);
-
-  const stepPlayheadByKeyboard = useCallback(
-    (direction: -1 | 1, accelerated = false) => {
-      setPlaybackRunning(false);
-      commitPlayhead(
-        stepTimelinePlayheadByFrames(
-          playheadMsRef.current,
-          direction,
-          manifest?.fps ?? 30,
-          totalMs,
-          accelerated ? 10 : 1
-        ),
-        { selectShot: true, playing: false }
-      );
-    },
-    [commitPlayhead, manifest?.fps, setPlaybackRunning, totalMs]
-  );
-
-  const runPlayheadAction = useCallback(
-    async (action: "split" | "extract") => {
-      setPlaybackRunning(false);
-      setPendingAction(action);
-      try {
-        if (action === "split") {
-          await onSplitAtPlayhead(playheadMsRef.current);
-          toast.success("已在当前帧切割视频，片段可直接拖动");
-        } else {
-          await onExtractFrameAtPlayhead(playheadMsRef.current);
-          toast.success("当前帧已加入该镜头的画面");
-        }
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : action === "split"
-              ? "切割当前帧失败"
-              : "提取当前帧失败"
-        );
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [onExtractFrameAtPlayhead, onSplitAtPlayhead, setPlaybackRunning]
-  );
-
-  const pointerTargetVisualLayer = useCallback(
-    (clientX: number, clientY: number, fallback: number) => {
-      const row = document
-        .elementFromPoint(clientX, clientY)
-        ?.closest<HTMLElement>("[data-visual-layer]");
-      const parsed = Number(row?.dataset.visualLayer);
-      return Number.isFinite(parsed)
-        ? Math.max(0, Math.round(parsed))
-        : fallback;
-    },
-    []
-  );
-
-  const startTimelineClipPointerDrag = useCallback(
-    (
-      event: ReactPointerEvent<HTMLButtonElement>,
-      clip: TimelineLane["clips"][number],
-      visualLayer: number
-    ) => {
-      if (event.button !== 0 || pendingAction || !clip.moveTarget) return;
-      event.stopPropagation();
-      event.currentTarget.focus();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      setPlaybackRunning(false);
-      pointerDragRef.current = {
-        pointerId: event.pointerId,
-        startClientX: event.clientX,
-        startClientY: event.clientY,
-        startMs: clip.startMs,
-        sourceVisualLayer: visualLayer,
-        moveTarget: clip.moveTarget,
-        moved: false,
-      };
-      setPointerDragPreview({
-        moveId:
-          clip.moveTarget.kind === "shot"
-            ? clip.moveTarget.stableShotId
-            : clip.moveTarget.clipId,
-        deltaX: 0,
-        targetVisualLayer: visualLayer,
-      });
-    },
-    [pendingAction, setPlaybackRunning]
-      );
-
-  const moveTimelineClipPointerDrag = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      const drag = pointerDragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      if (
-        !drag.moved &&
-        !timelinePointerDragExceededThreshold({
-          startClientX: drag.startClientX,
-          startClientY: drag.startClientY,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        })
-      ) {
-        return;
-      }
-      drag.moved = true;
-      event.preventDefault();
-      const moveId =
-        drag.moveTarget.kind === "shot"
-          ? drag.moveTarget.stableShotId
-          : drag.moveTarget.clipId;
-      setPointerDragPreview({
-        moveId,
-        deltaX: event.clientX - drag.startClientX,
-        targetVisualLayer: pointerTargetVisualLayer(
-          event.clientX,
-          event.clientY,
-          drag.sourceVisualLayer
-        ),
-      });
-    },
-    [pointerTargetVisualLayer]
-      );
-
-  const commitTimelineClipPlacement = useCallback(
-    async (input: {
-      moveTarget: TimelineClipMoveTarget;
-      initialStartFrame: number;
-      targetStartFrame: number;
-      sourceVisualLayer: number;
-      targetVisualLayer: number;
-    }) => {
-      const targetStartFrame = Math.max(0, Math.round(input.targetStartFrame));
-      const effectiveDeltaFrames = targetStartFrame - input.initialStartFrame;
-      const targetVisualLayer = Math.max(
-        0,
-        Math.round(input.targetVisualLayer)
-      );
-      if (
-        effectiveDeltaFrames === 0 &&
-        targetVisualLayer === input.sourceVisualLayer
-      ) {
-        return;
-      }
-      const targetStartMs = timelineFramesToMs(targetStartFrame);
-      const lookupMs = Math.min(targetStartMs, Math.max(0, totalMs - 1));
-      const targetTiming = storyboardTimingWinnerAt(timings, lookupMs);
-      setPendingAction("move");
-      try {
-        // 底部 Timeline 和上方 Storyboard 走同一个命令：这里已经算出了绝对帧和
-        // 目标图层，不再换算成「落在哪个镜头里的相对偏移」。
-        await onMoveVisualClip({
-          clipId:
-            input.moveTarget.kind === "shot"
-              ? `shot:${input.moveTarget.stableShotId}`
-              : input.moveTarget.kind === "image"
-                ? `image:${input.moveTarget.clipId}`
-                : `video:${input.moveTarget.clipId}`,
-          toTrackId: visualTrackId(targetVisualLayer),
-          toStartFrame: targetStartFrame,
-        });
-        if (input.moveTarget.kind === "shot") {
-          const stableShotId = input.moveTarget.stableShotId;
-          const movedShot = shots.find(
-            shot => (shot.stableShotId ?? shot.shotIdentity) === stableShotId
-          );
-          if (movedShot) onSelectShot(movedShot.shotNo);
-        } else if (targetTiming) {
-          onSelectShot(targetTiming.shotNo);
-        }
-        toast.success("素材位置和图层已保存");
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "素材移动失败");
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      onMoveVisualClip,
-      onSelectShot,
-      pointerTargetVisualLayer,
-      scale,
-      shots,
-      timings,
-      totalMs,
-    ]
-  );
-
-  const finishTimelineClipPointerDrag = useCallback(
-    async (event: ReactPointerEvent<HTMLButtonElement>) => {
-      const drag = pointerDragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      pointerDragRef.current = null;
-      setPointerDragPreview(null);
-      if (!drag.moved) return;
-      suppressClipClickRef.current = true;
-      window.setTimeout(() => {
-        suppressClipClickRef.current = false;
-      }, 0);
-      event.preventDefault();
-      event.stopPropagation();
-      const placement = timelineClipPointerPlacement({
-        startClientX: drag.startClientX,
-        releaseClientX: event.clientX,
-        pixelsPerSecond: scale,
-        targetVisualLayer: pointerTargetVisualLayer(
-          event.clientX,
-          event.clientY,
-          drag.sourceVisualLayer
-        ),
-      });
-      const initialStartFrame = timelineOffsetMsToFrames(drag.startMs);
-      await commitTimelineClipPlacement({
-        moveTarget: drag.moveTarget,
-        initialStartFrame,
-        targetStartFrame: initialStartFrame + placement.deltaFrames,
-        sourceVisualLayer: drag.sourceVisualLayer,
-        targetVisualLayer: placement.visualLayer,
-      });
-    },
-    [commitTimelineClipPlacement, pointerTargetVisualLayer, scale]
-  );
-
-  const moveTimelineClipByKeyboard = useCallback(
-    async (
-      event: React.KeyboardEvent<HTMLButtonElement>,
-      clip: TimelineLane["clips"][number],
-      visualLayer: number
-    ) => {
-      if (!clip.moveTarget || pendingAction) return;
-      const placement = timelineClipKeyboardPlacement({
-        key: event.key,
-        shiftKey: event.shiftKey,
-        visualLayer,
-      });
-      if (!placement) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const initialStartFrame = timelineOffsetMsToFrames(clip.startMs);
-      await commitTimelineClipPlacement({
-        moveTarget: clip.moveTarget,
-        initialStartFrame,
-        targetStartFrame: initialStartFrame + placement.deltaFrames,
-        sourceVisualLayer: visualLayer,
-        targetVisualLayer: placement.visualLayer,
-      });
-    },
-    [commitTimelineClipPlacement, pendingAction]
-  );
-
-  const cancelTimelineClipPointerDrag = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (pointerDragRef.current?.pointerId !== event.pointerId) return;
-      pointerDragRef.current = null;
-      setPointerDragPreview(null);
-    },
-    []
-  );
-
-  const acceptsExternalVisual = useCallback((dataTransfer: DataTransfer) => {
-    return (
-      Array.from(dataTransfer.types).includes("Files") ||
-      hasStoryImageDragPayload(dataTransfer) ||
-      hasVideoTakeDragPayload(dataTransfer)
-    );
-  }, []);
-
-  const dropExternalVisual = useCallback(
-    async (event: ReactDragEvent<HTMLDivElement>, visualLayer: number) => {
-      if (pendingAction || !acceptsExternalVisual(event.dataTransfer)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const timeline = timelineContentRef.current;
-      if (!timeline) return;
-      const targetMs = timelineMsFromClientX(
-        event.clientX,
-        timeline.getBoundingClientRect().left,
-        scale,
-        totalMs
-      );
-      setPendingAction("place");
-      try {
-        const result = await onPlaceExternalVisual(
-          event.dataTransfer,
-          timelineOffsetMsToFrames(targetMs),
-          visualLayer
-        );
-        onSelectShot(result.shotNo);
-        commitPlayhead(targetMs, { selectShot: false, playing: false });
-        toast.success("素材已新建为独立镜头并放到指定位置");
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "素材落位失败");
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      acceptsExternalVisual,
-      commitPlayhead,
-      onPlaceExternalVisual,
-      onSelectShot,
-      pendingAction,
-      scale,
-      totalMs,
-    ]
-  );
-
-  const rememberTimelinePasteTarget = useCallback(
-    (clientX: number) => {
-      const timeline = timelineContentRef.current;
-      if (!timeline) return;
-      const targetMs = timelineMsFromClientX(
-        clientX,
-        timeline.getBoundingClientRect().left,
-        scale,
-        totalMs
-      );
-      const lastTiming = timings.at(-1);
-      const lookupMs = Math.min(
-        targetMs,
-        Math.max(0, (lastTiming?.endMs ?? totalMs) - 1)
-      );
-      const timing = timings.find(
-        item => lookupMs >= item.startMs && lookupMs < item.endMs
-      );
-      setTimelinePasteTarget(
-        timing
-          ? {
-              stableShotId: timing.stableShotId,
-              shotNo: timing.shotNo,
-              targetOffsetMs: Math.max(0, targetMs - timing.startMs),
-            }
-          : null
-      );
-    },
-    [scale, timings, totalMs]
-  );
-
-  const pasteVideoIntoTimeline = useCallback(
-    async (mode: "replace" | "append") => {
-      if (!timelinePasteTarget || !videoClipboardLabel || pendingAction) return;
-      setPlaybackRunning(false);
-      setPendingAction("paste");
-      try {
-        await onPasteVideo({
-          ...timelinePasteTarget,
-          mode,
-        });
-        onSelectShot(timelinePasteTarget.shotNo);
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [
-      onPasteVideo,
-      onSelectShot,
-      pendingAction,
-      setPlaybackRunning,
-      timelinePasteTarget,
-      videoClipboardLabel,
-    ]
-  );
-
-  return (
-    <section
-      hidden={!visible}
-      data-testid="editing-multitrack-timeline"
-      className={`${visible ? "flex" : "hidden"} min-h-[230px] flex-[0_0_42%] flex-col border-t border-border bg-background`}
-      aria-label="多轨剪辑时间轴"
-      aria-hidden={!visible}
-      onPointerEnter={() => {
-        keyboardShortcutZoneRef.current = true;
-      }}
-      onPointerMove={() => {
-        keyboardShortcutZoneRef.current = true;
-      }}
-      onPointerLeave={() => {
-        keyboardShortcutZoneRef.current = false;
-      }}
-    >
-      <TimelineAudioPlayback
-        manifest={manifest}
-        playheadMs={playheadMs}
-        isPlaying={isPlaying}
-      />
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold">时间线</span>
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {shots.length} 镜 · {formatStoryboardTimestamp(totalMs)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setPlaybackRunning(false);
-              commitPlayhead(0, { selectShot: true, playing: false });
-            }}
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            aria-label="回到时间线开头"
-            title="回到开头"
-          >
-            <SkipBack className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={togglePlayback}
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/50 bg-rose-500/10 text-rose-600 transition hover:bg-rose-500/20"
-            aria-label={isPlaying ? "暂停时间线" : "播放时间线"}
-            title={isPlaying ? "暂停" : "播放"}
-          >
-            {isPlaying ? (
-              <Pause className="h-3.5 w-3.5" />
-            ) : (
-              <Play className="h-3.5 w-3.5 fill-current" />
-            )}
-          </button>
-          <span
-            className="min-w-[66px] font-mono text-[10px] font-semibold tabular-nums text-rose-600"
-            aria-live="off"
-          >
-            {formatStoryboardTimestamp(playheadMs)}
-          </span>
-          <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() =>
-              setScale(value => Math.max(MIN_TIMELINE_SCALE, value - 2))
-            }
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
-            aria-label="缩小时间线"
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </button>
-          <input
-            type="range"
-            min={MIN_TIMELINE_SCALE}
-            max={MAX_TIMELINE_SCALE}
-            step={1}
-            value={scale}
-            onChange={event => setScale(Number(event.currentTarget.value))}
-            className="w-24 accent-[var(--primary)]"
-            aria-label="时间线缩放"
-          />
-          <button
-            type="button"
-            onClick={() =>
-              setScale(value => Math.min(MAX_TIMELINE_SCALE, value + 2))
-            }
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"
-            aria-label="放大时间线"
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="w-[132px] shrink-0 border-r border-border bg-muted/30 pt-6">
-          {visibleLanes.map(lane => {
-            const hidden =
-              lane.visualLayer == null
-                ? hiddenLaneIds.has(lane.id)
-                : visualLayerState.hidden.includes(lane.visualLayer);
-            return (
-            <div
-              key={lane.id}
-              className={`group flex items-center gap-1 border-b border-border/70 px-1.5 text-[10px] font-semibold text-muted-foreground ${hidden ? "opacity-40" : ""}`}
-              style={{ height: 27 }}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-1">
-                {laneIcon(lane.icon)}
-                <span className="truncate">{lane.label}</span>
-              </span>
-              <button
-                type="button"
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={() => toggleLaneVisibility(lane)}
-                aria-label={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
-                title={`${hidden ? "显示" : "隐藏"} ${lane.label}轨道`}
-              >
-                  {hidden ? (
-                    <EyeOff className="h-3 w-3" />
-                  ) : (
-                    <Eye className="h-3 w-3" />
-                  )}
-              </button>
-                {lane.visualLayer != null ? (
-                  <>
-              <button
-                type="button"
-                      disabled={lane.visualLayer >= visualLayerState.count - 1}
-                      className="flex h-5 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
-                      onClick={() =>
-                        void onManageVisualLayer({
-                          kind: "move",
-                          from: lane.visualLayer!,
-                          to: lane.visualLayer! + 1,
-                        })
-                      }
-                      aria-label={`${lane.label}轨道上移`}
-                      title="整层上移"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      disabled={lane.visualLayer <= 0}
-                      className="flex h-5 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
-                      onClick={() =>
-                        void onManageVisualLayer({
-                          kind: "move",
-                          from: lane.visualLayer!,
-                          to: lane.visualLayer! - 1,
-                        })
-                      }
-                      aria-label={`${lane.label}轨道下移`}
-                      title="整层下移"
-                    >
-                      ↓
-                    </button>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={
-                    lane.visualLayer != null &&
-                    lane.visualLayer === visualLayerState.count - 1 &&
-                    lane.clips.length === 0
-                  }
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-20 group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={() => removeLane(lane)}
-                aria-label={`删除 ${lane.label}轨道`}
-                title={`删除 ${lane.label}轨道`}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-            );
-          })}
-        </div>
-        <div
-          ref={timelineViewportRef}
-          className="min-w-0 flex-1 overflow-auto custom-scrollbar"
-        >
-          <div
-            ref={timelineContentRef}
-            className="relative"
-            style={{ width: timelineWidth }}
-          >
-            <div
-              className="relative h-6 cursor-crosshair border-b border-border bg-muted/20"
-              onPointerDown={seekFromPointer}
-              aria-label="时间标尺，点击定位"
-            >
-              {Array.from({ length: tickCount + 1 }, (_, index) => {
-                const second = index * tickStepSec;
-                return (
-                  <span
-                    key={second}
-                    className="pointer-events-none absolute bottom-0 top-0 border-l border-border/70 pl-1 font-mono text-[9px] tabular-nums text-muted-foreground"
-                    style={{ left: second * scale }}
-                  >
-                    {formatStoryboardTimestamp(second * 1000).replace(
-                      /\.000$/,
-                      ""
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-            {visibleLanes.map(lane => {
-              const hidden =
-                lane.visualLayer == null
-                  ? hiddenLaneIds.has(lane.id)
-                  : visualLayerState.hidden.includes(lane.visualLayer);
-              return (
-              <div
-                key={lane.id}
-                  data-visual-layer={lane.visualLayer}
-                  className={`relative cursor-crosshair border-b border-border/70 bg-background ${pointerDragPreview?.targetVisualLayer === lane.visualLayer ? "bg-primary/5 ring-1 ring-inset ring-primary/25" : ""}`}
-                style={{ height: 27 }}
-                onPointerDown={seekFromPointer}
-                onDragOver={event => {
-                    if (
-                      lane.visualLayer == null ||
-                      !acceptsExternalVisual(event.dataTransfer)
-                    )
-                      return;
-                  event.preventDefault();
-                    event.dataTransfer.dropEffect = "copy";
-                }}
-                onDrop={event => {
-                    if (lane.visualLayer == null) return;
-                    void dropExternalVisual(event, lane.visualLayer);
-                }}
-                aria-label={`${lane.label} 轨道`}
-              >
-                {!hidden && lane.id === "primary-video" ? (
-                  <ContextMenu.Root>
-                    <ContextMenu.Trigger asChild>
-                      <button
-                        type="button"
-                        className="absolute inset-0 z-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
-                        aria-label="主视频轨空白区"
-                        title={
-                          videoClipboardLabel
-                            ? `右键粘贴 ${videoClipboardLabel}`
-                            : "右键可粘贴已复制的视频"
-                        }
-                        onContextMenu={event =>
-                          rememberTimelinePasteTarget(event.clientX)
-                        }
-                      />
-                    </ContextMenu.Trigger>
-                    <ContextMenu.Portal>
-                      <ContextMenu.Content
-                        className="z-[90] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-                        data-testid="timeline-video-paste-menu"
-                      >
-                        <ContextMenu.Item
-                          disabled={
-                            !videoClipboardLabel ||
-                            !timelinePasteTarget ||
-                            pendingAction != null
-                          }
-                          onSelect={() =>
-                            void pasteVideoIntoTimeline("replace")
-                          }
-                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                        >
-                          {pendingAction === "paste" ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <ClipboardPaste className="h-3.5 w-3.5" />
-                          )}
-                          <span className="min-w-0 flex-1 truncate">
-                            {videoClipboardLabel
-                              ? "替换主视频"
-                              : "剪贴板没有视频"}
-                          </span>
-                        </ContextMenu.Item>
-                        <ContextMenu.Item
-                          disabled={
-                            !videoClipboardLabel ||
-                            !timelinePasteTarget ||
-                            pendingAction != null
-                          }
-                            onSelect={() =>
-                              void pasteVideoIntoTimeline("append")
-                            }
-                          className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                        >
-                          <ClipboardPaste className="h-3.5 w-3.5" />
-                          <span className="min-w-0 flex-1 truncate">
-                            插入为新片段
-                          </span>
-                        </ContextMenu.Item>
-                        {videoClipboardLabel ? (
-                          <ContextMenu.Label className="max-w-[220px] truncate px-2 py-1 text-[10px] text-muted-foreground">
-                            {videoClipboardLabel}
-                          </ContextMenu.Label>
-                        ) : null}
-                      </ContextMenu.Content>
-                    </ContextMenu.Portal>
-                  </ContextMenu.Root>
-                ) : null}
-                  {!hidden &&
-                    lane.clips.map(clip => {
-                  const left = (clip.startMs / 1000) * scale;
-                  const width = Math.max(
-                    4,
-                    ((clip.endMs - clip.startMs) / 1000) * scale
-                  );
-                  const isMovableImageClip =
-                    clip.moveTarget?.kind === "image";
-                  const interactionWidth = timelineClipInteractionWidth({
-                    renderedWidth: width,
-                    moveKind: clip.moveTarget?.kind,
-                  });
-                  const selected =
-                        lane.domain === "visual" &&
-                        clip.shotNo === selectedShotNo;
-                  const clipButton = (
-                    <button
-                      key={`${lane.id}-${clip.id}`}
-                      type="button"
-                          draggable={false}
-                          onPointerDown={event =>
-                            lane.visualLayer == null
-                              ? undefined
-                              : startTimelineClipPointerDrag(
-                                  event,
-                                  clip,
-                                  lane.visualLayer
-                                )
-                          }
-                          onPointerMove={moveTimelineClipPointerDrag}
-                          onPointerUp={event => {
-                            void finishTimelineClipPointerDrag(event);
-                          }}
-                          onPointerCancel={cancelTimelineClipPointerDrag}
-                          onKeyDown={event => {
-                            if (lane.visualLayer == null) return;
-                            void moveTimelineClipByKeyboard(
-                              event,
-                              clip,
-                              lane.visualLayer
-                            );
-                          }}
-                          onClick={event => {
-                            if (suppressClipClickRef.current) {
-                              suppressClipClickRef.current = false;
-                              event.preventDefault();
-                              event.stopPropagation();
-                              return;
-                            }
-                        setPlaybackRunning(false);
-                        commitPlayhead(clip.startMs, {
-                          // 听觉轨道只定位声音播放头，不反向切换视觉镜头。
-                          selectShot: lane.domain === "visual",
-                          playing: false,
-                        });
-                      }}
-                      onDoubleClick={event => {
-                        if (!clip.videoEditTarget && !clip.imageEditTarget)
-                          return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setPlaybackRunning(false);
-                        commitPlayhead(clip.startMs, {
-                          selectShot: true,
-                          playing: false,
-                        });
-                        if (clip.videoEditTarget) {
-                          onEditVideo(clip.videoEditTarget);
-                        } else if (clip.imageEditTarget) {
-                          onEditImage(clip.imageEditTarget);
-                        }
-                      }}
-                      onContextMenu={event => {
-                        if (clip.videoEditTarget) event.stopPropagation();
-                      }}
-                      data-timeline-clip="true"
-                      data-timeline-clip-kind={clip.moveTarget?.kind}
-                          className={`absolute bottom-0.5 top-0.5 overflow-hidden rounded-sm border px-1 text-left text-[9px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${isMovableImageClip ? "z-20 hover:z-30 focus-visible:z-30" : "z-10"} ${clip.moveTarget ? "touch-none cursor-grab active:cursor-grabbing" : ""} ${laneColors(
-                        lane.tone
-                          )} ${selected ? "ring-2 ring-primary" : ""}`}
-                          style={{
-                            left,
-                            width: interactionWidth,
-                            transform:
-                              pointerDragPreview?.moveId === clip.id
-                                ? `translateX(${pointerDragPreview.deltaX}px)`
-                                : undefined,
-                          }}
-                          title={`${
-                        clip.videoEditTarget
-                          ? `${clip.title} · 双击编辑视频`
-                          : clip.imageEditTarget
-                            ? `${clip.title} · 双击编辑图片`
-                            : clip.title
-                          }${clip.moveTarget ? " · 方向键左右逐帧、上下换层，Shift+左右 15 帧" : ""}`}
-                      aria-label={clip.title}
-                    >
-                      {clip.imageUrl ? (
-                        <img
-                          src={clip.imageUrl}
-                          alt=""
-                          className="absolute inset-0 h-full w-full object-cover opacity-45"
-                          style={timelineTransformStyle(
-                            clip.videoEditTarget?.transform ??
-                              clip.imageEditTarget?.transform
-                          )}
-                        />
-                      ) : lane.icon === "music" ? (
-                        <span
-                          className="absolute inset-x-0 bottom-1 top-1 opacity-25"
-                          style={{
-                            backgroundImage:
-                              "repeating-linear-gradient(90deg,currentColor 0 1px,transparent 1px 5px)",
-                          }}
-                        />
-                      ) : null}
-                      <span className="relative block truncate">
-                        {clip.label}
-                      </span>
-                    </button>
-                  );
-                  if (!clip.videoEditTarget) return clipButton;
-                  return (
-                    <ContextMenu.Root key={`${lane.id}-${clip.id}-menu`}>
-                      <ContextMenu.Trigger asChild>
-                        {clipButton}
-                      </ContextMenu.Trigger>
-                      <ContextMenu.Portal>
-                        <ContextMenu.Content
-                          className="z-[90] min-w-[178px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-                          data-testid={`timeline-video-copy-${clip.id}`}
-                        >
-                          <ContextMenu.Item
-                                onSelect={() =>
-                                  onCopyVideo(clip.videoEditTarget!)
-                                }
-                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[highlighted]:bg-accent"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                            复制视频
-                          </ContextMenu.Item>
-                          <ContextMenu.Separator className="my-1 h-px bg-border" />
-                          <ContextMenu.Item
-                            disabled={
-                              !videoClipboardLabel ||
-                              !clip.stableShotId ||
-                              clip.shotNo == null ||
-                              pendingAction != null
-                            }
-                            onSelect={() => {
-                              if (!clip.stableShotId || clip.shotNo == null)
-                                return;
-                              const shotNo = clip.shotNo;
-                              const timing = timings.find(
-                                candidate =>
-                                      candidate.stableShotId ===
-                                      clip.stableShotId
-                              );
-                              setPlaybackRunning(false);
-                              setPendingAction("paste");
-                              void onPasteVideo({
-                                stableShotId: clip.stableShotId,
-                                shotNo,
-                                mode: "append",
-                                targetOffsetMs: Math.max(
-                                  0,
-                                      clip.endMs -
-                                        (timing?.startMs ?? clip.startMs)
-                                ),
-                              })
-                                .then(() => onSelectShot(shotNo))
-                                .catch(error => {
-                                  toast.error(
-                                    error instanceof Error
-                                      ? error.message
-                                      : "视频片段插入失败"
-                                  );
-                                })
-                                .finally(() => setPendingAction(null));
-                            }}
-                            className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                          >
-                            <ClipboardPaste className="h-3.5 w-3.5" />
-                            插入复制的视频到此片段后
-                          </ContextMenu.Item>
-                        </ContextMenu.Content>
-                      </ContextMenu.Portal>
-                    </ContextMenu.Root>
-                  );
-                })}
-              </div>
-              );
-            })}
-            <ContextMenu.Root>
-              <ContextMenu.Trigger asChild>
-                <div
-                  role="slider"
-                  tabIndex={0}
-                  className="group absolute bottom-0 top-0 z-30 w-4 -translate-x-1/2 cursor-ew-resize touch-none outline-none"
-                  style={{ left: (playheadMs / 1000) * scale }}
-                  aria-label="拖动播放头"
-                  aria-valuemin={0}
-                  aria-valuemax={totalMs}
-                  aria-valuenow={Math.round(playheadMs)}
-                  aria-valuetext={formatStoryboardTimestamp(playheadMs)}
-                  title="拖动播放头；右键切割或提取当前帧"
-                  onPointerDown={event => {
-                    if (event.button === 2) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setPlaybackRunning(false);
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    seekPlayheadHandle(event.clientX);
-                  }}
-                  onPointerMove={event => {
-                    if (
-                      event.currentTarget.hasPointerCapture(event.pointerId)
-                    ) {
-                      seekPlayheadHandle(event.clientX);
-                    }
-                  }}
-                  onPointerUp={event => {
-                    if (
-                      event.currentTarget.hasPointerCapture(event.pointerId)
-                    ) {
-                      event.currentTarget.releasePointerCapture(
-                        event.pointerId
-                      );
-                    }
-                  }}
-                  onKeyDown={event => {
-                    if (
-                      event.key !== "ArrowLeft" &&
-                      event.key !== "ArrowRight"
-                    ) {
-                      return;
-                    }
-                    event.preventDefault();
-                    event.stopPropagation();
-                    stepPlayheadByKeyboard(
-                      event.key === "ArrowRight" ? 1 : -1,
-                      event.shiftKey
-                    );
-                  }}
-                >
-                  <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-b-sm bg-rose-500 shadow-sm ring-1 ring-white/70 group-focus-visible:ring-2 group-focus-visible:ring-rose-300" />
-                  <span className="absolute bottom-0 left-1/2 top-2 w-px -translate-x-1/2 bg-rose-500 shadow-[0_0_0_1px_rgb(244_63_94_/_0.18)]" />
-                </div>
-              </ContextMenu.Trigger>
-              <ContextMenu.Portal>
-                <ContextMenu.Content
-                  className="z-[80] min-w-[190px] rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-                  data-testid="timeline-playhead-menu"
-                >
-                  <ContextMenu.Item
-                    disabled={pendingAction != null}
-                    onSelect={() => void runPlayheadAction("split")}
-                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                  >
-                    {pendingAction === "split" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Scissors className="h-3.5 w-3.5" />
-                    )}
-                    切割当前帧
-                  </ContextMenu.Item>
-                  <ContextMenu.Item
-                    disabled={pendingAction != null}
-                    onSelect={() => void runPlayheadAction("extract")}
-                    className="flex h-8 cursor-default select-none items-center gap-2 rounded-sm px-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[disabled]:opacity-45"
-                  >
-                    {pendingAction === "extract" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ImagePlus className="h-3.5 w-3.5" />
-                    )}
-                    提取当前帧作为素材
-                  </ContextMenu.Item>
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
-            </ContextMenu.Root>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 export default function EditingNleWorkspace({
-  timelineVisible = true,
   videoEditorHandoffTarget = null,
   onVideoEditorHandoffHandled,
 }: {
-  timelineVisible?: boolean;
   videoEditorHandoffTarget?: VideoClipEditorTarget | null;
   onVideoEditorHandoffHandled?: () => void;
 }) {
@@ -3059,9 +1627,6 @@ export default function EditingNleWorkspace({
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
-  const [timelinePlayback, setTimelinePlaybackState] =
-    useState<TimelinePlaybackState>({ playheadMs: 0, isPlaying: false });
-  const setTimelinePlayback = setTimelinePlaybackState;
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
    *
@@ -3072,19 +1637,6 @@ export default function EditingNleWorkspace({
    *    亮着但时间不走」。这是 2026-08-24 实测踩到的，不是理论担心。
    * 2. 聊聊只在用户发消息那一刻需要这个值，而那时用户必然不在播放。
    */
-  const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
-  useEffect(() => {
-    if (timelinePlayback.isPlaying) return;
-    setSpinePlayheadMs(Math.max(0, Math.round(timelinePlayback.playheadMs)));
-  }, [
-    setSpinePlayheadMs,
-    timelinePlayback.isPlaying,
-    timelinePlayback.playheadMs,
-  ]);
-  const [timelinePlaybackRequest, setTimelinePlaybackRequest] =
-    useState<TimelinePlaybackRequest>({ id: 0, isPlaying: false });
-  const [timelineSeekRequest, setTimelineSeekRequest] =
-    useState<TimelineSeekRequest>({ id: 0, playheadMs: 0 });
   const [boardSelectedRange, setBoardSelectedRange] =
     useState<StoryboardEditRange | null>(null);
   const [extractedFrameRequirements, setExtractedFrameRequirements] = useState<{
@@ -3100,6 +1652,10 @@ export default function EditingNleWorkspace({
     () => buildStoryboardTimingRows(shots, timelineShotIds, timelineItems),
     [shots, timelineItems, timelineShotIds]
   );
+  const timingRowsRef = useRef(timings);
+  useEffect(() => {
+    timingRowsRef.current = timings;
+  }, [timings]);
   /** 整条片长按最大结束时间算：移动之后靠前的镜头完全可能结束得最晚。 */
   const boardTimelineTotalMs = useMemo(
     () => storyboardTimingTotalMs(timings),
@@ -3112,9 +1668,43 @@ export default function EditingNleWorkspace({
    *
    * 时钟放在父层还有一个理由：底部时间线是要删的，播放不该跟着一起没。
    */
+  /**
+   * 播放头跨进新镜头时同步选中它。
+   *
+   * 这是从被删掉的底部时间线里搬过来的行为（原先叫 `selectShot: true`）：
+   * 播放时镜头详情要跟着走，否则播到第五镜、右边还停在第一镜。
+   * 用 ref 记下「这次选中是播放头引起的」，避免选中态再反过来把播放头拽回
+   * 镜头开头——那会让播放每跨一镜就卡一下。
+   */
+  const selectionFromPlayheadRef = useRef<number | null>(null);
+  const selectShotFromPlayhead = useCallback(
+    (playheadMs: number) => {
+      if (timingRowsRef.current.length === 0) return;
+      const lastTiming = timingRowsRef.current.at(-1);
+      const lookupMs = Math.min(
+        playheadMs,
+        Math.max(0, (lastTiming?.endMs ?? playheadMs) - 1)
+      );
+      const nextShotNo = findShotAtTime(timingRowsRef.current, lookupMs);
+      if (nextShotNo == null) return;
+      selectionFromPlayheadRef.current = nextShotNo;
+      setSelectedShotNo(nextShotNo);
+    },
+    [setSelectedShotNo]
+  );
   const playbackClock = useTimelinePlaybackClock({
     totalMs: boardTimelineTotalMs,
+    onPlayheadCommit: selectShotFromPlayhead,
   });
+  const setSpinePlayheadMs = useStorySpine(state => state.setPlayheadMs);
+  useEffect(() => {
+    if (playbackClock.isPlaying) return;
+    setSpinePlayheadMs(Math.max(0, Math.round(playbackClock.playheadMs)));
+  }, [
+    setSpinePlayheadMs,
+    playbackClock.isPlaying,
+    playbackClock.playheadMs,
+  ]);
   /** 时间尺上要画的位置锚点，按绝对帧排好。 */
   const timelineAnchors = useMemo(
     () =>
@@ -3161,14 +1751,14 @@ export default function EditingNleWorkspace({
       resolveTimelineVideoSource(
         shots,
         timelineShotIds,
-        timelinePlayback.playheadMs,
+        playbackClock.playheadMs,
         timelineOverlays,
         timelineVisualLayerState.hidden
       ),
     [
       shots,
       timelineOverlays,
-      timelinePlayback.playheadMs,
+      playbackClock.playheadMs,
       timelineShotIds,
       timelineVisualLayerState.hidden,
     ]
@@ -3178,7 +1768,7 @@ export default function EditingNleWorkspace({
       items: timelineItems,
       overlays: timelineOverlays,
       hiddenVisualLayers: timelineVisualLayerState.hidden,
-      frame: Math.max(0, Math.round((timelinePlayback.playheadMs * 30) / 1000)),
+      frame: Math.max(0, Math.round((playbackClock.playheadMs * 30) / 1000)),
     });
     return resolved.kind === "image"
       ? {
@@ -3189,7 +1779,7 @@ export default function EditingNleWorkspace({
   }, [
     timelineItems,
     timelineOverlays,
-    timelinePlayback.playheadMs,
+    playbackClock.playheadMs,
     timelineVisualLayerState.hidden,
   ]);
   const storyboardAudioClips = useMemo(
@@ -3336,11 +1926,7 @@ export default function EditingNleWorkspace({
   const openVideoEditor = useCallback(
     (target: VideoClipEditorTarget) => {
       setSelectedShotNo(target.shotNo);
-      setTimelinePlayback(current => ({ ...current, isPlaying: false }));
-      setTimelinePlaybackRequest(current => ({
-        id: current.id + 1,
-        isPlaying: false,
-      }));
+      playbackClock.setPlaying(false);
       setImageEditorTarget(null);
       setVideoEditorTarget(target);
       setVideoEditorPreviewDraft(
@@ -3392,11 +1978,7 @@ export default function EditingNleWorkspace({
   const openImageEditor = useCallback(
     (target: ImageClipEditorTarget) => {
       setSelectedShotNo(target.shotNo);
-      setTimelinePlayback(current => ({ ...current, isPlaying: false }));
-      setTimelinePlaybackRequest(current => ({
-        id: current.id + 1,
-        isPlaying: false,
-      }));
+      playbackClock.setPlaying(false);
       setVideoEditorTarget(null);
       setVideoEditorPreviewDraft(null);
       setImageEditorTarget(target);
@@ -3986,21 +2568,10 @@ export default function EditingNleWorkspace({
         });
         return Boolean(source || visual.kind === "image");
       },
-      // 直接驱动时钟；底部时间线仍通过 seek/playback 请求跟随同一份状态。
-      onSeek: playheadMs => {
-        playbackClock.seek(playheadMs);
-        setTimelineSeekRequest(current => ({
-          id: current.id + 1,
-          playheadMs,
-        }));
-      },
-      onTogglePlay: isPlaying => {
-        playbackClock.setPlaying(isPlaying);
-        setTimelinePlaybackRequest(current => ({
-          id: current.id + 1,
-          isPlaying,
-        }));
-      },
+      // 直接驱动时钟。以前要经过 playbackRequest 的 id 握手转给底部时间线，
+      // 那一层随底部时间线一起删了。
+      onSeek: playheadMs => playbackClock.seek(playheadMs),
+      onTogglePlay: isPlaying => playbackClock.setPlaying(isPlaying),
       onSelectRange: range => {
         setBoardSelectedRange(
           range ? { startMs: range.startMs, endMs: range.endMs } : null
@@ -4197,34 +2768,27 @@ export default function EditingNleWorkspace({
       }
       event.preventDefault();
       if (isSpaceKey) {
-        setTimelinePlaybackRequest(current => ({
-          id: current.id + 1,
-          isPlaying: !timelinePlayback.isPlaying,
-        }));
+        playbackClock.togglePlaying();
         return;
       }
-      setTimelinePlaybackRequest(current => ({
-        id: current.id + 1,
-        isPlaying: false,
-      }));
-      setTimelineSeekRequest(current => ({
-        id: current.id + 1,
-        playheadMs: stepTimelinePlayheadByFrames(
-          timelinePlayback.playheadMs,
-          event.key === "ArrowRight" ? 1 : -1,
-          chatCutTimeline?.fps ?? 30,
-          timings.at(-1)?.endMs ?? 0,
-          event.shiftKey ? 10 : 1
-        ),
-      }));
+      playbackClock.setPlaying(false);
+      playbackClock.seek(
+        stepTimelinePlayheadByFrames(
+            playbackClock.playheadMs,
+            event.key === "ArrowRight" ? 1 : -1,
+            chatCutTimeline?.fps ?? 30,
+            timings.at(-1)?.endMs ?? 0,
+            event.shiftKey ? 10 : 1
+          )
+      );
     };
     window.addEventListener("keydown", handleEditingShortcut);
     return () => window.removeEventListener("keydown", handleEditingShortcut);
   }, [
     chatCutTimeline?.fps,
     keyboardShortcutZoneRef,
-    timelinePlayback.isPlaying,
-    timelinePlayback.playheadMs,
+    playbackClock.isPlaying,
+    playbackClock.playheadMs,
     timings,
   ]);
 
@@ -4382,41 +2946,27 @@ export default function EditingNleWorkspace({
             suppressDefaultVideo={Boolean(
               selectedShot?.timelineItem?.visualClipsReplacePrimary
             )}
-            playheadMs={timelinePlayback.playheadMs}
-            timelinePlaying={timelinePlayback.isPlaying}
+            playheadMs={playbackClock.playheadMs}
+            timelinePlaying={playbackClock.isPlaying}
             format={chatCutTimeline}
-            onRequestTimelinePlaying={isPlaying => {
-              setTimelinePlaybackRequest(current => ({
-                id: current.id + 1,
-                isPlaying,
-              }));
-            }}
+            onRequestTimelinePlaying={isPlaying =>
+              playbackClock.setPlaying(isPlaying)
+            }
             keyboardShortcutZoneRef={keyboardShortcutZoneRef}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
-      <MultiTrackTimeline
-        visible={timelineVisible}
-        shots={shots}
-        timelineShotIds={timelineShotIds}
+      {/*
+        底部时间线（MultiTrackTimeline，1282 行）已于 2026-08-24 删除：
+        它和上方 Storyboard 是同一份数据的两个可编辑投影，标尺、缩放和图层
+        操作各做了一遍。用户选择只留 Storyboard，标尺与缩放已搬过去。
+
+        声音留在这一层：它不属于任何一个界面，跟着播放时钟走。
+      */}
+      <TimelineAudioPlayback
         manifest={chatCutTimeline}
-        selectedShotNo={selectedShot?.shotNo ?? null}
-        onSelectShot={selectShot}
-        onPlaybackChange={setTimelinePlayback}
-        playbackRequest={timelinePlaybackRequest}
-        seekRequest={timelineSeekRequest}
-        onSplitAtPlayhead={splitAtPlayhead}
-        onExtractFrameAtPlayhead={extractFrameAtPlayhead}
-        onMoveVisualClip={moveVisualClip}
-        onPlaceExternalVisual={placeExternalVisual}
-        visualLayerState={timelineVisualLayerState}
-        onManageVisualLayer={manageTimelineVisualLayer}
-        onEditVideo={openVideoEditor}
-        onEditImage={openImageEditor}
-        onCopyVideo={copyVideo}
-        onPasteVideo={pasteVideo}
-        videoClipboardLabel={videoClipboard?.label ?? null}
-        keyboardShortcutZoneRef={keyboardShortcutZoneRef}
+        playheadMs={playbackClock.playheadMs}
+        isPlaying={playbackClock.isPlaying}
       />
       {videoEditorTarget ? (
         <VideoClipEditorPanel

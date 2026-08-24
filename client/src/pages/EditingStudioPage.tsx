@@ -207,7 +207,6 @@ function EditingStudioBody({
   workspace,
   interactionMode,
   onWorkspaceChange,
-  timelineVisible,
   onTimelineVisibleChange,
   materialVisible,
   onMaterialVisibleChange,
@@ -215,7 +214,6 @@ function EditingStudioBody({
   workspace: StudioWorkspace;
   interactionMode: StudioInteractionMode;
   onWorkspaceChange: (workspace: StudioWorkspace) => void;
-  timelineVisible: boolean;
   onTimelineVisibleChange: (visible: boolean) => void;
   materialVisible: boolean;
   onMaterialVisibleChange: (visible: boolean) => void;
@@ -474,7 +472,6 @@ function EditingStudioBody({
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {workspace === "editing" ? (
                   <EditingNleWorkspace
-                    timelineVisible={timelineVisible}
                     videoEditorHandoffTarget={videoEditorHandoffTarget}
                     onVideoEditorHandoffHandled={() =>
                       setVideoEditorHandoffTarget(null)
@@ -741,7 +738,6 @@ export default function EditingStudioPage() {
             workspace={workspace}
             interactionMode={interactionMode}
             onWorkspaceChange={setWorkspace}
-            timelineVisible={timelineVisible}
             onTimelineVisibleChange={setTimelineVisible}
             materialVisible={materialVisible}
             onMaterialVisibleChange={setMaterialVisible}

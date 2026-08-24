@@ -224,8 +224,11 @@ describe("creation editor spine boundary", () => {
     expect(editingPage).not.toContain("{dailyLetterOpen ? (");
     expect(editingWorkspace).toContain("<StoryboardPanel");
     expect(editingWorkspace).toContain("embeddedEditorMode");
-    expect(editingWorkspace).toContain("selectShot: true");
-    expect(editingWorkspace).toContain("onSelectShot(nextShotNo)");
+    // 播放时镜头详情要跟着播放头走。2026-08-24 底部时间线删除后，这段逻辑
+    // 从被删组件的 `selectShot: true` 搬到了父层的 selectShotFromPlayhead，
+    // 行为不变，锚点跟着改——守的是行为，不是某一版的写法。
+    expect(editingWorkspace).toContain("selectShotFromPlayhead");
+    expect(editingWorkspace).toContain("onPlayheadCommit: selectShotFromPlayhead");
     expect(editingWorkspace).toContain("ResizablePanelGroup");
     expect(editingWorkspace).toContain(
       'autoSaveId="editing-storyboard-preview-widths-v3"'
@@ -268,11 +271,17 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).not.toContain(
       "pointer-events-none absolute inset-x-3"
     );
-    expect(editingWorkspace).toContain("hidden={!visible}");
-    expect(editingWorkspace).toContain('visible ? "flex" : "hidden"');
-    expect(editingWorkspace).toContain(
+    // 底部时间线（MultiTrackTimeline）已于 2026-08-24 删除：它和上方 Storyboard
+    // 是同一份数据的两个可编辑投影，标尺、缩放、图层操作各做了一遍，而用户
+    // 只要留 Storyboard。这三条从「它必须在」翻成「它不许回来」——再出现一个
+    // 并行的可编辑时间线，就是把已经收敛掉的双写模型又请回来。
+    // 只断言真实的挂载点消失；文件里那段解释为什么删的注释要留着。
+    expect(editingWorkspace).not.toContain("<MultiTrackTimeline");
+    expect(editingWorkspace).not.toContain(
       'data-testid="editing-multitrack-timeline"'
     );
+    // 声音不跟着界面走：它由持有播放时钟的这一层渲染。
+    expect(editingWorkspace).toContain("<TimelineAudioPlayback");
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
 

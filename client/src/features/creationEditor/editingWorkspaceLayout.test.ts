@@ -1,3 +1,7 @@
+import {
+  timelineAudioTargetSeconds,
+  timelineAudioVolume,
+} from "./TimelineAudioPlayback";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,8 +18,6 @@ import {
   timelineVideoPlaybackRate,
   timelineVideoShouldHoldLastFrame,
   timelineVideoSourceForSelectedShot,
-  timelineAudioTargetSeconds,
-  timelineAudioVolume,
   timelineLaneDomain,
   timelineClipPointerPlacement,
   timelineClipInteractionWidth,
