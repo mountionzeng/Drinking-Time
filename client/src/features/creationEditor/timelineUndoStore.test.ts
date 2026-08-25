@@ -8,9 +8,7 @@ import {
   clearTimelineUndoForTesting,
   clearTimelineUndoForStory,
   executeTimelineUndo,
-  recordDeletedStoryShotUndo,
   recordInsertedStoryShotUndo,
-  recordSplitStoryShotUndo,
   recordTimelineCommandUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
@@ -268,38 +266,6 @@ describe("timelineUndoStore", () => {
     });
   });
 
-  it("keeps deleted story shots in the same operation-ordered undo history", () => {
-    recordTimelineUndoSnapshot(7, timeline(1_000));
-    recordDeletedStoryShotUndo(7, {
-      deletedShot: {
-        shotNo: 2,
-        stableShotId: "shot-b",
-        shotIdentity: "shot-b",
-        dialogue: "完整台词",
-      },
-      deletedIndex: 1,
-      deletedStableShotId: "shot-b",
-      expectedRevision: 12,
-      afterDeleteBody: {
-        _revision: 12,
-        shots: [{ shotNo: 1, stableShotId: "shot-a" }],
-      },
-    });
-
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "deleted-story-shot",
-      deletedIndex: 1,
-      deletedStableShotId: "shot-b",
-      expectedRevision: 12,
-      deletedShot: { dialogue: "完整台词" },
-      afterDeleteBody: { _revision: 12 },
-    });
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "timeline",
-      items: [{ plannedDurationMs: 1_000 }],
-    });
-  });
-
   it("records external placement as one inserted-shot undo step", () => {
     recordInsertedStoryShotUndo(7, "shot-external");
 
@@ -308,34 +274,6 @@ describe("timelineUndoStore", () => {
       insertedStableShotId: "shot-external",
     });
     expect(takeCreationEditorUndoEntry(7)).toBeNull();
-  });
-
-  it("clones structural split snapshots in the shared undo history", () => {
-    const beforeStoryBody = {
-      _revision: 4,
-      shots: [{ shotNo: 1, stableShotId: "shot-a" }],
-    };
-    const beforeTimelineItems = timeline(1_000);
-    recordSplitStoryShotUndo(7, {
-      splitStableShotId: "split-right",
-      beforeStoryBody,
-      beforeTimelineItems,
-      expectedStoryRevision: 5,
-      expectedTimelineVersion: 9,
-      restoreShotNo: 1,
-    });
-    beforeStoryBody.shots[0].stableShotId = "corrupted";
-    beforeTimelineItems[0].plannedDurationMs = 9_999;
-
-    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
-      kind: "split-story-shot",
-      splitStableShotId: "split-right",
-      beforeStoryBody: { shots: [{ stableShotId: "shot-a" }] },
-      beforeTimelineItems: [{ plannedDurationMs: 1_000 }],
-      expectedStoryRevision: 5,
-      expectedTimelineVersion: 9,
-      restoreShotNo: 1,
-    });
   });
 
   it("recognizes Ctrl+Z and Cmd+Z without stealing editable-field undo", () => {

@@ -1581,6 +1581,8 @@ export default function EditingNleWorkspace({
     )
   );
   const {
+    editorSessionEpoch,
+    visualEditSessionReady,
     activeStoryId,
     shots,
     timelineShotIds,
@@ -1591,7 +1593,9 @@ export default function EditingNleWorkspace({
     deleteExtractedFrame,
     commitInsertedTimelineShotUndo,
     discardPersistedShot,
-    deletePersistedShot,
+    copyStoryVisualObject: copyStoryVisualObjectCommand,
+    pasteStoryVisualObject: pasteStoryVisualObjectCommand,
+    deleteStoryVisualShot: deleteStoryVisualShotCommand,
     insertTimelineShotAt,
     adoptVideoTake,
     reuseVideoTake,
@@ -1623,12 +1627,6 @@ export default function EditingNleWorkspace({
     timelineWritePending,
     isLoading,
   } = useCreationEditor();
-  const editorSessionEpoch = useMemo(
-    () =>
-      globalThis.crypto?.randomUUID?.() ??
-      `editor-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    [activeStoryId]
-  );
   const visualPasteIntentRef = useRef(
     new Map<string, { editorSessionEpoch: string; operationId: string }>()
   );
@@ -1670,10 +1668,13 @@ export default function EditingNleWorkspace({
           }),
     [activeStoryId, editorSessionEpoch]
   );
+  const storyClipboardIdRef = useRef<string | null>(null);
+  const visualCopySequenceRef = useRef(0);
   useEffect(() => {
     visualPasteIntentRef.current.clear();
     visualDeleteIntentRef.current.clear();
     visualSplitIntentRef.current.clear();
+    storyClipboardIdRef.current = null;
     return () => visualClipboard?.dispose();
   }, [visualClipboard]);
   const isEditingStorySessionCurrent = useCallback(
@@ -2349,10 +2350,34 @@ export default function EditingNleWorkspace({
         ) {
           throw new Error("切割位置不在所选镜头内部");
         }
-        await splitTimelineVideoClip({
+        const intentKey = `${selectedStableShotId}:${cutFrame}`;
+        const operation = visualSplitIntentRef.current.get(intentKey) ?? {
+          editorSessionEpoch,
+          operationId:
+            globalThis.crypto?.randomUUID?.() ??
+            `split-story-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        };
+        visualSplitIntentRef.current.set(intentKey, operation);
+        const rightStableShotId = await splitTimelineVideoClip({
           stableShotId: selectedStableShotId,
           cutFrame,
+          operation,
         });
+        clearVisualIntentIfCurrent(
+          visualSplitIntentRef.current,
+          intentKey,
+          operation
+        );
+        if (rightStableShotId && isEditingStorySessionCurrent()) {
+          setActiveSelection({
+            sourceType: "shot",
+            sourceId: rightStableShotId,
+            selectedText: "切割后的镜头",
+            fullText: "切割后的镜头",
+            storyId: activeStoryId,
+            stableShotId: rightStableShotId,
+          });
+        }
         return;
       }
       const source = resolveTimelineVideoSource(
@@ -2369,15 +2394,33 @@ export default function EditingNleWorkspace({
       if (sourceDurationSec <= 2 / 30) {
         throw new Error("当前视频片段太短，无法继续切割");
       }
+      const intentKey = `${source.stableShotId}:${cutFrame}`;
+      const operation = visualSplitIntentRef.current.get(intentKey) ?? {
+        editorSessionEpoch,
+        operationId:
+          globalThis.crypto?.randomUUID?.() ??
+          `split-story-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      };
+      visualSplitIntentRef.current.set(intentKey, operation);
       await splitTimelineVideoClip({
         stableShotId: source.stableShotId,
         cutFrame,
+        operation,
         videoUrl: source.videoUrl,
         overlayId: source.overlayId,
       });
+      clearVisualIntentIfCurrent(
+        visualSplitIntentRef.current,
+        intentKey,
+        operation
+      );
     },
     [
       shots,
+      editorSessionEpoch,
+      activeStoryId,
+      isEditingStorySessionCurrent,
+      setActiveSelection,
       splitTimelineVideoClip,
       timelineOverlays,
       timelineShotIds,
@@ -2417,9 +2460,33 @@ export default function EditingNleWorkspace({
     };
   }, [editorSessionEpoch]);
   const copyVisualObject = useCallback(
-    (object: VisualObjectRef) => {
+    async (object: VisualObjectRef) => {
       if (activeStoryId == null || !visualClipboard) {
         throw new Error("故事尚未加载，无法复制");
+      }
+      if (object.type === "owned-video-clip") {
+        throw new Error("镜头内部片段不能单独复制，请复制整个镜头");
+      }
+      const copySequence = ++visualCopySequenceRef.current;
+      if (object.type === "story-shot") {
+        const clipboardId =
+          globalThis.crypto?.randomUUID?.() ??
+          `clipboard-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const snapshot = await copyStoryVisualObjectCommand({
+          editorSessionEpoch,
+          clipboardId,
+          object,
+        });
+        if (
+          !isEditingStorySessionCurrent() ||
+          visualCopySequenceRef.current !== copySequence
+        )
+          return;
+        if (!visualClipboard.write(snapshot)) throw new Error("镜头复制失败");
+        storyClipboardIdRef.current = clipboardId;
+        setVisualClipboardVersion(version => version + 1);
+        toast.success("已复制镜头");
+        return;
       }
       const snapshot = snapshotVisualObjectForClipboard({
         storyId: activeStoryId,
@@ -2433,32 +2500,69 @@ export default function EditingNleWorkspace({
       ) {
         throw new Error("当前只支持复制独立图片素材");
       }
+      storyClipboardIdRef.current = null;
       setVisualClipboardVersion(version => version + 1);
       toast.success(`已复制 ${snapshot.label}`);
     },
-    [activeStoryId, canonicalVisualDocument, visualClipboard]
+    [
+      activeStoryId,
+      canonicalVisualDocument,
+      copyStoryVisualObjectCommand,
+      editorSessionEpoch,
+      isEditingStorySessionCurrent,
+      visualClipboard,
+    ]
   );
   const pasteVisualObject = useCallback(
     async (context: { timelineFrame: number; visualLayer?: number }) => {
+      if (!visualEditSessionReady)
+        throw new Error("剪辑会话仍在初始化，请稍后再试");
       const snapshot = visualClipboard?.read() ?? null;
-      if (!snapshot || snapshot.kind !== "image-clip") {
-        throw new Error("请先复制一张图片素材");
-      }
+      if (!snapshot) throw new Error("请先复制一个镜头或图片素材");
       const targetLayer = visualClipboardTargetLayer(
         snapshot,
         context.visualLayer
       );
-      const intentKey = `${snapshot.sourceClipId}:${context.timelineFrame}:${targetLayer}`;
+      const sourceKey =
+        snapshot.kind === "image-clip"
+          ? snapshot.sourceClipId
+          : snapshot.sourceStableShotId;
+      const clipboardKey =
+        snapshot.kind === "story-shot"
+          ? (storyClipboardIdRef.current ?? "expired")
+          : "image";
+      const intentKey = `${clipboardKey}:${sourceKey}:${context.timelineFrame}:${targetLayer}`;
       const operation =
         visualPasteIntentRef.current.get(intentKey) ?? newVisualOperation();
       visualPasteIntentRef.current.set(intentKey, operation);
-      await pasteVisualImage({
-        operation,
-        pasteId: operation.operationId,
-        snapshot,
-        targetFrame: context.timelineFrame,
-        targetLayer,
-      });
+      if (snapshot.kind === "story-shot") {
+        const clipboardId = storyClipboardIdRef.current;
+        if (!clipboardId) throw new Error("镜头剪贴板已失效，请重新复制");
+        const stableShotId = await pasteStoryVisualObjectCommand({
+          operation,
+          clipboardId,
+          targetFrame: context.timelineFrame,
+          targetLayer,
+        });
+        if (isEditingStorySessionCurrent()) {
+          setActiveSelection({
+            sourceType: "shot",
+            sourceId: stableShotId,
+            selectedText: "已粘贴镜头",
+            fullText: "已粘贴镜头",
+            storyId: activeStoryId,
+            stableShotId,
+          });
+        }
+      } else {
+        await pasteVisualImage({
+          operation,
+          pasteId: operation.operationId,
+          snapshot,
+          targetFrame: context.timelineFrame,
+          targetLayer,
+        });
+      }
       clearVisualIntentIfCurrent(
         visualPasteIntentRef.current,
         intentKey,
@@ -2469,8 +2573,12 @@ export default function EditingNleWorkspace({
     [
       isEditingStorySessionCurrent,
       newVisualOperation,
+      activeStoryId,
+      pasteStoryVisualObjectCommand,
       pasteVisualImage,
+      setActiveSelection,
       visualClipboard,
+      visualEditSessionReady,
     ]
   );
   const removeVisualObject = useCallback(
@@ -2642,13 +2750,14 @@ export default function EditingNleWorkspace({
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveVisualClip: moveVisualClip,
-      canPasteVisualObject: hasVisualClipboard,
+      canPasteVisualObject: hasVisualClipboard && visualEditSessionReady,
       onPasteVisualObject: pasteVisualObject,
       isVisualObjectCommandAvailable: (object, command, context) => {
+        if (!visualEditSessionReady && command !== "chat") return false;
         if (command === "extract-frame" || command === "chat") return true;
         if (command === "split") return object.type !== "image-clip";
         if (command === "delete") return true;
-        if (command === "copy") return object.type === "image-clip";
+        if (command === "copy") return object.type !== "owned-video-clip";
         if (command === "set-anchor") {
           if (object.type === "story-shot") {
             return Boolean(
@@ -2664,13 +2773,39 @@ export default function EditingNleWorkspace({
         return false;
       },
       onVisualObjectCommand: async (object, command, context) => {
+        if (!visualEditSessionReady && command !== "chat") {
+          throw new Error("剪辑会话仍在初始化，请稍后再试");
+        }
         if (command === "copy") {
-          copyVisualObject(object);
+          await copyVisualObject(object);
           return;
         }
         if (command === "delete") {
           if (object.type === "story-shot") {
-            await deletePersistedShot(object.stableShotId);
+            const intentKey = visualObjectRefKey(object);
+            const operation =
+              visualDeleteIntentRef.current.get(intentKey) ??
+              newVisualOperation();
+            visualDeleteIntentRef.current.set(intentKey, operation);
+            const selectedStableShotId = await deleteStoryVisualShotCommand({
+              operation,
+              stableShotId: object.stableShotId,
+            });
+            clearVisualIntentIfCurrent(
+              visualDeleteIntentRef.current,
+              intentKey,
+              operation
+            );
+            if (isEditingStorySessionCurrent() && selectedStableShotId) {
+              setActiveSelection({
+                sourceType: "shot",
+                sourceId: selectedStableShotId,
+                selectedText: "剩余镜头",
+                fullText: "剩余镜头",
+                storyId: activeStoryId,
+                stableShotId: selectedStableShotId,
+              });
+            }
             if (isEditingStorySessionCurrent()) toast.success("镜头已删除");
           } else {
             await removeVisualObject(object);
@@ -3043,7 +3178,6 @@ export default function EditingNleWorkspace({
       activeStoryId,
       chatWithVisualObject,
       copyVisualObject,
-      deletePersistedShot,
       editingStorySessionKey,
       isEditingStorySessionCurrent,
       addTimelineAnchorAtFrame,

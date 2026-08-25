@@ -6,25 +6,6 @@ import type {
 import type { VisualEditReceipt } from "@shared/visualEditReceipt";
 
 const MAX_UNDO_STEPS = 40;
-export type DeletedStoryShotUndoEntry = {
-  kind: "deleted-story-shot";
-  deletedShot: Record<string, unknown>;
-  deletedIndex: number;
-  deletedStableShotId: string;
-  expectedRevision: number;
-  afterDeleteBody: Record<string, unknown>;
-};
-
-export type SplitStoryShotUndoEntry = {
-  kind: "split-story-shot";
-  splitStableShotId: string;
-  beforeStoryBody: Record<string, unknown>;
-  beforeTimelineItems: StoryTimelineItem[];
-  expectedStoryRevision: number;
-  expectedTimelineVersion: number;
-  restoreShotNo: number;
-};
-
 export type InsertedStoryShotUndoEntry = {
   kind: "inserted-story-shot";
   insertedStableShotId: string;
@@ -58,9 +39,7 @@ export type TimelineCommandUndoEntry = {
 export type CreationEditorUndoEntry =
   | ({ kind: "timeline" } & TimelineUndoSnapshot)
   | TimelineCommandUndoEntry
-  | DeletedStoryShotUndoEntry
-  | InsertedStoryShotUndoEntry
-  | SplitStoryShotUndoEntry;
+  | InsertedStoryShotUndoEntry;
 
 const undoByStory = new Map<number, CreationEditorUndoEntry[]>();
 const activeUndoEpochByStory = new Map<number, string>();
@@ -203,40 +182,6 @@ export function activateTimelineUndoSession(
   activeUndoEpochByStory.set(storyId, editorSessionEpoch);
 }
 
-export function recordDeletedStoryShotUndo(
-  storyId: number,
-  entry: Omit<DeletedStoryShotUndoEntry, "kind">
-): void {
-  const stack = undoByStory.get(storyId) ?? [];
-  stack.push({
-    kind: "deleted-story-shot",
-    ...entry,
-    deletedShot: structuredClone(entry.deletedShot),
-    afterDeleteBody: structuredClone(entry.afterDeleteBody),
-  });
-  if (stack.length > MAX_UNDO_STEPS) {
-    stack.splice(0, stack.length - MAX_UNDO_STEPS);
-  }
-  undoByStory.set(storyId, stack);
-}
-
-export function recordSplitStoryShotUndo(
-  storyId: number,
-  entry: Omit<SplitStoryShotUndoEntry, "kind">
-): void {
-  const stack = undoByStory.get(storyId) ?? [];
-  stack.push({
-    kind: "split-story-shot",
-    ...entry,
-    beforeStoryBody: structuredClone(entry.beforeStoryBody),
-    beforeTimelineItems: cloneTimelineItems(entry.beforeTimelineItems),
-  });
-  if (stack.length > MAX_UNDO_STEPS) {
-    stack.splice(0, stack.length - MAX_UNDO_STEPS);
-  }
-  undoByStory.set(storyId, stack);
-}
-
 export function recordInsertedStoryShotUndo(
   storyId: number,
   insertedStableShotId: string
@@ -271,25 +216,13 @@ export function takeCreationEditorUndoEntry(
         : undefined,
     };
   }
-  if (entry.kind === "deleted-story-shot") {
-    return {
-      ...entry,
-      deletedShot: structuredClone(entry.deletedShot),
-      afterDeleteBody: structuredClone(entry.afterDeleteBody),
-    };
-  }
   if (entry.kind === "timeline-command") {
     return {
       kind: "timeline-command",
       ...(entry.receipt ? { receipt: { ...entry.receipt } } : {}),
     };
   }
-  if (entry.kind === "inserted-story-shot") return { ...entry };
-  return {
-    ...entry,
-    beforeStoryBody: structuredClone(entry.beforeStoryBody),
-    beforeTimelineItems: cloneTimelineItems(entry.beforeTimelineItems),
-  };
+  return { ...entry };
 }
 
 export function takeTimelineUndoSnapshot(

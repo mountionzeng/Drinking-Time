@@ -5,6 +5,7 @@ import type {
 import type { VisualEditDocument } from "./visualClipModel";
 import type { VisualObjectRef } from "./visualObject";
 import { normalizeVisualLayer } from "./timelineVisualPriority";
+import { shotIdentityFromShot } from "./shotIdentity";
 import type {
   StoryTimelineItem,
   StoryTimelineImageTextOverlay,
@@ -47,6 +48,7 @@ export type StoryShotClipboardSnapshot = Readonly<{
   sourceStoryId: number;
   /** Provenance only. Paste always allocates a new shot identity. */
   sourceStableShotId: string;
+  sourceLayer: number;
   /** Explicitly allow-listed user-visible story fields. */
   shot: Readonly<Record<string, unknown>>;
   timeline: StoryShotClipboardTimelineSnapshot;
@@ -255,6 +257,7 @@ function immutableStoryShotSnapshot(input: {
     kind: "story-shot" as const,
     sourceStoryId: input.storyId,
     sourceStableShotId: input.item.stableShotId,
+    sourceLayer: normalizeVisualLayer(input.item.visualLayer),
     shot,
     timeline,
   });
@@ -294,9 +297,7 @@ export function snapshotVisualObjectForClipboard(input: {
       candidate => candidate.stableShotId === object.stableShotId
     );
     const shot = input.storyShots?.find(
-      candidate =>
-        candidate.stableShotId === object.stableShotId ||
-        candidate.shotIdentity === object.stableShotId
+      (candidate, index) => shotIdentityFromShot(candidate, index) === object.stableShotId
     );
     return item && shot
       ? immutableStoryShotSnapshot({ storyId: input.storyId, shot, item })
@@ -323,6 +324,7 @@ export function cloneVisualObjectClipboardSnapshot(
       item: {
         stableShotId: snapshot.sourceStableShotId,
         position: 0,
+        visualLayer: snapshot.sourceLayer,
         ...(snapshot.timeline as Omit<
           StoryTimelineItem,
           "stableShotId" | "position" | "transform" | "visualClips"

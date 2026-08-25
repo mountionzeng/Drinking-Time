@@ -2,11 +2,30 @@ export type VisualEditOperationRef = Readonly<{
   editorSessionEpoch: string;
   operationId: string;
 }>;
-export type VisualEditReceipt = VisualEditOperationRef &
+type VisualEditReceiptBase = VisualEditOperationRef &
   Readonly<{
     storyId: number;
-    beforeTimelineVersion: number;
-    afterTimelineVersion: number;
     status: "available" | "consumed";
     order: number;
   }>;
+
+export type TimelineVisualEditReceipt = VisualEditReceiptBase &
+  Readonly<{
+    /** Optional only for compatibility with receipts issued before aggregate edits existed. */
+    kind?: "timeline";
+    beforeTimelineVersion: number;
+    afterTimelineVersion: number;
+  }>;
+
+export type AggregateVisualEditReceipt = VisualEditReceiptBase &
+  Readonly<{
+    kind: "aggregate";
+    beforeStoryRevision: number;
+    afterStoryRevision: number;
+    beforeTimelineVersion: number;
+    afterTimelineVersion: number;
+  }>;
+
+export type VisualEditReceipt =
+  | TimelineVisualEditReceipt
+  | AggregateVisualEditReceipt;

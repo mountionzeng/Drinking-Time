@@ -100,6 +100,7 @@ export async function runStoryTimelineCommand<T>(
     userId: number;
     failureMessage: string;
     legacyOverlay?: LegacyOverlayCommandTarget;
+    legacyOverlays?: readonly LegacyOverlayCommandTarget[];
   },
   planner: (
     context: StoryTimelineCommandContext
@@ -109,7 +110,7 @@ export async function runStoryTimelineCommand<T>(
     const [story, material, takes] = await Promise.all([
       getStoryById(input.storyId, input.userId),
       getStoryMaterialState(input.storyId, input.userId),
-      input.legacyOverlay
+      input.legacyOverlay || (input.legacyOverlays?.length ?? 0) > 0
         ? getStoryVideoTakes(input.storyId, input.userId)
         : Promise.resolve([]),
     ]);
@@ -138,26 +139,20 @@ export async function runStoryTimelineCommand<T>(
 
     let workingDocument = cloneDocument(persistedDocument);
     let normalizedLegacyOverlay = false;
-    if (input.legacyOverlay) {
+    for (const legacyOverlay of [
+      ...(input.legacyOverlay ? [input.legacyOverlay] : []),
+      ...(input.legacyOverlays ?? []),
+    ]) {
       const normalized = normalizeLegacyOverlay({
-        ...input.legacyOverlay,
+        ...legacyOverlay,
         storyShots: storyShots(storyBody),
         document: workingDocument,
-        takes: takes.map(take => ({
-          id: take.id,
-          stableShotId: take.stableShotId,
-          videoUrl: take.videoUrl,
-        })),
+        takes: takes.map(take => ({ id: take.id, stableShotId: take.stableShotId, videoUrl: take.videoUrl })),
       });
-      if (normalized.status === "error") {
-        return {
-          status: "error",
-          error: `历史覆盖视频绑定异常：${normalized.message}`,
-          errorKind: "invalid",
-        };
-      }
+      if (normalized.status === "error")
+        return { status: "error", error: `历史覆盖视频绑定异常：${normalized.message}`, errorKind: "invalid" };
       workingDocument = normalized.document;
-      normalizedLegacyOverlay = normalized.changed;
+      normalizedLegacyOverlay ||= normalized.changed;
     }
 
     const plan = planner({

@@ -221,4 +221,20 @@ describe("visual object clipboard snapshots", () => {
     expect(snapshot.timeline).not.toHaveProperty("stackOrder");
     expect(Object.isFrozen(snapshot.timeline.visualClips[0])).toBe(true);
   });
+
+  it("finds a legacy Story shot through its canonical shotKey identity", () => {
+    const source = document();
+    source.items[0].stableShotId = "legacy-sh01-legacy";
+    const snapshot = snapshotVisualObjectForClipboard({
+      storyId: 7,
+      document: source,
+      storyShots: [{ shotKey: "SH01", subject: "legacy" }],
+      object: { type: "story-shot", stableShotId: "legacy-sh01-legacy" },
+    });
+    expect(snapshot).toMatchObject({
+      kind: "story-shot",
+      sourceStableShotId: "legacy-sh01-legacy",
+      shot: { subject: "legacy" },
+    });
+  });
 });

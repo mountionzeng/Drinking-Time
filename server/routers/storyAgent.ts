@@ -1,6 +1,4 @@
 import { z } from "zod";
-import { nanoid } from "nanoid";
-import { isDeepStrictEqual } from "node:util";
 import { intentProposalId } from "@shared/storyIntentProfile";
 import { IMAGE_PROVIDER_VALUES } from "@shared/imageProvider";
 import { canonicalizeShotNo } from "@shared/imageAsset";
@@ -23,7 +21,6 @@ import {
   promoteStoryImageToCurrent,
   deleteGeneratedImage,
   insertTransitionShotAtomic,
-  restoreSplitStoryShotAtomic,
 } from "../db";
 import {
   replyFromStoryAgent,
@@ -61,7 +58,6 @@ import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { resolveVisualAssetGenerationContext } from "../services/visualAssetGenerationContext";
-import { runStoryTimelineCommand } from "../services/storyTimelineEditing";
 import {
   applyPublishingCoverArtDirection,
   resolvePublishingCoverArtDirection,
@@ -81,13 +77,8 @@ import {
   StoryBodyRevisionConflictError,
 } from "../services/storyBodyPersistence";
 import {
-  deleteStoryShotAtIndex,
   insertStoryShotAfter,
-  restoreStoryShotAtIndex,
-  splitStoryShotAtIndex,
 } from "../../shared/storyShotEditing";
-import { splitTimelineItem } from "../../shared/timelineEditing";
-import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
@@ -220,109 +211,6 @@ async function syncStoryPromptLineageAfterMutation(input: {
   } catch (error) {
     console.warn(`${input.warningLabel} prompt lineage sync failed`, error);
   }
-}
-
-function canUndoSplitAfterRevisionOnlyResave(input: {
-  currentBody: unknown;
-  beforeBody: Record<string, unknown>;
-  splitStableShotId: string;
-}): boolean {
-  const currentBody =
-    input.currentBody &&
-    typeof input.currentBody === "object" &&
-    !Array.isArray(input.currentBody)
-      ? (input.currentBody as Record<string, unknown>)
-      : {};
-  const currentShots = Array.isArray(currentBody.shots)
-    ? currentBody.shots.filter((shot): shot is Record<string, unknown> =>
-        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
-      )
-    : [];
-  const beforeShots = Array.isArray(input.beforeBody.shots)
-    ? input.beforeBody.shots.filter((shot): shot is Record<string, unknown> =>
-        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
-      )
-    : [];
-  const rightIndex = currentShots.findIndex(
-    (shot, index) =>
-      shotIdentityFromShot(shot, index) === input.splitStableShotId
-  );
-  if (rightIndex <= 0 || currentShots.length !== beforeShots.length + 1) {
-    return false;
-  }
-  const leftDurationMs = Number(currentShots[rightIndex - 1]?.durationMs);
-  const rightDurationMs = Number(currentShots[rightIndex]?.durationMs);
-  if (!Number.isFinite(leftDurationMs) || !Number.isFinite(rightDurationMs)) {
-    return false;
-  }
-  const expectedSplit = splitStoryShotAtIndex({
-    shots: beforeShots,
-    index: rightIndex - 1,
-    rightStableShotId: input.splitStableShotId,
-    leftDurationMs,
-    rightDurationMs,
-  });
-  if (!expectedSplit) return false;
-  const expectedBody = prepareStoryBody(
-    { ...input.beforeBody, shots: expectedSplit.shots },
-    getStoryRevision(currentBody),
-    currentBody
-  );
-  const withoutDisplayShotKeys = (body: Record<string, unknown>) => ({
-    ...body,
-    shots: Array.isArray(body.shots)
-      ? body.shots.map(shot => {
-          if (!shot || typeof shot !== "object" || Array.isArray(shot)) {
-            return shot;
-          }
-          const { shotKey: _shotKey, ...rest } = shot as Record<
-            string,
-            unknown
-          >;
-          return rest;
-        })
-      : body.shots,
-  });
-  return isDeepStrictEqual(
-    withoutDisplayShotKeys(expectedBody),
-    withoutDisplayShotKeys(currentBody)
-  );
-}
-
-function canRestoreDeletedAfterRevisionOnlyResave(input: {
-  currentBody: unknown;
-  afterDeleteBody: Record<string, unknown>;
-}): boolean {
-  const currentBody =
-    input.currentBody &&
-    typeof input.currentBody === "object" &&
-    !Array.isArray(input.currentBody)
-      ? (input.currentBody as Record<string, unknown>)
-      : {};
-  const expectedBody = prepareStoryBody(
-    input.afterDeleteBody,
-    getStoryRevision(currentBody),
-    currentBody
-  );
-  const withoutDisplayShotKeys = (body: Record<string, unknown>) => ({
-    ...body,
-    shots: Array.isArray(body.shots)
-      ? body.shots.map(shot => {
-          if (!shot || typeof shot !== "object" || Array.isArray(shot)) {
-            return shot;
-          }
-          const { shotKey: _shotKey, ...rest } = shot as Record<
-            string,
-            unknown
-          >;
-          return rest;
-        })
-      : body.shots,
-  });
-  return isDeepStrictEqual(
-    withoutDisplayShotKeys(expectedBody),
-    withoutDisplayShotKeys(currentBody)
-  );
 }
 
 export const storyAgentRouter = router({
@@ -1514,398 +1402,36 @@ export const storyAgentRouter = router({
    * 下游：调用 `deleteStoryShotAtIndex` 重排镜头，再以 revision CAS 落库。
    */
   splitStoryShot: protectedProcedure
-    .input(
-      z.object({
-        storyId: persistedStoryIdSchema,
-        stableShotId: stableShotIdSchema,
-        cutFrame: z.number().int().nonnegative(),
-        expectedStoryRevision: z.number().int().nonnegative(),
-        expectedTimelineVersion: z.number().int().nonnegative(),
-        legacyOverlay: z
-          .object({
-            overlayId: z.string().trim().min(1),
-            sourceStableShotId: stableShotIdSchema,
-            expectedVideoUrl: z.string().trim().min(1),
-          })
-          .strict()
-          .optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const splitStableShotId = `split-${nanoid(16)
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "")}`;
-      const command = await runStoryTimelineCommand(
-        {
-          storyId: input.storyId,
-          userId: ctx.user.id,
-          failureMessage: "镜头拆分失败",
-          ...(input.legacyOverlay
-            ? { legacyOverlay: input.legacyOverlay }
-            : {}),
-        },
-        context => {
-          if (
-            input.legacyOverlay &&
-            input.legacyOverlay.sourceStableShotId !== input.stableShotId
-          ) {
-            return {
-              status: "error" as const,
-              message: "历史覆盖视频与待切割镜头不匹配",
-            };
-          }
-          if (context.storyRevision !== input.expectedStoryRevision) {
-            return {
-              status: "error" as const,
-              message: "故事已经更新，请刷新后重试",
-            };
-          }
-          if (context.timelineVersion !== input.expectedTimelineVersion) {
-            return {
-              status: "error" as const,
-              message: "时间线已经更新，请刷新后重试",
-            };
-          }
-          const shots = Array.isArray(context.storyBody.shots)
-            ? context.storyBody.shots.filter(
-                (shot): shot is Record<string, unknown> =>
-                  Boolean(
-                    shot && typeof shot === "object" && !Array.isArray(shot)
-                  )
-              )
-            : [];
-          const targetIndex = shots.findIndex(
-            (shot, index) =>
-              shotIdentityFromShot(shot, index) === input.stableShotId
-          );
-          const timelineIndex = context.document.items.findIndex(
-            item => item.stableShotId === input.stableShotId
-          );
-          const timelineRow = buildTimelineLayout(context.document.items).find(
-            row => row.item.stableShotId === input.stableShotId
-          );
-          if (targetIndex < 0 || timelineIndex < 0 || !timelineRow) {
-            return {
-              status: "error" as const,
-              message: "镜头不存在或已经更新",
-            };
-          }
-          const timelineSplit = splitTimelineItem({
-            item: context.document.items[timelineIndex],
-            startFrame: timelineRow.startFrame,
-            cutFrame: input.cutFrame,
-            leftStableShotId: input.stableShotId,
-            rightStableShotId: splitStableShotId,
-          });
-          if (timelineSplit.kind === "blocked") {
-            return { status: "error" as const, message: timelineSplit.reason };
-          }
-          const storySplit = splitStoryShotAtIndex({
-            shots,
-            index: targetIndex,
-            rightStableShotId: splitStableShotId,
-            leftDurationMs: timelineSplit.left.plannedDurationMs,
-            rightDurationMs: timelineSplit.right.plannedDurationMs,
-          });
-          if (!storySplit) {
-            return {
-              status: "error" as const,
-              message: "镜头拆分失败，请刷新后重试",
-            };
-          }
-          const expandedTimeline = [
-            ...context.document.items.slice(0, timelineIndex),
-            timelineSplit.left,
-            timelineSplit.right,
-            ...context.document.items.slice(timelineIndex + 1),
-          ];
-          const storyPosition = new Map(
-            storySplit.shots.map((shot, index) => [
-              shotIdentityFromShot(shot, index),
-              index,
-            ])
-          );
-          return {
-            status: "ok" as const,
-            value: { rightShotNo: storySplit.rightShotNo },
-            storyBody: { ...context.storyBody, shots: storySplit.shots },
-            document: {
-              ...context.document,
-              items: expandedTimeline.map((item, index) => ({
-                ...item,
-                position: storyPosition.get(item.stableShotId) ?? index,
-              })),
-            },
-          };
-        }
-      );
-      if (command.status !== "ok") {
-        return {
-          status: "error" as const,
-          error: command.error,
-        };
-      }
-      const savedStory = await getStoryById(input.storyId, ctx.user.id);
-      if (!savedStory) return { status: "error" as const, error: "故事不存在" };
-      await syncStoryPromptLineageAfterMutation({
-        storyId: savedStory.id,
-        userId: ctx.user.id,
-        body: storyPromptLineageBody(savedStory),
-        warningLabel: "splitStoryShot",
-      });
-      return {
-        status: "ok" as const,
-        splitStableShotId,
-        rightShotNo: command.value.rightShotNo,
-        beforeStoryBody: command.facts.before.storyBody,
-        beforeTimelineItems: command.facts.before.document.items,
-        expectedStoryRevision: command.storyRevision,
-        expectedTimelineVersion: command.timelineVersion,
-        story: await composeStoryWorkspace(savedStory, ctx.user.id),
-      };
-    }),
+    .input(z.object({ storyId: persistedStoryIdSchema }).strict())
+    .mutation(async () => ({
+      status: "error" as const,
+      error: "旧镜头拆分接口已停用，请使用带服务端回执的统一剪辑命令",
+    })),
 
   undoSplitStoryShot: protectedProcedure
-    .input(
-      z.object({
-        storyId: persistedStoryIdSchema,
-        splitStableShotId: stableShotIdSchema,
-        beforeStoryBody: z.record(z.string(), z.unknown()),
-        beforeTimelineItems: z.array(z.record(z.string(), z.unknown())),
-        expectedStoryRevision: z.number().int().nonnegative(),
-        expectedTimelineVersion: z.number().int().nonnegative(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const story = await getStoryById(input.storyId, ctx.user.id);
-      if (!story) return { status: "error" as const, error: "故事不存在" };
-      const currentRevision = getStoryRevision(story.body);
-      if (
-        currentRevision !== input.expectedStoryRevision &&
-        !canUndoSplitAfterRevisionOnlyResave({
-          currentBody: story.body,
-          beforeBody: input.beforeStoryBody,
-          splitStableShotId: input.splitStableShotId,
-        })
-      ) {
-        return {
-          status: "error" as const,
-          error: "故事已在切割后继续编辑，无法安全撤销",
-        };
-      }
-      const nextBody = prepareStoryBody(
-        input.beforeStoryBody,
-        currentRevision + 1,
-        story.body
-      );
-      try {
-        const saved = await restoreSplitStoryShotAtomic({
-          storyId: story.id,
-          userId: ctx.user.id,
-          splitStableShotId: input.splitStableShotId,
-          expectedStoryRevision: currentRevision,
-          expectedTimelineVersion: input.expectedTimelineVersion,
-          nextStoryBody: nextBody,
-          nextTimelineItems: input.beforeTimelineItems,
-        });
-        await syncStoryPromptLineageAfterMutation({
-          storyId: saved.story.id,
-          userId: ctx.user.id,
-          body: storyPromptLineageBody(saved.story),
-          warningLabel: "undoSplitStoryShot",
-        });
-        return {
-          status: "ok" as const,
-          story: await composeStoryWorkspace(saved.story, ctx.user.id),
-          timelineVersion: saved.timeline.version,
-        };
-      } catch (error) {
-        return {
-          status: "error" as const,
-          error: error instanceof Error ? error.message : "撤销镜头拆分失败",
-        };
-      }
-    }),
+    .input(z.object({ storyId: persistedStoryIdSchema }).strict())
+    .mutation(async () => ({
+      status: "error" as const,
+      error: "旧快照撤销接口已停用，请使用 undoVisualEditReceipt",
+    })),
 
   deleteStoryShot: protectedProcedure
-    .input(
-      z.object({
-        storyId: persistedStoryIdSchema,
-        stableShotId: stableShotIdSchema,
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const story = await getStoryById(input.storyId, ctx.user.id);
-      if (!story) {
-        return { status: "error" as const, error: "故事不存在" };
-      }
-      const body =
-        story.body &&
-        typeof story.body === "object" &&
-        !Array.isArray(story.body)
-          ? (story.body as Record<string, unknown>)
-          : {};
-      const shots = Array.isArray(body.shots)
-        ? body.shots.filter((shot): shot is Record<string, unknown> =>
-            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
-          )
-        : [];
-      if (shots.length <= 1) {
-        return { status: "error" as const, error: "至少保留一个镜头" };
-      }
-      const targetIndex = shots.findIndex((shot, index) => {
-        return shotIdentityFromShot(shot, index) === input.stableShotId;
-      });
-      const deleted = deleteStoryShotAtIndex(shots, targetIndex);
-      if (!deleted) {
-        return { status: "error" as const, error: "镜头不存在或已经更新" };
-      }
-      const nextBody = prepareStoryBody(
-        { ...body, shots: deleted.shots },
-        getStoryRevision(story.body) + 1,
-        story.body
-      );
-      let saved;
-      try {
-        saved = await persistPreparedStoryBody({
-          storyId: story.id,
-          userId: ctx.user.id,
-          expectedRevision: getStoryRevision(story.body),
-          body: nextBody,
-        });
-      } catch (error) {
-        if (error instanceof StoryBodyRevisionConflictError) {
-          return {
-            status: "error" as const,
-            error: "镜头已在别处更新，请刷新后重试",
-          };
-        }
-        throw error;
-      }
-      if (saved) {
-        await syncStoryPromptLineageAfterMutation({
-          storyId: saved.id,
-          userId: ctx.user.id,
-          body: storyPromptLineageBody(saved),
-          warningLabel: "deleteStoryShot",
-        });
-      }
-      return {
-        status: "ok" as const,
-        deletedShot: deleted.deletedShot,
-        deletedIndex: deleted.deletedIndex,
-        deletedAtRevision: getStoryRevision(nextBody),
-        afterDeleteBody: structuredClone(nextBody),
-        deletedShotNo: deleted.deletedShotNo,
-        deletedStableShotId: deleted.deletedStableShotId,
-        nextSelectedShotNo: deleted.nextSelectedShotNo,
-        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
-      };
-    }),
+    .input(z.object({ storyId: persistedStoryIdSchema }).strict())
+    .mutation(async () => ({
+      status: "error" as const,
+      error: "旧镜头删除接口已停用，请使用带服务端回执的统一剪辑命令",
+    })),
 
   /**
    * 职责：用删除命令返回的完整镜头快照撤销一次删除。
    * 安全边界：仅允许故事仍停在删除后的 revision 时恢复，避免覆盖后续编辑。
    */
   restoreDeletedStoryShot: protectedProcedure
-    .input(
-      z.object({
-        storyId: persistedStoryIdSchema,
-        deletedShot: z.record(z.string(), z.unknown()),
-        deletedIndex: z.number().int().nonnegative(),
-        deletedStableShotId: stableShotIdSchema,
-        expectedRevision: z.number().int().nonnegative(),
-        afterDeleteBody: z.record(z.string(), z.unknown()),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const story = await getStoryById(input.storyId, ctx.user.id);
-      if (!story) {
-        return { status: "error" as const, error: "故事不存在" };
-      }
-      const currentRevision = getStoryRevision(story.body);
-      if (
-        currentRevision !== input.expectedRevision &&
-        !canRestoreDeletedAfterRevisionOnlyResave({
-          currentBody: story.body,
-          afterDeleteBody: input.afterDeleteBody,
-        })
-      ) {
-        return {
-          status: "error" as const,
-          error: "故事已在删除后继续编辑，无法安全撤销",
-        };
-      }
-      const body =
-        story.body &&
-        typeof story.body === "object" &&
-        !Array.isArray(story.body)
-          ? (story.body as Record<string, unknown>)
-          : {};
-      const shots = Array.isArray(body.shots)
-        ? body.shots.filter((shot): shot is Record<string, unknown> =>
-            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
-          )
-        : [];
-      if (
-        shotIdentityFromShot(input.deletedShot, input.deletedIndex) !==
-        input.deletedStableShotId
-      ) {
-        return { status: "error" as const, error: "撤销镜头身份校验失败" };
-      }
-      if (
-        shots.some(
-          (shot, index) =>
-            shotIdentityFromShot(shot, index) === input.deletedStableShotId
-        )
-      ) {
-        return {
-          status: "error" as const,
-          error: "镜头已经恢复，无需重复撤销",
-        };
-      }
-      const restored = restoreStoryShotAtIndex(
-        shots,
-        input.deletedShot,
-        input.deletedIndex
-      );
-      const nextBody = prepareStoryBody(
-        { ...body, shots: restored.shots },
-        currentRevision + 1,
-        story.body
-      );
-      let saved;
-      try {
-        saved = await persistPreparedStoryBody({
-          storyId: story.id,
-          userId: ctx.user.id,
-          expectedRevision: currentRevision,
-          body: nextBody,
-        });
-      } catch (error) {
-        if (error instanceof StoryBodyRevisionConflictError) {
-          return {
-            status: "error" as const,
-            error: "故事已在删除后继续编辑，无法安全撤销",
-          };
-        }
-        throw error;
-      }
-      if (saved) {
-        await syncStoryPromptLineageAfterMutation({
-          storyId: saved.id,
-          userId: ctx.user.id,
-          body: storyPromptLineageBody(saved),
-          warningLabel: "restoreDeletedStoryShot",
-        });
-      }
-      return {
-        status: "ok" as const,
-        restoredShotNo: restored.restoredShotNo,
-        restoredStableShotId: input.deletedStableShotId,
-        story: saved ? await composeStoryWorkspace(saved, ctx.user.id) : null,
-      };
-    }),
+    .input(z.object({ storyId: persistedStoryIdSchema }).strict())
+    .mutation(async () => ({
+      status: "error" as const,
+      error: "旧快照恢复接口已停用，请使用 undoVisualEditReceipt",
+    })),
 
   /** Cycle the art style for a story (advance styleIndex by 1) */
   cycleStyle: protectedProcedure

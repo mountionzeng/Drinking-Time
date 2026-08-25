@@ -4,21 +4,51 @@ import type {
   VisualEditReceipt,
 } from "../../shared/visualEditReceipt";
 
-export type VisualEditUndoEntry = Omit<
-  VisualEditReceipt,
-  "status" | "afterTimelineVersion"
-> & {
-  status: "available" | "consumed";
-  afterTimelineVersion: number;
+type JournalFields = {
+  editorSessionEpoch: string;
+  operationId: string;
+  storyId: number;
   userId: number;
-  before: VisualEditDocument;
+  status: "available" | "consumed";
+  order: number;
   commandDigest: string;
+  identityFingerprint: string;
+  beforeTimelineVersion: number;
+  afterTimelineVersion: number;
   undoResultTimelineVersion?: number;
+  undoResultStoryRevision?: number;
+  undoEvicted?: boolean;
 };
+export type TimelineVisualEditUndoEntry = JournalFields & {
+  kind: "timeline";
+  before: VisualEditDocument;
+};
+export type AggregateVisualEditUndoEntry = JournalFields & {
+  kind: "aggregate";
+  beforeStoryBody: unknown;
+  before: VisualEditDocument;
+  beforeStoryRevision: number;
+  afterStoryRevision: number;
+  commandResult?: Readonly<Record<string, string>>;
+};
+export type VisualEditUndoEntry =
+  | TimelineVisualEditUndoEntry
+  | AggregateVisualEditUndoEntry;
+
 const MAX_UNDO_STEPS = 40;
+const MAX_OPERATION_INDEX_STEPS = 400;
 const journalByScope = new Map<string, VisualEditUndoEntry[]>();
+const operationIndexByScope = new Map<string, VisualEditUndoEntry[]>();
 const scopeKey = (storyId: number, userId: number, epoch: string) =>
   `${userId}:${storyId}:${epoch}`;
+const stackFor = (input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+}) =>
+  journalByScope.get(
+    scopeKey(input.storyId, input.userId, input.editorSessionEpoch)
+  ) ?? [];
 
 export function findVisualEditUndo(input: {
   storyId: number;
@@ -26,17 +56,36 @@ export function findVisualEditUndo(input: {
   operation: VisualEditOperationRef;
 }): VisualEditUndoEntry | null {
   return (
-    journalByScope
-      .get(
-        scopeKey(
-          input.storyId,
-          input.userId,
-          input.operation.editorSessionEpoch
-        )
-      )
-      ?.find(entry => entry.operationId === input.operation.operationId) ?? null
+    (operationIndexByScope.get(
+      scopeKey(input.storyId, input.userId, input.operation.editorSessionEpoch)
+    ) ?? []).find(entry => entry.operationId === input.operation.operationId) ?? null
   );
 }
+
+function appendEntry<T extends VisualEditUndoEntry>(
+  entry: Omit<T, "order" | "status">
+): T {
+  const key = scopeKey(entry.storyId, entry.userId, entry.editorSessionEpoch);
+  const stack = journalByScope.get(key) ?? [];
+  const recorded = {
+    ...entry,
+    status: "available",
+    order: (stack.at(-1)?.order ?? 0) + 1,
+  } as T;
+  stack.push(recorded);
+  if (stack.length > MAX_UNDO_STEPS) {
+    for (const evicted of stack.splice(0, stack.length - MAX_UNDO_STEPS))
+      evicted.undoEvicted = true;
+  }
+  journalByScope.set(key, stack);
+  const index = operationIndexByScope.get(key) ?? [];
+  index.push(recorded);
+  if (index.length > MAX_OPERATION_INDEX_STEPS)
+    index.splice(0, index.length - MAX_OPERATION_INDEX_STEPS);
+  operationIndexByScope.set(key, index);
+  return recorded;
+}
+
 export function recordVisualEditUndo(input: {
   storyId: number;
   userId: number;
@@ -45,15 +94,10 @@ export function recordVisualEditUndo(input: {
   beforeTimelineVersion: number;
   afterTimelineVersion: number;
   commandDigest: string;
-}): VisualEditUndoEntry {
-  const key = scopeKey(
-    input.storyId,
-    input.userId,
-    input.operation.editorSessionEpoch
-  );
-  const stack = journalByScope.get(key) ?? [];
-  const nextOrder = (stack.at(-1)?.order ?? 0) + 1;
-  const entry: VisualEditUndoEntry = {
+  identityFingerprint?: string;
+}): TimelineVisualEditUndoEntry {
+  return appendEntry<TimelineVisualEditUndoEntry>({
+    kind: "timeline",
     ...input.operation,
     storyId: input.storyId,
     userId: input.userId,
@@ -61,61 +105,130 @@ export function recordVisualEditUndo(input: {
     beforeTimelineVersion: input.beforeTimelineVersion,
     afterTimelineVersion: input.afterTimelineVersion,
     commandDigest: input.commandDigest,
-    status: "available",
-    order: nextOrder,
-  };
-  stack.push(entry);
-  if (stack.length > MAX_UNDO_STEPS)
-    stack.splice(0, stack.length - MAX_UNDO_STEPS);
-  journalByScope.set(key, stack);
-  return entry;
+    identityFingerprint: input.identityFingerprint ?? "",
+  });
 }
+
+export function recordAggregateVisualEditUndo(input: {
+  storyId: number;
+  userId: number;
+  operation: VisualEditOperationRef;
+  beforeStoryBody: unknown;
+  before: VisualEditDocument;
+  beforeStoryRevision: number;
+  afterStoryRevision: number;
+  beforeTimelineVersion: number;
+  afterTimelineVersion: number;
+  commandDigest: string;
+  identityFingerprint: string;
+  commandResult?: Readonly<Record<string, string>>;
+}): AggregateVisualEditUndoEntry {
+  return appendEntry<AggregateVisualEditUndoEntry>({
+    kind: "aggregate",
+    ...input.operation,
+    storyId: input.storyId,
+    userId: input.userId,
+    beforeStoryBody: structuredClone(input.beforeStoryBody),
+    before: structuredClone(input.before) as VisualEditDocument,
+    beforeStoryRevision: input.beforeStoryRevision,
+    afterStoryRevision: input.afterStoryRevision,
+    beforeTimelineVersion: input.beforeTimelineVersion,
+    afterTimelineVersion: input.afterTimelineVersion,
+    commandDigest: input.commandDigest,
+    identityFingerprint: input.identityFingerprint,
+    ...(input.commandResult
+      ? { commandResult: structuredClone(input.commandResult) }
+      : {}),
+  });
+}
+
 export function latestAvailableVisualEditUndo(input: {
   storyId: number;
   userId: number;
   editorSessionEpoch: string;
 }): VisualEditUndoEntry | null {
-  const stack =
-    journalByScope.get(
-      scopeKey(input.storyId, input.userId, input.editorSessionEpoch)
-    ) ?? [];
   return (
-    [...stack].reverse().find(entry => entry.status === "available") ?? null
+    [...stackFor(input)]
+      .reverse()
+      .find(entry => entry.status === "available") ?? null
   );
 }
+
+export function publicVisualEditReceipt(
+  entry: VisualEditUndoEntry
+): VisualEditReceipt {
+  const base = {
+    editorSessionEpoch: entry.editorSessionEpoch,
+    operationId: entry.operationId,
+    storyId: entry.storyId,
+    beforeTimelineVersion: entry.beforeTimelineVersion,
+    afterTimelineVersion: entry.afterTimelineVersion,
+    status: entry.status,
+    order: entry.order,
+  };
+  return entry.kind === "aggregate"
+    ? {
+        ...base,
+        kind: "aggregate",
+        beforeStoryRevision: entry.beforeStoryRevision,
+        afterStoryRevision: entry.afterStoryRevision,
+      }
+    : { ...base, kind: "timeline" };
+}
+
 export function consumeVisualEditUndo(
   entry: VisualEditUndoEntry,
-  undoResultTimelineVersion: number
+  result: number | { timelineVersion: number; storyRevision?: number }
 ): void {
   entry.status = "consumed";
-  entry.undoResultTimelineVersion = undoResultTimelineVersion;
+  entry.undoResultTimelineVersion =
+    typeof result === "number" ? result : result.timelineVersion;
+  if (typeof result !== "number" && result.storyRevision !== undefined)
+    entry.undoResultStoryRevision = result.storyRevision;
 }
+
+export function rebaseLatestVisualEditUndoAfterVersions(input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+  afterTimelineVersion: number;
+  afterStoryRevision?: number;
+}): void {
+  const latest = latestAvailableVisualEditUndo(input);
+  if (!latest) return;
+  latest.afterTimelineVersion = input.afterTimelineVersion;
+  if (latest.kind === "aggregate" && input.afterStoryRevision !== undefined)
+    latest.afterStoryRevision = input.afterStoryRevision;
+}
+
+/** Compatibility wrapper for timeline-only callers. */
 export function rebaseLatestVisualEditUndoAfterVersion(input: {
   storyId: number;
   userId: number;
   editorSessionEpoch: string;
   afterTimelineVersion: number;
 }): void {
-  const latest = latestAvailableVisualEditUndo(input);
-  if (latest) latest.afterTimelineVersion = input.afterTimelineVersion;
+  rebaseLatestVisualEditUndoAfterVersions(input);
 }
+
 export function visualEditUndoDepth(input: {
   storyId: number;
   userId: number;
   editorSessionEpoch?: string;
 }): number {
   if (input.editorSessionEpoch)
-    return (
-      journalByScope.get(
-        scopeKey(input.storyId, input.userId, input.editorSessionEpoch)
-      ) ?? []
-    ).filter(e => e.status === "available").length;
+    return stackFor({
+      ...input,
+      editorSessionEpoch: input.editorSessionEpoch,
+    }).filter(e => e.status === "available").length;
   let count = 0;
   for (const [key, entries] of journalByScope)
     if (key.startsWith(`${input.userId}:${input.storyId}:`))
       count += entries.filter(e => e.status === "available").length;
   return count;
 }
+
 export function clearVisualEditUndoForTesting(): void {
   journalByScope.clear();
+  operationIndexByScope.clear();
 }

@@ -164,6 +164,7 @@ describe("visual object operations", () => {
       kind: "story-shot",
       sourceStoryId: 7,
       sourceStableShotId: "source",
+      sourceLayer: 2,
       shot: Object.freeze({ subject: "副本", action: "保留动作" }),
       timeline: Object.freeze({
         included: true,
@@ -242,7 +243,8 @@ describe("visual object operations", () => {
         id: "new-owned",
         takeId: 45,
         rangeId: 3,
-        sourceStableShotId: "media",
+        sourceStableShotId: "pasted",
+        visualLayer: 8,
       }),
     ]);
     expect(pasted).not.toHaveProperty("anchors");
@@ -359,6 +361,7 @@ describe("visual object operations", () => {
       kind: "story-shot",
       sourceStoryId: 7,
       sourceStableShotId: "shot-a",
+      sourceLayer: 0,
       shot: {},
       timeline: {
         included: true,

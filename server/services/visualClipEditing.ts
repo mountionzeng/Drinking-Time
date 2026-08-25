@@ -64,18 +64,23 @@ import {
   getStoryById,
   getStoryVideoTakes,
   getStoryTimeline,
+  updateStoryAndTimelineAtomic,
   updateStoryTimeline,
 } from "../db";
 import {
   consumeVisualEditUndo,
   findVisualEditUndo,
   latestAvailableVisualEditUndo,
+  publicVisualEditReceipt,
   rebaseLatestVisualEditUndoAfterVersion,
+  rebaseLatestVisualEditUndoAfterVersions,
   recordVisualEditUndo,
 } from "./visualEditUndoJournal";
-import type { VisualEditUndoEntry } from "./visualEditUndoJournal";
 import { getStoryMaterialState } from "./storyMaterials";
 import { normalizeLegacyOverlay } from "../../shared/legacyOverlayNormalization";
+import { getStoryRevision, prepareStoryBody } from "./storySync";
+import { shotIdentityFromShot } from "../../shared/shotIdentity";
+import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
 
 export type VisualClipEditResult =
   | {
@@ -222,20 +227,6 @@ async function normalizeLegacyWorkingSet(input: {
   return { status: "ok", document, changed: document !== input.document };
 }
 
-function publicVisualEditReceipt(
-  entry: VisualEditUndoEntry
-): VisualEditReceipt {
-  return {
-    editorSessionEpoch: entry.editorSessionEpoch,
-    operationId: entry.operationId,
-    storyId: entry.storyId,
-    beforeTimelineVersion: entry.beforeTimelineVersion,
-    afterTimelineVersion: entry.afterTimelineVersion,
-    status: entry.status,
-    order: entry.order,
-  };
-}
-
 async function withVisualEditDocument(
   input: {
     storyId: number;
@@ -267,6 +258,19 @@ async function withVisualEditDocument(
     editorSessionEpoch: "legacy",
     operationId: randomUUID(),
   };
+  if (
+    !isVisualEditSessionEpochAllowed({
+      storyId: input.storyId,
+      userId: input.userId,
+      editorSessionEpoch: operation.editorSessionEpoch,
+    })
+  ) {
+    return {
+      status: "error",
+      error: "这个剪辑会话已经失效，请刷新后重试",
+      errorKind: "invalid",
+    };
+  }
   const commandDigest = createHash("sha256")
     .update(JSON.stringify(input.commandPayload ?? operation.operationId))
     .digest("hex");
@@ -294,7 +298,7 @@ async function withVisualEditDocument(
       status: "ok",
       timelineVersion: replay.afterTimelineVersion,
       changed: true,
-      receipt: publicVisualEditReceipt(replay),
+      ...(replay.undoEvicted ? {} : { receipt: publicVisualEditReceipt(replay) }),
     };
   }
   for (let attempt = 0; ; attempt += 1) {
@@ -1497,6 +1501,20 @@ export async function undoVisualEditForStory(input: {
   operation?: VisualEditOperationRef;
 }): Promise<VisualClipEditResult> {
   return withVisualEditServiceLock(input.storyId, input.userId, async () => {
+    if (
+      input.operation &&
+      !isVisualEditSessionEpochAllowed({
+        storyId: input.storyId,
+        userId: input.userId,
+        editorSessionEpoch: input.operation.editorSessionEpoch,
+      })
+    ) {
+      return {
+        status: "error",
+        error: "这个剪辑会话已经失效，不能撤销其中的操作",
+        errorKind: "invalid",
+      };
+    }
     const entry = input.operation
       ? findVisualEditUndo({ ...input, operation: input.operation })
       : latestAvailableVisualEditUndo({
@@ -1539,6 +1557,84 @@ export async function undoVisualEditForStory(input: {
         errorKind: "conflict",
       };
     }
+    if (entry.kind === "aggregate") {
+      const story = await getStoryById(input.storyId, input.userId);
+      if (!story || getStoryRevision(story.body) !== entry.afterStoryRevision) {
+        return {
+          status: "error",
+          error: "故事已变化，无法撤销这条操作",
+          errorKind: "conflict",
+        };
+      }
+      const body =
+        story.body && typeof story.body === "object" && !Array.isArray(story.body)
+          ? (story.body as Record<string, unknown>)
+          : {};
+      const shots = Array.isArray(body.shots)
+        ? body.shots.filter(
+            (shot): shot is Record<string, unknown> =>
+              Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+          )
+        : [];
+      const currentFingerprint = createHash("sha256")
+        .update(
+          JSON.stringify({
+            shots: shots.map((shot, index) => shotIdentityFromShot(shot, index)),
+            items: (current.items as StoryTimelineItem[]).map(item => item.stableShotId),
+          })
+        )
+        .digest("hex");
+      if (currentFingerprint !== entry.identityFingerprint) {
+        return {
+          status: "error",
+          error: "镜头身份已变化，无法撤销这条操作",
+          errorKind: "conflict",
+        };
+      }
+      try {
+        const restoredBody = prepareStoryBody(
+          entry.beforeStoryBody as Record<string, unknown>,
+          entry.afterStoryRevision + 1,
+          story.body
+        );
+        const saved = await updateStoryAndTimelineAtomic({
+          storyId: input.storyId,
+          userId: input.userId,
+          expectedStoryRevision: entry.afterStoryRevision,
+          expectedTimelineVersion: entry.afterTimelineVersion,
+          nextStoryBody: restoredBody,
+          nextTimeline: {
+            items: entry.before.items,
+            overlays: entry.before.overlays ?? [],
+            ...(entry.before.visualLayerState === undefined
+              ? {}
+              : { visualLayerState: entry.before.visualLayerState }),
+          },
+        });
+        const storyRevision = getStoryRevision(saved.story.body);
+        consumeVisualEditUndo(entry, {
+          timelineVersion: saved.timeline.version,
+          storyRevision,
+        });
+        rebaseLatestVisualEditUndoAfterVersions({
+          ...input,
+          editorSessionEpoch: entry.editorSessionEpoch,
+          afterTimelineVersion: saved.timeline.version,
+          afterStoryRevision: storyRevision,
+        });
+        return {
+          status: "ok",
+          timelineVersion: saved.timeline.version,
+          changed: true,
+        };
+      } catch (error) {
+        return {
+          status: "error",
+          error: error instanceof Error ? error.message : "撤销失败",
+          errorKind: "conflict",
+        };
+      }
+    }
     const result = await withVisualEditDocument(
       {
         storyId: input.storyId,
@@ -1563,7 +1659,7 @@ export async function undoVisualEditForStory(input: {
 }
 
 const visualEditServiceLockTails = new Map<string, Promise<void>>();
-async function withVisualEditServiceLock<T>(
+export async function withVisualEditServiceLock<T>(
   storyId: number,
   userId: number,
   action: () => Promise<T>

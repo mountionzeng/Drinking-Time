@@ -175,6 +175,14 @@ export function pasteStoryShotClipboardSnapshot<
     visualClips: input.snapshot.timeline.visualClips.map((clip, index) => ({
       ...structuredClone(clip),
       id: input.newOwnedClipIds[index],
+      sourceStableShotId: input.newStableShotId,
+      ...(clip.visualLayer == null
+        ? {}
+        : {
+            visualLayer: normalizeVisualLayer(
+              clip.visualLayer + layer - input.snapshot.sourceLayer
+            ),
+          }),
     })),
   };
   // Stable sort: existing members of an equal-start group precede the pasted shot.

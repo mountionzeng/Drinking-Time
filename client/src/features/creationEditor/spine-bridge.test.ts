@@ -1,12 +1,45 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { nextVisualActivationSequence } from "./CreationEditorContext";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
 describe("creation editor spine boundary", () => {
+  it("keeps activation sequence monotonic when sessionStorage is absent", () => {
+    const first = nextVisualActivationSequence("storage-less-tab");
+    const second = nextVisualActivationSequence("storage-less-tab");
+    expect(Number.isSafeInteger(first)).toBe(true);
+    expect(second).toBe(first + 1);
+  });
+  it("activates each Story visual session with a tab client id and fresh epoch", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    expect(editorContext).toMatch(
+      /const editorClientId = useMemo\(\(\) => visualEditorClientId\(\), \[\]\)/
+    );
+    expect(editorContext).toMatch(
+      /const editorSessionEpoch = useMemo\([\s\S]*?\[activeId\][\s\S]*?const activationSequence = nextVisualActivationSequence\(editorClientId\)[\s\S]*?activateVisualEditSessionMut[\s\S]*?storyId: activeId,[\s\S]*?editorClientId,[\s\S]*?editorSessionEpoch,[\s\S]*?activationSequence/
+    );
+    expect(editorContext).toMatch(
+      /setActivatedVisualEditEpoch\(null\)[\s\S]*?result\.status === "ok"[\s\S]*?setActivatedVisualEditEpoch\(editorSessionEpoch\)/
+    );
+  });
+
+  it("reuses direct and cleanup delete operation ids until an explicit response", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    expect(editorContext).toMatch(
+      /const deletePersistedShot = async[\s\S]*?persistedDeleteIntentRef\.current\.get\(intentKey\)[\s\S]*?persistedDeleteIntentRef\.current\.set\(intentKey, operation\)[\s\S]*?await runAggregateVisualEdit[\s\S]*?persistedDeleteIntentRef\.current\.delete\(intentKey\)/
+    );
+    expect(editorContext).toMatch(
+      /const discardPersistedShotUnlocked = async[\s\S]*?cleanupDeleteIntentRef\.current\.get\(intentKey\)[\s\S]*?cleanupDeleteIntentRef\.current\.set\(intentKey, operation\)[\s\S]*?await deleteStoryVisualShotMut\.mutateAsync[\s\S]*?cleanupDeleteIntentRef\.current\.delete\(intentKey\)/
+    );
+  });
   it("opens the recent story only while the entry scope is still empty", () => {
     const storyContext = source(
       "client/src/features/storyAgent/StoryAgentContext.tsx"
@@ -114,7 +147,7 @@ describe("creation editor spine boundary", () => {
     }
   });
 
-  it("drops a late deleted-shot projection after switching stories", () => {
+  it("drops a late aggregate deleted-shot projection after switching stories", () => {
     const editorContext = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"
     );
@@ -128,8 +161,19 @@ describe("creation editor spine boundary", () => {
     const deleteFlow = editorContext.slice(deleteStart, deleteEnd);
 
     expect(deleteFlow).toMatch(
-      /const storyId = activeId;[\s\S]*?await deleteStoryShotMut\.mutateAsync\([\s\S]*?storyId,[\s\S]*?if \(activeStoryIdRef\.current !== storyId\) \{[\s\S]*?return result\.nextSelectedShotNo;[\s\S]*?setCanonicalStoryShots[\s\S]*?storyQuery\.refetch\(\)/
+      /const storyId = activeId;[\s\S]*?await runAggregateVisualEdit\(storyId,[\s\S]*?deleteStoryVisualShotMut\.mutateAsync\([\s\S]*?storyId,[\s\S]*?recordTimelineCommandUndo\(storyId, result\.receipt\)[\s\S]*?return refreshAggregateStory\(storyId, result\.selectedStableShotId\)/
     );
+    const refreshStart = editorContext.indexOf(
+      "const refreshAggregateStory = async"
+    );
+    const refreshEnd = editorContext.indexOf(
+      "const deletePersistedShot = async",
+      refreshStart
+    );
+    const refreshFlow = editorContext.slice(refreshStart, refreshEnd);
+    expect(
+      refreshFlow.match(/activeStoryIdRef\.current !== storyId/g)
+    ).toHaveLength(2);
   });
 
   it("reuses one keyboard object context for availability and execution", () => {
