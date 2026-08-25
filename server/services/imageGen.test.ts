@@ -11,6 +11,7 @@ import {
   resetCircuitBreaker,
   resume302GptImageTask,
   resume302MidjourneyTask,
+  storeImageBytes,
 } from "./imageGen";
 import { ENV } from "../_core/env";
 import { storagePut } from "../storage";
@@ -894,6 +895,39 @@ describe("generateImage", () => {
     expect(blocked.status).toBe("error");
     expect(blocked.message).toContain("暂时停用");
     expect(blockedFetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe("storeImageBytes", () => {
+  it("accepts a deterministic extraction key for replay-safe local storage", async () => {
+    const first = await storeImageBytes(
+      new Uint8Array([1, 2, 3]),
+      "image/png",
+      { storageKey: "generated/timeline-frames/abc123.png" }
+    );
+    const replay = await storeImageBytes(
+      new Uint8Array([1, 2, 3]),
+      "image/png",
+      { storageKey: "generated/timeline-frames/abc123.png" }
+    );
+
+    expect(first).toMatchObject({
+      status: "ok",
+      imageKey: "generated/timeline-frames/abc123.png",
+      imageUrl: "/api/images/abc123.png",
+    });
+    expect(replay).toMatchObject({
+      imageKey: first.imageKey,
+      imageUrl: first.imageUrl,
+    });
+  });
+
+  it("rejects storage keys outside the generated asset namespace", async () => {
+    await expect(
+      storeImageBytes(new Uint8Array([1]), "image/png", {
+        storageKey: "../outside.png",
+      })
+    ).rejects.toThrow("图片存储标识无效");
   });
 });
 

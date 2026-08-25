@@ -822,9 +822,20 @@ function saveImageLocally(
  */
 export async function storeImageBytes(
   bytes: ArrayBuffer | Uint8Array,
-  mimeType = "image/png"
+  mimeType = "image/png",
+  options: { storageKey?: string } = {}
 ): Promise<ImageGenResult> {
-  const storageKey = makeStorageKey();
+  const requestedStorageKey = options.storageKey?.trim();
+  if (
+    requestedStorageKey &&
+    (!/^generated\/[a-zA-Z0-9/_-]+\.[a-zA-Z0-9]+$/.test(
+      requestedStorageKey
+    ) ||
+      requestedStorageKey.length > 240)
+  ) {
+    throw new Error("图片存储标识无效");
+  }
+  const storageKey = requestedStorageKey || makeStorageKey();
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 
   const localUrl = saveImageLocally(data, mimeType, storageKey);
