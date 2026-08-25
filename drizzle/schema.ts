@@ -942,6 +942,55 @@ export const generatedImages = mysqlTable("generated_images", {
 export type GeneratedImage = typeof generatedImages.$inferSelect;
 export type InsertGeneratedImage = typeof generatedImages.$inferInsert;
 
+export const timelineFrameExtractionOperations = mysqlTable(
+  "timeline_frame_extraction_operations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    storyId: int("storyId")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    userId: int("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestId: varchar("requestId", { length: 160 }).notNull(),
+    inputHash: varchar("inputHash", { length: 64 }).notNull(),
+    timelineFrame: int("timelineFrame").notNull(),
+    operationLayer: int("operationLayer").notNull(),
+    claimToken: varchar("claimToken", { length: 64 }).notNull(),
+    leaseUntil: timestamp("leaseUntil").notNull(),
+    attempt: int("attempt").default(1).notNull(),
+    status: mysqlEnum("status", [
+      "claimed",
+      "asset_ready",
+      "succeeded",
+      "failed",
+    ]).notNull(),
+    winnerIdentity: varchar("winnerIdentity", { length: 255 }),
+    descriptor: json("descriptor"),
+    imageId: int("imageId").references(() => generatedImages.id, {
+      onDelete: "set null",
+    }),
+    clipId: varchar("clipId", { length: 255 }),
+    timelineVersion: int("timelineVersion"),
+    errorCode: varchar("errorCode", { length: 128 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    ownerRequest: uniqueIndex(
+      "timeline_frame_extraction_owner_request_unique"
+    ).on(table.storyId, table.userId, table.requestId),
+    imageLookup: index("timeline_frame_extraction_image_index").on(
+      table.imageId
+    ),
+  })
+);
+
+export type TimelineFrameExtractionOperation =
+  typeof timelineFrameExtractionOperations.$inferSelect;
+export type InsertTimelineFrameExtractionOperation =
+  typeof timelineFrameExtractionOperations.$inferInsert;
+
 /**
  * VideoTakes — 单镜头图生视频产物。storyId + stableShotId 是唯一业务归属；
  * taskId 只是供应商任务句柄，videoKey 是后续托管素材库的对象 key。

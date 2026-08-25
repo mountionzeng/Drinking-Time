@@ -21,7 +21,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { StoryTimelineOverlay } from "../shared/storyMaterial";
+import { canonicalJsonStringify } from "../shared/canonicalJson";
 import {
   InsertUser,
   users,
@@ -59,6 +61,8 @@ import {
   InsertGeneratedImage,
   generatedImages,
   GeneratedImage,
+  timelineFrameExtractionOperations,
+  TimelineFrameExtractionOperation,
   InsertImageSignal,
   imageSignals,
   ImageSignal,
@@ -123,6 +127,7 @@ type MemoryState = {
   editSnapshots: EditSnapshot[];
   semanticAnnotations: SemanticAnnotation[];
   generatedImages: GeneratedImage[];
+  timelineFrameExtractionOperations: TimelineFrameExtractionOperation[];
   imageSignals: ImageSignal[];
   videoTakes: VideoTake[];
   videoTakeRanges: VideoTakeRange[];
@@ -145,6 +150,7 @@ type MemoryState = {
     editSnapshot: number;
     semanticAnnotation: number;
     generatedImage: number;
+    timelineFrameExtractionOperation: number;
     imageSignal: number;
     videoTake: number;
     videoTakeRange: number;
@@ -169,6 +175,7 @@ const memoryState: MemoryState = {
   editSnapshots: [],
   semanticAnnotations: [],
   generatedImages: [],
+  timelineFrameExtractionOperations: [],
   imageSignals: [],
   videoTakes: [],
   videoTakeRanges: [],
@@ -191,6 +198,7 @@ const memoryState: MemoryState = {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
     videoTakeRange: 1,
@@ -397,6 +405,13 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
       null,
     createdAt: toDate(item.createdAt),
   })) as GeneratedImage[];
+  memoryState.timelineFrameExtractionOperations = (
+    raw.timelineFrameExtractionOperations ?? []
+  ).map(item => ({
+    ...item,
+    createdAt: toDate(item.createdAt),
+    updatedAt: toDate(item.updatedAt),
+  })) as TimelineFrameExtractionOperation[];
 
   memoryState.imageSignals = (raw.imageSignals ?? []).map(item => ({
     ...item,
@@ -494,6 +509,10 @@ function normalizeLoadedState(raw: Partial<MemoryState>) {
     generatedImage: Math.max(
       raw.nextIds?.generatedImage ?? 0,
       nextIdFromRows(memoryState.generatedImages)
+    ),
+    timelineFrameExtractionOperation: Math.max(
+      raw.nextIds?.timelineFrameExtractionOperation ?? 0,
+      nextIdFromRows(memoryState.timelineFrameExtractionOperations)
     ),
     imageSignal: Math.max(
       raw.nextIds?.imageSignal ?? 0,
@@ -3605,6 +3624,656 @@ async function resolvePromptCompilationIdForAsset(
   return head?.currentCompilationId ?? null;
 }
 
+type TimelineFrameExtractionOwner = {
+  storyId: number;
+  userId: number;
+  requestId: string;
+};
+
+const TIMELINE_FRAME_EXTRACTION_LEASE_MS = 2 * 60 * 1000;
+
+function normalizedExtractionCoordinates(input: {
+  timelineFrame: number;
+  operationLayer: number;
+}) {
+  return {
+    timelineFrame: Math.max(0, Math.round(input.timelineFrame)),
+    operationLayer: Math.max(0, Math.round(input.operationLayer)),
+  };
+}
+
+function assertMatchingExtractionClaim(
+  existing: TimelineFrameExtractionOperation,
+  input: { inputHash: string; timelineFrame: number; operationLayer: number }
+) {
+  const normalized = normalizedExtractionCoordinates(input);
+  if (
+    existing.inputHash !== input.inputHash ||
+    existing.timelineFrame !== normalized.timelineFrame ||
+    existing.operationLayer !== normalized.operationLayer
+  ) {
+    throw new Error("抽帧 requestId 已用于不同输入（claim conflict）");
+  }
+}
+
+function assertActiveExtractionClaim(
+  current: TimelineFrameExtractionOperation,
+  claimToken: string
+) {
+  if (
+    current.claimToken !== claimToken ||
+    current.leaseUntil.getTime() <= Date.now()
+  ) {
+    throw new Error("抽帧 claim 已失效");
+  }
+}
+
+function extractionResultMatches(
+  current: TimelineFrameExtractionOperation,
+  result: { clipId: string; timelineVersion: number }
+) {
+  return (
+    current.clipId === result.clipId &&
+    current.timelineVersion === result.timelineVersion
+  );
+}
+
+function extractionDescriptorMatches(
+  current: TimelineFrameExtractionOperation,
+  value: { winnerIdentity: string; descriptor: unknown }
+) {
+  return (
+    current.winnerIdentity === value.winnerIdentity &&
+    canonicalJsonStringify(current.descriptor) ===
+      canonicalJsonStringify(value.descriptor)
+  );
+}
+
+const timelineFrameExtractionMemoryTails = new Map<string, Promise<void>>();
+
+async function withTimelineFrameExtractionMemoryLock<T>(
+  owner: TimelineFrameExtractionOwner,
+  run: () => Promise<T>
+): Promise<T> {
+  const key = `${owner.storyId}:${owner.userId}:${owner.requestId}`;
+  const previous =
+    timelineFrameExtractionMemoryTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  timelineFrameExtractionMemoryTails.set(key, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await run();
+  } finally {
+    release();
+    if (timelineFrameExtractionMemoryTails.get(key) === tail)
+      timelineFrameExtractionMemoryTails.delete(key);
+  }
+}
+
+function memoryTimelineFrameExtractionOperation(
+  owner: TimelineFrameExtractionOwner
+): TimelineFrameExtractionOperation | null {
+  return (
+    memoryState.timelineFrameExtractionOperations.find(
+      row =>
+        row.storyId === owner.storyId &&
+        row.userId === owner.userId &&
+        row.requestId === owner.requestId
+    ) ?? null
+  );
+}
+
+export async function getTimelineFrameExtractionOperation(
+  owner: TimelineFrameExtractionOwner
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return memoryTimelineFrameExtractionOperation(owner);
+  }
+  const [row] = await db
+    .select()
+    .from(timelineFrameExtractionOperations)
+    .where(
+      and(
+        eq(timelineFrameExtractionOperations.storyId, owner.storyId),
+        eq(timelineFrameExtractionOperations.userId, owner.userId),
+        eq(timelineFrameExtractionOperations.requestId, owner.requestId)
+      )
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function claimTimelineFrameExtractionOperation(
+  input: TimelineFrameExtractionOwner & {
+    inputHash: string;
+    timelineFrame: number;
+    operationLayer: number;
+  }
+): Promise<{
+  created: boolean;
+  acquired: boolean;
+  operation: TimelineFrameExtractionOperation;
+}> {
+  const requestId = input.requestId.trim();
+  if (!requestId || requestId.length > 160)
+    throw new Error("抽帧 requestId 不合法");
+  const owner = { ...input, requestId };
+  const coordinates = normalizedExtractionCoordinates(input);
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(owner, async () => {
+      const existing = memoryTimelineFrameExtractionOperation(owner);
+      if (existing) {
+        assertMatchingExtractionClaim(existing, input);
+        if (
+          existing.status !== "claimed" ||
+          existing.leaseUntil.getTime() > Date.now()
+        ) {
+          return { created: false, acquired: false, operation: existing };
+        }
+        const before = { ...existing };
+        existing.claimToken = randomUUID();
+        existing.leaseUntil = new Date(
+          Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+        );
+        existing.attempt += 1;
+        existing.updatedAt = now();
+        try {
+          await persistMemoryState();
+        } catch (error) {
+          Object.assign(existing, before);
+          throw error;
+        }
+        return { created: false, acquired: true, operation: existing };
+      }
+      const story = memoryState.stories.find(
+        row => row.id === input.storyId && row.userId === input.userId
+      );
+      if (!story) throw new Error("Story 不存在或不属于当前用户");
+      const current = now();
+      const operation: TimelineFrameExtractionOperation = {
+        id: nextMemoryId("timelineFrameExtractionOperation"),
+        storyId: input.storyId,
+        userId: input.userId,
+        requestId,
+        inputHash: input.inputHash,
+        ...coordinates,
+        claimToken: randomUUID(),
+        leaseUntil: new Date(
+          current.getTime() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+        ),
+        attempt: 1,
+        status: "claimed",
+        winnerIdentity: null,
+        descriptor: null,
+        imageId: null,
+        clipId: null,
+        timelineVersion: null,
+        errorCode: null,
+        createdAt: current,
+        updatedAt: current,
+      };
+      memoryState.timelineFrameExtractionOperations.push(operation);
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        memoryState.timelineFrameExtractionOperations =
+          memoryState.timelineFrameExtractionOperations.filter(
+            row => row !== operation
+          );
+        throw error;
+      }
+      return { created: true, acquired: true, operation };
+    });
+  }
+  return db.transaction(async tx => {
+    const [story] = await tx
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
+      .limit(1);
+    if (!story) throw new Error("Story 不存在或不属于当前用户");
+    const claimToken = randomUUID();
+    const leaseUntil = new Date(
+      Date.now() + TIMELINE_FRAME_EXTRACTION_LEASE_MS
+    );
+    const [result] = await tx
+      .insert(timelineFrameExtractionOperations)
+      .values({
+        storyId: input.storyId,
+        userId: input.userId,
+        requestId,
+        inputHash: input.inputHash,
+        ...coordinates,
+        claimToken,
+        leaseUntil,
+        attempt: 1,
+        status: "claimed",
+      })
+      .onDuplicateKeyUpdate({
+        set: { requestId: sql`${timelineFrameExtractionOperations.requestId}` },
+      });
+    const [operation] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation) throw new Error("抽帧操作 claim 后无法读取");
+    assertMatchingExtractionClaim(operation, input);
+    const created = result.insertId > 0;
+    if (created) return { created: true, acquired: true, operation };
+    if (
+      operation.status !== "claimed" ||
+      operation.leaseUntil.getTime() > Date.now()
+    ) {
+      return { created: false, acquired: false, operation };
+    }
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({
+        claimToken,
+        leaseUntil,
+        attempt: operation.attempt + 1,
+      })
+      .where(eq(timelineFrameExtractionOperations.id, operation.id));
+    const [reclaimed] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, operation.id))
+      .limit(1);
+    return { created: false, acquired: true, operation: reclaimed };
+  });
+}
+
+export async function recordTimelineFrameExtractionDescriptor(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    winnerIdentity: string;
+    descriptor: unknown;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const apply = async (
+    current: TimelineFrameExtractionOperation,
+    persist: () => Promise<void>
+  ) => {
+    if (current.status !== "claimed")
+      throw new Error("只有 claimed 操作可以记录 descriptor");
+    if (current.descriptor != null) {
+      if (!extractionDescriptorMatches(current, input))
+        throw new Error("抽帧 descriptor conflict");
+      return current;
+    }
+    assertActiveExtractionClaim(current, input.claimToken);
+    current.winnerIdentity = input.winnerIdentity;
+    current.descriptor = input.descriptor;
+    await persist();
+    return current;
+  };
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      const before = { ...current };
+      return apply(current, async () => {
+        current.updatedAt = now();
+        try {
+          await persistMemoryState();
+        } catch (error) {
+          Object.assign(current, before);
+          throw error;
+        }
+      });
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    return apply(current, async () => {
+      await tx
+        .update(timelineFrameExtractionOperations)
+        .set({
+          winnerIdentity: input.winnerIdentity,
+          descriptor: input.descriptor,
+        })
+        .where(eq(timelineFrameExtractionOperations.id, current.id));
+    });
+  });
+}
+
+export async function failTimelineFrameExtractionOperation(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    errorCode: string;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const errorCode = input.errorCode.slice(0, 128);
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status === "failed") {
+        if (current.errorCode !== errorCode)
+          throw new Error("抽帧失败结果 conflict");
+        return current;
+      }
+      if (current.status === "succeeded")
+        throw new Error("抽帧操作已成功，不能标记失败");
+      if (current.status === "claimed")
+        assertActiveExtractionClaim(current, input.claimToken);
+      const before = { ...current };
+      current.status = "failed";
+      current.errorCode = errorCode;
+      current.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status === "failed") {
+      if (current.errorCode !== errorCode)
+        throw new Error("抽帧失败结果 conflict");
+      return current;
+    }
+    if (current.status === "succeeded")
+      throw new Error("抽帧操作已成功，不能标记失败");
+    if (current.status === "claimed")
+      assertActiveExtractionClaim(current, input.claimToken);
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({ status: "failed", errorCode })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    return { ...current, status: "failed", errorCode };
+  });
+}
+
+export async function settleTimelineFrameExtractionAsset(
+  input: TimelineFrameExtractionOwner & {
+    claimToken: string;
+    existingImageId?: number;
+    image?: Omit<InsertGeneratedImage, "id" | "createdAt" | "isCurrent">;
+  }
+): Promise<{
+  operation: TimelineFrameExtractionOperation;
+  image: GeneratedImage;
+}> {
+  if ((input.existingImageId == null) === (input.image == null)) {
+    throw new Error("抽帧资产必须且只能提供 existingImageId 或 image");
+  }
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const operation = memoryTimelineFrameExtractionOperation(input);
+      if (!operation) throw new Error("抽帧操作不存在");
+      if (operation.imageId != null) {
+        if (operation.status !== "asset_ready")
+          throw new Error("抽帧资产状态不一致");
+        const replay = memoryState.generatedImages.find(
+          row => row.id === operation.imageId
+        );
+        if (!replay) throw new Error("抽帧操作引用的图片不存在");
+        return { operation, image: replay };
+      }
+      if (operation.status !== "claimed")
+        throw new Error("只有 claimed 操作可以登记资产");
+      assertActiveExtractionClaim(operation, input.claimToken);
+      const beforeOperation = { ...operation };
+      let image: GeneratedImage;
+      let created = false;
+      if (input.existingImageId != null) {
+        const existing = memoryState.generatedImages.find(
+          row =>
+            row.id === input.existingImageId &&
+            row.storyId === input.storyId &&
+            row.userId === input.userId
+        );
+        if (!existing) throw new Error("复用图片不存在或不属于当前 Story");
+        image = existing;
+      } else {
+        const data = input.image!;
+        if (data.storyId !== input.storyId || data.userId !== input.userId) {
+          throw new Error("新图片归属与抽帧操作不一致");
+        }
+        image = {
+          id: nextMemoryId("generatedImage"),
+          projectId: data.projectId ?? null,
+          storyId: data.storyId ?? null,
+          userId: data.userId ?? null,
+          shotNo: data.shotNo ?? null,
+          shotIdentity: data.shotIdentity ?? null,
+          imageKey: data.imageKey ?? null,
+          imageUrl: data.imageUrl,
+          prompt: data.prompt ?? null,
+          promptCompilationId: data.promptCompilationId ?? null,
+          parentImageId: data.parentImageId ?? null,
+          isCurrent: false,
+          generationType: data.generationType ?? "initial",
+          maskKey: data.maskKey ?? null,
+          createdAt: now(),
+        };
+        memoryState.generatedImages.push(image);
+        created = true;
+      }
+      operation.imageId = image.id;
+      operation.status = "asset_ready";
+      operation.updatedAt = now();
+      try {
+        // Extracted warehouse registration is authoritative in generatedImages;
+        // no imageSignal is emitted here because it cannot share this local atomic write safely.
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(operation, beforeOperation);
+        if (created)
+          memoryState.generatedImages = memoryState.generatedImages.filter(
+            row => row !== image
+          );
+        throw error;
+      }
+      return { operation, image };
+    });
+  }
+  return db.transaction(async tx => {
+    const [operation] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!operation) throw new Error("抽帧操作不存在");
+    if (operation.imageId != null) {
+      if (operation.status !== "asset_ready")
+        throw new Error("抽帧资产状态不一致");
+      const [replay] = await tx
+        .select()
+        .from(generatedImages)
+        .where(
+          and(
+            eq(generatedImages.id, operation.imageId),
+            eq(generatedImages.storyId, input.storyId),
+            eq(generatedImages.userId, input.userId)
+          )
+        )
+        .limit(1);
+      if (!replay) throw new Error("抽帧操作引用的图片不存在");
+      return { operation, image: replay };
+    }
+    if (operation.status !== "claimed")
+      throw new Error("只有 claimed 操作可以登记资产");
+    assertActiveExtractionClaim(operation, input.claimToken);
+    let image: GeneratedImage | undefined;
+    if (input.existingImageId != null) {
+      [image] = await tx
+        .select()
+        .from(generatedImages)
+        .where(
+          and(
+            eq(generatedImages.id, input.existingImageId),
+            eq(generatedImages.storyId, input.storyId),
+            eq(generatedImages.userId, input.userId)
+          )
+        )
+        .limit(1);
+      if (!image) throw new Error("复用图片不存在或不属于当前 Story");
+    } else {
+      const data = input.image!;
+      if (data.storyId !== input.storyId || data.userId !== input.userId)
+        throw new Error("新图片归属与抽帧操作不一致");
+      const [inserted] = await tx
+        .insert(generatedImages)
+        .values({ ...data, isCurrent: false });
+      [image] = await tx
+        .select()
+        .from(generatedImages)
+        .where(eq(generatedImages.id, inserted.insertId))
+        .limit(1);
+      if (!image) throw new Error("抽帧图片创建后无法读取");
+      // Do not call createGeneratedImage: its imageSignal is a second write outside this receipt transaction.
+    }
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({
+        imageId: image.id,
+        status: "asset_ready",
+        errorCode: null,
+      })
+      .where(eq(timelineFrameExtractionOperations.id, operation.id));
+    const [settled] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, operation.id))
+      .limit(1);
+    return { operation: settled, image };
+  });
+}
+
+export async function markTimelineFrameExtractionSucceeded(
+  input: TimelineFrameExtractionOwner & {
+    clipId: string;
+    timelineVersion: number;
+  }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status === "succeeded") {
+        if (!extractionResultMatches(current, input))
+          throw new Error("抽帧成功结果 conflict");
+        return current;
+      }
+      if (current.status !== "asset_ready" || current.imageId == null)
+        throw new Error("只有 asset_ready 操作可以标记成功");
+      const before = { ...current };
+      current.status = "succeeded";
+      current.clipId = input.clipId;
+      current.timelineVersion = input.timelineVersion;
+      current.errorCode = null;
+      current.updatedAt = now();
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status === "succeeded") {
+      if (!extractionResultMatches(current, input))
+        throw new Error("抽帧成功结果 conflict");
+      return current;
+    }
+    if (current.status !== "asset_ready" || current.imageId == null)
+      throw new Error("只有 asset_ready 操作可以标记成功");
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({
+        status: "succeeded",
+        clipId: input.clipId,
+        timelineVersion: input.timelineVersion,
+        errorCode: null,
+      })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    const [settled] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, current.id))
+      .limit(1);
+    return settled;
+  });
+}
+
 // ─── Generated Images（统一） ────────────────────────────────────────────
 // 桌面端通过 projectId+shotNo 关联，手机端通过 storyId+userId 关联。
 
@@ -6272,6 +6941,7 @@ export function resetMemoryStateForTesting(): void {
   memoryState.editSnapshots = [];
   memoryState.semanticAnnotations = [];
   memoryState.generatedImages = [];
+  memoryState.timelineFrameExtractionOperations = [];
   memoryState.imageSignals = [];
   memoryState.videoTakes = [];
   memoryState.videoTakeRanges = [];
@@ -6298,6 +6968,7 @@ export function resetMemoryStateForTesting(): void {
     editSnapshot: 1,
     semanticAnnotation: 1,
     generatedImage: 1,
+    timelineFrameExtractionOperation: 1,
     imageSignal: 1,
     videoTake: 1,
     videoTakeRange: 1,
@@ -6308,6 +6979,7 @@ export function resetMemoryStateForTesting(): void {
     inviteCode: 1,
   };
   defaultProjectLocks.clear();
+  timelineFrameExtractionMemoryTails.clear();
   memoryVideoTakeSubmissionClaimQueue = Promise.resolve();
   memoryInviteClaimQueue = Promise.resolve();
   memoryEmailOtps = [];
