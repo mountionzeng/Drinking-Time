@@ -16,6 +16,10 @@ import {
   type ShotFieldChange,
 } from "@/features/storyAgent/editPromptCandidate";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
+import {
+  isStoryScopeReady,
+  resolveInitialStoryLoading,
+} from "./creationEditorReadiness";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
   ensureShotIdentities,
@@ -230,6 +234,13 @@ type CreationEditorContextValue = {
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
   selectedShot: CreationEditorShot | null;
+  /**
+   * 核心 Story 数据（镜头、标题、时间线 fallback）是否还没恢复。只反映
+   * Story 作用域是否已对齐 spine，素材/发布稿/提示词谱系/供应商状态等增强
+   * 数据未就绪不会让它变 true——那些字段各自暴露在 isLoading 里，交给依赖
+   * 它们的局部区域（素材仓库、提示词表等）自行展示局部 loading。
+   */
+  initialStoryLoading: boolean;
   isLoading: boolean;
   error: CreationEditorError | null;
   isSaving: boolean;
@@ -1566,14 +1577,20 @@ export function CreationEditorProvider({
   const activeStoryIdRef = useRef(activeId);
   activeStoryIdRef.current = activeId;
   const canonicalStoryShots = useStorySpine(state =>
-    activeId != null &&
-    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
+    isStoryScopeReady({
+      activeId,
+      spineActiveStoryId: state.activeStoryId,
+      spineRemoteStoryId: state.remoteStoryId ?? null,
+    })
       ? state.storyShots
       : EMPTY_STORY_SHOTS
   );
   const spinePublishing = useStorySpine(state =>
-    activeId != null &&
-    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
+    isStoryScopeReady({
+      activeId,
+      spineActiveStoryId: state.activeStoryId,
+      spineRemoteStoryId: state.remoteStoryId ?? null,
+    })
       ? state.publishing
       : null
   );
@@ -3751,6 +3768,11 @@ export function CreationEditorProvider({
       selectedShotNo,
       setSelectedShotNo,
       selectedShot,
+      initialStoryLoading: resolveInitialStoryLoading({
+        activeId,
+        spineActiveStoryId,
+        spineRemoteStoryId: spineRemoteStoryId ?? null,
+      }),
       isLoading:
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
