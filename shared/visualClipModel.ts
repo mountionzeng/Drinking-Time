@@ -14,6 +14,7 @@ import type {
   StoryTimelineItem,
   StoryTimelineOverlay,
   StoryTimelineVisualLayerState,
+  TimelineTransform,
 } from "./storyMaterial";
 import {
   timelineFramesToMs,
@@ -65,6 +66,7 @@ export type InsertVisualImageClipInput = {
   startFrame: number;
   /** 抽帧默认严格一帧。 */
   durationFrames?: number;
+  transform?: TimelineTransform;
 };
 
 type InsertVisualClipError =
@@ -510,6 +512,7 @@ export function insertVisualImageClip(
     timelineStartFrame: startFrame,
     durationFrames: requestedDurationFrames,
     visualLayer: layer,
+    ...(input.transform ? { transform: { ...input.transform } } : {}),
   };
   const next: VisualEditDocument = {
     ...base,
