@@ -3,6 +3,7 @@ import {
   type CompiledPromptTarget,
 } from "../../shared/promptCompiler";
 import type {
+  PromptCompilationHead,
   PromptLineageOwner,
   PromptModality,
   PromptRevision,
@@ -14,6 +15,7 @@ import {
   PromptLineageConflictError,
   createPersistentLocalPromptLineageStore,
   loadStoryPromptAggregate,
+  loadStoryPromptCompilationHeads,
   type PromptLineageMemoryStore,
 } from "./promptLineageStore";
 export {
@@ -410,6 +412,17 @@ export async function getStoryPromptProjection(
   owner: PromptLineageOwner,
 ): Promise<StoryPromptAggregate | null> {
   return loadStoryPromptAggregate(owner);
+}
+
+/**
+ * 只要 compilationHeads 的调用方（目前是 storyMaterials 的时间线投影）不用
+ * 走完整的 getStoryPromptProjection——那会把 nodes/revisions/messages 等
+ * 用不到的大字段也一起取回来。
+ */
+export async function getStoryPromptCompilationHeads(
+  owner: PromptLineageOwner,
+): Promise<PromptCompilationHead[]> {
+  return loadStoryPromptCompilationHeads(owner);
 }
 
 export async function resolveGenerationPromptCompilation(input: PromptLineageOwner & {

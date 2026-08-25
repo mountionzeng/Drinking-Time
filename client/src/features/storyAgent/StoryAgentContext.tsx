@@ -107,6 +107,7 @@ import {
   refreshRecentStoryListWithRetry,
   resolveRecentStoryEntry,
 } from "./recentStoryEntry";
+import { coldEntryStoryListFetchOptions } from "./recentStoryListCache";
 import {
   buildPromptAttribution,
   encodeAttributionReason,
@@ -483,7 +484,10 @@ interface StoryAgentContextValue {
   backToList: () => void;
   deleteStory: (id: number) => Promise<void>;
   renameStory: (storyId: number | null, title: string) => Promise<void>;
-  refreshStoryList: () => Promise<boolean>;
+  refreshStoryList: (options?: {
+    /** 只给冷启动自动打开最近故事这一条路径用，见 recentStoryListCache.ts。 */
+    allowRecentColdEntryCache?: boolean;
+  }) => Promise<boolean>;
   /**
    * 老用户点回旧故事时，聊聊的「我还记得上次……」再问候（第二步：召回 + 记忆承诺）。
    * 仅活在内存里：永不进 messages、永不落库，所以反复点回不会堆叠、也不会污染历史。
@@ -2709,41 +2713,49 @@ export function StoryAgentProvider({
     toast.success("已开始新故事，旧故事仍保留在云端故事库");
   }, [setPublishing]);
 
-  const refreshStoryList = useCallback(async () => {
-    setIsLoadingStories(true);
-    try {
-      const data = await utils.storyAgent.storyList.fetch();
-      const items: StoryListItem[] = (data.stories ?? []).map(s => ({
-        id: s.id,
-        title: s.title,
-        logline: s.logline,
-        summary: s.summary,
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-        cardCount: s.cardCount,
-        shotCount: s.shotCount,
-        activityDates: s.activityDates ?? [],
-      }));
-      setStoryList(items);
-      // Clear stale remoteStoryId if it no longer exists on the server
-      // (e.g. after server restart wiped in-memory state). This ensures the
-      // next save attempt creates a new story rather than failing silently.
-      setRemoteStoryId(prev => {
-        if (prev !== undefined && !items.some(s => s.id === prev)) {
-          setActiveStoryId(current => (current === prev ? -1 : current));
-          setServerRevision(0);
-          return undefined;
-        }
-        return prev;
-      });
-    } catch (error) {
-      console.warn("refreshStoryList failed", error);
-      return false;
-    } finally {
-      setIsLoadingStories(false);
-    }
-    return true;
-  }, [utils.storyAgent.storyList]);
+  const refreshStoryList = useCallback(
+    async (options?: { allowRecentColdEntryCache?: boolean }) => {
+      setIsLoadingStories(true);
+      try {
+        const data = await utils.storyAgent.storyList.fetch(
+          undefined,
+          options?.allowRecentColdEntryCache
+            ? coldEntryStoryListFetchOptions()
+            : undefined
+        );
+        const items: StoryListItem[] = (data.stories ?? []).map(s => ({
+          id: s.id,
+          title: s.title,
+          logline: s.logline,
+          summary: s.summary,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          cardCount: s.cardCount,
+          shotCount: s.shotCount,
+          activityDates: s.activityDates ?? [],
+        }));
+        setStoryList(items);
+        // Clear stale remoteStoryId if it no longer exists on the server
+        // (e.g. after server restart wiped in-memory state). This ensures the
+        // next save attempt creates a new story rather than failing silently.
+        setRemoteStoryId(prev => {
+          if (prev !== undefined && !items.some(s => s.id === prev)) {
+            setActiveStoryId(current => (current === prev ? -1 : current));
+            setServerRevision(0);
+            return undefined;
+          }
+          return prev;
+        });
+      } catch (error) {
+        console.warn("refreshStoryList failed", error);
+        return false;
+      } finally {
+        setIsLoadingStories(false);
+      }
+      return true;
+    },
+    [utils.storyAgent.storyList]
+  );
 
   const clearCurrentStory = useCallback(() => {
     const fresh = emptyState();
@@ -3010,7 +3022,10 @@ export function StoryAgentProvider({
 
     void (async () => {
       const refreshed = await refreshRecentStoryListWithRetry(
-        () => refreshRecentStoryListRef.current(),
+        () =>
+          refreshRecentStoryListRef.current({
+            allowRecentColdEntryCache: true,
+          }),
         () => cancelled
       );
       if (!refreshed || cancelled) return;

@@ -24,7 +24,7 @@ import {
 import { normalizeStoryVisualAssets } from "../../shared/visualAssets";
 import { getStoryById, getStoryTimeline } from "../db";
 import { getStoryImageAssets } from "./imageAssets";
-import { getStoryPromptProjection } from "./promptLineage";
+import { getStoryPromptCompilationHeads } from "./promptLineage";
 import {
   resolvePromptAssetFreshness,
   resolveVideoStaleReasons,
@@ -710,20 +710,21 @@ export async function getStoryMaterialState(
       binding,
     ])
   );
-  const [images, videos, timelineRow, promptProjection] = await Promise.all([
-    getStoryImageAssets(storyId, userId),
-    getStoryVideoAssets(storyId, userId),
-    getStoryTimeline(storyId, userId),
-    getStoryPromptProjection({ storyId, userId }),
-  ]);
-  // 落库形态：显式层数 + 隐藏集合。最高那层空白投放层由客户端和导出各自派生，
-  // 不写进文档——写进去就会让「拖上顶层再拖回来」永久多出一层。
+  const [images, videos, timelineRow, promptCompilationHeads] =
+    await Promise.all([
+      getStoryImageAssets(storyId, userId),
+      getStoryVideoAssets(storyId, userId),
+      getStoryTimeline(storyId, userId),
+      getStoryPromptCompilationHeads({ storyId, userId }),
+    ]);
+  // 统一投影保留新视觉图层字段；提示词读取则沿用 main 的按 Story 窄查询，
+  // 避免刷新时复制整份 prompt lineage 仓库。
   const timeline = projectStoryTimelineDocument(story, timelineRow);
   const timelineByShot = new Map(
     timeline.items.map(item => [item.stableShotId, item])
   );
   const compilationHeadByKey = new Map(
-    (promptProjection?.compilationHeads ?? []).map(head => [
+    promptCompilationHeads.map(head => [
       `${head.stableShotId}:${head.modality}`,
       head.currentCompilationId,
     ])

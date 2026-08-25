@@ -109,6 +109,7 @@ import {
   createEmptyPromptLineageLocalState,
   normalizePromptLineageLocalState,
   type PromptLineageLocalState,
+  type PromptCompilationHead,
 } from "../shared/promptLineage";
 import { isUntitledStoryTitle } from "../shared/storyTitle";
 
@@ -1041,6 +1042,70 @@ export async function getLocalPromptLineageState(): Promise<PromptLineageLocalSt
   if (db) return null;
   await ensureLocalPromptLineageLoaded();
   return structuredClone(memoryState.promptLineage);
+}
+
+/**
+ * 单 Story 窄读：先按 storyId 从内存态筛出这个 Story 的切片，只 clone 这份
+ * 切片，不碰其它 Story 的记录。提示词仓库整份可能有几 MB～十几 MB，读一个
+ * Story 不该先把全库 structuredClone 一遍。
+ *
+ * 全局共享、不属于任何单个 Story 的三张艺术素材库表（artLibraries /
+ * artLibraryVersions / artLibraryItems）以及只在写入路径用得到的
+ * operationReceipts 不在这里展开——调用方（loadStoryPromptAggregate 的
+ * getStoryAggregate）不读这几个字段，展开了也是白拷贝。nextIds 是全局自增
+ * 计数器，读路径不需要按 Story 切；直接透传引用即可，反正 structuredClone
+ * 只会拷贝这几个数字，成本可以忽略。
+ */
+export async function getLocalPromptLineageStateForStory(
+  storyId: number
+): Promise<PromptLineageLocalState | null> {
+  const db = await getDb();
+  if (db) return null;
+  await ensureLocalPromptLineageLoaded();
+  const full = memoryState.promptLineage;
+  const byStory = <T extends { storyId: number }>(rows: T[]) =>
+    rows.filter(row => row.storyId === storyId);
+  const compilations = byStory(full.compilations);
+  const compilationIds = new Set(compilations.map(row => row.id));
+  return structuredClone({
+    storyStates: byStory(full.storyStates),
+    nodes: byStory(full.nodes),
+    revisions: byStory(full.revisions),
+    bindings: byStory(full.bindings),
+    compilations,
+    compilationInputs: full.compilationInputs.filter(row =>
+      compilationIds.has(row.compilationId)
+    ),
+    compilationHeads: byStory(full.compilationHeads),
+    conversations: byStory(full.conversations),
+    messages: byStory(full.messages),
+    messageReferences: byStory(full.messageReferences),
+    artLibraries: [],
+    artLibraryVersions: [],
+    artLibraryItems: [],
+    storyArtBindings: byStory(full.storyArtBindings),
+    operationReceipts: byStory(full.operationReceipts),
+    nextIds: full.nextIds,
+  });
+}
+
+/**
+ * 更窄的单 Story 读：只要 compilationHeads（stableShotId + modality +
+ * currentCompilationId 的当前指针），不展开 nodes/revisions/messages 等
+ * 大字段。storyMaterials 的时间线投影只用这一张表拼 lookup，见
+ * server/services/storyMaterials.ts 的 getStoryMaterialState。
+ */
+export async function getLocalPromptCompilationHeadsForStory(
+  storyId: number
+): Promise<PromptCompilationHead[]> {
+  const db = await getDb();
+  if (db) return [];
+  await ensureLocalPromptLineageLoaded();
+  return structuredClone(
+    memoryState.promptLineage.compilationHeads.filter(
+      head => head.storyId === storyId
+    )
+  );
 }
 
 export async function replaceLocalPromptLineageState(

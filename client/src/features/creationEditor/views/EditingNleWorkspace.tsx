@@ -1603,7 +1603,7 @@ export default function EditingNleWorkspace({
     rollTimelineJoin,
     detachTimelineMagnet,
     timelineWritePending,
-    isLoading,
+    initialStoryLoading,
   } = creationEditor;
   const [relinkProgress, setRelinkProgress] = useState<string | null>(null);
   const [attachProgress, setAttachProgress] = useState<string | null>(null);
@@ -2721,7 +2721,7 @@ export default function EditingNleWorkspace({
     timings,
   ]);
 
-  if (isLoading) {
+  if (initialStoryLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

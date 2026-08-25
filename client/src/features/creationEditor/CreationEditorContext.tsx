@@ -17,6 +17,14 @@ import {
   type ShotFieldChange,
 } from "@/features/storyAgent/editPromptCandidate";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
+import {
+  isStoryScopeReady,
+  resolveInitialStoryLoading,
+} from "./creationEditorReadiness";
+import {
+  RECENT_STORY_LIST_CACHE_WINDOW_MS,
+  STORY_GET_MOUNT_STALE_WINDOW_MS,
+} from "@/features/storyAgent/recentStoryListCache";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
   ensureShotIdentities,
@@ -235,6 +243,13 @@ type CreationEditorContextValue = {
   selectedShotNo: number | null;
   setSelectedShotNo: (shotNo: number | null) => void;
   selectedShot: CreationEditorShot | null;
+  /**
+   * 核心 Story 数据（镜头、标题、时间线 fallback）是否还没恢复。只反映
+   * Story 作用域是否已对齐 spine，素材/发布稿/提示词谱系/供应商状态等增强
+   * 数据未就绪不会让它变 true——那些字段各自暴露在 isLoading 里，交给依赖
+   * 它们的局部区域（素材仓库、提示词表等）自行展示局部 loading。
+   */
+  initialStoryLoading: boolean;
   isLoading: boolean;
   error: CreationEditorError | null;
   isSaving: boolean;
@@ -1564,6 +1579,10 @@ export function CreationEditorProvider({
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     refetchOnWindowFocus: false,
+    // 冷刷新时 StoryAgent 入口 hydrate 也会取一次同一份 storyList（见
+    // recentStoryListCache.ts）；给这份窄窗口，谁先取到都不让另一个在几秒内
+    // 再打一次网络，不影响用户主动刷新故事库（那条路径不走这个 staleTime）。
+    staleTime: RECENT_STORY_LIST_CACHE_WINDOW_MS,
   });
   const updateStoryShotFieldsMut =
     trpc.storyAgent.updateStoryShotFields.useMutation();
@@ -1726,14 +1745,20 @@ export function CreationEditorProvider({
     >()
   );
   const canonicalStoryShots = useStorySpine(state =>
-    activeId != null &&
-    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
+    isStoryScopeReady({
+      activeId,
+      spineActiveStoryId: state.activeStoryId,
+      spineRemoteStoryId: state.remoteStoryId ?? null,
+    })
       ? state.storyShots
       : EMPTY_STORY_SHOTS
   );
   const spinePublishing = useStorySpine(state =>
-    activeId != null &&
-    (state.activeStoryId === activeId || state.remoteStoryId === activeId)
+    isStoryScopeReady({
+      activeId,
+      spineActiveStoryId: state.activeStoryId,
+      spineRemoteStoryId: state.remoteStoryId ?? null,
+    })
       ? state.publishing
       : null
   );
@@ -1743,6 +1768,10 @@ export function CreationEditorProvider({
       // 草稿故事的 activeId 是 -1，服务端只认正数 id，别让 400 进入重试循环
       enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
+      // StoryAgent 的 loadStory() 用 staleTime:0 已经强制取回同一个 id 的
+      // 最新 Story，这个 observer 挂载/启用时不用再当成 stale 立刻重打一次；
+      // 窄窗口只挡自动重挂载重取，不影响 invalidate()/refetch() 的显式刷新。
+      staleTime: STORY_GET_MOUNT_STALE_WINDOW_MS,
     }
   );
   const publishingDraftQuery = trpc.publishingDraft.read.useQuery(
@@ -4014,6 +4043,11 @@ export function CreationEditorProvider({
       selectedShotNo,
       setSelectedShotNo,
       selectedShot,
+      initialStoryLoading: resolveInitialStoryLoading({
+        activeId,
+        spineActiveStoryId,
+        spineRemoteStoryId: spineRemoteStoryId ?? null,
+      }),
       isLoading:
         storyListQuery.isLoading ||
         storyQuery.isLoading ||
