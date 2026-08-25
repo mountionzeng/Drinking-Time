@@ -2408,6 +2408,7 @@ export default function EditingNleWorkspace({
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
     () => ({
+      storySessionKey: `story:${activeStoryId ?? "none"}`,
       playheadMs: playbackClock.playheadMs,
       isPlaying: playbackClock.isPlaying,
       totalMs: boardTimelineTotalMs,

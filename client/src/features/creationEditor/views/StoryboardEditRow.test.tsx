@@ -108,6 +108,15 @@ describe("StoryboardEditRow", () => {
           timelineStartFrame: 0,
           durationFrames: 60,
           visualLayer: 0,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
           imageClips: [
             {
               id: "img-one",
@@ -140,7 +149,7 @@ describe("StoryboardEditRow", () => {
     ];
     const html = renderToStaticMarkup(
       <StoryboardEditRow
-        timeline={boardTimeline()}
+        timeline={boardTimeline({ onMoveVisualClip: vi.fn() })}
         shots={richShots}
         selectedShotNo={1}
         onSelectShot={vi.fn()}
@@ -152,6 +161,9 @@ describe("StoryboardEditRow", () => {
     expect(html).toContain('data-visual-object-type="owned-video-clip"');
     expect(html).toContain('data-visual-object-type="image-clip"');
     expect(html).toContain('aria-label="内部片段，视频片段"');
+    expect(html).toContain('data-visual-object-id="vid-one"');
+    expect(html).toContain('draggable="true"');
+    expect(html).toContain("Shift+F10 ContextMenu");
     expect(html).toContain('aria-label="关键帧，图片"');
   });
 
@@ -193,6 +205,63 @@ describe("StoryboardEditRow", () => {
     finishMove();
     await completion;
     expect(settled).toBe(true);
+  });
+
+  it("projects an owned clip only onto its own third visual track", () => {
+    const layeredShots: StoryboardEditShot[] = [
+      {
+        ...shots[0],
+        timelineItem: {
+          stableShotId: "sh-01",
+          included: true,
+          position: 0,
+          plannedDurationMs: 2_000,
+          timelineStartFrame: 0,
+          durationFrames: 60,
+          visualLayer: 0,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+          visualClips: [
+            {
+              id: "owned-layer-two",
+              takeId: 5,
+              rangeId: 6,
+              sourceStableShotId: "source",
+              videoUrl: "/owned.mp4",
+              label: "三层片段",
+              sourceStartSec: 0,
+              sourceEndSec: 1,
+              offsetMs: 500,
+              durationMs: 500,
+              visualLayer: 2,
+            },
+          ],
+        },
+      },
+      shots[1],
+    ];
+    const html = renderToStaticMarkup(
+      <StoryboardEditRow
+        timeline={boardTimeline({ onMoveVisualClip: vi.fn() })}
+        shots={layeredShots}
+        selectedShotNo={null}
+        onSelectShot={vi.fn()}
+        columnSpan={2}
+      />
+    );
+    expect(html).toContain(
+      'data-testid="storyboard-owned-video-clip-3-owned-layer-two"'
+    );
+    expect(html).not.toContain(
+      'data-testid="storyboard-owned-video-clip-1-owned-layer-two"'
+    );
   });
 
   it("resolves the release layer from track geometry instead of the dragged child", () => {
@@ -240,7 +309,7 @@ describe("StoryboardEditRow", () => {
     const html = renderRow(boardTimeline({ onMoveVisualClip: vi.fn() }));
     expect(html).toContain('data-visual-clip-move-target="true"');
     expect(html).toContain(
-      'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"'
+      'aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"'
     );
     expect(html).toContain("方向键左右移动、上下换层");
   });

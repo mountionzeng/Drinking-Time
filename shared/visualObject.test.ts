@@ -11,12 +11,12 @@ describe("visualObjectRefFromClip", () => {
     [
       { kind: "video-clip", ownerStableShotId: "shot-a", clipId: "clip-v" },
       "owned-video-clip",
-      "owned-video-clip:clip-v",
+      "owned-video-clip:shot-a:clip-v",
     ],
     [
       { kind: "image-clip", ownerStableShotId: "shot-a", clipId: "clip-i" },
       "image-clip",
-      "image-clip:clip-i",
+      "image-clip:shot-a:clip-i",
     ],
   ] as const)("maps %o without parsing the clip id", (origin, type, key) => {
     const ref = visualObjectRefFromClip({ id: "opaque", origin });
@@ -31,5 +31,21 @@ describe("visualObjectRefFromClip", () => {
         origin: { kind: "overlay", overlayId: "old" },
       })
     ).toBeNull();
+  });
+
+  it("does not alias identically named clips owned by different shots", () => {
+    expect(
+      visualObjectRefKey({
+        type: "image-clip",
+        clipId: "same",
+        ownerStableShotId: "a",
+      })
+    ).not.toBe(
+      visualObjectRefKey({
+        type: "image-clip",
+        clipId: "same",
+        ownerStableShotId: "b",
+      })
+    );
   });
 });

@@ -41,6 +41,9 @@ import {
   storyboardTrimmedDurationMs,
   storyboardExtractedFrameTimeMs,
   storyboardVisualClipShotTimingPreview,
+  storyboardVisualObjectMenuFocusIndex,
+  storyboardOwnedClipVisualLayer,
+  storyboardOwnedClipNudgeBase,
   storyboardVisualLayerShotIds,
 } from "./storyboardEditRow";
 
@@ -943,6 +946,11 @@ describe("storyboard edit key routing", () => {
     expect(gate({ key: " ", isEditableTarget: true })).toBe(false);
   });
 
+  it("yields to selects, comboboxes, dialogs, and rename surfaces", () => {
+    expect(gate({ isInteractionBoundary: true })).toBe(false);
+    expect(gate({ key: "Delete", isInteractionBoundary: true })).toBe(false);
+  });
+
   it("lets space and enter activate the button they are aimed at", () => {
     expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);
@@ -980,6 +988,36 @@ describe("storyboard edit key routing", () => {
     expect(storyboardEditShouldFollowSelectionToShot("storyboard-image")).toBe(
       true
     );
+  });
+});
+
+describe("visual object menu keyboard interaction", () => {
+  it("wraps arrows and supports Home/End", () => {
+    expect(storyboardVisualObjectMenuFocusIndex({ key: "ArrowDown", currentIndex: 2, itemCount: 3 })).toBe(0);
+    expect(storyboardVisualObjectMenuFocusIndex({ key: "ArrowUp", currentIndex: 0, itemCount: 3 })).toBe(2);
+    expect(storyboardVisualObjectMenuFocusIndex({ key: "Home", currentIndex: 2, itemCount: 3 })).toBe(0);
+    expect(storyboardVisualObjectMenuFocusIndex({ key: "End", currentIndex: 0, itemCount: 3 })).toBe(2);
+  });
+});
+
+describe("owned clip track projection", () => {
+  it("uses the clip's own persisted visual layer", () => {
+    expect(storyboardOwnedClipVisualLayer({ visualLayer: 2 })).toBe(2);
+    expect(storyboardOwnedClipVisualLayer({ visualLayer: -3 })).toBe(0);
+    expect(storyboardOwnedClipVisualLayer({})).toBe(0);
+  });
+
+  it("starts ArrowUp from layer 2 after the clip was moved there", () => {
+    expect(
+      storyboardOwnedClipNudgeBase({
+        ownerStartFrame: 30,
+        clip: { id: "owned", offsetMs: 500, visualLayer: 2 },
+      })
+    ).toEqual({
+      clipId: "video:owned",
+      startVisualLayer: 2,
+      startFrame: 45,
+    });
   });
 });
 

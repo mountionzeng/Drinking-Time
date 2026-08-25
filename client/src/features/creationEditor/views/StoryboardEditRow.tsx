@@ -27,9 +27,16 @@ import { toast } from "sonner";
 import type {
   StoryTimelineItem,
   StoryTimelineOverlay,
+  StoryTimelineVisualClip,
 } from "@shared/storyMaterial";
 import { timelineImageClipStartFrame } from "@shared/storyMaterial";
 import { visualTrackId } from "@shared/visualClipModel";
+import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
+import {
+  createVisualObjectPendingGuard,
+  visualObjectCapabilities,
+  type VisualObjectCommand,
+} from "@shared/visualObjectCapabilities";
 import {
   canRemoveTimelineVisualLayer,
   countTimelineVisualLayerClips,
@@ -90,6 +97,9 @@ import {
   storyboardTrimmedBoundaryFrame,
   storyboardTrimmedDurationMs,
   storyboardVisualClipShotTimingPreview,
+  storyboardVisualObjectMenuFocusIndex,
+  storyboardOwnedClipVisualLayer,
+  storyboardOwnedClipNudgeBase,
   type StoryboardEditAction,
   type StoryboardEditFrameSource,
   type StoryboardEditRange,
@@ -109,6 +119,8 @@ import { VIDEO_TAKE_DRAG_MIME } from "@/features/storyAgent/views/videoTakeDrag"
  * 右键出剪辑菜单，键盘走主流剪辑软件那一套快捷键。
  */
 export type StoryboardBoardTimeline = {
+  /** Changes whenever the active Story/editor session changes. */
+  storySessionKey?: string;
   playheadMs: number;
   isPlaying: boolean;
   totalMs: number;
@@ -211,6 +223,11 @@ export type StoryboardBoardTimeline = {
     toTrackId: string;
     toStartFrame: number;
   }) => Promise<void>;
+  /** Narrow U2 facade; commands without an implementation remain visibly disabled. */
+  onVisualObjectCommand?: (
+    object: VisualObjectRef,
+    command: VisualObjectCommand
+  ) => Promise<void>;
   onPlaceExternalVisual?: (
     dataTransfer: DataTransfer,
     timelineFrame: number,
@@ -539,6 +556,7 @@ function StoryboardEditFilmstrip({
 
 const SHOT_DRAG_MIME = "application/x-storyboard-shot";
 const IMAGE_CLIP_DRAG_MIME = "application/x-storyboard-image-clip";
+const VIDEO_CLIP_DRAG_MIME = "application/x-storyboard-video-clip";
 
 function hasExternalVisualPayload(dataTransfer: DataTransfer): boolean {
   const types = Array.from(dataTransfer.types);
@@ -746,13 +764,147 @@ function StoryboardAudioRowHeader() {
   );
 }
 
+function StoryboardOwnedVideoClipBlock({
+  shot,
+  clip,
+  visualLayer,
+  viewport,
+  timeline,
+  selectedVisualObject,
+  onSelectVisualObject,
+  onNudgeVisualClip,
+  onOpenObjectMenu,
+}: {
+  shot: StoryboardEditShot;
+  clip: StoryTimelineVisualClip;
+  visualLayer: number;
+  viewport: TimelineViewport;
+  timeline: StoryboardBoardTimeline;
+  selectedVisualObject: VisualObjectRef | null;
+  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onNudgeVisualClip: (input: {
+    clipId: string;
+    startVisualLayer: number;
+    deltaVisualLayers: number;
+    startFrame: number;
+    deltaFrames: number;
+  }) => void;
+  onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
+}) {
+  const object = {
+    type: "owned-video-clip",
+    clipId: clip.id,
+    ownerStableShotId: shot.stableShotId,
+  } as const;
+  const nudgeBase = storyboardOwnedClipNudgeBase({
+    ownerStartFrame: shot.timing.startFrame,
+    clip,
+  });
+  const startFrame = nudgeBase.startFrame;
+  const leftPx = frameToPx(viewport, startFrame);
+  const widthPx = Math.max(1, msToPx(viewport, clip.durationMs));
+  const openMenu = (target: HTMLElement, clientX: number, clientY: number) => {
+    onSelectVisualObject(object, target);
+    onOpenObjectMenu({ object, clientX, clientY });
+  };
+  return (
+    <button
+      type="button"
+      className="absolute bottom-1 top-1 z-[18] touch-none cursor-grab overflow-hidden rounded-sm border border-sky-400/70 bg-sky-500/45 text-left text-[8px] outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-primary"
+      style={{ left: leftPx, width: widthPx }}
+      data-testid={`storyboard-owned-video-clip-${visualLayer + 1}-${clip.id}`}
+      data-visual-object-type="owned-video-clip"
+      data-visual-object-id={clip.id}
+      data-visual-clip-move-target="true"
+      aria-selected={
+        selectedVisualObject?.type === "owned-video-clip" &&
+        visualObjectRefKey(selectedVisualObject) === visualObjectRefKey(object)
+      }
+      aria-label={`${clip.label}，视频片段，视觉层 ${visualLayer + 1}`}
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
+      draggable={Boolean(timeline.onMoveVisualClip)}
+      onPointerDown={event => {
+        // Keep native drag eligible; only stop the host shot gesture.
+        event.stopPropagation();
+        onSelectVisualObject(object, event.currentTarget);
+      }}
+      onDragStart={event => {
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(
+          VIDEO_CLIP_DRAG_MIME,
+          JSON.stringify({ clipId: clip.id, sourceVisualLayer: visualLayer })
+        );
+      }}
+      onClick={event => {
+        event.stopPropagation();
+        timeline.onTogglePlay(false);
+        onSelectVisualObject(object, event.currentTarget);
+      }}
+      onContextMenu={event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu(event.currentTarget, event.clientX, event.clientY);
+      }}
+      onKeyDown={event => {
+        if (
+          storyboardVisualClipArrowMove({
+            event,
+            visualLayer,
+            onMove: (deltaFrames, deltaVisualLayers) => {
+              onNudgeVisualClip({
+                clipId: nudgeBase.clipId,
+                startVisualLayer: nudgeBase.startVisualLayer,
+                deltaVisualLayers,
+                startFrame,
+                deltaFrames,
+              });
+            },
+          })
+        )
+          return;
+        if (
+          !(
+            event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10")
+          )
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        openMenu(
+          event.currentTarget,
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2
+        );
+      }}
+    >
+      <StoryboardEditFilmstrip
+        frameUrls={storyboardEditFilmstripFrameUrls({
+          source: {
+            takeId: clip.takeId,
+            rangeId: clip.rangeId,
+            sourceStartSec: clip.sourceStartSec,
+            sourceEndSec: clip.sourceEndSec,
+            reverse: clip.effects?.reverse,
+          },
+          durationMs: clip.durationMs,
+        })}
+        posterUrl={null}
+        testId={`storyboard-owned-video-filmstrip-${clip.id}`}
+      />
+      <span className="relative block truncate px-1">{clip.label}</span>
+    </button>
+  );
+}
+
 function StoryboardUpperVisualLayerRow({
   shots,
   timeline,
   viewport,
   columnSpan,
   onSelectShot,
-  selectedShotNo,
   visualLayer,
   showTopPlayhead,
   hidden,
@@ -760,13 +912,16 @@ function StoryboardUpperVisualLayerRow({
   onManageLayer,
   onNudgeVisualClip,
   onShotTimingPreviewChange,
+  selectedVisualObject,
+  onSelectVisualObject,
+  onOpenMenu,
+  onOpenObjectMenu,
 }: {
   shots: readonly StoryboardEditShot[];
   timeline: StoryboardBoardTimeline;
   viewport: TimelineViewport;
   columnSpan: number;
   onSelectShot: (shotNo: number) => void;
-  selectedShotNo: number | null;
   visualLayer: number;
   showTopPlayhead: boolean;
   hidden: boolean;
@@ -783,6 +938,10 @@ function StoryboardUpperVisualLayerRow({
     preview: StoryboardShotTimingPreview | null,
     gestureId: symbol
   ) => void;
+  selectedVisualObject: VisualObjectRef | null;
+  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onOpenMenu: (menu: MenuState) => void;
+  onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
 }) {
   const totalMs = viewport.totalMs;
   const frames = shots
@@ -1239,6 +1398,7 @@ function StoryboardUpperVisualLayerRow({
             }
             if (
               !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME) &&
+              !event.dataTransfer.types.includes(VIDEO_CLIP_DRAG_MIME) &&
               !event.dataTransfer.types.includes(SHOT_DRAG_MIME)
             )
               return;
@@ -1280,6 +1440,19 @@ function StoryboardUpperVisualLayerRow({
               // 落点就是绝对帧，不再要求那一刻恰好压在某个镜头上。
               submitVisualClipMove({
                 clipId: `image:${parsed.clipId}`,
+                visualLayer,
+                toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
+                onMoveVisualClip: timeline.onMoveVisualClip,
+              });
+              return;
+            }
+            const videoPayload =
+              event.dataTransfer.getData(VIDEO_CLIP_DRAG_MIME);
+            if (videoPayload && timeline.onMoveVisualClip) {
+              event.preventDefault();
+              const parsed = JSON.parse(videoPayload) as { clipId: string };
+              submitVisualClipMove({
+                clipId: `video:${parsed.clipId}`,
                 visualLayer,
                 toStartFrame: Math.round((Math.max(0, targetMs) * 30) / 1000),
                 onMoveVisualClip: timeline.onMoveVisualClip,
@@ -1359,6 +1532,14 @@ function StoryboardUpperVisualLayerRow({
                         : undefined,
                   }}
                   onPointerDown={event => {
+                    onSelectVisualObject(
+                      {
+                        type: "story-shot",
+                        stableShotId: shot.stableShotId,
+                        shotNo: shot.shotNo,
+                      },
+                      event.currentTarget
+                    );
                     startClipPointerDrag(event, {
                       kind: "shot",
                       stableShotId: shot.stableShotId,
@@ -1369,31 +1550,101 @@ function StoryboardUpperVisualLayerRow({
                   onPointerMove={moveClipPointerDrag}
                   onPointerUp={finishClipPointerDrag}
                   onPointerCancel={cancelClipPointerDrag}
-                  onClick={() => {
+                  onClick={event => {
                     if (consumeSuppressedClipClick()) return;
-                    onSelectShot(shot.shotNo);
+                    onSelectVisualObject(
+                      {
+                        type: "story-shot",
+                        stableShotId: shot.stableShotId,
+                        shotNo: shot.shotNo,
+                      },
+                      event.currentTarget
+                    );
                   }}
                   onKeyDown={event => {
-                    storyboardVisualClipArrowMove({
-                      event,
-                      visualLayer,
-                      onMove: (deltaFrames, deltaVisualLayers) => {
-                        onNudgeVisualClip({
-                          clipId: `shot:${shot.stableShotId}`,
-                          startVisualLayer: visualLayer,
-                          deltaVisualLayers,
-                          startFrame: shot.timing.startFrame,
-                          deltaFrames,
-                        });
+                    if (
+                      storyboardVisualClipArrowMove({
+                        event,
+                        visualLayer,
+                        onMove: (deltaFrames, deltaVisualLayers) => {
+                          onNudgeVisualClip({
+                            clipId: `shot:${shot.stableShotId}`,
+                            startVisualLayer: visualLayer,
+                            deltaVisualLayers,
+                            startFrame: shot.timing.startFrame,
+                            deltaFrames,
+                          });
+                        },
+                      })
+                    )
+                      return;
+                    if (
+                      !(
+                        event.key === "ContextMenu" ||
+                        (event.shiftKey && event.key === "F10")
+                      )
+                    )
+                      return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelectVisualObject(
+                      {
+                        type: "story-shot",
+                        stableShotId: shot.stableShotId,
+                        shotNo: shot.shotNo,
                       },
+                      event.currentTarget
+                    );
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onOpenMenu({
+                      shot,
+                      atMs: shot.timing.startMs,
+                      clientX: rect.left + rect.width / 2,
+                      clientY: rect.top + rect.height / 2,
+                      magneticJoin: null,
+                    });
+                  }}
+                  onContextMenu={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    timeline.onTogglePlay(false);
+                    onSelectVisualObject(
+                      {
+                        type: "story-shot",
+                        stableShotId: shot.stableShotId,
+                        shotNo: shot.shotNo,
+                      },
+                      event.currentTarget
+                    );
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const progress =
+                      rect.width > 0
+                        ? Math.max(
+                            0,
+                            Math.min(
+                              1,
+                              (event.clientX - rect.left) / rect.width
+                            )
+                          )
+                        : 0;
+                    onOpenMenu({
+                      shot,
+                      atMs:
+                        shot.timing.startMs + progress * shot.timing.durationMs,
+                      clientX: event.clientX,
+                      clientY: event.clientY,
+                      magneticJoin: null,
                     });
                   }}
                   data-visual-clip-move-target="true"
                   data-visual-object-type="story-shot"
                   data-visual-object-id={shot.stableShotId}
-                  aria-selected={shot.shotNo === selectedShotNo}
+                  aria-selected={
+                    selectedVisualObject?.type === "story-shot" &&
+                    selectedVisualObject.stableShotId === shot.stableShotId
+                  }
                   data-testid={`storyboard-visual-layer-shot-${visualLayer + 1}-${shot.stableShotId}`}
-                  aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+                  aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
                   aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
                   title={`${shot.shotLabel} · 方向键左右移动、上下换层，Shift+左右移动 15 帧 · 可继续切割`}
                 >
@@ -1411,6 +1662,26 @@ function StoryboardUpperVisualLayerRow({
                 </div>
               );
             })}
+          {shots.flatMap(shot =>
+            (shot.timelineItem?.visualClips ?? [])
+              .filter(
+                clip => storyboardOwnedClipVisualLayer(clip) === visualLayer
+              )
+              .map(clip => (
+                <StoryboardOwnedVideoClipBlock
+                  key={`owned-video-${shot.stableShotId}-${clip.id}`}
+                  shot={shot}
+                  clip={clip}
+                  visualLayer={visualLayer}
+                  viewport={viewport}
+                  timeline={timeline}
+                  selectedVisualObject={selectedVisualObject}
+                  onSelectVisualObject={onSelectVisualObject}
+                  onNudgeVisualClip={onNudgeVisualClip}
+                  onOpenObjectMenu={onOpenObjectMenu}
+                />
+              ))
+          )}
           {frames.map(({ shot, clip, ...frame }) => {
             const leftPx = msToPx(viewport, frame.atMs);
             const active = Math.abs(timeline.playheadMs - frame.atMs) <= 50;
@@ -1440,6 +1711,14 @@ function StoryboardUpperVisualLayerRow({
                 onPointerDown={
                   clip
                     ? event => {
+                        onSelectVisualObject(
+                          {
+                            type: "image-clip",
+                            clipId: clip.id,
+                            ownerStableShotId: shot.stableShotId,
+                          },
+                          event.currentTarget
+                        );
                         startClipPointerDrag(event, {
                           kind: "image",
                           clipId: clip.id,
@@ -1451,7 +1730,7 @@ function StoryboardUpperVisualLayerRow({
                 onPointerMove={clip ? moveClipPointerDrag : undefined}
                 onPointerUp={clip ? finishClipPointerDrag : undefined}
                 onPointerCancel={clip ? cancelClipPointerDrag : undefined}
-                onClick={() => {
+                onClick={event => {
                   if (consumeSuppressedClipClick()) return;
                   if (pairingStart) {
                     if (pairingStart.id === frame.id) {
@@ -1470,7 +1749,20 @@ function StoryboardUpperVisualLayerRow({
                       });
                     return;
                   }
-                  onSelectShot(shot.shotNo);
+                  onSelectVisualObject(
+                    clip
+                      ? {
+                          type: "image-clip",
+                          clipId: clip.id,
+                          ownerStableShotId: shot.stableShotId,
+                        }
+                      : {
+                          type: "story-shot",
+                          stableShotId: shot.stableShotId,
+                          shotNo: shot.shotNo,
+                        },
+                    event.currentTarget
+                  );
                   timeline.onTogglePlay(false);
                   timeline.onSeek(frame.atMs);
                   startPairing({
@@ -1484,6 +1776,33 @@ function StoryboardUpperVisualLayerRow({
                   event.stopPropagation();
                   setTransitionMenu(null);
                   setDeleteError(null);
+                  onSelectVisualObject(
+                    clip
+                      ? {
+                          type: "image-clip",
+                          clipId: clip.id,
+                          ownerStableShotId: shot.stableShotId,
+                        }
+                      : {
+                          type: "story-shot",
+                          stableShotId: shot.stableShotId,
+                          shotNo: shot.shotNo,
+                        },
+                    event.currentTarget
+                  );
+                  if (clip) {
+                    setFrameMenu(null);
+                    onOpenObjectMenu({
+                      object: {
+                        type: "image-clip",
+                        clipId: clip.id,
+                        ownerStableShotId: shot.stableShotId,
+                      },
+                      clientX: event.clientX,
+                      clientY: event.clientY,
+                    });
+                    return;
+                  }
                   const overlappingFrames = frames.filter(candidate => {
                     if (totalMs <= 0) {
                       return candidate.imageId === frame.imageId;
@@ -1536,7 +1855,34 @@ function StoryboardUpperVisualLayerRow({
                     return;
                   event.preventDefault();
                   event.stopPropagation();
+                  onSelectVisualObject(
+                    clip
+                      ? {
+                          type: "image-clip",
+                          clipId: clip.id,
+                          ownerStableShotId: shot.stableShotId,
+                        }
+                      : {
+                          type: "story-shot",
+                          stableShotId: shot.stableShotId,
+                          shotNo: shot.shotNo,
+                        },
+                    event.currentTarget
+                  );
                   const rect = event.currentTarget.getBoundingClientRect();
+                  if (clip) {
+                    setFrameMenu(null);
+                    onOpenObjectMenu({
+                      object: {
+                        type: "image-clip",
+                        clipId: clip.id,
+                        ownerStableShotId: shot.stableShotId,
+                      },
+                      clientX: rect.left + rect.width / 2,
+                      clientY: rect.top + rect.height / 2,
+                    });
+                    return;
+                  }
                   setTransitionMenu(null);
                   setDeleteError(null);
                   setFrameMenu({
@@ -1554,7 +1900,13 @@ function StoryboardUpperVisualLayerRow({
                 data-visual-clip-move-target={clip ? "true" : undefined}
                 data-visual-object-type={clip ? "image-clip" : undefined}
                 data-visual-object-id={clip?.id}
-                aria-selected={false}
+                aria-selected={
+                  clip
+                    ? selectedVisualObject?.type === "image-clip" &&
+                      selectedVisualObject.clipId === clip.id
+                    : selectedVisualObject?.type === "story-shot" &&
+                      selectedVisualObject.stableShotId === shot.stableShotId
+                }
                 aria-keyshortcuts={
                   clip
                     ? "ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
@@ -1988,11 +2340,120 @@ function StoryboardEditContextMenu({
   );
 }
 
+const VISUAL_OBJECT_COMMAND_LABELS: Record<VisualObjectCommand, string> = {
+  move: "移动（拖动或方向键）",
+  split: "在这里切一刀",
+  "extract-frame": "抽帧（存成画面）",
+  chat: "交给聊聊",
+  copy: "复制",
+  delete: "删除",
+  "generate-video": "用图片生成视频",
+  "set-anchor": "设置位置锚点",
+};
+
+type VisualObjectMenuState = {
+  object: VisualObjectRef;
+  clientX: number;
+  clientY: number;
+};
+
+function StoryboardVisualObjectMenu({
+  menu,
+  commandAvailable,
+  pending,
+  onPick,
+  onClose,
+}: {
+  menu: VisualObjectMenuState;
+  commandAvailable: boolean;
+  pending: boolean;
+  onPick: (command: VisualObjectCommand) => void;
+  onClose: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const capabilities = visualObjectCapabilities(menu.object);
+  const focusable = () =>
+    Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitem"]'
+      ) ?? []
+    );
+  useEffect(() => {
+    focusable()[0]?.focus({ preventScroll: true });
+  }, []);
+  return (
+    <div
+      className="fixed inset-0 z-[120]"
+      onPointerDown={onClose}
+      onContextMenu={event => event.preventDefault()}
+    >
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={`${menu.object.type} 操作`}
+        className="fixed min-w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-xl"
+        style={{ left: menu.clientX, top: menu.clientY }}
+        onPointerDown={event => event.stopPropagation()}
+        onKeyDown={event => {
+          const items = focusable();
+          const current = items.indexOf(
+            document.activeElement as HTMLButtonElement
+          );
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+            return;
+          }
+          const next = storyboardVisualObjectMenuFocusIndex({
+            key: event.key,
+            currentIndex: current,
+            itemCount: items.length,
+          });
+          if (next == null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          items[next]?.focus({ preventScroll: true });
+        }}
+      >
+        {capabilities.map(capability => {
+          const unavailableReason =
+            capability.command === "move"
+              ? "请直接拖动素材或使用方向键"
+              : !commandAvailable
+                ? "该操作将在持久化命令接入后启用"
+                : undefined;
+          const disabled =
+            pending || !capability.enabled || Boolean(unavailableReason);
+          return (
+            <button
+              key={capability.command}
+              type="button"
+              role="menuitem"
+              aria-disabled={disabled}
+              tabIndex={-1}
+              title={capability.disabledReason ?? unavailableReason}
+              className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs ${disabled ? "cursor-not-allowed opacity-45" : "hover:bg-muted"}`}
+              onClick={() => {
+                if (!disabled) onPick(capability.command);
+              }}
+            >
+              <span>{VISUAL_OBJECT_COMMAND_LABELS[capability.command]}</span>
+              {disabled ? (
+                <span className="ml-3 text-[9px]">暂不可用</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StoryboardEditTrack({
   timeline,
   viewport,
   shots,
-  selectedShotNo,
   onSelectShot,
   onOpenMenu,
   onOpenGapMenu,
@@ -2008,11 +2469,13 @@ function StoryboardEditTrack({
   disableGroupMove = false,
   onNudgeVisualClip,
   onShotTimingPreviewChange,
+  selectedVisualObject,
+  onSelectVisualObject,
+  onOpenObjectMenu,
 }: {
   timeline: StoryboardBoardTimeline;
   viewport: TimelineViewport;
   shots: readonly StoryboardEditShot[];
-  selectedShotNo: number | null;
   onSelectShot: (shotNo: number) => void;
   onOpenMenu: (menu: MenuState) => void;
   onOpenGapMenu: (menu: GapMenuState) => void;
@@ -2037,6 +2500,9 @@ function StoryboardEditTrack({
     preview: StoryboardShotTimingPreview | null,
     gestureId: symbol
   ) => void;
+  selectedVisualObject: VisualObjectRef | null;
+  onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
+  onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
 }) {
   const dragAnchorMsRef = useRef<number | null>(null);
   const imagePointerDragRef = useRef<{
@@ -2898,7 +3364,8 @@ function StoryboardEditTrack({
           }
           if (
             !event.dataTransfer.types.includes(SHOT_DRAG_MIME) &&
-            !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME)
+            !event.dataTransfer.types.includes(IMAGE_CLIP_DRAG_MIME) &&
+            !event.dataTransfer.types.includes(VIDEO_CLIP_DRAG_MIME)
           )
             return;
           event.preventDefault();
@@ -2941,6 +3408,20 @@ function StoryboardEditTrack({
             return;
           }
           const sourceStableShotId = event.dataTransfer.getData(SHOT_DRAG_MIME);
+          const videoPayload = event.dataTransfer.getData(VIDEO_CLIP_DRAG_MIME);
+          if (videoPayload && timeline.onMoveVisualClip) {
+            const atMs = trackMsFromPointer(event.clientX);
+            event.preventDefault();
+            event.stopPropagation();
+            const parsed = JSON.parse(videoPayload) as { clipId: string };
+            submitVisualClipMove({
+              clipId: `video:${parsed.clipId}`,
+              visualLayer: 0,
+              toStartFrame: Math.round((Math.max(0, atMs) * 30) / 1000),
+              onMoveVisualClip: timeline.onMoveVisualClip,
+            });
+            return;
+          }
           const sourceShot = shots.find(
             shot => shot.stableShotId === sourceStableShotId
           );
@@ -2989,6 +3470,14 @@ function StoryboardEditTrack({
               className="absolute bottom-1 top-5 z-[25] w-10 -translate-x-1/2 touch-none cursor-grab overflow-hidden rounded-sm border border-sky-400 bg-background shadow-sm active:cursor-grabbing focus-visible:z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               style={{ left: leftPx }}
               onPointerDown={event => {
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
                 startImagePointerDrag(event, clip.id, shot.stableShotId);
               }}
               onPointerMove={moveImagePointerDrag}
@@ -3000,32 +3489,93 @@ function StoryboardEditTrack({
                   return;
                 }
                 event.stopPropagation();
-                onSelectShot(shot.shotNo);
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
                 timeline.onSeek(atMs);
               }}
               onKeyDown={event => {
-                storyboardVisualClipArrowMove({
-                  event,
-                  visualLayer: 0,
-                  onMove: (deltaFrames, deltaVisualLayers) => {
-                    onNudgeVisualClip({
-                      clipId: `image:${clip.id}`,
-                      startVisualLayer: 0,
-                      deltaVisualLayers,
-                      startFrame: timelineImageClipStartFrame(
-                        clip,
-                        shot.timing.startFrame
-                      ),
-                      deltaFrames,
-                    });
+                if (
+                  storyboardVisualClipArrowMove({
+                    event,
+                    visualLayer: 0,
+                    onMove: (deltaFrames, deltaVisualLayers) => {
+                      onNudgeVisualClip({
+                        clipId: `image:${clip.id}`,
+                        startVisualLayer: 0,
+                        deltaVisualLayers,
+                        startFrame: timelineImageClipStartFrame(
+                          clip,
+                          shot.timing.startFrame
+                        ),
+                        deltaFrames,
+                      });
+                    },
+                  })
+                )
+                  return;
+                if (
+                  !(
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  )
+                )
+                  return;
+                event.preventDefault();
+                event.stopPropagation();
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
                   },
+                  event.currentTarget
+                );
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenObjectMenu({
+                  object: {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  clientX: rect.left + rect.width / 2,
+                  clientY: rect.top + rect.height / 2,
+                });
+              }}
+              onContextMenu={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                onSelectVisualObject(
+                  {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  event.currentTarget
+                );
+                onOpenObjectMenu({
+                  object: {
+                    type: "image-clip",
+                    clipId: clip.id,
+                    ownerStableShotId: shot.stableShotId,
+                  },
+                  clientX: event.clientX,
+                  clientY: event.clientY,
                 });
               }}
               data-visual-clip-move-target="true"
               data-visual-object-type="image-clip"
               data-visual-object-id={clip.id}
-              aria-selected={false}
-              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+              aria-selected={
+                selectedVisualObject?.type === "image-clip" &&
+                selectedVisualObject.clipId === clip.id
+              }
+              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
               aria-label={`${clip.label}，图片`}
               title={`${clip.label} · 方向键左右移动、上下换层，Shift+左右移动 15 帧`}
               data-testid={`storyboard-main-image-clip-${clip.imageId}`}
@@ -3045,7 +3595,9 @@ function StoryboardEditTrack({
             item => item.stableShotId === timing.stableShotId
           );
           if (!shot) return null;
-          const selected = shot.shotNo === selectedShotNo;
+          const selected =
+            selectedVisualObject?.type === "story-shot" &&
+            selectedVisualObject.stableShotId === shot.stableShotId;
           const trimming =
             draftTrim?.stableShotId === shot.stableShotId ? draftTrim : null;
           const rollingSide =
@@ -3076,7 +3628,9 @@ function StoryboardEditTrack({
           const segments = storyboardEditSegments({
             durationMs,
             label: shot.shotLabel,
-            visualClips: shot.timelineItem?.visualClips,
+            visualClips: (shot.timelineItem?.visualClips ?? []).filter(
+              clip => storyboardOwnedClipVisualLayer(clip) === 0
+            ),
             visualClipsReplacePrimary:
               shot.timelineItem?.visualClipsReplacePrimary,
           });
@@ -3103,7 +3657,7 @@ function StoryboardEditTrack({
               data-visual-object-type="story-shot"
               data-visual-object-id={shot.stableShotId}
               aria-selected={selected}
-              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight"
+              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
               aria-label={`${shot.shotLabel} 视频剪辑，方向键左右移动、上下换层，按住 Shift 加速`}
               data-testid={`storyboard-edit-block-${shot.stableShotId}`}
               data-storyboard-edit-shot-no={shot.shotNo}
@@ -3117,6 +3671,14 @@ function StoryboardEditTrack({
                 ) {
                   return;
                 }
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  },
+                  event.currentTarget
+                );
                 focusStoryboardClipForDrag(event.currentTarget);
                 startSingleDrag(event, shot);
               }}
@@ -3137,18 +3699,47 @@ function StoryboardEditTrack({
                   : undefined
               }
               onKeyDown={event => {
-                storyboardVisualClipArrowMove({
-                  event,
-                  visualLayer: 0,
-                  onMove: (deltaFrames, deltaVisualLayers) => {
-                    onNudgeVisualClip({
-                      clipId: `shot:${shot.stableShotId}`,
-                      startVisualLayer: 0,
-                      deltaVisualLayers,
-                      startFrame: shot.timing.startFrame,
-                      deltaFrames,
-                    });
+                if (
+                  storyboardVisualClipArrowMove({
+                    event,
+                    visualLayer: 0,
+                    onMove: (deltaFrames, deltaVisualLayers) => {
+                      onNudgeVisualClip({
+                        clipId: `shot:${shot.stableShotId}`,
+                        startVisualLayer: 0,
+                        deltaVisualLayers,
+                        startFrame: shot.timing.startFrame,
+                        deltaFrames,
+                      });
+                    },
+                  })
+                )
+                  return;
+                if (
+                  !(
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  )
+                )
+                  return;
+                event.preventDefault();
+                event.stopPropagation();
+                timeline.onTogglePlay(false);
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
                   },
+                  event.currentTarget
+                );
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenMenu({
+                  shot,
+                  atMs: shot.timing.startMs,
+                  clientX: rect.left + rect.width / 2,
+                  clientY: rect.top + rect.height / 2,
+                  magneticJoin: null,
                 });
               }}
               onContextMenu={event => {
@@ -3156,7 +3747,14 @@ function StoryboardEditTrack({
                 event.stopPropagation();
                 trackRef.current?.focus();
                 timeline.onTogglePlay(false);
-                onSelectShot(shot.shotNo);
+                onSelectVisualObject(
+                  {
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  },
+                  event.currentTarget
+                );
                 const atMs = trackMsFromPointer(event.clientX);
                 const atFrame = Math.round((atMs * 30) / 1000);
                 const thresholdFrames = storyboardMagnetThresholdFrames({
@@ -3288,12 +3886,116 @@ function StoryboardEditTrack({
                         className="absolute inset-0 z-10 min-w-6 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         data-visual-object-type="owned-video-clip"
                         data-visual-object-id={segment.clip.id}
-                        aria-selected={false}
+                        aria-selected={
+                          selectedVisualObject?.type === "owned-video-clip" &&
+                          selectedVisualObject.clipId === segment.clip.id
+                        }
                         aria-label={`${segment.clip.label}，视频片段`}
-                        onPointerDown={event => event.stopPropagation()}
+                        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+F10 ContextMenu"
+                        data-visual-clip-move-target="true"
+                        onPointerDown={event => {
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                        }}
+                        draggable={Boolean(timeline.onMoveVisualClip)}
+                        onDragStart={event => {
+                          event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            VIDEO_CLIP_DRAG_MIME,
+                            JSON.stringify({ clipId: segment.clip!.id })
+                          );
+                        }}
                         onClick={event => {
                           event.stopPropagation();
                           timeline.onTogglePlay(false);
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                        }}
+                        onContextMenu={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                          onOpenObjectMenu({
+                            object: {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            clientX: event.clientX,
+                            clientY: event.clientY,
+                          });
+                        }}
+                        onKeyDown={event => {
+                          if (
+                            storyboardVisualClipArrowMove({
+                              event,
+                              visualLayer: 0,
+                              onMove: (deltaFrames, deltaVisualLayers) => {
+                                onNudgeVisualClip({
+                                  clipId: `video:${segment.clip!.id}`,
+                                  startVisualLayer: 0,
+                                  deltaVisualLayers,
+                                  startFrame:
+                                    shot.timing.startFrame +
+                                    Math.round(
+                                      ((segment.clip!.offsetMs ?? 0) * 30) /
+                                        1000
+                                    ),
+                                  deltaFrames,
+                                });
+                              },
+                            })
+                          )
+                            return;
+                          if (
+                            !(
+                              event.key === "ContextMenu" ||
+                              (event.shiftKey && event.key === "F10")
+                            )
+                          )
+                            return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectVisualObject(
+                            {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            event.currentTarget
+                          );
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          onOpenObjectMenu({
+                            object: {
+                              type: "owned-video-clip",
+                              clipId: segment.clip!.id,
+                              ownerStableShotId: shot.stableShotId,
+                            },
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2,
+                          });
                         }}
                       />
                     ) : null}
@@ -3652,18 +4354,22 @@ export function StoryboardEditRow({
   columnSpan,
   shotActions,
   onShotTimingPreviewChange,
+  selectedVisualObject: controlledSelectedVisualObject,
+  onSelectVisualObject,
 }: {
   timeline: StoryboardBoardTimeline;
   viewport?: TimelineViewport;
   shots: readonly StoryboardEditShot[];
   selectedShotNo: number | null;
-  onSelectShot: (shotNo: number) => void;
+  onSelectShot: (shotNo: number | null) => void;
   columnSpan: number;
   shotActions?: StoryboardEditShotActions;
   onShotTimingPreviewChange?: (
     preview: StoryboardShotTimingPreview | null,
     gestureId: symbol
   ) => void;
+  selectedVisualObject?: VisualObjectRef | null;
+  onSelectVisualObject?: (object: VisualObjectRef | null) => void;
 }) {
   // 生产看板显式传入和标尺、缩放控件同一个 viewport。回退只服务
   // 独立渲染与旧测试夹具，坐标语义仍是像素。
@@ -3682,13 +4388,144 @@ export function StoryboardEditRow({
   const [pendingAction, setPendingAction] =
     useState<StoryboardEditAction | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [objectMenu, setObjectMenu] = useState<VisualObjectMenuState | null>(
+    null
+  );
+  const [pendingObjectKey, setPendingObjectKey] = useState<string | null>(null);
   const [gapMenu, setGapMenu] = useState<GapMenuState | null>(null);
   const [gapTransitionPending, setGapTransitionPending] = useState(false);
   const [markInMs, setMarkInMs] = useState<number | null>(null);
   const [focusedAnchorId, setFocusedAnchorId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [localSelectedVisualObject, setLocalSelectedVisualObject] =
+    useState<VisualObjectRef | null>(null);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
+  const pendingGuardRef = useRef(createVisualObjectPendingGuard());
+  const pendingMenuItemRef = useRef<HTMLElement | null>(null);
+  const projectedShotNoRef = useRef<number | null | undefined>(undefined);
+  const storySessionKeyRef = useRef(timeline.storySessionKey);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const selectedVisualObject =
+    controlledSelectedVisualObject !== undefined
+      ? controlledSelectedVisualObject
+      : (localSelectedVisualObject ??
+        (selectedShotNo == null
+          ? null
+          : (() => {
+              const shot = shots.find(item => item.shotNo === selectedShotNo);
+              return shot
+                ? ({
+                    type: "story-shot",
+                    stableShotId: shot.stableShotId,
+                    shotNo: shot.shotNo,
+                  } as const)
+                : null;
+            })()));
+  const selectVisualObject = useCallback(
+    (object: VisualObjectRef, target: HTMLElement) => {
+      focusReturnRef.current = target;
+      if (controlledSelectedVisualObject === undefined) {
+        setLocalSelectedVisualObject(object);
+      }
+      onSelectVisualObject?.(object);
+      const projectedShotNo =
+        object.type === "story-shot" ? (object.shotNo ?? null) : null;
+      projectedShotNoRef.current = projectedShotNo;
+      onSelectShot(projectedShotNo);
+    },
+    [controlledSelectedVisualObject, onSelectShot, onSelectVisualObject]
+  );
+  useEffect(() => {
+    if (projectedShotNoRef.current === selectedShotNo) {
+      projectedShotNoRef.current = undefined;
+      return;
+    }
+    if (controlledSelectedVisualObject !== undefined) return;
+    const shot =
+      selectedShotNo == null
+        ? null
+        : (shots.find(item => item.shotNo === selectedShotNo) ?? null);
+    setLocalSelectedVisualObject(
+      shot
+        ? {
+            type: "story-shot",
+            stableShotId: shot.stableShotId,
+            shotNo: shot.shotNo,
+          }
+        : null
+    );
+    setMenu(null);
+    setObjectMenu(null);
+    focusReturnRef.current = null;
+  }, [controlledSelectedVisualObject, selectedShotNo, shots]);
+  useEffect(() => {
+    if (storySessionKeyRef.current === timeline.storySessionKey) return;
+    storySessionKeyRef.current = timeline.storySessionKey;
+    if (controlledSelectedVisualObject === undefined)
+      setLocalSelectedVisualObject(null);
+    onSelectVisualObject?.(null);
+    setMenu(null);
+    setObjectMenu(null);
+    focusReturnRef.current = null;
+  }, [
+    controlledSelectedVisualObject,
+    onSelectVisualObject,
+    timeline.storySessionKey,
+  ]);
+  useEffect(() => {
+    if (!selectedVisualObject) return;
+    const availableKeys = new Set<string>();
+    for (const shot of shots) {
+      availableKeys.add(
+        visualObjectRefKey({
+          type: "story-shot",
+          stableShotId: shot.stableShotId,
+        })
+      );
+      for (const clip of shot.timelineItem?.visualClips ?? []) {
+        availableKeys.add(
+          visualObjectRefKey({
+            type: "owned-video-clip",
+            clipId: clip.id,
+            ownerStableShotId: shot.stableShotId,
+          })
+        );
+      }
+      for (const clip of shot.timelineItem?.imageClips ?? []) {
+        availableKeys.add(
+          visualObjectRefKey({
+            type: "image-clip",
+            clipId: clip.id,
+            ownerStableShotId: shot.stableShotId,
+          })
+        );
+      }
+    }
+    if (availableKeys.has(visualObjectRefKey(selectedVisualObject))) return;
+    if (controlledSelectedVisualObject === undefined)
+      setLocalSelectedVisualObject(null);
+    onSelectVisualObject?.(null);
+    onSelectShot(null);
+    setMenu(null);
+    setObjectMenu(null);
+    focusReturnRef.current = null;
+  }, [
+    controlledSelectedVisualObject,
+    onSelectShot,
+    onSelectVisualObject,
+    selectedVisualObject,
+    shots,
+  ]);
+  useEffect(() => {
+    if (
+      objectMenu &&
+      visualObjectRefKey(objectMenu.object) !==
+        (selectedVisualObject ? visualObjectRefKey(selectedVisualObject) : null)
+    ) {
+      setObjectMenu(null);
+    }
+  }, [objectMenu, selectedVisualObject]);
   const activeTimingGestureRef = useRef<symbol | null>(null);
   const shotTimingPreviewCallbackRef = useRef(onShotTimingPreviewChange);
   shotTimingPreviewCallbackRef.current = onShotTimingPreviewChange;
@@ -3771,8 +4608,49 @@ export function StoryboardEditRow({
   };
 
   const timings = shots.map(shot => shot.timing);
-  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    focusReturnRef.current?.focus({ preventScroll: true });
+  }, []);
   const closeGapMenu = useCallback(() => setGapMenu(null), []);
+  const closeObjectMenu = useCallback(() => {
+    setObjectMenu(null);
+    focusReturnRef.current?.focus({ preventScroll: true });
+  }, []);
+  const openObjectMenu = useCallback((next: VisualObjectMenuState) => {
+    setMenu(null);
+    setGapMenu(null);
+    setObjectMenu(next);
+  }, []);
+  const runObjectCommand = useCallback(
+    (command: VisualObjectCommand) => {
+      if (!objectMenu || !timeline.onVisualObjectCommand) return;
+      const object = objectMenu.object;
+      const key = visualObjectRefKey(object);
+      pendingMenuItemRef.current =
+        document.activeElement instanceof HTMLElement &&
+        document.activeElement.getAttribute("role") === "menuitem"
+          ? document.activeElement
+          : null;
+      setPendingObjectKey(key);
+      void pendingGuardRef.current
+        .run(key, () => timeline.onVisualObjectCommand!(object, command))
+        .then(result => {
+          if (result !== null) closeObjectMenu();
+        })
+        .catch(error => {
+          setStatusMessage(
+            error instanceof Error ? error.message : "对象操作失败，请重试"
+          );
+          pendingMenuItemRef.current?.focus({ preventScroll: true });
+        })
+        .finally(() => {
+          pendingMenuItemRef.current = null;
+          setPendingObjectKey(null);
+        });
+    },
+    [closeObjectMenu, objectMenu, timeline]
+  );
 
   const createGapTransition = (target: GapMenuState) => {
     if (!timeline.onCreateGapTransition || gapTransitionPending) return;
@@ -4117,6 +4995,11 @@ export function StoryboardEditRow({
         isVisualClipMoveTarget: Boolean(
           target?.closest('[data-visual-clip-move-target="true"]')
         ),
+        isInteractionBoundary: Boolean(
+          target?.closest(
+            'select, [role="combobox"], [role="dialog"], [role="menu"], [data-renaming="true"], [data-rename-input="true"]'
+          )
+        ),
         rowVisible: rowRef.current?.offsetParent != null,
       });
       if (!allowed) return;
@@ -4139,7 +5022,6 @@ export function StoryboardEditRow({
           viewport={viewport}
           columnSpan={columnSpan}
           onSelectShot={onSelectShot}
-          selectedShotNo={selectedShotNo}
           visualLayer={visualLayer}
           showTopPlayhead={index === 0}
           hidden={visualLayerState.hidden.includes(visualLayer)}
@@ -4147,6 +5029,10 @@ export function StoryboardEditRow({
           onManageLayer={manageVisualLayer}
           onNudgeVisualClip={nudgeVisualClip}
           onShotTimingPreviewChange={handleShotTimingPreviewChange}
+          selectedVisualObject={selectedVisualObject}
+          onSelectVisualObject={selectVisualObject}
+          onOpenMenu={setMenu}
+          onOpenObjectMenu={openObjectMenu}
         />
       ))}
       <StoryboardVisualLayerHeader
@@ -4177,7 +5063,6 @@ export function StoryboardEditRow({
             timeline={timeline}
             viewport={viewport}
             shots={shots}
-            selectedShotNo={selectedShotNo}
             onSelectShot={onSelectShot}
             onOpenMenu={setMenu}
             onOpenGapMenu={setGapMenu}
@@ -4199,6 +5084,9 @@ export function StoryboardEditRow({
             disableGroupMove={false}
             onNudgeVisualClip={nudgeVisualClip}
             onShotTimingPreviewChange={handleShotTimingPreviewChange}
+            selectedVisualObject={selectedVisualObject}
+            onSelectVisualObject={selectVisualObject}
+            onOpenObjectMenu={openObjectMenu}
           />
         </div>
       </div>
@@ -4247,6 +5135,21 @@ export function StoryboardEditRow({
             runAction(action, menu.shot, menu.atMs, menu.magneticJoin)
           }
           onClose={closeMenu}
+        />
+      ) : null}
+      {objectMenu ? (
+        <StoryboardVisualObjectMenu
+          key={visualObjectRefKey(objectMenu.object)}
+          menu={objectMenu}
+          commandAvailable={Boolean(timeline.onVisualObjectCommand)}
+          pending={
+            pendingObjectKey === visualObjectRefKey(objectMenu.object) ||
+            pendingGuardRef.current.isPending(
+              visualObjectRefKey(objectMenu.object)
+            )
+          }
+          onPick={runObjectCommand}
+          onClose={closeObjectMenu}
         />
       ) : null}
     </>

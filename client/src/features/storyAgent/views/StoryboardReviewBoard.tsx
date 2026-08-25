@@ -374,7 +374,7 @@ export function StoryboardReviewBoard({
     runner: StoryboardImageRerenderRunner
   ) => () => void;
   selectedShotNo?: number | null;
-  onSelectShot?: (shotNo: number) => void;
+  onSelectShot?: (shotNo: number | null) => void;
   onUpdateShotField?: (
     index: number,
     field: StoryShotEditableField,
@@ -1732,7 +1732,12 @@ export function StoryboardReviewBoard({
     matrixShotColumnWidth,
     renderCompactShots,
   ]);
-  const selectMatrixShot = (shotNo: number) => {
+  const selectMatrixShot = (shotNo: number | null) => {
+    if (shotNo == null) {
+      setCompactExpandedShotNo(null);
+      onSelectShot?.(null);
+      return;
+    }
     const entryIndex = matrixShotEntries.entries.findIndex(
       entry => entry.shot.shotNo === shotNo
     );

@@ -26,7 +26,7 @@ export type VisualObjectRef =
 export function visualObjectRefKey(ref: VisualObjectRef): string {
   return ref.type === "story-shot"
     ? `${ref.type}:${ref.stableShotId}`
-    : `${ref.type}:${ref.clipId}`;
+    : `${ref.type}:${ref.ownerStableShotId}:${ref.clipId}`;
 }
 
 /** Legacy overlays remain readable visual clips, but are not editable objects. */
