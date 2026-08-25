@@ -98,6 +98,10 @@ export type TimelineTransitionCandidate = {
     targetEndFrame: number;
     leftImageId: number;
     rightImageId: number;
+  } | {
+    kind: "story-shot";
+    left: { clipId: string; imageId: number; timelineFrame: number; visualLayer: number };
+    right: { clipId: string; imageId: number; timelineFrame: number; visualLayer: number };
   };
 };
 
@@ -1229,6 +1233,8 @@ export async function proposeExtractedFrameTransition(params: {
   userId: number;
   leftImageId: number;
   rightImageId: number;
+  leftClipId: string;
+  rightClipId: string;
   instruction?: string;
   movementAmplitude?: "auto" | "small" | "medium" | "large";
 }): Promise<GapTransitionProposalResult> {
@@ -1252,25 +1258,38 @@ export async function proposeExtractedFrameTransition(params: {
   if (!valid(left) || !valid(right)) {
     return { status: "blocked", reply: "首帧或尾帧已经失效，请重新选择时间线抽帧。" };
   }
-  const leftAtMs = extractedFrameTimeMs(left!.prompt)!;
-  const rightAtMs = extractedFrameTimeMs(right!.prompt)!;
+  const layout = buildTimelineLayout(material.timeline.items);
+  const imageClip = (clipId: string, imageId: number) => {
+    const matches = layout.flatMap(row => (row.item.imageClips ?? [])
+      .filter(clip => clip.id === clipId && clip.imageId === imageId)
+      .map(clip => ({
+        clipId: clip.id,
+        imageId: clip.imageId,
+        ownerStableShotId: row.item.stableShotId,
+        timelineFrame: Math.max(0, Math.round(clip.timelineStartFrame ?? row.startFrame + clip.offsetFrames)),
+        visualLayer: Math.max(0, Math.round(clip.visualLayer)),
+      })));
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const leftClip = imageClip(params.leftClipId, params.leftImageId);
+  const rightClip = imageClip(params.rightClipId, params.rightImageId);
+  if (!leftClip || !rightClip || leftClip.clipId === rightClip.clipId) {
+    return { status: "blocked", reply: "首帧或尾帧的时间线图片块已经失效，请重新选择。" };
+  }
+  const leftAtMs = (leftClip.timelineFrame * 1_000) / 30;
+  const rightAtMs = (rightClip.timelineFrame * 1_000) / 30;
   const intervalMs = rightAtMs - leftAtMs;
   const durationSec = requestedExtractedFrameVideoDurationSec(intervalMs);
   if (durationSec < 1) {
     return { status: "blocked", reply: "两张抽帧至少需要间隔 1 秒。" };
   }
-  const shotFor = (image: NonNullable<typeof left>) =>
-    material.shots.find(shot => shot.stableShotId === image.shotIdentity) ??
-    material.shots.find(
-      shot => image.canonicalShotNo === `SH${String(shot.shotNo).padStart(2, "0")}`
-    );
-  const sourceShot = shotFor(left!);
-  const targetShot = shotFor(right!);
+  const sourceShot = material.shots.find(shot => shot.stableShotId === leftClip.ownerStableShotId);
+  const targetShot = material.shots.find(shot => shot.stableShotId === rightClip.ownerStableShotId);
   if (!sourceShot || !targetShot) {
     return { status: "blocked", reply: "抽帧所属镜头已经不存在，请重新抽帧。" };
   }
-  const startFrame = Math.round((leftAtMs * 30) / 1_000);
-  const targetEndFrame = Math.round((rightAtMs * 30) / 1_000);
+  const startFrame = leftClip.timelineFrame;
+  const targetEndFrame = rightClip.timelineFrame;
   const anchoredConflict = buildTimelineLayout(material.timeline.items).find(
     row =>
       (row.item.anchors?.length ?? 0) > 0 &&
@@ -1318,6 +1337,10 @@ export async function proposeExtractedFrameTransition(params: {
         params.storyId,
         left!.id,
         right!.id,
+        leftClip.clipId,
+        rightClip.clipId,
+        leftClip.visualLayer,
+        rightClip.visualLayer,
         leftAtMs,
         rightAtMs,
         durationSec,
@@ -1360,11 +1383,9 @@ export async function proposeExtractedFrameTransition(params: {
       estimatedCny: cny.estimatedCny,
       expectedTimelineVersion: material.timeline.version,
       placement: {
-        kind: "timeline-overlay",
-        startFrame,
-        targetEndFrame,
-        leftImageId: left!.id,
-        rightImageId: right!.id,
+        kind: "story-shot",
+        left: { clipId: leftClip.clipId, imageId: leftClip.imageId, timelineFrame: leftClip.timelineFrame, visualLayer: leftClip.visualLayer },
+        right: { clipId: rightClip.clipId, imageId: rightClip.imageId, timelineFrame: rightClip.timelineFrame, visualLayer: rightClip.visualLayer },
       },
     },
   };

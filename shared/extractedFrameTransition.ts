@@ -4,7 +4,25 @@ export type ExtractedTimelineFrame = {
   id: string;
   imageId: number;
   atMs: number;
+  /** Canonical timeline identity required by new image-to-video proposals. */
+  clipId?: string;
+  timelineFrame?: number;
+  visualLayer?: number;
 };
+
+export type CanonicalExtractedTimelineFrame = ExtractedTimelineFrame & {
+  clipId: string;
+  timelineFrame: number;
+  visualLayer: number;
+};
+
+export function hasCanonicalImageClipIdentity(
+  frame: ExtractedTimelineFrame
+): frame is CanonicalExtractedTimelineFrame {
+  return Boolean(frame.clipId?.trim()) &&
+    Number.isInteger(frame.timelineFrame) && frame.timelineFrame! >= 0 &&
+    Number.isInteger(frame.visualLayer) && frame.visualLayer! >= 0;
+}
 
 export type ExtractedFramePair = {
   left: ExtractedTimelineFrame;

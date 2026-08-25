@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoTake } from "../../drizzle/schema";
 import type { StoryTimelineItem } from "../../shared/storyMaterial";
-import type { TimelineTransitionCandidate } from "./timelineEditAgent";
+import {
+  proposeExtractedFrameTransition,
+  type TimelineTransitionCandidate,
+} from "./timelineEditAgent";
 
 const dbMocks = vi.hoisted(() => ({
+  applyGeneratedVisualShotAtomic: vi.fn(),
   applyStoryTimelineOverlayAtomic: vi.fn(),
   claimEditingTransitionSubmission: vi.fn(),
   createVideoTakeIdempotently: vi.fn(),
@@ -166,6 +170,30 @@ function overlayCandidate(expectedTimelineVersion = 3): TimelineTransitionCandid
   };
 }
 
+function storyShotCandidate(expectedTimelineVersion = 3): TimelineTransitionCandidate {
+  return {
+    ...overlayCandidate(expectedTimelineVersion),
+    placement: {
+      kind: "story-shot",
+      left: { clipId: "clip-left", imageId: 101, timelineFrame: 30, visualLayer: 1 },
+      right: { clipId: "clip-right", imageId: 102, timelineFrame: 132, visualLayer: 2 },
+    },
+  };
+}
+
+async function canonicalStoryShotCandidate() {
+  const result = await proposeExtractedFrameTransition({
+    storyId: STORY_ID,
+    userId: USER_ID,
+    leftImageId: 101,
+    rightImageId: 102,
+    leftClipId: "clip-left",
+    rightClipId: "clip-right",
+  });
+  if (result.status !== "ok") throw new Error(result.reply);
+  return result.proposal;
+}
+
 function storyBody() {
   return {
     _revision: 8,
@@ -196,7 +224,10 @@ function materialState() {
     timeline: {
       storyId: STORY_ID,
       version: 3,
-      items: [timelineItem("shot-a", 0), timelineItem("shot-b", 1)],
+      items: [
+        { ...timelineItem("shot-a", 0), imageClips: [{ id: "clip-left", imageId: 101, imageUrl: "https://example.test/a.png", label: "left", offsetFrames: 30, timelineStartFrame: 30, durationFrames: 1, visualLayer: 1 }] },
+        { ...timelineItem("shot-b", 1), imageClips: [{ id: "clip-right", imageId: 102, imageUrl: "https://example.test/b.png", label: "right", offsetFrames: 42, timelineStartFrame: 132, durationFrames: 1, visualLayer: 2 }] },
+      ],
     },
     shots: [
       {
@@ -411,6 +442,12 @@ beforeEach(() => {
     timeline: { version: input.expectedVersion + 1, items: [], overlays: [input.overlay] },
     take: storedTake,
   }));
+  dbMocks.applyGeneratedVisualShotAtomic.mockImplementation(async input => ({
+    applied: true,
+    story: { id: STORY_ID, userId: USER_ID, body: input.nextStoryBody },
+    timeline: { version: input.expectedVersion + 1, items: input.nextTimelineItems, overlays: input.nextTimelineOverlays },
+    take: storedTake,
+  }));
 
   materialMocks.getStoryMaterialState.mockResolvedValue(materialState());
   imageMocks.getStoryImageAssets.mockResolvedValue([
@@ -603,6 +640,123 @@ describe("confirmEditingTransition", () => {
       USER_ID
     );
     expect(videoMocks.submitViduTransition).not.toHaveBeenCalled();
+  });
+
+  it("adopts a paid image-pair as one ordinary shot without creating an overlay", async () => {
+    const stored = await canonicalStoryShotCandidate();
+    storedTake = videoTake({
+      stableShotId: stored.provisionalStableShotId,
+      status: "available",
+      videoUrl: "/api/videos/generated.mp4",
+      videoKey: "generated.mp4",
+      durationSec: 3.1,
+      parameterSnapshot: { candidate: stored, appliedToTimeline: false },
+    });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+
+    const result = await confirmEditingTransition(stored, USER_ID);
+
+    expect(result).toMatchObject({ status: "applied", insertedStableShotId: stored.provisionalStableShotId });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      stableShotId: stored.provisionalStableShotId,
+      nextTimelineOverlays: [],
+      nextTimelineItems: expect.arrayContaining([expect.objectContaining({
+        stableShotId: stored.provisionalStableShotId,
+        timelineStartFrame: 30,
+        durationFrames: 93,
+        visualLayer: 3,
+      })]),
+    }));
+    expect(dbMocks.applyStoryTimelineOverlayAtomic).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a partial only-shot recovery and rejects a moved source clip", async () => {
+    const stored = await canonicalStoryShotCandidate();
+    storedTake = videoTake({ stableShotId: stored.provisionalStableShotId, status: "available", videoUrl: "/api/videos/generated.mp4", videoKey: "generated.mp4", durationSec: 3.1, parameterSnapshot: { candidate: stored, appliedToTimeline: false } });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    const material = materialState();
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...material,
+      shots: [...material.shots, { stableShotId: stored.provisionalStableShotId, shotNo: 3 }],
+      timeline: {
+        ...material.timeline,
+        items: material.timeline.items.map((item, index) => index === 0 ? {
+          ...item,
+          imageClips: item.imageClips?.map(clip => clip.id === "clip-left" ? { ...clip, timelineStartFrame: 31 } : clip),
+        } : item),
+      },
+    });
+
+    await expect(confirmEditingTransition(stored, USER_ID)).resolves.toMatchObject({ status: "error", error: expect.stringContaining("变化") });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a partial only-item recovery and rejects a source layer change", async () => {
+    const stored = await canonicalStoryShotCandidate();
+    storedTake = videoTake({ stableShotId: stored.provisionalStableShotId, status: "available", videoUrl: "/api/videos/generated.mp4", videoKey: "generated.mp4", durationSec: 3.1, parameterSnapshot: { candidate: stored, appliedToTimeline: false } });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    const material = materialState();
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...material,
+      timeline: {
+        ...material.timeline,
+        items: [
+          ...material.timeline.items.map((item, index) => index === 0 ? {
+            ...item,
+            imageClips: item.imageClips?.map(clip => clip.id === "clip-left" ? { ...clip, visualLayer: 4 } : clip),
+          } : item),
+          timelineItem(stored.provisionalStableShotId, 2),
+        ],
+      },
+    });
+
+    await expect(confirmEditingTransition(stored, USER_ID)).resolves.toMatchObject({ status: "error", error: expect.stringContaining("变化") });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a partial recovery and rejects a rehosted source clip", async () => {
+    const stored = await canonicalStoryShotCandidate();
+    storedTake = videoTake({ stableShotId: stored.provisionalStableShotId, status: "available", videoUrl: "/api/videos/generated.mp4", videoKey: "generated.mp4", durationSec: 3.1, parameterSnapshot: { candidate: stored, appliedToTimeline: false } });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    const material = materialState();
+    const [source, target] = material.timeline.items;
+    const leftClip = source.imageClips?.find(clip => clip.id === "clip-left");
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...material,
+      shots: [...material.shots, { stableShotId: stored.provisionalStableShotId, shotNo: 3 }],
+      timeline: {
+        ...material.timeline,
+        items: [
+          { ...source, imageClips: source.imageClips?.filter(clip => clip.id !== "clip-left") },
+          { ...target, imageClips: [...(target.imageClips ?? []), leftClip!] },
+        ],
+      },
+    });
+
+    await expect(confirmEditingTransition(stored, USER_ID)).resolves.toMatchObject({ status: "error", error: expect.stringContaining("变化") });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["shorter than one second", 0.5],
+    ["longer than eight seconds", 8.5],
+    ["materially different from the quoted duration", 5],
+  ])("rejects story-shot media %s without publishing", async (_label, durationSec) => {
+    const stored = storyShotCandidate(3);
+    storedTake = videoTake({ stableShotId: stored.provisionalStableShotId, status: "available", videoUrl: "/api/videos/generated.mp4", videoKey: "generated.mp4", durationSec, parameterSnapshot: { candidate: stored, appliedToTimeline: false } });
+    dbMocks.findVideoTakeByIdempotencyKey.mockResolvedValue(storedTake);
+    const material = materialState();
+    materialMocks.getStoryMaterialState.mockResolvedValue({
+      ...material,
+      shots: [...material.shots, { stableShotId: stored.provisionalStableShotId, shotNo: 3 }],
+      timeline: { ...material.timeline, items: [...material.timeline.items, timelineItem(stored.provisionalStableShotId, 2)] },
+    });
+
+    await expect(confirmEditingTransition(stored, USER_ID)).resolves.toMatchObject({
+      status: "error",
+      error: expect.stringContaining("1–8 秒 / 报价时长"),
+    });
+    expect(dbMocks.applyGeneratedVisualShotAtomic).not.toHaveBeenCalled();
   });
 
   it("re-enters atomic adoption when the storyboard shot exists so missing overlay pieces can be repaired", async () => {

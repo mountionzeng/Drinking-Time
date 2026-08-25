@@ -130,7 +130,7 @@ function StatusNotice({
       >
         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-nayin-bright" />
         <span>
-          302 已提交，Vidu Q2 正在生成；完成后会自动插入两个镜头之间。
+          302 已提交，Vidu Q2 正在生成；完成后会自动创建可继续剪辑的普通镜头。
         </span>
       </div>
     );
@@ -147,7 +147,7 @@ function StatusNotice({
         role="status"
       >
         <CheckCircle2 className="h-3 w-3 shrink-0" />
-        <span>转场已生成，并插入对应镜头位置。</span>
+        <span>视频已生成，并作为普通镜头插入对应位置。</span>
       </div>
     );
   }

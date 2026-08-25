@@ -373,6 +373,7 @@ describe('StoryAgentContext intent state', () => {
       canPersistStoryToActiveScope,
       canPersistStorySnapshot,
       resolvePersistedStoryId,
+      storySessionTokenMatches,
       storyScopeMatches,
     } = await import('./StoryAgentContext');
 
@@ -381,6 +382,12 @@ describe('StoryAgentContext intent state', () => {
     expect(resolvePersistedStoryId(-1, 0, null)).toBeNull();
     expect(storyScopeMatches(-1, -1)).toBe(true);
     expect(storyScopeMatches(36, 34)).toBe(false);
+    expect(
+      storySessionTokenMatches(
+        { storyId: 36, scopeEpoch: 7 },
+        { storyId: 36, scopeEpoch: 7 },
+      ),
+    ).toBe(true);
     expect(canPersistStoryToActiveScope(36, 36)).toBe(true);
     expect(canPersistStoryToActiveScope(36, null)).toBe(false);
     expect(canPersistStoryToActiveScope(36, 34)).toBe(false);
@@ -401,6 +408,28 @@ describe('StoryAgentContext intent state', () => {
         persistedStoryId: 36,
         activeStoryId: 36,
       })
+    ).toBe(false);
+  });
+
+  it('rejects an extracted-frame proposal response that arrives after A switches to B', async () => {
+    const { storySessionTokenMatches } = await import('./StoryAgentContext');
+
+    expect(
+      storySessionTokenMatches(
+        { storyId: 91, scopeEpoch: 12 },
+        { storyId: 92, scopeEpoch: 13 },
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects an extracted-frame proposal response after A switches to B and back to A', async () => {
+    const { storySessionTokenMatches } = await import('./StoryAgentContext');
+
+    expect(
+      storySessionTokenMatches(
+        { storyId: 91, scopeEpoch: 12 },
+        { storyId: 91, scopeEpoch: 14 },
+      ),
     ).toBe(false);
   });
 });

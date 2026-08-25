@@ -31,7 +31,6 @@ import {
   resolveTimelineVisualFrame,
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
-import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
 import type { VisualEditDocument } from "@shared/visualClipModel";
 import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
 import { snapshotVisualObjectForClipboard } from "@shared/visualObjectClipboard";
@@ -1713,8 +1712,24 @@ export default function EditingNleWorkspace({
   const [boardSelectedRange, setBoardSelectedRange] =
     useState<StoryboardEditRange | null>(null);
   const [extractedFrameRequirements, setExtractedFrameRequirements] = useState<{
-    left: { id: string; imageId: number; atMs: number; imageUrl: string };
-    right: { id: string; imageId: number; atMs: number; imageUrl: string };
+    left: {
+      id: string;
+      clipId: string;
+      imageId: number;
+      atMs: number;
+      timelineFrame: number;
+      visualLayer: number;
+      imageUrl: string;
+    };
+    right: {
+      id: string;
+      clipId: string;
+      imageId: number;
+      atMs: number;
+      timelineFrame: number;
+      visualLayer: number;
+      imageUrl: string;
+    };
   } | null>(null);
   const keyboardShortcutZoneRef = useRef(false);
   const timelineShots = useMemo(
@@ -2939,37 +2954,37 @@ export default function EditingNleWorkspace({
       onCreateExtractedFrameTransition: async ({
         leftImageId,
         rightImageId,
+        leftClipId,
+        rightClipId,
       }) => {
         if (activeStoryId == null) {
           return { applied: false, reason: "故事未加载" };
         }
-        const extracted = shots.flatMap(shot =>
-          (
-            (
-              shot as typeof shot & {
-                imageVersions?: Array<{
-                  id: number;
-                  imageUrl: string;
-                  prompt: string | null;
-                }>;
-              }
-            ).imageVersions ?? []
-          ).flatMap(image => {
-            const atMs = extractedFrameTimeMs(image.prompt);
-            return atMs == null
-              ? []
-              : [
-                  {
-                    id: `image-${image.id}`,
-                    imageId: image.id,
-                    atMs,
-                    imageUrl: image.imageUrl,
-                  },
-                ];
-          })
+        const extracted = timelineItems.flatMap(item => {
+          const timing = timings.find(row => row.stableShotId === item.stableShotId);
+          if (!timing) return [];
+          return (item.imageClips ?? []).map(clip => {
+            const timelineFrame = timelineImageClipStartFrame(
+              clip,
+              timing.startFrame
+            );
+            return {
+              id: clip.id,
+              clipId: clip.id,
+              imageId: clip.imageId,
+              atMs: timelineFramesToMs(timelineFrame),
+              timelineFrame,
+              visualLayer: clip.visualLayer,
+              imageUrl: clip.imageUrl,
+            };
+          });
+        });
+        const left = extracted.find(
+          frame => frame.clipId === leftClipId && frame.imageId === leftImageId
         );
-        const left = extracted.find(frame => frame.imageId === leftImageId);
-        const right = extracted.find(frame => frame.imageId === rightImageId);
+        const right = extracted.find(
+          frame => frame.clipId === rightClipId && frame.imageId === rightImageId
+        );
         if (!left || !right) {
           return { applied: false, reason: "抽帧已失效，请重新选择" };
         }
@@ -3474,12 +3489,14 @@ export default function EditingNleWorkspace({
               storyId: activeStoryId,
               leftImageId: extractedFrameRequirements.left.imageId,
               rightImageId: extractedFrameRequirements.right.imageId,
+              leftClipId: extractedFrameRequirements.left.clipId,
+              rightClipId: extractedFrameRequirements.right.clipId,
               instruction,
               movementAmplitude,
             });
             if (result.applied) {
               setExtractedFrameRequirements(null);
-              toast.success("已在聊天里生成待确认的覆盖视频卡片");
+              toast.success("已在聊天里生成待确认的普通镜头视频卡片");
             }
             return result;
           }}

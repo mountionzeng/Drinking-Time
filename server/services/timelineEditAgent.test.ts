@@ -1004,7 +1004,10 @@ describe("proposeExtractedFrameTransition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     materialMocks.getStoryMaterialState.mockResolvedValue({
-      timeline: { version: 7, items: [item("shot-a", 0), item("shot-b", 1)] },
+      timeline: { version: 7, items: [
+        { ...item("shot-a", 0), imageClips: [{ id: "clip-left", imageId: 11, imageUrl: "https://example.com/11.png", label: "left", offsetFrames: 30, timelineStartFrame: 30, durationFrames: 1, visualLayer: 1 }] },
+        { ...item("shot-b", 1), imageClips: [{ id: "clip-right", imageId: 12, imageUrl: "https://example.com/12.png", label: "right", offsetFrames: 42, timelineStartFrame: 132, durationFrames: 1, visualLayer: 2 }] },
+      ] },
       shots: [
         { stableShotId: "shot-a", shotNo: 1 },
         { stableShotId: "shot-b", shotNo: 2 },
@@ -1022,6 +1025,8 @@ describe("proposeExtractedFrameTransition", () => {
       userId: 1,
       leftImageId: 11,
       rightImageId: 12,
+      leftClipId: "clip-left",
+      rightClipId: "clip-right",
     });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
@@ -1030,11 +1035,9 @@ describe("proposeExtractedFrameTransition", () => {
       cutAtSec: null,
       expectedTimelineVersion: 7,
       placement: {
-        kind: "timeline-overlay",
-        startFrame: 30,
-        targetEndFrame: 132,
-        leftImageId: 11,
-        rightImageId: 12,
+        kind: "story-shot",
+        left: { clipId: "clip-left", imageId: 11, timelineFrame: 30, visualLayer: 1 },
+        right: { clipId: "clip-right", imageId: 12, timelineFrame: 132, visualLayer: 2 },
       },
     });
     expect(dbMocks.updateStoryTimeline).not.toHaveBeenCalled();
@@ -1048,6 +1051,8 @@ describe("proposeExtractedFrameTransition", () => {
       userId: 1,
       leftImageId: 11,
       rightImageId: 12,
+      leftClipId: "clip-left",
+      rightClipId: "clip-right",
       instruction: visualDescription,
       movementAmplitude: "medium",
     });
@@ -1065,7 +1070,29 @@ describe("proposeExtractedFrameTransition", () => {
     expect(result.proposal.prompt).not.toContain("不新增人物、物体");
   });
 
+  it("binds duplicate warehouse image ids to the explicitly selected clip", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 7, items: [
+        { ...item("shot-a", 0), imageClips: [
+          { id: "clip-left-copy", imageId: 11, imageUrl: "https://example.com/11.png", label: "copy", offsetFrames: 5, timelineStartFrame: 5, durationFrames: 1, visualLayer: 4 },
+          { id: "clip-left", imageId: 11, imageUrl: "https://example.com/11.png", label: "left", offsetFrames: 30, timelineStartFrame: 30, durationFrames: 1, visualLayer: 1 },
+        ] },
+        { ...item("shot-b", 1), imageClips: [{ id: "clip-right", imageId: 12, imageUrl: "https://example.com/12.png", label: "right", offsetFrames: 42, timelineStartFrame: 132, durationFrames: 1, visualLayer: 2 }] },
+      ] },
+      shots: [{ stableShotId: "shot-a", shotNo: 1 }, { stableShotId: "shot-b", shotNo: 2 }],
+    });
+    const result = await proposeExtractedFrameTransition({ storyId: 7, userId: 1, leftImageId: 11, rightImageId: 12, leftClipId: "clip-left", rightClipId: "clip-right" });
+    expect(result).toMatchObject({ status: "ok", proposal: { placement: { kind: "story-shot", left: { clipId: "clip-left", timelineFrame: 30, visualLayer: 1 } } } });
+  });
+
   it("blocks sub-second pairs and anchored target ranges before payment", async () => {
+    materialMocks.getStoryMaterialState.mockResolvedValueOnce({
+      timeline: { version: 7, items: [
+        { ...item("shot-a", 0), imageClips: [{ id: "clip-left", imageId: 11, imageUrl: "https://example.com/11.png", label: "left", offsetFrames: 30, timelineStartFrame: 30, durationFrames: 1, visualLayer: 1 }] },
+        { ...item("shot-b", 1), imageClips: [{ id: "clip-right", imageId: 12, imageUrl: "https://example.com/12.png", label: "right", offsetFrames: 27, timelineStartFrame: 57, durationFrames: 1, visualLayer: 2 }] },
+      ] },
+      shots: [{ stableShotId: "shot-a", shotNo: 1 }, { stableShotId: "shot-b", shotNo: 2 }],
+    });
     imageAssetMocks.getStoryImageAssets.mockResolvedValueOnce([
       image(11, 1_000, "shot-a", "SH01"),
       image(12, 1_900, "shot-b", "SH02"),
@@ -1076,6 +1103,8 @@ describe("proposeExtractedFrameTransition", () => {
         userId: 1,
         leftImageId: 11,
         rightImageId: 12,
+        leftClipId: "clip-left",
+        rightClipId: "clip-right",
       })
     ).toMatchObject({ status: "blocked" });
 
@@ -1083,10 +1112,11 @@ describe("proposeExtractedFrameTransition", () => {
       timeline: {
         version: 7,
         items: [
-          item("shot-a", 0),
+          { ...item("shot-a", 0), imageClips: [{ id: "clip-left", imageId: 11, imageUrl: "https://example.com/11.png", label: "left", offsetFrames: 30, timelineStartFrame: 30, durationFrames: 1, visualLayer: 1 }] },
           {
             ...item("shot-b", 1),
             timelineStartFrame: 60,
+            imageClips: [{ id: "clip-right", imageId: 12, imageUrl: "https://example.com/12.png", label: "right", offsetFrames: 72, timelineStartFrame: 132, durationFrames: 1, visualLayer: 2 }],
             anchors: [
               { id: "lock", timelineFrame: 70, sourceType: "image", sourceId: "i", sourceTimeSec: null },
             ],
@@ -1104,6 +1134,8 @@ describe("proposeExtractedFrameTransition", () => {
         userId: 1,
         leftImageId: 11,
         rightImageId: 12,
+        leftClipId: "clip-left",
+        rightClipId: "clip-right",
       })
     ).toMatchObject({ status: "blocked", reply: expect.stringContaining("锚点") });
   });

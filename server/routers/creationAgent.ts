@@ -255,13 +255,20 @@ const timelineTransitionCandidateInput = z.object({
   estimatedCny: z.number().positive(),
   expectedTimelineVersion: z.number().int().min(0),
   placement: z
-    .object({
-      kind: z.literal("timeline-overlay"),
-      startFrame: z.number().int().min(0),
-      targetEndFrame: z.number().int().positive(),
-      leftImageId: z.number().int().positive(),
-      rightImageId: z.number().int().positive(),
-    })
+    .union([
+      z.object({
+        kind: z.literal("timeline-overlay"),
+        startFrame: z.number().int().min(0),
+        targetEndFrame: z.number().int().positive(),
+        leftImageId: z.number().int().positive(),
+        rightImageId: z.number().int().positive(),
+      }),
+      z.object({
+        kind: z.literal("story-shot"),
+        left: z.object({ clipId: z.string().min(1).max(256), imageId: z.number().int().positive(), timelineFrame: z.number().int().min(0), visualLayer: z.number().int().min(0) }),
+        right: z.object({ clipId: z.string().min(1).max(256), imageId: z.number().int().positive(), timelineFrame: z.number().int().min(0), visualLayer: z.number().int().min(0) }),
+      }),
+    ])
     .optional(),
 });
 
@@ -1387,6 +1394,8 @@ export const creationAgentRouter = router({
         storyId: z.number().int().positive(),
         leftImageId: z.number().int().positive(),
         rightImageId: z.number().int().positive(),
+        leftClipId: z.string().trim().min(1).max(256),
+        rightClipId: z.string().trim().min(1).max(256),
         instruction: z.string().trim().max(2_000).optional(),
         movementAmplitude: z
           .enum(["auto", "small", "medium", "large"])

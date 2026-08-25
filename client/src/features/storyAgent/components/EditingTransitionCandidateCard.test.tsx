@@ -58,7 +58,7 @@ describe("EditingTransitionCandidateCard", () => {
     const html = renderCandidate({ status: "generating" });
 
     expect(html).toContain("302 已提交");
-    expect(html).toContain("完成后会自动插入两个镜头之间");
+    expect(html).toContain("完成后会自动创建可继续剪辑的普通镜头");
     expect(html).toContain("正在生成并插入…");
     expect(html).toContain("disabled");
     expect(html).not.toContain("确认并生成");
@@ -66,7 +66,7 @@ describe("EditingTransitionCandidateCard", () => {
 
   it("renders applied, rejected and retryable failure outcomes", () => {
     expect(renderCandidate({ status: "applied" })).toContain(
-      "转场已生成，并插入对应镜头位置"
+      "视频已生成，并作为普通镜头插入对应位置"
     );
     expect(renderCandidate({ status: "rejected" })).toContain(
       "已取消，不会提交 302"

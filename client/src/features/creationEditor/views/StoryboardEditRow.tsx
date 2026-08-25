@@ -62,6 +62,7 @@ import {
   type TimelineViewport,
 } from "@shared/timelineViewport";
 import {
+  hasCanonicalImageClipIdentity,
   selectExtractedFrameCandidate,
   selectExtractedFrameCandidates,
   selectExtractedFramePair,
@@ -223,6 +224,8 @@ export type StoryboardBoardTimeline = {
   onCreateExtractedFrameTransition?: (input: {
     leftImageId: number;
     rightImageId: number;
+    leftClipId: string;
+    rightClipId: string;
   }) => Promise<{ applied: boolean; reason?: string }>;
   onDeleteExtractedFrame?: (imageId: number) => Promise<{
     applied: boolean;
@@ -1034,8 +1037,14 @@ function StoryboardUpperVisualLayerRow({
         );
         return {
           id: frame?.id ?? clip.id,
+          clipId: clip.id,
           imageId: clip.imageId,
           imageUrl: clip.imageUrl,
+          timelineFrame: timelineImageClipStartFrame(
+            clip,
+            shot.timing.startFrame
+          ),
+          visualLayer: clip.visualLayer,
           atMs:
             (timelineImageClipStartFrame(clip, shot.timing.startFrame) * 1000) /
             30,
@@ -1062,6 +1071,8 @@ function StoryboardUpperVisualLayerRow({
     clientY: number;
     leftImageId: number;
     rightImageId: number;
+    leftClipId: string;
+    rightClipId: string;
     durationSec: number;
     timelineFrame: number;
   } | null>(null);
@@ -1348,13 +1359,15 @@ function StoryboardUpperVisualLayerRow({
     id: string;
     imageId: number;
     atMs: number;
+    clipId?: string;
   }) => {
+    if (!frame.clipId) return;
     setTransitionMenu(null);
     setFrameMenu(null);
     setDeleteError(null);
     setPairingStart(frame);
     const nearest = selectExtractedFrameCandidates({
-      frames,
+      frames: frames.filter(hasCanonicalImageClipIdentity),
       start: frame,
     }).sort(
       (left, right) =>
@@ -1374,12 +1387,18 @@ function StoryboardUpperVisualLayerRow({
     if (!rect || rect.width <= 0) return;
     const atMs = Math.min(totalMs, pxToMs(viewport, clientX - rect.left));
     setPairingCandidate(
-      selectExtractedFrameCandidate({ frames, start: pairingStart, atMs })
+      selectExtractedFrameCandidate({
+        frames: frames.filter(hasCanonicalImageClipIdentity),
+        start: pairingStart,
+        atMs,
+      })
     );
   };
   const finishPairing = async (pair: {
     leftImageId: number;
     rightImageId: number;
+    leftClipId: string;
+    rightClipId: string;
   }) => {
     if (!timeline.onCreateExtractedFrameTransition) return;
     setPending(true);
@@ -1395,8 +1414,12 @@ function StoryboardUpperVisualLayerRow({
     }
   };
   const openAtMs = (atMs: number, clientX: number, clientY: number) => {
-    const selected = selectExtractedFramePair({ frames, atMs });
+    const selected = selectExtractedFramePair({
+      frames: frames.filter(hasCanonicalImageClipIdentity),
+      atMs,
+    });
     if (selected.kind !== "ok") return false;
+    if (!selected.pair.left.clipId || !selected.pair.right.clipId) return false;
     setFrameMenu(null);
     setDeleteError(null);
     setTransitionMenu({
@@ -1404,6 +1427,8 @@ function StoryboardUpperVisualLayerRow({
       clientY,
       leftImageId: selected.pair.left.imageId,
       rightImageId: selected.pair.right.imageId,
+      leftClipId: selected.pair.left.clipId,
+      rightClipId: selected.pair.right.clipId,
       durationSec: selected.pair.requestedDurationSec,
       timelineFrame: Math.max(0, Math.round((atMs * 30) / 1000)),
     });
@@ -1845,13 +1870,18 @@ function StoryboardUpperVisualLayerRow({
                       return;
                     }
                     const candidate = selectExtractedFrameCandidates({
-                      frames,
+                      frames: frames.filter(hasCanonicalImageClipIdentity),
                       start: pairingStart,
                     }).find(item => item.frame.id === frame.id);
-                    if (candidate)
+                    if (
+                      candidate?.pair.left.clipId &&
+                      candidate.pair.right.clipId
+                    )
                       void finishPairing({
                         leftImageId: candidate.pair.left.imageId,
                         rightImageId: candidate.pair.right.imageId,
+                        leftClipId: candidate.pair.left.clipId,
+                        rightClipId: candidate.pair.right.clipId,
                       });
                     return;
                   }
@@ -2056,9 +2086,15 @@ function StoryboardUpperVisualLayerRow({
               }}
               onClick={event => {
                 event.stopPropagation();
+                if (
+                  !pairingCandidate.pair.left.clipId ||
+                  !pairingCandidate.pair.right.clipId
+                ) return;
                 void finishPairing({
                   leftImageId: pairingCandidate.pair.left.imageId,
                   rightImageId: pairingCandidate.pair.right.imageId,
+                  leftClipId: pairingCandidate.pair.left.clipId,
+                  rightClipId: pairingCandidate.pair.right.clipId,
                 });
               }}
             >
@@ -2184,6 +2220,8 @@ function StoryboardUpperVisualLayerRow({
                     await timeline.onCreateExtractedFrameTransition({
                       leftImageId: transitionMenu.leftImageId,
                       rightImageId: transitionMenu.rightImageId,
+                      leftClipId: transitionMenu.leftClipId,
+                      rightClipId: transitionMenu.rightClipId,
                     });
                   if (!isCurrentStorySession()) return;
                   if (result.applied) setTransitionMenu(null);

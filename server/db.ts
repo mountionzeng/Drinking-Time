@@ -6161,7 +6161,9 @@ export async function applyStoryTimelineOverlayAtomic(input: {
   expectedVersion: number;
   nextStoryBody: unknown;
   nextTimelineItems: unknown;
-  overlay: StoryTimelineOverlay;
+  nextTimelineOverlays?: unknown;
+  nextVisualLayerState?: unknown;
+  overlay?: StoryTimelineOverlay;
 }): Promise<{
   applied: boolean;
   story: Story;
@@ -6175,7 +6177,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       ? (take.parameterSnapshot as Record<string, unknown>)
       : {}),
     appliedToTimeline: true,
-    overlayId: input.overlay.id,
+    ...(input.overlay ? { overlayId: input.overlay.id } : {}),
   });
   const db = await getDb();
   if (!db) {
@@ -6205,12 +6207,12 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     const overlays = Array.isArray(payload.overlays)
       ? [...payload.overlays]
       : [];
-    const overlayExists = overlays.some(
+    const overlayExists = !input.overlay || overlays.some(
       value =>
         value &&
         typeof value === "object" &&
         !Array.isArray(value) &&
-        (value as Record<string, unknown>).id === input.overlay.id
+        (value as Record<string, unknown>).id === input.overlay!.id
     );
     const shotExists = storyBodyContainsStableShotId(
       story.body,
@@ -6220,7 +6222,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       payload.items,
       input.stableShotId
     );
-    if (overlayExists && shotExists && timelineItemExists) {
+    if (overlayExists && shotExists && timelineItemExists && jsonRecord(take.parameterSnapshot).appliedToTimeline === true) {
       return {
         applied: false,
         story,
@@ -6265,10 +6267,10 @@ export async function applyStoryTimelineOverlayAtomic(input: {
                     items: timelineItemExists
                       ? payload.items
                       : input.nextTimelineItems,
-                    overlays: overlayExists
+                    overlays: input.nextTimelineOverlays ?? (overlayExists
                       ? overlays
-                      : [...overlays, input.overlay],
-        visualLayerState: payload.visualLayerState,
+                      : [...overlays, input.overlay!]),
+        visualLayerState: input.nextVisualLayerState ?? payload.visualLayerState,
                   }),
                   version: timeline.version + 1,
                   updatedAt: current,
@@ -6351,12 +6353,12 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     const overlays = Array.isArray(payload.overlays)
       ? [...payload.overlays]
       : [];
-    const overlayExists = overlays.some(
+    const overlayExists = !input.overlay || overlays.some(
       value =>
         value &&
         typeof value === "object" &&
         !Array.isArray(value) &&
-        (value as Record<string, unknown>).id === input.overlay.id
+        (value as Record<string, unknown>).id === input.overlay!.id
     );
     const shotExists = storyBodyContainsStableShotId(
       story.body,
@@ -6366,7 +6368,7 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       payload.items,
       input.stableShotId
     );
-    if (overlayExists && shotExists && timelineItemExists) {
+    if (overlayExists && shotExists && timelineItemExists && jsonRecord(take.parameterSnapshot).appliedToTimeline === true) {
       return {
         applied: false,
         story,
@@ -6408,8 +6410,8 @@ export async function applyStoryTimelineOverlayAtomic(input: {
         .set({
           items: encodeStoryTimelinePayload({
             items: timelineItemExists ? payload.items : input.nextTimelineItems,
-            overlays: overlayExists ? overlays : [...overlays, input.overlay],
-            visualLayerState: payload.visualLayerState,
+            overlays: input.nextTimelineOverlays ?? (overlayExists ? overlays : [...overlays, input.overlay!]),
+            visualLayerState: input.nextVisualLayerState ?? payload.visualLayerState,
           }),
           version: timeline.version + 1,
         })
@@ -6436,6 +6438,26 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       take: updatedTake,
     };
   });
+}
+
+/**
+ * Atomically publishes a generated ordinary visual shot and marks its paid
+ * Take adopted. It intentionally preserves the complete overlay document and
+ * never creates a compatibility overlay.
+ */
+export function applyGeneratedVisualShotAtomic(input: {
+  storyId: number;
+  userId: number;
+  takeId: number;
+  stableShotId: string;
+  expectedStoryRevision: number;
+  expectedVersion: number;
+  nextStoryBody: unknown;
+  nextTimelineItems: unknown;
+  nextTimelineOverlays?: unknown;
+  nextVisualLayerState?: unknown;
+}) {
+  return applyStoryTimelineOverlayAtomic(input);
 }
 
 function storyBodyContainsStableShotId(
