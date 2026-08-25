@@ -29,6 +29,7 @@ const OWNED_CLIP_COMMANDS: readonly VisualObjectCommand[] = [
   "move",
   "split",
   "extract-frame",
+  "chat",
   "delete",
 ];
 const IMAGE_COMMANDS: readonly VisualObjectCommand[] = [

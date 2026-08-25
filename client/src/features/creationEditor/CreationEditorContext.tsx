@@ -447,20 +447,14 @@ type CreationEditorContextValue = {
   splitTimelineVideoClip: (input: {
     stableShotId: string;
     cutFrame: number;
-    takeStableShotId: string;
-    existingClipId?: string | null;
-    takeId: number;
-    videoUrl: string;
-    sourceStartSec: number;
-    sourceEndSec: number;
-    splitSourceSec: number;
-    offsetMs: number;
-    durationMs: number;
-    splitOffsetMs: number;
-    label: string;
-    effects: TimelineVideoEffects;
-    transform: TimelineTransform;
     overlayId?: string;
+    videoUrl?: string;
+  }) => Promise<void>;
+  splitOwnedVideoClip: (input: {
+    operation: VisualEditOperationRef;
+    ownerStableShotId: string;
+    clipId: string;
+    cutFrame: number;
   }) => Promise<void>;
   addTimelineImageClip: (input: {
     clipId?: string;
@@ -2027,6 +2021,7 @@ export function CreationEditorProvider({
     updateTimelineVideoEdit,
     pasteVisualImage,
     deleteVisualObject,
+    splitOwnedVideoClip,
   } = useTimelineCommands({
     activeStoryId: activeId,
     refetchStoryMaterial: storyMaterialQuery.refetch,
@@ -2485,20 +2480,26 @@ export function CreationEditorProvider({
 
   const deletePersistedShot = async (stableShotId: string) => {
     if (activeId == null) throw new Error("故事尚未加载，无法删除镜头");
+    const storyId = activeId;
     const result = await deleteStoryShotMut.mutateAsync({
-      storyId: activeId,
+      storyId,
       stableShotId,
     });
     if (result.status !== "ok") {
       throw new Error(result.error || "删除镜头失败");
     }
-    recordDeletedStoryShotUndo(activeId, {
+    recordDeletedStoryShotUndo(storyId, {
       deletedShot: result.deletedShot,
       deletedIndex: result.deletedIndex,
       deletedStableShotId: result.deletedStableShotId,
       expectedRevision: result.deletedAtRevision,
       afterDeleteBody: result.afterDeleteBody,
     });
+    // 服务端对 A 的删除即使在用户已切到 B 后才返回也仍然有效；但 A 的晚到
+    // 响应绝不能覆盖当前 B 的 spine 投影，或借当前 query hook 重取 B。
+    if (activeStoryIdRef.current !== storyId) {
+      return result.nextSelectedShotNo;
+    }
     const savedBody =
       result.story?.body &&
       typeof result.story.body === "object" &&
@@ -2512,9 +2513,9 @@ export function CreationEditorProvider({
       setSpineServerRevision(result.story.revision);
     }
     await Promise.all([
-      utils.storyAgent.storyGet.invalidate({ id: activeId }),
+      utils.storyAgent.storyGet.invalidate({ id: storyId }),
       utils.storyAgent.storyList.invalidate(),
-      utils.storyAgent.storyMaterialState.invalidate({ storyId: activeId }),
+      utils.storyAgent.storyMaterialState.invalidate({ storyId }),
     ]);
     await Promise.all([storyQuery.refetch(), storyMaterialQuery.refetch()]);
     return result.nextSelectedShotNo;
@@ -3452,20 +3453,8 @@ export function CreationEditorProvider({
   const splitTimelineVideoClip = async (input: {
     stableShotId: string;
     cutFrame: number;
-    takeStableShotId: string;
-    existingClipId?: string | null;
-    takeId: number;
-    videoUrl: string;
-    sourceStartSec: number;
-    sourceEndSec: number;
-    splitSourceSec: number;
-    offsetMs: number;
-    durationMs: number;
-    splitOffsetMs: number;
-    label: string;
-    effects: TimelineVideoEffects;
-    transform: TimelineTransform;
     overlayId?: string;
+    videoUrl?: string;
   }) => {
     if (activeId == null) throw new Error("故事尚未加载，无法切割视频");
     const revisionFromBody = (body: unknown) =>
@@ -3487,7 +3476,7 @@ export function CreationEditorProvider({
               legacyOverlay: {
                 overlayId: input.overlayId,
                 sourceStableShotId: input.stableShotId,
-                expectedVideoUrl: input.videoUrl,
+                expectedVideoUrl: input.videoUrl ?? "",
               },
             }
           : {}),
@@ -3953,6 +3942,7 @@ export function CreationEditorProvider({
       undoTimeline,
       createVideoTakeRange,
       splitTimelineVideoClip,
+      splitOwnedVideoClip,
       addTimelineImageClip,
       extractTimelineFrame,
       moveVisualClip,
@@ -4044,6 +4034,7 @@ export function CreationEditorProvider({
       storyQuery,
       publishingDraftQuery,
       storyboardCoverReferencesQuery,
+      splitOwnedVideoClip,
     ]
   );
 

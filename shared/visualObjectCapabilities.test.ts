@@ -37,7 +37,7 @@ describe("visual object capabilities", () => {
         clipId: "video",
         ownerStableShotId: "shot",
       }).map(item => item.command)
-    ).toEqual(["move", "split", "extract-frame", "delete"]);
+    ).toEqual(["move", "split", "extract-frame", "chat", "delete"]);
     expect(
       visualObjectCapabilities({
         type: "image-clip",

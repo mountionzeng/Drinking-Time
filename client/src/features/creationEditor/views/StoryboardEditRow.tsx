@@ -106,6 +106,7 @@ import {
   storyboardTrimmedDurationMs,
   storyboardVisualClipShotTimingPreview,
   storyboardVisualObjectMenuFocusIndex,
+  storyboardVisualObjectShortcutRoute,
   storyboardOwnedClipVisualLayer,
   storyboardOwnedClipNudgeBase,
   type StoryboardEditAction,
@@ -177,7 +178,7 @@ export type StoryboardBoardTimeline = {
       "leftStableShotId" | "rightStableShotId"
     >
   ) => Promise<{ applied: boolean; reason?: string }>;
-  onSplitAt: (ms: number) => Promise<void>;
+  onSplitAt: (ms: number, stableShotId?: string) => Promise<void>;
   onExtractFrameAt: (ms: number, operationLayer: number) => Promise<void>;
   onReorderShot: (input: {
     sourceStableShotId: string;
@@ -246,7 +247,8 @@ export type StoryboardBoardTimeline = {
   canPasteVisualObject?: boolean;
   isVisualObjectCommandAvailable?: (
     object: VisualObjectRef,
-    command: VisualObjectCommand
+    command: VisualObjectCommand,
+    context?: { timelineFrame: number; visualLayer: number }
   ) => boolean;
   onPlaceExternalVisual?: (
     dataTransfer: DataTransfer,
@@ -4979,7 +4981,12 @@ export function StoryboardEditRow({
       const object = objectMenu.object;
       if (
         timeline.isVisualObjectCommandAvailable &&
-        !timeline.isVisualObjectCommandAvailable(object, command)
+        !timeline.isVisualObjectCommandAvailable(object, command, {
+          timelineFrame:
+            objectMenu.timelineFrame ??
+            Math.max(0, Math.round((timeline.playheadMs * 30) / 1_000)),
+          visualLayer: objectMenu.visualLayer ?? visualObjectLayer(object) ?? 0,
+        })
       ) {
         return;
       }
@@ -5021,12 +5028,15 @@ export function StoryboardEditRow({
     [closeObjectMenu, objectMenu, timeline]
   );
   const runSelectedObjectCommand = useCallback(
-    (command: "copy" | "delete") => {
+    (
+      command: VisualObjectCommand,
+      context: { timelineFrame: number; visualLayer: number }
+    ) => {
       const object = selectedVisualObject;
       if (!object || !timeline.onVisualObjectCommand) return false;
       if (
         timeline.isVisualObjectCommandAvailable &&
-        !timeline.isVisualObjectCommandAvailable(object, command)
+        !timeline.isVisualObjectCommandAvailable(object, command, context)
       )
         return false;
       const key = visualObjectRefKey(object);
@@ -5034,13 +5044,7 @@ export function StoryboardEditRow({
       setPendingObjectKey(key);
       void pendingGuardRef.current
         .run(key, () =>
-          timeline.onVisualObjectCommand!(object, command, {
-            timelineFrame: Math.max(
-              0,
-              Math.round((timeline.playheadMs * 30) / 1_000)
-            ),
-            visualLayer: visualObjectLayer(object) ?? 0,
-          })
+          timeline.onVisualObjectCommand!(object, command, context)
         )
         .catch(error => {
           if (!isStorySessionTokenCurrent(sessionToken)) return;
@@ -5256,7 +5260,7 @@ export function StoryboardEditRow({
     let done: Promise<unknown> | unknown;
     switch (action) {
       case "split":
-        done = timeline.onSplitAt(atMs);
+        done = timeline.onSplitAt(atMs, shot.stableShotId);
         break;
       case "extract":
         done = timeline.onExtractFrameAt(
@@ -5341,29 +5345,57 @@ export function StoryboardEditRow({
   const handleShortcut = (event: KeyboardEvent) => {
     const shortcut = storyboardEditShortcut(event);
     if (!shortcut) return;
-    if (shortcut.kind === "copyVisualObject" && !selectedVisualObject) return;
+    const selectedObjectContext = selectedVisualObject
+      ? {
+          timelineFrame: Math.max(
+            0,
+            Math.round((headRef.current * 30) / 1_000)
+          ),
+          visualLayer: visualObjectLayer(selectedVisualObject) ?? 0,
+        }
+      : null;
+    const objectRoute = storyboardVisualObjectShortcutRoute({
+      shortcut,
+      selectedObject: selectedVisualObject,
+      commandAvailable: (object, command) =>
+        Boolean(
+          timeline.onVisualObjectCommand &&
+            (!timeline.isVisualObjectCommandAvailable ||
+              timeline.isVisualObjectCommandAvailable(object, command, {
+                timelineFrame: selectedObjectContext?.timelineFrame ?? 0,
+                visualLayer:
+                  selectedObjectContext?.visualLayer ??
+                  visualObjectLayer(object) ??
+                  0,
+              }))
+        ),
+    });
+    if (shortcut.kind === "copyVisualObject" && objectRoute.kind === "legacy")
+      return;
     if (
       shortcut.kind === "pasteVisualObject" &&
       (!timeline.canPasteVisualObject || !timeline.onPasteVisualObject)
     )
       return;
     if (
+      objectRoute.kind === "legacy" &&
       shortcut.kind === "action" &&
       storyboardEditNeedsRowFocus(shortcut.action) &&
-      !(
-        shortcut.action === "delete" &&
-        selectedVisualObject?.type === "image-clip" &&
-        focusReturnRef.current?.contains(document.activeElement)
-      ) &&
       !rowRef.current?.contains(document.activeElement)
     ) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
+    if (objectRoute.kind === "blocked") return;
+    if (objectRoute.kind === "object") {
+      if (selectedObjectContext) {
+        runSelectedObjectCommand(objectRoute.command, selectedObjectContext);
+      }
+      return;
+    }
     switch (shortcut.kind) {
       case "copyVisualObject":
-        runSelectedObjectCommand("copy");
         return;
       case "pasteVisualObject":
         pasteVisualObject({
@@ -5431,12 +5463,6 @@ export function StoryboardEditRow({
         timeline.onSelectRange(null);
         return;
       case "action":
-        if (
-          shortcut.action === "delete" &&
-          selectedVisualObject?.type === "image-clip" &&
-          runSelectedObjectCommand("delete")
-        )
-          return;
         runAction(shortcut.action, activeShot, headRef.current);
         return;
     }
@@ -5642,7 +5668,19 @@ export function StoryboardEditRow({
                 (!timeline.isVisualObjectCommandAvailable ||
                   timeline.isVisualObjectCommandAvailable(
                     objectMenu.object,
-                    command
+                    command,
+                    {
+                      timelineFrame:
+                        objectMenu.timelineFrame ??
+                        Math.max(
+                          0,
+                          Math.round((timeline.playheadMs * 30) / 1_000)
+                        ),
+                      visualLayer:
+                        objectMenu.visualLayer ??
+                        visualObjectLayer(objectMenu.object) ??
+                        0,
+                    }
                   ))
             )
           }

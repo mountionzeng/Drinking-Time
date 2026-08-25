@@ -207,6 +207,7 @@ describe("visual object operations", () => {
       expect(projectVisualClips(removed.document)).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ id: "video:owned-a" })])
       );
+      expect(removed.document.items[0].visualClipsReplacePrimary).toBe(false);
     }
     expect(
       deleteVisualObjectReference({

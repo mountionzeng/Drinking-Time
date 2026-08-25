@@ -41,6 +41,7 @@ import {
   patchImageTransformForStory,
   pasteVisualImageForStory,
   deleteVisualObjectForStory,
+  splitOwnedVideoClipForStory,
   setShotDurationForStory,
   undoVisualEditForStory,
   withPlayheadShot,
@@ -2312,6 +2313,22 @@ export const creationAgentRouter = router({
     )
     .mutation(({ ctx, input }) =>
       deleteVisualObjectForStory({ ...input, userId: ctx.user.id })
+    ),
+
+  splitOwnedVideoClip: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          ownerStableShotId: z.string().min(1).max(240),
+          clipId: z.string().min(1).max(240),
+          cutFrame: z.number().int().min(0),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      splitOwnedVideoClipForStory({ ...input, userId: ctx.user.id })
     ),
 
   undoVisualEditReceipt: protectedProcedure

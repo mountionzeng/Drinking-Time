@@ -114,6 +114,39 @@ describe("creation editor spine boundary", () => {
     }
   });
 
+  it("drops a late deleted-shot projection after switching stories", () => {
+    const editorContext = source(
+      "client/src/features/creationEditor/CreationEditorContext.tsx"
+    );
+    const deleteStart = editorContext.indexOf(
+      "const deletePersistedShot = async"
+    );
+    const deleteEnd = editorContext.indexOf(
+      "const discardPersistedShot = async",
+      deleteStart
+    );
+    const deleteFlow = editorContext.slice(deleteStart, deleteEnd);
+
+    expect(deleteFlow).toMatch(
+      /const storyId = activeId;[\s\S]*?await deleteStoryShotMut\.mutateAsync\([\s\S]*?storyId,[\s\S]*?if \(activeStoryIdRef\.current !== storyId\) \{[\s\S]*?return result\.nextSelectedShotNo;[\s\S]*?setCanonicalStoryShots[\s\S]*?storyQuery\.refetch\(\)/
+    );
+  });
+
+  it("reuses one keyboard object context for availability and execution", () => {
+    const storyboard = source(
+      "client/src/features/creationEditor/views/StoryboardEditRow.tsx"
+    );
+    const shortcutStart = storyboard.indexOf(
+      "const handleShortcut = (event: KeyboardEvent)"
+    );
+    const shortcutEnd = storyboard.indexOf("useEffect(() => {", shortcutStart);
+    const shortcutFlow = storyboard.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutFlow).toMatch(
+      /const selectedObjectContext = selectedVisualObject[\s\S]*?headRef\.current[\s\S]*?isVisualObjectCommandAvailable\([\s\S]*?selectedObjectContext\?\.timelineFrame[\s\S]*?runSelectedObjectCommand\(objectRoute\.command, selectedObjectContext\)/
+    );
+  });
+
   it("keeps extraction receipts replayable without projecting an old Story session", () => {
     const editorContext = source(
       "client/src/features/creationEditor/CreationEditorContext.tsx"
@@ -133,9 +166,7 @@ describe("creation editor spine boundary", () => {
     expect(extractionFlow).toMatch(
       /extractionIntentByPositionRef\.current\.get\(positionKey\) === intent[\s\S]*?delete\(positionKey\)/
     );
-    expect(extractionFlow).toContain(
-      'result.requestDisposition === "replace"'
-    );
+    expect(extractionFlow).toContain('result.requestDisposition === "replace"');
     expect(extractionFlow).toMatch(
       /activeStoryIdRef\.current === storyId[\s\S]*?committedExtractionStorySessionTokenRef\.current ===[\s\S]*?inFlight\.originStorySessionToken[\s\S]*?recordTimelineCommandUndo\(storyId\)/
     );
@@ -261,7 +292,9 @@ describe("creation editor spine boundary", () => {
     // 从被删组件的 `selectShot: true` 搬到了父层的 selectShotFromPlayhead，
     // 行为不变，锚点跟着改——守的是行为，不是某一版的写法。
     expect(editingWorkspace).toContain("selectShotFromPlayhead");
-    expect(editingWorkspace).toContain("onPlayheadCommit: selectShotFromPlayhead");
+    expect(editingWorkspace).toContain(
+      "onPlayheadCommit: selectShotFromPlayhead"
+    );
     expect(editingWorkspace).toContain("ResizablePanelGroup");
     expect(editingWorkspace).toContain(
       'autoSaveId="editing-storyboard-preview-widths-v3"'
@@ -317,5 +350,4 @@ describe("creation editor spine boundary", () => {
     expect(editingWorkspace).toContain("<TimelineAudioPlayback");
     expect(editingWorkspace).not.toContain("StoryboardRail");
   });
-
 });

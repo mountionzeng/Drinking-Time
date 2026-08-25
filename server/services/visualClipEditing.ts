@@ -38,6 +38,7 @@ import {
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
   applyTimelineVideoEdit,
+  splitOwnedTimelineVisualClip,
   type TimelineVideoEditInput,
 } from "../../shared/timelineVisualClips";
 import {
@@ -502,9 +503,7 @@ export async function moveVisualClipForStory(input: {
                 overlay => overlay.id === legacyOverlayId
               );
               if (matching.length === 1) {
-                normalizedClipId = shotClipId(
-                  matching[0].sourceStableShotId
-                );
+                normalizedClipId = shotClipId(matching[0].sourceStableShotId);
               }
               return {
                 kind: "overlays" as const,
@@ -778,6 +777,78 @@ export async function deleteVisualObjectForStory(input: {
         : { status: "error", message: result.message };
     }
   );
+}
+
+function splitOwnedVideoClipRightId(input: {
+  storyId: number;
+  userId: number;
+  ownerStableShotId: string;
+  clipId: string;
+  cutFrame: number;
+  operation: VisualEditOperationRef;
+}): string {
+  const digest = createHash("sha256")
+    .update(
+      [
+        input.userId,
+        input.storyId,
+        input.operation.editorSessionEpoch,
+        input.operation.operationId,
+        input.ownerStableShotId,
+        input.clipId,
+        input.cutFrame,
+      ].join(":")
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `owned-split-${digest}`;
+}
+
+export type SplitOwnedVideoClipForStoryResult = VisualClipEditResult & {
+  rightClipId?: string;
+};
+
+/** Split a canonical owned video clip; Story identity/body are never written. */
+export async function splitOwnedVideoClipForStory(input: {
+  storyId: number;
+  userId: number;
+  ownerStableShotId: string;
+  clipId: string;
+  cutFrame: number;
+  operation: VisualEditOperationRef;
+}): Promise<SplitOwnedVideoClipForStoryResult> {
+  const rightClipId = splitOwnedVideoClipRightId(input);
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "视频片段拆分失败",
+      operation: input.operation,
+      commandPayload: {
+        kind: "splitOwnedVideoClip",
+        ownerStableShotId: input.ownerStableShotId,
+        clipId: input.clipId,
+        cutFrame: input.cutFrame,
+      },
+      normalizeLegacy: () => ({
+        kind: "sources",
+        sourceStableShotIds: [input.ownerStableShotId],
+      }),
+    },
+    document => {
+      const plan = splitOwnedTimelineVisualClip({
+        items: document.items,
+        ownerStableShotId: input.ownerStableShotId,
+        clipId: input.clipId,
+        cutFrame: input.cutFrame,
+        rightClipId,
+      });
+      return plan.status === "ok"
+        ? { status: "ok", document: { ...document, items: plan.items } }
+        : { status: "error", message: plan.message };
+    }
+  );
+  return result.status === "ok" ? { ...result, rightClipId } : result;
 }
 
 // ────────────────────────────────────────────────────────────────────

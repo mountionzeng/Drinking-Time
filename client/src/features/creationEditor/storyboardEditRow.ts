@@ -3,6 +3,11 @@ import {
   type StoryTimelineVisualClip,
 } from "@shared/storyMaterial";
 import type { SelectionSourceType } from "@shared/selectionContext";
+import type { VisualObjectRef } from "@shared/visualObject";
+import {
+  visualObjectCapabilities,
+  type VisualObjectCommand,
+} from "@shared/visualObjectCapabilities";
 import { videoClipId } from "@shared/visualClipModel";
 import { normalizeVisualLayer } from "@shared/timelineVisualPriority";
 import {
@@ -1007,6 +1012,53 @@ export type StoryboardEditShortcut =
   | { kind: "addAnchor" }
   | { kind: "clearSelection" }
   | { kind: "action"; action: StoryboardEditAction };
+
+export type StoryboardVisualObjectShortcutRoute =
+  | { kind: "object"; command: VisualObjectCommand }
+  | { kind: "blocked" }
+  | { kind: "legacy" };
+
+/**
+ * A unique visual-object selection owns destructive/creative shortcuts.
+ * Unsupported or unavailable commands are deliberately blocked: they must not
+ * fall through to a nearby shot under the playhead.
+ */
+export function storyboardVisualObjectShortcutRoute(input: {
+  shortcut: StoryboardEditShortcut;
+  selectedObject: VisualObjectRef | null;
+  commandAvailable: (
+    object: VisualObjectRef,
+    command: VisualObjectCommand
+  ) => boolean;
+}): StoryboardVisualObjectShortcutRoute {
+  const command =
+    input.shortcut.kind === "copyVisualObject"
+      ? "copy"
+      : input.shortcut.kind === "addAnchor"
+        ? "set-anchor"
+        : input.shortcut.kind === "action"
+          ? input.shortcut.action === "split"
+            ? "split"
+            : input.shortcut.action === "extract"
+              ? "extract-frame"
+              : input.shortcut.action === "selectShot"
+                ? "chat"
+                : input.shortcut.action === "delete"
+                  ? "delete"
+                  : null
+          : null;
+  if (!command || !input.selectedObject) return { kind: "legacy" };
+  const capability = visualObjectCapabilities(input.selectedObject).find(
+    item => item.command === command
+  );
+  if (
+    !capability?.enabled ||
+    !input.commandAvailable(input.selectedObject, command)
+  ) {
+    return { kind: "blocked" };
+  }
+  return { kind: "object", command };
+}
 
 /**
  * 快捷键照搬主流剪辑软件：空格走带、JKL、左右一帧、上下跳切点、

@@ -133,6 +133,10 @@ export function deleteVisualObjectReference(input: {
                   visualClips: (item.visualClips ?? []).filter(
                     clip => clip.id !== object.clipId
                   ),
+                  visualClipsReplacePrimary:
+                    (item.visualClips ?? []).filter(
+                      clip => clip.id !== object.clipId
+                    ).length > 0 && Boolean(item.visualClipsReplacePrimary),
                 }
               : item
           ),

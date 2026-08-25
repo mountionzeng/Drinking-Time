@@ -4,6 +4,7 @@ import {
   createStory,
   createVideoTake,
   getGeneratedImageById,
+  getStoryById,
   getStoryTimeline,
   resetMemoryStateForTesting,
   updateStoryTimeline,
@@ -31,6 +32,7 @@ import {
   placeExtractedFrameForStory,
   removeTimelineAnchorForStory,
   rollingTrimForStory,
+  splitOwnedVideoClipForStory,
   trimShotForStory,
 } from "./visualClipEditing";
 import type { ImageClipClipboardSnapshot } from "../../shared/visualObjectClipboard";
@@ -167,6 +169,164 @@ async function persistedPlacements(storyId: number) {
     ])
   );
 }
+
+async function seedOwnedClip(storyId: number) {
+  const row = await getStoryTimeline(storyId, USER_ID);
+  if (!row) throw new Error("timeline missing");
+  const items = row.items as VisualEditDocument["items"];
+  await updateStoryTimeline({
+    storyId,
+    userId: USER_ID,
+    expectedVersion: row.version,
+    items: items.map(item =>
+      item.stableShotId === "sh-01"
+        ? {
+            ...item,
+            visualClipsReplacePrimary: true,
+            visualClips: [
+              {
+                id: "owned-duplicate",
+                takeId: 701,
+                rangeId: 801,
+                sourceStableShotId: "sh-01",
+                videoUrl: "/owned.mp4",
+                label: "owned",
+                sourceStartSec: 2,
+                sourceEndSec: 6,
+                offsetMs: 0,
+                durationMs: 2_000,
+                effects: {
+                  playbackRate: 2,
+                  reverse: false,
+                  volume: 1,
+                  muted: false,
+                },
+                transform: TRANSFORM,
+              },
+            ],
+          }
+        : {
+            ...item,
+            visualClips: [
+              {
+                id: "owned-duplicate",
+                takeId: 702,
+                rangeId: 802,
+                sourceStableShotId: "sh-02",
+                videoUrl: "/other.mp4",
+                label: "other",
+                sourceStartSec: 0,
+                sourceEndSec: 1,
+                offsetMs: 0,
+                durationMs: 1_000,
+              },
+            ],
+          }
+    ),
+    overlays: row.overlays,
+    visualLayerState: row.visualLayerState,
+  });
+}
+
+describe("splitOwnedVideoClipForStory", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  it("changes only Timeline once, replays idempotently, and one undo restores it", async () => {
+    const storyId = await seedStory();
+    await seedOwnedClip(storyId);
+    const beforeStory = await getStoryById(storyId, USER_ID);
+    const beforeTimeline = await getStoryTimeline(storyId, USER_ID);
+    const operation = {
+      editorSessionEpoch: "split-epoch",
+      operationId: "split-op",
+    };
+    const input = {
+      storyId,
+      userId: USER_ID,
+      ownerStableShotId: "sh-01",
+      clipId: "owned-duplicate",
+      // sh-01 still has one legacy overlay; command normalization makes its
+      // canonical absolute start frame 71 before applying this split.
+      cutFrame: 101,
+      operation,
+    };
+
+    const first = await splitOwnedVideoClipForStory(input);
+    expect(first).toMatchObject({
+      status: "ok",
+      changed: true,
+      rightClipId: expect.stringMatching(/^owned-split-/),
+      receipt: operation,
+    });
+    const afterTimeline = await getStoryTimeline(storyId, USER_ID);
+    expect(afterTimeline?.version).toBe((beforeTimeline?.version ?? 0) + 1);
+    const afterItems = afterTimeline?.items as VisualEditDocument["items"];
+    expect(afterItems[0].visualClips).toMatchObject([
+      {
+        id: "owned-duplicate",
+        sourceStartSec: 2,
+        sourceEndSec: 4,
+        durationMs: 1_000,
+      },
+      {
+        id: first.status === "ok" ? first.rightClipId : "",
+        sourceStartSec: 4,
+        sourceEndSec: 6,
+        durationMs: 1_000,
+      },
+    ]);
+    expect(afterItems[1].visualClips).toHaveLength(1);
+
+    const replay = await splitOwnedVideoClipForStory(input);
+    expect(replay).toMatchObject({
+      status: "ok",
+      rightClipId: first.status === "ok" ? first.rightClipId : undefined,
+      receipt: operation,
+    });
+    expect((await getStoryTimeline(storyId, USER_ID))?.version).toBe(
+      afterTimeline?.version
+    );
+    expect(await getStoryById(storyId, USER_ID)).toEqual(beforeStory);
+
+    await expect(
+      undoVisualEditForStory({ storyId, userId: USER_ID, operation })
+    ).resolves.toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(restored?.items).toEqual(beforeTimeline?.items);
+    expect(await getStoryById(storyId, USER_ID)).toEqual(beforeStory);
+  });
+
+  it("does zero writes for invalid cuts and wrong owners", async () => {
+    const storyId = await seedStory();
+    await seedOwnedClip(storyId);
+    const before = await getStoryTimeline(storyId, USER_ID);
+    const operation = {
+      editorSessionEpoch: "bad-split",
+      operationId: "bad-cut",
+    };
+    await expect(
+      splitOwnedVideoClipForStory({
+        storyId,
+        userId: USER_ID,
+        ownerStableShotId: "sh-01",
+        clipId: "owned-duplicate",
+        cutFrame: 0,
+        operation,
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    await expect(
+      splitOwnedVideoClipForStory({
+        storyId,
+        userId: USER_ID,
+        ownerStableShotId: "missing",
+        clipId: "owned-duplicate",
+        cutFrame: 30,
+        operation: { ...operation, operationId: "bad-owner" },
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await getStoryTimeline(storyId, USER_ID)).toEqual(before);
+  });
+});
 
 describe("moveVisualClipForStory", () => {
   beforeEach(() => resetMemoryStateForTesting());

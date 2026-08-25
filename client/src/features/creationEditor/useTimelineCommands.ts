@@ -89,6 +89,8 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
   const pasteVisualImageMut = trpc.creationAgent.pasteVisualImage.useMutation();
   const deleteVisualObjectMut =
     trpc.creationAgent.deleteVisualObject.useMutation();
+  const splitOwnedVideoClipMut =
+    trpc.creationAgent.splitOwnedVideoClip.useMutation();
 
   const { activeStoryId, refetchStoryMaterial, writeLock } = deps;
 
@@ -465,9 +467,31 @@ export function useTimelineCommands(deps: TimelineCommandDeps) {
     [deleteVisualObjectMut, run]
   );
 
+  const splitOwnedVideoClip = useCallback(
+    async (input: {
+      operation: VisualEditOperationRef;
+      ownerStableShotId: string;
+      clipId: string;
+      cutFrame: number;
+    }) => {
+      const outcome = await run(
+        storyId =>
+          replayVisualOperationOnce(() =>
+            splitOwnedVideoClipMut.mutateAsync({ storyId, ...input })
+          ),
+        "视频片段拆分失败"
+      );
+      if (!outcome.applied) {
+        throw new Error(outcome.reason ?? "视频片段拆分失败");
+      }
+    },
+    [run, splitOwnedVideoClipMut]
+  );
+
   return {
     pasteVisualImage,
     deleteVisualObject,
+    splitOwnedVideoClip,
     updateTimelineVideoEdit,
     undoVisualEdit,
     setTimelineShotDuration,

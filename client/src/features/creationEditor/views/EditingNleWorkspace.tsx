@@ -1591,12 +1591,14 @@ export default function EditingNleWorkspace({
     deleteExtractedFrame,
     commitInsertedTimelineShotUndo,
     discardPersistedShot,
+    deletePersistedShot,
     insertTimelineShotAt,
     adoptVideoTake,
     reuseVideoTake,
     appendTimelineVideoClip,
     undoTimeline,
     splitTimelineVideoClip,
+    splitOwnedVideoClip,
     extractTimelineFrame,
     moveVisualClip,
     pasteVisualImage,
@@ -1631,6 +1633,9 @@ export default function EditingNleWorkspace({
     new Map<string, { editorSessionEpoch: string; operationId: string }>()
   );
   const visualDeleteIntentRef = useRef(
+    new Map<string, { editorSessionEpoch: string; operationId: string }>()
+  );
+  const visualSplitIntentRef = useRef(
     new Map<string, { editorSessionEpoch: string; operationId: string }>()
   );
   const renderedEditingStorySessionToken = useMemo(
@@ -1668,6 +1673,7 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     visualPasteIntentRef.current.clear();
     visualDeleteIntentRef.current.clear();
+    visualSplitIntentRef.current.clear();
     return () => visualClipboard?.dispose();
   }, [visualClipboard]);
   const isEditingStorySessionCurrent = useCallback(
@@ -2330,7 +2336,25 @@ export default function EditingNleWorkspace({
   };
 
   const splitAtPlayhead = useCallback(
-    async (playheadMs: number) => {
+    async (playheadMs: number, selectedStableShotId?: string) => {
+      const cutFrame = timelineOffsetMsToFrames(playheadMs);
+      if (selectedStableShotId) {
+        const selectedTiming = timings.find(
+          timing => timing.stableShotId === selectedStableShotId
+        );
+        if (
+          !selectedTiming ||
+          cutFrame <= selectedTiming.startFrame ||
+          cutFrame >= selectedTiming.startFrame + selectedTiming.durationFrames
+        ) {
+          throw new Error("切割位置不在所选镜头内部");
+        }
+        await splitTimelineVideoClip({
+          stableShotId: selectedStableShotId,
+          cutFrame,
+        });
+        return;
+      }
       const source = resolveTimelineVideoSource(
         shots,
         timelineShotIds,
@@ -2345,32 +2369,10 @@ export default function EditingNleWorkspace({
       if (sourceDurationSec <= 2 / 30) {
         throw new Error("当前视频片段太短，无法继续切割");
       }
-      const sourceProgress = Math.min(
-        1,
-        Math.max(
-          0,
-          (source.sourceTimeSec - source.sourceStartSec) / sourceDurationSec
-        )
-      );
-      const timelineProgress = source.effects.reverse
-        ? 1 - sourceProgress
-        : sourceProgress;
       await splitTimelineVideoClip({
         stableShotId: source.stableShotId,
-        cutFrame: timelineOffsetMsToFrames(playheadMs),
-        takeStableShotId: source.takeStableShotId,
-        existingClipId: source.existingClipId,
-        takeId: source.takeId,
+        cutFrame,
         videoUrl: source.videoUrl,
-        sourceStartSec: source.sourceStartSec,
-        sourceEndSec: source.sourceEndSec,
-        splitSourceSec: source.sourceTimeSec,
-        offsetMs: source.offsetMs,
-        durationMs: source.durationMs,
-        splitOffsetMs: source.offsetMs + source.durationMs * timelineProgress,
-        label: source.label,
-        effects: source.effects,
-        transform: source.transform,
         overlayId: source.overlayId,
       });
     },
@@ -2380,6 +2382,7 @@ export default function EditingNleWorkspace({
       timelineOverlays,
       timelineShotIds,
       timelineVisualLayerState.hidden,
+      timings,
     ]
   );
 
@@ -2423,7 +2426,11 @@ export default function EditingNleWorkspace({
         document: canonicalVisualDocument,
         object,
       });
-      if (!snapshot || !visualClipboard.write(snapshot)) {
+      if (
+        !snapshot ||
+        snapshot.kind !== "image-clip" ||
+        !visualClipboard.write(snapshot)
+      ) {
         throw new Error("当前只支持复制独立图片素材");
       }
       setVisualClipboardVersion(version => version + 1);
@@ -2434,7 +2441,9 @@ export default function EditingNleWorkspace({
   const pasteVisualObject = useCallback(
     async (context: { timelineFrame: number; visualLayer?: number }) => {
       const snapshot = visualClipboard?.read() ?? null;
-      if (!snapshot) throw new Error("请先复制一张图片素材");
+      if (!snapshot || snapshot.kind !== "image-clip") {
+        throw new Error("请先复制一张图片素材");
+      }
       const targetLayer = visualClipboardTargetLayer(
         snapshot,
         context.visualLayer
@@ -2480,6 +2489,142 @@ export default function EditingNleWorkspace({
     },
     [deleteVisualObject, isEditingStorySessionCurrent, newVisualOperation]
   );
+  const splitOwnedVisualObject = useCallback(
+    async (
+      object: Extract<VisualObjectRef, { type: "owned-video-clip" }>,
+      cutFrame: number
+    ) => {
+      const intentKey = `${visualObjectRefKey(object)}:${cutFrame}`;
+      const operation =
+        visualSplitIntentRef.current.get(intentKey) ?? newVisualOperation();
+      visualSplitIntentRef.current.set(intentKey, operation);
+      await splitOwnedVideoClip({
+        operation,
+        ownerStableShotId: object.ownerStableShotId,
+        clipId: object.clipId,
+        cutFrame,
+      });
+      clearVisualIntentIfCurrent(
+        visualSplitIntentRef.current,
+        intentKey,
+        operation
+      );
+    },
+    [newVisualOperation, splitOwnedVideoClip]
+  );
+  const imageObjectWinsAt = useCallback(
+    (
+      object: Extract<VisualObjectRef, { type: "image-clip" }>,
+      timelineFrame: number
+    ) => {
+      const winner = resolveTimelineVisualFrame({
+        items: timelineItems,
+        overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
+        frame: timelineFrame,
+      });
+      return (
+        winner.kind === "image" &&
+        winner.placement.stableShotId === object.ownerStableShotId &&
+        winner.placement.clip.id === object.clipId
+      );
+    },
+    [timelineItems, timelineOverlays, timelineVisualLayerState.hidden]
+  );
+  const storyObjectWinsAt = useCallback(
+    (
+      object: Extract<VisualObjectRef, { type: "story-shot" }>,
+      timelineFrame: number
+    ) => {
+      const winner = resolveTimelineVisualFrame({
+        items: timelineItems,
+        overlays: timelineOverlays,
+        hiddenVisualLayers: timelineVisualLayerState.hidden,
+        frame: timelineFrame,
+      });
+      return (
+        winner.kind === "shot" &&
+        winner.row.item.stableShotId === object.stableShotId
+      );
+    },
+    [timelineItems, timelineOverlays, timelineVisualLayerState.hidden]
+  );
+  const chatWithVisualObject = useCallback(
+    (object: VisualObjectRef, timelineFrame: number) => {
+      if (object.type === "story-shot") {
+        const shot = shots.find(
+          candidate => creationTimelineShotId(candidate) === object.stableShotId
+        );
+        if (!shot) throw new Error("所选镜头已不存在");
+        selectShot(shot.shotNo);
+        return;
+      }
+      const owner = timelineItems.find(
+        item => item.stableShotId === object.ownerStableShotId
+      );
+      const shot = shots.find(
+        candidate =>
+          creationTimelineShotId(candidate) === object.ownerStableShotId
+      );
+      if (!owner || !shot) throw new Error("所选素材已不存在");
+      if (object.type === "owned-video-clip") {
+        const clip = owner.visualClips?.find(item => item.id === object.clipId);
+        const row = buildTimelineLayout(timelineItems).find(
+          item => item.item.stableShotId === object.ownerStableShotId
+        );
+        if (!clip || !row) throw new Error("所选视频片段已不存在");
+        const startFrame =
+          row.startFrame + timelineOffsetMsToFrames(clip.offsetMs);
+        const endFrame =
+          startFrame + Math.max(1, timelineOffsetMsToFrames(clip.durationMs));
+        setSelectedShotNo(shot.shotNo);
+        setActiveSelection({
+          sourceType: "timeline-range",
+          sourceId: object.clipId,
+          selectedText: `${clip.label} · 视频片段`,
+          fullText: `${clip.label}，时间线 ${timelineFramesToMs(startFrame) / 1000} 到 ${timelineFramesToMs(endFrame) / 1000} 秒`,
+          storyId: activeStoryId,
+          stableShotId: object.ownerStableShotId,
+          shotNo: shot.shotNo,
+          cueCode: shot.cueCode ?? null,
+          videoTakeId: clip.takeId,
+          rangeId: clip.rangeId,
+          selection: {
+            kind: "time",
+            startSec: timelineFramesToMs(startFrame) / 1000,
+            endSec: timelineFramesToMs(endFrame) / 1000,
+          },
+          objectVersion: `timeline-clip:${object.clipId}`,
+          materialStatus: "timeline-range",
+        });
+        return;
+      }
+      const clip = owner.imageClips?.find(item => item.id === object.clipId);
+      if (!clip) throw new Error("所选图片已不存在");
+      setSelectedShotNo(shot.shotNo);
+      setActiveSelection({
+        sourceType: "storyboard-image",
+        sourceId: `timeline-image:${object.clipId}`,
+        selectedText: `${clip.label} · 时间线图片`,
+        fullText: `${clip.label}，位于第 ${timelineFrame} 帧`,
+        storyId: activeStoryId,
+        stableShotId: object.ownerStableShotId,
+        shotNo: shot.shotNo,
+        cueCode: shot.cueCode ?? null,
+        imageId: clip.imageId,
+        objectVersion: `timeline-image:${object.clipId}`,
+        materialStatus: "current-image",
+      });
+    },
+    [
+      activeStoryId,
+      selectShot,
+      setActiveSelection,
+      setSelectedShotNo,
+      shots,
+      timelineItems,
+    ]
+  );
 
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
@@ -2499,17 +2644,75 @@ export default function EditingNleWorkspace({
       onMoveVisualClip: moveVisualClip,
       canPasteVisualObject: hasVisualClipboard,
       onPasteVisualObject: pasteVisualObject,
-      isVisualObjectCommandAvailable: (object, command) =>
-        command === "extract-frame" ||
-        (object.type === "image-clip" &&
-          (command === "copy" || command === "delete")),
+      isVisualObjectCommandAvailable: (object, command, context) => {
+        if (command === "extract-frame" || command === "chat") return true;
+        if (command === "split") return object.type !== "image-clip";
+        if (command === "delete") return true;
+        if (command === "copy") return object.type === "image-clip";
+        if (command === "set-anchor") {
+          if (object.type === "story-shot") {
+            return Boolean(
+              context && storyObjectWinsAt(object, context.timelineFrame)
+            );
+          }
+          return Boolean(
+            object.type === "image-clip" &&
+              context &&
+              imageObjectWinsAt(object, context.timelineFrame)
+          );
+        }
+        return false;
+      },
       onVisualObjectCommand: async (object, command, context) => {
         if (command === "copy") {
           copyVisualObject(object);
           return;
         }
         if (command === "delete") {
-          await removeVisualObject(object);
+          if (object.type === "story-shot") {
+            await deletePersistedShot(object.stableShotId);
+            if (isEditingStorySessionCurrent()) toast.success("镜头已删除");
+          } else {
+            await removeVisualObject(object);
+          }
+          return;
+        }
+        if (command === "split") {
+          if (object.type === "owned-video-clip") {
+            await splitOwnedVisualObject(object, context.timelineFrame);
+          } else if (object.type === "story-shot") {
+            await splitAtPlayhead(
+              timelineFramesToMs(context.timelineFrame),
+              object.stableShotId
+            );
+          } else {
+            throw new Error("图片不能切割");
+          }
+          if (isEditingStorySessionCurrent()) toast.success("已在当前帧切割");
+          return;
+        }
+        if (command === "chat") {
+          chatWithVisualObject(object, context.timelineFrame);
+          toast.success("已把所选素材交给聊聊");
+          return;
+        }
+        if (command === "set-anchor") {
+          if (
+            object.type === "image-clip" &&
+            !imageObjectWinsAt(object, context.timelineFrame)
+          ) {
+            throw new Error("所选图片在这一帧不可见，不能设置位置锚点");
+          }
+          if (
+            object.type === "story-shot" &&
+            !storyObjectWinsAt(object, context.timelineFrame)
+          ) {
+            throw new Error("所选镜头在这一帧不可见，不能设置位置锚点");
+          }
+          const result = await addTimelineAnchorAtFrame(context.timelineFrame);
+          if (!result.applied)
+            throw new Error(result.reason ?? "设置位置锚点失败");
+          if (isEditingStorySessionCurrent()) toast.success("已钉下位置锚点");
           return;
         }
         if (command !== "extract-frame") {
@@ -2789,9 +2992,9 @@ export default function EditingNleWorkspace({
         if (!result.applied && result.reason) toast.error(result.reason);
         return result;
       },
-      onSplitAt: async playheadMs => {
+      onSplitAt: async (playheadMs, stableShotId) => {
         try {
-          await splitAtPlayhead(playheadMs);
+          await splitAtPlayhead(playheadMs, stableShotId);
           if (isEditingStorySessionCurrent()) {
             toast.success("已在当前帧切割视频");
           }
@@ -2838,7 +3041,9 @@ export default function EditingNleWorkspace({
     [
       activeSelection?.sourceType,
       activeStoryId,
+      chatWithVisualObject,
       copyVisualObject,
+      deletePersistedShot,
       editingStorySessionKey,
       isEditingStorySessionCurrent,
       addTimelineAnchorAtFrame,
@@ -2859,6 +3064,7 @@ export default function EditingNleWorkspace({
       shots,
       storyboardAudioClips,
       splitAtPlayhead,
+      splitOwnedVisualObject,
       timelineAnchors,
       playbackClock,
       timelineItems,
@@ -2869,6 +3075,8 @@ export default function EditingNleWorkspace({
       timelineWritePending,
       visualClipboard,
       hasVisualClipboard,
+      imageObjectWinsAt,
+      storyObjectWinsAt,
       timelineOverlays,
       timings,
       trimTimelineItemEdge,

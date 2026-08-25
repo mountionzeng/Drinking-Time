@@ -43,6 +43,7 @@ import {
   storyboardExtractedFrameTimeMs,
   storyboardVisualClipShotTimingPreview,
   storyboardVisualObjectMenuFocusIndex,
+  storyboardVisualObjectShortcutRoute,
   storyboardOwnedClipVisualLayer,
   storyboardOwnedClipNudgeBase,
   storyboardVisualLayerShotIds,
@@ -719,6 +720,94 @@ describe("storyboard edit shortcuts", () => {
   });
 });
 
+describe("visual object shortcut routing", () => {
+  const story = {
+    type: "story-shot",
+    stableShotId: "shot-1",
+    shotNo: 1,
+  } as const;
+  const image = {
+    type: "image-clip",
+    clipId: "image-1",
+    ownerStableShotId: "shot-1",
+  } as const;
+  const shortcut = (action: "split" | "extract" | "selectShot" | "delete") =>
+    ({ kind: "action", action }) as const;
+
+  it("routes selected-object creative and destructive keys through one facade", () => {
+    const available = () => true;
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("split"),
+        selectedObject: story,
+        commandAvailable: available,
+      })
+    ).toEqual({ kind: "object", command: "split" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("extract"),
+        selectedObject: story,
+        commandAvailable: available,
+      })
+    ).toEqual({ kind: "object", command: "extract-frame" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("selectShot"),
+        selectedObject: story,
+        commandAvailable: available,
+      })
+    ).toEqual({ kind: "object", command: "chat" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("delete"),
+        selectedObject: story,
+        commandAvailable: available,
+      })
+    ).toEqual({ kind: "object", command: "delete" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: { kind: "addAnchor" },
+        selectedObject: story,
+        commandAvailable: available,
+      })
+    ).toEqual({ kind: "object", command: "set-anchor" });
+  });
+
+  it("blocks unsupported or disabled selected-object commands instead of falling back", () => {
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("split"),
+        selectedObject: image,
+        commandAvailable: () => true,
+      })
+    ).toEqual({ kind: "blocked" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("delete"),
+        selectedObject: image,
+        commandAvailable: () => false,
+      })
+    ).toEqual({ kind: "blocked" });
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("delete"),
+        selectedObject: story,
+        commandAvailable: () => false,
+      })
+    ).toEqual({ kind: "blocked" });
+  });
+
+  it("keeps playhead shot behavior only when no object is selected", () => {
+    expect(
+      storyboardVisualObjectShortcutRoute({
+        shortcut: shortcut("delete"),
+        selectedObject: null,
+        commandAvailable: () => true,
+      })
+    ).toEqual({ kind: "legacy" });
+  });
+});
+
 describe("storyboard edit navigation", () => {
   it("consumes the browser context menu before opening visual paste", () => {
     const event = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
@@ -968,10 +1057,15 @@ describe("storyboard edit key routing", () => {
     expect(gate({ key: " ", isEditableTarget: true })).toBe(false);
   });
 
-  it("yields to selects, comboboxes, dialogs, and rename surfaces", () => {
-    expect(gate({ isInteractionBoundary: true })).toBe(false);
-    expect(gate({ key: "Delete", isInteractionBoundary: true })).toBe(false);
-  });
+  it.each(["select", "combobox", "dialog", "menu", "rename"])(
+    "yields Delete to a focused %s surface",
+    () => {
+      expect(gate({ key: "Delete", isInteractionBoundary: true })).toBe(false);
+      expect(gate({ key: "Backspace", isInteractionBoundary: true })).toBe(
+        false
+      );
+    }
+  );
 
   it("lets space and enter activate the button they are aimed at", () => {
     expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
