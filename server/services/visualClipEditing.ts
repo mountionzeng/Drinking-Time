@@ -7,7 +7,11 @@
  *
  * 这里改成服务端自己读—改—写：调用方只说「哪个 clip、去哪条轨、去哪一帧」。
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  VisualEditOperationRef,
+  VisualEditReceipt,
+} from "../../shared/visualEditReceipt";
 import type {
   StoryTimelineImageTextOverlay,
   StoryTimelineItem,
@@ -55,13 +59,18 @@ import {
 } from "../../shared/timelineCommands";
 import {
   getGeneratedImageById,
+  getStoryById,
   getStoryTimeline,
   updateStoryTimeline,
 } from "../db";
 import {
+  consumeVisualEditUndo,
+  findVisualEditUndo,
+  latestAvailableVisualEditUndo,
+  rebaseLatestVisualEditUndoAfterVersion,
   recordVisualEditUndo,
-  takeVisualEditUndo,
 } from "./visualEditUndoJournal";
+import type { VisualEditUndoEntry } from "./visualEditUndoJournal";
 import { getStoryMaterialState } from "./storyMaterials";
 
 export type VisualClipEditResult =
@@ -72,6 +81,7 @@ export type VisualClipEditResult =
       changed: boolean;
       /** 打标命令返回新锚点 id，其余命令没有。 */
       anchorId?: string;
+      receipt?: VisualEditReceipt;
     }
   | {
       status: "error";
@@ -128,9 +138,7 @@ async function loadVisualEditDocument(
  * 冲突会自动重读重试一次：服务端是读完立刻写，冲突窗口只有这一瞬，
  * 真撞上基本都是别处刚好写完。重试仍冲突才交回给用户。
  */
-type VisualEditMutation = (
-  document: VisualEditDocument
-) =>
+type VisualEditMutation = (document: VisualEditDocument) =>
   | {
       status: "ok";
       document: VisualEditDocument;
@@ -141,6 +149,20 @@ type VisualEditMutation = (
 
 const CONFLICT_RETRY_LIMIT = 1;
 
+function publicVisualEditReceipt(
+  entry: VisualEditUndoEntry
+): VisualEditReceipt {
+  return {
+    editorSessionEpoch: entry.editorSessionEpoch,
+    operationId: entry.operationId,
+    storyId: entry.storyId,
+    beforeTimelineVersion: entry.beforeTimelineVersion,
+    afterTimelineVersion: entry.afterTimelineVersion,
+    status: entry.status,
+    order: entry.order,
+  };
+}
+
 async function withVisualEditDocument(
   input: {
     storyId: number;
@@ -148,9 +170,59 @@ async function withVisualEditDocument(
     failureMessage: string;
     /** 撤销本身不进撤销栈，否则一次 Cmd+Z 会在两个状态之间来回跳。 */
     recordUndo?: boolean;
+    operation?: VisualEditOperationRef;
+    commandPayload?: unknown;
+    lockHeld?: boolean;
+    retryConflicts?: boolean;
   },
   mutate: VisualEditMutation
 ): Promise<VisualClipEditResult> {
+  if (!input.lockHeld) {
+    return withVisualEditServiceLock(input.storyId, input.userId, () =>
+      withVisualEditDocument({ ...input, lockHeld: true }, mutate)
+    );
+  }
+  if (!(await getStoryById(input.storyId, input.userId))) {
+    return {
+      status: "error",
+      error: "故事不存在或无权访问",
+      errorKind: "invalid",
+    };
+  }
+  const operation = input.operation ?? {
+    editorSessionEpoch: "legacy",
+    operationId: randomUUID(),
+  };
+  const commandDigest = createHash("sha256")
+    .update(JSON.stringify(input.commandPayload ?? operation.operationId))
+    .digest("hex");
+  const replay = findVisualEditUndo({
+    storyId: input.storyId,
+    userId: input.userId,
+    operation,
+  });
+  if (replay) {
+    if (replay.commandDigest !== commandDigest) {
+      return {
+        status: "error",
+        error: "操作标识已用于另一条命令",
+        errorKind: "invalid",
+      };
+    }
+    if (replay.status !== "available") {
+      return {
+        status: "error",
+        error: "这条操作已经撤销，不能再次重放",
+        errorKind: "invalid",
+      };
+    }
+    return {
+      status: "ok",
+      timelineVersion: replay.afterTimelineVersion,
+      changed: true,
+      receipt: publicVisualEditReceipt(replay),
+    };
+  }
   for (let attempt = 0; ; attempt += 1) {
     const loaded = await loadVisualEditDocument(input.storyId, input.userId);
     if ("error" in loaded) {
@@ -182,11 +254,24 @@ async function withVisualEditDocument(
       });
       if (input.recordUndo !== false) {
         // 写成功之后才记，否则失败的命令会在撤销栈里留下一格空转。
-        recordVisualEditUndo({
+        const receipt = recordVisualEditUndo({
           storyId: input.storyId,
           userId: input.userId,
+          operation,
           before: loaded.document,
+          beforeTimelineVersion: loaded.version,
+          afterTimelineVersion: saved.version,
+          commandDigest,
         });
+        return {
+          status: "ok",
+          timelineVersion: saved.version,
+          changed: true,
+          ...(result.anchorId === undefined
+            ? {}
+            : { anchorId: result.anchorId }),
+          receipt: publicVisualEditReceipt(receipt),
+        };
       }
       return {
         status: "ok",
@@ -195,7 +280,11 @@ async function withVisualEditDocument(
         ...(result.anchorId === undefined ? {} : { anchorId: result.anchorId }),
       };
     } catch (error) {
-      if (isVersionConflict(error) && attempt < CONFLICT_RETRY_LIMIT) {
+      if (
+        isVersionConflict(error) &&
+        input.retryConflicts !== false &&
+        attempt < CONFLICT_RETRY_LIMIT
+      ) {
         continue;
       }
       if (isVersionConflict(error)) {
@@ -268,7 +357,6 @@ async function withTimelinePlan(
 }
 
 export async function moveVisualClipForStory(input: {
-
   storyId: number;
   userId: number;
   clipId: string;
@@ -276,7 +364,11 @@ export async function moveVisualClipForStory(input: {
   toStartFrame: number;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "移动没有保存成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "移动没有保存成功",
+    },
     document =>
       moveVisualClip(document, {
         clipId: input.clipId,
@@ -292,7 +384,11 @@ export async function insertVisualImageClipForStory(input: {
   clip: InsertVisualImageClipInput;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有放置成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材没有放置成功",
+    },
     document => insertVisualImageClip(document, input.clip)
   );
 }
@@ -394,7 +490,11 @@ export async function removeVisualClipForStory(input: {
   clipId: string;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
-    { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有删除成功" },
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材没有删除成功",
+    },
     document => removeVisualClip(document, input.clipId)
   );
 }
@@ -427,6 +527,7 @@ export async function pasteVisualImageForStory(input: {
   snapshot: ImageClipClipboardSnapshot;
   targetFrame: number;
   targetLayer: number;
+  operation?: VisualEditOperationRef;
 }): Promise<PasteVisualImageResult> {
   const pasteId = input.pasteId.trim();
   if (!pasteId || pasteId.length > 160) {
@@ -470,6 +571,14 @@ export async function pasteVisualImageForStory(input: {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "图片粘贴失败",
+      operation: input.operation,
+      commandPayload: {
+        kind: "pasteVisualImage",
+        pasteId,
+        snapshot: input.snapshot,
+        targetFrame: input.targetFrame,
+        targetLayer: input.targetLayer,
+      },
     },
     document => {
       const existed = document.items.some(item =>
@@ -504,12 +613,15 @@ export async function deleteVisualObjectForStory(input: {
   storyId: number;
   userId: number;
   object: VisualObjectRef;
+  operation?: VisualEditOperationRef;
 }): Promise<VisualClipEditResult> {
   return withVisualEditDocument(
     {
       storyId: input.storyId,
       userId: input.userId,
       failureMessage: "素材删除失败",
+      operation: input.operation,
+      commandPayload: { kind: "deleteVisualObject", object: input.object },
     },
     document => {
       const result = deleteVisualObjectReference({
@@ -666,7 +778,8 @@ export async function rollingTrimForStory(input: {
         rightStableShotId: input.rightStableShotId,
         requestedBoundaryFrame: input.requestedBoundaryFrame,
         leftSourceLimitSec:
-          shotsById.get(input.leftStableShotId)?.currentVideoDurationSec ?? null,
+          shotsById.get(input.leftStableShotId)?.currentVideoDurationSec ??
+          null,
         rightSourceLimitSec:
           shotsById.get(input.rightStableShotId)?.currentVideoDurationSec ??
           null,
@@ -879,7 +992,8 @@ export async function moveShotOrderForStory(input: {
         item => item.stableShotId === input.stableShotId
       );
       const target = index + input.direction;
-      if (index < 0) return { status: "error", message: "当前镜头不在时间线上" };
+      if (index < 0)
+        return { status: "error", message: "当前镜头不在时间线上" };
       if (target < 0 || target >= ordered.length) {
         return { status: "error", message: "已经到头了" };
       }
@@ -1107,34 +1221,96 @@ export async function patchImageTransformForStory(input: {
 export async function undoVisualEditForStory(input: {
   storyId: number;
   userId: number;
+  operation?: VisualEditOperationRef;
 }): Promise<VisualClipEditResult> {
-  const entry = takeVisualEditUndo(input);
-  if (!entry) {
-    return {
-      status: "error",
-      error: "没有可撤销的剪辑操作",
-      errorKind: "invalid",
-    };
-  }
-  const result = await withVisualEditDocument(
-    {
-      storyId: input.storyId,
-      userId: input.userId,
-      failureMessage: "撤销失败",
-      recordUndo: false,
-    },
-    () => ({ status: "ok", document: entry.before })
-  );
-  if (result.status === "error") {
-    // 取出来了却没写成，就得放回去——否则这一步永远撤不掉了，
-    // 而用户看到的只是一句「撤销失败」，再按一次就跳到更早的状态。
-    recordVisualEditUndo({
-      storyId: input.storyId,
-      userId: input.userId,
-      before: entry.before,
+  return withVisualEditServiceLock(input.storyId, input.userId, async () => {
+    const entry = input.operation
+      ? findVisualEditUndo({ ...input, operation: input.operation })
+      : latestAvailableVisualEditUndo({
+          ...input,
+          editorSessionEpoch: "legacy",
+        });
+    if (!entry) {
+      return {
+        status: "error",
+        error: "没有可撤销的剪辑操作",
+        errorKind: "invalid",
+      };
+    }
+    if (
+      entry.status === "consumed" &&
+      entry.undoResultTimelineVersion !== undefined
+    ) {
+      return {
+        status: "ok",
+        timelineVersion: entry.undoResultTimelineVersion,
+        changed: true,
+      };
+    }
+    const latest = latestAvailableVisualEditUndo({
+      ...input,
+      editorSessionEpoch: entry.editorSessionEpoch,
     });
+    if (entry.status !== "available" || latest !== entry) {
+      return {
+        status: "error",
+        error: "只能撤销当前最新的剪辑操作",
+        errorKind: "invalid",
+      };
+    }
+    const current = await getStoryTimeline(input.storyId, input.userId);
+    if (!current || current.version !== entry.afterTimelineVersion) {
+      return {
+        status: "error",
+        error: "时间线已变化，无法撤销这条操作",
+        errorKind: "conflict",
+      };
+    }
+    const result = await withVisualEditDocument(
+      {
+        storyId: input.storyId,
+        userId: input.userId,
+        failureMessage: "撤销失败",
+        recordUndo: false,
+        lockHeld: true,
+        retryConflicts: false,
+      },
+      () => ({ status: "ok", document: entry.before })
+    );
+    if (result.status === "ok") {
+      consumeVisualEditUndo(entry, result.timelineVersion);
+      rebaseLatestVisualEditUndoAfterVersion({
+        ...input,
+        editorSessionEpoch: entry.editorSessionEpoch,
+        afterTimelineVersion: result.timelineVersion,
+      });
+    }
+    return result;
+  });
+}
+
+const visualEditServiceLockTails = new Map<string, Promise<void>>();
+async function withVisualEditServiceLock<T>(
+  storyId: number,
+  userId: number,
+  action: () => Promise<T>
+): Promise<T> {
+  const key = `${userId}:${storyId}`;
+  const previous = visualEditServiceLockTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  visualEditServiceLockTails.set(key, tail);
+  await previous.catch(() => {});
+  try {
+    return await action();
+  } finally {
+    release();
+    if (visualEditServiceLockTails.get(key) === tail)
+      visualEditServiceLockTails.delete(key);
   }
-  return result;
 }
 
 /** 改一段视频的入出点、速度、音量与构图。纯计算住在 shared，服务端只负责读写。 */

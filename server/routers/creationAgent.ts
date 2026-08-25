@@ -39,6 +39,8 @@ import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
   patchImageTransformForStory,
+  pasteVisualImageForStory,
+  deleteVisualObjectForStory,
   setShotDurationForStory,
   undoVisualEditForStory,
   withPlayheadShot,
@@ -58,6 +60,49 @@ import {
   rollingTrimForStory,
   trimShotForStory,
 } from "../services/visualClipEditing";
+
+const visualEditOperationSchema = z
+  .object({
+    editorSessionEpoch: z.string().min(1).max(160),
+    operationId: z.string().min(1).max(160),
+  })
+  .strict();
+
+const visualObjectRefSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("story-shot"),
+      stableShotId: z.string().min(1).max(240),
+      shotNo: z.number().int().positive().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("owned-video-clip"),
+      clipId: z.string().min(1).max(240),
+      ownerStableShotId: z.string().min(1).max(240),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("image-clip"),
+      clipId: z.string().min(1).max(240),
+      ownerStableShotId: z.string().min(1).max(240),
+    })
+    .strict(),
+]);
+const timelineTransformSchema = z.object({
+  cropX: z.number().min(0).max(1),
+  cropY: z.number().min(0).max(1),
+  cropWidth: z.number().min(0.01).max(1),
+  cropHeight: z.number().min(0.01).max(1),
+  zoom: z.number().min(0.25).max(8),
+  panX: z.number().min(-1).max(1),
+  panY: z.number().min(-1).max(1),
+  rotationDeg: z.number().min(-180).max(180).optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
+});
 import { synthesizeShotList } from "../archive/storyAgent";
 import {
   replyFromCreationAgent,
@@ -2203,18 +2248,7 @@ export const creationAgentRouter = router({
         storyId: z.number(),
         stableShotId: z.string().min(1).max(240),
         imageId: z.number().int().positive(),
-        transform: z.object({
-          cropX: z.number().min(0).max(1),
-          cropY: z.number().min(0).max(1),
-          cropWidth: z.number().min(0.01).max(1),
-          cropHeight: z.number().min(0.01).max(1),
-          zoom: z.number().min(0.25).max(8),
-          panX: z.number().min(-1).max(1),
-          panY: z.number().min(-1).max(1),
-          rotationDeg: z.number().min(-180).max(180).optional(),
-          flipX: z.boolean().optional(),
-          flipY: z.boolean().optional(),
-        }),
+        transform: timelineTransformSchema,
         textOverlay: timelineImageTextOverlaySchema.nullable(),
       })
     )
@@ -2233,6 +2267,66 @@ export const creationAgentRouter = router({
    * 撤销上一次视觉剪辑命令。客户端只说「撤销」，不再持有也不再写回 items。
    * 回退的粒度是整份文档，所以图层与素材天然一起还原。
    */
+  pasteVisualImage: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          pasteId: z.string().min(1).max(160),
+          targetFrame: z.number().int().min(0),
+          targetLayer: z.number().int().min(0),
+          snapshot: z
+            .object({
+              version: z.literal(1),
+              kind: z.literal("image-clip"),
+              sourceStoryId: z.number().int().positive(),
+              sourceClipId: z.string().min(1).max(240),
+              sourceLayer: z.number().int().min(0),
+              imageId: z.number().int().positive(),
+              label: z.string().max(500),
+              durationFrames: z.number().int().positive(),
+              transform: timelineTransformSchema.strict().nullable(),
+            })
+            .strict(),
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      pasteVisualImageForStory({
+        ...input,
+        userId: ctx.user.id,
+        snapshot: { ...input.snapshot, imageUrl: "" },
+      })
+    ),
+
+  deleteVisualObject: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          object: visualObjectRefSchema,
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      deleteVisualObjectForStory({ ...input, userId: ctx.user.id })
+    ),
+
+  undoVisualEditReceipt: protectedProcedure
+    .input(
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+        })
+        .strict()
+    )
+    .mutation(({ ctx, input }) =>
+      undoVisualEditForStory({ ...input, userId: ctx.user.id })
+    ),
+
   undoVisualEdit: protectedProcedure
     .input(z.object({ storyId: z.number() }))
     .mutation(async ({ ctx, input }) =>

@@ -4,11 +4,14 @@ import {
   type StoryTimelineItem,
 } from "@shared/storyMaterial";
 import {
+  activateTimelineUndoSession,
   clearTimelineUndoForTesting,
+  clearTimelineUndoForStory,
   executeTimelineUndo,
   recordDeletedStoryShotUndo,
   recordInsertedStoryShotUndo,
   recordSplitStoryShotUndo,
+  recordTimelineCommandUndo,
   recordTimelineUndoSnapshot,
   registerTimelineUndoExecutor,
   shouldHandleCreationEditorUndoShortcut,
@@ -33,6 +36,90 @@ function timeline(durationMs: number): StoryTimelineItem[] {
 beforeEach(clearTimelineUndoForTesting);
 
 describe("timelineUndoStore", () => {
+  it("keeps the concrete server receipt on a command undo entry", () => {
+    activateTimelineUndoSession(7, "tab-a");
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "tab-a",
+      operationId: "paste-a",
+      storyId: 7,
+      beforeTimelineVersion: 3,
+      afterTimelineVersion: 4,
+      status: "available",
+      order: 9,
+    });
+
+    expect(takeCreationEditorUndoEntry(7)).toEqual({
+      kind: "timeline-command",
+      receipt: {
+        editorSessionEpoch: "tab-a",
+        operationId: "paste-a",
+        storyId: 7,
+        beforeTimelineVersion: 3,
+        afterTimelineVersion: 4,
+        status: "available",
+        order: 9,
+      },
+    });
+  });
+
+  it("deduplicates receipt replay and ignores consumed receipts", () => {
+    activateTimelineUndoSession(7, "tab-a");
+    const receipt = {
+      editorSessionEpoch: "tab-a",
+      operationId: "paste-a",
+      storyId: 7,
+      beforeTimelineVersion: 3,
+      afterTimelineVersion: 4,
+      status: "available" as const,
+      order: 9,
+    };
+    recordTimelineCommandUndo(7, receipt);
+    recordTimelineCommandUndo(7, receipt);
+    recordTimelineCommandUndo(7, {
+      ...receipt,
+      operationId: "old",
+      status: "consumed",
+    });
+
+    expect(takeCreationEditorUndoEntry(7)).toMatchObject({ receipt });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+  });
+
+  it("does not revive an old epoch receipt after switching away and back", () => {
+    activateTimelineUndoSession(7, "epoch-a-1");
+    activateTimelineUndoSession(8, "epoch-b");
+    activateTimelineUndoSession(7, "epoch-a-2");
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "epoch-a-1",
+      operationId: "late",
+      storyId: 7,
+      beforeTimelineVersion: 1,
+      afterTimelineVersion: 2,
+      status: "available",
+      order: 1,
+    });
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+    recordTimelineCommandUndo(7, {
+      editorSessionEpoch: "epoch-a-2",
+      operationId: "current",
+      storyId: 7,
+      beforeTimelineVersion: 2,
+      afterTimelineVersion: 3,
+      status: "available",
+      order: 2,
+    });
+    expect(takeCreationEditorUndoEntry(7)).toMatchObject({
+      receipt: { operationId: "current" },
+    });
+  });
+
+  it("clears only the Story whose committed editor session changed", () => {
+    recordTimelineUndoSnapshot(7, timeline(1_000));
+    recordTimelineUndoSnapshot(8, timeline(2_000));
+    clearTimelineUndoForStory(7);
+    expect(takeCreationEditorUndoEntry(7)).toBeNull();
+    expect(takeCreationEditorUndoEntry(8)).toMatchObject({ kind: "timeline" });
+  });
   it("returns snapshots in reverse operation order", () => {
     recordTimelineUndoSnapshot(7, timeline(1_000));
     recordTimelineUndoSnapshot(7, timeline(2_000));

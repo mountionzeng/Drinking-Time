@@ -79,6 +79,9 @@ import {
   type TimelineResolverShot,
 } from "@shared/timelineCommands";
 import type { StoryPromptAggregate } from "@shared/promptLineage";
+import type { VisualObjectRef } from "@shared/visualObject";
+import type { ImageClipClipboardSnapshot } from "@shared/visualObjectClipboard";
+import type { VisualEditOperationRef } from "@shared/visualEditReceipt";
 import type { StoryShotCommandUpdate } from "@shared/storyContract";
 import type { ImageProvider, ImageProviderStatus } from "@shared/imageProvider";
 import type {
@@ -479,6 +482,17 @@ type CreationEditorContextValue = {
     clipId: string;
     toTrackId: string;
     toStartFrame: number;
+  }) => Promise<void>;
+  pasteVisualImage: (input: {
+    operation: VisualEditOperationRef;
+    pasteId: string;
+    snapshot: ImageClipClipboardSnapshot;
+    targetFrame: number;
+    targetLayer: number;
+  }) => Promise<void>;
+  deleteVisualObject: (input: {
+    operation: VisualEditOperationRef;
+    object: VisualObjectRef;
   }) => Promise<void>;
   removeTimelineVideoClip: (input: {
     stableShotId: string;
@@ -1557,6 +1571,8 @@ export function CreationEditorProvider({
     trpc.creationAgent.confirmDerivedShot.useMutation();
   const undoStoryOperationMut =
     trpc.creationAgent.undoStoryOperation.useMutation();
+  const undoVisualEditReceiptMut =
+    trpc.creationAgent.undoVisualEditReceipt.useMutation();
   const spineActiveStoryId = useStorySpine(state => state.activeStoryId);
   const spineRemoteStoryId = useStorySpine(state => state.remoteStoryId);
   const setCanonicalStoryShots = useStorySpine(state => state.setStoryShots);
@@ -2012,6 +2028,8 @@ export function CreationEditorProvider({
     removeTimelineVideoClip,
     undoVisualEdit,
     updateTimelineVideoEdit,
+    pasteVisualImage,
+    deleteVisualObject,
   } = useTimelineCommands({
     activeStoryId: activeId,
     refetchStoryMaterial: storyMaterialQuery.refetch,
@@ -3236,8 +3254,19 @@ export function CreationEditorProvider({
     try {
       if (entry.kind === "timeline-command") {
         // 回退由服务端完成：客户端这一格只是占位，用来保住撤销顺序。
-        const ok = await undoVisualEdit(activeId);
-        if (!ok) return false;
+        const ok = entry.receipt
+          ? (
+              await undoVisualEditReceiptMut.mutateAsync({
+                storyId: activeId,
+                operation: {
+                  editorSessionEpoch: entry.receipt.editorSessionEpoch,
+                  operationId: entry.receipt.operationId,
+                },
+              })
+            ).status === "ok"
+          : await undoVisualEdit(activeId);
+        if (!ok) throw new Error("撤销失败，剪辑已保留在撤销栈中");
+        if (entry.receipt) await storyMaterialQuery.refetch();
       } else if (entry.kind === "timeline") {
         await saveTimelineItems(entry.items, {
           throwOnError: true,
@@ -3314,7 +3343,7 @@ export function CreationEditorProvider({
     } catch (error) {
       if (entry.kind === "timeline-command") {
         // 服务端那一格在写入失败时自己放回去了，这里只补回客户端的占位。
-        recordTimelineCommandUndo(activeId);
+        recordTimelineCommandUndo(activeId, entry.receipt);
       } else if (entry.kind === "timeline") {
         recordTimelineUndoSnapshot(activeId, entry.items);
       } else if (entry.kind === "deleted-story-shot") {
@@ -3330,6 +3359,8 @@ export function CreationEditorProvider({
     activeId,
     restoreDeletedStoryShotMut,
     undoSplitStoryShotMut,
+    undoVisualEditReceiptMut,
+    undoVisualEdit,
     saveTimelineItems,
     storyMaterialQuery,
     storyQuery,
@@ -3946,6 +3977,8 @@ export function CreationEditorProvider({
       addTimelineImageClip,
       extractTimelineFrame,
       moveVisualClip,
+      pasteVisualImage,
+      deleteVisualObject,
       removeTimelineVideoClip,
       updateTimelineVideoEdit,
       updateTimelineImageTransform,

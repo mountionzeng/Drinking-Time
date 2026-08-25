@@ -4,6 +4,7 @@ import type {
 } from "./storyMaterial";
 import type { VisualEditDocument } from "./visualClipModel";
 import type { VisualObjectRef } from "./visualObject";
+import { normalizeVisualLayer } from "./timelineVisualPriority";
 
 export type ImageClipClipboardSnapshot = Readonly<{
   version: 1;
@@ -33,7 +34,7 @@ function immutableImageSnapshot(input: {
     kind: "image-clip" as const,
     sourceStoryId: input.storyId,
     sourceClipId: input.clip.id,
-    sourceLayer: Math.max(0, Math.round(input.clip.visualLayer)),
+    sourceLayer: normalizeVisualLayer(input.clip.visualLayer),
     imageId: input.clip.imageId,
     imageUrl: input.clip.imageUrl,
     label: input.clip.label,

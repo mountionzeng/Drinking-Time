@@ -937,13 +937,32 @@ export function storyboardEditShouldHandleKey(input: {
   // 这条监听挂在捕获阶段，早于锚点自己的 onKeyDown，所以必须在这里让路。
   if (input.isAnchorTarget) return false;
   // 方向键在片段上是「移动片段」，不能先被 window 捕获监听拿去移动播放头。
-  if (input.isVisualClipMoveTarget) return false;
+  if (
+    input.isVisualClipMoveTarget &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(input.key)
+  )
+    return false;
   if (input.isInteractionBoundary) return false;
+  if (
+    input.isButtonTarget &&
+    (input.key === "Delete" || input.key === "Backspace") &&
+    !input.isVisualClipMoveTarget
+  ) {
+    return false;
+  }
   // 空格在按钮上就是「按下这个按钮」，别抢。
   if (input.isButtonTarget && (input.key === " " || input.key === "Enter")) {
     return false;
   }
   return true;
+}
+
+export function consumeStoryboardVisualPasteContextMenu(event: {
+  preventDefault(): void;
+  stopPropagation(): void;
+}): void {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 export function storyboardVisualObjectMenuFocusIndex(input: {
@@ -975,6 +994,8 @@ export function storyboardEditShouldFollowSelectionToShot(
 
 /** 键盘敲下去要干的事。 */
 export type StoryboardEditShortcut =
+  | { kind: "copyVisualObject" }
+  | { kind: "pasteVisualObject" }
   | { kind: "togglePlay" }
   | { kind: "play" }
   | { kind: "pause" }
@@ -999,6 +1020,12 @@ export function storyboardEditShortcut(event: {
   altKey: boolean;
 }): StoryboardEditShortcut | null {
   const modified = event.metaKey || event.ctrlKey;
+  if (modified && !event.altKey && event.key.toLowerCase() === "c") {
+    return { kind: "copyVisualObject" };
+  }
+  if (modified && !event.altKey && event.key.toLowerCase() === "v") {
+    return { kind: "pasteVisualObject" };
+  }
   // ⌘Z 之类的留给全局撤销，这里一律不拦。
   if (modified && event.key.toLowerCase() !== "k") return null;
   if (modified && event.key.toLowerCase() === "k") {

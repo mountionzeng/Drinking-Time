@@ -4,6 +4,7 @@ import { createTimelineViewport } from "@shared/timelineViewport";
 import type { StoryboardTimingRow } from "@/features/storyAgent/storyboardTiming";
 
 import {
+  consumeStoryboardVisualPasteContextMenu,
   STORYBOARD_EDIT_FRAME_MS,
   createStoryboardVisualClipNudgeQueue,
   focusStoryboardClipForDrag,
@@ -265,8 +266,14 @@ describe("storyboard edit track", () => {
     vi.useFakeTimers();
     const error = new Error("rejected");
     const onError = vi.fn();
-    const move = vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined);
-    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100, onError });
+    const move = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValue(undefined);
+    const queue = createStoryboardVisualClipNudgeQueue({
+      delayMs: 100,
+      onError,
+    });
 
     queue.enqueue({
       clipId: "image:7",
@@ -309,7 +316,10 @@ describe("storyboard edit track", () => {
       .fn<(input: { toStartFrame: number }) => Promise<void>>()
       .mockImplementationOnce(() => firstWrite)
       .mockResolvedValue(undefined);
-    const queue = createStoryboardVisualClipNudgeQueue({ delayMs: 100, onError });
+    const queue = createStoryboardVisualClipNudgeQueue({
+      delayMs: 100,
+      onError,
+    });
 
     queue.enqueue({
       clipId: "image:7",
@@ -344,10 +354,7 @@ describe("storyboard edit track", () => {
 
   it("samples real audio amplitude into a normalized waveform", () => {
     expect(
-      storyboardAudioPeaks(
-        new Float32Array([0, 0, 1, -1, 0.5, -0.5, 0, 0]),
-        4
-      )
+      storyboardAudioPeaks(new Float32Array([0, 0, 1, -1, 0.5, -0.5, 0, 0]), 4)
     ).toEqual([0, 1, 0.5, 0]);
   });
 
@@ -523,9 +530,7 @@ describe("storyboard edit track", () => {
       startFrame: 40,
       endFrame: 85,
     });
-    expect(
-      storyboardVisualClipShotTimingPreview({ kind: "image" })
-    ).toBeNull();
+    expect(storyboardVisualClipShotTimingPreview({ kind: "image" })).toBeNull();
   });
 
   it("clamps a dragged shot preview at frame zero without changing duration", () => {
@@ -700,9 +705,28 @@ describe("storyboard edit shortcuts", () => {
     expect(press("s", { metaKey: true })).toBeNull();
     expect(press("q")).toBeNull();
   });
+
+  it("routes Story-scoped visual clipboard shortcuts", () => {
+    expect(press("c", { metaKey: true })).toEqual({ kind: "copyVisualObject" });
+    expect(press("C", { ctrlKey: true })).toEqual({ kind: "copyVisualObject" });
+    expect(press("v", { metaKey: true })).toEqual({
+      kind: "pasteVisualObject",
+    });
+    expect(press("V", { ctrlKey: true })).toEqual({
+      kind: "pasteVisualObject",
+    });
+    expect(press("v", { metaKey: true, altKey: true })).toBeNull();
+  });
 });
 
 describe("storyboard edit navigation", () => {
+  it("consumes the browser context menu before opening visual paste", () => {
+    const event = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    consumeStoryboardVisualPasteContextMenu(event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+  });
+
   it("keeps the magnet threshold at eight screen pixels across timeline scales", () => {
     expect(
       storyboardMagnetThresholdFrames({ viewport: viewport(10_000, 16) })
@@ -779,9 +803,7 @@ describe("时间线抽帧标记", () => {
 
   it("keeps older extracted images visible after upgrading", () => {
     expect(
-      storyboardExtractedFrameTimeMs(
-        "时间线 01:02.345 提取帧，来源 Take 1494"
-      )
+      storyboardExtractedFrameTimeMs("时间线 01:02.345 提取帧，来源 Take 1494")
     ).toBe(62_345);
     expect(storyboardExtractedFrameTimeMs("普通导入素材")).toBeNull();
   });
@@ -810,9 +832,7 @@ describe("storyboard edit context menu", () => {
       label: "取消这两个镜头的吸附",
       disabledReason: null,
     });
-    expect(
-      menu(base).some(item => item.action === "detachMagnet")
-    ).toBe(false);
+    expect(menu(base).some(item => item.action === "detachMagnet")).toBe(false);
   });
 
   it("explains why cutting is unavailable rather than failing silently", () => {
@@ -825,10 +845,12 @@ describe("storyboard edit context menu", () => {
 
   it("keeps image extraction live while video-only splitting stays disabled", () => {
     const items = menu({ ...base, canSplitHere: false, canExtractHere: true });
-    expect(items.find(item => item.action === "split")?.disabledReason).toContain(
-      "还没有视频"
-    );
-    expect(items.find(item => item.action === "extract")?.disabledReason).toBeNull();
+    expect(
+      items.find(item => item.action === "split")?.disabledReason
+    ).toContain("还没有视频");
+    expect(
+      items.find(item => item.action === "extract")?.disabledReason
+    ).toBeNull();
   });
 
   it("keeps cut and extract live when the click lands on video", () => {
@@ -955,13 +977,31 @@ describe("storyboard edit key routing", () => {
     expect(gate({ key: " ", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "Enter", isButtonTarget: true })).toBe(false);
     expect(gate({ key: "s", isButtonTarget: true })).toBe(true);
+    expect(gate({ key: "Delete", isButtonTarget: true })).toBe(false);
+    expect(gate({ key: "Backspace", isButtonTarget: true })).toBe(false);
   });
 
   it("yields every shortcut to a focused movable image or video clip", () => {
-    expect(gate({ isButtonTarget: true, isVisualClipMoveTarget: true })).toBe(false);
+    expect(gate({ isButtonTarget: true, isVisualClipMoveTarget: true })).toBe(
+      false
+    );
     expect(
-      gate({ key: "ArrowUp", isButtonTarget: true, isVisualClipMoveTarget: true })
+      gate({
+        key: "ArrowUp",
+        isButtonTarget: true,
+        isVisualClipMoveTarget: true,
+      })
     ).toBe(false);
+    expect(
+      gate({ key: "c", isButtonTarget: true, isVisualClipMoveTarget: true })
+    ).toBe(true);
+    expect(
+      gate({
+        key: "Delete",
+        isButtonTarget: true,
+        isVisualClipMoveTarget: true,
+      })
+    ).toBe(true);
   });
 
   it("stays out of the way when the edit row is not on screen", () => {
@@ -993,10 +1033,34 @@ describe("storyboard edit key routing", () => {
 
 describe("visual object menu keyboard interaction", () => {
   it("wraps arrows and supports Home/End", () => {
-    expect(storyboardVisualObjectMenuFocusIndex({ key: "ArrowDown", currentIndex: 2, itemCount: 3 })).toBe(0);
-    expect(storyboardVisualObjectMenuFocusIndex({ key: "ArrowUp", currentIndex: 0, itemCount: 3 })).toBe(2);
-    expect(storyboardVisualObjectMenuFocusIndex({ key: "Home", currentIndex: 2, itemCount: 3 })).toBe(0);
-    expect(storyboardVisualObjectMenuFocusIndex({ key: "End", currentIndex: 0, itemCount: 3 })).toBe(2);
+    expect(
+      storyboardVisualObjectMenuFocusIndex({
+        key: "ArrowDown",
+        currentIndex: 2,
+        itemCount: 3,
+      })
+    ).toBe(0);
+    expect(
+      storyboardVisualObjectMenuFocusIndex({
+        key: "ArrowUp",
+        currentIndex: 0,
+        itemCount: 3,
+      })
+    ).toBe(2);
+    expect(
+      storyboardVisualObjectMenuFocusIndex({
+        key: "Home",
+        currentIndex: 2,
+        itemCount: 3,
+      })
+    ).toBe(0);
+    expect(
+      storyboardVisualObjectMenuFocusIndex({
+        key: "End",
+        currentIndex: 0,
+        itemCount: 3,
+      })
+    ).toBe(2);
   });
 });
 
@@ -1038,7 +1102,6 @@ describe("方向批量移动手势", () => {
       })
     ).toBe("group");
   });
-
 
   it("小抖动不算拖动，越过阈值才锁定方向", () => {
     expect(storyboardGroupDragDirection(3)).toBeNull();
@@ -1104,7 +1167,9 @@ describe("方向批量移动手势", () => {
         deltaFrames: -15,
         boundaryLabel: "0100",
       })
-    ).toBe("向左整体移动 0101–0103（3 镜） · -0.50s · 到 0100 为止，它有位置锚点");
+    ).toBe(
+      "向左整体移动 0101–0103（3 镜） · -0.50s · 到 0100 为止，它有位置锚点"
+    );
     expect(
       storyboardGroupDragSummary({
         direction: "right",
@@ -1117,7 +1182,9 @@ describe("方向批量移动手势", () => {
 });
 
 describe("位置锚点的快捷键与菜单", () => {
-  const key = (overrides: Partial<Parameters<typeof storyboardEditShortcut>[0]>) =>
+  const key = (
+    overrides: Partial<Parameters<typeof storyboardEditShortcut>[0]>
+  ) =>
     storyboardEditShortcut({
       key: "m",
       shiftKey: false,
@@ -1146,10 +1213,10 @@ describe("位置锚点的快捷键与菜单", () => {
       expect(
         storyboardEditShouldHandleKey({ ...base, key, isAnchorTarget: true })
       ).toBe(false);
-      // 不在锚点上时，删除键仍然按老规矩交给剪辑行。
+      // 普通按钮同样拥有自己的键盘契约，不能触发破坏性全局删除。
       expect(
         storyboardEditShouldHandleKey({ ...base, key, isAnchorTarget: false })
-      ).toBe(true);
+      ).toBe(false);
     }
   });
 
@@ -1175,11 +1242,15 @@ describe("位置锚点的快捷键与菜单", () => {
       shotCount: 2,
       canInsert: false,
       canDelete: false,
-      anchors: { inGap: true, alreadyAnchored: false, removableAnchorLabel: null },
+      anchors: {
+        inGap: true,
+        alreadyAnchored: false,
+        removableAnchorLabel: null,
+      },
     });
-    expect(inGap.find(item => item.action === "addAnchor")?.disabledReason).toBe(
-      "这一刻是空档，没有可标记的画面"
-    );
+    expect(
+      inGap.find(item => item.action === "addAnchor")?.disabledReason
+    ).toBe("这一刻是空档，没有可标记的画面");
     expect(
       inGap.find(item => item.action === "removeAnchor")?.disabledReason
     ).toBe("这一帧没有位置锚点");

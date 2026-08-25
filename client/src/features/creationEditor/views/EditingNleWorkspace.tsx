@@ -1,10 +1,4 @@
-import {
-  Clapperboard,
-  FileUp,
-  Loader2,
-  Upload,
-  Video,
-} from "lucide-react";
+import { Clapperboard, FileUp, Loader2, Upload, Video } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -38,6 +32,9 @@ import {
   timelineImageBeatsVisualSource,
 } from "@shared/timelineLayout";
 import { extractedFrameTimeMs } from "@shared/extractedFrameTransition";
+import type { VisualEditDocument } from "@shared/visualClipModel";
+import { visualObjectRefKey, type VisualObjectRef } from "@shared/visualObject";
+import { snapshotVisualObjectForClipboard } from "@shared/visualObjectClipboard";
 
 import {
   ResizableHandle,
@@ -45,14 +42,12 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useStoryAgentActions } from "@/features/storyAgent/StoryAgentContext";
-import {
-  readStoryImageDragPayload,
-} from "@/features/storyAgent/storyImageDrag";
-import {
-  readVideoTakeDragPayload,
-} from "@/features/storyAgent/views/videoTakeDrag";
+import { readStoryImageDragPayload } from "@/features/storyAgent/storyImageDrag";
+import { readVideoTakeDragPayload } from "@/features/storyAgent/views/videoTakeDrag";
 import { useStorySpine } from "@/features/storyAgent/spine/storySpine";
 import { useTimelinePlaybackClock } from "../useTimelinePlaybackClock";
+import { createVisualObjectClipboardSession } from "../visualObjectClipboard";
+import { activateTimelineUndoSession } from "../timelineUndoStore";
 import { TimelineAudioPlayback } from "../TimelineAudioPlayback";
 import StoryboardPanel from "@/features/storyAgent/views/StoryboardPanel";
 import {
@@ -80,9 +75,7 @@ import {
 } from "../CreationEditorContext";
 import { timelineMagneticJoins } from "@shared/timelineCommands";
 import type { CreationEditorShot } from "../types";
-import {
-  stepTimelinePlayheadByFrames,
-} from "../timelinePlayhead";
+import { stepTimelinePlayheadByFrames } from "../timelinePlayhead";
 import { videoTakeAffordance, videoTakeFrameUrl } from "../videoAssetViewModel";
 import {
   editedTimelineDurationMs,
@@ -725,9 +718,9 @@ function ShotPreview({
       )
     : null;
   const videoUrl = timelineImageSource
-      ? null
+    ? null
     : (editorPreview?.target.videoUrl ??
-        timelineVideoSource?.videoUrl ??
+      timelineVideoSource?.videoUrl ??
       (suppressDefaultVideo ? null : playableVideoUrl(shot)));
   const imageUrl =
     timelineImageSource?.imageUrl ??
@@ -1218,8 +1211,6 @@ export function timelineLaneDomain(laneId: string): TimelineLane["domain"] {
     : "visual";
 }
 
-
-
 function cueText(clip: ChatCutTimelineClip, manifest: ChatCutTimelineManifest) {
   const code = chatCutCueCode(clip.name);
   const scripted = code
@@ -1343,62 +1334,62 @@ export function buildTimelineLanes(
   }
 
   const visualClips = timings.flatMap(timing => {
-      const shot = shotsByNo.get(timing.shotNo);
+    const shot = shotsByNo.get(timing.shotNo);
     const baseVisualLayer = Math.max(
       0,
       Math.round(shot?.timelineItem?.visualLayer ?? 0)
     );
-      const baseClip = {
-        id: timing.stableShotId,
-        label: shot
-          ? chatCutSourceNameFromShot(shot)
-          : displayShotCode({ shotNo: timing.shotNo }),
-        title: shot
-          ? `${shotLabel(shot)} · ${chatCutSourceNameFromShot(shot)}`
-          : displayShotCode({ shotNo: timing.shotNo }),
-        startMs: timing.startMs,
-        endMs: timing.endMs,
-        shotNo: timing.shotNo,
-        imageUrl: shot ? shotImageUrl(shot) : null,
-        stableShotId: timing.stableShotId,
+    const baseClip = {
+      id: timing.stableShotId,
+      label: shot
+        ? chatCutSourceNameFromShot(shot)
+        : displayShotCode({ shotNo: timing.shotNo }),
+      title: shot
+        ? `${shotLabel(shot)} · ${chatCutSourceNameFromShot(shot)}`
+        : displayShotCode({ shotNo: timing.shotNo }),
+      startMs: timing.startMs,
+      endMs: timing.endMs,
+      shotNo: timing.shotNo,
+      imageUrl: shot ? shotImageUrl(shot) : null,
+      stableShotId: timing.stableShotId,
       visualLayer: baseVisualLayer,
       moveTarget: {
         kind: "shot" as const,
         stableShotId: timing.stableShotId,
       },
-        videoEditTarget: shot
-          ? (() => {
-              const take =
-                shot.selectedVideoTake ??
-                shot.videoTakes?.find(
-                  item =>
-                    Boolean(item.videoUrl) &&
-                    videoTakeAffordance(item.status).canPlay
-                );
-              return take
-                ? (videoClipEditorTargetForTake({
-                    stableShotId: timing.stableShotId,
-                    shotNo: shot.shotNo,
-                    cueCode: shot.cueCode,
-                    label: `${shotLabel(shot)} · Take ${take.id}`,
-                    take,
-                    timelineItem: shot.timelineItem,
-                    posterUrl: videoTakeFrameUrl(take, "start"),
-                  }) ?? undefined)
-                : undefined;
-            })()
+      videoEditTarget: shot
+        ? (() => {
+            const take =
+              shot.selectedVideoTake ??
+              shot.videoTakes?.find(
+                item =>
+                  Boolean(item.videoUrl) &&
+                  videoTakeAffordance(item.status).canPlay
+              );
+            return take
+              ? (videoClipEditorTargetForTake({
+                  stableShotId: timing.stableShotId,
+                  shotNo: shot.shotNo,
+                  cueCode: shot.cueCode,
+                  label: `${shotLabel(shot)} · Take ${take.id}`,
+                  take,
+                  timelineItem: shot.timelineItem,
+                  posterUrl: videoTakeFrameUrl(take, "start"),
+                }) ?? undefined)
+              : undefined;
+          })()
+        : undefined,
+      imageEditTarget:
+        shot?.imageId && shotImageUrl(shot)
+          ? imageClipEditorTargetForShot({
+              shot,
+              stableShotId: timing.stableShotId,
+              imageId: shot.imageId,
+              imageUrl: shotImageUrl(shot) ?? "",
+              label: `${shotLabel(shot)} · 图片 #${shot.imageId}`,
+            })
           : undefined,
-        imageEditTarget:
-          shot?.imageId && shotImageUrl(shot)
-            ? imageClipEditorTargetForShot({
-                shot,
-                stableShotId: timing.stableShotId,
-                imageId: shot.imageId,
-                imageUrl: shotImageUrl(shot) ?? "",
-                label: `${shotLabel(shot)} · 图片 #${shot.imageId}`,
-              })
-            : undefined,
-      };
+    };
     const derivedVideoClips = (shot?.timelineItem?.visualClips ?? []).map(
       clip => {
         const take = shot?.videoTakes?.find(item => item.id === clip.takeId);
@@ -1459,7 +1450,7 @@ export function buildTimelineLanes(
         };
       }
     );
-      return shot?.timelineItem?.visualClipsReplacePrimary
+    return shot?.timelineItem?.visualClipsReplacePrimary
       ? [...derivedVideoClips, ...derivedImageClips]
       : [baseClip, ...derivedVideoClips, ...derivedImageClips];
   });
@@ -1487,7 +1478,7 @@ export function buildTimelineLanes(
       visualLayer,
       tone: visualLayer === 0 ? "green" : "gray",
       clips: visualClips.filter(clip => clip.visualLayer === visualLayer),
-  });
+    });
   }
 
   const musicClips = playbackAudioTracks.flatMap(track =>
@@ -1553,8 +1544,20 @@ export function buildTimelineLanes(
   return lanes;
 }
 
+export function visualClipboardTargetLayer(
+  snapshot: { sourceLayer: number },
+  requestedLayer?: number
+): number {
+  return requestedLayer ?? snapshot.sourceLayer;
+}
 
-
+export function clearVisualIntentIfCurrent<T extends object>(
+  intents: Map<string, T>,
+  key: string,
+  operation: T
+): void {
+  if (intents.get(key) === operation) intents.delete(key);
+}
 
 export default function EditingNleWorkspace({
   videoEditorHandoffTarget = null,
@@ -1596,6 +1599,8 @@ export default function EditingNleWorkspace({
     splitTimelineVideoClip,
     extractTimelineFrame,
     moveVisualClip,
+    pasteVisualImage,
+    deleteVisualObject,
     updateTimelineVideoEdit,
     updateTimelineImageTransform,
     updateShotDuration,
@@ -1616,6 +1621,18 @@ export default function EditingNleWorkspace({
     timelineWritePending,
     isLoading,
   } = useCreationEditor();
+  const editorSessionEpoch = useMemo(
+    () =>
+      globalThis.crypto?.randomUUID?.() ??
+      `editor-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    [activeStoryId]
+  );
+  const visualPasteIntentRef = useRef(
+    new Map<string, { editorSessionEpoch: string; operationId: string }>()
+  );
+  const visualDeleteIntentRef = useRef(
+    new Map<string, { editorSessionEpoch: string; operationId: string }>()
+  );
   const renderedEditingStorySessionToken = useMemo(
     () => Symbol(`editing-story:${activeStoryId ?? "none"}`),
     [activeStoryId]
@@ -1623,13 +1640,36 @@ export default function EditingNleWorkspace({
   const committedEditingStorySessionTokenRef = useRef(
     renderedEditingStorySessionToken
   );
+  const committedUndoStoryIdRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     // An interrupted concurrent render must not invalidate callbacks owned by
     // the Story that is still committed on screen.
     committedEditingStorySessionTokenRef.current =
       renderedEditingStorySessionToken;
-  }, [renderedEditingStorySessionToken]);
+    if (
+      activeStoryId != null &&
+      committedUndoStoryIdRef.current !== activeStoryId
+    ) {
+      activateTimelineUndoSession(activeStoryId, editorSessionEpoch);
+    }
+    committedUndoStoryIdRef.current = activeStoryId;
+  }, [activeStoryId, editorSessionEpoch, renderedEditingStorySessionToken]);
   const editingStorySessionKey = `story:${activeStoryId ?? "none"}`;
+  const visualClipboard = useMemo(
+    () =>
+      activeStoryId == null
+        ? null
+        : createVisualObjectClipboardSession({
+            storyId: activeStoryId,
+            editorSessionEpoch,
+          }),
+    [activeStoryId, editorSessionEpoch]
+  );
+  useEffect(() => {
+    visualPasteIntentRef.current.clear();
+    visualDeleteIntentRef.current.clear();
+    return () => visualClipboard?.dispose();
+  }, [visualClipboard]);
   const isEditingStorySessionCurrent = useCallback(
     () =>
       committedEditingStorySessionTokenRef.current ===
@@ -1648,6 +1688,11 @@ export default function EditingNleWorkspace({
   const [imageEditorTarget, setImageEditorTarget] =
     useState<ImageClipEditorTarget | null>(null);
   const [savingImageEdit, setSavingImageEdit] = useState(false);
+  const [visualClipboardVersion, setVisualClipboardVersion] = useState(0);
+  const hasVisualClipboard = useMemo(
+    () => visualClipboard?.read() != null,
+    [visualClipboard, visualClipboardVersion]
+  );
   /**
    * 播放头同步进 spine，供聊聊回答「我现在看的是哪一秒」。
    *
@@ -1721,11 +1766,7 @@ export default function EditingNleWorkspace({
   useEffect(() => {
     if (playbackClock.isPlaying) return;
     setSpinePlayheadMs(Math.max(0, Math.round(playbackClock.playheadMs)));
-  }, [
-    setSpinePlayheadMs,
-    playbackClock.isPlaying,
-    playbackClock.playheadMs,
-  ]);
+  }, [setSpinePlayheadMs, playbackClock.isPlaying, playbackClock.playheadMs]);
   /** 时间尺上要画的位置锚点，按绝对帧排好。 */
   const timelineAnchors = useMemo(
     () =>
@@ -1913,18 +1954,18 @@ export default function EditingNleWorkspace({
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (
         !shouldHandleCreationEditorUndoShortcut({
-        key: event.key,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-        targetIsEditable: Boolean(
-          target?.closest(
-            'input, textarea, select, [contenteditable="true"], [role="textbox"]'
-          )
-        ),
+          key: event.key,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          altKey: event.altKey,
+          shiftKey: event.shiftKey,
+          defaultPrevented: event.defaultPrevented,
+          repeat: event.repeat,
+          targetIsEditable: Boolean(
+            target?.closest(
+              'input, textarea, select, [contenteditable="true"], [role="textbox"]'
+            )
+          ),
         })
       ) {
         return;
@@ -2352,6 +2393,94 @@ export default function EditingNleWorkspace({
     [extractTimelineFrame]
   );
 
+  const canonicalVisualDocument = useMemo<VisualEditDocument>(
+    () => ({
+      items: timelineItems,
+      overlays: timelineOverlays,
+      visualLayerState: {
+        count: timelineVisualLayerState.explicitCount,
+        hidden: [...timelineVisualLayerState.hidden],
+      },
+    }),
+    [timelineItems, timelineOverlays, timelineVisualLayerState]
+  );
+  const newVisualOperation = useCallback(() => {
+    const operationId =
+      globalThis.crypto?.randomUUID?.() ??
+      `visual-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return {
+      editorSessionEpoch,
+      operationId,
+    };
+  }, [editorSessionEpoch]);
+  const copyVisualObject = useCallback(
+    (object: VisualObjectRef) => {
+      if (activeStoryId == null || !visualClipboard) {
+        throw new Error("故事尚未加载，无法复制");
+      }
+      const snapshot = snapshotVisualObjectForClipboard({
+        storyId: activeStoryId,
+        document: canonicalVisualDocument,
+        object,
+      });
+      if (!snapshot || !visualClipboard.write(snapshot)) {
+        throw new Error("当前只支持复制独立图片素材");
+      }
+      setVisualClipboardVersion(version => version + 1);
+      toast.success(`已复制 ${snapshot.label}`);
+    },
+    [activeStoryId, canonicalVisualDocument, visualClipboard]
+  );
+  const pasteVisualObject = useCallback(
+    async (context: { timelineFrame: number; visualLayer?: number }) => {
+      const snapshot = visualClipboard?.read() ?? null;
+      if (!snapshot) throw new Error("请先复制一张图片素材");
+      const targetLayer = visualClipboardTargetLayer(
+        snapshot,
+        context.visualLayer
+      );
+      const intentKey = `${snapshot.sourceClipId}:${context.timelineFrame}:${targetLayer}`;
+      const operation =
+        visualPasteIntentRef.current.get(intentKey) ?? newVisualOperation();
+      visualPasteIntentRef.current.set(intentKey, operation);
+      await pasteVisualImage({
+        operation,
+        pasteId: operation.operationId,
+        snapshot,
+        targetFrame: context.timelineFrame,
+        targetLayer,
+      });
+      clearVisualIntentIfCurrent(
+        visualPasteIntentRef.current,
+        intentKey,
+        operation
+      );
+      if (isEditingStorySessionCurrent()) toast.success("图片已粘贴");
+    },
+    [
+      isEditingStorySessionCurrent,
+      newVisualOperation,
+      pasteVisualImage,
+      visualClipboard,
+    ]
+  );
+  const removeVisualObject = useCallback(
+    async (object: VisualObjectRef) => {
+      const intentKey = visualObjectRefKey(object);
+      const operation =
+        visualDeleteIntentRef.current.get(intentKey) ?? newVisualOperation();
+      visualDeleteIntentRef.current.set(intentKey, operation);
+      await deleteVisualObject({ operation, object });
+      clearVisualIntentIfCurrent(
+        visualDeleteIntentRef.current,
+        intentKey,
+        operation
+      );
+      if (isEditingStorySessionCurrent()) toast.success("素材已从时间线删除");
+    },
+    [deleteVisualObject, isEditingStorySessionCurrent, newVisualOperation]
+  );
+
   // 故事版看板的「剪辑」行和底部时间线共用同一份播放状态与同一批剪辑动作，
   // 所以折叠底部时间线之后，看板里依然能走带、切割、修剪和重排。
   const boardTimeline = useMemo<StoryboardBoardTimeline>(
@@ -2368,9 +2497,21 @@ export default function EditingNleWorkspace({
       visualLayerState: timelineVisualLayerState,
       onManageVisualLayer: manageTimelineVisualLayer,
       onMoveVisualClip: moveVisualClip,
-      isVisualObjectCommandAvailable: (_object, command) =>
-        command === "extract-frame",
-      onVisualObjectCommand: async (_object, command, context) => {
+      canPasteVisualObject: hasVisualClipboard,
+      onPasteVisualObject: pasteVisualObject,
+      isVisualObjectCommandAvailable: (object, command) =>
+        command === "extract-frame" ||
+        (object.type === "image-clip" &&
+          (command === "copy" || command === "delete")),
+      onVisualObjectCommand: async (object, command, context) => {
+        if (command === "copy") {
+          copyVisualObject(object);
+          return;
+        }
+        if (command === "delete") {
+          await removeVisualObject(object);
+          return;
+        }
         if (command !== "extract-frame") {
           throw new Error("这个对象命令尚未接入");
         }
@@ -2697,6 +2838,7 @@ export default function EditingNleWorkspace({
     [
       activeSelection?.sourceType,
       activeStoryId,
+      copyVisualObject,
       editingStorySessionKey,
       isEditingStorySessionCurrent,
       addTimelineAnchorAtFrame,
@@ -2707,8 +2849,10 @@ export default function EditingNleWorkspace({
       manageTimelineVisualLayer,
       moveTimelineShot,
       placeExternalVisual,
+      pasteVisualObject,
       previewTimelineGroup,
       removeTimelineAnchor,
+      removeVisualObject,
       reorderShotInTimeline,
       rollTimelineJoin,
       setActiveSelection,
@@ -2723,6 +2867,8 @@ export default function EditingNleWorkspace({
       proposeGapTransitionCard,
       proposeExtractedFrameTransitionCard,
       timelineWritePending,
+      visualClipboard,
+      hasVisualClipboard,
       timelineOverlays,
       timings,
       trimTimelineItemEdge,
@@ -2762,12 +2908,12 @@ export default function EditingNleWorkspace({
       playbackClock.setPlaying(false);
       playbackClock.seek(
         stepTimelinePlayheadByFrames(
-            playbackClock.playheadMs,
-            event.key === "ArrowRight" ? 1 : -1,
-            chatCutTimeline?.fps ?? 30,
-            timings.at(-1)?.endMs ?? 0,
-            event.shiftKey ? 10 : 1
-          )
+          playbackClock.playheadMs,
+          event.key === "ArrowRight" ? 1 : -1,
+          chatCutTimeline?.fps ?? 30,
+          timings.at(-1)?.endMs ?? 0,
+          event.shiftKey ? 10 : 1
+        )
       );
     };
     window.addEventListener("keydown", handleEditingShortcut);

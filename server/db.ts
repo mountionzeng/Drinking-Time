@@ -775,18 +775,21 @@ async function persistMemoryStateToDisk() {
     }
     return;
   }
+  // Capture this batch synchronously, before the first filesystem await. A
+  // later caller may mutate memoryState while mkdir/backup/write is pending;
+  // that mutation belongs to the next coalescer batch and must not hitchhike
+  // into this batch's durable payload.
+  const {
+    promptLineage: _promptLineage,
+    editSnapshots: _editSnapshots,
+    ...mainState
+  } = memoryState;
+  const payload = JSON.stringify(mainState);
+  const nextBytes = Buffer.byteLength(payload, "utf-8");
   let tmpPathWritten: string | null = null;
   try {
     const dir = path.dirname(LOCAL_PERSIST_PATH);
     await mkdir(dir, { recursive: true });
-    const {
-      promptLineage: _promptLineage,
-      editSnapshots: _editSnapshots,
-      ...mainState
-    } = memoryState;
-    // 紧凑序列化，理由同 persistLocalEditSnapshotsToDisk：省掉 ~1/3 的序列化与写盘开销。
-    const payload = JSON.stringify(mainState);
-    const nextBytes = Buffer.byteLength(payload, "utf-8");
     // ② 写前滚动备份 + 骤减告警（自身失败不影响主写入，backupBeforeWrite 内部已吞错误）
     await backupBeforeWrite(nextBytes);
     const tmpPath = localTempPath(LOCAL_PERSIST_PATH);
@@ -809,6 +812,7 @@ type PendingWrite = {
   promise: Promise<void>;
   resolve: () => void;
   reject: (reason: unknown) => void;
+  failureCleanups: Array<() => void>;
 };
 
 const createPendingWrite = (): PendingWrite => {
@@ -818,7 +822,7 @@ const createPendingWrite = (): PendingWrite => {
     resolve = res;
     reject = rej;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve, reject, failureCleanups: [] };
 };
 
 /**
@@ -835,7 +839,9 @@ const createPendingWrite = (): PendingWrite => {
  * 失败语义与过去一致：某一批写盘失败，只有这一批的调用方拿到异常，不会卡死
  *   后面排队的写入。
  */
-function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
+function createWriteCoalescer(
+  write: () => Promise<void>
+): (onFailureBeforeNextBatch?: () => void) => Promise<void> {
   let running = false;
   let pending: PendingWrite | null = null;
 
@@ -849,6 +855,7 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
           await write();
           batch.resolve();
         } catch (error) {
+          for (const cleanup of batch.failureCleanups) cleanup();
           batch.reject(error);
         }
       }
@@ -857,8 +864,12 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
     }
   }
 
-  return function schedule(): Promise<void> {
+  return function schedule(
+    onFailureBeforeNextBatch?: () => void
+  ): Promise<void> {
     pending ??= createPendingWrite();
+    if (onFailureBeforeNextBatch)
+      pending.failureCleanups.push(onFailureBeforeNextBatch);
     const joined = pending.promise;
     if (!running) void pump();
     return joined;
@@ -881,6 +892,31 @@ function createWriteCoalescer(write: () => Promise<void>): () => Promise<void> {
  * 下游调用：persistMemoryStateToDisk。
  */
 const persistMemoryState = createWriteCoalescer(persistMemoryStateToDisk);
+
+const localTimelineLockTails = new Map<string, Promise<void>>();
+
+async function withLocalTimelineLock<T>(
+  storyId: number,
+  userId: number,
+  action: () => Promise<T>
+): Promise<T> {
+  const key = `${userId}:${storyId}`;
+  const previous = localTimelineLockTails.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  localTimelineLockTails.set(key, tail);
+  await previous.catch(() => {});
+  try {
+    return await action();
+  } finally {
+    release();
+    if (localTimelineLockTails.get(key) === tail)
+      localTimelineLockTails.delete(key);
+  }
+}
 
 /**
  * 编辑快照走独立文件、独立合并器：它是三份本地文件里最大的一份（曾涨到 24MB+），
@@ -1237,15 +1273,15 @@ export async function getAccessOverview(
   let videoUsage: Array<{ userId: number; count: number; seconds: number }>;
   if (!db) {
     videoUsage = Array.from(
-        memoryState.videoTakes.reduce((usage, video) => {
-          if (video.status !== "available") return usage;
-          const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
-          current.count += 1;
-          current.seconds += video.durationSec ?? 0;
-          usage.set(video.userId, current);
-          return usage;
-        }, new Map<number, { count: number; seconds: number }>())
-      ).map(([userId, value]) => ({ userId, ...value }));
+      memoryState.videoTakes.reduce((usage, video) => {
+        if (video.status !== "available") return usage;
+        const current = usage.get(video.userId) ?? { count: 0, seconds: 0 };
+        current.count += 1;
+        current.seconds += video.durationSec ?? 0;
+        usage.set(video.userId, current);
+        return usage;
+      }, new Map<number, { count: number; seconds: number }>())
+    ).map(([userId, value]) => ({ userId, ...value }));
   } else {
     try {
       videoUsage = await db
@@ -3956,19 +3992,17 @@ export async function claimTimelineFrameExtractionOperation(
       storyTotal: Number(storyCount?.value ?? 0),
     });
 
-    await tx
-      .insert(timelineFrameExtractionOperations)
-      .values({
-        storyId: input.storyId,
-        userId: input.userId,
-        requestId,
-        inputHash: input.inputHash,
-        ...coordinates,
-        claimToken,
-        leaseUntil,
-        attempt: 1,
-        status: "claimed",
-      });
+    await tx.insert(timelineFrameExtractionOperations).values({
+      storyId: input.storyId,
+      userId: input.userId,
+      requestId,
+      inputHash: input.inputHash,
+      ...coordinates,
+      claimToken,
+      leaseUntil,
+      attempt: 1,
+      status: "claimed",
+    });
     const [operation] = await tx
       .select()
       .from(timelineFrameExtractionOperations)
@@ -5101,8 +5135,8 @@ function sameEditingTransitionSlot(
   if (left.placementKey || right.placementKey) {
     return Boolean(
       left.placementKey &&
-      right.placementKey &&
-      left.placementKey === right.placementKey
+        right.placementKey &&
+        left.placementKey === right.placementKey
     );
   }
   return (
@@ -5622,12 +5656,13 @@ export async function getStoryTimeline(
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const row = (
-      memoryState.storyTimelines.find(
-        timeline => timeline.storyId === storyId && timeline.userId === userId
-      ) ?? null
-    );
-    return row ? storyTimelineView(row) : null;
+    return withLocalTimelineLock(storyId, userId, async () => {
+      const row =
+        memoryState.storyTimelines.find(
+          timeline => timeline.storyId === storyId && timeline.userId === userId
+        ) ?? null;
+      return row ? storyTimelineView(row) : null;
+    });
   }
   const [row] = await db
     .select()
@@ -5666,11 +5701,14 @@ function decodeStoryTimelinePayload(value: unknown): StoryTimelinePayload {
 }
 
 function encodeStoryTimelinePayload(payload: StoryTimelinePayload): unknown {
-  return payload.overlays === undefined && payload.visualLayerState === undefined
+  return payload.overlays === undefined &&
+    payload.visualLayerState === undefined
     ? payload.items
     : {
         items: payload.items,
-        ...(payload.overlays === undefined ? {} : { overlays: payload.overlays }),
+        ...(payload.overlays === undefined
+          ? {}
+          : { overlays: payload.overlays }),
         ...(payload.visualLayerState === undefined
           ? {}
           : { visualLayerState: payload.visualLayerState }),
@@ -5711,86 +5749,86 @@ export async function updateStoryTimeline(input: {
   items: unknown;
   overlays?: unknown;
   visualLayerState?: unknown;
-}): Promise<StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }> {
+}): Promise<
+  StoryTimeline & { overlays?: unknown; visualLayerState?: unknown }
+> {
   const db = await getDb();
   if (!db) {
     await ensureMemoryLoaded();
-    const existing = memoryState.storyTimelines.find(
-      timeline =>
-        timeline.storyId === input.storyId && timeline.userId === input.userId
-    );
-    if (!existing) {
-      if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
-      const current = now();
-      const createdItems = encodeStoryTimelinePayload({
+    return withLocalTimelineLock(input.storyId, input.userId, async () => {
+      const existing = memoryState.storyTimelines.find(
+        timeline =>
+          timeline.storyId === input.storyId && timeline.userId === input.userId
+      );
+      if (!existing) {
+        if (input.expectedVersion !== 0) throw new Error("时间轴版本已更新");
+        const current = now();
+        const createdItems = encodeStoryTimelinePayload({
+          items: input.items,
+          ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
+          ...(input.visualLayerState === undefined
+            ? {}
+            : { visualLayerState: input.visualLayerState }),
+        });
+        const row: StoryTimeline = {
+          id: nextMemoryId("storyTimeline"),
+          storyId: input.storyId,
+          userId: input.userId,
+          version: 1,
+          items: createdItems,
+          createdAt: current,
+          updatedAt: current,
+        };
+        memoryState.storyTimelines.push(row);
+        const rollback = () => {
+          const index = memoryState.storyTimelines.indexOf(row);
+          if (
+            index >= 0 &&
+            row.version === 1 &&
+            row.items === createdItems &&
+            row.updatedAt === memoryState.storyTimelines[index]?.updatedAt
+          ) {
+            memoryState.storyTimelines.splice(index, 1);
+          }
+        };
+        await persistMemoryState(rollback);
+        return storyTimelineView(row);
+      }
+      if (existing.version !== input.expectedVersion) {
+        throw new Error("时间轴版本已更新");
+      }
+      const currentPayload = decodeStoryTimelinePayload(existing.items);
+      const previousItems = existing.items;
+      const previousVersion = existing.version;
+      const previousUpdatedAt = existing.updatedAt;
+      const nextItems = encodeStoryTimelinePayload({
         items: input.items,
-        ...(input.overlays === undefined ? {} : { overlays: input.overlays }),
-        ...(input.visualLayerState === undefined
-          ? {}
-          : { visualLayerState: input.visualLayerState }),
+        overlays: input.overlays ?? currentPayload.overlays,
+        visualLayerState:
+          input.visualLayerState ?? currentPayload.visualLayerState,
       });
-      const row: StoryTimeline = {
-        id: nextMemoryId("storyTimeline"),
-        storyId: input.storyId,
-        userId: input.userId,
-        version: 1,
-        items: createdItems,
-        createdAt: current,
-        updatedAt: current,
-      };
-      memoryState.storyTimelines.push(row);
-      try {
-        await persistMemoryState();
-      } catch (error) {
-        const index = memoryState.storyTimelines.indexOf(row);
+      const nextVersion = previousVersion + 1;
+      const nextUpdatedAt = now();
+      existing.items = nextItems;
+      existing.version = nextVersion;
+      existing.updatedAt = nextUpdatedAt;
+      const rollback = () => {
+        // A later successful CAS writer may already have advanced this row while
+        // our full-state write was in flight. Only roll back the exact values
+        // published by this call; never erase a newer in-memory success.
         if (
-          index >= 0 &&
-          row.version === 1 &&
-          row.items === createdItems &&
-          row.updatedAt === memoryState.storyTimelines[index]?.updatedAt
+          existing.items === nextItems &&
+          existing.version === nextVersion &&
+          existing.updatedAt === nextUpdatedAt
         ) {
-          memoryState.storyTimelines.splice(index, 1);
+          existing.items = previousItems;
+          existing.version = previousVersion;
+          existing.updatedAt = previousUpdatedAt;
         }
-        throw error;
-      }
-      return storyTimelineView(row);
-    }
-    if (existing.version !== input.expectedVersion) {
-      throw new Error("时间轴版本已更新");
-    }
-    const currentPayload = decodeStoryTimelinePayload(existing.items);
-    const previousItems = existing.items;
-    const previousVersion = existing.version;
-    const previousUpdatedAt = existing.updatedAt;
-    const nextItems = encodeStoryTimelinePayload({
-      items: input.items,
-      overlays: input.overlays ?? currentPayload.overlays,
-      visualLayerState:
-        input.visualLayerState ?? currentPayload.visualLayerState,
+      };
+      await persistMemoryState(rollback);
+      return storyTimelineView(existing);
     });
-    const nextVersion = previousVersion + 1;
-    const nextUpdatedAt = now();
-    existing.items = nextItems;
-    existing.version = nextVersion;
-    existing.updatedAt = nextUpdatedAt;
-    try {
-      await persistMemoryState();
-    } catch (error) {
-      // A later successful CAS writer may already have advanced this row while
-      // our full-state write was in flight. Only roll back the exact values
-      // published by this call; never erase a newer in-memory success.
-      if (
-        existing.items === nextItems &&
-        existing.version === nextVersion &&
-        existing.updatedAt === nextUpdatedAt
-      ) {
-        existing.items = previousItems;
-        existing.version = previousVersion;
-        existing.updatedAt = previousUpdatedAt;
-      }
-      throw error;
-    }
-    return storyTimelineView(existing);
   }
 
   return db.transaction(async tx => {
@@ -5893,14 +5931,16 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       throw new Error("故事、时间轴或生成视频不存在");
     }
     const payload = decodeStoryTimelinePayload(timeline.items);
-    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
+    const overlays = Array.isArray(payload.overlays)
+      ? [...payload.overlays]
+      : [];
     const overlayExists = overlays.some(
-        value =>
-          value &&
-          typeof value === "object" &&
-          !Array.isArray(value) &&
-          (value as Record<string, unknown>).id === input.overlay.id
-      );
+      value =>
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (value as Record<string, unknown>).id === input.overlay.id
+    );
     const shotExists = storyBodyContainsStableShotId(
       story.body,
       input.stableShotId
@@ -5927,7 +5967,9 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     const previousTimeline = { ...timeline };
     const previousTake = { ...take };
     if (!shotExists) {
-      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
+      if (
+        !storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)
+      ) {
         throw new Error("待写入的故事版缺少生成镜头");
       }
       story.body = input.nextStoryBody as StoryBody;
@@ -5936,7 +5978,10 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     if (!timelineItemExists || !overlayExists) {
       if (
         !timelineItemExists &&
-        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+        !timelineContainsStableShotId(
+          input.nextTimelineItems,
+          input.stableShotId
+        )
       ) {
         throw new Error("待写入的时间轴缺少生成镜头列");
       }
@@ -6006,7 +6051,9 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       throw new Error("故事、时间轴或生成视频不存在");
     }
     const payload = decodeStoryTimelinePayload(timeline.items);
-    const overlays = Array.isArray(payload.overlays) ? [...payload.overlays] : [];
+    const overlays = Array.isArray(payload.overlays)
+      ? [...payload.overlays]
+      : [];
     const overlayExists = overlays.some(
       value =>
         value &&
@@ -6037,7 +6084,9 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       throw new Error("时间轴已经更新，请重新确认覆盖位置");
     }
     if (!shotExists) {
-      if (!storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)) {
+      if (
+        !storyBodyContainsStableShotId(input.nextStoryBody, input.stableShotId)
+      ) {
         throw new Error("待写入的故事版缺少生成镜头");
       }
       await tx
@@ -6050,7 +6099,10 @@ export async function applyStoryTimelineOverlayAtomic(input: {
     if (!timelineItemExists || !overlayExists) {
       if (
         !timelineItemExists &&
-        !timelineContainsStableShotId(input.nextTimelineItems, input.stableShotId)
+        !timelineContainsStableShotId(
+          input.nextTimelineItems,
+          input.stableShotId
+        )
       ) {
         throw new Error("待写入的时间轴缺少生成镜头列");
       }
@@ -6070,11 +6122,16 @@ export async function applyStoryTimelineOverlayAtomic(input: {
       .update(videoTakes)
       .set({ parameterSnapshot: snapshotWithApplied(take), errorMessage: null })
       .where(eq(videoTakes.id, take.id));
-    const [[updatedStory], [updatedTimeline], [updatedTake]] = await Promise.all([
-      tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
-      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
-      tx.select().from(videoTakes).where(eq(videoTakes.id, take.id)).limit(1),
-    ]);
+    const [[updatedStory], [updatedTimeline], [updatedTake]] =
+      await Promise.all([
+        tx.select().from(stories).where(eq(stories.id, story.id)).limit(1),
+        tx
+          .select()
+          .from(storyTimelines)
+          .where(eq(storyTimelines.id, timeline.id))
+          .limit(1),
+        tx.select().from(videoTakes).where(eq(videoTakes.id, take.id)).limit(1),
+      ]);
     return {
       applied: true,
       story: updatedStory,
@@ -6108,7 +6165,8 @@ function timelineContainsStableShotId(
   return (
     Array.isArray(timelineItems) &&
     timelineItems.some(item => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      if (!item || typeof item !== "object" || Array.isArray(item))
+        return false;
       return (item as Record<string, unknown>).stableShotId === stableShotId;
     })
   );
@@ -6282,13 +6340,26 @@ export async function restoreSplitStoryShotAtomic(input: {
     if (!storyBodyContainsStableShotId(story.body, input.splitStableShotId)) {
       throw new Error("切割产生的镜头已经不存在，无法撤销");
     }
-    if (storyBodyContainsStableShotId(input.nextStoryBody, input.splitStableShotId)) {
+    if (
+      storyBodyContainsStableShotId(
+        input.nextStoryBody,
+        input.splitStableShotId
+      )
+    ) {
       throw new Error("撤销快照仍包含切割镜头");
     }
-    if (!timeline || !timelineContainsStableShotId(timeline.items, input.splitStableShotId)) {
+    if (
+      !timeline ||
+      !timelineContainsStableShotId(timeline.items, input.splitStableShotId)
+    ) {
       throw new Error("切割产生的时间轴镜头已经不存在，无法撤销");
     }
-    if (timelineContainsStableShotId(input.nextTimelineItems, input.splitStableShotId)) {
+    if (
+      timelineContainsStableShotId(
+        input.nextTimelineItems,
+        input.splitStableShotId
+      )
+    ) {
       throw new Error("撤销时间轴快照仍包含切割镜头");
     }
   };
@@ -6299,9 +6370,10 @@ export async function restoreSplitStoryShotAtomic(input: {
     const story = memoryState.stories.find(
       row => row.id === input.storyId && row.userId === input.userId
     );
-    const timeline = memoryState.storyTimelines.find(
-      row => row.storyId === input.storyId && row.userId === input.userId
-    ) ?? null;
+    const timeline =
+      memoryState.storyTimelines.find(
+        row => row.storyId === input.storyId && row.userId === input.userId
+      ) ?? null;
     if (!story) throw new Error("故事不存在或无权操作");
     validate(story, timeline);
     story.body = input.nextStoryBody as StoryBody;
@@ -6320,7 +6392,9 @@ export async function restoreSplitStoryShotAtomic(input: {
     const [story] = await tx
       .select()
       .from(stories)
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)))
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      )
       .for("update")
       .limit(1);
     const [timeline] = await tx
@@ -6339,7 +6413,9 @@ export async function restoreSplitStoryShotAtomic(input: {
     await tx
       .update(stories)
       .set({ body: input.nextStoryBody as StoryBody })
-      .where(and(eq(stories.id, input.storyId), eq(stories.userId, input.userId)));
+      .where(
+        and(eq(stories.id, input.storyId), eq(stories.userId, input.userId))
+      );
     await tx
       .update(storyTimelines)
       .set({
@@ -6352,7 +6428,11 @@ export async function restoreSplitStoryShotAtomic(input: {
       .where(eq(storyTimelines.id, timeline.id));
     const [[savedStory], [savedTimeline]] = await Promise.all([
       tx.select().from(stories).where(eq(stories.id, input.storyId)).limit(1),
-      tx.select().from(storyTimelines).where(eq(storyTimelines.id, timeline.id)).limit(1),
+      tx
+        .select()
+        .from(storyTimelines)
+        .where(eq(storyTimelines.id, timeline.id))
+        .limit(1),
     ]);
     if (!savedStory || !savedTimeline) throw new Error("切割撤销后读取失败");
     return { story: savedStory, timeline: savedTimeline };

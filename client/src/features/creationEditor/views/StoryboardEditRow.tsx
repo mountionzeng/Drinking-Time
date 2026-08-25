@@ -95,6 +95,7 @@ import {
   storyboardEditNeedsRowFocus,
   storyboardEditShortcut,
   storyboardEditShouldHandleKey,
+  consumeStoryboardVisualPasteContextMenu,
   storyboardEditTimingAt,
   storyboardEditTrackMs,
   storyboardGroupDragDeltaFrames,
@@ -238,6 +239,11 @@ export type StoryboardBoardTimeline = {
     command: VisualObjectCommand,
     context: { timelineFrame: number; visualLayer: number }
   ) => Promise<void>;
+  onPasteVisualObject?: (context: {
+    timelineFrame: number;
+    visualLayer?: number;
+  }) => Promise<void>;
+  canPasteVisualObject?: boolean;
   isVisualObjectCommandAvailable?: (
     object: VisualObjectRef,
     command: VisualObjectCommand
@@ -960,6 +966,13 @@ function StoryboardOwnedVideoClipBlock({
   );
 }
 
+type VisualPasteMenuState = {
+  clientX: number;
+  clientY: number;
+  timelineFrame: number;
+  visualLayer: number;
+};
+
 function StoryboardUpperVisualLayerRow({
   shots,
   timeline,
@@ -977,6 +990,7 @@ function StoryboardUpperVisualLayerRow({
   onSelectVisualObject,
   onOpenMenu,
   onOpenObjectMenu,
+  onOpenPasteMenu,
 }: {
   shots: readonly StoryboardEditShot[];
   timeline: StoryboardBoardTimeline;
@@ -1003,6 +1017,7 @@ function StoryboardUpperVisualLayerRow({
   onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
   onOpenMenu: (menu: MenuState) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
+  onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
   const totalMs = viewport.totalMs;
   const isCurrentStorySession = () =>
@@ -1046,6 +1061,7 @@ function StoryboardUpperVisualLayerRow({
     leftImageId: number;
     rightImageId: number;
     durationSec: number;
+    timelineFrame: number;
   } | null>(null);
   const [pending, setPending] = useState(false);
   const [frameMenu, setFrameMenu] = useState<{
@@ -1378,7 +1394,7 @@ function StoryboardUpperVisualLayerRow({
   };
   const openAtMs = (atMs: number, clientX: number, clientY: number) => {
     const selected = selectExtractedFramePair({ frames, atMs });
-    if (selected.kind !== "ok") return;
+    if (selected.kind !== "ok") return false;
     setFrameMenu(null);
     setDeleteError(null);
     setTransitionMenu({
@@ -1387,7 +1403,9 @@ function StoryboardUpperVisualLayerRow({
       leftImageId: selected.pair.left.imageId,
       rightImageId: selected.pair.right.imageId,
       durationSec: selected.pair.requestedDurationSec,
+      timelineFrame: Math.max(0, Math.round((atMs * 30) / 1000)),
     });
+    return true;
   };
   return (
     <>
@@ -1441,17 +1459,30 @@ function StoryboardUpperVisualLayerRow({
           tabIndex={0}
           aria-keyshortcuts="Shift+F10 ContextMenu"
           onContextMenu={event => {
-            if (!timeline.onCreateExtractedFrameTransition) return;
-            event.preventDefault();
             const rect = event.currentTarget.getBoundingClientRect();
-            openAtMs(
-              Math.max(
-                0,
-                Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
-              ),
-              event.clientX,
-              event.clientY
+            const atMs = Math.max(
+              0,
+              Math.min(totalMs, pxToMs(viewport, event.clientX - rect.left))
             );
+            if (
+              timeline.onCreateExtractedFrameTransition &&
+              openAtMs(atMs, event.clientX, event.clientY)
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            if (timeline.canPasteVisualObject) {
+              consumeStoryboardVisualPasteContextMenu(event);
+              onOpenPasteMenu({
+                clientX: event.clientX,
+                clientY: event.clientY,
+                timelineFrame: Math.max(0, Math.round((atMs * 30) / 1000)),
+                visualLayer,
+              });
+              return;
+            }
+            return;
           }}
           onPointerMove={event => updatePairingCandidate(event.clientX)}
           onDragOver={event => {
@@ -2163,6 +2194,25 @@ function StoryboardUpperVisualLayerRow({
                 ? "正在生成确认卡…"
                 : `用左右抽帧生成 ${transitionMenu.durationSec} 秒覆盖视频…`}
             </button>
+            {timeline.canPasteVisualObject ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={pending}
+                className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
+                onClick={() => {
+                  setTransitionMenu(null);
+                  onOpenPasteMenu({
+                    clientX: transitionMenu.clientX,
+                    clientY: transitionMenu.clientY,
+                    timelineFrame: transitionMenu.timelineFrame,
+                    visualLayer,
+                  });
+                }}
+              >
+                粘贴到这一层
+              </button>
+            ) : null}
           </div>
         ) : null}
         {frameMenu ? (
@@ -2273,11 +2323,13 @@ function StoryboardEditGapMenu({
   pending,
   onCreate,
   onClose,
+  onPaste,
 }: {
   menu: GapMenuState;
   pending: boolean;
   onCreate: () => void;
   onClose: () => void;
+  onPaste?: () => void;
 }) {
   useEffect(() => {
     const close = () => onClose();
@@ -2318,6 +2370,17 @@ function StoryboardEditGapMenu({
         {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : null}
         自动创建镜头（用前后帧生成过渡）
       </button>
+      {onPaste ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={pending}
+          onClick={onPaste}
+          className="flex w-full items-center px-3 py-1 text-left text-[11px] hover:bg-muted disabled:opacity-40"
+        >
+          粘贴到这里
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2541,6 +2604,44 @@ function StoryboardVisualObjectMenu({
   );
 }
 
+function StoryboardVisualPasteMenu({
+  menu,
+  pending,
+  onPaste,
+  onClose,
+}: {
+  menu: VisualPasteMenuState;
+  pending: boolean;
+  onPaste: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[120]" onPointerDown={onClose}>
+      <div
+        role="menu"
+        aria-label={`视觉层 ${menu.visualLayer + 1} 空白操作`}
+        className="fixed min-w-44 rounded-md border bg-popover p-1 shadow-xl"
+        style={{ left: menu.clientX, top: menu.clientY }}
+        onPointerDown={event => event.stopPropagation()}
+        onContextMenu={event => event.preventDefault()}
+      >
+        <button
+          autoFocus
+          type="button"
+          role="menuitem"
+          disabled={pending}
+          onClick={onPaste}
+          data-testid="storyboard-visual-paste"
+          className="flex w-full justify-between gap-6 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-45"
+        >
+          <span>粘贴</span>
+          <span className="text-[9px] text-muted-foreground">⌘V</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StoryboardEditTrack({
   timeline,
   viewport,
@@ -2563,6 +2664,7 @@ function StoryboardEditTrack({
   selectedVisualObject,
   onSelectVisualObject,
   onOpenObjectMenu,
+  onOpenPasteMenu,
 }: {
   timeline: StoryboardBoardTimeline;
   viewport: TimelineViewport;
@@ -2594,6 +2696,7 @@ function StoryboardEditTrack({
   selectedVisualObject: VisualObjectRef | null;
   onSelectVisualObject: (object: VisualObjectRef, target: HTMLElement) => void;
   onOpenObjectMenu: (menu: VisualObjectMenuState) => void;
+  onOpenPasteMenu: (menu: VisualPasteMenuState) => void;
 }) {
   const isCurrentStorySession = () =>
     timeline.isStorySessionCurrent?.() !== false;
@@ -3546,24 +3649,35 @@ function StoryboardEditTrack({
         onContextMenu={event => {
           // 落在某个镜头块上时，块自己的 onContextMenu 已经 stopPropagation，
           // 冒泡到这里的只会是真正的空档。
-          if (!timeline.onCreateGapTransition) return;
           const atMs = trackMsFromPointer(event.clientX);
           if (storyboardEditTimingAt(timings, atMs)) return;
           const sorted = [...timings].sort((a, b) => a.startMs - b.startMs);
           const before = [...sorted].reverse().find(t => t.endMs <= atMs);
           const after = sorted.find(t => t.startMs >= atMs);
-          if (!before || !after) return;
-          event.preventDefault();
-          event.stopPropagation();
-          trackRef.current?.focus();
-          timeline.onTogglePlay(false);
-          onOpenGapMenu({
-            atMs,
-            before,
-            after,
-            clientX: event.clientX,
-            clientY: event.clientY,
-          });
+          if (timeline.onCreateGapTransition && before && after) {
+            event.preventDefault();
+            event.stopPropagation();
+            trackRef.current?.focus();
+            timeline.onTogglePlay(false);
+            onOpenGapMenu({
+              atMs,
+              before,
+              after,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            });
+            return;
+          }
+          if (timeline.canPasteVisualObject) {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenPasteMenu({
+              clientX: event.clientX,
+              clientY: event.clientY,
+              timelineFrame: Math.max(0, Math.round((atMs * 30) / 1000)),
+              visualLayer: 0,
+            });
+          }
         }}
       >
         {mainImageClips.map(({ shot, clip, atMs }) => {
@@ -4511,6 +4625,8 @@ export function StoryboardEditRow({
   const [objectMenu, setObjectMenu] = useState<VisualObjectMenuState | null>(
     null
   );
+  const [pasteMenu, setPasteMenu] = useState<VisualPasteMenuState | null>(null);
+  const [pastePending, setPastePending] = useState(false);
   const [pendingObjectKey, setPendingObjectKey] = useState<string | null>(null);
   const [gapMenu, setGapMenu] = useState<GapMenuState | null>(null);
   const [gapTransitionPending, setGapTransitionPending] = useState(false);
@@ -4604,6 +4720,8 @@ export function StoryboardEditRow({
     );
     setMenu(null);
     setObjectMenu(null);
+    setPasteMenu(null);
+    setPastePending(false);
     focusReturnRef.current = null;
   }, [controlledSelectedVisualObject, selectedShotNo, shots]);
   useLayoutEffect(() => {
@@ -4828,6 +4946,33 @@ export function StoryboardEditRow({
     },
     [timeline.playheadMs, timelineItems, viewport]
   );
+  const pasteVisualObject = useCallback(
+    (context: { timelineFrame: number; visualLayer?: number }) => {
+      if (!timeline.onPasteVisualObject || pastePending) return;
+      const sessionToken = renderedStorySessionToken;
+      setPastePending(true);
+      void timeline
+        .onPasteVisualObject(context)
+        .then(() => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setPasteMenu(null);
+          setStatusMessage("素材已粘贴");
+        })
+        .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setStatusMessage(error instanceof Error ? error.message : "粘贴失败");
+        })
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken)) setPastePending(false);
+        });
+    },
+    [
+      pastePending,
+      timeline,
+      isStorySessionTokenCurrent,
+      renderedStorySessionToken,
+    ]
+  );
   const runObjectCommand = useCallback(
     (command: VisualObjectCommand) => {
       if (!objectMenu || !timeline.onVisualObjectCommand) return;
@@ -4874,6 +5019,47 @@ export function StoryboardEditRow({
         });
     },
     [closeObjectMenu, objectMenu, timeline]
+  );
+  const runSelectedObjectCommand = useCallback(
+    (command: "copy" | "delete") => {
+      const object = selectedVisualObject;
+      if (!object || !timeline.onVisualObjectCommand) return false;
+      if (
+        timeline.isVisualObjectCommandAvailable &&
+        !timeline.isVisualObjectCommandAvailable(object, command)
+      )
+        return false;
+      const key = visualObjectRefKey(object);
+      const sessionToken = renderedStorySessionToken;
+      setPendingObjectKey(key);
+      void pendingGuardRef.current
+        .run(key, () =>
+          timeline.onVisualObjectCommand!(object, command, {
+            timelineFrame: Math.max(
+              0,
+              Math.round((timeline.playheadMs * 30) / 1_000)
+            ),
+            visualLayer: visualObjectLayer(object) ?? 0,
+          })
+        )
+        .catch(error => {
+          if (!isStorySessionTokenCurrent(sessionToken)) return;
+          setStatusMessage(
+            error instanceof Error ? error.message : "对象操作失败，请重试"
+          );
+        })
+        .finally(() => {
+          if (isStorySessionTokenCurrent(sessionToken))
+            setPendingObjectKey(null);
+        });
+      return true;
+    },
+    [
+      selectedVisualObject,
+      timeline,
+      renderedStorySessionToken,
+      isStorySessionTokenCurrent,
+    ]
   );
 
   const createGapTransition = (target: GapMenuState) => {
@@ -5155,9 +5341,20 @@ export function StoryboardEditRow({
   const handleShortcut = (event: KeyboardEvent) => {
     const shortcut = storyboardEditShortcut(event);
     if (!shortcut) return;
+    if (shortcut.kind === "copyVisualObject" && !selectedVisualObject) return;
+    if (
+      shortcut.kind === "pasteVisualObject" &&
+      (!timeline.canPasteVisualObject || !timeline.onPasteVisualObject)
+    )
+      return;
     if (
       shortcut.kind === "action" &&
       storyboardEditNeedsRowFocus(shortcut.action) &&
+      !(
+        shortcut.action === "delete" &&
+        selectedVisualObject?.type === "image-clip" &&
+        focusReturnRef.current?.contains(document.activeElement)
+      ) &&
       !rowRef.current?.contains(document.activeElement)
     ) {
       return;
@@ -5165,6 +5362,20 @@ export function StoryboardEditRow({
     event.preventDefault();
     event.stopPropagation();
     switch (shortcut.kind) {
+      case "copyVisualObject":
+        runSelectedObjectCommand("copy");
+        return;
+      case "pasteVisualObject":
+        pasteVisualObject({
+          timelineFrame: Math.max(
+            0,
+            Math.round((headRef.current * 30) / 1_000)
+          ),
+          ...(selectedOperationLayer == null
+            ? {}
+            : { visualLayer: selectedOperationLayer }),
+        });
+        return;
       case "togglePlay":
         timeline.onTogglePlay(!timeline.isPlaying);
         return;
@@ -5220,6 +5431,12 @@ export function StoryboardEditRow({
         timeline.onSelectRange(null);
         return;
       case "action":
+        if (
+          shortcut.action === "delete" &&
+          selectedVisualObject?.type === "image-clip" &&
+          runSelectedObjectCommand("delete")
+        )
+          return;
         runAction(shortcut.action, activeShot, headRef.current);
         return;
     }
@@ -5285,6 +5502,7 @@ export function StoryboardEditRow({
           onSelectVisualObject={selectVisualObject}
           onOpenMenu={setMenu}
           onOpenObjectMenu={openObjectMenu}
+          onOpenPasteMenu={setPasteMenu}
         />
       ))}
       <StoryboardVisualLayerHeader
@@ -5340,6 +5558,7 @@ export function StoryboardEditRow({
             selectedVisualObject={selectedVisualObject}
             onSelectVisualObject={selectVisualObject}
             onOpenObjectMenu={openObjectMenu}
+            onOpenPasteMenu={setPasteMenu}
           />
         </div>
       </div>
@@ -5360,6 +5579,29 @@ export function StoryboardEditRow({
           pending={gapTransitionPending}
           onCreate={() => createGapTransition(gapMenu)}
           onClose={closeGapMenu}
+          onPaste={
+            timeline.canPasteVisualObject
+              ? () => {
+                  const target = gapMenu;
+                  closeGapMenu();
+                  pasteVisualObject({
+                    timelineFrame: Math.max(
+                      0,
+                      Math.round((target.atMs * 30) / 1_000)
+                    ),
+                    visualLayer: 0,
+                  });
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {pasteMenu ? (
+        <StoryboardVisualPasteMenu
+          menu={pasteMenu}
+          pending={pastePending}
+          onPaste={() => pasteVisualObject(pasteMenu)}
+          onClose={() => setPasteMenu(null)}
         />
       ) : null}
       {menu ? (
