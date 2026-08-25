@@ -13,6 +13,7 @@ import {
   insertTimelineVisualLayer,
   moveTimelineVisualLayer,
   normalizePersistedVisualLayerState,
+  planExtractedFrameTargetLayer,
   removeTimelineVisualLayer,
   resolveTimelineVisualLayerState,
   toggleTimelineVisualLayerHidden,
@@ -229,6 +230,69 @@ describe("图层操作原子重映射四种素材", () => {
     expect(
       resolveTimelineVisualLayerState(result.state, result.items).count
     ).toBe(5);
+  });
+});
+
+describe("抽帧目标层", () => {
+  it("直接使用紧邻的可见上一层", () => {
+    const result = planExtractedFrameTargetLayer({
+      items,
+      overlays: [overlay("o1")],
+      state: { count: 4, hidden: [] },
+      operationLayer: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      targetLayer: 2,
+      insertedLayer: false,
+    });
+    if (result.status !== "ok") return;
+    expect(result.change.items.map(entry => entry.visualLayer)).toEqual([0, 1]);
+  });
+
+  it("紧邻上一层隐藏时插入新可见层，不取消原隐藏状态", () => {
+    const result = planExtractedFrameTargetLayer({
+      items,
+      overlays: [overlay("o1")],
+      state: { count: 4, hidden: [2] },
+      operationLayer: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      targetLayer: 2,
+      insertedLayer: true,
+    });
+    if (result.status !== "ok") return;
+    expect(result.change.state.hidden).toEqual([3]);
+    expect(result.change.items.map(entry => entry.visualLayer)).toEqual([0, 1]);
+    expect(result.change.items[0].imageClips?.[0].visualLayer).toBe(3);
+    expect(result.change.items[0].visualClips?.[0].visualLayer).toBe(1);
+    expect(result.change.overlays[0].visualLayer).toBe(1);
+  });
+
+  it("显式当前层位于最顶端时创建相邻上一层", () => {
+    const result = planExtractedFrameTargetLayer({
+      items: [item("solo", 0, 0)],
+      state: { count: 1, hidden: [] },
+      operationLayer: 1,
+    });
+    expect(result).toMatchObject({
+      status: "ok",
+      targetLayer: 2,
+      insertedLayer: true,
+    });
+  });
+
+  it("拒绝不存在的操作层", () => {
+    expect(
+      planExtractedFrameTargetLayer({
+        items: [item("solo", 0, 0)],
+        state: { count: 1, hidden: [] },
+        operationLayer: 2,
+      })
+    ).toEqual({ status: "error", error: "operation-layer-unavailable" });
   });
 });
 
