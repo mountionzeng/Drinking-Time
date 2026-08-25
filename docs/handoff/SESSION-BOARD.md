@@ -49,6 +49,7 @@
 
 | 时间 | 提交 | 内容 | 归属（判据） | 触达热区 |
 | --- | --- | --- | --- | --- |
+| 08-26 00:01 | `5c9d750` | 统一所有视觉层的对象选择、移动、剪辑、抽帧、复制粘贴、删除、会话撤销与普通镜头生成采用；抽帧资产永久留仓，Story/Timeline/Take 聚合写入原子化；同步保留刷新延迟优化。合并前门禁 380 文件、3193 测试全绿 | **统一视觉图层剪辑线**（reflog 为 `merge codex/feat-unified-visual-clip-operations:`） | `EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx`、`StoryAgentContext.tsx`、`creationAgent.ts`、`storyAgent.ts`、`storyMaterials.ts`、`visualClipEditing.ts`、`server/db.ts` |
 | 08-23 17:43 | `8d19b94` | 删掉图生图链路里没被用上的代码 | **图生图对话框线**（reflog 为 `commit:`，直接在主仓提交；文件全属图生图链路） | `chatImageRefs.ts`、`useChatImageRemix.ts`、`useAssetSwapProposal.ts` |
 | 08-23 17:47 | `f0ce930` / `1f89f5b` | 清掉多轨剪辑重构留下的死代码 | **clip-move 线**（`1f89f5b` 的第二父提交来自 `claude/multitrack-editor-reset`）。该线当日收工，worktree 与分支已按规矩删除 | `visualClipEditing.ts` −27、`visualClipModel.ts`、`creationAgent.ts` −14、`EditingNleWorkspace.tsx`、`StoryboardEditRow.tsx` |
 | 08-23 18:07 | `8e85541` | 视觉资产：参考图改走自有 OSS、一致性闸门按小句判定、冲突裁决逐条配对 | **视觉资产标准板线**（08-22 完成未落库，由架构收敛会话代为提交；原作者已核对提交信息属实）。这批是真实付费验出来的，累计 ¥31.29 | `imageGen.ts`、`storyAgent.ts`、`visualAsset*` |
