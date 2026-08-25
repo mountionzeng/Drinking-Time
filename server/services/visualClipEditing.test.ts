@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGeneratedImage,
   createStory,
+  createVideoTake,
   getGeneratedImageById,
   getStoryTimeline,
   resetMemoryStateForTesting,
@@ -64,6 +65,16 @@ async function seedStory() {
       ],
     },
   });
+  const overlayTake = await createVideoTake({
+    storyId: story.id,
+    userId: USER_ID,
+    stableShotId: "sh-01",
+    status: "available",
+    model: "test",
+    prompt: "test",
+    durationSec: 1,
+    videoUrl: "/ov.mp4",
+  });
   await updateStoryTimeline({
     storyId: story.id,
     userId: USER_ID,
@@ -79,7 +90,7 @@ async function seedStory() {
         visualLayer: 0,
         transform: TRANSFORM,
         primaryVideoEdit: {
-          takeId: 9,
+          takeId: overlayTake.id,
           sourceStartSec: 0,
           sourceEndSec: 4,
           effects: { playbackRate: 1, reverse: false, volume: 1, muted: false },
@@ -120,7 +131,7 @@ async function seedStory() {
       {
         id: "ov-1",
         kind: "generated-video",
-        takeId: 5,
+        takeId: overlayTake.id,
         sourceStableShotId: "sh-01",
         videoUrl: "/ov.mp4",
         startFrame: 71,
@@ -204,6 +215,49 @@ describe("moveVisualClipForStory", () => {
     expect(after["image:img-abs"]).toBe(before["image:img-abs"]);
     expect(after["overlay:ov-1"]).toBe(before["overlay:ov-1"]);
     expect(after["shot:sh-02"]).toBe(before["shot:sh-02"]);
+  });
+
+  it("拖动遗留 overlay 时先归一为普通镜头，并在同一次写入完成移动", async () => {
+    const storyId = await seedStory();
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
+    const baseVersion = await persistedVersion(storyId);
+
+    const result = await moveVisualClipForStory({
+      storyId,
+      userId: USER_ID,
+      clipId: "overlay:ov-1",
+      toTrackId: "track-3",
+      toStartFrame: 180,
+    });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      changed: true,
+      timelineVersion: baseVersion + 1,
+    });
+    expect(await persistedPlacements(storyId)).toMatchObject({
+      "shot:sh-01": "track-3@180+30",
+    });
+    expect(
+      (await persistedPlacements(storyId))["overlay:ov-1"]
+    ).toBeUndefined();
+
+    expect(
+      await undoVisualEditForStory({ storyId, userId: USER_ID })
+    ).toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
   });
 
   it("重复提交同一次移动不再写库，版本不动", async () => {
@@ -967,6 +1021,10 @@ describe("planner 系列命令（U3）", () => {
     expect(result.errorKind).toBe("invalid");
     expect(result.error).toContain("吸附");
     expect(await persistedVersion(storyId)).toBe(version);
+    expect(
+      ((await getStoryTimeline(storyId, USER_ID))?.overlays as unknown[])
+        ?.length
+    ).toBe(1);
   });
 
   it("镜头不在时间轴上时，修剪返回可见错误且不写库", async () => {
@@ -1096,6 +1154,48 @@ describe("单镜移动的换层与 overlay 迁移（U3）", () => {
     expect(migrated?.visualLayer).toBe(1);
   });
 
+  it("同一镜头绑定多条遗留 overlay 时拒绝且完全不写", async () => {
+    const storyId = await seedStory();
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const overlays = row?.overlays as Array<Record<string, unknown>>;
+    await updateStoryTimeline({
+      storyId,
+      userId: USER_ID,
+      expectedVersion: row?.version ?? 0,
+      items: row?.items as never[],
+      overlays: [
+        { ...overlays[0], id: "ov-duplicate" },
+        ...overlays,
+      ] as never[],
+    });
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
+    const version = await persistedVersion(storyId);
+
+    const result = await moveShotSingleForStory({
+      storyId,
+      userId: USER_ID,
+      stableShotId: "sh-01",
+      deltaFrames: 12,
+      snapThresholdFrames: 0,
+    });
+
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await persistedVersion(storyId)).toBe(version);
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
+  });
+
   it("镜头不在时间轴上时返回 invalid，不写库", async () => {
     const storyId = await seedStoryWithExplicitPositions();
     const version = await persistedVersion(storyId);
@@ -1127,8 +1227,6 @@ describe("图层管理命令（U4）", () => {
 
   it("隐藏一层不改变其它层任何素材的绝对时间（账本第 29 条）", async () => {
     const storyId = await seedStory();
-    const before = await persistedPlacements(storyId);
-
     const result = await applyVisualLayerActionForStory({
       storyId,
       userId: USER_ID,
@@ -1137,8 +1235,14 @@ describe("图层管理命令（U4）", () => {
 
     expect(result.status).toBe("ok");
     expect((await layerState(storyId))?.hidden).toContain(1);
-    // 隐藏只影响可见性解析，不得挪动任何素材。
-    expect(await persistedPlacements(storyId)).toEqual(before);
+    // 第一次持久命令同时把遗留 overlay 归一为普通镜头；显隐动作本身不再改位置。
+    expect(await persistedPlacements(storyId)).toMatchObject({
+      "shot:sh-01": "track-1@71+30",
+      "image:img-abs": "track-1@107+1",
+    });
+    expect(
+      (await persistedPlacements(storyId))["overlay:ov-1"]
+    ).toBeUndefined();
   });
 
   it("再切一次显隐会取消隐藏", async () => {
@@ -1158,6 +1262,11 @@ describe("图层管理命令（U4）", () => {
 
   it("插入一层把层内全部素材一起重编号，版本只 +1", async () => {
     const storyId = await seedStory();
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 2 },
+    });
     const version = await persistedVersion(storyId);
     const before = await persistedPlacements(storyId);
 
@@ -1180,6 +1289,11 @@ describe("图层管理命令（U4）", () => {
 
   it("整层上下移动后素材仍在同一绝对帧上", async () => {
     const storyId = await seedStory();
+    await applyVisualLayerActionForStory({
+      storyId,
+      userId: USER_ID,
+      action: { kind: "toggle-hidden", layer: 2 },
+    });
     const before = await persistedPlacements(storyId);
 
     const result = await applyVisualLayerActionForStory({
@@ -1328,8 +1442,14 @@ describe("窄补丁命令（U6）", () => {
     expect(await persistedVersion(storyId)).toBe(version);
   });
 
-  it("源与目标相同时返回未改变，不写库不推高版本", async () => {
+  it("planner 未改变时仍持久化前置归一，并能一次撤销全部恢复", async () => {
     const storyId = await seedStory();
+    const beforeRow = await getStoryTimeline(storyId, USER_ID);
+    const before = JSON.stringify({
+      items: beforeRow?.items,
+      overlays: beforeRow?.overlays,
+      visualLayerState: beforeRow?.visualLayerState,
+    });
     const version = await persistedVersion(storyId);
 
     const result = await reorderShotToTargetForStory({
@@ -1341,8 +1461,54 @@ describe("窄补丁命令（U6）", () => {
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    expect(result.changed).toBe(false);
+    expect(result.changed).toBe(true);
+    expect(await persistedVersion(storyId)).toBe(version + 1);
+    expect(
+      ((await getStoryTimeline(storyId, USER_ID))?.overlays as unknown[])
+        ?.length
+    ).toBe(0);
+    expect(
+      await undoVisualEditForStory({ storyId, userId: USER_ID })
+    ).toMatchObject({ status: "ok" });
+    const restored = await getStoryTimeline(storyId, USER_ID);
+    expect(
+      JSON.stringify({
+        items: restored?.items,
+        overlays: restored?.overlays,
+        visualLayerState: restored?.visualLayerState,
+      })
+    ).toBe(before);
+  });
+
+  it("CAS 冲突重试时重读 Story binding，旧 body 不得验证新 Timeline", async () => {
+    const storyId = await seedStory();
+    const before = JSON.stringify(await getStoryTimeline(storyId, USER_ID));
+    const version = await persistedVersion(storyId);
+    const update = vi
+      .spyOn(dbModule, "updateStoryTimeline")
+      .mockImplementationOnce(async () => {
+        await dbModule.updateStory(storyId, USER_ID, {
+          body: { shots: [{ shotNo: 2, stableShotId: "sh-02" }] },
+        });
+        throw new Error("时间轴版本已更新");
+      });
+
+    const result = await reorderShotToTargetForStory({
+      storyId,
+      userId: USER_ID,
+      sourceShotId: "sh-01",
+      targetShotId: "sh-01",
+    });
+
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
+    if (result.status === "error") {
+      expect(result.error).toContain("无法归一遗留覆盖层");
+    }
     expect(await persistedVersion(storyId)).toBe(version);
+    expect(JSON.stringify(await getStoryTimeline(storyId, USER_ID))).toBe(
+      before
+    );
+    update.mockRestore();
   });
 
   it("恢复全部镜头后 included 全为真且顺序连续", async () => {
@@ -1578,8 +1744,8 @@ describe("服务端撤销日志（U5）", () => {
     await reorderShotToTargetForStory({
       storyId,
       userId: USER_ID,
-      sourceShotId: "sh-01",
-      targetShotId: "sh-01",
+      sourceShotId: "sh-02",
+      targetShotId: "sh-02",
     });
 
     const undone = await undoVisualEditForStory({ storyId, userId: USER_ID });

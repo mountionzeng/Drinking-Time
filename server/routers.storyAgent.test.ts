@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import type { TrpcContext } from "./_core/context";
+import {
+  DEFAULT_TIMELINE_TRANSFORM,
+  DEFAULT_TIMELINE_VIDEO_EFFECTS,
+  type StoryTimelineOverlay,
+} from "../shared/storyMaterial";
 
 const storyAgentMocks = vi.hoisted(() => ({
   recognizeStoryIntent: vi.fn(async () => ({
@@ -128,6 +133,7 @@ const { appRouter } = await import("./routers");
 // name a projectId must actually own one.
 const {
   createGeneratedImage,
+  createVideoTake,
   getGeneratedImageById,
   getStoryGeneratedImages,
   seedProjectForTesting,
@@ -861,6 +867,172 @@ describe("storyAgent tRPC router", () => {
     expect(restored?.timeline).toMatchObject({
       version: 2,
       items: [{ stableShotId: "shot-a" }],
+    });
+  });
+
+  async function seedLegacySplitTarget(userId: number) {
+    const caller = appRouter.createCaller(createAuthContext(userId));
+    const created = await caller.storyAgent.storyUpsert({
+      title: "历史覆盖视频切割",
+      body: {
+        cards: [],
+        characters: [],
+        shots: [
+          {
+            shotNo: 1,
+            stableShotId: "shot-a",
+            shotIdentity: "shot-a",
+            subject: "连续画面",
+            durationMs: 3_000,
+          },
+        ],
+      },
+    });
+    const take = await createVideoTake({
+      storyId: created!.id,
+      userId,
+      stableShotId: "shot-a",
+      status: "available",
+      provider: "302",
+      model: "viduq2-turbo",
+      prompt: "legacy split",
+      durationSec: 3,
+      aspectRatio: "1:1",
+      videoUrl: "/api/videos/legacy-split.mp4",
+      extractionCapability: "available",
+    });
+    const beforeMaterial = await caller.storyAgent.storyMaterialState({
+      storyId: created!.id,
+    });
+    const item = {
+      ...beforeMaterial!.timeline.items[0],
+      plannedDurationMs: 3_000,
+      durationFrames: 90,
+      timelineStartFrame: 0,
+      visualLayer: 1,
+      stackOrder: 1,
+      transform: { ...DEFAULT_TIMELINE_TRANSFORM },
+      primaryVideoEdit: {
+        takeId: take.id,
+        sourceStartSec: 0,
+        sourceEndSec: 3,
+        effects: { ...DEFAULT_TIMELINE_VIDEO_EFFECTS },
+      },
+    };
+    const overlay: StoryTimelineOverlay = {
+      id: "overlay-shot-a",
+      kind: "generated-video",
+      takeId: take.id,
+      sourceStableShotId: "shot-a",
+      videoUrl: take.videoUrl!,
+      startFrame: 20,
+      targetEndFrame: 110,
+      mediaEndFrame: 110,
+      endFrame: 110,
+      stackOrder: 7,
+      visualLayer: 3,
+      leftImageId: 11,
+      rightImageId: 12,
+      transform: { ...DEFAULT_TIMELINE_TRANSFORM, zoom: 1.2 },
+      effects: { ...DEFAULT_TIMELINE_VIDEO_EFFECTS, playbackRate: 0.8 },
+    };
+    const persisted = await caller.creationAgent.updateStoryTimeline({
+      storyId: created!.id,
+      expectedVersion: beforeMaterial!.timeline.version,
+      items: [item],
+      overlays: [overlay],
+      visualLayerState: { count: 4, hidden: [] },
+    });
+    if (persisted.status !== "ok") throw new Error("历史覆盖视频测试准备失败");
+    const story = await caller.storyAgent.storyGet({ id: created!.id });
+    return {
+      caller,
+      storyId: created!.id,
+      revision: (story!.body as { _revision?: number })._revision ?? 0,
+      timelineVersion: persisted.timeline.version,
+      overlay,
+    };
+  }
+
+  it("normalizes a legacy overlay and splits it in one aggregate revision", async () => {
+    const seeded = await seedLegacySplitTarget(114);
+    const split = await seeded.caller.storyAgent.splitStoryShot({
+      storyId: seeded.storyId,
+      stableShotId: "shot-a",
+      cutFrame: 50,
+      expectedStoryRevision: seeded.revision,
+      expectedTimelineVersion: seeded.timelineVersion,
+      legacyOverlay: {
+        overlayId: seeded.overlay.id,
+        sourceStableShotId: seeded.overlay.sourceStableShotId,
+        expectedVideoUrl: seeded.overlay.videoUrl,
+      },
+    });
+
+    expect(split).toMatchObject({
+      status: "ok",
+      expectedStoryRevision: seeded.revision + 1,
+      expectedTimelineVersion: seeded.timelineVersion + 1,
+    });
+    const material = await seeded.caller.storyAgent.storyMaterialState({
+      storyId: seeded.storyId,
+    });
+    expect(material?.timeline.overlays).toEqual([]);
+    expect(material?.timeline.items).toHaveLength(2);
+    expect(material?.timeline.items[0]).toMatchObject({
+      stableShotId: "shot-a",
+      timelineStartFrame: 20,
+      durationFrames: 30,
+      visualLayer: 3,
+      stackOrder: 7,
+    });
+  });
+
+  it("does not normalize a legacy overlay when its binding or cut is invalid", async () => {
+    const invalidBinding = await seedLegacySplitTarget(115);
+    const rejectedBinding =
+      await invalidBinding.caller.storyAgent.splitStoryShot({
+        storyId: invalidBinding.storyId,
+        stableShotId: "shot-a",
+        cutFrame: 50,
+        expectedStoryRevision: invalidBinding.revision,
+        expectedTimelineVersion: invalidBinding.timelineVersion,
+        legacyOverlay: {
+          overlayId: invalidBinding.overlay.id,
+          sourceStableShotId: invalidBinding.overlay.sourceStableShotId,
+          expectedVideoUrl: "/api/videos/not-the-bound-video.mp4",
+        },
+      });
+    expect(rejectedBinding).toMatchObject({ status: "error" });
+    const afterBinding =
+      await invalidBinding.caller.storyAgent.storyMaterialState({
+        storyId: invalidBinding.storyId,
+      });
+    expect(afterBinding?.timeline).toMatchObject({
+      version: invalidBinding.timelineVersion,
+      overlays: [invalidBinding.overlay],
+    });
+
+    const invalidCut = await seedLegacySplitTarget(116);
+    const rejectedCut = await invalidCut.caller.storyAgent.splitStoryShot({
+      storyId: invalidCut.storyId,
+      stableShotId: "shot-a",
+      cutFrame: 20,
+      expectedStoryRevision: invalidCut.revision,
+      expectedTimelineVersion: invalidCut.timelineVersion,
+      legacyOverlay: {
+        overlayId: invalidCut.overlay.id,
+        sourceStableShotId: invalidCut.overlay.sourceStableShotId,
+        expectedVideoUrl: invalidCut.overlay.videoUrl,
+      },
+    });
+    expect(rejectedCut).toMatchObject({ status: "error" });
+    const afterCut = await invalidCut.caller.storyAgent.storyMaterialState({
+      storyId: invalidCut.storyId,
+    });
+    expect(afterCut?.timeline).toMatchObject({
+      version: invalidCut.timelineVersion,
+      overlays: [invalidCut.overlay],
     });
   });
 

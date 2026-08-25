@@ -47,7 +47,6 @@ import { isVideoTakeTerminal } from "@shared/videoAsset";
 import {
   DEFAULT_TIMELINE_TRANSFORM,
   timelineMsToFrames,
-
   type ShotMaterialState,
   type StoryMaterialState,
   type StoryTimelineItem,
@@ -66,7 +65,6 @@ import {
 import { visualTrackId } from "@shared/visualClipModel";
 import {
   buildTimelineLayout,
-  overlayVisualLayer,
   resolveTimelineFrame,
   type TimelineLayoutRow,
 } from "@shared/timelineLayout";
@@ -1175,8 +1173,8 @@ export function mergeShotsWithImages(
         if (
           image.relatedShotIdentities?.some(
             relatedIdentity =>
-            normalizeShotIdentity(relatedIdentity) ===
-            normalizeShotIdentity(identity)
+              normalizeShotIdentity(relatedIdentity) ===
+              normalizeShotIdentity(identity)
           )
         ) {
           return true;
@@ -1194,10 +1192,10 @@ export function mergeShotsWithImages(
     )
       .filter(key => hasUniqueShotNo || key === normalizeShotIdentity(identity))
       .reduce<CreationEditorImage | undefined>((selected, key) => {
-      const candidate = displayByIdentity.get(key);
-      if (!candidate) return selected;
-      if (!selected || candidate.id >= selected.id) return candidate;
-      return selected;
+        const candidate = displayByIdentity.get(key);
+        if (!candidate) return selected;
+        if (!selected || candidate.id >= selected.id) return candidate;
+        return selected;
       }, undefined);
     const promptRunImage =
       shot.promptRun?.imageId != null
@@ -2005,7 +2003,6 @@ export function CreationEditorProvider({
       }),
     [timelineLayoutRows]
   );
-
 
   // 时间线领域命令的客户端住在自己的文件里（见 useTimelineCommands）：
   // 它是一层独立职责，不是本 Context 的一部分。
@@ -3485,37 +3482,19 @@ export function CreationEditorProvider({
         cutFrame: input.cutFrame,
         expectedStoryRevision,
         expectedTimelineVersion,
+        ...(input.overlayId
+          ? {
+              legacyOverlay: {
+                overlayId: input.overlayId,
+                sourceStableShotId: input.stableShotId,
+                expectedVideoUrl: input.videoUrl,
+              },
+            }
+          : {}),
       });
-    let timelineVersion = storyMaterialQuery.data?.timeline.version ?? 0;
-    if (input.overlayId) {
-      // 迁移到 overlay 当前真正所在的那一层，而不是写死的 1：图层排序之后
-      // 遗留 overlay 可能已经被重编号，写死会让切割出来的镜头落在错误的层。
-      const promotedOverlay = timelineOverlays.find(
-        overlay => overlay.id === input.overlayId
-      );
-      const promotedLayer = promotedOverlay
-        ? overlayVisualLayer(promotedOverlay)
-        : 1;
-      const promoted = await updateStoryTimelineMut.mutateAsync({
-        storyId: activeId,
-        expectedVersion: timelineVersion,
-        items: timelineItems.map(item =>
-          item.stableShotId === input.stableShotId
-            ? { ...item, visualLayer: promotedLayer }
-            : item
-        ),
-        overlays: timelineOverlays.filter(
-          overlay => overlay.id !== input.overlayId
-        ),
-      });
-      if (promoted.status !== "ok") {
-        throw new Error(promoted.error || "历史覆盖视频迁移失败");
-      }
-      timelineVersion = promoted.timeline.version;
-    }
     let result = await requestSplit(
       revisionFromBody(storyQuery.data?.body),
-      timelineVersion
+      storyMaterialQuery.data?.timeline.version ?? 0
     );
     if (
       result.status !== "ok" &&
@@ -3688,7 +3667,9 @@ export function CreationEditorProvider({
         imageId: input.imageId,
         imageUrl: input.imageUrl,
         label: input.label,
-        toTrackId: visualTrackId(Math.max(0, Math.round(input.visualLayer ?? 1))),
+        toTrackId: visualTrackId(
+          Math.max(0, Math.round(input.visualLayer ?? 1))
+        ),
         toStartFrame: Math.max(0, Math.round(input.timelineFrame)),
       })
     );
@@ -3699,8 +3680,6 @@ export function CreationEditorProvider({
     });
     await storyMaterialQuery.refetch();
   };
-
-
 
   /**
    * 唯一的素材移动入口。

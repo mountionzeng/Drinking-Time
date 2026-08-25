@@ -160,15 +160,14 @@ describe("moveVisualClip", () => {
     });
   });
 
-  it("视频左右移动同样只改自己", () => {
-    const before = placements(fixture());
-    const moved = moveOk(fixture(), "overlay:ov-1", visualTrackId(1), 300);
-    const after = placements(moved.document);
-    expect(after["overlay:ov-1"]).toBe("track-1@300+30");
-    for (const id of Object.keys(before)) {
-      if (id === "overlay:ov-1") continue;
-      expect(after[id]).toBe(before[id]);
-    }
+  it("拒绝直接移动只读投影的遗留 overlay", () => {
+    expect(
+      moveVisualClip(fixture(), {
+        clipId: "overlay:ov-1",
+        toTrackId: visualTrackId(1),
+        toStartFrame: 300,
+      })
+    ).toMatchObject({ status: "error", error: "unsupported-kind" });
   });
 
   it("移动底层视频不改变任何其它 clip 的绝对位置", () => {
@@ -210,7 +209,12 @@ describe("moveVisualClip", () => {
 
   it("同一次移动重复提交是幂等的", () => {
     const first = moveOk(fixture(), "image:img-abs", visualTrackId(2), 200);
-    const second = moveOk(first.document, "image:img-abs", visualTrackId(2), 200);
+    const second = moveOk(
+      first.document,
+      "image:img-abs",
+      visualTrackId(2),
+      200
+    );
     expect(second.changed).toBe(false);
     expect(placements(second.document)).toEqual(placements(first.document));
   });
@@ -397,14 +401,19 @@ describe("removeVisualClip", () => {
     }
   });
 
-  it("删掉遗留 overlay", () => {
+  it("拒绝直接删除只读投影的遗留 overlay", () => {
     const result = removeVisualClip(fixture(), "overlay:ov-1");
-    if (result.status !== "ok") return;
-    expect(placements(result.document)["overlay:ov-1"]).toBeUndefined();
+    expect(result).toMatchObject({
+      status: "error",
+      error: "unsupported-kind",
+    });
   });
 
   it("拒绝用剪辑命令删掉整个镜头", () => {
     const result = removeVisualClip(fixture(), "shot:sh-01");
-    expect(result).toMatchObject({ status: "error", error: "unsupported-kind" });
+    expect(result).toMatchObject({
+      status: "error",
+      error: "unsupported-kind",
+    });
   });
 });

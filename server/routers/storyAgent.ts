@@ -61,6 +61,7 @@ import { synthesizeShotPrompt } from "../services/synthesizeShotPrompt";
 import { directImagePrompt } from "../services/imagePromptDirector";
 import { planImageGenerationReferences } from "../services/imageGenerationReference";
 import { resolveVisualAssetGenerationContext } from "../services/visualAssetGenerationContext";
+import { runStoryTimelineCommand } from "../services/storyTimelineEditing";
 import {
   applyPublishingCoverArtDirection,
   resolvePublishingCoverArtDirection,
@@ -1520,121 +1521,148 @@ export const storyAgentRouter = router({
         cutFrame: z.number().int().nonnegative(),
         expectedStoryRevision: z.number().int().nonnegative(),
         expectedTimelineVersion: z.number().int().nonnegative(),
+        legacyOverlay: z
+          .object({
+            overlayId: z.string().trim().min(1),
+            sourceStableShotId: stableShotIdSchema,
+            expectedVideoUrl: z.string().trim().min(1),
+          })
+          .strict()
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [story, material] = await Promise.all([
-        getStoryById(input.storyId, ctx.user.id),
-        getStoryMaterialState(input.storyId, ctx.user.id),
-      ]);
-      if (!story || !material) {
-        return { status: "error" as const, error: "故事不存在" };
-      }
-      const body =
-        story.body &&
-        typeof story.body === "object" &&
-        !Array.isArray(story.body)
-          ? (story.body as Record<string, unknown>)
-          : {};
-      const shots = Array.isArray(body.shots)
-        ? body.shots.filter((shot): shot is Record<string, unknown> =>
-            Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
-          )
-        : [];
-      const targetIndex = shots.findIndex(
-        (shot, index) =>
-          shotIdentityFromShot(shot, index) === input.stableShotId
-      );
-      const timelineIndex = material.timeline.items.findIndex(
-        item => item.stableShotId === input.stableShotId
-      );
-      // Resolved against the full item list: a shot with an implicit position
-      // has no `timelineStartFrame` of its own.
-      const timelineRow = buildTimelineLayout(material.timeline.items).find(
-        row => row.item.stableShotId === input.stableShotId
-      );
-      if (targetIndex < 0 || timelineIndex < 0 || !timelineRow) {
-        return { status: "error" as const, error: "镜头不存在或已经更新" };
-      }
       const splitStableShotId = `split-${nanoid(16)
         .toLowerCase()
         .replace(/[^a-z0-9]/g, "")}`;
-      const timelineSplit = splitTimelineItem({
-        item: material.timeline.items[timelineIndex],
-        startFrame: timelineRow.startFrame,
-        cutFrame: input.cutFrame,
-        leftStableShotId: input.stableShotId,
-        rightStableShotId: splitStableShotId,
-      });
-      if (timelineSplit.kind === "blocked") {
-        return { status: "error" as const, error: timelineSplit.reason };
-      }
-      const storySplit = splitStoryShotAtIndex({
-        shots,
-        index: targetIndex,
-        rightStableShotId: splitStableShotId,
-        leftDurationMs: timelineSplit.left.plannedDurationMs,
-        rightDurationMs: timelineSplit.right.plannedDurationMs,
-      });
-      if (!storySplit) {
+      const command = await runStoryTimelineCommand(
+        {
+          storyId: input.storyId,
+          userId: ctx.user.id,
+          failureMessage: "镜头拆分失败",
+          ...(input.legacyOverlay
+            ? { legacyOverlay: input.legacyOverlay }
+            : {}),
+        },
+        context => {
+          if (
+            input.legacyOverlay &&
+            input.legacyOverlay.sourceStableShotId !== input.stableShotId
+          ) {
+            return {
+              status: "error" as const,
+              message: "历史覆盖视频与待切割镜头不匹配",
+            };
+          }
+          if (context.storyRevision !== input.expectedStoryRevision) {
+            return {
+              status: "error" as const,
+              message: "故事已经更新，请刷新后重试",
+            };
+          }
+          if (context.timelineVersion !== input.expectedTimelineVersion) {
+            return {
+              status: "error" as const,
+              message: "时间线已经更新，请刷新后重试",
+            };
+          }
+          const shots = Array.isArray(context.storyBody.shots)
+            ? context.storyBody.shots.filter(
+                (shot): shot is Record<string, unknown> =>
+                  Boolean(
+                    shot && typeof shot === "object" && !Array.isArray(shot)
+                  )
+              )
+            : [];
+          const targetIndex = shots.findIndex(
+            (shot, index) =>
+              shotIdentityFromShot(shot, index) === input.stableShotId
+          );
+          const timelineIndex = context.document.items.findIndex(
+            item => item.stableShotId === input.stableShotId
+          );
+          const timelineRow = buildTimelineLayout(context.document.items).find(
+            row => row.item.stableShotId === input.stableShotId
+          );
+          if (targetIndex < 0 || timelineIndex < 0 || !timelineRow) {
+            return {
+              status: "error" as const,
+              message: "镜头不存在或已经更新",
+            };
+          }
+          const timelineSplit = splitTimelineItem({
+            item: context.document.items[timelineIndex],
+            startFrame: timelineRow.startFrame,
+            cutFrame: input.cutFrame,
+            leftStableShotId: input.stableShotId,
+            rightStableShotId: splitStableShotId,
+          });
+          if (timelineSplit.kind === "blocked") {
+            return { status: "error" as const, message: timelineSplit.reason };
+          }
+          const storySplit = splitStoryShotAtIndex({
+            shots,
+            index: targetIndex,
+            rightStableShotId: splitStableShotId,
+            leftDurationMs: timelineSplit.left.plannedDurationMs,
+            rightDurationMs: timelineSplit.right.plannedDurationMs,
+          });
+          if (!storySplit) {
+            return {
+              status: "error" as const,
+              message: "镜头拆分失败，请刷新后重试",
+            };
+          }
+          const expandedTimeline = [
+            ...context.document.items.slice(0, timelineIndex),
+            timelineSplit.left,
+            timelineSplit.right,
+            ...context.document.items.slice(timelineIndex + 1),
+          ];
+          const storyPosition = new Map(
+            storySplit.shots.map((shot, index) => [
+              shotIdentityFromShot(shot, index),
+              index,
+            ])
+          );
+          return {
+            status: "ok" as const,
+            value: { rightShotNo: storySplit.rightShotNo },
+            storyBody: { ...context.storyBody, shots: storySplit.shots },
+            document: {
+              ...context.document,
+              items: expandedTimeline.map((item, index) => ({
+                ...item,
+                position: storyPosition.get(item.stableShotId) ?? index,
+              })),
+            },
+          };
+        }
+      );
+      if (command.status !== "ok") {
         return {
           status: "error" as const,
-          error: "镜头拆分失败，请刷新后重试",
+          error: command.error,
         };
       }
-      const expandedTimeline = [
-        ...material.timeline.items.slice(0, timelineIndex),
-        timelineSplit.left,
-        timelineSplit.right,
-        ...material.timeline.items.slice(timelineIndex + 1),
-      ];
-      const storyPosition = new Map(
-        storySplit.shots.map((shot, index) => [
-          shotIdentityFromShot(shot, index),
-          index,
-        ])
-      );
-      const nextTimelineItems = expandedTimeline.map((item, index) => ({
-        ...item,
-        position: storyPosition.get(item.stableShotId) ?? index,
-      }));
-      const nextBody = prepareStoryBody(
-        { ...body, shots: storySplit.shots },
-        getStoryRevision(story.body) + 1,
-        story.body
-      );
-      try {
-        const saved = await insertTransitionShotAtomic({
-          storyId: story.id,
-          userId: ctx.user.id,
-          stableShotId: splitStableShotId,
-          expectedStoryRevision: input.expectedStoryRevision,
-          expectedTimelineVersion: input.expectedTimelineVersion,
-          nextStoryBody: nextBody,
-          nextTimelineItems,
-        });
-        await syncStoryPromptLineageAfterMutation({
-          storyId: saved.story.id,
-          userId: ctx.user.id,
-          body: storyPromptLineageBody(saved.story),
-          warningLabel: "splitStoryShot",
-        });
-        return {
-          status: "ok" as const,
-          splitStableShotId,
-          rightShotNo: storySplit.rightShotNo,
-          beforeStoryBody: structuredClone(body),
-          beforeTimelineItems: material.timeline.items,
-          expectedStoryRevision: getStoryRevision(saved.story.body),
-          expectedTimelineVersion: saved.timeline.version,
-          story: await composeStoryWorkspace(saved.story, ctx.user.id),
-        };
-      } catch (error) {
-        return {
-          status: "error" as const,
-          error: error instanceof Error ? error.message : "镜头拆分失败",
-        };
-      }
+      const savedStory = await getStoryById(input.storyId, ctx.user.id);
+      if (!savedStory) return { status: "error" as const, error: "故事不存在" };
+      await syncStoryPromptLineageAfterMutation({
+        storyId: savedStory.id,
+        userId: ctx.user.id,
+        body: storyPromptLineageBody(savedStory),
+        warningLabel: "splitStoryShot",
+      });
+      return {
+        status: "ok" as const,
+        splitStableShotId,
+        rightShotNo: command.value.rightShotNo,
+        beforeStoryBody: command.facts.before.storyBody,
+        beforeTimelineItems: command.facts.before.document.items,
+        expectedStoryRevision: command.storyRevision,
+        expectedTimelineVersion: command.timelineVersion,
+        story: await composeStoryWorkspace(savedStory, ctx.user.id),
+      };
     }),
 
   undoSplitStoryShot: protectedProcedure
@@ -2474,14 +2502,14 @@ export const storyAgentRouter = router({
         });
         if (!lockedAssets)
           prompt = withCharacterContinuityPrompt(prompt, storyBody, {
-          hasCharacterReference: Boolean(
-            referencePlan.usesStoryboardFrames
+            hasCharacterReference: Boolean(
+              referencePlan.usesStoryboardFrames
                 ? (input.referenceIdentityImageUrl ??
                     referencePlan.primaryImage)
-              : rawCharacterRef
-          ),
-          sceneAnalysis: input.sceneAnalysis,
-        });
+                : rawCharacterRef
+            ),
+            sceneAnalysis: input.sceneAnalysis,
+          });
         const referenceImage =
           referencePlan.primaryImage ?? lockedAssets?.sceneRef;
         let referenceImageInput: string | undefined;
@@ -2515,7 +2543,7 @@ export const storyAgentRouter = router({
                 : {}),
             }
           : referencePlan.usesStoryboardFrames ||
-          referencePlan.usesStoryStyleReference
+              referencePlan.usesStoryStyleReference
             ? await deriveStoryboardReferenceInjection(story, {
                 identityImageUrl: input.referenceIdentityImageUrl,
                 sceneImageUrl: referencePlan.primaryImage,
@@ -2593,13 +2621,13 @@ export const storyAgentRouter = router({
           referenceImages: lockedAssets
             ? Array.from(
                 new Set([
-                ...(referencePlan.gateReferenceImages ?? []),
+                  ...(referencePlan.gateReferenceImages ?? []),
                   ...Object.values(lockedAssets.dimensions).flatMap(
                     dimension =>
-                  dimension
-                    ? dimension.views.map(view => view.materializedUrl)
-                    : []
-                ),
+                      dimension
+                        ? dimension.views.map(view => view.materializedUrl)
+                        : []
+                  ),
                 ])
               )
             : referencePlan.gateReferenceImages,
@@ -2634,8 +2662,8 @@ export const storyAgentRouter = router({
           artDirection: lockedAssets
             ? undefined
             : referencePlan.usesStoryboardFrames
-            ? explicitStyleRecipe
-            : (storyArtRecipe(story) ?? explicitStyleRecipe),
+              ? explicitStyleRecipe
+              : (storyArtRecipe(story) ?? explicitStyleRecipe),
           styleIndex:
             typeof storyBody.styleIndex === "number"
               ? (storyBody.styleIndex as number)

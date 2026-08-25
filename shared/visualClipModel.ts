@@ -100,7 +100,8 @@ type MoveVisualClipError =
   | "clip-not-found"
   | "invalid-track"
   | "invalid-start"
-  | "before-owner-start";
+  | "before-owner-start"
+  | "unsupported-kind";
 
 export type MoveVisualClipResult =
   | {
@@ -385,23 +386,11 @@ export function moveVisualClip(
       break;
     }
     case "overlay": {
-      const overlayId = clip.origin.overlayId;
-      next = {
-        ...base,
-        overlays: (base.overlays ?? []).map(overlay => {
-          if (overlay.id !== overlayId) return overlay;
-          const delta = toStartFrame - overlay.startFrame;
-          return {
-            ...overlay,
-            startFrame: toStartFrame,
-            targetEndFrame: overlay.targetEndFrame + delta,
-            mediaEndFrame: overlay.mediaEndFrame + delta,
-            endFrame: overlay.endFrame + delta,
-            visualLayer: layer,
-          };
-        }),
+      return {
+        status: "error",
+        error: "unsupported-kind",
+        message: "遗留覆盖层只能先归一为普通故事镜头再移动",
       };
-      break;
     }
   }
 
@@ -616,16 +605,10 @@ export function removeVisualClip(
       };
     }
     case "overlay": {
-      const overlayId = clip.origin.overlayId;
       return {
-        status: "ok",
-        removed: clip,
-        document: {
-          ...base,
-          overlays: (base.overlays ?? []).filter(
-            overlay => overlay.id !== overlayId
-          ),
-        },
+        status: "error",
+        error: "unsupported-kind",
+        message: "遗留覆盖层只能先归一为普通故事镜头再删除",
       };
     }
   }
