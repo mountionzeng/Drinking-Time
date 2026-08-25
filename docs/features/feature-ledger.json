@@ -268,6 +268,11 @@
       "knownGaps": [],
       "history": [
         {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "Phase C（刷新延迟修复）：本地模式读单个 Story 的提示词投影不再复制整份提示词仓库。新增 getLocalPromptLineageStateForStory()/getLocalPromptCompilationHeadsForStory()（server/db.ts）：先按 storyId 从内存态筛出切片再 structuredClone，不泄露可变全局引用；loadStoryPromptAggregate 本地分支改用前者替换「clone 整库 + 写入用 onCommit 管线」的读法；新增 loadStoryPromptCompilationHeads(owner)（本地校验 storyId 存在但 userId 不符仍抛 PromptLineageOwnershipError，SQL 直接按 storyId+userId 查表）。storyMaterials.getStoryMaterialState 改用这个窄函数，不再取完整聚合。server/routers/promptLineage.ts 的 Prompt Table 独立端点未改，仍取完整单 Story aggregate，但同样受益于本地分支的筛选顺序优化。新增 16 个单测（server/services/promptLineageStore.test.ts、server/db.promptLineageStoryScope.test.ts）覆盖单 Story 隔离、clone 非活引用、所有权不匹配抛错、空提示词状态返回空。主仓 3000 用 Story 1186（37 镜头、105 条 compilationHeads）服务层只读计时：getStoryMaterialState 热调用从约 45-48ms 降到约 9-13ms，loadStoryPromptAggregate 从约 38-41ms 降到约 9ms，新的 loadStoryPromptCompilationHeads 约 0.1ms；连续 3 次整页刷新 + 打开素材仓库（图片77/视频112/资产2）实测正常，无 console error。"
+        },
+        {
           "date": "2026-06-29",
           "kind": "feature",
           "summary": "建立故事、镜头和生成记录之间的提示词谱系。"
