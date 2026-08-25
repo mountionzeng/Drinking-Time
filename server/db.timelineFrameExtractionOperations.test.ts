@@ -163,6 +163,52 @@ describe("timeline frame extraction operation receipts", () => {
     ).rejects.toThrow("descriptor conflict");
   });
 
+  it("rejects an old token even when it repeats the new claim descriptor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:00Z"));
+    const first = await claim();
+    const firstToken = first.operation.claimToken;
+    vi.setSystemTime(new Date("2026-08-25T00:03:00Z"));
+    const takeover = await claim();
+    const descriptor = { winnerIdentity: "shot:a", descriptor: { b: 2 } };
+    await db.recordTimelineFrameExtractionDescriptor({
+      ...owner,
+      claimToken: takeover.operation.claimToken,
+      ...descriptor,
+    });
+    await expect(
+      db.recordTimelineFrameExtractionDescriptor({
+        ...owner,
+        claimToken: firstToken,
+        ...descriptor,
+      })
+    ).rejects.toThrow("claim 已失效");
+  });
+
+  it("releases a claim for immediate takeover without letting the old token release the new claim", async () => {
+    const first = await claim();
+    const firstToken = first.operation.claimToken;
+    await expect(
+      db.releaseTimelineFrameExtractionClaim({
+        ...owner,
+        claimToken: firstToken,
+      })
+    ).resolves.toMatchObject({ status: "claimed", attempt: 1 });
+    const takeover = await claim();
+    expect(takeover).toMatchObject({
+      created: false,
+      acquired: true,
+      operation: { attempt: 2 },
+    });
+    expect(takeover.operation.claimToken).not.toBe(firstToken);
+    await expect(
+      db.releaseTimelineFrameExtractionClaim({
+        ...owner,
+        claimToken: firstToken,
+      })
+    ).rejects.toThrow("claim 已失效");
+  });
+
   it("creates one asset across serialized retries", async () => {
     const { operation } = await claim();
     const settle = {
@@ -269,6 +315,13 @@ describe("timeline frame extraction operation receipts", () => {
       claimToken: operation.claimToken,
       image: imageInput(),
     });
+    await expect(
+      db.failTimelineFrameExtractionOperation({
+        ...owner,
+        claimToken: operation.claimToken,
+        errorCode: "late_worker",
+      })
+    ).rejects.toThrow("claimed");
     const result = { ...owner, clipId: "clip-a", timelineVersion: 4 };
     await expect(
       db.markTimelineFrameExtractionSucceeded(result)
@@ -289,7 +342,7 @@ describe("timeline frame extraction operation receipts", () => {
         claimToken: operation.claimToken,
         errorCode: "late",
       })
-    ).rejects.toThrow("已成功");
+    ).rejects.toThrow("claimed");
   });
 
   it("makes failed terminal and rejects late writes", async () => {
@@ -304,13 +357,7 @@ describe("timeline frame extraction operation receipts", () => {
     ).resolves.toMatchObject({ status: "failed" });
     await expect(
       db.failTimelineFrameExtractionOperation(failure)
-    ).resolves.toMatchObject({ status: "failed" });
-    await expect(
-      db.failTimelineFrameExtractionOperation({
-        ...failure,
-        errorCode: "other",
-      })
-    ).rejects.toThrow("conflict");
+    ).rejects.toThrow("claimed");
     await expect(
       db.recordTimelineFrameExtractionDescriptor({
         ...owner,

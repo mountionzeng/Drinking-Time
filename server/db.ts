@@ -3914,12 +3914,12 @@ export async function recordTimelineFrameExtractionDescriptor(
   ) => {
     if (current.status !== "claimed")
       throw new Error("只有 claimed 操作可以记录 descriptor");
+    assertActiveExtractionClaim(current, input.claimToken);
     if (current.descriptor != null) {
       if (!extractionDescriptorMatches(current, input))
         throw new Error("抽帧 descriptor conflict");
       return current;
     }
-    assertActiveExtractionClaim(current, input.claimToken);
     current.winnerIdentity = input.winnerIdentity;
     current.descriptor = input.descriptor;
     await persist();
@@ -3969,6 +3969,62 @@ export async function recordTimelineFrameExtractionDescriptor(
   });
 }
 
+export async function releaseTimelineFrameExtractionClaim(
+  input: TimelineFrameExtractionOwner & { claimToken: string }
+): Promise<TimelineFrameExtractionOperation | null> {
+  const db = await getDb();
+  if (!db) {
+    await ensureMemoryLoaded();
+    return withTimelineFrameExtractionMemoryLock(input, async () => {
+      const current = memoryTimelineFrameExtractionOperation(input);
+      if (!current) return null;
+      if (current.status !== "claimed") return current;
+      if (current.claimToken !== input.claimToken)
+        throw new Error("抽帧 claim 已失效");
+      const before = { ...current };
+      const releasedAt = now();
+      current.leaseUntil = releasedAt;
+      current.updatedAt = releasedAt;
+      try {
+        await persistMemoryState();
+      } catch (error) {
+        Object.assign(current, before);
+        throw error;
+      }
+      return current;
+    });
+  }
+  return db.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(
+        and(
+          eq(timelineFrameExtractionOperations.storyId, input.storyId),
+          eq(timelineFrameExtractionOperations.userId, input.userId),
+          eq(timelineFrameExtractionOperations.requestId, input.requestId)
+        )
+      )
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+    if (current.status !== "claimed") return current;
+    if (current.claimToken !== input.claimToken)
+      throw new Error("抽帧 claim 已失效");
+    const releasedAt = now();
+    await tx
+      .update(timelineFrameExtractionOperations)
+      .set({ leaseUntil: releasedAt })
+      .where(eq(timelineFrameExtractionOperations.id, current.id));
+    const [released] = await tx
+      .select()
+      .from(timelineFrameExtractionOperations)
+      .where(eq(timelineFrameExtractionOperations.id, current.id))
+      .limit(1);
+    return released;
+  });
+}
+
 export async function failTimelineFrameExtractionOperation(
   input: TimelineFrameExtractionOwner & {
     claimToken: string;
@@ -3982,15 +4038,9 @@ export async function failTimelineFrameExtractionOperation(
     return withTimelineFrameExtractionMemoryLock(input, async () => {
       const current = memoryTimelineFrameExtractionOperation(input);
       if (!current) return null;
-      if (current.status === "failed") {
-        if (current.errorCode !== errorCode)
-          throw new Error("抽帧失败结果 conflict");
-        return current;
-      }
-      if (current.status === "succeeded")
-        throw new Error("抽帧操作已成功，不能标记失败");
-      if (current.status === "claimed")
-        assertActiveExtractionClaim(current, input.claimToken);
+      if (current.status !== "claimed")
+        throw new Error("只有 claimed 操作可以标记失败");
+      assertActiveExtractionClaim(current, input.claimToken);
       const before = { ...current };
       current.status = "failed";
       current.errorCode = errorCode;
@@ -4018,15 +4068,9 @@ export async function failTimelineFrameExtractionOperation(
       .for("update")
       .limit(1);
     if (!current) return null;
-    if (current.status === "failed") {
-      if (current.errorCode !== errorCode)
-        throw new Error("抽帧失败结果 conflict");
-      return current;
-    }
-    if (current.status === "succeeded")
-      throw new Error("抽帧操作已成功，不能标记失败");
-    if (current.status === "claimed")
-      assertActiveExtractionClaim(current, input.claimToken);
+    if (current.status !== "claimed")
+      throw new Error("只有 claimed 操作可以标记失败");
+    assertActiveExtractionClaim(current, input.claimToken);
     await tx
       .update(timelineFrameExtractionOperations)
       .set({ status: "failed", errorCode })
