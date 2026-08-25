@@ -20,6 +20,10 @@ import {
   isStoryScopeReady,
   resolveInitialStoryLoading,
 } from "./creationEditorReadiness";
+import {
+  RECENT_STORY_LIST_CACHE_WINDOW_MS,
+  STORY_GET_MOUNT_STALE_WINDOW_MS,
+} from "@/features/storyAgent/recentStoryListCache";
 import { canonicalizeShotNo } from "@shared/imageAsset";
 import {
   ensureShotIdentities,
@@ -1488,6 +1492,10 @@ export function CreationEditorProvider({
 
   const storyListQuery = trpc.storyAgent.storyList.useQuery(undefined, {
     refetchOnWindowFocus: false,
+    // 冷刷新时 StoryAgent 入口 hydrate 也会取一次同一份 storyList（见
+    // recentStoryListCache.ts）；给这份窄窗口，谁先取到都不让另一个在几秒内
+    // 再打一次网络，不影响用户主动刷新故事库（那条路径不走这个 staleTime）。
+    staleTime: RECENT_STORY_LIST_CACHE_WINDOW_MS,
   });
   const updateStoryShotFieldsMut =
     trpc.storyAgent.updateStoryShotFields.useMutation();
@@ -1600,6 +1608,10 @@ export function CreationEditorProvider({
       // 草稿故事的 activeId 是 -1，服务端只认正数 id，别让 400 进入重试循环
       enabled: activeId != null && activeId > 0,
       refetchOnWindowFocus: false,
+      // StoryAgent 的 loadStory() 用 staleTime:0 已经强制取回同一个 id 的
+      // 最新 Story，这个 observer 挂载/启用时不用再当成 stale 立刻重打一次；
+      // 窄窗口只挡自动重挂载重取，不影响 invalidate()/refetch() 的显式刷新。
+      staleTime: STORY_GET_MOUNT_STALE_WINDOW_MS,
     }
   );
   const publishingDraftQuery = trpc.publishingDraft.read.useQuery(
