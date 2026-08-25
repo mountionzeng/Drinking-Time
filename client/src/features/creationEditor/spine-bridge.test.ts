@@ -123,7 +123,11 @@ describe("creation editor spine boundary", () => {
     expect(context).toContain("trpc.storyAgent.storyImages.useQuery");
     expect(context).toContain("trpc.publishingDraft.read.useQuery");
     expect(context).toMatch(/useStorySpine\(\s*state\s*=>/);
-    expect(context).toContain("state.activeStoryId === activeId");
+    // 2026-08-25：spine 作用域匹配抽成 isStoryScopeReady()（含单测），不再是
+    // canonicalStoryShots/spinePublishing 各自的内联 `state.activeStoryId ===
+    // activeId` 表达式——同一条件挪了位置，不是被删掉，守的还是同一件事。
+    expect(context).toContain("isStoryScopeReady({");
+    expect(context).toContain("spineActiveStoryId: state.activeStoryId");
     expect(context).toContain(
       "mergeCanonicalStoryShots(canonicalStoryShots, body)"
     );
