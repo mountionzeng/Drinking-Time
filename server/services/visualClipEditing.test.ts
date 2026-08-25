@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createGeneratedImage,
   createStory,
+  getGeneratedImageById,
   getStoryTimeline,
   resetMemoryStateForTesting,
   updateStoryTimeline,
@@ -8,6 +10,7 @@ import {
 import {
   addTimelineAnchorForStory,
   applyVisualLayerActionForStory,
+  deleteVisualObjectForStory,
   includeAllShotsForStory,
   moveShotOrderForStory,
   patchImageTransformForStory,
@@ -23,10 +26,12 @@ import {
   moveShotGroupForStory,
   moveShotSingleForStory,
   moveVisualClipForStory,
+  pasteVisualImageForStory,
   removeTimelineAnchorForStory,
   rollingTrimForStory,
   trimShotForStory,
 } from "./visualClipEditing";
+import type { ImageClipClipboardSnapshot } from "../../shared/visualObjectClipboard";
 import { projectVisualClips, type VisualEditDocument } from "../../shared/visualClipModel";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import { clearVisualEditUndoForTesting } from "./visualEditUndoJournal";
@@ -325,6 +330,155 @@ describe("insertVisualImageClipForStory", () => {
       beforeVersion + 1,
       beforeVersion + 2,
     ]);
+  });
+});
+
+describe("Story-scoped image paste and narrow delete", () => {
+  beforeEach(() => resetMemoryStateForTesting());
+
+  async function warehouseSnapshot(
+    storyId: number
+  ): Promise<ImageClipClipboardSnapshot> {
+    const image = await createGeneratedImage({
+      projectId: null,
+      storyId,
+      userId: USER_ID,
+      shotNo: "1",
+      shotIdentity: "sh-01",
+      imageKey: "generated/clipboard.png",
+      imageUrl: "/api/images/clipboard.png",
+      prompt: "剪贴板图片",
+      generationType: "initial",
+      isCurrent: false,
+    });
+    return Object.freeze({
+      version: 1,
+      kind: "image-clip",
+      sourceStoryId: storyId,
+      sourceClipId: "source-image",
+      sourceLayer: 1,
+      imageId: image.id,
+      imageUrl: "/untrusted-stale-url.png",
+      label: "复制图片",
+      durationFrames: 3,
+      transform: Object.freeze({ ...TRANSFORM, zoom: 1.4 }),
+    });
+  }
+
+  it("re-authorizes the image and replays one paste without a second version", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const beforeVersion = await persistedVersion(storyId);
+    const first = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    const replay = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+
+    expect(first).toMatchObject({ status: "ok", changed: true });
+    expect(replay).toMatchObject({
+      status: "ok",
+      changed: false,
+      timelineVersion: beforeVersion + 1,
+      clipId: first.clipId,
+    });
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const pasted = (row?.items as VisualEditDocument["items"])
+      .flatMap(item => item.imageClips ?? [])
+      .find(clip => clip.id === first.clipId);
+    expect(pasted).toMatchObject({
+      imageId: snapshot.imageId,
+      imageUrl: "/api/images/clipboard.png",
+      timelineStartFrame: 80,
+      durationFrames: 3,
+      visualLayer: 2,
+      transform: { zoom: 1.4 },
+    });
+  });
+
+  it("does not let one paste identity move an already-created copy", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const first = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    const version = await persistedVersion(storyId);
+    const conflicting = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-a",
+      snapshot,
+      targetFrame: 120,
+      targetLayer: 3,
+    });
+    expect(conflicting).toMatchObject({ status: "error", errorKind: "invalid" });
+    expect(await persistedVersion(storyId)).toBe(version);
+    expect((await persistedPlacements(storyId))[`image:${first.clipId}`]).toBe(
+      "track-2@80+3"
+    );
+  });
+
+  it("deletes only the selected reference and keeps its warehouse image", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const pasted = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-delete",
+      snapshot,
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    if (pasted.status !== "ok" || !pasted.clipId) return;
+    const row = await getStoryTimeline(storyId, USER_ID);
+    const owner = (row?.items as VisualEditDocument["items"]).find(item =>
+      item.imageClips?.some(clip => clip.id === pasted.clipId)
+    );
+    const deleted = await deleteVisualObjectForStory({
+      storyId,
+      userId: USER_ID,
+      object: {
+        type: "image-clip",
+        ownerStableShotId: owner!.stableShotId,
+        clipId: pasted.clipId,
+      },
+    });
+    expect(deleted).toMatchObject({ status: "ok", changed: true });
+    expect((await persistedPlacements(storyId))[`image:${pasted.clipId}`]).toBeUndefined();
+    await expect(getGeneratedImageById(snapshot.imageId)).resolves.toMatchObject({
+      id: snapshot.imageId,
+      storyId,
+    });
+  });
+
+  it("rejects a clipboard snapshot from another Story", async () => {
+    const storyId = await seedStory();
+    const snapshot = await warehouseSnapshot(storyId);
+    const result = await pasteVisualImageForStory({
+      storyId,
+      userId: USER_ID,
+      pasteId: "paste-cross-story",
+      snapshot: { ...snapshot, sourceStoryId: storyId + 1 },
+      targetFrame: 80,
+      targetLayer: 2,
+    });
+    expect(result).toMatchObject({ status: "error", errorKind: "invalid" });
   });
 });
 

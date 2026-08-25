@@ -1,6 +1,7 @@
 import {
   insertVisualImageClip,
-  removeVisualClip,
+  materializeAbsolutePlacements,
+  projectVisualClips,
   visualTrackId,
   type InsertVisualClipResult,
   type RemoveVisualClipResult,
@@ -70,10 +71,74 @@ export function deleteVisualObjectReference(input: {
   object: VisualObjectRef;
 }): DeleteVisualObjectResult {
   switch (input.object.type) {
-    case "image-clip":
-      return removeVisualClip(input.document, `image:${input.object.clipId}`);
-    case "owned-video-clip":
-      return removeVisualClip(input.document, `video:${input.object.clipId}`);
+    case "image-clip": {
+      const object = input.object;
+      const base = materializeAbsolutePlacements(input.document);
+      const removed = projectVisualClips(base).find(
+        clip =>
+          clip.origin.kind === "image-clip" &&
+          clip.origin.ownerStableShotId === object.ownerStableShotId &&
+          clip.origin.clipId === object.clipId
+      );
+      if (!removed) {
+        return {
+          status: "error",
+          error: "clip-not-found",
+          message: `时间线上找不到这个素材：${object.clipId}`,
+        };
+      }
+      return {
+        status: "ok",
+        removed,
+        document: {
+          ...base,
+          items: base.items.map(item =>
+            item.stableShotId === object.ownerStableShotId
+              ? {
+                  ...item,
+                  imageClips: (item.imageClips ?? []).filter(
+                    clip => clip.id !== object.clipId
+                  ),
+                }
+              : item
+          ),
+        },
+      };
+    }
+    case "owned-video-clip": {
+      const object = input.object;
+      const base = materializeAbsolutePlacements(input.document);
+      const removed = projectVisualClips(base).find(
+        clip =>
+          clip.origin.kind === "video-clip" &&
+          clip.origin.ownerStableShotId === object.ownerStableShotId &&
+          clip.origin.clipId === object.clipId
+      );
+      if (!removed) {
+        return {
+          status: "error",
+          error: "clip-not-found",
+          message: `时间线上找不到这个素材：${object.clipId}`,
+        };
+      }
+      return {
+        status: "ok",
+        removed,
+        document: {
+          ...base,
+          items: base.items.map(item =>
+            item.stableShotId === object.ownerStableShotId
+              ? {
+                  ...item,
+                  visualClips: (item.visualClips ?? []).filter(
+                    clip => clip.id !== object.clipId
+                  ),
+                }
+              : item
+          ),
+        },
+      };
+    }
     case "story-shot":
       return {
         status: "error",

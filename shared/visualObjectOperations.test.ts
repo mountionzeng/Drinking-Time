@@ -163,6 +163,36 @@ describe("visual object operations", () => {
     );
   });
 
+  it("uses owner identity when legacy data repeats a clip id", () => {
+    const source = document();
+    source.items.push({
+      ...source.items[0],
+      stableShotId: "shot-b",
+      position: 1,
+      timelineStartFrame: 60,
+      imageClips: [
+        {
+          ...source.items[0].imageClips![0],
+          id: "source-image",
+          timelineStartFrame: 70,
+        },
+      ],
+      visualClips: [],
+    });
+    const result = deleteVisualObjectReference({
+      document: source,
+      object: {
+        type: "image-clip",
+        ownerStableShotId: "shot-b",
+        clipId: "source-image",
+      },
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.document.items[0].imageClips).toHaveLength(1);
+    expect(result.document.items[1].imageClips).toHaveLength(0);
+  });
+
   it("deletes an owned segment narrowly and refuses aggregate shot delete", () => {
     const removed = deleteVisualObjectReference({
       document: document(),

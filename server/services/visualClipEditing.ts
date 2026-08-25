@@ -7,6 +7,7 @@
  *
  * 这里改成服务端自己读—改—写：调用方只说「哪个 clip、去哪条轨、去哪一帧」。
  */
+import { createHash } from "node:crypto";
 import type {
   StoryTimelineImageTextOverlay,
   StoryTimelineItem,
@@ -22,6 +23,12 @@ import {
   type InsertVisualImageClipInput,
   type VisualEditDocument,
 } from "../../shared/visualClipModel";
+import type { VisualObjectRef } from "../../shared/visualObject";
+import type { ImageClipClipboardSnapshot } from "../../shared/visualObjectClipboard";
+import {
+  deleteVisualObjectReference,
+  pasteImageClipboardSnapshot,
+} from "../../shared/visualObjectOperations";
 import { buildTimelineLayout } from "../../shared/timelineLayout";
 import {
   applyTimelineVideoEdit,
@@ -44,7 +51,11 @@ import {
   type TimelinePlan,
   type TimelineResolverShot,
 } from "../../shared/timelineCommands";
-import { getStoryTimeline, updateStoryTimeline } from "../db";
+import {
+  getGeneratedImageById,
+  getStoryTimeline,
+  updateStoryTimeline,
+} from "../db";
 import {
   recordVisualEditUndo,
   takeVisualEditUndo,
@@ -292,6 +303,130 @@ export async function removeVisualClipForStory(input: {
   return withVisualEditDocument(
     { storyId: input.storyId, userId: input.userId, failureMessage: "素材没有删除成功" },
     document => removeVisualClip(document, input.clipId)
+  );
+}
+
+function pastedImageClipId(input: {
+  storyId: number;
+  userId: number;
+  pasteId: string;
+}): string {
+  const digest = createHash("sha256")
+    .update(`${input.userId}:${input.storyId}:${input.pasteId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `image-paste-${digest}`;
+}
+
+export type PasteVisualImageResult = VisualClipEditResult & {
+  clipId?: string;
+};
+
+/**
+ * Paste an immutable image snapshot after re-authorizing its warehouse asset.
+ * The request identity becomes the clip identity, so a lost response can be
+ * replayed without creating or moving a second block.
+ */
+export async function pasteVisualImageForStory(input: {
+  storyId: number;
+  userId: number;
+  pasteId: string;
+  snapshot: ImageClipClipboardSnapshot;
+  targetFrame: number;
+  targetLayer: number;
+}): Promise<PasteVisualImageResult> {
+  const pasteId = input.pasteId.trim();
+  if (!pasteId || pasteId.length > 160) {
+    return {
+      status: "error",
+      error: "粘贴请求标识无效",
+      errorKind: "invalid",
+    };
+  }
+  if (
+    !Number.isInteger(input.targetFrame) ||
+    input.targetFrame < 0 ||
+    !Number.isInteger(input.targetLayer) ||
+    input.targetLayer < 0
+  ) {
+    return {
+      status: "error",
+      error: "粘贴位置无效",
+      errorKind: "invalid",
+    };
+  }
+  const image = await getGeneratedImageById(input.snapshot.imageId);
+  if (
+    !image ||
+    image.storyId !== input.storyId ||
+    (image.userId != null && image.userId !== input.userId)
+  ) {
+    return {
+      status: "error",
+      error: "剪贴板图片已失效或不属于当前故事",
+      errorKind: "invalid",
+    };
+  }
+  const clipId = pastedImageClipId({
+    storyId: input.storyId,
+    userId: input.userId,
+    pasteId,
+  });
+  const result = await withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "图片粘贴失败",
+    },
+    document => {
+      const existed = document.items.some(item =>
+        item.imageClips?.some(clip => clip.id === clipId)
+      );
+      const plan = pasteImageClipboardSnapshot({
+        document,
+        storyId: input.storyId,
+        snapshot: input.snapshot,
+        newClipId: clipId,
+        targetFrame: input.targetFrame,
+        targetLayer: input.targetLayer,
+        canonicalImageUrl: image.imageUrl,
+      });
+      if (plan.status === "error") {
+        return { status: "error", message: plan.message };
+      }
+      if (existed && plan.changed) {
+        return {
+          status: "error",
+          message: "这个粘贴请求已经用于另一个位置，请重新复制后粘贴",
+        };
+      }
+      return plan;
+    }
+  );
+  return result.status === "ok" ? { ...result, clipId } : result;
+}
+
+/** Delete only a canonical clip reference; full shots use the aggregate path. */
+export async function deleteVisualObjectForStory(input: {
+  storyId: number;
+  userId: number;
+  object: VisualObjectRef;
+}): Promise<VisualClipEditResult> {
+  return withVisualEditDocument(
+    {
+      storyId: input.storyId,
+      userId: input.userId,
+      failureMessage: "素材删除失败",
+    },
+    document => {
+      const result = deleteVisualObjectReference({
+        document,
+        object: input.object,
+      });
+      return result.status === "ok"
+        ? result
+        : { status: "error", message: result.message };
+    }
   );
 }
 
