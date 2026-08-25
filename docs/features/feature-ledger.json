@@ -1942,6 +1942,11 @@
       "knownGaps": [],
       "history": [
         {
+          "date": "2026-08-25",
+          "kind": "fix",
+          "summary": "Phase A（刷新延迟修复）：CreationEditorContext 把十项 query 的 isLoading 拆出 initialStoryLoading，只反映 activeId 是否已对齐 spine 的 activeStoryId/remoteStoryId（新增 isStoryScopeReady()/resolveInitialStoryLoading() 纯函数，含单测），不再等素材/发布稿/提示词谱系/供应商状态。EditingNleWorkspace 的整页 loading 门改用它。主仓 3000 用 Story 1186（37 镜头）连续 3 次整页刷新实测：Storyboard 与镜头缩略图刷新后立即渲染，未出现整页 spinner，无 console error，故事内容未串到其它 Story。"
+        },
+        {
           "date": "2026-08-20",
           "kind": "feature",
           "summary": "登录进入工作台时刷新故事列表并自动打开最近更新的一篇；纯文字故事落到文字页，已有镜头的故事落到图像和声音页。初次列表加载遇到瞬时失败会重试一次；同一故事从列表重新打开时会恢复匹配页面，未保存故事首次取得正式 ID 时保留用户当前页面，并继续保证空库、未保存草稿和迟到加载隔离。"
