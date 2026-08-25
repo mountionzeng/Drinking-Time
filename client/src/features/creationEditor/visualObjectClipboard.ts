@@ -6,18 +6,14 @@ import {
 export type VisualObjectClipboardSession = {
   write(snapshot: VisualObjectClipboardSnapshot): boolean;
   read(): VisualObjectClipboardSnapshot | null;
-  updateContext(input: { storyId: number; editorSessionEpoch: string }): void;
-  clear(): void;
   dispose(): void;
 };
 
 /** In-memory, Story/session-scoped clipboard. Refreshing creates an empty one. */
 export function createVisualObjectClipboardSession(input: {
   storyId: number;
-  editorSessionEpoch: string;
 }): VisualObjectClipboardSession {
-  let storyId = input.storyId;
-  let editorSessionEpoch = input.editorSessionEpoch;
+  const storyId = input.storyId;
   let disposed = false;
   let value: VisualObjectClipboardSnapshot | null = null;
 
@@ -31,19 +27,6 @@ export function createVisualObjectClipboardSession(input: {
       return disposed || !value
         ? null
         : cloneVisualObjectClipboardSnapshot(value);
-    },
-    updateContext(next) {
-      if (
-        next.storyId !== storyId ||
-        next.editorSessionEpoch !== editorSessionEpoch
-      ) {
-        value = null;
-      }
-      storyId = next.storyId;
-      editorSessionEpoch = next.editorSessionEpoch;
-    },
-    clear() {
-      value = null;
     },
     dispose() {
       disposed = true;

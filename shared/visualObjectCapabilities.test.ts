@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  LEGACY_OVERLAY_WRITE_CAPABILITY,
   createVisualObjectPendingGuard,
   visualObjectCapabilities,
 } from "./visualObjectCapabilities";
@@ -52,11 +51,6 @@ describe("visual object capabilities", () => {
       "generate-video",
       "set-anchor",
     ]);
-  });
-
-  it("makes legacy write restrictions explicit without blocking canonical objects", () => {
-    expect(LEGACY_OVERLAY_WRITE_CAPABILITY).toMatchObject({ enabled: false });
-    expect(LEGACY_OVERLAY_WRITE_CAPABILITY.disabledReason).toContain("转换");
   });
 
   it("deduplicates commands by object identity and releases after failure", async () => {

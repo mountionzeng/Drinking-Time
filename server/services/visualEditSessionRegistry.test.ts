@@ -47,8 +47,12 @@ describe("visual edit session activation ordering", () => {
       editorSessionEpoch: "epoch-a",
       activationSequence: 4,
     };
-    expect(activateVisualEditSession(activation)).toMatchObject({ status: "ok" });
-    expect(activateVisualEditSession(activation)).toMatchObject({ status: "ok" });
+    expect(activateVisualEditSession(activation)).toMatchObject({
+      status: "ok",
+    });
+    expect(activateVisualEditSession(activation)).toMatchObject({
+      status: "ok",
+    });
     expect(
       activateVisualEditSession({
         ...scope,
@@ -61,6 +65,27 @@ describe("visual edit session activation ordering", () => {
         storyId: 8,
         userId: 3,
         editorSessionEpoch: "epoch-b",
+      })
+    ).toBe(false);
+  });
+
+  it("never re-allows a retired epoch after many later activations", () => {
+    const scope = { storyId: 8, userId: 3, editorClientId: "tab-a" };
+    for (let sequence = 0; sequence < 2_100; sequence += 1) {
+      expect(
+        activateVisualEditSession({
+          ...scope,
+          editorSessionEpoch: `epoch-${sequence}`,
+          activationSequence: sequence,
+        })
+      ).toMatchObject({ status: "ok" });
+    }
+
+    expect(
+      isVisualEditSessionEpochAllowed({
+        storyId: 8,
+        userId: 3,
+        editorSessionEpoch: "epoch-0",
       })
     ).toBe(false);
   });

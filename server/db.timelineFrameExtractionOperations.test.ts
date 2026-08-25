@@ -136,11 +136,14 @@ describe("timeline frame extraction operation receipts", () => {
       userTotal: 0,
       storyTotal: db.TIMELINE_FRAME_EXTRACTION_STORY_RECEIPT_LIMIT,
     },
-  ])("rejects each durable quota boundary: $last24Hours/$userTotal/$storyTotal", counts => {
-    expect(() => db.assertTimelineFrameExtractionReceiptQuota(counts)).toThrow(
-      db.TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR
-    );
-  });
+  ])(
+    "rejects each durable quota boundary: $last24Hours/$userTotal/$storyTotal",
+    counts => {
+      expect(() =>
+        db.assertTimelineFrameExtractionReceiptQuota(counts)
+      ).toThrow(db.TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR);
+    }
+  );
 
   it("validates story ownership and keeps reads owner-scoped", async () => {
     await expect(claim({ userId: owner.userId + 1 })).rejects.toThrow(
@@ -165,7 +168,7 @@ describe("timeline frame extraction operation receipts", () => {
       acquired: false,
       operation: { attempt: 1 },
     });
-    vi.setSystemTime(new Date("2026-08-25T00:03:00Z"));
+    vi.setSystemTime(new Date("2026-08-25T00:11:00Z"));
     const takeover = await claim();
     expect(takeover).toMatchObject({
       created: false,
@@ -216,7 +219,7 @@ describe("timeline frame extraction operation receipts", () => {
     vi.setSystemTime(new Date("2026-08-25T00:00:00Z"));
     const first = await claim();
     const firstToken = first.operation.claimToken;
-    vi.setSystemTime(new Date("2026-08-25T00:03:00Z"));
+    vi.setSystemTime(new Date("2026-08-25T00:11:00Z"));
     const takeover = await claim();
     const descriptor = { winnerIdentity: "shot:a", descriptor: { b: 2 } };
     await db.recordTimelineFrameExtractionDescriptor({
@@ -231,6 +234,31 @@ describe("timeline frame extraction operation receipts", () => {
         ...descriptor,
       })
     ).rejects.toThrow("claim 已失效");
+  });
+
+  it("renews the fenced claim so another worker cannot take over long work", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:00Z"));
+    const first = await claim();
+    vi.setSystemTime(new Date("2026-08-25T00:09:00Z"));
+    await expect(
+      db.renewTimelineFrameExtractionClaim({
+        ...owner,
+        claimToken: first.operation.claimToken,
+      })
+    ).resolves.toMatchObject({ claimToken: first.operation.claimToken });
+
+    vi.setSystemTime(new Date("2026-08-25T00:11:00Z"));
+    await expect(claim()).resolves.toMatchObject({
+      acquired: false,
+      operation: { attempt: 1 },
+    });
+    await expect(
+      db.renewTimelineFrameExtractionClaim({
+        ...owner,
+        claimToken: "stale-token",
+      })
+    ).resolves.toBeNull();
   });
 
   it("releases a claim for immediate takeover without letting the old token release the new claim", async () => {
@@ -344,9 +372,7 @@ describe("timeline frame extraction operation receipts", () => {
     await expect(settle(otherStoryLegacyImage.id)).rejects.toThrow(
       "不属于当前 Story"
     );
-    await expect(settle(otherUserImage.id)).rejects.toThrow(
-      "不属于当前 Story"
-    );
+    await expect(settle(otherUserImage.id)).rejects.toThrow("不属于当前 Story");
   });
 
   it("enforces terminal results and the strict state sequence", async () => {

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   clearVisualIntentIfCurrent,
   visualClipboardTargetLayer,
-} from "./EditingNleWorkspace";
+  visualPasteSuccessMessage,
+} from "../useVisualObjectEditingSession";
 
 describe("EditingNleWorkspace visual clipboard routing", () => {
   it("uses the copied image layer when keyboard paste has no explicit track", () => {
@@ -22,5 +23,10 @@ describe("EditingNleWorkspace visual clipboard routing", () => {
   it("uses the right-click track when paste has an explicit target", () => {
     expect(visualClipboardTargetLayer({ sourceLayer: 3 }, 1)).toBe(1);
     expect(visualClipboardTargetLayer({ sourceLayer: 3 }, 0)).toBe(0);
+  });
+
+  it("reports the pasted object kind accurately", () => {
+    expect(visualPasteSuccessMessage("story-shot")).toBe("镜头已粘贴");
+    expect(visualPasteSuccessMessage("image-clip")).toBe("图片已粘贴");
   });
 });

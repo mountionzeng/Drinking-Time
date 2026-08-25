@@ -16,7 +16,6 @@ import type {
   StoryTimelineImageTextOverlay,
   StoryTimelineItem,
   StoryTimelineOverlay,
-  StoryTimelineVisualLayerState,
   TimelineTransform,
 } from "../../shared/storyMaterial";
 import { withTimelineDurationMs } from "../../shared/storyMaterial";
@@ -60,13 +59,14 @@ import {
   type TimelineResolverShot,
 } from "../../shared/timelineCommands";
 import {
-  getGeneratedImageById,
-  getStoryById,
-  getStoryVideoTakes,
-  getStoryTimeline,
-  updateStoryAndTimelineAtomic,
-  updateStoryTimeline,
-} from "../db";
+  loadAuthorizedStoryImage,
+  loadOwnedStory,
+  loadOwnedStoryVisualAggregate,
+  loadStoryVideoSources,
+  saveStoryVisualAggregateCas,
+  saveStoryVisualTimelineCas,
+  visualDocumentFromTimeline,
+} from "../persistence/storyVisualPersistence";
 import {
   consumeVisualEditUndo,
   findVisualEditUndo,
@@ -81,6 +81,7 @@ import { normalizeLegacyOverlay } from "../../shared/legacyOverlayNormalization"
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 import { shotIdentityFromShot } from "../../shared/shotIdentity";
 import { isVisualEditSessionEpochAllowed } from "./visualEditSessionRegistry";
+import { createKeyedSerialLock } from "../utils/keyedSerialLock";
 
 export type VisualClipEditResult =
   | {
@@ -119,22 +120,14 @@ async function loadVisualEditDocument(
 ): Promise<
   { document: VisualEditDocument; version: number } | { error: string }
 > {
-  const row = await getStoryTimeline(storyId, userId);
+  const aggregate = await loadOwnedStoryVisualAggregate({ storyId, userId });
+  if (!aggregate) return { error: "故事不存在或无权访问" };
+  const row = aggregate.timeline;
   if (!row) return { error: "这个故事还没有时间线" };
-  if (!Array.isArray(row.items)) return { error: "时间线数据异常，无法编辑" };
+  const document = visualDocumentFromTimeline(row);
+  if (!document) return { error: "时间线数据异常，无法编辑" };
   return {
-    document: {
-      items: row.items as StoryTimelineItem[],
-      ...(Array.isArray(row.overlays)
-        ? { overlays: row.overlays as StoryTimelineOverlay[] }
-        : {}),
-      ...(row.visualLayerState
-        ? {
-            visualLayerState:
-              row.visualLayerState as StoryTimelineVisualLayerState,
-          }
-        : {}),
-    },
+    document,
     version: row.version,
   };
 }
@@ -201,7 +194,10 @@ async function normalizeLegacyWorkingSet(input: {
     return { status: "ok", document: input.document, changed: false };
   }
 
-  const takes = await getStoryVideoTakes(input.storyId, input.userId);
+  const takes = await loadStoryVideoSources({
+    storyId: input.storyId,
+    userId: input.userId,
+  });
   let document = input.document;
   for (const selectedOverlay of selected) {
     const normalized = normalizeLegacyOverlay({
@@ -247,7 +243,12 @@ async function withVisualEditDocument(
       withVisualEditDocument({ ...input, lockHeld: true }, mutate)
     );
   }
-  if (!(await getStoryById(input.storyId, input.userId))) {
+  if (
+    !(await loadOwnedStory({
+      storyId: input.storyId,
+      userId: input.userId,
+    }))
+  ) {
     return {
       status: "error",
       error: "故事不存在或无权访问",
@@ -303,15 +304,27 @@ async function withVisualEditDocument(
   }
   for (let attempt = 0; ; attempt += 1) {
     // CAS 重试必须重新读取 Story，不能用旧 body 验证新 Timeline。
-    const story = await getStoryById(input.storyId, input.userId);
-    if (!story) {
+    const aggregate = await loadOwnedStoryVisualAggregate({
+      storyId: input.storyId,
+      userId: input.userId,
+    });
+    if (!aggregate) {
       return {
         status: "error",
         error: "故事不存在或无权访问",
         errorKind: "invalid",
       };
     }
-    const loaded = await loadVisualEditDocument(input.storyId, input.userId);
+    const story = aggregate.story;
+    const row = aggregate.timeline;
+    const document = row ? visualDocumentFromTimeline(row) : null;
+    const loaded:
+      | { document: VisualEditDocument; version: number }
+      | { error: string } = !row
+      ? ({ error: "这个故事还没有时间线" } as const)
+      : !document
+        ? ({ error: "时间线数据异常，无法编辑" } as const)
+        : { document, version: row.version };
     if ("error" in loaded) {
       return { status: "error", error: loaded.error, errorKind: "invalid" };
     }
@@ -346,18 +359,12 @@ async function withVisualEditDocument(
     }
 
     try {
-      const saved = await updateStoryTimeline({
+      const saved = await saveStoryVisualTimelineCas({
         storyId: input.storyId,
         userId: input.userId,
         // 版本来自刚刚这次服务端读取，客户端不再持有版本号。
         expectedVersion: loaded.version,
-        items: result.document.items,
-        ...(result.document.overlays === undefined
-          ? {}
-          : { overlays: result.document.overlays }),
-        ...(result.document.visualLayerState === undefined
-          ? {}
-          : { visualLayerState: result.document.visualLayerState }),
+        document: result.document,
       });
       if (input.recordUndo !== false) {
         // 写成功之后才记，否则失败的命令会在撤销栈里留下一格空转。
@@ -697,12 +704,12 @@ export async function pasteVisualImageForStory(input: {
       errorKind: "invalid",
     };
   }
-  const image = await getGeneratedImageById(input.snapshot.imageId);
-  if (
-    !image ||
-    image.storyId !== input.storyId ||
-    (image.userId != null && image.userId !== input.userId)
-  ) {
+  const image = await loadAuthorizedStoryImage({
+    storyId: input.storyId,
+    userId: input.userId,
+    imageId: input.snapshot.imageId,
+  });
+  if (!image) {
     return {
       status: "error",
       error: "剪贴板图片已失效或不属于当前故事",
@@ -1538,6 +1545,13 @@ export async function undoVisualEditForStory(input: {
         changed: true,
       };
     }
+    if ("replayOnly" in entry) {
+      return {
+        status: "error",
+        error: "这条操作已超出可撤销范围",
+        errorKind: "invalid",
+      };
+    }
     const latest = latestAvailableVisualEditUndo({
       ...input,
       editorSessionEpoch: entry.editorSessionEpoch,
@@ -1549,7 +1563,11 @@ export async function undoVisualEditForStory(input: {
         errorKind: "invalid",
       };
     }
-    const current = await getStoryTimeline(input.storyId, input.userId);
+    const aggregate = await loadOwnedStoryVisualAggregate({
+      storyId: input.storyId,
+      userId: input.userId,
+    });
+    const current = aggregate?.timeline ?? null;
     if (!current || current.version !== entry.afterTimelineVersion) {
       return {
         status: "error",
@@ -1558,7 +1576,7 @@ export async function undoVisualEditForStory(input: {
       };
     }
     if (entry.kind === "aggregate") {
-      const story = await getStoryById(input.storyId, input.userId);
+      const story = aggregate?.story ?? null;
       if (!story || getStoryRevision(story.body) !== entry.afterStoryRevision) {
         return {
           status: "error",
@@ -1597,13 +1615,13 @@ export async function undoVisualEditForStory(input: {
           entry.afterStoryRevision + 1,
           story.body
         );
-        const saved = await updateStoryAndTimelineAtomic({
+        const saved = await saveStoryVisualAggregateCas({
           storyId: input.storyId,
           userId: input.userId,
           expectedStoryRevision: entry.afterStoryRevision,
           expectedTimelineVersion: entry.afterTimelineVersion,
           nextStoryBody: restoredBody,
-          nextTimeline: {
+          nextDocument: {
             items: entry.before.items,
             overlays: entry.before.overlays ?? [],
             ...(entry.before.visualLayerState === undefined
@@ -1658,28 +1676,14 @@ export async function undoVisualEditForStory(input: {
   });
 }
 
-const visualEditServiceLockTails = new Map<string, Promise<void>>();
+const visualEditServiceLock = createKeyedSerialLock<string>();
 export async function withVisualEditServiceLock<T>(
   storyId: number,
   userId: number,
   action: () => Promise<T>
 ): Promise<T> {
   const key = `${userId}:${storyId}`;
-  const previous = visualEditServiceLockTails.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>(resolve => {
-    release = resolve;
-  });
-  const tail = previous.catch(() => {}).then(() => current);
-  visualEditServiceLockTails.set(key, tail);
-  await previous.catch(() => {});
-  try {
-    return await action();
-  } finally {
-    release();
-    if (visualEditServiceLockTails.get(key) === tail)
-      visualEditServiceLockTails.delete(key);
-  }
+  return visualEditServiceLock.run(key, action);
 }
 
 /** 改一段视频的入出点、速度、音量与构图。纯计算住在 shared，服务端只负责读写。 */

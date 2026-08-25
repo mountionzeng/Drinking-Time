@@ -54,13 +54,6 @@ export function visualObjectCapabilities(
   return commands.map(command => ({ command, enabled: true }));
 }
 
-/** Legacy overlays are readable, but writes stay visibly disabled until U6 normalizes them. */
-export const LEGACY_OVERLAY_WRITE_CAPABILITY: VisualObjectCapability = {
-  command: "move",
-  enabled: false,
-  disabledReason: "旧版叠加素材需先转换后才能修改",
-};
-
 export function createVisualObjectPendingGuard() {
   const identities = new Set<string>();
   return {

@@ -300,6 +300,13 @@ describe("architecture boundaries", () => {
     "server/_core/sdk.ts",
     "server/archive/storyAgent.prompts.ts",
     "server/archive/storyReply.ts",
+    // Story/Timeline 视觉聚合的唯一持久化 owner：归属校验、素材引用授权与
+    // Story+Timeline CAS。到期条件是这些能力下沉到独立 repository package，
+    // 届时整体迁移本条，不得重新散回 editing services。
+    "server/persistence/storyVisualPersistence.ts",
+    // 抽帧 durable receipt 状态机的持久化 owner。到期条件是 receipt SQL/本地
+    // 状态物理迁出 db.ts；迁移只能收窄这一条，不能让 workflow 直接 import db。
+    "server/persistence/timelineFrameExtractionPersistence.ts",
     "server/routers/_projectAccess.ts",
     "server/routers/_storyShared.ts",
     "server/routers/creationAgent.ts",
@@ -343,7 +350,6 @@ describe("architecture boundaries", () => {
     "server/services/visualAssetCreation.ts",
     "server/services/visualAssetGenerationContext.ts",
     "server/services/visualAssetPersistence.ts",
-    "server/services/visualClipEditing.ts",
   ]);
 
   async function currentDirectDbImporters() {

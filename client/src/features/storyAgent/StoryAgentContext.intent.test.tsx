@@ -87,7 +87,7 @@ const fictionIntent: StoryIntent = {
 
 describe('StoryAgentContext intent state', () => {
   it('refreshes story revision and shots for every applied transition result', async () => {
-    const { applyTransitionStoryResult } = await import('./StoryAgentContext');
+    const { applyTransitionStoryResult } = await import('./editingTransitionSession');
     const setServerRevision = vi.fn();
     const setStoryShots = vi.fn();
     const storyShots = [{ shotNo: 1, stableShotId: 'generated-overlay-shot' }];
@@ -369,13 +369,13 @@ describe('StoryAgentContext intent state', () => {
   });
 
   it('prefers the first persisted story id over draft sentinels', async () => {
+    const { resolvePersistedStoryId } = await import('./StoryAgentContext');
     const {
       canPersistStoryToActiveScope,
       canPersistStorySnapshot,
-      resolvePersistedStoryId,
       storySessionTokenMatches,
       storyScopeMatches,
-    } = await import('./StoryAgentContext');
+    } = await import('./editingTransitionSession');
 
     expect(resolvePersistedStoryId(-1, 36, 42)).toBe(36);
     expect(resolvePersistedStoryId(null, undefined, 42)).toBe(42);
@@ -412,7 +412,7 @@ describe('StoryAgentContext intent state', () => {
   });
 
   it('rejects an extracted-frame proposal response that arrives after A switches to B', async () => {
-    const { storySessionTokenMatches } = await import('./StoryAgentContext');
+    const { storySessionTokenMatches } = await import('./editingTransitionSession');
 
     expect(
       storySessionTokenMatches(
@@ -423,7 +423,7 @@ describe('StoryAgentContext intent state', () => {
   });
 
   it('rejects an extracted-frame proposal response after A switches to B and back to A', async () => {
-    const { storySessionTokenMatches } = await import('./StoryAgentContext');
+    const { storySessionTokenMatches } = await import('./editingTransitionSession');
 
     expect(
       storySessionTokenMatches(

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createStory,
   createVideoTake,
@@ -14,6 +14,7 @@ import {
   type StoryTimelineOverlay,
 } from "../../shared/storyMaterial";
 import { runStoryTimelineCommand } from "./storyTimelineEditing";
+import * as storyVisualPersistence from "../persistence/storyVisualPersistence";
 
 const USER_ID = 1;
 
@@ -304,6 +305,41 @@ describe("runStoryTimelineCommand", () => {
     expect(await getStoryTimeline(seeded.story.id, USER_ID)).toMatchObject({
       version: 1,
       overlays: [seeded.overlay],
+    });
+  });
+
+  it.each([
+    "Story revision CAS conflict: expected 0, got 1",
+    "Timeline version conflict: expected 1, got 2",
+  ])("classifies aggregate CAS failures as conflicts: %s", async message => {
+    const seeded = await seedLegacyOverlay();
+    vi.spyOn(storyVisualPersistence, "saveStoryVisualAggregateCas")
+      .mockRejectedValueOnce(new Error(message));
+
+    const result = await runStoryTimelineCommand(
+      {
+        storyId: seeded.story.id,
+        userId: USER_ID,
+        failureMessage: "编辑失败",
+      },
+      context => ({
+        status: "ok" as const,
+        value: null,
+        storyBody: context.storyBody,
+        document: {
+          ...context.document,
+          items: context.document.items.map(item => ({
+            ...item,
+            timelineStartFrame: (item.timelineStartFrame ?? 0) + 1,
+          })),
+        },
+      })
+    );
+
+    expect(result).toMatchObject({
+      status: "error",
+      error: message,
+      errorKind: "conflict",
     });
   });
 });

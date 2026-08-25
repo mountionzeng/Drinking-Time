@@ -19,36 +19,34 @@ describe("visual object clipboard session", () => {
   it("keeps a value snapshot while selection and playhead state change elsewhere", () => {
     const clipboard = createVisualObjectClipboardSession({
       storyId: 7,
-      editorSessionEpoch: "session-a",
     });
     expect(clipboard.write(snapshot)).toBe(true);
     expect(clipboard.read()).toEqual(snapshot);
     expect(clipboard.read()).not.toBe(snapshot);
   });
 
-  it("clears on Story switch or editor session replacement", () => {
-    const clipboard = createVisualObjectClipboardSession({
+  it("does not share values with a replacement Story/session clipboard", () => {
+    const original = createVisualObjectClipboardSession({
       storyId: 7,
-      editorSessionEpoch: "session-a",
     });
-    clipboard.write(snapshot);
-    clipboard.updateContext({ storyId: 8, editorSessionEpoch: "session-a" });
-    expect(clipboard.read()).toBeNull();
+    original.write(snapshot);
 
-    clipboard.updateContext({ storyId: 7, editorSessionEpoch: "session-a" });
-    clipboard.write(snapshot);
-    clipboard.updateContext({ storyId: 7, editorSessionEpoch: "session-b" });
-    expect(clipboard.read()).toBeNull();
+    const switchedStory = createVisualObjectClipboardSession({
+      storyId: 8,
+    });
+    const replacedSession = createVisualObjectClipboardSession({
+      storyId: 7,
+    });
+
+    expect(switchedStory.read()).toBeNull();
+    expect(replacedSession.read()).toBeNull();
   });
 
   it("refuses cross-Story snapshots and clears permanently on dispose", () => {
     const clipboard = createVisualObjectClipboardSession({
       storyId: 8,
-      editorSessionEpoch: "session-a",
     });
     expect(clipboard.write(snapshot)).toBe(false);
-    clipboard.updateContext({ storyId: 7, editorSessionEpoch: "session-a" });
-    expect(clipboard.write(snapshot)).toBe(true);
     clipboard.dispose();
     expect(clipboard.read()).toBeNull();
     expect(clipboard.write(snapshot)).toBe(false);

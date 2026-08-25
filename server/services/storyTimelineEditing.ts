@@ -1,15 +1,13 @@
-import type { StoryTimelineItem } from "../../shared/storyMaterial";
 import {
   normalizeLegacyOverlay,
   type LegacyOverlayNormalizationInput,
 } from "../../shared/legacyOverlayNormalization";
 import type { VisualEditDocument } from "../../shared/visualClipModel";
 import {
-  getStoryById,
-  getStoryVideoTakes,
-  updateStoryAndTimelineAtomic,
-} from "../db";
-import { getStoryMaterialState } from "./storyMaterials";
+  loadOwnedStoryVisualAggregate,
+  saveStoryVisualAggregateCas,
+} from "../persistence/storyVisualPersistence";
+import { projectStoryTimelineDocument } from "./storyMaterials";
 import { getStoryRevision, prepareStoryBody } from "./storySync";
 
 export type StoryTimelineCommandFacts = {
@@ -40,7 +38,10 @@ export type StoryTimelineCommandResult<T> =
       timelineVersion: number;
       value: T;
       /** Internal service facts for U5 receipt construction; never return directly from a route. */
-      facts: { before: StoryTimelineCommandFacts; after: StoryTimelineCommandFacts };
+      facts: {
+        before: StoryTimelineCommandFacts;
+        after: StoryTimelineCommandFacts;
+      };
     }
   | {
       status: "error";
@@ -61,9 +62,8 @@ function record(value: unknown): Record<string, unknown> {
 
 function storyShots(body: Record<string, unknown>) {
   return Array.isArray(body.shots)
-    ? body.shots.filter(
-        (shot): shot is Record<string, unknown> =>
-          Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
+    ? body.shots.filter((shot): shot is Record<string, unknown> =>
+        Boolean(shot && typeof shot === "object" && !Array.isArray(shot))
       )
     : [];
 }
@@ -72,7 +72,9 @@ function cloneDocument(document: VisualEditDocument): VisualEditDocument {
   return structuredClone(document) as VisualEditDocument;
 }
 
-function cloneFacts(facts: StoryTimelineCommandFacts): StoryTimelineCommandFacts {
+function cloneFacts(
+  facts: StoryTimelineCommandFacts
+): StoryTimelineCommandFacts {
   return {
     storyBody: structuredClone(facts.storyBody),
     storyRevision: facts.storyRevision,
@@ -102,19 +104,16 @@ export async function runStoryTimelineCommand<T>(
     legacyOverlay?: LegacyOverlayCommandTarget;
     legacyOverlays?: readonly LegacyOverlayCommandTarget[];
   },
-  planner: (
-    context: StoryTimelineCommandContext
-  ) => StoryTimelineCommandPlan<T>
+  planner: (context: StoryTimelineCommandContext) => StoryTimelineCommandPlan<T>
 ): Promise<StoryTimelineCommandResult<T>> {
   try {
-    const [story, material, takes] = await Promise.all([
-      getStoryById(input.storyId, input.userId),
-      getStoryMaterialState(input.storyId, input.userId),
-      input.legacyOverlay || (input.legacyOverlays?.length ?? 0) > 0
-        ? getStoryVideoTakes(input.storyId, input.userId)
-        : Promise.resolve([]),
-    ]);
-    if (!story || !material) {
+    const aggregate = await loadOwnedStoryVisualAggregate({
+      storyId: input.storyId,
+      userId: input.userId,
+      includeVideoTakes:
+        Boolean(input.legacyOverlay) || (input.legacyOverlays?.length ?? 0) > 0,
+    });
+    if (!aggregate) {
       return {
         status: "error",
         error: "故事不存在或无权访问",
@@ -122,18 +121,20 @@ export async function runStoryTimelineCommand<T>(
       };
     }
 
+    const story = aggregate.story;
     const storyBody = record(story.body);
+    const timeline = projectStoryTimelineDocument(story, aggregate.timeline);
     const persistedDocument: VisualEditDocument = {
-      items: material.timeline.items,
-      overlays: material.timeline.overlays ?? [],
-      ...(material.timeline.visualLayerState === undefined
+      items: timeline.items,
+      overlays: timeline.overlays ?? [],
+      ...(timeline.visualLayerState === undefined
         ? {}
-        : { visualLayerState: material.timeline.visualLayerState }),
+        : { visualLayerState: timeline.visualLayerState }),
     };
     const before: StoryTimelineCommandFacts = {
       storyBody: structuredClone(storyBody),
       storyRevision: getStoryRevision(story.body),
-      timelineVersion: material.timeline.version,
+      timelineVersion: timeline.version,
       document: cloneDocument(persistedDocument),
     };
 
@@ -147,10 +148,18 @@ export async function runStoryTimelineCommand<T>(
         ...legacyOverlay,
         storyShots: storyShots(storyBody),
         document: workingDocument,
-        takes: takes.map(take => ({ id: take.id, stableShotId: take.stableShotId, videoUrl: take.videoUrl })),
+        takes: aggregate.videoTakes.map(take => ({
+          id: take.id,
+          stableShotId: take.stableShotId,
+          videoUrl: take.videoUrl,
+        })),
       });
       if (normalized.status === "error")
-        return { status: "error", error: `历史覆盖视频绑定异常：${normalized.message}`, errorKind: "invalid" };
+        return {
+          status: "error",
+          error: `历史覆盖视频绑定异常：${normalized.message}`,
+          errorKind: "invalid",
+        };
       workingDocument = normalized.document;
       normalizedLegacyOverlay ||= normalized.changed;
     }
@@ -189,13 +198,13 @@ export async function runStoryTimelineCommand<T>(
       story.body
     );
     const nextDocument = cloneDocument(plan.document);
-    const saved = await updateStoryAndTimelineAtomic({
+    const saved = await saveStoryVisualAggregateCas({
       storyId: input.storyId,
       userId: input.userId,
       expectedStoryRevision: before.storyRevision,
       expectedTimelineVersion: before.timelineVersion,
       nextStoryBody,
-      nextTimeline: {
+      nextDocument: {
         items: nextDocument.items,
         ...(nextDocument.overlays === undefined
           ? {}
@@ -227,15 +236,4 @@ export async function runStoryTimelineCommand<T>(
       errorKind: isVersionConflict(error) ? "conflict" : "invalid",
     };
   }
-}
-
-/** Utility for planners that replace exactly one timeline item. */
-export function replaceStoryTimelineItem(
-  items: readonly StoryTimelineItem[],
-  stableShotId: string,
-  replacement: StoryTimelineItem
-): StoryTimelineItem[] {
-  return items.map(item =>
-    item.stableShotId === stableShotId ? replacement : item
-  );
 }

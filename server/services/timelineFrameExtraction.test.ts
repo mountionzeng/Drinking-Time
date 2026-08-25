@@ -342,6 +342,7 @@ describe("extractTimelineFrameForStory", () => {
   beforeEach(() => resetTimelineFrameExtractionLimitsForTesting());
 
   it("captures one authoritative video winner, stores it durably, and places it", async () => {
+    vi.useFakeTimers();
     const timelineItem = item("shot-a", {
       primaryVideoEdit: {
         takeId: 44,
@@ -374,17 +375,33 @@ describe("extractTimelineFrameForStory", () => {
       clipId: extractedTimelineFrameClipId(workflowInput),
       targetLayer: 1,
     }));
-    const renderVideoFrame = vi.fn(async (input: { outputPath?: string }) => ({
-      path: input.outputPath!,
-      atSec: 0.4,
+    let releaseRender!: () => void;
+    let markRenderStarted!: () => void;
+    const renderGate = new Promise<void>(resolve => {
+      releaseRender = resolve;
+    });
+    const renderStarted = new Promise<void>(resolve => {
+      markRenderStarted = resolve;
+    });
+    const renderVideoFrame = vi.fn(async (input: { outputPath?: string }) => {
+      markRenderStarted();
+      await renderGate;
+      return { path: input.outputPath!, atSec: 0.4 };
+    });
+    const renewClaim = vi.fn(async input => ({
+      ...claimed,
+      claimToken: input.claimToken,
+      leaseUntil: new Date(Date.now() + 10 * 60 * 1000),
     }));
 
-    const result = await extractTimelineFrameForStory(workflowInput, {
+    const extraction = extractTimelineFrameForStory(workflowInput, {
+      getOperation: vi.fn(async () => null),
       claimOperation: vi.fn(async () => ({
         created: true,
         acquired: true,
         operation: claimed,
       })),
+      renewClaim,
       getMaterialState: vi.fn(async () => materialState(timelineItem)),
       recordDescriptor,
       renderVideoFrame,
@@ -400,6 +417,16 @@ describe("extractTimelineFrameForStory", () => {
         })
       ),
     });
+    await renderStarted;
+    expect(renderVideoFrame).toHaveBeenCalledTimes(1);
+    expect(renewClaim).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(renewClaim).toHaveBeenCalledTimes(2);
+    releaseRender();
+    const result = await extraction;
+    const renewalCountAfterCompletion = renewClaim.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(renewClaim).toHaveBeenCalledTimes(renewalCountAfterCompletion);
 
     expect(result).toMatchObject({
       status: "ok",
@@ -730,7 +757,10 @@ describe("extractTimelineFrameForStory", () => {
         operation: receipt("claimed"),
       })),
       getMaterialState: vi.fn(async () => materialState(timelineItem)),
-      getStoryImages: vi.fn(async () => [...storyImages]),
+      findImageByKey: vi.fn(
+        async (_storyId, _userId, imageKey) =>
+          storyImages.find(candidate => candidate.imageKey === imageKey) ?? null
+      ),
       recordDescriptor: vi.fn(async input => ({
         ...receipt("claimed"),
         winnerIdentity: input.winnerIdentity,

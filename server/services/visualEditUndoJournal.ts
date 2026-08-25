@@ -35,10 +35,25 @@ export type VisualEditUndoEntry =
   | TimelineVisualEditUndoEntry
   | AggregateVisualEditUndoEntry;
 
+type TimelineVisualEditReplayEntry = Omit<
+  TimelineVisualEditUndoEntry,
+  "before"
+> & { replayOnly: true; undoEvicted: true };
+type AggregateVisualEditReplayEntry = Omit<
+  AggregateVisualEditUndoEntry,
+  "before" | "beforeStoryBody"
+> & { replayOnly: true; undoEvicted: true };
+export type VisualEditOperationEntry =
+  | VisualEditUndoEntry
+  | TimelineVisualEditReplayEntry
+  | AggregateVisualEditReplayEntry;
+
 const MAX_UNDO_STEPS = 40;
-const MAX_OPERATION_INDEX_STEPS = 400;
 const journalByScope = new Map<string, VisualEditUndoEntry[]>();
-const operationIndexByScope = new Map<string, VisualEditUndoEntry[]>();
+const operationIndexByScope = new Map<
+  string,
+  Map<string, VisualEditOperationEntry>
+>();
 const scopeKey = (storyId: number, userId: number, epoch: string) =>
   `${userId}:${storyId}:${epoch}`;
 const stackFor = (input: {
@@ -54,12 +69,39 @@ export function findVisualEditUndo(input: {
   storyId: number;
   userId: number;
   operation: VisualEditOperationRef;
-}): VisualEditUndoEntry | null {
+}): VisualEditOperationEntry | null {
   return (
-    (operationIndexByScope.get(
-      scopeKey(input.storyId, input.userId, input.operation.editorSessionEpoch)
-    ) ?? []).find(entry => entry.operationId === input.operation.operationId) ?? null
+    operationIndexByScope
+      .get(
+        scopeKey(
+          input.storyId,
+          input.userId,
+          input.operation.editorSessionEpoch
+        )
+      )
+      ?.get(input.operation.operationId) ?? null
   );
+}
+
+function replayEntry(entry: VisualEditUndoEntry): VisualEditOperationEntry {
+  if (entry.kind === "timeline") {
+    const { before: _before, ...withoutTimelineSnapshot } = entry;
+    return {
+      ...withoutTimelineSnapshot,
+      replayOnly: true,
+      undoEvicted: true,
+    };
+  }
+  const {
+    before: _before,
+    beforeStoryBody: _beforeStoryBody,
+    ...withoutSnapshots
+  } = entry;
+  return {
+    ...withoutSnapshots,
+    replayOnly: true,
+    undoEvicted: true,
+  };
 }
 
 function appendEntry<T extends VisualEditUndoEntry>(
@@ -74,14 +116,15 @@ function appendEntry<T extends VisualEditUndoEntry>(
   } as T;
   stack.push(recorded);
   if (stack.length > MAX_UNDO_STEPS) {
-    for (const evicted of stack.splice(0, stack.length - MAX_UNDO_STEPS))
-      evicted.undoEvicted = true;
+    for (const evicted of stack.splice(0, stack.length - MAX_UNDO_STEPS)) {
+      operationIndexByScope
+        .get(key)
+        ?.set(evicted.operationId, replayEntry(evicted));
+    }
   }
   journalByScope.set(key, stack);
-  const index = operationIndexByScope.get(key) ?? [];
-  index.push(recorded);
-  if (index.length > MAX_OPERATION_INDEX_STEPS)
-    index.splice(0, index.length - MAX_OPERATION_INDEX_STEPS);
+  const index = operationIndexByScope.get(key) ?? new Map();
+  index.set(recorded.operationId, recorded);
   operationIndexByScope.set(key, index);
   return recorded;
 }
@@ -155,7 +198,7 @@ export function latestAvailableVisualEditUndo(input: {
 }
 
 export function publicVisualEditReceipt(
-  entry: VisualEditUndoEntry
+  entry: VisualEditOperationEntry
 ): VisualEditReceipt {
   const base = {
     editorSessionEpoch: entry.editorSessionEpoch,
@@ -226,6 +269,16 @@ export function visualEditUndoDepth(input: {
     if (key.startsWith(`${input.userId}:${input.storyId}:`))
       count += entries.filter(e => e.status === "available").length;
   return count;
+}
+
+export function retireVisualEditUndoScope(input: {
+  storyId: number;
+  userId: number;
+  editorSessionEpoch: string;
+}): void {
+  const key = scopeKey(input.storyId, input.userId, input.editorSessionEpoch);
+  journalByScope.delete(key);
+  operationIndexByScope.delete(key);
 }
 
 export function clearVisualEditUndoForTesting(): void {

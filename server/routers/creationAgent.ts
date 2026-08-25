@@ -66,9 +66,11 @@ import {
   copyStoryVisualObject,
   deleteStoryVisualShot,
   pasteStoryVisualObject,
+  retireStoryVisualClipboardScope,
   splitStoryVisualShot,
 } from "../services/storyVisualObjectEditing";
 import { activateVisualEditSession } from "../services/visualEditSessionRegistry";
+import { retireVisualEditUndoScope } from "../services/visualEditUndoJournal";
 
 const visualEditOperationSchema = z
   .object({
@@ -265,8 +267,18 @@ const timelineTransitionCandidateInput = z.object({
       }),
       z.object({
         kind: z.literal("story-shot"),
-        left: z.object({ clipId: z.string().min(1).max(256), imageId: z.number().int().positive(), timelineFrame: z.number().int().min(0), visualLayer: z.number().int().min(0) }),
-        right: z.object({ clipId: z.string().min(1).max(256), imageId: z.number().int().positive(), timelineFrame: z.number().int().min(0), visualLayer: z.number().int().min(0) }),
+        left: z.object({
+          clipId: z.string().min(1).max(256),
+          imageId: z.number().int().positive(),
+          timelineFrame: z.number().int().min(0),
+          visualLayer: z.number().int().min(0),
+        }),
+        right: z.object({
+          clipId: z.string().min(1).max(256),
+          imageId: z.number().int().positive(),
+          timelineFrame: z.number().int().min(0),
+          visualLayer: z.number().int().min(0),
+        }),
       }),
     ])
     .optional(),
@@ -2350,12 +2362,14 @@ export const creationAgentRouter = router({
 
   copyStoryVisualObject: protectedProcedure
     .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        editorSessionEpoch: z.string().min(1).max(160),
-        clipboardId: z.string().min(1).max(160),
-        object: visualObjectRefSchema,
-      }).strict()
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          editorSessionEpoch: z.string().min(1).max(160),
+          clipboardId: z.string().min(1).max(160),
+          object: visualObjectRefSchema,
+        })
+        .strict()
     )
     .mutation(({ ctx, input }) =>
       copyStoryVisualObject({ ...input, userId: ctx.user.id })
@@ -2363,30 +2377,47 @@ export const creationAgentRouter = router({
 
   activateVisualEditSession: protectedProcedure
     .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        editorClientId: z.string().trim().min(1).max(160),
-        editorSessionEpoch: z.string().trim().min(1).max(160),
-        activationSequence: z.number().int().nonnegative(),
-      }).strict()
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          editorClientId: z.string().trim().min(1).max(160),
+          editorSessionEpoch: z.string().trim().min(1).max(160),
+          activationSequence: z.number().int().nonnegative(),
+        })
+        .strict()
     )
     .mutation(async ({ ctx, input }) => {
       if (!(await getStoryById(input.storyId, ctx.user.id)))
         return { status: "error" as const, error: "故事不存在或无权访问" };
-      return withVisualEditServiceLock(input.storyId, ctx.user.id, async () =>
-        activateVisualEditSession({ ...input, userId: ctx.user.id })
-      );
+      return withVisualEditServiceLock(input.storyId, ctx.user.id, async () => {
+        const activation = activateVisualEditSession({
+          ...input,
+          userId: ctx.user.id,
+        });
+        if (activation.status === "ok" && activation.replacedEpoch) {
+          const retired = {
+            storyId: input.storyId,
+            userId: ctx.user.id,
+            editorSessionEpoch: activation.replacedEpoch,
+          };
+          retireStoryVisualClipboardScope(retired);
+          retireVisualEditUndoScope(retired);
+        }
+        return activation;
+      });
     }),
 
   pasteStoryVisualObject: protectedProcedure
     .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        operation: visualEditOperationSchema,
-        clipboardId: z.string().min(1).max(160),
-        targetFrame: z.number().int().nonnegative(),
-        targetLayer: z.number().int().nonnegative(),
-      }).strict()
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          clipboardId: z.string().min(1).max(160),
+          targetFrame: z.number().int().nonnegative(),
+          targetLayer: z.number().int().nonnegative(),
+        })
+        .strict()
     )
     .mutation(({ ctx, input }) =>
       pasteStoryVisualObject({ ...input, userId: ctx.user.id })
@@ -2394,11 +2425,13 @@ export const creationAgentRouter = router({
 
   deleteStoryVisualShot: protectedProcedure
     .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        operation: visualEditOperationSchema,
-        stableShotId: z.string().min(1).max(240),
-      }).strict()
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          stableShotId: z.string().min(1).max(240),
+        })
+        .strict()
     )
     .mutation(({ ctx, input }) =>
       deleteStoryVisualShot({ ...input, userId: ctx.user.id })
@@ -2406,12 +2439,14 @@ export const creationAgentRouter = router({
 
   splitStoryVisualShot: protectedProcedure
     .input(
-      z.object({
-        storyId: z.number().int().positive(),
-        operation: visualEditOperationSchema,
-        stableShotId: z.string().min(1).max(240),
-        cutFrame: z.number().int().nonnegative(),
-      }).strict()
+      z
+        .object({
+          storyId: z.number().int().positive(),
+          operation: visualEditOperationSchema,
+          stableShotId: z.string().min(1).max(240),
+          cutFrame: z.number().int().nonnegative(),
+        })
+        .strict()
     )
     .mutation(({ ctx, input }) =>
       splitStoryVisualShot({ ...input, userId: ctx.user.id })

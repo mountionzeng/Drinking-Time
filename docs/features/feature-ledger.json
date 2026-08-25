@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-22T11:33:41+08:00",
+  "updatedAt": "2026-08-25T23:12:00+08:00",
   "features": [
     {
       "id": "story-ownership",
@@ -1232,7 +1232,11 @@
         "client/src/features/storyAgent/views/storyboardMatrixLayout.ts",
         "server/services/storyMaterials.ts",
         "server/services/videoExport.ts",
-        "shared/timelineViewport.ts"
+        "shared/timelineViewport.ts",
+        "shared/visualObject.ts",
+        "shared/visualObjectCapabilities.ts",
+        "client/src/features/creationEditor/visualObjectSelection.ts",
+        "client/src/features/creationEditor/views/StoryboardVisualLayerRow.tsx"
       ],
       "evidence": [
         "shared/timelineLayout.test.ts",
@@ -1244,7 +1248,10 @@
         "client/src/features/storyAgent/views/storyboardMatrixLayout.test.ts",
         "client/src/features/storyAgent/storyboardTiming.test.ts",
         "server/services/storyMaterials.test.ts",
-        "server/services/videoExport.test.ts"
+        "server/services/videoExport.test.ts",
+        "shared/visualObject.test.ts",
+        "shared/visualObjectCapabilities.test.ts",
+        "client/src/features/creationEditor/visualObjectSelection.test.ts"
       ],
       "invariants": [
         "所有结构性时间统一走 30fps 整数帧，毫秒只是显示投影。",
@@ -1271,10 +1278,14 @@
       "knownGaps": [
         "素材切换时的原子事务（兼容素材 rebind 锚点、不兼容时先确认再一次事务删除并激活）尚未实现。",
         "叠放优先级接近安全整数上限时只报错，不做整表压缩。",
-        "重叠时下层镜头的可访问编辑 strip 尚未实现，目前只有赢家可直接操作。",
         "聊天剪辑代理尚未暴露绝对帧单镜移动、滚动剪辑和取消吸附原语，也没有磁吸拓扑上下文。"
       ],
       "history": [
+        {
+          "date": "2026-08-25",
+          "kind": "feature",
+          "summary": "Storyboard 的每条视觉轨现在都渲染可独立命中的完整故事镜头、内部视频片段和图片块；对象身份与能力不再由主层/上层决定。即使上层完全遮挡，下层轨道仍保留可选择编辑 strip；主层与上层同类镜头共享菜单、拖动和键盘命令，镜头拖动继续同步其信息列且不改变唯一赢家规则。自动化覆盖唯一选择、重叠下层命中、能力矩阵与 650 项定向回归。"
+        },
         {
           "date": "2026-08-25",
           "kind": "fix",
@@ -1389,7 +1400,7 @@
       "id": "extracted-frame-overlay-video",
       "name": "抽帧与生成视频的普通视觉层剪辑",
       "status": "working",
-      "userValue": "抽出的单帧会成为普通上层视觉剪辑，生成后的视频也作为同一位置上的独立普通镜头；图片和视频都能左右移动、上下换层，视频可以继续切割，原有底层镜头和素材继续保留。",
+      "userValue": "抽出的单帧会永久保存到图片仓库并成为普通视觉剪辑；生成后的视频作为来源图片上方的普通故事镜头。任意图层的镜头、内部片段和图片都能按自身能力继续移动、复制、删除、抽帧或生成，原素材与仓库备份始终保留。",
       "entryPoints": [
         "client/src/features/creationEditor/views/StoryboardEditRow.tsx",
         "client/src/features/creationEditor/views/EditingNleWorkspace.tsx",
@@ -1415,7 +1426,15 @@
         "client/src/features/creationEditor/storyboardEditRow.ts",
         "client/src/features/storyAgent/views/storyboardMatrixLayout.ts",
         "server/services/visualEditUndoJournal.ts",
+        "server/services/storyVisualObjectEditing.ts",
+        "server/services/timelineFrameExtraction.ts",
+        "server/persistence/timelineFrameExtractionPersistence.ts",
+        "server/persistence/storyVisualPersistence.ts",
+        "server/services/visualEditSessionRegistry.ts",
         "shared/timelineCommands.ts",
+        "shared/visualObject.ts",
+        "shared/visualObjectClipboard.ts",
+        "shared/visualObjectOperations.ts",
         "client/src/features/creationEditor/useTimelinePlaybackClock.ts",
         "client/src/features/creationEditor/TimelineAudioPlayback.tsx",
         "client/src/features/storyAgent/views/StoryboardTimelineRuler.tsx"
@@ -1442,14 +1461,22 @@
         "client/src/features/storyAgent/storyboardTiming.test.ts",
         "shared/visualClipModel.test.ts",
         "server/services/visualClipEditing.test.ts",
-        "client/src/features/creationEditor/views/storyboardVisualClipDrag.test.ts"
+        "client/src/features/creationEditor/views/storyboardVisualClipDrag.test.ts",
+        "server/services/timelineFrameExtraction.test.ts",
+        "server/persistence/timelineFrameExtractionPersistence.test.ts",
+        "server/services/storyVisualObjectEditing.test.ts",
+        "server/db.visualObjectStoryMutation.test.ts",
+        "server/db.generatedVisualShot.test.ts",
+        "shared/visualObjectClipboard.test.ts",
+        "shared/visualObjectOperations.test.ts"
       ],
       "invariants": [
         "只接受同一 Story 中已持久化的时间线抽帧 imageId，服务端必须重新读取图片、时间和归属，不能相信客户端 URL、价格或时间。",
         "Vidu Q2 Turbo 请求时长只能是 1 到 8 秒整数：按两针间隔向下取整并封顶 8 秒；不足 1 秒必须在付费前阻止。",
         "抽帧素材必须同时写入一个 durationFrames=1 的持久 imageClip；界面可以给它最小操作宽度，但结构时长仍严格是一帧。",
         "采用成功必须在同一原子事务中创建对应 story shot、时间线项并绑定生成 Take；重复确认按 candidate stableShotId 幂等，不能产生重复镜头列。",
-        "新镜头列插在目标镜头之前并以 visualLayer=1 放在普通上层视觉轨；原有底层镜头和素材不得删除。",
+        "抽帧静帧一旦取得即成为图片仓库永久资产；时间线只保存非所有权的一帧引用，删除或撤销引用不得删除仓库备份。",
+        "生成视频作为普通 story shot 从首帧图片的绝对时间开始，位于全部来源图片最高层的相邻可见上一层；首尾图片分别对齐视频边界并继续保留，不再新增 legacy overlay。",
         "图片 clip 和视频镜头的横向位置、视觉层级都必须持久化；较大的 visualLayer 在重叠区间优先显示。",
         "图片 clip 的绝对 timelineStartFrame 独立于所属视频；移动底层视频不得改变任何上层图片的位置，旧 offsetFrames 只作为兼容回退。",
         "视觉层按需无限向上扩展，始终保留一个可投放的空白上层；跨层拖放必须在一次时间线写入中同时更新绝对时间和 visualLayer。",
@@ -1492,6 +1519,21 @@
         "播放推进依赖 requestAnimationFrame，无法用无头浏览器验证（隐藏页面里浏览器会冻结 rAF）。时钟的算术与「片尾按播放回到开头」有单测覆盖，真实播放需人工在浏览器确认。"
       ],
       "history": [
+        {
+          "date": "2026-08-25",
+          "kind": "feature",
+          "summary": "统一视觉对象剪辑链路完成：任意层的完整镜头获得同一套剪辑、抽帧、复制、粘贴和删除能力；内部片段与图片严格按各自安全边界提供命令。抽帧只读取一次权威可见赢家，使用持久回执保证同 request 在多实例/重启后不重复解码或创建仓库资产，asset_ready 后仅重试时间线落位。镜头粘贴与删除通过 Story+Timeline 聚合 CAS 原子完成，独立图片确定性 rehost，所有成功修改进入同一会话撤销顺序；切换会话会释放旧 clipboard 与 undo 大快照。"
+        },
+        {
+          "date": "2026-08-25",
+          "kind": "decision",
+          "summary": "用户确认新增 additive timeline_frame_extraction_operations 回执表，以兑现跨进程幂等抽帧；不扩展 story_operations，也不建立持久化 undo log。生成采用改为普通 story shot：视频位于来源图片最高层的相邻可见上一层，首尾图片和仓库资产永久保留，后续新操作不再写 legacy overlay。"
+        },
+        {
+          "date": "2026-08-25",
+          "kind": "verification",
+          "summary": "类型检查、架构边界和 U1–U8 定向回归通过：31 个测试文件、650 个用例，覆盖对象选择/能力、拖动、抽帧回执、图片仓库复用、Story+Timeline 聚合复制删除、会话撤销、生成普通镜头采用、预览与导出赢家。真实 MySQL 仍保留为已知缺口。"
+        },
         {
           "date": "2026-08-25",
           "kind": "fix",

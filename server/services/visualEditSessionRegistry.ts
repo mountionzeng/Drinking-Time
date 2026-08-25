@@ -22,6 +22,13 @@ const epochKey = (input: {
   editorSessionEpoch: string;
 }) => `${input.userId}:${input.storyId}:${input.editorSessionEpoch}`;
 
+function retireEpoch(key: string, editorClientId: string): void {
+  epochStateByScope.set(key, {
+    editorClientId,
+    status: "invalid",
+  });
+}
+
 /**
  * Activating a new epoch permanently retires the previous epoch for this
  * editor client. Other browser tabs use their own client id and remain active.
@@ -35,9 +42,11 @@ export function activateVisualEditSession(input: {
 }): VisualEditSessionActivationResult {
   const client = input.editorClientId.trim();
   const epoch = input.editorSessionEpoch.trim();
-  if (!client || !epoch)
-    return { status: "error", error: "剪辑会话标识无效" };
-  if (!Number.isSafeInteger(input.activationSequence) || input.activationSequence < 0)
+  if (!client || !epoch) return { status: "error", error: "剪辑会话标识无效" };
+  if (
+    !Number.isSafeInteger(input.activationSequence) ||
+    input.activationSequence < 0
+  )
     return { status: "error", error: "剪辑会话激活序号无效" };
 
   const key = clientKey({ ...input, editorClientId: client });
@@ -47,10 +56,7 @@ export function activateVisualEditSession(input: {
       const staleKey = epochKey({ ...input, editorSessionEpoch: epoch });
       const staleState = epochStateByScope.get(staleKey);
       if (!staleState || staleState.editorClientId === client)
-        epochStateByScope.set(staleKey, {
-          editorClientId: client,
-          status: "invalid",
-        });
+        retireEpoch(staleKey, client);
     }
     return { status: "error", error: "较旧的剪辑会话激活请求已失效" };
   }
@@ -60,10 +66,7 @@ export function activateVisualEditSession(input: {
     const staleKey = epochKey({ ...input, editorSessionEpoch: epoch });
     const staleState = epochStateByScope.get(staleKey);
     if (!staleState || staleState.editorClientId === client)
-      epochStateByScope.set(staleKey, {
-        editorClientId: client,
-        status: "invalid",
-      });
+      retireEpoch(staleKey, client);
     return { status: "error", error: "相同激活序号不能用于另一个剪辑会话" };
   }
 
@@ -76,10 +79,7 @@ export function activateVisualEditSession(input: {
 
   const previous = current?.epoch;
   if (previous && previous !== epoch) {
-    epochStateByScope.set(
-      epochKey({ ...input, editorSessionEpoch: previous }),
-      { editorClientId: client, status: "invalid" }
-    );
+    retireEpoch(epochKey({ ...input, editorSessionEpoch: previous }), client);
   }
   activeEpochByClient.set(key, {
     epoch,

@@ -7,6 +7,8 @@ import {
   recordAggregateVisualEditUndo,
   recordVisualEditUndo,
   rebaseLatestVisualEditUndoAfterVersions,
+  retireVisualEditUndoScope,
+  visualEditUndoDepth,
 } from "./visualEditUndoJournal";
 
 const document = { items: [] };
@@ -14,6 +16,46 @@ const document = { items: [] };
 beforeEach(clearVisualEditUndoForTesting);
 
 describe("visual edit receipt ordering", () => {
+  it("releases snapshots and operation receipts for a retired epoch", () => {
+    const entry = recordAggregateVisualEditUndo({
+      storyId: 10,
+      userId: 1,
+      operation: { editorSessionEpoch: "retired", operationId: "aggregate" },
+      beforeStoryBody: { shots: [{ id: "large-snapshot" }] },
+      before: document,
+      beforeStoryRevision: 1,
+      afterStoryRevision: 2,
+      beforeTimelineVersion: 1,
+      afterTimelineVersion: 2,
+      commandDigest: "delete",
+      identityFingerprint: "shot-a",
+    });
+
+    retireVisualEditUndoScope({
+      storyId: 10,
+      userId: 1,
+      editorSessionEpoch: "retired",
+    });
+
+    expect(
+      visualEditUndoDepth({
+        storyId: 10,
+        userId: 1,
+        editorSessionEpoch: "retired",
+      })
+    ).toBe(0);
+    expect(
+      findVisualEditUndo({
+        storyId: 10,
+        userId: 1,
+        operation: {
+          editorSessionEpoch: "retired",
+          operationId: entry.operationId,
+        },
+      })
+    ).toBeNull();
+  });
+
   it("starts order independently in every user/Story/session scope", () => {
     const record = (
       userId: number,
@@ -179,11 +221,14 @@ describe("visual edit receipt ordering", () => {
   });
 
   it("keeps an operation idempotency index after its undo step is evicted", () => {
-    for (let index = 0; index < 41; index += 1) {
+    for (let index = 0; index < 401; index += 1) {
       recordVisualEditUndo({
         storyId: 10,
         userId: 1,
-        operation: { editorSessionEpoch: "a", operationId: `operation-${index}` },
+        operation: {
+          editorSessionEpoch: "a",
+          operationId: `operation-${index}`,
+        },
         before: document,
         beforeTimelineVersion: index,
         afterTimelineVersion: index + 1,
@@ -191,11 +236,13 @@ describe("visual edit receipt ordering", () => {
       });
     }
     const evicted = findVisualEditUndo({
-        storyId: 10,
-        userId: 1,
-        operation: { editorSessionEpoch: "a", operationId: "operation-0" },
-      });
+      storyId: 10,
+      userId: 1,
+      operation: { editorSessionEpoch: "a", operationId: "operation-0" },
+    });
     expect(evicted?.commandDigest).toBe("digest-0");
     expect(evicted?.undoEvicted).toBe(true);
+    expect(evicted && "replayOnly" in evicted).toBe(true);
+    expect(evicted && "before" in evicted).toBe(false);
   });
 });

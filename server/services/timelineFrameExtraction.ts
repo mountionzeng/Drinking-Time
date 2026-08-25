@@ -2,10 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type {
-  GeneratedImage,
-  TimelineFrameExtractionOperation,
-} from "../../drizzle/schema";
 import { canonicalJsonStringify } from "../../shared/canonicalJson";
 import { canonicalizeShotNo } from "../../shared/imageAsset";
 import {
@@ -27,17 +23,13 @@ import {
 } from "../../shared/timelineSource";
 import { normalizeVisualLayer } from "../../shared/timelineVisualPriority";
 import {
-  claimTimelineFrameExtractionOperation,
-  failTimelineFrameExtractionOperation,
-  getGeneratedImageById,
-  getStoryGeneratedImages,
-  getTimelineFrameExtractionOperation,
-  markTimelineFrameExtractionSucceeded,
-  recordTimelineFrameExtractionDescriptor,
-  releaseTimelineFrameExtractionClaim,
-  settleTimelineFrameExtractionAsset,
+  timelineFrameExtractionReceiptStore,
   TIMELINE_FRAME_EXTRACTION_QUOTA_ERROR,
-} from "../db";
+  type TimelineFrameExtractionReceipt,
+  type TimelineFrameExtractionReceiptStore,
+  type TimelineFrameExtractionOwner,
+  type TimelineFrameExtractionWarehouseImage,
+} from "../persistence/timelineFrameExtractionPersistence";
 import { storeImageBytes } from "./imageGen";
 import { getStoryMaterialState } from "./storyMaterials";
 import { renderTransitionVideoFrame } from "./videoEndpointFrames";
@@ -301,15 +293,16 @@ export type ExtractTimelineFrameForStoryResult =
     };
 
 type TimelineFrameExtractionWorkflowDependencies = {
-  claimOperation: typeof claimTimelineFrameExtractionOperation;
-  recordDescriptor: typeof recordTimelineFrameExtractionDescriptor;
-  releaseClaim: typeof releaseTimelineFrameExtractionClaim;
-  failOperation: typeof failTimelineFrameExtractionOperation;
-  settleAsset: typeof settleTimelineFrameExtractionAsset;
-  markSucceeded: typeof markTimelineFrameExtractionSucceeded;
-  getImageById: typeof getGeneratedImageById;
-  getStoryImages: typeof getStoryGeneratedImages;
-  getOperation: typeof getTimelineFrameExtractionOperation;
+  claimOperation: TimelineFrameExtractionReceiptStore["claimIntent"];
+  recordDescriptor: TimelineFrameExtractionReceiptStore["recordWinner"];
+  releaseClaim: TimelineFrameExtractionReceiptStore["releaseIntent"];
+  renewClaim?: TimelineFrameExtractionReceiptStore["renewIntent"];
+  failOperation: TimelineFrameExtractionReceiptStore["failIntent"];
+  settleAsset: TimelineFrameExtractionReceiptStore["settleWarehouseAsset"];
+  markSucceeded: TimelineFrameExtractionReceiptStore["completePlacement"];
+  getImageById: TimelineFrameExtractionReceiptStore["loadWarehouseImage"];
+  findImageByKey: TimelineFrameExtractionReceiptStore["findWarehouseImageByKey"];
+  getOperation: TimelineFrameExtractionReceiptStore["loadReceipt"];
   getMaterialState: typeof getStoryMaterialState;
   renderVideoFrame: typeof renderTransitionVideoFrame;
   storeBytes: typeof storeImageBytes;
@@ -320,15 +313,16 @@ type TimelineFrameExtractionWorkflowDependencies = {
 
 const defaultWorkflowDependencies: TimelineFrameExtractionWorkflowDependencies =
   {
-    claimOperation: claimTimelineFrameExtractionOperation,
-    recordDescriptor: recordTimelineFrameExtractionDescriptor,
-    releaseClaim: releaseTimelineFrameExtractionClaim,
-    failOperation: failTimelineFrameExtractionOperation,
-    settleAsset: settleTimelineFrameExtractionAsset,
-    markSucceeded: markTimelineFrameExtractionSucceeded,
-    getImageById: getGeneratedImageById,
-    getStoryImages: getStoryGeneratedImages,
-    getOperation: getTimelineFrameExtractionOperation,
+    claimOperation: timelineFrameExtractionReceiptStore.claimIntent,
+    recordDescriptor: timelineFrameExtractionReceiptStore.recordWinner,
+    releaseClaim: timelineFrameExtractionReceiptStore.releaseIntent,
+    renewClaim: timelineFrameExtractionReceiptStore.renewIntent,
+    failOperation: timelineFrameExtractionReceiptStore.failIntent,
+    settleAsset: timelineFrameExtractionReceiptStore.settleWarehouseAsset,
+    markSucceeded: timelineFrameExtractionReceiptStore.completePlacement,
+    getImageById: timelineFrameExtractionReceiptStore.loadWarehouseImage,
+    findImageByKey: timelineFrameExtractionReceiptStore.findWarehouseImageByKey,
+    getOperation: timelineFrameExtractionReceiptStore.loadReceipt,
     getMaterialState: getStoryMaterialState,
     renderVideoFrame: renderTransitionVideoFrame,
     storeBytes: storeImageBytes,
@@ -336,6 +330,43 @@ const defaultWorkflowDependencies: TimelineFrameExtractionWorkflowDependencies =
     preflightStorage: preflightTimelineFrameExtractionStorage,
     placeFrame: placeExtractedFrameForStory,
   };
+
+const TIMELINE_FRAME_EXTRACTION_HEARTBEAT_MS = 30_000;
+
+async function withExtractionClaimHeartbeat<T>(
+  dependencies: TimelineFrameExtractionWorkflowDependencies,
+  input: TimelineFrameExtractionOwner & { claimToken: string },
+  task: () => Promise<T>
+): Promise<T> {
+  if (!dependencies.renewClaim) return task();
+  let heartbeat = Promise.resolve();
+  let leaseError: unknown = null;
+  const renew = () => {
+    heartbeat = heartbeat.then(async () => {
+      if (leaseError) return;
+      try {
+        const operation = await dependencies.renewClaim!(input);
+        if (!operation || operation.claimToken !== input.claimToken)
+          throw new Error("抽帧 claim 已失效");
+      } catch (error) {
+        leaseError = error;
+      }
+    });
+  };
+  renew();
+  await heartbeat;
+  if (leaseError) throw leaseError;
+  const timer = setInterval(renew, TIMELINE_FRAME_EXTRACTION_HEARTBEAT_MS);
+  timer.unref();
+  try {
+    const result = await task();
+    await heartbeat;
+    if (leaseError) throw leaseError;
+    return result;
+  } finally {
+    clearInterval(timer);
+  }
+}
 
 function extractionInputHash(input: {
   storyId: number;
@@ -505,10 +536,10 @@ function reportExtractionInternalError(stage: string, error: unknown): void {
 }
 
 function imageBelongsToStory(
-  image: GeneratedImage | null,
+  image: TimelineFrameExtractionWarehouseImage | null,
   storyId: number,
   userId: number
-): image is GeneratedImage {
+): image is TimelineFrameExtractionWarehouseImage {
   return Boolean(
     image &&
       image.storyId === storyId &&
@@ -557,8 +588,8 @@ async function releaseExtractionForRetry(
 
 function replayedSuccess(
   requestId: string,
-  operation: TimelineFrameExtractionOperation,
-  image: GeneratedImage
+  operation: TimelineFrameExtractionReceipt,
+  image: TimelineFrameExtractionWarehouseImage
 ): ExtractTimelineFrameForStoryResult {
   if (
     operation.status !== "succeeded" ||
@@ -601,6 +632,9 @@ export async function extractTimelineFrameForStory(
   const dependencies = {
     ...defaultWorkflowDependencies,
     ...dependencyOverrides,
+    ...(dependencyOverrides.claimOperation && !dependencyOverrides.renewClaim
+      ? { renewClaim: undefined }
+      : {}),
   };
   const requestId = input.requestId.trim();
   if (
@@ -628,21 +662,11 @@ export async function extractTimelineFrameForStory(
     userId: input.userId,
     requestId,
   };
-  const callAllowance = consumeTimelineFrameExtractionCallAllowance(owner);
-  if (!callAllowance.allowed) {
-    return extractionError(
-      requestId,
-      "rate-limited",
-      "retryable",
-      `抽帧请求太频繁，请在 ${callAllowance.retryAfterSeconds} 秒后重试`,
-      "continue"
-    );
-  }
   // Durable receipts are free replays even after the process-local allowance
   // forgets their request id. This check must precede rate limiting so polling
   // claimed/asset_ready operations and replaying succeeded operations cannot
   // be blocked by unrelated new intents in a later window.
-  let existingOperation: TimelineFrameExtractionOperation | null;
+  let existingOperation: TimelineFrameExtractionReceipt | null;
   try {
     existingOperation = await dependencies.getOperation(owner);
   } catch (error) {
@@ -662,6 +686,16 @@ export async function extractTimelineFrameForStory(
     (existingOperation.status === "claimed" &&
       existingOperation.leaseUntil.getTime() <= Date.now())
   ) {
+    const callAllowance = consumeTimelineFrameExtractionCallAllowance(owner);
+    if (!callAllowance.allowed) {
+      return extractionError(
+        requestId,
+        "rate-limited",
+        "retryable",
+        `抽帧请求太频繁，请在 ${callAllowance.retryAfterSeconds} 秒后重试`,
+        "continue"
+      );
+    }
     const allowance = consumeTimelineFrameExtractionAllowance(owner);
     if (!allowance.allowed) {
       return extractionError(
@@ -673,7 +707,9 @@ export async function extractTimelineFrameForStory(
       );
     }
   }
-  let claim: Awaited<ReturnType<typeof claimTimelineFrameExtractionOperation>>;
+  let claim: Awaited<
+    ReturnType<TimelineFrameExtractionWorkflowDependencies["claimOperation"]>
+  >;
   try {
     claim = await dependencies.claimOperation({
       ...owner,
@@ -729,7 +765,7 @@ export async function extractTimelineFrameForStory(
     );
   }
   if (operation.status === "succeeded") {
-    let image: GeneratedImage | null = null;
+    let image: TimelineFrameExtractionWarehouseImage | null = null;
     try {
       image =
         operation.imageId == null
@@ -892,9 +928,9 @@ export async function extractTimelineFrameForStory(
     }
   }
 
-  let image: GeneratedImage;
+  let image: TimelineFrameExtractionWarehouseImage;
   if (operation.status === "asset_ready") {
-    let settledImage: GeneratedImage | null = null;
+    let settledImage: TimelineFrameExtractionWarehouseImage | null = null;
     try {
       settledImage =
         operation.imageId == null
@@ -944,9 +980,11 @@ export async function extractTimelineFrameForStory(
           rangeId: descriptor.rangeId,
           atSec: descriptor.atSec,
         });
-        const reusableImage = (
-          await dependencies.getStoryImages(input.storyId, input.userId)
-        ).find(candidate => candidate.imageKey === sourceStorageKey);
+        const reusableImage = await dependencies.findImageByKey(
+          input.storyId,
+          input.userId,
+          sourceStorageKey
+        );
         if (reusableImage) {
           const settled = await dependencies.settleAsset({
             ...owner,
@@ -982,33 +1020,41 @@ export async function extractTimelineFrameForStory(
           }
           let bytes: Uint8Array;
           try {
-            bytes = await runTimelineFrameCapture({
-              userId: input.userId,
-              takeId: descriptor.takeId,
-              rangeId: descriptor.rangeId,
-              atSec: descriptor.atSec,
-              capture: async () => {
-                const temporaryDirectory = await mkdtemp(
-                  path.join(tmpdir(), "timeline-frame-extraction-")
-                );
-                const outputPath = path.join(temporaryDirectory, "frame.png");
-                try {
-                  await dependencies.renderVideoFrame({
-                    takeId: descriptor.takeId,
-                    userId: input.userId,
-                    rangeId: descriptor.rangeId,
-                    atSec: descriptor.atSec,
-                    outputPath,
-                  });
-                  return await dependencies.readFrameFile(outputPath);
-                } finally {
-                  await rm(temporaryDirectory, {
-                    recursive: true,
-                    force: true,
-                  });
-                }
-              },
-            });
+            bytes = await withExtractionClaimHeartbeat(
+              dependencies,
+              { ...owner, claimToken: operation.claimToken },
+              () =>
+                runTimelineFrameCapture({
+                  userId: input.userId,
+                  takeId: descriptor.takeId,
+                  rangeId: descriptor.rangeId,
+                  atSec: descriptor.atSec,
+                  capture: async () => {
+                    const temporaryDirectory = await mkdtemp(
+                      path.join(tmpdir(), "timeline-frame-extraction-")
+                    );
+                    const outputPath = path.join(
+                      temporaryDirectory,
+                      "frame.png"
+                    );
+                    try {
+                      await dependencies.renderVideoFrame({
+                        takeId: descriptor.takeId,
+                        userId: input.userId,
+                        rangeId: descriptor.rangeId,
+                        atSec: descriptor.atSec,
+                        outputPath,
+                      });
+                      return await dependencies.readFrameFile(outputPath);
+                    } finally {
+                      await rm(temporaryDirectory, {
+                        recursive: true,
+                        force: true,
+                      });
+                    }
+                  },
+                })
+            );
           } catch (error) {
             if (error instanceof TimelineFrameCaptureBusyError) {
               await releaseExtractionForRetry(dependencies, {
@@ -1038,15 +1084,20 @@ export async function extractTimelineFrameForStory(
           }
           let stored: Awaited<ReturnType<typeof storeImageBytes>>;
           try {
-            stored = await storeTimelineFrameExtractionBytes({
-              bytes,
-              storageKey: sourceStorageKey,
-              store: () =>
-                dependencies.storeBytes(bytes, "image/png", {
+            stored = await withExtractionClaimHeartbeat(
+              dependencies,
+              { ...owner, claimToken: operation.claimToken },
+              () =>
+                storeTimelineFrameExtractionBytes({
+                  bytes,
                   storageKey: sourceStorageKey,
-                  requireLocal: true,
-                }),
-            });
+                  store: () =>
+                    dependencies.storeBytes(bytes, "image/png", {
+                      storageKey: sourceStorageKey,
+                      requireLocal: true,
+                    }),
+                })
+            );
           } catch (error) {
             if (error instanceof TimelineFrameExtractionStorageQuotaError) {
               const terminal = await failClaimedExtraction(dependencies, {

@@ -2,8 +2,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { createStory, resetMemoryStateForTesting, updateStoryTimeline } from "./db";
 import { appRouter } from "./routers";
-import { clearVisualEditUndoForTesting } from "./services/visualEditUndoJournal";
+import {
+  clearVisualEditUndoForTesting,
+  visualEditUndoDepth,
+} from "./services/visualEditUndoJournal";
 import { clearVisualEditSessionsForTesting } from "./services/visualEditSessionRegistry";
+import { storyVisualClipboardSizeForTesting } from "./services/storyVisualObjectEditing";
 
 function context(userId: number): TrpcContext {
   return {
@@ -62,5 +66,46 @@ describe("creationAgent unified story visual object routes", () => {
     await expect(owner.creationAgent.activateVisualEditSession({ storyId, editorClientId: "tab-a", editorSessionEpoch: "epoch-b", activationSequence: 2 })).resolves.toMatchObject({ status: "ok", replacedEpoch: "epoch-a" });
     await expect(stranger.creationAgent.activateVisualEditSession({ storyId, editorClientId: "tab-x", editorSessionEpoch: "epoch-x", activationSequence: 1 })).resolves.toMatchObject({ status: "error" });
     await expect(owner.creationAgent.activateVisualEditSession({ storyId, editorClientId: "tab-a", editorSessionEpoch: "epoch-c", activationSequence: 3, beforeStoryBody: {} } as any)).rejects.toThrow();
+  });
+
+  it("releases both clipboard and undo snapshots when replacing an editor epoch", async () => {
+    const storyId = await seed();
+    const owner = appRouter.createCaller(context(901));
+    const retiredScope = {
+      storyId,
+      userId: 901,
+      editorSessionEpoch: "epoch-a",
+    };
+    await owner.creationAgent.activateVisualEditSession({
+      storyId,
+      editorClientId: "tab-a",
+      editorSessionEpoch: "epoch-a",
+      activationSequence: 1,
+    });
+    await owner.creationAgent.copyStoryVisualObject({
+      storyId,
+      editorSessionEpoch: "epoch-a",
+      clipboardId: "copy-a",
+      object: { type: "story-shot", stableShotId: "shot-a" },
+    });
+    await owner.creationAgent.deleteStoryVisualShot({
+      storyId,
+      operation: { editorSessionEpoch: "epoch-a", operationId: "delete-a" },
+      stableShotId: "shot-b",
+    });
+    expect(storyVisualClipboardSizeForTesting(retiredScope)).toBe(1);
+    expect(visualEditUndoDepth(retiredScope)).toBe(1);
+
+    await expect(
+      owner.creationAgent.activateVisualEditSession({
+        storyId,
+        editorClientId: "tab-a",
+        editorSessionEpoch: "epoch-b",
+        activationSequence: 2,
+      })
+    ).resolves.toMatchObject({ status: "ok", replacedEpoch: "epoch-a" });
+
+    expect(storyVisualClipboardSizeForTesting(retiredScope)).toBe(0);
+    expect(visualEditUndoDepth(retiredScope)).toBe(0);
   });
 });

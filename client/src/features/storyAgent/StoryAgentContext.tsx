@@ -111,23 +111,22 @@ import {
   buildPromptAttribution,
   encodeAttributionReason,
 } from "@shared/promptRevisionAttribution";
+import {
+  applyTransitionStoryResult,
+  canPersistStorySnapshot,
+  canPersistStoryToActiveScope,
+  editingTransitionAppliedToast,
+  patchEditingTransitionMessages,
+  storyScopeMatches,
+  storySessionTokenMatches,
+  type StorySessionToken,
+} from "./editingTransitionSession";
 
 // PersistedState、ImageProviderSelection 的定义与一众持久化/出图渠道助手已搬到上面两个模块。
 // 对外仍从本文件导出 ImageProviderSelection（StoryCardsBoard 等组件在用，保持引用不变）。
 export type { ImageProviderSelection };
 
 export type { StoryListItem };
-
-export function applyTransitionStoryResult(
-  result: { storyRevision: number; storyShots: unknown },
-  setters: {
-    setServerRevision: (revision: number) => void;
-    setStoryShots: (shots: StoryShot[]) => void;
-  }
-) {
-  setters.setServerRevision(result.storyRevision);
-  setters.setStoryShots(result.storyShots as StoryShot[]);
-}
 
 /** 意图确认关传给 generateScript 的确认意图（影响剧本取向）。 */
 export type ScriptIntentArg = StoryIntent;
@@ -409,54 +408,6 @@ export function resolvePersistedStoryId(
   ...storyIds: Array<number | null | undefined>
 ): number | null {
   return storyIds.find(storyId => storyId != null && storyId > 0) ?? null;
-}
-
-export function storyScopeMatches(
-  expectedStoryId: number | null,
-  currentStoryId: number | null
-): boolean {
-  return expectedStoryId === currentStoryId;
-}
-
-export type StorySessionToken = {
-  storyId: number | null;
-  scopeEpoch: number;
-};
-
-/**
- * Async responses may only mutate the exact Story session that issued them.
- * The epoch is required because comparing Story IDs alone cannot distinguish
- * an A -> B -> A navigation from the original A session.
- */
-export function storySessionTokenMatches(
-  expected: StorySessionToken,
-  current: StorySessionToken
-): boolean {
-  return (
-    expected.storyId === current.storyId &&
-    expected.scopeEpoch === current.scopeEpoch
-  );
-}
-
-export function canPersistStoryToActiveScope(
-  persistedStoryId: number | null | undefined,
-  activeStoryId: number | null
-): boolean {
-  if (activeStoryId === null) return false;
-  if (persistedStoryId == null) return activeStoryId < 0;
-  return activeStoryId === persistedStoryId;
-}
-
-export function canPersistStorySnapshot(input: {
-  snapshotScopeEpoch: number;
-  currentScopeEpoch: number;
-  persistedStoryId: number | null | undefined;
-  activeStoryId: number | null;
-}): boolean {
-  return (
-    input.snapshotScopeEpoch === input.currentScopeEpoch &&
-    canPersistStoryToActiveScope(input.persistedStoryId, input.activeStoryId)
-  );
 }
 
 export type StoryboardImageRerenderResult = {
@@ -3876,23 +3827,7 @@ export function StoryAgentProvider({
       replySuffix?: string
     ) => {
       setMessages(previous =>
-        previous.map(message => {
-          if (message.id !== messageId || !message.editingTransitionCandidate) {
-            return message;
-          }
-          const suffix = replySuffix?.trim();
-          return {
-            ...message,
-            content:
-              suffix && !message.content.includes(suffix)
-                ? `${message.content}\n\n${suffix}`
-                : message.content,
-            editingTransitionCandidate: {
-              ...message.editingTransitionCandidate,
-              ...patch,
-            },
-          };
-        })
+        patchEditingTransitionMessages(previous, messageId, patch, replySuffix)
       );
     },
     [setMessages]
@@ -4171,13 +4106,7 @@ export function StoryAgentProvider({
               storyId: candidate.storyId,
             }),
           ]);
-          toast.success(
-            candidate.placement?.kind === "story-shot"
-              ? "视频已作为普通镜头放到来源图片上层"
-              : candidate.placement?.kind === "timeline-overlay"
-                ? "旧版覆盖视频已恢复到时间线"
-                : "衔接视频已插入两镜之间"
-          );
+          toast.success(editingTransitionAppliedToast(candidate.placement));
         } else if (result.status === "processing") {
           patchEditingTransitionCandidate(
             messageId,

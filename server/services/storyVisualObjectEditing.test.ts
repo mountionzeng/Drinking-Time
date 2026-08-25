@@ -1,19 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
-  story: { id: 1, userId: 7, body: { shots: [{ stableShotId: "shot-a", subject: "original", secret: "no" }] } },
+  story: {
+    id: 1,
+    userId: 7,
+    body: {
+      shots: [{ stableShotId: "shot-a", subject: "original", secret: "no" }],
+    },
+  },
   material: {
     timeline: {
       version: 1,
-      items: [{
-        stableShotId: "shot-a",
-        included: true,
-        position: 0,
-        plannedDurationMs: 1000,
-        durationFrames: 30,
-        timelineStartFrame: 0,
-        visualLayer: 2,
-        transform: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, zoom: 1, panX: 0, panY: 0 },
-      }],
+      items: [
+        {
+          stableShotId: "shot-a",
+          included: true,
+          position: 0,
+          plannedDurationMs: 1000,
+          durationFrames: 30,
+          timelineStartFrame: 0,
+          visualLayer: 2,
+          transform: {
+            cropX: 0,
+            cropY: 0,
+            cropWidth: 1,
+            cropHeight: 1,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+          },
+        },
+      ],
       overlays: [],
     },
     shots: [],
@@ -21,18 +37,25 @@ const mocks = vi.hoisted(() => ({
   runStoryTimelineCommand: vi.fn(),
 }));
 
-vi.mock("../db", () => ({
-  getStoryById: vi.fn(async (storyId: number, userId: number) =>
-    storyId === mocks.story.id && userId === mocks.story.userId ? mocks.story : null
+vi.mock("../persistence/storyVisualPersistence", () => ({
+  loadOwnedStoryVisualAggregate: vi.fn(
+    async ({ storyId, userId }: { storyId: number; userId: number }) =>
+      storyId === mocks.story.id && userId === mocks.story.userId
+        ? { story: mocks.story, timeline: null, videoTakes: [] }
+        : null
   ),
-  getGeneratedImageById: vi.fn(),
-  getStoryVideoTakes: vi.fn(async () => []),
-  getVideoTakeRangeById: vi.fn(),
+  authorizeStoryVisualReferences: vi.fn(async () => ({
+    referencedImage: null,
+    videoTakes: [],
+  })),
 }));
 vi.mock("./storyMaterials", () => ({
   getStoryMaterialState: vi.fn(async (storyId: number, userId: number) =>
-    storyId === mocks.story.id && userId === mocks.story.userId ? mocks.material : null
+    storyId === mocks.story.id && userId === mocks.story.userId
+      ? mocks.material
+      : null
   ),
+  projectStoryTimelineDocument: vi.fn(() => mocks.material.timeline),
 }));
 vi.mock("./storyTimelineEditing", () => ({
   runStoryTimelineCommand: mocks.runStoryTimelineCommand,
@@ -43,6 +66,7 @@ import {
   copyStoryVisualObject,
   deleteStoryVisualShot,
   pasteStoryVisualObject,
+  retireStoryVisualClipboardScope,
 } from "./storyVisualObjectEditing";
 
 describe("story visual object clipboard", () => {
@@ -90,15 +114,51 @@ describe("story visual object clipboard", () => {
     }
   });
 
+  it("releases clipboard snapshots when an editor epoch is retired", async () => {
+    await copyStoryVisualObject({
+      storyId: 1,
+      userId: 7,
+      editorSessionEpoch: "epoch-a",
+      clipboardId: "clipboard-a",
+      object: { type: "story-shot", stableShotId: "shot-a" },
+    });
+
+    retireStoryVisualClipboardScope({
+      storyId: 1,
+      userId: 7,
+      editorSessionEpoch: "epoch-a",
+    });
+
+    await expect(
+      pasteStoryVisualObject({
+        storyId: 1,
+        userId: 7,
+        operation: {
+          editorSessionEpoch: "epoch-a",
+          operationId: "paste-retired",
+        },
+        clipboardId: "clipboard-a",
+        targetFrame: 0,
+        targetLayer: 0,
+      })
+    ).resolves.toMatchObject({ status: "error", errorKind: "invalid" });
+  });
+
   it("serializes aggregate commands in the shared user/story service lock", async () => {
     let releaseFirst!: () => void;
-    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
     mocks.runStoryTimelineCommand
       .mockImplementationOnce(async () => {
         await firstGate;
         return { status: "error", error: "first", errorKind: "invalid" };
       })
-      .mockResolvedValueOnce({ status: "error", error: "second", errorKind: "invalid" });
+      .mockResolvedValueOnce({
+        status: "error",
+        error: "second",
+        errorKind: "invalid",
+      });
     const first = deleteStoryVisualShot({
       storyId: 1,
       userId: 7,
